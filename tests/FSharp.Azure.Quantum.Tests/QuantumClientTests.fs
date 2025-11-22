@@ -251,3 +251,163 @@ let ``WaitForCompletionAsync should timeout if job takes too long`` () = async {
     | _ ->
         Assert.True(false, "Expected Timeout error")
 }
+
+[<Fact>]
+let ``SubmitJobAsync should retry on transient errors and succeed`` () = async {
+    let mutable attemptCount = 0
+    
+    let mockHandler = MockHttpMessageHandler(fun request ->
+        attemptCount <- attemptCount + 1
+        
+        // First 2 attempts fail with 503, 3rd succeeds
+        if attemptCount < 3 then
+            let response = new HttpResponseMessage(HttpStatusCode.ServiceUnavailable)
+            response.Content <- new StringContent("""{"error": {"code": "ServiceUnavailable", "message": "Service temporarily unavailable"}}""")
+            Task.FromResult(response)
+        else
+            let response = new HttpResponseMessage(HttpStatusCode.OK)
+            response.Content <- new StringContent("""{
+                "id": "job-retry-success",
+                "status": "Waiting",
+                "creationTime": "2025-11-22T00:00:00Z",
+                "uri": "https://example.com/jobs/job-retry-success"
+            }""")
+            Task.FromResult(response)
+    )
+    
+    let httpClient = new HttpClient(mockHandler)
+    let retryConfig = {
+        MaxAttempts = 3
+        InitialDelayMs = 10
+        MaxDelayMs = 100
+        JitterFactor = 0.1
+    }
+    let config = {
+        SubscriptionId = "sub-123"
+        ResourceGroup = "rg-test"
+        WorkspaceName = "ws-test"
+        HttpClient = httpClient
+        RetryConfig = Some retryConfig
+    }
+    
+    let client = QuantumClient(config)
+    
+    let submission = {
+        JobId = "job-retry-success"
+        Target = "ionq.simulator"
+        Name = Some "Retry Test"
+        InputData = box "circuit-data"
+        InputDataFormat = CircuitFormat.QIR_V1
+        InputParams = Map.empty
+        Tags = Map.empty
+    }
+    
+    let! result = client.SubmitJobAsync(submission)
+    
+    match result with
+    | Ok response ->
+        Assert.Equal("job-retry-success", response.JobId)
+        Assert.Equal(JobStatus.Waiting, response.Status)
+        Assert.True((attemptCount = 3), sprintf "Expected 3 attempts, got %d" attemptCount)
+    | Error err ->
+        Assert.True(false, sprintf "Expected success after retries but got error: %A" err)
+}
+
+[<Fact>]
+let ``SubmitJobAsync should fail after max retries exceeded`` () = async {
+    let mutable attemptCount = 0
+    
+    let mockHandler = MockHttpMessageHandler(fun request ->
+        attemptCount <- attemptCount + 1
+        // Always return 503
+        let response = new HttpResponseMessage(HttpStatusCode.ServiceUnavailable)
+        response.Content <- new StringContent("""{"error": {"code": "ServiceUnavailable", "message": "Service temporarily unavailable"}}""")
+        Task.FromResult(response)
+    )
+    
+    let httpClient = new HttpClient(mockHandler)
+    let retryConfig = {
+        MaxAttempts = 2
+        InitialDelayMs = 10
+        MaxDelayMs = 50
+        JitterFactor = 0.1
+    }
+    let config = {
+        SubscriptionId = "sub-123"
+        ResourceGroup = "rg-test"
+        WorkspaceName = "ws-test"
+        HttpClient = httpClient
+        RetryConfig = Some retryConfig
+    }
+    
+    let client = QuantumClient(config)
+    
+    let submission = {
+        JobId = "job-max-retries"
+        Target = "ionq.simulator"
+        Name = Some "Max Retry Test"
+        InputData = box "circuit-data"
+        InputDataFormat = CircuitFormat.QIR_V1
+        InputParams = Map.empty
+        Tags = Map.empty
+    }
+    
+    let! result = client.SubmitJobAsync(submission)
+    
+    match result with
+    | Error (QuantumError.ServiceUnavailable _) ->
+        // MaxAttempts = 2, so should make 2 total attempts
+        Assert.True((attemptCount = 2), sprintf "Expected 2 attempts (MaxAttempts=2), got %d" attemptCount)
+    | _ ->
+        Assert.True(false, "Expected ServiceUnavailable error after max attempts")
+}
+
+[<Fact>]
+let ``SubmitJobAsync should not retry on non-transient errors`` () = async {
+    let mutable attemptCount = 0
+    
+    let mockHandler = MockHttpMessageHandler(fun request ->
+        attemptCount <- attemptCount + 1
+        // Return 400 Bad Request (non-transient)
+        let response = new HttpResponseMessage(HttpStatusCode.BadRequest)
+        response.Content <- new StringContent("""{"error": {"code": "InvalidInput", "message": "Invalid quantum circuit"}}""")
+        Task.FromResult(response)
+    )
+    
+    let httpClient = new HttpClient(mockHandler)
+    let retryConfig = {
+        MaxAttempts = 3
+        InitialDelayMs = 10
+        MaxDelayMs = 100
+        JitterFactor = 0.1
+    }
+    let config = {
+        SubscriptionId = "sub-123"
+        ResourceGroup = "rg-test"
+        WorkspaceName = "ws-test"
+        HttpClient = httpClient
+        RetryConfig = Some retryConfig
+    }
+    
+    let client = QuantumClient(config)
+    
+    let submission = {
+        JobId = "job-no-retry"
+        Target = "ionq.simulator"
+        Name = Some "No Retry Test"
+        InputData = box "invalid-data"
+        InputDataFormat = CircuitFormat.QIR_V1
+        InputParams = Map.empty
+        Tags = Map.empty
+    }
+    
+    let! result = client.SubmitJobAsync(submission)
+    
+    match result with
+    | Error (QuantumError.UnknownError(statusCode, _)) ->
+        Assert.Equal(400, statusCode)
+        // Should only make 1 attempt (no retries for non-transient errors)
+        Assert.True((attemptCount = 1), sprintf "Expected only 1 attempt for non-transient error, got %d" attemptCount)
+    | _ ->
+        Assert.True(false, "Expected BadRequest error without retries")
+}
