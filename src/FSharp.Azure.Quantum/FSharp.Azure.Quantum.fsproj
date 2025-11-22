@@ -7,6 +7,7 @@
 
   <ItemGroup>
     <Compile Include="Types.fs" />
+    <Compile Include="Cost.fs" />
     <Compile Include="Authentication.fs" />
     <Compile Include="Retry.fs" />
     <Compile Include="Client.fs" />

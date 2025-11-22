@@ -18,6 +18,9 @@ let makeConfig httpClient = {
     HttpClient = httpClient
     RetryConfig = None
     Logger = None
+    CostEstimationEnabled = false  // Disable cost checking in tests
+    PerJobCostLimit = None
+    DailyCostLimit = None
 }
 
 // Mock HTTP message handler for testing
@@ -290,6 +293,9 @@ let ``SubmitJobAsync should retry on transient errors and succeed`` () = async {
         HttpClient = httpClient
         RetryConfig = Some retryConfig
         Logger = None
+        CostEstimationEnabled = false
+        PerJobCostLimit = None
+        DailyCostLimit = None
     }
     
     let client = QuantumClient(config)
@@ -341,6 +347,9 @@ let ``SubmitJobAsync should fail after max retries exceeded`` () = async {
         HttpClient = httpClient
         RetryConfig = Some retryConfig
         Logger = None
+        CostEstimationEnabled = false
+        PerJobCostLimit = None
+        DailyCostLimit = None
     }
     
     let client = QuantumClient(config)
@@ -391,6 +400,9 @@ let ``SubmitJobAsync should not retry on non-transient errors`` () = async {
         HttpClient = httpClient
         RetryConfig = Some retryConfig
         Logger = None
+        CostEstimationEnabled = false
+        PerJobCostLimit = None
+        DailyCostLimit = None
     }
     
     let client = QuantumClient(config)

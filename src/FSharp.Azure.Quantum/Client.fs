@@ -10,6 +10,7 @@ open Microsoft.Extensions.Logging
 open FSharp.Azure.Quantum.Core.Types
 open FSharp.Azure.Quantum.Core.Authentication
 open FSharp.Azure.Quantum.Core.Retry
+open FSharp.Azure.Quantum.Core.Cost
 
 module Client =
     
@@ -43,6 +44,11 @@ module Client =
         HttpClient: HttpClient
         RetryConfig: RetryConfig option
         Logger: ILogger option
+        
+        // Cost management
+        CostEstimationEnabled: bool
+        PerJobCostLimit: decimal<Cost.USD> option
+        DailyCostLimit: decimal<Cost.USD> option
     }
     
     /// Create default config
@@ -54,6 +60,9 @@ module Client =
             HttpClient = httpClient
             RetryConfig = Some Retry.defaultConfig
             Logger = None
+            CostEstimationEnabled = true
+            PerJobCostLimit = Some 200.0M<Cost.USD>  // Conservative default: $200 per job
+            DailyCostLimit = None  // No daily limit by default
         }
     
     /// Job submission response from Azure
@@ -77,10 +86,61 @@ module Client =
             config.Logger |> Option.iter (fun logger -> 
                 logger.Log(logLevel, message, args))
         
+        // Helper to check cost limits before submission
+        member private this.CheckCostLimit(submission: JobSubmission) : Result<unit, QuantumError> =
+            if not config.CostEstimationEnabled then
+                Ok ()
+            else
+                // Extract shot count from input params
+                let shots = 
+                    match submission.InputParams.TryFind("shots") with
+                    | Some s -> 
+                        try
+                            s :?> int
+                        with
+                        | _ -> 1000  // Default to 1000 if conversion fails
+                    | None -> 1000  // Default to 1000 shots
+                
+                match Cost.estimateCost submission.Target shots with
+                | Ok estimate ->
+                    this.Log(LogLevel.Information, "Cost estimate for job {JobId}: ${Cost:F2} (Range: ${Min:F2} - ${Max:F2})", 
+                        submission.JobId, 
+                        float (estimate.ExpectedCost / 1.0M<USD>),
+                        float (estimate.MinimumCost / 1.0M<USD>),
+                        float (estimate.MaximumCost / 1.0M<USD>))
+                    
+                    // Check per-job cost limit
+                    match config.PerJobCostLimit with
+                    | Some limit when estimate.ExpectedCost > limit ->
+                        this.Log(LogLevel.Warning, "Job {JobId} estimated cost ${Cost:F2} exceeds per-job limit ${Limit:F2}", 
+                            submission.JobId,
+                            float (estimate.ExpectedCost / 1.0M<USD>),
+                            float (limit / 1.0M<USD>))
+                        Error (QuantumError.QuotaExceeded(sprintf "Job cost $%.2f exceeds limit $%.2f" 
+                            (float (estimate.ExpectedCost / 1.0M<USD>)) 
+                            (float (limit / 1.0M<USD>))))
+                    | _ -> 
+                        // Log warnings
+                        estimate.Warnings |> List.iter (fun warning ->
+                            this.Log(LogLevel.Warning, "Cost warning for job {JobId}: {Warning}", submission.JobId, warning))
+                        Ok ()
+                
+                | Error msg ->
+                    this.Log(LogLevel.Warning, "Could not estimate cost for job {JobId}: {Error}", submission.JobId, msg)
+                    Ok ()  // Don't block submission if cost estimation fails
+        
         /// Submit a quantum job (internal implementation without retry)
         member private this.SubmitJobAsyncInternal(submission: JobSubmission, ct: CancellationToken) = async {
             
             this.Log(LogLevel.Information, "Submitting job {JobId} to target {Target}", submission.JobId, submission.Target)
+            
+            // Check cost limits before proceeding
+            let costCheckResult = this.CheckCostLimit(submission)
+            
+            match costCheckResult with
+            | Error err -> 
+                return Error err
+            | Ok () ->
             
             try
                 // Build endpoint URL
@@ -138,7 +198,6 @@ module Client =
                 this.Log(LogLevel.Error, "Exception submitting job {JobId}: {Exception}", submission.JobId, ex.Message)
                 return Error (QuantumError.UnknownError(0, ex.Message))
         }
-        
         /// Submit a quantum job with retry logic
         member this.SubmitJobAsync(submission: JobSubmission, ?cancellationToken: CancellationToken) = async {
             let ct = defaultArg cancellationToken CancellationToken.None
