@@ -1,0 +1,56 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{827E0CD3-B72D-47B6-A68D-7590B98EB39B}"
+EndProject
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "FSharp.Azure.Quantum", "src\FSharp.Azure.Quantum\FSharp.Azure.Quantum.fsproj", "{2DC08396-ABDD-49BA-97A1-02DDFC5D224E}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{0AB3BF05-4346-4AA6-1389-037BE0695223}"
+EndProject
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "FSharp.Azure.Quantum.Tests", "tests\FSharp.Azure.Quantum.Tests\FSharp.Azure.Quantum.Tests.fsproj", "{50DE6977-D175-46EC-A511-B172064EB5E5}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Debug|x64 = Debug|x64
+		Debug|x86 = Debug|x86
+		Release|Any CPU = Release|Any CPU
+		Release|x64 = Release|x64
+		Release|x86 = Release|x86
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{2DC08396-ABDD-49BA-97A1-02DDFC5D224E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{2DC08396-ABDD-49BA-97A1-02DDFC5D224E}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{2DC08396-ABDD-49BA-97A1-02DDFC5D224E}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{2DC08396-ABDD-49BA-97A1-02DDFC5D224E}.Debug|x64.Build.0 = Debug|Any CPU
+		{2DC08396-ABDD-49BA-97A1-02DDFC5D224E}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{2DC08396-ABDD-49BA-97A1-02DDFC5D224E}.Debug|x86.Build.0 = Debug|Any CPU
+		{2DC08396-ABDD-49BA-97A1-02DDFC5D224E}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{2DC08396-ABDD-49BA-97A1-02DDFC5D224E}.Release|Any CPU.Build.0 = Release|Any CPU
+		{2DC08396-ABDD-49BA-97A1-02DDFC5D224E}.Release|x64.ActiveCfg = Release|Any CPU
+		{2DC08396-ABDD-49BA-97A1-02DDFC5D224E}.Release|x64.Build.0 = Release|Any CPU
+		{2DC08396-ABDD-49BA-97A1-02DDFC5D224E}.Release|x86.ActiveCfg = Release|Any CPU
+		{2DC08396-ABDD-49BA-97A1-02DDFC5D224E}.Release|x86.Build.0 = Release|Any CPU
+		{50DE6977-D175-46EC-A511-B172064EB5E5}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{50DE6977-D175-46EC-A511-B172064EB5E5}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{50DE6977-D175-46EC-A511-B172064EB5E5}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{50DE6977-D175-46EC-A511-B172064EB5E5}.Debug|x64.Build.0 = Debug|Any CPU
+		{50DE6977-D175-46EC-A511-B172064EB5E5}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{50DE6977-D175-46EC-A511-B172064EB5E5}.Debug|x86.Build.0 = Debug|Any CPU
+		{50DE6977-D175-46EC-A511-B172064EB5E5}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{50DE6977-D175-46EC-A511-B172064EB5E5}.Release|Any CPU.Build.0 = Release|Any CPU
+		{50DE6977-D175-46EC-A511-B172064EB5E5}.Release|x64.ActiveCfg = Release|Any CPU
+		{50DE6977-D175-46EC-A511-B172064EB5E5}.Release|x64.Build.0 = Release|Any CPU
+		{50DE6977-D175-46EC-A511-B172064EB5E5}.Release|x86.ActiveCfg = Release|Any CPU
+		{50DE6977-D175-46EC-A511-B172064EB5E5}.Release|x86.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{2DC08396-ABDD-49BA-97A1-02DDFC5D224E} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
+		{50DE6977-D175-46EC-A511-B172064EB5E5} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
+	EndGlobalSection
+EndGlobal
