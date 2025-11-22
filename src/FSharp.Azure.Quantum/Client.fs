@@ -227,6 +227,75 @@ module Client =
                 return Error (QuantumError.UnknownError(0, ex.Message))
         }
         
+        /// Get job results after completion
+        member this.GetResultsAsync(jobId: string, ?cancellationToken: CancellationToken) = async {
+            let ct = defaultArg cancellationToken CancellationToken.None
+            
+            try
+                // Build endpoint URL
+                let endpoint = Endpoints.jobPath config.SubscriptionId config.ResourceGroup config.WorkspaceName jobId
+                let url = Endpoints.fullUrl endpoint
+                
+                // Create request
+                use request = new HttpRequestMessage(HttpMethod.Get, url)
+                
+                // Send request
+                let! response = config.HttpClient.SendAsync(request, ct) |> Async.AwaitTask
+                
+                // Handle response
+                if response.IsSuccessStatusCode then
+                    let! responseBody = response.Content.ReadAsStringAsync(ct) |> Async.AwaitTask
+                    let jsonDoc = JsonDocument.Parse(responseBody)
+                    let root = jsonDoc.RootElement
+                    
+                    let jobIdResult = root.GetProperty("id").GetString()
+                    let statusStr = root.GetProperty("status").GetString()
+                    let status = JobStatus.Parse(statusStr, None, None)
+                    
+                    // Check if job has completed
+                    if not (QuantumClient.isTerminalState status) then
+                        return Error (QuantumError.UnknownError(400, "Job has not completed yet"))
+                    else
+                        // Check if job has results
+                        let mutable element = Unchecked.defaultof<JsonElement>
+                        
+                        if not (root.TryGetProperty("outputData", &element)) then
+                            return Error (QuantumError.UnknownError(400, "Job does not have output data"))
+                        else
+                            let outputData = element
+                            let outputDataFormat = 
+                                if root.TryGetProperty("outputDataFormat", &element) then
+                                    element.GetString()
+                                else
+                                    "unknown"
+                            
+                            let executionTime =
+                                if root.TryGetProperty("executionTime", &element) then
+                                    // Parse ISO 8601 duration format (PT1.5S)
+                                    let durationStr = element.GetString()
+                                    try
+                                        Some (System.Xml.XmlConvert.ToTimeSpan(durationStr))
+                                    with
+                                    | _ -> None
+                                else None
+                            
+                            let jobResult = {
+                                JobId = jobIdResult
+                                Status = status
+                                OutputData = box outputData
+                                OutputDataFormat = outputDataFormat
+                                ExecutionTime = executionTime
+                            }
+                            
+                            return Ok jobResult
+                else
+                    let! errorBody = response.Content.ReadAsStringAsync(ct) |> Async.AwaitTask
+                    return Error (QuantumError.UnknownError(int response.StatusCode, errorBody))
+            with
+            | ex ->
+                return Error (QuantumError.UnknownError(0, ex.Message))
+        }
+        
         /// Check if job is in terminal state
         static member private isTerminalState = function
             | JobStatus.Succeeded

@@ -411,3 +411,95 @@ let ``SubmitJobAsync should not retry on non-transient errors`` () = async {
     | _ ->
         Assert.True(false, "Expected BadRequest error without retries")
 }
+
+[<Fact>]
+let ``GetJobStatusAsync returns full job details including execution times`` () = async {
+    let mockHandler = MockHttpMessageHandler(fun request ->
+        let response = new HttpResponseMessage(HttpStatusCode.OK)
+        response.Content <- new StringContent("""{
+            "id": "job-full-details",
+            "status": "Succeeded",
+            "target": "ionq.qpu",
+            "creationTime": "2025-11-22T00:00:00Z",
+            "beginExecutionTime": "2025-11-22T00:01:00Z",
+            "endExecutionTime": "2025-11-22T00:02:00Z"
+        }""")
+        Task.FromResult(response)
+    )
+    
+    let httpClient = new HttpClient(mockHandler)
+    let config = makeConfig httpClient
+    
+    let client = QuantumClient(config)
+    
+    let! result = client.GetJobStatusAsync("job-full-details")
+    
+    match result with
+    | Ok (job: QuantumJob) ->
+        Assert.Equal("job-full-details", job.JobId)
+        Assert.Equal(JobStatus.Succeeded, job.Status)
+        Assert.Equal("ionq.qpu", job.Target)
+        Assert.True(job.BeginExecutionTime.IsSome)
+        Assert.True(job.EndExecutionTime.IsSome)
+    | Error err ->
+        Assert.True(false, sprintf "Expected success but got error: %A" err)
+}
+
+[<Fact>]
+let ``GetResultsAsync should retrieve job results after completion`` () = async {
+    let mockHandler = MockHttpMessageHandler(fun request ->
+        let response = new HttpResponseMessage(HttpStatusCode.OK)
+        response.Content <- new StringContent("""{
+            "id": "job-with-results",
+            "status": "Succeeded",
+            "outputData": {
+                "histogram": {"00": 512, "11": 512}
+            },
+            "outputDataFormat": "microsoft.quantum.measurement-results.v1",
+            "executionTime": "PT1.5S"
+        }""")
+        Task.FromResult(response)
+    )
+    
+    let httpClient = new HttpClient(mockHandler)
+    let config = makeConfig httpClient
+    
+    let client = QuantumClient(config)
+    
+    let! result = client.GetResultsAsync("job-with-results")
+    
+    match result with
+    | Ok (jobResult: JobResult) ->
+        Assert.Equal("job-with-results", jobResult.JobId)
+        Assert.Equal(JobStatus.Succeeded, jobResult.Status)
+        Assert.NotNull(jobResult.OutputData)
+        Assert.Equal("microsoft.quantum.measurement-results.v1", jobResult.OutputDataFormat)
+        Assert.True(jobResult.ExecutionTime.IsSome)
+    | Error err ->
+        Assert.True(false, sprintf "Expected success but got error: %A" err)
+}
+
+[<Fact>]
+let ``GetResultsAsync should return error for incomplete job`` () = async {
+    let mockHandler = MockHttpMessageHandler(fun request ->
+        let response = new HttpResponseMessage(HttpStatusCode.OK)
+        response.Content <- new StringContent("""{
+            "id": "job-not-complete",
+            "status": "Executing"
+        }""")
+        Task.FromResult(response)
+    )
+    
+    let httpClient = new HttpClient(mockHandler)
+    let config = makeConfig httpClient
+    
+    let client = QuantumClient(config)
+    
+    let! result = client.GetResultsAsync("job-not-complete")
+    
+    match result with
+    | Error _ ->
+        Assert.True(true) // Expected error for incomplete job
+    | Ok _ ->
+        Assert.True(false, "Expected error for job without results")
+}
