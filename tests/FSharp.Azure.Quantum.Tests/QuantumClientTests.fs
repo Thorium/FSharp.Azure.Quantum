@@ -17,6 +17,7 @@ let makeConfig httpClient = {
     WorkspaceName = "ws-test"
     HttpClient = httpClient
     RetryConfig = None
+    Logger = None
 }
 
 // Mock HTTP message handler for testing
@@ -288,6 +289,7 @@ let ``SubmitJobAsync should retry on transient errors and succeed`` () = async {
         WorkspaceName = "ws-test"
         HttpClient = httpClient
         RetryConfig = Some retryConfig
+        Logger = None
     }
     
     let client = QuantumClient(config)
@@ -338,6 +340,7 @@ let ``SubmitJobAsync should fail after max retries exceeded`` () = async {
         WorkspaceName = "ws-test"
         HttpClient = httpClient
         RetryConfig = Some retryConfig
+        Logger = None
     }
     
     let client = QuantumClient(config)
@@ -387,6 +390,7 @@ let ``SubmitJobAsync should not retry on non-transient errors`` () = async {
         WorkspaceName = "ws-test"
         HttpClient = httpClient
         RetryConfig = Some retryConfig
+        Logger = None
     }
     
     let client = QuantumClient(config)

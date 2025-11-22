@@ -6,6 +6,7 @@ open System.Net.Http.Headers
 open System.Text
 open System.Text.Json
 open System.Threading
+open Microsoft.Extensions.Logging
 open FSharp.Azure.Quantum.Core.Types
 open FSharp.Azure.Quantum.Core.Authentication
 open FSharp.Azure.Quantum.Core.Retry
@@ -41,6 +42,7 @@ module Client =
         WorkspaceName: string
         HttpClient: HttpClient
         RetryConfig: RetryConfig option
+        Logger: ILogger option
     }
     
     /// Create default config
@@ -51,6 +53,7 @@ module Client =
             WorkspaceName = workspaceName
             HttpClient = httpClient
             RetryConfig = Some Retry.defaultConfig
+            Logger = None
         }
     
     /// Job submission response from Azure
@@ -69,8 +72,15 @@ module Client =
         
         let retryConfig = config.RetryConfig |> Option.defaultValue Retry.defaultConfig
         
+        // Helper to log if logger exists
+        member private this.Log(logLevel: LogLevel, message: string, [<ParamArray>] args: obj[]) =
+            config.Logger |> Option.iter (fun logger -> 
+                logger.Log(logLevel, message, args))
+        
         /// Submit a quantum job (internal implementation without retry)
         member private this.SubmitJobAsyncInternal(submission: JobSubmission, ct: CancellationToken) = async {
+            
+            this.Log(LogLevel.Information, "Submitting job {JobId} to target {Target}", submission.JobId, submission.Target)
             
             try
                 // Build endpoint URL
@@ -116,12 +126,16 @@ module Client =
                         Uri = url
                     }
                     
+                    this.Log(LogLevel.Information, "Job {JobId} submitted successfully with status {Status}", jobId, status)
                     return Ok submitResponse
                 else
                     let! errorBody = response.Content.ReadAsStringAsync(ct) |> Async.AwaitTask
-                    return Error (Retry.categorizeHttpError response.StatusCode errorBody)
+                    let error = Retry.categorizeHttpError response.StatusCode errorBody
+                    this.Log(LogLevel.Error, "Failed to submit job {JobId}: {StatusCode} - {Error}", submission.JobId, response.StatusCode, error)
+                    return Error error
             with
             | ex ->
+                this.Log(LogLevel.Error, "Exception submitting job {JobId}: {Exception}", submission.JobId, ex.Message)
                 return Error (QuantumError.UnknownError(0, ex.Message))
         }
         
@@ -204,6 +218,8 @@ module Client =
         member this.CancelJobAsync(jobId: string, ?cancellationToken: CancellationToken) = async {
             let ct = defaultArg cancellationToken CancellationToken.None
             
+            this.Log(LogLevel.Information, "Cancelling job {JobId}", jobId)
+            
             try
                 // Build endpoint URL
                 let endpoint = Endpoints.cancelJobPath config.SubscriptionId config.ResourceGroup config.WorkspaceName jobId
@@ -218,18 +234,23 @@ module Client =
                 
                 // Handle response
                 if response.IsSuccessStatusCode then
+                    this.Log(LogLevel.Information, "Job {JobId} cancelled successfully", jobId)
                     return Ok ()
                 else
                     let! errorBody = response.Content.ReadAsStringAsync(ct) |> Async.AwaitTask
+                    this.Log(LogLevel.Error, "Failed to cancel job {JobId}: {StatusCode}", jobId, response.StatusCode)
                     return Error (QuantumError.UnknownError(int response.StatusCode, errorBody))
             with
             | ex ->
+                this.Log(LogLevel.Error, "Exception cancelling job {JobId}: {Exception}", jobId, ex.Message)
                 return Error (QuantumError.UnknownError(0, ex.Message))
         }
         
         /// Get job results after completion
         member this.GetResultsAsync(jobId: string, ?cancellationToken: CancellationToken) = async {
             let ct = defaultArg cancellationToken CancellationToken.None
+            
+            this.Log(LogLevel.Information, "Retrieving results for job {JobId}", jobId)
             
             try
                 // Build endpoint URL
@@ -287,12 +308,15 @@ module Client =
                                 ExecutionTime = executionTime
                             }
                             
+                            this.Log(LogLevel.Information, "Retrieved results for job {JobId} (format: {Format})", jobIdResult, outputDataFormat)
                             return Ok jobResult
                 else
                     let! errorBody = response.Content.ReadAsStringAsync(ct) |> Async.AwaitTask
+                    this.Log(LogLevel.Error, "Failed to retrieve results for job {JobId}: {StatusCode}", jobId, response.StatusCode)
                     return Error (QuantumError.UnknownError(int response.StatusCode, errorBody))
             with
             | ex ->
+                this.Log(LogLevel.Error, "Exception retrieving results for job {JobId}: {Exception}", jobId, ex.Message)
                 return Error (QuantumError.UnknownError(0, ex.Message))
         }
         
@@ -322,21 +346,25 @@ module Client =
                     return Error (QuantumError.Timeout(sprintf "Job %s timed out after %dms" jobId timeoutMs))
                 else
                     // Poll job status
+                    this.Log(LogLevel.Debug, "Polling job {JobId} status (delay: {Delay}ms)", jobId, currentDelay)
                     let! statusResult = this.GetJobStatusAsync(jobId, ct)
                     
                     match statusResult with
                     | Ok job when QuantumClient.isTerminalState job.Status ->
                         // Job completed (success, failure, or cancelled)
+                        this.Log(LogLevel.Information, "Job {JobId} completed with status {Status}", jobId, job.Status)
                         return Ok job
                         
-                    | Ok _job ->
+                    | Ok job ->
                         // Job still running - wait and poll again
+                        this.Log(LogLevel.Debug, "Job {JobId} still in progress (status: {Status}), waiting {Delay}ms", jobId, job.Status, currentDelay)
                         do! Async.Sleep currentDelay
                         let nextDelay = min (currentDelay * 2) maxDelay
                         return! this.pollForCompletion jobId startTime nextDelay maxDelay timeoutMs ct
                         
                     | Error err ->
                         // Error getting status
+                        this.Log(LogLevel.Error, "Error polling job {JobId}: {Error}", jobId, err)
                         return Error err
         }
         
