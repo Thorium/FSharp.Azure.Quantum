@@ -43,12 +43,7 @@ let ``SubmitJobAsync should send PUT request to correct endpoint`` () = async {
     )
     
     let httpClient = new HttpClient(mockHandler)
-    let config = {
-        SubscriptionId = "sub-123"
-        ResourceGroup = "rg-test"
-        WorkspaceName = "ws-test"
-        HttpClient = httpClient
-    }
+    let config = makeConfig httpClient
     
     let client = QuantumClient(config)
     
@@ -96,12 +91,7 @@ let ``GetJobStatusAsync should send GET request and parse response`` () = async 
     )
     
     let httpClient = new HttpClient(mockHandler)
-    let config = {
-        SubscriptionId = "sub-123"
-        ResourceGroup = "rg-test"
-        WorkspaceName = "ws-test"
-        HttpClient = httpClient
-    }
+    let config = makeConfig httpClient
     
     let client = QuantumClient(config)
     
@@ -125,12 +115,7 @@ let ``GetJobStatusAsync should handle 404 error`` () = async {
     )
     
     let httpClient = new HttpClient(mockHandler)
-    let config = {
-        SubscriptionId = "sub-123"
-        ResourceGroup = "rg-test"
-        WorkspaceName = "ws-test"
-        HttpClient = httpClient
-    }
+    let config = makeConfig httpClient
     
     let client = QuantumClient(config)
     
@@ -155,12 +140,7 @@ let ``CancelJobAsync should send POST to cancel endpoint`` () = async {
     )
     
     let httpClient = new HttpClient(mockHandler)
-    let config = {
-        SubscriptionId = "sub-123"
-        ResourceGroup = "rg-test"
-        WorkspaceName = "ws-test"
-        HttpClient = httpClient
-    }
+    let config = makeConfig httpClient
     
     let client = QuantumClient(config)
     
@@ -199,12 +179,7 @@ let ``WaitForCompletionAsync should poll until job succeeds`` () = async {
     )
     
     let httpClient = new HttpClient(mockHandler)
-    let config = {
-        SubscriptionId = "sub-123"
-        ResourceGroup = "rg-test"
-        WorkspaceName = "ws-test"
-        HttpClient = httpClient
-    }
+    let config = makeConfig httpClient
     
     let client = QuantumClient(config)
     
@@ -233,12 +208,7 @@ let ``WaitForCompletionAsync should return error when job fails`` () = async {
     )
     
     let httpClient = new HttpClient(mockHandler)
-    let config = {
-        SubscriptionId = "sub-123"
-        ResourceGroup = "rg-test"
-        WorkspaceName = "ws-test"
-        HttpClient = httpClient
-    }
+    let config = makeConfig httpClient
     
     let client = QuantumClient(config)
     
@@ -268,12 +238,7 @@ let ``WaitForCompletionAsync should timeout if job takes too long`` () = async {
     )
     
     let httpClient = new HttpClient(mockHandler)
-    let config = {
-        SubscriptionId = "sub-123"
-        ResourceGroup = "rg-test"
-        WorkspaceName = "ws-test"
-        HttpClient = httpClient
-    }
+    let config = makeConfig httpClient
     
     let client = QuantumClient(config)
     
