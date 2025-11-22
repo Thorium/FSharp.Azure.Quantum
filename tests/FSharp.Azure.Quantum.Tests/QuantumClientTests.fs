@@ -8,6 +8,16 @@ open System.Threading.Tasks
 open Xunit
 open FSharp.Azure.Quantum.Core.Types
 open FSharp.Azure.Quantum.Core.Client
+open FSharp.Azure.Quantum.Core.Retry
+
+// Helper to create test config - no retries for predictable tests  
+let makeConfig httpClient = {
+    SubscriptionId = "sub-123"
+    ResourceGroup = "rg-test"
+    WorkspaceName = "ws-test"
+    HttpClient = httpClient
+    RetryConfig = None
+}
 
 // Mock HTTP message handler for testing
 type MockHttpMessageHandler(responseFunc: HttpRequestMessage -> Task<HttpResponseMessage>) =

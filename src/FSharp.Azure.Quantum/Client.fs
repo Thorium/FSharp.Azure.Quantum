@@ -8,6 +8,7 @@ open System.Text.Json
 open System.Threading
 open FSharp.Azure.Quantum.Core.Types
 open FSharp.Azure.Quantum.Core.Authentication
+open FSharp.Azure.Quantum.Core.Retry
 
 module Client =
     
@@ -39,7 +40,18 @@ module Client =
         ResourceGroup: string
         WorkspaceName: string
         HttpClient: HttpClient
+        RetryConfig: RetryConfig option
     }
+    
+    /// Create default config
+    let createConfig subscriptionId resourceGroup workspaceName httpClient =
+        {
+            SubscriptionId = subscriptionId
+            ResourceGroup = resourceGroup
+            WorkspaceName = workspaceName
+            HttpClient = httpClient
+            RetryConfig = Some Retry.defaultConfig
+        }
     
     /// Job submission response from Azure
     type SubmitJobResponse = {
@@ -55,9 +67,10 @@ module Client =
         let jsonOptions = JsonSerializerOptions()
         do jsonOptions.PropertyNameCaseInsensitive <- true
         
-        /// Submit a quantum job
-        member this.SubmitJobAsync(submission: JobSubmission, ?cancellationToken: CancellationToken) = async {
-            let ct = defaultArg cancellationToken CancellationToken.None
+        let retryConfig = config.RetryConfig |> Option.defaultValue Retry.defaultConfig
+        
+        /// Submit a quantum job (internal implementation without retry)
+        member private this.SubmitJobAsyncInternal(submission: JobSubmission, ct: CancellationToken) = async {
             
             try
                 // Build endpoint URL
@@ -106,15 +119,20 @@ module Client =
                     return Ok submitResponse
                 else
                     let! errorBody = response.Content.ReadAsStringAsync(ct) |> Async.AwaitTask
-                    return Error (QuantumError.UnknownError(int response.StatusCode, errorBody))
+                    return Error (Retry.categorizeHttpError response.StatusCode errorBody)
             with
             | ex ->
                 return Error (QuantumError.UnknownError(0, ex.Message))
         }
         
-        /// Get job status
-        member this.GetJobStatusAsync(jobId: string, ?cancellationToken: CancellationToken) = async {
+        /// Submit a quantum job with retry logic
+        member this.SubmitJobAsync(submission: JobSubmission, ?cancellationToken: CancellationToken) = async {
             let ct = defaultArg cancellationToken CancellationToken.None
+            return! Retry.executeWithRetry retryConfig (fun ct -> this.SubmitJobAsyncInternal(submission, ct)) ct
+        }
+        
+        /// Get job status (internal implementation without retry)
+        member private this.GetJobStatusAsyncInternal(jobId: string, ct: CancellationToken) = async {
             
             try
                 // Build endpoint URL
@@ -170,10 +188,16 @@ module Client =
                     return Ok quantumJob
                 else
                     let! errorBody = response.Content.ReadAsStringAsync(ct) |> Async.AwaitTask
-                    return Error (QuantumError.UnknownError(int response.StatusCode, errorBody))
+                    return Error (Retry.categorizeHttpError response.StatusCode errorBody)
             with
             | ex ->
                 return Error (QuantumError.UnknownError(0, ex.Message))
+        }
+        
+        /// Get job status with retry logic
+        member this.GetJobStatusAsync(jobId: string, ?cancellationToken: CancellationToken) = async {
+            let ct = defaultArg cancellationToken CancellationToken.None
+            return! Retry.executeWithRetry retryConfig (fun ct -> this.GetJobStatusAsyncInternal(jobId, ct)) ct
         }
         
         /// Cancel a quantum job
@@ -203,6 +227,50 @@ module Client =
                 return Error (QuantumError.UnknownError(0, ex.Message))
         }
         
+        /// Check if job is in terminal state
+        static member private isTerminalState = function
+            | JobStatus.Succeeded
+            | JobStatus.Failed _
+            | JobStatus.Cancelled _ -> true
+            | _ -> false
+        
+        /// Polling loop with exponential backoff (functional recursive approach)
+        member private this.pollForCompletion 
+            (jobId: string)
+            (startTime: DateTimeOffset)
+            (currentDelay: int)
+            (maxDelay: int)
+            (timeoutMs: int)
+            (ct: CancellationToken)
+            : Async<Result<QuantumJob, QuantumError>> = async {
+            
+            if ct.IsCancellationRequested then
+                return Error (QuantumError.UnknownError(0, "Operation cancelled"))
+            else
+                // Check timeout
+                let elapsed = (DateTimeOffset.UtcNow - startTime).TotalMilliseconds
+                if elapsed > float timeoutMs then
+                    return Error (QuantumError.Timeout(sprintf "Job %s timed out after %dms" jobId timeoutMs))
+                else
+                    // Poll job status
+                    let! statusResult = this.GetJobStatusAsync(jobId, ct)
+                    
+                    match statusResult with
+                    | Ok job when QuantumClient.isTerminalState job.Status ->
+                        // Job completed (success, failure, or cancelled)
+                        return Ok job
+                        
+                    | Ok _job ->
+                        // Job still running - wait and poll again
+                        do! Async.Sleep currentDelay
+                        let nextDelay = min (currentDelay * 2) maxDelay
+                        return! this.pollForCompletion jobId startTime nextDelay maxDelay timeoutMs ct
+                        
+                    | Error err ->
+                        // Error getting status
+                        return Error err
+        }
+        
         /// Wait for job completion with exponential backoff polling
         member this.WaitForCompletionAsync(
             jobId: string, 
@@ -210,45 +278,10 @@ module Client =
             ?maxDelayMs: int, 
             ?timeoutMs: int,
             ?cancellationToken: CancellationToken
-        ) = async {
+        ) = 
             let ct = defaultArg cancellationToken CancellationToken.None
-            let initialDelay = defaultArg initialDelayMs 1000 // Start at 1s
-            let maxDelay = defaultArg maxDelayMs 30000 // Max 30s
-            let timeout = defaultArg timeoutMs 1800000 // Default 30 minutes
+            let initialDelay = defaultArg initialDelayMs 1000
+            let maxDelay = defaultArg maxDelayMs 30000
+            let timeout = defaultArg timeoutMs 1800000
             
-            let startTime = DateTimeOffset.UtcNow
-            let mutable currentDelay = initialDelay
-            let mutable isCompleted = false
-            let mutable result: Result<QuantumJob, QuantumError> option = None
-            
-            while not isCompleted && not ct.IsCancellationRequested do
-                // Check timeout
-                let elapsed = (DateTimeOffset.UtcNow - startTime).TotalMilliseconds
-                if elapsed > float timeout then
-                    result <- Some (Error (QuantumError.Timeout(sprintf "Job %s timed out after %dms" jobId timeout)))
-                    isCompleted <- true
-                else
-                    // Poll job status
-                    let! statusResult = this.GetJobStatusAsync(jobId, ct)
-                    
-                    match statusResult with
-                    | Ok job ->
-                        // Check if job is in terminal state
-                        match job.Status with
-                        | JobStatus.Succeeded
-                        | JobStatus.Failed _
-                        | JobStatus.Cancelled _ ->
-                            result <- Some (Ok job)
-                            isCompleted <- true
-                        | _ ->
-                            // Job still running, wait before next poll
-                            do! Async.Sleep currentDelay
-                            
-                            // Exponential backoff: double delay up to max
-                            currentDelay <- min (currentDelay * 2) maxDelay
-                    | Error err ->
-                        result <- Some (Error err)
-                        isCompleted <- true
-            
-            return result |> Option.defaultValue (Error (QuantumError.UnknownError(0, "Polling loop ended unexpectedly")))
-        }
+            this.pollForCompletion jobId DateTimeOffset.UtcNow initialDelay maxDelay timeout ct
