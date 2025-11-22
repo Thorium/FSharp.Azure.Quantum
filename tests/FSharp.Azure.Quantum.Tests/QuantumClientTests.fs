@@ -166,3 +166,113 @@ let ``CancelJobAsync should send POST to cancel endpoint`` () = async {
     | Error err ->
         Assert.True(false, sprintf "Expected success but got error: %A" err)
 }
+
+[<Fact>]
+let ``WaitForCompletionAsync should poll until job succeeds`` () = async {
+    let mutable pollCount = 0
+    
+    let mockHandler = MockHttpMessageHandler(fun request ->
+        pollCount <- pollCount + 1
+        let response = new HttpResponseMessage(HttpStatusCode.OK)
+        
+        // First 2 polls: job is executing
+        // 3rd poll: job succeeded
+        let status = if pollCount < 3 then "Executing" else "Succeeded"
+        
+        response.Content <- new StringContent(sprintf """{
+            "id": "job-poll-1",
+            "status": "%s",
+            "target": "ionq.simulator",
+            "creationTime": "2025-11-22T00:00:00Z"
+        }""" status)
+        Task.FromResult(response)
+    )
+    
+    let httpClient = new HttpClient(mockHandler)
+    let config = {
+        SubscriptionId = "sub-123"
+        ResourceGroup = "rg-test"
+        WorkspaceName = "ws-test"
+        HttpClient = httpClient
+    }
+    
+    let client = QuantumClient(config)
+    
+    let! result = client.WaitForCompletionAsync("job-poll-1", initialDelayMs = 10, maxDelayMs = 50, timeoutMs = 5000)
+    
+    match result with
+    | Ok job ->
+        Assert.Equal("job-poll-1", job.JobId)
+        Assert.Equal(JobStatus.Succeeded, job.Status)
+        Assert.True(pollCount >= 3, sprintf "Expected at least 3 polls, got %d" pollCount)
+    | Error err ->
+        Assert.True(false, sprintf "Expected success but got error: %A" err)
+}
+
+[<Fact>]
+let ``WaitForCompletionAsync should return error when job fails`` () = async {
+    let mockHandler = MockHttpMessageHandler(fun request ->
+        let response = new HttpResponseMessage(HttpStatusCode.OK)
+        response.Content <- new StringContent("""{
+            "id": "job-fail-1",
+            "status": "Failed",
+            "target": "ionq.simulator",
+            "creationTime": "2025-11-22T00:00:00Z"
+        }""")
+        Task.FromResult(response)
+    )
+    
+    let httpClient = new HttpClient(mockHandler)
+    let config = {
+        SubscriptionId = "sub-123"
+        ResourceGroup = "rg-test"
+        WorkspaceName = "ws-test"
+        HttpClient = httpClient
+    }
+    
+    let client = QuantumClient(config)
+    
+    let! result = client.WaitForCompletionAsync("job-fail-1", initialDelayMs = 10, maxDelayMs = 50, timeoutMs = 5000)
+    
+    match result with
+    | Ok job ->
+        match job.Status with
+        | JobStatus.Failed _ -> Assert.True(true) // Expected Failed status
+        | _ -> Assert.True(false, sprintf "Expected Failed status but got: %A" job.Status)
+    | Error err ->
+        Assert.True(false, sprintf "Expected success but got error: %A" err)
+}
+
+[<Fact>]
+let ``WaitForCompletionAsync should timeout if job takes too long`` () = async {
+    let mockHandler = MockHttpMessageHandler(fun request ->
+        let response = new HttpResponseMessage(HttpStatusCode.OK)
+        // Always return Executing status
+        response.Content <- new StringContent("""{
+            "id": "job-timeout",
+            "status": "Executing",
+            "target": "ionq.simulator",
+            "creationTime": "2025-11-22T00:00:00Z"
+        }""")
+        Task.FromResult(response)
+    )
+    
+    let httpClient = new HttpClient(mockHandler)
+    let config = {
+        SubscriptionId = "sub-123"
+        ResourceGroup = "rg-test"
+        WorkspaceName = "ws-test"
+        HttpClient = httpClient
+    }
+    
+    let client = QuantumClient(config)
+    
+    // Set very short timeout (100ms) to ensure we hit it
+    let! result = client.WaitForCompletionAsync("job-timeout", initialDelayMs = 10, maxDelayMs = 50, timeoutMs = 100)
+    
+    match result with
+    | Error (QuantumError.Timeout _) ->
+        Assert.True(true) // Expected timeout error
+    | _ ->
+        Assert.True(false, "Expected Timeout error")
+}

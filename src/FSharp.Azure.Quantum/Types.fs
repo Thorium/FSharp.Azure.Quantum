@@ -156,5 +156,8 @@ module Types =
         /// Hardware fault
         | HardwareFault of message: string
         
+        /// Job polling timeout
+        | Timeout of message: string
+        
         /// Unknown error
         | UnknownError of statusCode: int * message: string

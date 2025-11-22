@@ -202,3 +202,53 @@ module Client =
             | ex ->
                 return Error (QuantumError.UnknownError(0, ex.Message))
         }
+        
+        /// Wait for job completion with exponential backoff polling
+        member this.WaitForCompletionAsync(
+            jobId: string, 
+            ?initialDelayMs: int, 
+            ?maxDelayMs: int, 
+            ?timeoutMs: int,
+            ?cancellationToken: CancellationToken
+        ) = async {
+            let ct = defaultArg cancellationToken CancellationToken.None
+            let initialDelay = defaultArg initialDelayMs 1000 // Start at 1s
+            let maxDelay = defaultArg maxDelayMs 30000 // Max 30s
+            let timeout = defaultArg timeoutMs 1800000 // Default 30 minutes
+            
+            let startTime = DateTimeOffset.UtcNow
+            let mutable currentDelay = initialDelay
+            let mutable isCompleted = false
+            let mutable result: Result<QuantumJob, QuantumError> option = None
+            
+            while not isCompleted && not ct.IsCancellationRequested do
+                // Check timeout
+                let elapsed = (DateTimeOffset.UtcNow - startTime).TotalMilliseconds
+                if elapsed > float timeout then
+                    result <- Some (Error (QuantumError.Timeout(sprintf "Job %s timed out after %dms" jobId timeout)))
+                    isCompleted <- true
+                else
+                    // Poll job status
+                    let! statusResult = this.GetJobStatusAsync(jobId, ct)
+                    
+                    match statusResult with
+                    | Ok job ->
+                        // Check if job is in terminal state
+                        match job.Status with
+                        | JobStatus.Succeeded
+                        | JobStatus.Failed _
+                        | JobStatus.Cancelled _ ->
+                            result <- Some (Ok job)
+                            isCompleted <- true
+                        | _ ->
+                            // Job still running, wait before next poll
+                            do! Async.Sleep currentDelay
+                            
+                            // Exponential backoff: double delay up to max
+                            currentDelay <- min (currentDelay * 2) maxDelay
+                    | Error err ->
+                        result <- Some (Error err)
+                        isCompleted <- true
+            
+            return result |> Option.defaultValue (Error (QuantumError.UnknownError(0, "Polling loop ended unexpectedly")))
+        }
