@@ -324,3 +324,80 @@ module CircuitBuilderTests =
         Assert.Contains("cx q[0],q[1];", qasm)
         Assert.Contains("rx(1.5) q[2];", qasm)
         Assert.Contains("x q[2];", qasm)
+
+    // TDD Cycle #5: Circuit validation tests
+
+    [<Fact>]
+    let ``validate should pass for valid circuit`` () =
+        let circuit = 
+            CircuitBuilder.empty 3
+            |> CircuitBuilder.addGate (CircuitBuilder.Gate.H 0)
+            |> CircuitBuilder.addGate (CircuitBuilder.Gate.CNOT (0, 1))
+            |> CircuitBuilder.addGate (CircuitBuilder.Gate.RX (2, 1.5))
+        
+        let result = CircuitBuilder.validate circuit
+        Assert.True(result.IsValid, "Valid circuit should pass validation")
+        Assert.Empty(result.Errors)
+
+    [<Fact>]
+    let ``validate should fail for qubit index out of bounds`` () =
+        let circuit = 
+            CircuitBuilder.empty 2
+            |> CircuitBuilder.addGate (CircuitBuilder.Gate.H 0)
+            |> CircuitBuilder.addGate (CircuitBuilder.Gate.X 2)  // Out of bounds!
+        
+        let result = CircuitBuilder.validate circuit
+        Assert.False(result.IsValid)
+        Assert.Contains("Qubit index 2 out of bounds", result.Errors.[0])
+
+    [<Fact>]
+    let ``validate should fail for CNOT with out of bounds control`` () =
+        let circuit = 
+            CircuitBuilder.empty 2
+            |> CircuitBuilder.addGate (CircuitBuilder.Gate.CNOT (3, 1))  // Control out of bounds
+        
+        let result = CircuitBuilder.validate circuit
+        Assert.False(result.IsValid)
+        Assert.Contains("Qubit index 3 out of bounds", result.Errors.[0])
+
+    [<Fact>]
+    let ``validate should fail for CNOT with out of bounds target`` () =
+        let circuit = 
+            CircuitBuilder.empty 2
+            |> CircuitBuilder.addGate (CircuitBuilder.Gate.CNOT (0, 5))  // Target out of bounds
+        
+        let result = CircuitBuilder.validate circuit
+        Assert.False(result.IsValid)
+        Assert.Contains("Qubit index 5 out of bounds", result.Errors.[0])
+
+    [<Fact>]
+    let ``validate should fail for CNOT with same control and target`` () =
+        let circuit = 
+            CircuitBuilder.empty 3
+            |> CircuitBuilder.addGate (CircuitBuilder.Gate.CNOT (1, 1))  // Same qubit
+        
+        let result = CircuitBuilder.validate circuit
+        Assert.False(result.IsValid)
+        Assert.Contains("CNOT control and target cannot be the same qubit", result.Errors.[0])
+
+    [<Fact>]
+    let ``validate should collect multiple errors`` () =
+        let circuit = 
+            CircuitBuilder.empty 2
+            |> CircuitBuilder.addGate (CircuitBuilder.Gate.H 5)        // Out of bounds
+            |> CircuitBuilder.addGate (CircuitBuilder.Gate.X 10)       // Out of bounds
+            |> CircuitBuilder.addGate (CircuitBuilder.Gate.CNOT (0, 0))  // Same qubit
+        
+        let result = CircuitBuilder.validate circuit
+        Assert.False(result.IsValid)
+        Assert.Equal(3, result.Errors.Length)
+
+    [<Fact>]
+    let ``validate should fail for negative qubit index`` () =
+        let circuit = 
+            CircuitBuilder.empty 3
+            |> CircuitBuilder.addGate (CircuitBuilder.Gate.H -1)  // Negative index
+        
+        let result = CircuitBuilder.validate circuit
+        Assert.False(result.IsValid)
+        Assert.Contains("negative", result.Errors.[0].ToLower())
