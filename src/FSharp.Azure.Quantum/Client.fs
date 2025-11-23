@@ -383,7 +383,7 @@ module Client =
         static member private isTerminalState = function
             | JobStatus.Succeeded
             | JobStatus.Failed _
-            | JobStatus.Cancelled _ -> true
+            | JobStatus.Cancelled -> true
             | _ -> false
         
         /// Polling loop with exponential backoff (functional recursive approach)
