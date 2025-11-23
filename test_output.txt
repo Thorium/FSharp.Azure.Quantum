@@ -1,0 +1,17 @@
+  Determining projects to restore...
+C:\git\FSharp.Azure.Quantum\blue\git\FSharp.Azure.Quantum\src\FSharp.Azure.Quantum\FSharp.Azure.Quantum.fsproj : warning NU1510: PackageReference System.Text.Json will not be pruned. Consider removing this package from your dependencies, as it is likely unnecessary. [C:\git\FSharp.Azure.Quantum\blue\git\FSharp.Azure.Quantum\FSharp.Azure.Quantum.sln]
+  All projects are up-to-date for restore.
+C:\git\FSharp.Azure.Quantum\blue\git\FSharp.Azure.Quantum\src\FSharp.Azure.Quantum\FSharp.Azure.Quantum.fsproj : warning NU1510: PackageReference System.Text.Json will not be pruned. Consider removing this package from your dependencies, as it is likely unnecessary.
+  FSharp.Azure.Quantum -> C:\git\FSharp.Azure.Quantum\blue\git\FSharp.Azure.Quantum\src\FSharp.Azure.Quantum\bin\Debug\net10.0\FSharp.Azure.Quantum.dll
+  FSharp.Azure.Quantum.Tests -> C:\git\FSharp.Azure.Quantum\blue\git\FSharp.Azure.Quantum\tests\FSharp.Azure.Quantum.Tests\bin\Debug\net10.0\FSharp.Azure.Quantum.Tests.dll
+Test run for C:\git\FSharp.Azure.Quantum\blue\git\FSharp.Azure.Quantum\tests\FSharp.Azure.Quantum.Tests\bin\Debug\net10.0\FSharp.Azure.Quantum.Tests.dll (.NETCoreApp,Version=v10.0)
+VSTest version 18.0.1 (x64)
+
+Starting test execution, please wait...
+A total of 1 test files matched the specified pattern.
+C:\git\FSharp.Azure.Quantum\blue\git\FSharp.Azure.Quantum\tests\FSharp.Azure.Quantum.Tests\bin\Debug\net10.0\FSharp.Azure.Quantum.Tests.dll
+[xUnit.net 00:00:00.00] xUnit.net VSTest Adapter v3.1.4+50e68bbb8b (64-bit .NET 10.0.0)
+[xUnit.net 00:00:00.06]   Discovering: FSharp.Azure.Quantum.Tests
+[xUnit.net 00:00:00.08]   Discovered:  FSharp.Azure.Quantum.Tests
+No test matches the given testcase filter `FullyQualifiedName~BuildsMultiLayerCircuit` in C:\git\FSharp.Azure.Quantum\blue\git\FSharp.Azure.Quantum\tests\FSharp.Azure.Quantum.Tests\bin\Debug\net10.0\FSharp.Azure.Quantum.Tests.dll
+

@@ -243,3 +243,55 @@ module QaoaCircuit =
                 ProblemHamiltonian = problemHam
                 MixerHamiltonian = mixerHam
             }
+        
+        /// Convert quantum gate to OpenQASM 2.0 instruction
+        let private gateToQasm (gate: QuantumGate) : string =
+            match gate with
+            | H qubit -> $"h q[{qubit}];"
+            | RX (qubit, angle) -> $"rx({angle}) q[{qubit}];"
+            | RY (qubit, angle) -> $"ry({angle}) q[{qubit}];"
+            | RZ (qubit, angle) -> $"rz({angle}) q[{qubit}];"
+            | RZZ (qubit1, qubit2, angle) -> $"rzz({angle}) q[{qubit1}],q[{qubit2}];"
+            | CNOT (control, target) -> $"cx q[{control}],q[{target}];"
+        
+        /// Serialize QAOA circuit to OpenQASM 2.0 format
+        /// 
+        /// OpenQASM 2.0 format:
+        /// - Header: OPENQASM 2.0; include "qelib1.inc";
+        /// - Register declaration: qreg q[n];
+        /// - Gates: h q[0]; rx(0.5) q[1]; rzz(0.25) q[0],q[1];
+        let toOpenQasm (circuit: QaoaCircuit) : string =
+            let sb = System.Text.StringBuilder()
+            
+            // Header
+            sb.AppendLine("OPENQASM 2.0;") |> ignore
+            sb.AppendLine("include \"qelib1.inc\";") |> ignore
+            sb.AppendLine() |> ignore
+            
+            // Register declaration
+            sb.AppendLine($"qreg q[{circuit.NumQubits}];") |> ignore
+            sb.AppendLine() |> ignore
+            
+            // Initial state gates
+            sb.AppendLine("// Initial state preparation") |> ignore
+            for gate in circuit.InitialStateGates do
+                sb.AppendLine(gateToQasm gate) |> ignore
+            sb.AppendLine() |> ignore
+            
+            // QAOA layers
+            for i, layer in Array.indexed circuit.Layers do
+                sb.AppendLine($"// QAOA Layer {i + 1} (γ={layer.Gamma}, β={layer.Beta})") |> ignore
+                
+                // Cost layer
+                sb.AppendLine("// Cost layer") |> ignore
+                for gate in layer.CostGates do
+                    sb.AppendLine(gateToQasm gate) |> ignore
+                
+                // Mixer layer
+                sb.AppendLine("// Mixer layer") |> ignore
+                for gate in layer.MixerGates do
+                    sb.AppendLine(gateToQasm gate) |> ignore
+                
+                sb.AppendLine() |> ignore
+            
+            sb.ToString()

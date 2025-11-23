@@ -155,3 +155,38 @@ let ``Complete QAOA circuit should have initial state and multiple layers`` () =
     // Verify Hamiltonians are stored
     Assert.Equal(problemHam.NumQubits, circuit.ProblemHamiltonian.NumQubits)
     Assert.Equal(mixerHam.NumQubits, circuit.MixerHamiltonian.NumQubits)
+
+[<Fact>]
+let ``QAOA circuit should serialize to OpenQASM format`` () =
+    // Create simple 2-qubit QAOA circuit
+    let quboMatrix = array2D [
+        [0.0; 0.5]
+        [0.5; 0.0]
+    ]
+    let problemHam = ProblemHamiltonian.fromQubo quboMatrix
+    let mixerHam = MixerHamiltonian.create 2
+    let parameters = [| (0.5, 0.3) |]  // Single layer
+    
+    let circuit = QaoaCircuit.build problemHam mixerHam parameters
+    let qasm = QaoaCircuit.toOpenQasm circuit
+    
+    // Check OpenQASM header
+    Assert.Contains("OPENQASM 2.0", qasm)
+    Assert.Contains("include \"qelib1.inc\"", qasm)
+    
+    // Check qubit declaration
+    Assert.Contains("qreg q[2]", qasm)
+    
+    // Check initial state (Hadamard gates)
+    Assert.Contains("h q[0]", qasm)
+    Assert.Contains("h q[1]", qasm)
+    
+    // Check cost layer gates (RZZ for ZZ interaction)
+    // ZZ interaction coefficient: 0.25 (from QUBO conversion)
+    // Angle: 2 * 0.25 * 0.5 = 0.25
+    Assert.Contains("rzz(0.25)", qasm)
+    
+    // Check mixer layer gates (RX rotations)
+    // Angle: 2 * 1.0 * 0.3 = 0.6
+    Assert.Contains("rx(0.6) q[0]", qasm)
+    Assert.Contains("rx(0.6) q[1]", qasm)
