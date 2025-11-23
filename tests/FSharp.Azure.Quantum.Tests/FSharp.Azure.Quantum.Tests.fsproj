@@ -13,6 +13,7 @@
     <Compile Include="TspSolverTests.fs" />
     <Compile Include="ProblemAnalysisTests.fs" />
     <Compile Include="QuantumAdvisorTests.fs" />
+    <Compile Include="CircuitBuilderTests.fs" />
   </ItemGroup>
 
   <ItemGroup>

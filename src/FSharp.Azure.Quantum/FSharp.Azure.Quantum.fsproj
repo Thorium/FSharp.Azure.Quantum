@@ -14,6 +14,7 @@
     <Compile Include="TspSolver.fs" />
     <Compile Include="ProblemAnalysis.fs" />
     <Compile Include="QuantumAdvisor.fs" />
+    <Compile Include="CircuitBuilder.fs" />
   </ItemGroup>
 
   <ItemGroup>
