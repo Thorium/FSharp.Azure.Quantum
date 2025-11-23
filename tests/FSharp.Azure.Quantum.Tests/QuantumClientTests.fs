@@ -34,7 +34,7 @@ type MockHttpMessageHandler(responseFunc: HttpRequestMessage -> Task<HttpRespons
 let ``SubmitJobAsync should send PUT request to correct endpoint`` () = async {
     let mutable capturedRequest: HttpRequestMessage option = None
     
-    let mockHandler = MockHttpMessageHandler(fun request ->
+    let mockHandler = new MockHttpMessageHandler(fun request ->
         capturedRequest <- Some request
         let response = new HttpResponseMessage(HttpStatusCode.OK)
         response.Content <- new StringContent("""{
@@ -82,7 +82,7 @@ let ``SubmitJobAsync should send PUT request to correct endpoint`` () = async {
 
 [<Fact>]
 let ``GetJobStatusAsync should send GET request and parse response`` () = async {
-    let mockHandler = MockHttpMessageHandler(fun request ->
+    let mockHandler = new MockHttpMessageHandler(fun request ->
         let response = new HttpResponseMessage(HttpStatusCode.OK)
         response.Content <- new StringContent("""{
             "id": "job-456",
@@ -112,7 +112,7 @@ let ``GetJobStatusAsync should send GET request and parse response`` () = async 
 
 [<Fact>]
 let ``GetJobStatusAsync should handle 404 error`` () = async {
-    let mockHandler = MockHttpMessageHandler(fun request ->
+    let mockHandler = new MockHttpMessageHandler(fun request ->
         let response = new HttpResponseMessage(HttpStatusCode.NotFound)
         response.Content <- new StringContent("""{"error": {"code": "JobNotFound", "message": "Job not found"}}""")
         Task.FromResult(response)
@@ -136,7 +136,7 @@ let ``GetJobStatusAsync should handle 404 error`` () = async {
 let ``CancelJobAsync should send POST to cancel endpoint`` () = async {
     let mutable capturedRequest: HttpRequestMessage option = None
     
-    let mockHandler = MockHttpMessageHandler(fun request ->
+    let mockHandler = new MockHttpMessageHandler(fun request ->
         capturedRequest <- Some request
         let response = new HttpResponseMessage(HttpStatusCode.OK)
         response.Content <- new StringContent("{}")
@@ -165,7 +165,7 @@ let ``CancelJobAsync should send POST to cancel endpoint`` () = async {
 let ``WaitForCompletionAsync should poll until job succeeds`` () = async {
     let mutable pollCount = 0
     
-    let mockHandler = MockHttpMessageHandler(fun request ->
+    let mockHandler = new MockHttpMessageHandler(fun request ->
         pollCount <- pollCount + 1
         let response = new HttpResponseMessage(HttpStatusCode.OK)
         
@@ -200,7 +200,7 @@ let ``WaitForCompletionAsync should poll until job succeeds`` () = async {
 
 [<Fact>]
 let ``WaitForCompletionAsync should return error when job fails`` () = async {
-    let mockHandler = MockHttpMessageHandler(fun request ->
+    let mockHandler = new MockHttpMessageHandler(fun request ->
         let response = new HttpResponseMessage(HttpStatusCode.OK)
         response.Content <- new StringContent("""{
             "id": "job-fail-1",
@@ -229,7 +229,7 @@ let ``WaitForCompletionAsync should return error when job fails`` () = async {
 
 [<Fact>]
 let ``WaitForCompletionAsync should timeout if job takes too long`` () = async {
-    let mockHandler = MockHttpMessageHandler(fun request ->
+    let mockHandler = new MockHttpMessageHandler(fun request ->
         let response = new HttpResponseMessage(HttpStatusCode.OK)
         // Always return Executing status
         response.Content <- new StringContent("""{
@@ -260,7 +260,7 @@ let ``WaitForCompletionAsync should timeout if job takes too long`` () = async {
 let ``SubmitJobAsync should retry on transient errors and succeed`` () = async {
     let mutable attemptCount = 0
     
-    let mockHandler = MockHttpMessageHandler(fun request ->
+    let mockHandler = new MockHttpMessageHandler(fun request ->
         attemptCount <- attemptCount + 1
         
         // First 2 attempts fail with 503, 3rd succeeds
@@ -325,7 +325,7 @@ let ``SubmitJobAsync should retry on transient errors and succeed`` () = async {
 let ``SubmitJobAsync should fail after max retries exceeded`` () = async {
     let mutable attemptCount = 0
     
-    let mockHandler = MockHttpMessageHandler(fun request ->
+    let mockHandler = new MockHttpMessageHandler(fun request ->
         attemptCount <- attemptCount + 1
         // Always return 503
         let response = new HttpResponseMessage(HttpStatusCode.ServiceUnavailable)
@@ -378,7 +378,7 @@ let ``SubmitJobAsync should fail after max retries exceeded`` () = async {
 let ``SubmitJobAsync should not retry on non-transient errors`` () = async {
     let mutable attemptCount = 0
     
-    let mockHandler = MockHttpMessageHandler(fun request ->
+    let mockHandler = new MockHttpMessageHandler(fun request ->
         attemptCount <- attemptCount + 1
         // Return 400 Bad Request (non-transient)
         let response = new HttpResponseMessage(HttpStatusCode.BadRequest)
@@ -430,7 +430,7 @@ let ``SubmitJobAsync should not retry on non-transient errors`` () = async {
 
 [<Fact>]
 let ``GetJobStatusAsync returns full job details including execution times`` () = async {
-    let mockHandler = MockHttpMessageHandler(fun request ->
+    let mockHandler = new MockHttpMessageHandler(fun request ->
         let response = new HttpResponseMessage(HttpStatusCode.OK)
         response.Content <- new StringContent("""{
             "id": "job-full-details",
@@ -463,7 +463,7 @@ let ``GetJobStatusAsync returns full job details including execution times`` () 
 
 [<Fact>]
 let ``GetResultsAsync should retrieve job results after completion`` () = async {
-    let mockHandler = MockHttpMessageHandler(fun request ->
+    let mockHandler = new MockHttpMessageHandler(fun request ->
         let response = new HttpResponseMessage(HttpStatusCode.OK)
         response.Content <- new StringContent("""{
             "id": "job-with-results",
@@ -497,7 +497,7 @@ let ``GetResultsAsync should retrieve job results after completion`` () = async 
 
 [<Fact>]
 let ``GetResultsAsync should return error for incomplete job`` () = async {
-    let mockHandler = MockHttpMessageHandler(fun request ->
+    let mockHandler = new MockHttpMessageHandler(fun request ->
         let response = new HttpResponseMessage(HttpStatusCode.OK)
         response.Content <- new StringContent("""{
             "id": "job-not-complete",
