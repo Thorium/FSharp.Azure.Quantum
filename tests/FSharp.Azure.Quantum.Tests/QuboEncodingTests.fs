@@ -102,10 +102,17 @@ module QuboEncodingTests =
         // Act: Encode with constraints
         let qubo = QuboEncoding.encodeVariablesWithConstraints variables
         
-        // Assert: Diagonal should penalize no selection, off-diagonal should penalize multiple
-        // Penalty: (x_0 + x_1 + x_2 - 1)^2 expands to encourage exactly one bit set
-        let penalty = qubo.GetCoefficient(0, 0) // Should be negative to encourage selection
-        Assert.True(penalty < 0.0 || penalty = 0.0) // May have negative bias or zero initially
+        // Assert: Diagonal should have -1.0 (encourages selection)
+        // Penalty: (x_0 + x_1 + x_2 - 1)^2 = x_0^2 + x_1^2 + x_2^2 - 2*x_0 - 2*x_1 - 2*x_2 + 2*x_0*x_1 + 2*x_0*x_2 + 2*x_1*x_2 + 1
+        // For binary: x^2 = x, so diagonal: -x_i (coefficient -1)
+        Assert.Equal(-1.0, qubo.GetCoefficient(0, 0))
+        Assert.Equal(-1.0, qubo.GetCoefficient(1, 1))
+        Assert.Equal(-1.0, qubo.GetCoefficient(2, 2))
+        
+        // Off-diagonal should have +2.0 (discourages multiple selections)
+        Assert.Equal(2.0, qubo.GetCoefficient(0, 1))
+        Assert.Equal(2.0, qubo.GetCoefficient(0, 2))
+        Assert.Equal(2.0, qubo.GetCoefficient(1, 2))
     
     // TDD Cycle #3: Categorical variables and constraint penalties
     [<Fact>]
@@ -148,10 +155,13 @@ module QuboEncodingTests =
         
         // Assert: Penalty (x + y - 2)^2 should be added to QUBO
         // Expansion: x^2 + y^2 + 2xy - 4x - 4y + 4
-        // For binary: x^2 = x, so: -3x - 3y + 2xy + 4
-        Assert.Equal(-30.0, qubo.GetCoefficient(0, 0)) // -3 * weight
-        Assert.Equal(-30.0, qubo.GetCoefficient(1, 1)) // -3 * weight
-        Assert.Equal(20.0, qubo.GetCoefficient(0, 1)) // 2 * weight
+        // For binary: x^2 = x, so: x + y + 2xy - 4x - 4y + 4 = -3x - 3y + 2xy + 4
+        // Implementation adds: (1 - 2*target)*x = (1 - 4)*x = -3x per diagonal
+        // Implementation adds: 2*weight per off-diagonal
+        Assert.Equal(-30.0, qubo.GetCoefficient(0, 0)) // (1 - 2*2) * 10 = -3 * 10 = -30
+        Assert.Equal(-30.0, qubo.GetCoefficient(1, 1)) // (1 - 2*2) * 10 = -3 * 10 = -30
+        Assert.Equal(20.0, qubo.GetCoefficient(0, 1)) // 2 * 10 = 20
+        Assert.Equal(20.0, qubo.GetCoefficient(1, 0)) // Symmetric
     
     [<Fact>]
     let ``Complex problem - TSP with 3 cities`` () =
@@ -170,4 +180,18 @@ module QuboEncodingTests =
         
         // Assert: 9 qubits total (3 positions × 3 cities each)
         Assert.Equal(9, qubo.Size)
-        Assert.Equal(9, qubo.VariableNames.Length)
+        let expectedNames = [
+            "pos0_0"; "pos0_1"; "pos0_2"
+            "pos1_0"; "pos1_1"; "pos1_2"
+            "pos2_0"; "pos2_1"; "pos2_2"
+        ]
+        Assert.Equal<string list>(expectedNames, qubo.VariableNames)
+        
+        // Verify one-hot constraints applied to each position variable
+        // pos0: qubits 0,1,2 should have -1 diagonal, +2 off-diagonal
+        Assert.Equal(-1.0, qubo.GetCoefficient(0, 0))
+        Assert.Equal(2.0, qubo.GetCoefficient(0, 1))
+        
+        // pos1: qubits 3,4,5 should have same pattern
+        Assert.Equal(-1.0, qubo.GetCoefficient(3, 3))
+        Assert.Equal(2.0, qubo.GetCoefficient(3, 4))
