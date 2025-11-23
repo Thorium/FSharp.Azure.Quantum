@@ -1,7 +1,7 @@
 module FSharp.Azure.Quantum.Tests.PortfolioSolverTests
 
 open Xunit
-open FSharp.Azure.Quantum.PortfolioSolver
+open FSharp.Azure.Quantum.Classical.PortfolioSolver
 
 [<Fact>]
 let ``Portfolio solver should validate budget constraint`` () =
@@ -23,3 +23,5 @@ let ``Portfolio solver should validate budget constraint`` () =
     
     // Assert
     Assert.True(result.IsValid)
+    Assert.Empty(result.Messages)
+
