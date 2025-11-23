@@ -81,39 +81,37 @@ module QuboEncoding =
         // Penalty: (sum(bits) - 1)^2 = sum(bits^2) - 2*sum(bits) + sum(cross_terms)
         // For binary: bits^2 = bits, so: -sum(bits) + sum(cross_terms)
         
-        let mutable offset = 0
-        for var in variables do
+        // Helper to apply one-hot constraint penalties to a qubit range
+        let applyOneHotPenalty startIdx numBits =
+            // Diagonal penalties: -1 * bit (encourages selection)
+            [0 .. numBits - 1]
+            |> List.iter (fun i ->
+                qubo.Coefficients.[startIdx + i, startIdx + i] <- -1.0)
+            
+            // Off-diagonal penalties: +2 * bit_i * bit_j (discourages multiple)
+            [0 .. numBits - 1]
+            |> List.iter (fun i ->
+                [i + 1 .. numBits - 1]
+                |> List.iter (fun j ->
+                    qubo.Coefficients.[startIdx + i, startIdx + j] <- 2.0
+                    qubo.Coefficients.[startIdx + j, startIdx + i] <- 2.0))
+        
+        // Apply constraints using fold to track offset functionally
+        variables
+        |> List.fold (fun offset var ->
             match var.VarType with
             | BinaryVar ->
-                offset <- offset + 1
+                offset + 1
             | IntegerVar(min, max) ->
                 let numBits = max - min + 1
-                
-                // Add diagonal penalties: -1 * bit (encourages selection)
-                for i in 0 .. numBits - 1 do
-                    qubo.Coefficients.[offset + i, offset + i] <- -1.0
-                
-                // Add off-diagonal penalties: +2 * bit_i * bit_j (discourages multiple)
-                for i in 0 .. numBits - 1 do
-                    for j in i + 1 .. numBits - 1 do
-                        qubo.Coefficients.[offset + i, offset + j] <- 2.0
-                        qubo.Coefficients.[offset + j, offset + i] <- 2.0
-                
-                offset <- offset + numBits
+                applyOneHotPenalty offset numBits
+                offset + numBits
             | CategoricalVar(categories) ->
                 let numBits = categories.Length
-                
-                // Add diagonal penalties: -1 * bit (encourages selection)
-                for i in 0 .. numBits - 1 do
-                    qubo.Coefficients.[offset + i, offset + i] <- -1.0
-                
-                // Add off-diagonal penalties: +2 * bit_i * bit_j (discourages multiple)
-                for i in 0 .. numBits - 1 do
-                    for j in i + 1 .. numBits - 1 do
-                        qubo.Coefficients.[offset + i, offset + j] <- 2.0
-                        qubo.Coefficients.[offset + j, offset + i] <- 2.0
-                
-                offset <- offset + numBits
+                applyOneHotPenalty offset numBits
+                offset + numBits
+        ) 0
+        |> ignore
         
         qubo
     
@@ -121,46 +119,51 @@ module QuboEncoding =
         // Start with basic encoding
         let qubo = encodeVariables variables
         
-        // Apply each constraint
-        for constr in constraints do
+        // Helper to apply equality constraint penalties
+        let applyEqualityConstraint indices target =
+            // Penalty: (sum(x_i) - target)^2
+            // Diagonal terms: (1 - 2*target) * weight
+            indices
+            |> List.iter (fun i ->
+                qubo.Coefficients.[i, i] <- qubo.Coefficients.[i, i] + penaltyWeight * (1.0 - 2.0 * target))
+            
+            // Off-diagonal terms: 2 * weight
+            indices
+            |> List.iter (fun i ->
+                indices
+                |> List.filter (fun j -> i < j)
+                |> List.iter (fun j ->
+                    qubo.Coefficients.[i, j] <- qubo.Coefficients.[i, j] + penaltyWeight * 2.0
+                    qubo.Coefficients.[j, i] <- qubo.Coefficients.[j, i] + penaltyWeight * 2.0))
+        
+        // Helper to apply inequality constraint penalties
+        let applyInequalityConstraint indices maxVal =
+            indices
+            |> List.filter (fun i -> float i > maxVal)
+            |> List.iter (fun i ->
+                qubo.Coefficients.[i, i] <- qubo.Coefficients.[i, i] + penaltyWeight)
+        
+        // Apply each constraint functionally
+        constraints
+        |> List.iter (fun constr ->
             match constr with
             | EqualityConstraint(indices, target) ->
-                // Penalty: (sum(x_i) - target)^2
-                // Expansion: sum(x_i^2) + 2*sum(x_i*x_j) - 2*target*sum(x_i) + target^2
-                // For binary: x^2 = x, so: sum(x_i) + 2*sum(x_i*x_j) - 2*target*sum(x_i) + target^2
-                //                        = sum((1 - 2*target)*x_i) + 2*sum(x_i*x_j) + target^2
-                
-                // Diagonal terms: (1 - 2*target) * weight
-                for i in indices do
-                    qubo.Coefficients.[i, i] <- qubo.Coefficients.[i, i] + penaltyWeight * (1.0 - 2.0 * target)
-                
-                // Off-diagonal terms: 2 * weight
-                for i in indices do
-                    for j in indices do
-                        if i < j then
-                            qubo.Coefficients.[i, j] <- qubo.Coefficients.[i, j] + penaltyWeight * 2.0
-                            qubo.Coefficients.[j, i] <- qubo.Coefficients.[j, i] + penaltyWeight * 2.0
-            
+                applyEqualityConstraint indices target
             | InequalityConstraint(indices, maxVal) ->
-                // For inequality x <= maxVal, use slack variables or penalty
-                // Simple penalty: max(0, x - maxVal)^2
-                // For now, just add a soft penalty discouraging values > maxVal
-                for i in indices do
-                    if float i > maxVal then
-                        qubo.Coefficients.[i, i] <- qubo.Coefficients.[i, i] + penaltyWeight
+                applyInequalityConstraint indices maxVal)
         
         qubo
     
     let decodeSolution (variables: Variable list) (binarySolution: int list) : Solution =
-        // Decode binary solution back to variable assignments
-        let mutable offset = 0
-        let assignments =
-            variables |> List.map (fun var ->
+        // Decode binary solution back to variable assignments using fold to track offset
+        let (assignments, _) =
+            variables
+            |> List.fold (fun (accAssignments, offset) var ->
                 match var.VarType with
                 | BinaryVar ->
                     let value = binarySolution.[offset]
-                    offset <- offset + 1
-                    { Name = var.Name; Value = value }
+                    let assignment = { Name = var.Name; Value = value }
+                    (assignment :: accAssignments, offset + 1)
                 
                 | IntegerVar(min, max) ->
                     let numBits = max - min + 1
@@ -174,8 +177,8 @@ module QuboEncoding =
                         |> Option.map (fun (idx, _) -> min + idx)
                         |> Option.defaultValue min
                     
-                    offset <- offset + numBits
-                    { Name = var.Name; Value = value }
+                    let assignment = { Name = var.Name; Value = value }
+                    (assignment :: accAssignments, offset + numBits)
                 
                 | CategoricalVar(categories) ->
                     let numBits = categories.Length
@@ -189,8 +192,8 @@ module QuboEncoding =
                         |> Option.map fst
                         |> Option.defaultValue 0
                     
-                    offset <- offset + numBits
-                    { Name = var.Name; Value = categoryIndex }
-            )
+                    let assignment = { Name = var.Name; Value = categoryIndex }
+                    (assignment :: accAssignments, offset + numBits)
+            ) ([], 0)
         
-        { Assignments = assignments }
+        { Assignments = List.rev assignments }
