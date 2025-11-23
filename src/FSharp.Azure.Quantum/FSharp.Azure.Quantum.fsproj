@@ -13,12 +13,12 @@
     <Compile Include="Client.fs" />
     <Compile Include="TspSolver.fs" />
     <Compile Include="ProblemAnalysis.fs" />
+    <Compile Include="QuantumAdvisor.fs" />
   </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Azure.Identity" Version="1.13.1" />
     <PackageReference Include="Microsoft.Extensions.Logging" Version="8.0.0" />
-    <PackageReference Include="System.Text.Json" Version="8.0.5" />
   </ItemGroup>
 
 </Project>

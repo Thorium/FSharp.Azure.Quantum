@@ -20,9 +20,11 @@ let ``JobStatus should parse Succeeded status`` () =
 
 [<Fact>]
 let ``JobStatus should parse Failed status with error details`` () =
-    let status = JobStatus.Parse("failed", Some "InvalidCircuit", Some "Circuit validation failed")
+    let status =
+        JobStatus.Parse("failed", Some "InvalidCircuit", Some "Circuit validation failed")
+
     match status with
-    | JobStatus.Failed (code, message) ->
+    | JobStatus.Failed(code, message) ->
         Assert.Equal("InvalidCircuit", code)
         Assert.Equal("Circuit validation failed", message)
     | _ -> Assert.True(false, "Expected Failed status")
@@ -35,8 +37,9 @@ let ``JobStatus should parse Cancelled status`` () =
 [<Fact>]
 let ``JobStatus should handle unknown status as Failed`` () =
     let status = JobStatus.Parse("unknown", None, None)
+
     match status with
-    | JobStatus.Failed (code, message) ->
+    | JobStatus.Failed(code, message) ->
         Assert.Equal("UnknownStatus", code)
         Assert.Contains("unknown", message)
     | _ -> Assert.True(false, "Expected Failed status")
