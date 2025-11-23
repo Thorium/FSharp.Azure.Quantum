@@ -218,3 +218,109 @@ module CircuitBuilderTests =
         
         let optimized = CircuitBuilder.optimize circuit
         Assert.Equal(2, CircuitBuilder.gateCount optimized)  // RX(1, 3.0) and CNOT
+
+    // TDD Cycle #4: OpenQASM output generation tests
+
+    [<Fact>]
+    let ``toOpenQASM should include header and qubit declaration`` () =
+        let circuit = CircuitBuilder.empty 3
+        let qasm = CircuitBuilder.toOpenQASM circuit
+        
+        Assert.Contains("OPENQASM 2.0;", qasm)
+        Assert.Contains("include \"qelib1.inc\";", qasm)
+        Assert.Contains("qreg q[3];", qasm)
+
+    [<Fact>]
+    let ``toOpenQASM should output X gate correctly`` () =
+        let circuit = 
+            CircuitBuilder.empty 2
+            |> CircuitBuilder.addGate (CircuitBuilder.Gate.X 0)
+        
+        let qasm = CircuitBuilder.toOpenQASM circuit
+        Assert.Contains("x q[0];", qasm)
+
+    [<Fact>]
+    let ``toOpenQASM should output Y gate correctly`` () =
+        let circuit = 
+            CircuitBuilder.empty 2
+            |> CircuitBuilder.addGate (CircuitBuilder.Gate.Y 1)
+        
+        let qasm = CircuitBuilder.toOpenQASM circuit
+        Assert.Contains("y q[1];", qasm)
+
+    [<Fact>]
+    let ``toOpenQASM should output Z gate correctly`` () =
+        let circuit = 
+            CircuitBuilder.empty 2
+            |> CircuitBuilder.addGate (CircuitBuilder.Gate.Z 0)
+        
+        let qasm = CircuitBuilder.toOpenQASM circuit
+        Assert.Contains("z q[0];", qasm)
+
+    [<Fact>]
+    let ``toOpenQASM should output H gate correctly`` () =
+        let circuit = 
+            CircuitBuilder.empty 2
+            |> CircuitBuilder.addGate (CircuitBuilder.Gate.H 1)
+        
+        let qasm = CircuitBuilder.toOpenQASM circuit
+        Assert.Contains("h q[1];", qasm)
+
+    [<Fact>]
+    let ``toOpenQASM should output CNOT gate correctly`` () =
+        let circuit = 
+            CircuitBuilder.empty 2
+            |> CircuitBuilder.addGate (CircuitBuilder.Gate.CNOT (0, 1))
+        
+        let qasm = CircuitBuilder.toOpenQASM circuit
+        Assert.Contains("cx q[0],q[1];", qasm)
+
+    [<Fact>]
+    let ``toOpenQASM should output RX gate correctly`` () =
+        let circuit = 
+            CircuitBuilder.empty 1
+            |> CircuitBuilder.addGate (CircuitBuilder.Gate.RX (0, 1.5707963))
+        
+        let qasm = CircuitBuilder.toOpenQASM circuit
+        Assert.Contains("rx(1.5707963) q[0];", qasm)
+
+    [<Fact>]
+    let ``toOpenQASM should output RY gate correctly`` () =
+        let circuit = 
+            CircuitBuilder.empty 1
+            |> CircuitBuilder.addGate (CircuitBuilder.Gate.RY (0, 3.1415926))
+        
+        let qasm = CircuitBuilder.toOpenQASM circuit
+        Assert.Contains("ry(3.1415926) q[0];", qasm)
+
+    [<Fact>]
+    let ``toOpenQASM should output RZ gate correctly`` () =
+        let circuit = 
+            CircuitBuilder.empty 1
+            |> CircuitBuilder.addGate (CircuitBuilder.Gate.RZ (0, 0.7853982))
+        
+        let qasm = CircuitBuilder.toOpenQASM circuit
+        Assert.Contains("rz(0.7853982) q[0];", qasm)
+
+    [<Fact>]
+    let ``toOpenQASM should output complete circuit correctly`` () =
+        let circuit = 
+            CircuitBuilder.empty 3
+            |> CircuitBuilder.addGate (CircuitBuilder.Gate.H 0)
+            |> CircuitBuilder.addGate (CircuitBuilder.Gate.H 1)
+            |> CircuitBuilder.addGate (CircuitBuilder.Gate.CNOT (0, 1))
+            |> CircuitBuilder.addGate (CircuitBuilder.Gate.RX (2, 1.5))
+            |> CircuitBuilder.addGate (CircuitBuilder.Gate.X 2)
+        
+        let qasm = CircuitBuilder.toOpenQASM circuit
+        
+        // Verify structure
+        Assert.Contains("OPENQASM 2.0;", qasm)
+        Assert.Contains("qreg q[3];", qasm)
+        
+        // Verify gates in order
+        Assert.Contains("h q[0];", qasm)
+        Assert.Contains("h q[1];", qasm)
+        Assert.Contains("cx q[0],q[1];", qasm)
+        Assert.Contains("rx(1.5) q[2];", qasm)
+        Assert.Contains("x q[2];", qasm)
