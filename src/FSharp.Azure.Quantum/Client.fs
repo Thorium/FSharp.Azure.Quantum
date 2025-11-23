@@ -381,8 +381,8 @@ module Client =
         
         /// Check if job is in terminal state
         static member private isTerminalState = function
-            | JobStatus.Succeeded
-            | JobStatus.Failed _
+            | JobStatus.Succeeded -> true
+            | JobStatus.Failed _ -> true
             | JobStatus.Cancelled _ -> true
             | _ -> false
         
