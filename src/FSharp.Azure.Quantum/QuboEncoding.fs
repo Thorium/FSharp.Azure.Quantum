@@ -32,9 +32,25 @@ type Solution = {
 /// Converts optimization problems into quantum-compatible QUBO format
 module QuboEncoding =
     
-    // Encoding functions (to be implemented)
+    // Encoding functions
     let encodeVariables (variables: Variable list) : QuboMatrix =
-        failwith "Not implemented yet"
+        // For binary variables, each variable maps to one qubit
+        // QUBO matrix initialized with zeros (no bias or interactions by default)
+        let size = variables.Length
+        let coefficients = Array2D.zeroCreate<float> size size
+        let variableNames = variables |> List.map (fun v -> v.Name)
+        
+        {
+            Size = size
+            Coefficients = coefficients
+            VariableNames = variableNames
+        }
     
     let decodeSolution (variables: Variable list) (binarySolution: int list) : Solution =
-        failwith "Not implemented yet"
+        // Decode binary solution back to variable assignments
+        let assignments =
+            List.zip variables binarySolution
+            |> List.map (fun (var, value) ->
+                { Name = var.Name; Value = value })
+        
+        { Assignments = assignments }
