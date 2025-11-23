@@ -12,6 +12,7 @@
     <Compile Include="QuantumClientTests.fs" />
     <Compile Include="TspSolverTests.fs" />
     <Compile Include="ProblemAnalysisTests.fs" />
+    <Compile Include="QaoaCircuitTests.fs" />
   </ItemGroup>
 
   <ItemGroup>
