@@ -177,3 +177,175 @@ module ProblemAnalysisTests =
         | Error errorMsg ->
             Assert.True(errorMsg.Contains("infinity") || errorMsg.Contains("invalid"),
                        $"Error should mention infinity/invalid values, got: {errorMsg}")
+    
+    // ===== Search Space Estimation Tests =====
+    
+    [<Fact>]
+    let ``Should estimate TSP search space correctly for small problem``() =
+        // Arrange: 5-city TSP
+        let matrix = array2D [
+            [0.0; 10.0; 15.0; 20.0; 25.0]
+            [10.0; 0.0; 35.0; 30.0; 40.0]
+            [15.0; 35.0; 0.0; 30.0; 45.0]
+            [20.0; 30.0; 30.0; 0.0; 50.0]
+            [25.0; 40.0; 45.0; 50.0; 0.0]
+        ]
+        
+        // Act
+        let result = ProblemAnalysis.classifyProblem matrix
+        
+        // Assert
+        match result with
+        | Ok problemInfo ->
+            Assert.Equal("O(n!)", problemInfo.Complexity)
+            // 5! = 120
+            Assert.Equal(120.0, problemInfo.SearchSpaceSize)
+            Assert.True(problemInfo.SearchSpaceSize > 0.0, "Search space should be positive")
+        | Error errorMsg ->
+            Assert.Fail($"Should succeed: {errorMsg}")
+    
+    [<Fact>]
+    let ``Should estimate TSP search space for larger problem``() =
+        // Arrange: 10-city TSP
+        let matrix = Array2D.init 10 10 (fun i j -> 
+            if i = j then 0.0 else float (i + j + 1) * 10.0)
+        
+        // Act
+        let result = ProblemAnalysis.classifyProblem matrix
+        
+        // Assert
+        match result with
+        | Ok problemInfo ->
+            Assert.Equal("O(n!)", problemInfo.Complexity)
+            // 10! = 3,628,800
+            Assert.Equal(3628800.0, problemInfo.SearchSpaceSize)
+            Assert.True(problemInfo.SearchSpaceSize > 1_000_000.0, 
+                       "10-city TSP should have > 1M search space")
+        | Error errorMsg ->
+            Assert.Fail($"Should succeed: {errorMsg}")
+    
+    [<Fact>]
+    let ``Should handle very large TSP problem without overflow``() =
+        // Arrange: 20-city TSP (20! is huge)
+        let matrix = Array2D.init 20 20 (fun i j -> 
+            if i = j then 0.0 else float (abs(i - j)) * 5.0)
+        
+        // Act
+        let result = ProblemAnalysis.classifyProblem matrix
+        
+        // Assert
+        match result with
+        | Ok problemInfo ->
+            Assert.Equal("O(n!)", problemInfo.Complexity)
+            // Should not be NaN or negative infinity
+            Assert.False(Double.IsNaN(problemInfo.SearchSpaceSize), 
+                        "Search space should not be NaN")
+            Assert.True(problemInfo.SearchSpaceSize > 0.0, 
+                       "Search space should be positive")
+            // 20! is approximately 2.43 × 10^18
+            Assert.True(problemInfo.SearchSpaceSize > 1e18, 
+                       "20-city TSP search space should be > 10^18")
+        | Error errorMsg ->
+            Assert.Fail($"Should succeed: {errorMsg}")
+    
+    // ===== Quantum Advantage Estimation Tests =====
+    
+    [<Fact>]
+    let ``Should estimate quantum advantage for small TSP``() =
+        // Arrange: 5-city TSP (small, classical is faster)
+        let matrix = array2D [
+            [0.0; 10.0; 15.0; 20.0; 25.0]
+            [10.0; 0.0; 35.0; 30.0; 40.0]
+            [15.0; 35.0; 0.0; 30.0; 45.0]
+            [20.0; 30.0; 30.0; 0.0; 50.0]
+            [25.0; 40.0; 45.0; 50.0; 0.0]
+        ]
+        
+        // Act
+        let result = ProblemAnalysis.estimateQuantumAdvantage matrix
+        
+        // Assert
+        match result with
+        | Ok advantage ->
+            Assert.True(advantage.ProblemSize >= 0, "Problem size should be non-negative")
+            Assert.NotNull(advantage.Recommendation)
+            Assert.False(String.IsNullOrWhiteSpace(advantage.Recommendation), 
+                        "Recommendation should be meaningful")
+            // Small problems should recommend classical
+            Assert.Contains("classical", advantage.Recommendation.ToLower())
+        | Error errorMsg ->
+            Assert.Fail($"Should succeed: {errorMsg}")
+    
+    [<Fact>]
+    let ``Should estimate quantum advantage for medium TSP``() =
+        // Arrange: 15-city TSP (medium, quantum might help)
+        let matrix = Array2D.init 15 15 (fun i j -> 
+            if i = j then 0.0 else float (i + j + 1) * 10.0)
+        
+        // Act
+        let result = ProblemAnalysis.estimateQuantumAdvantage matrix
+        
+        // Assert
+        match result with
+        | Ok advantage ->
+            Assert.Equal(15, advantage.ProblemSize)
+            Assert.True(advantage.QuantumSpeedup >= 1.0, 
+                       "Quantum speedup should be at least 1x")
+            Assert.True(advantage.EstimatedClassicalTimeMs > 0.0,
+                       "Classical time estimate should be positive")
+            Assert.True(advantage.EstimatedQuantumTimeMs > 0.0,
+                       "Quantum time estimate should be positive")
+            Assert.False(String.IsNullOrWhiteSpace(advantage.Recommendation))
+        | Error errorMsg ->
+            Assert.Fail($"Should succeed: {errorMsg}")
+    
+    [<Fact>]
+    let ``Should estimate quantum advantage for large TSP``() =
+        // Arrange: 50-city TSP (large, quantum advantage expected)
+        let matrix = Array2D.init 50 50 (fun i j -> 
+            if i = j then 0.0 else float (abs(i - j)) * 3.0)
+        
+        // Act
+        let result = ProblemAnalysis.estimateQuantumAdvantage matrix
+        
+        // Assert
+        match result with
+        | Ok advantage ->
+            Assert.Equal(50, advantage.ProblemSize)
+            // For large problems, quantum should show significant advantage
+            Assert.True(advantage.QuantumSpeedup > 1.0, 
+                       "Large problems should show quantum speedup")
+            Assert.Contains("quantum", advantage.Recommendation.ToLower())
+        | Error errorMsg ->
+            Assert.Fail($"Should succeed: {errorMsg}")
+    
+    [<Fact>]
+    let ``Quantum advantage should reject null input``() =
+        // Arrange
+        let nullMatrix : float[,] = null
+        
+        // Act
+        let result = ProblemAnalysis.estimateQuantumAdvantage nullMatrix
+        
+        // Assert
+        match result with
+        | Ok _ -> Assert.Fail("Should reject null matrix")
+        | Error errorMsg ->
+            Assert.Contains("null", errorMsg.ToLower())
+    
+    [<Fact>]
+    let ``Quantum advantage should reject invalid matrix``() =
+        // Arrange: Non-square matrix
+        let invalidMatrix = array2D [
+            [0.0; 10.0; 15.0]
+            [10.0; 0.0; 35.0]
+        ]
+        
+        // Act
+        let result = ProblemAnalysis.estimateQuantumAdvantage invalidMatrix
+        
+        // Assert
+        match result with
+        | Ok _ -> Assert.Fail("Should reject invalid matrix")
+        | Error errorMsg ->
+            Assert.False(String.IsNullOrWhiteSpace(errorMsg))

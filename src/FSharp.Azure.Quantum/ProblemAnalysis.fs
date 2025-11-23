@@ -162,3 +162,119 @@ module ProblemAnalysis =
             match boxed with
             | :? (float[,]) as matrix -> classifyDistanceMatrix matrix
             | _ -> Error $"Cannot classify input of type {typeof<'T>.Name}"
+    
+    /// Quantum advantage estimation result
+    type QuantumAdvantage = {
+        /// Problem size
+        ProblemSize: int
+        
+        /// Estimated classical solver time (milliseconds)
+        EstimatedClassicalTimeMs: float
+        
+        /// Estimated quantum solver time (milliseconds)
+        EstimatedQuantumTimeMs: float
+        
+        /// Quantum speedup factor (classical time / quantum time)
+        QuantumSpeedup: float
+        
+        /// Recommendation: "quantum" or "classical"
+        Recommendation: string
+        
+        /// Detailed reasoning for the recommendation
+        Reasoning: string
+    }
+    
+    /// Estimate quantum advantage for a given problem
+    /// Returns Result with QuantumAdvantage or error message
+    let estimateQuantumAdvantage (input: 'T) : Result<QuantumAdvantage, string> =
+        // First classify the problem
+        match classifyProblem input with
+        | Error msg -> Error msg
+        | Ok problemInfo ->
+            let n = problemInfo.Size
+            
+            // Heuristic time estimates based on problem type and size
+            let classicalTimeMs = 
+                match problemInfo.ProblemType with
+                | TSP ->
+                    // Classical TSP: O(n!) complexity
+                    // For small n, use exact algorithm time estimates
+                    // For large n, use heuristic approximations
+                    if n <= 10 then
+                        // Small: 2-opt can solve quickly (< 1 second)
+                        float n * float n * 0.1
+                    elif n <= 20 then
+                        // Medium: exponential growth (seconds to minutes)
+                        float n * float n * float n * 0.5
+                    elif n <= 50 then
+                        // Large: practical limit for exact solutions (minutes to hours)
+                        pown (float n) 4 * 2.0
+                    else
+                        // Very large: impractical for exact solutions (hours to days)
+                        pown (float n) 5 * 5.0
+                | Portfolio ->
+                    // Portfolio optimization: typically O(n^3) for mean-variance
+                    float n * float n * float n * 0.01
+                | QUBO | Unknown ->
+                    // Generic: assume exponential complexity O(2^n)
+                    if n <= 20 then
+                        pown 2.0 n * 0.1
+                    else
+                        Double.PositiveInfinity  // Too large
+            
+            let quantumTimeMs =
+                match problemInfo.ProblemType with
+                | TSP ->
+                    // Quantum annealing for TSP: polynomial-time heuristic
+                    // Real quantum annealers don't achieve full Grover speedup but much better than classical
+                    if n <= 10 then
+                        // Small problems: quantum overhead dominates
+                        float n * float n * 1.0
+                    elif n <= 20 then
+                        // Medium: quantum starts to show advantage
+                        float n * float n * float n * 0.1 + 100.0
+                    elif n <= 50 then
+                        // Large: significant quantum advantage with polynomial scaling
+                        float n * float n * float n * 0.5 + 150.0
+                    else
+                        // Very large: quantum provides practical solution
+                        pown (float n) 4 * 0.1 + 200.0
+                | Portfolio ->
+                    // Quantum speedup for portfolio: quadratic advantage
+                    float n * float n * 0.05 + 50.0  // 50ms overhead
+                | QUBO | Unknown ->
+                    // Generic quantum annealing
+                    if n <= 20 then
+                        sqrt (pown 2.0 n) * 0.5 + 100.0
+                    else
+                        sqrt (pown 2.0 20) * 0.5 + 100.0  // Cap estimate
+            
+            let speedup = 
+                if quantumTimeMs > 0.0 && not (Double.IsInfinity classicalTimeMs) then
+                    classicalTimeMs / quantumTimeMs
+                else
+                    1.0
+            
+            // Recommendation logic
+            let (recommendation, reasoning) =
+                if n < 10 then
+                    ("classical", 
+                     $"Small problem (n={n}). Classical algorithms are faster due to quantum overhead.")
+                elif speedup < 2.0 then
+                    ("classical", 
+                     $"Quantum speedup ({speedup:F2}x) does not justify quantum hardware costs.")
+                elif speedup < 10.0 then
+                    ("quantum", 
+                     $"Moderate quantum advantage ({speedup:F2}x speedup). Consider quantum if available.")
+                else
+                    ("quantum", 
+                     $"Significant quantum advantage ({speedup:F2}x speedup). Strong recommendation for quantum.")
+            
+            Ok {
+                ProblemSize = n
+                EstimatedClassicalTimeMs = classicalTimeMs
+                EstimatedQuantumTimeMs = quantumTimeMs
+                QuantumSpeedup = speedup
+                Recommendation = recommendation
+                Reasoning = reasoning
+            }
