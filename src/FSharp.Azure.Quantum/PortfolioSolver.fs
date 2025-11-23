@@ -261,4 +261,145 @@ module PortfolioSolver =
             SharpeRatio = sharpeRatio
             ElapsedMs = elapsedMs
         }
-
+    
+    // ================================================================================
+    // MEAN-VARIANCE OPTIMIZATION ALGORITHM
+    // ================================================================================
+    
+    /// Calculate utility score for a portfolio (quadratic utility function)
+    /// Utility = ExpectedReturn - (0.5 * RiskAversion * Risk^2)
+    let private calculateUtility (expectedReturn: float) (risk: float) (riskAversion: float) : float =
+        expectedReturn - (0.5 * riskAversion * risk * risk)
+    
+    /// Solve portfolio optimization using simplified mean-variance approach
+    /// Uses iterative search to find allocation that maximizes utility function
+    let solveMeanVariance (assets: Asset list) (constraints: Constraints) (config: PortfolioConfig) : PortfolioSolution =
+        let startTime = DateTime.UtcNow
+        
+        // Convert risk tolerance (0-1) to risk aversion (higher tolerance = lower aversion)
+        // Risk aversion = 2 * (1 - tolerance), range [0.2, 2.0]
+        let riskAversion = 2.0 * (1.0 - config.RiskTolerance) + 0.2
+        
+        // Simplified mean-variance: Try different weighted combinations
+        // Start with equal weight allocation, then adjust based on utility
+        let numAssets = assets.Length
+        
+        // Generate candidate allocations using grid search
+        let generateCandidates () =
+            // Strategy: Create multiple allocation patterns
+            [
+                // Equal weight to all assets
+                yield assets |> List.map (fun a -> (a, 1.0 / float numAssets))
+                
+                // Weight by return (normalized)
+                let totalReturn = assets |> List.sumBy (fun a -> max 0.0 a.ExpectedReturn)
+                if totalReturn > 0.0 then
+                    yield assets |> List.map (fun a -> (a, (max 0.0 a.ExpectedReturn) / totalReturn))
+                
+                // Weight by inverse risk (normalized)
+                let totalInvRisk = assets |> List.sumBy (fun a -> if a.Risk > 0.0 then 1.0 / a.Risk else 0.0)
+                if totalInvRisk > 0.0 then
+                    yield assets |> List.map (fun a -> 
+                        let invRisk = if a.Risk > 0.0 then 1.0 / a.Risk else 0.0
+                        (a, invRisk / totalInvRisk))
+                
+                // Weight by Sharpe ratio (normalized)
+                let ratios = assets |> List.map (fun a -> calculateRatio a)
+                let totalRatio = ratios |> List.sum
+                if totalRatio > 0.0 then
+                    yield List.zip assets ratios |> List.map (fun (a, r) -> (a, r / totalRatio))
+                
+                // Balanced: 50% by return, 50% by inverse risk
+                if totalReturn > 0.0 && totalInvRisk > 0.0 then
+                    yield assets |> List.map (fun a ->
+                        let returnWeight = (max 0.0 a.ExpectedReturn) / totalReturn
+                        let riskWeight = (if a.Risk > 0.0 then 1.0 / a.Risk else 0.0) / totalInvRisk
+                        (a, 0.5 * returnWeight + 0.5 * riskWeight))
+            ]
+        
+        // Convert weight allocation to actual shares within constraints
+        let allocateByWeights (weights: (Asset * float) list) =
+            let totalBudget = constraints.Budget
+            
+            // Calculate target values for each asset based on weights
+            let targetAllocations =
+                weights
+                |> List.map (fun (asset, weight) ->
+                    let targetValue = weight * totalBudget
+                    let constrainedValue = min targetValue constraints.MaxHolding
+                    let shares = constrainedValue / asset.Price
+                    (asset, shares, shares * asset.Price))
+            
+            // Normalize if total exceeds budget
+            let totalValue = targetAllocations |> List.sumBy (fun (_, _, v) -> v)
+            
+            if totalValue > totalBudget then
+                // Scale down proportionally
+                let scale = totalBudget / totalValue
+                targetAllocations
+                |> List.map (fun (asset, shares, value) ->
+                    let scaledShares = shares * scale
+                    let scaledValue = scaledShares * asset.Price
+                    (asset, scaledShares, scaledValue))
+            else
+                targetAllocations
+        
+        // Evaluate a candidate allocation
+        let evaluateCandidate (weights: (Asset * float) list) =
+            let allocData = allocateByWeights weights
+            let totalValue = allocData |> List.sumBy (fun (_, _, v) -> v)
+            
+            if totalValue = 0.0 then
+                None
+            else
+                // Create allocations with percentages
+                let allocations =
+                    allocData
+                    |> List.filter (fun (_, shares, _) -> shares > 0.0)
+                    |> List.map (fun (asset, shares, value) ->
+                        {
+                            Asset = asset
+                            Shares = shares
+                            Value = value
+                            Percentage = value / totalValue
+                        })
+                
+                // Calculate portfolio metrics
+                let (expectedReturn, risk, sharpeRatio) = calculatePortfolioMetrics allocations totalValue
+                
+                // Calculate utility score
+                let utility = calculateUtility expectedReturn risk riskAversion
+                
+                Some (allocations, totalValue, expectedReturn, risk, sharpeRatio, utility)
+        
+        // Find best allocation among candidates
+        let candidates = generateCandidates ()
+        let evaluatedCandidates =
+            candidates
+            |> List.choose evaluateCandidate
+        
+        // Select candidate with highest utility
+        let bestSolution =
+            if evaluatedCandidates.IsEmpty then
+                // Fallback: use greedy if mean-variance fails
+                let greedy = solveGreedyByRatio assets constraints config
+                (greedy.Allocations, greedy.TotalValue, greedy.ExpectedReturn, greedy.Risk, greedy.SharpeRatio)
+            else
+                let (allocations, totalValue, expectedReturn, risk, sharpeRatio, _utility) =
+                    evaluatedCandidates
+                    |> List.maxBy (fun (_, _, _, _, _, u) -> u)
+                (allocations, totalValue, expectedReturn, risk, sharpeRatio)
+        
+        let (allocations, totalValue, expectedReturn, risk, sharpeRatio) = bestSolution
+        
+        let endTime = DateTime.UtcNow
+        let elapsedMs = (endTime - startTime).TotalMilliseconds
+        
+        {
+            Allocations = allocations
+            TotalValue = totalValue
+            ExpectedReturn = expectedReturn
+            Risk = risk
+            SharpeRatio = sharpeRatio
+            ElapsedMs = elapsedMs
+        }
