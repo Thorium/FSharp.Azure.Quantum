@@ -28,6 +28,11 @@ type Solution = {
     Assignments: VariableAssignment list
 }
 
+// Constraint types for custom QUBO encoding
+type Constraint =
+    | EqualityConstraint of variableIndices: int list * targetValue: float
+    | InequalityConstraint of variableIndices: int list * maxValue: float
+
 /// QUBO (Quadratic Unconstrained Binary Optimization) Encoding Module
 /// Converts optimization problems into quantum-compatible QUBO format
 module QuboEncoding =
@@ -109,6 +114,40 @@ module QuboEncoding =
                         qubo.Coefficients.[offset + j, offset + i] <- 2.0
                 
                 offset <- offset + numBits
+        
+        qubo
+    
+    let encodeVariablesWithCustomConstraints (variables: Variable list) (constraints: Constraint list) (penaltyWeight: float) : QuboMatrix =
+        // Start with basic encoding
+        let qubo = encodeVariables variables
+        
+        // Apply each constraint
+        for constr in constraints do
+            match constr with
+            | EqualityConstraint(indices, target) ->
+                // Penalty: (sum(x_i) - target)^2
+                // Expansion: sum(x_i^2) + 2*sum(x_i*x_j) - 2*target*sum(x_i) + target^2
+                // For binary: x^2 = x, so: sum(x_i) + 2*sum(x_i*x_j) - 2*target*sum(x_i) + target^2
+                //                        = sum((1 - 2*target)*x_i) + 2*sum(x_i*x_j) + target^2
+                
+                // Diagonal terms: (1 - 2*target) * weight
+                for i in indices do
+                    qubo.Coefficients.[i, i] <- qubo.Coefficients.[i, i] + penaltyWeight * (1.0 - 2.0 * target)
+                
+                // Off-diagonal terms: 2 * weight
+                for i in indices do
+                    for j in indices do
+                        if i < j then
+                            qubo.Coefficients.[i, j] <- qubo.Coefficients.[i, j] + penaltyWeight * 2.0
+                            qubo.Coefficients.[j, i] <- qubo.Coefficients.[j, i] + penaltyWeight * 2.0
+            
+            | InequalityConstraint(indices, maxVal) ->
+                // For inequality x <= maxVal, use slack variables or penalty
+                // Simple penalty: max(0, x - maxVal)^2
+                // For now, just add a soft penalty discouraging values > maxVal
+                for i in indices do
+                    if float i > maxVal then
+                        qubo.Coefficients.[i, i] <- qubo.Coefficients.[i, i] + penaltyWeight
         
         qubo
     
