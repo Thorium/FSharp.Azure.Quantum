@@ -147,3 +147,74 @@ module CircuitBuilderTests =
         match gates.[2] with
         | CircuitBuilder.Gate.CNOT (0, 1) -> ()
         | _ -> Assert.True(false, "Expected CNOT (0,1) as third gate")
+
+    // TDD Cycle #3: Basic optimization tests
+
+    [<Fact>]
+    let ``optimize should remove consecutive H gates on same qubit`` () =
+        let circuit = 
+            CircuitBuilder.empty 2
+            |> CircuitBuilder.addGate (CircuitBuilder.Gate.H 0)
+            |> CircuitBuilder.addGate (CircuitBuilder.Gate.H 0)  // Should be removed
+            |> CircuitBuilder.addGate (CircuitBuilder.Gate.X 1)
+        
+        let optimized = CircuitBuilder.optimize circuit
+        Assert.Equal(1, CircuitBuilder.gateCount optimized)
+        
+        let gates = CircuitBuilder.getGates optimized
+        match gates.[0] with
+        | CircuitBuilder.Gate.X 1 -> ()
+        | _ -> Assert.True(false, "Expected X 1 after H-H removal")
+
+    [<Fact>]
+    let ``optimize should remove consecutive X gates on same qubit`` () =
+        let circuit = 
+            CircuitBuilder.empty 2
+            |> CircuitBuilder.addGate (CircuitBuilder.Gate.X 0)
+            |> CircuitBuilder.addGate (CircuitBuilder.Gate.X 0)  // Should be removed
+            |> CircuitBuilder.addGate (CircuitBuilder.Gate.H 1)
+        
+        let optimized = CircuitBuilder.optimize circuit
+        Assert.Equal(1, CircuitBuilder.gateCount optimized)
+
+    [<Fact>]
+    let ``optimize should fuse consecutive RX gates on same qubit`` () =
+        let circuit = 
+            CircuitBuilder.empty 1
+            |> CircuitBuilder.addGate (CircuitBuilder.Gate.RX (0, 1.5))
+            |> CircuitBuilder.addGate (CircuitBuilder.Gate.RX (0, 2.0))  // Should fuse to RX(0, 3.5)
+        
+        let optimized = CircuitBuilder.optimize circuit
+        Assert.Equal(1, CircuitBuilder.gateCount optimized)
+        
+        let gates = CircuitBuilder.getGates optimized
+        match gates.[0] with
+        | CircuitBuilder.Gate.RX (0, angle) -> Assert.Equal(3.5, angle)
+        | _ -> Assert.True(false, "Expected fused RX gate")
+
+    [<Fact>]
+    let ``optimize should preserve gates on different qubits`` () =
+        let circuit = 
+            CircuitBuilder.empty 3
+            |> CircuitBuilder.addGate (CircuitBuilder.Gate.H 0)
+            |> CircuitBuilder.addGate (CircuitBuilder.Gate.H 1)  // Different qubit, keep both
+            |> CircuitBuilder.addGate (CircuitBuilder.Gate.X 0)
+            |> CircuitBuilder.addGate (CircuitBuilder.Gate.X 2)  // Different qubit, keep both
+        
+        let optimized = CircuitBuilder.optimize circuit
+        Assert.Equal(4, CircuitBuilder.gateCount optimized)
+
+    [<Fact>]
+    let ``optimize should handle complex optimization scenarios`` () =
+        let circuit = 
+            CircuitBuilder.empty 2
+            |> CircuitBuilder.addGate (CircuitBuilder.Gate.H 0)
+            |> CircuitBuilder.addGate (CircuitBuilder.Gate.H 0)      // Remove H-H
+            |> CircuitBuilder.addGate (CircuitBuilder.Gate.X 0)
+            |> CircuitBuilder.addGate (CircuitBuilder.Gate.X 0)      // Remove X-X
+            |> CircuitBuilder.addGate (CircuitBuilder.Gate.RX (1, 1.0))
+            |> CircuitBuilder.addGate (CircuitBuilder.Gate.RX (1, 2.0))  // Fuse to RX(1, 3.0)
+            |> CircuitBuilder.addGate (CircuitBuilder.Gate.CNOT (0, 1))
+        
+        let optimized = CircuitBuilder.optimize circuit
+        Assert.Equal(2, CircuitBuilder.gateCount optimized)  // RX(1, 3.0) and CNOT
