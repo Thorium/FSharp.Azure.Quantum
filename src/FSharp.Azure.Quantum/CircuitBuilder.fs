@@ -76,3 +76,24 @@ module CircuitBuilder =
                 gate :: optimizeGates rest
         
         { circuit with Gates = optimizeGates circuit.Gates }
+
+    /// Converts a gate to OpenQASM 2.0 format
+    let private gateToQASM (gate: Gate) : string =
+        match gate with
+        | X q -> $"x q[{q}];"
+        | Y q -> $"y q[{q}];"
+        | Z q -> $"z q[{q}];"
+        | H q -> $"h q[{q}];"
+        | CNOT (control, target) -> $"cx q[{control}],q[{target}];"
+        | RX (q, angle) -> $"rx({angle}) q[{q}];"
+        | RY (q, angle) -> $"ry({angle}) q[{q}];"
+        | RZ (q, angle) -> $"rz({angle}) q[{q}];"
+
+    /// Converts a circuit to OpenQASM 2.0 format for Azure Quantum submission
+    let toOpenQASM (circuit: Circuit) : string =
+        let header = "OPENQASM 2.0;\ninclude \"qelib1.inc\";"
+        let qregDecl = $"qreg q[{circuit.QubitCount}];"
+        let gateLines = circuit.Gates |> List.map gateToQASM
+        
+        let allLines = [header; qregDecl] @ gateLines
+        System.String.Join("\n", allLines)
