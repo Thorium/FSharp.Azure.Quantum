@@ -49,3 +49,30 @@ module CircuitBuilder =
     /// Gets all gates from a circuit in order
     let getGates (circuit: Circuit) : Gate list =
         circuit.Gates
+
+    /// Optimizes a circuit by removing inverse gate pairs and fusing rotation gates
+    let optimize (circuit: Circuit) : Circuit =
+        let rec optimizeGates (gates: Gate list) : Gate list =
+            match gates with
+            | [] -> []
+            | [gate] -> [gate]
+            // Remove consecutive H gates on same qubit
+            | H q1 :: H q2 :: rest when q1 = q2 ->
+                optimizeGates rest
+            // Remove consecutive X gates on same qubit
+            | X q1 :: X q2 :: rest when q1 = q2 ->
+                optimizeGates rest
+            // Fuse consecutive RX gates on same qubit
+            | RX (q1, angle1) :: RX (q2, angle2) :: rest when q1 = q2 ->
+                optimizeGates (RX (q1, angle1 + angle2) :: rest)
+            // Fuse consecutive RY gates on same qubit
+            | RY (q1, angle1) :: RY (q2, angle2) :: rest when q1 = q2 ->
+                optimizeGates (RY (q1, angle1 + angle2) :: rest)
+            // Fuse consecutive RZ gates on same qubit
+            | RZ (q1, angle1) :: RZ (q2, angle2) :: rest when q1 = q2 ->
+                optimizeGates (RZ (q1, angle1 + angle2) :: rest)
+            // Keep gate and continue
+            | gate :: rest ->
+                gate :: optimizeGates rest
+        
+        { circuit with Gates = optimizeGates circuit.Gates }
