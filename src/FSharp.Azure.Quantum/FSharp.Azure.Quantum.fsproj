@@ -12,6 +12,7 @@
     <Compile Include="Retry.fs" />
     <Compile Include="Client.fs" />
     <Compile Include="TspSolver.fs" />
+    <Compile Include="PortfolioSolver.fs" />
   </ItemGroup>
 
   <ItemGroup>
