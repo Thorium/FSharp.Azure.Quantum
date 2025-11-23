@@ -11,6 +11,7 @@
     <Compile Include="Authentication.fs" />
     <Compile Include="Retry.fs" />
     <Compile Include="Client.fs" />
+    <Compile Include="TspSolver.fs" />
   </ItemGroup>
 
   <ItemGroup>

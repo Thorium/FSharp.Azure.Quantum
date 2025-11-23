@@ -10,6 +10,7 @@
     <Compile Include="AuthenticationTests.fs" />
     <Compile Include="CostTests.fs" />
     <Compile Include="QuantumClientTests.fs" />
+    <Compile Include="TspSolverTests.fs" />
   </ItemGroup>
 
   <ItemGroup>
