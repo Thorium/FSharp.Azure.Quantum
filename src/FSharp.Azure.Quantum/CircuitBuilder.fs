@@ -97,3 +97,51 @@ module CircuitBuilder =
         
         let allLines = [header; qregDecl] @ gateLines
         System.String.Join("\n", allLines)
+
+    /// Validation result containing validity status and error messages
+    type ValidationResult = {
+        IsValid: bool
+        Errors: string list
+    }
+
+    /// Validates a circuit for correctness (qubit bounds, gate compatibility)
+    let validate (circuit: Circuit) : ValidationResult =
+        let validateQubit (q: int) : string option =
+            if q < 0 then
+                Some $"Qubit index {q} is negative (must be >= 0)"
+            elif q >= circuit.QubitCount then
+                Some $"Qubit index {q} out of bounds (circuit has {circuit.QubitCount} qubits)"
+            else
+                None
+
+        let validateGate (gate: Gate) : string list =
+            match gate with
+            | X q | Y q | Z q | H q ->
+                validateQubit q |> Option.toList
+            | RX (q, _) | RY (q, _) | RZ (q, _) ->
+                validateQubit q |> Option.toList
+            | CNOT (control, target) ->
+                let errors = []
+                let errors = 
+                    match validateQubit control with
+                    | Some err -> err :: errors
+                    | None -> errors
+                let errors = 
+                    match validateQubit target with
+                    | Some err -> err :: errors
+                    | None -> errors
+                let errors = 
+                    if control = target then
+                        "CNOT control and target cannot be the same qubit" :: errors
+                    else
+                        errors
+                List.rev errors
+
+        let allErrors = 
+            circuit.Gates 
+            |> List.collect validateGate
+
+        {
+            IsValid = List.isEmpty allErrors
+            Errors = allErrors
+        }
