@@ -91,3 +91,16 @@ let ``Validate circuit exceeding qubit limit should return error`` () =
         Assert.Equal(11, limit)
         Assert.Equal("IonQ Hardware", backend)
     | Error other -> Assert.True(false, sprintf "Expected QubitCountExceeded but got %A" other)
+
+[<Fact>]
+let ``Validate circuit with supported gates should pass`` () =
+    // Arrange - IonQ supports H, X, Y, Z, CNOT, SWAP, Rx, Ry, Rz
+    let circuit = { NumQubits = 5; GateCount = 10; UsedGates = Set.ofList ["H"; "CNOT"; "Rx"] }
+    
+    // Act
+    let result = validateGateSet IonQSimulator circuit
+    
+    // Assert - All gates are supported
+    match result with
+    | Ok () -> Assert.True(true)
+    | Error err -> Assert.True(false, sprintf "Expected validation to pass but got error: %A" err)

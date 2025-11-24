@@ -105,4 +105,20 @@ module CircuitValidator =
             Ok ()
         else
             Error (QubitCountExceeded(circuit.NumQubits, constraints.MaxQubits, constraints.Name))
+    
+    /// Validate circuit gate set against backend supported gates
+    let validateGateSet (backend: Backend) (circuit: Circuit) : Result<unit, ValidationError list> =
+        let constraints = getConstraints backend
+        let unsupportedGates = 
+            circuit.UsedGates
+            |> Set.filter (fun gate -> not (constraints.SupportedGates.Contains gate))
+            |> Set.toList
+        
+        match unsupportedGates with
+        | [] -> Ok ()
+        | gates -> 
+            gates
+            |> List.map (fun gate -> 
+                UnsupportedGate(gate, constraints.Name, constraints.SupportedGates))
+            |> Error
 
