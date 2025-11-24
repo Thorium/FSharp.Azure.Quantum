@@ -37,6 +37,7 @@
 
   <ItemGroup>
     <Compile Include="Types.fs" />
+    <Compile Include="StateVector.fs" />
     <Compile Include="Cost.fs" />
     <Compile Include="CostEstimation.fs" />
     <Compile Include="Authentication.fs" />
