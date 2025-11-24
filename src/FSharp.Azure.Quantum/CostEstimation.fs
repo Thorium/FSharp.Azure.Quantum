@@ -1,0 +1,611 @@
+namespace FSharp.Azure.Quantum.Core
+
+open System
+
+/// Complete cost estimation module for Azure Quantum backends
+/// ALL cost estimation code consolidated in this single file for AI context optimization
+/// Supports: IonQ, Quantinuum, Rigetti backends with per-gate and per-shot cost calculations
+module CostEstimation =
+    
+    // ============================================================================
+    // UNITS OF MEASURE
+    // ============================================================================
+    
+    /// United States Dollar
+    [<Measure>] type USD
+    
+    /// Quantinuum Hardware Credits
+    [<Measure>] type HQC
+    
+    /// Number of shots (circuit executions)
+    [<Measure>] type shot
+    
+    /// Number of quantum gates
+    [<Measure>] type gate
+    
+    /// Number of qubits
+    [<Measure>] type qubit
+    
+    /// Milliseconds
+    [<Measure>] type ms
+    
+    /// Microseconds  
+    [<Measure>] type us
+    
+    // ============================================================================
+    // CIRCUIT REPRESENTATION (Simplified for cost estimation)
+    // ============================================================================
+    
+    /// Quantum circuit with gate counts for cost estimation
+    type Circuit = {
+        /// Number of single-qubit gates (H, X, Y, Z, etc.)
+        SingleQubitGates: int<gate>
+        
+        /// Number of two-qubit gates (CNOT, CZ, etc.)
+        TwoQubitGates: int<gate>
+        
+        /// Number of measurement operations
+        Measurements: int<gate>
+        
+        /// Total number of qubits used
+        QubitCount: int<qubit>
+    }
+    
+    module Circuit =
+        /// Create empty circuit
+        let empty = {
+            SingleQubitGates = 0<gate>
+            TwoQubitGates = 0<gate>
+            Measurements = 0<gate>
+            QubitCount = 0<qubit>
+        }
+        
+        /// Calculate total gate count
+        let totalGates (circuit: Circuit) : int<gate> =
+            circuit.SingleQubitGates + circuit.TwoQubitGates + circuit.Measurements
+        
+        /// Calculate circuit depth (simplified - actual depth requires gate scheduling)
+        let depth (circuit: Circuit) : int<gate> =
+            totalGates circuit  // Conservative estimate: assume no parallelism
+    
+    // ============================================================================
+    // BACKEND PRICING MODELS
+    // ============================================================================
+    
+    /// IonQ backend pricing configuration
+    type IonQPricing = {
+        /// Minimum cost with error mitigation enabled (USD)
+        MinimumCostWithErrorMitigation: decimal<USD>
+        
+        /// Minimum cost without error mitigation (USD)
+        MinimumCostWithoutErrorMitigation: decimal<USD>
+        
+        /// Cost per single-qubit gate operation
+        SingleQubitGateCost: decimal
+        
+        /// Cost per two-qubit gate operation
+        TwoQubitGateCost: decimal
+    }
+    
+    module IonQPricing =
+        /// Default IonQ pricing (as of 2025-11)
+        /// Source: Azure Quantum pricing documentation
+        let Default = {
+            MinimumCostWithErrorMitigation = 97.50M<USD>
+            MinimumCostWithoutErrorMitigation = 12.42M<USD>
+            SingleQubitGateCost = 0.000220M
+            TwoQubitGateCost = 0.000975M
+        }
+    
+    /// Quantinuum backend pricing configuration (HQC-based subscription model)
+    type QuantinuumPricing = {
+        /// Minimum HQC cost per job
+        MinimumCostHQC: int<HQC>
+        
+        /// Weight factor for single-qubit gates
+        SingleQubitGateWeight: float
+        
+        /// Weight factor for two-qubit gates  
+        TwoQubitGateWeight: float
+        
+        /// Weight factor for measurement operations
+        MeasurementWeight: float
+        
+        /// Shot divisor for HQC calculation
+        ShotDivisor: int
+    }
+    
+    module QuantinuumPricing =
+        /// Default Quantinuum pricing (HQC model)
+        /// Source: Azure Quantum pricing documentation
+        let Default = {
+            MinimumCostHQC = 5<HQC>
+            SingleQubitGateWeight = 1.0
+            TwoQubitGateWeight = 10.0
+            MeasurementWeight = 5.0
+            ShotDivisor = 5000
+        }
+        
+        /// Subscription plans (for reference)
+        let StandardPlan = {| MonthlyCost = 135000.0M<USD>; MonthlyQuota = 10000<HQC> |}
+        let PremiumPlan = {| MonthlyCost = 185000.0M<USD>; MonthlyQuota = 17000<HQC> |}
+    
+    /// Rigetti backend pricing configuration (time-based)
+    type RigettiPricing = {
+        /// Cost per 10 milliseconds of execution time
+        CostPerTenMs: decimal<USD>
+    }
+    
+    module RigettiPricing =
+        /// Default Rigetti pricing
+        /// Source: Azure Quantum pricing documentation  
+        let Default = {
+            CostPerTenMs = 0.02M<USD>
+        }
+    
+    /// Gate timing estimates for execution time calculation
+    type GateTiming = {
+        /// Single-qubit gate execution time
+        SingleQubitGateTime: float<us>
+        
+        /// Two-qubit gate execution time
+        TwoQubitGateTime: float<us>
+    }
+    
+    module GateTiming =
+        /// Default Rigetti gate timing estimates
+        let RigettiDefault = {
+            SingleQubitGateTime = 0.05<us>    // ~50 ns
+            TwoQubitGateTime = 0.20<us>       // ~200 ns
+        }
+    
+    // ============================================================================
+    // COST ESTIMATION RESULTS
+    // ============================================================================
+    
+    /// Backend type for cost estimation
+    type Backend =
+        | IonQ of useErrorMitigation: bool
+        | Quantinuum
+        | Rigetti
+    
+    module Backend =
+        /// Get backend display name
+        let name = function
+            | IonQ true -> "IonQ (with error mitigation)"
+            | IonQ false -> "IonQ (without error mitigation)"
+            | Quantinuum -> "Quantinuum"
+            | Rigetti -> "Rigetti"
+    
+    /// Detailed cost breakdown
+    type CostBreakdown = {
+        /// Base cost (minimum charge)
+        BaseCost: decimal<USD>
+        
+        /// Cost from single-qubit gates
+        SingleQubitGateCost: decimal<USD>
+        
+        /// Cost from two-qubit gates
+        TwoQubitGateCost: decimal<USD>
+        
+        /// Cost from shots/measurements
+        ShotCost: decimal<USD>
+        
+        /// Total estimated cost
+        TotalCost: decimal<USD>
+    }
+    
+    /// Complete cost estimate with range and warnings
+    type CostEstimate = {
+        /// Target backend
+        Backend: Backend
+        
+        /// Minimum possible cost
+        MinimumCost: decimal<USD>
+        
+        /// Maximum possible cost
+        MaximumCost: decimal<USD>
+        
+        /// Expected cost (conservative estimate)
+        ExpectedCost: decimal<USD>
+        
+        /// Currency code
+        Currency: string
+        
+        /// Detailed cost breakdown
+        Breakdown: CostBreakdown option
+        
+        /// Warning messages
+        Warnings: string list
+    }
+    
+    // ============================================================================
+    // COST CALCULATION FUNCTIONS
+    // ============================================================================
+    
+    /// Calculate IonQ cost based on gate counts and shots
+    let calculateIonQCost 
+        (pricing: IonQPricing) 
+        (circuit: Circuit) 
+        (shots: int<shot>) 
+        (useErrorMitigation: bool) 
+        : CostEstimate =
+        
+        let baseCost = 
+            if useErrorMitigation then 
+                pricing.MinimumCostWithErrorMitigation 
+            else 
+                pricing.MinimumCostWithoutErrorMitigation
+        
+        let singleQubitCost = 
+            decimal (int circuit.SingleQubitGates) * pricing.SingleQubitGateCost * decimal (int shots) * 1.0M<USD>
+        
+        let twoQubitCost = 
+            decimal (int circuit.TwoQubitGates) * pricing.TwoQubitGateCost * decimal (int shots) * 1.0M<USD>
+        
+        let totalCost = baseCost + singleQubitCost + twoQubitCost
+        
+        let warnings = 
+            if totalCost > 200.0M<USD> then
+                [sprintf "Estimated cost $%.2f exceeds $200. Consider using simulator first." (float (totalCost / 1.0M<USD>))]
+            else
+                []
+        
+        {
+            Backend = IonQ useErrorMitigation
+            MinimumCost = baseCost
+            MaximumCost = totalCost
+            ExpectedCost = totalCost  // Conservative: use maximum
+            Currency = "USD"
+            Breakdown = Some {
+                BaseCost = baseCost
+                SingleQubitGateCost = singleQubitCost
+                TwoQubitGateCost = twoQubitCost
+                ShotCost = 0.0M<USD>  // Included in gate costs
+                TotalCost = totalCost
+            }
+            Warnings = warnings
+        }
+    
+    /// Calculate Quantinuum cost in HQC (Hardware Quantum Credits)
+    let calculateQuantinuumHQC 
+        (pricing: QuantinuumPricing) 
+        (circuit: Circuit) 
+        (shots: int<shot>) 
+        : int<HQC> =
+        
+        let gateCount1Q = float (int circuit.SingleQubitGates)
+        let gateCount2Q = float (int circuit.TwoQubitGates)
+        let measurementCount = float (int circuit.Measurements)
+        let shotCount = int shots
+        
+        let operationCost = 
+            (gateCount1Q * pricing.SingleQubitGateWeight) +
+            (gateCount2Q * pricing.TwoQubitGateWeight) +
+            (measurementCount * pricing.MeasurementWeight)
+        
+        let totalHQC = 
+            pricing.MinimumCostHQC + 
+            int ((operationCost * float shotCount) / float pricing.ShotDivisor) * 1<HQC>
+        
+        totalHQC
+    
+    /// Calculate Quantinuum cost estimate
+    let calculateQuantinuumCost 
+        (pricing: QuantinuumPricing) 
+        (circuit: Circuit) 
+        (shots: int<shot>) 
+        : CostEstimate =
+        
+        let hqc = calculateQuantinuumHQC pricing circuit shots
+        
+        let warnings = [
+            sprintf "Will consume %d HQC from subscription quota" (int hqc)
+            "Quantinuum uses subscription model: Standard ($135k/mo, 10k HQC) or Premium ($185k/mo, 17k HQC)"
+        ]
+        
+        {
+            Backend = Quantinuum
+            MinimumCost = 0.0M<USD>  // Subscription model
+            MaximumCost = 0.0M<USD>  // Subscription model
+            ExpectedCost = 0.0M<USD>  // Charged via HQC quota
+            Currency = "HQC"
+            Breakdown = None  // HQC model doesn't use USD breakdown
+            Warnings = warnings
+        }
+    
+    /// Estimate circuit execution time on Rigetti hardware
+    let estimateRigettiExecutionTime 
+        (timing: GateTiming) 
+        (circuit: Circuit) 
+        : float<ms> =
+        
+        let gateCount1Q = float (int circuit.SingleQubitGates)
+        let gateCount2Q = float (int circuit.TwoQubitGates)
+        
+        let totalTimeUs = 
+            (gateCount1Q * timing.SingleQubitGateTime) +
+            (gateCount2Q * timing.TwoQubitGateTime)
+        
+        totalTimeUs / 1000.0<us/ms>
+    
+    /// Calculate Rigetti cost based on execution time
+    let calculateRigettiCost 
+        (pricing: RigettiPricing) 
+        (timing: GateTiming) 
+        (circuit: Circuit) 
+        (shots: int<shot>) 
+        : CostEstimate =
+        
+        let execTime = estimateRigettiExecutionTime timing circuit
+        let totalExecTime = execTime * float (int shots)
+        let tensOfMs = ceil (totalExecTime / 10.0<ms>)
+        let cost = decimal tensOfMs * pricing.CostPerTenMs
+        
+        let warnings = 
+            if cost > 200.0M<USD> then
+                [sprintf "Estimated cost $%.2f exceeds $200. Consider reducing shots or using simulator." (float (cost / 1.0M<USD>))]
+            else
+                []
+        
+        {
+            Backend = Rigetti
+            MinimumCost = cost
+            MaximumCost = cost
+            ExpectedCost = cost
+            Currency = "USD"
+            Breakdown = Some {
+                BaseCost = 0.0M<USD>
+                SingleQubitGateCost = 0.0M<USD>  // Time-based pricing
+                TwoQubitGateCost = 0.0M<USD>     // Time-based pricing
+                ShotCost = cost                   // All cost is execution time
+                TotalCost = cost
+            }
+            Warnings = warnings
+        }
+    
+    // ============================================================================
+    // UNIFIED COST ESTIMATION API
+    // ============================================================================
+    
+    /// Estimate cost for a circuit on specified backend
+    let estimateCost 
+        (backend: Backend) 
+        (circuit: Circuit) 
+        (shots: int<shot>) 
+        : Result<CostEstimate, string> =
+        
+        if int shots < 1 then
+            Error "Shot count must be at least 1"
+        elif int circuit.QubitCount < 1 then
+            Error "Circuit must have at least 1 qubit"
+        else
+            try
+                let estimate = 
+                    match backend with
+                    | IonQ useErrorMitigation ->
+                        calculateIonQCost IonQPricing.Default circuit shots useErrorMitigation
+                    
+                    | Quantinuum ->
+                        calculateQuantinuumCost QuantinuumPricing.Default circuit shots
+                    
+                    | Rigetti ->
+                        calculateRigettiCost 
+                            RigettiPricing.Default 
+                            GateTiming.RigettiDefault 
+                            circuit 
+                            shots
+                
+                Ok estimate
+            with
+            | ex -> Error (sprintf "Cost estimation failed: %s" ex.Message)
+    
+    /// Compare costs across multiple backends
+    let compareCosts 
+        (backends: Backend list) 
+        (circuit: Circuit) 
+        (shots: int<shot>) 
+        : Result<CostEstimate list, string> =
+        
+        backends
+        |> List.map (fun backend -> estimateCost backend circuit shots)
+        |> List.fold (fun acc result ->
+            match acc, result with
+            | Ok estimates, Ok estimate -> Ok (estimate :: estimates)
+            | Error msg, _ -> Error msg
+            | _, Error msg -> Error msg
+        ) (Ok [])
+        |> Result.map List.rev
+    
+    // ============================================================================
+    // BUDGET ENFORCEMENT
+    // ============================================================================
+    
+    /// Budget policy configuration
+    type BudgetPolicy = {
+        /// Daily spending limit (USD)
+        DailyLimit: decimal<USD> option
+        
+        /// Monthly spending limit (USD)
+        MonthlyLimit: decimal<USD> option
+        
+        /// Per-job spending limit (USD)
+        PerJobLimit: decimal<USD> option
+        
+        /// Warn when reaching this percentage of budget
+        WarnAtPercent: float
+    }
+    
+    module BudgetPolicy =
+        /// Default budget policy for development environment
+        let Development = {
+            DailyLimit = Some 50.0M<USD>
+            MonthlyLimit = Some 500.0M<USD>
+            PerJobLimit = Some 20.0M<USD>
+            WarnAtPercent = 80.0
+        }
+        
+        /// Default budget policy for production environment
+        let Production = {
+            DailyLimit = Some 500.0M<USD>
+            MonthlyLimit = Some 10000.0M<USD>
+            PerJobLimit = Some 200.0M<USD>
+            WarnAtPercent = 80.0
+        }
+    
+    /// Budget check result
+    type BudgetCheckResult =
+        | Approved
+        | Warning of message: string
+        | Denied of reason: string
+    
+    /// Check if job cost is within budget limits
+    let checkBudget 
+        (policy: BudgetPolicy) 
+        (cost: CostEstimate) 
+        (dailySpent: decimal<USD>) 
+        (monthlySpent: decimal<USD>) 
+        : BudgetCheckResult =
+        
+        // Check per-job limit
+        match policy.PerJobLimit with
+        | Some limit when cost.ExpectedCost > limit ->
+            Denied (sprintf "Job cost $%.2f exceeds per-job limit $%.2f" 
+                (float (cost.ExpectedCost / 1.0M<USD>)) (float (limit / 1.0M<USD>)))
+        | _ ->
+            // Check daily limit
+            match policy.DailyLimit with
+            | Some limit when dailySpent + cost.ExpectedCost > limit ->
+                let remaining = limit - dailySpent
+                Denied (sprintf "Job cost $%.2f would exceed daily limit (remaining: $%.2f)" 
+                    (float (cost.ExpectedCost / 1.0M<USD>)) (float (remaining / 1.0M<USD>)))
+            | Some limit when (dailySpent + cost.ExpectedCost) / limit * 100.0M > decimal policy.WarnAtPercent ->
+                let percentUsed = (dailySpent + cost.ExpectedCost) / limit * 100.0M
+                Warning (sprintf "Job will use %.1f%% of daily budget" (float percentUsed))
+            | _ ->
+                // Check monthly limit
+                match policy.MonthlyLimit with
+                | Some limit when monthlySpent + cost.ExpectedCost > limit ->
+                    let remaining = limit - monthlySpent
+                    Denied (sprintf "Job cost $%.2f would exceed monthly limit (remaining: $%.2f)" 
+                        (float (cost.ExpectedCost / 1.0M<USD>)) (float (remaining / 1.0M<USD>)))
+                | Some limit when (monthlySpent + cost.ExpectedCost) / limit * 100.0M > decimal policy.WarnAtPercent ->
+                    let percentUsed = (monthlySpent + cost.ExpectedCost) / limit * 100.0M
+                    Warning (sprintf "Job will use %.1f%% of monthly budget" (float percentUsed))
+                | _ ->
+                    Approved
+    
+    // ============================================================================
+    // COST TRACKING
+    // ============================================================================
+    
+    /// Cost tracking record for completed jobs
+    type CostTrackingRecord = {
+        /// Job ID
+        JobId: string
+        
+        /// Backend used
+        Backend: Backend
+        
+        /// Estimated cost before execution
+        EstimatedCost: decimal<USD>
+        
+        /// Actual cost charged (if available)
+        ActualCost: decimal<USD> option
+        
+        /// Timestamp of job completion
+        Timestamp: DateTimeOffset
+        
+        /// Circuit characteristics
+        Circuit: Circuit
+        
+        /// Shots executed
+        Shots: int<shot>
+    }
+    
+    /// Cost tracker state
+    type CostTracker = {
+        /// All tracked cost records
+        Records: CostTrackingRecord list
+        
+        /// Daily spending total (USD)
+        DailySpent: decimal<USD>
+        
+        /// Monthly spending total (USD)
+        MonthlySpent: decimal<USD>
+        
+        /// Last reset timestamp for daily tracking
+        LastDailyReset: DateTimeOffset
+        
+        /// Last reset timestamp for monthly tracking
+        LastMonthlyReset: DateTimeOffset
+    }
+    
+    module CostTracker =
+        /// Create new cost tracker
+        let create () : CostTracker = {
+            Records = []
+            DailySpent = 0.0M<USD>
+            MonthlySpent = 0.0M<USD>
+            LastDailyReset = DateTimeOffset.UtcNow
+            LastMonthlyReset = DateTimeOffset.UtcNow
+        }
+        
+        /// Check if daily reset is needed
+        let needsDailyReset (tracker: CostTracker) : bool =
+            let now = DateTimeOffset.UtcNow
+            now.Date > tracker.LastDailyReset.Date
+        
+        /// Check if monthly reset is needed
+        let needsMonthlyReset (tracker: CostTracker) : bool =
+            let now = DateTimeOffset.UtcNow
+            now.Month <> tracker.LastMonthlyReset.Month || now.Year <> tracker.LastMonthlyReset.Year
+        
+        /// Reset daily spending if needed
+        let resetDaily (tracker: CostTracker) : CostTracker =
+            if needsDailyReset tracker then
+                { tracker with 
+                    DailySpent = 0.0M<USD>
+                    LastDailyReset = DateTimeOffset.UtcNow }
+            else
+                tracker
+        
+        /// Reset monthly spending if needed
+        let resetMonthly (tracker: CostTracker) : CostTracker =
+            if needsMonthlyReset tracker then
+                { tracker with 
+                    MonthlySpent = 0.0M<USD>
+                    LastMonthlyReset = DateTimeOffset.UtcNow }
+            else
+                tracker
+        
+        /// Add cost tracking record
+        let addRecord (record: CostTrackingRecord) (tracker: CostTracker) : CostTracker =
+            let tracker = tracker |> resetDaily |> resetMonthly
+            
+            let cost = record.ActualCost |> Option.defaultValue record.EstimatedCost
+            
+            {
+                Records = record :: tracker.Records
+                DailySpent = tracker.DailySpent + cost
+                MonthlySpent = tracker.MonthlySpent + cost
+                LastDailyReset = tracker.LastDailyReset
+                LastMonthlyReset = tracker.LastMonthlyReset
+            }
+        
+        /// Get total spending for a time period
+        let getTotalSpending (since: DateTimeOffset) (tracker: CostTracker) : decimal<USD> =
+            tracker.Records
+            |> List.filter (fun r -> r.Timestamp >= since)
+            |> List.sumBy (fun r -> r.ActualCost |> Option.defaultValue r.EstimatedCost)
+        
+        /// Get spending by backend
+        let getSpendingByBackend (tracker: CostTracker) : Map<Backend, decimal<USD>> =
+            tracker.Records
+            |> List.groupBy (fun r -> r.Backend)
+            |> List.map (fun (backend, records) ->
+                let total = 
+                    records 
+                    |> List.sumBy (fun r -> r.ActualCost |> Option.defaultValue r.EstimatedCost)
+                backend, total)
+            |> Map.ofList
