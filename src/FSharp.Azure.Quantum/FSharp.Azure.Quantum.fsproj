@@ -18,6 +18,7 @@
     <Compile Include="CircuitBuilder.fs" />
     <Compile Include="QuboEncoding.fs" />
     <Compile Include="QaoaCircuit.fs" />
+    <Compile Include="QaoaOptimizer.fs" />
   </ItemGroup>
 
   <ItemGroup>
