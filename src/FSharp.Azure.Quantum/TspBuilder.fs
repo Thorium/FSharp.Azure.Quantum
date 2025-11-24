@@ -1,5 +1,7 @@
 namespace FSharp.Azure.Quantum
 
+open FSharp.Azure.Quantum.Classical
+
 /// High-level TSP Domain Builder
 /// Provides intuitive API for solving Traveling Salesman Problems
 /// without requiring knowledge of QUBO encoding or quantum circuits
@@ -48,6 +50,17 @@ module TSP =
             else euclideanDistance cities.[i] cities.[j])
 
     // ============================================================================
+    // TOUR VALIDATION
+    // ============================================================================
+
+    /// Validate that a tour visits all cities exactly once
+    let private isValidTour (tour: int array) (cityCount: int) : bool =
+        if tour.Length <> cityCount then false
+        else
+            let visited = tour |> Set.ofArray
+            visited.Count = cityCount && tour |> Array.forall (fun i -> i >= 0 && i < cityCount)
+
+    // ============================================================================
     // PUBLIC API
     // ============================================================================
 
@@ -67,3 +80,27 @@ module TSP =
             CityCount = cityArray.Length
             DistanceMatrix = distanceMatrix
         }
+
+    /// Solve TSP problem using classical 2-opt algorithm
+    /// Returns Result with Tour or error message
+    let solve (problem: TspProblem) : Result<Tour, string> =
+        try
+            // Use the existing classical TSP solver with distance matrix
+            let solution = TspSolver.solveWithDistances problem.DistanceMatrix TspSolver.defaultConfig
+            
+            // Validate tour
+            let valid = isValidTour solution.Tour problem.CityCount
+            
+            // Convert tour indices to city names
+            let cityNames = 
+                solution.Tour 
+                |> Array.map (fun idx -> problem.Cities.[idx].Name)
+                |> Array.toList
+            
+            Ok {
+                Cities = cityNames
+                TotalDistance = solution.TourLength
+                IsValid = valid
+            }
+        with
+        | ex -> Error $"TSP solve failed: {ex.Message}"
