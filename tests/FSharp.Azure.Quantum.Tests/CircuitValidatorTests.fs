@@ -57,3 +57,18 @@ let ``Backend constraints should define circuit depth limits`` () =
     
     // Assert - Rigetti has 50 gate depth limit
     Assert.Equal(Some 50, rigetti.MaxCircuitDepth)
+
+// ============================================================================
+// Day 2: Validation Logic Tests
+// ============================================================================
+
+[<Fact>]
+let ``Validate circuit with qubit count within backend limits should pass`` () =
+    // Arrange
+    let circuit = { NumQubits = 10; GateCount = 20; UsedGates = Set.ofList ["H"; "CNOT"] }
+    
+    // Act
+    let result = validateQubitCount IonQHardware circuit
+    
+    // Assert - 10 qubits is within IonQ Hardware limit of 11
+    Assert.True(Result.isOk result)

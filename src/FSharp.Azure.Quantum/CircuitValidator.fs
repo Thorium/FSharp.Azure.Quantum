@@ -39,6 +39,26 @@ module CircuitValidator =
         ConnectedPairs: Set<int * int>
     }
     
+    /// Simple circuit representation for validation
+    type Circuit = {
+        /// Number of qubits used in circuit
+        NumQubits: int
+        
+        /// Total number of gates in circuit
+        GateCount: int
+        
+        /// Set of unique gate types used
+        UsedGates: Set<string>
+    }
+    
+    /// Validation error types
+    type ValidationError =
+        | QubitCountExceeded of requested: int * limit: int * backend: string
+        | UnsupportedGate of gate: string * backend: string * supportedGates: Set<string>
+        | CircuitDepthExceeded of depth: int * limit: int * backend: string
+        | ConnectivityViolation of qubit1: int * qubit2: int * backend: string
+        | InvalidParameter of message: string
+    
     // ============================================================================
     // 2. CONSTRAINT DEFINITIONS
     // ============================================================================
@@ -73,3 +93,16 @@ module CircuitValidator =
                 HasAllToAllConnectivity = false
                 ConnectedPairs = Set.empty  // TODO: Add actual Rigetti connectivity graph
             }
+    
+    // ============================================================================
+    // 3. VALIDATION FUNCTIONS
+    // ============================================================================
+    
+    /// Validate circuit qubit count against backend limits
+    let validateQubitCount (backend: Backend) (circuit: Circuit) : Result<unit, ValidationError> =
+        let constraints = getConstraints backend
+        if circuit.NumQubits <= constraints.MaxQubits then
+            Ok ()
+        else
+            Error (QubitCountExceeded(circuit.NumQubits, constraints.MaxQubits, constraints.Name))
+
