@@ -21,3 +21,14 @@ let ``Backend constraint should define IonQ hardware with 11 qubits`` () =
     Assert.Equal(11, constraints.MaxQubits)
     Assert.Equal("IonQ Hardware", constraints.Name)
     Assert.True(constraints.HasAllToAllConnectivity)
+
+[<Fact>]
+let ``Backend constraint should define Rigetti Aspen-M-3 with 79 qubits`` () =
+    // Arrange
+    let constraints = getConstraints RigettiAspenM3
+    
+    // Assert
+    Assert.Equal(79, constraints.MaxQubits)
+    Assert.Equal("Rigetti Aspen-M-3", constraints.Name)
+    Assert.False(constraints.HasAllToAllConnectivity)
+    Assert.Contains("CZ", constraints.SupportedGates)
