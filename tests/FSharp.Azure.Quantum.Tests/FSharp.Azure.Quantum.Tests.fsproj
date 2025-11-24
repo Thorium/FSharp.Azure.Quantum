@@ -6,6 +6,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="StateVectorTests.fs" />
+    <Compile Include="GatesTests.fs" />
+    <Compile Include="QaoaSimulatorTests.fs" />
+    <Compile Include="MeasurementTests.fs" />
     <Compile Include="TypesTests.fs" />
     <Compile Include="AuthenticationTests.fs" />
     <Compile Include="CostTests.fs" />
