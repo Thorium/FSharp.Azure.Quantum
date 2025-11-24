@@ -104,3 +104,9 @@ module TSP =
             }
         with
         | ex -> Error $"TSP solve failed: {ex.Message}"
+
+    /// Convenience function: Create problem and solve in one step
+    /// Input: List of (name, x, y) tuples
+    /// Output: Result with Tour or error message
+    let solveDirectly (cities: (string * float * float) list) : Result<Tour, string> =
+        cities |> createProblem |> solve

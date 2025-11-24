@@ -62,3 +62,76 @@ module TspBuilderTests =
             Assert.True(tour.IsValid)
         | Error msg ->
             Assert.Fail($"solve failed: {msg}")
+
+    [<Fact>]
+    let ``TSP.solve should handle 5 cities`` () =
+        // Arrange - Pentagon shape
+        let cities = [
+            ("A", 0.0, 1.0)
+            ("B", 0.95, 0.31)
+            ("C", 0.59, -0.81)
+            ("D", -0.59, -0.81)
+            ("E", -0.95, 0.31)
+        ]
+        let problem = TSP.createProblem cities
+        
+        // Act
+        let result = TSP.solve problem
+        
+        // Assert
+        match result with
+        | Ok tour ->
+            Assert.Equal(5, tour.Cities.Length)
+            Assert.True(tour.TotalDistance > 0.0)
+            Assert.True(tour.IsValid)
+            // All cities should be in the tour
+            Assert.Contains("A", tour.Cities)
+            Assert.Contains("B", tour.Cities)
+            Assert.Contains("C", tour.Cities)
+            Assert.Contains("D", tour.Cities)
+            Assert.Contains("E", tour.Cities)
+        | Error msg ->
+            Assert.Fail($"solve failed: {msg}")
+
+    [<Fact>]
+    let ``TSP.solve should return tour with all unique cities`` () =
+        // Arrange
+        let cities = [
+            ("City1", 0.0, 0.0)
+            ("City2", 1.0, 0.0)
+            ("City3", 1.0, 1.0)
+            ("City4", 0.0, 1.0)
+        ]
+        let problem = TSP.createProblem cities
+        
+        // Act
+        let result = TSP.solve problem
+        
+        // Assert
+        match result with
+        | Ok tour ->
+            let uniqueCities = tour.Cities |> Set.ofList
+            Assert.Equal(4, uniqueCities.Count) // All cities unique
+        | Error msg ->
+            Assert.Fail($"solve failed: {msg}")
+
+    [<Fact>]
+    let ``TSP.solveDirectly should solve without creating problem explicitly`` () =
+        // Arrange
+        let cities = [
+            ("A", 0.0, 0.0)
+            ("B", 1.0, 0.0)
+            ("C", 0.5, 1.0)
+        ]
+        
+        // Act
+        let result = TSP.solveDirectly cities
+        
+        // Assert
+        match result with
+        | Ok tour ->
+            Assert.Equal(3, tour.Cities.Length)
+            Assert.True(tour.IsValid)
+            Assert.True(tour.TotalDistance > 0.0)
+        | Error msg ->
+            Assert.Fail($"solveDirectly failed: {msg}")
