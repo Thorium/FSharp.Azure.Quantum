@@ -85,6 +85,56 @@ HybridSolver.solveTsp distances None None (Some HybridSolver.SolverMethod.Classi
 HybridSolver.solveTsp distances (Some 10.0) None None  // $10 USD limit
 ```
 
+#### How HybridSolver Decides: Decision Flow
+
+```
+┌─────────────────────────────────────┐
+│    HybridSolver.solveTsp()          │
+└──────────────┬──────────────────────┘
+               │
+               ▼
+       ┌───────────────┐
+       │ forceMethod?  │
+       └───┬───────┬───┘
+           │       │
+      Yes  │       │ None (auto)
+           │       │
+           ▼       ▼
+    ┌──────────┐  ┌─────────────────┐
+    │ Classical│  │ QuantumAdvisor  │
+    │    or    │  │  analyzes:      │
+    │ Quantum  │  │  - Problem size │
+    │ (forced) │  │  - Complexity   │
+    └──────────┘  │  - Structure    │
+                  └────────┬─────────┘
+                           │
+                  ┌────────┴────────┐
+                  ▼                 ▼
+           Size < 20         20 ≤ Size ≤ 200
+              │                     │
+              ▼                     ▼
+        ┌──────────┐         ┌──────────┐
+        │Classical │         │ Quantum  │
+        │(too small│         │(if budget│
+        │for quantum)        │allows)   │
+        └──────────┘         └──────────┘
+                                  │
+                         No quantum yet?
+                                  │
+                                  ▼
+                           ┌──────────┐
+                           │Classical │
+                           │(fallback)│
+                           └──────────┘
+```
+
+**Key Decision Factors:**
+- **Size < 20**: Always Classical (too small for quantum advantage)
+- **20 ≤ Size ≤ 200**: Considers Quantum (checks budget, structure)
+- **Size > 200**: Recommends Quantum (if available) or Classical fallback
+- **Budget = 0**: Forces Classical regardless of size
+- **forceMethod**: Overrides all automatic decisions
+
 ### 2. **Classical Solvers** - Immediate Results
 
 Use classical solvers directly for guaranteed fast results:
@@ -125,6 +175,254 @@ let portfolioProblem = Portfolio.createProblem assets 10000.0
 match Portfolio.solve portfolioProblem None with
 | Ok allocation -> printfn "Total: $%.2f, Return: %.2f%%" allocation.TotalValue (allocation.ExpectedReturn * 100.0)
 | Error msg -> printfn "Error: %s" msg
+```
+
+## Common Pitfalls & How to Avoid Them
+
+### ❌ Pitfall 1: Non-Square Distance Matrix
+
+```fsharp
+// ❌ WRONG: 3 cities but 2x3 matrix
+let wrong = array2D [
+    [0.0; 1.0; 2.0]
+    [1.0; 0.0; 3.0]
+]
+// Error: "Distance matrix must be square (NxN)"
+```
+
+**✅ Fix:** Ensure rows = columns = number of cities
+```fsharp
+// ✅ CORRECT: 3 cities, 3x3 matrix
+let correct = array2D [
+    [0.0; 1.0; 2.0]
+    [1.0; 0.0; 3.0]
+    [2.0; 3.0; 0.0]
+]
+```
+
+### ❌ Pitfall 2: Asymmetric Distance Matrix
+
+```fsharp
+// ❌ WRONG: Distance from A→B ≠ B→A
+let asymmetric = array2D [
+    [0.0; 10.0]
+    [5.0; 0.0]   // 10 ≠ 5
+]
+// Warning: TSP assumes symmetric distances
+```
+
+**✅ Fix:** Make matrix symmetric
+```fsharp
+// ✅ CORRECT: Distance A↔B is same both ways
+let symmetric = array2D [
+    [0.0; 10.0]
+    [10.0; 0.0]
+]
+```
+
+### ❌ Pitfall 3: Ignoring Result Type
+
+```fsharp
+// ❌ WRONG: Not handling errors
+let solution = HybridSolver.solveTsp distances None None None
+printfn "%A" solution.Result  // Compiler error! 'solution' is Result<T,E>
+```
+
+**✅ Fix:** Always pattern match on Result
+```fsharp
+// ✅ CORRECT: Proper error handling
+match HybridSolver.solveTsp distances None None None with
+| Ok solution -> 
+    printfn "Success: %A" solution.Result
+| Error msg -> 
+    eprintfn "Failed: %s" msg
+```
+
+### ❌ Pitfall 4: Budget Constraints Too Tight
+
+```fsharp
+// ❌ WRONG: Budget smaller than minimum asset price
+let assets = [("AAPL", 0.12, 0.18, 150.0)]
+let constraints = { Budget = 100.0; MinHolding = 0.0; MaxHolding = 1000.0 }
+// Error: "Budget (100) is insufficient to purchase any asset (minimum price: 150)"
+```
+
+**✅ Fix:** Ensure budget ≥ cheapest asset price
+```fsharp
+// ✅ CORRECT: Budget can buy at least one share
+let constraints = { Budget = 500.0; MinHolding = 0.0; MaxHolding = 500.0 }
+```
+
+### ❌ Pitfall 5: Type Inference Confusion
+
+```fsharp
+// ❌ WRONG: F# can't infer tuple structure
+let cities = [("Seattle", 0.0, 0.0); ("Portland", 0.0, 174.0)]
+let problem = TSP.createProblem cities  // Type error!
+```
+
+**✅ Fix:** Add type annotation
+```fsharp
+// ✅ CORRECT: Explicit type annotation
+let cities: (string * float * float) list = [
+    ("Seattle", 0.0, 0.0)
+    ("Portland", 0.0, 174.0)
+]
+```
+
+## Complete Error Handling Examples
+
+### Robust TSP Solving with Recovery
+
+```fsharp
+open FSharp.Azure.Quantum.Classical
+
+let solveTspRobust (distances: float[,]) =
+    // Validate input
+    let n = distances.GetLength(0)
+    if n <> distances.GetLength(1) then
+        Error "Distance matrix must be square"
+    elif n < 2 then
+        Error "Need at least 2 cities"
+    else
+        // Try solving with automatic routing
+        match HybridSolver.solveTsp distances None None None with
+        | Ok solution ->
+            printfn "✓ Success using %A solver" solution.Method
+            printfn "  Tour: %A" solution.Result.Tour
+            printfn "  Length: %.2f" solution.Result.TourLength
+            printfn "  Time: %.2f ms" solution.ElapsedMs
+            Ok solution
+            
+        | Error msg ->
+            // Log error and try classical fallback
+            eprintfn "⚠ HybridSolver failed: %s" msg
+            eprintfn "  Falling back to classical solver..."
+            
+            try
+                let classicalSolution = 
+                    TspSolver.solveWithDistances distances TspSolver.defaultConfig
+                printfn "✓ Classical fallback succeeded"
+                printfn "  Tour: %A" classicalSolution.Tour
+                Ok classicalSolution
+            with
+            | ex ->
+                eprintfn "✗ Classical fallback also failed: %s" ex.Message
+                Error $"All solvers failed: {msg}; {ex.Message}"
+
+// Usage
+let distances = array2D [[0.0; 10.0]; [10.0; 0.0]]
+match solveTspRobust distances with
+| Ok _ -> printfn "Problem solved!"
+| Error msg -> eprintfn "Could not solve: %s" msg
+```
+
+### Portfolio Optimization with Validation
+
+```fsharp
+let solvePortfolioSafely assets budget =
+    // Validate assets
+    let invalidAssets = 
+        assets 
+        |> List.filter (fun (symbol, ret, risk, price) -> 
+            price <= 0.0 || risk < 0.0)
+    
+    if not (List.isEmpty invalidAssets) then
+        Error $"Invalid assets: %A{invalidAssets}"
+    elif budget <= 0.0 then
+        Error $"Budget must be positive: {budget}"
+    else
+        let constraints = {
+            Budget = budget
+            MinHolding = 0.0
+            MaxHolding = budget * 0.5  // Max 50% in any asset
+        }
+        
+        // Create asset records
+        let assetRecords = 
+            assets 
+            |> List.map (fun (symbol, ret, risk, price) -> {
+                Symbol = symbol
+                ExpectedReturn = ret
+                Risk = risk
+                Price = price
+            })
+        
+        // Validate budget constraint
+        match PortfolioSolver.validateBudgetConstraint assetRecords constraints with
+        | validation when not validation.IsValid ->
+            Error $"Validation failed: {String.concat "; " validation.Messages}"
+        | _ ->
+            // Solve
+            match HybridSolver.solvePortfolio assetRecords constraints None None None with
+            | Ok solution ->
+                printfn "✓ Portfolio optimized using %A" solution.Method
+                printfn "  Total Value: $%.2f" solution.Result.TotalValue
+                printfn "  Expected Return: %.2f%%" (solution.Result.ExpectedReturn * 100.0)
+                printfn "  Risk: %.2f" solution.Result.Risk
+                printfn "  Sharpe Ratio: %.2f" solution.Result.SharpeRatio
+                Ok solution
+            | Error msg ->
+                Error $"Solver failed: {msg}"
+
+// Usage with error recovery
+let assets = [
+    ("AAPL", 0.12, 0.18, 150.0)
+    ("MSFT", 0.10, 0.15, 300.0)
+]
+
+match solvePortfolioSafely assets 10000.0 with
+| Ok solution -> 
+    // Process successful result
+    solution.Result.Allocations 
+    |> List.iter (fun a -> printfn "  %s: $%.2f" a.Asset.Symbol a.Value)
+| Error msg -> 
+    // Handle failure gracefully
+    eprintfn "Portfolio optimization failed: %s" msg
+    eprintfn "Try: Increase budget or reduce constraints"
+```
+
+### Handling Timeout and Budget Limits
+
+```fsharp
+let solveTspWithLimits distances maxBudget maxTime =
+    printfn "Solving with budget=$%.2f, timeout=%.0fms" maxBudget maxTime
+    
+    match HybridSolver.solveTsp distances (Some maxBudget) (Some maxTime) None with
+    | Ok solution when solution.ElapsedMs > maxTime ->
+        // Exceeded timeout (classical fallback might have taken longer)
+        printfn "⚠ Solution found but exceeded timeout (%.2f ms)" solution.ElapsedMs
+        Ok solution
+        
+    | Ok solution when solution.Method = Classical ->
+        // Classical was used (possibly due to budget)
+        printfn "✓ Classical solver used (budget=$%.2f saved)" maxBudget
+        Ok solution
+        
+    | Ok solution ->
+        // Quantum or classical succeeded within limits
+        printfn "✓ Solution found within limits"
+        Ok solution
+        
+    | Error msg when msg.Contains("budget") ->
+        // Budget constraint violated
+        eprintfn "✗ Insufficient budget: %s" msg
+        eprintfn "  Try increasing budget or forcing classical solver"
+        Error msg
+        
+    | Error msg when msg.Contains("timeout") ->
+        // Timeout occurred
+        eprintfn "✗ Solver timeout: %s" msg
+        eprintfn "  Try increasing timeout or reducing problem size"
+        Error msg
+        
+    | Error msg ->
+        // Other error
+        eprintfn "✗ Solver error: %s" msg
+        Error msg
+
+// Usage: Set limits
+let result = solveTspWithLimits distances 5.0 1000.0  // $5 budget, 1 second
 ```
 
 ## Next Steps

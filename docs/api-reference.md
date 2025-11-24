@@ -4,6 +4,7 @@ Complete reference for **FSharp.Azure.Quantum** public APIs.
 
 ## Table of Contents
 
+- [Quick Start Patterns](#quick-start-patterns) - Common usage patterns (NEW!)
 - [HybridSolver](#hybridsolver) - Automatic quantum/classical routing
 - [TspSolver](#tspsolver) - Classical TSP solver
 - [TspBuilder](#tspbuilder) - TSP builder pattern API  
@@ -13,6 +14,200 @@ Complete reference for **FSharp.Azure.Quantum** public APIs.
 - [ProblemAnalysis](#problemanalysis) - Problem classification and complexity
 - [CostEstimation](#costestimation) - Cost calculation and budget management
 - [Types](#types) - Core types and data structures
+
+---
+
+## Quick Start Patterns
+
+### Pattern 1: Simple Auto-Solve (Recommended)
+
+```fsharp
+open FSharp.Azure.Quantum.Classical
+
+// TSP: Let HybridSolver decide everything
+let distances = array2D [[0.0; 10.0]; [10.0; 0.0]]
+match HybridSolver.solveTsp distances None None None with
+| Ok solution -> printfn "Tour: %A" solution.Result.Tour
+| Error msg -> eprintfn "Error: %s" msg
+
+// Portfolio: Let HybridSolver decide everything  
+let assets = [{Symbol="AAPL"; ExpectedReturn=0.12; Risk=0.18; Price=150.0}]
+let constraints = {Budget=1000.0; MinHolding=0.0; MaxHolding=500.0}
+match HybridSolver.solvePortfolio assets constraints None None None with
+| Ok solution -> printfn "Value: $%.2f" solution.Result.TotalValue
+| Error msg -> eprintfn "Error: %s" msg
+```
+
+### Pattern 2: Force Classical (Development/Testing)
+
+```fsharp
+// Force classical when developing (fast, deterministic)
+let forceClassical = Some HybridSolver.SolverMethod.Classical
+
+match HybridSolver.solveTsp distances None None forceClassical with
+| Ok solution -> 
+    // Guaranteed fast result from classical solver
+    printfn "Solved in %.2f ms" solution.ElapsedMs
+| Error msg -> eprintfn "Error: %s" msg
+```
+
+### Pattern 3: Budget-Constrained Quantum (Production)
+
+```fsharp
+// Set budget limit for quantum execution
+let budgetLimit = Some 10.0  // $10 USD max
+
+match HybridSolver.solveTsp distances budgetLimit None None with
+| Ok solution -> 
+    match solution.Method with
+    | Classical -> printfn "Used classical (quantum too expensive)"
+    | Quantum -> printfn "Used quantum within budget"
+| Error msg -> eprintfn "Error: %s" msg
+```
+
+### Pattern 4: Builder Pattern (Named Entities)
+
+```fsharp
+// TSP with named cities (easier to read)
+let cities = [
+    ("Seattle", 47.6, -122.3)
+    ("Portland", 45.5, -122.7)
+]
+
+match TSP.solveDirectly cities None with
+| Ok tour -> 
+    printfn "Route: %s" (String.concat " → " tour.Cities)
+    printfn "Distance: %.2f miles" tour.TotalDistance
+| Error msg -> eprintfn "Error: %s" msg
+
+// Portfolio with named assets
+let assets = [
+    ("AAPL", 0.12, 0.18, 150.0)  // (symbol, return, risk, price)
+    ("MSFT", 0.10, 0.15, 300.0)
+]
+
+match Portfolio.solveDirectly assets 10000.0 None with
+| Ok result ->
+    result.Allocations 
+    |> List.iter (fun a -> 
+        printfn "%s: %d shares = $%.2f" 
+            a.Symbol a.Shares a.Value)
+| Error msg -> eprintfn "Error: %s" msg
+```
+
+### Pattern 5: Advanced Configuration
+
+```fsharp
+// Custom solver configuration
+let tspConfig = {
+    MaxIterations = 50000     // More iterations = better quality
+    UseNearestNeighbor = true // Start with good initial solution
+}
+
+// Direct classical solver with config
+let solution = TspSolver.solveWithDistances distances tspConfig
+
+printfn "Found tour in %d iterations" solution.Iterations
+printfn "Tour length: %.2f" solution.TourLength
+printfn "Time: %.2f ms" solution.ElapsedMs
+```
+
+### Pattern 6: Robust Error Recovery
+
+```fsharp
+// Try hybrid, fallback to classical on error
+let solveTspRobust distances =
+    match HybridSolver.solveTsp distances None None None with
+    | Ok solution -> Ok solution.Result
+    | Error _ -> 
+        // Hybrid failed, try classical directly
+        try
+            Ok (TspSolver.solveWithDistances distances TspSolver.defaultConfig)
+        with ex ->
+            Error ex.Message
+
+// Usage
+match solveTspRobust distances with
+| Ok result -> printfn "Success: %A" result.Tour
+| Error msg -> eprintfn "All solvers failed: %s" msg
+```
+
+### Pattern 7: Validation Before Solving
+
+```fsharp
+// Validate portfolio constraints before solving
+let solvePortfolioSafe assets budget =
+    let constraints = {
+        Budget = budget
+        MinHolding = 0.0
+        MaxHolding = budget * 0.5
+    }
+    
+    // Validate first
+    let validation = 
+        PortfolioSolver.validateBudgetConstraint assets constraints
+    
+    if not validation.IsValid then
+        Error (String.concat "; " validation.Messages)
+    else
+        // Validation passed, solve
+        HybridSolver.solvePortfolio assets constraints None None None
+        |> Result.map (fun solution -> solution.Result)
+```
+
+### Pattern 8: Multiple Runs for Best Solution
+
+```fsharp
+// Run classical solver multiple times, take best
+let findBestTspSolution distances numRuns =
+    [1..numRuns]
+    |> List.map (fun _ -> 
+        TspSolver.solveWithDistances distances TspSolver.defaultConfig)
+    |> List.minBy (fun sol -> sol.TourLength)
+
+// Usage: Run 10 times, keep best
+let bestSolution = findBestTspSolution distances 10
+printfn "Best of 10 runs: %.2f" bestSolution.TourLength
+```
+
+### Pattern 9: Parallel Solves (Advanced)
+
+```fsharp
+open System.Threading.Tasks
+
+// Solve multiple problems in parallel
+let problems = [distances1; distances2; distances3]
+
+let solutions = 
+    problems
+    |> List.map (fun distances ->
+        Task.Run(fun () ->
+            HybridSolver.solveTsp distances None None None))
+    |> Task.WhenAll
+    |> fun task -> task.Result
+
+// Process results
+solutions 
+|> Array.iteri (fun i result ->
+    match result with
+    | Ok sol -> printfn "Problem %d: %.2f" i sol.Result.TourLength
+    | Error msg -> eprintfn "Problem %d failed: %s" i msg)
+```
+
+### Pattern 10: Incremental Problem Building
+
+```fsharp
+// Build problem incrementally
+let problem =
+    TSP.createEmpty()
+    |> TSP.addCity ("Seattle", 0.0, 0.0)
+    |> TSP.addCity ("Portland", 0.0, 174.0)
+    |> TSP.addCity ("San Francisco", 635.0, 807.0)
+
+match TSP.solve problem None with
+| Ok tour -> printfn "Route: %A" tour.Cities
+| Error msg -> eprintfn "Error: %s" msg
+```
 
 ---
 
