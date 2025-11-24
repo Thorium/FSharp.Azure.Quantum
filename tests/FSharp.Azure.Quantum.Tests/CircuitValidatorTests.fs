@@ -11,3 +11,13 @@ let ``Backend constraint should define IonQ simulator with 29 qubits`` () =
     // Assert
     Assert.Equal(29, constraints.MaxQubits)
     Assert.Equal("IonQ Simulator", constraints.Name)
+
+[<Fact>]
+let ``Backend constraint should define IonQ hardware with 11 qubits`` () =
+    // Arrange
+    let constraints = getConstraints IonQHardware
+    
+    // Assert
+    Assert.Equal(11, constraints.MaxQubits)
+    Assert.Equal("IonQ Hardware", constraints.Name)
+    Assert.True(constraints.HasAllToAllConnectivity)
