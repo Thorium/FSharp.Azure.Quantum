@@ -119,6 +119,7 @@ module TSP =
     /// Optional config parameter allows customization
     /// Output: Result with Tour or error message
     /// Example:
-    ///   let tour = TSP.solveDirectly [("A", 0.0, 0.0); ("B", 1.0, 0.0)]
+    ///   let tour = TSP.solveDirectly [("A", 0.0, 0.0); ("B", 1.0, 0.0)] None
     let solveDirectly (cities: (string * float * float) list) (config: TspSolver.TspConfig option) : Result<Tour, string> =
-        cities |> createProblem |> fun p -> solve p config
+        let problem = createProblem cities
+        solve problem config
