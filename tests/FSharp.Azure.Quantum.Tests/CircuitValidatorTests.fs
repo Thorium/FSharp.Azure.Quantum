@@ -43,3 +43,17 @@ let ``IonQ backends should support standard gate set`` () =
     let expectedGates = Set.ofList ["X"; "Y"; "Z"; "H"; "Rx"; "Ry"; "Rz"; "CNOT"; "SWAP"]
     Assert.Equal<Set<string>>(expectedGates, simConstraints.SupportedGates)
     Assert.Equal<Set<string>>(expectedGates, hwConstraints.SupportedGates)
+
+[<Fact>]
+let ``Backend constraints should define circuit depth limits`` () =
+    // Arrange & Act
+    let ionqSim = getConstraints IonQSimulator
+    let ionqHw = getConstraints IonQHardware
+    let rigetti = getConstraints RigettiAspenM3
+    
+    // Assert - IonQ has 100 gate depth limit
+    Assert.Equal(Some 100, ionqSim.MaxCircuitDepth)
+    Assert.Equal(Some 100, ionqHw.MaxCircuitDepth)
+    
+    // Assert - Rigetti has 50 gate depth limit
+    Assert.Equal(Some 50, rigetti.MaxCircuitDepth)
