@@ -97,27 +97,34 @@ let tspSolution = TspSolver.solveWithDistances distances TspSolver.defaultConfig
 let portfolio = PortfolioSolver.solveGreedyByRatio assets constraints PortfolioSolver.defaultConfig
 ```
 
-### 3. **Builder Pattern** - Fluent API
+### 3. **Builder Pattern** - Simple Domain API
 
-Use builder APIs for complex problem construction:
+Use builder APIs for named cities and assets:
 
 ```fsharp
-// TSP Builder
-let tspProblem = 
-    Tsp.createProblem()
-    |> Tsp.withCities ["Seattle"; "Portland"; "San Francisco"]
-    |> Tsp.withDistanceMatrix distances
+// TSP Builder - with named cities and coordinates
+let cities = [
+    ("Seattle", 0.0, 0.0)
+    ("Portland", 0.0, 174.0)
+    ("San Francisco", 635.0, 807.0)
+]
 
-let solution = Tsp.solve tspProblem
+let tspProblem = TSP.createProblem cities
+match TSP.solve tspProblem None with
+| Ok tour -> printfn "Tour: %A, Distance: %.2f" tour.Cities tour.TotalDistance
+| Error msg -> printfn "Error: %s" msg
 
-// Portfolio Builder
-let portfolioProblem =
-    Portfolio.createProblem()
-    |> Portfolio.withAssets assets
-    |> Portfolio.withBudget 10000.0
-    |> Portfolio.withRiskTolerance 0.3
+// Portfolio Builder - with asset details
+let assets = [
+    ("AAPL", 0.12, 0.18, 150.0)  // symbol, return, risk, price
+    ("MSFT", 0.10, 0.15, 300.0)
+    ("GOOGL", 0.15, 0.20, 2800.0)
+]
 
-let allocation = Portfolio.solve portfolioProblem
+let portfolioProblem = Portfolio.createProblem assets 10000.0
+match Portfolio.solve portfolioProblem None with
+| Ok allocation -> printfn "Total: $%.2f, Return: %.2f%%" allocation.TotalValue (allocation.ExpectedReturn * 100.0)
+| Error msg -> printfn "Error: %s" msg
 ```
 
 ## Next Steps

@@ -145,40 +145,67 @@ val defaultConfig : TspConfig
 
 ---
 
-## TspBuilder
+## TSP (TspBuilder)
 
-Builder pattern API for constructing and solving TSP problems.
+Domain builder API for constructing and solving TSP problems with named cities.
+
+### Types
+
+```fsharp
+type City = {
+    Name: string
+    X: float
+    Y: float
+}
+
+type Tour = {
+    Cities: string list
+    TotalDistance: float
+    IsValid: bool
+}
+```
 
 ### Functions
 
 #### `createProblem`
 
-Create a new TSP problem builder.
+Create TSP problem from list of cities with coordinates.
 
 ```fsharp
-val createProblem : unit -> TspProblem
+val createProblem : cities: (string * float * float) list -> TspProblem
 ```
+
+**Parameters:**
+- `cities` - List of (name, x-coordinate, y-coordinate) tuples
 
 #### `solve`
 
-Solve a TSP problem with default configuration.
+Solve TSP problem using classical algorithm.
 
 ```fsharp
-val solve : TspProblem -> TspSolver.TspSolution
+val solve : problem: TspProblem -> config: TspConfig option -> Result<Tour, string>
 ```
 
 #### `solveDirectly`
 
-Solve a TSP problem with custom configuration.
+Create and solve TSP in one step.
 
 ```fsharp
-val solveDirectly : config: TspConfig -> problem: TspProblem -> TspSolver.TspSolution
+val solveDirectly : cities: (string * float * float) list -> config: TspConfig option -> Result<Tour, string>
 ```
 
 **Example:**
 ```fsharp
-let problem = Tsp.createProblem()
-let solution = Tsp.solve problem
+let cities = [("Seattle", 0.0, 0.0); ("Portland", 0.0, 174.0); ("SF", 635.0, 807.0)]
+let problem = TSP.createProblem cities
+match TSP.solve problem None with
+| Ok tour -> printfn "Distance: %.2f" tour.TotalDistance
+| Error msg -> printfn "Error: %s" msg
+
+// Or solve directly
+match TSP.solveDirectly cities None with
+| Ok tour -> printfn "Cities: %A" tour.Cities
+| Error msg -> printfn "Error: %s" msg
 ```
 
 ---
@@ -243,40 +270,78 @@ let solution = PortfolioSolver.solveGreedyByRatio assets constraints PortfolioSo
 
 ---
 
-## PortfolioBuilder
+## Portfolio (PortfolioBuilder)
 
-Builder pattern API for constructing and solving portfolio optimization problems.
+Domain builder API for constructing and solving portfolio optimization problems.
+
+### Types
+
+```fsharp
+type Asset = {
+    Symbol: string
+    ExpectedReturn: float
+    Risk: float
+    Price: float
+}
+
+type PortfolioAllocation = {
+    Allocations: (string * float * float) list  // (symbol, shares, value)
+    TotalValue: float
+    ExpectedReturn: float
+    Risk: float
+    IsValid: bool
+}
+```
 
 ### Functions
 
 #### `createProblem`
 
-Create a new portfolio problem builder.
+Create portfolio problem from assets and budget.
 
 ```fsharp
-val createProblem : unit -> PortfolioProblem
+val createProblem : assets: (string * float * float * float) list -> budget: float -> PortfolioProblem
 ```
+
+**Parameters:**
+- `assets` - List of (symbol, expectedReturn, risk, price) tuples
+- `budget` - Total budget available for investment
 
 #### `solve`
 
-Solve portfolio with default configuration.
+Solve portfolio optimization problem.
 
 ```fsharp
-val solve : PortfolioProblem -> PortfolioSolver.PortfolioSolution
+val solve : problem: PortfolioProblem -> config: PortfolioConfig option -> Result<PortfolioAllocation, string>
 ```
 
 #### `solveDirectly`
 
-Solve portfolio with custom configuration.
+Create and solve portfolio in one step.
 
 ```fsharp
-val solveDirectly : config: PortfolioConfig -> problem: PortfolioProblem -> PortfolioSolver.PortfolioSolution
+val solveDirectly : assets: (string * float * float * float) list -> budget: float -> config: PortfolioConfig option -> Result<PortfolioAllocation, string>
 ```
 
 **Example:**
 ```fsharp
-let problem = Portfolio.createProblem()
-let solution = Portfolio.solve problem
+let assets = [
+    ("AAPL", 0.12, 0.18, 150.0)   // symbol, return, risk, price
+    ("MSFT", 0.10, 0.15, 300.0)
+    ("GOOGL", 0.15, 0.20, 2800.0)
+]
+
+let problem = Portfolio.createProblem assets 10000.0
+match Portfolio.solve problem None with
+| Ok allocation -> 
+    printfn "Total Value: $%.2f" allocation.TotalValue
+    printfn "Expected Return: %.2f%%" (allocation.ExpectedReturn * 100.0)
+| Error msg -> printfn "Error: %s" msg
+
+// Or solve directly
+match Portfolio.solveDirectly assets 10000.0 None with
+| Ok allocation -> printfn "Allocations: %A" allocation.Allocations
+| Error msg -> printfn "Error: %s" msg
 ```
 
 ---
