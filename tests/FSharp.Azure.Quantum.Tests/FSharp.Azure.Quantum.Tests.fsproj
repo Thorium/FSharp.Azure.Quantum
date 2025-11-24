@@ -12,7 +12,11 @@
     <Compile Include="CostEstimationTests.fs" />
     <Compile Include="QuantumClientTests.fs" />
     <Compile Include="TspSolverTests.fs" />
+    <Compile Include="PortfolioSolverTests.fs" />
     <Compile Include="ProblemAnalysisTests.fs" />
+    <Compile Include="QuantumAdvisorTests.fs" />
+    <Compile Include="CircuitBuilderTests.fs" />
+    <Compile Include="QuboEncodingTests.fs" />
     <Compile Include="QaoaCircuitTests.fs" />
   </ItemGroup>
 

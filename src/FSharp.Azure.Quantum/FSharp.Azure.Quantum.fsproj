@@ -13,14 +13,19 @@
     <Compile Include="Retry.fs" />
     <Compile Include="Client.fs" />
     <Compile Include="TspSolver.fs" />
+    <Compile Include="PortfolioSolver.fs" />
     <Compile Include="ProblemAnalysis.fs" />
+    <Compile Include="QuantumAdvisor.fs" />
+    <Compile Include="CircuitBuilder.fs" />
+    <Compile Include="QuboEncoding.fs" />
     <Compile Include="QaoaCircuit.fs" />
   </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Azure.Identity" Version="1.13.1" />
+    <PackageReference Include="MathNet.Numerics" Version="5.0.0" />
+    <PackageReference Include="MathNet.Numerics.FSharp" Version="5.0.0" />
     <PackageReference Include="Microsoft.Extensions.Logging" Version="8.0.0" />
-    <PackageReference Include="System.Text.Json" Version="8.0.5" />
   </ItemGroup>
 
 </Project>
