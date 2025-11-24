@@ -120,28 +120,48 @@ let portfolio = PortfolioSolver.solveGreedyByRatio assets constraints PortfolioS
 Test quantum algorithms offline without Azure credentials:
 
 ```fsharp
-open FSharp.Azure.Quantum.LocalSimulator
+open FSharp.Azure.Quantum.Core
+open FSharp.Azure.Quantum.Core.QuantumBackend
+open FSharp.Azure.Quantum.Core.QaoaCircuit
 
-// Initialize 3-qubit state
-let state = StateVector.init 3
+// Create a QAOA circuit (example: 3-qubit MaxCut)
+let quboMatrix = array2D [[0.0; 0.5; 0.5]; [0.5; 0.0; 0.5]; [0.5; 0.5; 0.0]]
+let circuit = {
+    NumQubits = 3
+    InitialStateGates = [| H(0); H(1); H(2) |]
+    Layers = [|
+        {
+            CostGates = [| RZZ(0, 1, 0.5); RZZ(1, 2, 0.5); RZZ(0, 2, 0.5) |]
+            MixerGates = [| RX(0, 1.0); RX(1, 1.0); RX(2, 1.0) |]
+            Gamma = 0.25
+            Beta = 0.5
+        }
+    |]
+    ProblemHamiltonian = ProblemHamiltonian.fromQubo quboMatrix
+    MixerHamiltonian = MixerHamiltonian.create 3
+}
 
-// Apply quantum gates
-let state' = 
-    state
-    |> Gates.applyH 0       // Hadamard on qubit 0
-    |> Gates.applyCNOT 0 1  // CNOT between qubits 0 and 1
-    |> Gates.applyRz 2 (Math.PI / 4.0)  // Rz rotation on qubit 2
-
-// Measure with 1000 shots
-let results = Measurement.sample state' 1000
+// Execute on local simulator
+match Local.simulate circuit 1000 with
+| Ok result ->
+    printfn "Backend: %s" result.Backend
+    printfn "Time: %.2f ms" result.ExecutionTimeMs
+    result.Counts
+    |> Map.toList
+    |> List.sortByDescending snd
+    |> List.take 3
+    |> List.iter (fun (bitstring, count) ->
+        printfn "  %s: %d shots" bitstring count)
+| Error msg ->
+    eprintfn "Error: %s" msg
 ```
 
 **Features:**
 - State vector simulation (up to 10 qubits)
-- Single & two-qubit gates (H, X, Y, Z, Rx, Ry, Rz, CNOT, CZ)
-- QAOA circuit execution
+- QAOA circuit execution with mixer and cost Hamiltonians
 - Measurement and shot sampling
 - Zero external dependencies
+- **Unified API**: Same `QaoaCircuit` type works with Azure backend (coming soon)
 
 ### 📊 Problem Analysis
 Analyze problem complexity and characteristics:

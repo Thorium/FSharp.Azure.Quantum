@@ -23,38 +23,50 @@ FSharp.Azure.Quantum includes a lightweight, pure F# quantum simulator that supp
 ## Quick Start
 
 ```fsharp
-open FSharp.Azure.Quantum.LocalSimulator
-open FSharp.Azure.Quantum.Quantum
+open FSharp.Azure.Quantum.Core
+open FSharp.Azure.Quantum.Core.QuantumBackend
+open FSharp.Azure.Quantum.Core.QaoaCircuit
 
-// Create a simple 2-qubit QAOA circuit
+// Create a QAOA circuit (example: simple 2-qubit MaxCut)
+let quboMatrix = array2D [[0.0; 0.5]; [0.5; 0.0]]
 let circuit = {
     NumQubits = 2
-    Parameters = [| 0.5; 0.3 |]  // beta, gamma
-    CostTerms = [| (0, 1, -1.0) |]  // Edge (0,1) with weight -1
-    Depth = 1
+    InitialStateGates = [| H(0); H(1) |]
+    Layers = [|
+        {
+            CostGates = [| RZZ(0, 1, 0.5) |]
+            MixerGates = [| RX(0, 1.0); RX(1, 1.0) |]
+            Gamma = 0.25
+            Beta = 0.5
+        }
+    |]
+    ProblemHamiltonian = ProblemHamiltonian.fromQubo quboMatrix
+    MixerHamiltonian = MixerHamiltonian.create 2
 }
 
-// Simulate with 1000 shots
-match QaoaSimulator.simulate circuit 1000 with
+// Execute on local simulator
+match Local.simulate circuit 1000 with
 | Ok result ->
-    printfn "Simulation completed in %.2f ms" result.SimulationTimeMs
+    printfn "Backend: %s" result.Backend
+    printfn "Time: %.2f ms" result.ExecutionTimeMs
     printfn "Most common outcomes:"
     result.Counts
     |> Map.toList
     |> List.sortByDescending snd
-    |> List.take 5
+    |> List.take 3
     |> List.iter (fun (bitstring, count) ->
-        printfn "  %s: %d shots (%.1f%%)" bitstring count (float count / float result.Shots * 100.0))
+        printfn "  %s: %d shots" bitstring count)
 | Error msg ->
     eprintfn "Simulation failed: %s" msg
 ```
 
 **Output:**
 ```
-Simulation completed in 12.45 ms
+Backend: Local
+Time: 12.45 ms
 Most common outcomes:
-  11: 523 shots (52.3%)
-  00: 477 shots (47.7%)
+  11: 523 shots
+  00: 477 shots
 ```
 
 ## When to Use Local Simulation
@@ -75,7 +87,120 @@ Most common outcomes:
 - **Hardware access** - Real quantum hardware (IonQ, Rigetti, etc.)
 - **Performance** - Parallel execution across multiple circuits
 
-## Core Modules
+## Unified Backend API (Recommended)
+
+The `QuantumBackend` module provides a **single consistent API** for both local simulation and Azure Quantum execution. This is the recommended approach for application development.
+
+### Using the Local Backend
+
+```fsharp
+open FSharp.Azure.Quantum.Core
+open FSharp.Azure.Quantum.Core.QuantumBackend
+open FSharp.Azure.Quantum.Core.QaoaCircuit
+
+// Create a QAOA circuit
+let circuit = {
+    NumQubits = 3
+    InitialStateGates = [| H(0); H(1); H(2) |]
+    Layers = [|
+        {
+            CostGates = [| RZZ(0, 1, 0.5); RZZ(1, 2, 0.5) |]
+            MixerGates = [| RX(0, 1.0); RX(1, 1.0); RX(2, 1.0) |]
+            Gamma = 0.25
+            Beta = 0.5
+        }
+    |]
+    ProblemHamiltonian = ProblemHamiltonian.fromQubo quboMatrix
+    MixerHamiltonian = MixerHamiltonian.create 3
+}
+
+// Execute locally
+match Local.simulate circuit 1000 with
+| Ok result ->
+    printfn "Executed on: %s" result.Backend       // "Local"
+    printfn "Time: %.2f ms" result.ExecutionTimeMs
+    printfn "Results: %A" result.Counts
+| Error msg ->
+    eprintfn "Error: %s" msg
+```
+
+### Backend Switching
+
+**The beauty of the unified API:** Just change one function call to switch backends!
+
+```fsharp
+// Local execution (≤10 qubits, fast, free)
+let localResult = Local.simulate circuit 1000
+
+// Azure execution (when available, for >10 qubits)
+// let azureResult = Azure.execute circuit 1000 workspace
+
+// Auto-select based on circuit size
+let autoResult = autoExecute circuit 1000
+// Automatically uses Local for ≤10 qubits
+```
+
+**No code changes needed** - same `QaoaCircuit` type, same `ExecutionResult` output!
+
+### Using Backend Interfaces
+
+For dependency injection or testing, use the `IBackend` interface:
+
+```fsharp
+let runWithBackend (backend: IBackend) circuit shots =
+    match backend.Execute circuit shots with
+    | Ok result ->
+        printfn "Backend: %s, Shots: %d" result.Backend result.Shots
+        result.Counts
+    | Error msg ->
+        eprintfn "Execution failed: %s" msg
+        Map.empty
+
+// Use local backend
+let localBackend = LocalBackend() :> IBackend
+let counts = runWithBackend localBackend circuit 1000
+
+// Easy to swap for testing or different backends
+let testBackend = MockBackend() :> IBackend  // Your test implementation
+let testCounts = runWithBackend testBackend circuit 100
+```
+
+### Execution Result Format
+
+All backends return the same `ExecutionResult` type:
+
+```fsharp
+type ExecutionResult = {
+    /// Measurement counts (bitstring -> frequency)
+    Counts: Map<string, int>
+    
+    /// Number of shots executed
+    Shots: int
+    
+    /// Backend identifier ("Local", "Azure", etc.)
+    Backend: string
+    
+    /// Execution time in milliseconds
+    ExecutionTimeMs: float
+    
+    /// Job ID (Azure only, None for local)
+    JobId: string option
+}
+```
+
+This uniform format makes it easy to:
+- Compare results between backends
+- Log execution metrics consistently
+- Build visualizations that work with any backend
+
+## Advanced: Low-Level Modules
+
+**Note:** The following low-level modules are available for advanced use cases, but most users should use the unified `QuantumBackend` API shown above.
+
+These modules provide direct access to quantum operations for:
+- Educational purposes (learning how quantum simulation works)
+- Custom circuit types beyond QAOA
+- Performance optimization for specific use cases
 
 ### 1. StateVector - Quantum State Representation
 
@@ -164,41 +289,21 @@ let stateCZ = Gates.applyCZ 0 1 state  // Qubit 0 and 1
 
 ### 3. QaoaSimulator - QAOA Circuit Execution
 
-Simulate Quantum Approximate Optimization Algorithm circuits.
+**Note:** For application development, use `QuantumBackend.Local.simulate` instead (see Unified Backend API section above). This low-level module is for educational purposes.
+
+The `QaoaSimulator` module provides direct QAOA simulation operations:
 
 ```fsharp
 open FSharp.Azure.Quantum.LocalSimulator.QaoaSimulator
-open FSharp.Azure.Quantum.Quantum
 
-// Define MaxCut problem on 3-node graph
-let circuit = {
-    NumQubits = 3
-    Parameters = [| 0.4; 0.6 |]  // [beta, gamma] for depth=1
-    CostTerms = [
-        (0, 1, -1.0)  // Edge 0-1
-        (1, 2, -1.0)  // Edge 1-2
-        (0, 2, -1.0)  // Edge 0-2 (triangle graph)
-    ]
-    Depth = 1
-}
+// Initialize uniform superposition manually
+let state = QaoaSimulator.initializeUniformSuperposition 3
 
-// Simulate with 1000 measurement shots
-match QaoaSimulator.simulate circuit 1000 with
-| Ok result ->
-    printfn "Shots: %d" result.Shots
-    printfn "Qubits: %d" result.QubitCount
-    printfn "Time: %.2f ms" result.SimulationTimeMs
-    
-    // Analyze results
-    let mostCommon = 
-        result.Counts 
-        |> Map.toList 
-        |> List.maxBy snd
-    
-    printfn "Most common: %s (%d shots)" (fst mostCommon) (snd mostCommon)
-    
-| Error msg ->
-    eprintfn "Error: %s" msg
+// Apply cost interaction (ZZ term)
+let stateAfterCost = QaoaSimulator.applyCostInteraction 0.5 0 1 -1.0 state
+
+// Apply mixer layer (RX gates on all qubits)
+let stateAfterMixer = QaoaSimulator.applyMixerLayer 0.3 stateAfterCost
 ```
 
 **QAOA Circuit Structure:**
@@ -212,30 +317,6 @@ For depth p, QAOA applies p layers of:
 
 ```
 |0⟩^⊗n → [Cost(γ₁) → Mix(β₁)] → ... → [Cost(γₚ) → Mix(βₚ)] → Measure
-```
-
-**Multi-Layer Example:**
-
-```fsharp
-// Depth-2 QAOA with 4 parameters
-let deepCircuit = {
-    NumQubits = 4
-    Parameters = [| 0.3; 0.5; 0.4; 0.6 |]  // [β₁, γ₁, β₂, γ₂]
-    CostTerms = [
-        (0, 1, -1.0)
-        (1, 2, -1.0)
-        (2, 3, -1.0)
-        (3, 0, -1.0)  // 4-node cycle
-    ]
-    Depth = 2
-}
-
-match QaoaSimulator.simulate deepCircuit 5000 with
-| Ok result ->
-    // More shots for better statistics with deeper circuits
-    printfn "Simulated %d-layer QAOA" deepCircuit.Depth
-| Error msg ->
-    eprintfn "Error: %s" msg
 ```
 
 ### 4. Measurement - Observation and Sampling

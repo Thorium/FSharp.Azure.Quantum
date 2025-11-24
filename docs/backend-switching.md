@@ -9,245 +9,168 @@ title: Switching Between Local and Azure Backends
 
 ## Overview
 
-FSharp.Azure.Quantum supports two execution backends:
+FSharp.Azure.Quantum provides a **unified API** through the `QuantumBackend` module that works with both:
 
 1. **Local Simulator** - Fast, free, offline simulation (up to 10 qubits)
-2. **Azure Quantum** - Scalable cloud execution with real quantum hardware access
+2. **Azure Quantum** - Scalable cloud execution with real quantum hardware access (coming soon)
 
-This guide shows you how to structure your code to easily switch between backends.
+**Key Feature:** The same `QaoaCircuit` type is used for both backends, making backend switching a **one-line code change**.
 
-## Current State (v0.1.0-alpha)
+## The Unified API
 
-### Separate APIs
+### Current Implementation (v0.1.0-alpha)
 
-Currently, local simulation and Azure execution use different APIs:
+The `QuantumBackend` module provides three ways to execute quantum circuits:
 
 ```fsharp
-// Local simulation
-open FSharp.Azure.Quantum.LocalSimulator
+open FSharp.Azure.Quantum.Core
+open FSharp.Azure.Quantum.Core.QuantumBackend
+open FSharp.Azure.Quantum.Core.QaoaCircuit
 
-let localState = 
-    StateVector.init 4
-    |> QaoaSimulator.initializeUniformSuperposition
-// ... apply gates ...
-let samples = Measurement.sample localState 1000
+// Create a circuit once
+let circuit = {
+    NumQubits = 3
+    InitialStateGates = [| H(0); H(1); H(2) |]
+    Layers = [|
+        {
+            CostGates = [| RZZ(0, 1, 0.5); RZZ(1, 2, 0.5) |]
+            MixerGates = [| RX(0, 1.0); RX(1, 1.0); RX(2, 1.0) |]
+            Gamma = 0.25
+            Beta = 0.5
+        }
+    |]
+    ProblemHamiltonian = ProblemHamiltonian.fromQubo quboMatrix
+    MixerHamiltonian = MixerHamiltonian.create 3
+}
 
-// Azure Quantum (when available)
-// open FSharp.Azure.Quantum.Azure
-// let azureJob = AzureClient.submitJob circuit workspace
-// let azureResults = AzureClient.getResults jobId
+// Method 1: Direct local execution
+let localResult = Local.simulate circuit 1000
+
+// Method 2: Direct Azure execution (when available)
+// let azureResult = Azure.execute circuit 1000 workspace
+
+// Method 3: Automatic selection based on size
+let autoResult = autoExecute circuit 1000
+// Uses Local for ≤10 qubits, Azure for >10 qubits
 ```
 
-**This requires code changes to switch backends** ❌
+**That's it!** Same circuit, same result format, just different function calls.
 
-## Recommended Pattern: Backend Abstraction
+## Simple Backend Switching
 
-Until a unified API is available, use this abstraction pattern to make switching easy:
-
-### Step 1: Define Common Types
+### Example: Switching with a Single Line
 
 ```fsharp
-module QuantumBackend =
-    
-    /// Measurement result format (common between backends)
-    type MeasurementResult = {
-        Counts: Map<string, int>
-        Shots: int
-        ExecutionTimeMs: float
+/// Solve MaxCut problem
+let solveMaxCut edges numNodes shots =
+    // Build QAOA circuit
+    let quboMatrix = MaxCut.toQubo edges numNodes
+    let circuit = {
+        NumQubits = numNodes
+        InitialStateGates = Array.init numNodes (fun i -> H(i))
+        Layers = [|
+            {
+                CostGates = MaxCut.buildCostGates edges
+                MixerGates = Array.init numNodes (fun i -> RX(i, 1.0))
+                Gamma = 0.5
+                Beta = 0.3
+            }
+        |]
+        ProblemHamiltonian = ProblemHamiltonian.fromQubo quboMatrix
+        MixerHamiltonian = MixerHamiltonian.create numNodes
     }
     
-    /// Backend interface
-    type IQuantumBackend =
-        abstract member Execute: numQubits:int -> parameters:float[] -> costTerms:(int*int*float)[] -> shots:int -> Result<MeasurementResult, string>
-```
+    // Execute on backend - CHANGE THIS ONE LINE TO SWITCH:
+    Local.simulate circuit shots          // ← Local execution
+    // Azure.execute circuit shots workspace  // ← Azure execution
+    // autoExecute circuit shots             // ← Auto-select
 
-### Step 2: Implement Local Backend
-
-```fsharp
-open FSharp.Azure.Quantum.LocalSimulator
-
-type LocalBackend() =
-    interface IQuantumBackend with
-        member _.Execute numQubits parameters costTerms shots =
-            try
-                // Build QAOA circuit using local simulator
-                let depth = parameters.Length / 2
-                let (betas, gammas) = 
-                    parameters 
-                    |> Array.chunkBySize 2
-                    |> Array.map (fun pair -> (pair.[0], pair.[1]))
-                    |> Array.unzip
-                
-                // Initialize state
-                let mutable state = QaoaSimulator.initializeUniformSuperposition numQubits
-                
-                // Apply QAOA layers
-                for i in 0 .. depth - 1 do
-                    let gamma = gammas.[i]
-                    let beta = betas.[i]
-                    
-                    // Cost layer: Apply cost interactions
-                    for (q1, q2, weight) in costTerms do
-                        state <- QaoaSimulator.applyCostInteraction gamma q1 q2 weight state
-                    
-                    // Mixer layer
-                    state <- QaoaSimulator.applyMixerLayer beta state
-                
-                // Measure
-                let startTime = System.DateTime.UtcNow
-                let samples = Measurement.sampleBitstrings state shots
-                let elapsedMs = (System.DateTime.UtcNow - startTime).TotalMilliseconds
-                
-                Ok {
-                    Counts = samples
-                    Shots = shots
-                    ExecutionTimeMs = elapsedMs
-                }
-            with
-            | ex -> Error $"Local simulation failed: {ex.Message}"
-```
-
-### Step 3: Implement Azure Backend (Placeholder)
-
-```fsharp
-// open FSharp.Azure.Quantum.Azure
-
-type AzureBackend(workspace: (* WorkspaceConfig *) unit) =
-    interface IQuantumBackend with
-        member _.Execute numQubits parameters costTerms shots =
-            // TODO: When Azure integration is available
-            Error "Azure backend not yet implemented - use LocalBackend for now"
-            
-            // Future implementation:
-            // let circuit = buildQaoaCircuit numQubits parameters costTerms
-            // let job = AzureClient.submitJob circuit workspace
-            // let result = AzureClient.waitForCompletion job
-            // Ok { Counts = result.Counts; Shots = shots; ExecutionTimeMs = result.Time }
-```
-
-### Step 4: Use Backend Abstraction
-
-Now your algorithm code is backend-agnostic:
-
-```fsharp
-/// Solve MaxCut using specified backend
-let solveMaxCut (backend: IQuantumBackend) (edges: (int*int) list) (numNodes: int) =
-    // Convert edges to cost terms
-    let costTerms = 
-        edges 
-        |> List.map (fun (i, j) -> (i, j, -1.0))
-        |> Array.ofList
-    
-    // QAOA parameters (depth=1)
-    let parameters = [| 0.5; 0.3 |]  // [beta, gamma]
-    let shots = 1000
-    
-    // Execute on backend (local or Azure)
-    backend.Execute numNodes parameters costTerms shots
-
-// Switch backends with a single line change:
-
-// Option 1: Local execution
-let localBackend = LocalBackend() :> IQuantumBackend
-match solveMaxCut localBackend edges 4 with
-| Ok result -> 
-    printfn "Local simulation: %A" result.Counts
-| Error msg -> 
+// Use it
+let edges = [(0, 1); (1, 2); (2, 0)]  // Triangle graph
+match solveMaxCut edges 3 1000 with
+| Ok result ->
+    printfn "Backend: %s" result.Backend
+    printfn "Best solution: %A" (result.Counts |> Map.toList |> List.maxBy snd)
+| Error msg ->
     eprintfn "Error: %s" msg
-
-// Option 2: Azure execution (when available)
-// let azureBackend = AzureBackend(workspace) :> IQuantumBackend
-// match solveMaxCut azureBackend edges 4 with
-// | Ok result -> printfn "Azure Quantum: %A" result.Counts
-// | Error msg -> eprintfn "Error: %s" msg
 ```
+
+### Uniform Result Format
+
+All backends return the same `ExecutionResult` type:
+
+```fsharp
+type ExecutionResult = {
+    /// Measurement counts (bitstring -> frequency)
+    Counts: Map<string, int>
+    
+    /// Number of shots executed
+    Shots: int
+    
+    /// Backend identifier ("Local", "Azure", etc.)
+    Backend: string
+    
+    /// Execution time in milliseconds
+    ExecutionTimeMs: float
+    
+    /// Job ID (Azure only, None for local)
+    JobId: string option
+}
+```
+
+This means:
+- ✅ Analysis code works with any backend
+- ✅ Logging and metrics are consistent
+- ✅ Visualization tools are backend-agnostic
+- ✅ Easy to compare local vs cloud results
 
 ## Configuration-Based Switching
 
-Take it a step further with configuration-driven backend selection:
+For production applications, use configuration to control backend selection:
 
 ```fsharp
-module Config =
-    type BackendConfig =
+module BackendConfig =
+    
+    type Config =
         | Local
-        | Azure of workspace: unit  // Replace 'unit' with actual WorkspaceConfig
+        | Azure of workspace: unit  // TODO: Replace with actual WorkspaceConfig
+        | Auto
     
-    let createBackend (config: BackendConfig) : IQuantumBackend =
+    let getBackend (config: Config) (circuit: QaoaCircuit) (shots: int) =
         match config with
-        | Local -> LocalBackend() :> IQuantumBackend
-        | Azure workspace -> AzureBackend(workspace) :> IQuantumBackend
+        | Local -> 
+            Local.simulate circuit shots
+        | Azure workspace -> 
+            Azure.execute circuit shots workspace
+        | Auto -> 
+            autoExecute circuit shots
     
-    // Load from config file or environment
-    let getBackendFromEnvironment () =
+    // Load config from environment
+    let fromEnvironment () =
         match System.Environment.GetEnvironmentVariable("QUANTUM_BACKEND") with
-        | "azure" -> 
-            // Azure workspace (* todo: load from config *)
-            Error "Azure backend not configured"
-        | _ -> 
-            Ok (LocalBackend() :> IQuantumBackend)
+        | "azure" -> Azure ()  // TODO: Load workspace config
+        | "local" -> Local
+        | _ -> Auto  // Default: auto-select
 
-// Use in code:
-match Config.getBackendFromEnvironment() with
-| Ok backend ->
-    let result = solveMaxCut backend edges numNodes
-    // Process result
-| Error msg ->
-    eprintfn "Backend configuration error: %s" msg
+// Usage
+let config = BackendConfig.fromEnvironment()
+let result = BackendConfig.getBackend config circuit 1000
 ```
 
-Now you can switch backends via environment variable:
+Set backend via environment variable:
 
 ```bash
-# Local execution (default)
+# Local execution
+export QUANTUM_BACKEND=local
 dotnet run
 
-# Azure execution (when implemented)
+# Azure execution (when available)
 export QUANTUM_BACKEND=azure
 dotnet run
+
+# Auto-select (default)
+dotnet run
 ```
-
-## Hybrid Approach: Size-Based Auto-Selection
-
-Automatically choose the best backend based on problem size:
-
-```fsharp
-let selectBackend (numQubits: int) : IQuantumBackend =
-    if numQubits <= 10 then
-        // Small problems: use fast local simulation
-        printfn "Using local simulator (problem size: %d qubits)" numQubits
-        LocalBackend() :> IQuantumBackend
-    else
-        // Large problems: require Azure
-        printfn "Problem requires Azure Quantum (%d qubits > 10 qubit local limit)" numQubits
-        // For now, fail gracefully
-        failwith "Azure backend required but not available - reduce problem size to ≤10 qubits"
-        // Future: AzureBackend(workspace) :> IQuantumBackend
-
-// Automatic selection
-let backend = selectBackend numNodes
-let result = solveMaxCut backend edges numNodes
-```
-
-## Testing Strategy
-
-Use local backend for tests, Azure for production:
-
-```fsharp
-module Tests =
-    open Xunit
-    
-    [<Fact>]
-    let ``MaxCut finds valid cut`` () =
-        // Always use local backend in tests
-        let backend = LocalBackend() :> IQuantumBackend
-        let edges = [(0, 1); (1, 2); (2, 3); (3, 0)]
-        
-        match solveMaxCut backend edges 4 with
-        | Ok result ->
-            // Verify result quality
-            Assert.True(result.Shots > 0)
-            Assert.True(result.Counts.Count > 0)
-        | Error msg ->
             Assert.Fail($"Solver failed: {msg}")
 
 module Production =
@@ -305,173 +228,50 @@ This API would:
 | Scenario | Local | Azure |
 |----------|-------|-------|
 | **Large problems** (>10 qubits) | ❌ Not supported | ✅ Scales to 20+ qubits |
-| **Production workloads** | ⚠️ Limited scale | ✅ Production-ready |
-| **Real quantum hardware** | ❌ Simulation only | ✅ IonQ, Rigetti, etc. |
-| **Parallel execution** | ❌ Single-threaded | ✅ Cloud parallelism |
-| **Enterprise features** | ❌ Basic | ✅ Monitoring, logging, SLAs |
+## Comparison: Local vs Azure
 
-## Best Practices
-
-### 1. Develop Locally, Deploy to Azure
-
-```fsharp
-// Development workflow
-let devBackend = LocalBackend() :> IQuantumBackend
-
-// Prototype and test locally
-let parameters = optimizeParameters devBackend problem
-
-// When ready, switch to Azure for production
-// let prodBackend = AzureBackend(workspace) :> IQuantumBackend
-// let finalResult = runOnBackend prodBackend parameters
-```
-
-### 2. Validate Locally Before Azure Submission
-
-```fsharp
-let validateThenExecute (problem: Problem) =
-    // Step 1: Quick validation with local simulator
-    let localBackend = LocalBackend() :> IQuantumBackend
-    match execute localBackend problem 100 with  // Just 100 shots
-    | Error msg -> 
-        Error $"Local validation failed: {msg}"
-    | Ok localResult ->
-        printfn "✓ Local validation passed"
-        
-        // Step 2: Execute on Azure with full shots
-        // let azureBackend = AzureBackend(workspace) :> IQuantumBackend
-        // execute azureBackend problem 10000
-        Ok localResult  // For now, return local result
-```
-
-### 3. Progressive Enhancement
-
-```fsharp
-let solveWithFallback (preferredBackend: IQuantumBackend) (fallbackBackend: IQuantumBackend) problem =
-    match preferredBackend.Execute problem.NumQubits problem.Parameters problem.CostTerms 1000 with
-    | Ok result -> 
-        printfn "✓ Executed on preferred backend"
-        Ok result
-    | Error msg ->
-        eprintfn "⚠ Preferred backend failed: %s" msg
-        eprintfn "  Falling back to secondary backend..."
-        fallbackBackend.Execute problem.NumQubits problem.Parameters problem.CostTerms 1000
-
-// Try Azure, fall back to local if unavailable
-// let azureBackend = AzureBackend(workspace) :> IQuantumBackend
-let localBackend = LocalBackend() :> IQuantumBackend
-// let result = solveWithFallback azureBackend localBackend problem
-let result = solveWithFallback localBackend localBackend problem  // Both local for now
-```
-
-## Complete Example: Backend-Agnostic MaxCut Solver
-
-```fsharp
-module MaxCutSolver =
-    
-    /// MaxCut problem definition
-    type MaxCutProblem = {
-        NumNodes: int
-        Edges: (int * int) list
-    }
-    
-    /// Solution with backend info
-    type MaxCutSolution = {
-        Partition: string
-        CutSize: int
-        Probability: float
-        Backend: string
-        ExecutionTimeMs: float
-    }
-    
-    /// Evaluate cut size for a bitstring
-    let evaluateCut (edges: (int*int) list) (bitstring: string) =
-        edges
-        |> List.filter (fun (i, j) -> bitstring.[i] <> bitstring.[j])
-        |> List.length
-    
-    /// Solve MaxCut problem on specified backend
-    let solve (backend: IQuantumBackend) (problem: MaxCutProblem) (depth: int) =
-        // Build cost terms
-        let costTerms = 
-            problem.Edges 
-            |> List.map (fun (i, j) -> (i, j, -1.0))
-            |> Array.ofList
-        
-        // QAOA parameters (simplified - would normally optimize)
-        let parameters = Array.init (depth * 2) (fun i -> 
-            if i % 2 = 0 then 0.5 else 0.3)  // Alternate beta/gamma
-        
-        // Execute on backend
-        let startTime = System.DateTime.UtcNow
-        match backend.Execute problem.NumNodes parameters costTerms 1000 with
-        | Error msg -> Error msg
-        | Ok result ->
-            // Find best solution
-            let (bestBitstring, bestCount) = 
-                result.Counts 
-                |> Map.toList 
-                |> List.maxBy snd
-            
-            let cutSize = evaluateCut problem.Edges bestBitstring
-            let probability = float bestCount / float result.Shots
-            
-            Ok {
-                Partition = bestBitstring
-                CutSize = cutSize
-                Probability = probability
-                Backend = backend.GetType().Name
-                ExecutionTimeMs = result.ExecutionTimeMs
-            }
-
-// Usage
-let problem = {
-    NumNodes = 4
-    Edges = [(0,1); (1,2); (2,3); (3,0); (0,2)]  // Square with diagonal
-}
-
-// Local execution
-let localBackend = LocalBackend() :> IQuantumBackend
-match MaxCutSolver.solve localBackend problem 1 with
-| Ok solution ->
-    printfn "Backend: %s" solution.Backend
-    printfn "Best partition: %s" solution.Partition
-    printfn "Cut size: %d / %d edges" solution.CutSize problem.Edges.Length
-    printfn "Probability: %.1f%%" (solution.Probability * 100.0)
-    printfn "Time: %.2f ms" solution.ExecutionTimeMs
-| Error msg ->
-    eprintfn "Solver failed: %s" msg
-
-// Future: Azure execution (same code!)
-// let azureBackend = AzureBackend(workspace) :> IQuantumBackend
-// let solution = MaxCutSolver.solve azureBackend problem 2
-```
+| Feature | Local Simulator | Azure Quantum |
+|---------|----------------|---------------|
+| **Qubit limit** | ≤10 qubits (1024 dimensions) | 100+ qubits (cloud) |
+| **Cost** | Free | Pay per shot |
+| **Network** | Offline capable | Requires internet |
+| **Speed (10 qubits)** | <100ms | Seconds (network + queue) |
+| **Use cases** | Development, testing, small problems | Production, large problems |
+| **Hardware access** | ❌ Simulation only | ✅ IonQ, Rigetti, etc. |
 
 ## Summary
 
-**Current State:**
-- Local simulation: Fully functional for problems ≤10 qubits
-- Azure integration: Planned for future release
-- APIs: Currently separate, require code changes to switch
+**Current Implementation (v0.1.0-alpha):**
+- ✅ **Local simulation**: Fully functional (≤10 qubits)
+- ⏳ **Azure integration**: Coming in future release
+- ✅ **Unified API**: Same `QaoaCircuit` type for both backends
 
-**Recommended Approach:**
-1. Use the **backend abstraction pattern** shown above
-2. Develop and test with **LocalBackend**
-3. Structure code to be **backend-agnostic**
-4. Prepare for Azure integration with **interface-based design**
+**Key Achievement:**
+Backend switching is a **one-line code change** - no refactoring needed!
+
+```fsharp
+// Change this:
+Local.simulate circuit 1000
+
+// To this:
+Azure.execute circuit 1000 workspace
+
+// Everything else stays the same!
+```
 
 **Benefits:**
-- ✅ Easy to switch backends (one-line change)
-- ✅ Testable without cloud access
-- ✅ Future-proof for Azure integration
-- ✅ Configuration-driven backend selection
+- ✅ Write once, run anywhere (local or cloud)
+- ✅ Test locally without Azure credentials
+- ✅ No code changes needed to switch backends
+- ✅ Same result format for analysis/visualization
+- ✅ Future-proof for when Azure backend is ready
 
 ## Next Steps
 
-- **[Local Simulation Guide](local-simulation.md)** - Deep dive into local simulator
-- **[API Reference](api-reference.md)** - Complete API documentation
-- **[MaxCut Example](examples/maxcut-example.md)** - Complete MaxCut tutorial
-- **[Azure Integration](azure-quantum.md)** - Azure Quantum setup (when available)
+- **[Local Simulation Guide](local-simulation.md)** - Complete local simulator documentation
+- **[QAOA Circuit Builder](qaoa-circuits.md)** - How to construct QAOA circuits
+- **[Examples](examples/)** - MaxCut, TSP, and portfolio optimization examples
+- **[API Reference](api-reference.md)** - Full API documentation
 
 ---
 
