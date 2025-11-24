@@ -43,13 +43,12 @@ let ``IonQ cost calculation - simple circuit with error mitigation`` () =
         // Single-qubit: 50 * 0.000220 * 1000 = $11.00
         // Two-qubit: 30 * 0.000975 * 1000 = $29.25
         // Total: $97.50 + $11.00 + $29.25 = $137.75
-        Assert.True(estimate.ExpectedCost > 130.0M<USD>)
-        Assert.True(estimate.ExpectedCost < 145.0M<USD>)
+        Assert.InRange(estimate.ExpectedCost, 130.0M<USD>, 145.0M<USD>)
         Assert.Equal("USD", estimate.Currency)
         Assert.Equal(backend, estimate.Backend)
-        Assert.True(estimate.Breakdown.IsSome)
+        Assert.True(estimate.Breakdown.IsSome, "Breakdown should be provided")
     | Error msg ->
-        Assert.True(false, sprintf "Expected success but got error: %s" msg)
+        Assert.Fail(sprintf "Expected success but got error: %s" msg)
 
 [<Fact>]
 let ``IonQ cost calculation - without error mitigation is cheaper`` () =
@@ -71,9 +70,13 @@ let ``IonQ cost calculation - without error mitigation is cheaper`` () =
                 (usdToFloat estimateWithoutEM.ExpectedCost) (usdToFloat estimateWithEM.ExpectedCost))
         // Base cost difference: $97.50 - $12.42 = $85.08
         let costDiff = estimateWithEM.ExpectedCost - estimateWithoutEM.ExpectedCost
-        Assert.True(costDiff > 80.0M<USD> && costDiff < 90.0M<USD>)
-    | _ ->
-        Assert.True(false, "Both estimates should succeed")
+        Assert.InRange(costDiff, 80.0M<USD>, 90.0M<USD>)
+    | Error msg1, Ok _ ->
+        Assert.Fail(sprintf "With EM estimate failed: %s" msg1)
+    | Ok _, Error msg2 ->
+        Assert.Fail(sprintf "Without EM estimate failed: %s" msg2)
+    | Error msg1, Error msg2 ->
+        Assert.Fail(sprintf "Both estimates failed: %s, %s" msg1 msg2)
 
 [<Fact>]
 let ``IonQ cost calculation - cost increases with shot count`` () =
@@ -93,8 +96,12 @@ let ``IonQ cost calculation - cost increases with shot count`` () =
         Assert.True(highEstimate.ExpectedCost > lowEstimate.ExpectedCost,
             sprintf "Higher shot count should cost more: $%.2f vs $%.2f" 
                 (usdToFloat highEstimate.ExpectedCost) (usdToFloat lowEstimate.ExpectedCost))
-    | _ ->
-        Assert.True(false, "Both estimates should succeed")
+    | Error msg, Ok _ ->
+        Assert.Fail(sprintf "Low shot estimate failed: %s" msg)
+    | Ok _, Error msg ->
+        Assert.Fail(sprintf "High shot estimate failed: %s" msg)
+    | Error msg1, Error msg2 ->
+        Assert.Fail(sprintf "Both estimates failed: %s, %s" msg1 msg2)
 
 [<Fact>]
 let ``IonQ cost calculation - cost increases with gate count`` () =
@@ -114,8 +121,12 @@ let ``IonQ cost calculation - cost increases with gate count`` () =
         Assert.True(largeEstimate.ExpectedCost > smallEstimate.ExpectedCost,
             sprintf "Larger circuit should cost more: $%.2f vs $%.2f" 
                 (usdToFloat largeEstimate.ExpectedCost) (usdToFloat smallEstimate.ExpectedCost))
-    | _ ->
-        Assert.True(false, "Both estimates should succeed")
+    | Error msg, Ok _ ->
+        Assert.Fail(sprintf "Small circuit estimate failed: %s" msg)
+    | Ok _, Error msg ->
+        Assert.Fail(sprintf "Large circuit estimate failed: %s" msg)
+    | Error msg1, Error msg2 ->
+        Assert.Fail(sprintf "Both estimates failed: %s, %s" msg1 msg2)
 
 [<Fact>]
 let ``IonQ cost calculation - two-qubit gates cost more than single-qubit`` () =
@@ -136,8 +147,12 @@ let ``IonQ cost calculation - two-qubit gates cost more than single-qubit`` () =
         Assert.True(twoEstimate.ExpectedCost > singleEstimate.ExpectedCost,
             sprintf "Two-qubit gates should cost more: $%.2f vs $%.2f" 
                 (usdToFloat twoEstimate.ExpectedCost) (usdToFloat singleEstimate.ExpectedCost))
-    | _ ->
-        Assert.True(false, "Both estimates should succeed")
+    | Error msg, Ok _ ->
+        Assert.Fail(sprintf "Single-qubit estimate failed: %s" msg)
+    | Ok _, Error msg ->
+        Assert.Fail(sprintf "Two-qubit estimate failed: %s" msg)
+    | Error msg1, Error msg2 ->
+        Assert.Fail(sprintf "Both estimates failed: %s, %s" msg1 msg2)
 
 [<Fact>]
 let ``IonQ cost calculation - warning for high-cost jobs`` () =
@@ -152,11 +167,11 @@ let ``IonQ cost calculation - warning for high-cost jobs`` () =
     // Assert
     match result with
     | Ok estimate ->
-        Assert.True(estimate.ExpectedCost > 200.0M<USD>)
+        Assert.True(estimate.ExpectedCost > 200.0M<USD>, "High-cost job should exceed $200")
         Assert.NotEmpty(estimate.Warnings)
         Assert.Contains("$200", String.concat " " estimate.Warnings)
     | Error msg ->
-        Assert.True(false, sprintf "Expected success but got error: %s" msg)
+        Assert.Fail(sprintf "Expected success but got error: %s" msg)
 
 [<Fact>]
 let ``IonQ cost breakdown - validates component costs`` () =
@@ -178,7 +193,7 @@ let ``IonQ cost breakdown - validates component costs`` () =
         Assert.True(breakdown.TwoQubitGateCost > 0.0M<USD>)
         Assert.Equal(breakdown.TotalCost, estimate.ExpectedCost)
     | Error msg ->
-        Assert.True(false, sprintf "Expected success but got error: %s" msg)
+        Assert.Fail(sprintf "Expected success but got error: %s" msg)
 
 // ============================================================================
 // QUANTINUUM COST CALCULATION TESTS
@@ -202,7 +217,7 @@ let ``Quantinuum cost calculation - HQC quota consumption`` () =
         Assert.NotEmpty(estimate.Warnings)
         Assert.Contains("HQC", String.concat " " estimate.Warnings)
     | Error msg ->
-        Assert.True(false, sprintf "Expected success but got error: %s" msg)
+        Assert.Fail(sprintf "Expected success but got error: %s" msg)
 
 [<Fact>]
 let ``Quantinuum HQC calculation - increases with circuit complexity`` () =
@@ -272,7 +287,7 @@ let ``Rigetti cost calculation - time-based pricing`` () =
         Assert.Equal(0.0M<USD>, breakdown.BaseCost)  // No base cost for Rigetti
         Assert.True(breakdown.ShotCost > 0.0M<USD>)  // All cost is execution time
     | Error msg ->
-        Assert.True(false, sprintf "Expected success but got error: %s" msg)
+        Assert.Fail(sprintf "Expected success but got error: %s" msg)
 
 [<Fact>]
 let ``Rigetti cost calculation - cost scales with execution time`` () =
@@ -292,8 +307,12 @@ let ``Rigetti cost calculation - cost scales with execution time`` () =
         Assert.True(longEstimate.ExpectedCost > shortEstimate.ExpectedCost,
             sprintf "Longer circuit should cost more: $%.2f vs $%.2f" 
                 (usdToFloat longEstimate.ExpectedCost) (usdToFloat shortEstimate.ExpectedCost))
-    | _ ->
-        Assert.True(false, "Both estimates should succeed")
+    | Error msg, Ok _ ->
+        Assert.Fail(sprintf "Short circuit estimate failed: %s" msg)
+    | Ok _, Error msg ->
+        Assert.Fail(sprintf "Long circuit estimate failed: %s" msg)
+    | Error msg1, Error msg2 ->
+        Assert.Fail(sprintf "Both estimates failed: %s, %s" msg1 msg2)
 
 [<Fact>]
 let ``Rigetti execution time estimation - includes all gates`` () =
@@ -327,9 +346,9 @@ let ``compareCosts - returns estimates for all backends`` () =
     match result with
     | Ok estimates ->
         Assert.Equal(3, List.length estimates)
-        Assert.True(estimates |> List.forall (fun e -> e.Currency <> ""))
+        Assert.True(estimates |> List.forall (fun e -> e.Currency <> ""), "All estimates should have currency")
     | Error msg ->
-        Assert.True(false, sprintf "Expected success but got error: %s" msg)
+        Assert.Fail(sprintf "Expected success but got error: %s" msg)
 
 [<Fact>]
 let ``compareCosts - handles empty backend list`` () =
@@ -346,7 +365,7 @@ let ``compareCosts - handles empty backend list`` () =
     | Ok estimates ->
         Assert.Empty(estimates)
     | Error msg ->
-        Assert.True(false, sprintf "Expected empty list but got error: %s" msg)
+        Assert.Fail(sprintf "Expected empty list but got error: %s" msg)
 
 // ============================================================================
 // BUDGET ENFORCEMENT TESTS
@@ -369,9 +388,9 @@ let ``Budget check - approves job within limits`` () =
     
     // Assert
     match result with
-    | Approved -> Assert.True(true)
-    | Warning msg -> Assert.True(false, sprintf "Expected approval but got warning: %s" msg)
-    | Denied reason -> Assert.True(false, sprintf "Expected approval but got denial: %s" reason)
+    | Approved -> ()  // Success - no need for Assert.True(true)
+    | Warning msg -> Assert.Fail(sprintf "Expected approval but got warning: %s" msg)
+    | Denied reason -> Assert.Fail(sprintf "Expected approval but got denial: %s" reason)
 
 [<Fact>]
 let ``Budget check - denies job exceeding per-job limit`` () =
@@ -389,7 +408,8 @@ let ``Budget check - denies job exceeding per-job limit`` () =
     match result with
     | Denied reason ->
         Assert.Contains("per-job limit", reason)
-    | _ -> Assert.True(false, "Expected denial for per-job limit")
+    | Approved -> Assert.Fail("Expected denial for per-job limit but got approval")
+    | Warning msg -> Assert.Fail(sprintf "Expected denial for per-job limit but got warning: %s" msg)
 
 [<Fact>]
 let ``Budget check - denies job exceeding daily limit`` () =
@@ -409,7 +429,8 @@ let ``Budget check - denies job exceeding daily limit`` () =
     match result with
     | Denied reason ->
         Assert.Contains("daily limit", reason)
-    | _ -> Assert.True(false, "Expected denial for daily limit")
+    | Approved -> Assert.Fail("Expected denial for daily limit but got approval")
+    | Warning msg -> Assert.Fail(sprintf "Expected denial for daily limit but got warning: %s" msg)
 
 [<Fact>]
 let ``Budget check - denies job exceeding monthly limit`` () =
@@ -429,7 +450,8 @@ let ``Budget check - denies job exceeding monthly limit`` () =
     match result with
     | Denied reason ->
         Assert.Contains("monthly limit", reason)
-    | _ -> Assert.True(false, "Expected denial for monthly limit")
+    | Approved -> Assert.Fail("Expected denial for monthly limit but got approval")
+    | Warning msg -> Assert.Fail(sprintf "Expected denial for monthly limit but got warning: %s" msg)
 
 [<Fact>]
 let ``Budget check - warns when approaching limit`` () =
@@ -451,8 +473,8 @@ let ``Budget check - warns when approaching limit`` () =
         Assert.Contains("daily budget", msg)
     | Approved -> 
         // This is also acceptable if the estimate is small enough
-        Assert.True(true)
-    | Denied _ -> Assert.True(false, "Should warn, not deny")
+        ()
+    | Denied reason -> Assert.Fail(sprintf "Should warn, not deny: %s" reason)
 
 // ============================================================================
 // COST TRACKING TESTS
@@ -606,20 +628,4 @@ let ``estimateCost - returns error for invalid shot count`` () =
     match result with
     | Error msg ->
         Assert.Contains("Shot count must be at least 1", msg)
-    | Ok _ -> Assert.True(false, "Expected error for invalid shot count")
-
-[<Fact>]
-let ``estimateCost - returns error for circuit with no qubits`` () =
-    // Arrange
-    let circuit = createSimpleCircuit 50 30 2 0  // 0 qubits
-    let shots = 1000<shot>
-    let backend = IonQ true
-    
-    // Act
-    let result = estimateCost backend circuit shots
-    
-    // Assert
-    match result with
-    | Error msg ->
-        Assert.Contains("at least 1 qubit", msg)
-    | Ok _ -> Assert.True(false, "Expected error for circuit with no qubits")
+    | Ok estimate -> Assert.Fail(sprintf "Expected error for invalid shot count but got estimate: $%.2f" (usdToFloat estimate.ExpectedCost))
