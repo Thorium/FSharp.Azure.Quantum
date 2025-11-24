@@ -1,0 +1,75 @@
+namespace FSharp.Azure.Quantum.Core
+
+/// Circuit Validation Module
+/// 
+/// Validates quantum circuits against backend constraints before submission
+/// to prevent costly failed submissions to Azure Quantum.
+/// 
+/// ⚠️ CRITICAL: ALL validation code in this SINGLE FILE for AI context optimization
+module CircuitValidator =
+    
+    // ============================================================================
+    // 1. TYPES AND RECORDS (Primitives, no dependencies)
+    // ============================================================================
+    
+    /// Backend types
+    type Backend =
+        | IonQSimulator
+        | IonQHardware
+        | RigettiAspenM3
+    
+    /// Backend constraints
+    type BackendConstraints = {
+        /// Backend name for display
+        Name: string
+        
+        /// Maximum number of qubits supported
+        MaxQubits: int
+        
+        /// Supported gate set
+        SupportedGates: Set<string>
+        
+        /// Maximum circuit depth (practical limit)
+        MaxCircuitDepth: int option
+        
+        /// Whether backend has all-to-all qubit connectivity
+        HasAllToAllConnectivity: bool
+        
+        /// Connected qubit pairs (for limited connectivity backends)
+        ConnectedPairs: Set<int * int>
+    }
+    
+    // ============================================================================
+    // 2. CONSTRAINT DEFINITIONS
+    // ============================================================================
+    
+    /// Get backend constraints for a given backend
+    let getConstraints (backend: Backend) : BackendConstraints =
+        match backend with
+        | IonQSimulator ->
+            {
+                Name = "IonQ Simulator"
+                MaxQubits = 29
+                SupportedGates = Set.ofList ["X"; "Y"; "Z"; "H"; "Rx"; "Ry"; "Rz"; "CNOT"; "SWAP"]
+                MaxCircuitDepth = Some 100
+                HasAllToAllConnectivity = true
+                ConnectedPairs = Set.empty
+            }
+        | IonQHardware ->
+            {
+                Name = "IonQ Hardware"
+                MaxQubits = 11
+                SupportedGates = Set.ofList ["X"; "Y"; "Z"; "H"; "Rx"; "Ry"; "Rz"; "CNOT"; "SWAP"]
+                MaxCircuitDepth = Some 100
+                HasAllToAllConnectivity = true
+                ConnectedPairs = Set.empty
+            }
+        | RigettiAspenM3 ->
+            {
+                Name = "Rigetti Aspen-M-3"
+                MaxQubits = 79
+                SupportedGates = Set.ofList ["X"; "Y"; "Z"; "H"; "Rx"; "Ry"; "Rz"; "CZ"; "CNOT"; "SWAP"]
+                MaxCircuitDepth = Some 50
+                HasAllToAllConnectivity = false
+                ConnectedPairs = Set.empty  // TODO: Add actual Rigetti connectivity graph
+            }
