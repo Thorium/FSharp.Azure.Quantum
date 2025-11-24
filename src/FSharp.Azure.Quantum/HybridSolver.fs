@@ -37,6 +37,20 @@ module HybridSolver =
     }
 
     // ================================================================================
+    // HELPER FUNCTIONS
+    // ================================================================================
+
+    /// Create a classical solution with standard timing
+    let private createClassicalSolution<'T> (result: 'T) (reasoning: string) (startTime: DateTime) (recommendation: QuantumAdvisor.Recommendation option) =
+        {
+            Method = Classical
+            Result = result
+            Reasoning = reasoning
+            ElapsedMs = (DateTime.UtcNow - startTime).TotalMilliseconds
+            Recommendation = recommendation
+        }
+
+    // ================================================================================
     // SOLVER ROUTING - TSP
     // ================================================================================
 
@@ -58,62 +72,34 @@ module HybridSolver =
         : Result<Solution<TspSolver.TspSolution>, string> =
         
         let startTime = DateTime.UtcNow
+        let config = TspSolver.defaultConfig
+        let solveClassical () = TspSolver.solveWithDistances distances config
 
-        // Check if method is forced
         match forceMethod with
         | Some Classical ->
-            // User forced classical method
-            let config = TspSolver.defaultConfig
-            let classicalSolution = TspSolver.solveWithDistances distances config
-            let elapsedMs = (DateTime.UtcNow - startTime).TotalMilliseconds
-
-            Ok {
-                Method = Classical
-                Result = classicalSolution
-                Reasoning = "Classical solver forced by user override. Quantum Advisor bypassed."
-                ElapsedMs = elapsedMs
-                Recommendation = None
-            }
+            solveClassical ()
+            |> createClassicalSolution 
+                <| "Classical solver forced by user override. Quantum Advisor bypassed." 
+                <| startTime 
+                <| None
+            |> Ok
 
         | Some Quantum ->
-            // User forced quantum method (not yet implemented)
             Error "Quantum TSP solver not yet implemented. Use Classical or let advisor decide."
 
         | None ->
-            // Get recommendation from Quantum Advisor
-            match QuantumAdvisor.getRecommendation distances with
-            | Error msg -> Error msg
-            | Ok recommendation ->
-                // Route based on recommendation
-                match recommendation.RecommendationType with
-                | QuantumAdvisor.RecommendationType.StronglyRecommendClassical
-                | QuantumAdvisor.RecommendationType.ConsiderQuantum ->
-                    // Use classical solver
-                    let config = TspSolver.defaultConfig
-                    let classicalSolution = TspSolver.solveWithDistances distances config
-                    let elapsedMs = (DateTime.UtcNow - startTime).TotalMilliseconds
-
-                    Ok {
-                        Method = Classical
-                        Result = classicalSolution
-                        Reasoning = $"{recommendation.Reasoning} Routing to classical TSP solver."
-                        ElapsedMs = elapsedMs
-                        Recommendation = Some recommendation
-                    }
-
-                | QuantumAdvisor.RecommendationType.StronglyRecommendQuantum ->
-                    // Quantum recommended but not yet implemented - fallback to classical
-                    let config = TspSolver.defaultConfig
-                    let classicalSolution = TspSolver.solveWithDistances distances config
-                    let elapsedMs = (DateTime.UtcNow - startTime).TotalMilliseconds
-
-                    Ok {
-                        Method = Classical
-                        Result = classicalSolution
-                        Reasoning = $"{recommendation.Reasoning} Quantum solver not yet available - using classical fallback."
-                        ElapsedMs = elapsedMs
-                        Recommendation = Some recommendation
-                    }
+            QuantumAdvisor.getRecommendation distances
+            |> Result.map (fun recommendation ->
+                let reasoning = 
+                    match recommendation.RecommendationType with
+                    | QuantumAdvisor.RecommendationType.StronglyRecommendQuantum ->
+                        $"{recommendation.Reasoning} Quantum solver not yet available - using classical fallback."
+                    | _ ->
+                        $"{recommendation.Reasoning} Routing to classical TSP solver."
+                
+                solveClassical ()
+                |> createClassicalSolution <| reasoning <| startTime <| Some recommendation
+            )
 
     // ================================================================================
     // SOLVER ROUTING - PORTFOLIO
@@ -139,51 +125,33 @@ module HybridSolver =
         : Result<Solution<PortfolioSolver.PortfolioSolution>, string> =
         
         let startTime = DateTime.UtcNow
+        let config = PortfolioSolver.defaultConfig
+        let solveClassical () = PortfolioSolver.solveGreedyByRatio assets constraints config
 
-        // Check if method is forced
         match forceMethod with
         | Some Classical ->
-            // User forced classical method
-            let config = PortfolioSolver.defaultConfig
-            let classicalSolution = PortfolioSolver.solveGreedyByRatio assets constraints config
-            let elapsedMs = (DateTime.UtcNow - startTime).TotalMilliseconds
-
-            Ok {
-                Method = Classical
-                Result = classicalSolution
-                Reasoning = "Classical solver forced by user override. Quantum Advisor bypassed."
-                ElapsedMs = elapsedMs
-                Recommendation = None
-            }
+            solveClassical ()
+            |> createClassicalSolution
+                <| "Classical solver forced by user override. Quantum Advisor bypassed."
+                <| startTime
+                <| None
+            |> Ok
 
         | Some Quantum ->
-            // User forced quantum method (not yet implemented)
             Error "Quantum Portfolio solver not yet implemented. Use Classical or let advisor decide."
 
         | None ->
-            // Get recommendation from Quantum Advisor
-            // For Portfolio problems, analyze based on problem size (number of assets)
+            // Create problem representation for Quantum Advisor
+            // Use asset count as approximation of problem complexity
             let numAssets = List.length assets
-            
-            // Create a simple representation for recommendation (use asset count as "matrix" size)
-            // This is a simplification - in reality we'd analyze the optimization complexity
             let problemRepresentation = Array2D.init numAssets numAssets (fun i j -> if i = j then 0.0 else 1.0)
             
-            match QuantumAdvisor.getRecommendation problemRepresentation with
-            | Error msg -> Error msg
-            | Ok recommendation ->
-                // Route based on recommendation (always use classical for now)
-                let config = PortfolioSolver.defaultConfig
-                let classicalSolution = PortfolioSolver.solveGreedyByRatio assets constraints config
-                let elapsedMs = (DateTime.UtcNow - startTime).TotalMilliseconds
-
-                Ok {
-                    Method = Classical
-                    Result = classicalSolution
-                    Reasoning = $"{recommendation.Reasoning} Routing to classical Portfolio solver."
-                    ElapsedMs = elapsedMs
-                    Recommendation = Some recommendation
-                }
+            QuantumAdvisor.getRecommendation problemRepresentation
+            |> Result.map (fun recommendation ->
+                let reasoning = $"{recommendation.Reasoning} Routing to classical Portfolio solver."
+                solveClassical ()
+                |> createClassicalSolution <| reasoning <| startTime <| Some recommendation
+            )
 
     // ================================================================================
     // LEGACY COMPATIBILITY
