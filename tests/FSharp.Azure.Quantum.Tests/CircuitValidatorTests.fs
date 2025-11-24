@@ -139,3 +139,20 @@ let ``Validate circuit within depth limit should pass`` () =
     match result with
     | Ok () -> Assert.True(true)
     | Error err -> Assert.True(false, sprintf "Expected validation to pass but got error: %A" err)
+
+[<Fact>]
+let ``Validate circuit exceeding depth limit should return error`` () =
+    // Arrange - Rigetti has depth limit of 50, circuit has 75 gates
+    let circuit = { NumQubits = 10; GateCount = 75; UsedGates = Set.ofList ["H"; "CZ"] }
+    
+    // Act
+    let result = validateCircuitDepth RigettiAspenM3 circuit
+    
+    // Assert - Should return CircuitDepthExceeded error
+    match result with
+    | Ok () -> Assert.True(false, "Expected validation to fail but it passed")
+    | Error (CircuitDepthExceeded(depth, limit, backend)) ->
+        Assert.Equal(75, depth)
+        Assert.Equal(50, limit)
+        Assert.Equal("Rigetti Aspen-M-3", backend)
+    | Error other -> Assert.True(false, sprintf "Expected CircuitDepthExceeded but got %A" other)
