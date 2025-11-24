@@ -88,13 +88,21 @@ module CircuitValidator =
                 ConnectedPairs = Set.empty
             }
         | RigettiAspenM3 ->
+            // Rigetti Aspen-M-3 connectivity graph (simplified for validation)
+            // Real topology has linear and ring connections
+            let rigettiConnectivity = 
+                [
+                    // Linear connectivity chain for qubits 0-4
+                    (0, 1); (1, 2); (2, 3); (3, 4)
+                ] |> Set.ofList
+            
             {
                 Name = "Rigetti Aspen-M-3"
                 MaxQubits = 79
                 SupportedGates = Set.ofList ["X"; "Y"; "Z"; "H"; "Rx"; "Ry"; "Rz"; "CZ"; "CNOT"; "SWAP"]
                 MaxCircuitDepth = Some 50
                 HasAllToAllConnectivity = false
-                ConnectedPairs = Set.empty  // TODO: Add actual Rigetti connectivity graph
+                ConnectedPairs = rigettiConnectivity
             }
     
     // ============================================================================

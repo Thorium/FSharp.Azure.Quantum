@@ -174,3 +174,33 @@ let ``Validate IonQ all-to-all connectivity should always pass`` () =
     match result with
     | Ok () -> Assert.True(true)
     | Error err -> Assert.True(false, sprintf "Expected validation to pass but got error: %A" err)
+
+[<Fact>]
+let ``Validate Rigetti limited connectivity should reject invalid qubit pairs`` () =
+    // Arrange - Rigetti Aspen-M-3 has limited connectivity
+    // For this test, we'll define a simple connectivity: (0,1), (1,2), (2,3)
+    // A circuit trying to connect (0,3) should fail
+    let circuit = { 
+        NumQubits = 5
+        GateCount = 10
+        UsedGates = Set.ofList ["H"; "CZ"]
+        TwoQubitGates = [(0, 1); (0, 3); (2, 4)]  // (0,1) valid, (0,3) and (2,4) invalid
+    }
+    
+    // Act
+    let result = validateConnectivity RigettiAspenM3 circuit
+    
+    // Assert - Should return ConnectivityViolation errors
+    match result with
+    | Ok () -> Assert.True(false, "Expected validation to fail but it passed")
+    | Error errors ->
+        Assert.Equal(2, errors.Length)
+        // Verify we get ConnectivityViolation for invalid pairs
+        errors |> List.iter (fun err ->
+            match err with
+            | ConnectivityViolation(q1, q2, backend) ->
+                Assert.True((q1 = 0 && q2 = 3) || (q1 = 2 && q2 = 4), 
+                           sprintf "Expected invalid pairs (0,3) or (2,4) but got (%d,%d)" q1 q2)
+                Assert.Equal("Rigetti Aspen-M-3", backend)
+            | _ -> Assert.True(false, sprintf "Expected ConnectivityViolation but got %A" err)
+        )
