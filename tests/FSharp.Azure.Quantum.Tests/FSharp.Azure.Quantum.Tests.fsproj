@@ -21,6 +21,7 @@
     <Compile Include="QaoaOptimizerTests.fs" />
     <Compile Include="TspBuilderTests.fs" />
     <Compile Include="PortfolioBuilderTests.fs" />
+    <Compile Include="HybridSolverTests.fs" />
   </ItemGroup>
 
   <ItemGroup>
