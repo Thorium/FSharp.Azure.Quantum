@@ -49,6 +49,9 @@ module CircuitValidator =
         
         /// Set of unique gate types used
         UsedGates: Set<string>
+        
+        /// Two-qubit gate connections (qubit pairs)
+        TwoQubitGates: (int * int) list
     }
     
     /// Validation error types
@@ -132,4 +135,28 @@ module CircuitValidator =
                 Ok ()
             else
                 Error (CircuitDepthExceeded(circuit.GateCount, maxDepth, constraints.Name))
+    
+    /// Validate two-qubit gate connectivity against backend constraints
+    let validateConnectivity (backend: Backend) (circuit: Circuit) : Result<unit, ValidationError list> =
+        let constraints = getConstraints backend
+        
+        // If backend has all-to-all connectivity, all connections are valid
+        if constraints.HasAllToAllConnectivity then
+            Ok ()
+        else
+            // Check each two-qubit gate against connected pairs
+            let invalidConnections =
+                circuit.TwoQubitGates
+                |> List.filter (fun (q1, q2) ->
+                    // Check both directions since connectivity is bidirectional
+                    not (constraints.ConnectedPairs.Contains (q1, q2) || 
+                         constraints.ConnectedPairs.Contains (q2, q1)))
+            
+            match invalidConnections with
+            | [] -> Ok ()
+            | connections ->
+                connections
+                |> List.map (fun (q1, q2) -> 
+                    ConnectivityViolation(q1, q2, constraints.Name))
+                |> Error
 

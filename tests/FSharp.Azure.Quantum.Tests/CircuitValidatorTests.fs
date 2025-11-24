@@ -65,7 +65,7 @@ let ``Backend constraints should define circuit depth limits`` () =
 [<Fact>]
 let ``Validate circuit with qubit count within backend limits should pass`` () =
     // Arrange
-    let circuit = { NumQubits = 10; GateCount = 20; UsedGates = Set.ofList ["H"; "CNOT"] }
+    let circuit = { NumQubits = 10; GateCount = 20; UsedGates = Set.ofList ["H"; "CNOT"]; TwoQubitGates = [] }
     
     // Act
     let result = validateQubitCount IonQHardware circuit
@@ -78,7 +78,7 @@ let ``Validate circuit with qubit count within backend limits should pass`` () =
 [<Fact>]
 let ``Validate circuit exceeding qubit limit should return error`` () =
     // Arrange - IonQ Hardware has 11 qubit limit
-    let circuit = { NumQubits = 15; GateCount = 20; UsedGates = Set.ofList ["H"; "CNOT"] }
+    let circuit = { NumQubits = 15; GateCount = 20; UsedGates = Set.ofList ["H"; "CNOT"]; TwoQubitGates = [] }
     
     // Act
     let result = validateQubitCount IonQHardware circuit
@@ -95,7 +95,7 @@ let ``Validate circuit exceeding qubit limit should return error`` () =
 [<Fact>]
 let ``Validate circuit with supported gates should pass`` () =
     // Arrange - IonQ supports H, X, Y, Z, CNOT, SWAP, Rx, Ry, Rz
-    let circuit = { NumQubits = 5; GateCount = 10; UsedGates = Set.ofList ["H"; "CNOT"; "Rx"] }
+    let circuit = { NumQubits = 5; GateCount = 10; UsedGates = Set.ofList ["H"; "CNOT"; "Rx"]; TwoQubitGates = [] }
     
     // Act
     let result = validateGateSet IonQSimulator circuit
@@ -108,7 +108,7 @@ let ``Validate circuit with supported gates should pass`` () =
 [<Fact>]
 let ``Validate circuit with unsupported gates should return errors`` () =
     // Arrange - IonQ does NOT support CZ gate (Rigetti-specific)
-    let circuit = { NumQubits = 5; GateCount = 10; UsedGates = Set.ofList ["H"; "CZ"; "Toffoli"] }
+    let circuit = { NumQubits = 5; GateCount = 10; UsedGates = Set.ofList ["H"; "CZ"; "Toffoli"]; TwoQubitGates = [] }
     
     // Act
     let result = validateGateSet IonQSimulator circuit
@@ -130,7 +130,7 @@ let ``Validate circuit with unsupported gates should return errors`` () =
 [<Fact>]
 let ``Validate circuit within depth limit should pass`` () =
     // Arrange - IonQ has depth limit of 100, circuit has 80 gates
-    let circuit = { NumQubits = 5; GateCount = 80; UsedGates = Set.ofList ["H"; "CNOT"] }
+    let circuit = { NumQubits = 5; GateCount = 80; UsedGates = Set.ofList ["H"; "CNOT"]; TwoQubitGates = [] }
     
     // Act
     let result = validateCircuitDepth IonQSimulator circuit
@@ -143,7 +143,7 @@ let ``Validate circuit within depth limit should pass`` () =
 [<Fact>]
 let ``Validate circuit exceeding depth limit should return error`` () =
     // Arrange - Rigetti has depth limit of 50, circuit has 75 gates
-    let circuit = { NumQubits = 10; GateCount = 75; UsedGates = Set.ofList ["H"; "CZ"] }
+    let circuit = { NumQubits = 10; GateCount = 75; UsedGates = Set.ofList ["H"; "CZ"]; TwoQubitGates = [] }
     
     // Act
     let result = validateCircuitDepth RigettiAspenM3 circuit
@@ -156,3 +156,21 @@ let ``Validate circuit exceeding depth limit should return error`` () =
         Assert.Equal(50, limit)
         Assert.Equal("Rigetti Aspen-M-3", backend)
     | Error other -> Assert.True(false, sprintf "Expected CircuitDepthExceeded but got %A" other)
+
+[<Fact>]
+let ``Validate IonQ all-to-all connectivity should always pass`` () =
+    // Arrange - IonQ has all-to-all connectivity, any qubit pair is valid
+    let circuit = { 
+        NumQubits = 5
+        GateCount = 10
+        UsedGates = Set.ofList ["H"; "CNOT"]
+        TwoQubitGates = [(0, 4); (2, 3); (1, 4)]  // Any pairs should work
+    }
+    
+    // Act
+    let result = validateConnectivity IonQSimulator circuit
+    
+    // Assert - Should pass regardless of qubit pairs
+    match result with
+    | Ok () -> Assert.True(true)
+    | Error err -> Assert.True(false, sprintf "Expected validation to pass but got error: %A" err)
