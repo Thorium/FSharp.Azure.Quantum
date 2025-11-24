@@ -239,4 +239,23 @@ module CircuitValidator =
                 sprintf "%d. %s" (i + 1) (formatValidationError err))
             |> String.concat "\n"
         header + messages
+    
+    // ============================================================================
+    // 5. QAOA-SPECIFIC VALIDATION
+    // ============================================================================
+    
+    /// Validate QAOA parameter arrays match circuit depth
+    let validateQaoaParameters (depth: int) (gammaParams: float[]) (betaParams: float[]) : Result<unit, ValidationError> =
+        // Check gamma parameters length
+        if gammaParams.Length <> depth then
+            Error (InvalidParameter(
+                sprintf "Gamma parameter array length (%d) must match QAOA depth (%d)" 
+                    gammaParams.Length depth))
+        // Check beta parameters length
+        else if betaParams.Length <> depth then
+            Error (InvalidParameter(
+                sprintf "Beta parameter array length (%d) must match QAOA depth (%d)" 
+                    betaParams.Length depth))
+        else
+            Ok ()
 

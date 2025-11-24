@@ -391,3 +391,60 @@ let ``Format validation errors should create summary message`` () =
     Assert.Contains("qubit", summary.ToLower())
     Assert.Contains("Toffoli", summary)
     Assert.Contains("depth", summary.ToLower())
+
+// ============================================================================
+// QAOA-Specific Validation Tests
+// ============================================================================
+
+[<Fact>]
+let ``Validate QAOA parameters should pass for matching array lengths`` () =
+    // Arrange - 3 layers with 3 gamma and 3 beta parameters
+    let gammaParams = [| 0.5; 0.8; 1.2 |]
+    let betaParams = [| 0.3; 0.6; 0.9 |]
+    let depth = 3
+    
+    // Act
+    let result = validateQaoaParameters depth gammaParams betaParams
+    
+    // Assert - Should pass when arrays match depth
+    match result with
+    | Ok () -> Assert.True(true)
+    | Error err -> Assert.True(false, sprintf "Expected validation to pass but got error: %A" err)
+
+[<Fact>]
+let ``Validate QAOA parameters should fail for mismatched gamma length`` () =
+    // Arrange - 3 layers but only 2 gamma parameters
+    let gammaParams = [| 0.5; 0.8 |]
+    let betaParams = [| 0.3; 0.6; 0.9 |]
+    let depth = 3
+    
+    // Act
+    let result = validateQaoaParameters depth gammaParams betaParams
+    
+    // Assert - Should fail with InvalidParameter error
+    match result with
+    | Ok () -> Assert.True(false, "Expected validation to fail but it passed")
+    | Error (InvalidParameter msg) ->
+        Assert.Contains("gamma", msg.ToLower())
+        Assert.Contains("3", msg)
+        Assert.Contains("2", msg)
+    | Error other -> Assert.True(false, sprintf "Expected InvalidParameter but got %A" other)
+
+[<Fact>]
+let ``Validate QAOA parameters should fail for mismatched beta length`` () =
+    // Arrange - 3 layers but 4 beta parameters
+    let gammaParams = [| 0.5; 0.8; 1.2 |]
+    let betaParams = [| 0.3; 0.6; 0.9; 1.1 |]
+    let depth = 3
+    
+    // Act
+    let result = validateQaoaParameters depth gammaParams betaParams
+    
+    // Assert - Should fail with InvalidParameter error
+    match result with
+    | Ok () -> Assert.True(false, "Expected validation to fail but it passed")
+    | Error (InvalidParameter msg) ->
+        Assert.Contains("beta", msg.ToLower())
+        Assert.Contains("3", msg)
+        Assert.Contains("4", msg)
+    | Error other -> Assert.True(false, sprintf "Expected InvalidParameter but got %A" other)
