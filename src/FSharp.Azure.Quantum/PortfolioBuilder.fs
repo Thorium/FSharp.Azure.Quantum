@@ -11,28 +11,47 @@ module Portfolio =
     // TYPES - Domain-specific types for Portfolio problems
     // ============================================================================
 
+    /// <summary>
     /// Asset with financial characteristics
+    /// </summary>
     type Asset = {
+        /// Stock symbol (e.g., "AAPL", "GOOGL")
         Symbol: string
+        /// Expected annual return as decimal (e.g., 0.12 for 12%)
         ExpectedReturn: float
+        /// Risk factor (standard deviation) as decimal
         Risk: float
+        /// Current price per share
         Price: float
     }
 
+    /// <summary>
     /// Portfolio optimization problem
+    /// </summary>
     type PortfolioProblem = {
+        /// Array of assets to consider for portfolio
         Assets: Asset array
+        /// Number of assets in the portfolio
         AssetCount: int
+        /// Total budget available for investment
         Budget: float
+        /// Optional constraints for portfolio optimization
         Constraints: PortfolioSolver.Constraints option
     }
 
+    /// <summary>
     /// Portfolio allocation solution
+    /// </summary>
     type PortfolioAllocation = {
-        Allocations: (string * float * float) list  // (symbol, shares, value)
+        /// List of allocations: (symbol, shares, value)
+        Allocations: (string * float * float) list
+        /// Total value of the allocated portfolio
         TotalValue: float
+        /// Expected return of the portfolio
         ExpectedReturn: float
+        /// Overall risk of the portfolio
         Risk: float
+        /// Whether the allocation satisfies all constraints
         IsValid: bool
     }
 
@@ -57,11 +76,17 @@ module Portfolio =
     // PUBLIC API
     // ============================================================================
 
+    /// <summary>
     /// Create Portfolio problem from list of assets and budget
-    /// Input: List of (symbol, expectedReturn, risk, price) tuples and budget
-    /// Output: PortfolioProblem ready for solving
-    /// Example:
-    ///   let problem = Portfolio.createProblem [("AAPL", 0.12, 0.15, 150.0)] 10000.0
+    /// </summary>
+    /// <param name="assets">List of (symbol, expectedReturn, risk, price) tuples</param>
+    /// <param name="budget">Total budget available for investment</param>
+    /// <returns>PortfolioProblem ready for solving</returns>
+    /// <example>
+    /// <code>
+    /// let problem = Portfolio.createProblem [("AAPL", 0.12, 0.15, 150.0)] 10000.0
+    /// </code>
+    /// </example>
     let createProblem (assets: (string * float * float * float) list) (budget: float) : PortfolioProblem =
         let assetArray =
             assets
@@ -76,11 +101,17 @@ module Portfolio =
             Constraints = None
         }
 
+    /// <summary>
     /// Solve Portfolio problem using classical greedy-by-ratio algorithm
-    /// Optional config parameter allows customization of solver behavior
-    /// Returns Result with PortfolioAllocation or error message
-    /// Example:
-    ///   let allocation = Portfolio.solve problem None
+    /// </summary>
+    /// <param name="problem">Portfolio problem to solve</param>
+    /// <param name="config">Optional configuration for solver behavior</param>
+    /// <returns>Result with PortfolioAllocation or error message</returns>
+    /// <example>
+    /// <code>
+    /// let allocation = Portfolio.solve problem None
+    /// </code>
+    /// </example>
     let solve (problem: PortfolioProblem) (config: PortfolioSolver.PortfolioConfig option) : Result<PortfolioAllocation, string> =
         try
             // Convert to solver types
@@ -119,11 +150,18 @@ module Portfolio =
         with
         | ex -> Error $"Portfolio solve failed: {ex.Message}"
 
+    /// <summary>
     /// Convenience function: Create problem and solve in one step
-    /// Input: List of (symbol, expectedReturn, risk, price) tuples, budget, and optional config
-    /// Output: Result with PortfolioAllocation or error message
-    /// Example:
-    ///   let allocation = Portfolio.solveDirectly [("AAPL", 0.12, 0.15, 150.0)] 10000.0 None
+    /// </summary>
+    /// <param name="assets">List of (symbol, expectedReturn, risk, price) tuples</param>
+    /// <param name="budget">Total budget available for investment</param>
+    /// <param name="config">Optional configuration for solver behavior</param>
+    /// <returns>Result with PortfolioAllocation or error message</returns>
+    /// <example>
+    /// <code>
+    /// let allocation = Portfolio.solveDirectly [("AAPL", 0.12, 0.15, 150.0)] 10000.0 None
+    /// </code>
+    /// </example>
     let solveDirectly (assets: (string * float * float * float) list) (budget: float) (config: PortfolioSolver.PortfolioConfig option) : Result<PortfolioAllocation, string> =
         let problem = createProblem assets budget
         solve problem config

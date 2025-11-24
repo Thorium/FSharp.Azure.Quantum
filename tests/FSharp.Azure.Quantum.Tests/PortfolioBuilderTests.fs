@@ -85,3 +85,72 @@ module PortfolioBuilderTests =
             Assert.True(allocation.TotalValue > 0.0)
         | Error msg ->
             Assert.Fail($"solveDirectly failed: {msg}")
+
+    [<Fact>]
+    let ``Portfolio.solve should accept custom configuration`` () =
+        // Arrange
+        let assets = [
+            ("AAPL", 0.12, 0.15, 150.0)
+            ("GOOGL", 0.10, 0.12, 2800.0)
+            ("MSFT", 0.11, 0.14, 350.0)
+        ]
+        let problem = Portfolio.createProblem assets 10000.0
+        let config = { PortfolioSolver.MaxIterations = 100; PortfolioSolver.RiskTolerance = 0.5 }
+        
+        // Act
+        let result = Portfolio.solve problem (Some config)
+        
+        // Assert
+        match result with
+        | Ok allocation ->
+            Assert.True(allocation.IsValid)
+        | Error msg ->
+            Assert.Fail($"solve with config failed: {msg}")
+
+    [<Fact>]
+    let ``Portfolio.solve should handle 5 assets`` () =
+        // Arrange
+        let assets = [
+            ("AAPL", 0.12, 0.15, 150.0)
+            ("GOOGL", 0.10, 0.12, 2800.0)
+            ("MSFT", 0.11, 0.14, 350.0)
+            ("AMZN", 0.13, 0.16, 3300.0)
+            ("TSLA", 0.15, 0.20, 250.0)
+        ]
+        let problem = Portfolio.createProblem assets 15000.0
+        
+        // Act
+        let result = Portfolio.solve problem None
+        
+        // Assert
+        match result with
+        | Ok allocation ->
+            Assert.True(allocation.IsValid)
+            Assert.True(allocation.Allocations.Length > 0)
+            Assert.True(allocation.TotalValue <= 15000.0)
+        | Error msg ->
+            Assert.Fail($"solve with 5 assets failed: {msg}")
+
+    [<Fact>]
+    let ``Portfolio.solve should return allocations with positive returns`` () =
+        // Arrange
+        let assets = [
+            ("AAPL", 0.12, 0.15, 150.0)
+            ("GOOGL", 0.10, 0.12, 2800.0)
+            ("MSFT", 0.11, 0.14, 350.0)
+        ]
+        let problem = Portfolio.createProblem assets 10000.0
+        
+        // Act
+        let result = Portfolio.solve problem None
+        
+        // Assert
+        match result with
+        | Ok allocation ->
+            Assert.True(allocation.ExpectedReturn > 0.0)
+            Assert.True(allocation.Risk > 0.0)
+            Assert.All(allocation.Allocations, fun (_, shares, value) ->
+                Assert.True(shares > 0.0)
+                Assert.True(value > 0.0))
+        | Error msg ->
+            Assert.Fail($"solve failed: {msg}")
