@@ -13,6 +13,7 @@ module QaoaCircuit =
     // ============================================================================
     
     /// Pauli operators for quantum gates
+    [<Struct>]
     type PauliOperator =
         | PauliI  // Identity
         | PauliX  // Pauli-X (bit flip)

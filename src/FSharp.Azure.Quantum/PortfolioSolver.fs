@@ -304,7 +304,7 @@ module PortfolioSolver =
                         (a, invRisk / totalInvRisk))
                 
                 // Weight by Sharpe ratio (normalized)
-                let ratios = assets |> List.map (fun a -> calculateRatio a)
+                let ratios = assets |> List.map calculateRatio
                 let totalRatio = ratios |> List.sum
                 if totalRatio > 0.0 then
                     yield List.zip assets ratios |> List.map (fun (a, r) -> (a, r / totalRatio))
