@@ -49,12 +49,17 @@ Optimize asset allocation with budget and risk constraints.
 ### 🔬 Quantum Circuit Building
 Build and validate quantum circuits with gate operations.
 
+### 🧪 Local Quantum Simulation
+Test quantum algorithms offline without Azure credentials - up to 10 qubits.
+
 ### 📊 QAOA Implementation
 Quantum Approximate Optimization Algorithm for combinatorial problems.
 
 ## 📚 Documentation
 
 - [Getting Started](getting-started) - Installation and first steps
+- [Local Simulation](local-simulation) - Quantum simulation without Azure
+- [Backend Switching](backend-switching) - Switch between local and Azure
 - [API Reference](api-reference) - Complete API documentation
 - [Examples](examples/tsp-example) - Practical examples and tutorials
 - [FAQ](faq) - Frequently asked questions

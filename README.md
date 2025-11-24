@@ -116,6 +116,33 @@ let tspSolution = TspSolver.solveWithDistances distances TspSolver.defaultConfig
 let portfolio = PortfolioSolver.solveGreedyByRatio assets constraints PortfolioSolver.defaultConfig
 ```
 
+### 🔬 Local Quantum Simulation
+Test quantum algorithms offline without Azure credentials:
+
+```fsharp
+open FSharp.Azure.Quantum.LocalSimulator
+
+// Initialize 3-qubit state
+let state = StateVector.init 3
+
+// Apply quantum gates
+let state' = 
+    state
+    |> Gates.applyH 0       // Hadamard on qubit 0
+    |> Gates.applyCNOT 0 1  // CNOT between qubits 0 and 1
+    |> Gates.applyRz 2 (Math.PI / 4.0)  // Rz rotation on qubit 2
+
+// Measure with 1000 shots
+let results = Measurement.sample state' 1000
+```
+
+**Features:**
+- State vector simulation (up to 10 qubits)
+- Single & two-qubit gates (H, X, Y, Z, Rx, Ry, Rz, CNOT, CZ)
+- QAOA circuit execution
+- Measurement and shot sampling
+- Zero external dependencies
+
 ### 📊 Problem Analysis
 Analyze problem complexity and characteristics:
 
@@ -139,6 +166,8 @@ printfn "Estimated cost: $%.2f %s" estimate.EstimatedCost estimate.Currency
 ## 📚 Documentation
 
 - **[Getting Started Guide](docs/getting-started.md)** - Installation and first examples
+- **[Local Simulation Guide](docs/local-simulation.md)** - Quantum simulation without Azure
+- **[Backend Switching Guide](docs/backend-switching.md)** - Switch between local and Azure
 - **[API Reference](docs/api-reference.md)** - Complete API documentation
 - **[TSP Example](docs/examples/tsp-example.md)** - Detailed TSP walkthrough
 - **[FAQ](docs/faq.md)** - Common questions and troubleshooting
@@ -163,6 +192,7 @@ printfn "Estimated cost: $%.2f %s" estimate.EstimatedCost estimate.Currency
 | **QuboEncoding** (TKT-21) | ✅ Complete | QUBO problem encoding |
 | **QaoaCircuit** (TKT-22) | ✅ Complete | QAOA circuit generation |
 | **QaoaOptimizer** (TKT-23) | ✅ Complete | QAOA parameter optimization |
+| **Local Simulator** (TKT-61) | ✅ Complete | Offline quantum simulation (≤10 qubits) |
 
 ### 🚧 In Development
 
@@ -206,7 +236,7 @@ dotnet build
 dotnet test
 ```
 
-All 186 tests passing ✅
+All 276 tests passing ✅ (including 73 local simulation tests)
 
 ### Run Examples
 ```bash
