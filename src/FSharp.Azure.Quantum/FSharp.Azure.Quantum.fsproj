@@ -57,6 +57,7 @@
     <Compile Include="QuboEncoding.fs" />
     <Compile Include="QaoaCircuit.fs" />
     <Compile Include="QaoaOptimizer.fs" />
+    <Compile Include="QuantumBackend.fs" />
   </ItemGroup>
 
   <ItemGroup>
