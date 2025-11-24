@@ -13,6 +13,7 @@
     <Compile Include="Retry.fs" />
     <Compile Include="Client.fs" />
     <Compile Include="TspSolver.fs" />
+    <Compile Include="TspBuilder.fs" />
     <Compile Include="PortfolioSolver.fs" />
     <Compile Include="ProblemAnalysis.fs" />
     <Compile Include="QuantumAdvisor.fs" />
