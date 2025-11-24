@@ -237,3 +237,42 @@ let ``Validate empty circuit should pass all validations`` () =
     match connectivityResult with
     | Ok () -> Assert.True(true)
     | Error err -> Assert.True(false, sprintf "Connectivity validation failed: %A" err)
+
+[<Fact>]
+let ``Validate circuit with multiple violations should catch all issues`` () =
+    // Arrange - Circuit that violates multiple constraints:
+    // - Exceeds IonQ Hardware qubit limit (12 > 11)
+    // - Uses unsupported gates (CZ, Toffoli)
+    // - Exceeds depth limit (150 > 100)
+    let circuit = { 
+        NumQubits = 12
+        GateCount = 150
+        UsedGates = Set.ofList ["H"; "CNOT"; "CZ"; "Toffoli"]
+        TwoQubitGates = []
+    }
+    
+    // Act - Run all validation functions
+    let qubitResult = validateQubitCount IonQHardware circuit
+    let gateSetResult = validateGateSet IonQHardware circuit
+    let depthResult = validateCircuitDepth IonQHardware circuit
+    
+    // Assert - All three validations should fail with specific errors
+    match qubitResult with
+    | Error (QubitCountExceeded(12, 11, "IonQ Hardware")) -> Assert.True(true)
+    | _ -> Assert.True(false, "Expected QubitCountExceeded error")
+    
+    match gateSetResult with
+    | Error errors ->
+        Assert.Equal(2, errors.Length)
+        // Both CZ and Toffoli should be flagged as unsupported
+        errors |> List.iter (fun err ->
+            match err with
+            | UnsupportedGate(gate, "IonQ Hardware", _) ->
+                Assert.True(gate = "CZ" || gate = "Toffoli", sprintf "Unexpected gate: %s" gate)
+            | _ -> Assert.True(false, "Expected UnsupportedGate error")
+        )
+    | _ -> Assert.True(false, "Expected gate set errors")
+    
+    match depthResult with
+    | Error (CircuitDepthExceeded(150, 100, "IonQ Hardware")) -> Assert.True(true)
+    | _ -> Assert.True(false, "Expected CircuitDepthExceeded error")
