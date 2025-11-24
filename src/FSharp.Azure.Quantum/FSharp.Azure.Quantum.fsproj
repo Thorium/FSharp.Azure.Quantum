@@ -39,6 +39,7 @@
     <Compile Include="Types.fs" />
     <Compile Include="StateVector.fs" />
     <Compile Include="Gates.fs" />
+    <Compile Include="QaoaSimulator.fs" />
     <Compile Include="Cost.fs" />
     <Compile Include="CostEstimation.fs" />
     <Compile Include="Authentication.fs" />
