@@ -104,3 +104,25 @@ let ``Validate circuit with supported gates should pass`` () =
     match result with
     | Ok () -> Assert.True(true)
     | Error err -> Assert.True(false, sprintf "Expected validation to pass but got error: %A" err)
+
+[<Fact>]
+let ``Validate circuit with unsupported gates should return errors`` () =
+    // Arrange - IonQ does NOT support CZ gate (Rigetti-specific)
+    let circuit = { NumQubits = 5; GateCount = 10; UsedGates = Set.ofList ["H"; "CZ"; "Toffoli"] }
+    
+    // Act
+    let result = validateGateSet IonQSimulator circuit
+    
+    // Assert - Should return UnsupportedGate errors for CZ and Toffoli
+    match result with
+    | Ok () -> Assert.True(false, "Expected validation to fail but it passed")
+    | Error errors ->
+        Assert.Equal(2, errors.Length)
+        // Verify error details
+        errors |> List.iter (fun err ->
+            match err with
+            | UnsupportedGate(gate, backend, _) ->
+                Assert.True(gate = "CZ" || gate = "Toffoli", sprintf "Unexpected unsupported gate: %s" gate)
+                Assert.Equal("IonQ Simulator", backend)
+            | _ -> Assert.True(false, sprintf "Expected UnsupportedGate but got %A" err)
+        )
