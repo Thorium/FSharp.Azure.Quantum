@@ -508,7 +508,7 @@ let ``Cost tracker - adds record and updates spending`` () =
     let updatedTracker = CostTracker.addRecord record tracker
     
     // Assert
-    Assert.Single(updatedTracker.Records)
+    let itm = Assert.Single(updatedTracker.Records)
     Assert.Equal(105.0M<USD>, updatedTracker.DailySpent)
     Assert.Equal(105.0M<USD>, updatedTracker.MonthlySpent)
 

@@ -478,7 +478,7 @@ module Client =
             function
             | JobStatus.Succeeded -> true
             | JobStatus.Failed _ -> true
-            | JobStatus.Cancelled _ -> true
+            | JobStatus.Cancelled -> true
             | _ -> false
 
         /// Polling loop with exponential backoff (functional recursive approach)
