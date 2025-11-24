@@ -121,4 +121,15 @@ module CircuitValidator =
             |> List.map (fun gate -> 
                 UnsupportedGate(gate, constraints.Name, constraints.SupportedGates))
             |> Error
+    
+    /// Validate circuit depth against backend limits
+    let validateCircuitDepth (backend: Backend) (circuit: Circuit) : Result<unit, ValidationError> =
+        let constraints = getConstraints backend
+        match constraints.MaxCircuitDepth with
+        | None -> Ok ()  // No depth limit
+        | Some maxDepth ->
+            if circuit.GateCount <= maxDepth then
+                Ok ()
+            else
+                Error (CircuitDepthExceeded(circuit.GateCount, maxDepth, constraints.Name))
 

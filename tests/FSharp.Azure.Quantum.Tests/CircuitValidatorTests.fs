@@ -126,3 +126,16 @@ let ``Validate circuit with unsupported gates should return errors`` () =
                 Assert.Equal("IonQ Simulator", backend)
             | _ -> Assert.True(false, sprintf "Expected UnsupportedGate but got %A" err)
         )
+
+[<Fact>]
+let ``Validate circuit within depth limit should pass`` () =
+    // Arrange - IonQ has depth limit of 100, circuit has 80 gates
+    let circuit = { NumQubits = 5; GateCount = 80; UsedGates = Set.ofList ["H"; "CNOT"] }
+    
+    // Act
+    let result = validateCircuitDepth IonQSimulator circuit
+    
+    // Assert - 80 gates is within limit of 100
+    match result with
+    | Ok () -> Assert.True(true)
+    | Error err -> Assert.True(false, sprintf "Expected validation to pass but got error: %A" err)
