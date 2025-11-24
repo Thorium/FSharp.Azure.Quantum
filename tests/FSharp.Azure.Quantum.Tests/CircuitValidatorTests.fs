@@ -204,3 +204,36 @@ let ``Validate Rigetti limited connectivity should reject invalid qubit pairs`` 
                 Assert.Equal("Rigetti Aspen-M-3", backend)
             | _ -> Assert.True(false, sprintf "Expected ConnectivityViolation but got %A" err)
         )
+
+[<Fact>]
+let ``Validate empty circuit should pass all validations`` () =
+    // Arrange - Empty circuit with no qubits, no gates
+    let circuit = { 
+        NumQubits = 0
+        GateCount = 0
+        UsedGates = Set.empty
+        TwoQubitGates = []
+    }
+    
+    // Act - Run all validation functions
+    let qubitResult = validateQubitCount IonQSimulator circuit
+    let gateSetResult = validateGateSet IonQSimulator circuit
+    let depthResult = validateCircuitDepth IonQSimulator circuit
+    let connectivityResult = validateConnectivity IonQSimulator circuit
+    
+    // Assert - All validations should pass for empty circuit
+    match qubitResult with
+    | Ok () -> Assert.True(true)
+    | Error err -> Assert.True(false, sprintf "Qubit validation failed: %A" err)
+    
+    match gateSetResult with
+    | Ok () -> Assert.True(true)
+    | Error err -> Assert.True(false, sprintf "Gate set validation failed: %A" err)
+    
+    match depthResult with
+    | Ok () -> Assert.True(true)
+    | Error err -> Assert.True(false, sprintf "Depth validation failed: %A" err)
+    
+    match connectivityResult with
+    | Ok () -> Assert.True(true)
+    | Error err -> Assert.True(false, sprintf "Connectivity validation failed: %A" err)
