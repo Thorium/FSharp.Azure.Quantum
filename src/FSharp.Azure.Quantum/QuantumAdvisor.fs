@@ -6,6 +6,7 @@ open System
 module QuantumAdvisor =
 
     /// Recommendation types with increasing strength toward quantum
+    [<Struct>]
     type RecommendationType =
         | StronglyRecommendClassical // Classical clearly better
         | ConsiderQuantum // Borderline - depends on factors
