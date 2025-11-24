@@ -2,6 +2,7 @@ namespace FSharp.Azure.Quantum.Tests
 
 open Xunit
 open FSharp.Azure.Quantum
+open FSharp.Azure.Quantum.Classical
 
 module TspBuilderTests =
 
@@ -52,7 +53,7 @@ module TspBuilderTests =
         let problem = TSP.createProblem cities
         
         // Act
-        let result = TSP.solve problem
+        let result = TSP.solve problem None
         
         // Assert
         match result with
@@ -76,7 +77,7 @@ module TspBuilderTests =
         let problem = TSP.createProblem cities
         
         // Act
-        let result = TSP.solve problem
+        let result = TSP.solve problem None
         
         // Assert
         match result with
@@ -105,7 +106,7 @@ module TspBuilderTests =
         let problem = TSP.createProblem cities
         
         // Act
-        let result = TSP.solve problem
+        let result = TSP.solve problem None
         
         // Assert
         match result with
@@ -125,7 +126,7 @@ module TspBuilderTests =
         ]
         
         // Act
-        let result = TSP.solveDirectly cities
+        let result = TSP.solveDirectly cities None
         
         // Assert
         match result with
@@ -135,3 +136,26 @@ module TspBuilderTests =
             Assert.True(tour.TotalDistance > 0.0)
         | Error msg ->
             Assert.Fail($"solveDirectly failed: {msg}")
+
+    [<Fact>]
+    let ``TSP.solve should accept custom configuration`` () =
+        // Arrange
+        let cities = [
+            ("A", 0.0, 0.0)
+            ("B", 1.0, 0.0)
+            ("C", 1.0, 1.0)
+            ("D", 0.0, 1.0)
+        ]
+        let problem = TSP.createProblem cities
+        let customConfig = Some { TspSolver.defaultConfig with MaxIterations = 100 }
+        
+        // Act
+        let result = TSP.solve problem customConfig
+        
+        // Assert
+        match result with
+        | Ok tour ->
+            Assert.Equal(4, tour.Cities.Length)
+            Assert.True(tour.IsValid)
+        | Error msg ->
+            Assert.Fail($"solve with custom config failed: {msg}")

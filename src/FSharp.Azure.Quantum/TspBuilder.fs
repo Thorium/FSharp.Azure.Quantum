@@ -67,6 +67,8 @@ module TSP =
     /// Create TSP problem from list of named cities with coordinates
     /// Input: List of (name, x, y) tuples
     /// Output: TspProblem ready for solving
+    /// Example:
+    ///   let problem = TSP.createProblem [("A", 0.0, 0.0); ("B", 1.0, 0.0); ("C", 0.0, 1.0)]
     let createProblem (cities: (string * float * float) list) : TspProblem =
         let cityArray =
             cities
@@ -82,11 +84,18 @@ module TSP =
         }
 
     /// Solve TSP problem using classical 2-opt algorithm
+    /// Optional config parameter allows customization of solver behavior
     /// Returns Result with Tour or error message
-    let solve (problem: TspProblem) : Result<Tour, string> =
+    /// Example:
+    ///   let tour = TSP.solve problem
+    ///   let customTour = TSP.solve problem (Some customConfig)
+    let solve (problem: TspProblem) (config: TspSolver.TspConfig option) : Result<Tour, string> =
         try
+            // Use provided config or default
+            let solverConfig = config |> Option.defaultValue TspSolver.defaultConfig
+            
             // Use the existing classical TSP solver with distance matrix
-            let solution = TspSolver.solveWithDistances problem.DistanceMatrix TspSolver.defaultConfig
+            let solution = TspSolver.solveWithDistances problem.DistanceMatrix solverConfig
             
             // Validate tour
             let valid = isValidTour solution.Tour problem.CityCount
@@ -107,6 +116,9 @@ module TSP =
 
     /// Convenience function: Create problem and solve in one step
     /// Input: List of (name, x, y) tuples
+    /// Optional config parameter allows customization
     /// Output: Result with Tour or error message
-    let solveDirectly (cities: (string * float * float) list) : Result<Tour, string> =
-        cities |> createProblem |> solve
+    /// Example:
+    ///   let tour = TSP.solveDirectly [("A", 0.0, 0.0); ("B", 1.0, 0.0)]
+    let solveDirectly (cities: (string * float * float) list) (config: TspSolver.TspConfig option) : Result<Tour, string> =
+        cities |> createProblem |> fun p -> solve p config
