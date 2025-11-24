@@ -9,6 +9,8 @@ Welcome to **FSharp.Azure.Quantum** - an F# library for quantum-inspired optimiz
 
 ## Installation
 
+**NuGet Package:** [https://www.nuget.org/packages/FSharp.Azure.Quantum](https://www.nuget.org/packages/FSharp.Azure.Quantum)
+
 ### Via NuGet Package Manager
 
 ```bash

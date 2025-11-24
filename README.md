@@ -26,8 +26,10 @@ match TSP.solveDirectly cities None with
 
 ## 📦 Installation
 
+**NuGet Package:** [FSharp.Azure.Quantum](https://www.nuget.org/packages/FSharp.Azure.Quantum)
+
 ```bash
-dotnet add package FSharp.Azure.Quantum --version 0.1.0-alpha
+dotnet add package FSharp.Azure.Quantum --prerelease
 ```
 
 ## ✨ Features
