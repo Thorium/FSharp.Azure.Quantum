@@ -32,3 +32,14 @@ let ``Backend constraint should define Rigetti Aspen-M-3 with 79 qubits`` () =
     Assert.Equal("Rigetti Aspen-M-3", constraints.Name)
     Assert.False(constraints.HasAllToAllConnectivity)
     Assert.Contains("CZ", constraints.SupportedGates)
+
+[<Fact>]
+let ``IonQ backends should support standard gate set`` () =
+    // Arrange
+    let simConstraints = getConstraints IonQSimulator
+    let hwConstraints = getConstraints IonQHardware
+    
+    // Assert - both IonQ backends support same gate set
+    let expectedGates = Set.ofList ["X"; "Y"; "Z"; "H"; "Rx"; "Ry"; "Rz"; "CNOT"; "SWAP"]
+    Assert.Equal<Set<string>>(expectedGates, simConstraints.SupportedGates)
+    Assert.Equal<Set<string>>(expectedGates, hwConstraints.SupportedGates)
