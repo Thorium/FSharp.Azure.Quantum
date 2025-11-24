@@ -276,3 +276,69 @@ let ``Validate circuit with multiple violations should catch all issues`` () =
     match depthResult with
     | Error (CircuitDepthExceeded(150, 100, "IonQ Hardware")) -> Assert.True(true)
     | _ -> Assert.True(false, "Expected CircuitDepthExceeded error")
+
+// ============================================================================
+// Day 3: Integration & Error Messages Tests
+// ============================================================================
+
+[<Fact>]
+let ``Full validation should pass for valid circuit`` () =
+    // Arrange - Valid circuit that passes all validations
+    let circuit = { 
+        NumQubits = 5
+        GateCount = 30
+        UsedGates = Set.ofList ["H"; "CNOT"; "Rx"]
+        TwoQubitGates = [(0, 1); (1, 2)]
+    }
+    
+    // Act - Run full validation
+    let result = validateCircuit IonQSimulator circuit
+    
+    // Assert - Should pass all validations
+    match result with
+    | Ok () -> Assert.True(true)
+    | Error errors -> 
+        Assert.True(false, sprintf "Expected validation to pass but got errors: %A" errors)
+
+[<Fact>]
+let ``Full validation should collect all errors for invalid circuit`` () =
+    // Arrange - Invalid circuit with multiple violations
+    let circuit = { 
+        NumQubits = 100  // Exceeds IonQ Simulator limit of 29
+        GateCount = 200  // Exceeds depth limit of 100
+        UsedGates = Set.ofList ["H"; "CZ"; "Toffoli"]  // Contains unsupported gates
+        TwoQubitGates = []
+    }
+    
+    // Act - Run full validation
+    let result = validateCircuit IonQSimulator circuit
+    
+    // Assert - Should collect all validation errors
+    match result with
+    | Ok () -> Assert.True(false, "Expected validation to fail but it passed")
+    | Error errors ->
+        Assert.True(errors.Length >= 3, sprintf "Expected at least 3 errors but got %d" errors.Length)
+        
+        // Check that we have qubit count error
+        let hasQubitError = 
+            errors |> List.exists (fun err ->
+                match err with
+                | QubitCountExceeded _ -> true
+                | _ -> false)
+        Assert.True(hasQubitError, "Expected QubitCountExceeded error")
+        
+        // Check that we have depth error
+        let hasDepthError = 
+            errors |> List.exists (fun err ->
+                match err with
+                | CircuitDepthExceeded _ -> true
+                | _ -> false)
+        Assert.True(hasDepthError, "Expected CircuitDepthExceeded error")
+        
+        // Check that we have gate errors
+        let hasGateErrors = 
+            errors |> List.exists (fun err ->
+                match err with
+                | UnsupportedGate _ -> true
+                | _ -> false)
+        Assert.True(hasGateErrors, "Expected UnsupportedGate errors")

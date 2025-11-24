@@ -167,4 +167,36 @@ module CircuitValidator =
                 |> List.map (fun (q1, q2) -> 
                     ConnectivityViolation(q1, q2, constraints.Name))
                 |> Error
+    
+    /// Validate entire circuit against backend constraints
+    /// Runs all validation checks and collects all errors
+    let validateCircuit (backend: Backend) (circuit: Circuit) : Result<unit, ValidationError list> =
+        let results = [
+            // Run qubit count validation (single error)
+            validateQubitCount backend circuit
+            |> Result.mapError (fun err -> [err])
+            
+            // Run gate set validation (multiple errors possible)
+            validateGateSet backend circuit
+            
+            // Run depth validation (single error)
+            validateCircuitDepth backend circuit
+            |> Result.mapError (fun err -> [err])
+            
+            // Run connectivity validation (multiple errors possible)
+            validateConnectivity backend circuit
+        ]
+        
+        // Collect all errors from all validations
+        let allErrors = 
+            results
+            |> List.choose (fun result ->
+                match result with
+                | Error errors -> Some errors
+                | Ok () -> None)
+            |> List.concat
+        
+        match allErrors with
+        | [] -> Ok ()
+        | errors -> Error errors
 
