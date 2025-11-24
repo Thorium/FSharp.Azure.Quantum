@@ -342,3 +342,52 @@ let ``Full validation should collect all errors for invalid circuit`` () =
                 | UnsupportedGate _ -> true
                 | _ -> false)
         Assert.True(hasGateErrors, "Expected UnsupportedGate errors")
+
+[<Fact>]
+let ``Format validation error should provide clear actionable message`` () =
+    // Arrange - Various error types
+    let qubitError = QubitCountExceeded(15, 11, "IonQ Hardware")
+    let gateError = UnsupportedGate("CZ", "IonQ Simulator", Set.ofList ["H"; "CNOT"; "X"])
+    let depthError = CircuitDepthExceeded(150, 100, "IonQ Hardware")
+    let connectivityError = ConnectivityViolation(0, 5, "Rigetti Aspen-M-3")
+    
+    // Act - Format each error
+    let qubitMsg = formatValidationError qubitError
+    let gateMsg = formatValidationError gateError
+    let depthMsg = formatValidationError depthError
+    let connectivityMsg = formatValidationError connectivityError
+    
+    // Assert - Messages are clear and actionable
+    Assert.Contains("15 qubits", qubitMsg)
+    Assert.Contains("11", qubitMsg)
+    Assert.Contains("IonQ Hardware", qubitMsg)
+    
+    Assert.Contains("CZ", gateMsg)
+    Assert.Contains("not supported", gateMsg)
+    Assert.Contains("IonQ Simulator", gateMsg)
+    
+    Assert.Contains("150", depthMsg)
+    Assert.Contains("100", depthMsg)
+    Assert.Contains("depth", depthMsg.ToLower())
+    
+    Assert.Contains("0", connectivityMsg)
+    Assert.Contains("5", connectivityMsg)
+    Assert.Contains("Rigetti", connectivityMsg)
+
+[<Fact>]
+let ``Format validation errors should create summary message`` () =
+    // Arrange - Multiple errors
+    let errors = [
+        QubitCountExceeded(30, 29, "IonQ Simulator")
+        UnsupportedGate("Toffoli", "IonQ Simulator", Set.empty)
+        CircuitDepthExceeded(120, 100, "IonQ Simulator")
+    ]
+    
+    // Act - Format all errors as summary
+    let summary = formatValidationErrors errors
+    
+    // Assert - Summary contains all error info
+    Assert.Contains("3 validation error", summary)
+    Assert.Contains("qubit", summary.ToLower())
+    Assert.Contains("Toffoli", summary)
+    Assert.Contains("depth", summary.ToLower())

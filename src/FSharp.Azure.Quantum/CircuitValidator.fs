@@ -199,4 +199,44 @@ module CircuitValidator =
         match allErrors with
         | [] -> Ok ()
         | errors -> Error errors
+    
+    // ============================================================================
+    // 4. ERROR MESSAGE FORMATTING
+    // ============================================================================
+    
+    /// Format a single validation error into a user-friendly message
+    let formatValidationError (error: ValidationError) : string =
+        match error with
+        | QubitCountExceeded(requested, limit, backend) ->
+            sprintf "Circuit requires %d qubits but %s supports maximum %d qubits. Please reduce circuit size or choose a different backend." 
+                requested backend limit
+        
+        | UnsupportedGate(gate, backend, supportedGates) ->
+            let supportedList = 
+                supportedGates 
+                |> Set.toList 
+                |> String.concat ", "
+            sprintf "Gate '%s' is not supported by %s. Supported gates: %s" 
+                gate backend supportedList
+        
+        | CircuitDepthExceeded(depth, limit, backend) ->
+            sprintf "Circuit depth of %d gates exceeds %s recommended limit of %d. Consider circuit optimization or decomposition." 
+                depth backend limit
+        
+        | ConnectivityViolation(q1, q2, backend) ->
+            sprintf "Two-qubit gate between qubits %d and %d violates %s connectivity constraints. These qubits are not directly connected." 
+                q1 q2 backend
+        
+        | InvalidParameter(message) ->
+            sprintf "Invalid parameter: %s" message
+    
+    /// Format multiple validation errors into a summary message
+    let formatValidationErrors (errors: ValidationError list) : string =
+        let header = sprintf "Circuit validation failed with %d validation error(s):\n" errors.Length
+        let messages = 
+            errors 
+            |> List.mapi (fun i err -> 
+                sprintf "%d. %s" (i + 1) (formatValidationError err))
+            |> String.concat "\n"
+        header + messages
 
