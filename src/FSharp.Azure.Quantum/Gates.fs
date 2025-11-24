@@ -176,3 +176,98 @@ module Gates =
         
         let matrix = (a, b, c, d)
         applySingleQubitGate qubitIndex matrix state
+    
+    // ============================================================================
+    // 5. TWO-QUBIT GATES (Depend on StateVector operations)
+    // ============================================================================
+    
+    /// Apply CNOT (Controlled-NOT) gate to specified control and target qubits
+    /// 
+    /// CNOT applies X to target qubit when control qubit is |1⟩
+    /// 
+    /// Truth table:
+    /// |00⟩ → |00⟩  (control=0, no operation)
+    /// |01⟩ → |01⟩  (control=0, no operation)
+    /// |10⟩ → |11⟩  (control=1, flip target)
+    /// |11⟩ → |10⟩  (control=1, flip target)
+    /// 
+    /// Implementation: For each basis state, if control qubit is 1, flip target qubit
+    let applyCNOT (controlIndex: int) (targetIndex: int) (state: StateVector.StateVector) : StateVector.StateVector =
+        let numQubits = StateVector.numQubits state
+        if controlIndex < 0 || controlIndex >= numQubits then
+            failwith $"Control qubit index {controlIndex} out of range for {numQubits}-qubit state"
+        if targetIndex < 0 || targetIndex >= numQubits then
+            failwith $"Target qubit index {targetIndex} out of range for {numQubits}-qubit state"
+        if controlIndex = targetIndex then
+            failwith "Control and target qubits must be different"
+        
+        let dimension = StateVector.dimension state
+        let controlMask = 1 <<< controlIndex
+        let targetMask = 1 <<< targetIndex
+        
+        // Create new amplitude array
+        let newAmplitudes = Array.zeroCreate dimension
+        
+        // Process each basis state
+        for i in 0 .. dimension - 1 do
+            let controlIs1 = (i &&& controlMask) <> 0
+            
+            if controlIs1 then
+                // Control is 1: swap amplitudes between |...0...⟩ and |...1...⟩ at target position
+                let targetIs1 = (i &&& targetMask) <> 0
+                
+                if targetIs1 then
+                    // This is |...1...⟩ at target, get amplitude from |...0...⟩
+                    let flippedIndex = i ^^^ targetMask
+                    newAmplitudes[i] <- StateVector.getAmplitude flippedIndex state
+                else
+                    // This is |...0...⟩ at target, get amplitude from |...1...⟩
+                    let flippedIndex = i ^^^ targetMask
+                    newAmplitudes[i] <- StateVector.getAmplitude flippedIndex state
+            else
+                // Control is 0: no operation, keep amplitude as is
+                newAmplitudes[i] <- StateVector.getAmplitude i state
+        
+        StateVector.create newAmplitudes
+    
+    /// Apply CZ (Controlled-Z) gate to specified control and target qubits
+    /// 
+    /// CZ applies Z to target qubit when control qubit is |1⟩
+    /// Equivalently: adds phase -1 when both qubits are |1⟩
+    /// 
+    /// Truth table:
+    /// |00⟩ → |00⟩
+    /// |01⟩ → |01⟩
+    /// |10⟩ → |10⟩
+    /// |11⟩ → -|11⟩  (both qubits 1, add phase -1)
+    /// 
+    /// Note: CZ is symmetric - control and target roles are interchangeable
+    let applyCZ (controlIndex: int) (targetIndex: int) (state: StateVector.StateVector) : StateVector.StateVector =
+        let numQubits = StateVector.numQubits state
+        if controlIndex < 0 || controlIndex >= numQubits then
+            failwith $"Control qubit index {controlIndex} out of range for {numQubits}-qubit state"
+        if targetIndex < 0 || targetIndex >= numQubits then
+            failwith $"Target qubit index {targetIndex} out of range for {numQubits}-qubit state"
+        if controlIndex = targetIndex then
+            failwith "Control and target qubits must be different"
+        
+        let dimension = StateVector.dimension state
+        let controlMask = 1 <<< controlIndex
+        let targetMask = 1 <<< targetIndex
+        
+        // Create new amplitude array
+        let newAmplitudes = Array.zeroCreate dimension
+        
+        // Process each basis state
+        for i in 0 .. dimension - 1 do
+            let controlIs1 = (i &&& controlMask) <> 0
+            let targetIs1 = (i &&& targetMask) <> 0
+            
+            if controlIs1 && targetIs1 then
+                // Both qubits are 1: add phase -1
+                newAmplitudes[i] <- -StateVector.getAmplitude i state
+            else
+                // Otherwise: no change
+                newAmplitudes[i] <- StateVector.getAmplitude i state
+        
+        StateVector.create newAmplitudes
