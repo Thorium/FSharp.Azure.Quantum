@@ -1,3 +1,8 @@
+---
+layout: default
+title: TSP Example
+---
+
 # TSP (Traveling Salesman Problem) Example
 
 Complete guide to solving TSP problems with FSharp.Azure.Quantum.

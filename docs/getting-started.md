@@ -1,3 +1,8 @@
+---
+layout: default
+title: Getting Started
+---
+
 # Getting Started with FSharp.Azure.Quantum
 
 Welcome to **FSharp.Azure.Quantum** - an F# library for quantum-inspired optimization using Azure Quantum services. This guide will help you get up and running in 5 minutes.
