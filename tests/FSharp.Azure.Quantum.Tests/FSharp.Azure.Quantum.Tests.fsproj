@@ -18,6 +18,7 @@
     <Compile Include="CircuitBuilderTests.fs" />
     <Compile Include="QuboEncodingTests.fs" />
     <Compile Include="QaoaCircuitTests.fs" />
+    <Compile Include="TspBuilderTests.fs" />
   </ItemGroup>
 
   <ItemGroup>
