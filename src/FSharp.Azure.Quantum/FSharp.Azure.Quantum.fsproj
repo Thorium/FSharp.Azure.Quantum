@@ -43,6 +43,7 @@
     <Compile Include="Measurement.fs" />
     <Compile Include="Cost.fs" />
     <Compile Include="CostEstimation.fs" />
+    <Compile Include="CircuitValidator.fs" />
     <Compile Include="Authentication.fs" />
     <Compile Include="Retry.fs" />
     <Compile Include="Client.fs" />
