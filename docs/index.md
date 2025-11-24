@@ -1,6 +1,6 @@
 ---
 layout: default
-title: Home
+title: FSharp.Azure.Quantum
 ---
 
 # FSharp.Azure.Quantum
