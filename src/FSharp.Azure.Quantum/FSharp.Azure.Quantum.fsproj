@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
@@ -26,6 +26,7 @@
     <Compile Include="TspSolver.fs" />
     <Compile Include="TspBuilder.fs" />
     <Compile Include="PortfolioSolver.fs" />
+    <Compile Include="PortfolioBuilder.fs" />
     <Compile Include="ProblemAnalysis.fs" />
     <Compile Include="QuantumAdvisor.fs" />
     <Compile Include="CircuitBuilder.fs" />

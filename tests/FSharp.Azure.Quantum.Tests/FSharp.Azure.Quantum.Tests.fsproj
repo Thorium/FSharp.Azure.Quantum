@@ -20,6 +20,7 @@
     <Compile Include="QaoaCircuitTests.fs" />
     <Compile Include="QaoaOptimizerTests.fs" />
     <Compile Include="TspBuilderTests.fs" />
+    <Compile Include="PortfolioBuilderTests.fs" />
   </ItemGroup>
 
   <ItemGroup>
