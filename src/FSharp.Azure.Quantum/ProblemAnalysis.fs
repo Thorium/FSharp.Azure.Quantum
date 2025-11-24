@@ -6,6 +6,7 @@ open System
 module ProblemAnalysis =
 
     /// Supported problem types for quantum optimization
+    [<Struct>]
     type ProblemType =
         | TSP // Traveling Salesman Problem
         | Portfolio // Portfolio Optimization
@@ -66,47 +67,43 @@ module ProblemAnalysis =
         let rows = Array2D.length1 matrix
         let cols = Array2D.length2 matrix
 
-        let mutable hasInvalid = false
-        let mutable errorMsg = ""
-
-        for i in 0 .. rows - 1 do
-            for j in 0 .. cols - 1 do
-                let value = matrix.[i, j]
-
-                if Double.IsNaN(value) then
-                    hasInvalid <- true
-                    errorMsg <- "Distance matrix contains NaN values"
-                elif Double.IsInfinity(value) then
-                    hasInvalid <- true
-                    errorMsg <- "Distance matrix contains infinity values"
-                elif value < 0.0 then
-                    hasInvalid <- true
-                    errorMsg <- $"Distance matrix contains negative values (found {value} at position [{i},{j}])"
-
-        if hasInvalid then Error errorMsg else Ok()
+        seq {
+            for i in 0 .. rows - 1 do
+                for j in 0 .. cols - 1 do
+                    let value = matrix.[i, j]
+                    if Double.IsNaN(value) then
+                        yield Error "Distance matrix contains NaN values"
+                    elif Double.IsInfinity(value) then
+                        yield Error "Distance matrix contains infinity values"
+                    elif value < 0.0 then
+                        yield Error $"Distance matrix contains negative values (found {value} at position [{i},{j}])"
+        }
+        |> Seq.tryHead
+        |> Option.defaultValue (Ok())
 
     /// Check if a matrix is symmetric
     let private isMatrixSymmetric (matrix: float[,]) : bool =
         let n = Array2D.length1 matrix
-        let mutable symmetric = true
-
-        for i in 0 .. n - 1 do
-            for j in i + 1 .. n - 1 do
-                if abs (matrix.[i, j] - matrix.[j, i]) > 1e-9 then
-                    symmetric <- false
-
-        symmetric
+        
+        seq {
+            for i in 0 .. n - 1 do
+                for j in i + 1 .. n - 1 do
+                    yield abs (matrix.[i, j] - matrix.[j, i]) <= 1e-9
+        }
+        |> Seq.forall id
 
     /// Calculate matrix density (ratio of non-zero elements)
     let private calculateDensity (matrix: float[,]) : float =
         let rows = Array2D.length1 matrix
         let cols = Array2D.length2 matrix
-        let mutable nonZeroCount = 0
-
-        for i in 0 .. rows - 1 do
-            for j in 0 .. cols - 1 do
-                if abs (matrix.[i, j]) > 1e-9 then
-                    nonZeroCount <- nonZeroCount + 1
+        
+        let nonZeroCount =
+            seq {
+                for i in 0 .. rows - 1 do
+                    for j in 0 .. cols - 1 do
+                        if abs (matrix.[i, j]) > 1e-9 then yield 1
+            }
+            |> Seq.sum
 
         float nonZeroCount / float (rows * cols)
 
@@ -117,12 +114,8 @@ module ProblemAnalysis =
         elif n > 170 then
             Double.PositiveInfinity // Overflow protection
         else
-            let mutable result = 1.0
-
-            for i in 2..n do
-                result <- result * float i
-
-            result
+            [2..n]
+            |> List.fold (fun acc i -> acc * float i) 1.0
 
     /// Classify a distance matrix problem
     let private classifyDistanceMatrix (matrix: float[,]) : Result<ProblemInfo, string> =
