@@ -5,16 +5,35 @@
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <GenerateProgramFile>false</GenerateProgramFile>
 
+    <!-- Package Metadata -->
+    <Version>0.1.0-alpha</Version>
+    <PackageId>FSharp.Azure.Quantum</PackageId>
+    <Title>FSharp.Azure.Quantum</Title>
+    <Description>F# library for Azure Quantum providing functional abstractions over quantum computing, including classical optimization solvers (TSP, Portfolio), quantum circuit builders, QAOA implementation, and domain-specific APIs.</Description>
+    <Summary>F# functional library for Azure Quantum with classical optimization and quantum circuit building</Summary>
+    
+    <!-- Repository Info -->
     <RepositoryUrl>https://github.com/thorium/FSharp.Azure.Quantum</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
     <PackageProjectUrl>https://github.com/thorium/FSharp.Azure.Quantum</PackageProjectUrl>
 
+    <!-- Author & License -->
     <Authors>Tuomas Hietanen</Authors>
-    <PackageTags>F#;FSharp;Quantum;Azure;Computing</PackageTags>
+    <PackageTags>F#;FSharp;Quantum;Azure;Computing;Optimization;TSP;Portfolio;QAOA;Circuit</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageLicenseExpression>Unlicense</PackageLicenseExpression>
+    <Copyright>Unlicense - Public Domain</Copyright>
+    
+    <!-- Symbols -->
     <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <IncludeSymbols>true</IncludeSymbols>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
 
   </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="..\..\README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
 
   <ItemGroup>
     <Compile Include="Types.fs" />
