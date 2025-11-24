@@ -4,7 +4,6 @@ open System
 open Xunit
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Classical
-open FSharp.Azure.Quantum.Core.Types
 
 /// <summary>
 /// Integration tests for end-to-end workflows.
@@ -33,25 +32,28 @@ module IntegrationTests =
             ("City9", 1.0, 3.0)
         ]
         
+        let problem = TSP.createProblem cities
+        
         // Act: Solve with classical backend
-        let result = TSP.solve cities None
+        let result = TSP.solve problem None
         
         // Assert: Verify tour validity
-        Assert.Equal(10, result.Tour.Length)
-        
-        // All cities should be visited exactly once
-        let uniqueCities = result.Tour |> Array.distinct
-        Assert.Equal(10, uniqueCities.Length)
-        
-        // Tour should be in valid range [0..9]
-        Assert.All(result.Tour, fun cityIndex -> 
-            Assert.True(cityIndex >= 0 && cityIndex < 10))
-        
-        // Tour length should be positive
-        Assert.True(result.TourLength > 0.0, "Tour length must be positive")
-        
-        // Should complete in reasonable time (< 100ms for 10 cities)
-        Assert.True(result.ElapsedMs < 100.0, $"Expected < 100ms, got {result.ElapsedMs}ms")
+        match result with
+        | Ok tour ->
+            Assert.Equal(10, tour.Cities.Length)
+            
+            // All cities should be visited exactly once
+            let uniqueCities = tour.Cities |> List.distinct
+            Assert.Equal(10, uniqueCities.Length)
+            
+            // Tour length should be positive
+            Assert.True(tour.TotalDistance > 0.0, "Tour length must be positive")
+            
+            // Should be marked as valid
+            Assert.True(tour.IsValid, "Tour should be valid")
+            
+        | Error msg ->
+            Assert.Fail($"Expected successful solution, got error: {msg}")
 
     [<Fact>]
     let ``TSP Classical - Should produce better than naive tour`` () =
@@ -65,14 +67,21 @@ module IntegrationTests =
                 let y = Math.Sin(angle)
                 ($"City{i}", x, y))
         
+        let problem = TSP.createProblem cities
+        
         // Act
-        let result = TSP.solve cities None
+        let result = TSP.solve problem None
         
         // Assert: Tour should be reasonable (not worst-case)
-        // Optimal tour for circle is approximately 2*PI*radius ≈ 6.28
-        // Naive tour could be much worse
-        Assert.True(result.TourLength < 10.0, 
-            $"Tour length {result.TourLength} should be better than naive solution")
+        match result with
+        | Ok tour ->
+            // Optimal tour for circle is approximately 2*PI*radius ≈ 6.28
+            // Naive tour could be much worse
+            Assert.True(tour.TotalDistance < 10.0, 
+                $"Tour length {tour.TotalDistance} should be better than naive solution")
+            Assert.True(tour.IsValid)
+        | Error msg ->
+            Assert.Fail($"Expected successful solution, got error: {msg}")
 
     // ===========================================
     // Test Scenario 2: TSP Quantum Emulator
@@ -89,16 +98,23 @@ module IntegrationTests =
             ("E", 1.0, 2.0)
         ]
         
+        let problem = TSP.createProblem cities
+        
         // Act: Solve (currently using classical, quantum backend integration TBD)
-        let result = TSP.solve cities None
+        let result = TSP.solve problem None
         
         // Assert: Verify basic solution properties
-        Assert.Equal(5, result.Tour.Length)
-        Assert.True(result.TourLength > 0.0)
-        
-        // Verify all cities visited
-        let uniqueCities = result.Tour |> Array.distinct
-        Assert.Equal(5, uniqueCities.Length)
+        match result with
+        | Ok tour ->
+            Assert.Equal(5, tour.Cities.Length)
+            Assert.True(tour.TotalDistance > 0.0)
+            Assert.True(tour.IsValid)
+            
+            // Verify all cities visited
+            let uniqueCities = tour.Cities |> List.distinct
+            Assert.Equal(5, uniqueCities.Length)
+        | Error msg ->
+            Assert.Fail($"Expected successful solution, got error: {msg}")
 
     // ===========================================
     // Test Scenario 3: Portfolio Classical Backend
@@ -111,56 +127,57 @@ module IntegrationTests =
         let assets = 
             [1..20]
             |> List.map (fun i -> 
-                {| 
-                    Symbol = $"ASSET{i}"
-                    ExpectedReturn = 0.05 + rng.NextDouble() * 0.15  // 5-20% return
-                    Risk = 0.10 + rng.NextDouble() * 0.20             // 10-30% risk
-                    Price = 50.0 + rng.NextDouble() * 150.0          // $50-200
-                |})
+                let symbol = $"ASSET{i}"
+                let expectedReturn = 0.05 + rng.NextDouble() * 0.15  // 5-20% return
+                let risk = 0.10 + rng.NextDouble() * 0.20             // 10-30% risk
+                let price = 50.0 + rng.NextDouble() * 150.0          // $50-200
+                (symbol, expectedReturn, risk, price))
         
         let budget = 10000.0
-        let riskTolerance = 0.15
+        let problem = Portfolio.createProblem assets budget
         
         // Act: Solve portfolio optimization
-        let result = Portfolio.solve assets budget (Some riskTolerance) None
+        let result = Portfolio.solve problem None
         
         // Assert: Verify constraints
-        let totalCost = 
-            result.Allocation 
-            |> List.sumBy (fun alloc -> alloc.Quantity * alloc.Asset.Price)
-        
-        // Budget constraint
-        Assert.True(totalCost <= budget * 1.01, // Allow 1% tolerance
-            $"Total cost {totalCost} exceeds budget {budget}")
-        
-        // Should have allocated some assets
-        Assert.True(result.Allocation.Length > 0, "Should allocate at least one asset")
-        
-        // All quantities should be non-negative
-        Assert.All(result.Allocation, fun alloc ->
-            Assert.True(alloc.Quantity >= 0.0, "Quantity must be non-negative"))
-        
-        // Expected return should be positive
-        Assert.True(result.ExpectedReturn > 0.0, "Expected return should be positive")
-        
-        // Risk should be within tolerance (with small margin)
-        Assert.True(result.Risk <= riskTolerance * 1.1, 
-            $"Risk {result.Risk} exceeds tolerance {riskTolerance}")
+        match result with
+        | Ok allocation ->
+            // Budget constraint
+            Assert.True(allocation.TotalValue <= budget * 1.01, // Allow 1% tolerance
+                $"Total value {allocation.TotalValue} exceeds budget {budget}")
+            
+            // Should have allocated some assets
+            Assert.True(allocation.Allocations.Length > 0, "Should allocate at least one asset")
+            
+            // Expected return should be positive
+            Assert.True(allocation.ExpectedReturn > 0.0, "Expected return should be positive")
+            
+            // Should be marked as valid
+            Assert.True(allocation.IsValid)
+            
+        | Error msg ->
+            Assert.Fail($"Expected successful solution, got error: {msg}")
 
     [<Fact>]
     let ``Portfolio Classical - Zero budget should return empty allocation`` () =
         // Arrange
         let assets = [
-            {| Symbol = "AAPL"; ExpectedReturn = 0.12; Risk = 0.18; Price = 150.0 |}
-            {| Symbol = "GOOGL"; ExpectedReturn = 0.10; Risk = 0.15; Price = 120.0 |}
+            ("AAPL", 0.12, 0.18, 150.0)
+            ("GOOGL", 0.10, 0.15, 120.0)
         ]
         
+        let problem = Portfolio.createProblem assets 0.0
+        
         // Act
-        let result = Portfolio.solve assets 0.0 None None
+        let result = Portfolio.solve problem None
         
         // Assert
-        Assert.Empty(result.Allocation)
-        Assert.Equal(0.0, result.ExpectedReturn)
+        match result with
+        | Ok allocation ->
+            Assert.Empty(allocation.Allocations)
+            Assert.Equal(0.0, allocation.TotalValue)
+        | Error msg ->
+            Assert.Fail($"Expected successful solution with empty allocation, got error: {msg}")
 
     // ===========================================
     // Test Scenario 4: Portfolio Quantum Emulator
@@ -172,25 +189,26 @@ module IntegrationTests =
         let assets = 
             [1..10]
             |> List.map (fun i -> 
-                {| 
-                    Symbol = $"STOCK{i}"
-                    ExpectedReturn = 0.08 + float i * 0.01
-                    Risk = 0.12 + float i * 0.01
-                    Price = 100.0
-                |})
+                let symbol = $"STOCK{i}"
+                let expectedReturn = 0.08 + float i * 0.01
+                let risk = 0.12 + float i * 0.01
+                let price = 100.0
+                (symbol, expectedReturn, risk, price))
         
         let budget = 5000.0
+        let problem = Portfolio.createProblem assets budget
         
         // Act: Solve (currently classical, quantum backend TBD)
-        let result = Portfolio.solve assets budget None None
+        let result = Portfolio.solve problem None
         
         // Assert: Basic validation
-        Assert.True(result.Allocation.Length <= 10)
-        
-        let totalCost = 
-            result.Allocation 
-            |> List.sumBy (fun alloc -> alloc.Quantity * alloc.Asset.Price)
-        Assert.True(totalCost <= budget * 1.01)
+        match result with
+        | Ok allocation ->
+            Assert.True(allocation.Allocations.Length <= 10)
+            Assert.True(allocation.TotalValue <= budget * 1.01)
+            Assert.True(allocation.IsValid)
+        | Error msg ->
+            Assert.Fail($"Expected successful solution, got error: {msg}")
 
     // ===========================================
     // Test Scenario 5: HybridSolver Small Problem
@@ -217,7 +235,7 @@ module IntegrationTests =
             match solution.Recommendation with
             | Some recommendation -> 
                 Assert.Equal(5, recommendation.ProblemSize)
-                Assert.True(recommendation.ConfidenceLevel > 0.5)
+                Assert.True(recommendation.Confidence > 0.5)
             | None -> ()
         | Error msg -> 
             Assert.Fail($"Expected successful solution, got error: {msg}")
@@ -225,14 +243,20 @@ module IntegrationTests =
     [<Fact>]
     let ``HybridSolver - Small Portfolio should route to classical automatically`` () =
         // Arrange: Small 3-asset portfolio
-        let assets = [
+        let assets: PortfolioSolver.Asset list = [
             { Symbol = "A"; ExpectedReturn = 0.10; Risk = 0.15; Price = 100.0 }
             { Symbol = "B"; ExpectedReturn = 0.12; Risk = 0.18; Price = 150.0 }
             { Symbol = "C"; ExpectedReturn = 0.08; Risk = 0.12; Price = 80.0 }
         ]
         
+        let constraints: PortfolioSolver.Constraints = {
+            Budget = 1000.0
+            MinHolding = 0.0
+            MaxHolding = 1000.0
+        }
+        
         // Act: Let HybridSolver decide
-        let result = HybridSolver.solvePortfolio assets 1000.0 None None None None
+        let result = HybridSolver.solvePortfolio assets constraints None None None
         
         // Assert: Should choose classical method
         match result with
@@ -284,45 +308,51 @@ module IntegrationTests =
     let ``Budget Enforcement - Should respect cost limits`` () =
         // Arrange: Portfolio with strict budget
         let assets = [
-            {| Symbol = "EXPENSIVE"; ExpectedReturn = 0.15; Risk = 0.20; Price = 500.0 |}
-            {| Symbol = "CHEAP"; ExpectedReturn = 0.10; Risk = 0.15; Price = 50.0 |}
+            ("EXPENSIVE", 0.15, 0.20, 500.0)
+            ("CHEAP", 0.10, 0.15, 50.0)
         ]
         
         let tightBudget = 100.0
+        let problem = Portfolio.createProblem assets tightBudget
         
         // Act: Solve with tight budget
-        let result = Portfolio.solve assets tightBudget None None
+        let result = Portfolio.solve problem None
         
         // Assert: Should respect budget strictly
-        let totalCost = 
-            result.Allocation 
-            |> List.sumBy (fun alloc -> alloc.Quantity * alloc.Asset.Price)
-        
-        Assert.True(totalCost <= tightBudget, 
-            $"Total cost {totalCost} must not exceed budget {tightBudget}")
-        
-        // Should not be able to buy expensive asset
-        let expensiveAlloc = 
-            result.Allocation 
-            |> List.tryFind (fun a -> a.Asset.Symbol = "EXPENSIVE")
-        Assert.True(expensiveAlloc.IsNone, "Should not allocate expensive asset with tight budget")
+        match result with
+        | Ok allocation ->
+            Assert.True(allocation.TotalValue <= tightBudget, 
+                $"Total value {allocation.TotalValue} must not exceed budget {tightBudget}")
+            
+            // Should not be able to buy expensive asset
+            let expensiveAlloc = 
+                allocation.Allocations 
+                |> List.tryFind (fun (symbol, _, _) -> symbol = "EXPENSIVE")
+            Assert.True(expensiveAlloc.IsNone, "Should not allocate expensive asset with tight budget")
+        | Error msg ->
+            Assert.Fail($"Expected successful solution, got error: {msg}")
 
     [<Fact>]
     let ``Budget Enforcement - Portfolio should handle insufficient budget gracefully`` () =
         // Arrange: Budget too small for any asset
         let assets = [
-            {| Symbol = "STOCK1"; ExpectedReturn = 0.10; Risk = 0.15; Price = 100.0 |}
-            {| Symbol = "STOCK2"; ExpectedReturn = 0.12; Risk = 0.18; Price = 150.0 |}
+            ("STOCK1", 0.10, 0.15, 100.0)
+            ("STOCK2", 0.12, 0.18, 150.0)
         ]
         
         let insufficientBudget = 50.0  // Less than cheapest asset
+        let problem = Portfolio.createProblem assets insufficientBudget
         
         // Act
-        let result = Portfolio.solve assets insufficientBudget None None
+        let result = Portfolio.solve problem None
         
         // Assert: Should return empty allocation gracefully
-        Assert.Empty(result.Allocation)
-        Assert.Equal(0.0, result.ExpectedReturn)
+        match result with
+        | Ok allocation ->
+            Assert.Empty(allocation.Allocations)
+            Assert.Equal(0.0, allocation.TotalValue)
+        | Error msg ->
+            Assert.Fail($"Expected successful solution with empty allocation, got error: {msg}")
 
     // ===========================================
     // Test Scenario 8: Error Handling
@@ -332,35 +362,41 @@ module IntegrationTests =
     let ``Error Handling - Empty TSP input should handle gracefully`` () =
         // Arrange: Empty city list
         let cities = []
+        let problem = TSP.createProblem cities
         
         // Act & Assert: Should not throw, should handle gracefully
-        // Note: Current implementation may return empty tour or default values
-        let result = TSP.solve cities None
+        let result = TSP.solve problem None
         
-        // Should return valid result structure (even if empty)
-        Assert.NotNull(result)
-        Assert.True(result.Tour.Length = 0 || result.TourLength >= 0.0)
+        // Should return valid result structure (even if empty/trivial)
+        match result with
+        | Ok tour ->
+            // Empty tour is valid
+            Assert.True(tour.Cities.Length = 0 || tour.TotalDistance >= 0.0)
+        | Error msg ->
+            // Error is also acceptable for empty input
+            Assert.False(String.IsNullOrWhiteSpace(msg))
 
     [<Fact>]
     let ``Error Handling - Invalid constraints in Portfolio should handle gracefully`` () =
-        // Arrange: Invalid risk tolerance (negative)
-        let assets = [
-            {| Symbol = "AAPL"; ExpectedReturn = 0.10; Risk = 0.15; Price = 100.0 |}
-        ]
-        
-        let invalidRiskTolerance = -0.5  // Invalid negative risk
+        // Arrange: Portfolio with negative risk tolerance would be invalid
+        // But our API doesn't directly expose risk tolerance parameter
+        // Test with empty assets instead
+        let assets = []
+        let problem = Portfolio.createProblem assets 1000.0
         
         // Act: Should handle gracefully
-        // Note: Implementation should either clamp to valid range or return error
-        let result = Portfolio.solve assets 1000.0 (Some invalidRiskTolerance) None
+        let result = Portfolio.solve problem None
         
         // Assert: Should return valid result (implementation-specific behavior)
-        Assert.NotNull(result)
+        match result with
+        | Ok allocation ->
+            Assert.Empty(allocation.Allocations)
+        | Error msg ->
+            Assert.False(String.IsNullOrWhiteSpace(msg))
 
     [<Fact>]
     let ``Error Handling - HybridSolver with invalid input returns error`` () =
-        // Arrange: Invalid distance matrix (non-square)
-        // This would be caught at type level in F#, but we test empty matrix
+        // Arrange: Empty distance matrix
         let emptyMatrix = Array2D.create 0 0 0.0
         
         // Act
@@ -380,35 +416,95 @@ module IntegrationTests =
     let ``Error Handling - TSP with single city should return valid trivial tour`` () =
         // Arrange: Single city (trivial tour)
         let cities = [("OnlyCity", 0.0, 0.0)]
+        let problem = TSP.createProblem cities
         
         // Act
-        let result = TSP.solve cities None
+        let result = TSP.solve problem None
         
         // Assert: Should handle trivially
-        Assert.Equal(1, result.Tour.Length)
-        Assert.Equal(0.0, result.TourLength)  // Distance is zero for single city
-        Assert.True(result.ElapsedMs >= 0.0)
+        match result with
+        | Ok tour ->
+            Assert.Equal(1, tour.Cities.Length)
+            Assert.Equal(0.0, tour.TotalDistance)  // Distance is zero for single city
+            Assert.True(tour.IsValid)
+        | Error msg ->
+            Assert.Fail($"Expected successful trivial solution, got error: {msg}")
 
     [<Fact>]
     let ``Error Handling - Portfolio with single asset should allocate within budget`` () =
         // Arrange: Single asset (trivial allocation)
         let assets = [
-            {| Symbol = "ONLY"; ExpectedReturn = 0.10; Risk = 0.15; Price = 100.0 |}
+            ("ONLY", 0.10, 0.15, 100.0)
         ]
         let budget = 500.0
+        let problem = Portfolio.createProblem assets budget
         
         // Act
-        let result = Portfolio.solve assets budget None None
+        let result = Portfolio.solve problem None
         
         // Assert: Should allocate maximum possible
-        Assert.Equal(1, result.Allocation.Length)
+        match result with
+        | Ok allocation ->
+            Assert.Equal(1, allocation.Allocations.Length)
+            
+            let (symbol, shares, value) = allocation.Allocations.[0]
+            Assert.Equal("ONLY", symbol)
+            
+            // Should buy as many as budget allows
+            let expectedShares = floor (budget / 100.0)
+            Assert.True(shares <= expectedShares)
+            Assert.True(value <= budget)
+            Assert.True(allocation.IsValid)
+        | Error msg ->
+            Assert.Fail($"Expected successful allocation, got error: {msg}")
+
+    [<Fact>]
+    let ``Integration - TSP and Portfolio workflows end-to-end`` () =
+        // Arrange: Test complete workflow with both TSP and Portfolio
         
-        let allocation = result.Allocation.[0]
-        Assert.Equal("ONLY", allocation.Asset.Symbol)
+        // TSP: 8 cities
+        let tspCities = [
+            ("New York", 40.7, -74.0)
+            ("Los Angeles", 34.1, -118.2)
+            ("Chicago", 41.9, -87.6)
+            ("Houston", 29.8, -95.4)
+            ("Phoenix", 33.4, -112.1)
+            ("Philadelphia", 40.0, -75.2)
+            ("San Antonio", 29.4, -98.5)
+            ("San Diego", 32.7, -117.2)
+        ]
+        let tspProblem = TSP.createProblem tspCities
         
-        // Should buy as many as budget allows
-        let expectedQuantity = floor (budget / 100.0)
-        Assert.True(allocation.Quantity <= expectedQuantity)
+        // Portfolio: 8 assets
+        let portfolioAssets = [
+            ("AAPL", 0.12, 0.18, 150.0)
+            ("GOOGL", 0.10, 0.15, 2800.0)
+            ("MSFT", 0.11, 0.14, 350.0)
+            ("AMZN", 0.13, 0.20, 3300.0)
+            ("TSLA", 0.15, 0.25, 700.0)
+            ("META", 0.10, 0.16, 300.0)
+            ("NVDA", 0.14, 0.22, 450.0)
+            ("AMD", 0.12, 0.19, 120.0)
+        ]
+        let portfolioProblem = Portfolio.createProblem portfolioAssets 20000.0
         
-        let totalCost = allocation.Quantity * allocation.Asset.Price
-        Assert.True(totalCost <= budget)
+        // Act: Solve both problems
+        let tspResult = TSP.solve tspProblem None
+        let portfolioResult = Portfolio.solve portfolioProblem None
+        
+        // Assert: Both should succeed
+        match tspResult with
+        | Ok tour ->
+            Assert.Equal(8, tour.Cities.Length)
+            Assert.True(tour.IsValid)
+            Assert.True(tour.TotalDistance > 0.0)
+        | Error msg ->
+            Assert.Fail($"TSP solve failed: {msg}")
+            
+        match portfolioResult with
+        | Ok allocation ->
+            Assert.True(allocation.Allocations.Length > 0)
+            Assert.True(allocation.TotalValue <= 20000.0 * 1.01)
+            Assert.True(allocation.IsValid)
+        | Error msg ->
+            Assert.Fail($"Portfolio solve failed: {msg}")
