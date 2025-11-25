@@ -963,3 +963,98 @@ module QuboEncodingTests =
                     i <> j && qubo.GetCoefficient(i,j) <> 0.0))
         
         Assert.True(hasOffDiagonalPenalty, "Expected constraint penalties in off-diagonal")
+    
+    // ============================================================================
+    // Portfolio Correlation Matrix Integration Tests
+    // ============================================================================
+    
+    [<Fact>]
+    let ``Portfolio CorrelationBased encoding should create QUBO from covariance`` () =
+        // Portfolio with 3 assets
+        // Returns: [0.1, 0.15, 0.08]
+        // Covariance matrix (risk):
+        let returns = [|0.1; 0.15; 0.08|]
+        let covariance = 
+            array2D [[0.04; 0.01; 0.02]
+                     [0.01; 0.09; 0.03]
+                     [0.02; 0.03; 0.05]]
+        let riskWeight = 0.5
+        
+        let qubo = ProblemTransformer.encodePortfolioCorrelation returns covariance riskWeight
+        
+        // QUBO should be 3x3 (one variable per asset)
+        Assert.Equal(3, qubo.Size)
+    
+    [<Fact>]
+    let ``Portfolio CorrelationBased should integrate returns on diagonal`` () =
+        // Objective: maximize returns = minimize -returns
+        // Diagonal should have negative returns (we want to maximize)
+        let returns = [|0.1; 0.15; 0.08|]
+        let covariance = 
+            array2D [[0.04; 0.01; 0.02]
+                     [0.01; 0.09; 0.03]
+                     [0.02; 0.03; 0.05]]
+        let riskWeight = 0.5
+        
+        let qubo = ProblemTransformer.encodePortfolioCorrelation returns covariance riskWeight
+        
+        // Asset 1 (return 0.15) should have most negative diagonal
+        // Q[1,1] = -return[1] + riskWeight * covariance[1,1]
+        //        = -0.15 + 0.5 * 0.09 = -0.105
+        let diagonal1 = qubo.GetCoefficient(1, 1)
+        Assert.True(diagonal1 < 0.0, sprintf "Expected negative return term, got %f" diagonal1)
+    
+    [<Fact>]
+    let ``Portfolio CorrelationBased should integrate risk on off-diagonal`` () =
+        // Risk modeling: covariance[i,j] represents correlation between assets
+        // Off-diagonal QUBO terms should include risk weight * covariance
+        let returns = [|0.1; 0.15; 0.08|]
+        let covariance = 
+            array2D [[0.04; 0.01; 0.02]
+                     [0.01; 0.09; 0.03]
+                     [0.02; 0.03; 0.05]]
+        let riskWeight = 0.5
+        
+        let qubo = ProblemTransformer.encodePortfolioCorrelation returns covariance riskWeight
+        
+        // Off-diagonal Q[0,1] should include risk term
+        // Q[0,1] = riskWeight * covariance[0,1] = 0.5 * 0.01 = 0.005
+        let offDiag01 = qubo.GetCoefficient(0, 1)
+        Assert.True(offDiag01 > 0.0, "Expected positive risk correlation term")
+    
+    [<Fact>]
+    let ``Portfolio CorrelationBased QUBO should be symmetric`` () =
+        // QUBO matrix must be symmetric: Q[i,j] = Q[j,i]
+        let returns = [|0.1; 0.15; 0.08|]
+        let covariance = 
+            array2D [[0.04; 0.01; 0.02]
+                     [0.01; 0.09; 0.03]
+                     [0.02; 0.03; 0.05]]
+        let riskWeight = 0.5
+        
+        let qubo = ProblemTransformer.encodePortfolioCorrelation returns covariance riskWeight
+        
+        // Verify symmetry
+        for i in 0..2 do
+            for j in 0..2 do
+                Assert.Equal(qubo.GetCoefficient(i,j), qubo.GetCoefficient(j,i), 2)
+    
+    [<Fact>]
+    let ``Portfolio CorrelationBased should balance return vs risk`` () =
+        // Higher risk weight should reduce attractiveness of risky assets
+        let returns = [|0.1; 0.1; 0.1|] // Same returns
+        let covariance = 
+            array2D [[0.01; 0.0; 0.0]   // Low risk
+                     [0.0; 0.09; 0.0]    // High risk
+                     [0.0; 0.0; 0.01]]   // Low risk
+        let riskWeight = 1.0
+        
+        let qubo = ProblemTransformer.encodePortfolioCorrelation returns covariance riskWeight
+        
+        // Asset 1 (high risk) should have less negative diagonal than assets 0,2
+        let diag0 = qubo.GetCoefficient(0, 0)  // -0.1 + 1.0*0.01 = -0.09
+        let diag1 = qubo.GetCoefficient(1, 1)  // -0.1 + 1.0*0.09 = -0.01
+        let diag2 = qubo.GetCoefficient(2, 2)  // -0.1 + 1.0*0.01 = -0.09
+        
+        Assert.True(diag1 > diag0, "High-risk asset should be less attractive")
+        Assert.True(diag1 > diag2, "High-risk asset should be less attractive")

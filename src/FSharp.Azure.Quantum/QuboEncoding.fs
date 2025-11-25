@@ -490,23 +490,21 @@ module ProblemTransformer =
         for j in 0 .. n - 1 do
             for i1 in 0 .. n - 1 do
                 for i2 in i1 + 1 .. n - 1 do
-                    if i1 <> i2 then
-                        let idx1 = edgeIndex i1 j
-                        let idx2 = edgeIndex i2 j
-                        // Penalty for multiple entries to city j
-                        q.[idx1, idx2] <- q.[idx1, idx2] + constraintPenalty
-                        q.[idx2, idx1] <- q.[idx2, idx1] + constraintPenalty
+                    let idx1 = edgeIndex i1 j
+                    let idx2 = edgeIndex i2 j
+                    // Penalty for multiple entries to city j
+                    q.[idx1, idx2] <- q.[idx1, idx2] + constraintPenalty
+                    q.[idx2, idx1] <- q.[idx2, idx1] + constraintPenalty
         
         // Constraint 2: Each city must be exited exactly once
         for i in 0 .. n - 1 do
             for j1 in 0 .. n - 1 do
                 for j2 in j1 + 1 .. n - 1 do
-                    if j1 <> j2 then
-                        let idx1 = edgeIndex i j1
-                        let idx2 = edgeIndex i j2
-                        // Penalty for multiple exits from city i
-                        q.[idx1, idx2] <- q.[idx1, idx2] + constraintPenalty
-                        q.[idx2, idx1] <- q.[idx2, idx1] + constraintPenalty
+                    let idx1 = edgeIndex i j1
+                    let idx2 = edgeIndex i j2
+                    // Penalty for multiple exits from city i
+                    q.[idx1, idx2] <- q.[idx1, idx2] + constraintPenalty
+                    q.[idx2, idx1] <- q.[idx2, idx1] + constraintPenalty
         
         // Generate variable names
         let varNames = 
@@ -516,6 +514,42 @@ module ProblemTransformer =
         
         {
             Size = size
+            Coefficients = q
+            VariableNames = varNames
+        }
+    
+    /// Encode Portfolio optimization using correlation matrix.
+    /// 
+    /// Objective: maximize return - λ * risk
+    /// where risk = x^T Σ x (Σ is covariance matrix)
+    /// 
+    /// QUBO form: minimize x^T Q x
+    /// Q = -returns + λ * Σ
+    /// - Diagonal Q[i,i] = -return[i] + λ * covariance[i,i]
+    /// - Off-diagonal Q[i,j] = λ * covariance[i,j]
+    let encodePortfolioCorrelation (returns: float[]) (covariance: float[,]) (riskWeight: float) : QuboMatrix =
+        let n = returns.Length
+        let q = Array2D.zeroCreate<float> n n
+        
+        // Encode objective: maximize return - λ * risk
+        // This becomes: minimize -return + λ * risk
+        for i in 0 .. n - 1 do
+            for j in 0 .. n - 1 do
+                if i = j then
+                    // Diagonal: -return[i] + λ * variance[i]
+                    q.[i, j] <- -returns.[i] + riskWeight * covariance.[i, j]
+                else
+                    // Off-diagonal: λ * covariance[i,j]
+                    // Note: Covariance matrix is symmetric, so Q will be symmetric
+                    q.[i, j] <- riskWeight * covariance.[i, j]
+        
+        // Generate variable names
+        let varNames = 
+            [for i in 0 .. n - 1 do
+                yield sprintf "asset_%d" i]
+        
+        {
+            Size = n
             Coefficients = q
             VariableNames = varNames
         }
