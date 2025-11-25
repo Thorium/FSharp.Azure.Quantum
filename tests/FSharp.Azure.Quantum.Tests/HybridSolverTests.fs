@@ -144,7 +144,7 @@ module HybridSolverTests =
             Assert.Contains("not yet implemented", msg.ToLower())
 
     // ============================================================================
-    // TDD CYCLE 1: QUANTUM EXECUTION CONFIGURATION
+    // QUANTUM EXECUTION CONFIGURATION TESTS
     // ============================================================================
 
     [<Fact>]
@@ -170,7 +170,7 @@ module HybridSolverTests =
         Assert.True(config.EnableComparison)
 
     // ============================================================================
-    // TDD CYCLE 2: QUANTUM ROUTING LOGIC
+    // QUANTUM ROUTING LOGIC TESTS
     // ============================================================================
 
     [<Fact>]
@@ -234,7 +234,7 @@ module HybridSolverTests =
             Assert.Fail($"Expected Ok but got Error: {msg}")
 
     // ============================================================================
-    // TDD CYCLE 4: ERROR HANDLING
+    // ERROR HANDLING TESTS
     // ============================================================================
 
     [<Fact>]
@@ -253,7 +253,7 @@ module HybridSolverTests =
             Assert.Contains("configuration", msg.ToLower())
 
     // ============================================================================
-    // TDD CYCLE 5: RESULT COMPARISON
+    // RESULT COMPARISON TESTS
     // ============================================================================
 
     [<Fact>]

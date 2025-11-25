@@ -12,7 +12,7 @@ open FSharp.Azure.Quantum.Core.Types
 module IonQBackend =
     
     // ============================================================================
-    // TYPE DEFINITIONS (TDD Cycle 1)
+    // TYPE DEFINITIONS
     // ============================================================================
     
     /// IonQ gate representation using discriminated unions to avoid JSON null issues
@@ -52,7 +52,7 @@ module IonQBackend =
     }
     
     // ============================================================================
-    // GATE SERIALIZATION (TDD Cycle 2)
+    // GATE SERIALIZATION
     // ============================================================================
     
     /// Serialize a single IonQ gate to JSON string
@@ -99,7 +99,7 @@ module IonQBackend =
         System.Text.Encoding.UTF8.GetString(stream.ToArray())
     
     // ============================================================================
-    // CIRCUIT SERIALIZATION (TDD Cycle 3)
+    // CIRCUIT SERIALIZATION
     // ============================================================================
     
     /// Serialize an IonQ circuit to JSON string
@@ -135,7 +135,7 @@ module IonQBackend =
         System.Text.Encoding.UTF8.GetString(stream.ToArray())
     
     // ============================================================================
-    // JOB SUBMISSION (TDD Cycle 4)
+    // JOB SUBMISSION
     // ============================================================================
     
     /// Create a JobSubmission for an IonQ circuit
@@ -161,7 +161,7 @@ module IonQBackend =
         }
     
     // ============================================================================
-    // RESULT PARSING (TDD Cycle 5)
+    // RESULT PARSING
     // ============================================================================
     
     /// Parse IonQ result JSON into measurement counts histogram
@@ -187,7 +187,7 @@ module IonQBackend =
         |> Map.ofSeq
     
     // ============================================================================
-    // ERROR MAPPING (TDD Cycle 6)
+    // ERROR MAPPING
     // ============================================================================
     
     /// Map IonQ-specific error codes to QuantumError types

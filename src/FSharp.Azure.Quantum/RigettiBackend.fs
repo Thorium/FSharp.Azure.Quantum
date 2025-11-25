@@ -12,7 +12,7 @@ open FSharp.Azure.Quantum.Core.Types
 module RigettiBackend =
     
     // ============================================================================
-    // TYPE DEFINITIONS (TDD Cycle 1)
+    // TYPE DEFINITIONS
     // ============================================================================
     
     /// Quil gate representation using discriminated unions
@@ -86,7 +86,7 @@ module RigettiBackend =
     }
     
     // ============================================================================
-    // GATE SERIALIZATION (TDD Cycle 2)
+    // GATE SERIALIZATION
     // ============================================================================
     
     /// Serialize a single Quil gate to assembly text
@@ -118,7 +118,7 @@ module RigettiBackend =
             sprintf "DECLARE %s %s[%d]" name typ size
     
     // ============================================================================
-    // PROGRAM SERIALIZATION (TDD Cycle 3)
+    // PROGRAM SERIALIZATION
     // ============================================================================
     
     /// Serialize a complete Quil program to assembly text
@@ -155,7 +155,7 @@ module RigettiBackend =
         sb.ToString()
     
     // ============================================================================
-    // CONNECTIVITY VALIDATION (TDD Cycle 4)
+    // CONNECTIVITY VALIDATION
     // ============================================================================
     
     /// Check if a gate is valid according to the connectivity graph
@@ -203,7 +203,7 @@ module RigettiBackend =
             Error (sprintf "Gate '%s' violates connectivity constraints. Qubits are not directly connected in the hardware topology." gateText)
     
     // ============================================================================
-    // JOB SUBMISSION (TDD Cycle 5)
+    // JOB SUBMISSION
     // ============================================================================
     
     /// Create a job submission for Rigetti backend
@@ -240,7 +240,7 @@ module RigettiBackend =
         }
     
     // ============================================================================
-    // RESULT PARSING (TDD Cycle 6)
+    // RESULT PARSING
     // ============================================================================
     
     /// Parse Rigetti results from JSON response

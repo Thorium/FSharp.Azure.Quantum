@@ -65,7 +65,7 @@ module HybridSolver =
         Recommendation: QuantumAdvisor.Recommendation option
     }
 
-    /// Comparison result between quantum and classical solutions (TDD Cycle 5)
+    /// Comparison result between quantum and classical solutions
     type SolutionComparison<'TResult> = {
         /// Quantum solution
         QuantumSolution: Solution<'TResult>
@@ -98,17 +98,18 @@ module HybridSolver =
         }
 
     // ================================================================================
-    // QUANTUM EXECUTION (TDD CYCLE 2)
+    // QUANTUM EXECUTION
     // ================================================================================
 
-    /// Execute TSP problem on quantum backend (stub for now - will be implemented in Cycle 3)
+    /// Execute TSP problem on quantum backend
+    /// Note: Currently returns mock solution. Full QUBO-to-circuit integration coming in future release.
     let private executeQuantumTsp
         (distances: float[,])
         (quantumConfig: QuantumExecutionConfig)
         : Async<Result<TspSolver.TspSolution, string>> =
         async {
-            // TODO: Implement actual quantum execution in TDD Cycle 3
-            // For now, return a mock solution to make tests pass
+            // TODO: Implement QUBO-to-circuit conversion for TSP problems
+            // For now, return a mock solution
             let n = Array2D.length1 distances
             let mockTour = [| 0 .. n-1 |]
             let mockTourLength = 100.0
