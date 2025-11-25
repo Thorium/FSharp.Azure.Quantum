@@ -1284,3 +1284,37 @@ module QuboEncodingTests =
         // Verify QUBO is valid
         let validation = ProblemTransformer.validateTransformation qubo
         Assert.True(validation.IsValid, sprintf "Custom QUBO should be valid: %A" validation.Errors)
+    
+    // ============================================================================
+    // Encoding Strategy Selection Tests
+    // ============================================================================
+    
+    [<Fact>]
+    let ``Strategy selection helper - recommend EdgeBased for small TSP`` () =
+        // Small TSP (n < 20) should use EdgeBased for better solution quality
+        let problemType = "TSP"
+        let problemSize = 10
+        
+        let strategy = ProblemTransformer.recommendStrategy problemType problemSize
+        
+        Assert.Equal(EncodingStrategy.EdgeBased, strategy)
+    
+    [<Fact>]
+    let ``Strategy selection helper - recommend NodeBased for large TSP`` () =
+        // Large TSP (n >= 20) should use NodeBased to reduce QUBO size
+        let problemType = "TSP"
+        let problemSize = 50
+        
+        let strategy = ProblemTransformer.recommendStrategy problemType problemSize
+        
+        Assert.Equal(EncodingStrategy.NodeBased, strategy)
+    
+    [<Fact>]
+    let ``Strategy selection helper - recommend CorrelationBased for Portfolio`` () =
+        // Portfolio optimization should always use CorrelationBased
+        let problemType = "Portfolio"
+        let problemSize = 10
+        
+        let strategy = ProblemTransformer.recommendStrategy problemType problemSize
+        
+        Assert.Equal(EncodingStrategy.CorrelationBased, strategy)

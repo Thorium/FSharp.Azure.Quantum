@@ -641,3 +641,25 @@ module ProblemTransformer =
         | true, transform -> transform problemData
         | false, _ -> 
             failwith (sprintf "Problem '%s' not registered. Call registerProblem first." problemName)
+    
+    /// Recommend encoding strategy based on problem type and size.
+    /// 
+    /// Guidelines:
+    /// - TSP (n < 20): EdgeBased for better solution quality
+    /// - TSP (n >= 20): NodeBased to reduce QUBO size
+    /// - Portfolio: CorrelationBased for risk modeling
+    /// - Custom: Use registered transformation
+    let recommendStrategy (problemType: string) (problemSize: int) : EncodingStrategy =
+        match problemType.ToLower() with
+        | "tsp" | "traveling-salesman" ->
+            if problemSize < 20 then
+                EncodingStrategy.EdgeBased  // Better quality for small problems
+            else
+                EncodingStrategy.NodeBased  // More scalable for large problems
+        
+        | "portfolio" | "portfolio-optimization" ->
+            EncodingStrategy.CorrelationBased  // Risk modeling via covariance
+        
+        | _ ->
+            // Unknown problem type - default to NodeBased as it's most general
+            EncodingStrategy.NodeBased
