@@ -62,6 +62,7 @@
     <Compile Include="HybridSolver.fs" />
     <Compile Include="CircuitBuilder.fs" />
     <Compile Include="QuboEncoding.fs" />
+    <Compile Include="ZeroNoiseExtrapolation.fs" />
     <Compile Include="QaoaCircuit.fs" />
     <Compile Include="QaoaOptimizer.fs" />
     <Compile Include="QuantumBackend.fs" />
