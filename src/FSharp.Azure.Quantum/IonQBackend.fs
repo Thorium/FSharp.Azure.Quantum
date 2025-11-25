@@ -3,6 +3,7 @@ namespace FSharp.Azure.Quantum.Core
 open System
 open System.IO
 open System.Text.Json
+open FSharp.Azure.Quantum.Core.Types
 
 /// IonQ Backend Integration
 /// 
@@ -132,3 +133,29 @@ module IonQBackend =
         writer.Flush()
         
         System.Text.Encoding.UTF8.GetString(stream.ToArray())
+    
+    // ============================================================================
+    // JOB SUBMISSION (TDD Cycle 4)
+    // ============================================================================
+    
+    /// Create a JobSubmission for an IonQ circuit
+    /// 
+    /// Parameters:
+    /// - circuit: IonQ circuit to submit
+    /// - shots: Number of measurement shots
+    /// - target: IonQ backend target (e.g., "ionq.simulator", "ionq.qpu.aria-1")
+    /// 
+    /// Returns: JobSubmission ready for submitJobAsync
+    let createJobSubmission (circuit: IonQCircuit) (shots: int) (target: string) : JobSubmission =
+        let jobId = Guid.NewGuid().ToString()
+        let circuitJson = serializeCircuit circuit
+        
+        {
+            JobId = jobId
+            Target = target
+            Name = Some (sprintf "IonQ-%s" target)
+            InputData = circuitJson :> obj
+            InputDataFormat = CircuitFormat.IonQ_V1
+            InputParams = Map [ ("shots", shots :> obj) ]
+            Tags = Map.empty
+        }

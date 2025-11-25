@@ -1,9 +1,12 @@
 namespace FSharp.Azure.Quantum.Tests
 
 open System
+open System.Net
+open System.Net.Http
 open System.Text.Json
 open Xunit
 open FSharp.Azure.Quantum.Core.IonQBackend
+open FSharp.Azure.Quantum.Core.Types
 
 module IonQBackendTests =
     
@@ -233,3 +236,64 @@ module IonQBackendTests =
         let gates = root.GetProperty("circuit").EnumerateArray() |> Seq.toList
         Assert.Equal(1, gates.Length)
         Assert.Equal("measure", gates.[0].GetProperty("gate").GetString())
+    
+    // ============================================================================
+    // TDD CYCLE 4: Job Submission
+    // ============================================================================
+    
+    [<Fact>]
+    let ``createJobSubmission - Creates correct JobSubmission for IonQ simulator`` () =
+        // Arrange
+        let circuit = {
+            Qubits = 2
+            Circuit = [
+                IonQGate.SingleQubit("h", 0)
+                IonQGate.TwoQubit("cnot", 0, 1)
+                IonQGate.Measure([| 0; 1 |])
+            ]
+        }
+        let shots = 1000
+        let target = "ionq.simulator"
+        
+        // Act
+        let submission = createJobSubmission circuit shots target
+        
+        // Assert
+        Assert.NotNull(submission.JobId)
+        Assert.Equal(target, submission.Target)
+        Assert.Equal(CircuitFormat.IonQ_V1, submission.InputDataFormat)
+        
+        // Verify input data is serialized circuit
+        let inputDataStr = submission.InputData :?> string
+        let inputDoc = JsonDocument.Parse(inputDataStr)
+        Assert.Equal(2, inputDoc.RootElement.GetProperty("qubits").GetInt32())
+        
+        // Verify input params contain shots
+        Assert.True(submission.InputParams.ContainsKey("shots"))
+        Assert.Equal(shots, submission.InputParams.["shots"] :?> int)
+    
+    [<Fact>]
+    let ``createJobSubmission - Supports different targets (simulator and hardware)`` () =
+        // Arrange
+        let circuit = { Qubits = 1; Circuit = [ IonQGate.Measure([| 0 |]) ] }
+        
+        // Act - Simulator
+        let simSubmission = createJobSubmission circuit 100 "ionq.simulator"
+        // Act - Hardware (Aria)
+        let ariaSubmission = createJobSubmission circuit 100 "ionq.qpu.aria-1"
+        
+        // Assert
+        Assert.Equal("ionq.simulator", simSubmission.Target)
+        Assert.Equal("ionq.qpu.aria-1", ariaSubmission.Target)
+        Assert.NotEqual<string>(simSubmission.JobId, ariaSubmission.JobId) // Different job IDs
+    
+    [<Fact>]
+    let ``createJobSubmission - Uses correct circuit format IonQ_V1`` () =
+        // Arrange
+        let circuit = { Qubits = 1; Circuit = [ IonQGate.Measure([| 0 |]) ] }
+        
+        // Act
+        let submission = createJobSubmission circuit 500 "ionq.simulator"
+        
+        // Assert
+        Assert.Equal("ionq.circuit.v1", submission.InputDataFormat.ToFormatString())
