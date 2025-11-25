@@ -39,6 +39,20 @@ type ConstraintViolation = {
     ActualCount: int voption
 }
 
+/// Problem-specific encoding strategies for QUBO transformations
+[<Struct>]
+type EncodingStrategy =
+    | NodeBased
+    | EdgeBased
+    | CorrelationBased
+    | Custom of transformer: (int -> int)
+
+/// Validation result for QUBO transformations
+type ValidationResult = {
+    IsValid: bool
+    Errors: string list
+}
+
 /// Operations for variable encoding strategies
 module VariableEncoding =
     
@@ -424,3 +438,228 @@ module ConstraintPenalty =
                 // Violations detected - increase penalty and retry
                 let newPenalty = penalty * 1.5
                 tuneAdaptive encoding newPenalty (maxIterations - 1) solver
+
+/// Problem-specific QUBO transformations for optimization problems
+module ProblemTransformer =
+    
+    /// Calculate QUBO matrix size based on encoding strategy and problem size.
+    let calculateQuboSize (strategy: EncodingStrategy) (problemSize: int) : int =
+        match strategy with
+        | NodeBased ->
+            // Node-based: x[i][t] = "visit city i at time t"
+            // For n cities: n × n variables
+            problemSize * problemSize
+        
+        | EdgeBased ->
+            // Edge-based: x[i][j] = "travel from city i to city j"
+            // For n cities: n × n variables (including self-loops)
+            problemSize * problemSize
+        
+        | CorrelationBased ->
+            // Correlation matrix: one variable per asset
+            problemSize
+        
+        | Custom transformer ->
+            // Use custom size calculator
+            transformer problemSize
+    
+    /// Encode TSP using edge-based representation.
+    /// 
+    /// Edge-based: Variable x[i][j] represents "travel from city i to city j"
+    /// Objective: minimize total distance = minimize Σ distance[i,j] * x[i,j]
+    /// 
+    /// QUBO form: minimize x^T Q x
+    /// - Diagonal Q[k,k] = -distance[i,j] for edge (i,j) at index k
+    /// - Off-diagonal contains constraint penalties
+    let encodeTspEdgeBased (distances: float[,]) (constraintPenalty: float) : QuboMatrix =
+        let n = distances.GetLength(0)
+        let size = n * n
+        let q = Array2D.zeroCreate<float> size size
+        
+        // Helper: Convert (i,j) edge to flat index
+        let edgeIndex i j = i * n + j
+        
+        // Step 1: Encode objective (minimize total distance)
+        for i in 0 .. n - 1 do
+            for j in 0 .. n - 1 do
+                let idx = edgeIndex i j
+                if i = j then
+                    // Self-loops: penalize heavily (we don't want city to itself)
+                    q.[idx, idx] <- constraintPenalty
+                else
+                    // Edge weight: negative because we want to minimize distance
+                    // But we also want to SELECT edges, so use negative distance
+                    q.[idx, idx] <- -distances.[i, j]
+        
+        // Step 2: Add constraint penalties
+        // Constraint 1: Each city must be entered exactly once
+        for j in 0 .. n - 1 do
+            for i1 in 0 .. n - 1 do
+                for i2 in i1 + 1 .. n - 1 do
+                    let idx1 = edgeIndex i1 j
+                    let idx2 = edgeIndex i2 j
+                    // Penalty for multiple entries to city j
+                    q.[idx1, idx2] <- q.[idx1, idx2] + constraintPenalty
+                    q.[idx2, idx1] <- q.[idx2, idx1] + constraintPenalty
+        
+        // Constraint 2: Each city must be exited exactly once
+        for i in 0 .. n - 1 do
+            for j1 in 0 .. n - 1 do
+                for j2 in j1 + 1 .. n - 1 do
+                    let idx1 = edgeIndex i j1
+                    let idx2 = edgeIndex i j2
+                    // Penalty for multiple exits from city i
+                    q.[idx1, idx2] <- q.[idx1, idx2] + constraintPenalty
+                    q.[idx2, idx1] <- q.[idx2, idx1] + constraintPenalty
+        
+        // Generate variable names
+        let varNames = 
+            [for i in 0 .. n - 1 do
+                for j in 0 .. n - 1 do
+                    yield sprintf "edge_%d_%d" i j]
+        
+        {
+            Size = size
+            Coefficients = q
+            VariableNames = varNames
+        }
+    
+    /// Encode Portfolio optimization using correlation matrix.
+    /// 
+    /// Objective: maximize return - λ * risk
+    /// where risk = x^T Σ x (Σ is covariance matrix)
+    /// 
+    /// QUBO form: minimize x^T Q x
+    /// Q = -returns + λ * Σ
+    /// - Diagonal Q[i,i] = -return[i] + λ * covariance[i,i]
+    /// - Off-diagonal Q[i,j] = λ * covariance[i,j]
+    let encodePortfolioCorrelation (returns: float[]) (covariance: float[,]) (riskWeight: float) : QuboMatrix =
+        let n = returns.Length
+        let q = Array2D.zeroCreate<float> n n
+        
+        // Encode objective: maximize return - λ * risk
+        // This becomes: minimize -return + λ * risk
+        for i in 0 .. n - 1 do
+            for j in 0 .. n - 1 do
+                if i = j then
+                    // Diagonal: -return[i] + λ * variance[i]
+                    q.[i, j] <- -returns.[i] + riskWeight * covariance.[i, j]
+                else
+                    // Off-diagonal: λ * covariance[i,j]
+                    // Note: Covariance matrix is symmetric, so Q will be symmetric
+                    q.[i, j] <- riskWeight * covariance.[i, j]
+        
+        // Generate variable names
+        let varNames = 
+            [for i in 0 .. n - 1 do
+                yield sprintf "asset_%d" i]
+        
+        {
+            Size = n
+            Coefficients = q
+            VariableNames = varNames
+        }
+    
+    /// Validate QUBO transformation correctness.
+    /// 
+    /// Checks:
+    /// - Matrix symmetry: Q[i,j] = Q[j,i] for all i,j
+    /// - No invalid values: NaN, Infinity
+    /// - Size consistency: Coefficients dimensions match Size
+    let validateTransformation (qubo: QuboMatrix) : ValidationResult =
+        let errors = ResizeArray<string>()
+        
+        // Check 1: Size consistency
+        let actualRows = qubo.Coefficients.GetLength(0)
+        let actualCols = qubo.Coefficients.GetLength(1)
+        
+        if actualRows <> qubo.Size || actualCols <> qubo.Size then
+            errors.Add(sprintf "Size mismatch: declared size %d but matrix is %dx%d" 
+                qubo.Size actualRows actualCols)
+            // Early return - can't validate further if sizes don't match
+            {
+                IsValid = false
+                Errors = errors |> Seq.toList
+            }
+        else
+            // Check 2: Matrix symmetry (only if sizes match)
+            let mutable isSymmetric = true
+            for i in 0 .. qubo.Size - 1 do
+                for j in i + 1 .. qubo.Size - 1 do
+                    let qij = qubo.Coefficients.[i, j]
+                    let qji = qubo.Coefficients.[j, i]
+                    if abs(qij - qji) > 1e-10 then
+                        isSymmetric <- false
+                        errors.Add(sprintf "Asymmetry detected: Q[%d,%d] = %f but Q[%d,%d] = %f" 
+                            i j qij j i qji)
+            
+            // Check 3: No invalid values (NaN, Infinity)
+            for i in 0 .. qubo.Size - 1 do
+                for j in 0 .. qubo.Size - 1 do
+                    let value = qubo.Coefficients.[i, j]
+                    if System.Double.IsNaN(value) then
+                        errors.Add(sprintf "NaN detected at Q[%d,%d]" i j)
+                    elif System.Double.IsInfinity(value) then
+                        errors.Add(sprintf "Infinity detected at Q[%d,%d]" i j)
+            
+            {
+                IsValid = errors.Count = 0
+                Errors = errors |> Seq.toList
+            }
+    
+    // ============================================================================
+    // Custom Problem Registration
+    // ============================================================================
+    
+    /// Type alias for custom transformation function
+    type CustomTransformation = obj -> QuboMatrix
+    
+    /// Registry of custom problem transformations (mutable for registration)
+    let private customTransformations = System.Collections.Generic.Dictionary<string, CustomTransformation>()
+    
+    /// Register a custom QUBO transformation for a specific problem type.
+    /// 
+    /// Usage:
+    /// ```fsharp
+    /// let myTransform (data: obj) = 
+    ///     // Convert data and create QUBO
+    ///     { Size = n; Coefficients = q; VariableNames = names }
+    /// 
+    /// ProblemTransformer.registerProblem "MyProblem" myTransform
+    /// ```
+    let registerProblem (problemName: string) (transformation: CustomTransformation) : unit =
+        customTransformations.[problemName] <- transformation
+    
+    /// Apply a registered custom transformation.
+    /// 
+    /// Usage:
+    /// ```fsharp
+    /// let qubo = ProblemTransformer.applyTransformation "MyProblem" problemData
+    /// ```
+    let applyTransformation (problemName: string) (problemData: obj) : QuboMatrix =
+        match customTransformations.TryGetValue(problemName) with
+        | true, transform -> transform problemData
+        | false, _ -> 
+            failwith (sprintf "Problem '%s' not registered. Call registerProblem first." problemName)
+    
+    /// Recommend encoding strategy based on problem type and size.
+    /// 
+    /// Guidelines:
+    /// - TSP (n < 20): EdgeBased for better solution quality
+    /// - TSP (n >= 20): NodeBased to reduce QUBO size
+    /// - Portfolio: CorrelationBased for risk modeling
+    /// - Custom: Use registered transformation
+    let recommendStrategy (problemType: string) (problemSize: int) : EncodingStrategy =
+        match problemType.ToLower() with
+        | "tsp" | "traveling-salesman" ->
+            if problemSize < 20 then
+                EncodingStrategy.EdgeBased  // Better quality for small problems
+            else
+                EncodingStrategy.NodeBased  // More scalable for large problems
+        
+        | "portfolio" | "portfolio-optimization" ->
+            EncodingStrategy.CorrelationBased  // Risk modeling via covariance
+        
+        | _ ->
+            // Unknown problem type - default to NodeBased as it's most general
+            EncodingStrategy.NodeBased

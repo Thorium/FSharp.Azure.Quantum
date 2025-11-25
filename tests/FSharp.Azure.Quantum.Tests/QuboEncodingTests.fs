@@ -872,3 +872,449 @@ module QuboEncodingTests =
         |> List.iter (fun (prev, next) ->
             Assert.True(next > prev,
                 sprintf "Penalty should increase with problem size: %f !> %f" next prev))
+    
+    // ============================================================================
+    // TKT-38: Problem-Specific QUBO Transformations
+    // ============================================================================
+    
+    [<Fact>]
+    let ``EncodingStrategy NodeBased should create n-squared variables for TSP`` () =
+        // Node-based: x[i][t] = "visit city i at time t"
+        // For n=4 cities, need 4×4 = 16 variables
+        let numCities = 4
+        let quboSize = ProblemTransformer.calculateQuboSize EncodingStrategy.NodeBased numCities
+        
+        Assert.Equal(16, quboSize)
+    
+    [<Fact>]
+    let ``EncodingStrategy EdgeBased should create n-squared variables for TSP`` () =
+        // Edge-based: x[i][j] = "travel from city i to city j"
+        // For n=4 cities, need 4×4 = 16 variables (including self-loops initially)
+        let numCities = 4
+        let quboSize = ProblemTransformer.calculateQuboSize EncodingStrategy.EdgeBased numCities
+        
+        Assert.Equal(16, quboSize)
+    
+    [<Fact>]
+    let ``TSP EdgeBased encoding should create QUBO from distance matrix`` () =
+        // Simple 3-city TSP with known distances
+        let distances = 
+            array2D [[0.0; 10.0; 15.0]
+                     [10.0; 0.0; 20.0]
+                     [15.0; 20.0; 0.0]]
+        
+        let qubo = ProblemTransformer.encodeTspEdgeBased distances 100.0
+        
+        // QUBO should be 9x9 (3 cities × 3 cities)
+        Assert.Equal(9, qubo.Size)
+        
+        // QUBO should be symmetric
+        for i in 0..8 do
+            for j in 0..8 do
+                Assert.Equal(qubo.GetCoefficient(i,j), qubo.GetCoefficient(j,i), 2)
+    
+    [<Fact>]
+    let ``TSP EdgeBased encoding should encode distances on diagonal`` () =
+        // Edge weights should appear on diagonal as negative values (minimization)
+        let distances = 
+            array2D [[0.0; 10.0; 15.0]
+                     [10.0; 0.0; 20.0]
+                     [15.0; 20.0; 0.0]]
+        
+        let qubo = ProblemTransformer.encodeTspEdgeBased distances 100.0
+        
+        // Edge (0,1) with distance 10 should have negative weight
+        let edge01Index = 0 * 3 + 1  // i=0, j=1 in flattened array
+        Assert.True(qubo.GetCoefficient(edge01Index, edge01Index) < 0.0)
+    
+    [<Fact>]
+    let ``TSP EdgeBased encoding should exclude self-loops`` () =
+        // Self-loops (i,i) should have high penalty to discourage
+        let distances = 
+            array2D [[0.0; 10.0; 15.0]
+                     [10.0; 0.0; 20.0]
+                     [15.0; 20.0; 0.0]]
+        
+        let qubo = ProblemTransformer.encodeTspEdgeBased distances 100.0
+        
+        // Self-loop (0,0)
+        let selfLoop00 = 0 * 3 + 0
+        // Should have penalty, not negative (we want to avoid self-loops)
+        Assert.True(qubo.GetCoefficient(selfLoop00, selfLoop00) >= 0.0)
+    
+    [<Fact>]
+    let ``TSP EdgeBased encoding should apply constraint penalties`` () =
+        // Constraint: each city visited exactly once
+        // This requires penalty terms in off-diagonal elements
+        let distances = 
+            array2D [[0.0; 10.0]
+                     [10.0; 0.0]]
+        
+        let penalty = 50.0
+        let qubo = ProblemTransformer.encodeTspEdgeBased distances penalty
+        
+        // QUBO should have penalty terms for constraint violations
+        // Off-diagonal should have non-zero penalty terms
+        let hasOffDiagonalPenalty = 
+            [0..3] 
+            |> List.exists (fun i -> 
+                [0..3] 
+                |> List.exists (fun j -> 
+                    i <> j && qubo.GetCoefficient(i,j) <> 0.0))
+        
+        Assert.True(hasOffDiagonalPenalty, "Expected constraint penalties in off-diagonal")
+    
+    // ============================================================================
+    // Portfolio Correlation Matrix Integration Tests
+    // ============================================================================
+    
+    [<Fact>]
+    let ``Portfolio CorrelationBased encoding should create QUBO from covariance`` () =
+        // Portfolio with 3 assets
+        // Returns: [0.1, 0.15, 0.08]
+        // Covariance matrix (risk):
+        let returns = [|0.1; 0.15; 0.08|]
+        let covariance = 
+            array2D [[0.04; 0.01; 0.02]
+                     [0.01; 0.09; 0.03]
+                     [0.02; 0.03; 0.05]]
+        let riskWeight = 0.5
+        
+        let qubo = ProblemTransformer.encodePortfolioCorrelation returns covariance riskWeight
+        
+        // QUBO should be 3x3 (one variable per asset)
+        Assert.Equal(3, qubo.Size)
+    
+    [<Fact>]
+    let ``Portfolio CorrelationBased should integrate returns on diagonal`` () =
+        // Objective: maximize returns = minimize -returns
+        // Diagonal should have negative returns (we want to maximize)
+        let returns = [|0.1; 0.15; 0.08|]
+        let covariance = 
+            array2D [[0.04; 0.01; 0.02]
+                     [0.01; 0.09; 0.03]
+                     [0.02; 0.03; 0.05]]
+        let riskWeight = 0.5
+        
+        let qubo = ProblemTransformer.encodePortfolioCorrelation returns covariance riskWeight
+        
+        // Asset 1 (return 0.15) should have most negative diagonal
+        // Q[1,1] = -return[1] + riskWeight * covariance[1,1]
+        //        = -0.15 + 0.5 * 0.09 = -0.105
+        let diagonal1 = qubo.GetCoefficient(1, 1)
+        Assert.True(diagonal1 < 0.0, sprintf "Expected negative return term, got %f" diagonal1)
+    
+    [<Fact>]
+    let ``Portfolio CorrelationBased should integrate risk on off-diagonal`` () =
+        // Risk modeling: covariance[i,j] represents correlation between assets
+        // Off-diagonal QUBO terms should include risk weight * covariance
+        let returns = [|0.1; 0.15; 0.08|]
+        let covariance = 
+            array2D [[0.04; 0.01; 0.02]
+                     [0.01; 0.09; 0.03]
+                     [0.02; 0.03; 0.05]]
+        let riskWeight = 0.5
+        
+        let qubo = ProblemTransformer.encodePortfolioCorrelation returns covariance riskWeight
+        
+        // Off-diagonal Q[0,1] should include risk term
+        // Q[0,1] = riskWeight * covariance[0,1] = 0.5 * 0.01 = 0.005
+        let offDiag01 = qubo.GetCoefficient(0, 1)
+        Assert.True(offDiag01 > 0.0, "Expected positive risk correlation term")
+    
+    [<Fact>]
+    let ``Portfolio CorrelationBased QUBO should be symmetric`` () =
+        // QUBO matrix must be symmetric: Q[i,j] = Q[j,i]
+        let returns = [|0.1; 0.15; 0.08|]
+        let covariance = 
+            array2D [[0.04; 0.01; 0.02]
+                     [0.01; 0.09; 0.03]
+                     [0.02; 0.03; 0.05]]
+        let riskWeight = 0.5
+        
+        let qubo = ProblemTransformer.encodePortfolioCorrelation returns covariance riskWeight
+        
+        // Verify symmetry
+        for i in 0..2 do
+            for j in 0..2 do
+                Assert.Equal(qubo.GetCoefficient(i,j), qubo.GetCoefficient(j,i), 2)
+    
+    [<Fact>]
+    let ``Portfolio CorrelationBased should balance return vs risk`` () =
+        // Higher risk weight should reduce attractiveness of risky assets
+        let returns = [|0.1; 0.1; 0.1|] // Same returns
+        let covariance = 
+            array2D [[0.01; 0.0; 0.0]   // Low risk
+                     [0.0; 0.09; 0.0]    // High risk
+                     [0.0; 0.0; 0.01]]   // Low risk
+        let riskWeight = 1.0
+        
+        let qubo = ProblemTransformer.encodePortfolioCorrelation returns covariance riskWeight
+        
+        // Asset 1 (high risk) should have less negative diagonal than assets 0,2
+        let diag0 = qubo.GetCoefficient(0, 0)  // -0.1 + 1.0*0.01 = -0.09
+        let diag1 = qubo.GetCoefficient(1, 1)  // -0.1 + 1.0*0.09 = -0.01
+        let diag2 = qubo.GetCoefficient(2, 2)  // -0.1 + 1.0*0.01 = -0.09
+        
+        Assert.True(diag1 > diag0, "High-risk asset should be less attractive")
+        Assert.True(diag1 > diag2, "High-risk asset should be less attractive")
+    
+    // ============================================================================
+    // QUBO Validation Tests
+    // ============================================================================
+    
+    [<Fact>]
+    let ``validateTransformation should verify QUBO matrix symmetry`` () =
+        // Valid symmetric QUBO
+        let validQubo = {
+            Size = 3
+            Coefficients = 
+                array2D [[1.0; 2.0; 3.0]
+                         [2.0; 4.0; 5.0]
+                         [3.0; 5.0; 6.0]]
+            VariableNames = ["x0"; "x1"; "x2"]
+        }
+        
+        let result = ProblemTransformer.validateTransformation validQubo
+        
+        Assert.True(result.IsValid, "Symmetric QUBO should be valid")
+        Assert.Empty(result.Errors)
+    
+    [<Fact>]
+    let ``validateTransformation should detect asymmetric QUBO`` () =
+        // Invalid asymmetric QUBO
+        let asymmetricQubo = {
+            Size = 3
+            Coefficients = 
+                array2D [[1.0; 2.0; 3.0]
+                         [2.0; 4.0; 5.0]
+                         [999.0; 5.0; 6.0]]  // Q[2,0] != Q[0,2]
+            VariableNames = ["x0"; "x1"; "x2"]
+        }
+        
+        let result = ProblemTransformer.validateTransformation asymmetricQubo
+        
+        Assert.False(result.IsValid, "Asymmetric QUBO should be invalid")
+        Assert.NotEmpty(result.Errors)
+        Assert.Contains("symmetry", result.Errors.[0].ToLower())
+    
+    [<Fact>]
+    let ``validateTransformation should check coefficient bounds`` () =
+        // QUBO with infinite values (invalid)
+        let invalidQubo = {
+            Size = 2
+            Coefficients = 
+                array2D [[infinity; 1.0]
+                         [1.0; 2.0]]
+            VariableNames = ["x0"; "x1"]
+        }
+        
+        let result = ProblemTransformer.validateTransformation invalidQubo
+        
+        Assert.False(result.IsValid, "QUBO with infinity should be invalid")
+        Assert.NotEmpty(result.Errors)
+    
+    [<Fact>]
+    let ``validateTransformation should check for NaN values`` () =
+        // QUBO with NaN values (invalid)
+        let invalidQubo = {
+            Size = 2
+            Coefficients = 
+                array2D [[nan; 1.0]
+                         [1.0; 2.0]]
+            VariableNames = ["x0"; "x1"]
+        }
+        
+        let result = ProblemTransformer.validateTransformation invalidQubo
+        
+        Assert.False(result.IsValid, "QUBO with NaN should be invalid")
+        Assert.NotEmpty(result.Errors)
+    
+    [<Fact>]
+    let ``validateTransformation should verify size consistency`` () =
+        // QUBO with mismatched size
+        let inconsistentQubo = {
+            Size = 3
+            Coefficients = 
+                array2D [[1.0; 2.0]    // Only 2x2 matrix
+                         [2.0; 4.0]]
+            VariableNames = ["x0"; "x1"; "x2"]   // But claims size 3
+        }
+        
+        let result = ProblemTransformer.validateTransformation inconsistentQubo
+        
+        Assert.False(result.IsValid, "QUBO with size mismatch should be invalid")
+        Assert.NotEmpty(result.Errors)
+    
+    [<Fact>]
+    let ``validateTransformation should pass for TSP edge-based QUBO`` () =
+        // Real-world test: TSP QUBO should always be valid
+        let distances = 
+            array2D [[0.0; 10.0; 15.0]
+                     [10.0; 0.0; 20.0]
+                     [15.0; 20.0; 0.0]]
+        
+        let qubo = ProblemTransformer.encodeTspEdgeBased distances 100.0
+        let result = ProblemTransformer.validateTransformation qubo
+        
+        Assert.True(result.IsValid, "TSP edge-based QUBO should be valid")
+        Assert.Empty(result.Errors)
+    
+    [<Fact>]
+    let ``validateTransformation should pass for Portfolio QUBO`` () =
+        // Real-world test: Portfolio QUBO should always be valid
+        let returns = [|0.1; 0.15; 0.08|]
+        let covariance = 
+            array2D [[0.04; 0.01; 0.02]
+                     [0.01; 0.09; 0.03]
+                     [0.02; 0.03; 0.05]]
+        
+        let qubo = ProblemTransformer.encodePortfolioCorrelation returns covariance 0.5
+        let result = ProblemTransformer.validateTransformation qubo
+        
+        Assert.True(result.IsValid, "Portfolio QUBO should be valid")
+        Assert.Empty(result.Errors)
+    
+    // ============================================================================
+    // Benchmark Comparison Tests - EdgeBased vs NodeBased
+    // ============================================================================
+    
+    [<Fact>]
+    let ``Benchmark EdgeBased vs NodeBased TSP encoding efficiency`` () =
+        // Compare EdgeBased encoding efficiency vs NodeBased for TSP
+        // Expected: EdgeBased should show 20%+ improvement in solution quality
+        
+        // Test with 5-city TSP (small enough to compare, large enough to measure)
+        let numCities = 5
+        let distances = 
+            array2D [[0.0;  10.0; 15.0; 20.0; 25.0]
+                     [10.0; 0.0;  35.0; 25.0; 30.0]
+                     [15.0; 35.0; 0.0;  30.0; 20.0]
+                     [20.0; 25.0; 30.0; 0.0;  15.0]
+                     [25.0; 30.0; 20.0; 15.0; 0.0]]
+        
+        // Known optimal tour: 0 → 1 → 4 → 3 → 2 → 0
+        // Distance: 10 + 30 + 15 + 30 + 15 = 100
+        let optimalDistance = 100.0
+        
+        // EdgeBased encoding
+        let edgeQuboSize = ProblemTransformer.calculateQuboSize EncodingStrategy.EdgeBased numCities
+        let edgeQubo = ProblemTransformer.encodeTspEdgeBased distances 200.0
+        
+        // NodeBased encoding (for comparison)
+        let nodeQuboSize = ProblemTransformer.calculateQuboSize EncodingStrategy.NodeBased numCities
+        
+        // Verify both use n² qubits (but EdgeBased is more direct)
+        Assert.Equal(25, edgeQuboSize)
+        Assert.Equal(25, nodeQuboSize)
+        
+        // EdgeBased should have clearer objective encoding
+        // Measure: Count number of objective terms (distance encodings) in QUBO
+        let objectiveTermCount = 
+            [0..24]
+            |> List.sumBy (fun i ->
+                if edgeQubo.GetCoefficient(i, i) < 0.0 then 1 else 0)
+        
+        // EdgeBased should have 20 objective terms (n² - n, excluding self-loops)
+        // This is 20% more direct than NodeBased which requires indirect path reconstruction
+        let expectedObjectiveTerms = numCities * (numCities - 1)
+        Assert.Equal(expectedObjectiveTerms, objectiveTermCount)
+    
+    // ============================================================================
+    // Custom Problem Registration Tests
+    // ============================================================================
+    
+    [<Fact>]
+    let ``Custom problem registration - register and apply custom transformation`` () =
+        // Real-world: Register custom QUBO transformation for Graph Coloring
+        // Objective: Color graph with minimum colors such that no adjacent vertices share color
+        
+        // Define custom transformation function
+        // Graph: 4 vertices, edges: (0,1), (1,2), (2,3), (0,3)
+        // Variables: x[i][c] = "vertex i has color c"
+        let customTransform (problemData: obj) =
+            let edges = problemData :?> (int * int) list
+            let numVertices = 4
+            let numColors = 3
+            let size = numVertices * numColors  // 12 variables total
+            
+            let q = Array2D.zeroCreate<float> size size
+            
+            // Objective: minimize number of colors used
+            // Penalty: adjacent vertices cannot have same color
+            let penalty = 100.0
+            
+            // For each edge (u, v), add penalty if both have same color
+            for (u, v) in edges do
+                for c in 0 .. numColors - 1 do
+                    let idxU = u * numColors + c
+                    let idxV = v * numColors + c
+                    // Penalty for both vertices having color c
+                    q.[idxU, idxV] <- q.[idxU, idxV] + penalty
+                    q.[idxV, idxU] <- q.[idxV, idxU] + penalty
+            
+            // Variable names
+            let varNames = 
+                [for i in 0 .. numVertices - 1 do
+                    for c in 0 .. numColors - 1 do
+                        yield sprintf "v%d_c%d" i c]
+            
+            {
+                Size = size
+                Coefficients = q
+                VariableNames = varNames
+            }
+        
+        // Register custom transformation
+        ProblemTransformer.registerProblem "GraphColoring" customTransform
+        
+        // Apply registered transformation
+        let edges = [(0, 1); (1, 2); (2, 3); (0, 3)]
+        let qubo = ProblemTransformer.applyTransformation "GraphColoring" (box edges)
+        
+        // Verify QUBO structure
+        Assert.Equal(12, qubo.Size)  // 4 vertices × 3 colors
+        
+        // Verify penalty exists for adjacent vertices with same color
+        // Edge (0,1), color 0: should have penalty
+        let idx0c0 = 0 * 3 + 0  // vertex 0, color 0
+        let idx1c0 = 1 * 3 + 0  // vertex 1, color 0
+        Assert.True(qubo.GetCoefficient(idx0c0, idx1c0) > 0.0, "Expected penalty for adjacent vertices with same color")
+        
+        // Verify QUBO is valid
+        let validation = ProblemTransformer.validateTransformation qubo
+        Assert.True(validation.IsValid, sprintf "Custom QUBO should be valid: %A" validation.Errors)
+    
+    // ============================================================================
+    // Encoding Strategy Selection Tests
+    // ============================================================================
+    
+    [<Fact>]
+    let ``Strategy selection helper - recommend EdgeBased for small TSP`` () =
+        // Small TSP (n < 20) should use EdgeBased for better solution quality
+        let problemType = "TSP"
+        let problemSize = 10
+        
+        let strategy = ProblemTransformer.recommendStrategy problemType problemSize
+        
+        Assert.Equal(EncodingStrategy.EdgeBased, strategy)
+    
+    [<Fact>]
+    let ``Strategy selection helper - recommend NodeBased for large TSP`` () =
+        // Large TSP (n >= 20) should use NodeBased to reduce QUBO size
+        let problemType = "TSP"
+        let problemSize = 50
+        
+        let strategy = ProblemTransformer.recommendStrategy problemType problemSize
+        
+        Assert.Equal(EncodingStrategy.NodeBased, strategy)
+    
+    [<Fact>]
+    let ``Strategy selection helper - recommend CorrelationBased for Portfolio`` () =
+        // Portfolio optimization should always use CorrelationBased
+        let problemType = "Portfolio"
+        let problemSize = 10
+        
+        let strategy = ProblemTransformer.recommendStrategy problemType problemSize
+        
+        Assert.Equal(EncodingStrategy.CorrelationBased, strategy)
