@@ -29,10 +29,10 @@ module QaoaSimulatorTests =
     let ``Initialize uniform superposition - should reject invalid qubit counts`` () =
         Assert.Throws<System.Exception>(fun () -> 
             QaoaSimulator.initializeUniformSuperposition 0 |> ignore
-        )
+        ) |> ignore
         Assert.Throws<System.Exception>(fun () -> 
             QaoaSimulator.initializeUniformSuperposition 11 |> ignore
-        )
+        ) |> ignore
     
     [<Fact>]
     let ``Apply cost layer - should apply Rz rotations`` () =
@@ -95,12 +95,12 @@ module QaoaSimulatorTests =
         // Same qubit for both indices
         Assert.Throws<System.Exception>(fun () ->
             QaoaSimulator.applyCostInteraction 1.0 0 0 1.0 state |> ignore
-        )
+        ) |> ignore
         
         // Out of range
         Assert.Throws<System.Exception>(fun () ->
             QaoaSimulator.applyCostInteraction 1.0 0 2 1.0 state |> ignore
-        )
+        ) |> ignore
     
     [<Fact>]
     let ``Apply mixer layer - should apply Rx rotations`` () =

@@ -25,10 +25,10 @@ module MeasurementTests =
         
         Assert.Throws<System.Exception>(fun () ->
             Measurement.getBasisStateProbability -1 state |> ignore
-        )
+        ) |> ignore
         Assert.Throws<System.Exception>(fun () ->
             Measurement.getBasisStateProbability 4 state |> ignore
-        )
+        ) |> ignore
     
     [<Fact>]
     let ``Get probability distribution - should sum to 1`` () =
@@ -133,12 +133,12 @@ module MeasurementTests =
         // Invalid outcome
         Assert.Throws<System.Exception>(fun () ->
             Measurement.collapseAfterMeasurement 0 2 state |> ignore
-        )
+        ) |> ignore
         
         // Invalid qubit index
         Assert.Throws<System.Exception>(fun () ->
             Measurement.collapseAfterMeasurement 3 0 state |> ignore
-        )
+        ) |> ignore
     
     [<Fact>]
     let ``Sample measurements - should return correct number of samples`` () =
@@ -158,10 +158,10 @@ module MeasurementTests =
         
         Assert.Throws<System.Exception>(fun () ->
             Measurement.sampleMeasurements rng 0 state |> ignore
-        )
+        ) |> ignore
         Assert.Throws<System.Exception>(fun () ->
             Measurement.sampleMeasurements rng -1 state |> ignore
-        )
+        ) |> ignore
     
     [<Fact>]
     let ``Sample and count - should produce frequency distribution`` () =

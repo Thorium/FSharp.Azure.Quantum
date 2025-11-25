@@ -103,10 +103,10 @@ module StateVectorTests =
         // Invalid indices should throw
         Assert.Throws<System.Exception>(fun () -> 
             StateVector.getAmplitude -1 state |> ignore
-        )
+        ) |> ignore
         Assert.Throws<System.Exception>(fun () -> 
             StateVector.getAmplitude 4 state |> ignore
-        )
+        ) |> ignore
     
     [<Fact>]
     let ``Initialize state vector - should enforce qubit limits`` () =
@@ -121,7 +121,7 @@ module StateVectorTests =
         // Invalid: negative qubits
         Assert.Throws<System.Exception>(fun () -> 
             StateVector.init -1 |> ignore
-        )
+        ) |> ignore
         
         // Invalid: > 10 qubits
         Assert.Throws<System.Exception>(fun () -> 

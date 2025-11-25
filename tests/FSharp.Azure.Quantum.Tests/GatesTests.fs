@@ -263,10 +263,10 @@ module GatesTests =
         // Invalid indices: -1, 2
         Assert.Throws<System.Exception>(fun () -> 
             Gates.applyX -1 state2q |> ignore
-        )
+        ) |> ignore
         Assert.Throws<System.Exception>(fun () -> 
             Gates.applyX 2 state2q |> ignore
-        )
+        ) |> ignore
     
     [<Fact>]
     let ``Complex rotation composition - should produce correct final state`` () =
@@ -448,15 +448,15 @@ module GatesTests =
         // Invalid: same control and target
         Assert.Throws<System.Exception>(fun () -> 
             Gates.applyCNOT 0 0 state2q |> ignore
-        )
+        ) |> ignore
         Assert.Throws<System.Exception>(fun () -> 
             Gates.applyCZ 1 1 state2q |> ignore
-        )
+        ) |> ignore
         
         // Invalid: out of range
         Assert.Throws<System.Exception>(fun () -> 
             Gates.applyCNOT 2 0 state2q |> ignore
-        )
+        ) |> ignore
         Assert.Throws<System.Exception>(fun () -> 
             Gates.applyCZ 0 3 state2q |> ignore
-        )
+        ) |> ignore
