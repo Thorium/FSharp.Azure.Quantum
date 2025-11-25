@@ -86,3 +86,19 @@ module RateLimiting =
                 | Some info -> info.Remaining < 10
                 | None -> false
             )
+    
+    // ============================================================================
+    // 4. EXPONENTIAL BACKOFF
+    // ============================================================================
+    
+    /// Calculate exponential backoff delay in milliseconds
+    /// Start at 1s, double each attempt, cap at 60s
+    let calculateExponentialBackoff (attemptNumber: int) : int =
+        let baseDelayMs = 1000  // 1 second
+        let maxDelayMs = 60000  // 60 seconds
+        
+        // Calculate: 1000 * 2^(attemptNumber - 1)
+        let delay = baseDelayMs * (pown 2 (attemptNumber - 1))
+        
+        // Cap at maximum
+        min delay maxDelayMs

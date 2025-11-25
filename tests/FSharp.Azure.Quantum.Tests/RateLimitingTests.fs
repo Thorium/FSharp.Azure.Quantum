@@ -101,3 +101,27 @@ let ``RateLimiter shouldThrottle returns false when plenty of requests remain`` 
     
     // Assert - should NOT throttle when plenty of requests remain
     Assert.False(shouldThrottle, "Should not throttle when 50 requests remaining")
+
+// ============================================================================
+// TDD Cycle #5: Exponential Backoff Calculation
+// ============================================================================
+
+[<Fact>]
+let ``calculateExponentialBackoff should return increasing delays`` () =
+    // Act
+    let delay1 = calculateExponentialBackoff 1
+    let delay2 = calculateExponentialBackoff 2
+    let delay3 = calculateExponentialBackoff 3
+    let delay4 = calculateExponentialBackoff 4
+    let delay5 = calculateExponentialBackoff 5
+    let delay6 = calculateExponentialBackoff 6
+    let delay7 = calculateExponentialBackoff 7  // Should be capped at 60s
+    
+    // Assert - exponential backoff: 1s, 2s, 4s, 8s, 16s, 32s, 60s (max)
+    Assert.Equal(1000, delay1)   // 1 second
+    Assert.Equal(2000, delay2)   // 2 seconds
+    Assert.Equal(4000, delay3)   // 4 seconds
+    Assert.Equal(8000, delay4)   // 8 seconds
+    Assert.Equal(16000, delay5)  // 16 seconds
+    Assert.Equal(32000, delay6)  // 32 seconds
+    Assert.Equal(60000, delay7)  // 60 seconds (capped)
