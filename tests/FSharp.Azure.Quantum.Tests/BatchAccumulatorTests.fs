@@ -73,3 +73,80 @@ module BatchAccumulatorTests =
         Assert.Equal(50, config.MaxBatchSize)
         Assert.Equal(TimeSpan.FromSeconds 10.0, config.Timeout)
         Assert.True(config.Enabled)
+    
+    // ============================================================================
+    // TDD CYCLE 2: BatchAccumulator - Size Trigger
+    // ============================================================================
+    
+    [<Fact>]
+    let ``BatchAccumulator should accumulate items below max size`` () =
+        // Arrange
+        let config = BatchConfig.defaultConfig
+        let accumulator = BatchAccumulator<string>(config)
+        
+        // Act
+        let result1 = accumulator.Add("item1")
+        let result2 = accumulator.Add("item2")
+        let result3 = accumulator.Add("item3")
+        
+        // Assert - Should return None (keep accumulating)
+        Assert.True(result1.IsNone, "First item should not trigger batch")
+        Assert.True(result2.IsNone, "Second item should not trigger batch")
+        Assert.True(result3.IsNone, "Third item should not trigger batch")
+    
+    [<Fact>]
+    let ``BatchAccumulator should trigger on max batch size`` () =
+        // Arrange
+        let config = { BatchConfig.defaultConfig with MaxBatchSize = 3 }
+        let accumulator = BatchAccumulator<string>(config)
+        
+        // Act
+        let result1 = accumulator.Add("item1")
+        let result2 = accumulator.Add("item2")
+        let result3 = accumulator.Add("item3")  // Should trigger
+        
+        // Assert
+        Assert.True(result1.IsNone)
+        Assert.True(result2.IsNone)
+        Assert.True(result3.IsSome, "Third item should trigger batch")
+        
+        match result3 with
+        | Some batch ->
+            Assert.Equal(3, batch.Length)
+            Assert.Equal<string seq>(["item1"; "item2"; "item3"], batch)
+        | None -> Assert.True(false, "Expected batch to be returned")
+    
+    [<Fact>]
+    let ``BatchAccumulator should reset after triggering`` () =
+        // Arrange
+        let config = { BatchConfig.defaultConfig with MaxBatchSize = 2 }
+        let accumulator = BatchAccumulator<int>(config)
+        
+        // Act - First batch
+        let _ = accumulator.Add(1)
+        let batch1 = accumulator.Add(2)  // Trigger
+        
+        // Act - Second batch (should start fresh)
+        let result1 = accumulator.Add(3)
+        let batch2 = accumulator.Add(4)  // Trigger again
+        
+        // Assert
+        Assert.Equal(Some [1; 2], batch1)
+        Assert.True(result1.IsNone, "After reset, should accumulate again")
+        Assert.Equal(Some [3; 4], batch2)
+    
+    [<Fact>]
+    let ``BatchAccumulator with size 1 should trigger immediately`` () =
+        // Arrange
+        let config = { BatchConfig.defaultConfig with MaxBatchSize = 1 }
+        let accumulator = BatchAccumulator<string>(config)
+        
+        // Act
+        let result = accumulator.Add("item")
+        
+        // Assert
+        match result with
+        | Some batch ->
+            Assert.Equal(1, batch.Length)
+            Assert.Equal<string seq>(["item"], batch)
+        | None -> Assert.True(false, "Expected immediate trigger with batch size 1")

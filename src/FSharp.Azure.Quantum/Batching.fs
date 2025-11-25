@@ -50,3 +50,38 @@ module Batching =
                 Timeout = TimeSpan.FromSeconds 10.0
                 Enabled = true
             }
+    
+    // ============================================================================
+    // BATCH ACCUMULATOR
+    // ============================================================================
+    
+    /// Thread-safe batch accumulator with size-based triggering
+    /// 
+    /// Accumulates items until maxBatchSize is reached, then returns the batch.
+    /// Uses lock-based synchronization for thread safety.
+    type BatchAccumulator<'T>(config: BatchConfig) =
+        let mutable batch : 'T list = []
+        let mutable batchStartTime : DateTimeOffset option = None
+        let lockObj = obj()
+        
+        /// Add an item to the batch
+        /// 
+        /// Returns Some(batch) if size trigger activates, None otherwise
+        member _.Add(item: 'T) : 'T list option =
+            lock lockObj (fun () ->
+                // Start timer on first item
+                if batchStartTime.IsNone then
+                    batchStartTime <- Some DateTimeOffset.UtcNow
+                
+                // Add item to batch
+                batch <- item :: batch
+                
+                // Check size trigger
+                if batch.Length >= config.MaxBatchSize then
+                    let result = List.rev batch
+                    batch <- []
+                    batchStartTime <- None
+                    Some result  // Trigger batch submission
+                else
+                    None  // Keep accumulating
+            )
