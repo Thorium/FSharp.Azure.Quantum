@@ -729,3 +729,87 @@ module QuboEncodingTests =
         let violations = ConstraintPenalty.validateConstraints encoding solution
         
         Assert.False(List.isEmpty violations)
+    
+    // ============================================================================
+    // Adaptive Penalty Tuning Tests
+    // ============================================================================
+    
+    [<Fact>]
+    let ``tuneAdaptive should start with initial penalty`` () =
+        // Adaptive tuning starts conservative and increases if violations detected
+        let initialPenalty = 100.0
+        let maxIterations = 5
+        let encoding = VariableEncoding.OneHot 3
+        
+        // Solver that always finds valid solution (no violations)
+        let solver penalty = [0; 1; 0] // Valid OneHot solution
+        
+        let finalPenalty = ConstraintPenalty.tuneAdaptive encoding initialPenalty maxIterations solver
+        
+        // Should return initial penalty if no violations
+        Assert.Equal(initialPenalty, finalPenalty, 2)
+    
+    [<Fact>]
+    let ``tuneAdaptive should increase penalty on violations`` () =
+        // When solver finds invalid solutions, penalty should increase
+        let initialPenalty = 100.0
+        let maxIterations = 3
+        let encoding = VariableEncoding.OneHot 3
+        
+        // Solver that always returns invalid solution (multiple bits set)
+        let mutable attempts = 0
+        let solver penalty =
+            attempts <- attempts + 1
+            [1; 1; 0] // Invalid OneHot (two bits set)
+        
+        let finalPenalty = ConstraintPenalty.tuneAdaptive encoding initialPenalty maxIterations solver
+        
+        // Penalty should increase (1.5x per iteration)
+        // After 3 iterations: 100 * 1.5^3 = 337.5
+        Assert.True(finalPenalty > initialPenalty, 
+            sprintf "Final penalty %f should be > initial %f" finalPenalty initialPenalty)
+        Assert.True(finalPenalty > 300.0, sprintf "Expected >300, got %f" finalPenalty)
+    
+    [<Fact>]
+    let ``tuneAdaptive should stop when valid solution found`` () =
+        // Adaptive tuning should stop early if valid solution is found
+        let initialPenalty = 100.0
+        let maxIterations = 10
+        let encoding = VariableEncoding.OneHot 3
+        
+        // Solver finds valid solution after 2 iterations
+        let mutable attempts = 0
+        let solver penalty =
+            attempts <- attempts + 1
+            if attempts <= 2 then
+                [1; 1; 0] // Invalid for first 2 attempts
+            else
+                [0; 1; 0] // Valid OneHot solution
+        
+        let finalPenalty = ConstraintPenalty.tuneAdaptive encoding initialPenalty maxIterations solver
+        
+        // Should stop after finding valid solution
+        // Penalty after 2 violations: 100 * 1.5^2 = 225
+        Assert.True(finalPenalty > 200.0 && finalPenalty < 250.0,
+            sprintf "Expected ~225, got %f" finalPenalty)
+        Assert.True(attempts <= 4, sprintf "Should stop early, but ran %d attempts" attempts)
+    
+    [<Fact>]
+    let ``tuneAdaptive should respect max iterations`` () =
+        // Should not exceed max iterations even if violations persist
+        let initialPenalty = 100.0
+        let maxIterations = 3
+        let encoding = VariableEncoding.OneHot 3
+        
+        // Track number of solver calls
+        let mutable attempts = 0
+        let solver penalty =
+            attempts <- attempts + 1
+            [1; 1; 0] // Always invalid
+        
+        let _finalPenalty = ConstraintPenalty.tuneAdaptive encoding initialPenalty maxIterations solver
+        
+        // Should call solver at most maxIterations + 1 times
+        // (initial + maxIterations retries)
+        Assert.True(attempts <= maxIterations + 1,
+            sprintf "Expected <= %d attempts, got %d" (maxIterations + 1) attempts)

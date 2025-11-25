@@ -396,3 +396,30 @@ module ConstraintPenalty =
                 }]
             else
                 []
+    
+    /// Adaptive penalty tuning: start low, increase if violations detected.
+    /// 
+    /// Solver function takes penalty weight and returns a solution.
+    /// If solution violates constraints, penalty is increased by 1.5x and solver is retried.
+    let rec tuneAdaptive 
+        (encoding: VariableEncoding) 
+        (penalty: float) 
+        (maxIterations: int) 
+        (solver: float -> int list) : float =
+        
+        if maxIterations <= 0 then
+            penalty
+        else
+            // Get solution with current penalty
+            let solution = solver penalty
+            
+            // Check for constraint violations
+            let violations = validateConstraints encoding solution
+            
+            if List.isEmpty violations then
+                // Valid solution found - return current penalty
+                penalty
+            else
+                // Violations detected - increase penalty and retry
+                let newPenalty = penalty * 1.5
+                tuneAdaptive encoding newPenalty (maxIterations - 1) solver
