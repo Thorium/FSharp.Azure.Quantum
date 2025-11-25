@@ -224,3 +224,199 @@ module QuboEncodingTests =
         let count = VariableEncoding.qubitCount encoding
         // Range 0-10 = 11 values, needs ceil(log2(11)) = 4 qubits
         Assert.Equal(4, count)
+    
+    // ============================================================================
+    // Binary Encoding Tests - True binary decisions (include/exclude)
+    // ============================================================================
+    
+    [<Fact>]
+    let ``Binary encoding - Portfolio asset inclusion decision`` () =
+        // Real-world: Should we include MSFT stock in portfolio?
+        // Binary decision: 0 = exclude, 1 = include
+        let includeAsset = VariableEncoding.Binary
+        
+        // Exclude decision (0)
+        let excludeBits = VariableEncoding.encode includeAsset 0
+        Assert.Equal<int list>([0], excludeBits)
+        Assert.Equal(0, VariableEncoding.decode includeAsset excludeBits)
+        
+        // Include decision (1)
+        let includeBits = VariableEncoding.encode includeAsset 1
+        Assert.Equal<int list>([1], includeBits)
+        Assert.Equal(1, VariableEncoding.decode includeAsset includeBits)
+    
+    // ============================================================================
+    // One-Hot Encoding Tests - Choose one option from N (unordered categories)
+    // ============================================================================
+    
+    [<Fact>]
+    let ``OneHot encoding - Delivery route selection (3 routes)`` () =
+        // Real-world: Choose delivery route from {North, South, East}
+        // One-hot: Exactly one route selected
+        let routeEncoding = VariableEncoding.OneHot 3
+        
+        // Verify qubit efficiency
+        Assert.Equal(3, VariableEncoding.qubitCount routeEncoding)
+        
+        // Route 0 (North): [1, 0, 0]
+        let northBits = VariableEncoding.encode routeEncoding 0
+        Assert.Equal<int list>([1; 0; 0], northBits)
+        Assert.Equal(0, VariableEncoding.decode routeEncoding northBits)
+        
+        // Route 2 (East): [0, 0, 1]
+        let eastBits = VariableEncoding.encode routeEncoding 2
+        Assert.Equal<int list>([0; 0; 1], eastBits)
+        Assert.Equal(2, VariableEncoding.decode routeEncoding eastBits)
+    
+    [<Fact>]
+    let ``OneHot encoding - Color choice (unordered categories)`` () =
+        // Real-world: Choose website theme color from {Red, Blue, Green, Yellow}
+        let colorEncoding = VariableEncoding.OneHot 4
+        
+        // Blue (index 1): [0, 1, 0, 0]
+        let blueBits = VariableEncoding.encode colorEncoding 1
+        Assert.Equal<int list>([0; 1; 0; 0], blueBits)
+        Assert.Equal(1, VariableEncoding.decode colorEncoding blueBits)
+        
+        // Roundtrip all colors
+        [0..3] |> List.iter (fun color ->
+            let bits = VariableEncoding.encode colorEncoding color
+            let decoded = VariableEncoding.decode colorEncoding bits
+            Assert.Equal(color, decoded))
+    
+    // ============================================================================
+    // Domain-Wall Encoding Tests - Ordered categories (priority levels)
+    // ============================================================================
+    
+    [<Fact>]
+    let ``DomainWall encoding - Priority levels (Low < Medium < High < Critical)`` () =
+        // Real-world: Asset priority levels where order matters
+        // Domain-wall: 25% fewer qubits than one-hot (3 qubits vs 4)
+        let priorityEncoding = VariableEncoding.DomainWall 4
+        
+        // Verify qubit efficiency: N-1 qubits for N levels
+        Assert.Equal(3, VariableEncoding.qubitCount priorityEncoding)
+        
+        // Low priority (level 1): [0, 0, 0] - no wall
+        let lowBits = VariableEncoding.encode priorityEncoding 1
+        Assert.Equal<int list>([0; 0; 0], lowBits)
+        Assert.Equal(1, VariableEncoding.decode priorityEncoding lowBits)
+        
+        // Medium priority (level 2): [1, 0, 0] - wall at position 1
+        let mediumBits = VariableEncoding.encode priorityEncoding 2
+        Assert.Equal<int list>([1; 0; 0], mediumBits)
+        Assert.Equal(2, VariableEncoding.decode priorityEncoding mediumBits)
+        
+        // High priority (level 3): [1, 1, 0] - wall extends
+        let highBits = VariableEncoding.encode priorityEncoding 3
+        Assert.Equal<int list>([1; 1; 0], highBits)
+        Assert.Equal(3, VariableEncoding.decode priorityEncoding highBits)
+        
+        // Critical priority (level 4): [1, 1, 1] - full wall
+        let criticalBits = VariableEncoding.encode priorityEncoding 4
+        Assert.Equal<int list>([1; 1; 1], criticalBits)
+        Assert.Equal(4, VariableEncoding.decode priorityEncoding criticalBits)
+    
+    [<Fact>]
+    let ``DomainWall encoding - Qubit efficiency vs OneHot`` () =
+        // Demonstrate 25% qubit reduction for ordered variables
+        let levels = 8
+        let domainWall = VariableEncoding.DomainWall levels
+        let oneHot = VariableEncoding.OneHot levels
+        
+        let domainWallQubits = VariableEncoding.qubitCount domainWall
+        let oneHotQubits = VariableEncoding.qubitCount oneHot
+        
+        // Domain-wall: 7 qubits, One-hot: 8 qubits
+        Assert.Equal(7, domainWallQubits)
+        Assert.Equal(8, oneHotQubits)
+        
+        // Verify reduction
+        let reduction = float (oneHotQubits - domainWallQubits) / float oneHotQubits
+        Assert.True(reduction >= 0.12) // At least 12.5% reduction
+    
+    // ============================================================================
+    // Bounded Integer Encoding Tests - Integer ranges (quantities)
+    // ============================================================================
+    
+    [<Fact>]
+    let ``BoundedInteger encoding - Order quantity (0-10 units)`` () =
+        // Real-world: How many units to order? Range 0-10
+        // Binary encoding: Most efficient for large ranges
+        let quantityEncoding = VariableEncoding.BoundedInteger(0, 10)
+        
+        // Verify qubit efficiency: log2(range) qubits
+        Assert.Equal(4, VariableEncoding.qubitCount quantityEncoding) // ceil(log2(11)) = 4
+        
+        // Quantity 0: [0, 0, 0, 0]
+        let qty0 = VariableEncoding.encode quantityEncoding 0
+        Assert.Equal<int list>([0; 0; 0; 0], qty0)
+        
+        // Quantity 5: [1, 0, 1, 0] (binary 0101 LSB first)
+        let qty5 = VariableEncoding.encode quantityEncoding 5
+        Assert.Equal<int list>([1; 0; 1; 0], qty5)
+        Assert.Equal(5, VariableEncoding.decode quantityEncoding qty5)
+        
+        // Quantity 10: [0, 1, 0, 1] (binary 1010 LSB first)
+        let qty10 = VariableEncoding.encode quantityEncoding 10
+        Assert.Equal<int list>([0; 1; 0; 1], qty10)
+        Assert.Equal(10, VariableEncoding.decode quantityEncoding qty10)
+    
+    [<Fact>]
+    let ``BoundedInteger encoding - Large range efficiency`` () =
+        // Real-world: Inventory quantity 0-100 items
+        let inventoryEncoding = VariableEncoding.BoundedInteger(0, 100)
+        
+        // Verify logarithmic efficiency: 7 qubits for 101 values
+        let qubits = VariableEncoding.qubitCount inventoryEncoding
+        Assert.Equal(7, qubits) // ceil(log2(101)) = 7
+        
+        // Compare to one-hot: would need 101 qubits!
+        let oneHotAlternative = VariableEncoding.OneHot 101
+        Assert.Equal(101, VariableEncoding.qubitCount oneHotAlternative)
+        
+        // BoundedInteger is 93% more efficient
+        let efficiency = 1.0 - (float qubits / float 101)
+        Assert.True(efficiency > 0.93)
+    
+    [<Fact>]
+    let ``BoundedInteger roundtrip - All values in range`` () =
+        // Verify roundtrip for realistic order quantities
+        let quantityEncoding = VariableEncoding.BoundedInteger(0, 10)
+        
+        [0..10] |> List.iter (fun qty ->
+            let bits = VariableEncoding.encode quantityEncoding qty
+            let decoded = VariableEncoding.decode quantityEncoding bits
+            Assert.Equal(qty, decoded))
+    
+    // ============================================================================
+    // Real-World Portfolio Optimization Example
+    // ============================================================================
+    
+    [<Fact>]
+    let ``Portfolio optimization - 5 assets with priority levels`` () =
+        // Real-world: Select priority for 5 assets (Low/Medium/High/Critical)
+        // Compare encoding strategies
+        
+        // Option 1: One-Hot encoding (unordered)
+        // 5 assets × 4 levels = 20 qubits
+        let oneHotStrategy = VariableEncoding.OneHot 4
+        let oneHotTotalQubits = 5 * VariableEncoding.qubitCount oneHotStrategy
+        Assert.Equal(20, oneHotTotalQubits)
+        
+        // Option 2: Domain-Wall encoding (ordered priorities)
+        // 5 assets × 3 qubits = 15 qubits (25% reduction!)
+        let domainWallStrategy = VariableEncoding.DomainWall 4
+        let domainWallTotalQubits = 5 * VariableEncoding.qubitCount domainWallStrategy
+        Assert.Equal(15, domainWallTotalQubits)
+        
+        // Verify 25% qubit reduction
+        let reduction = float (oneHotTotalQubits - domainWallTotalQubits) / float oneHotTotalQubits
+        Assert.Equal(0.25, reduction, 2) // 25% reduction
+        
+        // Encode asset priorities using domain-wall
+        let asset1Priority = VariableEncoding.encode domainWallStrategy 3 // High
+        let asset2Priority = VariableEncoding.encode domainWallStrategy 1 // Low
+        
+        Assert.Equal<int list>([1; 1; 0], asset1Priority)
+        Assert.Equal<int list>([0; 0; 0], asset2Priority)

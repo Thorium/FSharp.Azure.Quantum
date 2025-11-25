@@ -12,24 +12,82 @@ type Variable = {
 }
 
 // TKT-36: Advanced Variable Encoding Strategies
+// Discriminated union for encoding strategies (data)
 [<Struct>]
 type VariableEncoding =
     | Binary
     | OneHot of options: int
     | DomainWall of levels: int
     | BoundedInteger of min: int * max: int
+
+// Module for encoding operations (behavior)
+module VariableEncoding =
     
-    /// Calculate number of qubits needed for this encoding
-    static member qubitCount (encoding: VariableEncoding) : int =
+    /// Calculate number of qubits needed for an encoding strategy
+    /// Usage: encoding |> VariableEncoding.qubitCount
+    let qubitCount (encoding: VariableEncoding) : int =
         match encoding with
         | Binary -> 1
         | OneHot n -> n
         | DomainWall n -> n - 1
         | BoundedInteger(min, max) ->
             let range = max - min + 1
-            // ceil(log2(range))
             if range <= 1 then 1
             else int (System.Math.Ceiling(System.Math.Log(float range, 2.0)))
+    
+    /// Encode a value to qubit assignments
+    /// Usage: value |> VariableEncoding.encode encoding
+    let encode (encoding: VariableEncoding) (value: int) : int list =
+        match encoding with
+        | Binary ->
+            [value]
+        
+        | OneHot n ->
+            // One-hot: Single bit set at position 'value'
+            List.init n (fun i -> if i = value then 1 else 0)
+        
+        | DomainWall levels ->
+            // Domain-wall: Wall of 1s followed by 0s
+            let numQubits = levels - 1
+            List.init numQubits (fun i -> if i < value - 1 then 1 else 0)
+        
+        | BoundedInteger(min, _) ->
+            // Binary encoding (LSB first)
+            let normalizedValue = value - min
+            let numQubits = qubitCount encoding
+            List.init numQubits (fun i ->
+                if (normalizedValue &&& (1 <<< i)) <> 0 then 1 else 0)
+    
+    /// Decode qubit assignments back to original value
+    /// Usage: bits |> VariableEncoding.decode encoding
+    let decode (encoding: VariableEncoding) (bits: int list) : int =
+        match encoding with
+        | Binary ->
+            bits.[0]
+        
+        | OneHot _ ->
+            // Find which bit is set
+            bits
+            |> List.tryFindIndex ((=) 1)
+            |> Option.defaultValue 0
+        
+        | DomainWall _ ->
+            // Count number of 1s and add 1
+            bits
+            |> List.sumBy id
+            |> (+) 1
+        
+        | BoundedInteger(min, _) ->
+            // Convert binary (LSB first) to integer
+            bits
+            |> List.indexed
+            |> List.sumBy (fun (i, bit) -> bit * (1 <<< i))
+            |> (+) min
+    
+    /// Compose encode and decode for roundtrip validation
+    /// Usage: value |> VariableEncoding.roundtrip encoding
+    let roundtrip encoding value =
+        value |> encode encoding |> decode encoding
 
 type QuboMatrix = {
     Size: int
