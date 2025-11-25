@@ -11,6 +11,26 @@ type Variable = {
     VarType: VariableType
 }
 
+// TKT-36: Advanced Variable Encoding Strategies
+[<Struct>]
+type VariableEncoding =
+    | Binary
+    | OneHot of options: int
+    | DomainWall of levels: int
+    | BoundedInteger of min: int * max: int
+    
+    /// Calculate number of qubits needed for this encoding
+    static member qubitCount (encoding: VariableEncoding) : int =
+        match encoding with
+        | Binary -> 1
+        | OneHot n -> n
+        | DomainWall n -> n - 1
+        | BoundedInteger(min, max) ->
+            let range = max - min + 1
+            // ceil(log2(range))
+            if range <= 1 then 1
+            else int (System.Math.Ceiling(System.Math.Log(float range, 2.0)))
+
 type QuboMatrix = {
     Size: int
     Coefficients: float[,]

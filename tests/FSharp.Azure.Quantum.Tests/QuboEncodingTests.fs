@@ -195,3 +195,32 @@ module QuboEncodingTests =
         // pos1: qubits 3,4,5 should have same pattern
         Assert.Equal(-1.0, qubo.GetCoefficient(3, 3))
         Assert.Equal(2.0, qubo.GetCoefficient(3, 4))
+    
+    // ============================================================================
+    // TKT-36: Advanced Variable Encoding Tests
+    // ============================================================================
+    
+    [<Fact>]
+    let ``VariableEncoding Binary should calculate 1 qubit`` () =
+        let encoding = VariableEncoding.Binary
+        let count = VariableEncoding.qubitCount encoding
+        Assert.Equal(1, count)
+    
+    [<Fact>]
+    let ``VariableEncoding OneHot should calculate N qubits for N options`` () =
+        let encoding = VariableEncoding.OneHot 4
+        let count = VariableEncoding.qubitCount encoding
+        Assert.Equal(4, count)
+    
+    [<Fact>]
+    let ``VariableEncoding DomainWall should calculate N-1 qubits for N levels`` () =
+        let encoding = VariableEncoding.DomainWall 4
+        let count = VariableEncoding.qubitCount encoding
+        Assert.Equal(3, count)
+    
+    [<Fact>]
+    let ``VariableEncoding BoundedInteger should calculate log2 qubits`` () =
+        let encoding = VariableEncoding.BoundedInteger(0, 10)
+        let count = VariableEncoding.qubitCount encoding
+        // Range 0-10 = 11 values, needs ceil(log2(11)) = 4 qubits
+        Assert.Equal(4, count)
