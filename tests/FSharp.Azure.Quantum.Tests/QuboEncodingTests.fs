@@ -1058,3 +1058,119 @@ module QuboEncodingTests =
         
         Assert.True(diag1 > diag0, "High-risk asset should be less attractive")
         Assert.True(diag1 > diag2, "High-risk asset should be less attractive")
+    
+    // ============================================================================
+    // QUBO Validation Tests
+    // ============================================================================
+    
+    [<Fact>]
+    let ``validateTransformation should verify QUBO matrix symmetry`` () =
+        // Valid symmetric QUBO
+        let validQubo = {
+            Size = 3
+            Coefficients = 
+                array2D [[1.0; 2.0; 3.0]
+                         [2.0; 4.0; 5.0]
+                         [3.0; 5.0; 6.0]]
+            VariableNames = ["x0"; "x1"; "x2"]
+        }
+        
+        let result = ProblemTransformer.validateTransformation validQubo
+        
+        Assert.True(result.IsValid, "Symmetric QUBO should be valid")
+        Assert.Empty(result.Errors)
+    
+    [<Fact>]
+    let ``validateTransformation should detect asymmetric QUBO`` () =
+        // Invalid asymmetric QUBO
+        let asymmetricQubo = {
+            Size = 3
+            Coefficients = 
+                array2D [[1.0; 2.0; 3.0]
+                         [2.0; 4.0; 5.0]
+                         [999.0; 5.0; 6.0]]  // Q[2,0] != Q[0,2]
+            VariableNames = ["x0"; "x1"; "x2"]
+        }
+        
+        let result = ProblemTransformer.validateTransformation asymmetricQubo
+        
+        Assert.False(result.IsValid, "Asymmetric QUBO should be invalid")
+        Assert.NotEmpty(result.Errors)
+        Assert.Contains("symmetry", result.Errors.[0].ToLower())
+    
+    [<Fact>]
+    let ``validateTransformation should check coefficient bounds`` () =
+        // QUBO with infinite values (invalid)
+        let invalidQubo = {
+            Size = 2
+            Coefficients = 
+                array2D [[infinity; 1.0]
+                         [1.0; 2.0]]
+            VariableNames = ["x0"; "x1"]
+        }
+        
+        let result = ProblemTransformer.validateTransformation invalidQubo
+        
+        Assert.False(result.IsValid, "QUBO with infinity should be invalid")
+        Assert.NotEmpty(result.Errors)
+    
+    [<Fact>]
+    let ``validateTransformation should check for NaN values`` () =
+        // QUBO with NaN values (invalid)
+        let invalidQubo = {
+            Size = 2
+            Coefficients = 
+                array2D [[nan; 1.0]
+                         [1.0; 2.0]]
+            VariableNames = ["x0"; "x1"]
+        }
+        
+        let result = ProblemTransformer.validateTransformation invalidQubo
+        
+        Assert.False(result.IsValid, "QUBO with NaN should be invalid")
+        Assert.NotEmpty(result.Errors)
+    
+    [<Fact>]
+    let ``validateTransformation should verify size consistency`` () =
+        // QUBO with mismatched size
+        let inconsistentQubo = {
+            Size = 3
+            Coefficients = 
+                array2D [[1.0; 2.0]    // Only 2x2 matrix
+                         [2.0; 4.0]]
+            VariableNames = ["x0"; "x1"; "x2"]   // But claims size 3
+        }
+        
+        let result = ProblemTransformer.validateTransformation inconsistentQubo
+        
+        Assert.False(result.IsValid, "QUBO with size mismatch should be invalid")
+        Assert.NotEmpty(result.Errors)
+    
+    [<Fact>]
+    let ``validateTransformation should pass for TSP edge-based QUBO`` () =
+        // Real-world test: TSP QUBO should always be valid
+        let distances = 
+            array2D [[0.0; 10.0; 15.0]
+                     [10.0; 0.0; 20.0]
+                     [15.0; 20.0; 0.0]]
+        
+        let qubo = ProblemTransformer.encodeTspEdgeBased distances 100.0
+        let result = ProblemTransformer.validateTransformation qubo
+        
+        Assert.True(result.IsValid, "TSP edge-based QUBO should be valid")
+        Assert.Empty(result.Errors)
+    
+    [<Fact>]
+    let ``validateTransformation should pass for Portfolio QUBO`` () =
+        // Real-world test: Portfolio QUBO should always be valid
+        let returns = [|0.1; 0.15; 0.08|]
+        let covariance = 
+            array2D [[0.04; 0.01; 0.02]
+                     [0.01; 0.09; 0.03]
+                     [0.02; 0.03; 0.05]]
+        
+        let qubo = ProblemTransformer.encodePortfolioCorrelation returns covariance 0.5
+        let result = ProblemTransformer.validateTransformation qubo
+        
+        Assert.True(result.IsValid, "Portfolio QUBO should be valid")
+        Assert.Empty(result.Errors)

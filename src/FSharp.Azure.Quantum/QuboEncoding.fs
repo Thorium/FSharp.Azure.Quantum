@@ -47,6 +47,12 @@ type EncodingStrategy =
     | CorrelationBased
     | Custom of transformer: (int -> int)
 
+/// Validation result for QUBO transformations
+type ValidationResult = {
+    IsValid: bool
+    Errors: string list
+}
+
 /// Operations for variable encoding strategies
 module VariableEncoding =
     
@@ -553,3 +559,50 @@ module ProblemTransformer =
             Coefficients = q
             VariableNames = varNames
         }
+    
+    /// Validate QUBO transformation correctness.
+    /// 
+    /// Checks:
+    /// - Matrix symmetry: Q[i,j] = Q[j,i] for all i,j
+    /// - No invalid values: NaN, Infinity
+    /// - Size consistency: Coefficients dimensions match Size
+    let validateTransformation (qubo: QuboMatrix) : ValidationResult =
+        let errors = ResizeArray<string>()
+        
+        // Check 1: Size consistency
+        let actualRows = qubo.Coefficients.GetLength(0)
+        let actualCols = qubo.Coefficients.GetLength(1)
+        
+        if actualRows <> qubo.Size || actualCols <> qubo.Size then
+            errors.Add(sprintf "Size mismatch: declared size %d but matrix is %dx%d" 
+                qubo.Size actualRows actualCols)
+            // Early return - can't validate further if sizes don't match
+            {
+                IsValid = false
+                Errors = errors |> Seq.toList
+            }
+        else
+            // Check 2: Matrix symmetry (only if sizes match)
+            let mutable isSymmetric = true
+            for i in 0 .. qubo.Size - 1 do
+                for j in i + 1 .. qubo.Size - 1 do
+                    let qij = qubo.Coefficients.[i, j]
+                    let qji = qubo.Coefficients.[j, i]
+                    if abs(qij - qji) > 1e-10 then
+                        isSymmetric <- false
+                        errors.Add(sprintf "Asymmetry detected: Q[%d,%d] = %f but Q[%d,%d] = %f" 
+                            i j qij j i qji)
+            
+            // Check 3: No invalid values (NaN, Infinity)
+            for i in 0 .. qubo.Size - 1 do
+                for j in 0 .. qubo.Size - 1 do
+                    let value = qubo.Coefficients.[i, j]
+                    if System.Double.IsNaN(value) then
+                        errors.Add(sprintf "NaN detected at Q[%d,%d]" i j)
+                    elif System.Double.IsInfinity(value) then
+                        errors.Add(sprintf "Infinity detected at Q[%d,%d]" i j)
+            
+            {
+                IsValid = errors.Count = 0
+                Errors = errors |> Seq.toList
+            }
