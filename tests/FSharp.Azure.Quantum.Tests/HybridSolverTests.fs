@@ -251,3 +251,44 @@ module HybridSolverTests =
         | Error msg ->
             Assert.Contains("quantum", msg.ToLower())
             Assert.Contains("configuration", msg.ToLower())
+
+    // ============================================================================
+    // TDD CYCLE 5: RESULT COMPARISON
+    // ============================================================================
+
+    [<Fact>]
+    let ``SolutionComparison type should capture quantum vs classical results`` () =
+        // Arrange: Create mock quantum and classical solutions
+        let distances = createTspDistanceMatrix 10
+        let classicalSolution : HybridSolver.Solution<TspSolver.TspSolution> = {
+            Method = HybridSolver.SolverMethod.Classical
+            Result = { Tour = [|0..9|]; TourLength = 45.0; Iterations = 100; ElapsedMs = 10.0 }
+            Reasoning = "Classical solver"
+            ElapsedMs = 10.0
+            Recommendation = None
+        }
+        
+        let quantumSolution : HybridSolver.Solution<TspSolver.TspSolution> = {
+            Method = HybridSolver.SolverMethod.Quantum
+            Result = { Tour = [|0..9|]; TourLength = 42.0; Iterations = 1; ElapsedMs = 50.0 }
+            Reasoning = "Quantum solver"
+            ElapsedMs = 50.0
+            Recommendation = None
+        }
+        
+        // Act: Create comparison
+        let comparison : HybridSolver.SolutionComparison<TspSolver.TspSolution> = {
+            QuantumSolution = quantumSolution
+            ClassicalSolution = classicalSolution
+            QuantumCost = 5.0
+            QuantumAdvantageObserved = (quantumSolution.Result.TourLength < classicalSolution.Result.TourLength)
+            ComparisonNotes = "Quantum found shorter tour"
+        }
+        
+        // Assert: Verify comparison structure
+        Assert.Equal(HybridSolver.SolverMethod.Quantum, comparison.QuantumSolution.Method)
+        Assert.Equal(HybridSolver.SolverMethod.Classical, comparison.ClassicalSolution.Method)
+        Assert.True(comparison.QuantumAdvantageObserved)
+        Assert.Equal(5.0, comparison.QuantumCost)
+        Assert.Equal(42.0, comparison.QuantumSolution.Result.TourLength)
+        Assert.Equal(45.0, comparison.ClassicalSolution.Result.TourLength)

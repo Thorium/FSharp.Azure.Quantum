@@ -65,6 +65,24 @@ module HybridSolver =
         Recommendation: QuantumAdvisor.Recommendation option
     }
 
+    /// Comparison result between quantum and classical solutions (TDD Cycle 5)
+    type SolutionComparison<'TResult> = {
+        /// Quantum solution
+        QuantumSolution: Solution<'TResult>
+
+        /// Classical solution (for comparison)
+        ClassicalSolution: Solution<'TResult>
+
+        /// Quantum cost in USD
+        QuantumCost: float
+
+        /// Whether quantum showed advantage over classical
+        QuantumAdvantageObserved: bool
+
+        /// Quality comparison notes
+        ComparisonNotes: string
+    }
+
     // ================================================================================
     // HELPER FUNCTIONS
     // ================================================================================
