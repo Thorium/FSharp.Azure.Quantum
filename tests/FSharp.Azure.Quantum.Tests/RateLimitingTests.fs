@@ -45,3 +45,29 @@ let ``parseRateLimitHeaders should extract rate limit info from HTTP headers`` (
         Assert.Equal(60, info.Limit)
     | None ->
         Assert.True(false, "Expected Some(RateLimitInfo) but got None")
+
+// ============================================================================
+// TDD Cycle #3: RateLimiter State Tracking
+// ============================================================================
+
+[<Fact>]
+let ``RateLimiter should track rate limit state across requests`` () =
+    // Arrange
+    let limiter = RateLimiter()
+    let info1 = { Remaining = 50; Limit = 60; ResetTime = DateTimeOffset.UtcNow.AddMinutes(1.0) }
+    let info2 = { Remaining = 49; Limit = 60; ResetTime = DateTimeOffset.UtcNow.AddMinutes(1.0) }
+    
+    // Act
+    limiter.UpdateState(info1)
+    let state1 = limiter.GetCurrentState()
+    
+    limiter.UpdateState(info2)
+    let state2 = limiter.GetCurrentState()
+    
+    // Assert
+    match state1, state2 with
+    | Some s1, Some s2 ->
+        Assert.Equal(50, s1.Remaining)
+        Assert.Equal(49, s2.Remaining)
+    | _ ->
+        Assert.True(false, "Expected rate limiter to track state")

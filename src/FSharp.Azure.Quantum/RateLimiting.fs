@@ -56,3 +56,24 @@ module RateLimiting =
             let resetTime = DateTimeOffset.UtcNow.AddMinutes(1.0)
             Some { Remaining = r; Limit = l; ResetTime = resetTime }
         | _ -> None
+    
+    // ============================================================================
+    // 3. RATE LIMITER CLASS
+    // ============================================================================
+    
+    /// Rate limiter with mutable state tracking
+    type RateLimiter() =
+        let mutable currentState: RateLimitInfo option = None
+        let lockObj = obj()
+        
+        /// Update rate limit state from new information
+        member this.UpdateState(info: RateLimitInfo) =
+            lock lockObj (fun () ->
+                currentState <- Some info
+            )
+        
+        /// Get current rate limit state
+        member this.GetCurrentState() : RateLimitInfo option =
+            lock lockObj (fun () ->
+                currentState
+            )
