@@ -90,6 +90,26 @@ module JobLifecycle =
     // JOB STATUS POLLING
     // ============================================================================
     
+    /// JSON error data response
+    [<CLIMutable>]
+    type private ErrorData = {
+        code: string
+        message: string
+    }
+    
+    /// JSON response type for job status
+    [<CLIMutable>]
+    type private JobStatusResponse = {
+        id: string
+        status: string
+        target: string
+        creationTime: string
+        beginExecutionTime: string option
+        endExecutionTime: string option
+        cancellationTime: string option
+        errorData: ErrorData option
+    }
+    
     /// Get current job status from Azure Quantum
     /// 
     /// Parameters:
@@ -104,8 +124,87 @@ module JobLifecycle =
         (jobId: string)
         : Async<Result<QuantumJob, QuantumError>> =
         async {
-            // TODO: Implement status retrieval
-            return Error (QuantumError.UnknownError(500, "Not implemented"))
+            try
+                // Make GET request to /jobs/{id}
+                let url = sprintf "%s/jobs/%s" workspaceUrl jobId
+                let! response = httpClient.GetAsync(url) |> Async.AwaitTask
+                
+                // Handle response
+                match response.StatusCode with
+                | HttpStatusCode.OK ->
+                    // Parse JSON response manually using JsonDocument
+                    let! jsonBody = response.Content.ReadAsStringAsync() |> Async.AwaitTask
+                    use jsonDoc = JsonDocument.Parse(jsonBody)
+                    let root = jsonDoc.RootElement
+                    
+                    // Extract required fields
+                    let id = root.GetProperty("id").GetString()
+                    let status = root.GetProperty("status").GetString()
+                    let target = root.GetProperty("target").GetString()
+                    let creationTime = root.GetProperty("creationTime").GetString()
+                    
+                    // Helper to safely get optional string property
+                    let tryGetStringProperty (name: string) =
+                        let mutable prop = Unchecked.defaultof<JsonElement>
+                        if root.TryGetProperty(name, &prop) && prop.ValueKind <> JsonValueKind.Null then
+                            Some (prop.GetString())
+                        else
+                            None
+                    
+                    // Extract optional timestamp fields
+                    let beginExecutionTime = tryGetStringProperty "beginExecutionTime"
+                    let endExecutionTime = tryGetStringProperty "endExecutionTime"
+                    let cancellationTime = tryGetStringProperty "cancellationTime"
+                    
+                    // Extract error data if present
+                    let (errorCode, errorMessage) =
+                        let mutable errorData = Unchecked.defaultof<JsonElement>
+                        if root.TryGetProperty("errorData", &errorData) && errorData.ValueKind <> JsonValueKind.Null then
+                            let code = errorData.GetProperty("code").GetString()
+                            let message = errorData.GetProperty("message").GetString()
+                            (Some code, Some message)
+                        else
+                            (None, None)
+                    
+                    // Parse job status
+                    let jobStatus = JobStatus.Parse(status, errorCode, errorMessage)
+                    
+                    // Build QuantumJob
+                    let quantumJob = {
+                        JobId = id
+                        Status = jobStatus
+                        Target = target
+                        CreationTime = DateTimeOffset.Parse(creationTime)
+                        BeginExecutionTime = beginExecutionTime |> Option.map DateTimeOffset.Parse
+                        EndExecutionTime = endExecutionTime |> Option.map DateTimeOffset.Parse
+                        CancellationTime = cancellationTime |> Option.map DateTimeOffset.Parse
+                    }
+                    
+                    return Ok quantumJob
+                    
+                | HttpStatusCode.Unauthorized -> 
+                    return Error QuantumError.InvalidCredentials
+                    
+                | HttpStatusCode.NotFound ->
+                    return Error (QuantumError.UnknownError(404, sprintf "Job %s not found" jobId))
+                    
+                | HttpStatusCode.TooManyRequests ->
+                    let retryAfter = 
+                        if response.Headers.RetryAfter <> null && response.Headers.RetryAfter.Delta.HasValue then
+                            response.Headers.RetryAfter.Delta.Value
+                        else
+                            TimeSpan.FromSeconds(60.0)
+                    return Error (QuantumError.RateLimited retryAfter)
+                    
+                | _ ->
+                    let! errorBody = response.Content.ReadAsStringAsync() |> Async.AwaitTask
+                    return Error (QuantumError.UnknownError(int response.StatusCode, errorBody))
+                    
+            with
+            | :? TaskCanceledException ->
+                return Error (QuantumError.NetworkTimeout 1)
+            | ex ->
+                return Error (QuantumError.UnknownError(0, ex.Message))
         }
     
     /// Poll job until it reaches a terminal state with exponential backoff

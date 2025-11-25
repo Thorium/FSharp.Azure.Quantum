@@ -89,3 +89,105 @@ module JobLifecycleTests =
         | Ok _ -> Assert.True(false, "Expected InvalidCredentials error")
         | Error QuantumError.InvalidCredentials -> Assert.True(true)
         | Error other -> Assert.True(false, sprintf "Expected InvalidCredentials but got: %A" other)
+    
+    // ============================================================================
+    // Job Status Tests
+    // ============================================================================
+    
+    [<Fact>]
+    let ``getJobStatusAsync should return job status for successful request`` () =
+        // Arrange: Mock HTTP response with job status JSON
+        let jobId = Guid.NewGuid().ToString()
+        let mockResponse _ = 
+            let jsonResponse = 
+                $"""{{
+                    "id": "{jobId}",
+                    "status": "Executing",
+                    "target": "ionq.simulator",
+                    "creationTime": "2025-01-01T10:00:00Z",
+                    "beginExecutionTime": "2025-01-01T10:00:05Z"
+                }}"""
+            let response = new HttpResponseMessage(HttpStatusCode.OK)
+            response.Content <- new StringContent(jsonResponse, Encoding.UTF8, "application/json")
+            Task.FromResult(response)
+        
+        let httpClient = createMockHttpClient mockResponse
+        let workspaceUrl = "https://test.quantum.azure.com"
+        
+        // Act: Get job status
+        let result = getJobStatusAsync httpClient workspaceUrl jobId |> Async.RunSynchronously
+        
+        // Assert: Should return QuantumJob with Executing status
+        match result with
+        | Ok job -> 
+            Assert.Equal(jobId, job.JobId)
+            Assert.Equal(Types.JobStatus.Executing, job.Status)
+            Assert.Equal("ionq.simulator", job.Target)
+        | Error err -> Assert.True(false, sprintf "Expected success but got error: %A" err)
+    
+    [<Fact>]
+    let ``getJobStatusAsync should parse Succeeded status correctly`` () =
+        // Arrange: Mock HTTP response with Succeeded status
+        let jobId = Guid.NewGuid().ToString()
+        let mockResponse _ = 
+            let jsonResponse = 
+                $"""{{
+                    "id": "{jobId}",
+                    "status": "Succeeded",
+                    "target": "ionq.simulator",
+                    "creationTime": "2025-01-01T10:00:00Z",
+                    "beginExecutionTime": "2025-01-01T10:00:05Z",
+                    "endExecutionTime": "2025-01-01T10:00:10Z"
+                }}"""
+            let response = new HttpResponseMessage(HttpStatusCode.OK)
+            response.Content <- new StringContent(jsonResponse, Encoding.UTF8, "application/json")
+            Task.FromResult(response)
+        
+        let httpClient = createMockHttpClient mockResponse
+        let workspaceUrl = "https://test.quantum.azure.com"
+        
+        // Act: Get job status
+        let result = getJobStatusAsync httpClient workspaceUrl jobId |> Async.RunSynchronously
+        
+        // Assert: Should return QuantumJob with Succeeded status
+        match result with
+        | Ok job -> 
+            Assert.Equal(Types.JobStatus.Succeeded, job.Status)
+            Assert.True(job.EndExecutionTime.IsSome)
+        | Error err -> Assert.True(false, sprintf "Expected success but got error: %A" err)
+    
+    [<Fact>]
+    let ``getJobStatusAsync should handle Failed status with error details`` () =
+        // Arrange: Mock HTTP response with Failed status
+        let jobId = Guid.NewGuid().ToString()
+        let mockResponse _ = 
+            let jsonResponse = 
+                $"""{{
+                    "id": "{jobId}",
+                    "status": "Failed",
+                    "target": "ionq.simulator",
+                    "creationTime": "2025-01-01T10:00:00Z",
+                    "errorData": {{
+                        "code": "InvalidCircuit",
+                        "message": "Circuit contains invalid gates"
+                    }}
+                }}"""
+            let response = new HttpResponseMessage(HttpStatusCode.OK)
+            response.Content <- new StringContent(jsonResponse, Encoding.UTF8, "application/json")
+            Task.FromResult(response)
+        
+        let httpClient = createMockHttpClient mockResponse
+        let workspaceUrl = "https://test.quantum.azure.com"
+        
+        // Act: Get job status
+        let result = getJobStatusAsync httpClient workspaceUrl jobId |> Async.RunSynchronously
+        
+        // Assert: Should return QuantumJob with Failed status and error details
+        match result with
+        | Ok job -> 
+            match job.Status with
+            | Types.JobStatus.Failed (code, message) ->
+                Assert.Equal("InvalidCircuit", code)
+                Assert.Contains("invalid gates", message)
+            | _ -> Assert.True(false, sprintf "Expected Failed status but got: %A" job.Status)
+        | Error err -> Assert.True(false, sprintf "Expected success but got error: %A" err)
