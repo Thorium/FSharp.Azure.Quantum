@@ -418,3 +418,68 @@ module BatchAccumulatorTests =
             ["c1_result"; "c2_result"; "c3_result"; "c4_result"; "c5_result"], 
             results
         )
+    
+    [<Fact>]
+    let ``batchCircuitsAsync should preserve circuit order in results`` () =
+        // Arrange
+        let config = { BatchConfig.defaultConfig with MaxBatchSize = 2 }
+        let circuits = ["A"; "B"; "C"; "D"]
+        
+        // Act
+        let results = 
+            batchCircuitsAsync 
+                config 
+                circuits 
+                (fun batch -> async { return batch |> List.map (fun c -> c + "_result") })
+            |> Async.RunSynchronously
+        
+        // Assert - Order should be preserved
+        Assert.Equal<string seq>(
+            ["A_result"; "B_result"; "C_result"; "D_result"], 
+            results
+        )
+    
+    [<Fact>]
+    let ``batchCircuitsAsync should handle batch submission errors gracefully`` () =
+        // Arrange
+        let config = { BatchConfig.defaultConfig with MaxBatchSize = 3 }
+        let circuits = ["c1"; "c2"; "c3"; "c4"]
+        
+        let mutable batchNumber = 0
+        let mockSubmit batch = 
+            async {
+                batchNumber <- batchNumber + 1
+                if batchNumber = 1 then
+                    // First batch succeeds
+                    return batch |> List.map (fun c -> c + "_result")
+                else
+                    // Second batch fails
+                    return failwith "Batch submission failed"
+            }
+        
+        // Act & Assert
+        let ex = 
+            Assert.Throws<System.Exception>(fun () ->
+                batchCircuitsAsync config circuits mockSubmit
+                |> Async.RunSynchronously
+                |> ignore
+            )
+        
+        Assert.Contains("Batch submission failed", ex.Message)
+    
+    [<Fact>]
+    let ``batchCircuitsAsync with disabled config should return empty results`` () =
+        // Arrange
+        let config = { BatchConfig.defaultConfig with Enabled = false }
+        let circuits = ["c1"; "c2"; "c3"]
+        
+        // Act
+        let results = 
+            batchCircuitsAsync 
+                config 
+                circuits 
+                (fun batch -> async { return batch |> List.map (fun c -> c + "_result") })
+            |> Async.RunSynchronously
+        
+        // Assert
+        Assert.Empty(results)
