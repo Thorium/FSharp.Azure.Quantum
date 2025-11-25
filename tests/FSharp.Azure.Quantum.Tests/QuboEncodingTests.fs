@@ -542,3 +542,131 @@ module QuboEncodingTests =
         let expectedMinPenalty = objectiveMax + 1.0
         Assert.True(penalty >= expectedMinPenalty, 
             sprintf "Penalty %f should be >= %f (Lucas Rule)" penalty expectedMinPenalty)
+    
+    [<Fact>]
+    let ``ConstraintPenalty Soft constraint should use preference weight`` () =
+        // Soft constraint: fraction of hard constraint penalty
+        // Example: Prefer short segments = 30% of hard constraint
+        let objectiveMax = 500.0
+        let problemSize = 20
+        let preferenceWeight = 0.3
+        
+        let softPenalty = ConstraintPenalty.calculatePenalty (ConstraintType.Soft preferenceWeight) objectiveMax problemSize
+        let hardPenalty = ConstraintPenalty.calculatePenalty ConstraintType.Hard objectiveMax problemSize
+        
+        // Soft penalty should be 30% of hard penalty
+        let expected = hardPenalty * preferenceWeight
+        Assert.Equal(expected, softPenalty, 2)
+    
+    [<Fact>]
+    let ``ConstraintPenalty should scale with problem size`` () =
+        // Larger problems need larger penalties
+        // Size scaling: sqrt(problemSize)
+        let objectiveMax = 100.0
+        
+        let smallPenalty = ConstraintPenalty.calculatePenalty ConstraintType.Hard objectiveMax 5
+        let largePenalty = ConstraintPenalty.calculatePenalty ConstraintType.Hard objectiveMax 20
+        
+        // sqrt(20) / sqrt(5) = 2.0, so large penalty should be 2x small penalty
+        let ratio = largePenalty / smallPenalty
+        Assert.Equal(2.0, ratio, 1)
+    
+    [<Fact>]
+    let ``ConstraintPenalty Lucas Rule ensures constraint dominates objective`` () =
+        // Lucas Rule: λ ≥ max(H_objective) + 1
+        // Ensures constraint violation costs more than any objective improvement
+        let objectiveMax = 250.0
+        let problemSize = 1
+        
+        let penalty = ConstraintPenalty.calculatePenalty ConstraintType.Hard objectiveMax problemSize
+        
+        // For problem size 1, no size scaling (sqrt(1) = 1)
+        // Penalty should be exactly objectiveMax + 1
+        Assert.Equal(251.0, penalty, 2)
+    
+    [<Fact>]
+    let ``ConstraintPenalty TSP example - 20 cities with max distance 500km`` () =
+        // Real-world: TSP with 20 cities, max distance 500km
+        let objectiveMax = 500.0
+        let problemSize = 20
+        
+        let visitOncePenalty = ConstraintPenalty.calculatePenalty ConstraintType.Hard objectiveMax problemSize
+        
+        // Expected: (500 + 1) * sqrt(20) ≈ 501 * 4.47 ≈ 2240
+        Assert.True(visitOncePenalty > 2200.0 && visitOncePenalty < 2250.0,
+            sprintf "Expected ~2240, got %f" visitOncePenalty)
+    
+    [<Fact>]
+    let ``ConstraintPenalty Portfolio example - soft constraint at 30 percent`` () =
+        // Real-world: Portfolio with soft preference for diversification
+        let objectiveMax = 500.0
+        let problemSize = 20
+        
+        let softPenalty = ConstraintPenalty.calculatePenalty (ConstraintType.Soft 0.3) objectiveMax problemSize
+        
+        // Expected: (500 + 1) * sqrt(20) * 0.3 ≈ 2240 * 0.3 ≈ 672
+        Assert.True(softPenalty > 660.0 && softPenalty < 680.0,
+            sprintf "Expected ~672, got %f" softPenalty)
+    
+    [<Fact>]
+    let ``ConstraintPenalty should handle small problems`` () =
+        // Small problem: n=5 cities
+        let objectiveMax = 100.0
+        let problemSize = 5
+        
+        let penalty = ConstraintPenalty.calculatePenalty ConstraintType.Hard objectiveMax problemSize
+        
+        // (100 + 1) * sqrt(5) ≈ 101 * 2.24 ≈ 226
+        Assert.True(penalty > 220.0 && penalty < 230.0)
+    
+    [<Fact>]
+    let ``ConstraintPenalty should handle large problems`` () =
+        // Large problem: n=100 cities
+        let objectiveMax = 1000.0
+        let problemSize = 100
+        
+        let penalty = ConstraintPenalty.calculatePenalty ConstraintType.Hard objectiveMax problemSize
+        
+        // (1000 + 1) * sqrt(100) = 1001 * 10 = 10010
+        Assert.Equal(10010.0, penalty, 2)
+    
+    [<Fact>]
+    let ``ConstraintPenalty Hard vs Soft comparison`` () =
+        // Compare hard and soft constraints
+        let objectiveMax = 100.0
+        let problemSize = 10
+        
+        let hardPenalty = ConstraintPenalty.calculatePenalty ConstraintType.Hard objectiveMax problemSize
+        let softPenalty = ConstraintPenalty.calculatePenalty (ConstraintType.Soft 0.5) objectiveMax problemSize
+        
+        // Soft penalty should be exactly half of hard penalty
+        Assert.Equal(hardPenalty * 0.5, softPenalty, 2)
+        Assert.True(hardPenalty > softPenalty)
+    
+    [<Fact>]
+    let ``ConstraintPenalty should handle zero objective max`` () =
+        // Edge case: objective maximum is zero
+        let objectiveMax = 0.0
+        let problemSize = 10
+        
+        let penalty = ConstraintPenalty.calculatePenalty ConstraintType.Hard objectiveMax problemSize
+        
+        // Lucas Rule: 0 + 1 = 1, with sqrt(10) scaling
+        // Expected: 1 * sqrt(10) ≈ 3.16
+        Assert.True(penalty > 3.1 && penalty < 3.2)
+    
+    [<Fact>]
+    let ``ConstraintPenalty multiple soft weights`` () =
+        // Different soft constraint strengths
+        let objectiveMax = 100.0
+        let problemSize = 10
+        
+        let veryWeak = ConstraintPenalty.calculatePenalty (ConstraintType.Soft 0.1) objectiveMax problemSize
+        let weak = ConstraintPenalty.calculatePenalty (ConstraintType.Soft 0.3) objectiveMax problemSize
+        let moderate = ConstraintPenalty.calculatePenalty (ConstraintType.Soft 0.5) objectiveMax problemSize
+        let strong = ConstraintPenalty.calculatePenalty (ConstraintType.Soft 0.8) objectiveMax problemSize
+        
+        // Verify ordering: very weak < weak < moderate < strong
+        Assert.True(veryWeak < weak)
+        Assert.True(weak < moderate)
+        Assert.True(moderate < strong)
