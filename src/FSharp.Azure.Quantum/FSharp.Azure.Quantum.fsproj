@@ -47,6 +47,7 @@
     <Compile Include="Authentication.fs" />
     <Compile Include="Retry.fs" />
     <Compile Include="RateLimiting.fs" />
+    <Compile Include="Observability.fs" />
     <Compile Include="Client.fs" />
     <Compile Include="TspSolver.fs" />
     <Compile Include="TspBuilder.fs" />
@@ -66,7 +67,13 @@
     <PackageReference Include="Azure.Identity" Version="1.13.1" />
     <PackageReference Include="MathNet.Numerics" Version="5.0.0" />
     <PackageReference Include="MathNet.Numerics.FSharp" Version="5.0.0" />
-    <PackageReference Include="Microsoft.Extensions.Logging" Version="8.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.0" />
+    <PackageReference Include="Serilog" Version="4.3.0" />
+    <PackageReference Include="Serilog.Sinks.Console" Version="6.1.1" />
+    <PackageReference Include="Serilog.Sinks.File" Version="7.0.0" />
+    <PackageReference Include="OpenTelemetry" Version="1.14.0" />
+    <PackageReference Include="OpenTelemetry.Exporter.Console" Version="1.14.0" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.Http" Version="1.14.0" />
   </ItemGroup>
 
 </Project>
