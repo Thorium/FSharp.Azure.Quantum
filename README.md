@@ -5,6 +5,27 @@
 [![NuGet](https://img.shields.io/nuget/v/FSharp.Azure.Quantum.svg)](https://www.nuget.org/packages/FSharp.Azure.Quantum/)
 [![License](https://img.shields.io/badge/license-Unlicense-blue.svg)](LICENSE)
 
+## ✨ Status: Beta (v0.5.0) - Quantum Backends Ready
+
+**Current Features (v0.5.0-beta):**
+- ✅ Production-ready classical optimization (TSP, Portfolio)
+- ✅ Quantum Advisor (recommendations for quantum advantage)
+- ✅ **Azure Quantum backend integration** (IonQ, Rigetti simulators)
+- ✅ **HybridSolver with automatic quantum routing**
+- ✅ Job submission, polling, and result parsing
+- ✅ Local quantum simulation (≤10 qubits)
+
+**Ready for Integration Testing:**
+- IonQ simulator (`ionq.simulator`)
+- Rigetti QVM simulator (`rigetti.sim.qvm`)
+- Azure authentication via Azure.Identity
+- Cost limit enforcement and error handling
+
+**Coming in v1.0:**
+- QUBO-to-circuit conversion for TSP/Portfolio problems
+- Quantum hardware execution (IonQ QPU, Rigetti Aspen)
+- Advanced result comparison and quantum advantage validation
+
 ## 🚀 Quick Start
 
 ```fsharp

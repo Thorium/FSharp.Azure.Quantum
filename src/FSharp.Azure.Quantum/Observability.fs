@@ -65,6 +65,25 @@ module Observability =
         | Warning -> LogEventLevel.Warning
         | Error -> LogEventLevel.Error
     
+    /// Sensitive field names that should never be logged (security protection)
+    let private sensitiveKeys = Set.ofList [
+        "password"; "apikey"; "api_key"; "secret"; "token"; 
+        "authorization"; "credential"; "connectionstring"; "connection_string";
+        "email"; "ssn"; "creditcard"; "credit_card"; "accountnumber"; "account_number";
+        "bearer"; "oauth"; "accesstoken"; "access_token"; "refreshtoken"; "refresh_token"
+    ]
+    
+    /// Sanitize context map by redacting sensitive values
+    let private sanitizeContext (context: Map<string, obj>) : Map<string, obj> =
+        context
+        |> Map.map (fun key value ->
+            let keyLower = key.ToLowerInvariant().Replace("-", "").Replace("_", "")
+            if sensitiveKeys |> Set.exists (fun sens -> keyLower.Contains(sens)) then
+                box "***REDACTED***"
+            else
+                value
+        )
+    
     /// Default logging configuration
     let defaultLoggingConfig = {
         MinimumLevel = Information
@@ -148,14 +167,15 @@ module Observability =
         | None ->
             operation()
     
-    /// Log performance metrics
+    /// Log performance metrics (with automatic sensitive data redaction)
     let logPerformanceMetrics (state: ObservabilityState) (metrics: PerformanceMetrics) =
+        let safeContext = sanitizeContext metrics.Context
         state.Logger.Information(
             "Performance: {OperationName} completed in {DurationMs}ms at {Timestamp} with context {@Context}",
             metrics.OperationName,
             metrics.DurationMs,
             metrics.Timestamp,
-            metrics.Context
+            safeContext  // ✅ SAFE: Redacted context
         )
     
     /// Log cost metrics
