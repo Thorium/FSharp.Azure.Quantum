@@ -106,6 +106,39 @@ module ZeroNoiseExtrapolation =
         circuit
     
     // ============================================================================
+    // Polynomial Fitting - Richardson Extrapolation
+    // ============================================================================
+    
+    /// Fit polynomial to noise-vs-expectation curve using least squares.
+    /// 
+    /// Returns coefficients [a₀, a₁, a₂, ...] for E(λ) = a₀ + a₁λ + a₂λ² + ...
+    /// Uses MathNet.Numerics for robust linear algebra.
+    let fitPolynomial (degree: int) (measurements: (float * float) list) : float list =
+        if measurements.Length < degree + 1 then
+            failwith (sprintf "Need at least %d measurements for degree-%d polynomial (got %d)" 
+                (degree + 1) degree measurements.Length)
+        
+        // Extract noise levels (λ) and expectation values (E)
+        let noiseLevels = measurements |> List.map fst |> List.toArray
+        let expectations = measurements |> List.map snd |> List.toArray
+        
+        // Use MathNet.Numerics polynomial fitting (idiomatic F#)
+        // Fit.Polynomial returns coefficients in ascending order [a₀, a₁, a₂, ...]
+        let coefficients = MathNet.Numerics.Fit.Polynomial(noiseLevels, expectations, degree)
+        
+        // Return as F# list for idiomatic composition
+        coefficients |> Array.toList
+    
+    /// Extrapolate to zero noise (λ=0).
+    /// 
+    /// Richardson extrapolation: E(0) = a₀ (the constant term)
+    /// Pure function - no side effects.
+    let extrapolateToZeroNoise (coefficients: float list) : float =
+        match coefficients with
+        | [] -> 0.0  // Edge case: no coefficients
+        | a0 :: _ -> a0  // Zero-noise value is the constant term
+    
+    // ============================================================================
     // Public API - Composable Functions
     // ============================================================================
     

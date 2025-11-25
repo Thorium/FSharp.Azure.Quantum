@@ -92,3 +92,69 @@ module ZeroNoiseExtrapolationTests =
         // (Pulse stretching doesn't add gates, it modifies pulse duration metadata)
         Assert.Equal(CircuitBuilder.gateCount circuit, CircuitBuilder.gateCount noisyCircuit)
         Assert.Equal(CircuitBuilder.qubitCount circuit, CircuitBuilder.qubitCount noisyCircuit)
+    
+    // Cycle #3: Polynomial fitting - Idiomatic F# with MathNet
+    
+    [<Fact>]
+    let ``fitPolynomial should fit quadratic ZNE curve`` () =
+        // Arrange: Realistic ZNE scenario - noise decreases expectation value
+        // As noise increases (λ), expectation value decreases
+        let noisePoints = [
+            (1.0, 0.80)   // Baseline noise level
+            (1.5, 0.72)   // 50% more noise
+            (2.0, 0.65)   // 100% more noise
+        ]
+        let degree = 2
+        
+        // Act: Fit polynomial using MathNet
+        let coefficients = ZeroNoiseExtrapolation.fitPolynomial degree noisePoints
+        
+        // Assert: Should have 3 coefficients [a₀, a₁, a₂]
+        Assert.Equal(3, coefficients.Length)
+        
+        // a₀ (zero-noise value) should be > baseline (error mitigation improves result)
+        Assert.True(coefficients.[0] > 0.80,
+            sprintf "Expected a₀ > 0.80 (zero-noise should be better than baseline), got %f" coefficients.[0])
+    
+    [<Fact>]
+    let ``fitPolynomial should handle linear fit`` () =
+        // Arrange: Linear relationship E(λ) = 1.0 - 0.2λ
+        let noisePoints = [
+            (1.0, 0.8)   // E(1.0) = 0.8
+            (1.5, 0.7)   // E(1.5) = 0.7
+            (2.0, 0.6)   // E(2.0) = 0.6
+        ]
+        let degree = 1
+        
+        // Act: Fit polynomial
+        let coefficients = ZeroNoiseExtrapolation.fitPolynomial degree noisePoints
+        
+        // Assert: Should have 2 coefficients [a₀, a₁]
+        Assert.Equal(2, coefficients.Length)
+        
+        // a₀ should be close to 1.0 (zero-noise extrapolation)
+        Assert.True(abs (coefficients.[0] - 1.0) < 0.1,
+            sprintf "Expected a₀ ≈ 1.0, got %f" coefficients.[0])
+    
+    [<Fact>]
+    let ``extrapolateToZeroNoise should return constant term`` () =
+        // Arrange: Polynomial coefficients [0.9, -0.1, 0.05]
+        // E(λ) = 0.9 - 0.1λ + 0.05λ²
+        let coefficients = [0.9; -0.1; 0.05]
+        
+        // Act: Extrapolate to λ=0
+        let zeroNoiseValue = ZeroNoiseExtrapolation.extrapolateToZeroNoise coefficients
+        
+        // Assert: E(0) = a₀ = 0.9
+        Assert.Equal(0.9, zeroNoiseValue, 3)
+    
+    [<Fact>]
+    let ``extrapolateToZeroNoise with empty coefficients should return zero`` () =
+        // Arrange: No coefficients (edge case)
+        let coefficients = []
+        
+        // Act: Extrapolate to λ=0
+        let zeroNoiseValue = ZeroNoiseExtrapolation.extrapolateToZeroNoise coefficients
+        
+        // Assert: Should return 0.0 as fallback
+        Assert.Equal(0.0, zeroNoiseValue)
