@@ -130,10 +130,22 @@ module BatchAccumulatorTests =
         let result1 = accumulator.Add(3)
         let batch2 = accumulator.Add(4)  // Trigger again
         
-        // Assert
-        Assert.Equal(Some [1; 2], batch1)
+        // Assert - First batch
+        match batch1 with
+        | Some batch -> 
+            Assert.Equal(2, batch.Length)
+            Assert.Equal<int seq>([1; 2], batch)
+        | None -> Assert.True(false, "Expected first batch to be returned")
+        
+        // Assert - Should reset and accumulate again
         Assert.True(result1.IsNone, "After reset, should accumulate again")
-        Assert.Equal(Some [3; 4], batch2)
+        
+        // Assert - Second batch
+        match batch2 with
+        | Some batch -> 
+            Assert.Equal(2, batch.Length)
+            Assert.Equal<int seq>([3; 4], batch)
+        | None -> Assert.True(false, "Expected second batch to be returned")
     
     [<Fact>]
     let ``BatchAccumulator with size 1 should trigger immediately`` () =

@@ -12,7 +12,9 @@ module Batching =
     // BATCH CONFIGURATION
     // ============================================================================
     
-    /// Batch configuration
+    /// Configuration for batch accumulation behavior.
+    /// 
+    /// Controls when batches are submitted based on size and timeout constraints.
     type BatchConfig = {
         /// Maximum number of items per batch (default: 50)
         MaxBatchSize: int
@@ -55,10 +57,19 @@ module Batching =
     // BATCH ACCUMULATOR
     // ============================================================================
     
-    /// Thread-safe batch accumulator with size-based triggering
+    /// Thread-safe batch accumulator with size and timeout-based triggering.
     /// 
-    /// Accumulates items until maxBatchSize is reached, then returns the batch.
-    /// Uses lock-based synchronization for thread safety.
+    /// Accumulates items until maxBatchSize is reached or timeout expires,
+    /// then returns the batch. Uses lock-based synchronization for thread safety.
+    /// 
+    /// Example:
+    /// <code>
+    /// let config = BatchConfig.defaultConfig
+    /// let accumulator = BatchAccumulator&lt;string&gt;(config)
+    /// match accumulator.Add("item") with
+    /// | Some batch -> // Process batch
+    /// | None -> // Keep accumulating
+    /// </code>
     type BatchAccumulator<'T>(config: BatchConfig) =
         let mutable batch : 'T list = []
         let mutable batchStartTime : DateTimeOffset option = None
