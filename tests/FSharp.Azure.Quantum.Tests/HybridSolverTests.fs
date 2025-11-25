@@ -142,3 +142,112 @@ module HybridSolverTests =
         | Error msg -> 
             Assert.Contains("quantum", msg.ToLower())
             Assert.Contains("not yet implemented", msg.ToLower())
+
+    // ============================================================================
+    // TDD CYCLE 1: QUANTUM EXECUTION CONFIGURATION
+    // ============================================================================
+
+    [<Fact>]
+    let ``QuantumExecutionConfig should support IonQ backend selection`` () =
+        // Arrange: Create config for IonQ simulator
+        let config : HybridSolver.QuantumExecutionConfig = {
+            Backend = HybridSolver.QuantumBackend.IonQ "ionq.simulator"
+            WorkspaceId = "test-workspace"
+            Location = "eastus"
+            ResourceGroup = "test-rg"
+            SubscriptionId = "test-sub"
+            MaxCostUSD = Some 10.0
+            EnableComparison = true
+        }
+        
+        // Assert: Config should be created successfully
+        match config.Backend with
+        | HybridSolver.QuantumBackend.IonQ targetId -> 
+            Assert.Equal("ionq.simulator", targetId)
+        | _ -> Assert.Fail("Expected IonQ backend")
+        
+        Assert.Equal(Some 10.0, config.MaxCostUSD)
+        Assert.True(config.EnableComparison)
+
+    // ============================================================================
+    // TDD CYCLE 2: QUANTUM ROUTING LOGIC
+    // ============================================================================
+
+    [<Fact>]
+    let ``Large TSP problem with quantum config should route to quantum (mock test)`` () =
+        // Arrange: Large 60-city TSP problem that should recommend quantum
+        let distances = createTspDistanceMatrix 60
+        
+        // Create minimal quantum config (we'll mock the actual execution later)
+        let quantumConfig : HybridSolver.QuantumExecutionConfig = {
+            Backend = HybridSolver.QuantumBackend.IonQ "ionq.simulator"
+            WorkspaceId = "test-workspace"
+            Location = "eastus"
+            ResourceGroup = "test-rg"
+            SubscriptionId = "test-sub-id"
+            MaxCostUSD = Some 100.0
+            EnableComparison = false
+        }
+        
+        // Act: Solve with quantum config (no forceMethod - let advisor decide)
+        let result = HybridSolver.solveTspWithQuantum distances (Some quantumConfig) None None None
+        
+        // Assert: Should route to quantum based on advisor recommendation
+        match result with
+        | Ok solution ->
+            // For large problems, advisor should recommend quantum and we should use it
+            Assert.Equal(HybridSolver.SolverMethod.Quantum, solution.Method)
+            Assert.NotNull(solution.Result)
+            Assert.Contains("quantum", solution.Reasoning.ToLower())
+            
+            // Verify valid solution
+            Assert.Equal(60, solution.Result.Tour.Length)
+            Assert.True(solution.Result.TourLength > 0.0)
+        | Error msg -> 
+            Assert.Fail($"Expected Ok but got Error: {msg}")
+
+    [<Fact>]
+    let ``Quantum routing should respect cost limits`` () =
+        // Arrange: Large problem with low cost limit
+        let distances = createTspDistanceMatrix 60
+        
+        let quantumConfig : HybridSolver.QuantumExecutionConfig = {
+            Backend = HybridSolver.QuantumBackend.IonQ "ionq.simulator"
+            WorkspaceId = "test-workspace"
+            Location = "eastus"
+            ResourceGroup = "test-rg"
+            SubscriptionId = "test-sub-id"
+            MaxCostUSD = Some 1.0  // Very low limit
+            EnableComparison = false
+        }
+        
+        // Act: Solve with quantum config but low cost limit
+        let result = HybridSolver.solveTspWithQuantum distances (Some quantumConfig) None None None
+        
+        // Assert: Should fallback to classical due to cost limit
+        match result with
+        | Ok solution ->
+            // Should use classical due to cost limit
+            Assert.Equal(HybridSolver.SolverMethod.Classical, solution.Method)
+            Assert.Contains("cost", solution.Reasoning.ToLower())
+        | Error msg -> 
+            Assert.Fail($"Expected Ok but got Error: {msg}")
+
+    // ============================================================================
+    // TDD CYCLE 4: ERROR HANDLING
+    // ============================================================================
+
+    [<Fact>]
+    let ``Forcing quantum without config should return error`` () =
+        // Arrange: Force quantum but provide no config
+        let distances = createTspDistanceMatrix 10
+        
+        // Act: Force quantum method without providing quantum config
+        let result = HybridSolver.solveTspWithQuantum distances None None None (Some HybridSolver.SolverMethod.Quantum)
+        
+        // Assert: Should return error explaining missing config
+        match result with
+        | Ok _ -> Assert.Fail("Expected Error when forcing quantum without config")
+        | Error msg ->
+            Assert.Contains("quantum", msg.ToLower())
+            Assert.Contains("configuration", msg.ToLower())
