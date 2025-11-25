@@ -297,3 +297,65 @@ module IonQBackendTests =
         
         // Assert
         Assert.Equal("ionq.circuit.v1", submission.InputDataFormat.ToFormatString())
+    
+    // ============================================================================
+    // TDD CYCLE 5: Result Parsing from IonQ Histogram
+    // ============================================================================
+    
+    [<Fact>]
+    let ``parseIonQResult - Parses histogram with bitstring keys and counts`` () =
+        // Arrange - IonQ result format with histogram
+        let ionqResultJson = """{
+            "histogram": {
+                "00": 492,
+                "01": 12,
+                "10": 8,
+                "11": 488
+            }
+        }"""
+        
+        // Act
+        let result = parseIonQResult ionqResultJson
+        
+        // Assert
+        Assert.Equal(4, result.Count)
+        Assert.Equal(492, result.["00"])
+        Assert.Equal(12, result.["01"])
+        Assert.Equal(8, result.["10"])
+        Assert.Equal(488, result.["11"])
+    
+    [<Fact>]
+    let ``parseIonQResult - Handles single outcome result`` () =
+        // Arrange - All measurements produce same result
+        let ionqResultJson = """{
+            "histogram": {
+                "000": 1000
+            }
+        }"""
+        
+        // Act
+        let result = parseIonQResult ionqResultJson
+        
+        // Assert
+        Assert.Equal(1, result.Count)
+        Assert.Equal(1000, result.["000"])
+    
+    [<Fact>]
+    let ``parseIonQResult - Handles uniform superposition (all outcomes equal probability)`` () =
+        // Arrange - 2-qubit uniform superposition: each of 4 outcomes ~250 counts
+        let ionqResultJson = """{
+            "histogram": {
+                "00": 250,
+                "01": 251,
+                "10": 249,
+                "11": 250
+            }
+        }"""
+        
+        // Act
+        let result = parseIonQResult ionqResultJson
+        
+        // Assert
+        Assert.Equal(4, result.Count)
+        let totalCounts = result |> Map.toSeq |> Seq.sumBy snd
+        Assert.Equal(1000, totalCounts)

@@ -159,3 +159,29 @@ module IonQBackend =
             InputParams = Map [ ("shots", shots :> obj) ]
             Tags = Map.empty
         }
+    
+    // ============================================================================
+    // RESULT PARSING (TDD Cycle 5)
+    // ============================================================================
+    
+    /// Parse IonQ result JSON into measurement counts histogram
+    /// 
+    /// IonQ returns results as:
+    /// {
+    ///   "histogram": {
+    ///     "00": 492,
+    ///     "01": 12,
+    ///     "10": 8,
+    ///     "11": 488
+    ///   }
+    /// }
+    /// 
+    /// Returns: Map<bitstring, count>
+    let parseIonQResult (jsonResult: string) : Map<string, int> =
+        use jsonDoc = JsonDocument.Parse(jsonResult)
+        let root = jsonDoc.RootElement
+        let histogram = root.GetProperty("histogram")
+        
+        histogram.EnumerateObject()
+        |> Seq.map (fun prop -> (prop.Name, prop.Value.GetInt32()))
+        |> Map.ofSeq
