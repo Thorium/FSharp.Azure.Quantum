@@ -894,3 +894,72 @@ module QuboEncodingTests =
         let quboSize = ProblemTransformer.calculateQuboSize EncodingStrategy.EdgeBased numCities
         
         Assert.Equal(16, quboSize)
+    
+    [<Fact>]
+    let ``TSP EdgeBased encoding should create QUBO from distance matrix`` () =
+        // Simple 3-city TSP with known distances
+        let distances = 
+            array2D [[0.0; 10.0; 15.0]
+                     [10.0; 0.0; 20.0]
+                     [15.0; 20.0; 0.0]]
+        
+        let qubo = ProblemTransformer.encodeTspEdgeBased distances 100.0
+        
+        // QUBO should be 9x9 (3 cities × 3 cities)
+        Assert.Equal(9, qubo.Size)
+        
+        // QUBO should be symmetric
+        for i in 0..8 do
+            for j in 0..8 do
+                Assert.Equal(qubo.GetCoefficient(i,j), qubo.GetCoefficient(j,i), 2)
+    
+    [<Fact>]
+    let ``TSP EdgeBased encoding should encode distances on diagonal`` () =
+        // Edge weights should appear on diagonal as negative values (minimization)
+        let distances = 
+            array2D [[0.0; 10.0; 15.0]
+                     [10.0; 0.0; 20.0]
+                     [15.0; 20.0; 0.0]]
+        
+        let qubo = ProblemTransformer.encodeTspEdgeBased distances 100.0
+        
+        // Edge (0,1) with distance 10 should have negative weight
+        let edge01Index = 0 * 3 + 1  // i=0, j=1 in flattened array
+        Assert.True(qubo.GetCoefficient(edge01Index, edge01Index) < 0.0)
+    
+    [<Fact>]
+    let ``TSP EdgeBased encoding should exclude self-loops`` () =
+        // Self-loops (i,i) should have high penalty to discourage
+        let distances = 
+            array2D [[0.0; 10.0; 15.0]
+                     [10.0; 0.0; 20.0]
+                     [15.0; 20.0; 0.0]]
+        
+        let qubo = ProblemTransformer.encodeTspEdgeBased distances 100.0
+        
+        // Self-loop (0,0)
+        let selfLoop00 = 0 * 3 + 0
+        // Should have penalty, not negative (we want to avoid self-loops)
+        Assert.True(qubo.GetCoefficient(selfLoop00, selfLoop00) >= 0.0)
+    
+    [<Fact>]
+    let ``TSP EdgeBased encoding should apply constraint penalties`` () =
+        // Constraint: each city visited exactly once
+        // This requires penalty terms in off-diagonal elements
+        let distances = 
+            array2D [[0.0; 10.0]
+                     [10.0; 0.0]]
+        
+        let penalty = 50.0
+        let qubo = ProblemTransformer.encodeTspEdgeBased distances penalty
+        
+        // QUBO should have penalty terms for constraint violations
+        // Off-diagonal should have non-zero penalty terms
+        let hasOffDiagonalPenalty = 
+            [0..3] 
+            |> List.exists (fun i -> 
+                [0..3] 
+                |> List.exists (fun j -> 
+                    i <> j && qubo.GetCoefficient(i,j) <> 0.0))
+        
+        Assert.True(hasOffDiagonalPenalty, "Expected constraint penalties in off-diagonal")

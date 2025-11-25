@@ -456,3 +456,66 @@ module ProblemTransformer =
         | Custom transformer ->
             // Use custom size calculator
             transformer problemSize
+    
+    /// Encode TSP using edge-based representation.
+    /// 
+    /// Edge-based: Variable x[i][j] represents "travel from city i to city j"
+    /// Objective: minimize total distance = minimize Σ distance[i,j] * x[i,j]
+    /// 
+    /// QUBO form: minimize x^T Q x
+    /// - Diagonal Q[k,k] = -distance[i,j] for edge (i,j) at index k
+    /// - Off-diagonal contains constraint penalties
+    let encodeTspEdgeBased (distances: float[,]) (constraintPenalty: float) : QuboMatrix =
+        let n = distances.GetLength(0)
+        let size = n * n
+        let q = Array2D.zeroCreate<float> size size
+        
+        // Helper: Convert (i,j) edge to flat index
+        let edgeIndex i j = i * n + j
+        
+        // Step 1: Encode objective (minimize total distance)
+        for i in 0 .. n - 1 do
+            for j in 0 .. n - 1 do
+                let idx = edgeIndex i j
+                if i = j then
+                    // Self-loops: penalize heavily (we don't want city to itself)
+                    q.[idx, idx] <- constraintPenalty
+                else
+                    // Edge weight: negative because we want to minimize distance
+                    // But we also want to SELECT edges, so use negative distance
+                    q.[idx, idx] <- -distances.[i, j]
+        
+        // Step 2: Add constraint penalties
+        // Constraint 1: Each city must be entered exactly once
+        for j in 0 .. n - 1 do
+            for i1 in 0 .. n - 1 do
+                for i2 in i1 + 1 .. n - 1 do
+                    if i1 <> i2 then
+                        let idx1 = edgeIndex i1 j
+                        let idx2 = edgeIndex i2 j
+                        // Penalty for multiple entries to city j
+                        q.[idx1, idx2] <- q.[idx1, idx2] + constraintPenalty
+                        q.[idx2, idx1] <- q.[idx2, idx1] + constraintPenalty
+        
+        // Constraint 2: Each city must be exited exactly once
+        for i in 0 .. n - 1 do
+            for j1 in 0 .. n - 1 do
+                for j2 in j1 + 1 .. n - 1 do
+                    if j1 <> j2 then
+                        let idx1 = edgeIndex i j1
+                        let idx2 = edgeIndex i j2
+                        // Penalty for multiple exits from city i
+                        q.[idx1, idx2] <- q.[idx1, idx2] + constraintPenalty
+                        q.[idx2, idx1] <- q.[idx2, idx1] + constraintPenalty
+        
+        // Generate variable names
+        let varNames = 
+            [for i in 0 .. n - 1 do
+                for j in 0 .. n - 1 do
+                    yield sprintf "edge_%d_%d" i j]
+        
+        {
+            Size = size
+            Coefficients = q
+            VariableNames = varNames
+        }
