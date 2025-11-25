@@ -203,6 +203,90 @@ module RigettiBackend =
             Error (sprintf "Gate '%s' violates connectivity constraints. Qubits are not directly connected in the hardware topology." gateText)
     
     // ============================================================================
+    // CIRCUIT VALIDATION (Pre-Flight Checks)
+    // ============================================================================
+    
+    /// Extract circuit information for validation
+    /// Converts QuilProgram to CircuitValidator.Circuit format
+    let private extractCircuitInfo (program: QuilProgram) : CircuitValidator.Circuit =
+        let allGates = List.append program.Declarations program.Instructions
+        
+        let usedGates = 
+            allGates
+            |> List.choose (fun gate ->
+                match gate with
+                | SingleQubit(gateName, _) -> Some (gateName.ToUpperInvariant())
+                | SingleQubitRotation(gateName, _, _) -> Some (gateName.ToUpperInvariant())
+                | TwoQubit(gateName, _, _) -> Some (gateName.ToUpperInvariant())
+                | Measure _ -> Some "MEASURE"
+                | DeclareMemory _ -> None)
+            |> Set.ofList
+        
+        let twoQubitGates =
+            allGates
+            |> List.choose (fun gate ->
+                match gate with
+                | TwoQubit(_, control, target) -> Some (control, target)
+                | _ -> None)
+        
+        // Count max qubit index used
+        let maxQubit =
+            allGates
+            |> List.choose (fun gate ->
+                match gate with
+                | SingleQubit(_, q) -> Some q
+                | SingleQubitRotation(_, _, q) -> Some q
+                | TwoQubit(_, c, t) -> Some (max c t)
+                | Measure(q, _) -> Some q
+                | DeclareMemory _ -> None)
+            |> function
+                | [] -> 0
+                | qubits -> List.max qubits
+        
+        {
+            CircuitValidator.NumQubits = maxQubit + 1  // Convert 0-indexed to count
+            CircuitValidator.GateCount = program.Instructions.Length
+            CircuitValidator.UsedGates = usedGates
+            CircuitValidator.TwoQubitGates = twoQubitGates
+        }
+    
+    /// Validate Quil program with backend constraints before submission
+    /// 
+    /// This is a high-level validation function that checks circuit against
+    /// backend constraints (qubit count, gates, connectivity, depth).
+    /// Complements the existing validateProgram function which checks connectivity only.
+    /// 
+    /// Parameters:
+    /// - program: Quil program to validate
+    /// - target: Target backend string (e.g., "rigetti.sim.qvm")
+    /// - constraints: Optional constraints (auto-detected from target if None)
+    /// 
+    /// Returns: Result<unit, QuantumError> with validation errors
+    let validateProgramWithConstraints 
+        (program: QuilProgram)
+        (target: string)
+        (constraints: CircuitValidator.BackendConstraints option)
+        : Result<unit, QuantumError> =
+        
+        // Determine constraints (auto-detect or use provided)
+        let backendConstraints =
+            match constraints with
+            | Some c -> Some c
+            | None -> CircuitValidator.KnownTargets.getConstraints target
+        
+        // Validate circuit if constraints available
+        match backendConstraints with
+        | Some c ->
+            let circuitInfo = extractCircuitInfo program
+            match CircuitValidator.validateCircuit c circuitInfo with
+            | Error validationErrors ->
+                // Convert validation errors to QuantumError
+                let errorMessages = validationErrors |> List.map CircuitValidator.formatValidationError
+                Error (QuantumError.InvalidCircuit errorMessages)
+            | Ok () -> Ok ()
+        | None -> Ok ()  // No constraints available, skip validation
+    
+    // ============================================================================
     // JOB SUBMISSION
     // ============================================================================
     

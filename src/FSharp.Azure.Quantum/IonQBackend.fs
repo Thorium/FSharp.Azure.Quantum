@@ -135,6 +135,37 @@ module IonQBackend =
         System.Text.Encoding.UTF8.GetString(stream.ToArray())
     
     // ============================================================================
+    // CIRCUIT VALIDATION (Pre-Flight Checks)
+    // ============================================================================
+    
+    /// Extract circuit information for validation
+    /// Converts IonQCircuit to CircuitValidator.Circuit format
+    let private extractCircuitInfo (circuit: IonQCircuit) : CircuitValidator.Circuit =
+        let usedGates = 
+            circuit.Circuit
+            |> List.map (fun gate ->
+                match gate with
+                | SingleQubit(gateName, _) -> gateName.ToUpperInvariant()
+                | SingleQubitRotation(gateName, _, _) -> gateName.ToUpperInvariant()
+                | TwoQubit(gateName, _, _) -> gateName.ToUpperInvariant()
+                | Measure _ -> "MEASURE")
+            |> Set.ofList
+        
+        let twoQubitGates =
+            circuit.Circuit
+            |> List.choose (fun gate ->
+                match gate with
+                | TwoQubit(_, control, target) -> Some (control, target)
+                | _ -> None)
+        
+        {
+            CircuitValidator.NumQubits = circuit.Qubits
+            CircuitValidator.GateCount = circuit.Circuit.Length
+            CircuitValidator.UsedGates = usedGates
+            CircuitValidator.TwoQubitGates = twoQubitGates
+        }
+    
+    // ============================================================================
     // JOB SUBMISSION
     // ============================================================================
     
@@ -298,4 +329,54 @@ module IonQBackend =
                     
                     | _ ->
                         return Error (QuantumError.UnknownError(0, sprintf "Unexpected job status: %A" job.Status))
+        }
+    
+    /// Submit IonQ circuit with pre-flight validation
+    /// 
+    /// This function validates the circuit against backend constraints BEFORE submission,
+    /// preventing costly failed Azure API calls.
+    /// 
+    /// Parameters:
+    /// - httpClient: Authenticated HttpClient
+    /// - workspaceUrl: Azure Quantum workspace URL
+    /// - circuit: IonQ circuit to submit
+    /// - shots: Number of measurement shots
+    /// - target: IonQ backend target (e.g., "ionq.simulator", "ionq.qpu.aria-1")
+    /// - constraints: Optional backend constraints (auto-detected from target if None)
+    /// 
+    /// Returns: Async<Result<Map<string, int>, QuantumError>>
+    ///   - Ok: Measurement histogram (bitstring -> count)
+    ///   - Error: QuantumError with validation or execution details
+    let submitAndWaitForResultsWithValidationAsync
+        (httpClient: System.Net.Http.HttpClient)
+        (workspaceUrl: string)
+        (circuit: IonQCircuit)
+        (shots: int)
+        (target: string)
+        (constraints: CircuitValidator.BackendConstraints option)
+        : Async<Result<Map<string, int>, QuantumError>> =
+        async {
+            // Step 1: Determine constraints (auto-detect or use provided)
+            let backendConstraints =
+                match constraints with
+                | Some c -> Some c
+                | None -> CircuitValidator.KnownTargets.getConstraints target
+            
+            // Step 2: Validate circuit if constraints available
+            let validationResult =
+                match backendConstraints with
+                | Some c ->
+                    let circuitInfo = extractCircuitInfo circuit
+                    CircuitValidator.validateCircuit c circuitInfo
+                | None -> Ok ()  // No constraints available, skip validation
+            
+            // Step 3: Check validation result
+            match validationResult with
+            | Error validationErrors ->
+                // Convert validation errors to QuantumError
+                let errorMessages = validationErrors |> List.map CircuitValidator.formatValidationError
+                return Error (QuantumError.InvalidCircuit errorMessages)
+            | Ok () ->
+                // Step 4: Submit circuit (validation passed)
+                return! submitAndWaitForResultsAsync httpClient workspaceUrl circuit shots target
         }

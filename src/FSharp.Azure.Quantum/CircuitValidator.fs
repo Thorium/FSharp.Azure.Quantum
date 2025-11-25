@@ -12,13 +12,8 @@ module CircuitValidator =
     // 1. TYPES AND RECORDS (Primitives, no dependencies)
     // ============================================================================
     
-    /// Backend types
-    type Backend =
-        | IonQSimulator
-        | IonQHardware
-        | RigettiAspenM3
-    
-    /// Backend constraints
+    /// Backend constraints - configurable for any quantum provider
+    /// Users can create custom constraints or use built-in factory functions
     type BackendConstraints = {
         /// Backend name for display
         Name: string
@@ -63,13 +58,33 @@ module CircuitValidator =
         | InvalidParameter of message: string
     
     // ============================================================================
-    // 2. CONSTRAINT DEFINITIONS
+    // 2. CONSTRAINT FACTORY FUNCTIONS (Provider-Agnostic Design)
     // ============================================================================
     
-    /// Get backend constraints for a given backend
-    let getConstraints (backend: Backend) : BackendConstraints =
-        match backend with
-        | IonQSimulator ->
+    /// Factory functions for creating backend constraints
+    /// Users can create custom constraints or use built-in providers
+    module BackendConstraints =
+        
+        /// Create custom backend constraints
+        /// Allows users to define constraints for any quantum provider
+        let create 
+            (name: string)
+            (maxQubits: int)
+            (supportedGates: string list)
+            (maxCircuitDepth: int option)
+            (hasAllToAllConnectivity: bool)
+            (connectedPairs: (int * int) list) : BackendConstraints =
+            {
+                Name = name
+                MaxQubits = maxQubits
+                SupportedGates = Set.ofList supportedGates
+                MaxCircuitDepth = maxCircuitDepth
+                HasAllToAllConnectivity = hasAllToAllConnectivity
+                ConnectedPairs = Set.ofList connectedPairs
+            }
+        
+        /// IonQ Simulator constraints (29 qubits, all-to-all connectivity)
+        let ionqSimulator () : BackendConstraints =
             {
                 Name = "IonQ Simulator"
                 MaxQubits = 29
@@ -78,7 +93,9 @@ module CircuitValidator =
                 HasAllToAllConnectivity = true
                 ConnectedPairs = Set.empty
             }
-        | IonQHardware ->
+        
+        /// IonQ Hardware (Aria-1) constraints (11 qubits, all-to-all connectivity)
+        let ionqHardware () : BackendConstraints =
             {
                 Name = "IonQ Hardware"
                 MaxQubits = 11
@@ -87,14 +104,16 @@ module CircuitValidator =
                 HasAllToAllConnectivity = true
                 ConnectedPairs = Set.empty
             }
-        | RigettiAspenM3 ->
+        
+        /// Rigetti Aspen-M-3 constraints (79 qubits, limited connectivity)
+        let rigettiAspenM3 () : BackendConstraints =
             // Rigetti Aspen-M-3 connectivity graph (simplified for validation)
             // Real topology has linear and ring connections
             let rigettiConnectivity = 
                 [
                     // Linear connectivity chain for qubits 0-4
                     (0, 1); (1, 2); (2, 3); (3, 4)
-                ] |> Set.ofList
+                ]
             
             {
                 Name = "Rigetti Aspen-M-3"
@@ -102,24 +121,34 @@ module CircuitValidator =
                 SupportedGates = Set.ofList ["X"; "Y"; "Z"; "H"; "Rx"; "Ry"; "Rz"; "CZ"; "CNOT"; "SWAP"]
                 MaxCircuitDepth = Some 50
                 HasAllToAllConnectivity = false
-                ConnectedPairs = rigettiConnectivity
+                ConnectedPairs = Set.ofList rigettiConnectivity
+            }
+        
+        /// Local QAOA Simulator constraints (1-10 qubits, all gates supported)
+        /// This is the local state vector simulator with exponential memory requirements
+        let localSimulator () : BackendConstraints =
+            {
+                Name = "Local QAOA Simulator"
+                MaxQubits = 10  // Limited by 2^n state vector memory
+                SupportedGates = Set.ofList ["X"; "Y"; "Z"; "H"; "Rx"; "Ry"; "Rz"; "RZZ"; "CNOT"; "CZ"; "SWAP"]
+                MaxCircuitDepth = None  // No practical depth limit for local execution
+                HasAllToAllConnectivity = true  // Simulated, so all connections possible
+                ConnectedPairs = Set.empty
             }
     
     // ============================================================================
-    // 3. VALIDATION FUNCTIONS
+    // 3. VALIDATION FUNCTIONS (Constraint-Based)
     // ============================================================================
     
     /// Validate circuit qubit count against backend limits
-    let validateQubitCount (backend: Backend) (circuit: Circuit) : Result<unit, ValidationError> =
-        let constraints = getConstraints backend
+    let validateQubitCount (constraints: BackendConstraints) (circuit: Circuit) : Result<unit, ValidationError> =
         if circuit.NumQubits <= constraints.MaxQubits then
             Ok ()
         else
             Error (QubitCountExceeded(circuit.NumQubits, constraints.MaxQubits, constraints.Name))
     
     /// Validate circuit gate set against backend supported gates
-    let validateGateSet (backend: Backend) (circuit: Circuit) : Result<unit, ValidationError list> =
-        let constraints = getConstraints backend
+    let validateGateSet (constraints: BackendConstraints) (circuit: Circuit) : Result<unit, ValidationError list> =
         let unsupportedGates = 
             circuit.UsedGates
             |> Set.filter (fun gate -> not (constraints.SupportedGates.Contains gate))
@@ -134,8 +163,7 @@ module CircuitValidator =
             |> Error
     
     /// Validate circuit depth against backend limits
-    let validateCircuitDepth (backend: Backend) (circuit: Circuit) : Result<unit, ValidationError> =
-        let constraints = getConstraints backend
+    let validateCircuitDepth (constraints: BackendConstraints) (circuit: Circuit) : Result<unit, ValidationError> =
         match constraints.MaxCircuitDepth with
         | None -> Ok ()  // No depth limit
         | Some maxDepth ->
@@ -145,9 +173,7 @@ module CircuitValidator =
                 Error (CircuitDepthExceeded(circuit.GateCount, maxDepth, constraints.Name))
     
     /// Validate two-qubit gate connectivity against backend constraints
-    let validateConnectivity (backend: Backend) (circuit: Circuit) : Result<unit, ValidationError list> =
-        let constraints = getConstraints backend
-        
+    let validateConnectivity (constraints: BackendConstraints) (circuit: Circuit) : Result<unit, ValidationError list> =
         // If backend has all-to-all connectivity, all connections are valid
         if constraints.HasAllToAllConnectivity then
             Ok ()
@@ -170,21 +196,21 @@ module CircuitValidator =
     
     /// Validate entire circuit against backend constraints
     /// Runs all validation checks and collects all errors
-    let validateCircuit (backend: Backend) (circuit: Circuit) : Result<unit, ValidationError list> =
+    let validateCircuit (constraints: BackendConstraints) (circuit: Circuit) : Result<unit, ValidationError list> =
         let results = [
             // Run qubit count validation (single error)
-            validateQubitCount backend circuit
+            validateQubitCount constraints circuit
             |> Result.mapError (fun err -> [err])
             
             // Run gate set validation (multiple errors possible)
-            validateGateSet backend circuit
+            validateGateSet constraints circuit
             
             // Run depth validation (single error)
-            validateCircuitDepth backend circuit
+            validateCircuitDepth constraints circuit
             |> Result.mapError (fun err -> [err])
             
             // Run connectivity validation (multiple errors possible)
-            validateConnectivity backend circuit
+            validateConnectivity constraints circuit
         ]
         
         // Collect all errors from all validations
@@ -241,7 +267,46 @@ module CircuitValidator =
         header + messages
     
     // ============================================================================
-    // 5. QAOA-SPECIFIC VALIDATION
+    // 5. KNOWN AZURE QUANTUM TARGETS (Target String → Constraints)
+    // ============================================================================
+    
+    /// Maps Azure Quantum target strings to backend constraints
+    /// Provides automatic constraint lookup for common providers
+    module KnownTargets =
+        
+        /// Get backend constraints for a known Azure Quantum target string
+        /// Returns None if target is unknown (user must provide custom constraints)
+        let getConstraints (targetString: string) : BackendConstraints option =
+            match targetString.ToLowerInvariant() with
+            // Local Simulator
+            | "local" | "local.simulator" | "qaoa.local" -> Some (BackendConstraints.localSimulator())
+            
+            // IonQ Targets
+            | "ionq.simulator" -> Some (BackendConstraints.ionqSimulator())
+            | "ionq.qpu" | "ionq.qpu.aria-1" | "ionq.qpu.aria-2" -> Some (BackendConstraints.ionqHardware())
+            
+            // Rigetti Targets
+            | "rigetti.sim.qvm" -> Some (BackendConstraints.rigettiAspenM3())
+            | "rigetti.qpu.aspen-m-3" -> Some (BackendConstraints.rigettiAspenM3())
+            
+            // Unknown target - return None so user can provide custom constraints
+            | _ -> None
+        
+        /// List of all known target strings
+        let knownTargets : string list = [
+            "local"
+            "local.simulator"
+            "qaoa.local"
+            "ionq.simulator"
+            "ionq.qpu"
+            "ionq.qpu.aria-1"
+            "ionq.qpu.aria-2"
+            "rigetti.sim.qvm"
+            "rigetti.qpu.aspen-m-3"
+        ]
+    
+    // ============================================================================
+    // 6. QAOA-SPECIFIC VALIDATION
     // ============================================================================
     
     /// Validate QAOA parameter arrays match circuit depth

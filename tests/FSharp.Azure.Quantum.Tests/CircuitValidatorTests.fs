@@ -6,7 +6,7 @@ open FSharp.Azure.Quantum.Core.CircuitValidator
 [<Fact>]
 let ``Backend constraint should define IonQ simulator with 29 qubits`` () =
     // Arrange
-    let constraints = getConstraints IonQSimulator
+    let constraints = BackendConstraints.ionqSimulator()
     
     // Assert
     Assert.Equal(29, constraints.MaxQubits)
@@ -15,7 +15,7 @@ let ``Backend constraint should define IonQ simulator with 29 qubits`` () =
 [<Fact>]
 let ``Backend constraint should define IonQ hardware with 11 qubits`` () =
     // Arrange
-    let constraints = getConstraints IonQHardware
+    let constraints = BackendConstraints.ionqHardware()
     
     // Assert
     Assert.Equal(11, constraints.MaxQubits)
@@ -25,7 +25,7 @@ let ``Backend constraint should define IonQ hardware with 11 qubits`` () =
 [<Fact>]
 let ``Backend constraint should define Rigetti Aspen-M-3 with 79 qubits`` () =
     // Arrange
-    let constraints = getConstraints RigettiAspenM3
+    let constraints = BackendConstraints.rigettiAspenM3()
     
     // Assert
     Assert.Equal(79, constraints.MaxQubits)
@@ -34,10 +34,22 @@ let ``Backend constraint should define Rigetti Aspen-M-3 with 79 qubits`` () =
     Assert.Contains("CZ", constraints.SupportedGates)
 
 [<Fact>]
+let ``Backend constraint should define local simulator with 10 qubits`` () =
+    // Arrange
+    let constraints = BackendConstraints.localSimulator()
+    
+    // Assert
+    Assert.Equal(10, constraints.MaxQubits)
+    Assert.Equal("Local QAOA Simulator", constraints.Name)
+    Assert.True(constraints.HasAllToAllConnectivity)
+    Assert.Contains("RZZ", constraints.SupportedGates)
+    Assert.Equal(None, constraints.MaxCircuitDepth)  // No depth limit
+
+[<Fact>]
 let ``IonQ backends should support standard gate set`` () =
     // Arrange
-    let simConstraints = getConstraints IonQSimulator
-    let hwConstraints = getConstraints IonQHardware
+    let simConstraints = BackendConstraints.ionqSimulator()
+    let hwConstraints = BackendConstraints.ionqHardware()
     
     // Assert - both IonQ backends support same gate set
     let expectedGates = Set.ofList ["X"; "Y"; "Z"; "H"; "Rx"; "Ry"; "Rz"; "CNOT"; "SWAP"]
@@ -47,9 +59,9 @@ let ``IonQ backends should support standard gate set`` () =
 [<Fact>]
 let ``Backend constraints should define circuit depth limits`` () =
     // Arrange & Act
-    let ionqSim = getConstraints IonQSimulator
-    let ionqHw = getConstraints IonQHardware
-    let rigetti = getConstraints RigettiAspenM3
+    let ionqSim = BackendConstraints.ionqSimulator()
+    let ionqHw = BackendConstraints.ionqHardware()
+    let rigetti = BackendConstraints.rigettiAspenM3()
     
     // Assert - IonQ has 100 gate depth limit
     Assert.Equal(Some 100, ionqSim.MaxCircuitDepth)
@@ -66,9 +78,10 @@ let ``Backend constraints should define circuit depth limits`` () =
 let ``Validate circuit with qubit count within backend limits should pass`` () =
     // Arrange
     let circuit = { NumQubits = 10; GateCount = 20; UsedGates = Set.ofList ["H"; "CNOT"]; TwoQubitGates = [] }
+    let constraints = BackendConstraints.ionqHardware()
     
     // Act
-    let result = validateQubitCount IonQHardware circuit
+    let result = validateQubitCount constraints circuit
     
     // Assert - 10 qubits is within IonQ Hardware limit of 11
     match result with
@@ -79,9 +92,10 @@ let ``Validate circuit with qubit count within backend limits should pass`` () =
 let ``Validate circuit exceeding qubit limit should return error`` () =
     // Arrange - IonQ Hardware has 11 qubit limit
     let circuit = { NumQubits = 15; GateCount = 20; UsedGates = Set.ofList ["H"; "CNOT"]; TwoQubitGates = [] }
+    let constraints = BackendConstraints.ionqHardware()
     
     // Act
-    let result = validateQubitCount IonQHardware circuit
+    let result = validateQubitCount constraints circuit
     
     // Assert - Should return QubitCountExceeded error
     match result with
@@ -96,9 +110,10 @@ let ``Validate circuit exceeding qubit limit should return error`` () =
 let ``Validate circuit with supported gates should pass`` () =
     // Arrange - IonQ supports H, X, Y, Z, CNOT, SWAP, Rx, Ry, Rz
     let circuit = { NumQubits = 5; GateCount = 10; UsedGates = Set.ofList ["H"; "CNOT"; "Rx"]; TwoQubitGates = [] }
+    let constraints = BackendConstraints.ionqSimulator()
     
     // Act
-    let result = validateGateSet IonQSimulator circuit
+    let result = validateGateSet constraints circuit
     
     // Assert - All gates are supported
     match result with
@@ -109,9 +124,10 @@ let ``Validate circuit with supported gates should pass`` () =
 let ``Validate circuit with unsupported gates should return errors`` () =
     // Arrange - IonQ does NOT support CZ gate (Rigetti-specific)
     let circuit = { NumQubits = 5; GateCount = 10; UsedGates = Set.ofList ["H"; "CZ"; "Toffoli"]; TwoQubitGates = [] }
+    let constraints = BackendConstraints.ionqSimulator()
     
     // Act
-    let result = validateGateSet IonQSimulator circuit
+    let result = validateGateSet constraints circuit
     
     // Assert - Should return UnsupportedGate errors for CZ and Toffoli
     match result with
@@ -131,9 +147,10 @@ let ``Validate circuit with unsupported gates should return errors`` () =
 let ``Validate circuit within depth limit should pass`` () =
     // Arrange - IonQ has depth limit of 100, circuit has 80 gates
     let circuit = { NumQubits = 5; GateCount = 80; UsedGates = Set.ofList ["H"; "CNOT"]; TwoQubitGates = [] }
+    let constraints = BackendConstraints.ionqSimulator()
     
     // Act
-    let result = validateCircuitDepth IonQSimulator circuit
+    let result = validateCircuitDepth constraints circuit
     
     // Assert - 80 gates is within limit of 100
     match result with
@@ -144,9 +161,10 @@ let ``Validate circuit within depth limit should pass`` () =
 let ``Validate circuit exceeding depth limit should return error`` () =
     // Arrange - Rigetti has depth limit of 50, circuit has 75 gates
     let circuit = { NumQubits = 10; GateCount = 75; UsedGates = Set.ofList ["H"; "CZ"]; TwoQubitGates = [] }
+    let constraints = BackendConstraints.rigettiAspenM3()
     
     // Act
-    let result = validateCircuitDepth RigettiAspenM3 circuit
+    let result = validateCircuitDepth constraints circuit
     
     // Assert - Should return CircuitDepthExceeded error
     match result with
@@ -166,9 +184,10 @@ let ``Validate IonQ all-to-all connectivity should always pass`` () =
         UsedGates = Set.ofList ["H"; "CNOT"]
         TwoQubitGates = [(0, 4); (2, 3); (1, 4)]  // Any pairs should work
     }
+    let constraints = BackendConstraints.ionqSimulator()
     
     // Act
-    let result = validateConnectivity IonQSimulator circuit
+    let result = validateConnectivity constraints circuit
     
     // Assert - Should pass regardless of qubit pairs
     match result with
@@ -186,9 +205,10 @@ let ``Validate Rigetti limited connectivity should reject invalid qubit pairs`` 
         UsedGates = Set.ofList ["H"; "CZ"]
         TwoQubitGates = [(0, 1); (0, 3); (2, 4)]  // (0,1) valid, (0,3) and (2,4) invalid
     }
+    let constraints = BackendConstraints.rigettiAspenM3()
     
     // Act
-    let result = validateConnectivity RigettiAspenM3 circuit
+    let result = validateConnectivity constraints circuit
     
     // Assert - Should return ConnectivityViolation errors
     match result with
@@ -214,12 +234,13 @@ let ``Validate empty circuit should pass all validations`` () =
         UsedGates = Set.empty
         TwoQubitGates = []
     }
+    let constraints = BackendConstraints.ionqSimulator()
     
     // Act - Run all validation functions
-    let qubitResult = validateQubitCount IonQSimulator circuit
-    let gateSetResult = validateGateSet IonQSimulator circuit
-    let depthResult = validateCircuitDepth IonQSimulator circuit
-    let connectivityResult = validateConnectivity IonQSimulator circuit
+    let qubitResult = validateQubitCount constraints circuit
+    let gateSetResult = validateGateSet constraints circuit
+    let depthResult = validateCircuitDepth constraints circuit
+    let connectivityResult = validateConnectivity constraints circuit
     
     // Assert - All validations should pass for empty circuit
     match qubitResult with
@@ -250,11 +271,12 @@ let ``Validate circuit with multiple violations should catch all issues`` () =
         UsedGates = Set.ofList ["H"; "CNOT"; "CZ"; "Toffoli"]
         TwoQubitGates = []
     }
+    let constraints = BackendConstraints.ionqHardware()
     
     // Act - Run all validation functions
-    let qubitResult = validateQubitCount IonQHardware circuit
-    let gateSetResult = validateGateSet IonQHardware circuit
-    let depthResult = validateCircuitDepth IonQHardware circuit
+    let qubitResult = validateQubitCount constraints circuit
+    let gateSetResult = validateGateSet constraints circuit
+    let depthResult = validateCircuitDepth constraints circuit
     
     // Assert - All three validations should fail with specific errors
     match qubitResult with
@@ -290,9 +312,10 @@ let ``Full validation should pass for valid circuit`` () =
         UsedGates = Set.ofList ["H"; "CNOT"; "Rx"]
         TwoQubitGates = [(0, 1); (1, 2)]
     }
+    let constraints = BackendConstraints.ionqSimulator()
     
     // Act - Run full validation
-    let result = validateCircuit IonQSimulator circuit
+    let result = validateCircuit constraints circuit
     
     // Assert - Should pass all validations
     match result with
@@ -309,9 +332,10 @@ let ``Full validation should collect all errors for invalid circuit`` () =
         UsedGates = Set.ofList ["H"; "CZ"; "Toffoli"]  // Contains unsupported gates
         TwoQubitGates = []
     }
+    let constraints = BackendConstraints.ionqSimulator()
     
     // Act - Run full validation
-    let result = validateCircuit IonQSimulator circuit
+    let result = validateCircuit constraints circuit
     
     // Assert - Should collect all validation errors
     match result with
