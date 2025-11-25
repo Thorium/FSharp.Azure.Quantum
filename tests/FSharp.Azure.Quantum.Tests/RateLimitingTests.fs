@@ -163,3 +163,40 @@ let ``ThrottlingHandler should parse rate limit headers from responses`` () =
         | None ->
             Assert.True(false, "Expected rate limiter to have state after response")
     } |> Async.RunSynchronously
+
+// ============================================================================
+// TDD Cycle #7: 429 Response Handling
+// ============================================================================
+
+[<Fact>]
+let ``ThrottlingHandler should handle 429 responses gracefully`` () =
+    async {
+        // Arrange
+        let mutable callCount = 0
+        let testHandler = 
+            { new HttpMessageHandler() with
+                member _.SendAsync(request, ct) =
+                    task {
+                        callCount <- callCount + 1
+                        // First call returns 429, second returns OK
+                        let response = 
+                            if callCount = 1 then
+                                let r = new HttpResponseMessage(Net.HttpStatusCode.TooManyRequests)
+                                r.Headers.Add("Retry-After", "1")
+                                r
+                            else
+                                new HttpResponseMessage(Net.HttpStatusCode.OK)
+                        return response
+                    }
+            }
+        
+        let throttlingHandler = new ThrottlingHandler(testHandler)
+        let client = new HttpClient(throttlingHandler)
+        
+        // Act
+        let! response = client.GetAsync("https://test.example.com") |> Async.AwaitTask
+        
+        // Assert - should have made initial request and gotten 429
+        Assert.Equal(Net.HttpStatusCode.TooManyRequests, response.StatusCode)
+        Assert.Equal(1, callCount)  // Only one call made (backoff happens after response)
+    } |> Async.RunSynchronously
