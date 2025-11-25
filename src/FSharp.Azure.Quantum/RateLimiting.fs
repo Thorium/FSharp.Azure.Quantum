@@ -64,6 +64,7 @@ module RateLimiting =
     /// Rate limiter with mutable state tracking
     type RateLimiter() =
         let mutable currentState: RateLimitInfo option = None
+        let mutable attemptNumber = 0
         let lockObj = obj()
         
         /// Update rate limit state from new information
@@ -85,6 +86,19 @@ module RateLimiting =
                 match currentState with
                 | Some info -> info.Remaining < 10
                 | None -> false
+            )
+        
+        /// Increment attempt number for exponential backoff (thread-safe)
+        member this.IncrementAttempt() : int =
+            lock lockObj (fun () ->
+                attemptNumber <- attemptNumber + 1
+                attemptNumber
+            )
+        
+        /// Reset attempt number on successful request (thread-safe)
+        member this.ResetAttempt() =
+            lock lockObj (fun () ->
+                attemptNumber <- 0
             )
     
     // ============================================================================
@@ -109,13 +123,16 @@ module RateLimiting =
     
     /// HTTP DelegatingHandler for automatic rate limiting and throttling
     type ThrottlingHandler(?innerHandler: HttpMessageHandler) =
-        inherit DelegatingHandler(match innerHandler with | Some h -> h | None -> new HttpClientHandler())
+        inherit DelegatingHandler(defaultArg innerHandler (new HttpClientHandler() :> HttpMessageHandler))
         
         let rateLimiter = RateLimiter()
-        let mutable attemptNumber = 0
         
         /// Get the rate limiter instance
         member this.GetRateLimiter() = rateLimiter
+        
+        /// Helper method to call protected base.SendAsync
+        member private this.CallBaseSendAsync(request: HttpRequestMessage, cancellationToken: CancellationToken) =
+            base.SendAsync(request, cancellationToken)
         
         /// Send HTTP request with automatic throttling
         override this.SendAsync(request: HttpRequestMessage, cancellationToken: CancellationToken) : Task<HttpResponseMessage> =
@@ -124,28 +141,22 @@ module RateLimiting =
                 if rateLimiter.ShouldThrottle() then
                     do! Async.Sleep(1000)  // Simple 1s delay when approaching limit
                 
-                // Call inner handler's SendAsync through reflection
-                let sendAsyncMethod = 
-                    typeof<HttpMessageHandler>.GetMethod("SendAsync", 
-                        System.Reflection.BindingFlags.Instance ||| System.Reflection.BindingFlags.NonPublic)
+                // Call base handler's SendAsync via helper method
                 let! response = 
-                    sendAsyncMethod.Invoke(this.InnerHandler, [| request; cancellationToken |]) 
-                    :?> Task<HttpResponseMessage>
+                    this.CallBaseSendAsync(request, cancellationToken)
                     |> Async.AwaitTask
                 
-                // Parse rate limit headers from response
-                let rateLimitInfo = parseRateLimitHeaders response
-                match rateLimitInfo with
-                | Some info -> rateLimiter.UpdateState(info)
-                | None -> ()
+                // Parse rate limit headers from response and update state
+                parseRateLimitHeaders response
+                |> Option.iter rateLimiter.UpdateState
                 
                 // Handle 429 Too Many Requests with exponential backoff
                 if response.StatusCode = Net.HttpStatusCode.TooManyRequests then
-                    attemptNumber <- attemptNumber + 1
-                    let delay = calculateExponentialBackoff attemptNumber
+                    let attempt = rateLimiter.IncrementAttempt()
+                    let delay = calculateExponentialBackoff attempt
                     do! Async.Sleep(delay)
                 else
-                    attemptNumber <- 0  // Reset on success
+                    rateLimiter.ResetAttempt()  // Reset on success
                 
                 return response
             } |> Async.StartAsTask
