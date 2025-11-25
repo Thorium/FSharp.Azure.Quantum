@@ -89,4 +89,18 @@ module Authentication =
             tokenTask.ContinueWith(fun (t: Task<string>) ->
                 this.SendAsyncCore(request, cancellationToken, t.Result)
             ).Unwrap()
+    
+    /// Create an authenticated HttpClient for Azure Quantum API calls
+    /// 
+    /// This is the recommended way to create HttpClients for use with Azure Quantum backends.
+    /// The returned client automatically handles Azure AD token acquisition and refresh.
+    /// 
+    /// Example:
+    ///   let credential = CredentialProviders.createDefaultCredential()
+    ///   let httpClient = Authentication.createAuthenticatedClient credential
+    ///   // Use with IonQBackend, RigettiBackend, or Client modules
+    let createAuthenticatedClient (credential: TokenCredential) : HttpClient =
+        let tokenManager = TokenManager(credential)
+        let authHandler = new AuthenticationHandler(tokenManager)
+        new HttpClient(authHandler)
 

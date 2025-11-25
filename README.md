@@ -182,7 +182,68 @@ match Local.simulate circuit 1000 with
 - QAOA circuit execution with mixer and cost Hamiltonians
 - Measurement and shot sampling
 - Zero external dependencies
-- **Unified API**: Same `QaoaCircuit` type works with Azure backend (coming soon)
+
+### ☁️ Azure Quantum Integration (v0.5.0-beta)
+Execute quantum circuits on Azure Quantum backends (IonQ, Rigetti):
+
+```fsharp
+open FSharp.Azure.Quantum.Core
+open FSharp.Azure.Quantum.Core.Authentication
+open FSharp.Azure.Quantum.Core.IonQBackend
+
+// Step 1: Create authenticated HTTP client
+let credential = CredentialProviders.createDefaultCredential()  // Uses Azure CLI, Managed Identity, etc.
+let httpClient = Authentication.createAuthenticatedClient credential
+
+// Step 2: Build workspace URL
+let subscriptionId = "your-subscription-id"
+let resourceGroup = "your-resource-group"
+let workspaceName = "your-workspace-name"
+let location = "eastus"
+let workspaceUrl = 
+    $"https://management.azure.com/subscriptions/{subscriptionId}/resourceGroups/{resourceGroup}/providers/Microsoft.Quantum/Workspaces/{workspaceName}"
+
+// Step 3: Create IonQ circuit (Bell state example)
+let circuit: IonQCircuit = {
+    Qubits = 2
+    Circuit = [
+        SingleQubit("h", 0)      // Hadamard on qubit 0
+        TwoQubit("cnot", 0, 1)   // CNOT with control=0, target=1
+        Measure([|0; 1|])        // Measure both qubits
+    ]
+}
+
+// Step 4: Submit and execute
+async {
+    let! result = IonQBackend.submitAndWaitForResultsAsync httpClient workspaceUrl circuit 100 "ionq.simulator"
+    
+    match result with
+    | Ok histogram ->
+        printfn "✅ Job completed!"
+        histogram 
+        |> Map.iter (fun bitstring count -> 
+            printfn "  %s: %d shots" bitstring count)
+    | Error err ->
+        eprintfn "❌ Error: %A" err
+} |> Async.RunSynchronously
+```
+
+**Supported Backends:**
+- `ionq.simulator` - IonQ cloud simulator
+- `ionq.qpu.aria-1` - IonQ Aria-1 QPU (requires credits)
+- `rigetti.sim.qvm` - Rigetti QVM simulator
+- `rigetti.qpu.aspen-m-3` - Rigetti Aspen-M-3 QPU (requires credits)
+
+**Authentication Methods:**
+- `DefaultAzureCredential()` - Tries Azure CLI, Managed Identity, Environment Variables
+- `AzureCliCredential()` - Uses `az login` credentials  
+- `ManagedIdentityCredential()` - For Azure VMs/App Services
+
+**Features:**
+- Automatic token acquisition and refresh
+- Job submission, polling, and result retrieval
+- Error handling with retry logic
+- Cost tracking and estimation
 
 ### 📊 Problem Analysis
 Analyze problem complexity and characteristics:
