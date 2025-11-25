@@ -163,5 +163,8 @@ module Types =
         /// Job polling timeout
         | Timeout of message: string
 
+        /// Operation cancelled
+        | Cancelled
+
         /// Unknown error
         | UnknownError of statusCode: int * message: string

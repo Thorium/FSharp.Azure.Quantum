@@ -230,8 +230,58 @@ module JobLifecycle =
         (cancellationToken: CancellationToken)
         : Async<Result<QuantumJob, QuantumError>> =
         async {
-            // TODO: Implement exponential backoff polling
-            return Error (QuantumError.UnknownError(500, "Not implemented"))
+            // Helper to check if job status is terminal
+            let isTerminal (status: JobStatus) =
+                match status with
+                | JobStatus.Succeeded -> true
+                | JobStatus.Failed _ -> true
+                | JobStatus.Cancelled -> true
+                | _ -> false
+            
+            // Exponential backoff parameters
+            let initialInterval = TimeSpan.FromSeconds(2.0)
+            let maxInterval = TimeSpan.FromSeconds(30.0)
+            let startTime = DateTimeOffset.UtcNow
+            
+            // Recursive polling loop
+            let rec pollLoop (currentInterval: TimeSpan) : Async<Result<QuantumJob, QuantumError>> =
+                async {
+                    // Check cancellation
+                    if cancellationToken.IsCancellationRequested then
+                        return Error QuantumError.Cancelled
+                    else
+                        // Check timeout
+                        let elapsed = DateTimeOffset.UtcNow - startTime
+                        if elapsed >= timeout then
+                            return Error QuantumError.Cancelled
+                        else
+                            // Get current job status
+                            let! result = getJobStatusAsync httpClient workspaceUrl jobId
+                            
+                            match result with
+                            | Ok job ->
+                                if isTerminal job.Status then
+                                    // Job complete - return result
+                                    return Ok job
+                                else
+                                    // Job still running - wait and poll again
+                                    let! _ = Async.Sleep(int currentInterval.TotalMilliseconds)
+                                    
+                                    // Calculate next interval with exponential backoff
+                                    let nextInterval = 
+                                        let doubled = TimeSpan.FromMilliseconds(currentInterval.TotalMilliseconds * 2.0)
+                                        if doubled > maxInterval then maxInterval else doubled
+                                    
+                                    // Continue polling
+                                    return! pollLoop nextInterval
+                            
+                            | Error err ->
+                                // Error getting status - return error
+                                return Error err
+                }
+            
+            // Start polling loop with initial interval
+            return! pollLoop initialInterval
         }
     
     // ============================================================================

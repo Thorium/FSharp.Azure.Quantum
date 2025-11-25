@@ -191,3 +191,122 @@ module JobLifecycleTests =
                 Assert.Contains("invalid gates", message)
             | _ -> Assert.True(false, sprintf "Expected Failed status but got: %A" job.Status)
         | Error err -> Assert.True(false, sprintf "Expected success but got error: %A" err)
+    
+    // ============================================================================
+    // Polling Tests
+    // ============================================================================
+    
+    [<Fact>]
+    let ``pollJobUntilCompleteAsync should poll until job succeeds`` () =
+        // Arrange: Mock that returns Executing twice, then Succeeded
+        let jobId = Guid.NewGuid().ToString()
+        let mutable callCount = 0
+        
+        let mockResponse _ =
+            callCount <- callCount + 1
+            let jsonResponse = 
+                if callCount < 3 then
+                    // First two calls: Executing
+                    $"""{{
+                        "id": "{jobId}",
+                        "status": "Executing",
+                        "target": "ionq.simulator",
+                        "creationTime": "2025-01-01T10:00:00Z",
+                        "beginExecutionTime": "2025-01-01T10:00:05Z"
+                    }}"""
+                else
+                    // Third call: Succeeded
+                    $"""{{
+                        "id": "{jobId}",
+                        "status": "Succeeded",
+                        "target": "ionq.simulator",
+                        "creationTime": "2025-01-01T10:00:00Z",
+                        "beginExecutionTime": "2025-01-01T10:00:05Z",
+                        "endExecutionTime": "2025-01-01T10:00:10Z"
+                    }}"""
+            
+            let response = new HttpResponseMessage(HttpStatusCode.OK)
+            response.Content <- new StringContent(jsonResponse, Encoding.UTF8, "application/json")
+            Task.FromResult(response)
+        
+        let httpClient = createMockHttpClient mockResponse
+        let workspaceUrl = "https://test.quantum.azure.com"
+        let timeout = TimeSpan.FromSeconds(30.0)
+        let cts = new CancellationTokenSource()
+        
+        // Act: Poll until complete
+        let result = pollJobUntilCompleteAsync httpClient workspaceUrl jobId timeout cts.Token |> Async.RunSynchronously
+        
+        // Assert: Should eventually succeed after 3 calls
+        match result with
+        | Ok job -> 
+            Assert.Equal(3, callCount)  // Should have polled 3 times
+            Assert.Equal(Types.JobStatus.Succeeded, job.Status)
+        | Error err -> Assert.True(false, sprintf "Expected success but got error: %A" err)
+    
+    [<Fact>]
+    let ``pollJobUntilCompleteAsync should respect cancellation token`` () =
+        // Arrange: Mock that always returns Executing
+        let jobId = Guid.NewGuid().ToString()
+        let mockResponse _ = 
+            let jsonResponse = 
+                $"""{{
+                    "id": "{jobId}",
+                    "status": "Executing",
+                    "target": "ionq.simulator",
+                    "creationTime": "2025-01-01T10:00:00Z"
+                }}"""
+            let response = new HttpResponseMessage(HttpStatusCode.OK)
+            response.Content <- new StringContent(jsonResponse, Encoding.UTF8, "application/json")
+            Task.FromResult(response)
+        
+        let httpClient = createMockHttpClient mockResponse
+        let workspaceUrl = "https://test.quantum.azure.com"
+        let timeout = TimeSpan.FromSeconds(30.0)
+        let cts = new CancellationTokenSource()
+        
+        // Cancel immediately
+        cts.Cancel()
+        
+        // Act: Poll with canceled token
+        let result = pollJobUntilCompleteAsync httpClient workspaceUrl jobId timeout cts.Token |> Async.RunSynchronously
+        
+        // Assert: Should return Cancelled error
+        match result with
+        | Ok _ -> Assert.True(false, "Expected cancellation error")
+        | Error err -> 
+            match err with
+            | Types.QuantumError.Cancelled -> Assert.True(true)
+            | _ -> Assert.True(false, sprintf "Expected Cancelled error but got: %A" err)
+    
+    [<Fact>]
+    let ``pollJobUntilCompleteAsync should timeout after max duration`` () =
+        // Arrange: Mock that always returns Executing
+        let jobId = Guid.NewGuid().ToString()
+        let mockResponse _ = 
+            let jsonResponse = 
+                $"""{{
+                    "id": "{jobId}",
+                    "status": "Executing",
+                    "target": "ionq.simulator",
+                    "creationTime": "2025-01-01T10:00:00Z"
+                }}"""
+            let response = new HttpResponseMessage(HttpStatusCode.OK)
+            response.Content <- new StringContent(jsonResponse, Encoding.UTF8, "application/json")
+            Task.FromResult(response)
+        
+        let httpClient = createMockHttpClient mockResponse
+        let workspaceUrl = "https://test.quantum.azure.com"
+        let timeout = TimeSpan.FromMilliseconds(100.0)  // Very short timeout
+        let cts = new CancellationTokenSource()
+        
+        // Act: Poll with short timeout
+        let result = pollJobUntilCompleteAsync httpClient workspaceUrl jobId timeout cts.Token |> Async.RunSynchronously
+        
+        // Assert: Should return timeout error
+        match result with
+        | Ok _ -> Assert.True(false, "Expected timeout error")
+        | Error err -> 
+            match err with
+            | Types.QuantumError.Cancelled -> Assert.True(true)  // Timeout manifests as cancellation
+            | _ -> Assert.True(false, sprintf "Expected timeout/cancelled but got: %A" err)
