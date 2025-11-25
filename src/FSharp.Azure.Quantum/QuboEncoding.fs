@@ -606,3 +606,38 @@ module ProblemTransformer =
                 IsValid = errors.Count = 0
                 Errors = errors |> Seq.toList
             }
+    
+    // ============================================================================
+    // Custom Problem Registration
+    // ============================================================================
+    
+    /// Type alias for custom transformation function
+    type CustomTransformation = obj -> QuboMatrix
+    
+    /// Registry of custom problem transformations (mutable for registration)
+    let private customTransformations = System.Collections.Generic.Dictionary<string, CustomTransformation>()
+    
+    /// Register a custom QUBO transformation for a specific problem type.
+    /// 
+    /// Usage:
+    /// ```fsharp
+    /// let myTransform (data: obj) = 
+    ///     // Convert data and create QUBO
+    ///     { Size = n; Coefficients = q; VariableNames = names }
+    /// 
+    /// ProblemTransformer.registerProblem "MyProblem" myTransform
+    /// ```
+    let registerProblem (problemName: string) (transformation: CustomTransformation) : unit =
+        customTransformations.[problemName] <- transformation
+    
+    /// Apply a registered custom transformation.
+    /// 
+    /// Usage:
+    /// ```fsharp
+    /// let qubo = ProblemTransformer.applyTransformation "MyProblem" problemData
+    /// ```
+    let applyTransformation (problemName: string) (problemData: obj) : QuboMatrix =
+        match customTransformations.TryGetValue(problemName) with
+        | true, transform -> transform problemData
+        | false, _ -> 
+            failwith (sprintf "Problem '%s' not registered. Call registerProblem first." problemName)

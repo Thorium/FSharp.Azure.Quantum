@@ -1219,3 +1219,68 @@ module QuboEncodingTests =
         // This is 20% more direct than NodeBased which requires indirect path reconstruction
         let expectedObjectiveTerms = numCities * (numCities - 1)
         Assert.Equal(expectedObjectiveTerms, objectiveTermCount)
+    
+    // ============================================================================
+    // Custom Problem Registration Tests
+    // ============================================================================
+    
+    [<Fact>]
+    let ``Custom problem registration - register and apply custom transformation`` () =
+        // Real-world: Register custom QUBO transformation for Graph Coloring
+        // Objective: Color graph with minimum colors such that no adjacent vertices share color
+        
+        // Define custom transformation function
+        // Graph: 4 vertices, edges: (0,1), (1,2), (2,3), (0,3)
+        // Variables: x[i][c] = "vertex i has color c"
+        let customTransform (problemData: obj) =
+            let edges = problemData :?> (int * int) list
+            let numVertices = 4
+            let numColors = 3
+            let size = numVertices * numColors  // 12 variables total
+            
+            let q = Array2D.zeroCreate<float> size size
+            
+            // Objective: minimize number of colors used
+            // Penalty: adjacent vertices cannot have same color
+            let penalty = 100.0
+            
+            // For each edge (u, v), add penalty if both have same color
+            for (u, v) in edges do
+                for c in 0 .. numColors - 1 do
+                    let idxU = u * numColors + c
+                    let idxV = v * numColors + c
+                    // Penalty for both vertices having color c
+                    q.[idxU, idxV] <- q.[idxU, idxV] + penalty
+                    q.[idxV, idxU] <- q.[idxV, idxU] + penalty
+            
+            // Variable names
+            let varNames = 
+                [for i in 0 .. numVertices - 1 do
+                    for c in 0 .. numColors - 1 do
+                        yield sprintf "v%d_c%d" i c]
+            
+            {
+                Size = size
+                Coefficients = q
+                VariableNames = varNames
+            }
+        
+        // Register custom transformation
+        ProblemTransformer.registerProblem "GraphColoring" customTransform
+        
+        // Apply registered transformation
+        let edges = [(0, 1); (1, 2); (2, 3); (0, 3)]
+        let qubo = ProblemTransformer.applyTransformation "GraphColoring" (box edges)
+        
+        // Verify QUBO structure
+        Assert.Equal(12, qubo.Size)  // 4 vertices × 3 colors
+        
+        // Verify penalty exists for adjacent vertices with same color
+        // Edge (0,1), color 0: should have penalty
+        let idx0c0 = 0 * 3 + 0  // vertex 0, color 0
+        let idx1c0 = 1 * 3 + 0  // vertex 1, color 0
+        Assert.True(qubo.GetCoefficient(idx0c0, idx1c0) > 0.0, "Expected penalty for adjacent vertices with same color")
+        
+        // Verify QUBO is valid
+        let validation = ProblemTransformer.validateTransformation qubo
+        Assert.True(validation.IsValid, sprintf "Custom QUBO should be valid: %A" validation.Errors)
