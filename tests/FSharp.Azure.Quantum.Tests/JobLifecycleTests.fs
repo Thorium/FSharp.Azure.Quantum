@@ -310,3 +310,51 @@ module JobLifecycleTests =
             match err with
             | Types.QuantumError.Cancelled -> Assert.True(true)  // Timeout manifests as cancellation
             | _ -> Assert.True(false, sprintf "Expected timeout/cancelled but got: %A" err)
+    
+    // ============================================================================
+    // Job Result Retrieval Tests
+    // ============================================================================
+    
+    [<Fact>]
+    let ``getJobResultAsync should download result from blob storage`` () =
+        // Arrange: Mock HTTP response with result JSON from blob storage
+        let jobId = Guid.NewGuid().ToString()
+        let mockResponse _ = 
+            let jsonResponse = 
+                """{"histogram":{"00":512,"11":488},"shots":1000}"""
+            let response = new HttpResponseMessage(HttpStatusCode.OK)
+            response.Content <- new StringContent(jsonResponse, Encoding.UTF8, "application/json")
+            Task.FromResult(response)
+        
+        let httpClient = createMockHttpClient mockResponse
+        let blobUri = "https://storage.blob.core.windows.net/results/job-123.json"
+        
+        // Act: Get job result
+        let result = getJobResultAsync httpClient blobUri |> Async.RunSynchronously
+        
+        // Assert: Should return JobResult with data
+        match result with
+        | Ok jobResult -> 
+            Assert.NotNull(jobResult.OutputData)
+            Assert.Equal("application/json", jobResult.OutputDataFormat)
+        | Error err -> Assert.True(false, sprintf "Expected success but got error: %A" err)
+    
+    [<Fact>]
+    let ``getJobResultAsync should handle 404 blob not found`` () =
+        // Arrange: Mock HTTP response with 404
+        let mockResponse _ = 
+            Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound))
+        
+        let httpClient = createMockHttpClient mockResponse
+        let blobUri = "https://storage.blob.core.windows.net/results/nonexistent.json"
+        
+        // Act: Get job result
+        let result = getJobResultAsync httpClient blobUri |> Async.RunSynchronously
+        
+        // Assert: Should return error
+        match result with
+        | Ok _ -> Assert.True(false, "Expected error for 404")
+        | Error err -> 
+            match err with
+            | Types.QuantumError.UnknownError (404, _) -> Assert.True(true)
+            | _ -> Assert.True(false, sprintf "Expected 404 error but got: %A" err)

@@ -113,6 +113,9 @@ module Types =
 
             /// Cancellation time
             CancellationTime: DateTimeOffset option
+
+            /// Output data URI (blob storage location for results)
+            OutputDataUri: string option
         }
 
     /// Job result

@@ -155,6 +155,7 @@ module JobLifecycle =
                     let beginExecutionTime = tryGetStringProperty "beginExecutionTime"
                     let endExecutionTime = tryGetStringProperty "endExecutionTime"
                     let cancellationTime = tryGetStringProperty "cancellationTime"
+                    let outputDataUri = tryGetStringProperty "outputDataUri"
                     
                     // Extract error data if present
                     let (errorCode, errorMessage) =
@@ -178,6 +179,7 @@ module JobLifecycle =
                         BeginExecutionTime = beginExecutionTime |> Option.map DateTimeOffset.Parse
                         EndExecutionTime = endExecutionTime |> Option.map DateTimeOffset.Parse
                         CancellationTime = cancellationTime |> Option.map DateTimeOffset.Parse
+                        OutputDataUri = outputDataUri
                     }
                     
                     return Ok quantumJob
@@ -300,8 +302,60 @@ module JobLifecycle =
         (blobUri: string)
         : Async<Result<JobResult, QuantumError>> =
         async {
-            // TODO: Implement blob storage result retrieval
-            return Error (QuantumError.UnknownError(500, "Not implemented"))
+            try
+                // Make GET request to blob storage URI
+                let! response = httpClient.GetAsync(blobUri) |> Async.AwaitTask
+                
+                // Handle response
+                match response.StatusCode with
+                | HttpStatusCode.OK ->
+                    // Download result data
+                    let! resultJson = response.Content.ReadAsStringAsync() |> Async.AwaitTask
+                    let contentType = 
+                        if response.Content.Headers.ContentType <> null then
+                            response.Content.Headers.ContentType.MediaType
+                        else
+                            "application/json"
+                    
+                    // Parse JSON to extract job ID if present
+                    let jobId = 
+                        try
+                            use jsonDoc = JsonDocument.Parse(resultJson)
+                            let root = jsonDoc.RootElement
+                            let mutable idProp = Unchecked.defaultof<JsonElement>
+                            if root.TryGetProperty("jobId", &idProp) then
+                                idProp.GetString()
+                            else
+                                "unknown"
+                        with
+                        | _ -> "unknown"
+                    
+                    // Create JobResult
+                    let jobResult = {
+                        JobId = jobId
+                        Status = JobStatus.Succeeded  // Results only available for succeeded jobs
+                        OutputData = box resultJson
+                        OutputDataFormat = contentType
+                        ExecutionTime = None  // Not available in result blob
+                    }
+                    
+                    return Ok jobResult
+                    
+                | HttpStatusCode.NotFound ->
+                    return Error (QuantumError.UnknownError(404, sprintf "Result blob not found at %s" blobUri))
+                    
+                | HttpStatusCode.Unauthorized ->
+                    return Error QuantumError.InvalidCredentials
+                    
+                | _ ->
+                    let! errorBody = response.Content.ReadAsStringAsync() |> Async.AwaitTask
+                    return Error (QuantumError.UnknownError(int response.StatusCode, errorBody))
+                    
+            with
+            | :? TaskCanceledException ->
+                return Error (QuantumError.NetworkTimeout 1)
+            | ex ->
+                return Error (QuantumError.UnknownError(0, ex.Message))
         }
     
     // ============================================================================
@@ -324,4 +378,102 @@ module JobLifecycle =
         async {
             // TODO: Implement job cancellation
             return Error (QuantumError.UnknownError(500, "Not implemented"))
+        }
+    
+    // ============================================================================
+    // COMPOSITIONAL WORKFLOWS
+    // ============================================================================
+    
+    /// Submit job and poll until complete, then retrieve results
+    /// 
+    /// This is the primary workflow function that composes the entire job lifecycle:
+    /// submit → poll → get results
+    /// 
+    /// Parameters:
+    /// - httpClient: HTTP client for API requests
+    /// - workspaceUrl: Azure Quantum workspace URL
+    /// - submission: Job submission details
+    /// - timeout: Maximum polling time (default: 5 minutes)
+    /// - cancellationToken: Cancellation token
+    /// 
+    /// Returns: Result with JobResult or QuantumError
+    let submitAndWaitForResultAsync
+        (httpClient: HttpClient)
+        (workspaceUrl: string)
+        (submission: JobSubmission)
+        (timeout: TimeSpan)
+        (cancellationToken: CancellationToken)
+        : Async<Result<JobResult, QuantumError>> =
+        async {
+            // Step 1: Submit job
+            let! submitResult = submitJobAsync httpClient workspaceUrl submission
+            
+            match submitResult with
+            | Error err -> return Error err
+            | Ok jobId ->
+                // Step 2: Poll until complete
+                let! pollResult = pollJobUntilCompleteAsync httpClient workspaceUrl jobId timeout cancellationToken
+                
+                match pollResult with
+                | Error err -> return Error err
+                | Ok job ->
+                    // Step 3: Get results if available
+                    match job.OutputDataUri with
+                    | None -> 
+                        return Error (QuantumError.UnknownError(500, "Job completed but no output URI available"))
+                    | Some uri ->
+                        return! getJobResultAsync httpClient uri
+        }
+    
+    /// Submit job and poll until complete
+    /// 
+    /// Convenience function that submits a job and waits for completion.
+    /// Use this when you want the final job status but not the results.
+    /// 
+    /// Parameters:
+    /// - httpClient: HTTP client for API requests
+    /// - workspaceUrl: Azure Quantum workspace URL
+    /// - submission: Job submission details
+    /// - timeout: Maximum polling time (default: 5 minutes)
+    /// - cancellationToken: Cancellation token
+    /// 
+    /// Returns: Result with final QuantumJob or QuantumError
+    let submitAndWaitAsync
+        (httpClient: HttpClient)
+        (workspaceUrl: string)
+        (submission: JobSubmission)
+        (timeout: TimeSpan)
+        (cancellationToken: CancellationToken)
+        : Async<Result<QuantumJob, QuantumError>> =
+        async {
+            // Step 1: Submit job
+            let! submitResult = submitJobAsync httpClient workspaceUrl submission
+            
+            match submitResult with
+            | Error err -> return Error err
+            | Ok jobId ->
+                // Step 2: Poll until complete
+                return! pollJobUntilCompleteAsync httpClient workspaceUrl jobId timeout cancellationToken
+        }
+    
+    /// Get job result from completed job
+    /// 
+    /// Convenience function that retrieves results from a QuantumJob.
+    /// Handles the OutputDataUri extraction automatically.
+    /// 
+    /// Parameters:
+    /// - httpClient: HTTP client for API requests
+    /// - job: Completed quantum job
+    /// 
+    /// Returns: Result with JobResult or QuantumError
+    let getResultFromJobAsync
+        (httpClient: HttpClient)
+        (job: QuantumJob)
+        : Async<Result<JobResult, QuantumError>> =
+        async {
+            match job.OutputDataUri with
+            | None ->
+                return Error (QuantumError.UnknownError(500, sprintf "Job %s has no output URI" job.JobId))
+            | Some uri ->
+                return! getJobResultAsync httpClient uri
         }
