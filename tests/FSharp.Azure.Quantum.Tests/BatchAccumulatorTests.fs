@@ -3,6 +3,8 @@ namespace FSharp.Azure.Quantum.Tests
 open System
 open Xunit
 open FSharp.Azure.Quantum.Core.Batching
+open FSharp.Azure.Quantum.Core.QuantumBackend
+open FSharp.Azure.Quantum.Core.QaoaCircuit
 
 module BatchAccumulatorTests =
     
@@ -539,3 +541,127 @@ module BatchAccumulatorTests =
         // Assert - Average efficiency should be 75%
         let efficiency = metrics.GetEfficiency(50)
         Assert.Equal(0.75, efficiency, 2)
+    
+    // ============================================================================
+    // TDD CYCLE 8: QuantumBackend Integration - Batch Circuit Execution
+    // ============================================================================
+    
+    [<Fact>]
+    let ``executeBatch with Local backend should execute multiple circuits`` () =
+        // Arrange
+        // Create simple QAOA circuits
+        let createSimpleCircuit numQubits =
+            let problemHamiltonian : ProblemHamiltonian = {
+                NumQubits = numQubits
+                Terms = [| { QubitsIndices = [|0; 1|]; PauliOperators = [|PauliZ; PauliZ|]; Coefficient = 1.0 } |]
+            }
+            let mixerHamiltonian = MixerHamiltonian.create numQubits
+            let layer = {
+                CostGates = [| RZZ(0, 1, 1.0) |]
+                MixerGates = [| RX(0, 0.6); RX(1, 0.6) |]
+                Gamma = 0.5
+                Beta = 0.3
+            }
+            {
+                NumQubits = numQubits
+                InitialStateGates = [| H(0); H(1) |]
+                Layers = [| layer |]
+                ProblemHamiltonian = problemHamiltonian
+                MixerHamiltonian = mixerHamiltonian
+            }
+        
+        let circuits = [ createSimpleCircuit 2; createSimpleCircuit 2; createSimpleCircuit 2 ]
+        let shots = 100
+        
+        // Act
+        let results = 
+            executeBatch Local circuits shots (BatchConfig.defaultConfig)
+            |> Async.RunSynchronously
+        
+        // Assert
+        match results with
+        | Ok resultList ->
+            Assert.Equal(3, resultList.Length)
+            resultList |> List.iter (fun r ->
+                Assert.Equal(shots, r.Shots)
+                Assert.Equal("Local", r.Backend)
+                Assert.True(r.ExecutionTimeMs > 0.0)
+            )
+        | Error msg ->
+            Assert.True(false, $"Expected success but got error: {msg}")
+    
+    [<Fact>]
+    let ``executeBatch should return error if any circuit fails`` () =
+        // Arrange
+        let createCircuit numQubits =
+            let problemHamiltonian : ProblemHamiltonian = {
+                NumQubits = numQubits
+                Terms = [| { QubitsIndices = [|0; 1|]; PauliOperators = [|PauliZ; PauliZ|]; Coefficient = 1.0 } |]
+            }
+            let mixerHamiltonian = MixerHamiltonian.create numQubits
+            let layer = {
+                CostGates = [| RZZ(0, 1, 1.0) |]
+                MixerGates = Array.init numQubits (fun i -> RX(i, 0.6))
+                Gamma = 0.5
+                Beta = 0.3
+            }
+            {
+                NumQubits = numQubits
+                InitialStateGates = Array.init numQubits (fun i -> H(i))
+                Layers = [| layer |]
+                ProblemHamiltonian = problemHamiltonian
+                MixerHamiltonian = mixerHamiltonian
+            }
+        
+        // Mix valid and invalid circuits (>10 qubits fails on local simulator)
+        let circuits = [ createCircuit 2; createCircuit 15; createCircuit 2 ]
+        let shots = 100
+        
+        // Act
+        let results = 
+            executeBatch Local circuits shots (BatchConfig.defaultConfig)
+            |> Async.RunSynchronously
+        
+        // Assert
+        match results with
+        | Ok _ -> Assert.True(false, "Expected error due to invalid circuit")
+        | Error msg -> Assert.Contains("15", msg)  // Error message should mention qubit count
+    
+    [<Fact>]
+    let ``executeBatch with disabled batching should still execute circuits`` () =
+        // Arrange
+        let createSimpleCircuit () =
+            let problemHamiltonian : ProblemHamiltonian = {
+                NumQubits = 2
+                Terms = [| { QubitsIndices = [|0; 1|]; PauliOperators = [|PauliZ; PauliZ|]; Coefficient = 1.0 } |]
+            }
+            let mixerHamiltonian = MixerHamiltonian.create 2
+            let layer = {
+                CostGates = [| RZZ(0, 1, 1.0) |]
+                MixerGates = [| RX(0, 0.6); RX(1, 0.6) |]
+                Gamma = 0.5
+                Beta = 0.3
+            }
+            {
+                NumQubits = 2
+                InitialStateGates = [| H(0); H(1) |]
+                Layers = [| layer |]
+                ProblemHamiltonian = problemHamiltonian
+                MixerHamiltonian = mixerHamiltonian
+            }
+        
+        let circuits = [ createSimpleCircuit(); createSimpleCircuit() ]
+        let shots = 50
+        let config = { BatchConfig.defaultConfig with Enabled = false }
+        
+        // Act
+        let results = 
+            executeBatch Local circuits shots config
+            |> Async.RunSynchronously
+        
+        // Assert
+        match results with
+        | Ok resultList ->
+            Assert.Equal(2, resultList.Length)
+        | Error msg ->
+            Assert.True(false, $"Expected success but got error: {msg}")

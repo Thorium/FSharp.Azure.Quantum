@@ -205,3 +205,84 @@ module QuantumBackend =
             Local.simulate circuit shots
         else
             Error $"Circuit requires Azure Quantum ({circuit.NumQubits} qubits > 10 qubit local limit). Azure backend not yet implemented."
+    
+    /// Execute multiple circuits in batch with automatic batching
+    /// 
+    /// Submits multiple circuits using the batching strategy to amortize overhead.
+    /// If batching is disabled, circuits are submitted individually.
+    /// 
+    /// Parameters:
+    /// - backendType: The backend to use (Local or Azure)
+    /// - circuits: List of circuits to execute
+    /// - shots: Number of shots per circuit
+    /// - config: Batch configuration (size, timeout, enabled)
+    /// 
+    /// Returns: Result with list of execution results or error message
+    let executeBatch 
+        (backendType: BackendType) 
+        (circuits: QaoaCircuit list) 
+        (shots: int) 
+        (config: Batching.BatchConfig)
+        : Async<Result<ExecutionResult list, string>> =
+        async {
+            if circuits.IsEmpty then
+                return Ok []
+            elif not config.Enabled then
+                // Batching disabled - execute circuits individually
+                let mutable results = []
+                let mutable error = None
+                for circuit in circuits do
+                    match execute backendType circuit shots with
+                    | Ok result -> results <- result :: results
+                    | Error msg -> 
+                        error <- Some msg
+                match error with
+                | Some msg -> return Error msg
+                | None -> return Ok (List.rev results)
+            else
+                // Batching enabled - use batchCircuitsAsync
+                let mutable firstError = None
+                let submitBatch (batch: QaoaCircuit list) : Async<Result<ExecutionResult list, string>> =
+                    async {
+                        let mutable batchResults = []
+                        for circuit in batch do
+                            match execute backendType circuit shots with
+                            | Ok result -> batchResults <- result :: batchResults
+                            | Error msg -> 
+                                if firstError.IsNone then
+                                    firstError <- Some msg
+                        return 
+                            match firstError with
+                            | Some msg -> Error msg
+                            | None -> Ok (List.rev batchResults)
+                    }
+                
+                // Process circuits in batches
+                let mutable allResults = []
+                let mutable currentBatch = []
+                let mutable error = None
+                
+                for circuit in circuits do
+                    currentBatch <- circuit :: currentBatch
+                    
+                    if currentBatch.Length >= config.MaxBatchSize then
+                        let batch = List.rev currentBatch
+                        let! batchResult = submitBatch batch
+                        match batchResult with
+                        | Ok results -> allResults <- allResults @ results
+                        | Error msg -> 
+                            error <- Some msg
+                        currentBatch <- []
+                
+                // Submit remaining circuits
+                if error.IsNone && not currentBatch.IsEmpty then
+                    let batch = List.rev currentBatch
+                    let! batchResult = submitBatch batch
+                    match batchResult with
+                    | Ok results -> allResults <- allResults @ results
+                    | Error msg -> error <- Some msg
+                
+                match error with
+                | Some msg -> return Error msg
+                | None -> return Ok allResults
+        }
