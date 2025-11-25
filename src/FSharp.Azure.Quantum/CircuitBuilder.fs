@@ -95,7 +95,7 @@ module CircuitBuilder =
         let qregDecl = $"qreg q[{circuit.QubitCount}];"
         let gateLines = circuit.Gates |> List.map gateToQASM
         
-        let allLines = [header; qregDecl] @ gateLines
+        let allLines = header :: qregDecl :: gateLines
         System.String.Join("\n", allLines)
 
     /// Validation result containing validity status and error messages

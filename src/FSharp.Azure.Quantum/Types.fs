@@ -113,6 +113,9 @@ module Types =
 
             /// Cancellation time
             CancellationTime: DateTimeOffset option
+
+            /// Output data URI (blob storage location for results)
+            OutputDataUri: string option
         }
 
     /// Job result
@@ -162,6 +165,9 @@ module Types =
 
         /// Job polling timeout
         | Timeout of message: string
+
+        /// Operation cancelled
+        | Cancelled
 
         /// Unknown error
         | UnknownError of statusCode: int * message: string

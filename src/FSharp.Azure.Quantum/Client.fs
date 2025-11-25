@@ -318,7 +318,8 @@ module Client =
                               CreationTime = creationTime
                               BeginExecutionTime = beginExecutionTime
                               EndExecutionTime = endExecutionTime
-                              CancellationTime = cancellationTime }
+                              CancellationTime = cancellationTime
+                              OutputDataUri = None }
 
                         return Ok quantumJob
                     else

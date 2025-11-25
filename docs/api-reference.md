@@ -19,6 +19,7 @@ Complete reference for **FSharp.Azure.Quantum** public APIs.
 - [ProblemAnalysis](#problemanalysis) - Problem classification and complexity
 - [CostEstimation](#costestimation) - Cost calculation and budget management
 - [Types](#types) - Core types and data structures
+- **[QUBO Encoding Strategies](qubo-encoding-strategies.md)** - Problem-specific transformations (NEW!)
 
 ---
 

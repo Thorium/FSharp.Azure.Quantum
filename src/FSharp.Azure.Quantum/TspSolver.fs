@@ -27,6 +27,34 @@ module TspSolver =
         MaxIterations = 1000
         UseNearestNeighbor = true
     }
+    
+    /// Maximum number of cities allowed (prevents memory exhaustion)
+    let maxCities = 10000
+    
+    /// Validate distance matrix dimensions and values
+    let private validateDistanceMatrix (distances: DistanceMatrix) : Result<unit, string> =
+        let n = distances.GetLength(0)
+        let m = distances.GetLength(1)
+        
+        // Check matrix size (allow 1 city as trivial case)
+        if n < 1 then
+            Error "Distance matrix must have at least 1 city"
+        elif n > maxCities then
+            Error $"Distance matrix too large: {n} cities exceeds maximum {maxCities}"
+        elif n <> m then
+            Error $"Distance matrix must be square (NxN): got {n}x{m}"
+        else
+            // Check for negative distances
+            let hasNegative = 
+                seq { for i in 0..n-1 do
+                        for j in 0..n-1 do
+                            yield distances.[i,j] }
+                |> Seq.exists (fun d -> d < 0.0 || Double.IsNaN(d) || Double.IsInfinity(d))
+            
+            if hasNegative then
+                Error "Distance matrix contains invalid values (negative, NaN, or Infinity)"
+            else
+                Ok ()
 
     /// TSP solution result
     type TspSolution = {
@@ -177,9 +205,18 @@ module TspSolver =
 
     /// Solve TSP using nearest neighbor + 2-opt
     let solve (cities: City array) (config: TspConfig) : TspSolution =
+        // Validate input (allow 1 city as trivial case)
+        if cities.Length < 1 then
+            failwith "Need at least 1 city"
+        elif cities.Length > maxCities then
+            failwith $"Too many cities: {cities.Length} exceeds maximum {maxCities}"
+        
         let distances = buildDistanceMatrix cities
         solveTsp distances config
 
     /// Solve TSP with custom distance matrix
     let solveWithDistances (distances: DistanceMatrix) (config: TspConfig) : TspSolution =
-        solveTsp distances config
+        // Validate input (throws on invalid input to maintain backward compatibility)
+        match validateDistanceMatrix distances with
+        | Error msg -> failwith msg
+        | Ok () -> solveTsp distances config

@@ -81,7 +81,7 @@ module CircuitBuilderTests =
         let qubits = CircuitBuilder.qubitCount circuit
         Assert.Equal(5, qubits)
 
-    // TDD Cycle #2: Circuit construction API tests
+    // Circuit construction API tests
 
     [<Fact>]
     let ``addGate should add a single gate to circuit`` () =
@@ -148,7 +148,7 @@ module CircuitBuilderTests =
         | CircuitBuilder.Gate.CNOT (0, 1) -> ()
         | _ -> Assert.True(false, "Expected CNOT (0,1) as third gate")
 
-    // TDD Cycle #3: Basic optimization tests
+    // Basic optimization tests
 
     [<Fact>]
     let ``optimize should remove consecutive H gates on same qubit`` () =
@@ -219,7 +219,7 @@ module CircuitBuilderTests =
         let optimized = CircuitBuilder.optimize circuit
         Assert.Equal(2, CircuitBuilder.gateCount optimized)  // RX(1, 3.0) and CNOT
 
-    // TDD Cycle #4: OpenQASM output generation tests
+    // OpenQASM output generation tests
 
     [<Fact>]
     let ``toOpenQASM should include header and qubit declaration`` () =
@@ -325,7 +325,7 @@ module CircuitBuilderTests =
         Assert.Contains("rx(1.5) q[2];", qasm)
         Assert.Contains("x q[2];", qasm)
 
-    // TDD Cycle #5: Circuit validation tests
+    // Circuit validation tests
 
     [<Fact>]
     let ``validate should pass for valid circuit`` () =

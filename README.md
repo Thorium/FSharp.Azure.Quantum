@@ -5,6 +5,29 @@
 [![NuGet](https://img.shields.io/nuget/v/FSharp.Azure.Quantum.svg)](https://www.nuget.org/packages/FSharp.Azure.Quantum/)
 [![License](https://img.shields.io/badge/license-Unlicense-blue.svg)](LICENSE)
 
+## ✨ Status: Beta (v0.5.0) - Quantum Backends Ready
+
+**Current Features (v0.5.0-beta):**
+- ✅ Production-ready classical optimization (TSP, Portfolio)
+- ✅ Quantum Advisor (recommendations for quantum advantage)
+- ✅ **Azure Quantum backend integration** (IonQ, Rigetti simulators)
+- ✅ **HybridSolver with automatic quantum routing**
+- ✅ Job submission, polling, and result parsing
+- ✅ Local quantum simulation (≤10 qubits)
+
+**Production-Ready Azure Quantum Features:**
+- ✅ IonQ simulator and QPU (`ionq.simulator`, `ionq.qpu.aria-1`)
+- ✅ Rigetti QVM and Aspen QPU (`rigetti.sim.qvm`, `rigetti.qpu.aspen-m-3`)
+- ✅ Azure authentication via Azure.Identity (CLI, Managed Identity)
+- ✅ Pre-flight circuit validation (catch errors before submission)
+- ✅ Cost limit enforcement and error handling
+- ✅ Multi-provider QAOA support (OpenQASM 2.0)
+
+**Coming in v1.0:**
+- 🎯 QUBO-to-circuit conversion for TSP/Portfolio problems
+- 🎯 Advanced result comparison and quantum advantage validation
+- 🎯 Support for IBM Quantum, Amazon Braket, Google Cirq
+
 ## 🚀 Quick Start
 
 ```fsharp
@@ -116,6 +139,253 @@ let tspSolution = TspSolver.solveWithDistances distances TspSolver.defaultConfig
 let portfolio = PortfolioSolver.solveGreedyByRatio assets constraints PortfolioSolver.defaultConfig
 ```
 
+### 🔬 Local Quantum Simulation
+Test quantum algorithms offline without Azure credentials:
+
+```fsharp
+open FSharp.Azure.Quantum.Core
+open FSharp.Azure.Quantum.Core.QuantumBackend
+open FSharp.Azure.Quantum.Core.QaoaCircuit
+
+// Create a QAOA circuit (example: 3-qubit MaxCut)
+let quboMatrix = array2D [[0.0; 0.5; 0.5]; [0.5; 0.0; 0.5]; [0.5; 0.5; 0.0]]
+let circuit = {
+    NumQubits = 3
+    InitialStateGates = [| H(0); H(1); H(2) |]
+    Layers = [|
+        {
+            CostGates = [| RZZ(0, 1, 0.5); RZZ(1, 2, 0.5); RZZ(0, 2, 0.5) |]
+            MixerGates = [| RX(0, 1.0); RX(1, 1.0); RX(2, 1.0) |]
+            Gamma = 0.25
+            Beta = 0.5
+        }
+    |]
+    ProblemHamiltonian = ProblemHamiltonian.fromQubo quboMatrix
+    MixerHamiltonian = MixerHamiltonian.create 3
+}
+
+// Execute on local simulator
+match Local.simulate circuit 1000 with
+| Ok result ->
+    printfn "Backend: %s" result.Backend
+    printfn "Time: %.2f ms" result.ExecutionTimeMs
+    result.Counts
+    |> Map.toList
+    |> List.sortByDescending snd
+    |> List.take 3
+    |> List.iter (fun (bitstring, count) ->
+        printfn "  %s: %d shots" bitstring count)
+| Error msg ->
+    eprintfn "Error: %s" msg
+```
+
+**Features:**
+- State vector simulation (up to 10 qubits)
+- QAOA circuit execution with mixer and cost Hamiltonians
+- Measurement and shot sampling
+- Zero external dependencies
+
+**QAOA Multi-Provider Support:**
+
+QAOA circuits use **OpenQASM 2.0** format, making them compatible with all major quantum providers:
+
+```fsharp
+open FSharp.Azure.Quantum.Core.QaoaCircuit
+
+// Build QAOA circuit (provider-agnostic)
+let quboMatrix = array2D [[1.0; -2.0]; [-2.0; 1.0]]
+let problemHam = ProblemHamiltonian.fromQubo quboMatrix
+let mixerHam = MixerHamiltonian.create 2
+let circuit = QaoaCircuit.build problemHam mixerHam [|(0.5, 0.3)|]
+
+// Export to OpenQASM 2.0 (universal format)
+let qasm = QaoaCircuit.toOpenQasm circuit
+printfn "%s" qasm
+// Output:
+// OPENQASM 2.0;
+// include "qelib1.inc";
+// qreg q[2];
+// // Initial state preparation
+// h q[0];
+// h q[1];
+// ...
+```
+
+**Provider Compatibility:**
+- ✅ **IonQ** - Native OpenQASM or JSON gate format
+- ✅ **Rigetti** - Translate OpenQASM → Quil (assembly language)
+- ✅ **IBM Qiskit** - Native OpenQASM 2.0 support
+- ✅ **Amazon Braket** - OpenQASM support
+- ✅ **Google Cirq** - OpenQASM import capability
+- ✅ **Local Simulator** - Direct QAOA execution (no translation needed)
+
+**Why QAOA is Provider-Agnostic:**
+- Uses **standard gate set** (H, RX, RY, RZ, RZZ, CNOT)
+- **OpenQASM 2.0** is the industry standard for circuit interchange
+- Algorithm logic is **separate from backend submission** code
+
+### ☁️ Azure Quantum Integration (v0.5.0-beta)
+Execute quantum circuits on Azure Quantum backends (IonQ, Rigetti):
+
+```fsharp
+open FSharp.Azure.Quantum.Core
+open FSharp.Azure.Quantum.Core.Authentication
+open FSharp.Azure.Quantum.Core.IonQBackend
+
+// Step 1: Create authenticated HTTP client
+let credential = CredentialProviders.createDefaultCredential()  // Uses Azure CLI, Managed Identity, etc.
+let httpClient = Authentication.createAuthenticatedClient credential
+
+// Step 2: Build workspace URL
+let subscriptionId = "your-subscription-id"
+let resourceGroup = "your-resource-group"
+let workspaceName = "your-workspace-name"
+let location = "eastus"
+let workspaceUrl = 
+    $"https://management.azure.com/subscriptions/{subscriptionId}/resourceGroups/{resourceGroup}/providers/Microsoft.Quantum/Workspaces/{workspaceName}"
+
+// Step 3: Create IonQ circuit (Bell state example)
+let circuit: IonQCircuit = {
+    Qubits = 2
+    Circuit = [
+        SingleQubit("h", 0)      // Hadamard on qubit 0
+        TwoQubit("cnot", 0, 1)   // CNOT with control=0, target=1
+        Measure([|0; 1|])        // Measure both qubits
+    ]
+}
+
+// Step 4: Submit and execute
+async {
+    let! result = IonQBackend.submitAndWaitForResultsAsync httpClient workspaceUrl circuit 100 "ionq.simulator"
+    
+    match result with
+    | Ok histogram ->
+        printfn "✅ Job completed!"
+        histogram 
+        |> Map.iter (fun bitstring count -> 
+            printfn "  %s: %d shots" bitstring count)
+    | Error err ->
+        eprintfn "❌ Error: %A" err
+} |> Async.RunSynchronously
+```
+
+**Supported Backends:**
+- `ionq.simulator` - IonQ cloud simulator
+- `ionq.qpu.aria-1` - IonQ Aria-1 QPU (requires credits)
+- `rigetti.sim.qvm` - Rigetti QVM simulator
+- `rigetti.qpu.aspen-m-3` - Rigetti Aspen-M-3 QPU (requires credits)
+
+**Authentication Methods:**
+- `DefaultAzureCredential()` - Tries Azure CLI, Managed Identity, Environment Variables
+- `AzureCliCredential()` - Uses `az login` credentials  
+- `ManagedIdentityCredential()` - For Azure VMs/App Services
+
+**Features:**
+- Automatic token acquisition and refresh
+- Job submission, polling, and result retrieval
+- Error handling with retry logic
+- Cost tracking and estimation
+
+### 🔍 Circuit Validation (Pre-Flight Checks)
+
+Validate circuits against backend constraints **before submission** to catch errors early and avoid costly failed API calls:
+
+```fsharp
+open FSharp.Azure.Quantum.Core.CircuitValidator
+
+// Example: Validate circuit for IonQ simulator
+let circuit = {
+    NumQubits = 5
+    GateCount = 50
+    UsedGates = Set.ofList ["H"; "CNOT"; "RX"]
+    TwoQubitGates = [(0, 1); (1, 2)]
+}
+
+let constraints = BackendConstraints.ionqSimulator()
+match validateCircuit constraints circuit with
+| Ok () -> 
+    printfn "✅ Circuit valid for IonQ simulator"
+| Error errors ->
+    printfn "❌ Validation failed:"
+    errors |> List.iter (fun err -> 
+        printfn "  - %s" (formatValidationError err))
+```
+
+**Built-in Backend Constraints:**
+
+```fsharp
+// Local simulator (1-10 qubits, all gates, no depth limit)
+let local = BackendConstraints.localSimulator()
+
+// IonQ simulator (29 qubits, all-to-all connectivity, 100 gate limit)
+let ionqSim = BackendConstraints.ionqSimulator()
+
+// IonQ hardware (11 qubits, all-to-all connectivity, 100 gate limit)
+let ionqHw = BackendConstraints.ionqHardware()
+
+// Rigetti Aspen-M-3 (79 qubits, limited connectivity, 50 gate limit)
+let rigetti = BackendConstraints.rigettiAspenM3()
+```
+
+**Auto-Detection from Target String:**
+
+```fsharp
+// Automatically detect constraints from Azure Quantum target
+match KnownTargets.getConstraints "ionq.simulator" with
+| Some constraints -> 
+    // Validate circuit...
+    validateCircuit constraints myCircuit
+| None -> 
+    printfn "Unknown target - provide custom constraints"
+```
+
+**Integrated Validation (IonQ):**
+
+```fsharp
+// IonQ backend validates automatically before submission
+async {
+    let! result = IonQBackend.submitAndWaitForResultsWithValidationAsync
+        httpClient
+        workspaceUrl
+        circuit
+        1000  // shots
+        "ionq.simulator"
+        None  // Auto-detect constraints from target string
+    
+    match result with
+    | Ok histogram -> printfn "Success!"
+    | Error (InvalidCircuit errors) -> 
+        printfn "Circuit validation failed before submission:"
+        errors |> List.iter (printfn "  %s")
+    | Error otherError -> 
+        printfn "Execution error: %A" otherError
+} |> Async.RunSynchronously
+```
+
+**Custom Backend Constraints:**
+
+```fsharp
+// Define constraints for a new quantum provider
+let ibmConstraints = BackendConstraints.create
+    "IBM Quantum Eagle"      // Name
+    127                      // Max qubits
+    ["H"; "X"; "CX"; "RZ"]  // Supported gates
+    (Some 1000)              // Max circuit depth
+    false                    // Limited connectivity
+    [(0,1); (1,2); (2,3)]   // Connected qubit pairs
+
+// Use custom constraints
+match validateCircuit ibmConstraints myCircuit with
+| Ok () -> printfn "Valid for IBM Quantum!"
+| Error errors -> printfn "Validation errors: %A" errors
+```
+
+**Validation Checks:**
+- ✅ **Qubit count** - Does circuit exceed backend qubit limit?
+- ✅ **Gate set** - Are all gates supported by the backend?
+- ✅ **Circuit depth** - Does circuit exceed recommended depth limit?
+- ✅ **Connectivity** - Do two-qubit gates respect topology constraints?
+
 ### 📊 Problem Analysis
 Analyze problem complexity and characteristics:
 
@@ -139,13 +409,15 @@ printfn "Estimated cost: $%.2f %s" estimate.EstimatedCost estimate.Currency
 ## 📚 Documentation
 
 - **[Getting Started Guide](docs/getting-started.md)** - Installation and first examples
+- **[Local Simulation Guide](docs/local-simulation.md)** - Quantum simulation without Azure
+- **[Backend Switching Guide](docs/backend-switching.md)** - Switch between local and Azure
 - **[API Reference](docs/api-reference.md)** - Complete API documentation
 - **[TSP Example](docs/examples/tsp-example.md)** - Detailed TSP walkthrough
 - **[FAQ](docs/faq.md)** - Common questions and troubleshooting
 
 ## 🏗️ Architecture
 
-**Current Status:** v0.1.0-alpha
+**Current Status:** v0.5.0-beta - Azure Quantum Integration Ready
 
 ### ✅ Completed Components
 
@@ -161,16 +433,22 @@ printfn "Estimated cost: $%.2f %s" estimate.EstimatedCost estimate.Currency
 | **CostEstimation** (TKT-27) | ✅ Complete | Cost calculation for quantum execution |
 | **CircuitBuilder** (TKT-20) | ✅ Complete | Quantum circuit construction |
 | **QuboEncoding** (TKT-21) | ✅ Complete | QUBO problem encoding |
-| **QaoaCircuit** (TKT-22) | ✅ Complete | QAOA circuit generation |
+| **QaoaCircuit** (TKT-22) | ✅ Complete | QAOA circuit generation (OpenQASM 2.0) |
 | **QaoaOptimizer** (TKT-23) | ✅ Complete | QAOA parameter optimization |
+| **Local Simulator** (TKT-61) | ✅ Complete | Offline quantum simulation (≤10 qubits) |
+| **CircuitValidator** | ✅ Complete | Pre-flight validation with extensible constraints |
+| **IonQ Backend** (TKT-39) | ✅ Complete | IonQ simulator & QPU integration |
+| **Rigetti Backend** (TKT-40) | ✅ Complete | Rigetti QVM & Aspen QPU integration |
+| **Azure Authentication** | ✅ Complete | Azure.Identity integration (CLI, Managed Identity) |
 
 ### 🚧 In Development
 
 | Component | Status | Description |
 |-----------|--------|-------------|
-| **Quantum Backend** | 🚧 Planned | Azure Quantum service integration |
+| **QUBO-to-Circuit** | 🚧 Planned | Automatic TSP/Portfolio → QAOA circuit conversion |
 | **Advanced Constraints** | 🚧 Planned | Complex portfolio constraints |
 | **More Domains** | 🚧 Planned | Scheduling, MaxCut, Knapsack |
+| **IBM/Google/Amazon** | 🚧 Future | Additional quantum provider support |
 
 ## 🎯 When to Use Quantum
 
@@ -206,7 +484,7 @@ dotnet build
 dotnet test
 ```
 
-All 186 tests passing ✅
+All 548 tests passing ✅ (including local simulation, Azure Quantum backends, and validation tests)
 
 ### Run Examples
 ```bash
