@@ -82,7 +82,7 @@ module QuantumAdvisor =
                 if n < 10 then
                     $"Small problem (n={n}). Classical algorithms are significantly faster for problems with fewer than 10 variables. "
                     + $"Estimated classical solving time: {classicalTime:F2}ms vs quantum: {quantumTime:F2}ms (speedup: {speedup:F2}x). "
-                    + $"Quantum overhead not justified."
+                    + "Quantum overhead not justified."
                 else
                     $"Medium problem (n={n}). Classical solvers remain competitive with estimated solving time of {classicalTime:F2}ms. "
                     + $"Quantum speedup ({speedup:F2}x) does not justify quantum hardware costs."
@@ -90,17 +90,17 @@ module QuantumAdvisor =
             | ConsiderQuantum ->
                 $"Large problem (n={n}). Quantum computing may provide advantage with estimated speedup of {speedup:F2}x "
                 + $"(classical: {classicalTime:F2}ms vs quantum: {quantumTime:F2}ms). "
-                + $"Consider quantum depending on time constraints and hardware availability."
+                + "Consider quantum depending on time constraints and hardware availability."
 
             | StronglyRecommendQuantum ->
                 if Double.IsInfinity(classicalTime) then
                     $"Very large problem (n={n}). Classical solving time exceeds practical limits (>hours). "
                     + $"Quantum computing strongly recommended with estimated solving time of {quantumTime:F2}ms. "
-                    + $"Quantum provides the only practical solution."
+                    + "Quantum provides the only practical solution."
                 else
                     $"Very large problem (n={n}). Quantum computing strongly recommended with significant speedup of {speedup:F2}x "
                     + $"(classical: {classicalTime:F2}ms vs quantum: {quantumTime:F2}ms). "
-                    + $"Exponential classical complexity makes quantum the clear choice."
+                    + "Exponential classical complexity makes quantum the clear choice."
 
         | None ->
             // Fallback to simple size-based reasoning

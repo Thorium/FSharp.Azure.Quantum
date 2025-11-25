@@ -18,15 +18,15 @@ module Authentication =
         
         /// Create DefaultAzureCredential (tries multiple auth methods)
         let createDefaultCredential () : TokenCredential =
-            upcast new DefaultAzureCredential()
+            upcast DefaultAzureCredential()
         
         /// Create AzureCliCredential (uses az login credentials)
         let createCliCredential () : TokenCredential =
-            upcast new AzureCliCredential()
+            upcast AzureCliCredential()
         
         /// Create ManagedIdentityCredential (for Azure VM/App Service)
         let createManagedIdentityCredential () : TokenCredential =
-            upcast new ManagedIdentityCredential()
+            upcast ManagedIdentityCredential()
 
     /// Manages Azure AD token acquisition and caching
     type TokenManager(credential: TokenCredential) =

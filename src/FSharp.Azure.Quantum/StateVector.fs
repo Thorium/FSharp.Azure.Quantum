@@ -117,7 +117,7 @@ module StateVector =
     /// Calculate inner product <ψ|φ> = Σ ψᵢ* φᵢ
     let innerProduct (bra: StateVector) (ket: StateVector) : Complex =
         if bra.Amplitudes.Length <> ket.Amplitudes.Length then
-            failwith $"State vectors must have same dimension for inner product"
+            failwith "State vectors must have same dimension for inner product"
         
         let mutable sum = Complex.Zero
         for i in 0 .. bra.Amplitudes.Length - 1 do
