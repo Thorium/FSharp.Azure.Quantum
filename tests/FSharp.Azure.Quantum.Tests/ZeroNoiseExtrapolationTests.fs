@@ -334,3 +334,75 @@ module ZeroNoiseExtrapolationTests =
         Assert.Equal(3, config.PolynomialDegree)
         Assert.Equal(2048, config.MinSamples)
         Assert.Equal(2, config.NoiseScalings.Length)
+    
+    // Cycle #6: Edge cases and robustness - Production-ready error handling
+    
+    [<Fact>]
+    let ``mitigate should handle executor failures gracefully`` () =
+        async {
+            // Arrange: Circuit and config
+            let circuit = CircuitBuilder.empty 1
+            let config = ZeroNoiseExtrapolation.defaultIonQConfig
+            
+            // Failing executor
+            let failingExecutor (_: CircuitBuilder.Circuit) =
+                async { return Error "Quantum hardware unavailable" }
+            
+            // Act: Attempt ZNE
+            let! result = ZeroNoiseExtrapolation.mitigate circuit config failingExecutor
+            
+            // Assert: Should propagate error gracefully
+            match result with
+            | Error err -> Assert.Contains("execution failed", err)
+            | Ok _ -> Assert.Fail("Expected error for failing executor")
+        } |> Async.RunSynchronously
+    
+    [<Fact>]
+    let ``fitPolynomial should fail with insufficient data points`` () =
+        // Arrange: Only 2 points for degree-2 polynomial (need 3)
+        let insufficientData = [(1.0, 0.8); (2.0, 0.7)]
+        let degree = 2
+        
+        // Act & Assert: Should throw exception
+        Assert.Throws<exn>(fun () -> 
+            ZeroNoiseExtrapolation.fitPolynomial degree insufficientData |> ignore)
+    
+    [<Fact>]
+    let ``applyNoiseScaling with zero rate should return original circuit`` () =
+        // Arrange: Circuit with zero insertion rate
+        let circuit = 
+            CircuitBuilder.empty 2
+            |> CircuitBuilder.addGate (CircuitBuilder.H 0)
+        
+        let noiseScaling = ZeroNoiseExtrapolation.NoiseScaling.IdentityInsertion 0.0
+        
+        // Act: Apply zero noise scaling
+        let result = ZeroNoiseExtrapolation.applyNoiseScaling noiseScaling circuit
+        
+        // Assert: Should be identical (optimization: no gates added)
+        Assert.Equal(CircuitBuilder.gateCount circuit, CircuitBuilder.gateCount result)
+    
+    [<Fact>]
+    let ``mitigate with single noise level should still work`` () =
+        async {
+            // Arrange: Only baseline noise (edge case)
+            let circuit = CircuitBuilder.empty 1
+            let config: ZeroNoiseExtrapolation.ZNEConfig = {
+                NoiseScalings = [ZeroNoiseExtrapolation.NoiseScaling.IdentityInsertion 0.0]
+                PolynomialDegree = 0  // Constant fit
+                MinSamples = 100
+            }
+            
+            let executor (_: CircuitBuilder.Circuit) =
+                async { return Ok 0.85 }
+            
+            // Act: Run ZNE
+            let! result = ZeroNoiseExtrapolation.mitigate circuit config executor
+            
+            // Assert: Should return baseline value
+            match result with
+            | Ok zneResult -> 
+                Assert.Equal(0.85, zneResult.ZeroNoiseValue, 2)
+            | Error err -> 
+                Assert.Fail(sprintf "Should handle single noise level: %s" err)
+        } |> Async.RunSynchronously
