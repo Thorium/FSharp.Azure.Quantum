@@ -1,7 +1,10 @@
 namespace FSharp.Azure.Quantum.Core
 
 open System
+open System.Net.Http
+open System.Net.Http.Headers
 open System.Threading
+open System.Threading.Tasks
 open Azure.Core
 open Azure.Identity
 
@@ -71,3 +74,19 @@ module Authentication =
             lock tokenLock (fun () ->
                 cachedToken <- None
                 tokenExpiry <- DateTimeOffset.MinValue)
+
+    /// DelegatingHandler that adds Authorization Bearer token to HTTP requests
+    type AuthenticationHandler(tokenManager: TokenManager) =
+        inherit DelegatingHandler()
+        
+        member private this.SendAsyncCore(request: HttpRequestMessage, cancellationToken: CancellationToken, token: string) : Task<HttpResponseMessage> =
+            request.Headers.Authorization <- AuthenticationHeaderValue("Bearer", token)
+            base.SendAsync(request, cancellationToken)
+        
+        override this.SendAsync(request: HttpRequestMessage, cancellationToken: CancellationToken) : Task<HttpResponseMessage> =
+            // Get bearer token
+            let tokenTask = tokenManager.GetAccessTokenAsync(cancellationToken) |> Async.StartAsTask
+            tokenTask.ContinueWith(fun (t: Task<string>) ->
+                this.SendAsyncCore(request, cancellationToken, t.Result)
+            ).Unwrap()
+

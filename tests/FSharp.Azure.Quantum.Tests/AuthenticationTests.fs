@@ -1,7 +1,10 @@
 module FSharp.Azure.Quantum.Tests.AuthenticationTests
 
 open System
+open System.Net
+open System.Net.Http
 open System.Threading
+open System.Threading.Tasks
 open Xunit
 open Azure.Core
 open Azure.Identity
@@ -129,4 +132,42 @@ let ``CredentialProviders createCliCredential should return AzureCliCredential``
 let ``CredentialProviders createManagedIdentityCredential should return ManagedIdentityCredential`` () =
     let credential = CredentialProviders.createManagedIdentityCredential()
     Assert.IsType<ManagedIdentityCredential>(credential) |> ignore
+
+// ============================================================================
+// HTTP Integration Tests
+// ============================================================================
+
+// Test message handler that captures the request
+type TestMessageHandler() =
+    inherit DelegatingHandler()
+    
+    member val CapturedRequest : HttpRequestMessage option = None with get, set
+    
+    override this.SendAsync(request: HttpRequestMessage, cancellationToken: CancellationToken) =
+        this.CapturedRequest <- Some request
+        let response = new HttpResponseMessage(HttpStatusCode.OK)
+        Task.FromResult(response)
+
+[<Fact>]
+let ``AuthenticationHandler should add Authorization Bearer header`` () =
+    let expiresOn = DateTimeOffset.UtcNow.AddHours(1.0)
+    let mockCredential = MockTokenCredential("test-bearer-token", expiresOn)
+    let tokenManager = TokenManager(mockCredential)
+    
+    let testHandler = new TestMessageHandler()
+    let authHandler = new AuthenticationHandler(tokenManager, InnerHandler = testHandler)
+    let client = new HttpClient(authHandler)
+    
+    // Make a request
+    let request = new HttpRequestMessage(HttpMethod.Get, "https://quantum.azure.com/test")
+    let _ = client.SendAsync(request) |> Async.AwaitTask |> Async.RunSynchronously
+    
+    // Verify Authorization header was added
+    match testHandler.CapturedRequest with
+    | Some capturedReq ->
+        Assert.NotNull(capturedReq.Headers.Authorization)
+        Assert.Equal("Bearer", capturedReq.Headers.Authorization.Scheme)
+        Assert.Equal("test-bearer-token", capturedReq.Headers.Authorization.Parameter)
+    | None ->
+        Assert.Fail("No request was captured")
 
