@@ -31,6 +31,7 @@
     <Compile Include="RateLimitingTests.fs" />
     <Compile Include="ObservabilityTests.fs" />
     <Compile Include="BatchAccumulatorTests.fs" />
+    <Compile Include="JobLifecycleTests.fs" />
     <Compile Include="IntegrationTests.fs" />
   </ItemGroup>
 
