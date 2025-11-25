@@ -25,6 +25,20 @@ type VariableEncoding =
     | DomainWall of levels: int
     | BoundedInteger of min: int * max: int
 
+/// Constraint type classification for penalty calculation.
+[<Struct>]
+type ConstraintType =
+    | Hard
+    | Soft of preferenceWeight: float
+
+/// Constraint violation description
+type ConstraintViolation = {
+    EncodingType: string
+    Message: string
+    ExpectedCount: int voption
+    ActualCount: int voption
+}
+
 /// Operations for variable encoding strategies
 module VariableEncoding =
     
@@ -324,3 +338,89 @@ module QuboEncoding =
             ) ([], 0)
         
         { Assignments = List.rev assignments }
+
+/// Constraint penalty optimization for QUBO problems
+module ConstraintPenalty =
+    
+    /// Calculate penalty weight using Lucas Rule with problem-size scaling.
+    /// 
+    /// Lucas Rule: λ ≥ max(H_objective) + 1
+    /// Size Scaling: λ * sqrt(problemSize)
+    let rec calculatePenalty (constraintType: ConstraintType) (objectiveMax: float) (problemSize: int) : float =
+        match constraintType with
+        | Hard ->
+            // Lucas Rule + square root size scaling
+            let lucasPenalty = objectiveMax + 1.0
+            let sizeFactor = sqrt (float problemSize)
+            lucasPenalty * sizeFactor
+        
+        | Soft preferenceWeight ->
+            // Soft constraints: fraction of hard constraint penalty
+            let hardPenalty = calculatePenalty Hard objectiveMax problemSize
+            hardPenalty * preferenceWeight
+    
+    /// Validate that a solution satisfies encoding constraints.
+    let validateConstraints (encoding: VariableEncoding) (solution: int list) : ConstraintViolation list =
+        match encoding with
+        | Binary ->
+            // Binary has no constraints (0 or 1 both valid)
+            []
+        
+        | OneHot n ->
+            // Constraint: Exactly one bit must be set
+            let onesCount = solution |> List.sumBy id
+            if onesCount <> 1 then
+                [{
+                    EncodingType = "OneHot"
+                    Message = sprintf "OneHot encoding requires exactly 1 active bit, found %d" onesCount
+                    ExpectedCount = ValueSome 1
+                    ActualCount = ValueSome onesCount
+                }]
+            else
+                []
+        
+        | DomainWall _ ->
+            // Domain-wall naturally enforces ordering through bit pattern
+            // Valid patterns: 0*, 1+0*, 1* (wall of 1s followed by 0s)
+            // No explicit constraint violation possible
+            []
+        
+        | BoundedInteger(min, max) ->
+            // Constraint: Decoded value must be within [min, max]
+            let decodedValue = VariableEncoding.decode encoding solution
+            if decodedValue < min || decodedValue > max then
+                [{
+                    EncodingType = "BoundedInteger"
+                    Message = sprintf "Value %d is outside bounds [%d, %d]" decodedValue min max
+                    ExpectedCount = ValueNone
+                    ActualCount = ValueNone
+                }]
+            else
+                []
+    
+    /// Adaptive penalty tuning: start low, increase if violations detected.
+    /// 
+    /// Solver function takes penalty weight and returns a solution.
+    /// If solution violates constraints, penalty is increased by 1.5x and solver is retried.
+    let rec tuneAdaptive 
+        (encoding: VariableEncoding) 
+        (penalty: float) 
+        (maxIterations: int) 
+        (solver: float -> int list) : float =
+        
+        if maxIterations <= 0 then
+            penalty
+        else
+            // Get solution with current penalty
+            let solution = solver penalty
+            
+            // Check for constraint violations
+            let violations = validateConstraints encoding solution
+            
+            if List.isEmpty violations then
+                // Valid solution found - return current penalty
+                penalty
+            else
+                // Violations detected - increase penalty and retry
+                let newPenalty = penalty * 1.5
+                tuneAdaptive encoding newPenalty (maxIterations - 1) solver

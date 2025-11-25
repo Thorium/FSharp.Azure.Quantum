@@ -523,3 +523,352 @@ module QuboEncodingTests =
         // Verify linear scaling
         let ratio = hardPenalty.[0, 0] / softPenalty.[0, 0]
         Assert.Equal(100.0, ratio)
+    
+    // ============================================================================
+    // TKT-37: Constraint Penalty Optimization Tests
+    // ============================================================================
+    
+    [<Fact>]
+    let ``ConstraintPenalty Hard constraint should use Lucas Rule`` () =
+        // Lucas Rule: λ ≥ max(|coefficient in H_objective|) + 1
+        // Example: TSP with max distance 100 → penalty = 101
+        let objectiveMax = 100.0
+        let problemSize = 10
+        
+        let penalty = ConstraintPenalty.calculatePenalty ConstraintType.Hard objectiveMax problemSize
+        
+        // Hard constraint should use Lucas Rule: objectiveMax + 1
+        // With size scaling: (100 + 1) * sqrt(10) ≈ 101 * 3.16 ≈ 319
+        let expectedMinPenalty = objectiveMax + 1.0
+        Assert.True(penalty >= expectedMinPenalty, 
+            sprintf "Penalty %f should be >= %f (Lucas Rule)" penalty expectedMinPenalty)
+    
+    [<Fact>]
+    let ``ConstraintPenalty Soft constraint should use preference weight`` () =
+        // Soft constraint: fraction of hard constraint penalty
+        // Example: Prefer short segments = 30% of hard constraint
+        let objectiveMax = 500.0
+        let problemSize = 20
+        let preferenceWeight = 0.3
+        
+        let softPenalty = ConstraintPenalty.calculatePenalty (ConstraintType.Soft preferenceWeight) objectiveMax problemSize
+        let hardPenalty = ConstraintPenalty.calculatePenalty ConstraintType.Hard objectiveMax problemSize
+        
+        // Soft penalty should be 30% of hard penalty
+        let expected = hardPenalty * preferenceWeight
+        Assert.Equal(expected, softPenalty, 2)
+    
+    [<Fact>]
+    let ``ConstraintPenalty should scale with problem size`` () =
+        // Larger problems need larger penalties
+        // Size scaling: sqrt(problemSize)
+        let objectiveMax = 100.0
+        
+        let smallPenalty = ConstraintPenalty.calculatePenalty ConstraintType.Hard objectiveMax 5
+        let largePenalty = ConstraintPenalty.calculatePenalty ConstraintType.Hard objectiveMax 20
+        
+        // sqrt(20) / sqrt(5) = 2.0, so large penalty should be 2x small penalty
+        let ratio = largePenalty / smallPenalty
+        Assert.Equal(2.0, ratio, 1)
+    
+    [<Fact>]
+    let ``ConstraintPenalty Lucas Rule ensures constraint dominates objective`` () =
+        // Lucas Rule: λ ≥ max(H_objective) + 1
+        // Ensures constraint violation costs more than any objective improvement
+        let objectiveMax = 250.0
+        let problemSize = 1
+        
+        let penalty = ConstraintPenalty.calculatePenalty ConstraintType.Hard objectiveMax problemSize
+        
+        // For problem size 1, no size scaling (sqrt(1) = 1)
+        // Penalty should be exactly objectiveMax + 1
+        Assert.Equal(251.0, penalty, 2)
+    
+    [<Fact>]
+    let ``ConstraintPenalty TSP example - 20 cities with max distance 500km`` () =
+        // Real-world: TSP with 20 cities, max distance 500km
+        let objectiveMax = 500.0
+        let problemSize = 20
+        
+        let visitOncePenalty = ConstraintPenalty.calculatePenalty ConstraintType.Hard objectiveMax problemSize
+        
+        // Expected: (500 + 1) * sqrt(20) ≈ 501 * 4.47 ≈ 2240
+        Assert.True(visitOncePenalty > 2200.0 && visitOncePenalty < 2250.0,
+            sprintf "Expected ~2240, got %f" visitOncePenalty)
+    
+    [<Fact>]
+    let ``ConstraintPenalty Portfolio example - soft constraint at 30 percent`` () =
+        // Real-world: Portfolio with soft preference for diversification
+        let objectiveMax = 500.0
+        let problemSize = 20
+        
+        let softPenalty = ConstraintPenalty.calculatePenalty (ConstraintType.Soft 0.3) objectiveMax problemSize
+        
+        // Expected: (500 + 1) * sqrt(20) * 0.3 ≈ 2240 * 0.3 ≈ 672
+        Assert.True(softPenalty > 660.0 && softPenalty < 680.0,
+            sprintf "Expected ~672, got %f" softPenalty)
+    
+    [<Fact>]
+    let ``ConstraintPenalty should handle small problems`` () =
+        // Small problem: n=5 cities
+        let objectiveMax = 100.0
+        let problemSize = 5
+        
+        let penalty = ConstraintPenalty.calculatePenalty ConstraintType.Hard objectiveMax problemSize
+        
+        // (100 + 1) * sqrt(5) ≈ 101 * 2.24 ≈ 226
+        Assert.True(penalty > 220.0 && penalty < 230.0)
+    
+    [<Fact>]
+    let ``ConstraintPenalty should handle large problems`` () =
+        // Large problem: n=100 cities
+        let objectiveMax = 1000.0
+        let problemSize = 100
+        
+        let penalty = ConstraintPenalty.calculatePenalty ConstraintType.Hard objectiveMax problemSize
+        
+        // (1000 + 1) * sqrt(100) = 1001 * 10 = 10010
+        Assert.Equal(10010.0, penalty, 2)
+    
+    [<Fact>]
+    let ``ConstraintPenalty Hard vs Soft comparison`` () =
+        // Compare hard and soft constraints
+        let objectiveMax = 100.0
+        let problemSize = 10
+        
+        let hardPenalty = ConstraintPenalty.calculatePenalty ConstraintType.Hard objectiveMax problemSize
+        let softPenalty = ConstraintPenalty.calculatePenalty (ConstraintType.Soft 0.5) objectiveMax problemSize
+        
+        // Soft penalty should be exactly half of hard penalty
+        Assert.Equal(hardPenalty * 0.5, softPenalty, 2)
+        Assert.True(hardPenalty > softPenalty)
+    
+    [<Fact>]
+    let ``ConstraintPenalty should handle zero objective max`` () =
+        // Edge case: objective maximum is zero
+        let objectiveMax = 0.0
+        let problemSize = 10
+        
+        let penalty = ConstraintPenalty.calculatePenalty ConstraintType.Hard objectiveMax problemSize
+        
+        // Lucas Rule: 0 + 1 = 1, with sqrt(10) scaling
+        // Expected: 1 * sqrt(10) ≈ 3.16
+        Assert.True(penalty > 3.1 && penalty < 3.2)
+    
+    [<Fact>]
+    let ``ConstraintPenalty multiple soft weights`` () =
+        // Different soft constraint strengths
+        let objectiveMax = 100.0
+        let problemSize = 10
+        
+        let veryWeak = ConstraintPenalty.calculatePenalty (ConstraintType.Soft 0.1) objectiveMax problemSize
+        let weak = ConstraintPenalty.calculatePenalty (ConstraintType.Soft 0.3) objectiveMax problemSize
+        let moderate = ConstraintPenalty.calculatePenalty (ConstraintType.Soft 0.5) objectiveMax problemSize
+        let strong = ConstraintPenalty.calculatePenalty (ConstraintType.Soft 0.8) objectiveMax problemSize
+        
+        // Verify ordering: very weak < weak < moderate < strong
+        Assert.True(veryWeak < weak)
+        Assert.True(weak < moderate)
+        Assert.True(moderate < strong)
+    
+    // ============================================================================
+    // Constraint Validation Tests
+    // ============================================================================
+    
+    [<Fact>]
+    let ``validateConstraints should detect OneHot violation - no bits set`` () =
+        // OneHot constraint: exactly one bit must be active
+        // Violation: [0, 0, 0] - no bits set
+        let encoding = VariableEncoding.OneHot 3
+        let solution = [0; 0; 0]
+        
+        let violations = ConstraintPenalty.validateConstraints encoding solution
+        
+        Assert.False(List.isEmpty violations)
+        Assert.Equal(1, violations.Length)
+    
+    [<Fact>]
+    let ``validateConstraints should detect OneHot violation - multiple bits set`` () =
+        // OneHot constraint: exactly one bit must be active
+        // Violation: [1, 1, 0] - two bits set
+        let encoding = VariableEncoding.OneHot 3
+        let solution = [1; 1; 0]
+        
+        let violations = ConstraintPenalty.validateConstraints encoding solution
+        
+        Assert.False(List.isEmpty violations)
+    
+    [<Fact>]
+    let ``validateConstraints should accept valid OneHot solution`` () =
+        // Valid OneHot: exactly one bit set
+        // Solution: [0, 1, 0] - one bit at position 1
+        let encoding = VariableEncoding.OneHot 3
+        let solution = [0; 1; 0]
+        
+        let violations = ConstraintPenalty.validateConstraints encoding solution
+        
+        Assert.True(List.isEmpty violations)
+    
+    [<Fact>]
+    let ``validateConstraints should accept valid Binary solution`` () =
+        // Binary variables have no constraints
+        let encoding = VariableEncoding.Binary
+        let solution0 = [0]
+        let solution1 = [1]
+        
+        Assert.True(List.isEmpty (ConstraintPenalty.validateConstraints encoding solution0))
+        Assert.True(List.isEmpty (ConstraintPenalty.validateConstraints encoding solution1))
+    
+    [<Fact>]
+    let ``validateConstraints should detect BoundedInteger out of range`` () =
+        // BoundedInteger: value must be within [min, max]
+        // Range [0, 10], solution decodes to 15 (out of range)
+        let encoding = VariableEncoding.BoundedInteger(0, 10)
+        let solution = [1; 1; 1; 1] // Binary 1111 = 15 > 10
+        
+        let violations = ConstraintPenalty.validateConstraints encoding solution
+        
+        Assert.False(List.isEmpty violations)
+    
+    // ============================================================================
+    // Adaptive Penalty Tuning Tests
+    // ============================================================================
+    
+    [<Fact>]
+    let ``tuneAdaptive should start with initial penalty`` () =
+        // Adaptive tuning starts conservative and increases if violations detected
+        let initialPenalty = 100.0
+        let maxIterations = 5
+        let encoding = VariableEncoding.OneHot 3
+        
+        // Solver that always finds valid solution (no violations)
+        let solver penalty = [0; 1; 0] // Valid OneHot solution
+        
+        let finalPenalty = ConstraintPenalty.tuneAdaptive encoding initialPenalty maxIterations solver
+        
+        // Should return initial penalty if no violations
+        Assert.Equal(initialPenalty, finalPenalty, 2)
+    
+    [<Fact>]
+    let ``tuneAdaptive should increase penalty on violations`` () =
+        // When solver finds invalid solutions, penalty should increase
+        let initialPenalty = 100.0
+        let maxIterations = 3
+        let encoding = VariableEncoding.OneHot 3
+        
+        // Solver that always returns invalid solution (multiple bits set)
+        let mutable attempts = 0
+        let solver penalty =
+            attempts <- attempts + 1
+            [1; 1; 0] // Invalid OneHot (two bits set)
+        
+        let finalPenalty = ConstraintPenalty.tuneAdaptive encoding initialPenalty maxIterations solver
+        
+        // Penalty should increase (1.5x per iteration)
+        // After 3 iterations: 100 * 1.5^3 = 337.5
+        Assert.True(finalPenalty > initialPenalty, 
+            sprintf "Final penalty %f should be > initial %f" finalPenalty initialPenalty)
+        Assert.True(finalPenalty > 300.0, sprintf "Expected >300, got %f" finalPenalty)
+    
+    [<Fact>]
+    let ``tuneAdaptive should stop when valid solution found`` () =
+        // Adaptive tuning should stop early if valid solution is found
+        let initialPenalty = 100.0
+        let maxIterations = 10
+        let encoding = VariableEncoding.OneHot 3
+        
+        // Solver finds valid solution after 2 iterations
+        let mutable attempts = 0
+        let solver penalty =
+            attempts <- attempts + 1
+            if attempts <= 2 then
+                [1; 1; 0] // Invalid for first 2 attempts
+            else
+                [0; 1; 0] // Valid OneHot solution
+        
+        let finalPenalty = ConstraintPenalty.tuneAdaptive encoding initialPenalty maxIterations solver
+        
+        // Should stop after finding valid solution
+        // Penalty after 2 violations: 100 * 1.5^2 = 225
+        Assert.True(finalPenalty > 200.0 && finalPenalty < 250.0,
+            sprintf "Expected ~225, got %f" finalPenalty)
+        Assert.True(attempts <= 4, sprintf "Should stop early, but ran %d attempts" attempts)
+    
+    [<Fact>]
+    let ``tuneAdaptive should respect max iterations`` () =
+        // Should not exceed max iterations even if violations persist
+        let initialPenalty = 100.0
+        let maxIterations = 3
+        let encoding = VariableEncoding.OneHot 3
+        
+        // Track number of solver calls
+        let mutable attempts = 0
+        let solver penalty =
+            attempts <- attempts + 1
+            [1; 1; 0] // Always invalid
+        
+        let _finalPenalty = ConstraintPenalty.tuneAdaptive encoding initialPenalty maxIterations solver
+        
+        // Should call solver at most maxIterations + 1 times
+        // (initial + maxIterations retries)
+        Assert.True(attempts <= maxIterations + 1,
+            sprintf "Expected <= %d attempts, got %d" (maxIterations + 1) attempts)
+    
+    // ============================================================================
+    // Property-Based Tests (Invariant Verification)
+    // ============================================================================
+    
+    [<Fact>]
+    let ``Property: Hard constraint penalty always exceeds objective maximum`` () =
+        // Property: For all hard constraints, penalty >= objectiveMax + 1 (Lucas Rule)
+        // Test with various objective maximums and problem sizes
+        let testCases = [
+            (10.0, 5)
+            (100.0, 10)
+            (500.0, 20)
+            (1000.0, 50)
+            (2500.0, 100)
+        ]
+        
+        testCases |> List.iter (fun (objectiveMax, problemSize) ->
+            let penalty = ConstraintPenalty.calculatePenalty ConstraintType.Hard objectiveMax problemSize
+            
+            // Lucas Rule minimum: objectiveMax + 1
+            let lucasMin = objectiveMax + 1.0
+            
+            Assert.True(penalty >= lucasMin,
+                sprintf "Penalty %f must be >= Lucas minimum %f for objectiveMax=%f, n=%d" 
+                    penalty lucasMin objectiveMax problemSize))
+    
+    [<Fact>]
+    let ``Property: Soft constraint penalty is always less than hard penalty`` () =
+        // Property: For all soft constraints with weight < 1.0, soft_penalty < hard_penalty
+        let testCases = [
+            (100.0, 10, 0.3)
+            (500.0, 20, 0.5)
+            (1000.0, 50, 0.8)
+        ]
+        
+        testCases |> List.iter (fun (objectiveMax, problemSize, weight) ->
+            let hardPenalty = ConstraintPenalty.calculatePenalty ConstraintType.Hard objectiveMax problemSize
+            let softPenalty = ConstraintPenalty.calculatePenalty (ConstraintType.Soft weight) objectiveMax problemSize
+            
+            Assert.True(softPenalty < hardPenalty,
+                sprintf "Soft penalty %f must be < hard penalty %f (weight=%f)" 
+                    softPenalty hardPenalty weight))
+    
+    [<Fact>]
+    let ``Property: Penalty scales monotonically with problem size`` () =
+        // Property: For fixed objectiveMax, penalty increases with problem size
+        let objectiveMax = 100.0
+        let sizes = [5; 10; 20; 50; 100]
+        
+        let penalties = sizes |> List.map (fun n ->
+            ConstraintPenalty.calculatePenalty ConstraintType.Hard objectiveMax n)
+        
+        // Verify penalties are in ascending order
+        penalties
+        |> List.pairwise
+        |> List.iter (fun (prev, next) ->
+            Assert.True(next > prev,
+                sprintf "Penalty should increase with problem size: %f !> %f" next prev))
