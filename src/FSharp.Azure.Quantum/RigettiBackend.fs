@@ -152,3 +152,51 @@ module RigettiBackend =
             sb.Append(serializeGate instr) |> ignore
         
         sb.ToString()
+    
+    // ============================================================================
+    // CONNECTIVITY VALIDATION (TDD Cycle 4)
+    // ============================================================================
+    
+    /// Check if a gate is valid according to the connectivity graph
+    /// 
+    /// Single-qubit gates, measurements, and declarations are always valid.
+    /// Two-qubit gates must have an edge in the connectivity graph.
+    /// Edges are bidirectional: (a, b) and (b, a) represent the same connection.
+    /// 
+    /// Examples:
+    /// - H 0: Always valid (single-qubit)
+    /// - CZ 0 1 with graph {(0,1)}: Valid
+    /// - CZ 1 0 with graph {(0,1)}: Valid (bidirectional)
+    /// - CZ 0 3 with graph {(0,1), (1,2)}: Invalid (no direct connection)
+    let isValidGate (graph: ConnectivityGraph) (gate: QuilGate) : bool =
+        match gate with
+        | SingleQubit _ -> true
+        | SingleQubitRotation _ -> true
+        | Measure _ -> true
+        | DeclareMemory _ -> true
+        | TwoQubit(_, control, target) ->
+            // Check if edge exists in either direction (bidirectional)
+            graph.Edges.Contains (control, target) || 
+            graph.Edges.Contains (target, control)
+    
+    /// Validate an entire program against a connectivity graph
+    /// 
+    /// Returns Ok() if all two-qubit gates respect the topology.
+    /// Returns Error with details of the first invalid gate found.
+    /// 
+    /// This prevents submission of circuits that would fail on hardware
+    /// due to limited qubit connectivity.
+    let validateProgram (graph: ConnectivityGraph) (program: QuilProgram) : Result<unit, string> =
+        // Check all gates (declarations + instructions)
+        let allGates = List.append program.Declarations program.Instructions
+        
+        // Find first invalid gate
+        let invalidGate = 
+            allGates 
+            |> List.tryFind (fun gate -> not (isValidGate graph gate))
+        
+        match invalidGate with
+        | None -> Ok ()
+        | Some gate ->
+            let gateText = serializeGate gate
+            Error (sprintf "Gate '%s' violates connectivity constraints. Qubits are not directly connected in the hardware topology." gateText)

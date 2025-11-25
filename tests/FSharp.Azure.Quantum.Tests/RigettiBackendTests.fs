@@ -335,3 +335,157 @@ module RigettiBackendTests =
         
         // Assert
         Assert.Equal("H 0\nX 1", quil)
+    
+    // ============================================================================
+    // TDD CYCLE 4: Connectivity Graph Validation
+    // ============================================================================
+    
+    [<Fact>]
+    let ``isValidGate - single-qubit gate always valid (no connectivity check)`` () =
+        // Arrange
+        let graph = { Edges = Set.ofList [(0, 1); (1, 2)] }
+        let gate = QuilGate.SingleQubit("H", 0)
+        
+        // Act
+        let isValid = isValidGate graph gate
+        
+        // Assert
+        Assert.True(isValid)
+    
+    [<Fact>]
+    let ``isValidGate - single-qubit rotation always valid`` () =
+        // Arrange
+        let graph = { Edges = Set.ofList [(0, 1); (1, 2)] }
+        let gate = QuilGate.SingleQubitRotation("RX", Math.PI, 5)
+        
+        // Act
+        let isValid = isValidGate graph gate
+        
+        // Assert
+        Assert.True(isValid)
+    
+    [<Fact>]
+    let ``isValidGate - measurement always valid`` () =
+        // Arrange
+        let graph = { Edges = Set.ofList [(0, 1); (1, 2)] }
+        let gate = QuilGate.Measure(10, "ro[10]")
+        
+        // Act
+        let isValid = isValidGate graph gate
+        
+        // Assert
+        Assert.True(isValid)
+    
+    [<Fact>]
+    let ``isValidGate - declaration always valid`` () =
+        // Arrange
+        let graph = { Edges = Set.ofList [(0, 1); (1, 2)] }
+        let gate = QuilGate.DeclareMemory("ro", "BIT", 100)
+        
+        // Act
+        let isValid = isValidGate graph gate
+        
+        // Assert
+        Assert.True(isValid)
+    
+    [<Fact>]
+    let ``isValidGate - two-qubit gate valid if edge exists`` () =
+        // Arrange
+        let graph = { Edges = Set.ofList [(0, 1); (1, 2); (2, 3)] }
+        let gate = QuilGate.TwoQubit("CZ", 1, 2)
+        
+        // Act
+        let isValid = isValidGate graph gate
+        
+        // Assert
+        Assert.True(isValid)
+    
+    [<Fact>]
+    let ``isValidGate - two-qubit gate valid if edge exists (reversed)`` () =
+        // Arrange - edges are bidirectional
+        let graph = { Edges = Set.ofList [(0, 1); (1, 2); (2, 3)] }
+        let gate = QuilGate.TwoQubit("CZ", 2, 1)  // Reversed order
+        
+        // Act
+        let isValid = isValidGate graph gate
+        
+        // Assert
+        Assert.True(isValid)
+    
+    [<Fact>]
+    let ``isValidGate - two-qubit gate invalid if edge missing`` () =
+        // Arrange
+        let graph = { Edges = Set.ofList [(0, 1); (1, 2); (2, 3)] }
+        let gate = QuilGate.TwoQubit("CZ", 0, 3)  // Not directly connected
+        
+        // Act
+        let isValid = isValidGate graph gate
+        
+        // Assert
+        Assert.False(isValid)
+    
+    [<Fact>]
+    let ``validateProgram - returns Ok for valid program`` () =
+        // Arrange
+        let graph = { Edges = Set.ofList [(0, 1); (1, 2)] }
+        let program = {
+            Declarations = [ QuilGate.DeclareMemory("ro", "BIT", 2) ]
+            Instructions = [
+                QuilGate.SingleQubit("H", 0)
+                QuilGate.TwoQubit("CZ", 0, 1)  // Valid edge
+                QuilGate.Measure(0, "ro[0]")
+            ]
+        }
+        
+        // Act
+        let result = validateProgram graph program
+        
+        // Assert
+        match result with
+        | Ok () -> Assert.True(true)
+        | Error msg -> Assert.True(false, sprintf "Expected Ok, got Error: %s" msg)
+    
+    [<Fact>]
+    let ``validateProgram - returns Error for invalid two-qubit gate`` () =
+        // Arrange
+        let graph = { Edges = Set.ofList [(0, 1); (1, 2)] }
+        let program = {
+            Declarations = []
+            Instructions = [
+                QuilGate.SingleQubit("H", 0)
+                QuilGate.TwoQubit("CZ", 0, 2)  // Invalid - no direct edge
+                QuilGate.Measure(0, "ro[0]")
+            ]
+        }
+        
+        // Act
+        let result = validateProgram graph program
+        
+        // Assert
+        match result with
+        | Ok () -> Assert.True(false, "Expected Error, got Ok")
+        | Error msg ->
+            Assert.Contains("CZ 0 2", msg)
+            Assert.Contains("connectivity", msg.ToLower())
+    
+    [<Fact>]
+    let ``validateProgram - returns Error with gate details for multiple invalid gates`` () =
+        // Arrange
+        let graph = { Edges = Set.ofList [(0, 1); (1, 2)] }
+        let program = {
+            Declarations = []
+            Instructions = [
+                QuilGate.TwoQubit("CZ", 0, 2)  // Invalid
+                QuilGate.TwoQubit("CZ", 0, 3)  // Invalid
+            ]
+        }
+        
+        // Act
+        let result = validateProgram graph program
+        
+        // Assert
+        match result with
+        | Ok () -> Assert.True(false, "Expected Error, got Ok")
+        | Error msg ->
+            Assert.Contains("CZ 0 2", msg)
+            // Should report first invalid gate
