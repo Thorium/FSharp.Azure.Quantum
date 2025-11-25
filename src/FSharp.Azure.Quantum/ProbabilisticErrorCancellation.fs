@@ -69,3 +69,57 @@ module ProbabilisticErrorCancellation =
         /// Actual overhead ratio (circuit executions / baseline)
         Overhead: float
     }
+    
+    // ============================================================================
+    // Quasi-Probability Decomposition - Inverting Noise Channels
+    // ============================================================================
+    
+    /// Decompose noisy single-qubit gate into quasi-probability distribution.
+    /// 
+    /// Mathematical foundation:
+    /// Depolarizing channel: ρ → (1-p)UρU† + (p/4)(IρI† + XρX† + YρY† + ZρZ†)
+    /// 
+    /// Inverse (PEC): U = (1+p)·Noisy_U - (p/4)·(Noisy_I + Noisy_X + Noisy_Y + Noisy_Z)
+    /// 
+    /// Returns 5-term decomposition with:
+    /// - First term: desired gate with probability (1+p) > 0
+    /// - Four correction terms: identity-like gates with probability -p/4 < 0
+    /// 
+    /// Properties:
+    /// - Quasi-probabilities sum to 1: Σpᵢ = 1
+    /// - Normalization factor: Σ|pᵢ| = 1 + 2p (for importance sampling)
+    let decomposeSingleQubitGate (gate: CircuitBuilder.Gate) (noiseModel: NoiseModel) : QuasiProbDecomposition =
+        let p = noiseModel.SingleQubitDepolarizing
+        
+        // Helper: Extract qubit index from single-qubit gate
+        let getQubit gate =
+            match gate with
+            | CircuitBuilder.Gate.H q -> q
+            | CircuitBuilder.Gate.X q -> q
+            | CircuitBuilder.Gate.Y q -> q
+            | CircuitBuilder.Gate.Z q -> q
+            | CircuitBuilder.Gate.RX (q, _) -> q
+            | CircuitBuilder.Gate.RY (q, _) -> q
+            | CircuitBuilder.Gate.RZ (q, _) -> q
+            | _ -> 0  // Default for multi-qubit gates
+        
+        let qubit = getQubit gate
+        
+        // 5-term decomposition: desired gate + 4 Pauli corrections
+        // For identity correction, we use X·X = I (apply X twice)
+        // This represents the depolarizing channel's identity component
+        let terms = [
+            (gate, 1.0 + p)                             // Positive: desired gate
+            (CircuitBuilder.Gate.X qubit, -p / 4.0)     // Negative: I correction (via X·X)
+            (CircuitBuilder.Gate.X qubit, -p / 4.0)     // Negative: X correction
+            (CircuitBuilder.Gate.Y qubit, -p / 4.0)     // Negative: Y correction
+            (CircuitBuilder.Gate.Z qubit, -p / 4.0)     // Negative: Z correction
+        ]
+        
+        // Normalization = Σ|pᵢ| = (1+p) + 4×(p/4) = 1 + p + p = 1 + 2p
+        let normalization = (1.0 + p) + 4.0 * (p / 4.0)
+        
+        {
+            Terms = terms
+            Normalization = normalization
+        }
