@@ -137,11 +137,19 @@ module JobLifecycle =
                     use jsonDoc = JsonDocument.Parse(jsonBody)
                     let root = jsonDoc.RootElement
                     
-                    // Extract required fields
-                    let id = root.GetProperty("id").GetString()
-                    let status = root.GetProperty("status").GetString()
-                    let target = root.GetProperty("target").GetString()
-                    let creationTime = root.GetProperty("creationTime").GetString()
+                    // Helper to safely get required string property (throws if null or missing)
+                    let getRequiredString (name: string) =
+                        let prop = root.GetProperty(name)
+                        if prop.ValueKind = JsonValueKind.Null then
+                            failwith (sprintf "Required property '%s' is null" name)
+                        else
+                            prop.GetString()
+                    
+                    // Extract required fields (will throw if null or missing - intentional for validation)
+                    let id = getRequiredString "id"
+                    let status = getRequiredString "status"
+                    let target = getRequiredString "target"
+                    let creationTime = getRequiredString "creationTime"
                     
                     // Helper to safely get optional string property
                     let tryGetStringProperty (name: string) =
@@ -161,9 +169,15 @@ module JobLifecycle =
                     let (errorCode, errorMessage) =
                         let mutable errorData = Unchecked.defaultof<JsonElement>
                         if root.TryGetProperty("errorData", &errorData) && errorData.ValueKind <> JsonValueKind.Null then
-                            let code = errorData.GetProperty("code").GetString()
-                            let message = errorData.GetProperty("message").GetString()
-                            (Some code, Some message)
+                            // Safely extract nested error properties
+                            let getErrorString (prop: string) =
+                                let elem = errorData.GetProperty(prop)
+                                if elem.ValueKind = JsonValueKind.Null then None
+                                else Some (elem.GetString())
+                            
+                            let code = getErrorString "code"
+                            let message = getErrorString "message"
+                            (code, message)
                         else
                             (None, None)
                     
@@ -323,7 +337,7 @@ module JobLifecycle =
                             use jsonDoc = JsonDocument.Parse(resultJson)
                             let root = jsonDoc.RootElement
                             let mutable idProp = Unchecked.defaultof<JsonElement>
-                            if root.TryGetProperty("jobId", &idProp) then
+                            if root.TryGetProperty("jobId", &idProp) && idProp.ValueKind <> JsonValueKind.Null then
                                 idProp.GetString()
                             else
                                 "unknown"
