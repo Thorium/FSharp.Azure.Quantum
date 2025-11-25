@@ -523,3 +523,22 @@ module QuboEncodingTests =
         // Verify linear scaling
         let ratio = hardPenalty.[0, 0] / softPenalty.[0, 0]
         Assert.Equal(100.0, ratio)
+    
+    // ============================================================================
+    // TKT-37: Constraint Penalty Optimization Tests
+    // ============================================================================
+    
+    [<Fact>]
+    let ``ConstraintPenalty Hard constraint should use Lucas Rule`` () =
+        // Lucas Rule: λ ≥ max(|coefficient in H_objective|) + 1
+        // Example: TSP with max distance 100 → penalty = 101
+        let objectiveMax = 100.0
+        let problemSize = 10
+        
+        let penalty = ConstraintPenalty.calculatePenalty ConstraintType.Hard objectiveMax problemSize
+        
+        // Hard constraint should use Lucas Rule: objectiveMax + 1
+        // With size scaling: (100 + 1) * sqrt(10) ≈ 101 * 3.16 ≈ 319
+        let expectedMinPenalty = objectiveMax + 1.0
+        Assert.True(penalty >= expectedMinPenalty, 
+            sprintf "Penalty %f should be >= %f (Lucas Rule)" penalty expectedMinPenalty)

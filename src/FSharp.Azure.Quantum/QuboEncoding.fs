@@ -25,6 +25,11 @@ type VariableEncoding =
     | DomainWall of levels: int
     | BoundedInteger of min: int * max: int
 
+/// Constraint type classification for penalty calculation.
+type ConstraintType =
+    | Hard
+    | Soft of preferenceWeight: float
+
 /// Operations for variable encoding strategies
 module VariableEncoding =
     
@@ -324,3 +329,23 @@ module QuboEncoding =
             ) ([], 0)
         
         { Assignments = List.rev assignments }
+
+/// Constraint penalty optimization for QUBO problems
+module ConstraintPenalty =
+    
+    /// Calculate penalty weight using Lucas Rule with problem-size scaling.
+    /// 
+    /// Lucas Rule: λ ≥ max(H_objective) + 1
+    /// Size Scaling: λ * sqrt(problemSize)
+    let rec calculatePenalty (constraintType: ConstraintType) (objectiveMax: float) (problemSize: int) : float =
+        match constraintType with
+        | Hard ->
+            // Lucas Rule + square root size scaling
+            let lucasPenalty = objectiveMax + 1.0
+            let sizeFactor = sqrt (float problemSize)
+            lucasPenalty * sizeFactor
+        
+        | Soft preferenceWeight ->
+            // Soft constraints: fraction of hard constraint penalty
+            let hardPenalty = calculatePenalty Hard objectiveMax problemSize
+            hardPenalty * preferenceWeight
