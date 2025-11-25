@@ -3,6 +3,7 @@ module FSharp.Azure.Quantum.Tests.RateLimitingTests
 open Xunit
 open System
 open System.Net.Http
+open System.Threading.Tasks
 open FSharp.Azure.Quantum.Core.RateLimiting
 
 // ============================================================================
@@ -125,3 +126,40 @@ let ``calculateExponentialBackoff should return increasing delays`` () =
     Assert.Equal(16000, delay5)  // 16 seconds
     Assert.Equal(32000, delay6)  // 32 seconds
     Assert.Equal(60000, delay7)  // 60 seconds (capped)
+
+// ============================================================================
+// TDD Cycle #6: ThrottlingHandler Integration
+// ============================================================================
+
+[<Fact>]
+let ``ThrottlingHandler should parse rate limit headers from responses`` () =
+    async {
+        // Arrange
+        let testHandler = 
+            { new HttpMessageHandler() with
+                member _.SendAsync(request, ct) =
+                    task {
+                        let response = new HttpResponseMessage(Net.HttpStatusCode.OK)
+                        response.Headers.Add("x-ms-ratelimit-remaining", "45")
+                        response.Headers.Add("x-ms-ratelimit-limit", "60")
+                        return response
+                    }
+            }
+        
+        let throttlingHandler = new ThrottlingHandler(testHandler)
+        let client = new HttpClient(throttlingHandler)
+        
+        // Act
+        let! response = client.GetAsync("https://test.example.com") |> Async.AwaitTask
+        
+        // Assert
+        let limiter = throttlingHandler.GetRateLimiter()
+        let state = limiter.GetCurrentState()
+        
+        match state with
+        | Some info ->
+            Assert.Equal(45, info.Remaining)
+            Assert.Equal(60, info.Limit)
+        | None ->
+            Assert.True(false, "Expected rate limiter to have state after response")
+    } |> Async.RunSynchronously

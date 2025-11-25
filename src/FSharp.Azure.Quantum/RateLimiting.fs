@@ -102,3 +102,50 @@ module RateLimiting =
         
         // Cap at maximum
         min delay maxDelayMs
+    
+    // ============================================================================
+    // 5. THROTTLING HANDLER
+    // ============================================================================
+    
+    /// HTTP DelegatingHandler for automatic rate limiting and throttling
+    type ThrottlingHandler(?innerHandler: HttpMessageHandler) =
+        inherit DelegatingHandler(match innerHandler with | Some h -> h | None -> new HttpClientHandler())
+        
+        let rateLimiter = RateLimiter()
+        let mutable attemptNumber = 0
+        
+        /// Get the rate limiter instance
+        member this.GetRateLimiter() = rateLimiter
+        
+        /// Send HTTP request with automatic throttling
+        override this.SendAsync(request: HttpRequestMessage, cancellationToken: CancellationToken) : Task<HttpResponseMessage> =
+            async {
+                // Check if we should throttle before sending
+                if rateLimiter.ShouldThrottle() then
+                    do! Async.Sleep(1000)  // Simple 1s delay when approaching limit
+                
+                // Call inner handler's SendAsync through reflection
+                let sendAsyncMethod = 
+                    typeof<HttpMessageHandler>.GetMethod("SendAsync", 
+                        System.Reflection.BindingFlags.Instance ||| System.Reflection.BindingFlags.NonPublic)
+                let! response = 
+                    sendAsyncMethod.Invoke(this.InnerHandler, [| request; cancellationToken |]) 
+                    :?> Task<HttpResponseMessage>
+                    |> Async.AwaitTask
+                
+                // Parse rate limit headers from response
+                let rateLimitInfo = parseRateLimitHeaders response
+                match rateLimitInfo with
+                | Some info -> rateLimiter.UpdateState(info)
+                | None -> ()
+                
+                // Handle 429 Too Many Requests with exponential backoff
+                if response.StatusCode = Net.HttpStatusCode.TooManyRequests then
+                    attemptNumber <- attemptNumber + 1
+                    let delay = calculateExponentialBackoff attemptNumber
+                    do! Async.Sleep(delay)
+                else
+                    attemptNumber <- 0  // Reset on success
+                
+                return response
+            } |> Async.StartAsTask
