@@ -9,7 +9,7 @@ open FSharp.Azure.Quantum.Core.QaoaCircuit
 module BatchAccumulatorTests =
     
     // ============================================================================
-    // TDD CYCLE 1: BatchConfig - Configuration Type with Validation
+    // BatchConfig - Configuration Type with Validation
     // ============================================================================
     
     [<Fact>]
@@ -77,7 +77,7 @@ module BatchAccumulatorTests =
         Assert.True(config.Enabled)
     
     // ============================================================================
-    // TDD CYCLE 2: BatchAccumulator - Size Trigger
+    // BatchAccumulator - Size Trigger
     // ============================================================================
     
     [<Fact>]
@@ -166,7 +166,7 @@ module BatchAccumulatorTests =
         | None -> Assert.True(false, "Expected immediate trigger with batch size 1")
     
     // ============================================================================
-    // TDD CYCLE 3: BatchAccumulator - Timeout Trigger
+    // BatchAccumulator - Timeout Trigger
     // ============================================================================
     
     [<Fact>]
@@ -233,7 +233,7 @@ module BatchAccumulatorTests =
         Assert.True(result2.IsNone, "Timeout should be reset after size trigger")
     
     // ============================================================================
-    // TDD CYCLE 4: BatchAccumulator - Thread Safety
+    // BatchAccumulator - Thread Safety
     // ============================================================================
     
     [<Fact>]
@@ -356,7 +356,7 @@ module BatchAccumulatorTests =
         Assert.Equal<int seq>([1..20], distinctItems)
     
     // ============================================================================
-    // TDD CYCLE 5: batchCircuitsAsync - Async Batch Submission Function
+    // batchCircuitsAsync - Async Batch Submission Function
     // ============================================================================
     
     [<Fact>]
@@ -487,7 +487,7 @@ module BatchAccumulatorTests =
         Assert.Empty(results)
     
     // ============================================================================
-    // TDD CYCLE 7: Batch Metrics - Track Batch Efficiency
+    // Batch Metrics - Track Batch Efficiency
     // ============================================================================
     
     [<Fact>]
@@ -543,7 +543,7 @@ module BatchAccumulatorTests =
         Assert.Equal(0.75, efficiency, 2)
     
     // ============================================================================
-    // TDD CYCLE 8: QuantumBackend Integration - Batch Circuit Execution
+    // QuantumBackend Integration - Batch Circuit Execution
     // ============================================================================
     
     [<Fact>]
@@ -667,7 +667,7 @@ module BatchAccumulatorTests =
             Assert.True(false, $"Expected success but got error: {msg}")
     
     // ============================================================================
-    // TDD CYCLE 9: End-to-End Batch Workflow with Metrics
+    // End-to-End Batch Workflow with Metrics
     // ============================================================================
     
     [<Fact>]
@@ -749,7 +749,7 @@ module BatchAccumulatorTests =
             Assert.True(false, $"Expected success but got error: {msg}")
     
     // ============================================================================
-    // TDD CYCLE 10: Performance Benchmarks - Job Count Reduction
+    // Performance Benchmarks - Job Count Reduction
     // ============================================================================
     
     [<Fact>]

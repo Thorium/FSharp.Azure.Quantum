@@ -52,7 +52,7 @@ module QuboEncodingTests =
         Assert.Equal("y", solution.Assignments.[1].Name)
         Assert.Equal(0, solution.Assignments.[1].Value)
     
-    // TDD Cycle #2: Integer variable encoding tests
+    // Integer variable encoding tests
     [<Fact>]
     let ``Integer variable encoding - should use one-hot encoding`` () =
         // Arrange: Integer variable x ∈ {0, 1, 2, 3}
@@ -114,7 +114,7 @@ module QuboEncodingTests =
         Assert.Equal(2.0, qubo.GetCoefficient(0, 2))
         Assert.Equal(2.0, qubo.GetCoefficient(1, 2))
     
-    // TDD Cycle #3: Categorical variables and constraint penalties
+    // Categorical variables and constraint penalties
     [<Fact>]
     let ``Categorical variable encoding - should use one-hot encoding`` () =
         // Arrange: Categorical variable color ∈ {red, green, blue}
