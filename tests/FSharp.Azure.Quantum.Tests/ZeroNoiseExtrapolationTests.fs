@@ -158,3 +158,100 @@ module ZeroNoiseExtrapolationTests =
         
         // Assert: Should return 0.0 as fallback
         Assert.Equal(0.0, zeroNoiseValue)
+    
+    // Cycle #4: Full ZNE pipeline - Beautiful composition of all pieces!
+    
+    [<Fact>]
+    let ``mitigate should compose all ZNE steps`` () =
+        async {
+            // Arrange: Simple circuit and configuration
+            let circuit = 
+                CircuitBuilder.empty 2
+                |> CircuitBuilder.addGate (CircuitBuilder.H 0)
+                |> CircuitBuilder.addGate (CircuitBuilder.CNOT (0, 1))
+            
+            let config: ZeroNoiseExtrapolation.ZNEConfig = {
+                NoiseScalings = [
+                    ZeroNoiseExtrapolation.NoiseScaling.IdentityInsertion 0.0   // Baseline (1.0x noise)
+                    ZeroNoiseExtrapolation.NoiseScaling.IdentityInsertion 0.5   // 1.5x noise
+                    ZeroNoiseExtrapolation.NoiseScaling.IdentityInsertion 1.0   // 2.0x noise
+                ]
+                PolynomialDegree = 2
+                MinSamples = 100
+            }
+            
+            // Mock executor: Realistic noise model (noise decreases expectation)
+            let mockExecutor (noisyCircuit: CircuitBuilder.Circuit) =
+                async {
+                    let gateCount = float (CircuitBuilder.gateCount noisyCircuit)
+                    let baselineGates = 2.0  // Original circuit
+                    let noiseLevelEstimate = gateCount / baselineGates
+                    // Realistic: E(λ) decreases with noise, but not linearly
+                    // Using quadratic: E(λ) = 0.95 - 0.15λ + 0.05λ²
+                    let expectation = 0.95 - 0.15 * noiseLevelEstimate + 0.05 * (noiseLevelEstimate ** 2.0)
+                    return Ok expectation
+                }
+            
+            // Act: Run full ZNE pipeline
+            let! result = ZeroNoiseExtrapolation.mitigate circuit config mockExecutor
+            
+            // Assert: Should return successful ZNE result
+            match result with
+            | Ok zneResult ->
+                // Zero-noise value should be >= baseline
+                Assert.True(zneResult.ZeroNoiseValue >= 0.8,
+                    sprintf "Expected zero-noise value >= 0.8, got %f" zneResult.ZeroNoiseValue)
+                
+                // Should have 3 measurements (one per noise level)
+                Assert.Equal(3, zneResult.MeasuredValues.Length)
+                
+                // Should have polynomial coefficients
+                Assert.Equal(3, zneResult.PolynomialCoefficients.Length)
+                
+                // Goodness of fit should be reasonable
+                Assert.True(zneResult.GoodnessOfFit >= 0.0 && zneResult.GoodnessOfFit <= 1.0)
+            | Error err ->
+                Assert.Fail(sprintf "ZNE pipeline failed: %s" err)
+        } |> Async.RunSynchronously
+    
+    [<Fact>]
+    let ``mitigate should demonstrate error reduction`` () =
+        async {
+            // Arrange: Circuit with known baseline noise
+            let circuit = CircuitBuilder.empty 1 |> CircuitBuilder.addGate (CircuitBuilder.H 0)
+            
+            let config: ZeroNoiseExtrapolation.ZNEConfig = {
+                NoiseScalings = [
+                    ZeroNoiseExtrapolation.NoiseScaling.IdentityInsertion 0.0   // 1.0x
+                    ZeroNoiseExtrapolation.NoiseScaling.IdentityInsertion 0.5   // 1.5x  
+                    ZeroNoiseExtrapolation.NoiseScaling.IdentityInsertion 1.0   // 2.0x
+                ]
+                PolynomialDegree = 2
+                MinSamples = 100
+            }
+            
+            // Realistic executor: Linear noise degradation
+            let mockExecutor (noisyCircuit: CircuitBuilder.Circuit) =
+                async {
+                    let noiseLevel = float (CircuitBuilder.gateCount noisyCircuit)
+                    let baselineExpectation = 0.80  // Noisy baseline
+                    let expectation = baselineExpectation - (noiseLevel - 1.0) * 0.1
+                    return Ok expectation
+                }
+            
+            // Act: Apply ZNE
+            let! result = ZeroNoiseExtrapolation.mitigate circuit config mockExecutor
+            
+            // Assert: Error reduction (zero-noise > baseline)
+            match result with
+            | Ok zneResult ->
+                // First measurement is baseline (1.0x noise)
+                let baseline = zneResult.MeasuredValues |> List.head |> snd
+                
+                // Zero-noise should be better than baseline (error mitigation!)
+                Assert.True(zneResult.ZeroNoiseValue > baseline,
+                    sprintf "Expected error reduction: zero-noise (%f) > baseline (%f)" 
+                        zneResult.ZeroNoiseValue baseline)
+            | Error err ->
+                Assert.Fail(sprintf "ZNE failed: %s" err)
+        } |> Async.RunSynchronously
