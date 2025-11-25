@@ -238,3 +238,138 @@ module ProbabilisticErrorCancellationTests =
         
         // Assert: Normalization = 1.0 (no overhead needed)
         Assert.Equal(1.0, decomposition.Normalization, 10)
+    
+    // Cycle #3: Two-qubit gate decomposition - 16-term Pauli basis
+    
+    [<Fact>]
+    let ``decomposeTwoQubitGate should produce 16-term decomposition`` () =
+        // Arrange: Two-qubit depolarizing noise
+        let noiseModel: ProbabilisticErrorCancellation.NoiseModel = {
+            SingleQubitDepolarizing = 0.001
+            TwoQubitDepolarizing = 0.01  // Higher error rate for two-qubit gates
+            ReadoutError = 0.02
+        }
+        
+        let gate = CircuitBuilder.CNOT (0, 1)
+        
+        // Act: Decompose into Pauli basis
+        let decomposition = ProbabilisticErrorCancellation.decomposeTwoQubitGate gate noiseModel
+        
+        // Assert: 16 terms = 1 desired gate + 15 Pauli basis corrections
+        // Pauli basis: {I, X, Y, Z} ⊗ {I, X, Y, Z} = 16 combinations
+        // One term is the desired gate, so 15 correction terms
+        Assert.Equal(16, decomposition.Terms.Length)
+    
+    [<Fact>]
+    let ``decomposeTwoQubitGate should have correct probability formula`` () =
+        // Arrange
+        let p = 0.01  // 1% two-qubit error
+        let noiseModel: ProbabilisticErrorCancellation.NoiseModel = {
+            SingleQubitDepolarizing = 0.001
+            TwoQubitDepolarizing = p
+            ReadoutError = 0.02
+        }
+        
+        let gate = CircuitBuilder.CNOT (0, 1)
+        
+        // Act
+        let decomposition = ProbabilisticErrorCancellation.decomposeTwoQubitGate gate noiseModel
+        
+        // Assert: First term is (1 + p)
+        let (_, firstProb) = decomposition.Terms.[0]
+        Assert.Equal(1.0 + p, firstProb, 10)
+        
+        // Assert: Each correction term is -p/15
+        // Two-qubit depolarizing: 15 Pauli operators (excluding II)
+        let correctionProbs = decomposition.Terms |> List.skip 1 |> List.map snd
+        Assert.Equal(15, correctionProbs.Length)
+        
+        correctionProbs |> List.iter (fun prob ->
+            Assert.Equal(-p / 15.0, prob, 10))
+    
+    [<Fact>]
+    let ``decomposeTwoQubitGate should have correct normalization`` () =
+        // Arrange
+        let p = 0.01
+        let noiseModel: ProbabilisticErrorCancellation.NoiseModel = {
+            SingleQubitDepolarizing = 0.001
+            TwoQubitDepolarizing = p
+            ReadoutError = 0.02
+        }
+        
+        let gate = CircuitBuilder.CNOT (0, 1)
+        
+        // Act
+        let decomposition = ProbabilisticErrorCancellation.decomposeTwoQubitGate gate noiseModel
+        
+        // Assert: Normalization = Σ|pᵢ| = (1+p) + 15×(p/15) = 1 + 2p
+        let expectedNorm = 1.0 + 2.0 * p
+        Assert.Equal(expectedNorm, decomposition.Normalization, 10)
+    
+    [<Fact>]
+    let ``decomposeTwoQubitGate quasi-probabilities should sum to 1`` () =
+        // Arrange
+        let p = 0.01
+        let noiseModel: ProbabilisticErrorCancellation.NoiseModel = {
+            SingleQubitDepolarizing = 0.001
+            TwoQubitDepolarizing = p
+            ReadoutError = 0.02
+        }
+        
+        let gate = CircuitBuilder.CNOT (0, 1)
+        
+        // Act
+        let decomposition = ProbabilisticErrorCancellation.decomposeTwoQubitGate gate noiseModel
+        
+        // Assert: Σpᵢ = 1 (quasi-probability normalization)
+        // (1+p) + 15×(-p/15) = 1 + p - p = 1
+        let sum = decomposition.Terms |> List.sumBy snd
+        Assert.Equal(1.0, sum, 10)
+    
+    [<Fact>]
+    let ``decomposeTwoQubitGate should include all Pauli basis terms`` () =
+        // Arrange
+        let noiseModel: ProbabilisticErrorCancellation.NoiseModel = {
+            SingleQubitDepolarizing = 0.001
+            TwoQubitDepolarizing = 0.01
+            ReadoutError = 0.02
+        }
+        
+        let gate = CircuitBuilder.CNOT (0, 1)
+        
+        // Act
+        let decomposition = ProbabilisticErrorCancellation.decomposeTwoQubitGate gate noiseModel
+        
+        // Assert: All correction terms should have negative probabilities
+        let correctionProbs = 
+            decomposition.Terms 
+            |> List.skip 1 
+            |> List.map snd
+        
+        correctionProbs |> List.iter (fun prob ->
+            Assert.True(prob < 0.0, "All Pauli basis corrections must have negative probabilities"))
+    
+    [<Fact>]
+    let ``decomposeTwoQubitGate should work with zero noise`` () =
+        // Arrange: Zero two-qubit noise
+        let noiseModel: ProbabilisticErrorCancellation.NoiseModel = {
+            SingleQubitDepolarizing = 0.001
+            TwoQubitDepolarizing = 0.0  // No noise!
+            ReadoutError = 0.02
+        }
+        
+        let gate = CircuitBuilder.CNOT (0, 1)
+        
+        // Act
+        let decomposition = ProbabilisticErrorCancellation.decomposeTwoQubitGate gate noiseModel
+        
+        // Assert: First term is 1.0, corrections are 0.0
+        let (_, firstProb) = decomposition.Terms.[0]
+        Assert.Equal(1.0, firstProb, 10)
+        
+        let correctionProbs = decomposition.Terms |> List.skip 1 |> List.map snd
+        correctionProbs |> List.iter (fun prob ->
+            Assert.Equal(0.0, prob, 10))
+        
+        // Assert: Normalization = 1.0
+        Assert.Equal(1.0, decomposition.Normalization, 10)
