@@ -48,6 +48,7 @@
     <Compile Include="Retry.fs" />
     <Compile Include="RateLimiting.fs" />
     <Compile Include="Observability.fs" />
+    <Compile Include="Batching.fs" />
     <Compile Include="Client.fs" />
     <Compile Include="TspSolver.fs" />
     <Compile Include="TspBuilder.fs" />
