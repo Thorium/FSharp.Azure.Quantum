@@ -139,6 +139,50 @@ module ZeroNoiseExtrapolation =
         | a0 :: _ -> a0  // Zero-noise value is the constant term
     
     // ============================================================================
+    // Configuration Builders - Idiomatic F# Fluent API
+    // ============================================================================
+    
+    /// Default ZNE configuration for IonQ hardware.
+    /// 
+    /// Uses identity insertion (I·I gate pairs) at 3 noise levels.
+    /// Suitable for trapped-ion quantum computers.
+    let defaultIonQConfig: ZNEConfig = {
+        NoiseScalings = [
+            IdentityInsertion 0.0   // Baseline (1.0x noise)
+            IdentityInsertion 0.5   // 1.5x noise
+            IdentityInsertion 1.0   // 2.0x noise
+        ]
+        PolynomialDegree = 2
+        MinSamples = 1024
+    }
+    
+    /// Default ZNE configuration for Rigetti hardware.
+    /// 
+    /// Uses pulse stretching at 3 noise levels.
+    /// Suitable for superconducting quantum computers.
+    let defaultRigettiConfig: ZNEConfig = {
+        NoiseScalings = [
+            PulseStretching 1.0   // Baseline (1.0x noise)
+            PulseStretching 1.5   // 1.5x noise
+            PulseStretching 2.0   // 2.0x noise
+        ]
+        PolynomialDegree = 2
+        MinSamples = 1024
+    }
+    
+    /// Override noise scaling levels (fluent API).
+    let withNoiseScalings (scalings: NoiseScaling list) (config: ZNEConfig) : ZNEConfig =
+        { config with NoiseScalings = scalings }
+    
+    /// Override polynomial degree (fluent API).
+    let withPolynomialDegree (degree: int) (config: ZNEConfig) : ZNEConfig =
+        { config with PolynomialDegree = degree }
+    
+    /// Override minimum samples (fluent API).
+    let withMinSamples (samples: int) (config: ZNEConfig) : ZNEConfig =
+        { config with MinSamples = samples }
+    
+    // ============================================================================
     // Public API - Composable Functions
     // ============================================================================
     

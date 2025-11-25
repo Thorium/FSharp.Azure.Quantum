@@ -255,3 +255,82 @@ module ZeroNoiseExtrapolationTests =
             | Error err ->
                 Assert.Fail(sprintf "ZNE failed: %s" err)
         } |> Async.RunSynchronously
+    
+    // Cycle #5: Configuration builders and defaults - Idiomatic F# usability
+    
+    [<Fact>]
+    let ``defaultConfig should provide sensible IonQ defaults`` () =
+        // Arrange & Act: Get default config for IonQ
+        let config = ZeroNoiseExtrapolation.defaultIonQConfig
+        
+        // Assert: Should use identity insertion
+        Assert.Equal(3, config.NoiseScalings.Length)
+        Assert.All(config.NoiseScalings, fun scaling ->
+            match scaling with
+            | ZeroNoiseExtrapolation.NoiseScaling.IdentityInsertion _ -> ()
+            | _ -> Assert.Fail("Expected IdentityInsertion for IonQ"))
+        
+        // Should have reasonable polynomial degree
+        Assert.Equal(2, config.PolynomialDegree)
+        
+        // Should have sufficient samples
+        Assert.True(config.MinSamples >= 1000)
+    
+    [<Fact>]
+    let ``defaultConfig should provide sensible Rigetti defaults`` () =
+        // Arrange & Act: Get default config for Rigetti
+        let config = ZeroNoiseExtrapolation.defaultRigettiConfig
+        
+        // Assert: Should use pulse stretching
+        Assert.Equal(3, config.NoiseScalings.Length)
+        Assert.All(config.NoiseScalings, fun scaling ->
+            match scaling with
+            | ZeroNoiseExtrapolation.NoiseScaling.PulseStretching _ -> ()
+            | _ -> Assert.Fail("Expected PulseStretching for Rigetti"))
+        
+        // Same quality standards
+        Assert.Equal(2, config.PolynomialDegree)
+        Assert.True(config.MinSamples >= 1000)
+    
+    [<Fact>]
+    let ``withNoiseScalings should override noise levels`` () =
+        // Arrange: Start with default config
+        let customScalings = [
+            ZeroNoiseExtrapolation.NoiseScaling.IdentityInsertion 0.0
+            ZeroNoiseExtrapolation.NoiseScaling.IdentityInsertion 1.0
+        ]
+        
+        // Act: Override noise scalings (fluent API)
+        let config = 
+            ZeroNoiseExtrapolation.defaultIonQConfig
+            |> ZeroNoiseExtrapolation.withNoiseScalings customScalings
+        
+        // Assert: Should have custom scalings
+        Assert.Equal(2, config.NoiseScalings.Length)
+    
+    [<Fact>]
+    let ``withPolynomialDegree should override degree`` () =
+        // Arrange & Act: Override polynomial degree
+        let config = 
+            ZeroNoiseExtrapolation.defaultIonQConfig
+            |> ZeroNoiseExtrapolation.withPolynomialDegree 1  // Linear fit
+        
+        // Assert: Should have degree 1
+        Assert.Equal(1, config.PolynomialDegree)
+    
+    [<Fact>]
+    let ``fluent API should compose beautifully`` () =
+        // Arrange & Act: Chain multiple overrides
+        let config = 
+            ZeroNoiseExtrapolation.defaultRigettiConfig
+            |> ZeroNoiseExtrapolation.withPolynomialDegree 3
+            |> ZeroNoiseExtrapolation.withMinSamples 2048
+            |> ZeroNoiseExtrapolation.withNoiseScalings [
+                ZeroNoiseExtrapolation.NoiseScaling.PulseStretching 1.0
+                ZeroNoiseExtrapolation.NoiseScaling.PulseStretching 2.0
+            ]
+        
+        // Assert: All overrides applied
+        Assert.Equal(3, config.PolynomialDegree)
+        Assert.Equal(2048, config.MinSamples)
+        Assert.Equal(2, config.NoiseScalings.Length)
