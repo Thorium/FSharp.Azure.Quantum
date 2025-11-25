@@ -26,6 +26,7 @@ type VariableEncoding =
     | BoundedInteger of min: int * max: int
 
 /// Constraint type classification for penalty calculation.
+[<Struct>]
 type ConstraintType =
     | Hard
     | Soft of preferenceWeight: float
