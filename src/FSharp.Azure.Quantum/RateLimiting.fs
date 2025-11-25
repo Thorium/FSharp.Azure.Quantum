@@ -29,3 +29,30 @@ module RateLimiting =
         /// Time when the rate limit window resets
         ResetTime: DateTimeOffset
     }
+    
+    // ============================================================================
+    // 2. HEADER PARSING
+    // ============================================================================
+    
+    /// Parse rate limit headers from HTTP response
+    let parseRateLimitHeaders (response: HttpResponseMessage) : RateLimitInfo option =
+        let tryGetHeader name =
+            match response.Headers.TryGetValues(name) with
+            | true, values -> 
+                values 
+                |> Seq.tryHead 
+                |> Option.bind (fun v -> 
+                    match System.Int32.TryParse(v) with
+                    | true, parsed -> Some parsed
+                    | false, _ -> None)
+            | false, _ -> None
+        
+        let remaining = tryGetHeader "x-ms-ratelimit-remaining"
+        let limit = tryGetHeader "x-ms-ratelimit-limit"
+        
+        match remaining, limit with
+        | Some r, Some l ->
+            // If no reset time provided, assume 1 minute window
+            let resetTime = DateTimeOffset.UtcNow.AddMinutes(1.0)
+            Some { Remaining = r; Limit = l; ResetTime = resetTime }
+        | _ -> None

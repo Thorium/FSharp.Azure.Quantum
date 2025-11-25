@@ -23,3 +23,25 @@ let ``RateLimitInfo should store remaining requests, limit, and reset time`` () 
     Assert.Equal(remaining, info.Remaining)
     Assert.Equal(limit, info.Limit)
     Assert.Equal(resetTime, info.ResetTime)
+
+// ============================================================================
+// TDD Cycle #2: Parse Rate Limit Headers
+// ============================================================================
+
+[<Fact>]
+let ``parseRateLimitHeaders should extract rate limit info from HTTP headers`` () =
+    // Arrange
+    let response = new HttpResponseMessage()
+    response.Headers.Add("x-ms-ratelimit-remaining", "45")
+    response.Headers.Add("x-ms-ratelimit-limit", "60")
+    
+    // Act
+    let result = parseRateLimitHeaders response
+    
+    // Assert
+    match result with
+    | Some info ->
+        Assert.Equal(45, info.Remaining)
+        Assert.Equal(60, info.Limit)
+    | None ->
+        Assert.True(false, "Expected Some(RateLimitInfo) but got None")
