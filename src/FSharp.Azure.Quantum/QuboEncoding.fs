@@ -11,8 +11,13 @@ type Variable = {
     VarType: VariableType
 }
 
-// TKT-36: Advanced Variable Encoding Strategies
-// Discriminated union for encoding strategies (data)
+/// Variable encoding strategies for QUBO optimization.
+/// 
+/// Selection guide:
+/// - Binary: True binary decisions (include/exclude)
+/// - OneHot: Unordered categories (route selection)
+/// - DomainWall: Ordered levels (priorities) - 25% fewer qubits
+/// - BoundedInteger: Integer ranges (quantities) - logarithmic efficiency
 [<Struct>]
 type VariableEncoding =
     | Binary
@@ -20,11 +25,10 @@ type VariableEncoding =
     | DomainWall of levels: int
     | BoundedInteger of min: int * max: int
 
-// Module for encoding operations (behavior)
+/// Operations for variable encoding strategies
 module VariableEncoding =
     
-    /// Calculate number of qubits needed for an encoding strategy
-    /// Usage: encoding |> VariableEncoding.qubitCount
+    /// Calculate number of qubits needed for an encoding strategy.
     let qubitCount (encoding: VariableEncoding) : int =
         match encoding with
         | Binary -> 1
@@ -35,8 +39,7 @@ module VariableEncoding =
             if range <= 1 then 1
             else int (System.Math.Ceiling(System.Math.Log(float range, 2.0)))
     
-    /// Encode a value to qubit assignments
-    /// Usage: value |> VariableEncoding.encode encoding
+    /// Encode a value to qubit assignments.
     let encode (encoding: VariableEncoding) (value: int) : int list =
         match encoding with
         | Binary ->
@@ -58,8 +61,7 @@ module VariableEncoding =
             List.init numQubits (fun i ->
                 if (normalizedValue &&& (1 <<< i)) <> 0 then 1 else 0)
     
-    /// Decode qubit assignments back to original value
-    /// Usage: bits |> VariableEncoding.decode encoding
+    /// Decode qubit assignments back to original value.
     let decode (encoding: VariableEncoding) (bits: int list) : int =
         match encoding with
         | Binary ->
@@ -84,14 +86,12 @@ module VariableEncoding =
             |> List.sumBy (fun (i, bit) -> bit * (1 <<< i))
             |> (+) min
     
-    /// Compose encode and decode for roundtrip validation
-    /// Usage: value |> VariableEncoding.roundtrip encoding
+    /// Roundtrip encoding validation (encode then decode).
     let roundtrip encoding value =
         value |> encode encoding |> decode encoding
     
-    /// Generate QUBO penalty matrix for encoding constraints
-    /// Usage: encoding |> VariableEncoding.constraintPenalty weight
-    /// Returns: 2D array representing penalty terms in QUBO matrix
+    /// Generate QUBO penalty matrix for encoding constraints.
+    /// Weight parameter controls penalty strength (higher = stricter constraint).
     let constraintPenalty (encoding: VariableEncoding) (weight: float) : float[,] =
         let n = qubitCount encoding
         let penalty = Array2D.zeroCreate<float> n n
