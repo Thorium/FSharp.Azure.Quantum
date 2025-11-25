@@ -4,6 +4,7 @@ open System
 open System.Net
 open System.Net.Http
 open System.Text
+open System.Text.Json
 open Xunit
 open FSharp.Azure.Quantum.Core.RigettiBackend
 open FSharp.Azure.Quantum.Core.Types
@@ -489,3 +490,148 @@ module RigettiBackendTests =
         | Error msg ->
             Assert.Contains("CZ 0 2", msg)
             // Should report first invalid gate
+    
+    // ============================================================================
+    // TDD CYCLE 5 & 6: Job Submission, Result Parsing, Error Mapping
+    // ============================================================================
+    
+    [<Fact>]
+    let ``createJobSubmission - creates valid job submission for Rigetti simulator`` () =
+        // Arrange
+        let program = {
+            Declarations = [ QuilGate.DeclareMemory("ro", "BIT", 2) ]
+            Instructions = [
+                QuilGate.SingleQubit("H", 0)
+                QuilGate.TwoQubit("CZ", 0, 1)
+                QuilGate.Measure(0, "ro[0]")
+                QuilGate.Measure(1, "ro[1]")
+            ]
+        }
+        let shots = 1000
+        
+        // Act
+        let submission = createJobSubmission program shots "rigetti.sim.qvm" None
+        
+        // Assert
+        Assert.Equal("rigetti.sim.qvm", submission.Target)
+        Assert.Equal(CircuitFormat.Custom "application/x-quil", submission.InputDataFormat)
+        Assert.True(submission.InputParams.ContainsKey "count")
+        Assert.Equal(shots, submission.InputParams.["count"] :?> int)
+    
+    [<Fact>]
+    let ``createJobSubmission - serializes program to Quil text in InputData`` () =
+        // Arrange
+        let program = {
+            Declarations = [ QuilGate.DeclareMemory("ro", "BIT", 1) ]
+            Instructions = [
+                QuilGate.SingleQubit("H", 0)
+                QuilGate.Measure(0, "ro[0]")
+            ]
+        }
+        
+        // Act
+        let submission = createJobSubmission program 100 "rigetti.sim.qvm" None
+        
+        // Assert
+        let quilText = submission.InputData :?> string
+        Assert.Contains("DECLARE ro BIT[1]", quilText)
+        Assert.Contains("H 0", quilText)
+        Assert.Contains("MEASURE 0 ro[0]", quilText)
+    
+    [<Fact>]
+    let ``parseRigettiResults - parses histogram from Rigetti response`` () =
+        // Arrange - Rigetti returns results in format: {"00": 480, "01": 12, "10": 8, "11": 500}
+        let rigettiResponse = 
+            {|
+                histogram = dict [("00", 480); ("01", 12); ("10", 8); ("11", 500)]
+            |}
+        let json = JsonSerializer.Serialize(rigettiResponse)
+        
+        // Act
+        let result = parseRigettiResults json
+        
+        // Assert
+        match result with
+        | Ok histogram ->
+            Assert.Equal(4, histogram.Count)
+            Assert.Equal(480, histogram.["00"])
+            Assert.Equal(12, histogram.["01"])
+            Assert.Equal(8, histogram.["10"])
+            Assert.Equal(500, histogram.["11"])
+        | Error e -> Assert.True(false, sprintf "Expected Ok, got Error: %A" e)
+    
+    [<Fact>]
+    let ``parseRigettiResults - handles empty histogram`` () =
+        // Arrange
+        let rigettiResponse = {| histogram = dict [] |}
+        let json = JsonSerializer.Serialize(rigettiResponse)
+        
+        // Act
+        let result = parseRigettiResults json
+        
+        // Assert
+        match result with
+        | Ok histogram -> Assert.Empty(histogram)
+        | Error e -> Assert.True(false, sprintf "Expected Ok, got Error: %A" e)
+    
+    [<Fact>]
+    let ``mapRigettiError - maps InvalidProgram to InvalidCircuit`` () =
+        // Arrange
+        let errorCode = "InvalidProgram"
+        let errorMessage = "Malformed Quil program"
+        
+        // Act
+        let quantumError = mapRigettiError errorCode errorMessage
+        
+        // Assert
+        match quantumError with
+        | QuantumError.InvalidCircuit errors -> 
+            Assert.NotEmpty(errors)
+            Assert.Contains("Malformed Quil", errors.[0])
+        | _ -> Assert.True(false, "Expected InvalidCircuit")
+    
+    [<Fact>]
+    let ``mapRigettiError - maps TopologyError to InvalidCircuit`` () =
+        // Arrange
+        let errorCode = "TopologyError"
+        let errorMessage = "Gate CZ 0 5 violates connectivity"
+        
+        // Act
+        let quantumError = mapRigettiError errorCode errorMessage
+        
+        // Assert
+        match quantumError with
+        | QuantumError.InvalidCircuit errors -> 
+            Assert.NotEmpty(errors)
+            Assert.Contains("connectivity", errors.[0])
+        | _ -> Assert.True(false, "Expected InvalidCircuit")
+    
+    [<Fact>]
+    let ``mapRigettiError - maps TooManyQubits to InvalidCircuit`` () =
+        // Arrange
+        let errorCode = "TooManyQubits"
+        let errorMessage = "Circuit requires 50 qubits, maximum is 40"
+        
+        // Act
+        let quantumError = mapRigettiError errorCode errorMessage
+        
+        // Assert
+        match quantumError with
+        | QuantumError.InvalidCircuit errors -> 
+            Assert.NotEmpty(errors)
+            Assert.Contains("40", errors.[0])
+        | _ -> Assert.True(false, "Expected InvalidCircuit")
+    
+    [<Fact>]
+    let ``mapRigettiError - maps QuotaExceeded to QuotaExceeded`` () =
+        // Arrange
+        let errorCode = "QuotaExceeded"
+        let errorMessage = "Insufficient quantum credits"
+        
+        // Act
+        let quantumError = mapRigettiError errorCode errorMessage
+        
+        // Assert
+        match quantumError with
+        | QuantumError.QuotaExceeded _ -> Assert.True(true)
+        | _ -> Assert.True(false, "Expected QuotaExceeded")

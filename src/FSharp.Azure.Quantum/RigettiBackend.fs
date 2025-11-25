@@ -2,6 +2,7 @@ namespace FSharp.Azure.Quantum.Core
 
 open System
 open System.Text
+open System.Text.Json
 open FSharp.Azure.Quantum.Core.Types
 
 /// Rigetti Backend Integration
@@ -200,3 +201,105 @@ module RigettiBackend =
         | Some gate ->
             let gateText = serializeGate gate
             Error (sprintf "Gate '%s' violates connectivity constraints. Qubits are not directly connected in the hardware topology." gateText)
+    
+    // ============================================================================
+    // JOB SUBMISSION (TDD Cycle 5)
+    // ============================================================================
+    
+    /// Create a job submission for Rigetti backend
+    /// 
+    /// Converts a QuilProgram to a JobSubmission that can be sent to rigetti.sim.qvm
+    /// or rigetti.qpu hardware backends.
+    /// 
+    /// Parameters:
+    /// - program: Quil program to execute
+    /// - shots: Number of measurement shots
+    /// - target: Target backend (e.g., "rigetti.sim.qvm", "rigetti.qpu.ankaa-3")
+    /// - name: Optional job name
+    /// 
+    /// Returns: JobSubmission ready for submitJobAsync
+    let createJobSubmission 
+        (program: QuilProgram) 
+        (shots: int) 
+        (target: string) 
+        (name: string option)
+        : JobSubmission =
+        
+        // Serialize program to Quil assembly text
+        let quilText = serializeProgram program
+        
+        // Create job submission
+        {
+            JobId = Guid.NewGuid().ToString()
+            Target = target
+            Name = name
+            InputData = quilText  // Quil assembly as string
+            InputDataFormat = CircuitFormat.Custom "application/x-quil"  // Rigetti Quil format
+            InputParams = Map.ofList [ ("count", box shots) ]  // "count" is Rigetti parameter name for shots
+            Tags = Map.empty
+        }
+    
+    // ============================================================================
+    // RESULT PARSING (TDD Cycle 6)
+    // ============================================================================
+    
+    /// Parse Rigetti results from JSON response
+    /// 
+    /// Rigetti returns results in a histogram format:
+    /// ```json
+    /// {
+    ///   "histogram": {
+    ///     "00": 480,
+    ///     "01": 12,
+    ///     "10": 8,
+    ///     "11": 500
+    ///   }
+    /// }
+    /// ```
+    /// 
+    /// Returns: Map<string, int> of measurement outcomes to counts
+    let parseRigettiResults (json: string) : Result<Map<string, int>, QuantumError> =
+        try
+            // Parse JSON response
+            use doc = JsonDocument.Parse(json)
+            let root = doc.RootElement
+            
+            // Extract histogram
+            let mutable histogramElement = Unchecked.defaultof<JsonElement>
+            if root.TryGetProperty("histogram", &histogramElement) then
+                // Convert to F# Map
+                let histogram = 
+                    histogramElement.EnumerateObject()
+                    |> Seq.map (fun prop -> (prop.Name, prop.Value.GetInt32()))
+                    |> Map.ofSeq
+                
+                Ok histogram
+            else
+                Error (QuantumError.UnknownError(0, "Missing 'histogram' field in Rigetti response"))
+        with
+        | :? JsonException as ex ->
+            Error (QuantumError.UnknownError(0, sprintf "JSON parsing error: %s" ex.Message))
+        | ex ->
+            Error (QuantumError.UnknownError(0, sprintf "Unexpected error: %s" ex.Message))
+    
+    /// Map Rigetti-specific error codes to QuantumError
+    /// 
+    /// Rigetti error codes:
+    /// - InvalidProgram: Malformed Quil syntax
+    /// - TopologyError: Two-qubit gate violates connectivity
+    /// - TooManyQubits: Circuit exceeds qubit limit
+    /// - QuotaExceeded: Insufficient quantum credits
+    /// 
+    /// Returns: Appropriate QuantumError variant
+    let mapRigettiError (errorCode: string) (errorMessage: string) : QuantumError =
+        match errorCode with
+        | "InvalidProgram" -> 
+            QuantumError.InvalidCircuit [sprintf "Malformed Quil program: %s" errorMessage]
+        | "TopologyError" -> 
+            QuantumError.InvalidCircuit [sprintf "Connectivity violation: %s" errorMessage]
+        | "TooManyQubits" -> 
+            QuantumError.InvalidCircuit [sprintf "Qubit limit exceeded: %s" errorMessage]
+        | "QuotaExceeded" -> 
+            QuantumError.QuotaExceeded "quantum-credits"
+        | _ -> 
+            QuantumError.UnknownError(0, sprintf "Rigetti error %s: %s" errorCode errorMessage)
