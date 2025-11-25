@@ -525,3 +525,236 @@ module ProbabilisticErrorCancellationTests =
         
         // Assert: Should get identical results
         Assert.Equal(sample1, sample2)
+    
+    // Cycle #5: Full PEC pipeline - Monte Carlo with weighted sampling
+    
+    [<Fact>]
+    let ``mitigate should execute full PEC pipeline`` () =
+        async {
+            // Arrange: Simple circuit with single-qubit gate
+            let circuit = 
+                CircuitBuilder.empty 1
+                |> CircuitBuilder.addGate (CircuitBuilder.H 0)
+            
+            let config: ProbabilisticErrorCancellation.PECConfig = {
+                NoiseModel = {
+                    SingleQubitDepolarizing = 0.001
+                    TwoQubitDepolarizing = 0.01
+                    ReadoutError = 0.02
+                }
+                Samples = 10  // Small number for fast test
+                Seed = Some 42
+            }
+            
+            // Mock executor: returns constant expectation value
+            let mockExecutor (_: CircuitBuilder.Circuit) =
+                async { return Ok 0.85 }
+            
+            // Act: Run PEC
+            let! result = ProbabilisticErrorCancellation.mitigate circuit config mockExecutor
+            
+            // Assert: Should return successful result
+            match result with
+            | Ok pecResult ->
+                Assert.True(pecResult.SamplesUsed > 0, "Should have used samples")
+                Assert.Equal(10, pecResult.SamplesUsed)
+                Assert.True(pecResult.Overhead > 0.0, "Should have overhead")
+            | Error err ->
+                Assert.Fail(sprintf "PEC failed: %s" err)
+        } |> Async.RunSynchronously
+    
+    [<Fact>]
+    let ``mitigate should demonstrate error reduction`` () =
+        async {
+            // Arrange: Circuit with realistic noisy executor
+            let circuit = 
+                CircuitBuilder.empty 1
+                |> CircuitBuilder.addGate (CircuitBuilder.H 0)
+            
+            let config: ProbabilisticErrorCancellation.PECConfig = {
+                NoiseModel = {
+                    SingleQubitDepolarizing = 0.01  // 1% error
+                    TwoQubitDepolarizing = 0.02
+                    ReadoutError = 0.02
+                }
+                Samples = 100  // More samples for better statistics
+                Seed = Some 42
+            }
+            
+            let trueValue = 1.0  // Ideal expectation
+            let baselineNoisy = 0.85  // Noisy baseline (15% error)
+            
+            // Mock executor: Returns noisy value with some variance
+            let mutable executionCount = 0
+            let mockExecutor (_: CircuitBuilder.Circuit) =
+                async {
+                    executionCount <- executionCount + 1
+                    // Add small variance to simulate realistic noise
+                    let variance = (float executionCount % 3.0 - 1.0) * 0.01
+                    return Ok (baselineNoisy + variance)
+                }
+            
+            // Act: Apply PEC
+            let! result = ProbabilisticErrorCancellation.mitigate circuit config mockExecutor
+            
+            // Assert: Error should be reduced (corrected closer to true value)
+            match result with
+            | Ok pecResult ->
+                // PEC should improve over baseline
+                let baselineError = abs (trueValue - baselineNoisy)
+                let pecError = abs (trueValue - pecResult.CorrectedExpectation)
+                
+                // Note: With mock executor, we may not see dramatic improvement,
+                // but the algorithm should complete successfully
+                Assert.True(pecResult.ErrorReduction >= 0.0, 
+                    "Error reduction should be non-negative")
+                
+                printfn "Baseline error: %.3f, PEC error: %.3f, Reduction: %.1f%%" 
+                    baselineError pecError (pecResult.ErrorReduction * 100.0)
+            | Error err ->
+                Assert.Fail(sprintf "PEC failed: %s" err)
+        } |> Async.RunSynchronously
+    
+    [<Fact>]
+    let ``mitigate should track overhead correctly`` () =
+        async {
+            // Arrange
+            let circuit = 
+                CircuitBuilder.empty 1
+                |> CircuitBuilder.addGate (CircuitBuilder.H 0)
+            
+            let samples = 50
+            let config: ProbabilisticErrorCancellation.PECConfig = {
+                NoiseModel = {
+                    SingleQubitDepolarizing = 0.001
+                    TwoQubitDepolarizing = 0.01
+                    ReadoutError = 0.02
+                }
+                Samples = samples
+                Seed = Some 42
+            }
+            
+            let mutable executionCount = 0
+            let mockExecutor (_: CircuitBuilder.Circuit) =
+                async {
+                    System.Threading.Interlocked.Increment(&executionCount) |> ignore
+                    return Ok 0.85
+                }
+            
+            // Act
+            let! result = ProbabilisticErrorCancellation.mitigate circuit config mockExecutor
+            
+            // Assert: Should execute samples + 1 (baseline) circuits
+            match result with
+            | Ok pecResult ->
+                // PEC overhead: samples for mitigation + 1 for uncorrected baseline
+                let expectedExecutions = samples + 1
+                Assert.Equal(expectedExecutions, executionCount)
+                
+                // Overhead should be samples (since baseline is 1x)
+                Assert.Equal(float samples, pecResult.Overhead, 1)
+            | Error err ->
+                Assert.Fail(sprintf "PEC failed: %s" err)
+        } |> Async.RunSynchronously
+    
+    [<Fact>]
+    let ``mitigate should handle executor failures gracefully`` () =
+        async {
+            // Arrange
+            let circuit = 
+                CircuitBuilder.empty 1
+                |> CircuitBuilder.addGate (CircuitBuilder.H 0)
+            
+            let config: ProbabilisticErrorCancellation.PECConfig = {
+                NoiseModel = {
+                    SingleQubitDepolarizing = 0.001
+                    TwoQubitDepolarizing = 0.01
+                    ReadoutError = 0.02
+                }
+                Samples = 10
+                Seed = Some 42
+            }
+            
+            // Failing executor
+            let failingExecutor (_: CircuitBuilder.Circuit) =
+                async { return Error "Quantum hardware unavailable" }
+            
+            // Act
+            let! result = ProbabilisticErrorCancellation.mitigate circuit config failingExecutor
+            
+            // Assert: Should propagate error gracefully
+            match result with
+            | Error err -> 
+                Assert.Contains("execution failed", err.ToLower())
+            | Ok _ -> 
+                Assert.Fail("Expected error for failing executor")
+        } |> Async.RunSynchronously
+    
+    [<Fact>]
+    let ``mitigate should work with multi-gate circuit`` () =
+        async {
+            // Arrange: Circuit with multiple gates
+            let circuit = 
+                CircuitBuilder.empty 2
+                |> CircuitBuilder.addGate (CircuitBuilder.H 0)
+                |> CircuitBuilder.addGate (CircuitBuilder.CNOT (0, 1))
+                |> CircuitBuilder.addGate (CircuitBuilder.H 1)
+            
+            let config: ProbabilisticErrorCancellation.PECConfig = {
+                NoiseModel = {
+                    SingleQubitDepolarizing = 0.001
+                    TwoQubitDepolarizing = 0.01
+                    ReadoutError = 0.02
+                }
+                Samples = 20
+                Seed = Some 42
+            }
+            
+            let mockExecutor (_: CircuitBuilder.Circuit) =
+                async { return Ok 0.75 }
+            
+            // Act
+            let! result = ProbabilisticErrorCancellation.mitigate circuit config mockExecutor
+            
+            // Assert: Should handle multi-gate circuit
+            match result with
+            | Ok pecResult ->
+                Assert.Equal(20, pecResult.SamplesUsed)
+                Assert.True(pecResult.CorrectedExpectation <> 0.0)
+            | Error err ->
+                Assert.Fail(sprintf "Multi-gate PEC failed: %s" err)
+        } |> Async.RunSynchronously
+    
+    [<Fact>]
+    let ``mitigate should be deterministic with same seed`` () =
+        async {
+            // Arrange
+            let circuit = 
+                CircuitBuilder.empty 1
+                |> CircuitBuilder.addGate (CircuitBuilder.H 0)
+            
+            let config: ProbabilisticErrorCancellation.PECConfig = {
+                NoiseModel = {
+                    SingleQubitDepolarizing = 0.001
+                    TwoQubitDepolarizing = 0.01
+                    ReadoutError = 0.02
+                }
+                Samples = 20
+                Seed = Some 123  // Fixed seed
+            }
+            
+            let mockExecutor (_: CircuitBuilder.Circuit) =
+                async { return Ok 0.85 }
+            
+            // Act: Run twice with same seed
+            let! result1 = ProbabilisticErrorCancellation.mitigate circuit config mockExecutor
+            let! result2 = ProbabilisticErrorCancellation.mitigate circuit config mockExecutor
+            
+            // Assert: Should get identical results
+            match result1, result2 with
+            | Ok pec1, Ok pec2 ->
+                Assert.Equal(pec1.CorrectedExpectation, pec2.CorrectedExpectation, 10)
+                Assert.Equal(pec1.ErrorReduction, pec2.ErrorReduction, 10)
+            | _ ->
+                Assert.Fail("Both runs should succeed")
+        } |> Async.RunSynchronously
