@@ -35,6 +35,7 @@
     <Compile Include="IonQBackendTests.fs" />
     <Compile Include="RigettiBackendTests.fs" />
     <Compile Include="ZeroNoiseExtrapolationTests.fs" />
+    <Compile Include="ProbabilisticErrorCancellationTests.fs" />
     <Compile Include="IntegrationTests.fs" />
   </ItemGroup>
 
