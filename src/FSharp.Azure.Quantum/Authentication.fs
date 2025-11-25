@@ -1,13 +1,32 @@
 namespace FSharp.Azure.Quantum.Core
 
 open System
+open System.Net.Http
+open System.Net.Http.Headers
 open System.Threading
+open System.Threading.Tasks
 open Azure.Core
+open Azure.Identity
 
 module Authentication =
 
     /// Quantum API scope for Azure AD
     let private quantumScope = "https://quantum.microsoft.com/.default"
+    
+    /// Credential provider factory functions
+    module CredentialProviders =
+        
+        /// Create DefaultAzureCredential (tries multiple auth methods)
+        let createDefaultCredential () : TokenCredential =
+            upcast new DefaultAzureCredential()
+        
+        /// Create AzureCliCredential (uses az login credentials)
+        let createCliCredential () : TokenCredential =
+            upcast new AzureCliCredential()
+        
+        /// Create ManagedIdentityCredential (for Azure VM/App Service)
+        let createManagedIdentityCredential () : TokenCredential =
+            upcast new ManagedIdentityCredential()
 
     /// Manages Azure AD token acquisition and caching
     type TokenManager(credential: TokenCredential) =
@@ -55,3 +74,19 @@ module Authentication =
             lock tokenLock (fun () ->
                 cachedToken <- None
                 tokenExpiry <- DateTimeOffset.MinValue)
+
+    /// DelegatingHandler that adds Authorization Bearer token to HTTP requests
+    type AuthenticationHandler(tokenManager: TokenManager) =
+        inherit DelegatingHandler()
+        
+        member private this.SendAsyncCore(request: HttpRequestMessage, cancellationToken: CancellationToken, token: string) : Task<HttpResponseMessage> =
+            request.Headers.Authorization <- AuthenticationHeaderValue("Bearer", token)
+            base.SendAsync(request, cancellationToken)
+        
+        override this.SendAsync(request: HttpRequestMessage, cancellationToken: CancellationToken) : Task<HttpResponseMessage> =
+            // Get bearer token
+            let tokenTask = tokenManager.GetAccessTokenAsync(cancellationToken) |> Async.StartAsTask
+            tokenTask.ContinueWith(fun (t: Task<string>) ->
+                this.SendAsyncCore(request, cancellationToken, t.Result)
+            ).Unwrap()
+
