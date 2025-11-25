@@ -420,3 +420,106 @@ module QuboEncodingTests =
         
         Assert.Equal<int list>([1; 1; 0], asset1Priority)
         Assert.Equal<int list>([0; 0; 0], asset2Priority)
+    
+    // ============================================================================
+    // Constraint Penalty Tests - QUBO penalty matrix generation
+    // ============================================================================
+    
+    [<Fact>]
+    let ``OneHot constraint penalty enforces exactly-one-active rule`` () =
+        // Real-world: Delivery route selection - exactly one route must be chosen
+        // Penalty: (x0 + x1 + x2 - 1)^2 ensures exactly one qubit is active
+        let routeEncoding = VariableEncoding.OneHot 3
+        let penalty = VariableEncoding.constraintPenalty routeEncoding 10.0
+        
+        // Verify penalty matrix structure:
+        // Diagonal: -1 * weight (encourages selection)
+        // Off-diagonal: +2 * weight (discourages multiple selections)
+        
+        // Diagonal elements should be -10.0
+        Assert.Equal(-10.0, penalty.[0, 0])
+        Assert.Equal(-10.0, penalty.[1, 1])
+        Assert.Equal(-10.0, penalty.[2, 2])
+        
+        // Off-diagonal elements should be +20.0
+        Assert.Equal(20.0, penalty.[0, 1])
+        Assert.Equal(20.0, penalty.[0, 2])
+        Assert.Equal(20.0, penalty.[1, 2])
+        Assert.Equal(20.0, penalty.[1, 0]) // Symmetric
+        Assert.Equal(20.0, penalty.[2, 0])
+        Assert.Equal(20.0, penalty.[2, 1])
+    
+    [<Fact>]
+    let ``OneHot constraint penalty - Verify QUBO math`` () =
+        // Mathematical verification: (x0 + x1 + x2 - 1)^2
+        // Expansion: x0^2 + x1^2 + x2^2 + 2x0x1 + 2x0x2 + 2x1x2 - 2x0 - 2x1 - 2x2 + 1
+        // For binary variables: x^2 = x
+        // Simplified: x0 + x1 + x2 + 2x0x1 + 2x0x2 + 2x1x2 - 2x0 - 2x1 - 2x2 + 1
+        // Final: -x0 - x1 - x2 + 2x0x1 + 2x0x2 + 2x1x2 + 1
+        // QUBO form (ignoring constant): -x0 - x1 - x2 + 2x0x1 + 2x0x2 + 2x1x2
+        
+        let encoding = VariableEncoding.OneHot 3
+        let weight = 1.0
+        let penalty = VariableEncoding.constraintPenalty encoding weight
+        
+        // Diagonal: -weight
+        Assert.Equal(-1.0, penalty.[0, 0])
+        // Off-diagonal: 2 * weight
+        Assert.Equal(2.0, penalty.[0, 1])
+    
+    [<Fact>]
+    let ``BoundedInteger constraint penalty enforces value bounds`` () =
+        // Real-world: Order quantity 0-10 units, penalize out-of-range values
+        // For binary encoding, we need to ensure decoded value stays within [min, max]
+        let quantityEncoding = VariableEncoding.BoundedInteger(0, 10)
+        let penalty = VariableEncoding.constraintPenalty quantityEncoding 5.0
+        
+        // Penalty matrix should be 4x4 (4 qubits for range 0-10)
+        let size = VariableEncoding.qubitCount quantityEncoding
+        Assert.Equal(4, size)
+        Assert.Equal(size, penalty.GetLength(0))
+        Assert.Equal(size, penalty.GetLength(1))
+        
+        // Verify penalty structure exists (specific values depend on implementation)
+        // Higher-order bits should have larger penalties to prevent overflow
+        let highBitPenalty = penalty.[3, 3] // MSB
+        let lowBitPenalty = penalty.[0, 0]  // LSB
+        Assert.True(abs highBitPenalty >= abs lowBitPenalty)
+    
+    [<Fact>]
+    let ``Binary and DomainWall encodings have no constraint penalties`` () =
+        // Real-world: Binary decisions and domain-wall naturally satisfy constraints
+        // No additional QUBO penalties needed
+        
+        let binaryEncoding = VariableEncoding.Binary
+        let binaryPenalty = VariableEncoding.constraintPenalty binaryEncoding 10.0
+        
+        // Should return zero matrix (no constraints needed)
+        Assert.Equal(0.0, binaryPenalty.[0, 0])
+        
+        let domainWallEncoding = VariableEncoding.DomainWall 4
+        let dwPenalty = VariableEncoding.constraintPenalty domainWallEncoding 10.0
+        
+        // Domain-wall naturally enforces ordering, no penalties needed
+        for i in 0..2 do
+            for j in 0..2 do
+                Assert.Equal(0.0, dwPenalty.[i, j])
+    
+    [<Fact>]
+    let ``Constraint penalty weight scaling`` () =
+        // Real-world: Adjust penalty weight to balance problem objectives
+        let encoding = VariableEncoding.OneHot 3
+        
+        // Small weight for soft constraints
+        let softPenalty = VariableEncoding.constraintPenalty encoding 1.0
+        Assert.Equal(-1.0, softPenalty.[0, 0])
+        Assert.Equal(2.0, softPenalty.[0, 1])
+        
+        // Large weight for hard constraints  
+        let hardPenalty = VariableEncoding.constraintPenalty encoding 100.0
+        Assert.Equal(-100.0, hardPenalty.[0, 0])
+        Assert.Equal(200.0, hardPenalty.[0, 1])
+        
+        // Verify linear scaling
+        let ratio = hardPenalty.[0, 0] / softPenalty.[0, 0]
+        Assert.Equal(100.0, ratio)

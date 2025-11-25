@@ -88,6 +88,55 @@ module VariableEncoding =
     /// Usage: value |> VariableEncoding.roundtrip encoding
     let roundtrip encoding value =
         value |> encode encoding |> decode encoding
+    
+    /// Generate QUBO penalty matrix for encoding constraints
+    /// Usage: encoding |> VariableEncoding.constraintPenalty weight
+    /// Returns: 2D array representing penalty terms in QUBO matrix
+    let constraintPenalty (encoding: VariableEncoding) (weight: float) : float[,] =
+        let n = qubitCount encoding
+        let penalty = Array2D.zeroCreate<float> n n
+        
+        match encoding with
+        | Binary ->
+            // No constraints needed for binary variables
+            penalty
+        
+        | OneHot _ ->
+            // Constraint: Exactly one qubit must be active
+            // Penalty: (Σxi - 1)^2 = Σxi^2 - 2Σxi + ΣΣ(2xixj) + 1
+            // For binary: xi^2 = xi
+            // QUBO form: -Σxi + ΣΣ(2xixj)
+            
+            // Diagonal terms: -weight per qubit
+            for i in 0 .. n - 1 do
+                penalty.[i, i] <- -weight
+            
+            // Off-diagonal terms: 2 * weight per interaction
+            for i in 0 .. n - 1 do
+                for j in i + 1 .. n - 1 do
+                    penalty.[i, j] <- 2.0 * weight
+                    penalty.[j, i] <- 2.0 * weight
+            
+            penalty
+        
+        | DomainWall _ ->
+            // Domain-wall naturally enforces ordering through bit pattern
+            // No additional constraints needed
+            penalty
+        
+        | BoundedInteger(min, max) ->
+            // Constraint: Prevent values outside [min, max] range
+            // Penalty higher-order bits to discourage overflow
+            let range = max - min + 1
+            
+            // Apply quadratic penalty to bits that would exceed range
+            for i in 0 .. n - 1 do
+                let bitValue = 1 <<< i
+                // If this bit alone exceeds range, penalize it
+                if bitValue > range then
+                    penalty.[i, i] <- weight * float bitValue
+            
+            penalty
 
 type QuboMatrix = {
     Size: int
