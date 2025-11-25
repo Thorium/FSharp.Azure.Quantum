@@ -483,3 +483,59 @@ module BatchAccumulatorTests =
         
         // Assert
         Assert.Empty(results)
+    
+    // ============================================================================
+    // TDD CYCLE 7: Batch Metrics - Track Batch Efficiency
+    // ============================================================================
+    
+    [<Fact>]
+    let ``BatchMetrics should track total circuits processed`` () =
+        // Arrange
+        let metrics = BatchMetrics.create()
+        
+        // Act
+        metrics.RecordBatch(3, 100.0)
+        metrics.RecordBatch(2, 80.0)
+        
+        // Assert
+        Assert.Equal(5, metrics.TotalCircuits)
+        Assert.Equal(2, metrics.BatchCount)
+    
+    [<Fact>]
+    let ``BatchMetrics should calculate average batch size`` () =
+        // Arrange
+        let metrics = BatchMetrics.create()
+        
+        // Act
+        metrics.RecordBatch(10, 100.0)
+        metrics.RecordBatch(20, 200.0)
+        metrics.RecordBatch(15, 150.0)
+        
+        // Assert
+        Assert.Equal(15.0, metrics.AverageBatchSize, 2)
+        Assert.Equal(3, metrics.BatchCount)
+    
+    [<Fact>]
+    let ``BatchMetrics should track total execution time`` () =
+        // Arrange
+        let metrics = BatchMetrics.create()
+        
+        // Act
+        metrics.RecordBatch(10, 123.5)
+        metrics.RecordBatch(8, 98.2)
+        
+        // Assert
+        Assert.Equal(221.7, metrics.TotalExecutionTimeMs, 1)
+    
+    [<Fact>]
+    let ``BatchMetrics should calculate batch efficiency`` () =
+        // Arrange
+        let metrics = BatchMetrics.create()
+        
+        // Act - With max batch size of 50
+        metrics.RecordBatch(50, 100.0)  // 100% efficient
+        metrics.RecordBatch(25, 100.0)  // 50% efficient
+        
+        // Assert - Average efficiency should be 75%
+        let efficiency = metrics.GetEfficiency(50)
+        Assert.Equal(0.75, efficiency, 2)

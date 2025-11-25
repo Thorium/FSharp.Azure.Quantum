@@ -167,3 +167,57 @@ module Batching =
                 
                 return allResults
         }
+    
+    // ============================================================================
+    // BATCH METRICS
+    // ============================================================================
+    
+    /// Metrics tracking for batch execution monitoring
+    /// 
+    /// Tracks batch sizes, execution times, and efficiency metrics for
+    /// monitoring and debugging batch operations.
+    type BatchMetrics() =
+        let mutable totalCircuits = 0
+        let mutable batchCount = 0
+        let mutable totalExecutionTime = 0.0
+        let mutable batchSizes : int list = []
+        let lockObj = obj()
+        
+        /// Record a completed batch
+        member _.RecordBatch(batchSize: int, executionTimeMs: float) =
+            lock lockObj (fun () ->
+                totalCircuits <- totalCircuits + batchSize
+                batchCount <- batchCount + 1
+                totalExecutionTime <- totalExecutionTime + executionTimeMs
+                batchSizes <- batchSize :: batchSizes
+            )
+        
+        /// Total number of circuits processed
+        member _.TotalCircuits = totalCircuits
+        
+        /// Total number of batches submitted
+        member _.BatchCount = batchCount
+        
+        /// Total execution time across all batches (ms)
+        member _.TotalExecutionTimeMs = totalExecutionTime
+        
+        /// Average batch size
+        member _.AverageBatchSize =
+            if batchCount = 0 then 0.0
+            else float totalCircuits / float batchCount
+        
+        /// Calculate batch efficiency (0.0 - 1.0)
+        /// 
+        /// Efficiency is the ratio of actual batch size to maximum batch size,
+        /// averaged across all batches.
+        member this.GetEfficiency(maxBatchSize: int) =
+            if batchCount = 0 || maxBatchSize <= 0 then 0.0
+            else
+                let avgSize = this.AverageBatchSize
+                avgSize / float maxBatchSize
+    
+    /// BatchMetrics module with factory functions
+    module BatchMetrics =
+        
+        /// Create a new BatchMetrics instance
+        let create() = BatchMetrics()
