@@ -29,6 +29,7 @@
     <Compile Include="HybridSolverTests.fs" />
     <Compile Include="CircuitValidatorTests.fs" />
     <Compile Include="RateLimitingTests.fs" />
+    <Compile Include="ObservabilityTests.fs" />
     <Compile Include="IntegrationTests.fs" />
   </ItemGroup>
 
