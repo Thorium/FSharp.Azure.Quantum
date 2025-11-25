@@ -35,8 +35,8 @@ type ConstraintType =
 type ConstraintViolation = {
     EncodingType: string
     Message: string
-    ExpectedCount: int option
-    ActualCount: int option
+    ExpectedCount: int voption
+    ActualCount: int voption
 }
 
 /// Operations for variable encoding strategies
@@ -373,8 +373,8 @@ module ConstraintPenalty =
                 [{
                     EncodingType = "OneHot"
                     Message = sprintf "OneHot encoding requires exactly 1 active bit, found %d" onesCount
-                    ExpectedCount = Some 1
-                    ActualCount = Some onesCount
+                    ExpectedCount = ValueSome 1
+                    ActualCount = ValueSome onesCount
                 }]
             else
                 []
@@ -392,8 +392,8 @@ module ConstraintPenalty =
                 [{
                     EncodingType = "BoundedInteger"
                     Message = sprintf "Value %d is outside bounds [%d, %d]" decodedValue min max
-                    ExpectedCount = None
-                    ActualCount = None
+                    ExpectedCount = ValueNone
+                    ActualCount = ValueNone
                 }]
             else
                 []
