@@ -197,3 +197,56 @@ module ProbabilisticErrorCancellation =
             Terms = terms
             Normalization = normalization
         }
+    
+    // ============================================================================
+    // Importance Sampling - Converting Negative Probabilities
+    // ============================================================================
+    
+    /// Sample from categorical distribution with given probabilities.
+    /// 
+    /// Takes a list of probabilities [p₁, p₂, ..., pₙ] that sum to 1.0
+    /// Returns index i with probability pᵢ.
+    /// 
+    /// Uses cumulative probability method for efficient sampling.
+    let private sampleCategorical (probabilities: float list) (rng: System.Random) : int =
+        let cumulative = 
+            probabilities 
+            |> List.scan (+) 0.0 
+            |> List.tail  // Remove initial 0.0
+        
+        let u = rng.NextDouble()
+        
+        // Find first index where cumulative probability exceeds u
+        cumulative 
+        |> List.tryFindIndex (fun cum -> u <= cum)
+        |> Option.defaultValue (probabilities.Length - 1)
+    
+    /// Sample from quasi-probability distribution using importance sampling.
+    /// 
+    /// Key insight: Cannot directly sample from quasi-probability (has negative values!)
+    /// 
+    /// Importance sampling algorithm:
+    /// 1. Convert to proper probabilities: qᵢ = |pᵢ| / Σ|pⱼ|
+    /// 2. Sample index i with probability qᵢ
+    /// 3. Return (gate_i, sign(pᵢ) × Σ|pⱼ|)
+    /// 
+    /// The sign correction ensures expectation value is correct:
+    /// E[f] = Σᵢ pᵢ·f(gateᵢ) = Σᵢ qᵢ·(sign(pᵢ)×Normalization)·f(gateᵢ)
+    /// 
+    /// Returns: (sampled_gate, weight) where weight = ±Normalization
+    let sampleQuasiProb (decomposition: QuasiProbDecomposition) (rng: System.Random) : CircuitBuilder.Gate * float =
+        // Step 1: Convert quasi-probabilities to proper probabilities
+        // qᵢ = |pᵢ| / Σ|pⱼ|
+        let properProbabilities = 
+            decomposition.Terms 
+            |> List.map (fun (_, quasiProb) -> abs quasiProb / decomposition.Normalization)
+        
+        // Step 2: Sample index using categorical distribution
+        let sampledIndex = sampleCategorical properProbabilities rng
+        
+        // Step 3: Extract gate and compute weight with sign correction
+        let (gate, originalQuasiProb) = decomposition.Terms.[sampledIndex]
+        let sign = if originalQuasiProb >= 0.0 then 1.0 else -1.0
+        let weight = sign * decomposition.Normalization
+        
+        (gate, weight)

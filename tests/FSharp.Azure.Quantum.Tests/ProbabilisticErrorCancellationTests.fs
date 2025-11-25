@@ -373,3 +373,155 @@ module ProbabilisticErrorCancellationTests =
         
         // Assert: Normalization = 1.0
         Assert.Equal(1.0, decomposition.Normalization, 10)
+    
+    // Cycle #4: Importance sampling - Converting negative probabilities to proper sampling
+    
+    [<Fact>]
+    let ``sampleQuasiProb should return gate and weight`` () =
+        // Arrange: Simple decomposition with negative probabilities
+        let decomposition: ProbabilisticErrorCancellation.QuasiProbDecomposition = {
+            Terms = [
+                (CircuitBuilder.H 0, 1.1)      // Positive
+                (CircuitBuilder.X 0, -0.1)     // Negative
+            ]
+            Normalization = 1.2  // |1.1| + |-0.1| = 1.2
+        }
+        
+        let rng = System.Random(42)
+        
+        // Act: Sample from quasi-probability distribution
+        let (sampledGate, weight) = ProbabilisticErrorCancellation.sampleQuasiProb decomposition rng
+        
+        // Assert: Should return a gate from the decomposition
+        let gates = decomposition.Terms |> List.map fst
+        Assert.Contains(sampledGate, gates)
+        
+        // Assert: Weight should be ± Normalization (sign × normalization)
+        let absWeight = abs weight
+        Assert.Equal(decomposition.Normalization, absWeight, 10)
+    
+    [<Fact>]
+    let ``sampleQuasiProb should preserve sign information`` () =
+        // Arrange: Decomposition with known positive and negative terms
+        let decomposition: ProbabilisticErrorCancellation.QuasiProbDecomposition = {
+            Terms = [
+                (CircuitBuilder.H 0, 1.0)      // Positive
+                (CircuitBuilder.X 0, -0.5)     // Negative
+            ]
+            Normalization = 1.5
+        }
+        
+        let rng = System.Random(42)
+        
+        // Act: Sample multiple times to check sign preservation
+        let samples = 
+            [1..100] 
+            |> List.map (fun _ -> ProbabilisticErrorCancellation.sampleQuasiProb decomposition rng)
+        
+        // Assert: All weights should be ± Normalization
+        samples |> List.iter (fun (_, weight) ->
+            let absWeight = abs weight
+            Assert.Equal(1.5, absWeight, 10))
+        
+        // Assert: Should see both positive and negative weights (stochastic)
+        let hasPositive = samples |> List.exists (fun (_, w) -> w > 0.0)
+        let hasNegative = samples |> List.exists (fun (_, w) -> w < 0.0)
+        Assert.True(hasPositive, "Should sample terms with positive weights")
+        Assert.True(hasNegative, "Should sample terms with negative weights")
+    
+    [<Fact>]
+    let ``sampleQuasiProb should sample according to absolute probabilities`` () =
+        // Arrange: Heavily weighted toward one term
+        let decomposition: ProbabilisticErrorCancellation.QuasiProbDecomposition = {
+            Terms = [
+                (CircuitBuilder.H 0, 0.9)      // High absolute probability
+                (CircuitBuilder.X 0, -0.1)     // Low absolute probability
+            ]
+            Normalization = 1.0
+        }
+        
+        let rng = System.Random(42)
+        
+        // Act: Sample many times
+        let samples = 
+            [1..1000] 
+            |> List.map (fun _ -> ProbabilisticErrorCancellation.sampleQuasiProb decomposition rng)
+        
+        // Assert: H gate should be sampled ~90% of the time (stochastic test)
+        let hGateCount = 
+            samples 
+            |> List.filter (fun (gate, _) -> gate = CircuitBuilder.H 0)
+            |> List.length
+        
+        let hGateRatio = float hGateCount / 1000.0
+        // Allow 5% tolerance for statistical variance
+        Assert.True(hGateRatio > 0.85 && hGateRatio < 0.95, 
+            sprintf "Expected H gate ratio ~0.90, got %.3f" hGateRatio)
+    
+    [<Fact>]
+    let ``sampleQuasiProb should handle all positive probabilities`` () =
+        // Arrange: Edge case - no negative probabilities (shouldn't happen in PEC, but test it)
+        let decomposition: ProbabilisticErrorCancellation.QuasiProbDecomposition = {
+            Terms = [
+                (CircuitBuilder.H 0, 0.6)
+                (CircuitBuilder.X 0, 0.4)
+            ]
+            Normalization = 1.0
+        }
+        
+        let rng = System.Random(42)
+        
+        // Act: Sample multiple times
+        let samples = 
+            [1..100] 
+            |> List.map (fun _ -> ProbabilisticErrorCancellation.sampleQuasiProb decomposition rng)
+        
+        // Assert: All weights should be positive (no negative terms)
+        samples |> List.iter (fun (_, weight) ->
+            Assert.True(weight > 0.0, "All weights should be positive when no negative quasi-probs"))
+    
+    [<Fact>]
+    let ``sampleQuasiProb should work with single-qubit decomposition`` () =
+        // Arrange: Use actual single-qubit decomposition
+        let noiseModel: ProbabilisticErrorCancellation.NoiseModel = {
+            SingleQubitDepolarizing = 0.001
+            TwoQubitDepolarizing = 0.01
+            ReadoutError = 0.02
+        }
+        
+        let gate = CircuitBuilder.H 0
+        let decomposition = ProbabilisticErrorCancellation.decomposeSingleQubitGate gate noiseModel
+        
+        let rng = System.Random(42)
+        
+        // Act: Sample
+        let (sampledGate, weight) = ProbabilisticErrorCancellation.sampleQuasiProb decomposition rng
+        
+        // Assert: Sampled gate should be from decomposition
+        let gates = decomposition.Terms |> List.map fst
+        Assert.Contains(sampledGate, gates)
+        
+        // Assert: Weight should have correct magnitude
+        let absWeight = abs weight
+        Assert.Equal(decomposition.Normalization, absWeight, 10)
+    
+    [<Fact>]
+    let ``sampleQuasiProb should be deterministic with same seed`` () =
+        // Arrange
+        let decomposition: ProbabilisticErrorCancellation.QuasiProbDecomposition = {
+            Terms = [
+                (CircuitBuilder.H 0, 1.0)
+                (CircuitBuilder.X 0, -0.5)
+            ]
+            Normalization = 1.5
+        }
+        
+        // Act: Sample with same seed twice
+        let rng1 = System.Random(123)
+        let sample1 = ProbabilisticErrorCancellation.sampleQuasiProb decomposition rng1
+        
+        let rng2 = System.Random(123)
+        let sample2 = ProbabilisticErrorCancellation.sampleQuasiProb decomposition rng2
+        
+        // Assert: Should get identical results
+        Assert.Equal(sample1, sample2)
