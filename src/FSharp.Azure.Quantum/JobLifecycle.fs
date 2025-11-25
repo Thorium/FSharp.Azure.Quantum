@@ -376,8 +376,44 @@ module JobLifecycle =
         (jobId: string)
         : Async<Result<unit, QuantumError>> =
         async {
-            // TODO: Implement job cancellation
-            return Error (QuantumError.UnknownError(500, "Not implemented"))
+            try
+                // Make DELETE request to /jobs/{id}
+                let url = sprintf "%s/jobs/%s" workspaceUrl jobId
+                let! response = httpClient.DeleteAsync(url) |> Async.AwaitTask
+                
+                // Handle response
+                match response.StatusCode with
+                | HttpStatusCode.NoContent ->
+                    // Successfully cancelled
+                    return Ok ()
+                    
+                | HttpStatusCode.OK ->
+                    // Some APIs return 200 OK for successful cancellation
+                    return Ok ()
+                    
+                | HttpStatusCode.NotFound ->
+                    return Error (QuantumError.UnknownError(404, sprintf "Job %s not found" jobId))
+                    
+                | HttpStatusCode.Unauthorized ->
+                    return Error QuantumError.InvalidCredentials
+                    
+                | HttpStatusCode.TooManyRequests ->
+                    let retryAfter = 
+                        if response.Headers.RetryAfter <> null && response.Headers.RetryAfter.Delta.HasValue then
+                            response.Headers.RetryAfter.Delta.Value
+                        else
+                            TimeSpan.FromSeconds(60.0)
+                    return Error (QuantumError.RateLimited retryAfter)
+                    
+                | _ ->
+                    let! errorBody = response.Content.ReadAsStringAsync() |> Async.AwaitTask
+                    return Error (QuantumError.UnknownError(int response.StatusCode, errorBody))
+                    
+            with
+            | :? TaskCanceledException ->
+                return Error (QuantumError.NetworkTimeout 1)
+            | ex ->
+                return Error (QuantumError.UnknownError(0, ex.Message))
         }
     
     // ============================================================================

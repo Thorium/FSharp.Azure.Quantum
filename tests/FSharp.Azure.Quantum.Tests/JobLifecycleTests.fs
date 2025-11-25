@@ -358,3 +358,46 @@ module JobLifecycleTests =
             match err with
             | Types.QuantumError.UnknownError (404, _) -> Assert.True(true)
             | _ -> Assert.True(false, sprintf "Expected 404 error but got: %A" err)
+    
+    // ============================================================================
+    // Job Cancellation Tests
+    // ============================================================================
+    
+    [<Fact>]
+    let ``cancelJobAsync should cancel running job`` () =
+        // Arrange: Mock HTTP response with 204 No Content (success)
+        let jobId = Guid.NewGuid().ToString()
+        let mockResponse _ = 
+            Task.FromResult(new HttpResponseMessage(HttpStatusCode.NoContent))
+        
+        let httpClient = createMockHttpClient mockResponse
+        let workspaceUrl = "https://test.quantum.azure.com"
+        
+        // Act: Cancel job
+        let result = cancelJobAsync httpClient workspaceUrl jobId |> Async.RunSynchronously
+        
+        // Assert: Should succeed
+        match result with
+        | Ok () -> Assert.True(true)
+        | Error err -> Assert.True(false, sprintf "Expected success but got error: %A" err)
+    
+    [<Fact>]
+    let ``cancelJobAsync should handle 404 job not found`` () =
+        // Arrange: Mock HTTP response with 404
+        let jobId = Guid.NewGuid().ToString()
+        let mockResponse _ = 
+            Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound))
+        
+        let httpClient = createMockHttpClient mockResponse
+        let workspaceUrl = "https://test.quantum.azure.com"
+        
+        // Act: Cancel job
+        let result = cancelJobAsync httpClient workspaceUrl jobId |> Async.RunSynchronously
+        
+        // Assert: Should return error
+        match result with
+        | Ok _ -> Assert.True(false, "Expected error for 404")
+        | Error err -> 
+            match err with
+            | Types.QuantumError.UnknownError (404, _) -> Assert.True(true)
+            | _ -> Assert.True(false, sprintf "Expected 404 error but got: %A" err)
