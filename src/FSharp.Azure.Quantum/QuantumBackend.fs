@@ -205,3 +205,68 @@ module QuantumBackend =
             Local.simulate circuit shots
         else
             Error $"Circuit requires Azure Quantum ({circuit.NumQubits} qubits > 10 qubit local limit). Azure backend not yet implemented."
+    
+    // Helper function to sequence a list of Results
+    // Returns Error on first error, or Ok with list of successes
+    let private sequenceResults (results: Result<'a, string> list) : Result<'a list, string> =
+        results
+        |> List.fold (fun acc result ->
+            match acc, result with
+            | Ok values, Ok value -> Ok (value :: values)
+            | Error msg, _ -> Error msg
+            | _, Error msg -> Error msg
+        ) (Ok [])
+        |> Result.map List.rev
+    
+    /// Execute multiple circuits in batch with automatic batching
+    /// 
+    /// Submits multiple circuits using the batching strategy to amortize overhead.
+    /// If batching is disabled, circuits are submitted individually.
+    /// 
+    /// Parameters:
+    /// - backendType: The backend to use (Local or Azure)
+    /// - circuits: List of circuits to execute
+    /// - shots: Number of shots per circuit
+    /// - config: Batch configuration (size, timeout, enabled)
+    /// 
+    /// Returns: Result with list of execution results or error message
+    let executeBatch 
+        (backendType: BackendType) 
+        (circuits: QaoaCircuit list) 
+        (shots: int) 
+        (config: Batching.BatchConfig)
+        : Async<Result<ExecutionResult list, string>> =
+        async {
+            if circuits.IsEmpty then
+                return Ok []
+            elif not config.Enabled then
+                // Batching disabled - execute circuits individually using functional approach
+                let results = 
+                    circuits 
+                    |> List.map (fun circuit -> execute backendType circuit shots)
+                
+                return sequenceResults results
+            else
+                // Batching enabled - use batchCircuitsAsync with functional submission
+                let submitBatch (batch: QaoaCircuit list) : Async<ExecutionResult list> =
+                    async {
+                        let results = 
+                            batch 
+                            |> List.map (fun circuit -> execute backendType circuit shots)
+                        
+                        // For batching, we need to return successful results
+                        // Error handling moved to outer level
+                        match sequenceResults results with
+                        | Ok successResults -> return successResults
+                        | Error msg -> 
+                            // Re-throw as exception to be caught at outer level
+                            return failwith msg
+                    }
+                
+                try
+                    // Use functional batching
+                    let! allResults = Batching.batchCircuitsAsync config circuits submitBatch
+                    return Ok allResults
+                with
+                | ex -> return Error ex.Message
+        }
