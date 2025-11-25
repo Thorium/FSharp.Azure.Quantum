@@ -30,6 +30,14 @@ type ConstraintType =
     | Hard
     | Soft of preferenceWeight: float
 
+/// Constraint violation description
+type ConstraintViolation = {
+    EncodingType: string
+    Message: string
+    ExpectedCount: int option
+    ActualCount: int option
+}
+
 /// Operations for variable encoding strategies
 module VariableEncoding =
     
@@ -349,3 +357,42 @@ module ConstraintPenalty =
             // Soft constraints: fraction of hard constraint penalty
             let hardPenalty = calculatePenalty Hard objectiveMax problemSize
             hardPenalty * preferenceWeight
+    
+    /// Validate that a solution satisfies encoding constraints.
+    let validateConstraints (encoding: VariableEncoding) (solution: int list) : ConstraintViolation list =
+        match encoding with
+        | Binary ->
+            // Binary has no constraints (0 or 1 both valid)
+            []
+        
+        | OneHot n ->
+            // Constraint: Exactly one bit must be set
+            let onesCount = solution |> List.sumBy id
+            if onesCount <> 1 then
+                [{
+                    EncodingType = "OneHot"
+                    Message = sprintf "OneHot encoding requires exactly 1 active bit, found %d" onesCount
+                    ExpectedCount = Some 1
+                    ActualCount = Some onesCount
+                }]
+            else
+                []
+        
+        | DomainWall _ ->
+            // Domain-wall naturally enforces ordering through bit pattern
+            // Valid patterns: 0*, 1+0*, 1* (wall of 1s followed by 0s)
+            // No explicit constraint violation possible
+            []
+        
+        | BoundedInteger(min, max) ->
+            // Constraint: Decoded value must be within [min, max]
+            let decodedValue = VariableEncoding.decode encoding solution
+            if decodedValue < min || decodedValue > max then
+                [{
+                    EncodingType = "BoundedInteger"
+                    Message = sprintf "Value %d is outside bounds [%d, %d]" decodedValue min max
+                    ExpectedCount = None
+                    ActualCount = None
+                }]
+            else
+                []

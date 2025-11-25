@@ -670,3 +670,62 @@ module QuboEncodingTests =
         Assert.True(veryWeak < weak)
         Assert.True(weak < moderate)
         Assert.True(moderate < strong)
+    
+    // ============================================================================
+    // Constraint Validation Tests
+    // ============================================================================
+    
+    [<Fact>]
+    let ``validateConstraints should detect OneHot violation - no bits set`` () =
+        // OneHot constraint: exactly one bit must be active
+        // Violation: [0, 0, 0] - no bits set
+        let encoding = VariableEncoding.OneHot 3
+        let solution = [0; 0; 0]
+        
+        let violations = ConstraintPenalty.validateConstraints encoding solution
+        
+        Assert.False(List.isEmpty violations)
+        Assert.Equal(1, violations.Length)
+    
+    [<Fact>]
+    let ``validateConstraints should detect OneHot violation - multiple bits set`` () =
+        // OneHot constraint: exactly one bit must be active
+        // Violation: [1, 1, 0] - two bits set
+        let encoding = VariableEncoding.OneHot 3
+        let solution = [1; 1; 0]
+        
+        let violations = ConstraintPenalty.validateConstraints encoding solution
+        
+        Assert.False(List.isEmpty violations)
+    
+    [<Fact>]
+    let ``validateConstraints should accept valid OneHot solution`` () =
+        // Valid OneHot: exactly one bit set
+        // Solution: [0, 1, 0] - one bit at position 1
+        let encoding = VariableEncoding.OneHot 3
+        let solution = [0; 1; 0]
+        
+        let violations = ConstraintPenalty.validateConstraints encoding solution
+        
+        Assert.True(List.isEmpty violations)
+    
+    [<Fact>]
+    let ``validateConstraints should accept valid Binary solution`` () =
+        // Binary variables have no constraints
+        let encoding = VariableEncoding.Binary
+        let solution0 = [0]
+        let solution1 = [1]
+        
+        Assert.True(List.isEmpty (ConstraintPenalty.validateConstraints encoding solution0))
+        Assert.True(List.isEmpty (ConstraintPenalty.validateConstraints encoding solution1))
+    
+    [<Fact>]
+    let ``validateConstraints should detect BoundedInteger out of range`` () =
+        // BoundedInteger: value must be within [min, max]
+        // Range [0, 10], solution decodes to 15 (out of range)
+        let encoding = VariableEncoding.BoundedInteger(0, 10)
+        let solution = [1; 1; 1; 1] // Binary 1111 = 15 > 10
+        
+        let violations = ConstraintPenalty.validateConstraints encoding solution
+        
+        Assert.False(List.isEmpty violations)
