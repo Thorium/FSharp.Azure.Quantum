@@ -71,3 +71,33 @@ let ``RateLimiter should track rate limit state across requests`` () =
         Assert.Equal(49, s2.Remaining)
     | _ ->
         Assert.True(false, "Expected rate limiter to track state")
+
+// ============================================================================
+// TDD Cycle #4: Throttling Decision Logic
+// ============================================================================
+
+[<Fact>]
+let ``RateLimiter shouldThrottle returns true when approaching rate limit`` () =
+    // Arrange
+    let limiter = RateLimiter()
+    let info = { Remaining = 5; Limit = 60; ResetTime = DateTimeOffset.UtcNow.AddMinutes(1.0) }
+    limiter.UpdateState(info)
+    
+    // Act
+    let shouldThrottle = limiter.ShouldThrottle()
+    
+    // Assert - should throttle when remaining < 10
+    Assert.True(shouldThrottle, "Should throttle when less than 10 requests remaining")
+
+[<Fact>]
+let ``RateLimiter shouldThrottle returns false when plenty of requests remain`` () =
+    // Arrange
+    let limiter = RateLimiter()
+    let info = { Remaining = 50; Limit = 60; ResetTime = DateTimeOffset.UtcNow.AddMinutes(1.0) }
+    limiter.UpdateState(info)
+    
+    // Act
+    let shouldThrottle = limiter.ShouldThrottle()
+    
+    // Assert - should NOT throttle when plenty of requests remain
+    Assert.False(shouldThrottle, "Should not throttle when 50 requests remaining")

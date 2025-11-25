@@ -77,3 +77,12 @@ module RateLimiting =
             lock lockObj (fun () ->
                 currentState
             )
+        
+        /// Check if we should throttle based on current state
+        /// Returns true if remaining requests < 10
+        member this.ShouldThrottle() : bool =
+            lock lockObj (fun () ->
+                match currentState with
+                | Some info -> info.Remaining < 10
+                | None -> false
+            )
