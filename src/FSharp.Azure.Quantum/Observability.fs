@@ -11,6 +11,7 @@ open OpenTelemetry.Trace
 module Observability =
     
     /// Log level configuration
+    [<Struct>]
     type LogLevel =
         | Debug
         | Information
