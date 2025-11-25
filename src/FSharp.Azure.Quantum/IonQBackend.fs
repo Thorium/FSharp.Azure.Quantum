@@ -185,3 +185,40 @@ module IonQBackend =
         histogram.EnumerateObject()
         |> Seq.map (fun prop -> (prop.Name, prop.Value.GetInt32()))
         |> Map.ofSeq
+    
+    // ============================================================================
+    // ERROR MAPPING (TDD Cycle 6)
+    // ============================================================================
+    
+    /// Map IonQ-specific error codes to QuantumError types
+    /// 
+    /// IonQ Error Codes:
+    /// - InvalidCircuit: Unsupported gate or malformed circuit
+    /// - TooManyQubits: Circuit exceeds qubit limit (29 for simulator, varies for hardware)
+    /// - QuotaExceeded: Insufficient credits
+    /// - BackendUnavailable: Hardware offline
+    /// 
+    /// Parameters:
+    /// - errorCode: IonQ error code string
+    /// - errorMessage: IonQ error message
+    /// 
+    /// Returns: Mapped QuantumError
+    let mapIonQError (errorCode: string) (errorMessage: string) : QuantumError =
+        match errorCode with
+        | "InvalidCircuit" ->
+            QuantumError.InvalidCircuit [ errorMessage ]
+        
+        | "TooManyQubits" ->
+            // TooManyQubits is a circuit validation error
+            QuantumError.InvalidCircuit [ sprintf "Circuit too large: %s" errorMessage ]
+        
+        | "QuotaExceeded" ->
+            QuantumError.QuotaExceeded errorMessage
+        
+        | "BackendUnavailable" ->
+            // Suggest retry after 5 minutes for maintenance
+            QuantumError.ServiceUnavailable (Some (TimeSpan.FromMinutes(5.0)))
+        
+        | _ ->
+            // Unknown IonQ error
+            QuantumError.UnknownError(0, sprintf "IonQ error: %s - %s" errorCode errorMessage)

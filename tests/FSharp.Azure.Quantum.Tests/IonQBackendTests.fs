@@ -359,3 +359,86 @@ module IonQBackendTests =
         Assert.Equal(4, result.Count)
         let totalCounts = result |> Map.toSeq |> Seq.sumBy snd
         Assert.Equal(1000, totalCounts)
+    
+    // ============================================================================
+    // TDD CYCLE 6: Error Mapping from IonQ to QuantumError
+    // ============================================================================
+    
+    [<Fact>]
+    let ``mapIonQError - InvalidCircuit maps to InvalidCircuit with error message`` () =
+        // Arrange
+        let errorCode = "InvalidCircuit"
+        let errorMessage = "Gate 'toffoli' is not supported on this backend"
+        
+        // Act
+        let quantumError = mapIonQError errorCode errorMessage
+        
+        // Assert
+        match quantumError with
+        | QuantumError.InvalidCircuit errors ->
+            Assert.Single(errors) |> ignore
+            Assert.Contains("toffoli", errors.[0])
+        | _ -> Assert.True(false, "Expected InvalidCircuit error")
+    
+    [<Fact>]
+    let ``mapIonQError - TooManyQubits maps to InvalidCircuit with qubit limit message`` () =
+        // Arrange
+        let errorCode = "TooManyQubits"
+        let errorMessage = "Circuit requires 30 qubits but backend supports maximum 29"
+        
+        // Act
+        let quantumError = mapIonQError errorCode errorMessage
+        
+        // Assert
+        match quantumError with
+        | QuantumError.InvalidCircuit errors ->
+            Assert.Single(errors) |> ignore
+            Assert.Contains("30 qubits", errors.[0])
+        | _ -> Assert.True(false, "Expected InvalidCircuit error")
+    
+    [<Fact>]
+    let ``mapIonQError - QuotaExceeded maps to QuotaExceeded`` () =
+        // Arrange
+        let errorCode = "QuotaExceeded"
+        let errorMessage = "Insufficient Azure Quantum credits"
+        
+        // Act
+        let quantumError = mapIonQError errorCode errorMessage
+        
+        // Assert
+        match quantumError with
+        | QuantumError.QuotaExceeded quotaType ->
+            Assert.Contains("credit", quotaType.ToLowerInvariant())
+        | _ -> Assert.True(false, "Expected QuotaExceeded error")
+    
+    [<Fact>]
+    let ``mapIonQError - BackendUnavailable maps to ServiceUnavailable`` () =
+        // Arrange
+        let errorCode = "BackendUnavailable"
+        let errorMessage = "IonQ Aria-1 is currently offline for maintenance"
+        
+        // Act
+        let quantumError = mapIonQError errorCode errorMessage
+        
+        // Assert
+        match quantumError with
+        | QuantumError.ServiceUnavailable retryAfter ->
+            Assert.True(retryAfter.IsSome)
+            Assert.True(retryAfter.Value.TotalMinutes >= 1.0) // At least 1 minute retry
+        | _ -> Assert.True(false, "Expected ServiceUnavailable error")
+    
+    [<Fact>]
+    let ``mapIonQError - Unknown error code maps to UnknownError`` () =
+        // Arrange
+        let errorCode = "SomethingWeird"
+        let errorMessage = "An unexpected error occurred"
+        
+        // Act
+        let quantumError = mapIonQError errorCode errorMessage
+        
+        // Assert
+        match quantumError with
+        | QuantumError.UnknownError (statusCode, message) ->
+            Assert.Equal(0, statusCode) // Unknown status code
+            Assert.Contains("SomethingWeird", message)
+        | _ -> Assert.True(false, "Expected UnknownError")
