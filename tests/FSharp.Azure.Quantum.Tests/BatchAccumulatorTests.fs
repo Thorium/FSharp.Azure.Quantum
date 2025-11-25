@@ -162,3 +162,70 @@ module BatchAccumulatorTests =
             Assert.Equal(1, batch.Length)
             Assert.Equal<string seq>(["item"], batch)
         | None -> Assert.True(false, "Expected immediate trigger with batch size 1")
+    
+    // ============================================================================
+    // TDD CYCLE 3: BatchAccumulator - Timeout Trigger
+    // ============================================================================
+    
+    [<Fact>]
+    let ``BatchAccumulator should trigger on timeout with partial batch`` () =
+        // Arrange
+        let config = { BatchConfig.defaultConfig with Timeout = TimeSpan.FromMilliseconds 100.0 }
+        let accumulator = BatchAccumulator<string>(config)
+        
+        // Act
+        let result1 = accumulator.Add("item1")
+        Assert.True(result1.IsNone, "First item should not trigger immediately")
+        
+        // Wait for timeout
+        System.Threading.Thread.Sleep(150)
+        
+        // Try to trigger timeout by adding another item or checking
+        let result2 = accumulator.TryFlush()
+        
+        // Assert
+        match result2 with
+        | Some batch ->
+            Assert.Equal(1, batch.Length)
+            Assert.Equal<string seq>(["item1"], batch)
+        | None -> Assert.True(false, "Expected timeout to trigger partial batch")
+    
+    [<Fact>]
+    let ``BatchAccumulator should not trigger before timeout`` () =
+        // Arrange
+        let config = { BatchConfig.defaultConfig with Timeout = TimeSpan.FromSeconds 10.0 }
+        let accumulator = BatchAccumulator<string>(config)
+        
+        // Act
+        let result1 = accumulator.Add("item1")
+        System.Threading.Thread.Sleep(50)  // Short delay, well before timeout
+        let result2 = accumulator.TryFlush()
+        
+        // Assert
+        Assert.True(result1.IsNone, "Should not trigger immediately")
+        Assert.True(result2.IsNone, "Should not trigger before timeout expires")
+    
+    [<Fact>]
+    let ``BatchAccumulator timeout should reset after batch submission`` () =
+        // Arrange
+        let config = { BatchConfig.defaultConfig with MaxBatchSize = 2; Timeout = TimeSpan.FromMilliseconds 100.0 }
+        let accumulator = BatchAccumulator<string>(config)
+        
+        // Act - First batch (size trigger)
+        let _ = accumulator.Add("item1")
+        let batch1 = accumulator.Add("item2")  // Size trigger
+        
+        // Act - Second batch (should have fresh timeout)
+        let result1 = accumulator.Add("item3")
+        System.Threading.Thread.Sleep(50)  // Not enough time
+        let result2 = accumulator.TryFlush()
+        
+        // Assert
+        match batch1 with
+        | Some batch -> 
+            Assert.Equal(2, batch.Length)
+            Assert.Equal<string seq>(["item1"; "item2"], batch)
+        | None -> Assert.True(false, "Expected size trigger")
+        
+        Assert.True(result1.IsNone, "Should accumulate after reset")
+        Assert.True(result2.IsNone, "Timeout should be reset after size trigger")

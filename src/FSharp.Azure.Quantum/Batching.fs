@@ -96,3 +96,23 @@ module Batching =
                 else
                     None  // Keep accumulating
             )
+        
+        /// Try to flush the current batch if timeout has expired
+        /// 
+        /// Returns Some(batch) if timeout expired and batch is non-empty, None otherwise
+        member _.TryFlush() : 'T list option =
+            lock lockObj (fun () ->
+                match batchStartTime with
+                | None -> None  // No batch in progress
+                | Some startTime ->
+                    let elapsed = DateTimeOffset.UtcNow - startTime
+                    
+                    // Check timeout trigger
+                    if elapsed >= config.Timeout && batch.Length > 0 then
+                        let result = List.rev batch
+                        batch <- []
+                        batchStartTime <- None
+                        Some result  // Trigger batch submission
+                    else
+                        None  // Keep accumulating
+            )
