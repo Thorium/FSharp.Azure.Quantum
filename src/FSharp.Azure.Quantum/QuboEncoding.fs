@@ -39,6 +39,14 @@ type ConstraintViolation = {
     ActualCount: int voption
 }
 
+/// Problem-specific encoding strategies for QUBO transformations
+[<Struct>]
+type EncodingStrategy =
+    | NodeBased
+    | EdgeBased
+    | CorrelationBased
+    | Custom of transformer: (int -> int)
+
 /// Operations for variable encoding strategies
 module VariableEncoding =
     
@@ -424,3 +432,27 @@ module ConstraintPenalty =
                 // Violations detected - increase penalty and retry
                 let newPenalty = penalty * 1.5
                 tuneAdaptive encoding newPenalty (maxIterations - 1) solver
+
+/// Problem-specific QUBO transformations for optimization problems
+module ProblemTransformer =
+    
+    /// Calculate QUBO matrix size based on encoding strategy and problem size.
+    let calculateQuboSize (strategy: EncodingStrategy) (problemSize: int) : int =
+        match strategy with
+        | NodeBased ->
+            // Node-based: x[i][t] = "visit city i at time t"
+            // For n cities: n × n variables
+            problemSize * problemSize
+        
+        | EdgeBased ->
+            // Edge-based: x[i][j] = "travel from city i to city j"
+            // For n cities: n × n variables (including self-loops)
+            problemSize * problemSize
+        
+        | CorrelationBased ->
+            // Correlation matrix: one variable per asset
+            problemSize
+        
+        | Custom transformer ->
+            // Use custom size calculator
+            transformer problemSize

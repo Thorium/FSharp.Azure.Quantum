@@ -872,3 +872,25 @@ module QuboEncodingTests =
         |> List.iter (fun (prev, next) ->
             Assert.True(next > prev,
                 sprintf "Penalty should increase with problem size: %f !> %f" next prev))
+    
+    // ============================================================================
+    // TKT-38: Problem-Specific QUBO Transformations
+    // ============================================================================
+    
+    [<Fact>]
+    let ``EncodingStrategy NodeBased should create n-squared variables for TSP`` () =
+        // Node-based: x[i][t] = "visit city i at time t"
+        // For n=4 cities, need 4×4 = 16 variables
+        let numCities = 4
+        let quboSize = ProblemTransformer.calculateQuboSize EncodingStrategy.NodeBased numCities
+        
+        Assert.Equal(16, quboSize)
+    
+    [<Fact>]
+    let ``EncodingStrategy EdgeBased should create n-squared variables for TSP`` () =
+        // Edge-based: x[i][j] = "travel from city i to city j"
+        // For n=4 cities, need 4×4 = 16 variables (including self-loops initially)
+        let numCities = 4
+        let quboSize = ProblemTransformer.calculateQuboSize EncodingStrategy.EdgeBased numCities
+        
+        Assert.Equal(16, quboSize)
