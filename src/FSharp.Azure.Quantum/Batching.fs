@@ -146,26 +146,19 @@ module Batching =
             if not config.Enabled || circuits.IsEmpty then
                 return []
             else
-                let mutable allResults : 'TResult list = []
-                let mutable currentBatch : 'TCircuit list = []
+                // Split circuits into batches using functional approach
+                let batches = 
+                    circuits 
+                    |> List.chunkBySize config.MaxBatchSize
                 
-                for circuit in circuits do
-                    currentBatch <- circuit :: currentBatch
-                    
-                    // Check if batch is full
-                    if currentBatch.Length >= config.MaxBatchSize then
-                        let batch = List.rev currentBatch
-                        let! results = submitBatch batch
-                        allResults <- allResults @ results
-                        currentBatch <- []
+                // Submit batches sequentially and collect results
+                let! allBatchResults = 
+                    batches
+                    |> List.map submitBatch
+                    |> Async.Sequential
                 
-                // Submit remaining circuits
-                if not currentBatch.IsEmpty then
-                    let batch = List.rev currentBatch
-                    let! results = submitBatch batch
-                    allResults <- allResults @ results
-                
-                return allResults
+                // Flatten batch results into single list
+                return allBatchResults |> Array.toList |> List.collect id
         }
     
     // ============================================================================

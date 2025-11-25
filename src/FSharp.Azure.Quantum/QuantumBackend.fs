@@ -206,6 +206,18 @@ module QuantumBackend =
         else
             Error $"Circuit requires Azure Quantum ({circuit.NumQubits} qubits > 10 qubit local limit). Azure backend not yet implemented."
     
+    // Helper function to sequence a list of Results
+    // Returns Error on first error, or Ok with list of successes
+    let private sequenceResults (results: Result<'a, string> list) : Result<'a list, string> =
+        results
+        |> List.fold (fun acc result ->
+            match acc, result with
+            | Ok values, Ok value -> Ok (value :: values)
+            | Error msg, _ -> Error msg
+            | _, Error msg -> Error msg
+        ) (Ok [])
+        |> Result.map List.rev
+    
     /// Execute multiple circuits in batch with automatic batching
     /// 
     /// Submits multiple circuits using the batching strategy to amortize overhead.
@@ -228,61 +240,33 @@ module QuantumBackend =
             if circuits.IsEmpty then
                 return Ok []
             elif not config.Enabled then
-                // Batching disabled - execute circuits individually
-                let mutable results = []
-                let mutable error = None
-                for circuit in circuits do
-                    match execute backendType circuit shots with
-                    | Ok result -> results <- result :: results
-                    | Error msg -> 
-                        error <- Some msg
-                match error with
-                | Some msg -> return Error msg
-                | None -> return Ok (List.rev results)
+                // Batching disabled - execute circuits individually using functional approach
+                let results = 
+                    circuits 
+                    |> List.map (fun circuit -> execute backendType circuit shots)
+                
+                return sequenceResults results
             else
-                // Batching enabled - use batchCircuitsAsync
-                let mutable firstError = None
-                let submitBatch (batch: QaoaCircuit list) : Async<Result<ExecutionResult list, string>> =
+                // Batching enabled - use batchCircuitsAsync with functional submission
+                let submitBatch (batch: QaoaCircuit list) : Async<ExecutionResult list> =
                     async {
-                        let mutable batchResults = []
-                        for circuit in batch do
-                            match execute backendType circuit shots with
-                            | Ok result -> batchResults <- result :: batchResults
-                            | Error msg -> 
-                                if firstError.IsNone then
-                                    firstError <- Some msg
-                        return 
-                            match firstError with
-                            | Some msg -> Error msg
-                            | None -> Ok (List.rev batchResults)
+                        let results = 
+                            batch 
+                            |> List.map (fun circuit -> execute backendType circuit shots)
+                        
+                        // For batching, we need to return successful results
+                        // Error handling moved to outer level
+                        match sequenceResults results with
+                        | Ok successResults -> return successResults
+                        | Error msg -> 
+                            // Re-throw as exception to be caught at outer level
+                            return failwith msg
                     }
                 
-                // Process circuits in batches
-                let mutable allResults = []
-                let mutable currentBatch = []
-                let mutable error = None
-                
-                for circuit in circuits do
-                    currentBatch <- circuit :: currentBatch
-                    
-                    if currentBatch.Length >= config.MaxBatchSize then
-                        let batch = List.rev currentBatch
-                        let! batchResult = submitBatch batch
-                        match batchResult with
-                        | Ok results -> allResults <- allResults @ results
-                        | Error msg -> 
-                            error <- Some msg
-                        currentBatch <- []
-                
-                // Submit remaining circuits
-                if error.IsNone && not currentBatch.IsEmpty then
-                    let batch = List.rev currentBatch
-                    let! batchResult = submitBatch batch
-                    match batchResult with
-                    | Ok results -> allResults <- allResults @ results
-                    | Error msg -> error <- Some msg
-                
-                match error with
-                | Some msg -> return Error msg
-                | None -> return Ok allResults
+                try
+                    // Use functional batching
+                    let! allResults = Batching.batchCircuitsAsync config circuits submitBatch
+                    return Ok allResults
+                with
+                | ex -> return Error ex.Message
         }
