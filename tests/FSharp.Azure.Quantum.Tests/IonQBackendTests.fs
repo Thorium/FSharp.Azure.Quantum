@@ -442,3 +442,34 @@ module IonQBackendTests =
             Assert.Equal(0, statusCode) // Unknown status code
             Assert.Contains("SomethingWeird", message)
         | _ -> Assert.True(false, "Expected UnknownError")
+    
+    // ============================================================================
+    // INTEGRATION TESTS
+    // ============================================================================
+    
+    [<Fact>]
+    let ``Complete workflow - submitAndWaitForResultsAsync has correct signature`` () =
+        // This test verifies the complete workflow function exists with correct signature
+        // Actual integration testing requires real HTTP client and Azure Quantum workspace
+        
+        // Arrange - Bell state circuit
+        let circuit = {
+            Qubits = 2
+            Circuit = [
+                IonQGate.SingleQubit("h", 0)
+                IonQGate.TwoQubit("cnot", 0, 1)
+                IonQGate.Measure([| 0; 1 |])
+            ]
+        }
+        
+        // Act - Verify function signature compiles (no actual execution)
+        let workflowFunc = submitAndWaitForResultsAsync
+        
+        // Assert - Function exists and has expected type
+        // (HttpClient -> string -> IonQCircuit -> int -> string -> Async<Result<Map<string, int>, QuantumError>>)
+        Assert.NotNull(workflowFunc)
+        
+        // Verify we can create a submission (doesn't require HTTP)
+        let submission = createJobSubmission circuit 1000 "ionq.simulator"
+        Assert.Equal("ionq.simulator", submission.Target)
+        Assert.Equal(CircuitFormat.IonQ_V1, submission.InputDataFormat)

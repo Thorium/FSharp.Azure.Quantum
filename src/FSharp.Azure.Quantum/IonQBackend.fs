@@ -222,3 +222,80 @@ module IonQBackend =
         | _ ->
             // Unknown IonQ error
             QuantumError.UnknownError(0, sprintf "IonQ error: %s - %s" errorCode errorMessage)
+    
+    // ============================================================================
+    // CONVENIENCE FUNCTIONS
+    // ============================================================================
+    
+    /// Submit an IonQ circuit and wait for results
+    /// 
+    /// This is a high-level convenience function that combines:
+    /// 1. Circuit serialization
+    /// 2. Job submission via JobLifecycle.submitJobAsync
+    /// 3. Status polling via JobLifecycle.pollJobUntilCompleteAsync
+    /// 4. Result retrieval via JobLifecycle.getJobResultAsync
+    /// 5. Result parsing from IonQ histogram format
+    /// 
+    /// Parameters:
+    /// - httpClient: HTTP client for API requests
+    /// - workspaceUrl: Azure Quantum workspace URL
+    /// - circuit: IonQ circuit to execute
+    /// - shots: Number of measurement shots
+    /// - target: IonQ backend (e.g., "ionq.simulator", "ionq.qpu.aria-1")
+    /// 
+    /// Returns: Async<Result<Map<string, int>, QuantumError>>
+    ///   - Ok: Measurement histogram (bitstring -> count)
+    ///   - Error: QuantumError with details
+    let submitAndWaitForResultsAsync
+        (httpClient: System.Net.Http.HttpClient)
+        (workspaceUrl: string)
+        (circuit: IonQCircuit)
+        (shots: int)
+        (target: string)
+        : Async<Result<Map<string, int>, QuantumError>> =
+        async {
+            // Step 1: Create job submission
+            let submission = createJobSubmission circuit shots target
+            
+            // Step 2: Submit job
+            let! submitResult = JobLifecycle.submitJobAsync httpClient workspaceUrl submission
+            match submitResult with
+            | Error err -> return Error err
+            | Ok jobId ->
+                // Step 3: Poll until complete (5 minute timeout, no cancellation)
+                let timeout = TimeSpan.FromMinutes(5.0)
+                let cancellationToken = System.Threading.CancellationToken.None
+                let! pollResult = JobLifecycle.pollJobUntilCompleteAsync httpClient workspaceUrl jobId timeout cancellationToken
+                match pollResult with
+                | Error err -> return Error err
+                | Ok job ->
+                    // Check job status
+                    match job.Status with
+                    | JobStatus.Succeeded ->
+                        // Step 4: Get results from blob storage
+                        match job.OutputDataUri with
+                        | None ->
+                            return Error (QuantumError.UnknownError(500, "Job completed but no output URI available"))
+                        | Some uri ->
+                            let! resultData = JobLifecycle.getJobResultAsync httpClient uri
+                            match resultData with
+                            | Error err -> return Error err
+                            | Ok jobResult ->
+                                // Step 5: Parse histogram from OutputData
+                                try
+                                    let resultJson = jobResult.OutputData :?> string
+                                    let histogram = parseIonQResult resultJson
+                                    return Ok histogram
+                                with
+                                | ex -> return Error (QuantumError.UnknownError(0, sprintf "Failed to parse IonQ results: %s" ex.Message))
+                    
+                    | JobStatus.Failed (errorCode, errorMessage) ->
+                        // Map IonQ error to QuantumError
+                        return Error (mapIonQError errorCode errorMessage)
+                    
+                    | JobStatus.Cancelled ->
+                        return Error QuantumError.Cancelled
+                    
+                    | _ ->
+                        return Error (QuantumError.UnknownError(0, sprintf "Unexpected job status: %A" job.Status))
+        }
