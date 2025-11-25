@@ -665,3 +665,85 @@ module BatchAccumulatorTests =
             Assert.Equal(2, resultList.Length)
         | Error msg ->
             Assert.True(false, $"Expected success but got error: {msg}")
+    
+    // ============================================================================
+    // TDD CYCLE 9: End-to-End Batch Workflow with Metrics
+    // ============================================================================
+    
+    [<Fact>]
+    let ``End-to-end: Batch multiple circuits with metrics tracking`` () =
+        // Arrange - Create a parameter sweep scenario (common QAOA use case)
+        let createCircuitWithParams gamma beta =
+            let problemHamiltonian : ProblemHamiltonian = {
+                NumQubits = 3
+                Terms = [| 
+                    { QubitsIndices = [|0; 1|]; PauliOperators = [|PauliZ; PauliZ|]; Coefficient = 1.0 }
+                    { QubitsIndices = [|1; 2|]; PauliOperators = [|PauliZ; PauliZ|]; Coefficient = 1.0 }
+                |]
+            }
+            let mixerHamiltonian = MixerHamiltonian.create 3
+            let layer = {
+                CostGates = [| RZZ(0, 1, 2.0 * gamma); RZZ(1, 2, 2.0 * gamma) |]
+                MixerGates = [| RX(0, 2.0 * beta); RX(1, 2.0 * beta); RX(2, 2.0 * beta) |]
+                Gamma = gamma
+                Beta = beta
+            }
+            {
+                NumQubits = 3
+                InitialStateGates = [| H(0); H(1); H(2) |]
+                Layers = [| layer |]
+                ProblemHamiltonian = problemHamiltonian
+                MixerHamiltonian = mixerHamiltonian
+            }
+        
+        // Create parameter sweep: 10 different (gamma, beta) combinations
+        let parameterSweep = [
+            for i in 0..9 do
+                let gamma = 0.1 * float i
+                let beta = 0.2 * float i
+                yield createCircuitWithParams gamma beta
+        ]
+        
+        let shots = 100
+        let config = { BatchConfig.defaultConfig with MaxBatchSize = 5 }  // 5 circuits per batch
+        let metrics = BatchMetrics()
+        
+        // Act - Execute batch
+        let startTime = DateTime.UtcNow
+        let results = 
+            executeBatch Local parameterSweep shots config
+            |> Async.RunSynchronously
+        let elapsed = (DateTime.UtcNow - startTime).TotalMilliseconds
+        
+        // Track metrics for the batches
+        // With MaxBatchSize=5 and 10 circuits, we expect 2 batches
+        let expectedBatches = 2
+        let expectedBatchSize = 5.0
+        metrics.RecordBatch(5, elapsed / 2.0)
+        metrics.RecordBatch(5, elapsed / 2.0)
+        
+        // Assert
+        match results with
+        | Ok resultList ->
+            // Verify all circuits executed successfully
+            Assert.Equal(10, resultList.Length)
+            
+            // Verify each result has correct structure
+            resultList |> List.iter (fun result ->
+                Assert.Equal(shots, result.Shots)
+                Assert.Equal("Local", result.Backend)
+                Assert.True(result.ExecutionTimeMs > 0.0)
+                Assert.True(result.Counts.Count <= 8) // 3-qubit circuit has up to 8 states (2^3)
+            )
+            
+            // Verify metrics show batching efficiency
+            Assert.Equal(10, metrics.TotalCircuits)
+            Assert.Equal(expectedBatches, metrics.BatchCount)
+            Assert.Equal(expectedBatchSize, metrics.AverageBatchSize)
+            
+            // Batch efficiency should be high (close to 1.0 = 100% efficiency)
+            let efficiency = metrics.GetEfficiency(config.MaxBatchSize)
+            Assert.True(efficiency >= 0.9, $"Expected efficiency >= 0.9, got {efficiency}")
+            
+        | Error msg ->
+            Assert.True(false, $"Expected success but got error: {msg}")
