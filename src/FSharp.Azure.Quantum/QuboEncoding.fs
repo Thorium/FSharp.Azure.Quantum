@@ -11,6 +11,133 @@ type Variable = {
     VarType: VariableType
 }
 
+/// Variable encoding strategies for QUBO optimization.
+/// 
+/// Selection guide:
+/// - Binary: True binary decisions (include/exclude)
+/// - OneHot: Unordered categories (route selection)
+/// - DomainWall: Ordered levels (priorities) - 25% fewer qubits
+/// - BoundedInteger: Integer ranges (quantities) - logarithmic efficiency
+[<Struct>]
+type VariableEncoding =
+    | Binary
+    | OneHot of options: int
+    | DomainWall of levels: int
+    | BoundedInteger of min: int * max: int
+
+/// Operations for variable encoding strategies
+module VariableEncoding =
+    
+    /// Calculate number of qubits needed for an encoding strategy.
+    let qubitCount (encoding: VariableEncoding) : int =
+        match encoding with
+        | Binary -> 1
+        | OneHot n -> n
+        | DomainWall n -> n - 1
+        | BoundedInteger(min, max) ->
+            let range = max - min + 1
+            if range <= 1 then 1
+            else int (System.Math.Ceiling(System.Math.Log(float range, 2.0)))
+    
+    /// Encode a value to qubit assignments.
+    let encode (encoding: VariableEncoding) (value: int) : int list =
+        match encoding with
+        | Binary ->
+            [value]
+        
+        | OneHot n ->
+            // One-hot: Single bit set at position 'value'
+            List.init n (fun i -> if i = value then 1 else 0)
+        
+        | DomainWall levels ->
+            // Domain-wall: Wall of 1s followed by 0s
+            let numQubits = levels - 1
+            List.init numQubits (fun i -> if i < value - 1 then 1 else 0)
+        
+        | BoundedInteger(min, _) ->
+            // Binary encoding (LSB first)
+            let normalizedValue = value - min
+            let numQubits = qubitCount encoding
+            List.init numQubits (fun i ->
+                if (normalizedValue &&& (1 <<< i)) <> 0 then 1 else 0)
+    
+    /// Decode qubit assignments back to original value.
+    let decode (encoding: VariableEncoding) (bits: int list) : int =
+        match encoding with
+        | Binary ->
+            bits.[0]
+        
+        | OneHot _ ->
+            // Find which bit is set
+            bits
+            |> List.tryFindIndex ((=) 1)
+            |> Option.defaultValue 0
+        
+        | DomainWall _ ->
+            // Count number of 1s and add 1
+            bits
+            |> List.sumBy id
+            |> (+) 1
+        
+        | BoundedInteger(min, _) ->
+            // Convert binary (LSB first) to integer
+            bits
+            |> List.indexed
+            |> List.sumBy (fun (i, bit) -> bit * (1 <<< i))
+            |> (+) min
+    
+    /// Roundtrip encoding validation (encode then decode).
+    let roundtrip encoding value =
+        value |> encode encoding |> decode encoding
+    
+    /// Generate QUBO penalty matrix for encoding constraints.
+    /// Weight parameter controls penalty strength (higher = stricter constraint).
+    let constraintPenalty (encoding: VariableEncoding) (weight: float) : float[,] =
+        let n = qubitCount encoding
+        let penalty = Array2D.zeroCreate<float> n n
+        
+        match encoding with
+        | Binary ->
+            // No constraints needed for binary variables
+            penalty
+        
+        | OneHot _ ->
+            // Constraint: Exactly one qubit must be active
+            // Penalty: (Σxi - 1)^2 = Σxi^2 - 2Σxi + ΣΣ(2xixj) + 1
+            // For binary: xi^2 = xi
+            // QUBO form: -Σxi + ΣΣ(2xixj)
+            
+            // Diagonal terms: -weight per qubit
+            for i in 0 .. n - 1 do
+                penalty.[i, i] <- -weight
+            
+            // Off-diagonal terms: 2 * weight per interaction
+            for i in 0 .. n - 1 do
+                for j in i + 1 .. n - 1 do
+                    penalty.[i, j] <- 2.0 * weight
+                    penalty.[j, i] <- 2.0 * weight
+            
+            penalty
+        
+        | DomainWall _ ->
+            // Domain-wall naturally enforces ordering through bit pattern
+            // No additional constraints needed
+            penalty
+        
+        | BoundedInteger(min, max) ->
+            // Constraint: Prevent values outside [min, max] range
+            // Penalty higher-order bits to discourage overflow
+            let range = max - min + 1
+            
+            // Apply quadratic penalty to bits that would exceed range
+            for i in 0 .. n - 1 do
+                let bitValue = 1 <<< i
+                // If this bit alone exceeds range, penalize it
+                if bitValue > range then
+                    penalty.[i, i] <- weight * float bitValue
+            
+            penalty
+
 type QuboMatrix = {
     Size: int
     Coefficients: float[,]
