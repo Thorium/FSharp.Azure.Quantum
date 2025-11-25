@@ -813,3 +813,62 @@ module QuboEncodingTests =
         // (initial + maxIterations retries)
         Assert.True(attempts <= maxIterations + 1,
             sprintf "Expected <= %d attempts, got %d" (maxIterations + 1) attempts)
+    
+    // ============================================================================
+    // Property-Based Tests (Invariant Verification)
+    // ============================================================================
+    
+    [<Fact>]
+    let ``Property: Hard constraint penalty always exceeds objective maximum`` () =
+        // Property: For all hard constraints, penalty >= objectiveMax + 1 (Lucas Rule)
+        // Test with various objective maximums and problem sizes
+        let testCases = [
+            (10.0, 5)
+            (100.0, 10)
+            (500.0, 20)
+            (1000.0, 50)
+            (2500.0, 100)
+        ]
+        
+        testCases |> List.iter (fun (objectiveMax, problemSize) ->
+            let penalty = ConstraintPenalty.calculatePenalty ConstraintType.Hard objectiveMax problemSize
+            
+            // Lucas Rule minimum: objectiveMax + 1
+            let lucasMin = objectiveMax + 1.0
+            
+            Assert.True(penalty >= lucasMin,
+                sprintf "Penalty %f must be >= Lucas minimum %f for objectiveMax=%f, n=%d" 
+                    penalty lucasMin objectiveMax problemSize))
+    
+    [<Fact>]
+    let ``Property: Soft constraint penalty is always less than hard penalty`` () =
+        // Property: For all soft constraints with weight < 1.0, soft_penalty < hard_penalty
+        let testCases = [
+            (100.0, 10, 0.3)
+            (500.0, 20, 0.5)
+            (1000.0, 50, 0.8)
+        ]
+        
+        testCases |> List.iter (fun (objectiveMax, problemSize, weight) ->
+            let hardPenalty = ConstraintPenalty.calculatePenalty ConstraintType.Hard objectiveMax problemSize
+            let softPenalty = ConstraintPenalty.calculatePenalty (ConstraintType.Soft weight) objectiveMax problemSize
+            
+            Assert.True(softPenalty < hardPenalty,
+                sprintf "Soft penalty %f must be < hard penalty %f (weight=%f)" 
+                    softPenalty hardPenalty weight))
+    
+    [<Fact>]
+    let ``Property: Penalty scales monotonically with problem size`` () =
+        // Property: For fixed objectiveMax, penalty increases with problem size
+        let objectiveMax = 100.0
+        let sizes = [5; 10; 20; 50; 100]
+        
+        let penalties = sizes |> List.map (fun n ->
+            ConstraintPenalty.calculatePenalty ConstraintType.Hard objectiveMax n)
+        
+        // Verify penalties are in ascending order
+        penalties
+        |> List.pairwise
+        |> List.iter (fun (prev, next) ->
+            Assert.True(next > prev,
+                sprintf "Penalty should increase with problem size: %f !> %f" next prev))
