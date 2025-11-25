@@ -171,3 +171,102 @@ let ``AuthenticationHandler should add Authorization Bearer header`` () =
     | None ->
         Assert.Fail("No request was captured")
 
+// ============================================================================
+// Error Handling Tests
+// ============================================================================
+
+type FailingTokenCredential(errorMessage: string) =
+    inherit TokenCredential()
+    
+    override this.GetToken(_, _) =
+        raise (AuthenticationFailedException(errorMessage))
+    
+    override this.GetTokenAsync(_, _) =
+        raise (AuthenticationFailedException(errorMessage))
+
+[<Fact>]
+let ``TokenManager should propagate credential errors`` () =
+    let failingCredential = FailingTokenCredential("Invalid credentials")
+    let tokenManager = TokenManager(failingCredential)
+    
+    let ex = Assert.Throws<AuthenticationFailedException>(fun () ->
+        tokenManager.GetAccessTokenAsync() |> Async.RunSynchronously |> ignore
+    )
+    
+    Assert.Contains("Invalid credentials", ex.Message)
+
+[<Fact>]
+let ``TokenManager should handle network timeout gracefully`` () =
+    let timeoutCredential =
+        { new TokenCredential() with
+            member _.GetToken(_, _) =
+                raise (TimeoutException("Network timeout"))
+            
+            member _.GetTokenAsync(_, _) =
+                raise (TimeoutException("Network timeout"))
+        }
+    
+    let tokenManager = TokenManager(timeoutCredential)
+    
+    Assert.Throws<TimeoutException>(fun () ->
+        tokenManager.GetAccessTokenAsync() |> Async.RunSynchronously |> ignore
+    ) |> ignore
+
+[<Fact>]
+let ``AuthenticationHandler should fail gracefully when token acquisition fails`` () =
+    let failingCredential = FailingTokenCredential("Token acquisition failed")
+    let tokenManager = TokenManager(failingCredential)
+    
+    let testHandler = new TestMessageHandler()
+    let authHandler = new AuthenticationHandler(tokenManager, InnerHandler = testHandler)
+    let client = new HttpClient(authHandler)
+    
+    let request = new HttpRequestMessage(HttpMethod.Get, "https://quantum.azure.com/test")
+    
+    // Async task failures wrap exceptions in AggregateException
+    let ex = 
+        Assert.ThrowsAsync<AggregateException>(fun () ->
+            client.SendAsync(request) :> Task
+        ) 
+        |> Async.AwaitTask 
+        |> Async.RunSynchronously
+    
+    // Verify inner exception is AuthenticationFailedException
+    Assert.IsType<AuthenticationFailedException>(ex.InnerException) |> ignore
+    Assert.Contains("Token acquisition failed", ex.InnerException.Message)
+
+[<Fact>]
+let ``TokenManager should recover after clearing cache from failed state`` () =
+    let mutable shouldFail = true
+    let expiresOn = DateTimeOffset.UtcNow.AddHours(1.0)
+    
+    let recoveringCredential =
+        { new TokenCredential() with
+            member _.GetToken(_, _) =
+                if shouldFail then
+                    raise (AuthenticationFailedException("First attempt fails"))
+                else
+                    AccessToken("recovered-token", expiresOn)
+            
+            member _.GetTokenAsync(_, _) =
+                if shouldFail then
+                    raise (AuthenticationFailedException("First attempt fails"))
+                else
+                    System.Threading.Tasks.ValueTask<AccessToken>(AccessToken("recovered-token", expiresOn))
+        }
+    
+    let tokenManager = TokenManager(recoveringCredential)
+    
+    // First attempt should fail
+    Assert.Throws<AuthenticationFailedException>(fun () ->
+        tokenManager.GetAccessTokenAsync() |> Async.RunSynchronously |> ignore
+    ) |> ignore
+    
+    // Recover and clear cache
+    shouldFail <- false
+    tokenManager.ClearCache()
+    
+    // Second attempt should succeed
+    let token = tokenManager.GetAccessTokenAsync() |> Async.RunSynchronously
+    Assert.Equal("recovered-token", token)
+
