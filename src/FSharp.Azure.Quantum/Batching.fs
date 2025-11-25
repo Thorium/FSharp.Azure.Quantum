@@ -116,3 +116,54 @@ module Batching =
                     else
                         None  // Keep accumulating
             )
+    
+    // ============================================================================
+    // ASYNC BATCH SUBMISSION
+    // ============================================================================
+    
+    /// Batch multiple circuits and submit them asynchronously
+    /// 
+    /// Takes a list of circuits and submits them in batches according to the
+    /// configured batch size. Uses the provided submission function to process
+    /// each batch.
+    /// 
+    /// Example:
+    /// <code>
+    /// let circuits = ["circuit1"; "circuit2"; "circuit3"]
+    /// let results = 
+    ///     batchCircuitsAsync 
+    ///         BatchConfig.defaultConfig 
+    ///         circuits 
+    ///         (fun batch -> async { return submitToAzure batch })
+    ///     |> Async.RunSynchronously
+    /// </code>
+    let batchCircuitsAsync<'TCircuit, 'TResult>
+        (config: BatchConfig)
+        (circuits: 'TCircuit list)
+        (submitBatch: 'TCircuit list -> Async<'TResult list>)
+        : Async<'TResult list> =
+        async {
+            if not config.Enabled || circuits.IsEmpty then
+                return []
+            else
+                let mutable allResults : 'TResult list = []
+                let mutable currentBatch : 'TCircuit list = []
+                
+                for circuit in circuits do
+                    currentBatch <- circuit :: currentBatch
+                    
+                    // Check if batch is full
+                    if currentBatch.Length >= config.MaxBatchSize then
+                        let batch = List.rev currentBatch
+                        let! results = submitBatch batch
+                        allResults <- allResults @ results
+                        currentBatch <- []
+                
+                // Submit remaining circuits
+                if not currentBatch.IsEmpty then
+                    let batch = List.rev currentBatch
+                    let! results = submitBatch batch
+                    allResults <- allResults @ results
+                
+                return allResults
+        }

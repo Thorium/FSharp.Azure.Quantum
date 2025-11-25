@@ -352,3 +352,69 @@ module BatchAccumulatorTests =
         // Check all expected items present
         let distinctItems = allItems |> List.distinct |> List.sort
         Assert.Equal<int seq>([1..20], distinctItems)
+    
+    // ============================================================================
+    // TDD CYCLE 5: batchCircuitsAsync - Async Batch Submission Function
+    // ============================================================================
+    
+    [<Fact>]
+    let ``batchCircuitsAsync with empty list should return empty results`` () =
+        // Arrange
+        let config = BatchConfig.defaultConfig
+        let circuits : string list = []
+        
+        // Act
+        let results = 
+            batchCircuitsAsync 
+                config 
+                circuits 
+                (fun batch -> async { return batch |> List.map (fun c -> c + "_result") })
+            |> Async.RunSynchronously
+        
+        // Assert
+        Assert.Empty(results)
+    
+    [<Fact>]
+    let ``batchCircuitsAsync with single circuit should return single result`` () =
+        // Arrange
+        let config = BatchConfig.defaultConfig
+        let circuits = ["circuit1"]
+        
+        // Act
+        let results = 
+            batchCircuitsAsync 
+                config 
+                circuits 
+                (fun batch -> async { return batch |> List.map (fun c -> c + "_result") })
+            |> Async.RunSynchronously
+        
+        // Assert
+        Assert.Equal(1, results.Length)
+        Assert.Equal("circuit1_result", results.[0])
+    
+    [<Fact>]
+    let ``batchCircuitsAsync should batch multiple circuits based on size limit`` () =
+        // Arrange
+        let config = { BatchConfig.defaultConfig with MaxBatchSize = 3 }
+        let circuits = ["c1"; "c2"; "c3"; "c4"; "c5"]
+        let mutable batchCount = 0
+        
+        // Mock submission function that tracks batch sizes
+        let mockSubmit batch = 
+            async {
+                batchCount <- batchCount + 1
+                return batch |> List.map (fun c -> c + "_result")
+            }
+        
+        // Act
+        let results = 
+            batchCircuitsAsync config circuits mockSubmit
+            |> Async.RunSynchronously
+        
+        // Assert - Should create 2 batches (3 + 2 circuits)
+        Assert.Equal(2, batchCount)
+        Assert.Equal(5, results.Length)
+        Assert.Equal<string seq>(
+            ["c1_result"; "c2_result"; "c3_result"; "c4_result"; "c5_result"], 
+            results
+        )
