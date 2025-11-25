@@ -235,3 +235,103 @@ module RigettiBackendTests =
         
         // Assert
         Assert.Equal("DECLARE ro BIT[5]", quil)
+    
+    // ============================================================================
+    // TDD CYCLE 3: Program Serialization to Complete Quil Assembly
+    // ============================================================================
+    
+    [<Fact>]
+    let ``serializeProgram - Bell state produces correct Quil assembly`` () =
+        // Arrange
+        let program = {
+            Declarations = [ QuilGate.DeclareMemory("ro", "BIT", 2) ]
+            Instructions = [
+                QuilGate.SingleQubit("H", 0)
+                QuilGate.TwoQubit("CZ", 0, 1)
+                QuilGate.Measure(0, "ro[0]")
+                QuilGate.Measure(1, "ro[1]")
+            ]
+        }
+        
+        // Act
+        let quil = serializeProgram program
+        
+        // Assert
+        let expected = "DECLARE ro BIT[2]\nH 0\nCZ 0 1\nMEASURE 0 ro[0]\nMEASURE 1 ro[1]"
+        Assert.Equal(expected, quil)
+    
+    [<Fact>]
+    let ``serializeProgram - GHZ state with 3 qubits`` () =
+        // Arrange
+        let program = {
+            Declarations = [ QuilGate.DeclareMemory("ro", "BIT", 3) ]
+            Instructions = [
+                QuilGate.SingleQubit("H", 0)
+                QuilGate.TwoQubit("CZ", 0, 1)
+                QuilGate.TwoQubit("CZ", 0, 2)
+                QuilGate.Measure(0, "ro[0]")
+                QuilGate.Measure(1, "ro[1]")
+                QuilGate.Measure(2, "ro[2]")
+            ]
+        }
+        
+        // Act
+        let quil = serializeProgram program
+        
+        // Assert
+        let expected = "DECLARE ro BIT[3]\nH 0\nCZ 0 1\nCZ 0 2\nMEASURE 0 ro[0]\nMEASURE 1 ro[1]\nMEASURE 2 ro[2]"
+        Assert.Equal(expected, quil)
+    
+    [<Fact>]
+    let ``serializeProgram - parameterized rotation circuit`` () =
+        // Arrange
+        let program = {
+            Declarations = [ QuilGate.DeclareMemory("ro", "BIT", 1) ]
+            Instructions = [
+                QuilGate.SingleQubitRotation("RX", Math.PI / 2.0, 0)
+                QuilGate.SingleQubitRotation("RY", Math.PI / 4.0, 0)
+                QuilGate.SingleQubitRotation("RZ", Math.PI / 8.0, 0)
+                QuilGate.Measure(0, "ro[0]")
+            ]
+        }
+        
+        // Act
+        let quil = serializeProgram program
+        
+        // Assert
+        Assert.Contains("DECLARE ro BIT[1]", quil)
+        Assert.Contains("RX(1.5707963267948966) 0", quil)
+        Assert.Contains("RY(0.7853981633974483) 0", quil)
+        Assert.Contains("RZ(0.39269908169872414) 0", quil)
+        Assert.Contains("MEASURE 0 ro[0]", quil)
+    
+    [<Fact>]
+    let ``serializeProgram - empty program produces only declarations`` () =
+        // Arrange
+        let program = {
+            Declarations = [ QuilGate.DeclareMemory("ro", "BIT", 2) ]
+            Instructions = []
+        }
+        
+        // Act
+        let quil = serializeProgram program
+        
+        // Assert
+        Assert.Equal("DECLARE ro BIT[2]", quil)
+    
+    [<Fact>]
+    let ``serializeProgram - program without declarations`` () =
+        // Arrange
+        let program = {
+            Declarations = []
+            Instructions = [
+                QuilGate.SingleQubit("H", 0)
+                QuilGate.SingleQubit("X", 1)
+            ]
+        }
+        
+        // Act
+        let quil = serializeProgram program
+        
+        // Assert
+        Assert.Equal("H 0\nX 1", quil)

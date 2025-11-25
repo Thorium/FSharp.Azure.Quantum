@@ -115,3 +115,40 @@ module RigettiBackend =
         
         | DeclareMemory(name, typ, size) ->
             sprintf "DECLARE %s %s[%d]" name typ size
+    
+    // ============================================================================
+    // PROGRAM SERIALIZATION (TDD Cycle 3)
+    // ============================================================================
+    
+    /// Serialize a complete Quil program to assembly text
+    /// 
+    /// Converts a QuilProgram (declarations + instructions) to multi-line Quil assembly.
+    /// Uses StringBuilder for efficient string concatenation of multiple lines.
+    /// 
+    /// Format:
+    /// 1. Declarations first (DECLARE statements)
+    /// 2. Instructions second (gates, measurements)
+    /// 3. Newline-separated
+    /// 
+    /// Example output:
+    /// ```
+    /// DECLARE ro BIT[2]
+    /// H 0
+    /// CZ 0 1
+    /// MEASURE 0 ro[0]
+    /// MEASURE 1 ro[1]
+    /// ```
+    let serializeProgram (program: QuilProgram) : string =
+        let sb = StringBuilder()
+        
+        // Serialize declarations first
+        for decl in program.Declarations do
+            if sb.Length > 0 then sb.Append('\n') |> ignore
+            sb.Append(serializeGate decl) |> ignore
+        
+        // Serialize instructions
+        for instr in program.Instructions do
+            if sb.Length > 0 then sb.Append('\n') |> ignore
+            sb.Append(serializeGate instr) |> ignore
+        
+        sb.ToString()
