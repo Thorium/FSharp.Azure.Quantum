@@ -143,3 +143,93 @@ module IonQBackendTests =
         Assert.Equal("measure", root.GetProperty("gate").GetString())
         let targets = root.GetProperty("target").EnumerateArray() |> Seq.map (fun e -> e.GetInt32()) |> Seq.toArray
         Assert.Equal<int seq>([| 0; 1; 2 |], targets)
+    
+    // ============================================================================
+    // TDD CYCLE 3: Circuit Serialization
+    // ============================================================================
+    
+    [<Fact>]
+    let ``serializeCircuit - Bell state circuit serializes correctly`` () =
+        // Arrange - Bell state: H on qubit 0, CNOT(0,1), measure both
+        let circuit = {
+            Qubits = 2
+            Circuit = [
+                IonQGate.SingleQubit("h", 0)
+                IonQGate.TwoQubit("cnot", 0, 1)
+                IonQGate.Measure([| 0; 1 |])
+            ]
+        }
+        
+        // Act
+        let json = serializeCircuit circuit
+        let jsonDoc = JsonDocument.Parse(json)
+        let root = jsonDoc.RootElement
+        
+        // Assert
+        Assert.Equal(2, root.GetProperty("qubits").GetInt32())
+        let gates = root.GetProperty("circuit").EnumerateArray() |> Seq.toList
+        Assert.Equal(3, gates.Length)
+        
+        // Check H gate
+        Assert.Equal("h", gates.[0].GetProperty("gate").GetString())
+        Assert.Equal(0, gates.[0].GetProperty("target").GetInt32())
+        
+        // Check CNOT gate
+        Assert.Equal("cnot", gates.[1].GetProperty("gate").GetString())
+        Assert.Equal(0, gates.[1].GetProperty("control").GetInt32())
+        Assert.Equal(1, gates.[1].GetProperty("target").GetInt32())
+        
+        // Check Measure gate
+        Assert.Equal("measure", gates.[2].GetProperty("gate").GetString())
+        let measureTargets = gates.[2].GetProperty("target").EnumerateArray() |> Seq.map (fun e -> e.GetInt32()) |> Seq.toArray
+        Assert.Equal<int seq>([| 0; 1 |], measureTargets)
+    
+    [<Fact>]
+    let ``serializeCircuit - GHZ state with rotations serializes correctly`` () =
+        // Arrange - 3-qubit GHZ state with RX rotation
+        let circuit = {
+            Qubits = 3
+            Circuit = [
+                IonQGate.SingleQubit("h", 0)
+                IonQGate.SingleQubitRotation("rx", 1, Math.PI / 4.0)
+                IonQGate.TwoQubit("cnot", 0, 1)
+                IonQGate.TwoQubit("cnot", 1, 2)
+                IonQGate.Measure([| 0; 1; 2 |])
+            ]
+        }
+        
+        // Act
+        let json = serializeCircuit circuit
+        let jsonDoc = JsonDocument.Parse(json)
+        let root = jsonDoc.RootElement
+        
+        // Assert
+        Assert.Equal(3, root.GetProperty("qubits").GetInt32())
+        let gates = root.GetProperty("circuit").EnumerateArray() |> Seq.toList
+        Assert.Equal(5, gates.Length)
+        
+        // Check RX rotation gate
+        Assert.Equal("rx", gates.[1].GetProperty("gate").GetString())
+        Assert.Equal(1, gates.[1].GetProperty("target").GetInt32())
+        Assert.Equal(Math.PI / 4.0, gates.[1].GetProperty("rotation").GetDouble(), 6)
+    
+    [<Fact>]
+    let ``serializeCircuit - Empty circuit with just measurement`` () =
+        // Arrange
+        let circuit = {
+            Qubits = 1
+            Circuit = [
+                IonQGate.Measure([| 0 |])
+            ]
+        }
+        
+        // Act
+        let json = serializeCircuit circuit
+        let jsonDoc = JsonDocument.Parse(json)
+        let root = jsonDoc.RootElement
+        
+        // Assert
+        Assert.Equal(1, root.GetProperty("qubits").GetInt32())
+        let gates = root.GetProperty("circuit").EnumerateArray() |> Seq.toList
+        Assert.Equal(1, gates.Length)
+        Assert.Equal("measure", gates.[0].GetProperty("gate").GetString())

@@ -96,3 +96,39 @@ module IonQBackend =
         writer.Flush()
         
         System.Text.Encoding.UTF8.GetString(stream.ToArray())
+    
+    // ============================================================================
+    // CIRCUIT SERIALIZATION (TDD Cycle 3)
+    // ============================================================================
+    
+    /// Serialize an IonQ circuit to JSON string
+    /// 
+    /// Produces JSON in IonQ format:
+    /// {
+    ///   "qubits": 2,
+    ///   "circuit": [
+    ///     {"gate": "h", "target": 0},
+    ///     {"gate": "cnot", "control": 0, "target": 1},
+    ///     {"gate": "measure", "target": [0, 1]}
+    ///   ]
+    /// }
+    let serializeCircuit (circuit: IonQCircuit) : string =
+        use stream = new MemoryStream()
+        use writer = new Utf8JsonWriter(stream, JsonWriterOptions(Indented = false))
+        
+        writer.WriteStartObject()
+        writer.WriteNumber("qubits", circuit.Qubits)
+        
+        // Serialize circuit array
+        writer.WriteStartArray("circuit")
+        for gate in circuit.Circuit do
+            // Parse each gate's JSON and write to array
+            let gateJson = serializeGate gate
+            use gateDoc = JsonDocument.Parse(gateJson)
+            gateDoc.RootElement.WriteTo(writer)
+        writer.WriteEndArray()
+        
+        writer.WriteEndObject()
+        writer.Flush()
+        
+        System.Text.Encoding.UTF8.GetString(stream.ToArray())
