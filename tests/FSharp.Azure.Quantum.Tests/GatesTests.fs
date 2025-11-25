@@ -257,8 +257,8 @@ module GatesTests =
         let state2q = StateVector.init 2
         
         // Valid indices: 0, 1
-        let _ = Gates.applyX 0 state2q
-        let _ = Gates.applyX 1 state2q
+        Gates.applyX 0 state2q |> ignore
+        Gates.applyX 1 state2q |> ignore
         
         // Invalid indices: -1, 2
         Assert.Throws<System.Exception>(fun () -> 
@@ -442,8 +442,8 @@ module GatesTests =
         let state2q = StateVector.init 2
         
         // Valid indices: 0, 1
-        let _ = Gates.applyCNOT 0 1 state2q
-        let _ = Gates.applyCZ 0 1 state2q
+        Gates.applyCNOT 0 1 state2q |> ignore
+        Gates.applyCZ 0 1 state2q |> ignore
         
         // Invalid: same control and target
         Assert.Throws<System.Exception>(fun () -> 

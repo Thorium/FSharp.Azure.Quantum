@@ -106,12 +106,12 @@ let ``TokenManager ClearCache should force token refresh`` () =
 
     let tokenManager = TokenManager(trackingCredential)
 
-    let _ = tokenManager.GetAccessTokenAsync() |> Async.RunSynchronously
+    tokenManager.GetAccessTokenAsync() |> Async.RunSynchronously |> ignore
     Assert.Equal(1, callCount)
 
     tokenManager.ClearCache()
 
-    let _ = tokenManager.GetAccessTokenAsync() |> Async.RunSynchronously
+    tokenManager.GetAccessTokenAsync() |> Async.RunSynchronously |> ignore
     Assert.Equal(2, callCount)
 
 // ============================================================================
@@ -160,7 +160,7 @@ let ``AuthenticationHandler should add Authorization Bearer header`` () =
     
     // Make a request
     let request = new HttpRequestMessage(HttpMethod.Get, "https://quantum.azure.com/test")
-    let _ = client.SendAsync(request) |> Async.AwaitTask |> Async.RunSynchronously
+    client.SendAsync(request) |> Async.AwaitTask |> Async.RunSynchronously |> ignore
     
     // Verify Authorization header was added
     match testHandler.CapturedRequest with

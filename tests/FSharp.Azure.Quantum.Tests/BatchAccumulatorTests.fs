@@ -125,7 +125,7 @@ module BatchAccumulatorTests =
         let accumulator = BatchAccumulator<int>(config)
         
         // Act - First batch
-        let _ = accumulator.Add(1)
+        accumulator.Add(1) |> ignore
         let batch1 = accumulator.Add(2)  // Trigger
         
         // Act - Second batch (should start fresh)
@@ -214,7 +214,7 @@ module BatchAccumulatorTests =
         let accumulator = BatchAccumulator<string>(config)
         
         // Act - First batch (size trigger)
-        let _ = accumulator.Add("item1")
+        accumulator.Add("item1") |> ignore
         let batch1 = accumulator.Add("item2")  // Size trigger
         
         // Act - Second batch (should have fresh timeout)

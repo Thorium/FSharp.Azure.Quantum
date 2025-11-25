@@ -33,6 +33,7 @@
     <Compile Include="BatchAccumulatorTests.fs" />
     <Compile Include="JobLifecycleTests.fs" />
     <Compile Include="IonQBackendTests.fs" />
+    <Compile Include="RigettiBackendTests.fs" />
     <Compile Include="IntegrationTests.fs" />
   </ItemGroup>
 

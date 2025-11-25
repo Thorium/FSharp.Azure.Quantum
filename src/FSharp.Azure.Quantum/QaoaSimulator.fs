@@ -173,7 +173,7 @@ module QaoaSimulator =
         
         let numQubits = StateVector.numQubits state
         if costCoefficients.Length <> numQubits then
-            failwith $"Cost coefficients array length must match number of qubits"
+            failwith "Cost coefficients array length must match number of qubits"
         
         let dimension = StateVector.dimension state
         
