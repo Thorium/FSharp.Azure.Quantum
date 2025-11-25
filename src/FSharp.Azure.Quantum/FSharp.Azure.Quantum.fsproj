@@ -50,6 +50,7 @@
     <Compile Include="Observability.fs" />
     <Compile Include="Batching.fs" />
     <Compile Include="JobLifecycle.fs" />
+    <Compile Include="IonQBackend.fs" />
     <Compile Include="Client.fs" />
     <Compile Include="TspSolver.fs" />
     <Compile Include="TspBuilder.fs" />

@@ -1,0 +1,145 @@
+namespace FSharp.Azure.Quantum.Tests
+
+open System
+open System.Text.Json
+open Xunit
+open FSharp.Azure.Quantum.Core.IonQBackend
+
+module IonQBackendTests =
+    
+    // ============================================================================
+    // TDD CYCLE 1: Gate Type Definitions
+    // ============================================================================
+    
+    [<Fact>]
+    let ``IonQGate - SingleQubit gate has gate name and target`` () =
+        // Arrange & Act
+        let gate = IonQGate.SingleQubit("h", 0)
+        
+        // Assert
+        match gate with
+        | IonQGate.SingleQubit(gateName, target) ->
+            Assert.Equal("h", gateName)
+            Assert.Equal(0, target)
+        | _ -> Assert.True(false, "Expected SingleQubit gate")
+    
+    [<Fact>]
+    let ``IonQGate - TwoQubit gate has gate name, control, and target`` () =
+        // Arrange & Act
+        let gate = IonQGate.TwoQubit("cnot", 0, 1)
+        
+        // Assert
+        match gate with
+        | IonQGate.TwoQubit(gateName, control, target) ->
+            Assert.Equal("cnot", gateName)
+            Assert.Equal(0, control)
+            Assert.Equal(1, target)
+        | _ -> Assert.True(false, "Expected TwoQubit gate")
+    
+    [<Fact>]
+    let ``IonQGate - SingleQubitRotation has gate name, target, and rotation angle`` () =
+        // Arrange & Act
+        let gate = IonQGate.SingleQubitRotation("rx", 2, Math.PI / 2.0)
+        
+        // Assert
+        match gate with
+        | IonQGate.SingleQubitRotation(gateName, target, rotation) ->
+            Assert.Equal("rx", gateName)
+            Assert.Equal(2, target)
+            Assert.Equal(Math.PI / 2.0, rotation, 6)
+        | _ -> Assert.True(false, "Expected SingleQubitRotation gate")
+    
+    [<Fact>]
+    let ``IonQGate - Measure gate has array of target qubits`` () =
+        // Arrange & Act
+        let gate = IonQGate.Measure([| 0; 1; 2 |])
+        
+        // Assert
+        match gate with
+        | IonQGate.Measure(targets) ->
+            Assert.Equal(3, targets.Length)
+            Assert.Equal<int seq>([| 0; 1; 2 |], targets)
+        | _ -> Assert.True(false, "Expected Measure gate")
+    
+    [<Fact>]
+    let ``IonQCircuit - contains qubit count and gate list`` () =
+        // Arrange
+        let gates = [
+            IonQGate.SingleQubit("h", 0)
+            IonQGate.TwoQubit("cnot", 0, 1)
+            IonQGate.Measure([| 0; 1 |])
+        ]
+        
+        // Act
+        let circuit = { Qubits = 2; Circuit = gates }
+        
+        // Assert
+        Assert.Equal(2, circuit.Qubits)
+        Assert.Equal(3, circuit.Circuit.Length)
+    
+    // ============================================================================
+    // TDD CYCLE 2: Gate Serialization to JSON
+    // ============================================================================
+    
+    [<Fact>]
+    let ``serializeGate - SingleQubit gate serializes to JSON with gate and target`` () =
+        // Arrange
+        let gate = IonQGate.SingleQubit("h", 0)
+        
+        // Act
+        let json = serializeGate gate
+        let jsonDoc = JsonDocument.Parse(json)
+        let root = jsonDoc.RootElement
+        
+        // Assert
+        Assert.Equal("h", root.GetProperty("gate").GetString())
+        Assert.Equal(0, root.GetProperty("target").GetInt32())
+        Assert.False(root.TryGetProperty("control", ref Unchecked.defaultof<JsonElement>))
+        Assert.False(root.TryGetProperty("rotation", ref Unchecked.defaultof<JsonElement>))
+    
+    [<Fact>]
+    let ``serializeGate - TwoQubit gate serializes to JSON with gate, control, and target`` () =
+        // Arrange
+        let gate = IonQGate.TwoQubit("cnot", 0, 1)
+        
+        // Act
+        let json = serializeGate gate
+        let jsonDoc = JsonDocument.Parse(json)
+        let root = jsonDoc.RootElement
+        
+        // Assert
+        Assert.Equal("cnot", root.GetProperty("gate").GetString())
+        Assert.Equal(0, root.GetProperty("control").GetInt32())
+        Assert.Equal(1, root.GetProperty("target").GetInt32())
+        Assert.False(root.TryGetProperty("rotation", ref Unchecked.defaultof<JsonElement>))
+    
+    [<Fact>]
+    let ``serializeGate - SingleQubitRotation serializes to JSON with gate, target, and rotation`` () =
+        // Arrange
+        let gate = IonQGate.SingleQubitRotation("rx", 2, Math.PI / 2.0)
+        
+        // Act
+        let json = serializeGate gate
+        let jsonDoc = JsonDocument.Parse(json)
+        let root = jsonDoc.RootElement
+        
+        // Assert
+        Assert.Equal("rx", root.GetProperty("gate").GetString())
+        Assert.Equal(2, root.GetProperty("target").GetInt32())
+        Assert.Equal(Math.PI / 2.0, root.GetProperty("rotation").GetDouble(), 6)
+        Assert.False(root.TryGetProperty("control", ref Unchecked.defaultof<JsonElement>))
+    
+    [<Fact>]
+    let ``serializeGate - Measure gate serializes to JSON with measure gate and target array`` () =
+        // Arrange
+        let gate = IonQGate.Measure([| 0; 1; 2 |])
+        
+        // Act
+        let json = serializeGate gate
+        let jsonDoc = JsonDocument.Parse(json)
+        let root = jsonDoc.RootElement
+        
+        // Assert
+        Assert.Equal("measure", root.GetProperty("gate").GetString())
+        let targets = root.GetProperty("target").EnumerateArray() |> Seq.map (fun e -> e.GetInt32()) |> Seq.toArray
+        Assert.Equal<int seq>([| 0; 1; 2 |], targets)
