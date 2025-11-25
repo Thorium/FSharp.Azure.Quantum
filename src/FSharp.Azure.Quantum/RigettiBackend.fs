@@ -83,3 +83,35 @@ module RigettiBackend =
         /// Both (a, b) and (b, a) represent the same edge
         Edges: Set<int * int>
     }
+    
+    // ============================================================================
+    // GATE SERIALIZATION (TDD Cycle 2)
+    // ============================================================================
+    
+    /// Serialize a single Quil gate to assembly text
+    /// 
+    /// Converts QuilGate discriminated unions to Quil assembly language strings.
+    /// Uses simple string formatting - no JSON or complex serialization needed.
+    /// 
+    /// Examples:
+    /// - SingleQubit("H", 0) → "H 0"
+    /// - SingleQubitRotation("RX", π/2, 0) → "RX(1.5707963267948966) 0"
+    /// - TwoQubit("CZ", 0, 1) → "CZ 0 1"
+    /// - Measure(0, "ro[0]") → "MEASURE 0 ro[0]"
+    /// - DeclareMemory("ro", "BIT", 2) → "DECLARE ro BIT[2]"
+    let serializeGate (gate: QuilGate) : string =
+        match gate with
+        | SingleQubit(gateName, qubit) ->
+            sprintf "%s %d" gateName qubit
+        
+        | SingleQubitRotation(gateName, angle, qubit) ->
+            sprintf "%s(%s) %d" gateName (angle.ToString("R")) qubit
+        
+        | TwoQubit(gateName, control, target) ->
+            sprintf "%s %d %d" gateName control target
+        
+        | Measure(qubit, memoryRef) ->
+            sprintf "MEASURE %d %s" qubit memoryRef
+        
+        | DeclareMemory(name, typ, size) ->
+            sprintf "DECLARE %s %s[%d]" name typ size
