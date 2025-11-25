@@ -46,6 +46,7 @@
     <Compile Include="CircuitValidator.fs" />
     <Compile Include="Authentication.fs" />
     <Compile Include="Retry.fs" />
+    <Compile Include="RateLimiting.fs" />
     <Compile Include="Client.fs" />
     <Compile Include="TspSolver.fs" />
     <Compile Include="TspBuilder.fs" />
