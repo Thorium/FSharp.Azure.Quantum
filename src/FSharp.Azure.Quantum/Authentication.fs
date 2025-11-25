@@ -3,11 +3,27 @@ namespace FSharp.Azure.Quantum.Core
 open System
 open System.Threading
 open Azure.Core
+open Azure.Identity
 
 module Authentication =
 
     /// Quantum API scope for Azure AD
     let private quantumScope = "https://quantum.microsoft.com/.default"
+    
+    /// Credential provider factory functions
+    module CredentialProviders =
+        
+        /// Create DefaultAzureCredential (tries multiple auth methods)
+        let createDefaultCredential () : TokenCredential =
+            upcast new DefaultAzureCredential()
+        
+        /// Create AzureCliCredential (uses az login credentials)
+        let createCliCredential () : TokenCredential =
+            upcast new AzureCliCredential()
+        
+        /// Create ManagedIdentityCredential (for Azure VM/App Service)
+        let createManagedIdentityCredential () : TokenCredential =
+            upcast new ManagedIdentityCredential()
 
     /// Manages Azure AD token acquisition and caching
     type TokenManager(credential: TokenCredential) =

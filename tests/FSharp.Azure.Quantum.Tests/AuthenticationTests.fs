@@ -4,6 +4,7 @@ open System
 open System.Threading
 open Xunit
 open Azure.Core
+open Azure.Identity
 open FSharp.Azure.Quantum.Core.Authentication
 
 // Mock TokenCredential for testing
@@ -109,3 +110,23 @@ let ``TokenManager ClearCache should force token refresh`` () =
 
     let _ = tokenManager.GetAccessTokenAsync() |> Async.RunSynchronously
     Assert.Equal(2, callCount)
+
+// ============================================================================
+// Credential Provider Tests
+// ============================================================================
+
+[<Fact>]
+let ``CredentialProviders createDefaultCredential should return DefaultAzureCredential`` () =
+    let credential = CredentialProviders.createDefaultCredential()
+    Assert.IsType<DefaultAzureCredential>(credential) |> ignore
+
+[<Fact>]
+let ``CredentialProviders createCliCredential should return AzureCliCredential`` () =
+    let credential = CredentialProviders.createCliCredential()
+    Assert.IsType<AzureCliCredential>(credential) |> ignore
+
+[<Fact>]
+let ``CredentialProviders createManagedIdentityCredential should return ManagedIdentityCredential`` () =
+    let credential = CredentialProviders.createManagedIdentityCredential()
+    Assert.IsType<ManagedIdentityCredential>(credential) |> ignore
+
