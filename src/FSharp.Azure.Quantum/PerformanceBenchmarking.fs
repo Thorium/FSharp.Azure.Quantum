@@ -121,7 +121,7 @@ module PerformanceBenchmarking =
                     sw.Stop()
                     
                     match solution with
-                    | Ok tour -> yield (sw.ElapsedMilliseconds, tour.TotalDistance)
+                    | Ok tour -> yield (sw.Elapsed.TotalMilliseconds, tour.TotalDistance)
                     | Error err -> 
                         // Log error but continue - some runs might succeed
                         eprintfn "TSP solve failed: %s" err
@@ -132,7 +132,7 @@ module PerformanceBenchmarking =
                 failwith "All TSP solver runs failed - cannot produce benchmark result"
             
             let avgTime = 
-                results |> List.averageBy (fst >> float) |> int64
+                results |> List.averageBy fst |> ceil |> int64
                     
             let bestQuality = 
                 results |> List.minBy snd |> snd
