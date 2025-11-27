@@ -75,3 +75,42 @@ module SchedulingTests =
         match makespan with
         | Scheduling.MinimizeMakespan -> Assert.True(true)
         | _ -> Assert.Fail("Expected MinimizeMakespan")
+    
+    [<Fact>]
+    let ``SchedulingBuilder fluent API composes with method chaining`` () =
+        // Arrange
+        let task1 = Scheduling.task "T1" "Design" 5.0
+        let task2 = Scheduling.task "T2" "Implement" 10.0
+        let task3 = Scheduling.task "T3" "Test" 3.0
+        
+        let resource1 : Scheduling.Resource<string> = {
+            Id = "R1"
+            Value = "Engineer"
+            Capacity = 1.0
+            AvailableWindows = [(0.0, 24.0)]
+            CostPerUnit = 100.0
+            Properties = Map.empty
+        }
+        
+        // Act - fluent builder API
+        let problem =
+            Scheduling.SchedulingBuilder()
+                .Tasks([task1; task2; task3])
+                .Resources([resource1])
+                .AddDependency(Scheduling.FinishToStart("T1", "T2", 0.0))
+                .AddDependency(Scheduling.FinishToStart("T2", "T3", 0.0))
+                .AddConstraint(Scheduling.NoOverlap(["T1"; "T2"; "T3"]))
+                .Objective(Scheduling.MinimizeMakespan)
+                .TimeHorizon(24.0)
+                .Build()
+        
+        // Assert - verify problem structure
+        Assert.Equal(3, problem.Tasks.Length)
+        Assert.Equal(1, problem.Resources.Length)
+        Assert.Equal(2, problem.Dependencies.Length)
+        Assert.Equal(1, problem.Constraints.Length)
+        Assert.Equal(24.0, problem.TimeHorizon)
+        
+        match problem.Objective with
+        | Scheduling.MinimizeMakespan -> Assert.True(true)
+        | _ -> Assert.Fail("Expected MinimizeMakespan")

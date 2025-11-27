@@ -179,6 +179,96 @@ module Scheduling =
         | Custom of (Schedule -> float)
     
     // ============================================================================
+    // PROBLEM DEFINITION - Scheduling Problem
+    // ============================================================================
+    
+    /// Complete scheduling problem definition.
+    type SchedulingProblem<'TTask, 'TResource when 'TTask : equality and 'TResource : equality> = {
+        /// Tasks to schedule
+        Tasks: Task<'TTask> list
+        
+        /// Available resources
+        Resources: Resource<'TResource> list
+        
+        /// Task dependencies
+        Dependencies: Dependency list
+        
+        /// Scheduling constraints
+        Constraints: SchedulingConstraint list
+        
+        /// Optimization objective
+        Objective: SchedulingObjective
+        
+        /// Time horizon (max time considered)
+        TimeHorizon: float
+    }
+    
+    // ============================================================================
+    // FLUENT BUILDER - Scheduling Problem Construction
+    // ============================================================================
+    
+    /// Fluent builder for composing scheduling problems with method chaining.
+    /// 
+    /// Example:
+    /// ```fsharp
+    /// let problem =
+    ///     SchedulingBuilder()
+    ///         .Tasks([task1; task2; task3])
+    ///         .Resources([resource1; resource2])
+    ///         .AddDependency(FinishToStart("T1", "T2", 0.0))
+    ///         .Objective(MinimizeMakespan)
+    ///         .Build()
+    /// ```
+    type SchedulingBuilder<'TTask, 'TResource when 'TTask : equality and 'TResource : equality>() =
+        let mutable tasks: Task<'TTask> list = []
+        let mutable resources: Resource<'TResource> list = []
+        let mutable dependencies: Dependency list = []
+        let mutable constraints: SchedulingConstraint list = []
+        let mutable objective: SchedulingObjective = MinimizeMakespan
+        let mutable timeHorizon: float = 100.0  // default 100 time units
+        
+        /// Set tasks to schedule
+        member this.Tasks(taskList: Task<'TTask> list) =
+            tasks <- taskList
+            this
+        
+        /// Set available resources
+        member this.Resources(resourceList: Resource<'TResource> list) =
+            resources <- resourceList
+            this
+        
+        /// Add a task dependency
+        member this.AddDependency(dependency: Dependency) =
+            dependencies <- dependency :: dependencies
+            this
+        
+        /// Add a scheduling constraint
+        member this.AddConstraint(constraint: SchedulingConstraint) =
+            constraints <- constraint :: constraints
+            this
+        
+        /// Set optimization objective
+        member this.Objective(obj: SchedulingObjective) =
+            objective <- obj
+            this
+        
+        /// Set time horizon
+        member this.TimeHorizon(horizon: float) =
+            timeHorizon <- horizon
+            this
+        
+        /// Build the scheduling problem
+        member this.Build() : SchedulingProblem<'TTask, 'TResource> =
+            {
+                Tasks = tasks
+                Resources = resources
+                Dependencies = List.rev dependencies  // reverse to maintain insertion order
+                Constraints = List.rev constraints    // reverse to maintain insertion order
+                Objective = objective
+                TimeHorizon = timeHorizon
+            }
+    
+    // ============================================================================
     // HELPER FUNCTIONS - Task and Resource Creation
     // ============================================================================
     
