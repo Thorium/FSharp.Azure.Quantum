@@ -733,4 +733,41 @@ module GraphOptimizationTests =
         
         let result = validateConstraints problem solution
         Assert.False(result) // Should fail because A has degree 3 > 2
+    
+    // ============================================================================
+    // TDD CYCLE #3: OBJECTIVE VALUE CALCULATION IN decodeSolution
+    // ============================================================================
+    
+    [<Fact>]
+    let ``decodeSolution calculates objective value for graph coloring`` () =
+        // Create a simple graph coloring problem
+        let nodes = [
+            node "A" "Node A"
+            node "B" "Node B"
+            node "C" "Node C"
+        ]
+        let edges = [
+            edge "A" "B" 1.0
+            edge "B" "C" 1.0
+        ]
+        
+        let problem =
+            GraphOptimizationBuilder<string, float>()
+                .Nodes(nodes)
+                .Edges(edges)
+                .Objective(MinimizeColors)
+                .Build()
+        
+        // QUBO solution vector: 3 nodes × 4 colors = 12 variables
+        // One-hot encoding: A=color0, B=color1, C=color0 (2 colors used)
+        let quboSolution = [
+            1; 0; 0; 0;  // Node A (index 0): color 0
+            0; 1; 0; 0;  // Node B (index 1): color 1
+            1; 0; 0; 0   // Node C (index 2): color 0
+        ]
+        
+        let solution = decodeSolution problem quboSolution
+        
+        // Assert: ObjectiveValue should be 2.0 (2 colors used), not 0.0
+        Assert.Equal(2.0, solution.ObjectiveValue)
 

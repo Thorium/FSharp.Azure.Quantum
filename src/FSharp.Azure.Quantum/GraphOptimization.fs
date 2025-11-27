@@ -429,129 +429,7 @@ module GraphOptimization =
             emptyQubo numNodes
     
     // ========================================================================
-    // FR-8: SOLUTION DECODING
-    // ========================================================================
-    
-    /// Decode a QUBO solution to a graph optimization solution
-    let decodeSolution (problem: GraphOptimizationProblem<'TNode, 'TEdge>) (quboSolution: int list) : GraphOptimizationSolution<'TNode, 'TEdge> =
-        let numNodes = problem.Graph.Nodes |> Map.count
-        let nodeIds = problem.Graph.Nodes |> Map.toList |> List.map fst
-        
-        match problem.Objective with
-        | MinimizeColors ->
-            // Decode one-hot color assignment
-            let numColors = problem.NumColors |> Option.defaultValue DefaultNumColors
-            
-            let assignments =
-                nodeIds
-                |> List.mapi (fun nodeIdx nodeId ->
-                    // Find which color is assigned (one-hot)
-                    let colorIdx = 
-                        [0 .. numColors - 1]
-                        |> List.tryFindIndex (fun c ->
-                            let varIdx = nodeIdx * numColors + c
-                            varIdx < quboSolution.Length && quboSolution.[varIdx] = 1
-                        )
-                        |> Option.defaultValue 0
-                    
-                    nodeId, colorIdx
-                )
-                |> Map.ofList
-            
-            {
-                Graph = problem.Graph
-                NodeAssignments = Some assignments
-                SelectedEdges = None
-                ObjectiveValue = 0.0  // TODO: Calculate actual objective value
-                IsFeasible = true
-                Violations = []
-            }
-        
-        | MinimizeTotalWeight ->
-            // Decode TSP tour
-            {
-                Graph = problem.Graph
-                NodeAssignments = None
-                SelectedEdges = Some []  // TODO: Extract tour edges
-                ObjectiveValue = 0.0
-                IsFeasible = true
-                Violations = []
-            }
-        
-        | MaximizeCut ->
-            // Decode partition
-            let partition =
-                nodeIds
-                |> List.mapi (fun i nodeId ->
-                    let partitionValue = 
-                        if i < quboSolution.Length then quboSolution.[i] else 0
-                    nodeId, partitionValue
-                )
-                |> Map.ofList
-            
-            {
-                Graph = problem.Graph
-                NodeAssignments = Some partition
-                SelectedEdges = None
-                ObjectiveValue = 0.0  // TODO: Calculate cut size
-                IsFeasible = true
-                Violations = []
-            }
-        
-        | _ ->
-            // Default: empty solution
-            {
-                Graph = problem.Graph
-                NodeAssignments = None
-                SelectedEdges = None
-                ObjectiveValue = 0.0
-                IsFeasible = false
-                Violations = []
-            }
-        
-        | MinimizeTotalWeight ->
-            // Decode TSP tour
-            {
-                Graph = problem.Graph
-                NodeAssignments = None
-                SelectedEdges = Some []  // TODO: Extract tour edges
-                ObjectiveValue = 0.0
-                IsFeasible = true
-                Violations = []
-            }
-        
-        | MaximizeCut ->
-            // Decode partition
-            let nodeIds = problem.Graph.Nodes |> Map.toList |> List.map fst
-            let partition =
-                nodeIds
-                |> List.mapi (fun i nodeId ->
-                    let partitionValue = if i < quboSolution.Length then quboSolution.[i] else 0
-                    nodeId, partitionValue
-                )
-                |> Map.ofList
-            
-            {
-                Graph = problem.Graph
-                NodeAssignments = Some partition
-                SelectedEdges = None
-                ObjectiveValue = 0.0  // TODO: Calculate cut size
-                IsFeasible = true
-                Violations = []
-            }
-        
-        | _ ->
-            {
-                Graph = problem.Graph
-                NodeAssignments = None
-                SelectedEdges = None
-                ObjectiveValue = 0.0
-                IsFeasible = true
-                Violations = []
-            }
-    
-    // ========================================================================
-    // TDD CYCLE 2 - OBJECTIVE VALUE CALCULATION
+    // OBJECTIVE VALUE CALCULATION (TDD CYCLE 2)
     // ========================================================================
     
     /// Calculate the objective value for a given solution
@@ -591,7 +469,7 @@ module GraphOptimization =
             0.0
     
     // ========================================================================
-    // TDD CYCLE 2 - CLASSICAL SOLVERS
+    // FR-8: SOLUTION DECODING
     // ========================================================================
     
     /// Helper: Create a solution record with calculated objective value
@@ -622,6 +500,60 @@ module GraphOptimization =
             IsFeasible = false
             Violations = []
         }
+    
+    /// Decode a QUBO solution to a graph optimization solution
+    let decodeSolution (problem: GraphOptimizationProblem<'TNode, 'TEdge>) (quboSolution: int list) : GraphOptimizationSolution<'TNode, 'TEdge> =
+        let numNodes = problem.Graph.Nodes |> Map.count
+        let nodeIds = problem.Graph.Nodes |> Map.toList |> List.map fst
+        
+        match problem.Objective with
+        | MinimizeColors ->
+            // Decode one-hot color assignment
+            let numColors = problem.NumColors |> Option.defaultValue DefaultNumColors
+            
+            let assignments =
+                nodeIds
+                |> List.mapi (fun nodeIdx nodeId ->
+                    // Find which color is assigned (one-hot)
+                    let colorIdx = 
+                        [0 .. numColors - 1]
+                        |> List.tryFindIndex (fun c ->
+                            let varIdx = nodeIdx * numColors + c
+                            varIdx < quboSolution.Length && quboSolution.[varIdx] = 1
+                        )
+                        |> Option.defaultValue 0
+                    
+                    nodeId, colorIdx
+                )
+                |> Map.ofList
+            
+            createSolution problem.Graph (Some assignments) None
+        
+        | MinimizeTotalWeight ->
+            // Decode TSP tour
+            // TODO: Extract tour edges from QUBO solution
+            createSolution problem.Graph None (Some [])
+        
+        | MaximizeCut ->
+            // Decode partition
+            let partition =
+                nodeIds
+                |> List.mapi (fun i nodeId ->
+                    let partitionValue = 
+                        if i < quboSolution.Length then quboSolution.[i] else 0
+                    nodeId, partitionValue
+                )
+                |> Map.ofList
+            
+            createSolution problem.Graph (Some partition) None
+        
+        | _ ->
+            // Default: empty solution
+            emptySolution problem.Graph
+    
+    // ========================================================================
+    // TDD CYCLE 2 - CLASSICAL SOLVERS
+    // ========================================================================
     
     /// Greedy graph coloring algorithm (Welsh-Powell)
     let private greedyColoring (problem: GraphOptimizationProblem<'TNode, 'TEdge>) : GraphOptimizationSolution<'TNode, 'TEdge> =
