@@ -303,3 +303,96 @@ module Scheduling =
             Priority = 0.0
             Properties = Map.empty
         }
+    
+    // ============================================================================
+    // CLASSICAL SOLVER - List Scheduling Algorithm
+    // ============================================================================
+    
+    /// Classical List Scheduling solver with dependency resolution.
+    /// Uses greedy heuristic to schedule tasks on available resources.
+    let solveClassical (problem: SchedulingProblem<'TTask, 'TResource>) : Result<Schedule, string> =
+        try
+            // Extract FinishToStart dependencies (simplify to only handle FinishToStart for MVP)
+            let dependencies =
+                problem.Dependencies
+                |> List.choose (function
+                    | FinishToStart(t1, t2, lag) -> Some (t1, t2, lag)
+                    | _ -> None)  // TODO: Handle other dependency types
+            
+            // Helper: Check if all dependencies are satisfied
+            let areDependenciesSatisfied (taskId: string) (scheduled: Map<string, TaskAssignment>) : bool =
+                dependencies
+                |> List.filter (fun (_, t2, _) -> t2 = taskId)
+                |> List.forall (fun (t1, _, _) -> scheduled.ContainsKey(t1))
+            
+            // Helper: Get earliest start time based on dependencies
+            let getEarliestStartTime (taskId: string) (scheduled: Map<string, TaskAssignment>) : float =
+                let depTimes =
+                    dependencies
+                    |> List.filter (fun (_, t2, _) -> t2 = taskId)
+                    |> List.choose (fun (t1, _, lag) ->
+                        scheduled
+                        |> Map.tryFind t1
+                        |> Option.map (fun assignment -> assignment.EndTime + lag))
+                
+                match depTimes with
+                | [] -> 0.0
+                | times -> List.max times
+            
+            // List Scheduling Algorithm
+            let rec scheduleRecursive (remaining: Task<'TTask> list) (scheduled: Map<string, TaskAssignment>) : Map<string, TaskAssignment> =
+                if List.isEmpty remaining then
+                    scheduled
+                else
+                    // Find tasks with all dependencies satisfied
+                    let ready =
+                        remaining
+                        |> List.filter (fun task -> areDependenciesSatisfied task.Id scheduled)
+                        |> List.sortByDescending (fun t -> t.Priority)  // Higher priority first
+                    
+                    match ready with
+                    | [] ->
+                        failwith "Circular dependency detected or invalid task graph"
+                    
+                    | task :: _ ->
+                        // Schedule this task
+                        let earliestStart = getEarliestStartTime task.Id scheduled
+                        let startTime = max earliestStart (task.EarliestStart |> Option.defaultValue 0.0)
+                        let endTime = startTime + task.Duration
+                        
+                        let assignment = {
+                            TaskId = task.Id
+                            StartTime = startTime
+                            EndTime = endTime
+                            AssignedResources = Map.empty  // TODO: Resource allocation
+                        }
+                        
+                        let newScheduled = scheduled |> Map.add task.Id assignment
+                        let newRemaining = remaining |> List.filter (fun t -> t.Id <> task.Id)
+                        
+                        scheduleRecursive newRemaining newScheduled
+            
+            // Run scheduling algorithm
+            let assignments = scheduleRecursive problem.Tasks Map.empty
+            
+            // Calculate makespan
+            let makespan =
+                if Map.isEmpty assignments then 0.0
+                else
+                    assignments
+                    |> Map.toSeq
+                    |> Seq.map (fun (_, assignment) -> assignment.EndTime)
+                    |> Seq.max
+            
+            // Build schedule
+            let schedule = {
+                TaskAssignments = assignments
+                ResourceAllocations = Map.empty  // TODO: Resource tracking
+                Makespan = makespan
+                TotalCost = 0.0  // TODO: Cost calculation
+            }
+            
+            Ok schedule
+            
+        with
+        | ex -> Error $"Scheduling failed: {ex.Message}"

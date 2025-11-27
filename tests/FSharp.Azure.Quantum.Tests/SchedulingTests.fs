@@ -114,3 +114,60 @@ module SchedulingTests =
         match problem.Objective with
         | Scheduling.MinimizeMakespan -> Assert.True(true)
         | _ -> Assert.Fail("Expected MinimizeMakespan")
+    
+    [<Fact>]
+    let ``Classical List Scheduling solves simple problem with dependencies`` () =
+        // Arrange - Simple 3-task problem with dependencies
+        let task1 = Scheduling.task "T1" "Design" 5.0
+        let task2 = Scheduling.task "T2" "Implement" 10.0
+        let task3 = Scheduling.task "T3" "Test" 3.0
+        
+        let resource1 : Scheduling.Resource<string> = {
+            Id = "R1"
+            Value = "Engineer"
+            Capacity = 1.0
+            AvailableWindows = [(0.0, 100.0)]
+            CostPerUnit = 100.0
+            Properties = Map.empty
+        }
+        
+        let problem =
+            Scheduling.SchedulingBuilder.Create()
+                .Tasks([task1; task2; task3])
+                .Resources([resource1])
+                .AddDependency(Scheduling.FinishToStart("T1", "T2", 0.0))
+                .AddDependency(Scheduling.FinishToStart("T2", "T3", 0.0))
+                .Objective(Scheduling.MinimizeMakespan)
+                .TimeHorizon(100.0)
+                .Build()
+        
+        // Act - solve with classical solver
+        let result = Scheduling.solveClassical problem
+        
+        // Assert
+        match result with
+        | Ok schedule ->
+            // Verify all tasks are scheduled
+            Assert.Equal(3, schedule.TaskAssignments.Count)
+            
+            // Verify dependencies are respected
+            let t1 = schedule.TaskAssignments.["T1"]
+            let t2 = schedule.TaskAssignments.["T2"]
+            let t3 = schedule.TaskAssignments.["T3"]
+            
+            // T1 must finish before T2 starts
+            Assert.True(t1.EndTime <= t2.StartTime, "T1 must finish before T2 starts")
+            
+            // T2 must finish before T3 starts
+            Assert.True(t2.EndTime <= t3.StartTime, "T2 must finish before T3 starts")
+            
+            // Verify durations are correct
+            Assert.Equal(5.0, t1.EndTime - t1.StartTime)
+            Assert.Equal(10.0, t2.EndTime - t2.StartTime)
+            Assert.Equal(3.0, t3.EndTime - t3.StartTime)
+            
+            // Verify makespan
+            Assert.Equal(18.0, schedule.Makespan)  // 5 + 10 + 3 = 18 hours
+            
+        | Error msg ->
+            Assert.Fail($"Solver failed: {msg}")
