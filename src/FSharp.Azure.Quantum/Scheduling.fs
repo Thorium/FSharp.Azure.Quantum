@@ -10,8 +10,9 @@ module Scheduling =
     // CORE TYPES - Domain Model
     // ============================================================================
     
-    /// Represents a task to be scheduled with duration, constraints, and resource requirements.
-    type Task<'T when 'T : equality> = {
+    /// Represents a scheduled task with duration, constraints, and resource requirements.
+    /// Note: Named ScheduledTask to avoid collision with System.Threading.Tasks.Task<'T>
+    type ScheduledTask<'T when 'T : equality> = {
         /// Unique task identifier
         Id: string
         
@@ -185,7 +186,7 @@ module Scheduling =
     /// Complete scheduling problem definition.
     type SchedulingProblem<'TTask, 'TResource when 'TTask : equality and 'TResource : equality> = {
         /// Tasks to schedule
-        Tasks: Task<'TTask> list
+        Tasks: ScheduledTask<'TTask> list
         
         /// Available resources
         Resources: Resource<'TResource> list
@@ -221,7 +222,7 @@ module Scheduling =
     ///         .Build()
     /// ```
     type SchedulingBuilder<'TTask, 'TResource when 'TTask : equality and 'TResource : equality> = private {
-        tasks: Task<'TTask> list
+        tasks: ScheduledTask<'TTask> list
         resources: Resource<'TResource> list
         dependencies: Dependency list
         constraints: SchedulingConstraint list
@@ -239,7 +240,7 @@ module Scheduling =
         }
         
         /// Fluent API: Set tasks to schedule
-        member this.Tasks(taskList: Task<'TTask> list) =
+        member this.Tasks(taskList: ScheduledTask<'TTask> list) =
             { this with tasks = taskList }
         
         /// Fluent API: Set available resources
@@ -277,9 +278,9 @@ module Scheduling =
     // HELPER FUNCTIONS - Task and Resource Creation
     // ============================================================================
     
-    /// Create a task with minimal fields (id, value, duration).
+    /// Create a scheduled task with minimal fields (id, value, duration).
     /// All optional fields default to None/empty.
-    let task (id: string) (value: 'T) (duration: float) : Task<'T> =
+    let task (id: string) (value: 'T) (duration: float) : ScheduledTask<'T> =
         {
             Id = id
             Value = value
@@ -291,8 +292,8 @@ module Scheduling =
             Properties = Map.empty
         }
     
-    /// Create a task with resource requirements.
-    let taskWithRequirements (id: string) (value: 'T) (duration: float) (requirements: (string * float) list) : Task<'T> =
+    /// Create a scheduled task with resource requirements.
+    let taskWithRequirements (id: string) (value: 'T) (duration: float) (requirements: (string * float) list) : ScheduledTask<'T> =
         {
             Id = id
             Value = value
@@ -340,7 +341,7 @@ module Scheduling =
                 | times -> List.max times
             
             // List Scheduling Algorithm
-            let rec scheduleRecursive (remaining: Task<'TTask> list) (scheduled: Map<string, TaskAssignment>) : Map<string, TaskAssignment> =
+            let rec scheduleRecursive (remaining: ScheduledTask<'TTask> list) (scheduled: Map<string, TaskAssignment>) : Map<string, TaskAssignment> =
                 if List.isEmpty remaining then
                     scheduled
                 else
