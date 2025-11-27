@@ -179,6 +179,187 @@ module Molecule =
             Multiplicity = 1  // Singlet
         }
 
+// ============================================================================
+// MOLECULAR INPUT / FILE PARSERS
+// ============================================================================
+
+/// Molecular input parsers for XYZ and FCIDump formats
+module MolecularInput =
+    
+    open System.IO
+    open System.Text.RegularExpressions
+    
+    /// Parse XYZ coordinate file format
+    /// 
+    /// XYZ format:
+    /// Line 1: Number of atoms
+    /// Line 2: Comment/title line
+    /// Lines 3+: Element X Y Z (element symbol, x, y, z coordinates in Angstroms)
+    /// 
+    /// Example:
+    /// 3
+    /// Water molecule
+    /// O  0.000  0.000  0.119
+    /// H  0.000  0.757  0.587
+    /// H  0.000 -0.757  0.587
+    let fromXYZ (filePath: string) : Result<Molecule, string> =
+        try
+            if not (File.Exists filePath) then
+                Error $"File not found: {filePath}"
+            else
+                let lines = File.ReadAllLines(filePath) |> Array.filter (fun l -> not (System.String.IsNullOrWhiteSpace l))
+                
+                if lines.Length < 3 then
+                    Error "XYZ file must have at least 3 lines (count, title, and atoms)"
+                else
+                    // Parse atom count
+                    match System.Int32.TryParse(lines[0].Trim()) with
+                    | false, _ -> Error "First line must be atom count"
+                    | true, atomCount ->
+                    
+                    if atomCount < 1 then
+                        Error "Atom count must be positive"
+                    elif lines.Length < 2 + atomCount then
+                        Error $"File has {lines.Length} lines but needs {2 + atomCount} for {atomCount} atoms"
+                    else
+                        let name = lines[1].Trim()
+                        
+                        // Parse atoms
+                        let atomsResult =
+                            lines[2 .. 1 + atomCount]
+                            |> Array.mapi (fun i line ->
+                                let parts = line.Split([| ' '; '\t' |], System.StringSplitOptions.RemoveEmptyEntries)
+                                if parts.Length < 4 then
+                                    Error $"Line {i + 3}: Expected 'Element X Y Z', got '{line}'"
+                                else
+                                    let element = parts[0].Trim()
+                                    match System.Double.TryParse(parts[1]), 
+                                          System.Double.TryParse(parts[2]), 
+                                          System.Double.TryParse(parts[3]) with
+                                    | (true, x), (true, y), (true, z) ->
+                                        Ok { Element = element; Position = (x, y, z) }
+                                    | _ ->
+                                        Error $"Line {i + 3}: Could not parse coordinates from '{line}'"
+                            )
+                            |> Array.fold (fun acc result ->
+                                match acc, result with
+                                | Error e, _ -> Error e
+                                | _, Error e -> Error e
+                                | Ok atoms, Ok atom -> Ok (atom :: atoms)
+                            ) (Ok [])
+                            |> Result.map List.rev
+                        
+                        match atomsResult with
+                        | Error e -> Error e
+                        | Ok atoms ->
+                            // Infer bonds from distances (simple heuristic)
+                            let bonds =
+                                [
+                                    for i in 0 .. atoms.Length - 2 do
+                                        for j in i + 1 .. atoms.Length - 1 do
+                                            let distance = Molecule.calculateBondLength atoms[i] atoms[j]
+                                            // Typical bond lengths: C-C ~1.5 Å, C-H ~1.1 Å, O-H ~1.0 Å, N-H ~1.0 Å
+                                            // Use generous cutoff of 1.8 Å for single bonds
+                                            if distance < 1.8 then
+                                                yield { Atom1 = i; Atom2 = j; BondOrder = 1.0 }
+                                ]
+                            
+                            Ok {
+                                Name = if System.String.IsNullOrWhiteSpace name then "Molecule" else name
+                                Atoms = atoms
+                                Bonds = bonds
+                                Charge = 0  // Assume neutral
+                                Multiplicity = 1  // Assume singlet
+                            }
+        with
+        | ex -> Error $"Failed to parse XYZ file: {ex.Message}"
+    
+    /// Parse simplified FCIDump format (header only, for molecule geometry)
+    /// 
+    /// FCIDump format is complex - we parse only the header for basic info.
+    /// Full format includes molecular orbital integrals which require quantum chemistry software.
+    /// 
+    /// Simplified parsing extracts:
+    /// - NORB: Number of orbitals (used to estimate qubits)
+    /// - NELEC: Number of electrons
+    /// - MS2: 2*Spin (multiplicity - 1)
+    /// 
+    /// Returns a minimal Molecule structure with inferred properties.
+    let fromFCIDump (filePath: string) : Result<Molecule, string> =
+        try
+            if not (File.Exists filePath) then
+                Error $"File not found: {filePath}"
+            else
+                let lines = File.ReadAllLines(filePath)
+                
+                // Find header line (&FCI ... &END)
+                let headerLine = 
+                    lines 
+                    |> Array.tryFind (fun line -> line.Trim().StartsWith("&FCI"))
+                
+                match headerLine with
+                | None -> Error "No FCIDump header found (&FCI line)"
+                | Some header ->
+                    
+                    // Extract NORB, NELEC, MS2
+                    let extractParam name =
+                        let pattern = $"{name}\\s*=\\s*(\\d+)"
+                        let m = Regex.Match(header, pattern, RegexOptions.IgnoreCase)
+                        if m.Success then Some (int m.Groups[1].Value) else None
+                    
+                    let norb = extractParam "NORB"
+                    let nelec = extractParam "NELEC"
+                    let ms2 = extractParam "MS2"
+                    
+                    match norb, nelec with
+                    | None, _ -> Error "NORB (number of orbitals) not found in FCIDump header"
+                    | _, None -> Error "NELEC (number of electrons) not found in FCIDump header"
+                    | Some orbitals, Some electrons ->
+                        
+                        let multiplicity = match ms2 with | Some m -> m + 1 | None -> 1
+                        
+                        // Create minimal molecule representation
+                        // We don't have geometry, so create placeholder atoms
+                        let atoms =
+                            [ for i in 0 .. electrons - 1 do
+                                { Element = "X"; Position = (float i, 0.0, 0.0) } ]
+                        
+                        Ok {
+                            Name = "FCIDump molecule"
+                            Atoms = atoms
+                            Bonds = []  // No geometry available
+                            Charge = orbitals - electrons  // Inferred
+                            Multiplicity = multiplicity
+                        }
+        with
+        | ex -> Error $"Failed to parse FCIDump file: {ex.Message}"
+    
+    /// Create XYZ file content from a Molecule
+    let toXYZ (molecule: Molecule) : string =
+        let sb = System.Text.StringBuilder()
+        
+        // Line 1: Atom count
+        sb.AppendLine(string molecule.Atoms.Length) |> ignore
+        
+        // Line 2: Molecule name/comment
+        sb.AppendLine(molecule.Name) |> ignore
+        
+        // Lines 3+: Atoms
+        for atom in molecule.Atoms do
+            let (x, y, z) = atom.Position
+            sb.AppendLine(sprintf "%-2s  %10.6f  %10.6f  %10.6f" atom.Element x y z) |> ignore
+        
+        sb.ToString()
+    
+    /// Save molecule to XYZ file
+    let saveXYZ (filePath: string) (molecule: Molecule) : Result<unit, string> =
+        try
+            let content = toXYZ molecule
+            File.WriteAllText(filePath, content)
+            Ok ()
+        with
+        | ex -> Error $"Failed to write XYZ file: {ex.Message}"
+
 // ============================================================================  
 // GROUND STATE ENERGY ESTIMATION  
 // ============================================================================

@@ -599,3 +599,218 @@ module HamiltonianSimulationTests =
         // Check |00⟩ amplitude still has magnitude 1
         let amplitude00 = StateVector.getAmplitude 0 finalState
         Assert.True(abs amplitude00.Magnitude - 1.0 < 1e-6, "Should stay in |00⟩ state")
+
+/// Tests for Molecular Input Parsers (Task 4)
+module MolecularInputTests =
+    
+    open System.IO
+    
+    [<Fact>]
+    let ``Parse simple XYZ file - H2 molecule`` () =
+        // Arrange - create temporary XYZ file
+        let xyzContent = """2
+H2 molecule
+H  0.0  0.0  0.0
+H  0.0  0.0  0.74"""
+        
+        let tempFile = Path.GetTempFileName()
+        File.WriteAllText(tempFile, xyzContent)
+        
+        try
+            // Act
+            let result = MolecularInput.fromXYZ tempFile
+            
+            // Assert
+            match result with
+            | Error msg -> Assert.True(false, $"Parsing failed: {msg}")
+            | Ok molecule ->
+                Assert.Equal("H2 molecule", molecule.Name)
+                Assert.Equal(2, molecule.Atoms.Length)
+                Assert.Equal("H", molecule.Atoms.[0].Element)
+                Assert.Equal("H", molecule.Atoms.[1].Element)
+                
+                // Check coordinates
+                let (x1, y1, z1) = molecule.Atoms.[0].Position
+                let (x2, y2, z2) = molecule.Atoms.[1].Position
+                Assert.Equal(0.0, x1, 6)
+                Assert.Equal(0.0, y1, 6)
+                Assert.Equal(0.0, z1, 6)
+                Assert.Equal(0.0, x2, 6)
+                Assert.Equal(0.0, y2, 6)
+                Assert.Equal(0.74, z2, 6)
+                
+                // Should infer bond (distance < 1.8 Å)
+                Assert.True(molecule.Bonds.Length > 0, "Should infer H-H bond")
+        finally
+            File.Delete(tempFile)
+    
+    [<Fact>]
+    let ``Parse XYZ file - H2O molecule`` () =
+        // Arrange
+        let xyzContent = """3
+Water molecule
+O  0.000  0.000  0.000
+H  0.000  0.757  0.587
+H  0.000 -0.757  0.587"""
+        
+        let tempFile = Path.GetTempFileName()
+        File.WriteAllText(tempFile, xyzContent)
+        
+        try
+            // Act
+            let result = MolecularInput.fromXYZ tempFile
+            
+            // Assert
+            match result with
+            | Error msg -> Assert.True(false, $"Parsing failed: {msg}")
+            | Ok molecule ->
+                Assert.Equal("Water molecule", molecule.Name)
+                Assert.Equal(3, molecule.Atoms.Length)
+                Assert.Equal("O", molecule.Atoms.[0].Element)
+                Assert.Equal("H", molecule.Atoms.[1].Element)
+                Assert.Equal("H", molecule.Atoms.[2].Element)
+                
+                // Should infer 2 O-H bonds
+                Assert.True(molecule.Bonds.Length >= 2, "Should infer at least 2 O-H bonds")
+        finally
+            File.Delete(tempFile)
+    
+    [<Fact>]
+    let ``XYZ parser should handle tabs and multiple spaces`` () =
+        // Arrange - XYZ with irregular whitespace
+        let xyzContent = """2
+H2 with tabs
+H    0.0    0.0    0.0
+H		0.0		0.0		0.74"""
+        
+        let tempFile = Path.GetTempFileName()
+        File.WriteAllText(tempFile, xyzContent)
+        
+        try
+            // Act
+            let result = MolecularInput.fromXYZ tempFile
+            
+            // Assert
+            match result with
+            | Error msg -> Assert.True(false, $"Should handle whitespace: {msg}")
+            | Ok molecule ->
+                Assert.Equal(2, molecule.Atoms.Length)
+        finally
+            File.Delete(tempFile)
+    
+    [<Fact>]
+    let ``XYZ parser should reject malformed file`` () =
+        // Arrange - invalid XYZ (wrong atom count)
+        let xyzContent = """5
+Should have 5 atoms but only has 2
+H  0.0  0.0  0.0
+H  0.0  0.0  0.74"""
+        
+        let tempFile = Path.GetTempFileName()
+        File.WriteAllText(tempFile, xyzContent)
+        
+        try
+            // Act
+            let result = MolecularInput.fromXYZ tempFile
+            
+            // Assert
+            match result with
+            | Ok _ -> Assert.True(false, "Should reject file with wrong atom count")
+            | Error msg -> Assert.Contains("needs", msg)
+        finally
+            File.Delete(tempFile)
+    
+    [<Fact>]
+    let ``Parse FCIDump header - extract NORB and NELEC`` () =
+        // Arrange - minimal FCIDump header
+        let fcidumpContent = """&FCI NORB=  2,NELEC=  2,MS2=  0,
+  ORBSYM=1,1,
+  ISYM=1,
+&END"""
+        
+        let tempFile = Path.GetTempFileName()
+        File.WriteAllText(tempFile, fcidumpContent)
+        
+        try
+            // Act
+            let result = MolecularInput.fromFCIDump tempFile
+            
+            // Assert
+            match result with
+            | Error msg -> Assert.True(false, $"Parsing failed: {msg}")
+            | Ok molecule ->
+                // Should extract NORB=2, NELEC=2
+                Assert.Equal(2, molecule.Atoms.Length)  // NELEC electrons
+                Assert.Equal(0, molecule.Charge)  // NORB - NELEC = 2 - 2 = 0
+                Assert.Equal(1, molecule.Multiplicity)  // MS2=0 → singlet (2S+1=1)
+        finally
+            File.Delete(tempFile)
+    
+    [<Fact>]
+    let ``FCIDump parser should handle missing parameters`` () =
+        // Arrange - FCIDump without NORB
+        let fcidumpContent = """&FCI NELEC=  2,MS2=  0,
+&END"""
+        
+        let tempFile = Path.GetTempFileName()
+        File.WriteAllText(tempFile, fcidumpContent)
+        
+        try
+            // Act
+            let result = MolecularInput.fromFCIDump tempFile
+            
+            // Assert
+            match result with
+            | Ok _ -> Assert.True(false, "Should require NORB parameter")
+            | Error msg -> Assert.Contains("NORB", msg)
+        finally
+            File.Delete(tempFile)
+    
+    [<Fact>]
+    let ``Convert molecule to XYZ format`` () =
+        // Arrange
+        let h2 = Molecule.createH2 0.74
+        
+        // Act
+        let xyzContent = MolecularInput.toXYZ h2
+        
+        // Assert
+        let lines = xyzContent.Split([| '\n'; '\r' |], System.StringSplitOptions.RemoveEmptyEntries)
+        Assert.True(lines.Length >= 4, "Should have at least 4 lines (count, title, 2 atoms)")
+        Assert.Equal("2", lines[0].Trim())  // Atom count
+        Assert.Equal("H2", lines[1].Trim())  // Name
+        Assert.Contains("H", lines[2])  // First H atom
+        Assert.Contains("H", lines[3])  // Second H atom
+    
+    [<Fact>]
+    let ``Save and reload XYZ file`` () =
+        // Arrange
+        let original = Molecule.createH2O()
+        let tempFile = Path.GetTempFileName()
+        
+        try
+            // Act - save to file
+            let saveResult = MolecularInput.saveXYZ tempFile original
+            
+            match saveResult with
+            | Error msg -> Assert.True(false, $"Save failed: {msg}")
+            | Ok () ->
+            
+            // Act - reload from file
+            let loadResult = MolecularInput.fromXYZ tempFile
+            
+            match loadResult with
+            | Error msg -> Assert.True(false, $"Load failed: {msg}")
+            | Ok reloaded ->
+                // Assert - should match original
+                Assert.Equal(original.Atoms.Length, reloaded.Atoms.Length)
+                Assert.Equal(original.Name, reloaded.Name)
+                
+                // Check first atom coordinates match
+                let (x1, y1, z1) = original.Atoms.[0].Position
+                let (x2, y2, z2) = reloaded.Atoms.[0].Position
+                Assert.Equal(x1, x2, 6)
+                Assert.Equal(y1, y2, 6)
+                Assert.Equal(z1, z2, 6)
+        finally
+            if File.Exists tempFile then File.Delete(tempFile)
