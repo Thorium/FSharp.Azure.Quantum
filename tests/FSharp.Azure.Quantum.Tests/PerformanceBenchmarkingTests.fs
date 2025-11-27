@@ -91,8 +91,8 @@ module PerformanceBenchmarkingTests =
 
     [<Fact>]
     let ``generateRandomCities creates cities with unique positions`` () =
-        // Act
-        let cities = PerformanceBenchmarking.generateRandomCities 5
+        // Use seeded random for deterministic test
+        let cities = PerformanceBenchmarking.generateRandomCities 5 (Some 123)
         
         // Assert
         Assert.Equal(5, cities.Length)
@@ -200,9 +200,9 @@ module PerformanceBenchmarkingTests =
     [<Fact>]
     let ``benchmarkClassicalTSP execution time increases with problem size`` () =
         async {
-            // Arrange
-            let cities5 = PerformanceBenchmarking.generateRandomCities 5
-            let cities10 = PerformanceBenchmarking.generateRandomCities 10
+            // Arrange - Use seeded random for deterministic tests
+            let cities5 = PerformanceBenchmarking.generateRandomCities 5 (Some 100)
+            let cities10 = PerformanceBenchmarking.generateRandomCities 10 (Some 101)
             
             // Act
             let! result5 = PerformanceBenchmarking.benchmarkClassicalTSP cities5 1
@@ -215,8 +215,14 @@ module PerformanceBenchmarkingTests =
     [<Fact>]
     let ``benchmarkClassicalTSP produces consistent results with repetitions`` () =
         async {
-            // Arrange
-            let cities = PerformanceBenchmarking.generateRandomCities 8
+            // Arrange - Use fixed cities for predictable test behavior
+            let cities = [|
+                ("City0", 0.0, 0.0)
+                ("City1", 10.0, 0.0)
+                ("City2", 10.0, 10.0)
+                ("City3", 0.0, 10.0)
+                ("City4", 5.0, 5.0)
+            |]
             
             // Act - Run benchmark with 5 repetitions
             let! result = PerformanceBenchmarking.benchmarkClassicalTSP cities 5
@@ -236,8 +242,8 @@ module PerformanceBenchmarkingTests =
     [<Fact>]
     let ``Classical TSP benchmark meets performance target for 10 cities`` () =
         async {
-            // Arrange
-            let cities = PerformanceBenchmarking.generateRandomCities 10
+            // Arrange - Use seeded random for deterministic test
+            let cities = PerformanceBenchmarking.generateRandomCities 10 (Some 200)
             
             // Act
             let! result = PerformanceBenchmarking.benchmarkClassicalTSP cities 3

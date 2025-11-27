@@ -48,8 +48,12 @@ module PerformanceBenchmarking =
     // ============================================================================
 
     /// Generate random cities for TSP benchmarking
-    let generateRandomCities (count: int) : (string * float * float) array =
-        let rng = Random()
+    /// Optional seed parameter ensures deterministic results for testing
+    let generateRandomCities (count: int) (seed: int option) : (string * float * float) array =
+        let rng = 
+            match seed with
+            | Some s -> Random(s)
+            | None -> Random()
         Array.init count (fun i ->
             let name = sprintf "City%d" i
             let x = float (rng.Next(0, 100))
@@ -103,6 +107,12 @@ module PerformanceBenchmarking =
         : Async<BenchmarkResult> =
         
         async {
+            // Validate input
+            if cities.Length < 2 then
+                failwithf "Cannot benchmark TSP with less than 2 cities (got %d)" cities.Length
+            if repetitions < 1 then
+                failwithf "Repetitions must be at least 1 (got %d)" repetitions
+                
             let results = [
                 for _ in 1 .. repetitions do
                     let sw = System.Diagnostics.Stopwatch.StartNew()
@@ -112,20 +122,20 @@ module PerformanceBenchmarking =
                     
                     match solution with
                     | Ok tour -> yield (sw.ElapsedMilliseconds, tour.TotalDistance)
-                    | Error _ -> ()  // Skip failed runs
+                    | Error err -> 
+                        // Log error but continue - some runs might succeed
+                        eprintfn "TSP solve failed: %s" err
             ]
             
+            // Ensure we got at least one successful result
+            if results.IsEmpty then
+                failwith "All TSP solver runs failed - cannot produce benchmark result"
+            
             let avgTime = 
-                if results.Length > 0 then
-                    results |> List.averageBy (fst >> float) |> int64
-                else
-                    0L
+                results |> List.averageBy (fst >> float) |> int64
                     
             let bestQuality = 
-                if results.Length > 0 then
-                    results |> List.minBy snd |> snd
-                else
-                    0.0
+                results |> List.minBy snd |> snd
             
             return {
                 ProblemType = "TSP"

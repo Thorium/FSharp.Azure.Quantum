@@ -1,0 +1,54 @@
+Test run for C:\git\FSharp.Azure.Quantum\blue\git\FSharp.Azure.Quantum\tests\FSharp.Azure.Quantum.Tests\bin\Debug\net10.0\FSharp.Azure.Quantum.Tests.dll (.NETCoreApp,Version=v10.0)
+VSTest version 18.0.1 (x64)
+
+Starting test execution, please wait...
+A total of 1 test files matched the specified pattern.
+C:\git\FSharp.Azure.Quantum\blue\git\FSharp.Azure.Quantum\tests\FSharp.Azure.Quantum.Tests\bin\Debug\net10.0\FSharp.Azure.Quantum.Tests.dll
+[xUnit.net 00:00:00.00] xUnit.net VSTest Adapter v3.1.4+50e68bbb8b (64-bit .NET 10.0.0)
+[xUnit.net 00:00:00.06]   Discovering: FSharp.Azure.Quantum.Tests
+[xUnit.net 00:00:00.10]   Discovered:  FSharp.Azure.Quantum.Tests
+[xUnit.net 00:00:00.11]   Starting:    FSharp.Azure.Quantum.Tests
+[xUnit.net 00:00:00.16]       Assert.True() Failure
+[xUnit.net 00:00:00.16]       Expected: True
+[xUnit.net 00:00:00.16]       Actual:   False
+[xUnit.net 00:00:00.16]       Stack Trace:
+[xUnit.net 00:00:00.16]         C:\git\FSharp.Azure.Quantum\blue\git\FSharp.Azure.Quantum\tests\FSharp.Azure.Quantum.Tests\PerformanceBenchmarkingTests.fs(225,0): at FSharp.Azure.Quantum.Tests.PerformanceBenchmarkingTests.Pipe #1 input at line 217@225-1.Invoke(BenchmarkResult _arg1)
+[xUnit.net 00:00:00.16]         D:\a\_work\1\s\src\fsharp\src\FSharp.Core\async.fs(527,0): at Microsoft.FSharp.Control.AsyncPrimitives.CallThenInvokeNoHijackCheck[a,b](AsyncActivation`1 ctxt, b result1, FSharpFunc`2 userCode)
+[xUnit.net 00:00:00.17]            at FSharp.Azure.Quantum.PerformanceBenchmarking.benchmarkClassicalTSP@130-1.Invoke(AsyncActivation`1 ctxt)
+[xUnit.net 00:00:00.17]            at FSharp.Azure.Quantum.Tests.PerformanceBenchmarkingTests.Pipe #1 input at line 217@225-2.Invoke(AsyncActivation`1 ctxt)
+[xUnit.net 00:00:00.17]         D:\a\_work\1\s\src\fsharp\src\FSharp.Core\async.fs(112,0): at Microsoft.FSharp.Control.Trampoline.Execute(FSharpFunc`2 firstAction)
+[xUnit.net 00:00:00.17]         --- End of stack trace from previous location ---
+[xUnit.net 00:00:00.17]         D:\a\_work\1\s\src\fsharp\src\FSharp.Core\async.fs(453,0): at Microsoft.FSharp.Control.AsyncResult`1.Commit()
+[xUnit.net 00:00:00.17]         D:\a\_work\1\s\src\fsharp\src\FSharp.Core\async.fs(1138,0): at Microsoft.FSharp.Control.AsyncPrimitives.QueueAsyncAndWaitForResultSynchronously[a](CancellationToken token, FSharpAsync`1 computation, FSharpOption`1 timeout)
+[xUnit.net 00:00:00.17]         D:\a\_work\1\s\src\fsharp\src\FSharp.Core\async.fs(1165,0): at Microsoft.FSharp.Control.AsyncPrimitives.RunSynchronously[T](CancellationToken cancellationToken, FSharpAsync`1 computation, FSharpOption`1 timeout)
+[xUnit.net 00:00:00.17]         D:\a\_work\1\s\src\fsharp\src\FSharp.Core\async.fs(1514,0): at Microsoft.FSharp.Control.FSharpAsync.RunSynchronously[T](FSharpAsync`1 computation, FSharpOption`1 timeout, FSharpOption`1 cancellationToken)
+[xUnit.net 00:00:00.17]         C:\git\FSharp.Azure.Quantum\blue\git\FSharp.Azure.Quantum\tests\FSharp.Azure.Quantum.Tests\PerformanceBenchmarkingTests.fs(230,0): at FSharp.Azure.Quantum.Tests.PerformanceBenchmarkingTests.benchmarkClassicalTSP produces consistent results with repetitions()
+[xUnit.net 00:00:00.17]            at System.Reflection.MethodBaseInvoker.InterpretedInvoke_Method(Object obj, IntPtr* args)
+[xUnit.net 00:00:00.17]            at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
+[xUnit.net 00:00:00.17]   Finished:    FSharp.Azure.Quantum.Tests
+  Passed FSharp.Azure.Quantum.Tests.PerformanceBenchmarkingTests.benchmarkClassicalTSP completes for 5 cities [20 ms]
+  Failed FSharp.Azure.Quantum.Tests.PerformanceBenchmarkingTests.benchmarkClassicalTSP produces consistent results with repetitions [8 ms]
+  Error Message:
+   Assert.True() Failure
+Expected: True
+Actual:   False
+  Stack Trace:
+     at FSharp.Azure.Quantum.Tests.PerformanceBenchmarkingTests.Pipe #1 input at line 217@225-1.Invoke(BenchmarkResult _arg1) in C:\git\FSharp.Azure.Quantum\blue\git\FSharp.Azure.Quantum\tests\FSharp.Azure.Quantum.Tests\PerformanceBenchmarkingTests.fs:line 225
+   at Microsoft.FSharp.Control.AsyncPrimitives.CallThenInvokeNoHijackCheck[a,b](AsyncActivation`1 ctxt, b result1, FSharpFunc`2 userCode) in D:\a\_work\1\s\src\fsharp\src\FSharp.Core\async.fs:line 527
+   at FSharp.Azure.Quantum.PerformanceBenchmarking.benchmarkClassicalTSP@130-1.Invoke(AsyncActivation`1 ctxt)
+   at FSharp.Azure.Quantum.Tests.PerformanceBenchmarkingTests.Pipe #1 input at line 217@225-2.Invoke(AsyncActivation`1 ctxt)
+   at Microsoft.FSharp.Control.Trampoline.Execute(FSharpFunc`2 firstAction) in D:\a\_work\1\s\src\fsharp\src\FSharp.Core\async.fs:line 112
+--- End of stack trace from previous location ---
+   at Microsoft.FSharp.Control.AsyncResult`1.Commit() in D:\a\_work\1\s\src\fsharp\src\FSharp.Core\async.fs:line 453
+   at Microsoft.FSharp.Control.AsyncPrimitives.QueueAsyncAndWaitForResultSynchronously[a](CancellationToken token, FSharpAsync`1 computation, FSharpOption`1 timeout) in D:\a\_work\1\s\src\fsharp\src\FSharp.Core\async.fs:line 1138
+   at Microsoft.FSharp.Control.AsyncPrimitives.RunSynchronously[T](CancellationToken cancellationToken, FSharpAsync`1 computation, FSharpOption`1 timeout) in D:\a\_work\1\s\src\fsharp\src\FSharp.Core\async.fs:line 1165
+   at Microsoft.FSharp.Control.FSharpAsync.RunSynchronously[T](FSharpAsync`1 computation, FSharpOption`1 timeout, FSharpOption`1 cancellationToken) in D:\a\_work\1\s\src\fsharp\src\FSharp.Core\async.fs:line 1514
+   at FSharp.Azure.Quantum.Tests.PerformanceBenchmarkingTests.benchmarkClassicalTSP produces consistent results with repetitions() in C:\git\FSharp.Azure.Quantum\blue\git\FSharp.Azure.Quantum\tests\FSharp.Azure.Quantum.Tests\PerformanceBenchmarkingTests.fs:line 230
+   at System.Reflection.MethodBaseInvoker.InterpretedInvoke_Method(Object obj, IntPtr* args)
+   at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
+  Passed FSharp.Azure.Quantum.Tests.PerformanceBenchmarkingTests.benchmarkClassicalTSP execution time increases with problem size [< 1 ms]
+
+Total tests: 3
+     Passed: 2
+     Failed: 1
+ Total time: 0.5251 Seconds

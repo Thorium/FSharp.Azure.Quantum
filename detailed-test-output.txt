@@ -1,0 +1,69 @@
+Test run for C:\git\FSharp.Azure.Quantum\blue\git\FSharp.Azure.Quantum\tests\FSharp.Azure.Quantum.Tests\bin\Debug\net10.0\FSharp.Azure.Quantum.Tests.dll (.NETCoreApp,Version=v10.0)
+VSTest version 18.0.1 (x64)
+
+Starting test execution, please wait...
+A total of 1 test files matched the specified pattern.
+C:\git\FSharp.Azure.Quantum\blue\git\FSharp.Azure.Quantum\tests\FSharp.Azure.Quantum.Tests\bin\Debug\net10.0\FSharp.Azure.Quantum.Tests.dll
+[xUnit.net 00:00:00.00] xUnit.net VSTest Adapter v3.1.4+50e68bbb8b (64-bit .NET 10.0.0)
+[xUnit.net 00:00:00.07]   Discovering: FSharp.Azure.Quantum.Tests
+[xUnit.net 00:00:00.11]   Discovered:  FSharp.Azure.Quantum.Tests
+[xUnit.net 00:00:00.13]   Starting:    FSharp.Azure.Quantum.Tests
+[xUnit.net 00:00:00.20]     FSharp.Azure.Quantum.Tests.PerformanceBenchmarkingTests.benchmarkClassicalTSP produces consistent results with repetitions [FAIL]
+[xUnit.net 00:00:00.20]       Assert.True() Failure
+[xUnit.net 00:00:00.20]       Expected: True
+[xUnit.net 00:00:00.20]       Actual:   False
+[xUnit.net 00:00:00.20]       Stack Trace:
+[xUnit.net 00:00:00.20]         C:\git\FSharp.Azure.Quantum\blue\git\FSharp.Azure.Quantum\tests\FSharp.Azure.Quantum.Tests\PerformanceBenchmarkingTests.fs(231,0): at FSharp.Azure.Quantum.Tests.PerformanceBenchmarkingTests.Pipe #1 input at line 217@231-1.Invoke(BenchmarkResult _arg1)
+[xUnit.net 00:00:00.20]         D:\a\_work\1\s\src\fsharp\src\FSharp.Core\async.fs(527,0): at Microsoft.FSharp.Control.AsyncPrimitives.CallThenInvokeNoHijackCheck[a,b](AsyncActivation`1 ctxt, b result1, FSharpFunc`2 userCode)
+[xUnit.net 00:00:00.20]            at FSharp.Azure.Quantum.PerformanceBenchmarking.benchmarkClassicalTSP@140-4.Invoke(AsyncActivation`1 ctxt)
+[xUnit.net 00:00:00.20]            at FSharp.Azure.Quantum.PerformanceBenchmarking.benchmarkClassicalTSP@131-6.Invoke(AsyncActivation`1 ctxt)
+[xUnit.net 00:00:00.20]            at FSharp.Azure.Quantum.PerformanceBenchmarking.benchmarkClassicalTSP@113-8.Invoke(AsyncActivation`1 ctxt)
+[xUnit.net 00:00:00.20]            at FSharp.Azure.Quantum.PerformanceBenchmarking.benchmarkClassicalTSP@111-10.Invoke(AsyncActivation`1 ctxt)
+[xUnit.net 00:00:00.20]            at FSharp.Azure.Quantum.Tests.PerformanceBenchmarkingTests.Pipe #1 input at line 217@231-2.Invoke(AsyncActivation`1 ctxt)
+[xUnit.net 00:00:00.20]         D:\a\_work\1\s\src\fsharp\src\FSharp.Core\async.fs(112,0): at Microsoft.FSharp.Control.Trampoline.Execute(FSharpFunc`2 firstAction)
+[xUnit.net 00:00:00.20]         --- End of stack trace from previous location ---
+[xUnit.net 00:00:00.20]         D:\a\_work\1\s\src\fsharp\src\FSharp.Core\async.fs(453,0): at Microsoft.FSharp.Control.AsyncResult`1.Commit()
+[xUnit.net 00:00:00.20]         D:\a\_work\1\s\src\fsharp\src\FSharp.Core\async.fs(1138,0): at Microsoft.FSharp.Control.AsyncPrimitives.QueueAsyncAndWaitForResultSynchronously[a](CancellationToken token, FSharpAsync`1 computation, FSharpOption`1 timeout)
+[xUnit.net 00:00:00.20]         D:\a\_work\1\s\src\fsharp\src\FSharp.Core\async.fs(1165,0): at Microsoft.FSharp.Control.AsyncPrimitives.RunSynchronously[T](CancellationToken cancellationToken, FSharpAsync`1 computation, FSharpOption`1 timeout)
+[xUnit.net 00:00:00.20]         D:\a\_work\1\s\src\fsharp\src\FSharp.Core\async.fs(1514,0): at Microsoft.FSharp.Control.FSharpAsync.RunSynchronously[T](FSharpAsync`1 computation, FSharpOption`1 timeout, FSharpOption`1 cancellationToken)
+[xUnit.net 00:00:00.20]         C:\git\FSharp.Azure.Quantum\blue\git\FSharp.Azure.Quantum\tests\FSharp.Azure.Quantum.Tests\PerformanceBenchmarkingTests.fs(236,0): at FSharp.Azure.Quantum.Tests.PerformanceBenchmarkingTests.benchmarkClassicalTSP produces consistent results with repetitions()
+[xUnit.net 00:00:00.20]            at System.Reflection.MethodBaseInvoker.InterpretedInvoke_Method(Object obj, IntPtr* args)
+[xUnit.net 00:00:00.20]            at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
+  Passed FSharp.Azure.Quantum.Tests.PerformanceBenchmarkingTests.ComparisonReport can compare classical and quantum results [7 ms]
+  Passed FSharp.Azure.Quantum.Tests.PerformanceBenchmarkingTests.generateRandomCities creates cities with unique positions [10 ms]
+  Passed FSharp.Azure.Quantum.Tests.PerformanceBenchmarkingTests.benchmarkClassicalTSP completes for 5 cities [18 ms]
+  Failed FSharp.Azure.Quantum.Tests.PerformanceBenchmarkingTests.benchmarkClassicalTSP produces consistent results with repetitions [1 ms]
+  Error Message:
+   Assert.True() Failure
+Expected: True
+Actual:   False
+  Stack Trace:
+     at FSharp.Azure.Quantum.Tests.PerformanceBenchmarkingTests.Pipe #1 input at line 217@231-1.Invoke(BenchmarkResult _arg1) in C:\git\FSharp.Azure.Quantum\blue\git\FSharp.Azure.Quantum\tests\FSharp.Azure.Quantum.Tests\PerformanceBenchmarkingTests.fs:line 231
+   at Microsoft.FSharp.Control.AsyncPrimitives.CallThenInvokeNoHijackCheck[a,b](AsyncActivation`1 ctxt, b result1, FSharpFunc`2 userCode) in D:\a\_work\1\s\src\fsharp\src\FSharp.Core\async.fs:line 527
+   at FSharp.Azure.Quantum.PerformanceBenchmarking.benchmarkClassicalTSP@140-4.Invoke(AsyncActivation`1 ctxt)
+   at FSharp.Azure.Quantum.PerformanceBenchmarking.benchmarkClassicalTSP@131-6.Invoke(AsyncActivation`1 ctxt)
+   at FSharp.Azure.Quantum.PerformanceBenchmarking.benchmarkClassicalTSP@113-8.Invoke(AsyncActivation`1 ctxt)
+   at FSharp.Azure.Quantum.PerformanceBenchmarking.benchmarkClassicalTSP@111-10.Invoke(AsyncActivation`1 ctxt)
+   at FSharp.Azure.Quantum.Tests.PerformanceBenchmarkingTests.Pipe #1 input at line 217@231-2.Invoke(AsyncActivation`1 ctxt)
+   at Microsoft.FSharp.Control.Trampoline.Execute(FSharpFunc`2 firstAction) in D:\a\_work\1\s\src\fsharp\src\FSharp.Core\async.fs:line 112
+--- End of stack trace from previous location ---
+   at Microsoft.FSharp.Control.AsyncResult`1.Commit() in D:\a\_work\1\s\src\fsharp\src\FSharp.Core\async.fs:line 453
+   at Microsoft.FSharp.Control.AsyncPrimitives.QueueAsyncAndWaitForResultSynchronously[a](CancellationToken token, FSharpAsync`1 computation, FSharpOption`1 timeout) in D:\a\_work\1\s\src\fsharp\src\FSharp.Core\async.fs:line 1138
+   at Microsoft.FSharp.Control.AsyncPrimitives.RunSynchronously[T](CancellationToken cancellationToken, FSharpAsync`1 computation, FSharpOption`1 timeout) in D:\a\_work\1\s\src\fsharp\src\FSharp.Core\async.fs:line 1165
+   at Microsoft.FSharp.Control.FSharpAsync.RunSynchronously[T](FSharpAsync`1 computation, FSharpOption`1 timeout, FSharpOption`1 cancellationToken) in D:\a\_work\1\s\src\fsharp\src\FSharp.Core\async.fs:line 1514
+   at FSharp.Azure.Quantum.Tests.PerformanceBenchmarkingTests.benchmarkClassicalTSP produces consistent results with repetitions() in C:\git\FSharp.Azure.Quantum\blue\git\FSharp.Azure.Quantum\tests\FSharp.Azure.Quantum.Tests\PerformanceBenchmarkingTests.fs:line 236
+   at System.Reflection.MethodBaseInvoker.InterpretedInvoke_Method(Object obj, IntPtr* args)
+   at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
+  Passed FSharp.Azure.Quantum.Tests.PerformanceBenchmarkingTests.exportToCSV creates valid CSV output [21 ms]
+  Passed FSharp.Azure.Quantum.Tests.PerformanceBenchmarkingTests.benchmarkClassicalTSP execution time increases with problem size [1 ms]
+  Passed FSharp.Azure.Quantum.Tests.PerformanceBenchmarkingTests.BenchmarkConfig can be created with problem sizes [< 1 ms]
+  Passed FSharp.Azure.Quantum.Tests.PerformanceBenchmarkingTests.checkPerformanceRegression detects slowdowns [3 ms]
+  Passed FSharp.Azure.Quantum.Tests.PerformanceBenchmarkingTests.BenchmarkResult can be created with timing data [1 ms]
+[xUnit.net 00:00:00.24]   Finished:    FSharp.Azure.Quantum.Tests
+  Passed FSharp.Azure.Quantum.Tests.PerformanceBenchmarkingTests.Classical TSP benchmark meets performance target for 10 cities [1 ms]
+
+Test Run Failed.
+Total tests: 10
+     Passed: 9
+     Failed: 1
+ Total time: 0.5953 Seconds
