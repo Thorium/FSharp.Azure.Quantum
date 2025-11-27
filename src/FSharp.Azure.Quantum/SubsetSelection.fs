@@ -178,3 +178,126 @@ module SubsetSelection =
                 Constraints = List.rev this.constraints  // reverse to maintain insertion order
                 Objective = this.objective
             }
+    
+    // ============================================================================
+    // CLASSICAL SOLVERS - Dynamic Programming & Greedy Algorithms
+    // ============================================================================
+    
+    /// Solve 0/1 Knapsack problem using dynamic programming.
+    /// 
+    /// Classical DP algorithm with O(n * W) time complexity where n = items, W = capacity.
+    /// Solves exact optimal solution for single-constraint knapsack problems.
+    /// 
+    /// Parameters:
+    ///   - problem: Subset selection problem with MaxLimit constraint
+    ///   - weightDim: Dimension name for capacity constraint (e.g., "weight")
+    ///   - valueDim: Dimension name for objective to maximize (e.g., "value")
+    /// 
+    /// Returns:
+    ///   - Ok solution with optimal item selection
+    ///   - Error message if problem is infeasible or invalid
+    let solveKnapsack (problem: SubsetSelectionProblem<'T>) (weightDim: string) (valueDim: string) 
+        : Result<SubsetSelectionSolution<'T>, string> =
+        
+        // Extract capacity from MaxLimit constraint
+        let capacityOpt =
+            problem.Constraints
+            |> List.tryPick (function
+                | MaxLimit(dim, limit) when dim = weightDim -> Some limit
+                | _ -> None)
+        
+        match capacityOpt with
+        | None -> Error $"No MaxLimit constraint found for dimension '{weightDim}'"
+        | Some capacity ->
+            
+            // Convert items to arrays for DP indexing
+            let items = problem.Items |> List.toArray
+            let n = items.Length
+            
+            // Scale capacity to integer for DP (multiply by 10 to handle 1 decimal place)
+            let scaleFactor = 10.0
+            let W = int (capacity * scaleFactor)
+            
+            // Extract weights and values (scaled to integers)
+            let weights =
+                items
+                |> Array.map (fun item ->
+                    match item.Weights.TryFind weightDim with
+                    | Some w -> int (w * scaleFactor)
+                    | None -> 0)
+            
+            let values =
+                items
+                |> Array.map (fun item ->
+                    match item.Weights.TryFind valueDim with
+                    | Some v -> int (v * scaleFactor)  // scale values too for precision
+                    | None -> 0)
+            
+            // DP table: dp.[i, w] = max value using first i items with capacity w
+            let dp = Array2D.create (n + 1) (W + 1) 0
+            
+            // Fill DP table
+            for i in 1 .. n do
+                for w in 0 .. W do
+                    let itemIdx = i - 1
+                    let itemWeight = weights.[itemIdx]
+                    let itemValue = values.[itemIdx]
+                    
+                    if itemWeight <= w then
+                        // Can include this item - take max of (include, exclude)
+                        dp.[i, w] <- max (dp.[i - 1, w]) (dp.[i - 1, w - itemWeight] + itemValue)
+                    else
+                        // Cannot include - carry forward previous best
+                        dp.[i, w] <- dp.[i - 1, w]
+            
+            // Backtrack to find selected items
+            let rec backtrack i w selected =
+                if i = 0 || w = 0 then
+                    selected
+                else
+                    let itemIdx = i - 1
+                    let itemWeight = weights.[itemIdx]
+                    let itemValue = values.[itemIdx]
+                    
+                    // Check if this item was included
+                    if itemWeight <= w && dp.[i, w] = dp.[i - 1, w - itemWeight] + itemValue then
+                        // Item was included
+                        backtrack (i - 1) (w - itemWeight) (items.[itemIdx] :: selected)
+                    else
+                        // Item was not included
+                        backtrack (i - 1) w selected
+            
+            let selectedItems = backtrack n W []
+            
+            // Calculate total weights per dimension
+            let totalWeights =
+                selectedItems
+                |> List.fold (fun acc item ->
+                    item.Weights
+                    |> Map.fold (fun acc2 dim weight ->
+                        let current = Map.tryFind dim acc2 |> Option.defaultValue 0.0
+                        Map.add dim (current + weight) acc2
+                    ) acc
+                ) Map.empty
+            
+            // Calculate objective value
+            let objectiveValue = 
+                totalWeights.TryFind valueDim |> Option.defaultValue 0.0
+            
+            // Check feasibility (weight constraint)
+            let actualWeight = totalWeights.TryFind weightDim |> Option.defaultValue 0.0
+            let isFeasible = actualWeight <= capacity
+            
+            let violations =
+                if not isFeasible then
+                    [$"Weight constraint violated: {actualWeight} > {capacity}"]
+                else
+                    []
+            
+            Ok {
+                SelectedItems = selectedItems
+                TotalWeights = totalWeights
+                ObjectiveValue = objectiveValue
+                IsFeasible = isFeasible
+                Violations = violations
+            }

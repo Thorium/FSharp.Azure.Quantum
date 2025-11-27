@@ -78,3 +78,38 @@ module SubsetSelectionTests =
             Assert.Equal("weight", dim)
             Assert.Equal(5.0, limit)
         | _ -> Assert.Fail("Expected MaxLimit")
+    
+    [<Fact>]
+    let ``Classical Knapsack solver solves 0-1 knapsack problem`` () =
+        // Arrange - Classic Knapsack: maximize value within weight limit
+        let laptop = SubsetSelection.itemMulti "laptop" "Laptop" ["weight", 3.0; "value", 1000.0]
+        let phone = SubsetSelection.itemMulti "phone" "Phone" ["weight", 0.5; "value", 800.0]
+        let tablet = SubsetSelection.itemMulti "tablet" "Tablet" ["weight", 1.5; "value", 600.0]
+        let camera = SubsetSelection.itemMulti "camera" "Camera" ["weight", 2.0; "value", 400.0]
+        
+        let problem =
+            SubsetSelection.SubsetSelectionBuilder.Create()
+                .Items([laptop; phone; tablet; camera])
+                .AddConstraint(SubsetSelection.MaxLimit("weight", 5.0))
+                .Objective(SubsetSelection.MaximizeWeight("value"))
+                .Build()
+        
+        // Act - solve with classical DP algorithm
+        let result = SubsetSelection.solveKnapsack problem "weight" "value"
+        
+        // Assert
+        match result with
+        | Ok solution ->
+            // Should select phone (0.5, 800) + tablet (1.5, 600) + laptop (3.0, 1000) = 5.0 weight, 2400 value
+            // OR phone + laptop + camera = 5.5 (over), so phone + tablet + laptop = 5.0, 2400
+            Assert.True(solution.IsFeasible, "Solution should be feasible")
+            Assert.Equal(3, solution.SelectedItems.Length)
+            
+            // Verify total value is 2400 (best combination)
+            Assert.Equal(2400.0, solution.ObjectiveValue)
+            
+            // Verify weight constraint is satisfied
+            Assert.True(solution.TotalWeights.["weight"] <= 5.0)
+            
+        | Error msg ->
+            Assert.Fail($"Solver failed: {msg}")
