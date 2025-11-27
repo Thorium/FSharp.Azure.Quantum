@@ -313,28 +313,58 @@ module Scheduling =
     /// Uses greedy heuristic to schedule tasks on available resources.
     let solveClassical (problem: SchedulingProblem<'TTask, 'TResource>) : Result<Schedule, string> =
         try
-            // Extract FinishToStart dependencies (simplify to only handle FinishToStart for MVP)
-            let dependencies =
-                problem.Dependencies
-                |> List.choose (function
-                    | FinishToStart(t1, t2, lag) -> Some (t1, t2, lag)
-                    | _ -> None)  // TODO: Handle other dependency types
-            
             // Helper: Check if all dependencies are satisfied
             let areDependenciesSatisfied (taskId: string) (scheduled: Map<string, TaskAssignment>) : bool =
-                dependencies
-                |> List.filter (fun (_, t2, _) -> t2 = taskId)
-                |> List.forall (fun (t1, _, _) -> scheduled.ContainsKey(t1))
+                problem.Dependencies
+                |> List.forall (fun dep ->
+                    match dep with
+                    | FinishToStart(t1, t2, _) when t2 = taskId -> scheduled.ContainsKey(t1)
+                    | StartToStart(t1, t2, _) when t2 = taskId -> scheduled.ContainsKey(t1)
+                    | FinishToFinish(t1, t2, _) when t2 = taskId -> scheduled.ContainsKey(t1)
+                    | StartToFinish(t1, t2, _) when t2 = taskId -> scheduled.ContainsKey(t1)
+                    | _ -> true)  // Dependency doesn't involve this task
             
-            // Helper: Get earliest start time based on dependencies
+            // Helper: Get earliest start time based on all dependency types
             let getEarliestStartTime (taskId: string) (scheduled: Map<string, TaskAssignment>) : float =
                 let depTimes =
-                    dependencies
-                    |> List.filter (fun (_, t2, _) -> t2 = taskId)
-                    |> List.choose (fun (t1, _, lag) ->
-                        scheduled
-                        |> Map.tryFind t1
-                        |> Option.map (fun assignment -> assignment.EndTime + lag))
+                    problem.Dependencies
+                    |> List.choose (fun dep ->
+                        match dep with
+                        // Task2 cannot start until Task1 finishes + lag
+                        | FinishToStart(t1, t2, lag) when t2 = taskId ->
+                            scheduled
+                            |> Map.tryFind t1
+                            |> Option.map (fun assignment -> assignment.EndTime + lag)
+                        
+                        // Task2 cannot start until Task1 starts + lag
+                        | StartToStart(t1, t2, lag) when t2 = taskId ->
+                            scheduled
+                            |> Map.tryFind t1
+                            |> Option.map (fun assignment -> assignment.StartTime + lag)
+                        
+                        // For FinishToFinish: Task2 must finish after Task1 finishes + lag
+                        // This affects start time: startTime = (t1.EndTime + lag) - task2.Duration
+                        | FinishToFinish(t1, t2, lag) when t2 = taskId ->
+                            let task2Duration = 
+                                problem.Tasks
+                                |> List.find (fun t -> t.Id = taskId)
+                                |> fun t -> t.Duration
+                            scheduled
+                            |> Map.tryFind t1
+                            |> Option.map (fun assignment -> (assignment.EndTime + lag) - task2Duration)
+                        
+                        // For StartToFinish: Task2 must finish after Task1 starts + lag (rare)
+                        // This affects start time: startTime = (t1.StartTime + lag) - task2.Duration
+                        | StartToFinish(t1, t2, lag) when t2 = taskId ->
+                            let task2Duration = 
+                                problem.Tasks
+                                |> List.find (fun t -> t.Id = taskId)
+                                |> fun t -> t.Duration
+                            scheduled
+                            |> Map.tryFind t1
+                            |> Option.map (fun assignment -> (assignment.StartTime + lag) - task2Duration)
+                        
+                        | _ -> None)  // Dependency doesn't constrain this task's start time
                 
                 match depTimes with
                 | [] -> 0.0
@@ -396,4 +426,4 @@ module Scheduling =
             Ok schedule
             
         with
-        | ex -> Error $"Scheduling failed: {ex.Message}"
+            | ex -> Error $"Scheduling failed: {ex.Message}"
