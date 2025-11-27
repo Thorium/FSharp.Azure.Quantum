@@ -858,4 +858,167 @@ module GraphOptimizationTests =
         
         // At minimum, verify QUBO is not empty (has some terms)
         Assert.True(qubo.Q.Count > 0, "TSP QUBO should contain constraint and objective terms")
+    
+    // ============================================================================
+    // TDD CYCLE #6: EDGE CASES AND ROBUSTNESS
+    // ============================================================================
+    
+    [<Fact>]
+    let ``Graph with single node should handle gracefully`` () =
+        let nodes = [node "A" 1]
+        
+        let problem =
+            GraphOptimizationBuilder<int, unit>()
+                .Nodes(nodes)
+                .Objective(MinimizeColors)
+                .Build()
+        
+        Assert.Equal(1, problem.Graph.Nodes.Count)
+        Assert.Empty(problem.Graph.Edges)
+        
+        // Should be able to encode to QUBO
+        let qubo = toQubo problem
+        Assert.True(qubo.NumVariables > 0)
+    
+    [<Fact>]
+    let ``Graph with no edges should handle gracefully`` () =
+        let nodes = [
+            node "A" 1
+            node "B" 2
+            node "C" 3
+        ]
+        
+        let problem =
+            GraphOptimizationBuilder<int, unit>()
+                .Nodes(nodes)
+                .Objective(MinimizeColors)
+                .Build()
+        
+        Assert.Equal(3, problem.Graph.Nodes.Count)
+        Assert.Empty(problem.Graph.Edges)
+        
+        // Should decode solution successfully
+        let solution = decodeSolution problem [1; 0; 0; 0; 1; 0; 0; 0; 1; 0; 0; 0]
+        Assert.True(solution.NodeAssignments.IsSome)
+    
+    [<Fact>]
+    let ``calculateObjectiveValue handles empty node assignments`` () =
+        let solution = {
+            Graph = { Nodes = Map.empty; Edges = []; Directed = false; Adjacency = Map.empty }
+            NodeAssignments = None
+            SelectedEdges = None
+            ObjectiveValue = 0.0
+            IsFeasible = true
+            Violations = []
+        }
+        
+        let value = calculateObjectiveValue solution
+        Assert.Equal(0.0, value)
+    
+    [<Fact>]
+    let ``calculateObjectiveValue handles empty edge list for TSP`` () =
+        let graph = { Nodes = Map.empty; Edges = []; Directed = false; Adjacency = Map.empty }
+        
+        let solution = {
+            Graph = graph
+            NodeAssignments = None
+            SelectedEdges = Some []
+            ObjectiveValue = 0.0
+            IsFeasible = true
+            Violations = []
+        }
+        
+        let value = calculateObjectiveValue solution
+        Assert.Equal(0.0, value)
+    
+    [<Fact>]
+    let ``MaxCut with zero-weight edges should encode correctly`` () =
+        let nodes = [node "A" 1; node "B" 2]
+        let edges = [edge "A" "B" 0.0]
+        
+        let problem =
+            GraphOptimizationBuilder<int, float>()
+                .Nodes(nodes)
+                .Edges(edges)
+                .Objective(MaximizeCut)
+                .Build()
+        
+        let qubo = toQubo problem
+        
+        // Should have entry with weight 0.0
+        Assert.True(qubo.Q.ContainsKey((0, 1)))
+        Assert.Equal(0.0, qubo.Q.[(0, 1)])
+    
+    [<Fact>]
+    let ``Large graph coloring (10 nodes) should encode efficiently`` () =
+        let nodes = List.init 10 (fun i -> node $"N{i}" i)
+        let edges = 
+            List.init 9 (fun i -> edge $"N{i}" $"N{i+1}" 1.0)  // Linear chain
+        
+        let problem =
+            GraphOptimizationBuilder<int, float>()
+                .Nodes(nodes)
+                .Edges(edges)
+                .Objective(MinimizeColors)
+                .NumColors(3)
+                .Build()
+        
+        let qubo = toQubo problem
+        
+        // 10 nodes * 3 colors = 30 variables
+        Assert.Equal(30, qubo.NumVariables)
+        
+        // Should complete quickly (< 100ms implied by test execution time)
+        Assert.True(qubo.Q.Count > 0)
+    
+    [<Fact>]
+    let ``Classical solver handles disconnected graph components`` () =
+        let nodes = [
+            node "A" 1
+            node "B" 2
+            node "C" 3
+            node "D" 4
+        ]
+        let edges = [
+            edge "A" "B" 1.0  // Component 1
+            edge "C" "D" 1.0  // Component 2
+        ]
+        
+        let problem =
+            GraphOptimizationBuilder<int, float>()
+                .Nodes(nodes)
+                .Edges(edges)
+                .Objective(MinimizeColors)
+                .Build()
+        
+        let solution = solveClassical problem
+        
+        // Should find valid coloring
+        Assert.True(solution.IsFeasible)
+        Assert.True(solution.NodeAssignments.IsSome)
+    
+    [<Fact>]
+    let ``validateConstraints handles graph with no constraints`` () =
+        let nodes = [node "A" 1; node "B" 2]
+        let edges = [edge "A" "B" 1.0]
+        
+        let problem =
+            GraphOptimizationBuilder<int, float>()
+                .Nodes(nodes)
+                .Edges(edges)
+                .Objective(MinimizeColors)
+                .Build()
+        
+        let solution = {
+            Graph = problem.Graph
+            NodeAssignments = Some (Map.ofList [("A", 0); ("B", 1)])
+            SelectedEdges = None
+            ObjectiveValue = 2.0
+            IsFeasible = true
+            Violations = []
+        }
+        
+        // Should pass validation (no constraints to violate)
+        let result = validateConstraints problem solution
+        Assert.True(result)
 

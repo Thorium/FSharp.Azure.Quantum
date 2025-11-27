@@ -392,7 +392,27 @@ module GraphOptimization =
             
             let baseQubo = emptyQubo numVars
             
-            // Add constraint penalties functionally
+            // ONE-HOT CONSTRAINT: Each node must have exactly one color
+            // For each node i: Σ_c x_{i,c} = 1
+            // Penalty form: Σ_{c1<c2} x_{i,c1} * x_{i,c2}
+            let oneHotTerms =
+                nodeIndexMap
+                |> Map.toList
+                |> List.collect (fun (_, nodeIdx) ->
+                    [0 .. numColors - 1]
+                    |> List.collect (fun c1 ->
+                        [c1 + 1 .. numColors - 1]
+                        |> List.map (fun c2 ->
+                            let var1 = nodeIdx * numColors + c1
+                            let var2 = nodeIdx * numColors + c2
+                            ((var1, var2), 2.0 * DefaultPenalty)
+                        )
+                    )
+                )
+            
+            let quboWithOneHot = addTermsToQubo baseQubo oneHotTerms
+            
+            // NO-ADJACENT-EQUAL CONSTRAINT: Adjacent nodes cannot have same color
             if hasConstraint (function NoAdjacentEqual -> true | _ -> false) then
                 // For each edge (u, v), add penalty if same color
                 let penaltyTerms =
@@ -411,9 +431,9 @@ module GraphOptimization =
                     )
                 
                 // Add all penalty terms to QUBO
-                addTermsToQubo baseQubo penaltyTerms
+                addTermsToQubo quboWithOneHot penaltyTerms
             else
-                baseQubo
+                quboWithOneHot
         
         | MinimizeTotalWeight ->
             // TSP: one-hot time encoding
