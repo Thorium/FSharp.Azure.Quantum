@@ -9,6 +9,7 @@
     <Compile Include="StateVectorTests.fs" />
     <Compile Include="GatesTests.fs" />
     <Compile Include="GroverSearchTests.fs" />
+    <Compile Include="AmplitudeAmplificationTests.fs" />
     <Compile Include="QaoaSimulatorTests.fs" />
     <Compile Include="MeasurementTests.fs" />
     <Compile Include="QuantumBackendTests.fs" />
