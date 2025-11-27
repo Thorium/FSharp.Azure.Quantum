@@ -410,3 +410,28 @@ module SubsetSelection =
             // Constant term (capacity²) doesn't affect optimization, so we omit it
             
             Ok qubo
+    
+    /// Decode QUBO solution back to selected items
+    /// 
+    /// Parameters:
+    ///   problem - The original SubsetSelectionProblem that was encoded to QUBO
+    ///   solution - Map from variable index to value (0.0 or 1.0)
+    /// 
+    /// Returns:
+    ///   Result containing list of selected items or error message
+    let fromQubo (problem: SubsetSelectionProblem<'T>) (solution: Map<int, float>) : Result<Item<'T> list, string> =
+        try
+            // Extract selected items where solution variable = 1.0
+            let selected =
+                solution
+                |> Map.toList
+                |> List.filter (fun (_, value) -> value > 0.5)  // Treat values > 0.5 as "selected"
+                |> List.choose (fun (idx, _) ->
+                    if idx >= 0 && idx < problem.Items.Length then
+                        Some problem.Items.[idx]
+                    else
+                        None)
+            
+            Ok selected
+        with ex ->
+            Error $"Failed to decode QUBO solution: {ex.Message}"

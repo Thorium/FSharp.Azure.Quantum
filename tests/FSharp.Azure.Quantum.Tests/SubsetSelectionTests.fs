@@ -200,3 +200,44 @@ module SubsetSelectionTests =
             
         | Error msg ->
             Assert.Fail($"QUBO encoding failed: {msg}")
+    
+    [<Fact>]
+    let ``QUBO solution decoding recovers selected items`` () =
+        // Arrange: Create a simple knapsack problem
+        let item1 = SubsetSelection.itemMulti "A" "Item A" ["weight", 2.0; "value", 3.0]
+        let item2 = SubsetSelection.itemMulti "B" "Item B" ["weight", 3.0; "value", 4.0]
+        let item3 = SubsetSelection.itemMulti "C" "Item C" ["weight", 5.0; "value", 6.0]
+        
+        let problem = 
+            SubsetSelection.SubsetSelectionBuilder.Create()
+                .Items([item1; item2; item3])
+                .AddConstraint(SubsetSelection.MaxLimit("weight", 10.0))
+                .Objective(SubsetSelection.MaximizeWeight("value"))
+                .Build()
+        
+        // Act: Create a solution where items A and C are selected (x_0=1, x_1=0, x_2=1)
+        let solution = Map.ofList [(0, 1.0); (1, 0.0); (2, 1.0)]
+        let result = SubsetSelection.fromQubo problem solution
+        
+        // Assert
+        match result with
+        | Ok selection ->
+            // Should have 2 items selected (A and C)
+            Assert.Equal(2, selection.Length)
+            
+            // Check that A and C are selected
+            let selectedIds = selection |> List.map (fun item -> item.Id) |> set
+            Assert.Contains("A", selectedIds)
+            Assert.Contains("C", selectedIds)
+            Assert.DoesNotContain("B", selectedIds)
+            
+            // Total value should be 3.0 + 6.0 = 9.0
+            let totalValue = selection |> List.sumBy (fun item -> item.Weights.["value"])
+            Assert.Equal(9.0, totalValue)
+            
+            // Total weight should be 2.0 + 5.0 = 7.0
+            let totalWeight = selection |> List.sumBy (fun item -> item.Weights.["weight"])
+            Assert.Equal(7.0, totalWeight)
+            
+        | Error msg ->
+            Assert.Fail($"QUBO solution decoding failed: {msg}")
