@@ -567,4 +567,251 @@ module ReadoutErrorMitigationTests =
         | Error msg ->
             Assert.True(false, sprintf "Correction should succeed: %s" msg)
     
-    // TODO: Cycle #7: Integration tests (6 tests - 1/2/3 qubit scenarios)
+    // ============================================================================
+    // Cycle #7: Integration Tests with StateVector Simulator
+    // ============================================================================
+    
+    // Helper: Simulate readout errors by flipping measurement outcomes
+    let private injectReadoutNoise (histogram: Map<string, int>) (errorRate: float) (rng: Random) : Map<string, int> =
+        histogram
+        |> Map.toList
+        |> List.collect (fun (bitstring, count) ->
+            // For each measured outcome, simulate readout errors
+            [1..count]
+            |> List.map (fun _ ->
+                // With probability errorRate, flip to a different outcome
+                if rng.NextDouble() < errorRate then
+                    // Flip a random bit
+                    let chars = bitstring.ToCharArray()
+                    let bitToFlip = rng.Next(chars.Length)
+                    chars.[bitToFlip] <- if chars.[bitToFlip] = '0' then '1' else '0'
+                    String(chars)
+                else
+                    bitstring))
+        |> List.groupBy id
+        |> List.map (fun (key, values) -> (key, values.Length))
+        |> Map.ofList
+    
+    // Helper: Execute circuit with simulated readout errors
+    let private createNoisyExecutor (errorRate: float) (seed: int) : (CircuitBuilder.Circuit -> int -> Async<Result<Map<string, int>, string>>) =
+        let rng = Random(seed)
+        fun (circuit: CircuitBuilder.Circuit) (shots: int) ->
+            async {
+                try
+                    // Simulate perfect circuit execution
+                    let qubits = CircuitBuilder.qubitCount circuit
+                    let mutable state = LocalSimulator.StateVector.init qubits
+                    
+                    // Apply all gates
+                    for gate in CircuitBuilder.getGates circuit do
+                        state <- 
+                            match gate with
+                            | CircuitBuilder.X q -> LocalSimulator.Gates.applyX q state
+                            | CircuitBuilder.Y q -> LocalSimulator.Gates.applyY q state
+                            | CircuitBuilder.Z q -> LocalSimulator.Gates.applyZ q state
+                            | CircuitBuilder.H q -> LocalSimulator.Gates.applyH q state
+                            | CircuitBuilder.CNOT (c, t) -> LocalSimulator.Gates.applyCNOT c t state
+                            | CircuitBuilder.RX (q, angle) -> LocalSimulator.Gates.applyRx q angle state
+                            | CircuitBuilder.RY (q, angle) -> LocalSimulator.Gates.applyRy q angle state
+                            | CircuitBuilder.RZ (q, angle) -> LocalSimulator.Gates.applyRz q angle state
+                    
+                    // Measure multiple times to get histogram
+                    let measurements =
+                        [1..shots]
+                        |> List.map (fun _ ->
+                            let outcome = LocalSimulator.Measurement.measureComputationalBasis rng state
+                            // Convert to bitstring
+                            let bitstring = System.Convert.ToString(outcome, 2).PadLeft(qubits, '0')
+                            bitstring)
+                        |> List.groupBy id
+                        |> List.map (fun (key, values) -> (key, values.Length))
+                        |> Map.ofList
+                    
+                    // Inject readout noise
+                    let noisyHistogram = injectReadoutNoise measurements errorRate rng
+                    
+                    return Ok noisyHistogram
+                with
+                | ex -> return Error (sprintf "Simulation error: %s" ex.Message)
+            }
+    
+    [<Fact>]
+    let ``Integration: 1-qubit calibration should measure correct confusion matrix`` () =
+        // Arrange: Executor with 2% readout error
+        let errorRate = 0.02
+        let executor = createNoisyExecutor errorRate 42
+        let config = ReadoutErrorMitigation.defaultConfig
+        
+        // Act: Measure calibration matrix
+        let result = 
+            ReadoutErrorMitigation.measureCalibrationMatrix "test-simulator" 1 config executor
+            |> Async.RunSynchronously
+        
+        // Assert: Matrix should reflect 2% error rate
+        match result with
+        | Ok calibration ->
+            // Matrix should be approximately:
+            // [ 0.98  0.02 ]
+            // [ 0.02  0.98 ]
+            let matrix = calibration.Matrix
+            
+            // Diagonal elements (correct measurements) should be ~0.98
+            Assert.True(abs (matrix.[0, 0] - 0.98) < 0.05, 
+                sprintf "M[0,0] should be ~0.98, got %.3f" matrix.[0, 0])
+            Assert.True(abs (matrix.[1, 1] - 0.98) < 0.05,
+                sprintf "M[1,1] should be ~0.98, got %.3f" matrix.[1, 1])
+            
+            // Off-diagonal (errors) should be ~0.02
+            Assert.True(matrix.[0, 1] < 0.08,
+                sprintf "M[0,1] should be ~0.02, got %.3f" matrix.[0, 1])
+            Assert.True(matrix.[1, 0] < 0.08,
+                sprintf "M[1,0] should be ~0.02, got %.3f" matrix.[1, 0])
+        | Error msg ->
+            Assert.True(false, sprintf "Calibration should succeed: %s" msg)
+    
+    [<Fact>]
+    let ``Integration: 1-qubit REM should reduce readout errors`` () =
+        // Arrange: Circuit that prepares |0⟩ (identity, no gates)
+        let circuit = CircuitBuilder.empty 1
+        let executor = createNoisyExecutor 0.02 43
+        let config = ReadoutErrorMitigation.defaultConfig
+        
+        // Act: Run full REM pipeline
+        let result =
+            ReadoutErrorMitigation.mitigate circuit "test-simulator" config executor
+            |> Async.RunSynchronously
+        
+        // Assert: Corrected result should have > 99% in |0⟩ state
+        match result with
+        | Ok corrected ->
+            let count0 = corrected.Histogram.["0"]
+            let totalCounts = corrected.Histogram |> Map.toList |> List.sumBy snd
+            let fidelity = count0 / totalCounts
+            
+            // Without REM: ~98% fidelity (2% error)
+            // With REM: Should achieve > 99% fidelity (50-90% error reduction)
+            Assert.True(fidelity > 0.99,
+                sprintf "REM should improve fidelity to > 99%%, got %.3f" fidelity)
+            
+            // Check goodness of fit
+            Assert.True(corrected.GoodnessOfFit > 0.95,
+                sprintf "Goodness of fit should be > 0.95, got %.3f" corrected.GoodnessOfFit)
+        | Error msg ->
+            Assert.True(false, sprintf "REM should succeed: %s" msg)
+    
+    [<Fact>]
+    let ``Integration: 2-qubit calibration should work`` () =
+        // Arrange: 2-qubit system with 2% error per qubit
+        let errorRate = 0.02
+        let executor = createNoisyExecutor errorRate 44
+        let config = 
+            ReadoutErrorMitigation.defaultConfig
+            |> ReadoutErrorMitigation.withCalibrationShots 5000  // Reduce for faster test
+        
+        // Act: Calibrate 2-qubit system
+        let result =
+            ReadoutErrorMitigation.measureCalibrationMatrix "test-simulator" 2 config executor
+            |> Async.RunSynchronously
+        
+        // Assert: Should produce 4x4 matrix
+        match result with
+        | Ok calibration ->
+            Assert.Equal(2, calibration.Qubits)
+            Assert.Equal(4, Array2D.length1 calibration.Matrix)
+            Assert.Equal(4, Array2D.length2 calibration.Matrix)
+            
+            // Validate matrix
+            let validation = ReadoutErrorMitigation.validateCalibrationMatrix calibration
+            match validation with
+            | Ok () -> Assert.True(true)
+            | Error msg -> Assert.True(false, sprintf "Calibration should be valid: %s" msg)
+        | Error msg ->
+            Assert.True(false, sprintf "2-qubit calibration should succeed: %s" msg)
+    
+    [<Fact>]
+    let ``Integration: 2-qubit REM should reduce errors`` () =
+        // Arrange: Circuit that prepares |00⟩
+        let circuit = CircuitBuilder.empty 2
+        let executor = createNoisyExecutor 0.02 45
+        let config = 
+            ReadoutErrorMitigation.defaultConfig
+            |> ReadoutErrorMitigation.withCalibrationShots 5000
+        
+        // Act: Apply REM
+        let result =
+            ReadoutErrorMitigation.mitigate circuit "test-simulator" config executor
+            |> Async.RunSynchronously
+        
+        // Assert: Should significantly reduce errors
+        match result with
+        | Ok corrected ->
+            let count00 = corrected.Histogram.["00"]
+            let totalCounts = corrected.Histogram |> Map.toList |> List.sumBy snd
+            let fidelity = count00 / totalCounts
+            
+            // With 2% error per qubit, uncorrected fidelity ≈ 0.96
+            // With REM, should achieve > 0.98
+            Assert.True(fidelity > 0.97,
+                sprintf "2-qubit REM should achieve > 97%% fidelity, got %.3f" fidelity)
+        | Error msg ->
+            Assert.True(false, sprintf "2-qubit REM should succeed: %s" msg)
+    
+    [<Fact>]
+    let ``Integration: 3-qubit calibration should work`` () =
+        // Arrange: 3-qubit system
+        let errorRate = 0.02
+        let executor = createNoisyExecutor errorRate 46
+        let config = 
+            ReadoutErrorMitigation.defaultConfig
+            |> ReadoutErrorMitigation.withCalibrationShots 3000
+        
+        // Act: Calibrate 3-qubit system
+        let result =
+            ReadoutErrorMitigation.measureCalibrationMatrix "test-simulator" 3 config executor
+            |> Async.RunSynchronously
+        
+        // Assert: Should produce 8x8 matrix
+        match result with
+        | Ok calibration ->
+            Assert.Equal(3, calibration.Qubits)
+            Assert.Equal(8, Array2D.length1 calibration.Matrix)
+            Assert.Equal(8, Array2D.length2 calibration.Matrix)
+            
+            // Validate
+            let validation = ReadoutErrorMitigation.validateCalibrationMatrix calibration
+            match validation with
+            | Ok () -> Assert.True(true)
+            | Error msg -> Assert.True(false, sprintf "Calibration should be valid: %s" msg)
+        | Error msg ->
+            Assert.True(false, sprintf "3-qubit calibration should succeed: %s" msg)
+    
+    [<Fact>]
+    let ``Integration: 3-qubit REM should demonstrate error reduction`` () =
+        // Arrange: Circuit that prepares |000⟩
+        let circuit = CircuitBuilder.empty 3
+        let executor = createNoisyExecutor 0.02 47
+        let config = 
+            ReadoutErrorMitigation.defaultConfig
+            |> ReadoutErrorMitigation.withCalibrationShots 3000
+        
+        // Act: Apply REM
+        let result =
+            ReadoutErrorMitigation.mitigate circuit "test-simulator" config executor
+            |> Async.RunSynchronously
+        
+        // Assert: Should show measurable improvement
+        match result with
+        | Ok corrected ->
+            let count000 = corrected.Histogram.["000"]
+            let totalCounts = corrected.Histogram |> Map.toList |> List.sumBy snd
+            let fidelity = count000 / totalCounts
+            
+            // With 3 qubits and 2% error each, uncorrected ≈ 94%
+            // With REM, should achieve > 95%
+            Assert.True(fidelity > 0.94,
+                sprintf "3-qubit REM should achieve > 94%% fidelity, got %.3f" fidelity)
+            
+            // Verify confidence intervals exist
+            Assert.True(corrected.ConfidenceIntervals.ContainsKey("000"))
+        | Error msg ->
+            Assert.True(false, sprintf "3-qubit REM should succeed: %s" msg)

@@ -178,18 +178,35 @@ module ReadoutErrorMitigation =
                                 let prob = float count / float config.CalibrationShots
                                 matrix.[measured, allOnesIndex] <- prob
                             
-                            // For qubits > 1, we need full matrix calibration
-                            // For now, approximate with tensor product of single-qubit matrices
-                            // This is a simplification but works well in practice
+                            // For multi-qubit systems, use tensor product approximation
+                            // Assume independent per-qubit readout errors
+                            // Build full matrix from single-qubit confusion matrices
                             if qubits > 1 then
-                                // Fill remaining columns with tensor product approximation
-                                for prepared in 1 .. dimension - 2 do
+                                // Extract single-qubit error rates from |0⟩ and |1⟩ measurements
+                                // For simplicity, assume same error rate for all qubits
+                                let p0_to_0 = matrix.[0, 0]  // P(measure 0 | prepared 0)
+                                let p0_to_1 = matrix.[0, allOnesIndex]  // P(measure 0 | prepared 1)
+                                
+                                // Build full matrix via tensor product
+                                for prepared in 0 .. dimension - 1 do
                                     for measured in 0 .. dimension - 1 do
-                                        // Simple approximation: interpolate between |0⟩ and |1⟩ columns
-                                        let alpha = float prepared / float (dimension - 1)
-                                        matrix.[measured, prepared] <- 
-                                            (1.0 - alpha) * matrix.[measured, 0] + 
-                                            alpha * matrix.[measured, allOnesIndex]
+                                        // Calculate probability as product of individual qubit probabilities
+                                        let mutable prob = 1.0
+                                        for q in 0 .. qubits - 1 do
+                                            let preparedBit = (prepared >>> q) &&& 1
+                                            let measuredBit = (measured >>> q) &&& 1
+                                            
+                                            let qubitProb =
+                                                match (preparedBit, measuredBit) with
+                                                | (0, 0) -> p0_to_0       // P(measure 0 | prepared 0)
+                                                | (0, 1) -> 1.0 - p0_to_0  // P(measure 1 | prepared 0)
+                                                | (1, 0) -> p0_to_1       // P(measure 0 | prepared 1)
+                                                | (1, 1) -> 1.0 - p0_to_1  // P(measure 1 | prepared 1)
+                                                | _ -> 1.0
+                                            
+                                            prob <- prob * qubitProb
+                                        
+                                        matrix.[measured, prepared] <- prob
                             
                             return Ok {
                                 Matrix = matrix
