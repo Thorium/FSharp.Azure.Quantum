@@ -178,7 +178,61 @@ module Gates =
         applySingleQubitGate qubitIndex matrix state
     
     // ============================================================================
-    // 5. TWO-QUBIT GATES (Depend on StateVector operations)
+    // 5. PHASE GATES (Depend on applySingleQubitGate)
+    // ============================================================================
+    
+    /// Apply S gate (√Z, phase gate) to specified qubit
+    /// 
+    /// S = [[1,  0],
+    ///      [0,  i]]
+    /// 
+    /// Effect: |0⟩ → |0⟩, |1⟩ → i|1⟩
+    /// Adds π/2 phase to |1⟩ state
+    let applyS (qubitIndex: int) (state: StateVector.StateVector) : StateVector.StateVector =
+        let posI = Complex(0.0, 1.0)
+        let matrix = (Complex.One, Complex.Zero, Complex.Zero, posI)
+        applySingleQubitGate qubitIndex matrix state
+    
+    /// Apply S-dagger (S†, inverse phase gate) to specified qubit
+    /// 
+    /// SDG = [[1,  0],
+    ///        [0, -i]]
+    /// 
+    /// Effect: |0⟩ → |0⟩, |1⟩ → -i|1⟩
+    /// Adds -π/2 phase to |1⟩ state (inverse of S)
+    let applySDG (qubitIndex: int) (state: StateVector.StateVector) : StateVector.StateVector =
+        let negI = Complex(0.0, -1.0)
+        let matrix = (Complex.One, Complex.Zero, Complex.Zero, negI)
+        applySingleQubitGate qubitIndex matrix state
+    
+    /// Apply T gate (√S, π/8 gate) to specified qubit
+    /// 
+    /// T = [[1,  0],
+    ///      [0,  e^(iπ/4)]]
+    /// 
+    /// Effect: |0⟩ → |0⟩, |1⟩ → e^(iπ/4)|1⟩
+    /// Adds π/4 phase to |1⟩ state
+    let applyT (qubitIndex: int) (state: StateVector.StateVector) : StateVector.StateVector =
+        let piOver4 = Math.PI / 4.0
+        let phase = Complex(cos piOver4, sin piOver4)  // e^(iπ/4)
+        let matrix = (Complex.One, Complex.Zero, Complex.Zero, phase)
+        applySingleQubitGate qubitIndex matrix state
+    
+    /// Apply T-dagger (T†, inverse π/8 gate) to specified qubit
+    /// 
+    /// TDG = [[1,  0],
+    ///        [0,  e^(-iπ/4)]]
+    /// 
+    /// Effect: |0⟩ → |0⟩, |1⟩ → e^(-iπ/4)|1⟩
+    /// Adds -π/4 phase to |1⟩ state (inverse of T)
+    let applyTDG (qubitIndex: int) (state: StateVector.StateVector) : StateVector.StateVector =
+        let piOver4 = Math.PI / 4.0
+        let phase = Complex(cos piOver4, -sin piOver4)  // e^(-iπ/4)
+        let matrix = (Complex.One, Complex.Zero, Complex.Zero, phase)
+        applySingleQubitGate qubitIndex matrix state
+    
+    // ============================================================================
+    // 6. TWO-QUBIT GATES (Depend on StateVector operations)
     // ============================================================================
     
     /// Apply CNOT (Controlled-NOT) gate to specified control and target qubits
@@ -268,6 +322,105 @@ module Gates =
                 newAmplitudes[i] <- -StateVector.getAmplitude i state
             else
                 // Otherwise: no change
+                newAmplitudes[i] <- StateVector.getAmplitude i state
+        
+        StateVector.create newAmplitudes
+    
+    /// Apply SWAP gate to specified qubits
+    /// 
+    /// SWAP exchanges the quantum states of two qubits
+    /// 
+    /// Truth table:
+    /// |00⟩ → |00⟩
+    /// |01⟩ → |10⟩  (swap)
+    /// |10⟩ → |01⟩  (swap)
+    /// |11⟩ → |11⟩
+    /// 
+    /// Implementation: For each basis state, swap the two qubit values
+    let applySWAP (qubit1Index: int) (qubit2Index: int) (state: StateVector.StateVector) : StateVector.StateVector =
+        let numQubits = StateVector.numQubits state
+        if qubit1Index < 0 || qubit1Index >= numQubits then
+            failwith $"Qubit1 index {qubit1Index} out of range for {numQubits}-qubit state"
+        if qubit2Index < 0 || qubit2Index >= numQubits then
+            failwith $"Qubit2 index {qubit2Index} out of range for {numQubits}-qubit state"
+        if qubit1Index = qubit2Index then
+            failwith "SWAP qubits must be different"
+        
+        let dimension = StateVector.dimension state
+        let mask1 = 1 <<< qubit1Index
+        let mask2 = 1 <<< qubit2Index
+        
+        // Create new amplitude array
+        let newAmplitudes = Array.zeroCreate dimension
+        
+        // Process each basis state
+        for i in 0 .. dimension - 1 do
+            let qubit1Is1 = (i &&& mask1) <> 0
+            let qubit2Is1 = (i &&& mask2) <> 0
+            
+            if qubit1Is1 <> qubit2Is1 then
+                // Qubits are different: swap them
+                // Flip both bits to get the swapped index
+                let swappedIndex = i ^^^ mask1 ^^^ mask2
+                newAmplitudes[i] <- StateVector.getAmplitude swappedIndex state
+            else
+                // Qubits are the same (both 0 or both 1): no change
+                newAmplitudes[i] <- StateVector.getAmplitude i state
+        
+        StateVector.create newAmplitudes
+    
+    // ============================================================================
+    // 7. THREE-QUBIT GATES (Depend on StateVector operations)
+    // ============================================================================
+    
+    /// Apply CCX (Toffoli, CCNOT) gate to specified control and target qubits
+    /// 
+    /// CCX applies X to target qubit when both control qubits are |1⟩
+    /// 
+    /// Truth table:
+    /// |110⟩ → |111⟩  (both controls 1, flip target)
+    /// |111⟩ → |110⟩  (both controls 1, flip target)
+    /// All other states: no change
+    /// 
+    /// Implementation: For each basis state, if both controls are 1, flip target
+    let applyCCX (control1Index: int) (control2Index: int) (targetIndex: int) (state: StateVector.StateVector) : StateVector.StateVector =
+        let numQubits = StateVector.numQubits state
+        if control1Index < 0 || control1Index >= numQubits then
+            failwith $"Control1 qubit index {control1Index} out of range for {numQubits}-qubit state"
+        if control2Index < 0 || control2Index >= numQubits then
+            failwith $"Control2 qubit index {control2Index} out of range for {numQubits}-qubit state"
+        if targetIndex < 0 || targetIndex >= numQubits then
+            failwith $"Target qubit index {targetIndex} out of range for {numQubits}-qubit state"
+        if control1Index = control2Index || control1Index = targetIndex || control2Index = targetIndex then
+            failwith "CCX (Toffoli) control and target qubits must be distinct"
+        
+        let dimension = StateVector.dimension state
+        let control1Mask = 1 <<< control1Index
+        let control2Mask = 1 <<< control2Index
+        let targetMask = 1 <<< targetIndex
+        
+        // Create new amplitude array
+        let newAmplitudes = Array.zeroCreate dimension
+        
+        // Process each basis state
+        for i in 0 .. dimension - 1 do
+            let control1Is1 = (i &&& control1Mask) <> 0
+            let control2Is1 = (i &&& control2Mask) <> 0
+            
+            if control1Is1 && control2Is1 then
+                // Both controls are 1: flip target (swap amplitudes)
+                let targetIs1 = (i &&& targetMask) <> 0
+                
+                if targetIs1 then
+                    // This is |...1...⟩ at target, get amplitude from |...0...⟩
+                    let flippedIndex = i ^^^ targetMask
+                    newAmplitudes[i] <- StateVector.getAmplitude flippedIndex state
+                else
+                    // This is |...0...⟩ at target, get amplitude from |...1...⟩
+                    let flippedIndex = i ^^^ targetMask
+                    newAmplitudes[i] <- StateVector.getAmplitude flippedIndex state
+            else
+                // At least one control is 0: no operation
                 newAmplitudes[i] <- StateVector.getAmplitude i state
         
         StateVector.create newAmplitudes

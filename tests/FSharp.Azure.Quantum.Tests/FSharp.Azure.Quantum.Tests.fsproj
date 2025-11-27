@@ -10,6 +10,9 @@
     <Compile Include="GatesTests.fs" />
     <Compile Include="GraphOptimizationTests.fs" />
     <Compile Include="ConstraintSatisfactionTests.fs" />
+    <Compile Include="OpenQasmExportTests.fs" />
+    <Compile Include="OpenQasmImportTests.fs" />
+    <Compile Include="OpenQasmIntegrationTests.fs" />
     <Compile Include="GroverSearchTests.fs" />
     <Compile Include="AmplitudeAmplificationTests.fs" />
     <Compile Include="QaoaSimulatorTests.fs" />
@@ -32,6 +35,7 @@
     <Compile Include="PortfolioBuilderTests.fs" />
     <Compile Include="HybridSolverTests.fs" />
     <Compile Include="CircuitValidatorTests.fs" />
+    <Compile Include="GateTranspilerTests.fs" />
     <Compile Include="RateLimitingTests.fs" />
     <Compile Include="ObservabilityTests.fs" />
     <Compile Include="BatchAccumulatorTests.fs" />

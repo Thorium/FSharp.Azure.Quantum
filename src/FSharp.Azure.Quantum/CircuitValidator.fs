@@ -86,6 +86,7 @@ module CircuitValidator =
             }
         
         /// IonQ Simulator constraints (29 qubits, all-to-all connectivity)
+        /// Note: S, SDG, T, TDG, CZ, CCX not natively supported - use GateTranspiler for automatic decomposition
         let ionqSimulator () : BackendConstraints =
             {
                 Name = "IonQ Simulator"
@@ -97,6 +98,7 @@ module CircuitValidator =
             }
         
         /// IonQ Hardware (Aria-1) constraints (11 qubits, all-to-all connectivity)
+        /// Note: S, SDG, T, TDG, CZ, CCX not natively supported - use GateTranspiler for automatic decomposition
         let ionqHardware () : BackendConstraints =
             {
                 Name = "IonQ Hardware"
@@ -108,6 +110,7 @@ module CircuitValidator =
             }
         
         /// Rigetti Aspen-M-3 constraints (79 qubits, limited connectivity)
+        /// Note: S, SDG, T, TDG, CCX not natively supported - use GateTranspiler for automatic decomposition
         let rigettiAspenM3 () : BackendConstraints =
             // Rigetti Aspen-M-3 connectivity graph (simplified for validation)
             // Real topology has linear and ring connections
@@ -128,11 +131,12 @@ module CircuitValidator =
         
         /// Local QAOA Simulator constraints (1-10 qubits, all gates supported)
         /// This is the local state vector simulator with exponential memory requirements
+        /// Supports full OpenQASM 2.0 gate set including S, SDG, T, TDG, CZ, CCX
         let localSimulator () : BackendConstraints =
             {
                 Name = "Local QAOA Simulator"
                 MaxQubits = 10  // Limited by 2^n state vector memory
-                SupportedGates = Set.ofList ["X"; "Y"; "Z"; "H"; "Rx"; "Ry"; "Rz"; "RZZ"; "CNOT"; "CZ"; "SWAP"]
+                SupportedGates = Set.ofList ["X"; "Y"; "Z"; "H"; "S"; "SDG"; "T"; "TDG"; "Rx"; "Ry"; "Rz"; "RZZ"; "CNOT"; "CZ"; "SWAP"; "CCX"]
                 MaxCircuitDepth = None  // No practical depth limit for local execution
                 HasAllToAllConnectivity = true  // Simulated, so all connections possible
                 ConnectedPairs = Set.empty
