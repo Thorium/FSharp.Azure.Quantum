@@ -39,10 +39,11 @@
     <Compile Include="Types.fs" />
     <Compile Include="StateVector.fs" />
     <Compile Include="Gates.fs" />
+    <Compile Include="Measurement.fs" />
     <Compile Include="GroverOracle.fs" />
     <Compile Include="GroverIteration.fs" />
+    <Compile Include="GroverSearch.fs" />
     <Compile Include="QaoaSimulator.fs" />
-    <Compile Include="Measurement.fs" />
     <Compile Include="Cost.fs" />
     <Compile Include="CostEstimation.fs" />
     <Compile Include="CircuitValidator.fs" />
