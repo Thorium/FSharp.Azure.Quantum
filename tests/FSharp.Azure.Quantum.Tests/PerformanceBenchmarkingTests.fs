@@ -254,6 +254,57 @@ module PerformanceBenchmarkingTests =
         } |> Async.RunSynchronously
 
     // ============================================================================
+    // Benchmark Suite Tests
+    // ============================================================================
+
+    [<Fact>]
+    let ``runTSPBenchmarkSuite executes benchmarks for multiple problem sizes`` () =
+        async {
+            // Arrange
+            let config = {
+                PerformanceBenchmarking.BenchmarkConfig.ProblemSizes = [5; 8; 10]
+                Repetitions = 2
+                Backends = ["Classical"]
+                OutputPath = "test-suite.csv"
+            }
+            
+            // Act
+            let! results = PerformanceBenchmarking.runTSPBenchmarkSuite config
+            
+            // Assert
+            Assert.Equal(3, results.Length)
+            Assert.True(results |> List.forall (fun r -> r.ProblemType = "TSP"))
+            Assert.True(results |> List.forall (fun r -> r.Solver = "Classical"))
+            // Verify problem sizes match configuration
+            let sizes = results |> List.map (fun r -> r.ProblemSize) |> List.sort
+            Assert.Equal<int list>([5; 8; 10], sizes)
+        } |> Async.RunSynchronously
+
+    [<Fact>]
+    let ``runPortfolioBenchmarkSuite executes benchmarks for multiple problem sizes`` () =
+        async {
+            // Arrange
+            let config = {
+                PerformanceBenchmarking.BenchmarkConfig.ProblemSizes = [3; 5; 8]
+                Repetitions = 2
+                Backends = ["Classical"]
+                OutputPath = "test-suite.csv"
+            }
+            let budget = 10000.0
+            
+            // Act
+            let! results = PerformanceBenchmarking.runPortfolioBenchmarkSuite config budget
+            
+            // Assert
+            Assert.Equal(3, results.Length)
+            Assert.True(results |> List.forall (fun r -> r.ProblemType = "Portfolio"))
+            Assert.True(results |> List.forall (fun r -> r.Solver = "Classical"))
+            // Verify problem sizes match configuration
+            let sizes = results |> List.map (fun r -> r.ProblemSize) |> List.sort
+            Assert.Equal<int list>([3; 5; 8], sizes)
+        } |> Async.RunSynchronously
+
+    // ============================================================================
     // Performance Requirement Tests
     // ============================================================================
 

@@ -224,6 +224,40 @@ module PerformanceBenchmarking =
         }
 
     // ============================================================================
+    // BENCHMARK SUITE EXECUTION
+    // ============================================================================
+
+    /// Run complete benchmark suite for TSP problems
+    let runTSPBenchmarkSuite (config: BenchmarkConfig) : Async<BenchmarkResult list> =
+        async {
+            let! results = 
+                config.ProblemSizes
+                |> List.map (fun size ->
+                    async {
+                        let cities = generateRandomCities size (Some (size * 42))  // Deterministic seed
+                        return! benchmarkClassicalTSP (cities) config.Repetitions
+                    })
+                |> Async.Parallel
+            
+            return results |> Array.toList
+        }
+
+    /// Run complete benchmark suite for Portfolio problems
+    let runPortfolioBenchmarkSuite (config: BenchmarkConfig) (budget: float) : Async<BenchmarkResult list> =
+        async {
+            let! results = 
+                config.ProblemSizes
+                |> List.map (fun size ->
+                    async {
+                        let assets = generateRandomAssets size (Some (size * 37))  // Deterministic seed
+                        return! benchmarkClassicalPortfolio assets budget config.Repetitions
+                    })
+                |> Async.Parallel
+            
+            return results |> Array.toList
+        }
+
+    // ============================================================================
     // COMPARISON AND REPORTING
     // ============================================================================
 
