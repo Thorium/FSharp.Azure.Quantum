@@ -131,16 +131,13 @@ let optimizePortfolio (stocks: Stock list) (budget: float) : Result<PortfolioAna
         |> List.map (fun s -> (s.Symbol, s.ExpectedReturn, s.Volatility, s.Price))
     
     // Solve using Portfolio.solveDirectly with default config
-    match Portfolio.solveDirectly assets budget None with
-    | Ok allocation ->
-        let analysis = createAnalysis
-                        allocation.Allocations
-                        allocation.TotalValue
-                        allocation.ExpectedReturn
-                        allocation.Risk
-        Ok analysis
-    | Error msg ->
-        Error msg
+    Portfolio.solveDirectly assets budget None
+    |> Result.map (fun allocation ->
+        createAnalysis
+            allocation.Allocations
+            allocation.TotalValue
+            allocation.ExpectedReturn
+            allocation.Risk)
 
 // ==============================================================================
 // REPORTING - Pure functions for output

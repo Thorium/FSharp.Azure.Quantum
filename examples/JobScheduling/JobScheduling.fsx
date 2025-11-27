@@ -17,7 +17,6 @@
 // ==============================================================================
 
 open System
-open System.Collections.Generic
 
 // ==============================================================================
 // DOMAIN MODEL - Job Scheduling Types
@@ -149,12 +148,6 @@ let findBestMachine (machines: int list) (job: Job) (earliestStart: int) (assign
 let scheduleJobs (jobs: Job list) (machineCount: int) : Schedule =
     let machines = [0 .. machineCount - 1]
     
-    // Build dependency map for topological ordering
-    let dependencyMap =
-        jobs
-        |> List.map (fun j -> (j.Id, j.Dependencies))
-        |> Map.ofList
-    
     // Topological sort with priority
     let rec topologicalSort (remaining: Job list) (scheduled: Job list) (assignments: Assignment list) =
         if List.isEmpty remaining then
@@ -209,8 +202,11 @@ let scheduleJobs (jobs: Job list) (machineCount: int) : Schedule =
         |> List.rev
     
     let makespan =
-        if List.isEmpty assignments then 0
-        else assignments |> List.map (fun a -> a.EndTime) |> List.max
+        assignments
+        |> List.map (fun a -> a.EndTime)
+        |> function
+            | [] -> 0
+            | times -> List.max times
     
     {
         Assignments = assignments
