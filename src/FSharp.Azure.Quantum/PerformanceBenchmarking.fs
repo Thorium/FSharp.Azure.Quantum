@@ -61,6 +61,24 @@ module PerformanceBenchmarking =
             (name, x, y)
         )
 
+    /// Generate random assets for Portfolio benchmarking
+    /// Optional seed parameter ensures deterministic results for testing
+    let generateRandomAssets (count: int) (seed: int option) : (string * float * float * float) list =
+        let rng = 
+            match seed with
+            | Some s -> Random(s)
+            | None -> Random()
+        List.init count (fun i ->
+            let symbol = sprintf "ASSET%d" i
+            // Expected return: 0.05 (5%) to 0.25 (25%)
+            let expectedReturn = 0.05 + (rng.NextDouble() * 0.20)
+            // Risk (std dev): 0.10 (10%) to 0.40 (40%)
+            let risk = 0.10 + (rng.NextDouble() * 0.30)
+            // Price: $50 to $3000
+            let price = 50.0 + (rng.NextDouble() * 2950.0)
+            (symbol, expectedReturn, risk, price)
+        )
+
     /// Export results to CSV
     let exportToCSV (results: BenchmarkResult list) (path: string) : unit =
         let csv = 

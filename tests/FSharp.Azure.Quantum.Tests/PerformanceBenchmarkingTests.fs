@@ -103,6 +103,24 @@ module PerformanceBenchmarkingTests =
         )
 
     [<Fact>]
+    let ``generateRandomAssets creates assets with valid financial parameters`` () =
+        // Use seeded random for deterministic test
+        let assets = PerformanceBenchmarking.generateRandomAssets 5 (Some 456)
+        
+        // Assert
+        Assert.Equal(5, assets.Length)
+        // Check all assets have valid financial parameters
+        assets |> List.iter (fun (symbol, expectedReturn, risk, price) ->
+            Assert.StartsWith("ASSET", symbol)
+            // Expected return: 5% to 25%
+            Assert.True(expectedReturn >= 0.05 && expectedReturn <= 0.25)
+            // Risk: 10% to 40%
+            Assert.True(risk >= 0.10 && risk <= 0.40)
+            // Price: $50 to $3000
+            Assert.True(price >= 50.0 && price <= 3000.0)
+        )
+
+    [<Fact>]
     let ``exportToCSV creates valid CSV output`` () =
         // Arrange
         let results = [
