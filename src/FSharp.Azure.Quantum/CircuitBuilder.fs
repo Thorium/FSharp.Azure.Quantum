@@ -135,6 +135,25 @@ module CircuitBuilder =
         let allLines = header :: qregDecl :: gateLines
         System.String.Join("\n", allLines)
 
+    /// Get the name of a gate for validation/display purposes
+    let getGateName (gate: Gate) : string =
+        match gate with
+        | X _ -> "X"
+        | Y _ -> "Y"
+        | Z _ -> "Z"
+        | H _ -> "H"
+        | S _ -> "S"
+        | SDG _ -> "SDG"
+        | T _ -> "T"
+        | TDG _ -> "TDG"
+        | RX _ -> "Rx"
+        | RY _ -> "Ry"
+        | RZ _ -> "Rz"
+        | CNOT _ -> "CNOT"
+        | CZ _ -> "CZ"
+        | SWAP _ -> "SWAP"
+        | CCX _ -> "CCX"
+    
     /// Validates a circuit for correctness (qubit bounds, gate compatibility)
     let validate (circuit: Circuit) : Validation.ValidationResult =
         let validateQubit (q: int) : string option =
