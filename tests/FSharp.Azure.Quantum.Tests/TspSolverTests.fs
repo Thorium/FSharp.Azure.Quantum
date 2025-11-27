@@ -2,20 +2,21 @@ module FSharp.Azure.Quantum.Tests.TspSolverTests
 
 open System
 open Xunit
+open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Classical.TspSolver
 
 // Test helper: Create simple test cities
-let createSimpleCities n = Array.init n (fun i -> (float i, 0.0))
+let createSimpleCities n = Array.init n (fun i -> TspTypes.create (float i) 0.0)
 
 // Test helper: Create cities in a circle (known optimal tour)
 let createCircleCities n =
     Array.init n (fun i ->
         let angle = 2.0 * Math.PI * float i / float n
-        (Math.Cos(angle), Math.Sin(angle)))
+        TspTypes.create (Math.Cos(angle)) (Math.Sin(angle)))
 
 [<Fact>]
 let ``buildDistanceMatrix should create symmetric matrix`` () =
-    let cities = [| (0.0, 0.0); (1.0, 0.0); (0.0, 1.0) |]
+    let cities = [| TspTypes.create 0.0 0.0; TspTypes.create 1.0 0.0; TspTypes.create 0.0 1.0 |]
     let distances = buildDistanceMatrix cities
 
     // Check symmetry
@@ -30,16 +31,16 @@ let ``buildDistanceMatrix should create symmetric matrix`` () =
 
 [<Fact>]
 let ``euclideanDistance should calculate correct distance`` () =
-    let city1 = (0.0, 0.0)
-    let city2 = (3.0, 4.0)
-    let distance = euclideanDistance city1 city2
+    let city1 = TspTypes.create 0.0 0.0
+    let city2 = TspTypes.create 3.0 4.0
+    let distance = TspTypes.distance city1 city2
 
     // 3-4-5 triangle
     Assert.Equal(5.0, distance, 6)
 
 [<Fact>]
 let ``calculateTourLength should sum all edge distances`` () =
-    let cities = [| (0.0, 0.0); (1.0, 0.0); (1.0, 1.0); (0.0, 1.0) |]
+    let cities = [| TspTypes.create 0.0 0.0; TspTypes.create 1.0 0.0; TspTypes.create 1.0 1.0; TspTypes.create 0.0 1.0 |]
     let distances = buildDistanceMatrix cities
     let tour = [| 0; 1; 2; 3 |] // Square tour
 
@@ -75,7 +76,7 @@ let ``nearestNeighborTour should visit all cities exactly once`` () =
 let ``nearestNeighborTour should produce reasonable tour for line cities`` () =
     // Cities in a line: 0-1-2-3-4
     // Optimal tour: sequential 0-1-2-3-4-0
-    let cities = Array.init 5 (fun i -> (float i, 0.0))
+    let cities = Array.init 5 (fun i -> TspTypes.create (float i) 0.0)
     let distances = buildDistanceMatrix cities
     let tour = nearestNeighborTour distances
 
@@ -136,7 +137,7 @@ let ``twoOptImprove should improve tour quality`` () =
 [<Fact>]
 let ``solve with small TSP should find optimal solution`` () =
     // 4 cities at corners of unit square
-    let cities = [| (0.0, 0.0); (1.0, 0.0); (1.0, 1.0); (0.0, 1.0) |]
+    let cities = [| TspTypes.create 0.0 0.0; TspTypes.create 1.0 0.0; TspTypes.create 1.0 1.0; TspTypes.create 0.0 1.0 |]
     let solution = solve cities defaultConfig
 
     let optimalLength = 4.0 // Square perimeter

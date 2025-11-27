@@ -103,6 +103,24 @@ module PerformanceBenchmarkingTests =
         )
 
     [<Fact>]
+    let ``generateRandomAssets creates assets with valid financial parameters`` () =
+        // Use seeded random for deterministic test
+        let assets = PerformanceBenchmarking.generateRandomAssets 5 (Some 456)
+        
+        // Assert
+        Assert.Equal(5, assets.Length)
+        // Check all assets have valid financial parameters
+        assets |> List.iter (fun (symbol, expectedReturn, risk, price) ->
+            Assert.StartsWith("ASSET", symbol)
+            // Expected return: 5% to 25%
+            Assert.True(expectedReturn >= 0.05 && expectedReturn <= 0.25)
+            // Risk: 10% to 40%
+            Assert.True(risk >= 0.10 && risk <= 0.40)
+            // Price: $50 to $3000
+            Assert.True(price >= 50.0 && price <= 3000.0)
+        )
+
+    [<Fact>]
     let ``exportToCSV creates valid CSV output`` () =
         // Arrange
         let results = [
@@ -236,6 +254,115 @@ module PerformanceBenchmarkingTests =
         } |> Async.RunSynchronously
 
     // ============================================================================
+    // Benchmark Suite Tests
+    // ============================================================================
+
+    [<Fact>]
+    let ``runTSPBenchmarkSuite executes benchmarks for multiple problem sizes`` () =
+        async {
+            // Arrange
+            let config = {
+                PerformanceBenchmarking.BenchmarkConfig.ProblemSizes = [5; 8; 10]
+                Repetitions = 2
+                Backends = ["Classical"]
+                OutputPath = "test-suite.csv"
+            }
+            
+            // Act
+            let! results = PerformanceBenchmarking.runTSPBenchmarkSuite config
+            
+            // Assert
+            Assert.Equal(3, results.Length)
+            Assert.True(results |> List.forall (fun r -> r.ProblemType = "TSP"))
+            Assert.True(results |> List.forall (fun r -> r.Solver = "Classical"))
+            // Verify problem sizes match configuration
+            let sizes = results |> List.map (fun r -> r.ProblemSize) |> List.sort
+            Assert.Equal<int list>([5; 8; 10], sizes)
+        } |> Async.RunSynchronously
+
+    [<Fact>]
+    let ``runPortfolioBenchmarkSuite executes benchmarks for multiple problem sizes`` () =
+        async {
+            // Arrange
+            let config = {
+                PerformanceBenchmarking.BenchmarkConfig.ProblemSizes = [3; 5; 8]
+                Repetitions = 2
+                Backends = ["Classical"]
+                OutputPath = "test-suite.csv"
+            }
+            let budget = 10000.0
+            
+            // Act
+            let! results = PerformanceBenchmarking.runPortfolioBenchmarkSuite config budget
+            
+            // Assert
+            Assert.Equal(3, results.Length)
+            Assert.True(results |> List.forall (fun r -> r.ProblemType = "Portfolio"))
+            Assert.True(results |> List.forall (fun r -> r.Solver = "Classical"))
+            // Verify problem sizes match configuration
+            let sizes = results |> List.map (fun r -> r.ProblemSize) |> List.sort
+            Assert.Equal<int list>([3; 5; 8], sizes)
+        } |> Async.RunSynchronously
+
+    // ============================================================================
+    // Markdown Report Generation Tests
+    // ============================================================================
+
+    [<Fact>]
+    let ``generateMarkdownReport creates valid markdown with headers`` () =
+        // Arrange
+        let results = [
+            {
+                PerformanceBenchmarking.BenchmarkResult.ProblemType = "TSP"
+                ProblemSize = 10
+                Solver = "Classical"
+                ExecutionTimeMs = 1000L
+                SolutionQuality = 50.0
+                Cost = 0.0
+                ErrorRate = None
+                Timestamp = System.DateTime.UtcNow
+            }
+        ]
+        
+        // Act
+        let markdown = PerformanceBenchmarking.generateMarkdownReport results
+        
+        // Assert
+        Assert.Contains("# Performance Benchmark Report", markdown)
+        Assert.Contains("## TSP Benchmarks", markdown)
+        Assert.Contains("| Problem Size | Solver | Execution Time (ms)", markdown)
+        Assert.Contains("| 10 | Classical | 1000 | 50.0000 | 0.00 |", markdown)
+
+    [<Fact>]
+    let ``exportMarkdownReport creates file with markdown content`` () =
+        // Arrange
+        let results = [
+            {
+                PerformanceBenchmarking.BenchmarkResult.ProblemType = "Portfolio"
+                ProblemSize = 5
+                Solver = "Classical"
+                ExecutionTimeMs = 500L
+                SolutionQuality = 0.15
+                Cost = 0.0
+                ErrorRate = None
+                Timestamp = System.DateTime.UtcNow
+            }
+        ]
+        let testPath = "test-report.md"
+        
+        // Act
+        PerformanceBenchmarking.exportMarkdownReport results testPath
+        
+        // Assert
+        Assert.True(System.IO.File.Exists(testPath))
+        let content = System.IO.File.ReadAllText(testPath)
+        Assert.Contains("# Performance Benchmark Report", content)
+        Assert.Contains("Portfolio", content)
+        
+        // Cleanup
+        System.IO.File.Delete(testPath)
+
+    // ============================================================================
     // Performance Requirement Tests
     // ============================================================================
 
@@ -247,6 +374,83 @@ module PerformanceBenchmarkingTests =
             
             // Act
             let! result = PerformanceBenchmarking.benchmarkClassicalTSP cities 3
+            
+            // Assert - Must complete in < 5 seconds as per requirements
+            Assert.True(result.ExecutionTimeMs < 5000L,
+                sprintf "Expected < 5000ms, got %dms" result.ExecutionTimeMs)
+        } |> Async.RunSynchronously
+
+    // ============================================================================
+    // Phase 3 - Classical Portfolio Benchmark Tests
+    // ============================================================================
+
+    [<Fact>]
+    let ``benchmarkClassicalPortfolio completes for 5 assets`` () =
+        async {
+            // Arrange
+            let assets = [
+                ("AAPL", 0.12, 0.15, 150.0)
+                ("GOOGL", 0.10, 0.20, 2800.0)
+                ("MSFT", 0.11, 0.18, 350.0)
+                ("AMZN", 0.13, 0.22, 3300.0)
+                ("TSLA", 0.15, 0.30, 800.0)
+            ]
+            let budget = 10000.0
+            
+            // Act
+            let! result = PerformanceBenchmarking.benchmarkClassicalPortfolio assets budget 2
+            
+            // Assert
+            Assert.Equal("Portfolio", result.ProblemType)
+            Assert.Equal(5, result.ProblemSize)
+            Assert.Equal("Classical", result.Solver)
+            Assert.True(result.ExecutionTimeMs > 0L)
+            Assert.True(result.ExecutionTimeMs < 5000L)  // Should complete in < 5s
+            Assert.True(result.SolutionQuality > 0.0)
+        } |> Async.RunSynchronously
+
+    [<Fact>]
+    let ``benchmarkClassicalPortfolio produces valid expected return`` () =
+        async {
+            // Arrange - Assets with known expected returns
+            let assets = [
+                ("Asset1", 0.10, 0.15, 100.0)
+                ("Asset2", 0.15, 0.20, 100.0)
+                ("Asset3", 0.20, 0.25, 100.0)
+            ]
+            let budget = 500.0
+            
+            // Act
+            let! result = PerformanceBenchmarking.benchmarkClassicalPortfolio assets budget 1
+            
+            // Assert
+            Assert.Equal("Portfolio", result.ProblemType)
+            Assert.Equal(3, result.ProblemSize)
+            // Expected return should be between min (0.10) and max (0.20) asset returns
+            Assert.True(result.SolutionQuality >= 0.10)
+            Assert.True(result.SolutionQuality <= 0.20)
+        } |> Async.RunSynchronously
+
+    [<Fact>]
+    let ``Classical Portfolio benchmark meets performance target for 10 assets`` () =
+        async {
+            // Arrange - 10 diverse assets
+            let assets = [
+                ("AAPL", 0.12, 0.15, 150.0)
+                ("GOOGL", 0.10, 0.20, 2800.0)
+                ("MSFT", 0.11, 0.18, 350.0)
+                ("AMZN", 0.13, 0.22, 3300.0)
+                ("TSLA", 0.15, 0.30, 800.0)
+                ("META", 0.09, 0.19, 500.0)
+                ("NVDA", 0.14, 0.28, 700.0)
+                ("AMD", 0.16, 0.32, 140.0)
+                ("NFLX", 0.11, 0.25, 600.0)
+                ("COIN", 0.18, 0.40, 220.0)
+            ]
+            let budget = 20000.0
+            
+            // Act
+            let! result = PerformanceBenchmarking.benchmarkClassicalPortfolio assets budget 3
             
             // Assert - Must complete in < 5 seconds as per requirements
             Assert.True(result.ExecutionTimeMs < 5000L,

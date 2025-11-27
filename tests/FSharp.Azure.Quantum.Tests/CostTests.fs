@@ -2,7 +2,7 @@ module FSharp.Azure.Quantum.Tests.CostTests
 
 open System
 open Xunit
-open FSharp.Azure.Quantum.Core.Cost
+open FSharp.Azure.Quantum.Core.CostEstimation
 
 [<Fact>]
 let ``estimateCost should return zero cost for simulator targets`` () =
@@ -11,7 +11,7 @@ let ``estimateCost should return zero cost for simulator targets`` () =
     let shots = 1000
 
     // Act
-    let result = estimateCost target shots
+    let result = estimateCostSimple target shots
 
     // Assert
     match result with
@@ -31,7 +31,7 @@ let ``estimateCost should return non-zero cost for QPU targets`` () =
     let shots = 1000
 
     // Act
-    let result = estimateCost target shots
+    let result = estimateCostSimple target shots
 
     // Assert
     match result with
@@ -51,8 +51,8 @@ let ``estimateCost should increase with shot count`` () =
     let highShots = 10000
 
     // Act
-    let lowResult = estimateCost target lowShots
-    let highResult = estimateCost target highShots
+    let lowResult = estimateCostSimple target lowShots
+    let highResult = estimateCostSimple target highShots
 
     // Assert
     match lowResult, highResult with
@@ -70,7 +70,7 @@ let ``estimateCost should return error for invalid shot count`` () =
     let shots = 0
 
     // Act
-    let result = estimateCost target shots
+    let result = estimateCostSimple target shots
 
     // Assert
     match result with
@@ -84,7 +84,7 @@ let ``estimateCost should return error for empty target`` () =
     let shots = 1000
 
     // Act
-    let result = estimateCost target shots
+    let result = estimateCostSimple target shots
 
     // Assert
     match result with
@@ -98,7 +98,7 @@ let ``estimateCost should add warning for high-cost jobs`` () =
     let shots = 50000 // High shot count to trigger warning
 
     // Act
-    let result = estimateCost target shots
+    let result = estimateCostSimple target shots
 
     // Assert
     match result with

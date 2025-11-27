@@ -1078,7 +1078,7 @@ module QuboEncodingTests =
         let result = ProblemTransformer.validateTransformation validQubo
         
         Assert.True(result.IsValid, "Symmetric QUBO should be valid")
-        Assert.Empty(result.Errors)
+        Assert.Empty(result.Messages)
     
     [<Fact>]
     let ``validateTransformation should detect asymmetric QUBO`` () =
@@ -1095,8 +1095,8 @@ module QuboEncodingTests =
         let result = ProblemTransformer.validateTransformation asymmetricQubo
         
         Assert.False(result.IsValid, "Asymmetric QUBO should be invalid")
-        Assert.NotEmpty(result.Errors)
-        Assert.Contains("symmetry", result.Errors.[0].ToLower())
+        Assert.NotEmpty(result.Messages)
+        Assert.Contains("symmetry", result.Messages.[0].ToLower())
     
     [<Fact>]
     let ``validateTransformation should check coefficient bounds`` () =
@@ -1112,7 +1112,7 @@ module QuboEncodingTests =
         let result = ProblemTransformer.validateTransformation invalidQubo
         
         Assert.False(result.IsValid, "QUBO with infinity should be invalid")
-        Assert.NotEmpty(result.Errors)
+        Assert.NotEmpty(result.Messages)
     
     [<Fact>]
     let ``validateTransformation should check for NaN values`` () =
@@ -1128,7 +1128,7 @@ module QuboEncodingTests =
         let result = ProblemTransformer.validateTransformation invalidQubo
         
         Assert.False(result.IsValid, "QUBO with NaN should be invalid")
-        Assert.NotEmpty(result.Errors)
+        Assert.NotEmpty(result.Messages)
     
     [<Fact>]
     let ``validateTransformation should verify size consistency`` () =
@@ -1144,7 +1144,7 @@ module QuboEncodingTests =
         let result = ProblemTransformer.validateTransformation inconsistentQubo
         
         Assert.False(result.IsValid, "QUBO with size mismatch should be invalid")
-        Assert.NotEmpty(result.Errors)
+        Assert.NotEmpty(result.Messages)
     
     [<Fact>]
     let ``validateTransformation should pass for TSP edge-based QUBO`` () =
@@ -1158,7 +1158,7 @@ module QuboEncodingTests =
         let result = ProblemTransformer.validateTransformation qubo
         
         Assert.True(result.IsValid, "TSP edge-based QUBO should be valid")
-        Assert.Empty(result.Errors)
+        Assert.Empty(result.Messages)
     
     [<Fact>]
     let ``validateTransformation should pass for Portfolio QUBO`` () =
@@ -1173,7 +1173,7 @@ module QuboEncodingTests =
         let result = ProblemTransformer.validateTransformation qubo
         
         Assert.True(result.IsValid, "Portfolio QUBO should be valid")
-        Assert.Empty(result.Errors)
+        Assert.Empty(result.Messages)
     
     // ============================================================================
     // Benchmark Comparison Tests - EdgeBased vs NodeBased
@@ -1283,7 +1283,7 @@ module QuboEncodingTests =
         
         // Verify QUBO is valid
         let validation = ProblemTransformer.validateTransformation qubo
-        Assert.True(validation.IsValid, sprintf "Custom QUBO should be valid: %A" validation.Errors)
+        Assert.True(validation.IsValid, sprintf "Custom QUBO should be valid: %A" validation.Messages)
     
     // ============================================================================
     // Encoding Strategy Selection Tests

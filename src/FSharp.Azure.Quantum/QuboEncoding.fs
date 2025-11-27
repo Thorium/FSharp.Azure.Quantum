@@ -47,11 +47,7 @@ type EncodingStrategy =
     | CorrelationBased
     | Custom of transformer: (int -> int)
 
-/// Validation result for QUBO transformations
-type ValidationResult = {
-    IsValid: bool
-    Errors: string list
-}
+// Validation result is now in shared Validation module
 
 /// Operations for variable encoding strategies
 module VariableEncoding =
@@ -566,7 +562,7 @@ module ProblemTransformer =
     /// - Matrix symmetry: Q[i,j] = Q[j,i] for all i,j
     /// - No invalid values: NaN, Infinity
     /// - Size consistency: Coefficients dimensions match Size
-    let validateTransformation (qubo: QuboMatrix) : ValidationResult =
+    let validateTransformation (qubo: QuboMatrix) : Validation.ValidationResult =
         let errors = ResizeArray<string>()
         
         // Check 1: Size consistency
@@ -577,10 +573,7 @@ module ProblemTransformer =
             errors.Add(sprintf "Size mismatch: declared size %d but matrix is %dx%d" 
                 qubo.Size actualRows actualCols)
             // Early return - can't validate further if sizes don't match
-            {
-                IsValid = false
-                Errors = errors |> Seq.toList
-            }
+            Validation.failure (errors |> Seq.toList)
         else
             // Check 2: Matrix symmetry (only if sizes match)
             let mutable isSymmetric = true
@@ -602,10 +595,10 @@ module ProblemTransformer =
                     elif System.Double.IsInfinity(value) then
                         errors.Add(sprintf "Infinity detected at Q[%d,%d]" i j)
             
-            {
-                IsValid = errors.Count = 0
-                Errors = errors |> Seq.toList
-            }
+            if errors.Count = 0 then
+                Validation.success
+            else
+                Validation.failure (errors |> Seq.toList)
     
     // ============================================================================
     // Custom Problem Registration

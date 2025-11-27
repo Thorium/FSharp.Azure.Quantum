@@ -98,14 +98,8 @@ module CircuitBuilder =
         let allLines = header :: qregDecl :: gateLines
         System.String.Join("\n", allLines)
 
-    /// Validation result containing validity status and error messages
-    type ValidationResult = {
-        IsValid: bool
-        Errors: string list
-    }
-
     /// Validates a circuit for correctness (qubit bounds, gate compatibility)
-    let validate (circuit: Circuit) : ValidationResult =
+    let validate (circuit: Circuit) : Validation.ValidationResult =
         let validateQubit (q: int) : string option =
             if q < 0 then
                 Some $"Qubit index {q} is negative (must be >= 0)"
@@ -141,7 +135,7 @@ module CircuitBuilder =
             circuit.Gates 
             |> List.collect validateGate
 
-        {
-            IsValid = List.isEmpty allErrors
-            Errors = allErrors
-        }
+        if List.isEmpty allErrors then
+            Validation.success
+        else
+            Validation.failure allErrors

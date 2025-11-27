@@ -8,7 +8,7 @@ open FSharp.Azure.Quantum.Core.CostEstimation
 // HELPER FUNCTIONS
 // ============================================================================
 
-let createSimpleCircuit singleQubitGates twoQubitGates measurements qubits =
+let createSimpleCircuit singleQubitGates twoQubitGates measurements qubits : CircuitCostProfile =
     {
         SingleQubitGates = singleQubitGates * 1<gate>
         TwoQubitGates = twoQubitGates * 1<gate>
@@ -629,3 +629,185 @@ let ``estimateCost - returns error for invalid shot count`` () =
     | Error msg ->
         Assert.Contains("Shot count must be at least 1", msg)
     | Ok estimate -> Assert.Fail(sprintf "Expected error for invalid shot count but got estimate: $%.2f" (usdToFloat estimate.ExpectedCost))
+
+// ============================================================================
+// COST OPTIMIZATION TESTS (TKT-48)
+// ============================================================================
+
+[<Fact>]
+let ``findCheapestBackend returns backend with lowest cost`` () =
+    // Arrange
+    let circuit = createSimpleCircuit 50 30 2 2
+    let shots = 1000<shot>
+    let backends = [IonQ true; IonQ false; Rigetti]
+    
+    // Act
+    let result = findCheapestBackend backends circuit shots
+    
+    // Assert
+    match result with
+    | Ok (cheapest, estimate) ->
+        // Should return one of the backends
+        Assert.Contains(cheapest, backends)
+        Assert.True(estimate.ExpectedCost > 0.0M<USD>)
+        
+        // Verify it's actually the cheapest by comparing with all backends
+        match compareCosts backends circuit shots with
+        | Ok allEstimates ->
+            let minCost = allEstimates |> List.map (fun e -> e.ExpectedCost) |> List.min
+            Assert.Equal(minCost, estimate.ExpectedCost)
+        | Error msg ->
+            Assert.Fail(sprintf "compareCosts failed: %s" msg)
+    | Error msg ->
+        Assert.Fail(sprintf "Expected success but got error: %s" msg)
+
+[<Fact>]
+let ``recommendCostOptimization suggests cheaper backend`` () =
+    // Arrange
+    let circuit = createSimpleCircuit 50 30 2 2
+    let shots = 1000<shot>
+    let currentBackend = IonQ true  // Most expensive option
+    let availableBackends = [IonQ true; IonQ false; Rigetti]
+    
+    // Act
+    let result = recommendCostOptimization currentBackend availableBackends circuit shots
+    
+    // Assert
+    match result with
+    | Ok (Some recommendation) ->
+        // Should recommend switching to a cheaper backend
+        Assert.NotEqual(currentBackend, recommendation.RecommendedBackend)
+        Assert.True(recommendation.PotentialSavings > 0.0M<USD>)
+        Assert.False(String.IsNullOrWhiteSpace(recommendation.Reasoning))
+    | Ok None ->
+        Assert.Fail("Expected recommendation for expensive backend but got None")
+    | Error msg ->
+        Assert.Fail(sprintf "Expected success but got error: %s" msg)
+
+// ============================================================================
+// CLI DASHBOARD TESTS (TKT-48)
+// ============================================================================
+
+[<Fact>]
+let ``displayCostDashboard shows spending summary`` () =
+    // Arrange
+    let now = System.DateTimeOffset.UtcNow
+    let circuit = createSimpleCircuit 50 30 2 2
+    let records = [
+        {
+            JobId = "job-1"
+            Backend = IonQ false
+            EstimatedCost = 50.0M<USD>
+            ActualCost = Some 52.0M<USD>
+            Timestamp = now
+            Circuit = circuit
+            Shots = 1000<shot>
+        }
+        {
+            JobId = "job-2"
+            Backend = Rigetti
+            EstimatedCost = 30.0M<USD>
+            ActualCost = Some 28.0M<USD>
+            Timestamp = now.AddHours(-1.0)
+            Circuit = circuit
+            Shots = 1000<shot>
+        }
+    ]
+    
+    // Act - should not throw exception
+    displayCostDashboard records
+    
+    // Assert - if we get here without exception, test passes
+    Assert.True(true)
+
+[<Fact>]
+let ``displayCostDashboard handles empty records`` () =
+    // Arrange
+    let records = []
+    
+    // Act - should not throw exception
+    displayCostDashboard records
+    
+    // Assert
+    Assert.True(true)
+
+[<Fact>]
+let ``findCheapestBackend returns error for empty backend list`` () =
+    // Arrange
+    let circuit = createSimpleCircuit 50 30 2 2
+    let shots = 1000<shot>
+    let backends = []
+    
+    // Act
+    let result = findCheapestBackend backends circuit shots
+    
+    // Assert
+    match result with
+    | Error msg ->
+        Assert.Contains("No backends provided", msg)
+    | Ok _ ->
+        Assert.Fail("Expected error for empty backend list")
+
+[<Fact>]
+let ``recommendCostOptimization returns None when already using cheapest`` () =
+    // Arrange
+    let circuit = createSimpleCircuit 10 5 2 2  // Small circuit
+    let shots = 1000<shot>
+    // Rigetti is typically cheapest for small circuits
+    let currentBackend = Rigetti
+    let availableBackends = [IonQ true; IonQ false; Rigetti]
+    
+    // Act
+    let result = recommendCostOptimization currentBackend availableBackends circuit shots
+    
+    // Assert
+    match result with
+    | Ok None ->
+        Assert.True(true)  // Expected: no recommendation when already optimal
+    | Ok (Some recommendation) ->
+        // If there is a recommendation, savings should be minimal (< 20%)
+        let savingsPercent = (float (recommendation.PotentialSavings / recommendation.CurrentCost.ExpectedCost)) * 100.0
+        Assert.True(savingsPercent < 20.0, 
+            sprintf "Expected no recommendation or < 20%% savings, got %.1f%%" savingsPercent)
+    | Error msg ->
+        Assert.Fail(sprintf "Unexpected error: %s" msg)
+
+[<Fact>]
+let ``recommendCostOptimization provides detailed reasoning`` () =
+    // Arrange
+    let circuit = createSimpleCircuit 50 30 2 2
+    let shots = 1000<shot>
+    let currentBackend = IonQ true
+    let availableBackends = [IonQ true; Rigetti]
+    
+    // Act
+    let result = recommendCostOptimization currentBackend availableBackends circuit shots
+    
+    // Assert
+    match result with
+    | Ok (Some recommendation) ->
+        Assert.NotEmpty(recommendation.Reasoning)
+        Assert.Contains("Save", recommendation.Reasoning)
+        Assert.Contains("reduction", recommendation.Reasoning)
+    | Ok None ->
+        () // No recommendation is also valid
+    | Error msg ->
+        Assert.Fail(sprintf "Expected success but got error: %s" msg)
+
+[<Fact>]
+let ``findCheapestBackend works with single backend`` () =
+    // Arrange
+    let circuit = createSimpleCircuit 50 30 2 2
+    let shots = 1000<shot>
+    let backends = [Rigetti]
+    
+    // Act
+    let result = findCheapestBackend backends circuit shots
+    
+    // Assert
+    match result with
+    | Ok (cheapest, estimate) ->
+        Assert.Equal(Rigetti, cheapest)
+        Assert.True(estimate.ExpectedCost > 0.0M<USD>)
+    | Error msg ->
+        Assert.Fail(sprintf "Expected success but got error: %s" msg)

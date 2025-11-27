@@ -140,7 +140,7 @@ module IonQBackend =
     
     /// Extract circuit information for validation
     /// Converts IonQCircuit to CircuitValidator.Circuit format
-    let private extractCircuitInfo (circuit: IonQCircuit) : CircuitValidator.Circuit =
+    let private extractCircuitInfo (circuit: IonQCircuit) : CircuitValidator.CircuitStats =
         let usedGates = 
             circuit.Circuit
             |> List.map (fun gate ->

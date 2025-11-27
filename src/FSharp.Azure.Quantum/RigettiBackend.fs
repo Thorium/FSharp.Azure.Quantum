@@ -208,7 +208,7 @@ module RigettiBackend =
     
     /// Extract circuit information for validation
     /// Converts QuilProgram to CircuitValidator.Circuit format
-    let private extractCircuitInfo (program: QuilProgram) : CircuitValidator.Circuit =
+    let private extractCircuitInfo (program: QuilProgram) : CircuitValidator.CircuitStats =
         let allGates = List.append program.Declarations program.Instructions
         
         let usedGates = 

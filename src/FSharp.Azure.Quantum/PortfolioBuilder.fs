@@ -11,26 +11,14 @@ module Portfolio =
     // TYPES - Domain-specific types for Portfolio problems
     // ============================================================================
 
-    /// <summary>
-    /// Asset with financial characteristics
-    /// </summary>
-    type Asset = {
-        /// Stock symbol (e.g., "AAPL", "GOOGL")
-        Symbol: string
-        /// Expected annual return as decimal (e.g., 0.12 for 12%)
-        ExpectedReturn: float
-        /// Risk factor (standard deviation) as decimal
-        Risk: float
-        /// Current price per share
-        Price: float
-    }
+    // Using shared Asset type directly from PortfolioTypes module
 
     /// <summary>
     /// Portfolio optimization problem
     /// </summary>
     type PortfolioProblem = {
         /// Array of assets to consider for portfolio
-        Assets: Asset array
+        Assets: PortfolioTypes.Asset array
         /// Number of assets in the portfolio
         AssetCount: int
         /// Total budget available for investment
@@ -59,14 +47,7 @@ module Portfolio =
     // HELPER FUNCTIONS
     // ============================================================================
 
-    /// Convert Portfolio.Asset to PortfolioSolver.Asset
-    let private toSolverAsset (asset: Asset) : PortfolioSolver.Asset =
-        {
-            Symbol = asset.Symbol
-            ExpectedReturn = asset.ExpectedReturn
-            Risk = asset.Risk
-            Price = asset.Price
-        }
+    // No longer need conversion - both use PortfolioTypes.Asset
 
     /// Validate that portfolio satisfies constraints
     let private isValidPortfolio (totalValue: float) (budget: float) : bool =
@@ -88,10 +69,15 @@ module Portfolio =
     /// </code>
     /// </example>
     let createProblem (assets: (string * float * float * float) list) (budget: float) : PortfolioProblem =
-        let assetArray =
+        let assetArray : PortfolioTypes.Asset array =
             assets
             |> List.map (fun (symbol, expectedReturn, risk, price) -> 
-                { Symbol = symbol; ExpectedReturn = expectedReturn; Risk = risk; Price = price })
+                { 
+                    PortfolioTypes.Symbol = symbol
+                    PortfolioTypes.ExpectedReturn = expectedReturn
+                    PortfolioTypes.Risk = risk
+                    PortfolioTypes.Price = price 
+                })
             |> List.toArray
         
         {
@@ -114,8 +100,8 @@ module Portfolio =
     /// </example>
     let solve (problem: PortfolioProblem) (config: PortfolioSolver.PortfolioConfig option) : Result<PortfolioAllocation, string> =
         try
-            // Convert to solver types
-            let solverAssets = problem.Assets |> Array.map toSolverAsset |> Array.toList
+            // Assets are already the correct type (PortfolioTypes.Asset)
+            let solverAssets = problem.Assets |> Array.toList
             
             // Use provided config or default
             let solverConfig = config |> Option.defaultValue PortfolioSolver.defaultConfig

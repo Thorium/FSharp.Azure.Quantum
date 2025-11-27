@@ -61,6 +61,24 @@ module PerformanceBenchmarking =
             (name, x, y)
         )
 
+    /// Generate random assets for Portfolio benchmarking
+    /// Optional seed parameter ensures deterministic results for testing
+    let generateRandomAssets (count: int) (seed: int option) : (string * float * float * float) list =
+        let rng = 
+            match seed with
+            | Some s -> Random(s)
+            | None -> Random()
+        List.init count (fun i ->
+            let symbol = sprintf "ASSET%d" i
+            // Expected return: 0.05 (5%) to 0.25 (25%)
+            let expectedReturn = 0.05 + (rng.NextDouble() * 0.20)
+            // Risk (std dev): 0.10 (10%) to 0.40 (40%)
+            let risk = 0.10 + (rng.NextDouble() * 0.30)
+            // Price: $50 to $3000
+            let price = 50.0 + (rng.NextDouble() * 2950.0)
+            (symbol, expectedReturn, risk, price)
+        )
+
     /// Export results to CSV
     let exportToCSV (results: BenchmarkResult list) (path: string) : unit =
         let csv = 
@@ -121,7 +139,7 @@ module PerformanceBenchmarking =
                     sw.Stop()
                     
                     match solution with
-                    | Ok tour -> yield (sw.ElapsedMilliseconds, tour.TotalDistance)
+                    | Ok tour -> yield (sw.Elapsed.TotalMilliseconds, tour.TotalDistance)
                     | Error err -> 
                         // Log error but continue - some runs might succeed
                         eprintfn "TSP solve failed: %s" err
@@ -132,7 +150,7 @@ module PerformanceBenchmarking =
                 failwith "All TSP solver runs failed - cannot produce benchmark result"
             
             let avgTime = 
-                results |> List.averageBy (fst >> float) |> int64
+                results |> List.averageBy fst |> ceil |> int64
                     
             let bestQuality = 
                 results |> List.minBy snd |> snd
@@ -147,6 +165,96 @@ module PerformanceBenchmarking =
                 ErrorRate = None
                 Timestamp = DateTime.UtcNow
             }
+        }
+
+    // ============================================================================
+    // CLASSICAL PORTFOLIO BENCHMARKING
+    // ============================================================================
+
+    /// Benchmark classical Portfolio solver
+    let benchmarkClassicalPortfolio 
+        (assets: (string * float * float * float) list) 
+        (budget: float) 
+        (repetitions: int) 
+        : Async<BenchmarkResult> =
+        
+        async {
+            // Validate input
+            if assets.Length < 1 then
+                failwithf "Cannot benchmark Portfolio with less than 1 asset (got %d)" assets.Length
+            if budget <= 0.0 then
+                failwithf "Budget must be positive (got %f)" budget
+            if repetitions < 1 then
+                failwithf "Repetitions must be at least 1 (got %d)" repetitions
+                
+            let results = [
+                for _ in 1 .. repetitions do
+                    let sw = System.Diagnostics.Stopwatch.StartNew()
+                    let problem = Portfolio.createProblem assets budget
+                    let solution = Portfolio.solve problem None
+                    sw.Stop()
+                    
+                    match solution with
+                    | Ok allocation -> yield (sw.Elapsed.TotalMilliseconds, allocation.ExpectedReturn)
+                    | Error err -> 
+                        // Log error but continue - some runs might succeed
+                        eprintfn "Portfolio solve failed: %s" err
+            ]
+            
+            // Ensure we got at least one successful result
+            if results.IsEmpty then
+                failwith "All Portfolio solver runs failed - cannot produce benchmark result"
+            
+            let avgTime = 
+                results |> List.averageBy fst |> ceil |> int64
+                    
+            let bestQuality = 
+                results |> List.maxBy snd |> snd  // Higher expected return is better
+            
+            return {
+                ProblemType = "Portfolio"
+                ProblemSize = assets.Length
+                Solver = "Classical"
+                ExecutionTimeMs = avgTime
+                SolutionQuality = bestQuality
+                Cost = 0.0
+                ErrorRate = None
+                Timestamp = DateTime.UtcNow
+            }
+        }
+
+    // ============================================================================
+    // BENCHMARK SUITE EXECUTION
+    // ============================================================================
+
+    /// Run complete benchmark suite for TSP problems
+    let runTSPBenchmarkSuite (config: BenchmarkConfig) : Async<BenchmarkResult list> =
+        async {
+            let! results = 
+                config.ProblemSizes
+                |> List.map (fun size ->
+                    async {
+                        let cities = generateRandomCities size (Some (size * 42))  // Deterministic seed
+                        return! benchmarkClassicalTSP (cities) config.Repetitions
+                    })
+                |> Async.Parallel
+            
+            return results |> Array.toList
+        }
+
+    /// Run complete benchmark suite for Portfolio problems
+    let runPortfolioBenchmarkSuite (config: BenchmarkConfig) (budget: float) : Async<BenchmarkResult list> =
+        async {
+            let! results = 
+                config.ProblemSizes
+                |> List.map (fun size ->
+                    async {
+                        let assets = generateRandomAssets size (Some (size * 37))  // Deterministic seed
+                        return! benchmarkClassicalPortfolio assets budget config.Repetitions
+                    })
+                |> Async.Parallel
+            
+            return results |> Array.toList
         }
 
     // ============================================================================
@@ -191,3 +299,61 @@ module PerformanceBenchmarking =
                 }
             | None -> None
         )
+
+    /// Generate markdown formatted benchmark report
+    let generateMarkdownReport (results: BenchmarkResult list) : string =
+        let sb = System.Text.StringBuilder()
+        
+        sb.AppendLine("# Performance Benchmark Report") |> ignore
+        sb.AppendLine() |> ignore
+        sb.AppendLine(sprintf "**Generated:** %s" (DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss UTC"))) |> ignore
+        sb.AppendLine() |> ignore
+        
+        // Group by problem type
+        let byType = results |> List.groupBy (fun r -> r.ProblemType)
+        
+        for (problemType, typeResults) in byType do
+            sb.AppendLine(sprintf "## %s Benchmarks" problemType) |> ignore
+            sb.AppendLine() |> ignore
+            
+            // Table header
+            sb.AppendLine("| Problem Size | Solver | Execution Time (ms) | Solution Quality | Cost ($) |") |> ignore
+            sb.AppendLine("|-------------|--------|-------------------|-----------------|---------|") |> ignore
+            
+            // Table rows sorted by problem size and solver
+            typeResults
+            |> List.sortBy (fun r -> (r.ProblemSize, r.Solver))
+            |> List.iter (fun r ->
+                sb.AppendLine(sprintf "| %d | %s | %d | %.4f | %.2f |" 
+                    r.ProblemSize r.Solver r.ExecutionTimeMs r.SolutionQuality r.Cost) |> ignore
+            )
+            
+            sb.AppendLine() |> ignore
+        
+        // Comparison analysis
+        let comparisons = generateComparisonReport results
+        if not comparisons.IsEmpty then
+            sb.AppendLine("## Performance Comparison") |> ignore
+            sb.AppendLine() |> ignore
+            
+            for comp in comparisons do
+                sb.AppendLine(sprintf "### %s - %d units" comp.ProblemType comp.ProblemSize) |> ignore
+                sb.AppendLine() |> ignore
+                sb.AppendLine(sprintf "- **Classical Time:** %d ms" comp.ClassicalResult.ExecutionTimeMs) |> ignore
+                sb.AppendLine(sprintf "- **Classical Quality:** %.4f" comp.ClassicalResult.SolutionQuality) |> ignore
+                
+                match comp.SpeedupFactor with
+                | Some speedup ->
+                    let speedupText = if speedup > 1.0 then sprintf "%.2fx faster" speedup else sprintf "%.2fx slower" (1.0 / speedup)
+                    sb.AppendLine(sprintf "- **Speedup:** %s" speedupText) |> ignore
+                | None -> ()
+                
+                sb.AppendLine(sprintf "- **Quantum Advantage:** %s" (if comp.QuantumAdvantage then "✅ Yes" else "❌ No")) |> ignore
+                sb.AppendLine() |> ignore
+        
+        sb.ToString()
+
+    /// Export markdown report to file
+    let exportMarkdownReport (results: BenchmarkResult list) (path: string) : unit =
+        let markdown = generateMarkdownReport results
+        System.IO.File.WriteAllText(path, markdown)
