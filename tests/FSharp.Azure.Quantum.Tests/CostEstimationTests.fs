@@ -629,3 +629,34 @@ let ``estimateCost - returns error for invalid shot count`` () =
     | Error msg ->
         Assert.Contains("Shot count must be at least 1", msg)
     | Ok estimate -> Assert.Fail(sprintf "Expected error for invalid shot count but got estimate: $%.2f" (usdToFloat estimate.ExpectedCost))
+
+// ============================================================================
+// COST OPTIMIZATION TESTS (TKT-48)
+// ============================================================================
+
+[<Fact>]
+let ``findCheapestBackend returns backend with lowest cost`` () =
+    // Arrange
+    let circuit = createSimpleCircuit 50 30 2 2
+    let shots = 1000<shot>
+    let backends = [IonQ true; IonQ false; Rigetti]
+    
+    // Act
+    let result = findCheapestBackend backends circuit shots
+    
+    // Assert
+    match result with
+    | Ok (cheapest, estimate) ->
+        // Should return one of the backends
+        Assert.Contains(cheapest, backends)
+        Assert.True(estimate.ExpectedCost > 0.0M<USD>)
+        
+        // Verify it's actually the cheapest by comparing with all backends
+        match compareCosts backends circuit shots with
+        | Ok allEstimates ->
+            let minCost = allEstimates |> List.map (fun e -> e.ExpectedCost) |> List.min
+            Assert.Equal(minCost, estimate.ExpectedCost)
+        | Error msg ->
+            Assert.Fail(sprintf "compareCosts failed: %s" msg)
+    | Error msg ->
+        Assert.Fail(sprintf "Expected success but got error: %s" msg)

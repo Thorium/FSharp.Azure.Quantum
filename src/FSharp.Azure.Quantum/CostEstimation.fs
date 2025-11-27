@@ -417,6 +417,22 @@ module CostEstimation =
         ) (Ok [])
         |> Result.map List.rev
     
+    /// Find the cheapest backend from a list of options
+    let findCheapestBackend 
+        (backends: Backend list) 
+        (circuit: Circuit) 
+        (shots: int<shot>) 
+        : Result<Backend * CostEstimate, string> =
+        
+        if backends.IsEmpty then
+            Error "No backends provided"
+        else
+            compareCosts backends circuit shots
+            |> Result.map (fun estimates ->
+                estimates 
+                |> List.minBy (fun est -> est.ExpectedCost)
+                |> fun cheapestEstimate -> (cheapestEstimate.Backend, cheapestEstimate))
+    
     // ============================================================================
     // BUDGET ENFORCEMENT
     // ============================================================================
