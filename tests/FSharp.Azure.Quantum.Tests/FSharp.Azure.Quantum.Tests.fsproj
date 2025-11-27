@@ -41,6 +41,7 @@
     <Compile Include="ReadoutErrorMitigationTests.fs" />
     <Compile Include="ErrorMitigationStrategyTests.fs" />
     <Compile Include="PerformanceBenchmarkingTests.fs" />
+    <Compile Include="QuantumChemistryTests.fs" />
     <Compile Include="IntegrationTests.fs" />
   </ItemGroup>
 
