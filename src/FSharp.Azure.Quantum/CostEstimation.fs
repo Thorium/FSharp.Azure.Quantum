@@ -901,3 +901,144 @@ module CostEstimation =
                 }
             with _ ->
                 None
+    
+    // ============================================================================
+    // CSV PERSISTENCE (TKT-48)
+    // ============================================================================
+    
+    /// CSV field escaping - handles commas, quotes, and newlines in field values
+    let private escapeCsvField (field: string) : string =
+        if field.Contains(",") || field.Contains("\"") || field.Contains("\n") || field.Contains("\r") then
+            // Escape quotes by doubling them, then wrap in quotes
+            "\"" + field.Replace("\"", "\"\"") + "\""
+        else
+            field
+    
+    /// Convert backend to CSV-friendly string representation
+    let private backendToCsvString (backend: CostBackend) : string =
+        match backend with
+        | IonQ true -> "IonQ-EM"
+        | IonQ false -> "IonQ-NoEM"
+        | Quantinuum -> "Quantinuum"
+        | Rigetti -> "Rigetti"
+    
+    /// Parse backend from CSV string representation
+    let private backendFromCsvString (str: string) : Result<CostBackend, string> =
+        match str with
+        | "IonQ-EM" -> Ok (IonQ true)
+        | "IonQ-NoEM" -> Ok (IonQ false)
+        | "Quantinuum" -> Ok Quantinuum
+        | "Rigetti" -> Ok Rigetti
+        | _ -> Error (sprintf "Unknown backend: %s" str)
+    
+    /// Save cost tracking record to CSV file (appends if file exists)
+    let saveCostRecordToCsv (filePath: string) (record: CostTrackingRecord) : Result<unit, string> =
+        try
+            // CSV format: JobId,Backend,EstimatedCost,ActualCost,Timestamp,SingleQubitGates,TwoQubitGates,Measurements,QubitCount,Shots
+            let actualCostStr = 
+                match record.ActualCost with
+                | Some cost -> string (cost / 1.0M<USD>)
+                | None -> ""
+            
+            let csvLine = 
+                [
+                    escapeCsvField record.JobId
+                    backendToCsvString record.Backend
+                    string (record.EstimatedCost / 1.0M<USD>)
+                    actualCostStr
+                    record.Timestamp.ToString("o")  // ISO 8601 format
+                    string (int record.Circuit.SingleQubitGates)
+                    string (int record.Circuit.TwoQubitGates)
+                    string (int record.Circuit.Measurements)
+                    string (int record.Circuit.QubitCount)
+                    string (int record.Shots)
+                ]
+                |> String.concat ","
+            
+            // Append to file (create if doesn't exist)
+            System.IO.File.AppendAllLines(filePath, [csvLine])
+            Ok ()
+        with ex ->
+            Error (sprintf "Failed to save cost record to CSV: %s" ex.Message)
+    
+    /// Load cost history from CSV file
+    let loadCostHistoryFromCsv (filePath: string) : Result<CostTrackingRecord list, string> =
+        try
+            if not (System.IO.File.Exists(filePath)) then
+                // Return empty list for non-existent file (not an error)
+                Ok []
+            else
+                let lines = System.IO.File.ReadAllLines(filePath)
+                
+                let records =
+                    lines
+                    |> Array.toList
+                    |> List.choose (fun line ->
+                        if String.IsNullOrWhiteSpace(line) then
+                            None
+                        else
+                            try
+                                // Parse CSV line (handle quoted fields with commas)
+                                let fields = 
+                                    let mutable inQuotes = false
+                                    let mutable currentField = System.Text.StringBuilder()
+                                    let mutable fields = []
+                                    let mutable i = 0
+                                    
+                                    while i < line.Length do
+                                        let c = line.[i]
+                                        match c with
+                                        | '"' -> 
+                                            if inQuotes && i + 1 < line.Length && line.[i + 1] = '"' then
+                                                // Escaped quote - add single quote and skip next char
+                                                currentField.Append('"') |> ignore
+                                                i <- i + 1  // Skip the second quote
+                                            else
+                                                // Toggle quote mode
+                                                inQuotes <- not inQuotes
+                                        | ',' when not inQuotes ->
+                                            // Field delimiter
+                                            fields <- currentField.ToString() :: fields
+                                            currentField.Clear() |> ignore
+                                        | _ ->
+                                            currentField.Append(c) |> ignore
+                                        
+                                        i <- i + 1
+                                    
+                                    // Add final field
+                                    fields <- currentField.ToString() :: fields
+                                    List.rev fields
+                                
+                                if fields.Length <> 10 then
+                                    None
+                                else
+                                    match backendFromCsvString fields.[1] with
+                                    | Error _ -> None
+                                    | Ok backend ->
+                                        let actualCost = 
+                                            if String.IsNullOrWhiteSpace(fields.[3]) then 
+                                                None 
+                                            else 
+                                                Some (decimal fields.[3] * 1.0M<USD>)
+                                        
+                                        Some {
+                                            JobId = fields.[0]
+                                            Backend = backend
+                                            EstimatedCost = decimal fields.[2] * 1.0M<USD>
+                                            ActualCost = actualCost
+                                            Timestamp = DateTimeOffset.Parse(fields.[4])
+                                            Circuit = {
+                                                SingleQubitGates = int fields.[5] * 1<gate>
+                                                TwoQubitGates = int fields.[6] * 1<gate>
+                                                Measurements = int fields.[7] * 1<gate>
+                                                QubitCount = int fields.[8] * 1<qubit>
+                                            }
+                                            Shots = int fields.[9] * 1<shot>
+                                        }
+                            with _ ->
+                                None  // Skip malformed lines
+                    )
+                
+                Ok records
+        with ex ->
+            Error (sprintf "Failed to load cost history from CSV: %s" ex.Message)
