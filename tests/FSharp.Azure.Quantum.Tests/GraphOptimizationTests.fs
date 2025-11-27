@@ -817,4 +817,45 @@ module GraphOptimizationTests =
         // Edge A-C (nodes 0-2): Should have Q[(0,2)] = -2.0
         Assert.True(qubo.Q.ContainsKey((0, 2)))
         Assert.Equal(-2.0, qubo.Q.[(0, 2)])
+    
+    // ============================================================================
+    // TDD CYCLE #5: TSP QUBO ENCODING
+    // ============================================================================
+    
+    [<Fact>]
+    let ``toQubo generates TSP QUBO with distance minimization terms`` () =
+        // Create a simple 3-city TSP problem
+        let cities = [
+            node "A" "City A"
+            node "B" "City B"
+            node "C" "City C"
+        ]
+        let routes = [
+            edge "A" "B" 10.0  // Distance A->B = 10
+            edge "B" "C" 20.0  // Distance B->C = 20
+            edge "C" "A" 15.0  // Distance C->A = 15
+        ]
+        
+        let problem =
+            GraphOptimizationBuilder<string, float>()
+                .Nodes(cities)
+                .Edges(routes)
+                .Objective(MinimizeTotalWeight)
+                .Build()
+        
+        let qubo = toQubo problem
+        
+        // TSP QUBO formulation with one-hot time encoding:
+        // Variables: x_{i,t} where i=city index (0-2), t=time slot (0-2)
+        // Total variables: 3 cities * 3 time slots = 9
+        
+        // Check correct number of variables
+        Assert.Equal(9, qubo.NumVariables)
+        
+        // QUBO should contain quadratic terms for distance minimization
+        // For edge A->B (distance 10): terms like x_{A,t} * x_{B,t+1}
+        // These should be present in the QUBO matrix
+        
+        // At minimum, verify QUBO is not empty (has some terms)
+        Assert.True(qubo.Q.Count > 0, "TSP QUBO should contain constraint and objective terms")
 

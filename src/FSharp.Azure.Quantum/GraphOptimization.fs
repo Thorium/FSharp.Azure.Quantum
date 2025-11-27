@@ -418,8 +418,60 @@ module GraphOptimization =
         | MinimizeTotalWeight ->
             // TSP: one-hot time encoding
             // Variables: x_{i,t} = 1 if city i visited at time t
+            // Two main constraints:
+            //   1. Each city visited exactly once: Σ_t x_{i,t} = 1
+            //   2. Each time slot has one city: Σ_i x_{i,t} = 1
+            // Objective: Minimize Σ_{i,j,t} d_{i,j} * x_{i,t} * x_{j,t+1}
+            
             let numVars = numNodes * numNodes
-            emptyQubo numVars
+            let baseQubo = emptyQubo numVars
+            
+            // Helper: Get variable index for city i at time t
+            let varIndex i t = i * numNodes + t
+            
+            // Helper: Generate one-hot constraint terms (exactly one variable = 1)
+            // For each outer index, penalize having multiple inner indices selected
+            let oneHotConstraintTerms (outerRange: int) (innerRange: int) (varFn: int -> int -> int) : ((int * int) * float) list =
+                [0 .. outerRange - 1]
+                |> List.collect (fun outer ->
+                    [0 .. innerRange - 1]
+                    |> List.collect (fun inner1 ->
+                        [inner1 + 1 .. innerRange - 1]
+                        |> List.map (fun inner2 ->
+                            let v1 = varFn outer inner1
+                            let v2 = varFn outer inner2
+                            ((v1, v2), 2.0 * DefaultPenalty)
+                        )
+                    )
+                )
+            
+            // Constraint 1: Each city i must be visited exactly once
+            let constraint1Terms = oneHotConstraintTerms numNodes numNodes varIndex
+            
+            // Constraint 2: Each time slot t must have exactly one city
+            let constraint2Terms = oneHotConstraintTerms numNodes numNodes (fun t i -> varIndex i t)
+            
+            // Distance objective: Σ_{i,j,t} d_{i,j} * x_{i,t} * x_{j,t+1}
+            // For each edge (i->j) with distance d, add terms for consecutive time slots
+            let distanceTerms =
+                problem.Graph.Edges
+                |> List.collect (fun edge ->
+                    match Map.tryFind edge.Source nodeIndexMap, Map.tryFind edge.Target nodeIndexMap with
+                    | Some srcIdx, Some tgtIdx ->
+                        [0 .. numNodes - 2]  // Time slots 0 to n-2
+                        |> List.map (fun t ->
+                            let v1 = varIndex srcIdx t
+                            let v2 = varIndex tgtIdx (t + 1)
+                            // Canonical ordering for QUBO
+                            let (i, j) = if v1 < v2 then (v1, v2) else (v2, v1)
+                            ((i, j), edge.Weight)
+                        )
+                    | _ -> []
+                )
+            
+            // Combine all terms
+            let allTerms = constraint1Terms @ constraint2Terms @ distanceTerms
+            addTermsToQubo baseQubo allTerms
         
         | MaximizeCut ->
             // MaxCut: binary partition encoding
