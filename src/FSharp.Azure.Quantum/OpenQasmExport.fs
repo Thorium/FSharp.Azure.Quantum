@@ -1,0 +1,281 @@
+/// TKT-97: OpenQASM 2.0 Export Module
+/// 
+/// Export quantum circuits to OpenQASM 2.0 format for IBM Qiskit compatibility.
+/// Enables F# type-safe circuit construction with export to Qiskit ecosystem (6.7k stars).
+///
+/// ⚠️ CRITICAL: ALL OpenQASM export code consolidated in this SINGLE FILE
+/// for AI context optimization.
+///
+/// ## Features
+/// - Gate translation (X, Y, Z, H, RX, RY, RZ, CNOT)
+/// - Angle formatting with 10 decimal precision
+/// - Circuit validation (qubit bounds checking)
+/// - File export functionality
+/// - Clear error messages
+///
+/// ## Usage Example
+/// ```fsharp
+/// let circuit = { QubitCount = 2; Gates = [H 0; CNOT (0, 1)] }
+/// let qasmCode = OpenQasm.export circuit
+/// OpenQasm.exportToFile circuit "bell_state.qasm"
+/// ```
+namespace FSharp.Azure.Quantum
+
+open System
+open System.IO
+open System.Text
+
+/// <summary>
+/// OpenQASM 2.0 export module for IBM Qiskit compatibility.
+/// </summary>
+///
+/// <remarks>
+/// OpenQASM (Open Quantum Assembly Language) is the industry standard text-based format
+/// for quantum circuits, primarily used by IBM Qiskit. This module enables users to build
+/// circuits in F# with type safety and export them to the Qiskit ecosystem.
+///
+/// <para><b>Supported Gates:</b></para>
+/// <list type="bullet">
+///   <item>Single-qubit: X, Y, Z, H</item>
+///   <item>Rotation: RX(θ), RY(θ), RZ(θ)</item>
+///   <item>Two-qubit: CNOT (CX)</item>
+/// </list>
+///
+/// <para><b>OpenQASM 2.0 Format:</b></para>
+/// <code>
+/// OPENQASM 2.0;
+/// include "qelib1.inc";
+/// qreg q[n];
+/// h q[0];
+/// cx q[0],q[1];
+/// </code>
+/// </remarks>
+module OpenQasmExport =
+    
+    open CircuitBuilder
+    
+    // ========================================================================
+    // CONSTANTS
+    // ========================================================================
+    
+    /// OpenQASM version number
+    let version = "2.0"
+    
+    /// Number of decimal places for angle formatting
+    let private angleDecimalPlaces = 10
+    
+    // ========================================================================
+    // ANGLE FORMATTING
+    // ========================================================================
+    
+    /// <summary>
+    /// Format angle with specified decimal precision for OpenQASM.
+    /// </summary>
+    ///
+    /// <param name="angle">Angle in radians</param>
+    /// <returns>Formatted string with 10 decimal places</returns>
+    ///
+    /// <example>
+    /// <code>
+    /// formatAngle 3.14159265358979 // Returns "3.1415926536"
+    /// formatAngle 0.5              // Returns "0.5000000000"
+    /// </code>
+    /// </example>
+    let private formatAngle (angle: float) : string =
+        angle.ToString($"F{angleDecimalPlaces}")
+    
+    // ========================================================================
+    // GATE TRANSLATION
+    // ========================================================================
+    
+    /// <summary>
+    /// Translate a single gate to OpenQASM 2.0 instruction.
+    /// </summary>
+    ///
+    /// <param name="gate">Quantum gate to translate</param>
+    /// <returns>OpenQASM 2.0 instruction string</returns>
+    ///
+    /// <remarks>
+    /// Gate mappings:
+    /// - X(q) → x q[q];
+    /// - Y(q) → y q[q];
+    /// - Z(q) → z q[q];
+    /// - H(q) → h q[q];
+    /// - CNOT(c,t) → cx q[c],q[t];
+    /// - RX(q,θ) → rx(θ) q[q];
+    /// - RY(q,θ) → ry(θ) q[q];
+    /// - RZ(q,θ) → rz(θ) q[q];
+    /// </remarks>
+    let private gateToQasm (gate: Gate) : string =
+        match gate with
+        | X q -> 
+            $"x q[{q}];"
+        | Y q -> 
+            $"y q[{q}];"
+        | Z q -> 
+            $"z q[{q}];"
+        | H q -> 
+            $"h q[{q}];"
+        | CNOT (control, target) -> 
+            $"cx q[{control}],q[{target}];"
+        | RX (q, angle) -> 
+            $"rx({formatAngle angle}) q[{q}];"
+        | RY (q, angle) -> 
+            $"ry({formatAngle angle}) q[{q}];"
+        | RZ (q, angle) -> 
+            $"rz({formatAngle angle}) q[{q}];"
+    
+    // ========================================================================
+    // VALIDATION
+    // ========================================================================
+    
+    /// <summary>
+    /// Validate that a circuit is compatible with OpenQASM 2.0.
+    /// </summary>
+    ///
+    /// <param name="circuit">Circuit to validate</param>
+    /// <returns>Ok if valid, Error with message if invalid</returns>
+    ///
+    /// <remarks>
+    /// Validation checks:
+    /// - QubitCount >= 0
+    /// - All gate qubit indices in range [0, QubitCount-1]
+    /// - CNOT control and target in valid range
+    /// </remarks>
+    let validate (circuit: Circuit) : Result<unit, string> =
+        // Check qubit count is non-negative
+        if circuit.QubitCount < 0 then
+            Error $"Invalid circuit: QubitCount must be >= 0, got {circuit.QubitCount}"
+        else
+            // Validate each gate's qubit indices
+            let validateGate (gate: Gate) : Result<unit, string> =
+                let checkQubit q gateName =
+                    if q < 0 || q >= circuit.QubitCount then
+                        Error $"Invalid {gateName}: qubit {q} out of range [0, {circuit.QubitCount - 1}]"
+                    else
+                        Ok ()
+                
+                match gate with
+                | X q | Y q | Z q | H q -> 
+                    checkQubit q "single-qubit gate"
+                | RX (q, _) | RY (q, _) | RZ (q, _) -> 
+                    checkQubit q "rotation gate"
+                | CNOT (control, target) ->
+                    match checkQubit control "CNOT control", checkQubit target "CNOT target" with
+                    | Ok (), Ok () -> Ok ()
+                    | Error msg, _ -> Error msg
+                    | _, Error msg -> Error msg
+            
+            // Validate all gates
+            circuit.Gates
+            |> List.tryPick (fun gate ->
+                match validateGate gate with
+                | Error msg -> Some msg
+                | Ok () -> None
+            )
+            |> function
+                | Some errorMsg -> Error errorMsg
+                | None -> Ok ()
+    
+    // ========================================================================
+    // EXPORT
+    // ========================================================================
+    
+    /// <summary>
+    /// Export circuit to OpenQASM 2.0 text format.
+    /// </summary>
+    ///
+    /// <param name="circuit">Circuit to export</param>
+    /// <returns>OpenQASM 2.0 code as string</returns>
+    ///
+    /// <remarks>
+    /// <para><b>Output Format:</b></para>
+    /// <code>
+    /// OPENQASM 2.0;
+    /// include "qelib1.inc";
+    /// qreg q[n];
+    /// [gate instructions...]
+    /// </code>
+    ///
+    /// <para><b>Validation:</b></para>
+    /// The circuit is NOT automatically validated. Use `validate` first if needed.
+    /// Invalid circuits may produce invalid OpenQASM output.
+    /// </remarks>
+    ///
+    /// <example>
+    /// <code>
+    /// let circuit = { QubitCount = 2; Gates = [H 0; CNOT (0, 1)] }
+    /// let qasm = OpenQasm.export circuit
+    /// // Returns:
+    /// // OPENQASM 2.0;
+    /// // include "qelib1.inc";
+    /// // qreg q[2];
+    /// // h q[0];
+    /// // cx q[0],q[1];
+    /// </code>
+    /// </example>
+    let export (circuit: Circuit) : string =
+        let sb = StringBuilder()
+        
+        // Header
+        sb.AppendLine("OPENQASM 2.0;") |> ignore
+        sb.AppendLine("include \"qelib1.inc\";") |> ignore
+        
+        // Quantum register declaration
+        sb.AppendLine($"qreg q[{circuit.QubitCount}];") |> ignore
+        
+        // Gate instructions
+        for gate in circuit.Gates do
+            sb.AppendLine(gateToQasm gate) |> ignore
+        
+        // Remove trailing newline
+        sb.ToString().TrimEnd()
+    
+    /// <summary>
+    /// Export circuit to a .qasm file.
+    /// </summary>
+    ///
+    /// <param name="circuit">Circuit to export</param>
+    /// <param name="filePath">Path to output file</param>
+    ///
+    /// <remarks>
+    /// Overwrites the file if it already exists.
+    /// Creates parent directories if they don't exist.
+    /// </remarks>
+    ///
+    /// <example>
+    /// <code>
+    /// let circuit = { QubitCount = 1; Gates = [H 0] }
+    /// OpenQasm.exportToFile circuit "hadamard.qasm"
+    /// </code>
+    /// </example>
+    ///
+    /// <exception cref="System.IO.IOException">
+    /// Thrown if the file cannot be written
+    /// </exception>
+    let exportToFile (circuit: Circuit) (filePath: string) : unit =
+        // Ensure parent directory exists
+        let directory = Path.GetDirectoryName(filePath)
+        if not (String.IsNullOrEmpty(directory)) && not (Directory.Exists(directory)) then
+            Directory.CreateDirectory(directory) |> ignore
+        
+        // Export and write to file
+        let qasmCode = export circuit
+        File.WriteAllText(filePath, qasmCode)
+
+/// <summary>
+/// Public API module for OpenQASM 2.0 export.
+/// </summary>
+module OpenQasm =
+    
+    /// <summary>OpenQASM version number</summary>
+    let version = OpenQasmExport.version
+    
+    /// <summary>Export circuit to OpenQASM 2.0 text format</summary>
+    let export = OpenQasmExport.export
+    
+    /// <summary>Export circuit to file</summary>
+    let exportToFile = OpenQasmExport.exportToFile
+    
+    /// <summary>Validate circuit is OpenQASM 2.0 compatible</summary>
+    let validate = OpenQasmExport.validate
