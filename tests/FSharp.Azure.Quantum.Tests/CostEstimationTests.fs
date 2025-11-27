@@ -8,7 +8,7 @@ open FSharp.Azure.Quantum.Core.CostEstimation
 // HELPER FUNCTIONS
 // ============================================================================
 
-let createSimpleCircuit singleQubitGates twoQubitGates measurements qubits =
+let createSimpleCircuit singleQubitGates twoQubitGates measurements qubits : CircuitCostProfile =
     {
         SingleQubitGates = singleQubitGates * 1<gate>
         TwoQubitGates = twoQubitGates * 1<gate>

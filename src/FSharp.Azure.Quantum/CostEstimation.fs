@@ -33,11 +33,13 @@ module CostEstimation =
     [<Measure>] type us
     
     // ============================================================================
-    // CIRCUIT REPRESENTATION (Simplified for cost estimation)
+    // CIRCUIT COST PROFILE (Simplified for cost estimation)
     // ============================================================================
     
-    /// Quantum circuit with gate counts for cost estimation
-    type Circuit = {
+    /// Quantum circuit cost profile with gate counts for cost estimation
+    /// Note: This is a simplified representation used only for cost calculation.
+    /// For full circuit representation, see CircuitBuilder.Circuit
+    type CircuitCostProfile = {
         /// Number of single-qubit gates (H, X, Y, Z, etc.)
         SingleQubitGates: int<gate>
         
@@ -51,8 +53,8 @@ module CostEstimation =
         QubitCount: int<qubit>
     }
     
-    module Circuit =
-        /// Create empty circuit
+    module CircuitCostProfile =
+        /// Create empty circuit cost profile
         let empty = {
             SingleQubitGates = 0<gate>
             TwoQubitGates = 0<gate>
@@ -61,11 +63,11 @@ module CostEstimation =
         }
         
         /// Calculate total gate count
-        let totalGates (circuit: Circuit) : int<gate> =
+        let totalGates (circuit: CircuitCostProfile) : int<gate> =
             circuit.SingleQubitGates + circuit.TwoQubitGates + circuit.Measurements
         
         /// Calculate circuit depth (simplified - actual depth requires gate scheduling)
-        let depth (circuit: Circuit) : int<gate> =
+        let depth (circuit: CircuitCostProfile) : int<gate> =
             totalGates circuit  // Conservative estimate: assume no parallelism
     
     // ============================================================================
@@ -160,16 +162,18 @@ module CostEstimation =
         }
     
     // ============================================================================
-    // COST ESTIMATION RESULTS
+    // COST BACKEND TYPES (for cost calculation)
     // ============================================================================
     
-    /// Backend type for cost estimation
-    type Backend =
+    /// Supported quantum backends for cost estimation
+    /// Note: This is a simplified backend model used only for pricing.
+    /// For full backend representation, see Types.Backend
+    type CostBackend =
         | IonQ of useErrorMitigation: bool
         | Quantinuum
         | Rigetti
     
-    module Backend =
+    module CostBackend =
         /// Get backend display name
         let name = function
             | IonQ true -> "IonQ (with error mitigation)"
@@ -198,7 +202,7 @@ module CostEstimation =
     /// Complete cost estimate with range and warnings
     type CostEstimate = {
         /// Target backend
-        Backend: Backend
+        Backend: CostBackend
         
         /// Minimum possible cost
         MinimumCost: decimal<USD>
@@ -226,7 +230,7 @@ module CostEstimation =
     /// Calculate IonQ cost based on gate counts and shots
     let calculateIonQCost 
         (pricing: IonQPricing) 
-        (circuit: Circuit) 
+        (circuit: CircuitCostProfile) 
         (shots: int<shot>) 
         (useErrorMitigation: bool) 
         : CostEstimate =
@@ -270,7 +274,7 @@ module CostEstimation =
     /// Calculate Quantinuum cost in HQC (Hardware Quantum Credits)
     let calculateQuantinuumHQC 
         (pricing: QuantinuumPricing) 
-        (circuit: Circuit) 
+        (circuit: CircuitCostProfile) 
         (shots: int<shot>) 
         : int<HQC> =
         
@@ -293,7 +297,7 @@ module CostEstimation =
     /// Calculate Quantinuum cost estimate
     let calculateQuantinuumCost 
         (pricing: QuantinuumPricing) 
-        (circuit: Circuit) 
+        (circuit: CircuitCostProfile) 
         (shots: int<shot>) 
         : CostEstimate =
         
@@ -317,7 +321,7 @@ module CostEstimation =
     /// Estimate circuit execution time on Rigetti hardware
     let estimateRigettiExecutionTime 
         (timing: GateTiming) 
-        (circuit: Circuit) 
+        (circuit: CircuitCostProfile) 
         : float<ms> =
         
         let gateCount1Q = float (int circuit.SingleQubitGates)
@@ -333,7 +337,7 @@ module CostEstimation =
     let calculateRigettiCost 
         (pricing: RigettiPricing) 
         (timing: GateTiming) 
-        (circuit: Circuit) 
+        (circuit: CircuitCostProfile) 
         (shots: int<shot>) 
         : CostEstimate =
         
@@ -370,8 +374,8 @@ module CostEstimation =
     
     /// Estimate cost for a circuit on specified backend
     let estimateCost 
-        (backend: Backend) 
-        (circuit: Circuit) 
+        (backend: CostBackend) 
+        (circuit: CircuitCostProfile) 
         (shots: int<shot>) 
         : Result<CostEstimate, string> =
         
@@ -402,8 +406,8 @@ module CostEstimation =
     
     /// Compare costs across multiple backends
     let compareCosts 
-        (backends: Backend list) 
-        (circuit: Circuit) 
+        (backends: CostBackend list) 
+        (circuit: CircuitCostProfile) 
         (shots: int<shot>) 
         : Result<CostEstimate list, string> =
         
@@ -419,10 +423,10 @@ module CostEstimation =
     
     /// Find the cheapest backend from a list of options
     let findCheapestBackend 
-        (backends: Backend list) 
-        (circuit: Circuit) 
+        (backends: CostBackend list) 
+        (circuit: CircuitCostProfile) 
         (shots: int<shot>) 
-        : Result<Backend * CostEstimate, string> =
+        : Result<CostBackend * CostEstimate, string> =
         
         if backends.IsEmpty then
             Error "No backends provided"
@@ -440,10 +444,10 @@ module CostEstimation =
     /// Cost optimization recommendation
     type CostRecommendation = {
         /// Current backend being used
-        CurrentBackend: Backend
+        CurrentBackend: CostBackend
         
         /// Recommended cheaper backend
-        RecommendedBackend: Backend
+        RecommendedBackend: CostBackend
         
         /// Potential cost savings (USD)
         PotentialSavings: decimal<USD>
@@ -459,7 +463,7 @@ module CostEstimation =
     }
     
     /// Format backend name for display
-    let private formatBackendName (backend: Backend) : string =
+    let private formatBackendName (backend: CostBackend) : string =
         match backend with
         | IonQ true -> "IonQ (with error mitigation)"
         | IonQ false -> "IonQ (without error mitigation)"
@@ -469,9 +473,9 @@ module CostEstimation =
     /// Generate cost optimization recommendation
     /// Returns Some recommendation if savings >= 20%, None if current is optimal
     let recommendCostOptimization
-        (currentBackend: Backend)
-        (availableBackends: Backend list)
-        (circuit: Circuit)
+        (currentBackend: CostBackend)
+        (availableBackends: CostBackend list)
+        (circuit: CircuitCostProfile)
         (shots: int<shot>)
         : Result<CostRecommendation option, string> =
         
@@ -590,7 +594,7 @@ module CostEstimation =
         JobId: string
         
         /// Backend used
-        Backend: Backend
+        Backend: CostBackend
         
         /// Estimated cost before execution
         EstimatedCost: decimal<USD>
@@ -602,7 +606,7 @@ module CostEstimation =
         Timestamp: DateTimeOffset
         
         /// Circuit characteristics
-        Circuit: Circuit
+        Circuit: CircuitCostProfile
         
         /// Shots executed
         Shots: int<shot>
@@ -685,7 +689,7 @@ module CostEstimation =
             |> List.sumBy (fun r -> r.ActualCost |> Option.defaultValue r.EstimatedCost)
         
         /// Get spending by backend
-        let getSpendingByBackend (tracker: CostTracker) : Map<Backend, decimal<USD>> =
+        let getSpendingByBackend (tracker: CostTracker) : Map<CostBackend, decimal<USD>> =
             tracker.Records
             |> List.groupBy (fun r -> r.Backend)
             |> List.map (fun (backend, records) ->

@@ -34,8 +34,10 @@ module CircuitValidator =
         ConnectedPairs: Set<int * int>
     }
     
-    /// Simple circuit representation for validation
-    type Circuit = {
+    /// Circuit statistics for validation
+    /// Note: This is a statistical summary, not a full circuit representation.
+    /// For full circuit representation, see CircuitBuilder.Circuit
+    type CircuitStats = {
         /// Number of qubits used in circuit
         NumQubits: int
         
@@ -141,14 +143,14 @@ module CircuitValidator =
     // ============================================================================
     
     /// Validate circuit qubit count against backend limits
-    let validateQubitCount (constraints: BackendConstraints) (circuit: Circuit) : Result<unit, ValidationError> =
+    let validateQubitCount (constraints: BackendConstraints) (circuit: CircuitStats) : Result<unit, ValidationError> =
         if circuit.NumQubits <= constraints.MaxQubits then
             Ok ()
         else
             Error (QubitCountExceeded(circuit.NumQubits, constraints.MaxQubits, constraints.Name))
     
     /// Validate circuit gate set against backend supported gates
-    let validateGateSet (constraints: BackendConstraints) (circuit: Circuit) : Result<unit, ValidationError list> =
+    let validateGateSet (constraints: BackendConstraints) (circuit: CircuitStats) : Result<unit, ValidationError list> =
         let unsupportedGates = 
             circuit.UsedGates
             |> Set.filter (fun gate -> not (constraints.SupportedGates.Contains gate))
@@ -163,7 +165,7 @@ module CircuitValidator =
             |> Error
     
     /// Validate circuit depth against backend limits
-    let validateCircuitDepth (constraints: BackendConstraints) (circuit: Circuit) : Result<unit, ValidationError> =
+    let validateCircuitDepth (constraints: BackendConstraints) (circuit: CircuitStats) : Result<unit, ValidationError> =
         match constraints.MaxCircuitDepth with
         | None -> Ok ()  // No depth limit
         | Some maxDepth ->
@@ -173,7 +175,7 @@ module CircuitValidator =
                 Error (CircuitDepthExceeded(circuit.GateCount, maxDepth, constraints.Name))
     
     /// Validate two-qubit gate connectivity against backend constraints
-    let validateConnectivity (constraints: BackendConstraints) (circuit: Circuit) : Result<unit, ValidationError list> =
+    let validateConnectivity (constraints: BackendConstraints) (circuit: CircuitStats) : Result<unit, ValidationError list> =
         // If backend has all-to-all connectivity, all connections are valid
         if constraints.HasAllToAllConnectivity then
             Ok ()
@@ -196,7 +198,7 @@ module CircuitValidator =
     
     /// Validate entire circuit against backend constraints
     /// Runs all validation checks and collects all errors
-    let validateCircuit (constraints: BackendConstraints) (circuit: Circuit) : Result<unit, ValidationError list> =
+    let validateCircuit (constraints: BackendConstraints) (circuit: CircuitStats) : Result<unit, ValidationError list> =
         let results = [
             // Run qubit count validation (single error)
             validateQubitCount constraints circuit
