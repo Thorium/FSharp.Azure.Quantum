@@ -73,8 +73,8 @@
     <Compile Include="ReadoutErrorMitigation.fs" />
     <Compile Include="ErrorMitigationStrategy.fs" />
     <Compile Include="PerformanceBenchmarking.fs" />
-    <Compile Include="QuantumChemistry.fs" />
     <Compile Include="QaoaCircuit.fs" />
+    <Compile Include="QuantumChemistry.fs" />
     <Compile Include="QaoaOptimizer.fs" />
     <Compile Include="QuantumBackend.fs" />
   </ItemGroup>
