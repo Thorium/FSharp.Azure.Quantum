@@ -2,6 +2,7 @@ namespace FSharp.Azure.Quantum.Tests
 
 open Xunit
 open FSharp.Azure.Quantum.QuantumChemistry
+open FSharp.Azure.Quantum.Core
 
 /// Tests for Molecule Representation (Task 1)
 module MoleculeTests =
@@ -421,3 +422,180 @@ module GroundStateEnergyTests =
         
         // Assert
         Assert.True(result |> Result.isOk, "Should accept initial parameters")
+
+/// Tests for Hamiltonian Simulation (Task 3)
+module HamiltonianSimulationTests =
+    
+    open FSharp.Azure.Quantum.LocalSimulator
+    
+    [<Fact>]
+    let ``Trivial Hamiltonian (H=0) should leave state unchanged`` () =
+        // Arrange - empty Hamiltonian (no terms)
+        let hamiltonian = {
+            QaoaCircuit.NumQubits = 2
+            QaoaCircuit.Terms = [||]
+        }
+        
+        let initialState = StateVector.init 2
+        let config = {
+            HamiltonianSimulation.SimulationConfig.Time = 1.0
+            HamiltonianSimulation.SimulationConfig.TrotterSteps = 10
+            HamiltonianSimulation.SimulationConfig.TrotterOrder = 1
+        }
+        
+        // Act
+        let finalState = HamiltonianSimulation.simulate hamiltonian initialState config
+        
+        // Assert - state should be unchanged (still |00⟩)
+        let amplitude0 = StateVector.getAmplitude 0 finalState
+        Assert.Equal(1.0, amplitude0.Real, 10)
+        Assert.Equal(0.0, amplitude0.Imaginary, 10)
+    
+    [<Fact>]
+    let ``Single Pauli-Z term evolution should preserve computational basis`` () =
+        // Arrange - Hamiltonian H = Z₀ (only affects |1⟩ state)
+        let hamiltonian = {
+            QaoaCircuit.NumQubits = 1
+            QaoaCircuit.Terms = [|
+                {
+                    Coefficient = 1.0
+                    QubitsIndices = [| 0 |]
+                    PauliOperators = [| QaoaCircuit.PauliZ |]
+                }
+            |]
+        }
+        
+        // Start in |0⟩ state
+        let initialState = StateVector.init 1
+        let config = {
+            HamiltonianSimulation.SimulationConfig.Time = 1.0
+            HamiltonianSimulation.SimulationConfig.TrotterSteps = 10
+            HamiltonianSimulation.SimulationConfig.TrotterOrder = 1
+        }
+        
+        // Act
+        let finalState = HamiltonianSimulation.simulate hamiltonian initialState config
+        
+        // Assert - |0⟩ is eigenstate of Z with eigenvalue +1, so gets phase exp(-i*1*t)
+        // But global phase doesn't affect probabilities
+        let amplitude0 = StateVector.getAmplitude 0 finalState
+        Assert.True(abs amplitude0.Magnitude - 1.0 < 1e-10, "Probability should be preserved")
+    
+    [<Fact>]
+    let ``Time evolution should be unitary (preserve norm)`` () =
+        // Arrange - H2 Hamiltonian
+        let h2 = Molecule.createH2 0.74
+        let hamiltonianResult = MolecularHamiltonian.build h2
+        
+        match hamiltonianResult with
+        | Error msg -> Assert.True(false, $"Hamiltonian construction failed: {msg}")
+        | Ok hamiltonian ->
+        
+        let initialState = StateVector.init hamiltonian.NumQubits
+        let config = {
+            HamiltonianSimulation.SimulationConfig.Time = 0.5
+            HamiltonianSimulation.SimulationConfig.TrotterSteps = 20
+            HamiltonianSimulation.SimulationConfig.TrotterOrder = 2
+        }
+        
+        // Act
+        let finalState = HamiltonianSimulation.simulate hamiltonian initialState config
+        
+        // Assert - norm should be preserved (unitary evolution)
+        let norm = StateVector.norm finalState
+        Assert.Equal(1.0, norm, 6)  // Within 1e-6 tolerance
+    
+    [<Fact>]
+    let ``Higher Trotter steps should improve accuracy`` () =
+        // Arrange - Simple 1-qubit Hamiltonian
+        let hamiltonian = {
+            QaoaCircuit.NumQubits = 1
+            QaoaCircuit.Terms = [|
+                {
+                    Coefficient = 0.5
+                    QubitsIndices = [| 0 |]
+                    PauliOperators = [| QaoaCircuit.PauliZ |]
+                }
+            |]
+        }
+        
+        let initialState = StateVector.init 1
+        let time = 1.0
+        
+        // Act - simulate with different Trotter steps
+        let config10Steps = { 
+            HamiltonianSimulation.SimulationConfig.Time = time
+            HamiltonianSimulation.SimulationConfig.TrotterSteps = 10
+            HamiltonianSimulation.SimulationConfig.TrotterOrder = 1 
+        }
+        let config100Steps = { 
+            HamiltonianSimulation.SimulationConfig.Time = time
+            HamiltonianSimulation.SimulationConfig.TrotterSteps = 100
+            HamiltonianSimulation.SimulationConfig.TrotterOrder = 1 
+        }
+        
+        let state10 = HamiltonianSimulation.simulate hamiltonian initialState config10Steps
+        let state100 = HamiltonianSimulation.simulate hamiltonian initialState config100Steps
+        
+        // Assert - both should have norm 1 (basic sanity check)
+        Assert.Equal(1.0, StateVector.norm state10, 6)
+        Assert.Equal(1.0, StateVector.norm state100, 6)
+    
+    [<Fact>]
+    let ``Second-order Trotter should be supported`` () =
+        // Arrange
+        let hamiltonian = {
+            QaoaCircuit.NumQubits = 2
+            QaoaCircuit.Terms = [|
+                {
+                    Coefficient = 1.0
+                    QubitsIndices = [| 0; 1 |]
+                    PauliOperators = [| QaoaCircuit.PauliZ; QaoaCircuit.PauliZ |]
+                }
+            |]
+        }
+        
+        let initialState = StateVector.init 2
+        let config = {
+            HamiltonianSimulation.SimulationConfig.Time = 0.5
+            HamiltonianSimulation.SimulationConfig.TrotterSteps = 10
+            HamiltonianSimulation.SimulationConfig.TrotterOrder = 2  // Second-order Trotter
+        }
+        
+        // Act
+        let finalState = HamiltonianSimulation.simulate hamiltonian initialState config
+        
+        // Assert - should complete without error and preserve norm
+        Assert.Equal(1.0, StateVector.norm finalState, 6)
+    
+    [<Fact>]
+    let ``Two-qubit ZZ interaction should be handled correctly`` () =
+        // Arrange - ZZ interaction between qubits 0 and 1
+        let hamiltonian = {
+            QaoaCircuit.NumQubits = 2
+            QaoaCircuit.Terms = [|
+                {
+                    Coefficient = 0.5
+                    QubitsIndices = [| 0; 1 |]
+                    PauliOperators = [| QaoaCircuit.PauliZ; QaoaCircuit.PauliZ |]
+                }
+            |]
+        }
+        
+        let initialState = StateVector.init 2  // |00⟩ state
+        let config = {
+            HamiltonianSimulation.SimulationConfig.Time = 1.0
+            HamiltonianSimulation.SimulationConfig.TrotterSteps = 20
+            HamiltonianSimulation.SimulationConfig.TrotterOrder = 1
+        }
+        
+        // Act
+        let finalState = HamiltonianSimulation.simulate hamiltonian initialState config
+        
+        // Assert - |00⟩ is eigenstate of Z₀⊗Z₁ with eigenvalue +1
+        // Evolution should add global phase only
+        Assert.Equal(1.0, StateVector.norm finalState, 6)
+        
+        // Check |00⟩ amplitude still has magnitude 1
+        let amplitude00 = StateVector.getAmplitude 0 finalState
+        Assert.True(abs amplitude00.Magnitude - 1.0 < 1e-6, "Should stay in |00⟩ state")

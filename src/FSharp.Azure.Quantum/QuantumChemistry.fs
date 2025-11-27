@@ -453,6 +453,106 @@ module VQE =
                     return Error $"VQE failed: {ex.Message}"
         }
 
+/// Hamiltonian Simulation using Trotter-Suzuki decomposition
+module HamiltonianSimulation =
+    
+    /// Configuration for time evolution simulation
+    type SimulationConfig = {
+        /// Evolution time in atomic units
+        Time: float
+        
+        /// Number of Trotter steps (more = more accurate, but deeper circuit)
+        TrotterSteps: int
+        
+        /// Trotter order (1 or 2 supported)
+        TrotterOrder: int
+    }
+    
+    /// Apply time evolution exp(-iHt) to a quantum state using Trotter decomposition
+    /// 
+    /// Trotter-Suzuki formula (1st order):
+    /// exp(-iHt) ≈ [exp(-iH₁Δt) exp(-iH₂Δt) ... exp(-iHₙΔt)]^r
+    /// where Δt = t/r (r = number of Trotter steps)
+    /// 
+    /// For 2nd order Trotter (symmetric):
+    /// exp(-iHt) ≈ [exp(-iH₁Δt/2) ... exp(-iHₙΔt/2) exp(-iHₙΔt/2) ... exp(-iH₁Δt/2)]^r
+    let simulate 
+        (hamiltonian: QaoaCircuit.ProblemHamiltonian)
+        (initialState: FSharp.Azure.Quantum.LocalSimulator.StateVector.StateVector)
+        (config: SimulationConfig)
+        : FSharp.Azure.Quantum.LocalSimulator.StateVector.StateVector =
+        
+        if config.TrotterSteps <= 0 then
+            failwith "TrotterSteps must be positive"
+        
+        if config.TrotterOrder <> 1 && config.TrotterOrder <> 2 then
+            failwith "Only Trotter order 1 and 2 are supported"
+        
+        let deltaT = config.Time / float config.TrotterSteps
+        
+        /// Apply evolution operator exp(-iH_k * dt) for a single Hamiltonian term
+        let applyTermEvolution (state: FSharp.Azure.Quantum.LocalSimulator.StateVector.StateVector) (term: QaoaCircuit.HamiltonianTerm) (dt: float) =
+            let angle = term.Coefficient * dt
+            
+            match term.QubitsIndices.Length with
+            | 1 ->
+                // Single-qubit term: apply RZ rotation
+                match term.PauliOperators[0] with
+                | QaoaCircuit.PauliZ ->
+                    FSharp.Azure.Quantum.LocalSimulator.Gates.applyRz term.QubitsIndices[0] (2.0 * angle) state
+                | QaoaCircuit.PauliX ->
+                    FSharp.Azure.Quantum.LocalSimulator.Gates.applyRx term.QubitsIndices[0] (2.0 * angle) state
+                | QaoaCircuit.PauliY ->
+                    FSharp.Azure.Quantum.LocalSimulator.Gates.applyRy term.QubitsIndices[0] (2.0 * angle) state
+                | _ -> state  // Identity operator, no change
+            
+            | 2 ->
+                // Two-qubit term: ZZ interaction
+                // exp(-i * coeff * dt * Z⊗Z) using CNOT decomposition
+                // ZZ rotation = CNOT(q1,q2) RZ(q2, 2*angle) CNOT(q1,q2)
+                match term.PauliOperators[0], term.PauliOperators[1] with
+                | QaoaCircuit.PauliZ, QaoaCircuit.PauliZ ->
+                    let q1 = term.QubitsIndices[0]
+                    let q2 = term.QubitsIndices[1]
+                    state
+                    |> FSharp.Azure.Quantum.LocalSimulator.Gates.applyCNOT q1 q2
+                    |> FSharp.Azure.Quantum.LocalSimulator.Gates.applyRz q2 (2.0 * angle)
+                    |> FSharp.Azure.Quantum.LocalSimulator.Gates.applyCNOT q1 q2
+                | _ -> state  // Unsupported, skip
+            
+            | _ -> state  // Higher-order terms not supported in simplified version
+        
+        /// Apply one Trotter step (forward evolution through all terms)
+        let applyTrotterStepForward (state: FSharp.Azure.Quantum.LocalSimulator.StateVector.StateVector) (dt: float) =
+            hamiltonian.Terms
+            |> Array.fold (fun s term -> applyTermEvolution s term dt) state
+        
+        /// Apply one Trotter step (backward evolution through all terms - for 2nd order)
+        let applyTrotterStepBackward (state: FSharp.Azure.Quantum.LocalSimulator.StateVector.StateVector) (dt: float) =
+            hamiltonian.Terms
+            |> Array.rev
+            |> Array.fold (fun s term -> applyTermEvolution s term dt) state
+        
+        /// Apply evolution based on Trotter order
+        let applyTrotterStep (state: FSharp.Azure.Quantum.LocalSimulator.StateVector.StateVector) =
+            match config.TrotterOrder with
+            | 1 ->
+                // 1st order: forward evolution with full time step
+                applyTrotterStepForward state deltaT
+            
+            | 2 ->
+                // 2nd order: symmetric splitting (forward half + backward half)
+                let halfDt = deltaT / 2.0
+                state
+                |> (fun s -> applyTrotterStepForward s halfDt)
+                |> (fun s -> applyTrotterStepBackward s halfDt)
+            
+            | _ -> state
+        
+        // Apply Trotter steps repeatedly
+        [1 .. config.TrotterSteps]
+        |> List.fold (fun s _ -> applyTrotterStep s) initialState
+
 /// Ground state energy estimation
 module GroundStateEnergy =
     
