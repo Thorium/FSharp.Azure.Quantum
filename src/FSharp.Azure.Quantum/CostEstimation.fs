@@ -694,3 +694,74 @@ module CostEstimation =
                     |> List.sumBy (fun r -> r.ActualCost |> Option.defaultValue r.EstimatedCost)
                 backend, total)
             |> Map.ofList
+    
+    // ============================================================================
+    // CLI COST DASHBOARD
+    // ============================================================================
+    
+    /// Display cost dashboard to console
+    let displayCostDashboard (records: CostTrackingRecord list) : unit =
+        printfn "\n=== Cost Dashboard ==="
+        
+        if records.IsEmpty then
+            printfn "\nNo cost records to display."
+        else
+            // Helper to convert USD to float for display
+            let usdFloat (cost: decimal<USD>) = float (cost / 1.0M<USD>)
+            
+            // Today's spending
+            let today = DateTimeOffset.UtcNow.Date
+            let todayRecords = 
+                records 
+                |> List.filter (fun r -> r.Timestamp.Date = today)
+            
+            let todaySpend = 
+                todayRecords
+                |> List.sumBy (fun r -> r.ActualCost |> Option.defaultValue r.EstimatedCost)
+            
+            printfn "\n📅 Today: $%.2f (%d jobs)" (usdFloat todaySpend) todayRecords.Length
+            
+            // This month's spending
+            let thisMonth = DateTimeOffset.UtcNow.Year, DateTimeOffset.UtcNow.Month
+            let monthlyRecords =
+                records
+                |> List.filter (fun r -> (r.Timestamp.Year, r.Timestamp.Month) = thisMonth)
+            
+            let monthlySpend =
+                monthlyRecords
+                |> List.sumBy (fun r -> r.ActualCost |> Option.defaultValue r.EstimatedCost)
+            
+            printfn "📆 This Month: $%.2f (%d jobs)" (usdFloat monthlySpend) monthlyRecords.Length
+            
+            // Total spending
+            let totalSpend = 
+                records 
+                |> List.sumBy (fun r -> r.ActualCost |> Option.defaultValue r.EstimatedCost)
+            
+            printfn "💰 Total: $%.2f (%d jobs)" (usdFloat totalSpend) records.Length
+            
+            // Breakdown by backend
+            printfn "\n📊 Spending by Backend:"
+            records
+            |> List.groupBy (fun r -> r.Backend)
+            |> List.sortByDescending (fun (_, recs) -> 
+                recs |> List.sumBy (fun r -> r.ActualCost |> Option.defaultValue r.EstimatedCost))
+            |> List.iter (fun (backend, recs) ->
+                let total = recs |> List.sumBy (fun r -> r.ActualCost |> Option.defaultValue r.EstimatedCost)
+                printfn "  %s: $%.2f (%d jobs)" (formatBackendName backend) (usdFloat total) recs.Length)
+            
+            // Estimate accuracy
+            let recordsWithActual = 
+                records 
+                |> List.filter (fun r -> r.ActualCost.IsSome)
+            
+            if not recordsWithActual.IsEmpty then
+                let accuracyErrors =
+                    recordsWithActual
+                    |> List.map (fun r -> 
+                        let actual = r.ActualCost.Value
+                        let estimated = r.EstimatedCost
+                        abs(float ((actual - estimated) / actual)))
+                
+                let avgError = (List.average accuracyErrors) * 100.0
+                printfn "\n📈 Estimate Accuracy: %.1f%% average error" avgError

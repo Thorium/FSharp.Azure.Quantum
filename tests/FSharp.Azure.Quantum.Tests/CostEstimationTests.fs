@@ -683,3 +683,39 @@ let ``recommendCostOptimization suggests cheaper backend`` () =
         Assert.Fail("Expected recommendation for expensive backend but got None")
     | Error msg ->
         Assert.Fail(sprintf "Expected success but got error: %s" msg)
+
+// ============================================================================
+// CLI DASHBOARD TESTS (TKT-48)
+// ============================================================================
+
+[<Fact>]
+let ``displayCostDashboard shows spending summary`` () =
+    // Arrange
+    let now = System.DateTimeOffset.UtcNow
+    let circuit = createSimpleCircuit 50 30 2 2
+    let records = [
+        {
+            JobId = "job-1"
+            Backend = IonQ false
+            EstimatedCost = 50.0M<USD>
+            ActualCost = Some 52.0M<USD>
+            Timestamp = now
+            Circuit = circuit
+            Shots = 1000<shot>
+        }
+        {
+            JobId = "job-2"
+            Backend = Rigetti
+            EstimatedCost = 30.0M<USD>
+            ActualCost = Some 28.0M<USD>
+            Timestamp = now.AddHours(-1.0)
+            Circuit = circuit
+            Shots = 1000<shot>
+        }
+    ]
+    
+    // Act - should not throw exception
+    displayCostDashboard records
+    
+    // Assert - if we get here without exception, test passes
+    Assert.True(true)
