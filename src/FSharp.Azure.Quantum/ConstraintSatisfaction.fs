@@ -291,8 +291,8 @@ module ConstraintSatisfaction =
         // CONSTRAINT ENCODING
         let constraintTerms =
             problem.Constraints
-            |> List.collect (fun constraint ->
-                match constraint with
+            |> List.collect (fun constr ->
+                match constr with
                 | AllDifferent varNames ->
                     // For each pair of variables and each domain value
                     varNames
@@ -389,14 +389,14 @@ module ConstraintSatisfaction =
         // Validate constraints
         let violations =
             problem.Constraints
-            |> List.choose (fun constraint ->
-                match constraint with
+            |> List.choose (fun constr ->
+                match constr with
                 | AllDifferent varNames ->
                     let values = varNames |> List.choose (fun name -> assignments.TryFind name)
                     let uniqueValues = values |> List.distinct
                     if values.Length <> uniqueValues.Length then
                         Some {
-                            Constraint = constraint
+                            Constraint = constr
                             Description = $"AllDifferent violation: {varNames}"
                             Severity = DefaultPenalty
                         }
@@ -408,7 +408,7 @@ module ConstraintSatisfaction =
                     | Some val1, Some val2 ->
                         if not (predicate (val1, val2)) then
                             Some {
-                                Constraint = constraint
+                                Constraint = constr
                                 Description = $"Binary constraint violation: {v1}={val1}, {v2}={val2}"
                                 Severity = DefaultPenalty
                             }
@@ -419,7 +419,7 @@ module ConstraintSatisfaction =
                 | Custom predicate ->
                     if not (predicate assignments) then
                         Some {
-                            Constraint = constraint
+                            Constraint = constr
                             Description = "Custom constraint violation"
                             Severity = DefaultPenalty
                         }
@@ -455,8 +455,8 @@ module ConstraintSatisfaction =
         /// Check if an assignment is consistent with constraints
         let isConsistent (assignments: Map<string, 'T>) =
             problem.Constraints
-            |> List.forall (fun constraint ->
-                match constraint with
+            |> List.forall (fun constr ->
+                match constr with
                 | AllDifferent varNames ->
                     let assignedVars = varNames |> List.filter assignments.ContainsKey
                     let values = assignedVars |> List.map (fun v -> assignments.[v])

@@ -240,10 +240,10 @@ let optimizeSupplyChain
                             |> Map.change nodeId (Option.map (fun cap -> cap - flowAmount))
                     
                     // Record flow allocations for each edge in path
-                    for (from, to_) in (path |> List.pairwise) do
+                    for (from, toNode) in (path |> List.pairwise) do
                         let edgeCost =
                             edges
-                            |> List.tryFind (fun e -> e.From = from && e.To = to_)
+                            |> List.tryFind (fun e -> e.From = from && e.To = toNode)
                             |> Option.map (fun e -> e.TransportCost)
                             |> Option.defaultValue 0.0
                         
@@ -436,8 +436,8 @@ let generateBusinessInsights (solution: SupplyChainSolution) : string list =
         else
             sprintf "  ⚠ Operating at a loss ($%.2f)" solution.Profit
         
-        sprintf "  ✓ Multi-stage optimization minimizes total logistics cost"
-        sprintf "  ✓ Greedy algorithm provides good solution in <10ms"
+        "  ✓ Multi-stage optimization minimizes total logistics cost"
+        "  ✓ Greedy algorithm provides good solution in <10ms"
         ""
     ]
 

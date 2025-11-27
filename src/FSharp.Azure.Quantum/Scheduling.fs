@@ -252,8 +252,8 @@ module Scheduling =
             { this with dependencies = dependency :: this.dependencies }
         
         /// Fluent API: Add a scheduling constraint
-        member this.AddConstraint(constraint: SchedulingConstraint) =
-            { this with constraints = constraint :: this.constraints }
+        member this.AddConstraint(constr: SchedulingConstraint) =
+            { this with constraints = constr :: this.constraints }
         
         /// Fluent API: Set optimization objective
         member this.Objective(obj: SchedulingObjective) =

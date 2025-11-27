@@ -922,8 +922,8 @@ module GraphOptimization =
     /// </example>
     let validateConstraints (problem: GraphOptimizationProblem<'TNode, 'TEdge>) (solution: GraphOptimizationSolution<'TNode, 'TEdge>) : bool =
         problem.Constraints
-        |> List.forall (fun constraint ->
-            match constraint with
+        |> List.forall (fun constr ->
+            match constr with
             | NoAdjacentEqual ->
                 // Check that no adjacent nodes have the same color
                 match solution.NodeAssignments with
@@ -961,4 +961,36 @@ module GraphOptimization =
             | Connected ->
                 // Check graph connectivity (simplified: assume valid if has edges)
                 problem.Graph.Edges.Length > 0
+            
+            | MinDegree minDegree ->
+                // Check that all nodes have degree >= minDegree
+                problem.Graph.Adjacency
+                |> Map.forall (fun _ neighbors -> neighbors.Length >= minDegree)
+            
+            | OneIncoming ->
+                // Check that each node has exactly one incoming edge
+                match solution.SelectedEdges with
+                | Some edges ->
+                    let nodeIds = problem.Graph.Nodes |> Map.toList |> List.map fst
+                    nodeIds
+                    |> List.forall (fun nodeId ->
+                        let incomingCount = edges |> List.filter (fun e -> e.Target = nodeId) |> List.length
+                        incomingCount = 1)
+                | None -> true
+            
+            | OneOutgoing ->
+                // Check that each node has exactly one outgoing edge
+                match solution.SelectedEdges with
+                | Some edges ->
+                    let nodeIds = problem.Graph.Nodes |> Map.toList |> List.map fst
+                    nodeIds
+                    |> List.forall (fun nodeId ->
+                        let outgoingCount = edges |> List.filter (fun e -> e.Source = nodeId) |> List.length
+                        outgoingCount = 1)
+                | None -> true
+            
+            | GraphConstraint.Custom predicate ->
+                // Custom constraint validation using provided predicate
+                // Note: predicate takes the graph, not problem/solution
+                predicate (box problem.Graph :?> Graph<obj, obj>)
         )
