@@ -113,3 +113,57 @@ module SubsetSelectionTests =
             
         | Error msg ->
             Assert.Fail($"Solver failed: {msg}")
+    
+    [<Fact>]
+    let ``Integration: Real-world portfolio optimization selects optimal investments`` () =
+        // Arrange - Portfolio optimization: maximize ROI within budget constraint
+        // Scenario: Startup has $50k budget, must select from 6 investment opportunities
+        let marketing = SubsetSelection.itemMulti "marketing" "Digital Marketing Campaign" ["cost", 15000.0; "roi", 45000.0; "risk", 0.3]
+        let hiring = SubsetSelection.itemMulti "hiring" "Hire Senior Developer" ["cost", 25000.0; "roi", 80000.0; "risk", 0.2]
+        let infrastructure = SubsetSelection.itemMulti "infra" "Cloud Infrastructure Upgrade" ["cost", 10000.0; "roi", 30000.0; "risk", 0.1]
+        let productFeature = SubsetSelection.itemMulti "feature" "Premium Feature Development" ["cost", 20000.0; "roi", 60000.0; "risk", 0.4]
+        let researchDev = SubsetSelection.itemMulti "rd" "R&D Prototype" ["cost", 18000.0; "roi", 50000.0; "risk", 0.5]
+        let sales = SubsetSelection.itemMulti "sales" "Sales Team Expansion" ["cost", 22000.0; "roi", 70000.0; "risk", 0.25]
+        
+        let problem =
+            SubsetSelection.SubsetSelectionBuilder.Create()
+                .Items([marketing; hiring; infrastructure; productFeature; researchDev; sales])
+                .AddConstraint(SubsetSelection.MaxLimit("cost", 50000.0))
+                .Objective(SubsetSelection.MaximizeWeight("roi"))
+                .Build()
+        
+        // Act - solve portfolio optimization
+        let result = SubsetSelection.solveKnapsack problem "cost" "roi"
+        
+        // Assert
+        match result with
+        | Ok solution ->
+            Assert.True(solution.IsFeasible, "Solution must be within budget")
+            
+            // Verify budget constraint satisfied
+            let totalCost = solution.TotalWeights.["cost"]
+            Assert.True(totalCost <= 50000.0, $"Budget exceeded: {totalCost}")
+            
+            // Optimal selection should maximize ROI
+            let totalROI = solution.ObjectiveValue
+            Assert.True(totalROI > 0.0, "Should have positive ROI")
+            
+            // Log selected investments for business visibility
+            let selectedNames = 
+                solution.SelectedItems 
+                |> List.map (fun item -> item.Value) 
+                |> String.concat ", "
+            
+            // Verify reasonable solution (at least 2 investments selected)
+            Assert.True(solution.SelectedItems.Length >= 2, 
+                $"Should select multiple investments. Selected: {selectedNames}")
+            
+            // Business metrics
+            let avgRisk = 
+                solution.SelectedItems
+                |> List.averageBy (fun item -> item.Weights.["risk"])
+            
+            Assert.True(avgRisk >= 0.0 && avgRisk <= 1.0, "Risk should be normalized 0-1")
+            
+        | Error msg ->
+            Assert.Fail($"Portfolio optimization failed: {msg}")
