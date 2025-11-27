@@ -93,13 +93,14 @@ module QuantumBackendTests =
         | Ok _ -> Assert.Fail("Should have rejected zero shots")
         | Error msg -> Assert.Contains("positive", msg)
     
-    [<Fact>]
-    let ``Azure backend returns not implemented error`` () =
-        let circuit = createSimpleQaoaCircuit ()
-        
-        match Azure.execute circuit 100 () with
-        | Ok _ -> Assert.Fail("Azure backend should not be implemented yet")
-        | Error msg -> Assert.Contains("not yet implemented", msg)
+    // v2.0: Azure backend tests (currently internal, will be public in v2.0)
+    // [<Fact>]
+    // let ``Azure backend returns not implemented error`` () =
+    //     let circuit = createSimpleQaoaCircuit ()
+    //     
+    //     match Azure.execute circuit 100 () with
+    //     | Ok _ -> Assert.Fail("Azure backend should not be implemented yet")
+    //     | Error msg -> Assert.Contains("not yet implemented", msg)
     
     [<Fact>]
     let ``Execute with Local backend type`` () =
@@ -112,13 +113,14 @@ module QuantumBackendTests =
         | Error msg -> 
             Assert.Fail($"Execution failed: {msg}")
     
-    [<Fact>]
-    let ``Execute with Azure backend type returns error`` () =
-        let circuit = createSimpleQaoaCircuit ()
-        
-        match execute (Azure ()) circuit 100 with
-        | Ok _ -> Assert.Fail("Azure should not be implemented")
-        | Error msg -> Assert.Contains("not yet implemented", msg)
+    // v2.0: Azure backend type test (currently internal, will be public in v2.0)
+    // [<Fact>]
+    // let ``Execute with Azure backend type returns error`` () =
+    //     let circuit = createSimpleQaoaCircuit ()
+    //     
+    //     match execute (Azure ()) circuit 100 with
+    //     | Ok _ -> Assert.Fail("Azure should not be implemented")
+    //     | Error msg -> Assert.Contains("not yet implemented", msg)
     
     [<Fact>]
     let ``AutoExecute uses local for small circuits`` () =
@@ -152,14 +154,15 @@ module QuantumBackendTests =
         | Error msg -> 
             Assert.Fail($"Execution failed: {msg}")
     
-    [<Fact>]
-    let ``Interface-based backend - Azure placeholder`` () =
-        let backend = AzureBackend(()) :> IBackend
-        let circuit = createSimpleQaoaCircuit ()
-        
-        match backend.Execute circuit 100 with
-        | Ok _ -> Assert.Fail("Azure backend should not be implemented")
-        | Error msg -> Assert.Contains("not yet implemented", msg)
+    // v2.0: Azure backend interface test (currently internal, will be public in v2.0)
+    // [<Fact>]
+    // let ``Interface-based backend - Azure placeholder`` () =
+    //     let backend = AzureBackend(()) :> IBackend
+    //     let circuit = createSimpleQaoaCircuit ()
+    //     
+    //     match backend.Execute circuit 100 with
+    //     | Ok _ -> Assert.Fail("Azure backend should not be implemented")
+    //     | Error msg -> Assert.Contains("not yet implemented", msg)
     
     [<Fact>]
     let ``Local backend produces consistent measurement statistics`` () =

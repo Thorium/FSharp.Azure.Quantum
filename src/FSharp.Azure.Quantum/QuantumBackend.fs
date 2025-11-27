@@ -39,11 +39,10 @@ module QuantumBackend =
         JobId: string option
     }
     
-    /// Backend type identifier
+    /// Backend type identifier (v1.0: Local only, Azure coming in v2.0)
     [<Struct>]
     type BackendType =
         | Local
-        | Azure of workspace: unit  // TODO: Replace 'unit' with actual WorkspaceConfig
     
     // ============================================================================
     // LOCAL SIMULATION BACKEND
@@ -126,19 +125,27 @@ module QuantumBackend =
             | ex -> Error $"Local simulation failed: {ex.Message}"
     
     // ============================================================================
-    // AZURE QUANTUM BACKEND (PLACEHOLDER)
+    // AZURE QUANTUM BACKEND (INTERNAL - Coming in v2.0)
     // ============================================================================
     
-    module Azure =
+    module internal Azure =
         
-        /// Execute QAOA circuit on Azure Quantum (not yet implemented)
+        /// Internal Azure backend workspace configuration (v2.0)
+        type internal AzureWorkspace = {
+            SubscriptionId: string
+            ResourceGroup: string
+            WorkspaceName: string
+            Region: string
+        }
+        
+        /// Execute QAOA circuit on Azure Quantum (not yet implemented - v2.0 feature)
         /// 
         /// Takes the same QaoaCircuit type as local simulator.
         /// Will submit to Azure Quantum service and wait for results.
-        let execute (circuit: QaoaCircuit) (shots: int) (workspace: unit) : Result<ExecutionResult, string> =
-            Error "Azure Quantum backend not yet implemented. Use QuantumBackend.Local.simulate for now."
+        let internal execute (circuit: QaoaCircuit) (shots: int) (workspace: AzureWorkspace) : Result<ExecutionResult, string> =
+            Error "Azure Quantum backend planned for v2.0. Use QuantumBackend.Local.simulate for now."
             
-            // TODO: Future implementation
+            // TODO: v2.0 implementation
             // 1. Convert QaoaCircuit to Azure Quantum job format
             // 2. Submit job to workspace
             // 3. Poll for completion
@@ -180,8 +187,8 @@ module QuantumBackend =
         interface IBackend with
             member _.Execute circuit shots = Local.simulate circuit shots
     
-    /// Azure backend implementation (placeholder)
-    type AzureBackend(workspace: unit) =
+    /// Azure backend implementation (internal - v2.0)
+    type internal AzureBackend(workspace: Azure.AzureWorkspace) =
         interface IBackend with
             member _.Execute circuit shots = Azure.execute circuit shots workspace
     
@@ -189,11 +196,10 @@ module QuantumBackend =
     // CONVENIENCE FUNCTIONS
     // ============================================================================
     
-    /// Execute circuit on specified backend type
+    /// Execute circuit on specified backend type (v1.0: Local only)
     let execute (backendType: BackendType) (circuit: QaoaCircuit) (shots: int) : Result<ExecutionResult, string> =
         match backendType with
         | Local -> Local.simulate circuit shots
-        | Azure workspace -> Azure.execute circuit shots workspace
     
     /// Auto-select backend based on circuit size
     /// 
@@ -218,13 +224,13 @@ module QuantumBackend =
         ) (Ok [])
         |> Result.map List.rev
     
-    /// Execute multiple circuits in batch with automatic batching
+    /// Execute multiple circuits in batch with automatic batching (v1.0: Local only)
     /// 
     /// Submits multiple circuits using the batching strategy to amortize overhead.
     /// If batching is disabled, circuits are submitted individually.
     /// 
     /// Parameters:
-    /// - backendType: The backend to use (Local or Azure)
+    /// - backendType: The backend to use (v1.0: Local only)
     /// - circuits: List of circuits to execute
     /// - shots: Number of shots per circuit
     /// - config: Batch configuration (size, timeout, enabled)
