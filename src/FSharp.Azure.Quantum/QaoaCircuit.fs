@@ -296,3 +296,60 @@ module QaoaCircuit =
                 sb.AppendLine() |> ignore
             
             sb.ToString()
+        
+        /// Convert QaoaCircuit to general-purpose CircuitBuilder.Circuit
+        /// 
+        /// ⚠️ WARNING: This conversion LOSES QAOA-specific information:
+        /// - Layer structure (cost vs mixer)
+        /// - Parameter meanings (γ vs β)
+        /// - Hamiltonian information
+        /// - RZZ gates are decomposed to CNOT + RZ + CNOT
+        /// 
+        /// Use this ONLY when you need CircuitBuilder operations (optimize, validate).
+        /// For most use cases, work with QaoaCircuit directly or export to OpenQASM.
+        /// 
+        /// Example:
+        /// ```fsharp
+        /// let qaoa = QaoaCircuit.create quboMatrix parameters
+        /// let circuit = QaoaCircuit.toGeneralCircuit qaoa
+        /// let optimized = FSharp.Azure.Quantum.CircuitBuilder.optimize circuit
+        /// ```
+        let toGeneralCircuit (qaoa: QaoaCircuit) : FSharp.Azure.Quantum.CircuitBuilder.Circuit =
+            /// Convert QaoaCircuit.QuantumGate to CircuitBuilder.Gate
+            /// RZZ gates are decomposed using standard decomposition:
+            /// RZZ(θ) = CNOT(q1,q2) + RZ(q2, θ) + CNOT(q1,q2)
+            let convertGate (gate: QuantumGate) : FSharp.Azure.Quantum.CircuitBuilder.Gate list =
+                match gate with
+                | H q -> [FSharp.Azure.Quantum.CircuitBuilder.H q]
+                | RX (q, angle) -> [FSharp.Azure.Quantum.CircuitBuilder.RX (q, angle)]
+                | RY (q, angle) -> [FSharp.Azure.Quantum.CircuitBuilder.RY (q, angle)]
+                | RZ (q, angle) -> [FSharp.Azure.Quantum.CircuitBuilder.RZ (q, angle)]
+                | CNOT (c, t) -> [FSharp.Azure.Quantum.CircuitBuilder.CNOT (c, t)]
+                | RZZ (q1, q2, angle) ->
+                    // Standard RZZ decomposition from Nielsen & Chuang
+                    // RZZ(θ) = exp(-i θ/2 Z⊗Z) = CNOT · RZ(θ) · CNOT
+                    [
+                        FSharp.Azure.Quantum.CircuitBuilder.CNOT (q1, q2)
+                        FSharp.Azure.Quantum.CircuitBuilder.RZ (q2, angle)
+                        FSharp.Azure.Quantum.CircuitBuilder.CNOT (q1, q2)
+                    ]
+            
+            // Collect all gates: initial state + all layers (cost + mixer)
+            let allGates = 
+                [
+                    // Initial state preparation (Hadamards)
+                    for gate in qaoa.InitialStateGates do
+                        yield! convertGate gate
+                    
+                    // All QAOA layers (cost + mixer gates)
+                    for layer in qaoa.Layers do
+                        for gate in layer.CostGates do
+                            yield! convertGate gate
+                        for gate in layer.MixerGates do
+                            yield! convertGate gate
+                ]
+            
+            {
+                FSharp.Azure.Quantum.CircuitBuilder.QubitCount = qaoa.NumQubits
+                FSharp.Azure.Quantum.CircuitBuilder.Gates = allGates
+            }
