@@ -729,9 +729,42 @@ module GraphOptimization =
             createSolution problem.Graph (Some assignments) None
         
         | MinimizeTotalWeight ->
-            // Decode TSP tour
-            // TODO: Extract tour edges from QUBO solution
-            createSolution problem.Graph None (Some [])
+            // Decode TSP tour from one-hot time encoding
+            // Variables: x_{i,t} = 1 if city i visited at time t
+            // For each time slot t, find which city i has x_{i,t} = 1
+            let numNodes = nodeIds.Length
+            
+            // Helper: Get variable index for city i at time t
+            let varIndex i t = i * numNodes + t
+            
+            // Decode tour: For each time slot, find the city visited
+            let tourCities =
+                [0 .. numNodes - 1]
+                |> List.choose (fun t ->
+                    // Find city i where x_{i,t} = 1
+                    nodeIds
+                    |> List.tryFindIndex (fun nodeId ->
+                        let i = List.findIndex ((=) nodeId) nodeIds
+                        let vIdx = varIndex i t
+                        vIdx < quboSolution.Length && quboSolution.[vIdx] = 1
+                    )
+                    |> Option.map (fun cityIdx -> nodeIds.[cityIdx])
+                )
+            
+            // Extract tour edges from consecutive cities in tour
+            let tourEdges =
+                if tourCities.Length >= 2 then
+                    tourCities
+                    |> List.pairwise
+                    |> List.choose (fun (src, tgt) ->
+                        // Find edge in graph
+                        problem.Graph.Edges
+                        |> List.tryFind (fun e -> e.Source = src && e.Target = tgt)
+                    )
+                else
+                    []
+            
+            createSolution problem.Graph None (Some tourEdges)
         
         | MaximizeCut ->
             // Decode partition
