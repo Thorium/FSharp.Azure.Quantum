@@ -7,7 +7,7 @@
 /// for AI context optimization.
 ///
 /// ## Features
-/// - Gate translation (X, Y, Z, H, RX, RY, RZ, CNOT)
+/// - Gate translation (X, Y, Z, H, S, SDG, T, TDG, RX, RY, RZ, CNOT, CZ, SWAP, CCX)
 /// - Angle formatting with 10 decimal precision
 /// - Circuit validation (qubit bounds checking)
 /// - File export functionality
@@ -36,9 +36,11 @@ open System.Text
 ///
 /// <para><b>Supported Gates:</b></para>
 /// <list type="bullet">
-///   <item>Single-qubit: X, Y, Z, H</item>
-///   <item>Rotation: RX(θ), RY(θ), RZ(θ)</item>
-///   <item>Two-qubit: CNOT (CX)</item>
+///   <item>Pauli gates: X, Y, Z, H</item>
+///   <item>Phase gates: S, SDG, T, TDG</item>
+///   <item>Rotation gates: RX(θ), RY(θ), RZ(θ)</item>
+///   <item>Two-qubit gates: CNOT (CX), CZ, SWAP</item>
+///   <item>Three-qubit gates: CCX (Toffoli)</item>
 /// </list>
 ///
 /// <para><b>OpenQASM 2.0 Format:</b></para>
@@ -101,7 +103,14 @@ module OpenQasmExport =
     /// - Y(q) → y q[q];
     /// - Z(q) → z q[q];
     /// - H(q) → h q[q];
+    /// - S(q) → s q[q];
+    /// - SDG(q) → sdg q[q];
+    /// - T(q) → t q[q];
+    /// - TDG(q) → tdg q[q];
     /// - CNOT(c,t) → cx q[c],q[t];
+    /// - CZ(c,t) → cz q[c],q[t];
+    /// - SWAP(q1,q2) → swap q[q1],q[q2];
+    /// - CCX(c1,c2,t) → ccx q[c1],q[c2],q[t];
     /// - RX(q,θ) → rx(θ) q[q];
     /// - RY(q,θ) → ry(θ) q[q];
     /// - RZ(q,θ) → rz(θ) q[q];
@@ -116,8 +125,22 @@ module OpenQasmExport =
             $"z q[{q}];"
         | H q -> 
             $"h q[{q}];"
+        | S q -> 
+            $"s q[{q}];"
+        | SDG q -> 
+            $"sdg q[{q}];"
+        | T q -> 
+            $"t q[{q}];"
+        | TDG q -> 
+            $"tdg q[{q}];"
         | CNOT (control, target) -> 
             $"cx q[{control}],q[{target}];"
+        | CZ (control, target) -> 
+            $"cz q[{control}],q[{target}];"
+        | SWAP (q1, q2) -> 
+            $"swap q[{q1}],q[{q2}];"
+        | CCX (control1, control2, target) -> 
+            $"ccx q[{control1}],q[{control2}],q[{target}];"
         | RX (q, angle) -> 
             $"rx({formatAngle angle}) q[{q}];"
         | RY (q, angle) -> 
@@ -156,15 +179,38 @@ module OpenQasmExport =
                         Ok ()
                 
                 match gate with
-                | X q | Y q | Z q | H q -> 
+                | X q | Y q | Z q | H q | S q | SDG q | T q | TDG q -> 
                     checkQubit q "single-qubit gate"
                 | RX (q, _) | RY (q, _) | RZ (q, _) -> 
                     checkQubit q "rotation gate"
-                | CNOT (control, target) ->
-                    match checkQubit control "CNOT control", checkQubit target "CNOT target" with
-                    | Ok (), Ok () -> Ok ()
+                | CNOT (control, target) | CZ (control, target) ->
+                    match checkQubit control "two-qubit control", checkQubit target "two-qubit target" with
+                    | Ok (), Ok () -> 
+                        if control = target then
+                            Error "Two-qubit gate control and target must be different qubits"
+                        else
+                            Ok ()
                     | Error msg, _ -> Error msg
                     | _, Error msg -> Error msg
+                | SWAP (q1, q2) ->
+                    match checkQubit q1 "SWAP qubit1", checkQubit q2 "SWAP qubit2" with
+                    | Ok (), Ok () -> 
+                        if q1 = q2 then
+                            Error "SWAP qubits must be different"
+                        else
+                            Ok ()
+                    | Error msg, _ -> Error msg
+                    | _, Error msg -> Error msg
+                | CCX (control1, control2, target) ->
+                    match checkQubit control1 "CCX control1", checkQubit control2 "CCX control2", checkQubit target "CCX target" with
+                    | Ok (), Ok (), Ok () -> 
+                        if control1 = control2 || control1 = target || control2 = target then
+                            Error "CCX (Toffoli) control and target qubits must be distinct"
+                        else
+                            Ok ()
+                    | Error msg, _, _ -> Error msg
+                    | _, Error msg, _ -> Error msg
+                    | _, _, Error msg -> Error msg
             
             // Validate all gates
             circuit.Gates

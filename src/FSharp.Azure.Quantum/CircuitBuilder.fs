@@ -5,14 +5,30 @@ module CircuitBuilder =
 
     /// Represents a quantum gate operation
     type Gate =
+        // Pauli gates
         | X of int                    // Pauli-X gate (NOT) on qubit
         | Y of int                    // Pauli-Y gate on qubit
         | Z of int                    // Pauli-Z gate on qubit
         | H of int                    // Hadamard gate on qubit
-        | CNOT of int * int           // Controlled-NOT (control, target)
+        
+        // Phase gates
+        | S of int                    // S gate (√Z, phase gate) on qubit
+        | SDG of int                  // S-dagger (S†, inverse phase) on qubit
+        | T of int                    // T gate (√S, π/8 gate) on qubit
+        | TDG of int                  // T-dagger (T†, inverse π/8) on qubit
+        
+        // Rotation gates
         | RX of int * float           // Rotation around X-axis (qubit, angle)
         | RY of int * float           // Rotation around Y-axis (qubit, angle)
         | RZ of int * float           // Rotation around Z-axis (qubit, angle)
+        
+        // Two-qubit gates
+        | CNOT of int * int           // Controlled-NOT (control, target)
+        | CZ of int * int             // Controlled-Z (control, target)
+        | SWAP of int * int           // SWAP two qubits (qubit1, qubit2)
+        
+        // Three-qubit gates
+        | CCX of int * int * int      // Toffoli (CCNOT) (control1, control2, target)
 
     /// Represents a quantum circuit with gates and qubit count
     type Circuit = {
@@ -62,6 +78,20 @@ module CircuitBuilder =
             // Remove consecutive X gates on same qubit
             | X q1 :: X q2 :: rest when q1 = q2 ->
                 optimizeGates rest
+            // Remove S and SDG pairs on same qubit
+            | S q1 :: SDG q2 :: rest when q1 = q2 ->
+                optimizeGates rest
+            | SDG q1 :: S q2 :: rest when q1 = q2 ->
+                optimizeGates rest
+            // Remove T and TDG pairs on same qubit
+            | T q1 :: TDG q2 :: rest when q1 = q2 ->
+                optimizeGates rest
+            | TDG q1 :: T q2 :: rest when q1 = q2 ->
+                optimizeGates rest
+            // Remove consecutive SWAP gates on same qubits
+            | SWAP (q1a, q1b) :: SWAP (q2a, q2b) :: rest 
+                when (q1a = q2a && q1b = q2b) || (q1a = q2b && q1b = q2a) ->
+                optimizeGates rest
             // Fuse consecutive RX gates on same qubit
             | RX (q1, angle1) :: RX (q2, angle2) :: rest when q1 = q2 ->
                 optimizeGates (RX (q1, angle1 + angle2) :: rest)
@@ -84,7 +114,14 @@ module CircuitBuilder =
         | Y q -> $"y q[{q}];"
         | Z q -> $"z q[{q}];"
         | H q -> $"h q[{q}];"
+        | S q -> $"s q[{q}];"
+        | SDG q -> $"sdg q[{q}];"
+        | T q -> $"t q[{q}];"
+        | TDG q -> $"tdg q[{q}];"
         | CNOT (control, target) -> $"cx q[{control}],q[{target}];"
+        | CZ (control, target) -> $"cz q[{control}],q[{target}];"
+        | SWAP (q1, q2) -> $"swap q[{q1}],q[{q2}];"
+        | CCX (c1, c2, t) -> $"ccx q[{c1}],q[{c2}],q[{t}];"
         | RX (q, angle) -> $"rx({angle}) q[{q}];"
         | RY (q, angle) -> $"ry({angle}) q[{q}];"
         | RZ (q, angle) -> $"rz({angle}) q[{q}];"
@@ -110,11 +147,11 @@ module CircuitBuilder =
 
         let validateGate (gate: Gate) : string list =
             match gate with
-            | X q | Y q | Z q | H q ->
+            | X q | Y q | Z q | H q | S q | SDG q | T q | TDG q ->
                 validateQubit q |> Option.toList
             | RX (q, _) | RY (q, _) | RZ (q, _) ->
                 validateQubit q |> Option.toList
-            | CNOT (control, target) ->
+            | CNOT (control, target) | CZ (control, target) ->
                 let errors = []
                 let errors = 
                     match validateQubit control with
@@ -126,7 +163,43 @@ module CircuitBuilder =
                     | None -> errors
                 let errors = 
                     if control = target then
-                        "CNOT control and target cannot be the same qubit" :: errors
+                        $"{gate.GetType().Name} control and target cannot be the same qubit" :: errors
+                    else
+                        errors
+                List.rev errors
+            | SWAP (q1, q2) ->
+                let errors = []
+                let errors = 
+                    match validateQubit q1 with
+                    | Some err -> err :: errors
+                    | None -> errors
+                let errors = 
+                    match validateQubit q2 with
+                    | Some err -> err :: errors
+                    | None -> errors
+                let errors = 
+                    if q1 = q2 then
+                        "SWAP qubits cannot be the same" :: errors
+                    else
+                        errors
+                List.rev errors
+            | CCX (control1, control2, target) ->
+                let errors = []
+                let errors = 
+                    match validateQubit control1 with
+                    | Some err -> err :: errors
+                    | None -> errors
+                let errors = 
+                    match validateQubit control2 with
+                    | Some err -> err :: errors
+                    | None -> errors
+                let errors = 
+                    match validateQubit target with
+                    | Some err -> err :: errors
+                    | None -> errors
+                let errors = 
+                    if control1 = control2 || control1 = target || control2 = target then
+                        "CCX (Toffoli) control and target qubits must be distinct" :: errors
                     else
                         errors
                 List.rev errors

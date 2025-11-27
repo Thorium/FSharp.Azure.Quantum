@@ -261,6 +261,130 @@ module OpenQasmExportTests =
         Assert.Equal("2.0", OpenQasm.version)
     
     // ========================================================================
+    // PHASE GATE TESTS (S, SDG, T, TDG)
+    // ========================================================================
+    
+    [<Fact>]
+    let ``export S gate`` () =
+        let circuit = { QubitCount = 1; Gates = [S 0] }
+        let qasm = OpenQasm.export circuit
+        Assert.Contains("s q[0];", qasm)
+    
+    [<Fact>]
+    let ``export SDG gate`` () =
+        let circuit = { QubitCount = 1; Gates = [SDG 0] }
+        let qasm = OpenQasm.export circuit
+        Assert.Contains("sdg q[0];", qasm)
+    
+    [<Fact>]
+    let ``export T gate`` () =
+        let circuit = { QubitCount = 1; Gates = [T 0] }
+        let qasm = OpenQasm.export circuit
+        Assert.Contains("t q[0];", qasm)
+    
+    [<Fact>]
+    let ``export TDG gate`` () =
+        let circuit = { QubitCount = 1; Gates = [TDG 0] }
+        let qasm = OpenQasm.export circuit
+        Assert.Contains("tdg q[0];", qasm)
+    
+    [<Fact>]
+    let ``export phase gate sequence`` () =
+        let circuit = {
+            QubitCount = 1
+            Gates = [H 0; S 0; T 0; TDG 0; SDG 0]
+        }
+        let qasm = OpenQasm.export circuit
+        
+        Assert.Contains("h q[0];", qasm)
+        Assert.Contains("s q[0];", qasm)
+        Assert.Contains("t q[0];", qasm)
+        Assert.Contains("tdg q[0];", qasm)
+        Assert.Contains("sdg q[0];", qasm)
+    
+    // ========================================================================
+    // TWO-QUBIT GATE TESTS (CZ, SWAP)
+    // ========================================================================
+    
+    [<Fact>]
+    let ``export CZ gate`` () =
+        let circuit = { QubitCount = 2; Gates = [CZ (0, 1)] }
+        let qasm = OpenQasm.export circuit
+        Assert.Contains("cz q[0],q[1];", qasm)
+    
+    [<Fact>]
+    let ``export SWAP gate`` () =
+        let circuit = { QubitCount = 2; Gates = [SWAP (0, 1)] }
+        let qasm = OpenQasm.export circuit
+        Assert.Contains("swap q[0],q[1];", qasm)
+    
+    [<Fact>]
+    let ``validate detects CZ with same control and target`` () =
+        let circuit = { QubitCount = 2; Gates = [CZ (0, 0)] }
+        let result = OpenQasm.validate circuit
+        
+        match result with
+        | Error msg -> Assert.Contains("different", msg.ToLower())
+        | Ok () -> Assert.True(false, "Expected validation error for same qubit")
+    
+    [<Fact>]
+    let ``validate detects SWAP with same qubits`` () =
+        let circuit = { QubitCount = 2; Gates = [SWAP (1, 1)] }
+        let result = OpenQasm.validate circuit
+        
+        match result with
+        | Error msg -> Assert.Contains("different", msg.ToLower())
+        | Ok () -> Assert.True(false, "Expected validation error for same qubit")
+    
+    [<Fact>]
+    let ``validate detects CZ with out of range qubits`` () =
+        let circuit = { QubitCount = 2; Gates = [CZ (0, 3)] }
+        let result = OpenQasm.validate circuit
+        
+        match result with
+        | Error msg -> Assert.Contains("range", msg.ToLower())
+        | Ok () -> Assert.True(false, "Expected validation error")
+    
+    // ========================================================================
+    // THREE-QUBIT GATE TESTS (CCX/Toffoli)
+    // ========================================================================
+    
+    [<Fact>]
+    let ``export CCX (Toffoli) gate`` () =
+        let circuit = { QubitCount = 3; Gates = [CCX (0, 1, 2)] }
+        let qasm = OpenQasm.export circuit
+        Assert.Contains("ccx q[0],q[1],q[2];", qasm)
+    
+    [<Fact>]
+    let ``validate detects CCX with duplicate qubits`` () =
+        let circuit = { QubitCount = 3; Gates = [CCX (0, 0, 2)] }
+        let result = OpenQasm.validate circuit
+        
+        match result with
+        | Error msg -> Assert.Contains("distinct", msg.ToLower())
+        | Ok () -> Assert.True(false, "Expected validation error for duplicate qubits")
+    
+    [<Fact>]
+    let ``validate detects CCX with out of range qubits`` () =
+        let circuit = { QubitCount = 3; Gates = [CCX (0, 1, 5)] }
+        let result = OpenQasm.validate circuit
+        
+        match result with
+        | Error msg -> Assert.Contains("range", msg.ToLower())
+        | Ok () -> Assert.True(false, "Expected validation error")
+    
+    [<Fact>]
+    let ``export circuit with multiple CCX gates`` () =
+        let circuit = {
+            QubitCount = 4
+            Gates = [H 0; CCX (0, 1, 2); CCX (1, 2, 3)]
+        }
+        let qasm = OpenQasm.export circuit
+        
+        Assert.Contains("ccx q[0],q[1],q[2];", qasm)
+        Assert.Contains("ccx q[1],q[2],q[3];", qasm)
+    
+    // ========================================================================
     // INTEGRATION TESTS: REALISTIC CIRCUITS
     // ========================================================================
     
@@ -301,3 +425,39 @@ module OpenQasmExportTests =
         Assert.Contains("rz(0.5000000000) q[1];", qasm)
         Assert.Contains("rx(1.0000000000) q[0];", qasm)
         Assert.Contains("rx(1.0000000000) q[1];", qasm)
+    
+    [<Fact>]
+    let ``export comprehensive circuit with all gate types`` () =
+        let circuit = {
+            QubitCount = 4
+            Gates = [
+                // Pauli gates
+                X 0; Y 1; Z 2; H 3
+                // Phase gates
+                S 0; SDG 1; T 2; TDG 3
+                // Rotation gates
+                RX (0, 1.5707963268); RY (1, 3.1415926536); RZ (2, 0.7853981634)
+                // Two-qubit gates
+                CNOT (0, 1); CZ (1, 2); SWAP (2, 3)
+                // Three-qubit gate
+                CCX (0, 1, 2)
+            ]
+        }
+        let qasm = OpenQasm.export circuit
+        
+        // Verify all gate types are present
+        Assert.Contains("x q[0];", qasm)
+        Assert.Contains("y q[1];", qasm)
+        Assert.Contains("z q[2];", qasm)
+        Assert.Contains("h q[3];", qasm)
+        Assert.Contains("s q[0];", qasm)
+        Assert.Contains("sdg q[1];", qasm)
+        Assert.Contains("t q[2];", qasm)
+        Assert.Contains("tdg q[3];", qasm)
+        Assert.Contains("rx(1.5707963268) q[0];", qasm)
+        Assert.Contains("ry(3.1415926536) q[1];", qasm)
+        Assert.Contains("rz(0.7853981634) q[2];", qasm)
+        Assert.Contains("cx q[0],q[1];", qasm)
+        Assert.Contains("cz q[1],q[2];", qasm)
+        Assert.Contains("swap q[2],q[3];", qasm)
+        Assert.Contains("ccx q[0],q[1],q[2];", qasm)
