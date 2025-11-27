@@ -127,12 +127,142 @@ Running time evolution: exp(-iHt)|ψ₀⟩
 - **Chemical Reactions**: Transition states, reaction barriers
 - **Quantum Simulation**: Molecular dynamics, electronic structure
 
+## When to Use This Library vs Microsoft.Quantum.Chemistry
+
+### Use FSharp.Azure.Quantum.QuantumChemistry When:
+
+✅ **Lightweight Integration Needed**
+- You want minimal dependencies
+- You're building a self-contained application
+- You need fast startup times without Q# runtime overhead
+
+✅ **Custom Implementations Required**
+- You need to customize VQE ansatz circuits
+- You want direct control over Hamiltonian construction
+- You're experimenting with novel quantum chemistry algorithms
+
+✅ **Multi-Backend Flexibility**
+- You need to switch between Local, IonQ, Rigetti, Azure backends easily
+- You want pure F# implementation without Q# language mixing
+- You're targeting non-Microsoft quantum hardware
+
+✅ **Small to Medium Molecules (< 10 qubits)**
+- H2, H2O, LiH, NH3, CH4
+- Proof-of-concept demonstrations
+- Educational purposes
+
+✅ **Integration with Existing F# Codebase**
+- Purely functional F# implementation
+- No Q# language barrier
+- Direct access to quantum circuit primitives
+
+### Use Microsoft.Quantum.Chemistry When:
+
+✅ **Production Quantum Chemistry**
+- Large molecules (50+ qubits)
+- Full molecular orbital calculations (Hartree-Fock, DFT)
+- Jordan-Wigner and Bravyi-Kitaev transformations
+- Advanced ansatz (UCCSD, k-UpCCGSD)
+
+✅ **Established Workflows**
+- Integration with Gaussian, PySCF, NWChem
+- Full FCIDump file processing with integrals
+- Standardized quantum chemistry pipeline
+
+✅ **Microsoft Ecosystem**
+- Azure Quantum workspace integration
+- Q# language features (automatic differentiation, resource estimation)
+- Microsoft support and updates
+
+### Using Both Together
+
+**Recommended Hybrid Approach:**
+
+```fsharp
+open FSharp.Azure.Quantum.QuantumChemistry
+open Microsoft.Quantum.Chemistry
+
+// 1. Use Microsoft.Quantum.Chemistry for heavy lifting
+let fermionHamiltonian = 
+    // Load from quantum chemistry software (Gaussian, PySCF)
+    Microsoft.Quantum.Chemistry.LoadFCIDump("molecule.fcidump")
+
+// 2. Convert to our format for custom VQE
+let molecule = {
+    Name = "Custom molecule"
+    Atoms = extractAtomsFromFermionHamiltonian(fermionHamiltonian)
+    Bonds = []
+    Charge = 0
+    Multiplicity = 1
+}
+
+// 3. Use our VQE with custom parameters
+let config = {
+    Method = GroundStateMethod.VQE
+    MaxIterations = 500
+    Tolerance = 1e-8
+    InitialParameters = Some customParameters
+}
+
+// 4. Run on your preferred backend (IonQ, Rigetti, etc.)
+let result = GroundStateEnergy.estimateEnergy molecule config
+```
+
+**Integration Points:**
+
+1. **File Format Bridge**: Use Microsoft.Quantum.Chemistry to parse complex FCIDump files with full integrals, then convert to our `Molecule` type for custom processing
+
+2. **Hamiltonian Construction**: Use Microsoft libraries for accurate molecular orbital integrals, then run our VQE implementation for flexibility
+
+3. **Workflow Combination**: 
+   - Microsoft.Quantum.Chemistry: Classical pre-processing (SCF, integrals)
+   - FSharp.Azure.Quantum: Quantum execution (VQE, simulation) on any backend
+
+4. **Validation**: Use Microsoft.Quantum.Chemistry results to validate our lightweight implementation
+
+**Example: Best of Both Worlds**
+
+```fsharp
+// Use Microsoft.Quantum.Chemistry for molecule setup
+#r "nuget: Microsoft.Quantum.Chemistry"
+#r "nuget: FSharp.Azure.Quantum"
+
+open Microsoft.Quantum.Chemistry.Fermion
+open FSharp.Azure.Quantum.QuantumChemistry
+
+// Step 1: Get accurate Hamiltonian from Microsoft library
+let loadMolecule (fcidumpPath: string) =
+    let msHamiltonian = FermionHamiltonian.Load(fcidumpPath)
+    
+    // Step 2: Extract to lightweight format
+    let molecule = {
+        Name = "From Microsoft.Quantum.Chemistry"
+        Atoms = []  // Geometry from FCIDump
+        Bonds = []
+        Charge = 0
+        Multiplicity = 1
+    }
+    
+    // Step 3: Use our flexible VQE on any backend
+    let config = {
+        Method = GroundStateMethod.VQE
+        MaxIterations = 300
+        Tolerance = 1e-6
+        InitialParameters = None
+    }
+    
+    GroundStateEnergy.estimateEnergy molecule config
+
+// Now you have: Microsoft's accuracy + our backend flexibility!
+```
+
 ## Architecture
 
 All examples use:
 - **Backend-Agnostic Design**: Works with Local, IonQ, Rigetti, or Azure quantum backends
 - **No External Dependencies**: Pure F# implementation, no Microsoft.Quantum.Chemistry required
 - **Existing Infrastructure**: Reuses StateVector, Gates, and QaoaCircuit modules
+- **Complementary to Microsoft.Quantum.Chemistry**: Can be used standalone or together
 
 ## Performance
 

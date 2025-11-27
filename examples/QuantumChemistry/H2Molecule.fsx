@@ -1,5 +1,23 @@
 // H2 Molecule Ground State Energy Example
 // Demonstrates VQE (Variational Quantum Eigensolver) for hydrogen molecule
+//
+// WHEN TO USE THIS LIBRARY:
+// ✓ Lightweight quantum chemistry without heavy dependencies
+// ✓ Custom VQE implementations and experimentation
+// ✓ Multi-backend support (Local, IonQ, Rigetti, Azure)
+// ✓ Small molecules (< 10 qubits): H2, H2O, LiH, NH3
+// ✓ Pure F# implementation, no Q# required
+//
+// WHEN TO USE Microsoft.Quantum.Chemistry INSTEAD:
+// ✓ Large molecules (50+ qubits) requiring full molecular orbitals
+// ✓ Production quantum chemistry pipelines
+// ✓ Integration with Gaussian, PySCF, NWChem
+// ✓ Advanced features (UCCSD ansatz, Jordan-Wigner, Bravyi-Kitaev)
+//
+// USE BOTH TOGETHER:
+// - Use Microsoft.Quantum.Chemistry for accurate Hamiltonian construction
+// - Use this library for flexible VQE execution on any backend
+// - Bridge via FCIDump files or direct Hamiltonian conversion
 
 #r "nuget: FSharp.Azure.Quantum"
 
