@@ -305,6 +305,64 @@ module PerformanceBenchmarkingTests =
         } |> Async.RunSynchronously
 
     // ============================================================================
+    // Markdown Report Generation Tests
+    // ============================================================================
+
+    [<Fact>]
+    let ``generateMarkdownReport creates valid markdown with headers`` () =
+        // Arrange
+        let results = [
+            {
+                PerformanceBenchmarking.BenchmarkResult.ProblemType = "TSP"
+                ProblemSize = 10
+                Solver = "Classical"
+                ExecutionTimeMs = 1000L
+                SolutionQuality = 50.0
+                Cost = 0.0
+                ErrorRate = None
+                Timestamp = System.DateTime.UtcNow
+            }
+        ]
+        
+        // Act
+        let markdown = PerformanceBenchmarking.generateMarkdownReport results
+        
+        // Assert
+        Assert.Contains("# Performance Benchmark Report", markdown)
+        Assert.Contains("## TSP Benchmarks", markdown)
+        Assert.Contains("| Problem Size | Solver | Execution Time (ms)", markdown)
+        Assert.Contains("| 10 | Classical | 1000 | 50.0000 | 0.00 |", markdown)
+
+    [<Fact>]
+    let ``exportMarkdownReport creates file with markdown content`` () =
+        // Arrange
+        let results = [
+            {
+                PerformanceBenchmarking.BenchmarkResult.ProblemType = "Portfolio"
+                ProblemSize = 5
+                Solver = "Classical"
+                ExecutionTimeMs = 500L
+                SolutionQuality = 0.15
+                Cost = 0.0
+                ErrorRate = None
+                Timestamp = System.DateTime.UtcNow
+            }
+        ]
+        let testPath = "test-report.md"
+        
+        // Act
+        PerformanceBenchmarking.exportMarkdownReport results testPath
+        
+        // Assert
+        Assert.True(System.IO.File.Exists(testPath))
+        let content = System.IO.File.ReadAllText(testPath)
+        Assert.Contains("# Performance Benchmark Report", content)
+        Assert.Contains("Portfolio", content)
+        
+        // Cleanup
+        System.IO.File.Delete(testPath)
+
+    // ============================================================================
     // Performance Requirement Tests
     // ============================================================================
 

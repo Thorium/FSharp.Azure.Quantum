@@ -299,3 +299,61 @@ module PerformanceBenchmarking =
                 }
             | None -> None
         )
+
+    /// Generate markdown formatted benchmark report
+    let generateMarkdownReport (results: BenchmarkResult list) : string =
+        let sb = System.Text.StringBuilder()
+        
+        sb.AppendLine("# Performance Benchmark Report") |> ignore
+        sb.AppendLine() |> ignore
+        sb.AppendLine(sprintf "**Generated:** %s" (DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss UTC"))) |> ignore
+        sb.AppendLine() |> ignore
+        
+        // Group by problem type
+        let byType = results |> List.groupBy (fun r -> r.ProblemType)
+        
+        for (problemType, typeResults) in byType do
+            sb.AppendLine(sprintf "## %s Benchmarks" problemType) |> ignore
+            sb.AppendLine() |> ignore
+            
+            // Table header
+            sb.AppendLine("| Problem Size | Solver | Execution Time (ms) | Solution Quality | Cost ($) |") |> ignore
+            sb.AppendLine("|-------------|--------|-------------------|-----------------|---------|") |> ignore
+            
+            // Table rows sorted by problem size and solver
+            typeResults
+            |> List.sortBy (fun r -> (r.ProblemSize, r.Solver))
+            |> List.iter (fun r ->
+                sb.AppendLine(sprintf "| %d | %s | %d | %.4f | %.2f |" 
+                    r.ProblemSize r.Solver r.ExecutionTimeMs r.SolutionQuality r.Cost) |> ignore
+            )
+            
+            sb.AppendLine() |> ignore
+        
+        // Comparison analysis
+        let comparisons = generateComparisonReport results
+        if not comparisons.IsEmpty then
+            sb.AppendLine("## Performance Comparison") |> ignore
+            sb.AppendLine() |> ignore
+            
+            for comp in comparisons do
+                sb.AppendLine(sprintf "### %s - %d units" comp.ProblemType comp.ProblemSize) |> ignore
+                sb.AppendLine() |> ignore
+                sb.AppendLine(sprintf "- **Classical Time:** %d ms" comp.ClassicalResult.ExecutionTimeMs) |> ignore
+                sb.AppendLine(sprintf "- **Classical Quality:** %.4f" comp.ClassicalResult.SolutionQuality) |> ignore
+                
+                match comp.SpeedupFactor with
+                | Some speedup ->
+                    let speedupText = if speedup > 1.0 then sprintf "%.2fx faster" speedup else sprintf "%.2fx slower" (1.0 / speedup)
+                    sb.AppendLine(sprintf "- **Speedup:** %s" speedupText) |> ignore
+                | None -> ()
+                
+                sb.AppendLine(sprintf "- **Quantum Advantage:** %s" (if comp.QuantumAdvantage then "✅ Yes" else "❌ No")) |> ignore
+                sb.AppendLine() |> ignore
+        
+        sb.ToString()
+
+    /// Export markdown report to file
+    let exportMarkdownReport (results: BenchmarkResult list) (path: string) : unit =
+        let markdown = generateMarkdownReport results
+        System.IO.File.WriteAllText(path, markdown)
