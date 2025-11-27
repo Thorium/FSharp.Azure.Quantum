@@ -68,6 +68,7 @@
     <Compile Include="HybridSolver.fs" />
     <Compile Include="CircuitBuilder.fs" />
     <Compile Include="QuboEncoding.fs" />
+    <Compile Include="GraphOptimization.fs" />
     <Compile Include="ZeroNoiseExtrapolation.fs" />
     <Compile Include="ProbabilisticErrorCancellation.fs" />
     <Compile Include="ReadoutErrorMitigation.fs" />

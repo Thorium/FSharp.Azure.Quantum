@@ -8,6 +8,7 @@
   <ItemGroup>
     <Compile Include="StateVectorTests.fs" />
     <Compile Include="GatesTests.fs" />
+    <Compile Include="GraphOptimizationTests.fs" />
     <Compile Include="GroverSearchTests.fs" />
     <Compile Include="AmplitudeAmplificationTests.fs" />
     <Compile Include="QaoaSimulatorTests.fs" />
