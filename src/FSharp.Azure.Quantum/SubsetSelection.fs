@@ -425,7 +425,7 @@ module SubsetSelection =
             let selected =
                 solution
                 |> Map.toList
-                |> List.filter (fun (_, value) -> value > 0.5)  // Treat values > 0.5 as "selected"
+                |> List.filter (fun (_, value) -> value >= 0.5)  // Treat values >= 0.5 as "selected"
                 |> List.choose (fun (idx, _) ->
                     if idx >= 0 && idx < problem.Items.Length then
                         Some problem.Items.[idx]
