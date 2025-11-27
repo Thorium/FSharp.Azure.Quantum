@@ -811,3 +811,234 @@ let ``findCheapestBackend works with single backend`` () =
         Assert.True(estimate.ExpectedCost > 0.0M<USD>)
     | Error msg ->
         Assert.Fail(sprintf "Expected success but got error: %s" msg)
+
+// ============================================================================
+// CSV PERSISTENCE TESTS (TKT-48)
+// ============================================================================
+
+[<Fact>]
+let ``saveCostRecordToCsv saves record to CSV file`` () =
+    // Arrange
+    let tempFile = System.IO.Path.GetTempFileName()
+    try
+        let circuit = createSimpleCircuit 50 30 2 2
+        let record = {
+            JobId = "job-123"
+            Backend = IonQ true
+            EstimatedCost = 100.0M<USD>
+            ActualCost = Some 105.0M<USD>
+            Timestamp = DateTimeOffset(2025, 11, 27, 12, 0, 0, TimeSpan.Zero)
+            Circuit = circuit
+            Shots = 1000<shot>
+        }
+        
+        // Act
+        let result = saveCostRecordToCsv tempFile record
+        
+        // Assert
+        match result with
+        | Ok () ->
+            Assert.True(System.IO.File.Exists(tempFile), "CSV file should exist")
+            let lines = System.IO.File.ReadAllLines(tempFile)
+            Assert.True(lines.Length >= 1, "CSV should have at least one line")
+            Assert.Contains("job-123", lines.[0])
+        | Error msg ->
+            Assert.Fail(sprintf "Expected success but got error: %s" msg)
+    finally
+        if System.IO.File.Exists(tempFile) then
+            System.IO.File.Delete(tempFile)
+
+[<Fact>]
+let ``loadCostHistoryFromCsv loads records from CSV file`` () =
+    // Arrange
+    let tempFile = System.IO.Path.GetTempFileName()
+    try
+        let circuit = createSimpleCircuit 50 30 2 2
+        let record1 = {
+            JobId = "job-1"
+            Backend = IonQ false
+            EstimatedCost = 50.0M<USD>
+            ActualCost = Some 52.0M<USD>
+            Timestamp = DateTimeOffset(2025, 11, 27, 12, 0, 0, TimeSpan.Zero)
+            Circuit = circuit
+            Shots = 1000<shot>
+        }
+        let record2 = {
+            JobId = "job-2"
+            Backend = Rigetti
+            EstimatedCost = 30.0M<USD>
+            ActualCost = Some 28.0M<USD>
+            Timestamp = DateTimeOffset(2025, 11, 27, 13, 0, 0, TimeSpan.Zero)
+            Circuit = circuit
+            Shots = 500<shot>
+        }
+        
+        // Save records
+        saveCostRecordToCsv tempFile record1 |> ignore
+        saveCostRecordToCsv tempFile record2 |> ignore
+        
+        // Act
+        let result = loadCostHistoryFromCsv tempFile
+        
+        // Assert
+        match result with
+        | Ok records ->
+            Assert.Equal(2, List.length records)
+            Assert.Contains(records, fun r -> r.JobId = "job-1")
+            Assert.Contains(records, fun r -> r.JobId = "job-2")
+        | Error msg ->
+            Assert.Fail(sprintf "Expected success but got error: %s" msg)
+    finally
+        if System.IO.File.Exists(tempFile) then
+            System.IO.File.Delete(tempFile)
+
+[<Fact>]
+let ``loadCostHistoryFromCsv returns empty list for non-existent file`` () =
+    // Arrange
+    let nonExistentFile = "nonexistent-" + System.Guid.NewGuid().ToString() + ".csv"
+    
+    // Act
+    let result = loadCostHistoryFromCsv nonExistentFile
+    
+    // Assert
+    match result with
+    | Ok records ->
+        Assert.Empty(records)
+    | Error msg ->
+        Assert.Fail(sprintf "Expected empty list but got error: %s" msg)
+
+[<Fact>]
+let ``saveCostRecordToCsv appends to existing file`` () =
+    // Arrange
+    let tempFile = System.IO.Path.GetTempFileName()
+    try
+        let circuit = createSimpleCircuit 50 30 2 2
+        let record1 = {
+            JobId = "job-1"
+            Backend = IonQ true
+            EstimatedCost = 100.0M<USD>
+            ActualCost = Some 105.0M<USD>
+            Timestamp = DateTimeOffset(2025, 11, 27, 12, 0, 0, TimeSpan.Zero)
+            Circuit = circuit
+            Shots = 1000<shot>
+        }
+        let record2 = {
+            JobId = "job-2"
+            Backend = Rigetti
+            EstimatedCost = 50.0M<USD>
+            ActualCost = Some 48.0M<USD>
+            Timestamp = DateTimeOffset(2025, 11, 27, 13, 0, 0, TimeSpan.Zero)
+            Circuit = circuit
+            Shots = 500<shot>
+        }
+        
+        // Act - save first record
+        saveCostRecordToCsv tempFile record1 |> ignore
+        
+        // Act - save second record (should append)
+        saveCostRecordToCsv tempFile record2 |> ignore
+        
+        // Assert - load and verify both records exist
+        match loadCostHistoryFromCsv tempFile with
+        | Ok records ->
+            Assert.Equal(2, List.length records)
+        | Error msg ->
+            Assert.Fail(sprintf "Expected 2 records but got error: %s" msg)
+    finally
+        if System.IO.File.Exists(tempFile) then
+            System.IO.File.Delete(tempFile)
+
+[<Fact>]
+let ``CSV persistence handles special characters in job IDs`` () =
+    // Arrange
+    let tempFile = System.IO.Path.GetTempFileName()
+    try
+        let circuit = createSimpleCircuit 50 30 2 2
+        let record = {
+            JobId = "job-with-commas,quotes\"and:colons"
+            Backend = IonQ true
+            EstimatedCost = 100.0M<USD>
+            ActualCost = Some 105.0M<USD>
+            Timestamp = DateTimeOffset(2025, 11, 27, 12, 0, 0, TimeSpan.Zero)
+            Circuit = circuit
+            Shots = 1000<shot>
+        }
+        
+        // Act - save and reload
+        saveCostRecordToCsv tempFile record |> ignore
+        let result = loadCostHistoryFromCsv tempFile
+        
+        // Assert
+        match result with
+        | Ok records ->
+            Assert.Single(records) |> ignore
+            Assert.Equal("job-with-commas,quotes\"and:colons", records.[0].JobId)
+        | Error msg ->
+            Assert.Fail(sprintf "Expected success but got error: %s" msg)
+    finally
+        if System.IO.File.Exists(tempFile) then
+            System.IO.File.Delete(tempFile)
+
+[<Fact>]
+let ``CSV persistence preserves backend information`` () =
+    // Arrange
+    let tempFile = System.IO.Path.GetTempFileName()
+    try
+        let circuit = createSimpleCircuit 50 30 2 2
+        let record = {
+            JobId = "job-123"
+            Backend = IonQ true
+            EstimatedCost = 100.0M<USD>
+            ActualCost = Some 105.0M<USD>
+            Timestamp = DateTimeOffset(2025, 11, 27, 12, 0, 0, TimeSpan.Zero)
+            Circuit = circuit
+            Shots = 1000<shot>
+        }
+        
+        // Act - save and reload
+        saveCostRecordToCsv tempFile record |> ignore
+        let result = loadCostHistoryFromCsv tempFile
+        
+        // Assert
+        match result with
+        | Ok records ->
+            Assert.Single(records) |> ignore
+            Assert.Equal(IonQ true, records.[0].Backend)
+        | Error msg ->
+            Assert.Fail(sprintf "Expected success but got error: %s" msg)
+    finally
+        if System.IO.File.Exists(tempFile) then
+            System.IO.File.Delete(tempFile)
+
+[<Fact>]
+let ``CSV persistence preserves cost accuracy`` () =
+    // Arrange
+    let tempFile = System.IO.Path.GetTempFileName()
+    try
+        let circuit = createSimpleCircuit 50 30 2 2
+        let record = {
+            JobId = "job-123"
+            Backend = IonQ true
+            EstimatedCost = 123.45M<USD>
+            ActualCost = Some 130.67M<USD>
+            Timestamp = DateTimeOffset(2025, 11, 27, 12, 0, 0, TimeSpan.Zero)
+            Circuit = circuit
+            Shots = 1234<shot>
+        }
+        
+        // Act - save and reload
+        saveCostRecordToCsv tempFile record |> ignore
+        let result = loadCostHistoryFromCsv tempFile
+        
+        // Assert
+        match result with
+        | Ok records ->
+            Assert.Single(records) |> ignore
+            Assert.Equal(123.45M<USD>, records.[0].EstimatedCost)
+            Assert.Equal(Some 130.67M<USD>, records.[0].ActualCost)
+            Assert.Equal(1234<shot>, records.[0].Shots)
+        | Error msg ->
+            Assert.Fail(sprintf "Expected success but got error: %s" msg)
+    finally
+        if System.IO.File.Exists(tempFile) then
+            System.IO.File.Delete(tempFile)
