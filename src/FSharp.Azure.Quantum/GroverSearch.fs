@@ -107,66 +107,74 @@ module Search =
     let private executeSearch (oracle: CompiledOracle) (config: SearchConfig) : Result<SearchResult, string> =
         try
             // Determine iteration count
-            let iterationCount =
+            let iterationCountResult =
                 if config.OptimizeIterations then
                     match optimalIterationsForOracle oracle with
-                    | Some k -> 
+                    | Some (Ok k) -> 
                         // Apply max iterations limit if specified
-                        match config.MaxIterations with
-                        | Some maxK -> min k maxK
-                        | None -> k
+                        let finalK = match config.MaxIterations with
+                                     | Some maxK -> min k maxK
+                                     | None -> k
+                        Ok finalK
+                    | Some (Error msg) ->
+                        Error msg
                     | None ->
                         // Cannot optimize - use heuristic
                         let searchSpaceSize = 1 <<< oracle.NumQubits
                         let defaultK = int (Math.Sqrt(float searchSpaceSize))
-                        match config.MaxIterations with
-                        | Some maxK -> min defaultK maxK
-                        | None -> defaultK
+                        let finalK = match config.MaxIterations with
+                                     | Some maxK -> min defaultK maxK
+                                     | None -> defaultK
+                        Ok finalK
                 else
                     // Use max iterations or default
-                    match config.MaxIterations with
-                    | Some k -> k
-                    | None -> 
-                        let searchSpaceSize = 1 <<< oracle.NumQubits
-                        int (Math.Sqrt(float searchSpaceSize))
+                    let k = match config.MaxIterations with
+                            | Some k -> k
+                            | None -> 
+                                let searchSpaceSize = 1 <<< oracle.NumQubits
+                                int (Math.Sqrt(float searchSpaceSize))
+                    Ok k
             
-            // Execute Grover iterations
-            let iterConfig = {
-                NumIterations = iterationCount
-                TrackProbabilities = false
-            }
-            
-            match GroverIteration.execute oracle iterConfig with
+            match iterationCountResult with
             | Error msg -> Error msg
-            | Ok iterResult ->
-                // Measure final state
-                let counts = measureState iterResult.FinalState config.Shots config.RandomSeed
-                
-                // Extract solutions (states with high measurement counts)
-                let threshold = config.Shots / 10  // At least 10% of shots
-                let solutions =
-                    counts
-                    |> Map.toList
-                    |> List.filter (fun (_, count) -> count > threshold)
-                    |> List.sortByDescending snd
-                    |> List.map fst
-                
-                // Calculate empirical success probability
-                let successCounts =
-                    solutions
-                    |> List.sumBy (fun sol ->
-                        counts |> Map.tryFind sol |> Option.defaultValue 0)
-                
-                let successProb = float successCounts / float config.Shots
-                
-                Ok {
-                    Solutions = solutions
-                    SuccessProbability = successProb
-                    IterationsApplied = iterationCount
-                    MeasurementCounts = counts
-                    Shots = config.Shots
-                    Success = successProb >= config.SuccessThreshold
+            | Ok iterationCount ->
+                // Execute Grover iterations
+                let iterConfig = {
+                    NumIterations = iterationCount
+                    TrackProbabilities = false
                 }
+                
+                match GroverIteration.execute oracle iterConfig with
+                | Error msg -> Error msg
+                | Ok iterResult ->
+                    // Measure final state
+                    let counts = measureState iterResult.FinalState config.Shots config.RandomSeed
+                    
+                    // Extract solutions (states with high measurement counts)
+                    let threshold = config.Shots / 10  // At least 10% of shots
+                    let solutions =
+                        counts
+                        |> Map.toList
+                        |> List.filter (fun (_, count) -> count > threshold)
+                        |> List.sortByDescending snd
+                        |> List.map fst
+                    
+                    // Calculate empirical success probability
+                    let successCounts =
+                        solutions
+                        |> List.sumBy (fun sol ->
+                            counts |> Map.tryFind sol |> Option.defaultValue 0)
+                    
+                    let successProb = float successCounts / float config.Shots
+                    
+                    Ok {
+                        Solutions = solutions
+                        SuccessProbability = successProb
+                        IterationsApplied = iterationCount
+                        MeasurementCounts = counts
+                        Shots = config.Shots
+                        Success = successProb >= config.SuccessThreshold
+                    }
         with
         | ex -> Error $"Search execution failed: {ex.Message}"
     
@@ -179,8 +187,9 @@ module Search =
     /// Example: Search.searchSingle 42 6 defaultConfig
     /// Searches for value 42 in 6-qubit space (0-63)
     let searchSingle (target: int) (numQubits: int) (config: SearchConfig) : Result<SearchResult, string> =
-        let oracle = Oracle.forValue target numQubits
-        executeSearch oracle config
+        match Oracle.forValue target numQubits with
+        | Ok oracle -> executeSearch oracle config
+        | Error msg -> Error msg
     
     /// Search for multiple specific values
     /// 
@@ -190,16 +199,18 @@ module Search =
         if List.isEmpty targets then
             Error "Target list cannot be empty"
         else
-            let oracle = Oracle.forValues targets numQubits
-            executeSearch oracle config
+            match Oracle.forValues targets numQubits with
+            | Ok oracle -> executeSearch oracle config
+            | Error msg -> Error msg
     
     /// Search for values satisfying a predicate
     /// 
     /// Example: Search.searchWhere (fun x -> x % 2 = 0) 4 defaultConfig
     /// Searches for even numbers in 4-qubit space (0-15)
     let searchWhere (predicate: int -> bool) (numQubits: int) (config: SearchConfig) : Result<SearchResult, string> =
-        let oracle = Oracle.fromPredicate predicate numQubits
-        executeSearch oracle config
+        match Oracle.fromPredicate predicate numQubits with
+        | Ok oracle -> executeSearch oracle config
+        | Error msg -> Error msg
     
     /// Search using a compiled oracle
     /// 
@@ -213,23 +224,27 @@ module Search =
     
     /// Search for even numbers
     let searchEven (numQubits: int) (config: SearchConfig) : Result<SearchResult, string> =
-        let oracle = Oracle.even numQubits
-        executeSearch oracle config
+        match Oracle.even numQubits with
+        | Ok oracle -> executeSearch oracle config
+        | Error msg -> Error msg
     
     /// Search for odd numbers
     let searchOdd (numQubits: int) (config: SearchConfig) : Result<SearchResult, string> =
-        let oracle = Oracle.odd numQubits
-        executeSearch oracle config
+        match Oracle.odd numQubits with
+        | Ok oracle -> executeSearch oracle config
+        | Error msg -> Error msg
     
     /// Search for numbers in range [min, max]
     let searchInRange (min: int) (max: int) (numQubits: int) (config: SearchConfig) : Result<SearchResult, string> =
-        let oracle = Oracle.inRange min max numQubits
-        executeSearch oracle config
+        match Oracle.inRange min max numQubits with
+        | Ok oracle -> executeSearch oracle config
+        | Error msg -> Error msg
     
     /// Search for numbers divisible by n
     let searchDivisibleBy (n: int) (numQubits: int) (config: SearchConfig) : Result<SearchResult, string> =
-        let oracle = Oracle.divisibleBy n numQubits
-        executeSearch oracle config
+        match Oracle.divisibleBy n numQubits with
+        | Ok oracle -> executeSearch oracle config
+        | Error msg -> Error msg
     
     // ============================================================================
     // CONFIGURATION BUILDERS - Convenient config creation

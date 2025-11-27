@@ -170,30 +170,28 @@ module GroverIteration =
     ///       M = number of solutions
     /// 
     /// Returns the integer closest to theoretical optimum
-    let optimalIterations (searchSpaceSize: int) (numSolutions: int) : int =
+    let optimalIterations (searchSpaceSize: int) (numSolutions: int) : Result<int, string> =
         if searchSpaceSize < 1 then
-            failwith $"Search space size must be positive, got {searchSpaceSize}"
-        
-        if numSolutions < 1 then
-            failwith $"Number of solutions must be positive, got {numSolutions}"
-        
-        if numSolutions > searchSpaceSize then
-            failwith $"Number of solutions ({numSolutions}) exceeds search space size ({searchSpaceSize})"
-        
-        // Special case: all states are solutions
-        if numSolutions = searchSpaceSize then
-            0  // No iterations needed - already in solution space
+            Error $"Search space size must be positive, got {searchSpaceSize}"
+        elif numSolutions < 1 then
+            Error $"Number of solutions must be positive, got {numSolutions}"
+        elif numSolutions > searchSpaceSize then
+            Error $"Number of solutions ({numSolutions}) exceeds search space size ({searchSpaceSize})"
         else
-            // Calculate k = π/4 * √(N/M)
-            let ratio = float searchSpaceSize / float numSolutions
-            let k = (Math.PI / 4.0) * Math.Sqrt(ratio)
-            
-            // Round to nearest integer
-            int (Math.Round(k))
+            // Special case: all states are solutions
+            if numSolutions = searchSpaceSize then
+                Ok 0  // No iterations needed - already in solution space
+            else
+                // Calculate k = π/4 * √(N/M)
+                let ratio = float searchSpaceSize / float numSolutions
+                let k = (Math.PI / 4.0) * Math.Sqrt(ratio)
+                
+                // Round to nearest integer
+                Ok (int (Math.Round(k)))
     
     /// Calculate optimal iterations from oracle
     /// Uses oracle's expected solution count if available
-    let optimalIterationsForOracle (oracle: CompiledOracle) : int option =
+    let optimalIterationsForOracle (oracle: CompiledOracle) : Result<int, string> option =
         match oracle.ExpectedSolutions with
         | Some numSolutions ->
             let searchSpaceSize = 1 <<< oracle.NumQubits
@@ -287,12 +285,16 @@ module GroverIteration =
     /// Execute Grover's algorithm with automatic optimal iteration count
     let executeOptimal (oracle: CompiledOracle) (trackProbabilities: bool) : Result<IterationResult, string> =
         match optimalIterationsForOracle oracle with
-        | Some k ->
-            let config = {
-                NumIterations = k
-                TrackProbabilities = trackProbabilities
-            }
-            execute oracle config
+        | Some kResult ->
+            match kResult with
+            | Ok k ->
+                let config = {
+                    NumIterations = k
+                    TrackProbabilities = trackProbabilities
+                }
+                execute oracle config
+            | Error msg ->
+                Error msg
         | None ->
             Error "Cannot determine optimal iterations: oracle solution count unknown"
     

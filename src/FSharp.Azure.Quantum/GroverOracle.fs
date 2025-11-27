@@ -130,33 +130,50 @@ module Oracle =
     /// 
     /// This is the main entry point for creating oracles.
     /// Returns CompiledOracle that works with both local and Azure backends.
-    let compile (spec: OracleSpec) (numQubits: int) : CompiledOracle =
+    let compile (spec: OracleSpec) (numQubits: int) : Result<CompiledOracle, string> =
         if numQubits < 1 || numQubits > 20 then
-            failwith $"Number of qubits must be between 1 and 20, got {numQubits}"
-        
-        let searchSpaceSize = 1 <<< numQubits  // 2^numQubits
-        
-        {
-            Spec = spec
-            NumQubits = numQubits
-            LocalSimulation = applyLocal spec
-            ExpectedSolutions = countExpectedSolutions spec searchSpaceSize
-        }
+            Error $"Number of qubits must be between 1 and 20, got {numQubits}"
+        else
+            let searchSpaceSize = 1 <<< numQubits  // 2^numQubits
+            
+            Ok {
+                Spec = spec
+                NumQubits = numQubits
+                LocalSimulation = applyLocal spec
+                ExpectedSolutions = countExpectedSolutions spec searchSpaceSize
+            }
     
     // ============================================================================
     // ORACLE BUILDERS - Convenient creation functions
     // ============================================================================
     
     /// Create oracle that marks a single target value
-    let forValue (target: int) (numQubits: int) : CompiledOracle =
-        compile (SingleTarget target) numQubits
+    let forValue (target: int) (numQubits: int) : Result<CompiledOracle, string> =
+        let searchSpaceSize = 1 <<< numQubits
+        
+        if target < 0 then
+            Error $"Target must be non-negative, got {target}"
+        elif target >= searchSpaceSize then
+            Error $"Target {target} exceeds search space size {searchSpaceSize} for {numQubits} qubits"
+        else
+            compile (SingleTarget target) numQubits
     
     /// Create oracle that marks multiple solution values
-    let forValues (solutions: int list) (numQubits: int) : CompiledOracle =
-        compile (Solutions solutions) numQubits
+    let forValues (solutions: int list) (numQubits: int) : Result<CompiledOracle, string> =
+        let searchSpaceSize = 1 <<< numQubits
+        
+        if solutions.IsEmpty then
+            Error "Solutions list cannot be empty"
+        else
+            let invalidSolutions = solutions |> List.filter (fun s -> s < 0 || s >= searchSpaceSize)
+            
+            if not invalidSolutions.IsEmpty then
+                Error $"Solutions {invalidSolutions} are outside valid range [0, {searchSpaceSize - 1}] for {numQubits} qubits"
+            else
+                compile (Solutions solutions) numQubits
     
     /// Create oracle from predicate function
-    let fromPredicate (predicate: int -> bool) (numQubits: int) : CompiledOracle =
+    let fromPredicate (predicate: int -> bool) (numQubits: int) : Result<CompiledOracle, string> =
         compile (Predicate predicate) numQubits
     
     // ============================================================================
@@ -176,23 +193,23 @@ module Oracle =
         Not spec
     
     /// Combine two compiled oracles with AND logic
-    let andOracle (oracle1: CompiledOracle) (oracle2: CompiledOracle) : CompiledOracle =
+    let andOracle (oracle1: CompiledOracle) (oracle2: CompiledOracle) : Result<CompiledOracle, string> =
         if oracle1.NumQubits <> oracle2.NumQubits then
-            failwith "Cannot combine oracles with different qubit counts"
-        
-        let combinedSpec = andSpec oracle1.Spec oracle2.Spec
-        compile combinedSpec oracle1.NumQubits
+            Error $"Cannot combine oracles with different qubit counts ({oracle1.NumQubits} vs {oracle2.NumQubits})"
+        else
+            let combinedSpec = andSpec oracle1.Spec oracle2.Spec
+            compile combinedSpec oracle1.NumQubits
     
     /// Combine two compiled oracles with OR logic
-    let orOracle (oracle1: CompiledOracle) (oracle2: CompiledOracle) : CompiledOracle =
+    let orOracle (oracle1: CompiledOracle) (oracle2: CompiledOracle) : Result<CompiledOracle, string> =
         if oracle1.NumQubits <> oracle2.NumQubits then
-            failwith "Cannot combine oracles with different qubit counts"
-        
-        let combinedSpec = orSpec oracle1.Spec oracle2.Spec
-        compile combinedSpec oracle1.NumQubits
+            Error $"Cannot combine oracles with different qubit counts ({oracle1.NumQubits} vs {oracle2.NumQubits})"
+        else
+            let combinedSpec = orSpec oracle1.Spec oracle2.Spec
+            compile combinedSpec oracle1.NumQubits
     
     /// Negate compiled oracle
-    let notOracle (oracle: CompiledOracle) : CompiledOracle =
+    let notOracle (oracle: CompiledOracle) : Result<CompiledOracle, string> =
         let negatedSpec = notSpec oracle.Spec
         compile negatedSpec oracle.NumQubits
     
@@ -201,27 +218,33 @@ module Oracle =
     // ============================================================================
     
     /// Oracle that marks even numbers
-    let even (numQubits: int) : CompiledOracle =
+    let even (numQubits: int) : Result<CompiledOracle, string> =
         fromPredicate (fun x -> x % 2 = 0) numQubits
     
     /// Oracle that marks odd numbers
-    let odd (numQubits: int) : CompiledOracle =
+    let odd (numQubits: int) : Result<CompiledOracle, string> =
         fromPredicate (fun x -> x % 2 = 1) numQubits
     
     /// Oracle that marks numbers divisible by n
-    let divisibleBy (n: int) (numQubits: int) : CompiledOracle =
-        fromPredicate (fun x -> x % n = 0) numQubits
+    let divisibleBy (n: int) (numQubits: int) : Result<CompiledOracle, string> =
+        if n = 0 then
+            Error "Divisor cannot be zero"
+        else
+            fromPredicate (fun x -> x % n = 0) numQubits
     
     /// Oracle that marks numbers in range [min, max] (inclusive)
-    let inRange (min: int) (max: int) (numQubits: int) : CompiledOracle =
-        fromPredicate (fun x -> x >= min && x <= max) numQubits
+    let inRange (min: int) (max: int) (numQubits: int) : Result<CompiledOracle, string> =
+        if min > max then
+            Error $"Invalid range: min ({min}) > max ({max})"
+        else
+            fromPredicate (fun x -> x >= min && x <= max) numQubits
     
     /// Oracle that marks numbers greater than threshold
-    let greaterThan (threshold: int) (numQubits: int) : CompiledOracle =
+    let greaterThan (threshold: int) (numQubits: int) : Result<CompiledOracle, string> =
         fromPredicate (fun x -> x > threshold) numQubits
     
     /// Oracle that marks numbers less than threshold
-    let lessThan (threshold: int) (numQubits: int) : CompiledOracle =
+    let lessThan (threshold: int) (numQubits: int) : Result<CompiledOracle, string> =
         fromPredicate (fun x -> x < threshold) numQubits
     
     // ============================================================================
@@ -282,27 +305,28 @@ module Oracle =
     module Examples =
         
         /// Example: Search for specific value in 4-qubit space (0-15)
-        let searchForValue (target: int) : CompiledOracle =
+        let searchForValue (target: int) : Result<CompiledOracle, string> =
             forValue target 4
         
         /// Example: Search for multiple specific values
-        let searchForMultiple (solutions: int list) : CompiledOracle =
+        let searchForMultiple (solutions: int list) : Result<CompiledOracle, string> =
             forValues solutions 4
         
         /// Example: Search for even numbers in 4-qubit space
-        let searchEven : CompiledOracle =
+        let searchEven : Result<CompiledOracle, string> =
             even 4
         
         /// Example: Search for numbers divisible by 3
-        let searchDivisibleBy3 : CompiledOracle =
+        let searchDivisibleBy3 : Result<CompiledOracle, string> =
             divisibleBy 3 4
         
         /// Example: Search for numbers in range 5-10
-        let searchRange5to10 : CompiledOracle =
+        let searchRange5to10 : Result<CompiledOracle, string> =
             inRange 5 10 4
         
         /// Example: Complex query - even AND in range 4-12
-        let searchEvenInRange : CompiledOracle =
-            let evenOracle = even 4
-            let rangeOracle = inRange 4 12 4
-            andOracle evenOracle rangeOracle
+        let searchEvenInRange : Result<CompiledOracle, string> =
+            match even 4, inRange 4 12 4 with
+            | Ok evenOracle, Ok rangeOracle -> andOracle evenOracle rangeOracle
+            | Error msg, _ -> Error msg
+            | _, Error msg -> Error msg

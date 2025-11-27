@@ -11,6 +11,18 @@ open FSharp.Azure.Quantum.GroverSearch.Search
 /// These tests actually RUN the quantum algorithm in simulation
 module GroverSearchTests =
     
+    /// Helper: Unwrap Result<CompiledOracle, string> for testing
+    let unwrapOracle (result: Result<CompiledOracle, string>) : CompiledOracle =
+        match result with
+        | Ok oracle -> oracle
+        | Error msg -> failwith $"Oracle creation failed: {msg}"
+    
+    /// Helper: Unwrap Result<int, string> for testing
+    let unwrapInt (result: Result<int, string>) : int =
+        match result with
+        | Ok value -> value
+        | Error msg -> failwith $"Operation failed: {msg}"
+    
     // ========================================================================
     // ORACLE TESTS - Verify oracle compilation and marking
     // ========================================================================
@@ -19,7 +31,7 @@ module GroverSearchTests =
     let ``Oracle marks single target correctly`` () =
         let target = 5
         let numQubits = 3
-        let oracle = forValue target numQubits
+        let oracle = forValue target numQubits |> unwrapOracle
         
         // Verify oracle properties
         Assert.Equal(numQubits, oracle.NumQubits)
@@ -33,7 +45,7 @@ module GroverSearchTests =
     let ``Oracle marks multiple targets correctly`` () =
         let targets = [2; 5; 7]
         let numQubits = 3
-        let oracle = forValues targets numQubits
+        let oracle = forValues targets numQubits |> unwrapOracle
         
         Assert.Equal(numQubits, oracle.NumQubits)
         Assert.Equal(Some 3, oracle.ExpectedSolutions)
@@ -45,7 +57,7 @@ module GroverSearchTests =
     let ``Oracle from predicate works`` () =
         let isEven x = x % 2 = 0
         let numQubits = 3
-        let oracle = fromPredicate isEven numQubits
+        let oracle = fromPredicate isEven numQubits |> unwrapOracle
         
         Assert.Equal(numQubits, oracle.NumQubits)
         
@@ -57,7 +69,7 @@ module GroverSearchTests =
     [<Fact>]
     let ``Even oracle marks all even numbers`` () =
         let numQubits = 3
-        let oracle = even numQubits
+        let oracle = even numQubits |> unwrapOracle
         
         let solutions = listSolutions oracle
         let expectedEvens = [0; 2; 4; 6]
@@ -66,7 +78,7 @@ module GroverSearchTests =
     [<Fact>]
     let ``Odd oracle marks all odd numbers`` () =
         let numQubits = 3
-        let oracle = odd numQubits
+        let oracle = odd numQubits |> unwrapOracle
         
         let solutions = listSolutions oracle
         let expectedOdds = [1; 3; 5; 7]
@@ -77,7 +89,7 @@ module GroverSearchTests =
         let min = 3
         let max = 6
         let numQubits = 3
-        let oracle = inRange min max numQubits
+        let oracle = inRange min max numQubits |> unwrapOracle
         
         let solutions = listSolutions oracle
         let expectedInRange = [3; 4; 5; 6]
@@ -87,7 +99,7 @@ module GroverSearchTests =
     let ``DivisibleBy oracle marks divisible numbers`` () =
         let divisor = 3
         let numQubits = 4
-        let oracle = divisibleBy divisor numQubits
+        let oracle = divisibleBy divisor numQubits |> unwrapOracle
         
         let solutions = listSolutions oracle
         // 0, 3, 6, 9, 12, 15 in 4-qubit space (0-15)
@@ -100,19 +112,19 @@ module GroverSearchTests =
     
     [<Fact>]
     let ``OptimalIterations calculates correctly for N=16 M=1`` () =
-        let k = optimalIterations 16 1
+        let k = optimalIterations 16 1 |> unwrapInt
         // Expected: π/4 * √(16/1) = π/4 * 4 ≈ 3.14 → 3
         Assert.Equal(3, k)
     
     [<Fact>]
     let ``OptimalIterations calculates correctly for N=256 M=1`` () =
-        let k = optimalIterations 256 1
+        let k = optimalIterations 256 1 |> unwrapInt
         // Expected: π/4 * √(256/1) = π/4 * 16 ≈ 12.57 → 13
         Assert.Equal(13, k)
     
     [<Fact>]
     let ``OptimalIterations calculates correctly for N=1024 M=1`` () =
-        let k = optimalIterations 1024 1
+        let k = optimalIterations 1024 1 |> unwrapInt
         // Expected: π/4 * √(1024/1) = π/4 * 32 ≈ 25.13 → 25
         Assert.Equal(25, k)
     
@@ -120,7 +132,7 @@ module GroverSearchTests =
     let ``TheoreticalSuccessProbability is high at optimal k`` () =
         let numQubits = 4
         let numSolutions = 1
-        let k = optimalIterations (1 <<< numQubits) numSolutions
+        let k = optimalIterations (1 <<< numQubits) numSolutions |> unwrapInt
         
         let prob = theoreticalSuccessProbability numQubits numSolutions k
         
@@ -131,7 +143,7 @@ module GroverSearchTests =
     let ``Grover iteration execution returns valid result`` () =
         let target = 7
         let numQubits = 3
-        let oracle = forValue target numQubits
+        let oracle = forValue target numQubits |> unwrapOracle
         
         let config = {
             NumIterations = 2
@@ -506,7 +518,7 @@ module GroverSearchTests =
         let classicalComplexity = N / 2
         
         // Quantum: O(√N) iterations
-        let quantumIterations = optimalIterations N M
+        let quantumIterations = optimalIterations N M |> unwrapInt
         
         // Speedup should be √N = 4 for N=16
         let expectedSpeedup = Math.Sqrt(float N)

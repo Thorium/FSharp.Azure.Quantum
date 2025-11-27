@@ -9,6 +9,18 @@ open FSharp.Azure.Quantum.GroverSearch.AmplitudeAmplification
 /// Tests for Generalized Amplitude Amplification
 module AmplitudeAmplificationTests =
     
+    /// Helper: Unwrap Result<CompiledOracle, string> for testing
+    let unwrapOracle (result: Result<CompiledOracle, string>) : CompiledOracle =
+        match result with
+        | Ok oracle -> oracle
+        | Error msg -> failwith $"Oracle creation failed: {msg}"
+    
+    /// Helper: Unwrap Result<int, string> for testing
+    let unwrapInt (result: Result<int, string>) : int =
+        match result with
+        | Ok value -> value
+        | Error msg -> failwith $"Operation failed: {msg}"
+    
     // ========================================================================
     // GROVER AS SPECIAL CASE TESTS
     // ========================================================================
@@ -17,7 +29,7 @@ module AmplitudeAmplificationTests =
     let ``Grover via amplitude amplification equals standard Grover`` () =
         let target = 5
         let numQubits = 3
-        let oracle = forValue target numQubits
+        let oracle = forValue target numQubits |> unwrapOracle
         let iterations = 2
         
         // Verify equivalence
@@ -29,7 +41,7 @@ module AmplitudeAmplificationTests =
     let ``GroverAsAmplification creates correct config`` () =
         let target = 7
         let numQubits = 3
-        let oracle = forValue target numQubits
+        let oracle = forValue target numQubits |> unwrapOracle
         let iterations = 3
         
         let config = groverAsAmplification oracle iterations
@@ -42,8 +54,8 @@ module AmplitudeAmplificationTests =
     let ``ExecuteGroverViaAmplification finds target`` () =
         let target = 3
         let numQubits = 3
-        let oracle = forValue target numQubits
-        let iterations = FSharp.Azure.Quantum.GroverSearch.GroverIteration.optimalIterations (1 <<< numQubits) 1
+        let oracle = forValue target numQubits |> unwrapOracle
+        let iterations = FSharp.Azure.Quantum.GroverSearch.GroverIteration.optimalIterations (1 <<< numQubits) 1 |> unwrapInt
         
         match executeGroverViaAmplification oracle iterations with
         | Ok result ->
@@ -163,7 +175,7 @@ module AmplitudeAmplificationTests =
     let ``Amplitude amplification with partial uniform preparation`` () =
         let numQubits = 3
         let target = 2  // One of the prepared states
-        let oracle = forValue target numQubits
+        let oracle = forValue target numQubits |> unwrapOracle
         
         // Prepare uniform superposition over first 4 states (|0⟩-|3⟩)
         let statePrep = partialUniformPreparation 4 numQubits
@@ -183,7 +195,7 @@ module AmplitudeAmplificationTests =
     let ``ExecuteWithCustomPreparation runs without error`` () =
         let numQubits = 3
         let target = 5
-        let oracle = forValue target numQubits
+        let oracle = forValue target numQubits |> unwrapOracle
         
         // Simple custom preparation: just apply H to first qubit
         let statePrep (state: StateVector.StateVector) =
@@ -243,7 +255,7 @@ module AmplitudeAmplificationTests =
     let ``Execute with zero iterations returns prepared state`` () =
         let numQubits = 3
         let target = 5
-        let oracle = forValue target numQubits
+        let oracle = forValue target numQubits |> unwrapOracle
         
         let statePrep (state: StateVector.StateVector) =
             Gates.applyH 0 state
@@ -276,7 +288,7 @@ module AmplitudeAmplificationTests =
     let ``Execute validates configuration`` () =
         let numQubits = 3
         let target = 5
-        let oracle = forValue target numQubits
+        let oracle = forValue target numQubits |> unwrapOracle
         
         // Invalid: negative iterations
         let invalidConfig = {
@@ -293,7 +305,7 @@ module AmplitudeAmplificationTests =
     
     [<Fact>]
     let ``Execute detects qubit mismatch`` () =
-        let oracle = forValue 5 3  // 3 qubits
+        let oracle = forValue 5 3 |> unwrapOracle  // 3 qubits
         
         // Config with wrong number of qubits
         let invalidConfig = {
@@ -316,7 +328,7 @@ module AmplitudeAmplificationTests =
     let ``Amplitude amplification result contains all fields`` () =
         let numQubits = 3
         let target = 7
-        let oracle = forValue target numQubits
+        let oracle = forValue target numQubits |> unwrapOracle
         let iterations = 2
         
         match executeGroverViaAmplification oracle iterations with
@@ -338,7 +350,7 @@ module AmplitudeAmplificationTests =
     let ``Amplitude amplification preserves state norm`` () =
         let numQubits = 3
         let target = 3
-        let oracle = forValue target numQubits
+        let oracle = forValue target numQubits |> unwrapOracle
         let iterations = 3
         
         match executeGroverViaAmplification oracle iterations with
@@ -356,7 +368,7 @@ module AmplitudeAmplificationTests =
     let ``Grover equivalence for multiple targets`` () =
         let targets = [2; 5; 7]
         let numQubits = 3
-        let oracle = forValues targets numQubits
+        let oracle = forValues targets numQubits |> unwrapOracle
         let iterations = 2
         
         let isEquivalent = verifyGroverEquivalence oracle iterations
@@ -367,7 +379,7 @@ module AmplitudeAmplificationTests =
     let ``Grover equivalence with different iteration counts`` () =
         let target = 6
         let numQubits = 3
-        let oracle = forValue target numQubits
+        let oracle = forValue target numQubits |> unwrapOracle
         
         for iterations in [1; 2; 3; 4] do
             let isEquivalent = verifyGroverEquivalence oracle iterations
@@ -381,7 +393,7 @@ module AmplitudeAmplificationTests =
     let ``Amplitude amplification works with 1-qubit system`` () =
         let numQubits = 1
         let target = 1
-        let oracle = forValue target numQubits
+        let oracle = forValue target numQubits |> unwrapOracle
         let iterations = 1
         
         match executeGroverViaAmplification oracle iterations with
@@ -394,7 +406,7 @@ module AmplitudeAmplificationTests =
     let ``Amplitude amplification works with 5-qubit system`` () =
         let numQubits = 5
         let target = 20
-        let oracle = forValue target numQubits
+        let oracle = forValue target numQubits |> unwrapOracle
         let iterations = 4
         
         match executeGroverViaAmplification oracle iterations with
