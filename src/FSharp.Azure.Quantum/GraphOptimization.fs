@@ -361,7 +361,53 @@ module GraphOptimization =
     // FR-7: QUBO ENCODING (Idiomatic Functional)
     // ========================================================================
     
-    /// Encode a graph optimization problem to QUBO
+    /// <summary>
+    /// Encode a graph optimization problem to Quadratic Unconstrained Binary Optimization (QUBO) format.
+    /// </summary>
+    /// 
+    /// <param name="problem">The graph optimization problem to encode</param>
+    /// <returns>A QUBO matrix suitable for quantum annealing or classical optimization</returns>
+    /// 
+    /// <remarks>
+    /// <para><b>Graph Coloring (MinimizeColors):</b></para>
+    /// <para>Variables: x_{i,c} = 1 if node i has color c (one-hot encoding)</para>
+    /// <para>Constraints:</para>
+    /// <list type="bullet">
+    ///   <item>One-hot: Each node gets exactly one color (always enforced)</item>
+    ///   <item>NoAdjacentEqual: Adjacent nodes must have different colors (if specified)</item>
+    /// </list>
+    /// <para>Formula: Σ_{c1&lt;c2} x_{i,c1} * x_{i,c2} + Σ_{(u,v)∈E} Σ_c x_{u,c} * x_{v,c}</para>
+    /// 
+    /// <para><b>Traveling Salesman Problem (MinimizeTotalWeight):</b></para>
+    /// <para>Variables: x_{i,t} = 1 if city i is visited at time t (n² variables)</para>
+    /// <para>Constraints:</para>
+    /// <list type="bullet">
+    ///   <item>Each city visited exactly once: Σ_t x_{i,t} = 1</item>
+    ///   <item>Each time slot has one city: Σ_i x_{i,t} = 1</item>
+    /// </list>
+    /// <para>Objective: Minimize Σ_{(i,j)∈E} Σ_t d_{i,j} * x_{i,t} * x_{j,t+1}</para>
+    /// 
+    /// <para><b>MaxCut (MaximizeCut):</b></para>
+    /// <para>Variables: x_i = 1 if node i is in partition 1, else 0</para>
+    /// <para>Objective: Maximize Σ_{(i,j)∈E} w_{i,j} * (x_i ⊕ x_j)</para>
+    /// <para>QUBO form: Minimize -Σ_{(i,j)∈E} w_{i,j} * x_i * x_j (encourages opposite partitions)</para>
+    /// </remarks>
+    /// 
+    /// <example>
+    /// <code>
+    /// let problem =
+    ///     GraphOptimizationBuilder()
+    ///         .Nodes([node "A" 1; node "B" 2])
+    ///         .Edges([edge "A" "B" 1.0])
+    ///         .Objective(MinimizeColors)
+    ///         .NumColors(3)
+    ///         .Build()
+    /// 
+    /// let qubo = toQubo problem
+    /// // qubo.NumVariables = 6 (2 nodes * 3 colors)
+    /// // qubo.Q contains penalty terms for constraints and objective
+    /// </code>
+    /// </example>
     let toQubo (problem: GraphOptimizationProblem<'TNode, 'TEdge>) : QuboMatrix =
         let numNodes = problem.Graph.Nodes |> Map.count
         
@@ -526,8 +572,37 @@ module GraphOptimization =
     // OBJECTIVE VALUE CALCULATION (TDD CYCLE 2)
     // ========================================================================
     
-    /// Calculate the objective value for a given solution
-    /// Infers the objective type from the solution structure
+    /// <summary>
+    /// Calculate the objective value for a given solution.
+    /// </summary>
+    /// 
+    /// <param name="solution">The graph optimization solution to evaluate</param>
+    /// <returns>The objective value (lower is better for minimization, higher for maximization)</returns>
+    /// 
+    /// <remarks>
+    /// <para><b>Smart Inference:</b> Automatically detects objective type from solution structure:</para>
+    /// <list type="bullet">
+    ///   <item><b>Graph Coloring:</b> Counts unique colors used in node assignments</item>
+    ///   <item><b>MaxCut:</b> Counts edges crossing partition (detected when all assignments are 0 or 1)</item>
+    ///   <item><b>TSP:</b> Sums edge weights in selected tour</item>
+    /// </list>
+    /// </remarks>
+    /// 
+    /// <example>
+    /// <code>
+    /// // Graph Coloring
+    /// let solution = { NodeAssignments = Some (Map ["A", 0; "B", 1; "C", 0]); ... }
+    /// let value = calculateObjectiveValue solution  // Returns 2.0 (two colors used)
+    /// 
+    /// // MaxCut
+    /// let solution = { NodeAssignments = Some (Map ["A", 0; "B", 1; "C", 1]); ... }
+    /// let value = calculateObjectiveValue solution  // Returns count of edges between different partitions
+    /// 
+    /// // TSP
+    /// let solution = { SelectedEdges = Some [edge "A" "B" 5.0; edge "B" "C" 3.0]; ... }
+    /// let value = calculateObjectiveValue solution  // Returns 8.0 (sum of edge weights)
+    /// </code>
+    /// </example>
     let calculateObjectiveValue (solution: GraphOptimizationSolution<'TNode, 'TEdge>) : float =
         match solution.NodeAssignments, solution.SelectedEdges with
         | Some assignments, None ->
@@ -595,7 +670,37 @@ module GraphOptimization =
             Violations = []
         }
     
-    /// Decode a QUBO solution to a graph optimization solution
+    /// <summary>
+    /// Decode a QUBO solution (binary variable assignments) back to a graph optimization solution.
+    /// </summary>
+    /// 
+    /// <param name="problem">The original graph optimization problem</param>
+    /// <param name="quboSolution">Binary variable assignments from QUBO solver (list of 0s and 1s)</param>
+    /// <returns>A graph optimization solution with node assignments, objective value, and feasibility status</returns>
+    /// 
+    /// <remarks>
+    /// <para><b>Graph Coloring:</b></para>
+    /// <para>Decodes one-hot color encoding: x_{i,c} = 1 means node i has color c</para>
+    /// <para>If multiple colors are assigned to a node, selects the first one</para>
+    /// 
+    /// <para><b>TSP:</b></para>
+    /// <para>Decodes one-hot time encoding: x_{i,t} = 1 means city i visited at time t</para>
+    /// <para>Reconstructs tour edges from time sequence (coming soon)</para>
+    /// 
+    /// <para><b>MaxCut:</b></para>
+    /// <para>Decodes binary partition: x_i = 1 means node i is in partition 1, else partition 0</para>
+    /// </remarks>
+    /// 
+    /// <example>
+    /// <code>
+    /// let problem = GraphOptimizationBuilder().Nodes(...).Objective(MinimizeColors).NumColors(3).Build()
+    /// let quboSolution = [1; 0; 0; 0; 1; 0] // Node 0 → color 0, Node 1 → color 1
+    /// let solution = decodeSolution problem quboSolution
+    /// // solution.NodeAssignments = Some (Map ["N0", 0; "N1", 1])
+    /// // solution.ObjectiveValue = 2.0 (two colors used)
+    /// // solution.IsFeasible = true
+    /// </code>
+    /// </example>
     let decodeSolution (problem: GraphOptimizationProblem<'TNode, 'TEdge>) (quboSolution: int list) : GraphOptimizationSolution<'TNode, 'TEdge> =
         let numNodes = problem.Graph.Nodes |> Map.count
         let nodeIds = problem.Graph.Nodes |> Map.toList |> List.map fst
@@ -736,8 +841,38 @@ module GraphOptimization =
         
         createSolution problem.Graph (Some assignments) None
     
-    /// Solve the problem using classical algorithms
-    /// Dispatches to appropriate algorithm based on objective
+    /// <summary>
+    /// Solve the problem using classical algorithms as fallback or baseline.
+    /// </summary>
+    /// 
+    /// <param name="problem">The graph optimization problem to solve</param>
+    /// <returns>A feasible solution using heuristic algorithms</returns>
+    /// 
+    /// <remarks>
+    /// <para><b>Algorithms by Objective:</b></para>
+    /// <list type="bullet">
+    ///   <item><b>Graph Coloring:</b> Welsh-Powell greedy coloring (assigns smallest available color to each node)</item>
+    ///   <item><b>TSP:</b> Nearest Neighbor heuristic (builds tour by always visiting closest unvisited city)</item>
+    ///   <item><b>MaxCut:</b> Randomized partitioning (alternates nodes between partitions)</item>
+    /// </list>
+    /// <para><b>Performance:</b> O(E + V) for graph coloring, O(V²) for TSP, O(V) for MaxCut</para>
+    /// <para><b>Quality:</b> Heuristic solutions are not guaranteed to be optimal, but run quickly and provide baselines</para>
+    /// </remarks>
+    /// 
+    /// <example>
+    /// <code>
+    /// let problem =
+    ///     GraphOptimizationBuilder()
+    ///         .Nodes([node "A" 1; node "B" 2; node "C" 3])
+    ///         .Edges([edge "A" "B" 1.0; edge "B" "C" 1.0])
+    ///         .Objective(MinimizeColors)
+    ///         .Build()
+    /// 
+    /// let solution = solveClassical problem
+    /// // Returns feasible coloring: { NodeAssignments = Some (Map ["A", 0; "B", 1; "C", 0]) }
+    /// // Objective value = 2.0 (two colors used)
+    /// </code>
+    /// </example>
     let solveClassical (problem: GraphOptimizationProblem<'TNode, 'TEdge>) : GraphOptimizationSolution<'TNode, 'TEdge> =
         match problem.Objective with
         | MinimizeColors -> greedyColoring problem
@@ -749,7 +884,42 @@ module GraphOptimization =
     // TDD CYCLE 2 - CONSTRAINT VALIDATION
     // ========================================================================
     
-    /// Validate that a solution satisfies all constraints
+    /// <summary>
+    /// Validate that a solution satisfies all problem constraints.
+    /// </summary>
+    /// 
+    /// <param name="problem">The graph optimization problem with constraints</param>
+    /// <param name="solution">The solution to validate</param>
+    /// <returns>True if all constraints are satisfied, false otherwise</returns>
+    /// 
+    /// <remarks>
+    /// <para><b>Supported Constraints:</b></para>
+    /// <list type="bullet">
+    ///   <item><b>NoAdjacentEqual:</b> Adjacent nodes must have different values (graph coloring)</item>
+    ///   <item><b>DegreeLimit:</b> Each node's degree ≤ maxDegree (network design)</item>
+    ///   <item><b>VisitOnce:</b> Each node visited exactly once (TSP)</item>
+    ///   <item><b>Connected:</b> Selected edges form connected subgraph</item>
+    ///   <item><b>Acyclic:</b> Selected edges form tree (no cycles)</item>
+    /// </list>
+    /// </remarks>
+    /// 
+    /// <example>
+    /// <code>
+    /// let problem =
+    ///     GraphOptimizationBuilder()
+    ///         .Nodes([node "A" 1; node "B" 2])
+    ///         .Edges([edge "A" "B" 1.0])
+    ///         .AddConstraint(NoAdjacentEqual)
+    ///         .Objective(MinimizeColors)
+    ///         .Build()
+    /// 
+    /// let solution = { NodeAssignments = Some (Map ["A", 0; "B", 1]); ... }
+    /// let isValid = validateConstraints problem solution  // Returns true
+    /// 
+    /// let invalidSolution = { NodeAssignments = Some (Map ["A", 0; "B", 0]); ... }
+    /// let isValid2 = validateConstraints problem invalidSolution  // Returns false (same color)
+    /// </code>
+    /// </example>
     let validateConstraints (problem: GraphOptimizationProblem<'TNode, 'TEdge>) (solution: GraphOptimizationSolution<'TNode, 'TEdge>) : bool =
         problem.Constraints
         |> List.forall (fun constraint ->
