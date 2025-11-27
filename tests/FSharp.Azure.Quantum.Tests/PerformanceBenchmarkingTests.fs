@@ -252,3 +252,32 @@ module PerformanceBenchmarkingTests =
             Assert.True(result.ExecutionTimeMs < 5000L,
                 sprintf "Expected < 5000ms, got %dms" result.ExecutionTimeMs)
         } |> Async.RunSynchronously
+
+    // ============================================================================
+    // Phase 3 - Classical Portfolio Benchmark Tests
+    // ============================================================================
+
+    [<Fact>]
+    let ``benchmarkClassicalPortfolio completes for 5 assets`` () =
+        async {
+            // Arrange
+            let assets = [
+                ("AAPL", 0.12, 0.15, 150.0)
+                ("GOOGL", 0.10, 0.20, 2800.0)
+                ("MSFT", 0.11, 0.18, 350.0)
+                ("AMZN", 0.13, 0.22, 3300.0)
+                ("TSLA", 0.15, 0.30, 800.0)
+            ]
+            let budget = 10000.0
+            
+            // Act
+            let! result = PerformanceBenchmarking.benchmarkClassicalPortfolio assets budget 2
+            
+            // Assert
+            Assert.Equal("Portfolio", result.ProblemType)
+            Assert.Equal(5, result.ProblemSize)
+            Assert.Equal("Classical", result.Solver)
+            Assert.True(result.ExecutionTimeMs > 0L)
+            Assert.True(result.ExecutionTimeMs < 5000L)  // Should complete in < 5s
+            Assert.True(result.SolutionQuality > 0.0)
+        } |> Async.RunSynchronously

@@ -150,6 +150,62 @@ module PerformanceBenchmarking =
         }
 
     // ============================================================================
+    // CLASSICAL PORTFOLIO BENCHMARKING
+    // ============================================================================
+
+    /// Benchmark classical Portfolio solver
+    let benchmarkClassicalPortfolio 
+        (assets: (string * float * float * float) list) 
+        (budget: float) 
+        (repetitions: int) 
+        : Async<BenchmarkResult> =
+        
+        async {
+            // Validate input
+            if assets.Length < 1 then
+                failwithf "Cannot benchmark Portfolio with less than 1 asset (got %d)" assets.Length
+            if budget <= 0.0 then
+                failwithf "Budget must be positive (got %f)" budget
+            if repetitions < 1 then
+                failwithf "Repetitions must be at least 1 (got %d)" repetitions
+                
+            let results = [
+                for _ in 1 .. repetitions do
+                    let sw = System.Diagnostics.Stopwatch.StartNew()
+                    let problem = Portfolio.createProblem assets budget
+                    let solution = Portfolio.solve problem None
+                    sw.Stop()
+                    
+                    match solution with
+                    | Ok allocation -> yield (sw.ElapsedMilliseconds, allocation.ExpectedReturn)
+                    | Error err -> 
+                        // Log error but continue - some runs might succeed
+                        eprintfn "Portfolio solve failed: %s" err
+            ]
+            
+            // Ensure we got at least one successful result
+            if results.IsEmpty then
+                failwith "All Portfolio solver runs failed - cannot produce benchmark result"
+            
+            let avgTime = 
+                results |> List.averageBy (fst >> float) |> int64
+                    
+            let bestQuality = 
+                results |> List.maxBy snd |> snd  // Higher expected return is better
+            
+            return {
+                ProblemType = "Portfolio"
+                ProblemSize = assets.Length
+                Solver = "Classical"
+                ExecutionTimeMs = avgTime
+                SolutionQuality = bestQuality
+                Cost = 0.0
+                ErrorRate = None
+                Timestamp = DateTime.UtcNow
+            }
+        }
+
+    // ============================================================================
     // COMPARISON AND REPORTING
     // ============================================================================
 
