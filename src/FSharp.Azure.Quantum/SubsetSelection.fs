@@ -301,3 +301,112 @@ module SubsetSelection =
                 IsFeasible = isFeasible
                 Violations = violations
             }
+    
+    // ============================================================================
+    // QUBO ENCODING - Quantum Solver Integration
+    // ============================================================================
+    
+    /// QUBO (Quadratic Unconstrained Binary Optimization) representation
+    type QuboMatrix = {
+        NumVars: int
+        Q: Map<(int * int), float>  // Sparse matrix representation: (i,j) -> coefficient
+    }
+    
+    /// Create empty QUBO matrix
+    let private emptyQubo numVars = {
+        NumVars = numVars
+        Q = Map.empty
+    }
+    
+    /// Default penalty weight for constraint violations
+    let private DefaultPenalty = 10.0
+    
+    /// Encode Subset Selection problem to QUBO format for quantum/annealing solvers.
+    /// 
+    /// QUBO formulation for 0/1 Knapsack:
+    ///   Variables: x_i ∈ {0,1} for each item i (1 = selected, 0 = not selected)
+    ///   
+    ///   Objective (maximize value):
+    ///     Minimize: -Σ_i (value_i * x_i)  [negative for maximization]
+    ///   
+    ///   Constraint (capacity limit):
+    ///     Penalty: P * (Σ_i (weight_i * x_i) - capacity)²
+    ///     Expanded: P * [Σ_i (weight_i² * x_i) + 2 * Σ_{i<j} (weight_i * weight_j * x_i * x_j) 
+    ///                     - 2 * capacity * Σ_i (weight_i * x_i) + capacity²]
+    ///   
+    ///   Since x_i² = x_i (binary), linear terms go on diagonal, quadratic terms off-diagonal.
+    /// 
+    /// Parameters:
+    ///   - problem: Subset selection problem with MaxLimit constraint
+    ///   - weightDim: Dimension name for capacity constraint (e.g., "weight")
+    ///   - valueDim: Dimension name for objective to maximize (e.g., "value")
+    /// 
+    /// Returns:
+    ///   - Ok QuboMatrix with encoded problem
+    ///   - Error message if problem cannot be encoded
+    let toQubo (problem: SubsetSelectionProblem<'T>) (weightDim: string) (valueDim: string)
+        : Result<QuboMatrix, string> =
+        
+        // Extract capacity from MaxLimit constraint
+        let capacityOpt =
+            problem.Constraints
+            |> List.tryPick (function
+                | MaxLimit(dim, limit) when dim = weightDim -> Some limit
+                | _ -> None)
+        
+        match capacityOpt with
+        | None -> Error $"No MaxLimit constraint found for dimension '{weightDim}'"
+        | Some capacity ->
+            
+            let items = problem.Items |> List.toArray
+            let n = items.Length
+            
+            // Extract weights and values for each item
+            let weights =
+                items
+                |> Array.map (fun item ->
+                    item.Weights.TryFind weightDim |> Option.defaultValue 0.0)
+            
+            let values =
+                items
+                |> Array.map (fun item ->
+                    item.Weights.TryFind valueDim |> Option.defaultValue 0.0)
+            
+            // Initialize QUBO matrix
+            let mutable qubo = emptyQubo n
+            
+            // Helper: Add term to QUBO matrix
+            let addTerm i j coeff =
+                let key = if i <= j then (i, j) else (j, i)  // Canonical ordering
+                let current = Map.tryFind key qubo.Q |> Option.defaultValue 0.0
+                qubo <- { qubo with Q = Map.add key (current + coeff) qubo.Q }
+            
+            // OBJECTIVE: Maximize value = Minimize negative value
+            // Add linear terms: -value_i * x_i (diagonal entries)
+            for i in 0 .. n - 1 do
+                addTerm i i (-values.[i])
+            
+            // CONSTRAINT: Capacity limit with penalty
+            // Penalty term: P * (Σ weight_i * x_i - capacity)²
+            
+            // Expanded form:
+            // P * [Σ weight_i² * x_i + 2 * Σ_{i<j} weight_i * weight_j * x_i * x_j 
+            //      - 2 * capacity * Σ weight_i * x_i + capacity²]
+            
+            // Linear terms (diagonal): P * (weight_i² - 2*capacity*weight_i) * x_i
+            for i in 0 .. n - 1 do
+                let w_i = weights.[i]
+                let linearCoeff = DefaultPenalty * (w_i * w_i - 2.0 * capacity * w_i)
+                addTerm i i linearCoeff
+            
+            // Quadratic terms (off-diagonal): 2 * P * weight_i * weight_j * x_i * x_j
+            for i in 0 .. n - 1 do
+                for j in i + 1 .. n - 1 do
+                    let w_i = weights.[i]
+                    let w_j = weights.[j]
+                    let quadraticCoeff = 2.0 * DefaultPenalty * w_i * w_j
+                    addTerm i j quadraticCoeff
+            
+            // Constant term (capacity²) doesn't affect optimization, so we omit it
+            
+            Ok qubo

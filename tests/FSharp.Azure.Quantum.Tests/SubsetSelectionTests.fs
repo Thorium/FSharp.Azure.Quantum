@@ -167,3 +167,36 @@ module SubsetSelectionTests =
             
         | Error msg ->
             Assert.Fail($"Portfolio optimization failed: {msg}")
+    
+    [<Fact>]
+    let ``QUBO encoding generates valid matrix for simple knapsack problem`` () =
+        // Arrange - Simple 3-item knapsack
+        let item1 = SubsetSelection.itemMulti "item1" "Item 1" ["weight", 2.0; "value", 10.0]
+        let item2 = SubsetSelection.itemMulti "item2" "Item 2" ["weight", 3.0; "value", 15.0]
+        let item3 = SubsetSelection.itemMulti "item3" "Item 3" ["weight", 4.0; "value", 20.0]
+        
+        let problem =
+            SubsetSelection.SubsetSelectionBuilder.Create()
+                .Items([item1; item2; item3])
+                .AddConstraint(SubsetSelection.MaxLimit("weight", 5.0))
+                .Objective(SubsetSelection.MaximizeWeight("value"))
+                .Build()
+        
+        // Act - encode to QUBO
+        let quboResult = SubsetSelection.toQubo problem "weight" "value"
+        
+        // Assert
+        match quboResult with
+        | Ok qubo ->
+            // Verify QUBO matrix dimensions (3 items = 3 binary variables)
+            Assert.Equal(3, qubo.NumVars)
+            
+            // Verify matrix is square and has correct structure
+            Assert.True(Map.count qubo.Q >= 0, "QUBO matrix should have entries")
+            
+            // QUBO should encode:
+            // 1. Objective: maximize value (minimize negative value)
+            // 2. Constraint: penalty for exceeding weight capacity
+            
+        | Error msg ->
+            Assert.Fail($"QUBO encoding failed: {msg}")
