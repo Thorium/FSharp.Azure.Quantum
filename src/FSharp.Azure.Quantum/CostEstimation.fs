@@ -765,3 +765,135 @@ module CostEstimation =
                 
                 let avgError = (List.average accuracyErrors) * 100.0
                 printfn "\n📈 Estimate Accuracy: %.1f%% average error" avgError
+    
+    // ============================================================================
+    // AZURE QUANTUM METADATA PARSING (for Azure job cost info)
+    // ============================================================================
+    
+    /// Actual cost information from Azure Quantum job metadata
+    type CostInfo = {
+        /// Job ID
+        JobId: string
+        
+        /// Actual cost charged
+        ActualCost: decimal<USD> option
+        
+        /// Currency code
+        Currency: string
+        
+        /// Billing status
+        BillingStatus: string option
+    }
+    
+    // ============================================================================
+    // SIMPLIFIED LEGACY API (for backward compatibility with Client.fs)
+    // ============================================================================
+    
+    /// Simplified cost estimate (compatible with old Cost.fs API)
+    type SimpleCostEstimate = {
+        /// Target backend ID
+        Target: string
+        
+        /// Minimum estimated cost
+        MinimumCost: decimal<USD>
+        
+        /// Maximum estimated cost
+        MaximumCost: decimal<USD>
+        
+        /// Expected cost (conservative estimate)
+        ExpectedCost: decimal<USD>
+        
+        /// Currency code
+        Currency: string
+        
+        /// Warning messages
+        Warnings: string list
+    }
+    
+    /// Simplified cost estimation based on target string and shot count
+    /// This is a compatibility wrapper for Client.fs (legacy Cost.fs API)
+    let estimateCostSimple (target: string) (shots: int) : Result<SimpleCostEstimate, string> =
+        if shots < 1 then
+            Error "Shot count must be at least 1"
+        elif String.IsNullOrWhiteSpace(target) then
+            Error "Target backend cannot be empty"
+        else
+            // Detect backend type from target string
+            let isSimulator = target.ToLowerInvariant().Contains("simulator")
+            
+            if isSimulator then
+                // Simulators are free
+                Ok {
+                    Target = target
+                    MinimumCost = 0.0M<USD>
+                    MaximumCost = 0.0M<USD>
+                    ExpectedCost = 0.0M<USD>
+                    Currency = "USD"
+                    Warnings = []
+                }
+            else
+                // QPU - use simple heuristic (conservative estimate)
+                let baseCost = 100.0M<USD>
+                let perShotCost = 0.01M<USD>
+                let minCost = baseCost
+                let maxCost = baseCost + (decimal shots * perShotCost)
+                
+                let warnings =
+                    if maxCost > 200.0M<USD> then
+                        [ sprintf "Estimated cost $%.2f exceeds $200. Consider using simulator first."
+                              (float (maxCost / 1.0M<USD>)) ]
+                    else
+                        []
+                
+                Ok {
+                    Target = target
+                    MinimumCost = minCost
+                    MaximumCost = maxCost
+                    ExpectedCost = maxCost  // Conservative: use max
+                    Currency = "USD"
+                    Warnings = warnings
+                }
+    
+    /// Parse cost information from Azure Quantum job metadata JSON
+    /// Returns cost information extracted from Azure's costData field
+    let parseCostFromMetadata (costDataJson: string option) : CostInfo option =
+        match costDataJson with
+        | None -> None
+        | Some json when String.IsNullOrWhiteSpace(json) -> None
+        | Some json ->
+            try
+                // Azure Quantum returns cost in "costData" field
+                // Example: {"estimated": 135.50, "currency": "USD"}
+                use doc = System.Text.Json.JsonDocument.Parse(json)
+                let root = doc.RootElement
+                
+                let mutable element = Unchecked.defaultof<System.Text.Json.JsonElement>
+                
+                let cost =
+                    if root.TryGetProperty("estimated", &element) then
+                        Some(decimal (element.GetDouble()) * 1.0M<USD>)
+                    elif root.TryGetProperty("actual", &element) then
+                        Some(decimal (element.GetDouble()) * 1.0M<USD>)
+                    else
+                        None
+                
+                let currency =
+                    if root.TryGetProperty("currency", &element) then
+                        element.GetString()
+                    else
+                        "USD"
+                
+                let billingStatus =
+                    if root.TryGetProperty("billingStatus", &element) then
+                        Some(element.GetString())
+                    else
+                        None
+                
+                Some {
+                    JobId = ""  // Will be set by caller
+                    ActualCost = cost
+                    Currency = currency
+                    BillingStatus = billingStatus
+                }
+            with _ ->
+                None

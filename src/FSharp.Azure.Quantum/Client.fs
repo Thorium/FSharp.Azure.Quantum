@@ -10,7 +10,7 @@ open Microsoft.Extensions.Logging
 open FSharp.Azure.Quantum.Core.Types
 open FSharp.Azure.Quantum.Core.Authentication
 open FSharp.Azure.Quantum.Core.Retry
-open FSharp.Azure.Quantum.Core.Cost
+open FSharp.Azure.Quantum.Core.CostEstimation
 
 module Client =
 
@@ -53,8 +53,8 @@ module Client =
 
           // Cost management
           CostEstimationEnabled: bool
-          PerJobCostLimit: decimal<Cost.USD> option
-          DailyCostLimit: decimal<Cost.USD> option }
+          PerJobCostLimit: decimal<USD> option
+          DailyCostLimit: decimal<USD> option }
 
     /// Create default config
     let createConfig subscriptionId resourceGroup workspaceName httpClient =
@@ -65,7 +65,7 @@ module Client =
           RetryConfig = Some Retry.defaultConfig
           Logger = None
           CostEstimationEnabled = true
-          PerJobCostLimit = Some 200.0M<Cost.USD> // Conservative default: $200 per job
+          PerJobCostLimit = Some 200.0M<USD> // Conservative default: $200 per job
           DailyCostLimit = None // No daily limit by default
         }
 
@@ -103,7 +103,7 @@ module Client =
                             1000 // Default to 1000 if conversion fails
                     | None -> 1000 // Default to 1000 shots
 
-                match Cost.estimateCost submission.Target shots with
+                match estimateCostSimple submission.Target shots with
                 | Ok estimate ->
                     this.Log(
                         LogLevel.Information,
