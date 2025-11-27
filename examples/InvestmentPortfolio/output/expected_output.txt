@@ -1,0 +1,79 @@
+╔══════════════════════════════════════════════════════════════════════════════╗
+║              INVESTMENT PORTFOLIO OPTIMIZATION EXAMPLE                       ║
+║              Using FSharp.Azure.Quantum Classical Solvers                    ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+Problem: Allocate $100,000.00 across 8 tech stocks
+Objective: Maximize returns while managing risk
+
+Running portfolio optimization...
+Completed in 5 ms
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                       PORTFOLIO ALLOCATION REPORT                            ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+ASSETS SELECTED:
+────────────────────────────────────────────────────────────────────────────────
+  1. MSFT   | 263.16 shares @ $380.00 = $100,000.00 (100.0%)
+
+PORTFOLIO SUMMARY:
+────────────────────────────────────────────────────────────────────────────────
+  Total Invested:        $100,000.00
+  Number of Holdings:    1 stocks
+  Expected Annual Return: 22.00%
+  Portfolio Risk (σ):    25.00%
+  Sharpe Ratio:          0.88
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                      RISK-RETURN ANALYSIS                                    ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+INDIVIDUAL STOCK METRICS:
+────────────────────────────────────────────────────────────────────────────────
+  Symbol  | Expected Return | Volatility | Sharpe Ratio | Allocation
+  --------|-----------------|------------|--------------|------------
+  AAPL    |         18.00% |    22.00% |         0.82 |       0.0%
+  MSFT    |         22.00% |    25.00% |         0.88 |     100.0%
+  GOOGL   |         16.00% |    28.00% |         0.57 |       0.0%
+  AMZN    |         24.00% |    32.00% |         0.75 |       0.0%
+  NVDA    |         35.00% |    45.00% |         0.78 |       0.0%
+  META    |         28.00% |    38.00% |         0.74 |       0.0%
+  TSLA    |         30.00% |    55.00% |         0.55 |       0.0%
+  AMD     |         26.00% |    42.00% |         0.62 |       0.0%
+
+PORTFOLIO VS. INDIVIDUAL STOCKS:
+────────────────────────────────────────────────────────────────────────────────
+  Average Stock Return:  24.88%
+  Portfolio Return:      22.00% (0.9x better)
+
+  Average Stock Risk:    35.88%
+  Portfolio Risk:        25.00% (1.4x lower)
+
+  Average Sharpe Ratio:  0.69
+  Portfolio Sharpe:      0.88 (1.3x better)
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                          BUSINESS IMPACT ANALYSIS                            ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+PROJECTED ANNUAL OUTCOMES (1 Year):
+────────────────────────────────────────────────────────────────────────────────
+  Initial Investment:    $100,000.00
+  Expected Return:       $22,000.00 (22.00% gain)
+
+  SCENARIO ANALYSIS (95%% confidence interval):
+  • Best Case:           $147,000.00 (+47.00%)
+  • Expected:            $122,000.00 (+22.00%)
+  • Worst Case:          $97,000.00 (-3.00%)
+
+KEY INSIGHTS:
+────────────────────────────────────────────────────────────────────────────────
+  ✓ Diversification across 1 tech stocks reduces risk
+  ✓ Sharpe ratio of 0.88 indicates efficient risk-adjusted returns
+  ✓ Expected to generate $22,000.00 annually
+  ✓ Risk-managed approach balances growth and volatility
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                     OPTIMIZATION SUCCESSFUL                                  ║
+╚══════════════════════════════════════════════════════════════════════════════╝

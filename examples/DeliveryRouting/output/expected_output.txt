@@ -1,0 +1,53 @@
+╔═══════════════════════════════════════════════════════════════╗
+║     QuickShip Logistics - Delivery Route Optimization        ║
+╚═══════════════════════════════════════════════════════════════╝
+
+Business Problem:
+  Optimize daily delivery route for 15 customers in NYC area
+  Starting point: QuickShip Warehouse - Manhattan
+  Customers: 15 stops
+
+📊 Baseline Analysis:
+  Naive route (visit in given order):
+    Distance: 310 km
+    Est. Time: 7.7 hours
+
+⚙️  Solving with Classical Optimization...
+
+✅ Optimized Route Found
+  Distance: 311 km
+  Est. Time: 7.8 hours
+  Solution Time: 6ms
+  Improvement: -0.2% better than naive route
+
+  Route:
+     1. QuickShip Warehouse - Manhattan
+     2. Upper East Side Boutique
+     3. Yonkers Retail
+     4. New Rochelle Store
+     5. Bronx Medical Supply
+     6. Queens Distribution
+     7. Toms River Distribution
+     8. Lakewood Retail
+     9. Edison Tech Center
+    10. Woodbridge Logistics
+    11. Staten Island Warehouse
+    12. Elizabeth Port
+    13. Newark Distribution
+    14. Paterson Industrial
+    15. Jersey City Office
+    16. Brooklyn Tech Hub
+
+💡 Business Impact:
+  • -0.6 km shorter route (-0.2% reduction)
+  • 0 minutes faster delivery
+  • Estimated fuel savings: -0.2% per day
+  • Annual impact (250 work days): ~-146 km saved
+
+📈 Route Statistics:
+  Total stops: 16
+  Average distance between stops: 19.4 km
+
+✨ Note: This example uses classical solver for fast execution.
+   For larger problems (50+ cities), quantum solvers may provide benefits.
+
