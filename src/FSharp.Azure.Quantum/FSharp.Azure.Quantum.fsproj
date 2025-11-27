@@ -67,6 +67,7 @@
     <Compile Include="QuantumAdvisor.fs" />
     <Compile Include="HybridSolver.fs" />
     <Compile Include="CircuitBuilder.fs" />
+    <Compile Include="GateTranspiler.fs" />
     <Compile Include="OpenQasmExport.fs" />
     <Compile Include="QuboEncoding.fs" />
     <Compile Include="GraphOptimization.fs" />

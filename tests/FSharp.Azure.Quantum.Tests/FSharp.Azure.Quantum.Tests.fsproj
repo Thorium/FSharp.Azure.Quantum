@@ -33,6 +33,7 @@
     <Compile Include="PortfolioBuilderTests.fs" />
     <Compile Include="HybridSolverTests.fs" />
     <Compile Include="CircuitValidatorTests.fs" />
+    <Compile Include="GateTranspilerTests.fs" />
     <Compile Include="RateLimitingTests.fs" />
     <Compile Include="ObservabilityTests.fs" />
     <Compile Include="BatchAccumulatorTests.fs" />
