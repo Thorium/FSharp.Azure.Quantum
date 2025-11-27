@@ -12,6 +12,7 @@
     <Compile Include="ConstraintSatisfactionTests.fs" />
     <Compile Include="OpenQasmExportTests.fs" />
     <Compile Include="OpenQasmImportTests.fs" />
+    <Compile Include="OpenQasmIntegrationTests.fs" />
     <Compile Include="GroverSearchTests.fs" />
     <Compile Include="AmplitudeAmplificationTests.fs" />
     <Compile Include="QaoaSimulatorTests.fs" />
