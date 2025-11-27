@@ -48,3 +48,47 @@ module SubsetSelection =
     /// Example: numericItem "num1" 5.0
     let numericItem (id: string) (value: float) : Item<float> =
         item id value "value" value
+    
+    // ============================================================================
+    // CONSTRAINT TYPES - Subset Selection Constraints
+    // ============================================================================
+    
+    /// Subset selection constraints defining rules for valid selections.
+    [<NoComparison; NoEquality>]
+    type SelectionConstraint =
+        /// Exact target for a dimension (Subset Sum)
+        | ExactTarget of dimension: string * target: float
+        
+        /// Maximum limit for a dimension (Knapsack capacity)
+        | MaxLimit of dimension: string * limit: float
+        
+        /// Minimum limit for a dimension
+        | MinLimit of dimension: string * limit: float
+        
+        /// Range constraint for a dimension
+        | Range of dimension: string * min: float * max: float
+        
+        /// Custom constraint function (for domain-specific rules)
+        | Custom of (obj list -> bool)
+    
+    // ============================================================================
+    // OBJECTIVE TYPES - Optimization Goals
+    // ============================================================================
+    
+    /// Subset selection objectives defining optimization criteria.
+    [<NoComparison; NoEquality>]
+    type SelectionObjective =
+        /// Minimize total weight in a dimension
+        | MinimizeWeight of dimension: string
+        
+        /// Maximize total weight in a dimension (Knapsack value)
+        | MaximizeWeight of dimension: string
+        
+        /// Minimize number of items selected (Set Cover)
+        | MinimizeCount
+        
+        /// Maximize number of items selected
+        | MaximizeCount
+        
+        /// Custom objective function (for domain-specific goals)
+        | CustomObjective of (obj list -> float)
