@@ -45,6 +45,7 @@
     <Compile Include="PerformanceBenchmarkingTests.fs" />
     <Compile Include="QuantumChemistryTests.fs" />
     <Compile Include="SchedulingTests.fs" />
+    <Compile Include="SubsetSelectionTests.fs" />
     <Compile Include="IntegrationTests.fs" />
   </ItemGroup>
 

@@ -78,6 +78,7 @@
     <Compile Include="QaoaCircuit.fs" />
     <Compile Include="QuantumChemistry.fs" />
     <Compile Include="Scheduling.fs" />
+    <Compile Include="SubsetSelection.fs" />
     <Compile Include="QaoaOptimizer.fs" />
     <Compile Include="QuantumBackend.fs" />
   </ItemGroup>
