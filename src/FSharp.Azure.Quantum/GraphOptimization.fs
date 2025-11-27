@@ -376,6 +376,13 @@ module GraphOptimization =
             |> List.mapi (fun idx (nodeId, _) -> nodeId, idx)
             |> Map.ofList
         
+        /// Helper: Add terms to QUBO matrix
+        let addTermsToQubo (qubo: QuboMatrix) (terms: ((int * int) * float) list) : QuboMatrix =
+            let updatedQ =
+                terms
+                |> List.fold (fun q (key, value) -> Map.add key value q) qubo.Q
+            { qubo with Q = updatedQ }
+        
         match problem.Objective with
         | MinimizeColors ->
             // Graph coloring: one-hot encoding
@@ -404,11 +411,7 @@ module GraphOptimization =
                     )
                 
                 // Add all penalty terms to QUBO
-                let updatedQ =
-                    penaltyTerms
-                    |> List.fold (fun q (key, value) -> Map.add key value q) baseQubo.Q
-                
-                { baseQubo with Q = updatedQ }
+                addTermsToQubo baseQubo penaltyTerms
             else
                 baseQubo
         
@@ -420,9 +423,28 @@ module GraphOptimization =
         
         | MaximizeCut ->
             // MaxCut: binary partition encoding
-            // Variables: x_i = 1 if node i in partition 1
+            // Variables: x_i = 1 if node i in partition 1, 0 otherwise
+            // Objective: Maximize edges crossing partition
+            // QUBO formulation: Minimize -Σ w_ij * x_i * x_j
+            //   (negative weights encourage x_i ≠ x_j, i.e., nodes in different partitions)
+            
             let numVars = numNodes
-            emptyQubo numVars
+            let baseQubo = emptyQubo numVars
+            
+            // Add quadratic terms for each edge: Q[(i,j)] = -weight
+            let edgeTerms =
+                problem.Graph.Edges
+                |> List.choose (fun edge ->
+                    match Map.tryFind edge.Source nodeIndexMap, Map.tryFind edge.Target nodeIndexMap with
+                    | Some srcIdx, Some tgtIdx ->
+                        // Use canonical ordering (i < j) for QUBO matrix
+                        let (i, j) = if srcIdx < tgtIdx then (srcIdx, tgtIdx) else (tgtIdx, srcIdx)
+                        Some ((i, j), -edge.Weight)
+                    | _ -> None
+                )
+            
+            // Build QUBO matrix with edge terms
+            addTermsToQubo baseQubo edgeTerms
         
         | _ ->
             // Default: binary encoding

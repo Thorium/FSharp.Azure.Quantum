@@ -770,4 +770,51 @@ module GraphOptimizationTests =
         
         // Assert: ObjectiveValue should be 2.0 (2 colors used), not 0.0
         Assert.Equal(2.0, solution.ObjectiveValue)
+    
+    // ============================================================================
+    // TDD CYCLE #4: MAXCUT QUBO ENCODING
+    // ============================================================================
+    
+    [<Fact>]
+    let ``toQubo generates MaxCut QUBO with edge weight terms`` () =
+        // Create a simple 3-node graph for MaxCut
+        let nodes = [
+            node "A" 1
+            node "B" 2
+            node "C" 3
+        ]
+        let edges = [
+            edge "A" "B" 5.0  // Edge weight 5.0
+            edge "B" "C" 3.0  // Edge weight 3.0
+            edge "A" "C" 2.0  // Edge weight 2.0
+        ]
+        
+        let problem =
+            GraphOptimizationBuilder<int, float>()
+                .Nodes(nodes)
+                .Edges(edges)
+                .Objective(MaximizeCut)
+                .Build()
+        
+        let qubo = toQubo problem
+        
+        // MaxCut QUBO formulation: Minimize -w * x_i * x_j for each edge (i,j)
+        // To maximize cut, we minimize the negative: -5*x_A*x_B - 3*x_B*x_C - 2*x_A*x_C
+        // Node indices: A=0, B=1, C=2
+        
+        // Check QUBO has correct number of variables (one per node)
+        Assert.Equal(3, qubo.NumVariables)
+        
+        // Check quadratic terms exist for edges with negative weights
+        // Edge A-B (nodes 0-1): Should have Q[(0,1)] = -5.0
+        Assert.True(qubo.Q.ContainsKey((0, 1)))
+        Assert.Equal(-5.0, qubo.Q.[(0, 1)])
+        
+        // Edge B-C (nodes 1-2): Should have Q[(1,2)] = -3.0
+        Assert.True(qubo.Q.ContainsKey((1, 2)))
+        Assert.Equal(-3.0, qubo.Q.[(1, 2)])
+        
+        // Edge A-C (nodes 0-2): Should have Q[(0,2)] = -2.0
+        Assert.True(qubo.Q.ContainsKey((0, 2)))
+        Assert.Equal(-2.0, qubo.Q.[(0, 2)])
 
