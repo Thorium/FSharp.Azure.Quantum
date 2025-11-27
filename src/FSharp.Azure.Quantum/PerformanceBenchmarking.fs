@@ -195,7 +195,7 @@ module PerformanceBenchmarking =
                     sw.Stop()
                     
                     match solution with
-                    | Ok allocation -> yield (sw.ElapsedMilliseconds, allocation.ExpectedReturn)
+                    | Ok allocation -> yield (sw.Elapsed.TotalMilliseconds, allocation.ExpectedReturn)
                     | Error err -> 
                         // Log error but continue - some runs might succeed
                         eprintfn "Portfolio solve failed: %s" err
@@ -206,7 +206,7 @@ module PerformanceBenchmarking =
                 failwith "All Portfolio solver runs failed - cannot produce benchmark result"
             
             let avgTime = 
-                results |> List.averageBy (fst >> float) |> int64
+                results |> List.averageBy fst |> ceil |> int64
                     
             let bestQuality = 
                 results |> List.maxBy snd |> snd  // Higher expected return is better
