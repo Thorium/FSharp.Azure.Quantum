@@ -92,3 +92,89 @@ module SubsetSelection =
         
         /// Custom objective function (for domain-specific goals)
         | CustomObjective of (obj list -> float)
+    
+    // ============================================================================
+    // PROBLEM DEFINITION - Subset Selection Problem
+    // ============================================================================
+    
+    /// Complete subset selection problem definition.
+    type SubsetSelectionProblem<'T when 'T : equality> = {
+        /// Items to select from
+        Items: Item<'T> list
+        
+        /// Selection constraints
+        Constraints: SelectionConstraint list
+        
+        /// Optimization objective
+        Objective: SelectionObjective
+    }
+    
+    // ============================================================================
+    // SOLUTION TYPES - Subset Selection Solution
+    // ============================================================================
+    
+    /// Solution to a subset selection problem.
+    type SubsetSelectionSolution<'T when 'T : equality> = {
+        /// Selected items
+        SelectedItems: Item<'T> list
+        
+        /// Total weights per dimension
+        TotalWeights: Map<string, float>
+        
+        /// Objective value achieved
+        ObjectiveValue: float
+        
+        /// Whether solution satisfies all constraints
+        IsFeasible: bool
+        
+        /// Constraint violations (if any)
+        Violations: string list
+    }
+    
+    // ============================================================================
+    // FLUENT BUILDER - Subset Selection Problem Construction
+    // ============================================================================
+    
+    /// Fluent builder for composing subset selection problems with method chaining.
+    /// Uses immutable record pattern for thread-safety and functional composition.
+    /// 
+    /// Example:
+    /// ```fsharp
+    /// let problem =
+    ///     SubsetSelectionBuilder.Create()
+    ///         .Items([item1; item2; item3])
+    ///         .AddConstraint(MaxLimit("weight", 10.0))
+    ///         .Objective(MaximizeWeight("value"))
+    ///         .Build()
+    /// ```
+    type SubsetSelectionBuilder<'T when 'T : equality> = private {
+        items: Item<'T> list
+        constraints: SelectionConstraint list
+        objective: SelectionObjective
+    } with
+        /// Create a new builder with default values
+        static member Create() : SubsetSelectionBuilder<'T> = {
+            items = []
+            constraints = []
+            objective = MaximizeCount  // default objective
+        }
+        
+        /// Fluent API: Set items to select from
+        member this.Items(itemList: Item<'T> list) =
+            { this with items = itemList }
+        
+        /// Fluent API: Add a selection constraint
+        member this.AddConstraint(constraint: SelectionConstraint) =
+            { this with constraints = constraint :: this.constraints }
+        
+        /// Fluent API: Set optimization objective
+        member this.Objective(obj: SelectionObjective) =
+            { this with objective = obj }
+        
+        /// Build the subset selection problem
+        member this.Build() : SubsetSelectionProblem<'T> =
+            {
+                Items = this.items
+                Constraints = List.rev this.constraints  // reverse to maintain insertion order
+                Objective = this.objective
+            }
