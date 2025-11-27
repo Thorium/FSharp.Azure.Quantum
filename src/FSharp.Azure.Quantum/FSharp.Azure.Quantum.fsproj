@@ -69,6 +69,7 @@
     <Compile Include="CircuitBuilder.fs" />
     <Compile Include="GateTranspiler.fs" />
     <Compile Include="OpenQasmExport.fs" />
+    <Compile Include="OpenQasmImport.fs" />
     <Compile Include="QuboEncoding.fs" />
     <Compile Include="GraphOptimization.fs" />
     <Compile Include="ConstraintSatisfaction.fs" />
