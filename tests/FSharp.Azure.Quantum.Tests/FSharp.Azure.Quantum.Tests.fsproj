@@ -8,6 +8,8 @@
   <ItemGroup>
     <Compile Include="StateVectorTests.fs" />
     <Compile Include="GatesTests.fs" />
+    <Compile Include="GroverSearchTests.fs" />
+    <Compile Include="AmplitudeAmplificationTests.fs" />
     <Compile Include="QaoaSimulatorTests.fs" />
     <Compile Include="MeasurementTests.fs" />
     <Compile Include="QuantumBackendTests.fs" />
@@ -37,6 +39,7 @@
     <Compile Include="ZeroNoiseExtrapolationTests.fs" />
     <Compile Include="ProbabilisticErrorCancellationTests.fs" />
     <Compile Include="ReadoutErrorMitigationTests.fs" />
+    <Compile Include="ErrorMitigationStrategyTests.fs" />
     <Compile Include="PerformanceBenchmarkingTests.fs" />
     <Compile Include="IntegrationTests.fs" />
   </ItemGroup>

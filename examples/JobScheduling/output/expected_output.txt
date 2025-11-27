@@ -1,0 +1,85 @@
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                   JOB SCHEDULING OPTIMIZATION EXAMPLE                        ║
+║                   Using Greedy Scheduling Algorithm                          ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+Problem: Schedule 10 jobs across 3 machines
+Objective: Minimize makespan (total completion time)
+Constraints: Respect job dependencies
+
+Running scheduling optimization...
+Completed in 7 ms
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                       JOB SCHEDULE REPORT                                    ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+SCHEDULE BY MACHINE:
+────────────────────────────────────────────────────────────────────────────────
+  Machine 1 (Utilization: 100.0%):
+    • J1_PrepMaterials: hours 0-3 (duration: 3h)
+    • J2_BaseAssembly: hours 3-7 (duration: 4h)
+    • J4_Integration: hours 7-12 (duration: 5h)
+    • J7_FinalAssembly: hours 12-18 (duration: 6h)
+    • J8_Testing: hours 18-21 (duration: 3h)
+    • J9_Packaging: hours 21-23 (duration: 2h)
+    • J10_Shipping: hours 23-25 (duration: 2h)
+
+  Machine 2 (Utilization: 20.0%):
+    • J5_QualityCheck: hours 0-2 (duration: 2h)
+    • J3_ComponentA: hours 3-6 (duration: 3h)
+
+  Machine 3 (Utilization: 16.0%):
+    • J6_ComponentB: hours 2-6 (duration: 4h)
+
+PERFORMANCE SUMMARY:
+────────────────────────────────────────────────────────────────────────────────
+  Total Jobs:            10
+  Makespan:              25 hours
+  Average Utilization:   45.3%
+  Total Idle Time:       41 machine-hours
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                       CRITICAL PATH ANALYSIS                                 ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+CRITICAL PATH (Bottleneck):
+────────────────────────────────────────────────────────────────────────────────
+  1. J10_Shipping         (duration: 2 hours)
+
+  Total Critical Path Duration: 2 hours
+  Makespan:                     25 hours
+
+INSIGHTS:
+────────────────────────────────────────────────────────────────────────────────
+  ✓ Parallelism achieved - jobs executed concurrently where possible
+  ✓ Average machine utilization: 45.3%
+  ⚠ Low utilization - consider reducing machines or adding jobs
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                       BUSINESS IMPACT ANALYSIS                               ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+TIME ANALYSIS:
+────────────────────────────────────────────────────────────────────────────────
+  Sequential Time (1 machine):   34 hours
+  Parallel Time (3 machines):    25 hours
+  Speedup Factor:                1.4x faster
+  Time Saved:                    9 hours (26.5%)
+
+COST ANALYSIS (@ $500/machine-hour):
+────────────────────────────────────────────────────────────────────────────────
+  Sequential Cost:               $17000.00
+  Parallel Cost:                 $37500.00
+  Additional Cost:               $20500.00
+
+KEY INSIGHTS:
+────────────────────────────────────────────────────────────────────────────────
+  ✓ Achieved 1.4x speedup with 3 machines
+  ✓ Average machine utilization: 45.3%
+  ✓ Critical path: 1 steps (2 hours)
+  ⚠ Sequential execution would be more cost-effective (fewer dependencies needed)
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                       SCHEDULING SUCCESSFUL                                  ║
+╚══════════════════════════════════════════════════════════════════════════════╝

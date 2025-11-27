@@ -1,0 +1,78 @@
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                SUPPLY CHAIN OPTIMIZATION EXAMPLE                             ║
+║                Using Greedy Network Flow Algorithm                           ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+Problem: Route 1250 units through 4-stage supply chain
+  • Suppliers: 2 (capacity: 1800 units)
+  • Warehouses: 2
+  • Distributors: 2
+  • Customers: 3 (demand: 1250 units)
+Objective: Minimize total cost while meeting demand
+
+Running supply chain optimization...
+Completed in 10 ms
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                     SUPPLY CHAIN FLOW REPORT                                 ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+STAGE 1: SUPPLIERS → WAREHOUSES (Ocean Freight)
+────────────────────────────────────────────────────────────────────────────────
+  S2_Mumbai → W2_Dubai: 800 units ($14400.00)
+  S1_Shanghai → W2_Dubai: 100 units ($2500.00)
+  S1_Shanghai → W1_Singapore: 350 units ($7000.00)
+
+STAGE 2: WAREHOUSES → DISTRIBUTORS (Air Freight)
+────────────────────────────────────────────────────────────────────────────────
+  W2_Dubai → D1_London: 800 units ($12800.00)
+  W2_Dubai → D2_Frankfurt: 100 units ($1400.00)
+  W1_Singapore → D2_Frankfurt: 350 units ($6300.00)
+
+STAGE 3: DISTRIBUTORS → CUSTOMERS (Ground Shipping)
+────────────────────────────────────────────────────────────────────────────────
+  D1_London → C1_Paris: 400 units ($4000.00)
+  D1_London → C2_Berlin: 400 units ($4800.00)
+  D2_Frankfurt → C2_Berlin: 100 units ($1000.00)
+  D2_Frankfurt → C3_Amsterdam: 350 units ($4550.00)
+
+SUMMARY:
+────────────────────────────────────────────────────────────────────────────────
+  Total Units Shipped:   1250 / 1250 (100.0% fill rate)
+  Total Cost:            $371250.00
+  Total Revenue:         $253000.00
+  Net Profit:            $-118250.00
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                       COST BREAKDOWN ANALYSIS                                ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+COST COMPONENTS:
+────────────────────────────────────────────────────────────────────────────────
+  Transport Cost:        $58750.00 (15.8%)
+  Operating Cost:        $312500.00 (84.2%)
+
+  Total Cost:            $371250.00
+  Total Revenue:         $253000.00
+  Profit Margin:         -46.7%
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                       BUSINESS INSIGHTS                                      ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+UNIT ECONOMICS:
+────────────────────────────────────────────────────────────────────────────────
+  Cost per Unit:         $297.00
+  Revenue per Unit:      $202.40
+  Profit per Unit:       $-94.60
+
+KEY INSIGHTS:
+────────────────────────────────────────────────────────────────────────────────
+  ✓ All customer demand satisfied (100% fill rate)
+  ⚠ Operating at a loss ($-118250.00)
+  ✓ Multi-stage optimization minimizes total logistics cost
+  ✓ Greedy algorithm provides good solution in <10ms
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                     OPTIMIZATION SUCCESSFUL                                  ║
+╚══════════════════════════════════════════════════════════════════════════════╝
