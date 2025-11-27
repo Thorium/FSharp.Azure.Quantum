@@ -62,14 +62,14 @@ module JobLifecycle =
                     return Error QuantumError.InvalidCredentials
                 | HttpStatusCode.TooManyRequests ->
                     let retryAfter = 
-                        if response.Headers.RetryAfter <> null && response.Headers.RetryAfter.Delta.HasValue then
+                        if not (isNull response.Headers.RetryAfter) && response.Headers.RetryAfter.Delta.HasValue then
                             response.Headers.RetryAfter.Delta.Value
                         else
                             TimeSpan.FromSeconds(60.0)
                     return Error (QuantumError.RateLimited retryAfter)
                 | HttpStatusCode.ServiceUnavailable ->
                     let retryAfter = 
-                        if response.Headers.RetryAfter <> null && response.Headers.RetryAfter.Delta.HasValue then
+                        if not (isNull response.Headers.RetryAfter) && response.Headers.RetryAfter.Delta.HasValue then
                             Some response.Headers.RetryAfter.Delta.Value
                         else
                             Some (TimeSpan.FromSeconds(30.0))
@@ -206,7 +206,7 @@ module JobLifecycle =
                     
                 | HttpStatusCode.TooManyRequests ->
                     let retryAfter = 
-                        if response.Headers.RetryAfter <> null && response.Headers.RetryAfter.Delta.HasValue then
+                        if not (isNull response.Headers.RetryAfter) && response.Headers.RetryAfter.Delta.HasValue then
                             response.Headers.RetryAfter.Delta.Value
                         else
                             TimeSpan.FromSeconds(60.0)
@@ -326,7 +326,7 @@ module JobLifecycle =
                     // Download result data
                     let! resultJson = response.Content.ReadAsStringAsync() |> Async.AwaitTask
                     let contentType = 
-                        if response.Content.Headers.ContentType <> null then
+                        if not (isNull response.Content.Headers.ContentType) then
                             response.Content.Headers.ContentType.MediaType
                         else
                             "application/json"
@@ -413,7 +413,7 @@ module JobLifecycle =
                     
                 | HttpStatusCode.TooManyRequests ->
                     let retryAfter = 
-                        if response.Headers.RetryAfter <> null && response.Headers.RetryAfter.Delta.HasValue then
+                        if not (isNull response.Headers.RetryAfter) && response.Headers.RetryAfter.Delta.HasValue then
                             response.Headers.RetryAfter.Delta.Value
                         else
                             TimeSpan.FromSeconds(60.0)

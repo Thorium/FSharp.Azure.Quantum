@@ -392,7 +392,7 @@ module ConstraintSatisfaction =
             |> List.choose (fun constr ->
                 match constr with
                 | AllDifferent varNames ->
-                    let values = varNames |> List.choose (fun name -> assignments.TryFind name)
+                    let values = varNames |> List.choose assignments.TryFind
                     let uniqueValues = values |> List.distinct
                     if values.Length <> uniqueValues.Length then
                         Some {
