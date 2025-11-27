@@ -11,12 +11,8 @@ module TSP =
     // TYPES - Domain-specific types for TSP problems
     // ============================================================================
 
-    /// Named city with coordinates
-    type City = {
-        Name: string
-        X: float
-        Y: float
-    }
+    // City type is now in shared TspTypes module
+    type City = TspTypes.City
 
     /// TSP Problem representation
     type TspProblem = {
@@ -36,18 +32,12 @@ module TSP =
     // DISTANCE CALCULATIONS
     // ============================================================================
 
-    /// Calculate Euclidean distance between two cities
-    let private euclideanDistance (c1: City) (c2: City) : float =
-        let dx = c2.X - c1.X
-        let dy = c2.Y - c1.Y
-        sqrt (dx * dx + dy * dy)
-
     /// Build distance matrix from cities
     let private buildDistanceMatrix (cities: City array) : float[,] =
         let n = cities.Length
         Array2D.init n n (fun i j ->
             if i = j then 0.0
-            else euclideanDistance cities.[i] cities.[j])
+            else TspTypes.distance cities.[i] cities.[j])
 
     // ============================================================================
     // TOUR VALIDATION
@@ -72,7 +62,7 @@ module TSP =
     let createProblem (cities: (string * float * float) list) : TspProblem =
         let cityArray =
             cities
-            |> List.map (fun (name, x, y) -> { Name = name; X = x; Y = y })
+            |> List.map (fun (name, x, y) -> TspTypes.createNamed name x y)
             |> List.toArray
         
         let distanceMatrix = buildDistanceMatrix cityArray
@@ -103,7 +93,10 @@ module TSP =
             // Convert tour indices to city names
             let cityNames = 
                 solution.Tour 
-                |> Array.map (fun idx -> problem.Cities.[idx].Name)
+                |> Array.map (fun idx -> 
+                    match problem.Cities.[idx].Name with
+                    | Some name -> name
+                    | None -> $"City {idx}")
                 |> Array.toList
             
             Ok {

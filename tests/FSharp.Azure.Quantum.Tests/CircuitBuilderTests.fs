@@ -337,7 +337,7 @@ module CircuitBuilderTests =
         
         let result = CircuitBuilder.validate circuit
         Assert.True(result.IsValid, "Valid circuit should pass validation")
-        Assert.Empty(result.Errors)
+        Assert.Empty(result.Messages)
 
     [<Fact>]
     let ``validate should fail for qubit index out of bounds`` () =
@@ -348,7 +348,7 @@ module CircuitBuilderTests =
         
         let result = CircuitBuilder.validate circuit
         Assert.False(result.IsValid)
-        Assert.Contains("Qubit index 2 out of bounds", result.Errors.[0])
+        Assert.Contains("Qubit index 2 out of bounds", result.Messages.[0])
 
     [<Fact>]
     let ``validate should fail for CNOT with out of bounds control`` () =
@@ -358,7 +358,7 @@ module CircuitBuilderTests =
         
         let result = CircuitBuilder.validate circuit
         Assert.False(result.IsValid)
-        Assert.Contains("Qubit index 3 out of bounds", result.Errors.[0])
+        Assert.Contains("Qubit index 3 out of bounds", result.Messages.[0])
 
     [<Fact>]
     let ``validate should fail for CNOT with out of bounds target`` () =
@@ -368,7 +368,7 @@ module CircuitBuilderTests =
         
         let result = CircuitBuilder.validate circuit
         Assert.False(result.IsValid)
-        Assert.Contains("Qubit index 5 out of bounds", result.Errors.[0])
+        Assert.Contains("Qubit index 5 out of bounds", result.Messages.[0])
 
     [<Fact>]
     let ``validate should fail for CNOT with same control and target`` () =
@@ -378,7 +378,7 @@ module CircuitBuilderTests =
         
         let result = CircuitBuilder.validate circuit
         Assert.False(result.IsValid)
-        Assert.Contains("CNOT control and target cannot be the same qubit", result.Errors.[0])
+        Assert.Contains("CNOT control and target cannot be the same qubit", result.Messages.[0])
 
     [<Fact>]
     let ``validate should collect multiple errors`` () =
@@ -390,7 +390,7 @@ module CircuitBuilderTests =
         
         let result = CircuitBuilder.validate circuit
         Assert.False(result.IsValid)
-        Assert.Equal(3, result.Errors.Length)
+        Assert.Equal(3, result.Messages.Length)
 
     [<Fact>]
     let ``validate should fail for negative qubit index`` () =
@@ -400,4 +400,4 @@ module CircuitBuilderTests =
         
         let result = CircuitBuilder.validate circuit
         Assert.False(result.IsValid)
-        Assert.Contains("negative", result.Errors.[0].ToLower())
+        Assert.Contains("negative", result.Messages.[0].ToLower())

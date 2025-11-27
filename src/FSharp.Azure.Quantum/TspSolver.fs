@@ -1,11 +1,13 @@
 namespace FSharp.Azure.Quantum.Classical
 
 open System
+open FSharp.Azure.Quantum
 
 module TspSolver =
 
-    /// City coordinates (x, y)
-    type City = float * float
+    // City type is now in shared TspTypes module
+    // For compatibility, we provide conversion helpers
+    type City = TspTypes.City
 
     /// Tour representation as array of city indices
     type Tour = int array
@@ -71,18 +73,12 @@ module TspSolver =
         ElapsedMs: float
     }
 
-    /// Calculate Euclidean distance between two cities
-    let euclideanDistance (x1, y1) (x2, y2) =
-        let dx = x2 - x1
-        let dy = y2 - y1
-        sqrt (dx * dx + dy * dy)
-
     /// Build distance matrix from city coordinates
     let buildDistanceMatrix (cities: City array) : DistanceMatrix =
         let n = cities.Length
         Array2D.init n n (fun i j ->
             if i = j then 0.0
-            else euclideanDistance cities.[i] cities.[j])
+            else TspTypes.distance cities.[i] cities.[j])
 
     /// Calculate total tour length given distance matrix
     let calculateTourLength (distances: DistanceMatrix) (tour: Tour) : float =

@@ -36,6 +36,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Compile Include="Validation.fs" />
     <Compile Include="Types.fs" />
     <Compile Include="StateVector.fs" />
     <Compile Include="Gates.fs" />
@@ -56,8 +57,10 @@
     <Compile Include="IonQBackend.fs" />
     <Compile Include="RigettiBackend.fs" />
     <Compile Include="Client.fs" />
+    <Compile Include="TspTypes.fs" />
     <Compile Include="TspSolver.fs" />
     <Compile Include="TspBuilder.fs" />
+    <Compile Include="PortfolioTypes.fs" />
     <Compile Include="PortfolioSolver.fs" />
     <Compile Include="PortfolioBuilder.fs" />
     <Compile Include="ProblemAnalysis.fs" />

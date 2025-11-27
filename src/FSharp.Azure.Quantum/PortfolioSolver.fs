@@ -1,6 +1,7 @@
 namespace FSharp.Azure.Quantum.Classical
 
 open System
+open FSharp.Azure.Quantum
 
 /// Portfolio optimization solver with greedy-by-ratio and mean-variance algorithms
 module PortfolioSolver =
@@ -9,20 +10,8 @@ module PortfolioSolver =
     // CORE TYPES
     // ================================================================================
     
-    /// Represents an asset with financial characteristics
-    type Asset = {
-        /// Asset ticker symbol
-        Symbol: string
-        
-        /// Expected return rate (e.g., 0.12 = 12%)
-        ExpectedReturn: float
-        
-        /// Risk measure (standard deviation)
-        Risk: float
-        
-        /// Current price per share
-        Price: float
-    }
+    // Asset type is now in shared PortfolioTypes module
+    type Asset = PortfolioTypes.Asset
     
     /// Portfolio constraints
     type Constraints = {
@@ -87,14 +76,7 @@ module PortfolioSolver =
         ElapsedMs: float
     }
     
-    /// Validation result with detailed error messages
-    type ValidationResult = {
-        /// Whether validation passed
-        IsValid: bool
-        
-        /// Error or warning messages
-        Messages: string list
-    }
+    // Validation result is now in shared Validation module
     
     // ================================================================================
     // VALIDATION FUNCTIONS
@@ -127,7 +109,7 @@ module PortfolioSolver =
         ]
     
     /// Validates that budget constraint is reasonable
-    let validateBudgetConstraint (assets: Asset list) (constraints: Constraints) : ValidationResult =
+    let validateBudgetConstraint (assets: Asset list) (constraints: Constraints) : Validation.ValidationResult =
         let messages = 
             [
                 yield! validateConstraintsInternal constraints
@@ -144,10 +126,10 @@ module PortfolioSolver =
                         yield $"MinHolding ({constraints.MinHolding}) is less than minimum asset price ({minPurchase})"
             ]
         
-        {
-            IsValid = List.isEmpty messages
-            Messages = messages
-        }
+        if List.isEmpty messages then
+            Validation.success
+        else
+            Validation.failure messages
     
     // ================================================================================
     // HELPER FUNCTIONS

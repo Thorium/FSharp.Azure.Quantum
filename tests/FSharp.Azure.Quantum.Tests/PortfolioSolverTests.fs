@@ -1,12 +1,13 @@
 module FSharp.Azure.Quantum.Tests.PortfolioSolverTests
 
 open Xunit
+open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Classical.PortfolioSolver
 
 [<Fact>]
 let ``Portfolio solver should validate budget constraint`` () =
     // Arrange
-    let assets = [
+    let assets: PortfolioTypes.Asset list = [
         { Symbol = "AAPL"; ExpectedReturn = 0.12; Risk = 0.20; Price = 150.0 }
         { Symbol = "GOOGL"; ExpectedReturn = 0.15; Risk = 0.25; Price = 2800.0 }
         { Symbol = "MSFT"; ExpectedReturn = 0.10; Risk = 0.18; Price = 350.0 }
@@ -28,7 +29,7 @@ let ``Portfolio solver should validate budget constraint`` () =
 [<Fact>]
 let ``Greedy-by-ratio should allocate assets by return-risk ratio`` () =
     // Arrange: Assets with different return/risk ratios
-    let assets = [
+    let assets: PortfolioTypes.Asset list = [
         { Symbol = "HIGH"; ExpectedReturn = 0.20; Risk = 0.10; Price = 100.0 }  // Ratio: 2.0
         { Symbol = "MED"; ExpectedReturn = 0.15; Risk = 0.15; Price = 100.0 }   // Ratio: 1.0
         { Symbol = "LOW"; ExpectedReturn = 0.10; Risk = 0.20; Price = 100.0 }   // Ratio: 0.5
@@ -68,7 +69,7 @@ let ``Greedy-by-ratio should allocate assets by return-risk ratio`` () =
 [<Fact>]
 let ``Mean-variance optimization should balance return and risk`` () =
     // Arrange: Three assets with different risk-return profiles
-    let assets = [
+    let assets: PortfolioTypes.Asset list = [
         { Symbol = "SAFE"; ExpectedReturn = 0.08; Risk = 0.05; Price = 100.0 }   // Low risk, low return
         { Symbol = "BALANCED"; ExpectedReturn = 0.12; Risk = 0.10; Price = 100.0 } // Medium risk, medium return
         { Symbol = "RISKY"; ExpectedReturn = 0.20; Risk = 0.25; Price = 100.0 }  // High risk, high return
@@ -106,7 +107,7 @@ let ``Mean-variance optimization should balance return and risk`` () =
 [<Fact>]
 let ``Mean-variance optimization with high risk tolerance should favor high returns`` () =
     // Arrange: Same assets as previous test
-    let assets = [
+    let assets: PortfolioTypes.Asset list = [
         { Symbol = "SAFE"; ExpectedReturn = 0.08; Risk = 0.05; Price = 100.0 }
         { Symbol = "BALANCED"; ExpectedReturn = 0.12; Risk = 0.10; Price = 100.0 }
         { Symbol = "RISKY"; ExpectedReturn = 0.20; Risk = 0.25; Price = 100.0 }
@@ -135,7 +136,7 @@ let ``Mean-variance optimization with high risk tolerance should favor high retu
 let ``Greedy-by-ratio should handle 50 assets efficiently`` () =
     // Arrange: Generate 50 random assets
     let random = System.Random(42)  // Fixed seed for reproducibility
-    let assets = 
+    let assets: PortfolioTypes.Asset list = 
         [1..50]
         |> List.map (fun i ->
             {
@@ -176,7 +177,7 @@ let ``Greedy-by-ratio should handle 50 assets efficiently`` () =
 let ``Mean-variance should handle 50 assets efficiently`` () =
     // Arrange: Generate 50 random assets (same seed for consistency)
     let random = System.Random(42)
-    let assets = 
+    let assets: PortfolioTypes.Asset list = 
         [1..50]
         |> List.map (fun i ->
             {
@@ -215,7 +216,7 @@ let ``Mean-variance should handle 50 assets efficiently`` () =
 [<Fact>]
 let ``Portfolio solver should handle edge case with single asset`` () =
     // Arrange: Portfolio with only one asset
-    let assets = [
+    let assets: PortfolioTypes.Asset list = [
         { Symbol = "ONLY"; ExpectedReturn = 0.10; Risk = 0.15; Price = 100.0 }
     ]
     
@@ -243,7 +244,7 @@ let ``Portfolio solver should handle edge case with single asset`` () =
 [<Fact>]
 let ``Portfolio solver should handle assets with zero risk`` () =
     // Arrange: Include a risk-free asset (e.g., treasury bonds)
-    let assets = [
+    let assets: PortfolioTypes.Asset list = [
         { Symbol = "RISKFREE"; ExpectedReturn = 0.03; Risk = 0.0; Price = 100.0 }  // Risk-free
         { Symbol = "MODERATE"; ExpectedReturn = 0.10; Risk = 0.12; Price = 100.0 }
         { Symbol = "RISKY"; ExpectedReturn = 0.18; Risk = 0.25; Price = 100.0 }
