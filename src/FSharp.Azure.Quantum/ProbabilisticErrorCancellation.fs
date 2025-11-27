@@ -98,6 +98,10 @@ module ProbabilisticErrorCancellation =
             | CircuitBuilder.Gate.X q -> q
             | CircuitBuilder.Gate.Y q -> q
             | CircuitBuilder.Gate.Z q -> q
+            | CircuitBuilder.Gate.S q -> q
+            | CircuitBuilder.Gate.SDG q -> q
+            | CircuitBuilder.Gate.T q -> q
+            | CircuitBuilder.Gate.TDG q -> q
             | CircuitBuilder.Gate.RX (q, _) -> q
             | CircuitBuilder.Gate.RY (q, _) -> q
             | CircuitBuilder.Gate.RZ (q, _) -> q
@@ -149,6 +153,8 @@ module ProbabilisticErrorCancellation =
         let (control, target) = 
             match gate with
             | CircuitBuilder.Gate.CNOT (c, t) -> (c, t)
+            | CircuitBuilder.Gate.CZ (c, t) -> (c, t)
+            | CircuitBuilder.Gate.SWAP (q1, q2) -> (q1, q2)
             | _ -> (0, 1)  // Default for other gate types
         
         // Generate 15-term Pauli basis corrections (excluding I⊗I)
@@ -282,7 +288,13 @@ module ProbabilisticErrorCancellation =
                     circuit.Gates 
                     |> List.map (fun gate ->
                         match gate with
-                        | CircuitBuilder.Gate.CNOT _ ->
+                        | CircuitBuilder.Gate.CNOT _ 
+                        | CircuitBuilder.Gate.CZ _
+                        | CircuitBuilder.Gate.SWAP _ ->
+                            decomposeTwoQubitGate gate config.NoiseModel
+                        | CircuitBuilder.Gate.CCX _ ->
+                            // For three-qubit gates, use two-qubit approximation
+                            // (More sophisticated handling could be added in future)
                             decomposeTwoQubitGate gate config.NoiseModel
                         | _ ->
                             decomposeSingleQubitGate gate config.NoiseModel)
