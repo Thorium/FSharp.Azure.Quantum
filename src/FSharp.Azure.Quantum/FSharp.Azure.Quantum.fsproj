@@ -65,6 +65,7 @@
     <Compile Include="ZeroNoiseExtrapolation.fs" />
     <Compile Include="ProbabilisticErrorCancellation.fs" />
     <Compile Include="ReadoutErrorMitigation.fs" />
+    <Compile Include="PerformanceBenchmarking.fs" />
     <Compile Include="QaoaCircuit.fs" />
     <Compile Include="QaoaOptimizer.fs" />
     <Compile Include="QuantumBackend.fs" />

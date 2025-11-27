@@ -37,6 +37,7 @@
     <Compile Include="ZeroNoiseExtrapolationTests.fs" />
     <Compile Include="ProbabilisticErrorCancellationTests.fs" />
     <Compile Include="ReadoutErrorMitigationTests.fs" />
+    <Compile Include="PerformanceBenchmarkingTests.fs" />
     <Compile Include="IntegrationTests.fs" />
   </ItemGroup>
 
