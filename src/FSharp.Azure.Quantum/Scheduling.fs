@@ -208,64 +208,69 @@ module Scheduling =
     // ============================================================================
     
     /// Fluent builder for composing scheduling problems with method chaining.
+    /// Uses immutable record pattern for thread-safety and functional composition.
     /// 
     /// Example:
     /// ```fsharp
     /// let problem =
-    ///     SchedulingBuilder()
+    ///     SchedulingBuilder.Create()
     ///         .Tasks([task1; task2; task3])
     ///         .Resources([resource1; resource2])
     ///         .AddDependency(FinishToStart("T1", "T2", 0.0))
     ///         .Objective(MinimizeMakespan)
     ///         .Build()
     /// ```
-    type SchedulingBuilder<'TTask, 'TResource when 'TTask : equality and 'TResource : equality>() =
-        let mutable tasks: Task<'TTask> list = []
-        let mutable resources: Resource<'TResource> list = []
-        let mutable dependencies: Dependency list = []
-        let mutable constraints: SchedulingConstraint list = []
-        let mutable objective: SchedulingObjective = MinimizeMakespan
-        let mutable timeHorizon: float = 100.0  // default 100 time units
+    type SchedulingBuilder<'TTask, 'TResource when 'TTask : equality and 'TResource : equality> = private {
+        tasks: Task<'TTask> list
+        resources: Resource<'TResource> list
+        dependencies: Dependency list
+        constraints: SchedulingConstraint list
+        objective: SchedulingObjective
+        timeHorizon: float
+    } with
+        /// Create a new builder with default values
+        static member Create() : SchedulingBuilder<'TTask, 'TResource> = {
+            tasks = []
+            resources = []
+            dependencies = []
+            constraints = []
+            objective = MinimizeMakespan
+            timeHorizon = 100.0  // default 100 time units
+        }
         
-        /// Set tasks to schedule
+        /// Fluent API: Set tasks to schedule
         member this.Tasks(taskList: Task<'TTask> list) =
-            tasks <- taskList
-            this
+            { this with tasks = taskList }
         
-        /// Set available resources
+        /// Fluent API: Set available resources
         member this.Resources(resourceList: Resource<'TResource> list) =
-            resources <- resourceList
-            this
+            { this with resources = resourceList }
         
-        /// Add a task dependency
+        /// Fluent API: Add a task dependency
         member this.AddDependency(dependency: Dependency) =
-            dependencies <- dependency :: dependencies
-            this
+            { this with dependencies = dependency :: this.dependencies }
         
-        /// Add a scheduling constraint
+        /// Fluent API: Add a scheduling constraint
         member this.AddConstraint(constraint: SchedulingConstraint) =
-            constraints <- constraint :: constraints
-            this
+            { this with constraints = constraint :: this.constraints }
         
-        /// Set optimization objective
+        /// Fluent API: Set optimization objective
         member this.Objective(obj: SchedulingObjective) =
-            objective <- obj
-            this
+            { this with objective = obj }
         
-        /// Set time horizon
+        /// Fluent API: Set time horizon
         member this.TimeHorizon(horizon: float) =
-            timeHorizon <- horizon
-            this
+            { this with timeHorizon = horizon }
         
         /// Build the scheduling problem
         member this.Build() : SchedulingProblem<'TTask, 'TResource> =
             {
-                Tasks = tasks
-                Resources = resources
-                Dependencies = List.rev dependencies  // reverse to maintain insertion order
-                Constraints = List.rev constraints    // reverse to maintain insertion order
-                Objective = objective
-                TimeHorizon = timeHorizon
+                Tasks = this.tasks
+                Resources = this.resources
+                Dependencies = List.rev this.dependencies  // reverse to maintain insertion order
+                Constraints = List.rev this.constraints    // reverse to maintain insertion order
+                Objective = this.objective
+                TimeHorizon = this.timeHorizon
             }
     
     // ============================================================================

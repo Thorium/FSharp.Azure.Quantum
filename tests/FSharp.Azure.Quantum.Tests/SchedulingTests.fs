@@ -92,9 +92,9 @@ module SchedulingTests =
             Properties = Map.empty
         }
         
-        // Act - fluent builder API
+        // Act - fluent builder API (immutable record pattern)
         let problem =
-            Scheduling.SchedulingBuilder()
+            Scheduling.SchedulingBuilder.Create()
                 .Tasks([task1; task2; task3])
                 .Resources([resource1])
                 .AddDependency(Scheduling.FinishToStart("T1", "T2", 0.0))
