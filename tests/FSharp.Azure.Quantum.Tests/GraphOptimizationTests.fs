@@ -436,3 +436,301 @@ module GraphOptimizationTests =
         
         Assert.Equal(5, problem.Graph.Nodes.Count)
         Assert.Equal(MaximizeCut, problem.Objective)
+    
+    // ============================================================================
+    // TDD CYCLE 2 - OBJECTIVE VALUE CALCULATION
+    // ============================================================================
+    
+    [<Fact>]
+    let ``calculateObjectiveValue - graph coloring counts colors used`` () =
+        let nodes = [
+            node "A" "Node A"
+            node "B" "Node B"
+            node "C" "Node C"
+        ]
+        let edges = [
+            edge "A" "B" 1.0
+            edge "B" "C" 1.0
+        ]
+        
+        let problem =
+            GraphOptimizationBuilder<string, float>()
+                .Nodes(nodes)
+                .Edges(edges)
+                .Objective(MinimizeColors)
+                .Build()
+        
+        // Solution: A=0, B=1, C=0 (2 colors used)
+        let solution = {
+            Graph = problem.Graph
+            NodeAssignments = Some (Map.ofList [("A", 0); ("B", 1); ("C", 0)])
+            SelectedEdges = None
+            ObjectiveValue = 0.0 // Should be calculated
+            IsFeasible = true
+            Violations = []
+        }
+        
+        let actualValue = calculateObjectiveValue solution
+        Assert.Equal(2.0, actualValue) // 2 colors used
+    
+    [<Fact>]
+    let ``calculateObjectiveValue - TSP sums edge weights in tour`` () =
+        let cities = [
+            node "A" "City A"
+            node "B" "City B"
+            node "C" "City C"
+        ]
+        let routes = [
+            edge "A" "B" 10.0
+            edge "B" "C" 20.0
+            edge "C" "A" 15.0
+        ]
+        
+        let problem =
+            GraphOptimizationBuilder<string, float>()
+                .Nodes(cities)
+                .Edges(routes)
+                .Objective(MinimizeTotalWeight)
+                .Build()
+        
+        // Solution: Tour A->B->C->A
+        let edgeAB = problem.Graph.Edges |> List.find (fun e -> e.Source = "A" && e.Target = "B")
+        let edgeBC = problem.Graph.Edges |> List.find (fun e -> e.Source = "B" && e.Target = "C")
+        let edgeCA = problem.Graph.Edges |> List.find (fun e -> e.Source = "C" && e.Target = "A")
+        
+        let solution = {
+            Graph = problem.Graph
+            NodeAssignments = None
+            SelectedEdges = Some [edgeAB; edgeBC; edgeCA]
+            ObjectiveValue = 0.0 // Should be calculated
+            IsFeasible = true
+            Violations = []
+        }
+        
+        let actualValue = calculateObjectiveValue solution
+        Assert.Equal(45.0, actualValue) // 10 + 20 + 15
+    
+    [<Fact>]
+    let ``calculateObjectiveValue - MaxCut counts edges crossing partition`` () =
+        let nodes = List.init 4 (fun i -> node $"N{i}" i)
+        let edges = [
+            edge "N0" "N1" 1.0
+            edge "N1" "N2" 1.0
+            edge "N2" "N3" 1.0
+            edge "N0" "N3" 1.0
+        ]
+        
+        let problem =
+            GraphOptimizationBuilder<int, float>()
+                .Nodes(nodes)
+                .Edges(edges)
+                .Objective(MaximizeCut)
+                .Build()
+        
+        // Solution: Partition {N0, N2} vs {N1, N3}
+        let solution = {
+            Graph = problem.Graph
+            NodeAssignments = Some (Map.ofList [("N0", 0); ("N1", 1); ("N2", 0); ("N3", 1)])
+            SelectedEdges = None
+            ObjectiveValue = 0.0 // Should be calculated
+            IsFeasible = true
+            Violations = []
+        }
+        
+        let actualValue = calculateObjectiveValue solution
+        Assert.Equal(4.0, actualValue) // All 4 edges cross the partition
+    
+    // ============================================================================
+    // TDD CYCLE 2 - CLASSICAL SOLVERS
+    // ============================================================================
+    
+    [<Fact>]
+    let ``solveClassical - greedy coloring for graph coloring`` () =
+        let nodes = [
+            node "A" "Node A"
+            node "B" "Node B"
+            node "C" "Node C"
+            node "D" "Node D"
+        ]
+        let edges = [
+            edge "A" "B" 1.0
+            edge "B" "C" 1.0
+            edge "C" "D" 1.0
+            edge "D" "A" 1.0
+        ]
+        
+        let problem =
+            GraphOptimizationBuilder<string, float>()
+                .Nodes(nodes)
+                .Edges(edges)
+                .Objective(MinimizeColors)
+                .Build()
+        
+        let solution = solveClassical problem
+        
+        // Should produce valid coloring
+        Assert.NotNull(solution)
+        Assert.True(solution.ObjectiveValue >= 2.0) // At least 2 colors needed (cycle)
+        
+        // Verify NodeAssignments exists
+        Assert.True(solution.NodeAssignments.IsSome)
+        let assignments = solution.NodeAssignments.Value
+        
+        // Verify no adjacent nodes have same color
+        for edge in problem.Graph.Edges do
+            let colorU = assignments.[edge.Source]
+            let colorV = assignments.[edge.Target]
+            Assert.NotEqual(colorU, colorV)
+    
+    [<Fact>]
+    let ``solveClassical - nearest neighbor for TSP`` () =
+        let cities = [
+            node "A" "City A"
+            node "B" "City B"
+            node "C" "City C"
+        ]
+        let routes = [
+            edge "A" "B" 10.0
+            edge "B" "C" 20.0
+            edge "C" "A" 15.0
+        ]
+        
+        let problem =
+            GraphOptimizationBuilder<string, float>()
+                .Nodes(cities)
+                .Edges(routes)
+                .Objective(MinimizeTotalWeight)
+                .AddConstraint(VisitOnce)
+                .Build()
+        
+        let solution = solveClassical problem
+        
+        // Should produce valid tour
+        Assert.NotNull(solution)
+        Assert.True(solution.SelectedEdges.IsSome)
+        
+        let selectedEdges = solution.SelectedEdges.Value
+        Assert.Equal(3, selectedEdges.Length) // Complete tour
+        
+        // Objective value should be sum of selected edges
+        Assert.True(solution.ObjectiveValue > 0.0)
+    
+    [<Fact>]
+    let ``solveClassical - randomized maxcut for graph partitioning`` () =
+        let nodes = List.init 4 (fun i -> node $"N{i}" i)
+        let edges = [
+            edge "N0" "N1" 1.0
+            edge "N1" "N2" 1.0
+            edge "N2" "N3" 1.0
+            edge "N0" "N3" 1.0
+        ]
+        
+        let problem =
+            GraphOptimizationBuilder<int, float>()
+                .Nodes(nodes)
+                .Edges(edges)
+                .Objective(MaximizeCut)
+                .Build()
+        
+        let solution = solveClassical problem
+        
+        // Should produce valid partition
+        Assert.NotNull(solution)
+        Assert.True(solution.NodeAssignments.IsSome)
+        
+        let assignments = solution.NodeAssignments.Value
+        Assert.Equal(4, assignments.Count)
+        
+        // Each node should be assigned to a partition (color 0 or 1)
+        for KeyValue(nodeId, color) in assignments do
+            Assert.True(color = 0 || color = 1)
+        
+        // Cut size should be positive
+        Assert.True(solution.ObjectiveValue > 0.0)
+    
+    // ============================================================================
+    // TDD CYCLE 2 - CONSTRAINT VALIDATION
+    // ============================================================================
+    
+    [<Fact>]
+    let ``validateConstraints - NoAdjacentEqual detects violations`` () =
+        let nodes = [
+            node "A" "Node A"
+            node "B" "Node B"
+            node "C" "Node C"
+        ]
+        let edges = [
+            edge "A" "B" 1.0
+            edge "B" "C" 1.0
+        ]
+        
+        let problem =
+            GraphOptimizationBuilder<string, float>()
+                .Nodes(nodes)
+                .Edges(edges)
+                .AddConstraint(NoAdjacentEqual)
+                .Objective(MinimizeColors)
+                .Build()
+        
+        // Valid solution: A=0, B=1, C=0
+        let validSolution = {
+            Graph = problem.Graph
+            NodeAssignments = Some (Map.ofList [("A", 0); ("B", 1); ("C", 0)])
+            SelectedEdges = None
+            ObjectiveValue = 0.0
+            IsFeasible = true
+            Violations = []
+        }
+        
+        let validResult = validateConstraints problem validSolution
+        Assert.True(validResult)
+        
+        // Invalid solution: A=0, B=0, C=1 (A and B adjacent with same color)
+        let invalidSolution = {
+            Graph = problem.Graph
+            NodeAssignments = Some (Map.ofList [("A", 0); ("B", 0); ("C", 1)])
+            SelectedEdges = None
+            ObjectiveValue = 0.0
+            IsFeasible = true
+            Violations = []
+        }
+        
+        let invalidResult = validateConstraints problem invalidSolution
+        Assert.False(invalidResult)
+    
+    [<Fact>]
+    let ``validateConstraints - DegreeLimit enforces maximum degree`` () =
+        let nodes = [
+            node "A" "Node A"
+            node "B" "Node B"
+            node "C" "Node C"
+            node "D" "Node D"
+        ]
+        let edges = [
+            edge "A" "B" 1.0
+            edge "A" "C" 1.0
+            edge "A" "D" 1.0
+            edge "B" "C" 1.0
+        ]
+        
+        let problem =
+            GraphOptimizationBuilder<string, float>()
+                .Nodes(nodes)
+                .Edges(edges)
+                .AddConstraint(DegreeLimit 2)
+                .Objective(MinimizeColors)
+                .Build()
+        
+        // Node A has degree 3, violates DegreeLimit 2
+        let solution = {
+            Graph = problem.Graph
+            NodeAssignments = None
+            SelectedEdges = None
+            ObjectiveValue = 0.0
+            IsFeasible = true
+            Violations = []
+        }
+        
+        let result = validateConstraints problem solution
+        Assert.False(result) // Should fail because A has degree 3 > 2
+

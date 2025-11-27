@@ -549,3 +549,220 @@ module GraphOptimization =
                 IsFeasible = true
                 Violations = []
             }
+    
+    // ========================================================================
+    // TDD CYCLE 2 - OBJECTIVE VALUE CALCULATION
+    // ========================================================================
+    
+    /// Calculate the objective value for a given solution
+    /// Infers the objective type from the solution structure
+    let calculateObjectiveValue (solution: GraphOptimizationSolution<'TNode, 'TEdge>) : float =
+        match solution.NodeAssignments, solution.SelectedEdges with
+        | Some assignments, None ->
+            // Could be graph coloring (count unique colors) or MaxCut (count cut edges)
+            // Heuristic: If all values are 0 or 1, it's MaxCut; otherwise graph coloring
+            let values = assignments |> Map.toList |> List.map snd
+            let allBinary = values |> List.forall (fun v -> v = 0 || v = 1)
+            
+            if allBinary && solution.Graph.Edges.Length > 0 then
+                // MaxCut: Count edges crossing partition
+                solution.Graph.Edges
+                |> List.filter (fun edge ->
+                    match Map.tryFind edge.Source assignments, Map.tryFind edge.Target assignments with
+                    | Some colorU, Some colorV -> colorU <> colorV
+                    | _ -> false
+                )
+                |> List.length
+                |> float
+            else
+                // Graph coloring: Count unique colors used
+                values
+                |> List.distinct
+                |> List.length
+                |> float
+        
+        | None, Some selectedEdges ->
+            // TSP: Sum edge weights in tour
+            selectedEdges
+            |> List.sumBy (fun edge -> edge.Weight)
+        
+        | _ ->
+            // Unknown or empty solution
+            0.0
+    
+    // ========================================================================
+    // TDD CYCLE 2 - CLASSICAL SOLVERS
+    // ========================================================================
+    
+    /// Helper: Create a solution record with calculated objective value
+    let private createSolution 
+        (graph: Graph<'TNode, 'TEdge>) 
+        (nodeAssignments: Map<string, int> option) 
+        (selectedEdges: Edge<'TEdge> list option) 
+        : GraphOptimizationSolution<'TNode, 'TEdge> =
+        
+        let tempSolution = {
+            Graph = graph
+            NodeAssignments = nodeAssignments
+            SelectedEdges = selectedEdges
+            ObjectiveValue = 0.0
+            IsFeasible = true
+            Violations = []
+        }
+        
+        { tempSolution with ObjectiveValue = calculateObjectiveValue tempSolution }
+    
+    /// Helper: Create an empty/infeasible solution
+    let private emptySolution (graph: Graph<'TNode, 'TEdge>) : GraphOptimizationSolution<'TNode, 'TEdge> =
+        {
+            Graph = graph
+            NodeAssignments = None
+            SelectedEdges = None
+            ObjectiveValue = 0.0
+            IsFeasible = false
+            Violations = []
+        }
+    
+    /// Greedy graph coloring algorithm (Welsh-Powell)
+    let private greedyColoring (problem: GraphOptimizationProblem<'TNode, 'TEdge>) : GraphOptimizationSolution<'TNode, 'TEdge> =
+        let nodeIds = problem.Graph.Nodes |> Map.toList |> List.map fst
+        
+        // Assign colors greedily: iterate through nodes, assign smallest available color
+        let rec assignColors (remaining: string list) (assignments: Map<string, int>) : Map<string, int> =
+            match remaining with
+            | [] -> assignments
+            | nodeId :: rest ->
+                // Find colors used by neighbors
+                let neighborColors =
+                    problem.Graph.Adjacency
+                    |> Map.tryFind nodeId
+                    |> Option.defaultValue []
+                    |> List.choose (fun neighbor -> Map.tryFind neighbor assignments)
+                    |> Set.ofList
+                
+                // Find smallest color not used by neighbors
+                let color =
+                    Seq.initInfinite id
+                    |> Seq.find (fun c -> not (Set.contains c neighborColors))
+                
+                assignColors rest (Map.add nodeId color assignments)
+        
+        let assignments = assignColors nodeIds Map.empty
+        createSolution problem.Graph (Some assignments) None
+    
+    /// Nearest neighbor TSP heuristic
+    let private nearestNeighborTSP (problem: GraphOptimizationProblem<'TNode, 'TEdge>) : GraphOptimizationSolution<'TNode, 'TEdge> =
+        let nodeIds = problem.Graph.Nodes |> Map.toList |> List.map fst
+        
+        if nodeIds.IsEmpty then
+            emptySolution problem.Graph
+        else
+            // Start from first node
+            let startNode = nodeIds.Head
+            
+            // Build tour greedily
+            let rec buildTour (current: string) (unvisited: Set<string>) (tour: Edge<'TEdge> list) =
+                if unvisited.IsEmpty then
+                    // Complete tour by returning to start
+                    let returnEdge = 
+                        problem.Graph.Edges 
+                        |> List.tryFind (fun e -> 
+                            (e.Source = current && e.Target = startNode) ||
+                            (e.Target = current && e.Source = startNode && not e.Directed)
+                        )
+                    
+                    match returnEdge with
+                    | Some edge -> edge :: tour
+                    | None -> tour
+                else
+                    // Find nearest unvisited neighbor
+                    let nextEdge =
+                        problem.Graph.Edges
+                        |> List.filter (fun e ->
+                            (e.Source = current && unvisited.Contains e.Target) ||
+                            (e.Target = current && unvisited.Contains e.Source && not e.Directed)
+                        )
+                        |> List.sortBy (fun e -> e.Weight)
+                        |> List.tryHead
+                    
+                    match nextEdge with
+                    | Some edge ->
+                        let nextNode = if edge.Source = current then edge.Target else edge.Source
+                        buildTour nextNode (Set.remove nextNode unvisited) (edge :: tour)
+                    | None ->
+                        // No path found, return incomplete tour
+                        tour
+            
+            let unvisited = nodeIds |> List.tail |> Set.ofList
+            let tourEdges = buildTour startNode unvisited [] |> List.rev
+            
+            createSolution problem.Graph None (Some tourEdges)
+    
+    /// Randomized MaxCut algorithm
+    let private randomizedMaxCut (problem: GraphOptimizationProblem<'TNode, 'TEdge>) : GraphOptimizationSolution<'TNode, 'TEdge> =
+        let nodeIds = problem.Graph.Nodes |> Map.toList |> List.map fst
+        
+        // Simple heuristic: assign nodes alternately to partitions 0 and 1
+        let assignments =
+            nodeIds
+            |> List.mapi (fun i nodeId -> nodeId, i % 2)
+            |> Map.ofList
+        
+        createSolution problem.Graph (Some assignments) None
+    
+    /// Solve the problem using classical algorithms
+    /// Dispatches to appropriate algorithm based on objective
+    let solveClassical (problem: GraphOptimizationProblem<'TNode, 'TEdge>) : GraphOptimizationSolution<'TNode, 'TEdge> =
+        match problem.Objective with
+        | MinimizeColors -> greedyColoring problem
+        | MinimizeTotalWeight -> nearestNeighborTSP problem
+        | MaximizeCut -> randomizedMaxCut problem
+        | _ -> emptySolution problem.Graph
+    
+    // ========================================================================
+    // TDD CYCLE 2 - CONSTRAINT VALIDATION
+    // ========================================================================
+    
+    /// Validate that a solution satisfies all constraints
+    let validateConstraints (problem: GraphOptimizationProblem<'TNode, 'TEdge>) (solution: GraphOptimizationSolution<'TNode, 'TEdge>) : bool =
+        problem.Constraints
+        |> List.forall (fun constraint ->
+            match constraint with
+            | NoAdjacentEqual ->
+                // Check that no adjacent nodes have the same color
+                match solution.NodeAssignments with
+                | Some assignments ->
+                    problem.Graph.Edges
+                    |> List.forall (fun edge ->
+                        match Map.tryFind edge.Source assignments, Map.tryFind edge.Target assignments with
+                        | Some colorU, Some colorV -> colorU <> colorV
+                        | _ -> true  // If node not in assignments, skip
+                    )
+                | None -> true  // No node assignments, constraint doesn't apply
+            
+            | DegreeLimit maxDegree ->
+                // Check that no node has degree > maxDegree
+                problem.Graph.Adjacency
+                |> Map.forall (fun _ neighbors -> neighbors.Length <= maxDegree)
+            
+            | VisitOnce ->
+                // For TSP: each node should be visited exactly once
+                // This is validated by checking the tour structure
+                match solution.SelectedEdges with
+                | Some edges ->
+                    let nodeIds = problem.Graph.Nodes |> Map.toList |> List.map fst
+                    let visitedNodes =
+                        edges
+                        |> List.collect (fun e -> [e.Source; e.Target])
+                        |> List.distinct
+                    visitedNodes.Length = nodeIds.Length
+                | None -> true
+            
+            | Acyclic ->
+                // Check for cycles (simplified: always true for now)
+                true
+            
+            | Connected ->
+                // Check graph connectivity (simplified: assume valid if has edges)
+                problem.Graph.Edges.Length > 0
+        )
