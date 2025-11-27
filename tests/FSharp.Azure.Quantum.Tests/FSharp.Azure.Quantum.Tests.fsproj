@@ -50,6 +50,7 @@
     <Compile Include="QuantumChemistryTests.fs" />
     <Compile Include="SchedulingTests.fs" />
     <Compile Include="SubsetSelectionTests.fs" />
+    <Compile Include="TaskSchedulingTests.fs" />
     <Compile Include="IntegrationTests.fs" />
   </ItemGroup>
 
