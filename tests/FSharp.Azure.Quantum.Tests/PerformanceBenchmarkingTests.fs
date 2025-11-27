@@ -281,3 +281,51 @@ module PerformanceBenchmarkingTests =
             Assert.True(result.ExecutionTimeMs < 5000L)  // Should complete in < 5s
             Assert.True(result.SolutionQuality > 0.0)
         } |> Async.RunSynchronously
+
+    [<Fact>]
+    let ``benchmarkClassicalPortfolio produces valid expected return`` () =
+        async {
+            // Arrange - Assets with known expected returns
+            let assets = [
+                ("Asset1", 0.10, 0.15, 100.0)
+                ("Asset2", 0.15, 0.20, 100.0)
+                ("Asset3", 0.20, 0.25, 100.0)
+            ]
+            let budget = 500.0
+            
+            // Act
+            let! result = PerformanceBenchmarking.benchmarkClassicalPortfolio assets budget 1
+            
+            // Assert
+            Assert.Equal("Portfolio", result.ProblemType)
+            Assert.Equal(3, result.ProblemSize)
+            // Expected return should be between min (0.10) and max (0.20) asset returns
+            Assert.True(result.SolutionQuality >= 0.10)
+            Assert.True(result.SolutionQuality <= 0.20)
+        } |> Async.RunSynchronously
+
+    [<Fact>]
+    let ``Classical Portfolio benchmark meets performance target for 10 assets`` () =
+        async {
+            // Arrange - 10 diverse assets
+            let assets = [
+                ("AAPL", 0.12, 0.15, 150.0)
+                ("GOOGL", 0.10, 0.20, 2800.0)
+                ("MSFT", 0.11, 0.18, 350.0)
+                ("AMZN", 0.13, 0.22, 3300.0)
+                ("TSLA", 0.15, 0.30, 800.0)
+                ("META", 0.09, 0.19, 500.0)
+                ("NVDA", 0.14, 0.28, 700.0)
+                ("AMD", 0.16, 0.32, 140.0)
+                ("NFLX", 0.11, 0.25, 600.0)
+                ("COIN", 0.18, 0.40, 220.0)
+            ]
+            let budget = 20000.0
+            
+            // Act
+            let! result = PerformanceBenchmarking.benchmarkClassicalPortfolio assets budget 3
+            
+            // Assert - Must complete in < 5 seconds as per requirements
+            Assert.True(result.ExecutionTimeMs < 5000L,
+                sprintf "Expected < 5000ms, got %dms" result.ExecutionTimeMs)
+        } |> Async.RunSynchronously
