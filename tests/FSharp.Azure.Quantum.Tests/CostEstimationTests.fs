@@ -660,3 +660,26 @@ let ``findCheapestBackend returns backend with lowest cost`` () =
             Assert.Fail(sprintf "compareCosts failed: %s" msg)
     | Error msg ->
         Assert.Fail(sprintf "Expected success but got error: %s" msg)
+
+[<Fact>]
+let ``recommendCostOptimization suggests cheaper backend`` () =
+    // Arrange
+    let circuit = createSimpleCircuit 50 30 2 2
+    let shots = 1000<shot>
+    let currentBackend = IonQ true  // Most expensive option
+    let availableBackends = [IonQ true; IonQ false; Rigetti]
+    
+    // Act
+    let result = recommendCostOptimization currentBackend availableBackends circuit shots
+    
+    // Assert
+    match result with
+    | Ok (Some recommendation) ->
+        // Should recommend switching to a cheaper backend
+        Assert.NotEqual(currentBackend, recommendation.RecommendedBackend)
+        Assert.True(recommendation.PotentialSavings > 0.0M<USD>)
+        Assert.False(String.IsNullOrWhiteSpace(recommendation.Reasoning))
+    | Ok None ->
+        Assert.Fail("Expected recommendation for expensive backend but got None")
+    | Error msg ->
+        Assert.Fail(sprintf "Expected success but got error: %s" msg)

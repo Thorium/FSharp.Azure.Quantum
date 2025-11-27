@@ -434,6 +434,75 @@ module CostEstimation =
                 |> fun cheapestEstimate -> (cheapestEstimate.Backend, cheapestEstimate))
     
     // ============================================================================
+    // COST OPTIMIZATION RECOMMENDATIONS
+    // ============================================================================
+    
+    /// Cost optimization recommendation
+    type CostRecommendation = {
+        /// Current backend being used
+        CurrentBackend: Backend
+        
+        /// Recommended cheaper backend
+        RecommendedBackend: Backend
+        
+        /// Potential cost savings (USD)
+        PotentialSavings: decimal<USD>
+        
+        /// Human-readable reasoning
+        Reasoning: string
+        
+        /// Current backend cost estimate
+        CurrentCost: CostEstimate
+        
+        /// Recommended backend cost estimate
+        RecommendedCost: CostEstimate
+    }
+    
+    /// Format backend name for display
+    let private formatBackendName (backend: Backend) : string =
+        match backend with
+        | IonQ true -> "IonQ (with error mitigation)"
+        | IonQ false -> "IonQ (without error mitigation)"
+        | Quantinuum -> "Quantinuum"
+        | Rigetti -> "Rigetti"
+    
+    /// Generate cost optimization recommendation
+    /// Returns Some recommendation if savings >= 20%, None if current is optimal
+    let recommendCostOptimization
+        (currentBackend: Backend)
+        (availableBackends: Backend list)
+        (circuit: Circuit)
+        (shots: int<shot>)
+        : Result<CostRecommendation option, string> =
+        
+        match estimateCost currentBackend circuit shots with
+        | Error msg -> Error msg
+        | Ok currentEstimate ->
+            match findCheapestBackend availableBackends circuit shots with
+            | Error msg -> Error msg
+            | Ok (cheapest, cheapestEstimate) ->
+                let savings = currentEstimate.ExpectedCost - cheapestEstimate.ExpectedCost
+                let savingsPercent = (float (savings / currentEstimate.ExpectedCost)) * 100.0
+                
+                // Only recommend if savings >= 20%
+                if savings > 0.0M<USD> && savingsPercent >= 20.0 && cheapest <> currentBackend then
+                    let recommendation = {
+                        CurrentBackend = currentBackend
+                        RecommendedBackend = cheapest
+                        PotentialSavings = savings
+                        Reasoning = sprintf "Save $%.2f (%.0f%% reduction) by switching from %s to %s"
+                            (float (savings / 1.0M<USD>))
+                            savingsPercent
+                            (formatBackendName currentBackend)
+                            (formatBackendName cheapest)
+                        CurrentCost = currentEstimate
+                        RecommendedCost = cheapestEstimate
+                    }
+                    Ok (Some recommendation)
+                else
+                    Ok None
+    
+    // ============================================================================
     // BUDGET ENFORCEMENT
     // ============================================================================
     
