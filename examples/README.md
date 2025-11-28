@@ -8,8 +8,8 @@ This directory contains **4 complete real-world example applications** demonstra
 
 | Example | Problem Type | Business ROI | Runtime | Status |
 |---------|--------------|--------------|---------|--------|
-| **[DeliveryRouting](./DeliveryRouting/)** | TSP Optimization | $0.15/km fuel savings | ~5ms | ✅ Complete |
-| **[InvestmentPortfolio](./InvestmentPortfolio/)** | Portfolio Optimization | 1.3x better Sharpe ratio | ~5ms | ✅ Complete |
+| **[DeliveryRouting](./DeliveryRouting/)** | Hybrid TSP (Auto-routing) | $0.15/km fuel savings | ~5ms | ✅ Complete |
+| **[InvestmentPortfolio](./InvestmentPortfolio/)** | Hybrid Portfolio (Auto-routing) | 1.3x better Sharpe ratio | ~5ms | ✅ Complete |
 | **[JobScheduling](./JobScheduling/)** | Resource Allocation | $25k/hour ROI | ~8ms | ✅ Complete |
 | **[SupplyChain](./SupplyChain/)** | Network Flow | 10-20% cost reduction | ~10ms | ✅ Complete |
 
