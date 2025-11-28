@@ -391,11 +391,16 @@ module Scheduling =
                         let startTime = max earliestStart (task.EarliestStart |> Option.defaultValue 0.0)
                         let endTime = startTime + task.Duration
                         
+                        // Allocate resources based on task requirements
+                        // For now, assign the exact quantities requested (assumes resources are available)
+                        // Future enhancement: Check resource availability and capacity constraints
+                        let assignedResources = task.ResourceRequirements
+                        
                         let assignment = {
                             TaskId = task.Id
                             StartTime = startTime
                             EndTime = endTime
-                            AssignedResources = Map.empty  // TODO: Resource allocation
+                            AssignedResources = assignedResources
                         }
                         
                         let newScheduled = scheduled |> Map.add task.Id assignment
@@ -415,12 +420,50 @@ module Scheduling =
                     |> Seq.map (fun (_, assignment) -> assignment.EndTime)
                     |> Seq.max
             
+            // Build resource allocations map from task assignments
+            let resourceAllocations =
+                assignments
+                |> Map.toSeq
+                |> Seq.collect (fun (_, assignment) ->
+                    assignment.AssignedResources
+                    |> Map.toSeq
+                    |> Seq.map (fun (resourceId, quantity) ->
+                        (resourceId, {
+                            ResourceId = resourceId
+                            TaskId = assignment.TaskId
+                            StartTime = assignment.StartTime
+                            EndTime = assignment.EndTime
+                            Quantity = quantity
+                        })))
+                |> Seq.groupBy fst
+                |> Seq.map (fun (resourceId, allocations) ->
+                    (resourceId, allocations |> Seq.map snd |> List.ofSeq))
+                |> Map.ofSeq
+            
+            // Calculate total cost based on resource usage
+            // Cost = Σ (resource quantity × duration × cost per unit)
+            let totalCost =
+                assignments
+                |> Map.toSeq
+                |> Seq.sumBy (fun (_, assignment) ->
+                    let duration = assignment.EndTime - assignment.StartTime
+                    assignment.AssignedResources
+                    |> Map.toSeq
+                    |> Seq.sumBy (fun (resourceId, quantity) ->
+                        // Find resource cost per unit from problem definition
+                        let costPerUnit =
+                            problem.Resources
+                            |> List.tryFind (fun r -> r.Id = resourceId)
+                            |> Option.map (fun r -> r.CostPerUnit)
+                            |> Option.defaultValue 0.0
+                        quantity * duration * costPerUnit))
+            
             // Build schedule
             let schedule = {
                 TaskAssignments = assignments
-                ResourceAllocations = Map.empty  // TODO: Resource tracking
+                ResourceAllocations = resourceAllocations
                 Makespan = makespan
-                TotalCost = 0.0  // TODO: Cost calculation
+                TotalCost = totalCost
             }
             
             Ok schedule
