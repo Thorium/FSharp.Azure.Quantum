@@ -109,6 +109,7 @@
     <Compile Include="Solvers\Quantum\QuantumChemistry.fs" />
 
     <!-- Top-level applications (depends on Solvers) -->
+    <Compile Include="GraphColoring.fs" />
     <Compile Include="Builders\Scheduling.fs" />
     <Compile Include="Builders\SubsetSelection.fs" />
     <Compile Include="Builders\SubsetSelectionCSharpExtensions.fs" />
