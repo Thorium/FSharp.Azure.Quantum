@@ -22,17 +22,22 @@
 ```fsharp
 open FSharp.Azure.Quantum.Classical
 
-// Solve a TSP problem with named cities
+// Hybrid solver automatically chooses classical or quantum
 let cities = [
     ("Seattle", 47.6, -122.3)
     ("Portland", 45.5, -122.7)
     ("San Francisco", 37.8, -122.4)
 ]
 
-match TSP.solveDirectly cities None with
-| Ok tour -> 
-    printfn "Best route: %A" tour.Cities
-    printfn "Distance: %.2f miles" tour.TotalDistance
+// Convert to distance matrix
+let distances = TSP.calculateDistances cities
+
+// Let HybridSolver decide the best approach
+match HybridSolver.solveTsp distances None None None with
+| Ok solution ->
+    printfn "Method: %A" solution.Method  // Classical or Quantum
+    printfn "Reasoning: %s" solution.Reasoning
+    printfn "Best route: %A" solution.Result
 | Error msg -> printfn "Error: %s" msg
 ```
 
@@ -41,7 +46,7 @@ match TSP.solveDirectly cities None with
 **NuGet Package:** [FSharp.Azure.Quantum](https://www.nuget.org/packages/FSharp.Azure.Quantum)
 
 ```bash
-dotnet add package FSharp.Azure.Quantum --prerelease
+dotnet add package FSharp.Azure.Quantum
 ```
 
 ## ✨ Features

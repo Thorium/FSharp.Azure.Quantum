@@ -53,8 +53,8 @@ Optimize delivery routes for **15 stops** in the NYC area to minimize total dist
 - **ROI**: $0.15/km fuel savings, 15-20% route reduction typical
 
 ### Technical Details
-- **Algorithm**: Nearest neighbor heuristic (classical TSP solver)
-- **Uses Library**: `TSP.solveDirectly` from FSharp.Azure.Quantum
+- **Algorithm**: Hybrid solver (automatic classical/quantum routing)
+- **Uses Library**: `HybridSolver.solveTsp` from FSharp.Azure.Quantum
 - **Problem Size**: 15 locations (NYC metropolitan area)
 - **Solution Time**: ~5 milliseconds
 - **Output**: Optimized tour with total distance 120.83 km
@@ -62,6 +62,7 @@ Optimize delivery routes for **15 stops** in the NYC area to minimize total dist
 ### Key Learnings
 - TSP is NP-hard but greedy heuristics work well for <50 stops
 - Geographic data (lat/lon) converts to distance matrices
+- HybridSolver automatically routes to classical solver for problem sizes <50
 - Classical solvers are highly effective for practical routing problems
 
 ---
@@ -79,8 +80,8 @@ Allocate **$100,000** across **8 tech stocks** to maximize risk-adjusted returns
 - **ROI**: 1% Sharpe ratio improvement = millions in better risk-adjusted returns
 
 ### Technical Details
-- **Algorithm**: Greedy Sharpe ratio selection (mean-variance optimization)
-- **Uses Library**: `Portfolio.solveDirectly` from FSharp.Azure.Quantum
+- **Algorithm**: Hybrid solver (automatic classical/quantum routing)
+- **Uses Library**: `HybridSolver.solvePortfolio` from FSharp.Azure.Quantum
 - **Problem Size**: 8 assets (AAPL, MSFT, GOOGL, AMZN, NVDA, META, TSLA, AMD)
 - **Solution Time**: ~5 milliseconds
 - **Output**: Portfolio with 22% expected return, 25% risk, Sharpe ratio 0.88
