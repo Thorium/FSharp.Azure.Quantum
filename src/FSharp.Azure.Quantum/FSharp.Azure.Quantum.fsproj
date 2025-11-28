@@ -81,6 +81,7 @@
     <Compile Include="QaoaCircuit.fs" />
     <Compile Include="CircuitAbstraction.fs" />
     <Compile Include="BackendAbstraction.fs" />
+    <Compile Include="QuantumTspSolver.fs" />
     <Compile Include="QuantumChemistry.fs" />
     <Compile Include="Scheduling.fs" />
     <Compile Include="SubsetSelection.fs" />
