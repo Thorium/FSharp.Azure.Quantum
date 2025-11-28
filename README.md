@@ -591,10 +591,13 @@ let qubo = SubsetSelection.toQubo problem
 
 | Component | Status | Description |
 |-----------|--------|-------------|
+| **QuantumPortfolioSolver** | 🚧 Planned | Quantum portfolio optimization using SubsetSelection + QAOA |
 | **QUBO-to-Circuit** | 🚧 Planned | Automatic TSP/Portfolio → QAOA circuit conversion |
 | **Advanced Constraints** | 🚧 Planned | Complex portfolio constraints |
 | **More Domains** | 🚧 Planned | Scheduling, MaxCut, Knapsack |
 | **IBM/Google/Amazon** | 🚧 Future | Additional quantum provider support |
+
+**Note on QuantumPortfolioSolver**: The architecture and `SubsetSelection` builder are ready. Implementation requires proper integration between `SubsetSelection.toQubo` (which returns `Result<QuboMatrix>`) and the portfolio-specific decoding logic. See `QuantumTspSolver.fs` for the pattern to follow.
 
 ## 🎯 When to Use Quantum
 
