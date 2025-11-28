@@ -63,3 +63,16 @@ _ReSharper*/
 # OS generated files
 .DS_Store
 Thumbs.db
+
+# Test and build output files
+*test-output.txt
+*test-results.txt
+*build-output.txt
+*build.log
+detailed-test-output.txt
+
+# Internal development documentation
+ARCHITECTURE_ANALYSIS.md
+PHASE-*.md
+*-COMPLETE.md
+SESSION-*.md

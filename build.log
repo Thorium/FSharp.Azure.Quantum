@@ -1,12 +1,0 @@
-  Determining projects to restore...
-  All projects are up-to-date for restore.
-  FSharp.Azure.Quantum -> C:\git\FSharp.Azure.Quantum\red\git\FSharp.Azure.Quantum\src\FSharp.Azure.Quantum\bin\Debug\net10.0\FSharp.Azure.Quantum.dll
-C:\git\FSharp.Azure.Quantum\red\git\FSharp.Azure.Quantum\tests\FSharp.Azure.Quantum.Tests\IonQBackendTests.fs(61,13): error FS0041: A unique overload for method 'Equal' could not be determined based on type information prior to this program point. A type annotation may be needed.Known types of arguments: int array * int arrayCandidates: - Assert.Equal<'T when 'T: unmanaged and 'T: (new: unit -> 'T) and 'T: struct and 'T :> ValueType and 'T :> IEquatable<'T>>(expected: 'T array, actual: 'T array) : unit - Assert.Equal<'T>(expected: 'T seq, actual: 'T seq) : unit - Assert.Equal<'T>(expected: 'T, actual: 'T) : unit [C:\git\FSharp.Azure.Quantum\red\git\FSharp.Azure.Quantum\tests\FSharp.Azure.Quantum.Tests\FSharp.Azure.Quantum.Tests.fsproj]
-
-Build FAILED.
-
-C:\git\FSharp.Azure.Quantum\red\git\FSharp.Azure.Quantum\tests\FSharp.Azure.Quantum.Tests\IonQBackendTests.fs(61,13): error FS0041: A unique overload for method 'Equal' could not be determined based on type information prior to this program point. A type annotation may be needed.Known types of arguments: int array * int arrayCandidates: - Assert.Equal<'T when 'T: unmanaged and 'T: (new: unit -> 'T) and 'T: struct and 'T :> ValueType and 'T :> IEquatable<'T>>(expected: 'T array, actual: 'T array) : unit - Assert.Equal<'T>(expected: 'T seq, actual: 'T seq) : unit - Assert.Equal<'T>(expected: 'T, actual: 'T) : unit [C:\git\FSharp.Azure.Quantum\red\git\FSharp.Azure.Quantum\tests\FSharp.Azure.Quantum.Tests\FSharp.Azure.Quantum.Tests.fsproj]
-    0 Warning(s)
-    1 Error(s)
-
-Time Elapsed 00:00:15.21
