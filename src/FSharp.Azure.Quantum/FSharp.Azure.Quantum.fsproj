@@ -6,11 +6,20 @@
     <GenerateProgramFile>false</GenerateProgramFile>
 
     <!-- Package Metadata -->
-    <Version>0.5.0-beta</Version>
+    <Version>1.1.0</Version>
     <PackageId>FSharp.Azure.Quantum</PackageId>
     <Title>FSharp.Azure.Quantum</Title>
-    <Description>F# library for Azure Quantum with production-ready classical optimization (TSP, Portfolio), Azure Quantum backend integration (IonQ, Rigetti), extensible circuit validation, local quantum simulation, QAOA with OpenQASM 2.0, and error mitigation techniques (ZNE, PEC). Multi-provider architecture supports IonQ, Rigetti, IBM, Amazon Braket, and Google Cirq.</Description>
-    <Summary>F# library for Azure Quantum with classical optimization, quantum backends (IonQ, Rigetti), and multi-provider QAOA support</Summary>
+    <Description>F# library for Azure Quantum with production-ready classical optimization (TSP, Portfolio), Azure Quantum backend integration (IonQ, Rigetti), extensible circuit validation, local quantum simulation, QAOA with automatic parameter optimization (Nelder-Mead), OpenQASM 2.0 support, and error mitigation techniques (ZNE, PEC). Multi-provider architecture supports IonQ, Rigetti, IBM, Amazon Braket, and Google Cirq.</Description>
+    <Summary>F# library for Azure Quantum with classical optimization, quantum backends (IonQ, Rigetti), and QAOA with automatic parameter tuning</Summary>
+    <PackageReleaseNotes>v1.1.0: QAOA Parameter Optimization Release
+- Add automatic QAOA parameter optimization via variational quantum-classical loop
+- Implement Nelder-Mead simplex optimizer for problem-specific parameter tuning
+- Configurable optimization settings (shots, initial parameters, enable/disable)
+- Convergence tracking and optimized parameter reporting
+- Backward compatible API via solveWithShots function
+- Clean up redundant backend documentation
+- All 1,021 tests passing
+- Production-ready for quantum TSP solving with research-grade algorithms</PackageReleaseNotes>
     
     <!-- Repository Info -->
     <RepositoryUrl>https://github.com/thorium/FSharp.Azure.Quantum</RepositoryUrl>

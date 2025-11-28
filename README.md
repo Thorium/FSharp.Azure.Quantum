@@ -5,9 +5,9 @@
 [![NuGet](https://img.shields.io/nuget/v/FSharp.Azure.Quantum.svg)](https://www.nuget.org/packages/FSharp.Azure.Quantum/)
 [![License](https://img.shields.io/badge/license-Unlicense-blue.svg)](LICENSE)
 
-## ✨ Status: Production Ready (v1.0.0)
+## ✨ Status: Production Ready (v1.1.0)
 
-**Current Features (v1.0.0):**
+**Current Features (v1.1.0):**
 - ✅ Production-ready classical optimization (TSP, Portfolio)
 - ✅ Quantum Advisor (recommendations for quantum advantage)
 - ✅ **Azure Quantum backend integration** (IonQ, Rigetti simulators)
@@ -629,6 +629,6 @@ Developed using AI-assisted TDD methodology.
 
 ---
 
-**Status**: Production Ready (v1.0.0) - All core features complete, fully tested, quantum backends integrated.
+**Status**: Production Ready (v1.1.0) - QAOA with automatic parameter optimization, all core features complete, fully tested, quantum backends integrated.
 
 **Last Updated**: 2025-11-28
