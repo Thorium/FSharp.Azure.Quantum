@@ -72,6 +72,7 @@
     <Compile Include="OpenQasmImport.fs" />
     <Compile Include="QuboEncoding.fs" />
     <Compile Include="GraphOptimization.fs" />
+    <Compile Include="GraphColoring.fs" />
     <Compile Include="ConstraintSatisfaction.fs" />
     <Compile Include="ZeroNoiseExtrapolation.fs" />
     <Compile Include="ProbabilisticErrorCancellation.fs" />
@@ -82,6 +83,7 @@
     <Compile Include="QuantumChemistry.fs" />
     <Compile Include="Scheduling.fs" />
     <Compile Include="SubsetSelection.fs" />
+    <Compile Include="TaskScheduling.fs" />
     <Compile Include="QaoaOptimizer.fs" />
     <Compile Include="QuantumBackend.fs" />
   </ItemGroup>

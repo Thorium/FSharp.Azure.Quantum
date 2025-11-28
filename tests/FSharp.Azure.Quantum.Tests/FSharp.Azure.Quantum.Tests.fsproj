@@ -9,6 +9,7 @@
     <Compile Include="StateVectorTests.fs" />
     <Compile Include="GatesTests.fs" />
     <Compile Include="GraphOptimizationTests.fs" />
+    <Compile Include="GraphColoringTests.fs" />
     <Compile Include="ConstraintSatisfactionTests.fs" />
     <Compile Include="OpenQasmExportTests.fs" />
     <Compile Include="OpenQasmImportTests.fs" />
@@ -50,6 +51,7 @@
     <Compile Include="QuantumChemistryTests.fs" />
     <Compile Include="SchedulingTests.fs" />
     <Compile Include="SubsetSelectionTests.fs" />
+    <Compile Include="TaskSchedulingTests.fs" />
     <Compile Include="IntegrationTests.fs" />
   </ItemGroup>
 

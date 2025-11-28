@@ -767,3 +767,361 @@ module GroundStateEnergy =
         
         estimateEnergyWith config.Method molecule config
 
+// ============================================================================
+// QUANTUM CHEMISTRY DOMAIN BUILDER - F# Computation Expression API (TKT-79)
+// ============================================================================
+
+/// <summary>
+/// Quantum Chemistry Domain Builder - F# Computation Expression API
+/// 
+/// Provides idiomatic F# builders for quantum chemistry ground state calculations
+/// with domain-specific abstractions for molecules, ansätze, and basis sets.
+/// </summary>
+/// <remarks>
+/// <para>Uses underlying VQE Framework (TKT-95) for quantum execution.</para>
+/// 
+/// <para><b>Available Operations:</b></para>
+/// <list type="bullet">
+/// <item><c>molecule (h2 0.74)</c> - Set molecule for calculation</item>
+/// <item><c>basis "sto-3g"</c> - Set basis set</item>
+/// <item><c>ansatz UCCSD</c> - Set ansatz type</item>
+/// <item><c>optimizer "COBYLA"</c> - Set optimizer</item>
+/// <item><c>maxIterations 100</c> - Set iteration limit</item>
+/// </list>
+/// 
+/// <para><b>Example Usage:</b></para>
+/// <code>
+/// open FSharp.Azure.Quantum.QuantumChemistry.QuantumChemistryBuilder
+/// 
+/// let problem = quantumChemistry {
+///     molecule (h2 0.74)
+///     basis "sto-3g"
+///     ansatz UCCSD
+/// }
+/// 
+/// let! result = solve problem
+/// printfn "Energy: %.6f Ha" result.GroundStateEnergy
+/// </code>
+/// </remarks>
+module QuantumChemistryBuilder =
+    
+    // ========================================================================
+    // PRE-BUILT MOLECULES - Convenience Functions
+    // ========================================================================
+    
+    /// <summary>H2 molecule at specified bond length.</summary>
+    /// <param name="distance">Bond length in Angstroms</param>
+    /// <returns>H2 molecule</returns>
+    let h2 (distance: float) : Molecule =
+        {
+            Name = "H2"
+            Atoms = [
+                { Element = "H"; Position = (0.0, 0.0, 0.0) }
+                { Element = "H"; Position = (distance, 0.0, 0.0) }
+            ]
+            Bonds = [
+                { Atom1 = 0; Atom2 = 1; BondOrder = 1.0 }
+            ]
+            Charge = 0
+            Multiplicity = 1
+        }
+    
+    /// <summary>H2O molecule (water) with specified geometry.</summary>
+    /// <param name="bondLength">O-H bond length in Angstroms</param>
+    /// <param name="angle">H-O-H angle in degrees</param>
+    /// <returns>H2O molecule</returns>
+    let h2o (bondLength: float) (angle: float) : Molecule =
+        let angleRad = angle * Math.PI / 180.0
+        let halfAngle = angleRad / 2.0
+        {
+            Name = "H2O"
+            Atoms = [
+                { Element = "O"; Position = (0.0, 0.0, 0.0) }
+                { Element = "H"; 
+                  Position = (0.0, bondLength * sin halfAngle, bondLength * cos halfAngle) }
+                { Element = "H"; 
+                  Position = (0.0, -bondLength * sin halfAngle, bondLength * cos halfAngle) }
+            ]
+            Bonds = [
+                { Atom1 = 0; Atom2 = 1; BondOrder = 1.0 }
+                { Atom1 = 0; Atom2 = 2; BondOrder = 1.0 }
+            ]
+            Charge = 0
+            Multiplicity = 1
+        }
+    
+    /// <summary>LiH molecule (lithium hydride) at specified bond length.</summary>
+    /// <param name="distance">Bond length in Angstroms</param>
+    /// <returns>LiH molecule</returns>
+    let lih (distance: float) : Molecule =
+        {
+            Name = "LiH"
+            Atoms = [
+                { Element = "Li"; Position = (0.0, 0.0, 0.0) }
+                { Element = "H"; Position = (distance, 0.0, 0.0) }
+            ]
+            Bonds = [
+                { Atom1 = 0; Atom2 = 1; BondOrder = 1.0 }
+            ]
+            Charge = 0
+            Multiplicity = 1
+        }
+    
+    // ========================================================================
+    // DOMAIN TYPES - Chemistry Builder State
+    // ========================================================================
+    
+    /// <summary>Chemistry-specific ansatz types.</summary>
+    /// <remarks>
+    /// Different ansätze offer trade-offs between accuracy and computational cost.
+    /// </remarks>
+    [<Struct>]
+    type ChemistryAnsatz =
+        /// Unitary Coupled Cluster Singles Doubles (most accurate, most expensive)
+        | UCCSD
+        /// Hardware-Efficient Ansatz (faster, less accurate)
+        | HEA
+        /// Adaptive ansatz (dynamic construction based on gradients)
+        | ADAPT
+    
+    /// <summary>Optimizer configuration for VQE.</summary>
+    type OptimizerConfig = {
+        /// Optimizer method name (e.g., "COBYLA", "SLSQP", "Powell")
+        Method: string
+        /// Maximum number of iterations
+        MaxIterations: int
+        /// Convergence tolerance
+        Tolerance: float
+        /// Initial parameter guess (for warm start)
+        InitialGuess: float[] option
+    }
+    
+    /// <summary>Quantum chemistry problem specification (builder state).</summary>
+    type ChemistryProblem = {
+        /// Molecule to calculate
+        Molecule: Molecule option
+        /// Basis set (e.g., "sto-3g", "6-31g")
+        Basis: string option
+        /// Ansatz type
+        Ansatz: ChemistryAnsatz option
+        /// Optimizer configuration
+        Optimizer: OptimizerConfig option
+        /// Maximum VQE iterations
+        MaxIterations: int
+        /// Initial VQE parameters (warm start)
+        InitialParameters: float[] option
+    }
+    
+    /// <summary>Chemistry-specific calculation result.</summary>
+    type ChemistryResult = {
+        /// Ground state energy in Hartrees
+        GroundStateEnergy: float
+        /// Optimal VQE parameters found
+        OptimalParameters: float[]
+        /// Number of VQE iterations performed
+        Iterations: int
+        /// Whether VQE converged within tolerance
+        Convergence: bool
+        /// Bond lengths between atoms (e.g., "H-H" -> 0.74 Å)
+        BondLengths: Map<string, float>
+        /// Dipole moment (if computed)
+        DipoleMoment: float option
+    }
+    
+    // ========================================================================
+    // F# COMPUTATION EXPRESSION BUILDER
+    // ========================================================================
+    
+    /// <summary>
+    /// Computation expression builder for quantum chemistry problems.
+    /// Enables F#-idiomatic problem specification with control flow and composition.
+    /// </summary>
+    type QuantumChemistryBuilder() =
+        
+        // ====================================================================
+        // CORE BUILDER METHODS - Lazy Composition
+        // ====================================================================
+        
+        /// <summary>Initial empty state.</summary>
+        member _.Yield(_) : ChemistryProblem =
+            {
+                Molecule = None
+                Basis = None
+                Ansatz = None
+                Optimizer = None
+                MaxIterations = 100
+                InitialParameters = None
+            }
+        
+        /// <summary>
+        /// Final validation and transformation.
+        /// Called automatically by F# compiler - no explicit .Build() needed!
+        /// </summary>
+        member _.Run(f: unit -> ChemistryProblem) : ChemistryProblem =
+            let problem = f()  // Execute delayed computation
+            
+            // Validate required fields
+            if problem.Molecule.IsNone then
+                failwith "Quantum chemistry validation: 'molecule' is required. Example: molecule (h2 0.74)"
+            if problem.Basis.IsNone then
+                failwith "Quantum chemistry validation: 'basis' is required. Example: basis \"sto-3g\""
+            if problem.Ansatz.IsNone then
+                failwith "Quantum chemistry validation: 'ansatz' is required. Example: ansatz UCCSD"
+            
+            // Apply defaults
+            let withDefaults = {
+                problem with
+                    Optimizer = problem.Optimizer |> Option.orElse (Some {
+                        Method = "COBYLA"
+                        MaxIterations = problem.MaxIterations
+                        Tolerance = 1e-6
+                        InitialGuess = None
+                    })
+            }
+            
+            withDefaults
+        
+        /// <summary>Lazy evaluation wrapper.</summary>
+        member _.Delay(f: unit -> ChemistryProblem) : unit -> ChemistryProblem = f
+        
+        /// <summary>Combine multiple operations sequentially.</summary>
+        member _.Combine(first: ChemistryProblem, second: unit -> ChemistryProblem) : ChemistryProblem =
+            let config1 = first
+            let config2 = second()
+            
+            // Merge configurations (second overrides first)
+            {
+                Molecule = config2.Molecule |> Option.orElse config1.Molecule
+                Basis = config2.Basis |> Option.orElse config1.Basis
+                Ansatz = config2.Ansatz |> Option.orElse config1.Ansatz
+                Optimizer = config2.Optimizer |> Option.orElse config1.Optimizer
+                MaxIterations = if config2.MaxIterations <> 100 then config2.MaxIterations else config1.MaxIterations
+                InitialParameters = config2.InitialParameters |> Option.orElse config1.InitialParameters
+            }
+        
+        /// <summary>Empty/no-op value for conditional branches.</summary>
+        member this.Zero() : ChemistryProblem = this.Yield(())
+        
+        /// <summary>For loop support - iterate over sequences.</summary>
+        member this.For(sequence: seq<'T>, body: 'T -> ChemistryProblem) : ChemistryProblem =
+            sequence
+            |> Seq.fold (fun state item ->
+                this.Combine(state, fun () -> body item)
+            ) (this.Zero())
+        
+        /// <summary>Async support - let! binding for loading data.</summary>
+        member _.Bind(computation: Async<'T>, continuation: 'T -> ChemistryProblem) : Async<ChemistryProblem> =
+            async {
+                let! value = computation
+                return continuation value
+            }
+        
+        // ====================================================================
+        // CUSTOM OPERATIONS - Domain-Specific API
+        // ====================================================================
+        
+        /// <summary>Set molecule for calculation.</summary>
+        /// <param name="mol">Molecule instance</param>
+        [<CustomOperation("molecule")>]
+        member _.Molecule(problem: ChemistryProblem, mol: Molecule) : ChemistryProblem =
+            { problem with Molecule = Some mol }
+        
+        /// <summary>Set basis set.</summary>
+        /// <param name="basisSet">Basis set name (e.g., "sto-3g", "6-31g")</param>
+        [<CustomOperation("basis")>]
+        member _.Basis(problem: ChemistryProblem, basisSet: string) : ChemistryProblem =
+            { problem with Basis = Some basisSet }
+        
+        /// <summary>Set ansatz type.</summary>
+        /// <param name="ansatzType">Ansatz type (UCCSD, HEA, ADAPT)</param>
+        [<CustomOperation("ansatz")>]
+        member _.Ansatz(problem: ChemistryProblem, ansatzType: ChemistryAnsatz) : ChemistryProblem =
+            { problem with Ansatz = Some ansatzType }
+        
+        /// <summary>Set optimizer.</summary>
+        /// <param name="optimizerName">Optimizer method name</param>
+        [<CustomOperation("optimizer")>]
+        member _.Optimizer(problem: ChemistryProblem, optimizerName: string) : ChemistryProblem =
+            let config = {
+                Method = optimizerName
+                MaxIterations = problem.MaxIterations
+                Tolerance = 1e-6
+                InitialGuess = problem.InitialParameters
+            }
+            { problem with Optimizer = Some config }
+        
+        /// <summary>Set maximum iterations.</summary>
+        /// <param name="maxIter">Maximum iterations</param>
+        [<CustomOperation("maxIterations")>]
+        member _.MaxIterations(problem: ChemistryProblem, maxIter: int) : ChemistryProblem =
+            { problem with MaxIterations = maxIter }
+        
+        /// <summary>Set initial parameters for warm start.</summary>
+        /// <param name="params">Initial parameter values</param>
+        [<CustomOperation("initialParameters")>]
+        member _.InitialParameters(problem: ChemistryProblem, params': float[]) : ChemistryProblem =
+            { problem with InitialParameters = Some params' }
+    
+    /// <summary>Global instance of the quantum chemistry builder.</summary>
+    let quantumChemistry = QuantumChemistryBuilder()
+    
+    // ========================================================================
+    // SOLVER - Transform Domain Problem → VQE Execution
+    // ========================================================================
+    
+    /// <summary>Compute bond lengths from molecule geometry.</summary>
+    let private computeBondLengths (molecule: Molecule) : Map<string, float> =
+        molecule.Atoms
+        |> List.mapi (fun i atom1 ->
+            molecule.Atoms
+            |> List.skip (i + 1)
+            |> List.map (fun atom2 ->
+                let bondName = sprintf "%s-%s" atom1.Element atom2.Element
+                let bondLength = Molecule.calculateBondLength atom1 atom2
+                bondName, bondLength
+            )
+        )
+        |> List.concat
+        |> Map.ofList
+    
+    /// <summary>
+    /// Solve quantum chemistry problem using VQE framework.
+    /// Transforms domain problem to VQE execution, runs calculation, and returns chemistry-specific result.
+    /// </summary>
+    /// <param name="problem">Chemistry problem specification</param>
+    /// <returns>Async result with ground state energy and bond information</returns>
+    let solve (problem: ChemistryProblem) : Async<Result<ChemistryResult, string>> =
+        async {
+            // Extract validated configuration
+            let molecule = problem.Molecule.Value
+            let optimizer = problem.Optimizer.Value
+            
+            // Configure VQE solver using existing framework
+            let vqeConfig = {
+                Method = GroundStateMethod.VQE
+                MaxIterations = optimizer.MaxIterations
+                Tolerance = optimizer.Tolerance
+                InitialParameters = problem.InitialParameters
+            }
+            
+            // Execute VQE (uses existing VQE module - TKT-95 framework)
+            let! energyResult = GroundStateEnergy.estimateEnergy molecule vqeConfig
+            
+            // Transform result: Framework → Domain
+            let result = 
+                match energyResult with
+                | Ok energy ->
+                    Ok {
+                        GroundStateEnergy = energy
+                        OptimalParameters = [||]  // TODO: Extract from VQE when available
+                        Iterations = 0  // TODO: Track iterations when available
+                        Convergence = true  // TODO: Check convergence when available
+                        BondLengths = computeBondLengths molecule
+                        DipoleMoment = None  // TODO: Compute dipole moment if needed
+                    }
+                | Error msg ->
+                    Error msg
+            
+            return result
+        }
+

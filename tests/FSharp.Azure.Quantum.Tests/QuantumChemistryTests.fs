@@ -814,3 +814,298 @@ H  0.0  0.0  0.74"""
                 Assert.Equal(z1, z2, 6)
         finally
             if File.Exists tempFile then File.Delete(tempFile)
+
+// ============================================================================
+// TKT-79: QUANTUM CHEMISTRY DOMAIN BUILDER TESTS
+// ============================================================================
+
+/// Tests for Quantum Chemistry Builder (TKT-79)
+module QuantumChemistryBuilderTests =
+    
+    open FSharp.Azure.Quantum.QuantumChemistry.QuantumChemistryBuilder
+    
+    // ========================================================================
+    // TEST 1: Basic Builder Functionality
+    // ========================================================================
+    
+    [<Fact>]
+    let ``Builder should construct valid chemistry problem`` () =
+        // Arrange & Act
+        let problem = quantumChemistry {
+            molecule (h2 0.74)
+            basis "sto-3g"
+            ansatz UCCSD
+        }
+        
+        // Assert
+        Assert.True(problem.Molecule.IsSome, "Molecule should be set")
+        Assert.Equal(Some "sto-3g", problem.Basis)
+        Assert.Equal(Some UCCSD, problem.Ansatz)
+        Assert.True(problem.Optimizer.IsSome, "Default optimizer should be set")
+        Assert.Equal(100, problem.MaxIterations)
+    
+    [<Fact>]
+    let ``Builder should apply default optimizer`` () =
+        // Arrange & Act
+        let problem = quantumChemistry {
+            molecule (h2 0.74)
+            basis "sto-3g"
+            ansatz UCCSD
+        }
+        
+        // Assert - should have default COBYLA optimizer
+        Assert.True(problem.Optimizer.IsSome)
+        Assert.Equal("COBYLA", problem.Optimizer.Value.Method)
+    
+    // ========================================================================
+    // TEST 2: Pre-built Molecules
+    // ========================================================================
+    
+    [<Fact>]
+    let ``h2 helper creates valid H2 molecule`` () =
+        // Arrange & Act
+        let molecule = h2 0.74
+        
+        // Assert
+        Assert.Equal("H2", molecule.Name)
+        Assert.Equal(2, molecule.Atoms.Length)
+        Assert.Equal("H", molecule.Atoms.[0].Element)
+        Assert.Equal("H", molecule.Atoms.[1].Element)
+        
+        // Verify bond length
+        let bondLength = Molecule.calculateBondLength molecule.Atoms.[0] molecule.Atoms.[1]
+        Assert.Equal(0.74, bondLength, 6)
+    
+    [<Fact>]
+    let ``h2o helper creates valid H2O molecule`` () =
+        // Arrange & Act
+        let molecule = h2o 0.96 104.5  // Equilibrium geometry
+        
+        // Assert
+        Assert.Equal("H2O", molecule.Name)
+        Assert.Equal(3, molecule.Atoms.Length)
+        Assert.Equal("O", molecule.Atoms.[0].Element)
+        Assert.Equal("H", molecule.Atoms.[1].Element)
+        Assert.Equal("H", molecule.Atoms.[2].Element)
+        Assert.Equal(2, molecule.Bonds.Length)
+    
+    [<Fact>]
+    let ``lih helper creates valid LiH molecule`` () =
+        // Arrange & Act
+        let molecule = lih 1.596
+        
+        // Assert
+        Assert.Equal("LiH", molecule.Name)
+        Assert.Equal(2, molecule.Atoms.Length)
+        Assert.Equal("Li", molecule.Atoms.[0].Element)
+        Assert.Equal("H", molecule.Atoms.[1].Element)
+        
+        // Verify bond length
+        let bondLength = Molecule.calculateBondLength molecule.Atoms.[0] molecule.Atoms.[1]
+        Assert.Equal(1.596, bondLength, 6)
+    
+    // ========================================================================
+    // TEST 3: Ansatz Types (Struct)
+    // ========================================================================
+    
+    [<Fact>]
+    let ``ChemistryAnsatz should be value type (struct)`` () =
+        // Assert - verify type is struct
+        let ansatzType = typeof<ChemistryAnsatz>
+        Assert.True(ansatzType.IsValueType, "ChemistryAnsatz should be a struct")
+    
+    [<Fact>]
+    let ``All ansatz types should be available`` () =
+        // Arrange & Act
+        let uccsd = UCCSD
+        let hea = HEA
+        let adapt = ADAPT
+        
+        // Assert - just verify they exist and are distinct
+        Assert.NotEqual<ChemistryAnsatz>(uccsd, hea)
+        Assert.NotEqual<ChemistryAnsatz>(uccsd, adapt)
+        Assert.NotEqual<ChemistryAnsatz>(hea, adapt)
+    
+    // ========================================================================
+    // TEST 4: Builder Custom Operations
+    // ========================================================================
+    
+    [<Fact>]
+    let ``Builder should support custom optimizer`` () =
+        // Arrange & Act
+        let problem = quantumChemistry {
+            molecule (h2 0.74)
+            basis "sto-3g"
+            ansatz HEA
+            optimizer "SLSQP"
+        }
+        
+        // Assert
+        Assert.True(problem.Optimizer.IsSome)
+        Assert.Equal("SLSQP", problem.Optimizer.Value.Method)
+    
+    [<Fact>]
+    let ``Builder should support maxIterations`` () =
+        // Arrange & Act
+        let problem = quantumChemistry {
+            molecule (h2 0.74)
+            basis "sto-3g"
+            ansatz ADAPT
+            maxIterations 200
+        }
+        
+        // Assert
+        Assert.Equal(200, problem.MaxIterations)
+    
+    [<Fact>]
+    let ``Builder should support initialParameters`` () =
+        // Arrange
+        let params' = [| 0.1; 0.2; 0.3 |]
+        
+        // Act
+        let problem = quantumChemistry {
+            molecule (h2 0.74)
+            basis "sto-3g"
+            ansatz UCCSD
+            initialParameters params'
+        }
+        
+        // Assert
+        Assert.True(problem.InitialParameters.IsSome)
+        Assert.Equal<float[]>(params', problem.InitialParameters.Value)
+    
+    // ========================================================================
+    // TEST 5: Different Basis Sets
+    // ========================================================================
+    
+    [<Fact>]
+    let ``Builder should accept different basis sets`` () =
+        // Arrange & Act
+        let minimalBasis = quantumChemistry {
+            molecule (h2 0.74)
+            basis "sto-3g"
+            ansatz UCCSD
+        }
+        
+        let largeBasis = quantumChemistry {
+            molecule (h2 0.74)
+            basis "6-31g"
+            ansatz UCCSD
+        }
+        
+        // Assert
+        Assert.Equal(Some "sto-3g", minimalBasis.Basis)
+        Assert.Equal(Some "6-31g", largeBasis.Basis)
+    
+    // ========================================================================
+    // TEST 6: Solver Integration
+    // ========================================================================
+    
+    [<Fact>]
+    let ``Solve should execute VQE for H2`` () =
+        // Arrange
+        let problem = quantumChemistry {
+            molecule (h2 0.74)
+            basis "sto-3g"
+            ansatz UCCSD
+            maxIterations 50
+        }
+        
+        // Act
+        let result = solve problem |> Async.RunSynchronously
+        
+        // Assert
+        match result with
+        | Ok chemResult ->
+            // H2 ground state should be negative
+            Assert.True(chemResult.GroundStateEnergy < 0.0, "Ground state energy should be negative")
+            
+            // Should have bond length information
+            Assert.True(chemResult.BondLengths.Count > 0, "Should compute bond lengths")
+            
+            // H-H bond should be present
+            let hasHHBond = chemResult.BondLengths |> Map.exists (fun k _ -> k.Contains("H"))
+            Assert.True(hasHHBond, "Should have H-H bond length")
+            
+        | Error msg ->
+            Assert.True(false, sprintf "Solve failed: %s" msg)
+    
+    [<Fact>]
+    let ``Solve should compute bond lengths for H2O`` () =
+        // Arrange
+        let problem = quantumChemistry {
+            molecule (h2o 0.96 104.5)
+            basis "sto-3g"
+            ansatz HEA
+            maxIterations 50
+        }
+        
+        // Act
+        let result = solve problem |> Async.RunSynchronously
+        
+        // Assert
+        match result with
+        | Ok chemResult ->
+            // H2O should have multiple bond lengths (O-H bonds)
+            Assert.True(chemResult.BondLengths.Count >= 2, "H2O should have at least 2 bond lengths")
+            
+        | Error msg ->
+            Assert.True(false, sprintf "Solve failed: %s" msg)
+    
+    // ========================================================================
+    // TEST 7: Multiple Molecules
+    // ========================================================================
+    
+    [<Fact>]
+    let ``Builder should work with different molecules`` () =
+        // Arrange & Act - H2
+        let h2Problem = quantumChemistry {
+            molecule (h2 0.74)
+            basis "sto-3g"
+            ansatz UCCSD
+        }
+        
+        // Arrange & Act - H2O
+        let h2oProblem = quantumChemistry {
+            molecule (h2o 0.96 104.5)
+            basis "sto-3g"
+            ansatz HEA
+        }
+        
+        // Assert
+        Assert.Equal("H2", h2Problem.Molecule.Value.Name)
+        Assert.Equal("H2O", h2oProblem.Molecule.Value.Name)
+        Assert.Equal(Some UCCSD, h2Problem.Ansatz)
+        Assert.Equal(Some HEA, h2oProblem.Ansatz)
+    
+    // ========================================================================
+    // TEST 8: Comparison with Other Builders (Pattern Consistency)
+    // ========================================================================
+    
+    [<Fact>]
+    let ``Builder pattern should match GraphColoring builder style`` () =
+        // This test verifies architectural consistency with TKT-80 GraphColoring builder
+        
+        // GraphColoring pattern:
+        // let problem = graphColoring { node "X" ["Y"]; colors [...]; objective MinimizeColors }
+        
+        // QuantumChemistry pattern:
+        // let problem = quantumChemistry { molecule (h2 0.74); basis "..."; ansatz UCCSD }
+        
+        // Both patterns:
+        // 1. Use computation expressions
+        // 2. Have required fields validated in Run()
+        // 3. Support control flow (if/for)
+        // 4. Have domain-specific custom operations
+        
+        // Act
+        let problem = quantumChemistry {
+            molecule (h2 0.74)
+            basis "sto-3g"
+            ansatz UCCSD
+        }
+        
+        // Assert - pattern should feel consistent
+        Assert.True(problem.Molecule.IsSome)
+        Assert.True(problem.Basis.IsSome)
+        Assert.True(problem.Ansatz.IsSome)
