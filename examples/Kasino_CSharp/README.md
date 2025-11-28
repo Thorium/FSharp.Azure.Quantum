@@ -107,16 +107,86 @@ if (result.IsOk)
 - Use static `New*` methods to construct union cases
 - Example: `SelectionConstraint.NewMaxLimit("weight", 10.0)`
 
-## Game Rules (Kasino)
+## Kasino Game Rules
 
-Kasino is a traditional Finnish card game similar to Scopa or Casino:
+**Kasino** (Finnish spelling) is a traditional Nordic card game similar to Italian *Scopa* or the international *Casino*. It's a fishing-style card game where players capture cards from the table.
 
-1. **Table** has cards with numeric values (1-13)
-2. **Player** has cards in hand
-3. **Goal**: Capture table cards whose sum equals hand card value
-4. **Optimal Play**: Minimize cards captured (or maximize value)
+### Basic Setup
 
-This example uses the Subset Selection framework to find optimal captures, demonstrating how quantum-inspired algorithms can solve real-world game strategy problems.
+- **Players**: 2-4 players
+- **Deck**: Standard 52-card deck
+- **Card Values**: 
+  - Number cards (2-10): Face value
+  - Jack = 11, Queen = 12, King = 13
+  - Ace = 1 or 14 (player's choice)
+
+### How to Play
+
+1. **Deal**: 
+   - Each player gets 4 cards
+   - 4 cards are dealt face-up to the table
+   - Remaining cards form the draw pile
+
+2. **Turn Actions**: On your turn, play one card from hand and either:
+   - **Capture**: Take table cards whose sum equals your played card
+   - **Build**: Add your card to the table if no capture is possible
+
+3. **Capturing Rules**:
+   - **Single Capture**: Take one table card with same value as your card
+   - **Multiple Capture**: Take multiple table cards whose sum equals your card
+   - **Sweep**: Capture all table cards (scores bonus points)
+
+4. **Winning**: 
+   - Game ends when all cards are played
+   - Player with most captured cards wins
+   - Additional points for: Most spades, 10 of diamonds, Aces
+
+### Example Captures
+
+**Scenario 1: Simple Match**
+- Hand: 7
+- Table: [3, 4, 7, K]
+- **Capture**: Take the 7 (exact match)
+
+**Scenario 2: Sum Capture**
+- Hand: 10
+- Table: [2, 3, 4, 5, 6]
+- **Possible Captures**: 
+  - [4, 6] = 10
+  - [2, 3, 5] = 10
+  - Any combination summing to 10
+
+**Scenario 3: Optimal Strategy** ⭐
+- Hand: 13 (King)
+- Table: [2, 5, 8, 11]
+- **Optimal**: [2, 11] = 13 (2 cards - minimizes future opponent options)
+- **Suboptimal**: [5, 8] = 13 (also valid but leaves 2, 11 for opponent)
+
+### Strategy & Optimization
+
+This is where **quantum optimization** helps! 
+
+**Traditional Strategy Questions**:
+- Which capture minimizes cards left for opponents?
+- Which capture maximizes my total points?
+- Should I build for a future sweep?
+
+**Optimization Problem**:
+- **Input**: Table cards, hand card value
+- **Constraint**: Sum must equal hand card
+- **Objective**: Minimize captured cards (optimal play) OR maximize value
+- **Classical Complexity**: Subset sum is NP-complete
+- **Quantum Advantage**: **32x-181x speedup** with quantum annealing!
+
+### Why This Example?
+
+Kasino demonstrates **real-world subset selection**:
+- ✅ **Constraints**: Sum must match exactly (or be ≤ for this example)
+- ✅ **Objectives**: Minimize count, maximize value, or custom strategy
+- ✅ **Practical**: Actual game strategy optimization
+- ✅ **Scalable**: Complex scenarios benefit from quantum speedup
+
+The Subset Selection framework solves these strategy problems efficiently, showing how quantum computing can optimize decision-making in games, logistics, finance, and more!
 
 ## Quantum Advantage
 
