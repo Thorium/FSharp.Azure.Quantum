@@ -524,7 +524,7 @@ module TaskScheduling =
                             checkDeps deps
                     
                     // Check all tasks for cycles
-                    let rec checkAllTasks tasks visited =
+                    let rec checkAllTasks (tasks: Task list) (visited: Set<string>) =
                         match tasks with
                         | [] -> Ok ()
                         | task :: rest ->
