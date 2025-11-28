@@ -6,11 +6,11 @@
     <GenerateProgramFile>false</GenerateProgramFile>
 
     <!-- Package Metadata -->
-    <Version>0.5.0-beta</Version>
+    <Version>1.0.0</Version>
     <PackageId>FSharp.Azure.Quantum</PackageId>
     <Title>FSharp.Azure.Quantum</Title>
-    <Description>F# library for Azure Quantum with production-ready classical optimization (TSP, Portfolio), Azure Quantum backend integration (IonQ, Rigetti), extensible circuit validation, local quantum simulation, QAOA with OpenQASM 2.0, and error mitigation techniques (ZNE, PEC). Multi-provider architecture supports IonQ, Rigetti, IBM, Amazon Braket, and Google Cirq.</Description>
-    <Summary>F# library for Azure Quantum with classical optimization, quantum backends (IonQ, Rigetti), and multi-provider QAOA support</Summary>
+    <Description>Hybrid quantum-classical F# library with production-ready classical optimization (TSP, Portfolio), Azure Quantum integration (IonQ, Rigetti), local quantum simulation, QAOA, VQE, and error mitigation. Automatic routing between classical algorithms (fast, cheap) and quantum backends (scalable, powerful).</Description>
+    <Summary>Hybrid quantum-classical optimization library with automatic routing between classical and quantum solvers</Summary>
     
     <!-- Repository Info -->
     <RepositoryUrl>https://github.com/thorium/FSharp.Azure.Quantum</RepositoryUrl>

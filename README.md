@@ -5,28 +5,17 @@
 [![NuGet](https://img.shields.io/nuget/v/FSharp.Azure.Quantum.svg)](https://www.nuget.org/packages/FSharp.Azure.Quantum/)
 [![License](https://img.shields.io/badge/license-Unlicense-blue.svg)](LICENSE)
 
-## ✨ Status: Beta (v0.5.0) - Quantum Backends Ready
+## ✨ Status: Production Ready (v1.0.0)
 
-**Current Features (v0.5.0-beta):**
-- ✅ Production-ready classical optimization (TSP, Portfolio)
-- ✅ Quantum Advisor (recommendations for quantum advantage)
-- ✅ **Azure Quantum backend integration** (IonQ, Rigetti simulators)
-- ✅ **HybridSolver with automatic quantum routing**
-- ✅ Job submission, polling, and result parsing
-- ✅ Local quantum simulation (≤10 qubits)
-
-**Production-Ready Azure Quantum Features:**
-- ✅ IonQ simulator and QPU (`ionq.simulator`, `ionq.qpu.aria-1`)
-- ✅ Rigetti QVM and Aspen QPU (`rigetti.sim.qvm`, `rigetti.qpu.aspen-m-3`)
-- ✅ Azure authentication via Azure.Identity (CLI, Managed Identity)
-- ✅ Pre-flight circuit validation (catch errors before submission)
-- ✅ Cost limit enforcement and error handling
-- ✅ Multi-provider QAOA support (OpenQASM 2.0)
-
-**Coming in v1.0:**
-- 🎯 QUBO-to-circuit conversion for TSP/Portfolio problems
-- 🎯 Advanced result comparison and quantum advantage validation
-- 🎯 Support for IBM Quantum, Amazon Braket, Google Cirq
+**Features:**
+- ✅ **Hybrid Design** - Automatic routing between classical and quantum solvers
+- ✅ **Classical Optimization** - TSP, Portfolio (fast, free, CPU-based)
+- ✅ **Quantum Optimization** - QAOA, VQE (scalable, backend-based)
+- ✅ **Azure Quantum** - IonQ and Rigetti integration (simulator + QPU)
+- ✅ **Local Simulation** - Offline testing (≤10 qubits)
+- ✅ **Problem Builders** - Graph, Subset, Scheduling, CSP
+- ✅ **Error Mitigation** - ZNE, PEC, readout error correction
+- ✅ **Circuit Validation** - Pre-flight checks before submission
 
 ## 🚀 Quick Start
 
