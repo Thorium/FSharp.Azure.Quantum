@@ -104,7 +104,7 @@ module IntegrationTests =
         
         // Act: Solve using QuantumTspSolver with LocalBackend (quantum emulator)
         let backend = createLocalBackend()
-        let result = QuantumTspSolver.solve backend problem.DistanceMatrix 1000
+        let result = QuantumTspSolver.solveWithShots backend problem.DistanceMatrix 1000
         
         // Assert: Verify basic solution properties
         match result with

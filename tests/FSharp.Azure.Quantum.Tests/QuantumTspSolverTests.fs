@@ -36,7 +36,7 @@ module QuantumTspSolverTests =
         let backend = createLocalBackend()
         let distances = array2D [[ 0.0 ]]
         
-        let result = solve backend distances 100
+        let result = solveWithShots backend distances 100
         
         match result with
         | Error msg -> Assert.Contains("at least 2 cities", msg)
@@ -47,7 +47,7 @@ module QuantumTspSolverTests =
         let backend = createLocalBackend()
         let distances = create3CityProblem()
         
-        let result = solve backend distances -10
+        let result = solveWithShots backend distances -10
         
         match result with
         | Error msg -> Assert.Contains("positive", msg)
@@ -58,7 +58,7 @@ module QuantumTspSolverTests =
         let backend = createLocalBackend()
         let distances = create3CityProblem()
         
-        let result = solve backend distances 0
+        let result = solveWithShots backend distances 0
         
         match result with
         | Error msg -> Assert.Contains("positive", msg)
@@ -70,7 +70,7 @@ module QuantumTspSolverTests =
         // 4 cities requires 4*4 = 16 qubits (exceeds limit)
         let distances = Array2D.zeroCreate 5 5
         
-        let result = solve backend distances 100
+        let result = solveWithShots backend distances 100
         
         match result with
         | Error msg -> 
@@ -87,7 +87,7 @@ module QuantumTspSolverTests =
         let backend = createLocalBackend()
         let distances = create3CityProblem()
         
-        let result = solve backend distances 50
+        let result = solveWithShots backend distances 50
         
         match result with
         | Ok solution ->
@@ -104,7 +104,7 @@ module QuantumTspSolverTests =
         let backend = createLocalBackend()
         let distances = create3CityProblem()
         
-        let result = solve backend distances 100
+        let result = solveWithShots backend distances 100
         
         match result with
         | Ok solution ->
@@ -127,7 +127,7 @@ module QuantumTspSolverTests =
         let backend = createLocalBackend()
         let distances = create3CityProblem()
         
-        let result = solve backend distances 100
+        let result = solveWithShots backend distances 100
         
         match result with
         | Ok solution ->
@@ -149,7 +149,7 @@ module QuantumTspSolverTests =
         let backend = createLocalBackend()
         let distances = create3CityProblem()
         
-        let result = solve backend distances 100
+        let result = solveWithShots backend distances 100
         
         match result with
         | Ok solution ->
@@ -174,7 +174,7 @@ module QuantumTspSolverTests =
         let backend = createLocalBackend()
         let distances = create3CityProblem()
         
-        let result = solve backend distances 100
+        let result = solveWithShots backend distances 100
         
         match result with
         | Ok solution ->
@@ -192,7 +192,7 @@ module QuantumTspSolverTests =
         let backend = createLocalBackend()  // Max 10 qubits
         let distances = create4CityProblem()  // Needs 16 qubits
         
-        let result = solve backend distances 100
+        let result = solveWithShots backend distances 100
         
         match result with
         | Error msg ->
@@ -205,12 +205,12 @@ module QuantumTspSolverTests =
         let backend = createLocalBackend()
         let distances = create3CityProblem()  // 3 cities = 9 qubits (within 10 qubit limit)
         
-        let result1 = solve backend distances 10
+        let result1 = solveWithShots backend distances 10
         match result1 with
         | Ok solution -> Assert.Equal(10, solution.NumShots)
         | Error msg -> Assert.True(false, sprintf "Execution with 10 shots failed: %s" msg)
         
-        let result2 = solve backend distances 50
+        let result2 = solveWithShots backend distances 50
         match result2 with
         | Ok solution -> Assert.Equal(50, solution.NumShots)
         | Error msg -> Assert.True(false, sprintf "Execution with 50 shots failed: %s" msg)
@@ -253,7 +253,7 @@ module QuantumTspSolverTests =
         let backend = createLocalBackend()
         let distances = create3CityProblem()
         
-        let result = solve backend distances 200  // More shots for better quality
+        let result = solveWithShots backend distances 200  // More shots for better quality
         
         match result with
         | Ok solution ->
@@ -274,7 +274,7 @@ module QuantumTspSolverTests =
         let backend = createLocalBackend()
         let distances = create3CityProblem()
         
-        let result = solve backend distances 100
+        let result = solveWithShots backend distances 100
         
         match result with
         | Ok solution ->
