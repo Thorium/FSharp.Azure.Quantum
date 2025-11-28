@@ -185,12 +185,14 @@ module BackendAbstractionTests =
 
     [<Fact>]
     let ``IonQBackendWrapper should have correct name`` () =
-        let backend = createIonQBackend "fake-key"
+        use httpClient = new System.Net.Http.HttpClient()
+        let backend = createIonQBackend httpClient "https://fake-workspace.quantum.azure.com" "ionq.simulator"
         Assert.Equal("IonQ Simulator", backend.Name)
 
     [<Fact>]
     let ``IonQBackendWrapper should support IonQ gates`` () =
-        let backend = createIonQBackend "fake-key"
+        use httpClient = new System.Net.Http.HttpClient()
+        let backend = createIonQBackend httpClient "https://fake-workspace.quantum.azure.com" "ionq.simulator"
         let gates = backend.SupportedGates
         
         Assert.Contains("H", gates)
@@ -206,22 +208,12 @@ module BackendAbstractionTests =
 
     [<Fact>]
     let ``IonQBackendWrapper should have max 29 qubits`` () =
-        let backend = createIonQBackend "fake-key"
+        use httpClient = new System.Net.Http.HttpClient()
+        let backend = createIonQBackend httpClient "https://fake-workspace.quantum.azure.com" "ionq.simulator"
         Assert.Equal(29, backend.MaxQubits)
 
-    [<Fact>]
-    let ``IonQBackendWrapper should return not implemented error`` () =
-        let backend = createIonQBackend "fake-key"
-        let circuit = CircuitBuilder.empty 2
-        let wrapper = CircuitWrapper(circuit) :> ICircuit
-        
-        let result = backend.Execute wrapper 100
-        
-        match result with
-        | Error msg -> 
-            Assert.Contains("not yet implemented", msg)
-            Assert.Contains("Phase 3", msg)
-        | Ok _ -> Assert.True(false, "IonQ backend should not be implemented yet")
+    // Note: Execution tests removed - they would require real Azure Quantum workspace
+    // Integration tests should be added separately with proper authentication
 
     // ========================================================================
     // Rigetti Backend Tests
@@ -229,12 +221,14 @@ module BackendAbstractionTests =
 
     [<Fact>]
     let ``RigettiBackendWrapper should have correct name`` () =
-        let backend = createRigettiBackend "fake-key"
+        use httpClient = new System.Net.Http.HttpClient()
+        let backend = createRigettiBackend httpClient "https://fake-workspace.quantum.azure.com" "rigetti.sim.qvm"
         Assert.Equal("Rigetti QVM", backend.Name)
 
     [<Fact>]
     let ``RigettiBackendWrapper should support Rigetti gates`` () =
-        let backend = createRigettiBackend "fake-key"
+        use httpClient = new System.Net.Http.HttpClient()
+        let backend = createRigettiBackend httpClient "https://fake-workspace.quantum.azure.com" "rigetti.sim.qvm"
         let gates = backend.SupportedGates
         
         Assert.Contains("H", gates)
@@ -249,22 +243,12 @@ module BackendAbstractionTests =
 
     [<Fact>]
     let ``RigettiBackendWrapper should have max 40 qubits`` () =
-        let backend = createRigettiBackend "fake-key"
+        use httpClient = new System.Net.Http.HttpClient()
+        let backend = createRigettiBackend httpClient "https://fake-workspace.quantum.azure.com" "rigetti.sim.qvm"
         Assert.Equal(40, backend.MaxQubits)
 
-    [<Fact>]
-    let ``RigettiBackendWrapper should return not implemented error`` () =
-        let backend = createRigettiBackend "fake-key"
-        let circuit = CircuitBuilder.empty 2
-        let wrapper = CircuitWrapper(circuit) :> ICircuit
-        
-        let result = backend.Execute wrapper 100
-        
-        match result with
-        | Error msg -> 
-            Assert.Contains("not yet implemented", msg)
-            Assert.Contains("Phase 3", msg)
-        | Ok _ -> Assert.True(false, "Rigetti backend should not be implemented yet")
+    // Note: Execution tests removed - they would require real Azure Quantum workspace
+    // Integration tests should be added separately with proper authentication
 
     // ========================================================================
     // Circuit Validation Tests
@@ -298,8 +282,10 @@ module BackendAbstractionTests =
 
     [<Fact>]
     let ``validateCircuitForBackend should check backend limits`` () =
-        let ionqBackend = createIonQBackend "fake-key"
-        let rigettiBackend = createRigettiBackend "fake-key"
+        use httpClient1 = new System.Net.Http.HttpClient()
+        use httpClient2 = new System.Net.Http.HttpClient()
+        let ionqBackend = createIonQBackend httpClient1 "https://fake-workspace.quantum.azure.com" "ionq.simulator"
+        let rigettiBackend = createRigettiBackend httpClient2 "https://fake-workspace.quantum.azure.com" "rigetti.sim.qvm"
         
         // 25 qubits - valid for Rigetti (40 max) but valid for IonQ (29 max)
         let circuit25 = CircuitBuilder.empty 25
@@ -317,7 +303,8 @@ module BackendAbstractionTests =
 
     [<Fact>]
     let ``validateCircuitForBackend should reject at exact limit`` () =
-        let ionqBackend = createIonQBackend "fake-key"
+        use httpClient = new System.Net.Http.HttpClient()
+        let ionqBackend = createIonQBackend httpClient "https://fake-workspace.quantum.azure.com" "ionq.simulator"
         
         // 30 qubits - exceeds IonQ 29 qubit limit
         let circuit30 = CircuitBuilder.empty 30

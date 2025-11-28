@@ -235,8 +235,10 @@ match solve backend distances 500 with
 
 ### High Priority
 1. **Parameter Optimization** - Use classical optimizer to find best gamma/beta
-2. **IonQ API Integration** - Connect to real IonQ hardware
-3. **Rigetti API Integration** - Connect to real Rigetti QPUs
+2. **Azure Quantum IonQ Integration** - Wire BackendAbstraction to existing `IonQBackend.submitAndWaitForResultsAsync`
+3. **Azure Quantum Rigetti Integration** - Wire BackendAbstraction to existing `RigettiBackend.submitAndExecuteAsync`
+
+**NOTE:** The Azure Quantum infrastructure is ALREADY BUILT in `Client.fs`, `IonQBackend.fs`, and `RigettiBackend.fs`. The BackendAbstraction wrappers just need to call these existing functions!
 
 ### Medium Priority
 4. **Multi-layer QAOA** - Support p>1 for better solution quality
