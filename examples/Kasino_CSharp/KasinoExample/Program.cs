@@ -3,6 +3,7 @@ using System.Linq;
 using FSharp.Azure.Quantum;
 using Microsoft.FSharp.Collections;
 using Microsoft.FSharp.Core;
+using static FSharp.Azure.Quantum.CSharpBuilders;
 using static FSharp.Azure.Quantum.SubsetSelection;
 
 namespace KasinoExample
@@ -72,13 +73,13 @@ namespace KasinoExample
             Console.WriteLine();
 
             // Create items representing table cards using C# extensions (50% less boilerplate!)
-            // Note: C# value tuples now supported via BuildersCSharpExtensions
+            // Note: C# value tuples now supported via CSharpBuilders static class
             var tableCards = new[]
             {
-                FSharp.Azure.Quantum.Builders.Item("card_2", "2", ("weight", 2.0), ("value", 2.0)),
-                FSharp.Azure.Quantum.Builders.Item("card_5", "5", ("weight", 5.0), ("value", 5.0)),
-                FSharp.Azure.Quantum.Builders.Item("card_8", "8", ("weight", 8.0), ("value", 8.0)),
-                FSharp.Azure.Quantum.Builders.Item("card_J", "Jack", ("weight", 11.0), ("value", 11.0)),
+                Item("card_2", "2", ("weight", 2.0), ("value", 2.0)),
+                Item("card_5", "5", ("weight", 5.0), ("value", 5.0)),
+                Item("card_8", "8", ("weight", 8.0), ("value", 8.0)),
+                Item("card_J", "Jack", ("weight", 11.0), ("value", 11.0)),
             };
 
             // Build subset selection problem for Kasino capture using fluent builder with C# array support
@@ -139,7 +140,7 @@ namespace KasinoExample
 
             // Create items representing table cards (1-7) using C# extensions
             var tableCards = Enumerable.Range(1, 7)
-                .Select(i => FSharp.Azure.Quantum.Builders.Item(
+                .Select(i => Item(
                     $"card_{i}",
                     i.ToString(),
                     ("weight", (double)i),
@@ -206,7 +207,7 @@ namespace KasinoExample
 
                 // Create table cards using C# extensions
                 var tableCards = scenario.TableCards
-                    .Select((value, index) => FSharp.Azure.Quantum.Builders.Item(
+                    .Select((value, index) => Item(
                         $"card_{index + 1}",
                         value.ToString(),
                         ("weight", value),

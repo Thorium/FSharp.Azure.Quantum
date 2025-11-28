@@ -40,7 +40,7 @@ module BuildersCSharpExtensions =
     // to avoid ambiguity. Use the following instead:
     //   - .ItemsFromArray(items[]) - defined in SubsetSelectionCSharpExtensions
     //   - .ItemsFromEnumerable(items) - defined in SubsetSelectionCSharpExtensions
-    //   - Builders.Item(...) for creating items with C# value tuples
+    //   - CSharpBuilders.Item(...) for creating items with C# value tuples
     
     // ============================================================================
     // GRAPH OPTIMIZATION BUILDER EXTENSIONS
@@ -187,21 +187,24 @@ module BuildersCSharpExtensions =
 /// <remarks>
 /// Example usage (C#):
 /// <code>
-/// using static FSharp.Azure.Quantum.Builders;
+/// using static FSharp.Azure.Quantum.CSharpBuilders;
 /// 
-/// var subsetProblem = SubsetSelection()
-///     .Items(item1, item2, item3)
+/// var item1 = Item("card_2", "2", ("weight", 2.0));
+/// var item2 = Item("card_5", "5", ("weight", 5.0));
+/// 
+/// var subsetProblem = SubsetSelection&lt;string&gt;()
+///     .ItemsFromArray(new[] { item1, item2 })
 ///     .AddConstraint(MaxLimit("weight", 10.0))
-///     .Build();
-/// 
-/// var graphProblem = GraphOptimization&lt;string, string&gt;()
-///     .Nodes(node1, node2)
-///     .Edges(edge1, edge2)
+///     .Objective(MaximizeWeight("value"))
 ///     .Build();
 /// </code>
+/// 
+/// **Note:** Named `CSharpBuilders` (not `Builders`) to avoid namespace collision.
+/// This allows C# code to use `using FSharp.Azure.Quantum.Builders;` for extension methods
+/// without shadowing the conceptual "Builders" namespace.
 /// </remarks>
 [<AbstractClass; Sealed>]
-type Builders private () =
+type CSharpBuilders private () =
     
     // ============================================================================
     // SUBSET SELECTION
