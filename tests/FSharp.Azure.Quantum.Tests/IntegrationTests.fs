@@ -4,6 +4,8 @@ open System
 open Xunit
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Classical
+open FSharp.Azure.Quantum.Core.BackendAbstraction
+open FSharp.Azure.Quantum.Quantum
 
 /// <summary>
 /// Integration tests for end-to-end workflows.
@@ -89,30 +91,32 @@ module IntegrationTests =
     
     [<Fact>]
     let ``TSP Quantum - 5-city problem with emulator should produce valid tour`` () =
-        // Arrange: Small problem suitable for quantum emulation
+        // Arrange: Small problem suitable for quantum emulation (5 cities = 25 qubits, within LocalBackend 10-qubit limit is too tight)
+        // Note: 5 cities requires 25 qubits (N^2), but LocalBackend only supports 10 qubits
+        // Using 3 cities (9 qubits) to stay within limit
         let cities = [
             ("A", 0.0, 0.0)
             ("B", 1.0, 0.0)
-            ("C", 2.0, 0.0)
-            ("D", 1.0, 1.0)
-            ("E", 1.0, 2.0)
+            ("C", 0.0, 1.0)
         ]
         
         let problem = TSP.createProblem cities
         
-        // Act: Solve (currently using classical, quantum backend integration TBD)
-        let result = TSP.solve problem None
+        // Act: Solve using QuantumTspSolver with LocalBackend (quantum emulator)
+        let backend = createLocalBackend()
+        let result = QuantumTspSolver.solve backend problem.DistanceMatrix 1000
         
         // Assert: Verify basic solution properties
         match result with
-        | Ok tour ->
-            Assert.Equal(5, tour.Cities.Length)
-            Assert.True(tour.TotalDistance > 0.0)
-            Assert.True(tour.IsValid)
+        | Ok solution ->
+            Assert.Equal(3, solution.Tour.Length)
+            Assert.True(solution.TourLength > 0.0)
+            Assert.Equal("Local QAOA Simulator", solution.BackendName)
+            Assert.Equal(1000, solution.NumShots)
             
             // Verify all cities visited
-            let uniqueCities = tour.Cities |> List.distinct
-            Assert.Equal(5, uniqueCities.Length)
+            let uniqueCities = solution.Tour |> Array.distinct
+            Assert.Equal(3, uniqueCities.Length)
         | Error msg ->
             Assert.Fail($"Expected successful solution, got error: {msg}")
 
@@ -180,11 +184,13 @@ module IntegrationTests =
             Assert.Fail($"Expected successful solution with empty allocation, got error: {msg}")
 
     // ===========================================
-    // Test Scenario 4: Portfolio Quantum Emulator
+    // Test Scenario 4: Portfolio Classical (Medium Size)
     // ===========================================
+    // Note: QuantumPortfolioSolver not yet implemented (TKT-XXX TODO)
+    // When quantum solver exists, create separate test for quantum execution
     
     [<Fact>]
-    let ``Portfolio Quantum - 10-asset portfolio with emulator`` () =
+    let ``Portfolio Classical - 10-asset portfolio should optimize allocation`` () =
         // Arrange: Medium-sized portfolio
         let assets = 
             [1..10]
@@ -198,7 +204,7 @@ module IntegrationTests =
         let budget = 5000.0
         let problem = Portfolio.createProblem assets budget
         
-        // Act: Solve (currently classical, quantum backend TBD)
+        // Act: Solve using classical solver
         let result = Portfolio.solve problem None
         
         // Assert: Basic validation
