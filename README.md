@@ -418,186 +418,59 @@ printfn "Estimated cost: $%.2f %s" estimate.EstimatedCost estimate.Currency
 
 ## 🏗️ Architecture
 
-**Current Status:** v0.5.0-beta - Azure Quantum Integration Ready
+**Hybrid Design**: Classical algorithms for small problems, quantum for large. [Detailed architecture →](docs/architecture-overview.md)
 
-### Hybrid Quantum-Classical Design
+**Three Layers**:
+1. **Hybrid Orchestration** - `HybridSolver` routes to classical or quantum
+2. **Solvers** - Classical (CPU, no backend) vs Quantum (requires backend)
+3. **Backends** - IonQ, Rigetti, LocalSimulator
 
-This library uses a **three-layer architecture** that combines classical and quantum approaches:
-
-```
-┌─────────────────────────────────────────────────────────┐
-│  LAYER 1: HYBRID ORCHESTRATION (Decision Layer)         │
-│  - HybridSolver: Routes to classical or quantum         │
-│  - QuantumAdvisor: Analyzes quantum advantage potential │
-│  - ProblemAnalysis: Classifies problem complexity       │
-└─────────────────────────────────────────────────────────┘
-                           │
-          ┌────────────────┴────────────────┐
-          │                                 │
-┌─────────▼──────────────┐     ┌───────────▼──────────────┐
-│ LAYER 2A: CLASSICAL    │     │ LAYER 2B: QUANTUM         │
-│ - TspSolver            │     │ - QuantumTspSolver        │
-│ - PortfolioSolver      │     │ - QuantumChemistry        │
-│ (NO backend parameter) │     │ (REQUIRES backend param)  │
-└────────────────────────┘     └───────────────────────────┘
-                                            │
-                           ┌────────────────┴────────────────┐
-                           │                                 │
-                ┌──────────▼─────────┐          ┌───────────▼──────────┐
-                │ LAYER 3A: BACKENDS │          │ LAYER 3B: SIMULATION │
-                │ - IonQBackend      │          │ - LocalSimulator     │
-                │ - RigettiBackend   │          │ (≤10 qubits, fast)   │
-                │ (Azure Quantum)    │          │                      │
-                └────────────────────┘          └──────────────────────┘
-```
-
-### Why Classical Solvers in a Quantum Library?
-
-**Q: Can I execute `TspSolver` on a quantum backend?**
-
-**A: NO** - `TspSolver` uses **classical algorithms** (Nearest Neighbor, 2-opt) and has **NO backend parameter**:
+**Key Difference**:
+- `TspSolver` - Classical algorithm, NO backend parameter, CPU execution
+- `QuantumTspSolver` - Quantum algorithm, REQUIRES backend parameter
 
 ```fsharp
-// ❌ COMPILE ERROR - TspSolver doesn't accept a backend
-TspSolver.solveWithDistances distances config rigettiBackend
+// Classical - fast, free
+TspSolver.solve distances config
 
-// ✅ CORRECT - Classical execution only
-let result = TspSolver.solveWithDistances distances TspSolver.defaultConfig
+// Quantum - scalable, ~$10-100 per run
+QuantumTspSolver.solve rigettiBackend distances 1000
+
+// Hybrid - automatic routing
+HybridSolver.solveTsp distances None None None
 ```
 
-**Q: How do I use quantum backends?**
+### ✅ Production Ready
 
-**A:** Use **`QuantumTspSolver`** which **requires a backend parameter**:
+| Component | Description |
+|-----------|-------------|
+| **Classical Solvers** | TSP, Portfolio optimization with CPU algorithms |
+| **Quantum Solvers** | TSP (QAOA), Quantum Chemistry (VQE) |
+| **HybridSolver** | Automatic routing based on problem size |
+| **Azure Quantum** | IonQ and Rigetti backend integration |
+| **Local Simulator** | Offline testing (≤10 qubits) |
+| **Problem Builders** | Graph, Subset, Scheduling, CSP |
+| **Error Mitigation** | ZNE, PEC, readout error correction |
 
-```fsharp
-// ✅ Execute on Rigetti backend
-let! result = QuantumTspSolver.solve rigettiBackend distances 1000
+### 🧱 Problem Builders
 
-// ✅ Execute on IonQ backend  
-let! result = QuantumTspSolver.solve ionqBackend distances 1000
+Fluent APIs for encoding optimization problems:
 
-// ✅ Execute on local simulator
-let! result = QuantumTspSolver.solve localBackend distances 1000
-```
+| Builder | Domains |
+|---------|---------|
+| **GraphOptimization** | TSP, Graph Coloring, MaxCut |
+| **SubsetSelection** | Knapsack, Portfolio, Set Cover |
+| **Scheduling** | Task Scheduling, Resource Allocation |
+| **ConstraintSatisfaction** | N-Queens, Sudoku |
+| **CircuitBuilder** | Low-level quantum circuits |
 
-### Algorithm vs Solver vs Backend
+All builders support both classical and quantum solvers.
 
-| Term | Meaning | Example |
-|------|---------|---------|
-| **Algorithm** | Mathematical approach (classical or quantum) | Nearest Neighbor, QAOA, Grover |
-| **Solver** | Implementation of algorithm(s) | `TspSolver` (classical algos), `QuantumTspSolver` (QAOA) |
-| **Backend** | Execution environment | `IonQBackend`, `RigettiBackend`, `LocalSimulator` |
+### 🚧 Roadmap
 
-**Key Point:** 
-- **Classical solvers** execute algorithms on CPU (no backend needed)
-- **Quantum solvers** execute algorithms via backends (backend parameter required)
-- **Hybrid solver** automatically chooses based on problem size
-
-### Automatic Routing with HybridSolver
-
-```fsharp
-// HybridSolver analyzes the problem and routes automatically
-match HybridSolver.solveTsp distances None None None with
-| Ok solution ->
-    match solution.Method with
-    | Classical -> 
-        printfn "Used classical solver (fast, cheap)"
-        printfn "Reason: %s" solution.Reasoning  // e.g., "Problem size < 50"
-    | Quantum ->
-        printfn "Used quantum backend (scalable, expensive)"
-        printfn "Reason: %s" solution.Reasoning  // e.g., "Large problem, quantum advantage likely"
-| Error msg -> printfn "Error: %s" msg
-```
-
-**Routing Logic:**
-- **Small problems (< 50 variables)**: Classical solvers (milliseconds, $0)
-- **Large problems (> 100 variables)**: Quantum backends (seconds, ~$10-100)
-- **Medium problems (50-100)**: Configurable threshold or cost-based decision
-
-### ✅ Completed Components
-
-| Component | Status | Description |
-|-----------|--------|-------------|
-| **HybridSolver** (TKT-26) | ✅ Complete | Automatic quantum/classical routing |
-| **TSP Builder** (TKT-24) | ✅ Complete | Domain API for TSP problems |
-| **Portfolio Builder** (TKT-25) | ✅ Complete | Domain API for portfolio optimization |
-| **TspSolver** (TKT-16) | ✅ Complete | Classical TSP with simulated annealing |
-| **PortfolioSolver** (TKT-17) | ✅ Complete | Classical portfolio with greedy algorithm |
-| **QuantumAdvisor** (TKT-19) | ✅ Complete | Quantum vs classical decision framework |
-| **ProblemAnalysis** (TKT-18) | ✅ Complete | Problem classification and complexity |
-| **CostEstimation** (TKT-27) | ✅ Complete | Cost calculation for quantum execution |
-| **CircuitBuilder** (TKT-20) | ✅ Complete | Quantum circuit construction |
-| **QuboEncoding** (TKT-21) | ✅ Complete | QUBO problem encoding |
-| **QaoaCircuit** (TKT-22) | ✅ Complete | QAOA circuit generation (OpenQASM 2.0) |
-| **QaoaOptimizer** (TKT-23) | ✅ Complete | QAOA parameter optimization |
-| **Local Simulator** (TKT-61) | ✅ Complete | Offline quantum simulation (≤10 qubits) |
-| **CircuitValidator** | ✅ Complete | Pre-flight validation with extensible constraints |
-| **IonQ Backend** (TKT-39) | ✅ Complete | IonQ simulator & QPU integration |
-| **Rigetti Backend** (TKT-40) | ✅ Complete | Rigetti QVM & Aspen QPU integration |
-| **Azure Authentication** | ✅ Complete | Azure.Identity integration (CLI, Managed Identity) |
-
-### 🧱 Problem Domain Builders
-
-Generic frameworks for encoding optimization problems into quantum-solvable formats (QUBO):
-
-| Builder | Problem Domains | Description |
-|---------|----------------|-------------|
-| **GraphOptimization** | TSP, Graph Coloring, MaxCut | Graph-based optimization with nodes, edges, and constraints |
-| **SubsetSelection** | Knapsack, Portfolio, Set Cover | Select optimal subset with multi-dimensional weights and constraints |
-| **Scheduling** | Task Scheduling, Job Shop, Resource Allocation | Schedule tasks with dependencies, resources, and time constraints |
-| **ConstraintSatisfaction** | N-Queens, Sudoku, Map Coloring | Solve CSP problems with variables and constraints |
-| **QuboEncoding** | Generic QUBO | Low-level QUBO matrix construction with variable encoding strategies |
-| **CircuitBuilder** | Generic Circuits | Type-safe quantum circuit construction (gates, measurements) |
-| **OpenQasmExport** | Circuit Export | Export circuits to OpenQASM 2.0 (IBM Qiskit compatible) |
-| **GateTranspiler** | Gate Decomposition | Decompose high-level gates to backend-native gate sets |
-
-**Key Features:**
-- **Fluent API**: Chain builder methods for problem specification
-- **QUBO Encoding**: Automatic conversion to quantum-solvable format
-- **Multi-solver Support**: Use classical (DP, greedy) or quantum (QAOA) solvers
-- **Extensible**: Add custom constraints and objectives
-
-**Example - Graph Coloring with GraphOptimization:**
-```fsharp
-let problem =
-    GraphOptimizationBuilder()
-        .Nodes([node "A" 1; node "B" 2; node "C" 3])
-        .Edges([edge "A" "B" 1.0; edge "B" "C" 1.0])
-        .AddConstraint(NoAdjacentEqual)
-        .Objective(MinimizeColors)
-        .NumColors(3)
-        .Build()
-
-let qubo = GraphOptimization.toQubo problem
-// Use with quantum solver or classical solver
-```
-
-**Example - Knapsack with SubsetSelection:**
-```fsharp
-let problem =
-    SubsetSelectionBuilder()
-        .Items([
-            item "laptop" 15.0 |> withWeight "weight" 3.0
-            item "phone" 10.0 |> withWeight "weight" 1.0
-        ])
-        .AddConstraint(TotalWeightLimit("weight", 5.0))
-        .Objective(MaximizeValue)
-        .Build()
-
-let qubo = SubsetSelection.toQubo problem
-```
-
-### 🚧 In Development
-
-| Component | Status | Description |
-|-----------|--------|-------------|
-| **QuantumPortfolioSolver** | 🚧 Planned | Quantum portfolio optimization using SubsetSelection + QAOA |
-| **QUBO-to-Circuit** | 🚧 Planned | Automatic TSP/Portfolio → QAOA circuit conversion |
-| **Advanced Constraints** | 🚧 Planned | Complex portfolio constraints |
-| **More Domains** | 🚧 Planned | Scheduling, MaxCut, Knapsack |
-| **IBM/Google/Amazon** | 🚧 Future | Additional quantum provider support |
-
-**Note on QuantumPortfolioSolver**: The architecture and `SubsetSelection` builder are ready. Implementation requires proper integration between `SubsetSelection.toQubo` (which returns `Result<QuboMatrix>`) and the portfolio-specific decoding logic. See `QuantumTspSolver.fs` for the pattern to follow.
+- **QuantumPortfolioSolver** - QAOA for portfolio optimization
+- **Additional Providers** - IBM Quantum, Amazon Braket, Google Cirq
+- **More Algorithms** - MaxCut, Graph Coloring solvers
 
 ## 🎯 When to Use Quantum
 
