@@ -91,16 +91,17 @@ module OpenQasmImport =
     /// Match single-line comment
     let private commentPattern = Regex(@"//.*$", RegexOptions.Compiled)
     
+    /// Match multi-line comment (non-greedy, with Singleline option to allow . to match newlines)
+    let private multiLineCommentPattern = Regex(@"/\*.*?\*/", RegexOptions.Compiled ||| RegexOptions.Singleline)
+    
     // ========================================================================
     // HELPER FUNCTIONS
     // ========================================================================
     
-    /// Remove comments from a line
+    /// Remove comments from a line (single-line comments only)
+    /// Multi-line comments are removed during preprocessing in parse()
     let private removeComments (line: string) : string =
-        // Remove single-line comments
-        let withoutSingleLine = commentPattern.Replace(line, "")
-        // TODO: Multi-line comments /* */ not yet supported
-        withoutSingleLine
+        commentPattern.Replace(line, "")
     
     /// Parse angle string to float
     let private parseAngle (angleStr: string) : ParseResult<float> =
@@ -322,8 +323,12 @@ module OpenQasmImport =
     /// </code>
     /// </example>
     let parse (qasm: string) : ParseResult<Circuit> =
+        // Remove multi-line comments that span multiple lines (/* ... */)
+        // Must be done before splitting into lines
+        let withoutMultiLineComments = multiLineCommentPattern.Replace(qasm, "")
+        
         // Check for OPENQASM version first
-        let lines = qasm.Split([|'\n'; '\r'|], StringSplitOptions.RemoveEmptyEntries)
+        let lines = withoutMultiLineComments.Split([|'\n'; '\r'|], StringSplitOptions.RemoveEmptyEntries)
         
         if not (lines |> Array.exists (fun line -> versionPattern.IsMatch(line))) then
             Error "Missing OPENQASM version declaration (expected: OPENQASM 2.0;)"
