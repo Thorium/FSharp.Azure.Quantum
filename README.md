@@ -5,9 +5,9 @@
 [![NuGet](https://img.shields.io/nuget/v/FSharp.Azure.Quantum.svg)](https://www.nuget.org/packages/FSharp.Azure.Quantum/)
 [![License](https://img.shields.io/badge/license-Unlicense-blue.svg)](LICENSE)
 
-## ✨ Status: Beta (v0.5.0) - Quantum Backends Ready
+## ✨ Status: Production Ready (v1.0.0)
 
-**Current Features (v0.5.0-beta):**
+**Current Features (v1.0.0):**
 - ✅ Production-ready classical optimization (TSP, Portfolio)
 - ✅ Quantum Advisor (recommendations for quantum advantage)
 - ✅ **Azure Quantum backend integration** (IonQ, Rigetti simulators)
@@ -25,8 +25,8 @@
 - ✅ Multi-provider QAOA support (OpenQASM 2.0)
 - ✅ Automatic QAOA parameter optimization (Nelder-Mead simplex method)
 
-**Coming in v1.0:**
-- 🎯 QUBO-to-circuit conversion for TSP/Portfolio problems
+**Future Enhancements (v1.x):**
+- 🎯 QuantumPortfolioSolver with QAOA parameter optimization
 - 🎯 Advanced result comparison and quantum advantage validation
 - 🎯 Support for IBM Quantum, Amazon Braket, Google Cirq
 
@@ -530,11 +530,12 @@ Fluent APIs for encoding optimization problems:
 
 All builders support both classical and quantum solvers.
 
-### 🚧 Roadmap
+### 🚧 Roadmap (v1.x)
 
-- **QuantumPortfolioSolver** - QAOA for portfolio optimization
+- **QuantumPortfolioSolver** - QAOA for portfolio optimization with parameter tuning
 - **Additional Providers** - IBM Quantum, Amazon Braket, Google Cirq
-- **More Algorithms** - MaxCut, Graph Coloring solvers
+- **More Algorithms** - MaxCut, Graph Coloring quantum solvers
+- **Enhanced Error Mitigation** - Additional ZNE, PEC strategies
 
 ## 🎯 When to Use Quantum
 
@@ -628,6 +629,6 @@ Developed using AI-assisted TDD methodology.
 
 ---
 
-**Status**: Alpha (v0.1.0) - Classical solvers production-ready, quantum integration coming soon.
+**Status**: Production Ready (v1.0.0) - All core features complete, fully tested, quantum backends integrated.
 
-**Last Updated**: 2025-11-24
+**Last Updated**: 2025-11-28
