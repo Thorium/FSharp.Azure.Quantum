@@ -28,6 +28,7 @@
     <Compile Include="QuantumAdvisorTests.fs" />
     <Compile Include="CircuitBuilderTests.fs" />
     <Compile Include="CircuitAbstractionTests.fs" />
+    <Compile Include="BackendAbstractionTests.fs" />
     <Compile Include="QuboEncodingTests.fs" />
     <Compile Include="QaoaCircuitTests.fs" />
     <Compile Include="QaoaOptimizerTests.fs" />
