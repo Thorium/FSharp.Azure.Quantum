@@ -111,6 +111,10 @@
     <!-- Top-level applications (depends on Solvers) -->
     <Compile Include="Builders\Scheduling.fs" />
     <Compile Include="Builders\SubsetSelection.fs" />
+    <Compile Include="Builders\SubsetSelectionCSharpExtensions.fs" />
+    
+    <!-- C# Interop Extensions (must come after ALL builders) -->
+    <Compile Include="Builders\BuildersCSharpExtensions.fs" />
   </ItemGroup>
 
   <ItemGroup>

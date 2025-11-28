@@ -1,8 +1,8 @@
 // ==============================================================================
 // Investment Portfolio Balancing Example
 // ==============================================================================
-// Demonstrates portfolio optimization using classical algorithms to balance
-// risk and return across multiple assets.
+// Demonstrates portfolio optimization using HybridSolver with quantum-ready
+// optimization to balance risk and return across multiple assets.
 //
 // Business Context:
 // An investment advisor needs to allocate a $100,000 portfolio across 8 tech
@@ -14,12 +14,13 @@
 // - Risk-return trade-off analysis
 // - Sharpe ratio calculation (return per unit of risk)
 // - Diversification benefits
+// - Quantum-ready optimization via HybridSolver
 // ==============================================================================
 
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 
 open System
-open FSharp.Azure.Quantum
+open FSharp.Azure.Quantum.Classical
 
 // ==============================================================================
 // DOMAIN MODEL - Investment Portfolio Types
@@ -120,24 +121,45 @@ let createAnalysis
     }
 
 // ==============================================================================
-// PORTFOLIO OPTIMIZATION
+// PORTFOLIO OPTIMIZATION (Using HybridSolver for Quantum-Ready Optimization)
 // ==============================================================================
 
-/// Solve portfolio optimization problem
-let optimizePortfolio (stocks: Stock list) (budget: float) : Result<PortfolioAnalysis, string> =
-    // Convert stock data to Portfolio API format
-    let assets =
-        stocks
-        |> List.map (fun s -> (s.Symbol, s.ExpectedReturn, s.Volatility, s.Price))
+/// Convert stock to Asset type for HybridSolver
+let stockToAsset (stock: Stock) : PortfolioSolver.Asset = {
+    Symbol = stock.Symbol
+    ExpectedReturn = stock.ExpectedReturn
+    Risk = stock.Volatility  // Note: Asset.Risk corresponds to Stock.Volatility
+    Price = stock.Price
+}
+
+/// Solve portfolio optimization problem using HybridSolver
+let optimizePortfolio (stocks: Stock list) (budget: float) : Result<PortfolioAnalysis * string, string> =
+    // Convert to Portfolio API format
+    let assets = stocks |> List.map stockToAsset
+    let constraints = {
+        PortfolioSolver.Constraints.Budget = budget
+        PortfolioSolver.Constraints.MinHolding = 0.0  // No minimum holding constraint
+        PortfolioSolver.Constraints.MaxHolding = budget  // Can invest entire budget in one asset if optimal
+    }
     
-    // Solve using Portfolio.solveDirectly with default config
-    Portfolio.solveDirectly assets budget None
-    |> Result.map (fun allocation ->
-        createAnalysis
-            allocation.Allocations
-            allocation.TotalValue
-            allocation.ExpectedReturn
-            allocation.Risk)
+    // Use HybridSolver for automatic classical/quantum routing
+    match HybridSolver.solvePortfolio assets constraints None None None with
+    | Ok solution ->
+        // Extract allocations from solution
+        let allocations =
+            solution.Result.Allocations
+            |> List.map (fun alloc -> (alloc.Asset.Symbol, alloc.Shares, alloc.Value))
+        
+        let analysis = 
+            createAnalysis
+                allocations
+                solution.Result.TotalValue
+                solution.Result.ExpectedReturn
+                solution.Result.Risk
+        
+        Ok (analysis, solution.Reasoning)
+    
+    | Error msg -> Error (sprintf "HybridSolver failed: %s" msg)
 
 // ==============================================================================
 // REPORTING - Pure functions for output
@@ -269,7 +291,7 @@ let generateBusinessImpact (analysis: PortfolioAnalysis) (budget: float) : strin
         sprintf "  ✓ Diversification across %d tech stocks reduces risk" analysis.DiversificationScore
         sprintf "  ✓ Sharpe ratio of %.2f indicates efficient risk-adjusted returns" analysis.SharpeRatio
         sprintf "  ✓ Expected to generate %s annually" (formatCurrency expectedGain)
-  ✓ Risk-managed approach balances growth and volatility
+        "  ✓ Risk-managed approach balances growth and volatility"
         ""
     ]
 
@@ -279,13 +301,13 @@ let generateBusinessImpact (analysis: PortfolioAnalysis) (budget: float) : strin
 
 printfn "╔══════════════════════════════════════════════════════════════════════════════╗"
 printfn "║              INVESTMENT PORTFOLIO OPTIMIZATION EXAMPLE                       ║"
-printfn "║              Using FSharp.Azure.Quantum Classical Solvers                    ║"
+printfn "║              Using HybridSolver (Quantum-Ready Optimization)                 ║"
 printfn "╚══════════════════════════════════════════════════════════════════════════════╝"
 printfn ""
 printfn "Problem: Allocate %s across %d tech stocks" (formatCurrency budget) stocks.Length
 printfn "Objective: Maximize returns while managing risk"
 printfn ""
-printfn "Running portfolio optimization..."
+printfn "Running portfolio optimization with HybridSolver..."
 
 // Time the optimization
 let startTime = DateTime.UtcNow
@@ -301,7 +323,10 @@ printfn ""
 
 // Display results
 match result with
-| Ok analysis ->
+| Ok (analysis, reasoning) ->
+    printfn "💡 Solver Decision: %s" reasoning
+    printfn ""
+    
     // Generate reports
     let allocationReport = generateAllocationReport stocks analysis
     let riskReturnReport = generateRiskReturnAnalysis stocks analysis
@@ -315,6 +340,10 @@ match result with
     printfn "╔══════════════════════════════════════════════════════════════════════════════╗"
     printfn "║                     OPTIMIZATION SUCCESSFUL                                  ║"
     printfn "╚══════════════════════════════════════════════════════════════════════════════╝"
+    printfn ""
+    printfn "✨ Note: HybridSolver automatically routes between classical and quantum solvers"
+    printfn "   based on problem size and structure. For 8 assets → classical optimizer."
+    printfn "   For larger portfolios (50+ assets), quantum advantage may emerge."
 
 | Error msg ->
     printfn "❌ Optimization failed: %s" msg

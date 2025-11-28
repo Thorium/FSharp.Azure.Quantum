@@ -21,14 +21,18 @@ Haversine formula (great-circle distance on Earth's surface).
 
 **Expected Performance**:
 - Classical solver: < 100ms for 16 stops
+- Quantum solver: Potential advantage for 50+ cities
 - Solution quality: Within 5-10% of optimal
 - Typical improvement: 20-30% better than naive route
+
+**Quantum-Ready**: This example uses the HybridSolver which automatically routes
+between classical (fast, free) and quantum (scalable) solvers based on problem size.
 *)
 
-#r "nuget: FSharp.Azure.Quantum, 0.5.0-beta"
+#r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 
 open System
-open FSharp.Azure.Quantum
+open FSharp.Azure.Quantum.Classical
 
 // ============================================================================
 // Domain Model (Idiomatic F#)
@@ -141,11 +145,15 @@ let formatTime (time: TimeSpan) : string =
         sprintf "%d minutes" (int time.TotalMinutes)
 
 /// Print route details (side effect clearly isolated)
-let printRoute (label: string) (route: Route) (perf: Performance) : unit =
+let printRoute (label: string) (route: Route) (perf: Performance) (method: string option) : unit =
     printfn "\n%s" label
     printfn "  Distance: %s" (formatDistance route.TotalDistance)
     printfn "  Est. Time: %s" (formatTime route.TotalTime)
     printfn "  Solution Time: %.0fms" perf.SolutionTime.TotalMilliseconds
+    
+    match method with
+    | Some m -> printfn "  Solver: %s" m
+    | None -> ()
     
     match perf.Improvement with
     | Some improvement -> 
@@ -159,54 +167,54 @@ let printRoute (label: string) (route: Route) (perf: Performance) : unit =
     )
 
 // ============================================================================
-// Solver Integration (Idiomatic F# with Railway-Oriented Programming)
+// Solver Integration (Using HybridSolver for Quantum-Ready Optimization)
 // ============================================================================
 
-/// Convert locations to TSP problem format
-let locationsToTspProblem (locations: Location list) =
-    locations
-    |> List.map (fun loc -> (loc.Name, loc.Latitude, loc.Longitude))
+/// Build distance matrix from locations using Haversine distance
+let buildDistanceMatrix (locations: Location list) : float[,] =
+    let n = List.length locations
+    Array2D.init n n (fun i j ->
+        if i = j then 0.0
+        else haversineDistance locations.[i] locations.[j]
+    )
 
-/// Convert TSP tour result to Route domain type
-let tourToRoute (locations: Location list) (tour: int list) : Result<Route, string> =
-    try
-        let path = 
-            tour 
-            |> List.map (fun idx -> locations.[idx])
-        
-        let distance = calculateRouteDistance path
-        let time = estimateDrivingTime distance
-        
-        Ok { Path = path; TotalDistance = distance; TotalTime = time }
-    with ex ->
-        Error (sprintf "Failed to convert tour: %s" ex.Message)
+/// Convert TSP solution to Route domain type
+let solutionToRoute (locations: Location list) (solution: HybridSolver.Solution<TspSolver.TspSolution>) : Route * Performance =
+    // Extract tour from TSP solution (Tour is int array)
+    let tourArray = solution.Result.Tour
+    
+    // Build path from tour indices
+    let path = 
+        tourArray 
+        |> Array.map (fun cityIdx -> locations.[cityIdx])
+        |> Array.toList
+    
+    // Add return to start for complete tour
+    let completePath = path @ [List.head path]
+    
+    let distance = calculateRouteDistance completePath
+    let time = estimateDrivingTime distance
+    
+    let route = { Path = completePath; TotalDistance = distance; TotalTime = time }
+    let perf = {
+        SolutionTime = TimeSpan.FromMilliseconds(solution.ElapsedMs)
+        TotalDistance = distance
+        Improvement = None  // Will be calculated later vs naive
+    }
+    
+    (route, perf)
 
-/// Solve TSP using classical solver (pure function returning Result)
-let solveClassical (locations: Location list) : Result<Route * Performance, string> =
-    let sw = Diagnostics.Stopwatch.StartNew()
-    let problem = locationsToTspProblem locations
+/// Solve TSP using HybridSolver (automatic classical/quantum routing)
+let solveWithHybridSolver (locations: Location list) : Result<(Route * Performance * string), string> =
+    let distances = buildDistanceMatrix locations
     
-    match TSP.solveDirectly problem None with
-    | Ok tour ->
-        sw.Stop()
-        
-        // Convert Tour.Cities (string list) to indices for tourToRoute
-        let tourIndices = 
-            tour.Cities
-            |> List.map (fun cityName -> 
-                locations |> List.findIndex (fun loc -> loc.Name = cityName))
-        
-        match tourToRoute locations tourIndices with
-        | Ok route ->
-            let perf = {
-                SolutionTime = sw.Elapsed
-                TotalDistance = route.TotalDistance
-                Improvement = None  // No baseline yet
-            }
-            Ok (route, perf)
-        | Error msg -> Error msg
-    
-    | Error msg -> Error (sprintf "TSP solver failed: %s" msg)
+    // HybridSolver automatically decides classical vs quantum based on problem size
+    match HybridSolver.solveTsp distances None None None with
+    | Ok solution ->
+        let (route, perf) = solutionToRoute locations solution
+        // Return route, performance, and solver reasoning
+        Ok (route, perf, solution.Reasoning)
+    | Error msg -> Error (sprintf "HybridSolver failed: %s" msg)
 
 /// Calculate naive route (just visit in given order) for baseline
 let calculateNaiveRoute (locations: Location list) : Route =
@@ -235,18 +243,19 @@ printfn "  Naive route (visit in given order):"
 printfn "    Distance: %s" (formatDistance naiveRoute.TotalDistance)
 printfn "    Est. Time: %s" (formatTime naiveRoute.TotalTime)
 
-// Solve with classical optimization
-printfn "\n⚙️  Solving with Classical Optimization..."
+// Solve with hybrid optimization (quantum-ready)
+printfn "\n⚙️  Solving with HybridSolver (Quantum-Ready Optimization)..."
 
-match solveClassical allStops with
-| Ok (optimizedRoute, perf) ->
+match solveWithHybridSolver allStops with
+| Ok (optimizedRoute, perf, reasoning) ->
     // Calculate improvement
     let improvement = 
         (naiveRoute.TotalDistance - optimizedRoute.TotalDistance) / naiveRoute.TotalDistance * 100.0
     
     let perfWithImprovement = { perf with Improvement = Some improvement }
     
-    printRoute "✅ Optimized Route Found" optimizedRoute perfWithImprovement
+    printfn "\n💡 Solver Decision: %s" reasoning
+    printRoute "✅ Optimized Route Found" optimizedRoute perfWithImprovement (Some "HybridSolver")
     
     // Business insights
     printfn "\n💡 Business Impact:"
@@ -268,7 +277,7 @@ match solveClassical allStops with
         TotalDistance = naiveRoute.TotalDistance
         Improvement = None
     }
-    printRoute "Naive Route" naiveRoute perf
+    printRoute "Naive Route" naiveRoute perf None
 
 // Additional Analysis
 printfn "\n📈 Route Statistics:"
@@ -276,6 +285,7 @@ printfn "  Total stops: %d" allStops.Length
 printfn "  Average distance between stops: %.1f km" 
     (naiveRoute.TotalDistance / float allStops.Length)
 
-printfn "\n✨ Note: This example uses classical solver for fast execution."
-printfn "   For larger problems (50+ cities), quantum solvers may provide benefits."
+printfn "\n✨ Note: This example uses HybridSolver with automatic classical/quantum routing."
+printfn "   Current problem size (16 cities) → Classical solver (fast, optimal for <50 cities)"
+printfn "   For larger problems (50+ cities), quantum solvers may provide advantages."
 printfn ""

@@ -14,6 +14,15 @@
 // - Capacity-constrained routing
 // - Cost minimization with demand satisfaction
 // - Supply chain performance analysis
+//
+// LIBRARY NOTE:
+// This is a standalone educational example showing algorithm implementation details.
+// For production use, consider the GraphOptimization module in FSharp.Azure.Quantum:
+//   - GraphOptimizationBuilder API for network flow problems
+//   - Classical solvers (min-cost flow, max-flow algorithms)
+//   - Quantum-ready QUBO encoding for large-scale networks
+//   - Capacity constraints and flow conservation
+//   See: FSharp.Azure.Quantum.GraphOptimization module
 // ==============================================================================
 
 open System
@@ -249,7 +258,7 @@ let optimizeSupplyChain
                         
                         let allocation = {
                             From = from
-                            To = to_
+                            To = toNode
                             Units = flowAmount
                             TransportCost = edgeCost
                             TotalCost = edgeCost * float flowAmount
