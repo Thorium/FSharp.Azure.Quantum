@@ -113,22 +113,22 @@ module GraphOptimizationTests =
     
     [<Fact>]
     let ``NoAdjacentEqual constraint defined`` () =
-        let constraint = NoAdjacentEqual
+        let constr = NoAdjacentEqual
         
         // Type check - should compile
-        Assert.NotNull(box constraint)
+        Assert.NotNull(box constr)
     
     [<Fact>]
     let ``VisitOnce constraint defined`` () =
-        let constraint = VisitOnce
+        let constr = VisitOnce
         
-        Assert.NotNull(box constraint)
+        Assert.NotNull(box constr)
     
     [<Fact>]
     let ``DegreeLimit constraint with max value`` () =
-        let constraint = DegreeLimit 4
+        let constr = DegreeLimit 4
         
-        match constraint with
+        match constr with
         | DegreeLimit max -> Assert.Equal(4, max)
         | _ -> Assert.True(false, "Wrong constraint type")
     

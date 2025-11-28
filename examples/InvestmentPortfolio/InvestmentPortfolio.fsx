@@ -269,7 +269,7 @@ let generateBusinessImpact (analysis: PortfolioAnalysis) (budget: float) : strin
         sprintf "  ✓ Diversification across %d tech stocks reduces risk" analysis.DiversificationScore
         sprintf "  ✓ Sharpe ratio of %.2f indicates efficient risk-adjusted returns" analysis.SharpeRatio
         sprintf "  ✓ Expected to generate %s annually" (formatCurrency expectedGain)
-        sprintf "  ✓ Risk-managed approach balances growth and volatility"
+  ✓ Risk-managed approach balances growth and volatility
         ""
     ]
 

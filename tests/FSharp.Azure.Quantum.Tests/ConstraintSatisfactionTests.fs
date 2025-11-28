@@ -35,15 +35,15 @@ module ConstraintSatisfactionTests =
     
     [<Fact>]
     let ``AllDifferent constraint defined`` () =
-        let constraint = AllDifferent ["x"; "y"; "z"]
-        match constraint with
+        let constr = AllDifferent ["x"; "y"; "z"]
+        match constr with
         | AllDifferent vars -> Assert.Equal(3, vars.Length)
         | _ -> Assert.True(false, "Expected AllDifferent constraint")
     
     [<Fact>]
     let ``Binary constraint with predicate defined`` () =
-        let constraint = Binary ("x", "y", fun (x: int, y: int) -> x < y)
-        match constraint with
+        let constr = Binary ("x", "y", fun (x: int, y: int) -> x < y)
+        match constr with
         | Binary (v1, v2, _) -> 
             Assert.Equal("x", v1)
             Assert.Equal("y", v2)
@@ -51,10 +51,10 @@ module ConstraintSatisfactionTests =
     
     [<Fact>]
     let ``Custom constraint with predicate defined`` () =
-        let constraint = Custom (fun (assignments: Map<string, int>) -> 
+        let constr = Custom (fun (assignments: Map<string, int>) -> 
             assignments.Values |> Seq.sum > 10
         )
-        match constraint with
+        match constr with
         | Custom _ -> Assert.True(true)
         | _ -> Assert.True(false, "Expected Custom constraint")
     
@@ -96,8 +96,8 @@ module ConstraintSatisfactionTests =
                 .Variables([variable "x" [1; 2; 3]])
                 .AddConstraint(AllDifferent ["x"])
                 .Build()
-        Assert.Single(problem.Variables)
-        Assert.Single(problem.Constraints)
+        Assert.Single(problem.Variables) |> ignore
+        Assert.Single(problem.Constraints) |> ignore
     
     // ========================================================================
     // FR-4: QUBO ENCODING TESTS

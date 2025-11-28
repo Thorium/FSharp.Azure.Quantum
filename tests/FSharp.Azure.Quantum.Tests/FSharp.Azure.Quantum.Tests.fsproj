@@ -18,7 +18,6 @@
     <Compile Include="AmplitudeAmplificationTests.fs" />
     <Compile Include="QaoaSimulatorTests.fs" />
     <Compile Include="MeasurementTests.fs" />
-    <Compile Include="QuantumBackendTests.fs" />
     <Compile Include="TypesTests.fs" />
     <Compile Include="AuthenticationTests.fs" />
     <Compile Include="CostTests.fs" />
@@ -29,6 +28,9 @@
     <Compile Include="ProblemAnalysisTests.fs" />
     <Compile Include="QuantumAdvisorTests.fs" />
     <Compile Include="CircuitBuilderTests.fs" />
+    <Compile Include="CircuitAbstractionTests.fs" />
+    <Compile Include="BackendAbstractionTests.fs" />
+    <Compile Include="QuantumTspSolverTests.fs" />
     <Compile Include="QuboEncodingTests.fs" />
     <Compile Include="QaoaCircuitTests.fs" />
     <Compile Include="QaoaOptimizerTests.fs" />

@@ -164,8 +164,8 @@ module SubsetSelection =
             { this with items = itemList }
         
         /// Fluent API: Add a selection constraint
-        member this.AddConstraint(constraint: SelectionConstraint) =
-            { this with constraints = constraint :: this.constraints }
+        member this.AddConstraint(constr: SelectionConstraint) =
+            { this with constraints = constr :: this.constraints }
         
         /// Fluent API: Set optimization objective
         member this.Objective(obj: SelectionObjective) =

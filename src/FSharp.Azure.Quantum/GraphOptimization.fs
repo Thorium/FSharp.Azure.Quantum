@@ -729,9 +729,42 @@ module GraphOptimization =
             createSolution problem.Graph (Some assignments) None
         
         | MinimizeTotalWeight ->
-            // Decode TSP tour
-            // TODO: Extract tour edges from QUBO solution
-            createSolution problem.Graph None (Some [])
+            // Decode TSP tour from one-hot time encoding
+            // Variables: x_{i,t} = 1 if city i visited at time t
+            // For each time slot t, find which city i has x_{i,t} = 1
+            let numNodes = nodeIds.Length
+            
+            // Helper: Get variable index for city i at time t
+            let varIndex i t = i * numNodes + t
+            
+            // Decode tour: For each time slot, find the city visited
+            let tourCities =
+                [0 .. numNodes - 1]
+                |> List.choose (fun t ->
+                    // Find city i where x_{i,t} = 1
+                    nodeIds
+                    |> List.tryFindIndex (fun nodeId ->
+                        let i = List.findIndex ((=) nodeId) nodeIds
+                        let vIdx = varIndex i t
+                        vIdx < quboSolution.Length && quboSolution.[vIdx] = 1
+                    )
+                    |> Option.map (fun cityIdx -> nodeIds.[cityIdx])
+                )
+            
+            // Extract tour edges from consecutive cities in tour
+            let tourEdges =
+                if tourCities.Length >= 2 then
+                    tourCities
+                    |> List.pairwise
+                    |> List.choose (fun (src, tgt) ->
+                        // Find edge in graph
+                        problem.Graph.Edges
+                        |> List.tryFind (fun e -> e.Source = src && e.Target = tgt)
+                    )
+                else
+                    []
+            
+            createSolution problem.Graph None (Some tourEdges)
         
         | MaximizeCut ->
             // Decode partition
@@ -922,8 +955,8 @@ module GraphOptimization =
     /// </example>
     let validateConstraints (problem: GraphOptimizationProblem<'TNode, 'TEdge>) (solution: GraphOptimizationSolution<'TNode, 'TEdge>) : bool =
         problem.Constraints
-        |> List.forall (fun constraint ->
-            match constraint with
+        |> List.forall (fun constr ->
+            match constr with
             | NoAdjacentEqual ->
                 // Check that no adjacent nodes have the same color
                 match solution.NodeAssignments with
@@ -961,4 +994,36 @@ module GraphOptimization =
             | Connected ->
                 // Check graph connectivity (simplified: assume valid if has edges)
                 problem.Graph.Edges.Length > 0
+            
+            | MinDegree minDegree ->
+                // Check that all nodes have degree >= minDegree
+                problem.Graph.Adjacency
+                |> Map.forall (fun _ neighbors -> neighbors.Length >= minDegree)
+            
+            | OneIncoming ->
+                // Check that each node has exactly one incoming edge
+                match solution.SelectedEdges with
+                | Some edges ->
+                    let nodeIds = problem.Graph.Nodes |> Map.toList |> List.map fst
+                    nodeIds
+                    |> List.forall (fun nodeId ->
+                        let incomingCount = edges |> List.filter (fun e -> e.Target = nodeId) |> List.length
+                        incomingCount = 1)
+                | None -> true
+            
+            | OneOutgoing ->
+                // Check that each node has exactly one outgoing edge
+                match solution.SelectedEdges with
+                | Some edges ->
+                    let nodeIds = problem.Graph.Nodes |> Map.toList |> List.map fst
+                    nodeIds
+                    |> List.forall (fun nodeId ->
+                        let outgoingCount = edges |> List.filter (fun e -> e.Source = nodeId) |> List.length
+                        outgoingCount = 1)
+                | None -> true
+            
+            | GraphConstraint.Custom predicate ->
+                // Custom constraint validation using provided predicate
+                // Note: predicate takes the graph, not problem/solution
+                predicate (box problem.Graph :?> Graph<obj, obj>)
         )
