@@ -25,14 +25,14 @@ F# computation expressions like `graphColoring { }` and `scheduledTask { }` are 
 
 **These are F# language features, not available in C#.**
 
-### C# Should Use Underlying Frameworks
+### C# Uses Generic Frameworks
 
-C# developers should use the **underlying generic frameworks** directly:
+C# developers use the **generic frameworks** which provide FluentAPI builders:
 - `GraphOptimization` (TKT-90) - Generic graph algorithms
 - `Scheduling` (TKT-91) - Generic scheduling framework
 
 These provide:
-- ✅ FluentAPI builder pattern (C#-friendly)
+- ✅ FluentAPI builder pattern (idiomatic C#)
 - ✅ Generic type parameters `<T>`
 - ✅ Full feature set (all constraints, objectives)
 - ✅ Extensibility (custom constraints/objectives)
@@ -187,16 +187,16 @@ Console.WriteLine($"Makespan: {result.Value.Makespan}");
 │                    Application Layer                         │
 ├─────────────────────────┬───────────────────────────────────┤
 │                         │                                   │
-│   F# Domain Builders    │    C# Should Skip This Layer     │
-│   (TKT-80, TKT-81)      │    (Computation expressions      │
-│                         │     don't exist in C#)           │
-│   - GraphColoring       │                                   │
-│   - TaskScheduling      │                                   │
+│   F# Domain Builders    │    C# Uses Generic Layer         │
+│   (TKT-80, TKT-81)      │    (FluentAPI builders)          │
+│                         │                                   │
+│   - GraphColoring       │         ↓                         │
+│   - TaskScheduling      │    See layer below               │
 │                         │                                   │
 ├─────────────────────────┴───────────────────────────────────┤
 │                                                              │
 │              Generic Framework Layer                         │
-│         (Both F# and C# Use This Directly)                  │
+│         (F# advanced scenarios + C# primary API)            │
 │                                                              │
 │   - GraphOptimization (TKT-90)                              │
 │   - Scheduling (TKT-91)                                     │

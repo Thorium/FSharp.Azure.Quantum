@@ -258,20 +258,7 @@ val describeSolution : solution:ColoringSolution -> string
 
 ## C# Usage
 
-**C# developers should NOT use the GraphColoring module.** Instead, use the underlying GraphOptimization framework (TKT-90) directly.
-
-### Why Not GraphColoring from C#?
-
-The `graphColoring { }` computation expression is an **F#-specific language feature** that doesn't exist in C#. Calling GraphColoring from C# would require:
-- ❌ Manual `FSharpList` conversions
-- ❌ `FSharpOption` wrapping
-- ❌ Awkward, non-idiomatic C# code
-
-**This is not the intended use case.**
-
-### Correct Approach: Use GraphOptimization (TKT-90)
-
-C# developers should use the generic graph optimization framework directly:
+C# developers should use the **GraphOptimization module (TKT-90)** for graph coloring problems. This provides an idiomatic FluentAPI builder pattern designed for C#:
 
 ```csharp
 using FSharp.Azure.Quantum;
@@ -319,7 +306,7 @@ if (solution.NodeAssignments.HasValue)
 
 **Note:** GraphOptimization uses integer indices for colors (0, 1, 2...) instead of string names ("Red", "Green", "Blue"). You can map indices to color names in your application code.
 
-### Summary
+### Language-Specific APIs
 
 | | F# | C# |
 |---|----|----|
@@ -328,7 +315,7 @@ if (solution.NodeAssignments.HasValue)
 | **Colors** | String names | Integer indices |
 | **Conflicts** | `conflictsWith` list | `Edges` with `NoAdjacentEqual` |
 
-**For C# developers:** Use GraphOptimization (TKT-90). It's the correct, idiomatic C# approach for graph coloring problems.
+Both provide excellent graph coloring capabilities tailored to each language's idioms.
 
 ---
 
@@ -744,24 +731,42 @@ var problem2 = baseBuilder
 
 5. **Use business domain language** - "conflicts", "colors", not "edges"
 
-### ❌ DON'T
+### Common Patterns
 
-1. **Don't use for loops inside `graphColoring { }`** (custom operations incompatible)
+1. **Generate nodes from loops outside the builder**
    ```fsharp
-   // ❌ WRONG
-   graphColoring {
-       for i in 1..10 do
-           node $"N{i}" []
-   }
-   
-   // ✅ RIGHT
+   // Generate nodes first
    let nodesList = [1..10] |> List.map (fun i -> node $"N{i}" [])
+   
+   // Then use in builder
    graphColoring { nodes nodesList }
    ```
+   
+   *Note: `for` loops don't work directly in computation expressions due to F# syntax limitations*
 
-2. **Don't forget to specify colors** - Required field
+2. **Always specify colors** - Required for all problems
+   ```fsharp
+   graphColoring {
+       node "A" ["B"]
+       colors ["Red"; "Green"]  // Required
+   }
+   ```
 
-3. **Don't mix node creation styles inconsistently** - Pick one approach
+3. **Choose one node creation style per problem** - Either inline or builder, not mixed
+   ```fsharp
+   // Inline style
+   graphColoring {
+       node "A" ["B"]
+       node "B" ["A"]
+   }
+   
+   // OR builder style
+   let nodes = [
+       coloredNode { id "A"; conflictsWith ["B"] }
+       coloredNode { id "B"; conflictsWith ["A"] }
+   ]
+   graphColoring { nodes nodes }
+   ```
 
 ---
 
