@@ -398,33 +398,32 @@ val numericItem: id: string -> value: float -> Item<float>
 
 ## C# Interop
 
-The Subset Selection framework is fully accessible from C# with natural syntax:
+The Subset Selection framework is fully accessible from C# with natural, idiomatic syntax using the new C# extensions:
 
 ```csharp
 using FSharp.Azure.Quantum;
+using Microsoft.FSharp.Core;
+using static FSharp.Azure.Quantum.CSharpBuilders;
 using static FSharp.Azure.Quantum.SubsetSelection;
 
-// Create items
-var laptop = ItemMulti("laptop", "Laptop", 
-    new[] { ("weight", 3.0), ("value", 1000.0) });
-var phone = ItemMulti("phone", "Phone", 
-    new[] { ("weight", 0.5), ("value", 800.0) });
-var tablet = ItemMulti("tablet", "Tablet", 
-    new[] { ("weight", 1.5), ("value", 600.0) });
+// Create items with C# value tuples (50% less boilerplate!)
+var laptop = Item("laptop", "Laptop", ("weight", 3.0), ("value", 1000.0));
+var phone = Item("phone", "Phone", ("weight", 0.5), ("value", 800.0));
+var tablet = Item("tablet", "Tablet", ("weight", 1.5), ("value", 600.0));
 
-// Build problem
+// Build problem with C# array support
 var problem = SubsetSelectionBuilder<string>.Create()
-    .Items(new[] { laptop, phone, tablet }.ToFSharpList())
+    .ItemsFromArray(new[] { laptop, phone, tablet })
     .AddConstraint(SelectionConstraint.NewMaxLimit("weight", 5.0))
     .Objective(SelectionObjective.NewMaximizeWeight("value"))
     .Build();
 
 // Solve
-var result = SolveKnapsack(problem, "weight", "value");
+var result = solveKnapsack(problem, "weight", "value");
 
 if (result.IsOk)
 {
-    var solution = ((FSharpResult<SubsetSelectionSolution<string>, string>.Ok)result).Item;
+    var solution = result.ResultValue;
     Console.WriteLine($"Optimal Value: ${solution.ObjectiveValue:F0}");
     Console.WriteLine($"Items Selected: {solution.SelectedItems.Count()}");
     
@@ -435,10 +434,18 @@ if (result.IsOk)
 }
 else
 {
-    var error = ((FSharpResult<SubsetSelectionSolution<string>, string>.Error)result).Item;
+    var error = result.ErrorValue;
     Console.WriteLine($"Error: {error}");
 }
 ```
+
+**Key C# Improvements:**
+- ✅ **C# Value Tuples**: `Item("id", value, ("weight", 1.0))` instead of `Tuple.Create()`
+- ✅ **Array Support**: `.ItemsFromArray(array)` instead of `.Items(ListModule.OfArray(array))`
+- ✅ **Simple Result Access**: `result.ResultValue` instead of complex pattern matching
+- ✅ **50% Less Boilerplate**: Cleaner, more maintainable code
+
+For complete C# examples, see the [Kasino Card Game example](../../examples/Kasino_CSharp/)
 
 ## Performance Characteristics
 
