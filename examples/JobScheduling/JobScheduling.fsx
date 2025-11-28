@@ -14,6 +14,15 @@
 // - Resource allocation across parallel machines
 // - Makespan minimization (total completion time)
 // - Machine utilization analysis
+//
+// LIBRARY NOTE:
+// This is a standalone educational example showing algorithm implementation details.
+// For production use, consider the Scheduling module in FSharp.Azure.Quantum which provides:
+//   - SchedulingBuilder API for problem definition
+//   - Classical solvers (List Scheduling, Critical Path Method)
+//   - Quantum-ready QUBO encoding for large-scale scheduling
+//   - Resource capacity constraints and time windows
+//   See: FSharp.Azure.Quantum.Scheduling module
 // ==============================================================================
 
 open System

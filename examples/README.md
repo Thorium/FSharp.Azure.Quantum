@@ -33,14 +33,20 @@ cd Kasino_CSharp/KasinoExample && dotnet run && cd ../..
 
 ### Prerequisites
 
-**Build the library first** (required for DeliveryRouting and InvestmentPortfolio):
+**Build the library first** (required for all examples that use the library):
 ```bash
 cd ../
 dotnet build src/FSharp.Azure.Quantum/FSharp.Azure.Quantum.fsproj
 cd examples/
 ```
 
-**Note:** JobScheduling and SupplyChain are **standalone** - they don't require the library.
+**Library usage:**
+- **DeliveryRouting**: Uses `HybridSolver` (quantum-ready)
+- **InvestmentPortfolio**: Uses `HybridSolver` (quantum-ready)
+- **Kasino**: Uses `SubsetSelection` builder API
+- **Kasino_CSharp**: Uses C# interop with F# library
+- **JobScheduling**: Standalone (educational; see library's `Scheduling` module)
+- **SupplyChain**: Standalone (educational; see library's `GraphOptimization` module)
 
 ---
 
@@ -57,8 +63,8 @@ Optimize delivery routes for **15 stops** in the NYC area to minimize total dist
 - **ROI**: $0.15/km fuel savings, 15-20% route reduction typical
 
 ### Technical Details
-- **Algorithm**: Nearest neighbor heuristic (classical TSP solver)
-- **Uses Library**: `TSP.solveDirectly` from FSharp.Azure.Quantum
+- **Algorithm**: Nearest neighbor heuristic with quantum-ready architecture
+- **Uses Library**: `HybridSolver.solveTsp` from FSharp.Azure.Quantum (automatic classical/quantum routing)
 - **Problem Size**: 15 locations (NYC metropolitan area)
 - **Solution Time**: ~5 milliseconds
 - **Output**: Optimized tour with total distance 120.83 km
@@ -66,7 +72,8 @@ Optimize delivery routes for **15 stops** in the NYC area to minimize total dist
 ### Key Learnings
 - TSP is NP-hard but greedy heuristics work well for <50 stops
 - Geographic data (lat/lon) converts to distance matrices
-- Classical solvers are highly effective for practical routing problems
+- HybridSolver automatically routes between classical and quantum based on problem size
+- For small problems (n<100), classical solvers are significantly faster
 
 ---
 
@@ -83,8 +90,8 @@ Allocate **$100,000** across **8 tech stocks** to maximize risk-adjusted returns
 - **ROI**: 1% Sharpe ratio improvement = millions in better risk-adjusted returns
 
 ### Technical Details
-- **Algorithm**: Greedy Sharpe ratio selection (mean-variance optimization)
-- **Uses Library**: `Portfolio.solveDirectly` from FSharp.Azure.Quantum
+- **Algorithm**: Mean-variance optimization with quantum-ready architecture
+- **Uses Library**: `HybridSolver.solvePortfolio` from FSharp.Azure.Quantum (automatic classical/quantum routing)
 - **Problem Size**: 8 assets (AAPL, MSFT, GOOGL, AMZN, NVDA, META, TSLA, AMD)
 - **Solution Time**: ~5 milliseconds
 - **Output**: Portfolio with 22% expected return, 25% risk, Sharpe ratio 0.88
@@ -92,7 +99,8 @@ Allocate **$100,000** across **8 tech stocks** to maximize risk-adjusted returns
 ### Key Learnings
 - Mean-variance optimization balances return vs. risk
 - Sharpe ratio measures return per unit of risk (higher is better)
-- Classical solvers excel at continuous optimization problems
+- HybridSolver provides quantum-ready architecture for portfolio optimization
+- For small portfolios (n<10), classical algorithms are significantly faster
 - Current implementation shows MSFT-only allocation (opportunity for diversification improvement)
 
 ---
@@ -111,7 +119,7 @@ Schedule **10 manufacturing jobs** across **3 machines** to minimize makespan (t
 
 ### Technical Details
 - **Algorithm**: Greedy scheduling with topological sort (pure F# implementation)
-- **Uses Library**: None (standalone algorithm demonstration)
+- **Uses Library**: None (standalone algorithm demonstration; see `FSharp.Azure.Quantum.Scheduling` module for library-based scheduling)
 - **Problem Size**: 10 jobs with dependency graph (DAG), 3 machines
 - **Solution Time**: ~8 milliseconds
 - **Output**: 25-hour makespan with 45.3% average machine utilization
@@ -138,7 +146,7 @@ Route **1,250 units** through a **4-stage global supply chain** (suppliers → w
 
 ### Technical Details
 - **Algorithm**: Greedy network flow with capacity constraints (pure F# implementation)
-- **Uses Library**: None (standalone algorithm demonstration)
+- **Uses Library**: None (standalone algorithm demonstration; see `FSharp.Azure.Quantum.GraphOptimization` module for library-based network flow)
 - **Problem Size**: 9 nodes (2 suppliers, 2 warehouses, 2 distributors, 3 customers), 14 edges
 - **Solution Time**: ~10 milliseconds
 - **Output**: 100% fill rate, $371k total cost, -$118k profit (demonstrates unprofitable scenario)
