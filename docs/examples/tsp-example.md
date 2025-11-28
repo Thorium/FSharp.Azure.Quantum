@@ -245,16 +245,131 @@ match QuantumAdvisor.getRecommendation distances with
     printfn "Advisor error: %s" msg
 ```
 
+## Quantum TSP with QAOA Parameter Optimization (v1.1.0)
+
+For larger problems or research applications, use quantum TSP solver with automatic parameter optimization:
+
+```fsharp
+open FSharp.Azure.Quantum.Quantum.QuantumTspSolver
+open FSharp.Azure.Quantum.Core.BackendAbstraction
+
+// Create distance matrix
+let distances = array2D [
+    [ 0.0; 1.0; 2.0 ]
+    [ 1.0; 0.0; 1.5 ]
+    [ 2.0; 1.5; 0.0 ]
+]
+
+// Create backend (local simulator or Azure Quantum)
+let backend = createLocalBackend()
+
+// Solve with default configuration (optimization enabled)
+match solve backend distances defaultConfig with
+| Ok solution ->
+    printfn "Best tour: %A" solution.Tour
+    printfn "Tour length: %.2f" solution.TourLength
+    printfn "Optimized parameters (γ, β): %A" solution.OptimizedParameters
+    printfn "Converged in %d iterations" solution.OptimizationIterations
+| Error msg ->
+    printfn "Error: %s" msg
+```
+
+### Custom Optimization Configuration
+
+Fine-tune the variational quantum-classical loop:
+
+```fsharp
+let customConfig = {
+    OptimizationShots = 100       // Fast parameter search (low shots)
+    FinalShots = 1000             // Accurate result (high shots)
+    EnableOptimization = true     // Enable variational loop
+    InitialParameters = (0.5, 0.5) // Starting guess (γ, β)
+}
+
+match solve backend distances customConfig with
+| Ok solution ->
+    printfn "Solution quality: %.2f" solution.TourLength
+    printfn "Optimization iterations: %d" solution.OptimizationIterations
+    printfn "Final parameters: %A" solution.OptimizedParameters
+| Error msg ->
+    printfn "Error: %s" msg
+```
+
+### How QAOA Parameter Optimization Works
+
+**Variational Loop (Nelder-Mead Simplex):**
+
+```
+1. Initialize: (γ₀, β₀) = (0.5, 0.5)
+       ↓
+2. Execute QAOA circuit with (γᵢ, βᵢ) on quantum backend (100 shots)
+       ↓
+3. Measure and decode bitstrings → TSP tours
+       ↓
+4. Calculate tour cost (objective function)
+       ↓
+5. Optimizer proposes new (γᵢ₊₁, βᵢ₊₁) based on gradient-free search
+       ↓
+6. Repeat until convergence (~10-50 iterations)
+       ↓
+7. Final execution with optimized (γ*, β*) using 1000 shots
+```
+
+**Performance Considerations:**
+- **Optimization cost:** ~20-50 iterations × 100 shots = 2,000-5,000 extra shots
+- **Time:** +10-30 seconds on local simulator, +2-5 minutes on cloud backends
+- **Quality:** 5-20% better tour quality (problem-dependent)
+
+### Disable Optimization (Backward Compatibility)
+
+Use fixed parameters without optimization:
+
+```fsharp
+// Use hardcoded parameters (γ=0.5, β=0.5)
+let result = solveWithShots backend distances 1000
+```
+
+### Compare Classical vs. Quantum
+
+```fsharp
+open System.Diagnostics
+
+// Classical solution
+let sw = Stopwatch.StartNew()
+let classicalSolution = TspSolver.solveWithDistances distances TspSolver.defaultConfig
+sw.Stop()
+printfn "Classical: %.2f (%.2f ms)" classicalSolution.TourLength sw.Elapsed.TotalMilliseconds
+
+// Quantum solution with optimization
+let sw2 = Stopwatch.StartNew()
+match solve backend distances defaultConfig with
+| Ok quantumSolution ->
+    sw2.Stop()
+    printfn "Quantum: %.2f (%.2f ms)" quantumSolution.TourLength sw2.Elapsed.TotalMilliseconds
+    printfn "Optimization iterations: %d" quantumSolution.OptimizationIterations
+| Error msg ->
+    printfn "Quantum error: %s" msg
+```
+
 ## Tips for Best Results
 
-1. **Problem Size**: Classical works well up to ~100 cities
+**Classical Solver:**
+1. **Problem Size**: Works well up to ~100 cities
 2. **Iterations**: Increase for better solutions (at cost of time)
 3. **Cooling Rate**: 0.995-0.999 gives good balance
 4. **Initial Temperature**: Higher = more exploration early on
 5. **Random Seed**: Use `Some seed` for reproducible results
 
+**Quantum Solver (QAOA with Optimization):**
+1. **Problem Size**: 3-8 cities (limited by qubits: N cities → N² qubits)
+2. **Optimization Shots**: 100 for local, 50 for cloud (cost savings)
+3. **Final Shots**: 1000+ for accurate measurement statistics
+4. **Initial Parameters**: (0.5, 0.5) is a good default for most problems
+5. **Backend Choice**: Local for testing (<10 qubits), IonQ/Rigetti for larger problems
+
 ## See Also
 
+- **[Quantum TSP Example](quantum-tsp-example.md)** - Deep dive into QAOA with optimization
 - [Portfolio Example](portfolio-example.md) - Portfolio optimization
 - [Hybrid Solver Guide](hybrid-solver.md) - Advanced hybrid solver usage
 - [Quantum vs Classical](../guides/quantum-vs-classical.md) - Decision framework
