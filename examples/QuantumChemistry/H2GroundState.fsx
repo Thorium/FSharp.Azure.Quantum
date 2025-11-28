@@ -56,7 +56,7 @@ let smallMolecule = true
 let conditionalProblem = quantumChemistry {
     molecule (h2 0.74)
     
-    // Conditional logic - only possible with computation expressions!
+    // Conditional logic using F# syntax
     if smallMolecule then
         basis "sto-3g"  // Fast for small molecules
     else

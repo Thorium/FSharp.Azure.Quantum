@@ -875,6 +875,7 @@ module QuantumChemistryBuilder =
     /// <remarks>
     /// Different ansätze offer trade-offs between accuracy and computational cost.
     /// </remarks>
+    [<Struct>]
     type ChemistryAnsatz =
         /// Unitary Coupled Cluster Singles Doubles (most accurate, most expensive)
         | UCCSD
@@ -956,7 +957,9 @@ module QuantumChemistryBuilder =
         /// Final validation and transformation.
         /// Called automatically by F# compiler - no explicit .Build() needed!
         /// </summary>
-        member _.Run(problem: ChemistryProblem) : ChemistryProblem =
+        member _.Run(f: unit -> ChemistryProblem) : ChemistryProblem =
+            let problem = f()  // Execute delayed computation
+            
             // Validate required fields
             if problem.Molecule.IsNone then
                 failwith "Quantum chemistry validation: 'molecule' is required. Example: molecule (h2 0.74)"
