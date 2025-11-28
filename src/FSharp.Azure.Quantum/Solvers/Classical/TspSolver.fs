@@ -11,8 +11,6 @@ open FSharp.Azure.Quantum
 /// - Speed: Fast (milliseconds for <100 cities)
 /// - Cost: Free (local computation)
 ///
-/// For QUANTUM execution, use QuantumTspSolver which requires a backend parameter.
-///
 /// Example:
 ///   let result = TspSolver.solveWithDistances distances TspSolver.defaultConfig
 module TspSolver =

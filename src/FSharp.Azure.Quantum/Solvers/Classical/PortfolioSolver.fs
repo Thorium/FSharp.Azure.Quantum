@@ -11,8 +11,6 @@ open FSharp.Azure.Quantum
 /// - Speed: Fast (milliseconds for <100 assets)
 /// - Cost: Free (local computation)
 ///
-/// For QUANTUM portfolio optimization (when available), use QuantumPortfolioSolver.
-///
 /// Example:
 ///   let result = PortfolioSolver.solveGreedyByRatio assets constraints PortfolioSolver.defaultConfig
 module PortfolioSolver =
