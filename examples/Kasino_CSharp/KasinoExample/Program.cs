@@ -71,19 +71,19 @@ namespace KasinoExample
             Console.WriteLine("🎯 Goal: Find table cards that maximize value ≤ 13");
             Console.WriteLine();
 
-            // Create items representing table cards using F# helper functions
-            // Note: F# tuples are System.Tuple, not C# value tuples
+            // Create items representing table cards using C# extensions (50% less boilerplate!)
+            // Note: C# value tuples now supported via BuildersCSharpExtensions
             var tableCards = new[]
             {
-                itemMulti("card_2", "2", ListModule.OfArray(new[] { Tuple.Create("weight", 2.0), Tuple.Create("value", 2.0) })),
-                itemMulti("card_5", "5", ListModule.OfArray(new[] { Tuple.Create("weight", 5.0), Tuple.Create("value", 5.0) })),
-                itemMulti("card_8", "8", ListModule.OfArray(new[] { Tuple.Create("weight", 8.0), Tuple.Create("value", 8.0) })),
-                itemMulti("card_J", "Jack", ListModule.OfArray(new[] { Tuple.Create("weight", 11.0), Tuple.Create("value", 11.0) })),
+                FSharp.Azure.Quantum.Builders.Item("card_2", "2", ("weight", 2.0), ("value", 2.0)),
+                FSharp.Azure.Quantum.Builders.Item("card_5", "5", ("weight", 5.0), ("value", 5.0)),
+                FSharp.Azure.Quantum.Builders.Item("card_8", "8", ("weight", 8.0), ("value", 8.0)),
+                FSharp.Azure.Quantum.Builders.Item("card_J", "Jack", ("weight", 11.0), ("value", 11.0)),
             };
 
-            // Build subset selection problem for Kasino capture using fluent builder
+            // Build subset selection problem for Kasino capture using fluent builder with C# array support
             var problem = SubsetSelectionBuilder<string>.Create()
-                .Items(ListModule.OfArray(tableCards))
+                .ItemsFromArray(tableCards)
                 .AddConstraint(SelectionConstraint.NewMaxLimit("weight", 13.0))
                 .Objective(SelectionObjective.NewMaximizeWeight("value"))
                 .Build();
@@ -137,17 +137,18 @@ namespace KasinoExample
             Console.WriteLine("⚡ Quantum speedup: 32x-181x for finding optimal solution!");
             Console.WriteLine();
 
-            // Create items representing table cards (1-7)
+            // Create items representing table cards (1-7) using C# extensions
             var tableCards = Enumerable.Range(1, 7)
-                .Select(i => itemMulti(
+                .Select(i => FSharp.Azure.Quantum.Builders.Item(
                     $"card_{i}",
                     i.ToString(),
-                    ListModule.OfArray(new[] { Tuple.Create("weight", (double)i), Tuple.Create("value", (double)i) })))
+                    ("weight", (double)i),
+                    ("value", (double)i)))
                 .ToArray();
 
-            // Build subset selection problem
+            // Build subset selection problem with C# array support
             var problem = SubsetSelectionBuilder<string>.Create()
-                .Items(ListModule.OfArray(tableCards))
+                .ItemsFromArray(tableCards)
                 .AddConstraint(SelectionConstraint.NewMaxLimit("weight", 10.0))
                 .Objective(SelectionObjective.NewMaximizeWeight("value"))
                 .Build();
@@ -203,19 +204,20 @@ namespace KasinoExample
                 Console.WriteLine($"   Description: {scenario.Description}");
                 Console.Write($"   Table: ");
 
-                // Create table cards
+                // Create table cards using C# extensions
                 var tableCards = scenario.TableCards
-                    .Select((value, index) => itemMulti(
+                    .Select((value, index) => FSharp.Azure.Quantum.Builders.Item(
                         $"card_{index + 1}",
                         value.ToString(),
-                        ListModule.OfArray(new[] { Tuple.Create("weight", value), Tuple.Create("value", value) })))
+                        ("weight", value),
+                        ("value", value)))
                     .ToArray();
 
                 Console.WriteLine(string.Join(", ", scenario.TableCards));
 
-                // Build and solve
+                // Build and solve with C# array support
                 var problem = SubsetSelectionBuilder<string>.Create()
-                    .Items(ListModule.OfArray(tableCards))
+                    .ItemsFromArray(tableCards)
                     .AddConstraint(SelectionConstraint.NewMaxLimit("weight", scenario.HandValue))
                     .Objective(SelectionObjective.NewMaximizeWeight("value"))
                     .Build();
