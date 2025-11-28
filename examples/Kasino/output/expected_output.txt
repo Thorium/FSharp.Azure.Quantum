@@ -14,10 +14,12 @@ Kasino Capture Optimization
 🎯 Strategy: Minimize Cards
 
 ✅ Capture Found!
-   Captured: 2(2), 5(5), 8(8), Jack(11)
-   Total Value: 26 (target: 13)
-   Cards Captured: 4
-   Minimize Count: 26
+   Captured: 2(2), Jack(11)
+   Total Value: 13 (target: 13)
+   Cards Captured: 2
+   Strategy: Minimize Cards
+   Objective Value: 13 (maximize value ≤ capacity)
+   ⭐ EXACT MATCH - Perfect capture!
 
 SCENARIO 2: Complex Capture (Multiple Solutions Exist)
 ───────────────────────────────────────────────────────────
@@ -34,10 +36,12 @@ Kasino Capture Optimization
 🎯 Strategy: Minimize Cards
 
 ✅ Capture Found!
-   Captured: 1(1), 2(2), 3(3), 4(4), 5(5), 6(6), 7(7)
-   Total Value: 28 (target: 10)
-   Cards Captured: 7
-   Minimize Count: 28
+   Captured: 3(3), 7(7)
+   Total Value: 10 (target: 10)
+   Cards Captured: 2
+   Strategy: Minimize Cards
+   Objective Value: 10 (maximize value ≤ capacity)
+   ⭐ EXACT MATCH - Perfect capture!
 
 SCENARIO 3: Strategy Comparison (Minimize vs Maximize)
 ───────────────────────────────────────────────────────────
@@ -51,10 +55,12 @@ Kasino Capture Optimization
 🎯 Strategy: Minimize Cards
 
 ✅ Capture Found!
-   Captured: 5(5), 7(7), 10(10), 3(3)
-   Total Value: 25 (target: 12)
-   Cards Captured: 4
-   Minimize Count: 25
+   Captured: 5(5), 7(7)
+   Total Value: 12 (target: 12)
+   Cards Captured: 2
+   Strategy: Minimize Cards
+   Objective Value: 12 (maximize value ≤ capacity)
+   ⭐ EXACT MATCH - Perfect capture!
 
 Strategy B: Maximize Value (score more points)
 ═══════════════════════════════════════════════════════════
@@ -65,10 +71,12 @@ Kasino Capture Optimization
 🎯 Strategy: Maximize Value
 
 ✅ Capture Found!
-   Captured: 5(5), 7(7), 10(10), 3(3)
-   Total Value: 25 (target: 12)
-   Cards Captured: 4
-   Maximize Value: 25
+   Captured: 5(5), 7(7)
+   Total Value: 12 (target: 12)
+   Cards Captured: 2
+   Strategy: Maximize Value
+   Objective Value: 12 (maximize value ≤ capacity)
+   ⭐ EXACT MATCH - Perfect capture!
 
 SCENARIO 4: Multi-Turn Game Sequence
 ───────────────────────────────────────────────────────────
@@ -86,7 +94,8 @@ Kasino Capture Optimization
    Captured: Ace(1)
    Total Value: 1 (target: 1)
    Cards Captured: 1
-   Minimize Count: 1
+   Strategy: Minimize Cards
+   Objective Value: 1 (maximize value ≤ capacity)
    ⭐ EXACT MATCH - Perfect capture!
 
 Turn 2: Multiple options
@@ -98,10 +107,12 @@ Kasino Capture Optimization
 🎯 Strategy: Minimize Cards
 
 ✅ Capture Found!
-   Captured: 2(2), 5(5), 3(3), 4(4)
-   Total Value: 14 (target: 7)
-   Cards Captured: 4
-   Minimize Count: 14
+   Captured: 3(3), 4(4)
+   Total Value: 7 (target: 7)
+   Cards Captured: 2
+   Strategy: Minimize Cards
+   Objective Value: 7 (maximize value ≤ capacity)
+   ⭐ EXACT MATCH - Perfect capture!
 
 Turn 3: Strategic capture
 ═══════════════════════════════════════════════════════════
@@ -112,10 +123,12 @@ Kasino Capture Optimization
 🎯 Strategy: Minimize Cards
 
 ✅ Capture Found!
-   Captured: 5(5), 7(7), 10(10)
-   Total Value: 22 (target: 12)
-   Cards Captured: 3
-   Minimize Count: 22
+   Captured: 5(5), 7(7)
+   Total Value: 12 (target: 12)
+   Cards Captured: 2
+   Strategy: Minimize Cards
+   Objective Value: 12 (maximize value ≤ capacity)
+   ⭐ EXACT MATCH - Perfect capture!
 
 ╔════════════════════════════════════════════════════════════╗
 ║              Quantum Advantage Summary                     ║

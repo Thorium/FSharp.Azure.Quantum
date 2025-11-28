@@ -113,22 +113,26 @@ let findOptimalCapture (handCard: Card) (tableCards: Card list) (strategy: strin
             numericItem card.DisplayName card.Value)
 
     // Choose objective based on strategy
+    // Note: solveKnapsack always maximizes value within capacity constraint
+    // For Kasino, this means capturing maximum value ≤ hand card value
     let objective =
         match strategy with
-        | "Minimize Cards" -> MinimizeCount
+        | "Minimize Cards" -> MaximizeWeight "value"  // Still maximize value (knapsack solver behavior)
         | "Maximize Value" -> MaximizeWeight "value"
-        | _ -> MinimizeCount
+        | _ -> MaximizeWeight "value"
 
     // Build subset selection problem
     let problem =
         SubsetSelectionBuilder.Create()
             .Items(items)
-            .AddConstraint(MaxLimit("weight", handCard.Value))  // Sum ≤ hand card
+            .AddConstraint(MaxLimit("value", handCard.Value))  // Sum ≤ hand card
             .Objective(objective)
             .Build()
 
     // Solve using classical knapsack solver
-    let result = solveKnapsack problem "weight" "value"
+    // Note: numericItem creates items with only "value" dimension (weight=value=card value)
+    // So we use "value" for both weight and value dimensions
+    let result = solveKnapsack problem "value" "value"
 
     match result with
     | Ok solution when solution.IsFeasible ->
@@ -153,9 +157,8 @@ let findOptimalCapture (handCard: Card) (tableCards: Card list) (strategy: strin
         printfn "   Captured: %s" (displayCards capturedCards)
         printfn "   Total Value: %g (target: %g)" captureResult.TotalValue handCard.Value
         printfn "   Cards Captured: %d" captureResult.CardCount
-        printfn "   %s: %g" 
-            (match objective with MinimizeCount -> "Minimize Count" | _ -> "Maximize Value")
-            solution.ObjectiveValue
+        printfn "   Strategy: %s" strategy
+        printfn "   Objective Value: %g (maximize value ≤ capacity)" solution.ObjectiveValue
         
         if captureResult.IsOptimal then
             printfn "   ⭐ EXACT MATCH - Perfect capture!"
