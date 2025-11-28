@@ -63,8 +63,9 @@ module TaskScheduling =
     /// Time unit helpers for readable duration specifications
     type Duration = float
     
-    /// Task with scheduling metadata
-    type Task = {
+    /// Task for scheduling (domain-specific, non-generic)
+    /// Note: Named SchedulingTask to distinguish from generic Scheduling.ScheduledTask<'T>
+    type SchedulingTask = {
         Id: string
         Duration: Duration
         Dependencies: string list
@@ -93,7 +94,7 @@ module TaskScheduling =
     
     /// Complete scheduling problem
     type SchedulingProblem = {
-        Tasks: Task list
+        Tasks: SchedulingTask list
         Resources: Resource list
         Objective: Objective
         TimeHorizon: float
@@ -184,9 +185,9 @@ module TaskScheduling =
     /// }
     /// </code>
     /// </remarks>
-    type ScheduledTaskBuilder() =
+    type SchedulingTaskBuilder() =
         
-        member _.Yield(_) : Task =
+        member _.Yield(_) : SchedulingTask =
             {
                 Id = ""
                 Duration = 0.0
@@ -200,50 +201,50 @@ module TaskScheduling =
         /// <summary>Set task unique identifier.</summary>
         /// <param name="id">Task ID (must be unique within problem)</param>
         [<CustomOperation("id")>]
-        member _.Id(task: Task, id: string) : Task =
+        member _.Id(task: SchedulingTask, id: string) : SchedulingTask =
             { task with Id = id }
         
         /// <summary>Set task duration in time units.</summary>
         /// <param name="duration">Duration (use helpers: <c>minutes</c>, <c>hours</c>, <c>days</c>)</param>
         [<CustomOperation("duration")>]
-        member _.Duration(task: Task, duration: Duration) : Task =
+        member _.Duration(task: SchedulingTask, duration: Duration) : SchedulingTask =
             { task with Duration = duration }
         
         /// <summary>Add single task dependency - this task must start after the specified task completes.</summary>
         /// <param name="dependsOn">Task ID that must complete before this task</param>
         [<CustomOperation("after")>]
-        member _.After(task: Task, dependsOn: string) : Task =
+        member _.After(task: SchedulingTask, dependsOn: string) : SchedulingTask =
             { task with Dependencies = dependsOn :: task.Dependencies }
         
         /// <summary>Add multiple task dependencies - this task must start after all specified tasks complete.</summary>
         /// <param name="dependsOn">List of task IDs that must complete before this task</param>
         [<CustomOperation("afterMultiple")>]
-        member _.AfterMultiple(task: Task, dependsOn: string list) : Task =
+        member _.AfterMultiple(task: SchedulingTask, dependsOn: string list) : SchedulingTask =
             { task with Dependencies = dependsOn @ task.Dependencies }
         
         /// <summary>Add resource requirement for this task.</summary>
         /// <param name="resourceId">Resource identifier</param>
         /// <param name="amount">Quantity of resource required</param>
         [<CustomOperation("requires")>]
-        member _.Requires(task: Task, resourceId: string, amount: float) : Task =
+        member _.Requires(task: SchedulingTask, resourceId: string, amount: float) : SchedulingTask =
             { task with ResourceRequirements = task.ResourceRequirements |> Map.add resourceId amount }
         
         /// <summary>Set task priority for tie-breaking when multiple tasks are ready.</summary>
         /// <param name="priority">Priority value (higher = more important, default 0.0)</param>
         [<CustomOperation("priority")>]
-        member _.Priority(task: Task, priority: float) : Task =
+        member _.Priority(task: SchedulingTask, priority: float) : SchedulingTask =
             { task with Priority = priority }
         
         /// <summary>Set deadline (latest allowed completion time).</summary>
         /// <param name="deadline">Time by which task must complete (reports violation if missed)</param>
         [<CustomOperation("deadline")>]
-        member _.Deadline(task: Task, deadline: float) : Task =
+        member _.Deadline(task: SchedulingTask, deadline: float) : SchedulingTask =
             { task with Deadline = Some deadline }
         
         /// <summary>Set earliest allowed start time.</summary>
         /// <param name="earliest">Time before which task cannot start</param>
         [<CustomOperation("earliestStart")>]
-        member _.EarliestStart(task: Task, earliest: float) : Task =
+        member _.EarliestStart(task: SchedulingTask, earliest: float) : SchedulingTask =
             { task with EarliestStart = Some earliest }
     
     /// <summary>
@@ -264,7 +265,7 @@ module TaskScheduling =
     /// }
     /// </code>
     /// </example>
-    let scheduledTask = ScheduledTaskBuilder()
+    let scheduledTask = SchedulingTaskBuilder()
     
     // ============================================================================
     // COMPUTATION EXPRESSION BUILDERS - Resource Builder
@@ -420,7 +421,7 @@ module TaskScheduling =
         /// <summary>Set tasks to schedule.</summary>
         /// <param name="tasks">List of tasks defined with <c>scheduledTask { ... }</c></param>
         [<CustomOperation("tasks")>]
-        member _.Tasks(problem: SchedulingProblem, tasks: Task list) : SchedulingProblem =
+        member _.Tasks(problem: SchedulingProblem, tasks: SchedulingTask list) : SchedulingProblem =
             { problem with Tasks = tasks }
         
         /// <summary>Set available resources.</summary>
@@ -524,7 +525,7 @@ module TaskScheduling =
                             checkDeps deps
                     
                     // Check all tasks for cycles
-                    let rec checkAllTasks (tasks: Task list) (visited: Set<string>) =
+                    let rec checkAllTasks (tasks: SchedulingTask list) (visited: Set<string>) =
                         match tasks with
                         | [] -> Ok ()
                         | task :: rest ->
