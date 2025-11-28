@@ -86,7 +86,7 @@ The `HybridSolver` automatically decides whether to use quantum or classical app
 HybridSolver.solveTsp distances None None None
 
 // Force classical solver
-HybridSolver.solveTsp distances None None (Some HybridSolver.Classical)
+HybridSolver.solveTsp distances None None (Some HybridSolver.SolverMethod.Classical)
 
 // Set budget limit (when quantum available)
 HybridSolver.solveTsp distances (Some 10.0) None None  // $10 USD limit
@@ -250,14 +250,14 @@ match HybridSolver.solveTsp distances None None None with
 ```fsharp
 // ❌ WRONG: Budget smaller than minimum asset price
 let assets = [("AAPL", 0.12, 0.18, 150.0)]
-let constraints: PortfolioSolver.Constraints = { Budget = 100.0; MinHolding = 0.0; MaxHolding = 1000.0 }
+let constraints = { Budget = 100.0; MinHolding = 0.0; MaxHolding = 1000.0 }
 // Error: "Budget (100) is insufficient to purchase any asset (minimum price: 150)"
 ```
 
 **✅ Fix:** Ensure budget ≥ cheapest asset price
 ```fsharp
 // ✅ CORRECT: Budget can buy at least one share
-let constraints: PortfolioSolver.Constraints = { Budget = 500.0; MinHolding = 0.0; MaxHolding = 500.0 }
+let constraints = { Budget = 500.0; MinHolding = 0.0; MaxHolding = 500.0 }
 ```
 
 ### ❌ Pitfall 5: Type Inference Confusion
@@ -335,11 +335,11 @@ let solvePortfolioSafely assets budget =
             price <= 0.0 || risk < 0.0)
     
     if not (List.isEmpty invalidAssets) then
-        Error $"Invalid assets: {invalidAssets}"
+        Error $"Invalid assets: %A{invalidAssets}"
     elif budget <= 0.0 then
         Error $"Budget must be positive: {budget}"
     else
-        let constraints: PortfolioSolver.Constraints = {
+        let constraints = {
             Budget = budget
             MinHolding = 0.0
             MaxHolding = budget * 0.5  // Max 50% in any asset
@@ -401,7 +401,7 @@ let solveTspWithLimits distances maxBudget maxTime =
         printfn "⚠ Solution found but exceeded timeout (%.2f ms)" solution.ElapsedMs
         Ok solution
         
-    | Ok solution when solution.Method = HybridSolver.Classical ->
+    | Ok solution when solution.Method = Classical ->
         // Classical was used (possibly due to budget)
         printfn "✓ Classical solver used (budget=$%.2f saved)" maxBudget
         Ok solution
@@ -454,20 +454,13 @@ When using quantum backends, you'll need Azure credentials:
 ```fsharp
 open FSharp.Azure.Quantum
 
-// Configure authentication using createConfig helper
-// Note: Classical solvers don't need Azure credentials
-// Only needed when using actual quantum backends
-
-open System.Net.Http
-
-let httpClient = new HttpClient()
-let config = Client.createConfig 
-    "your-subscription-id" 
-    "your-resource-group" 
-    "your-workspace-name" 
-    httpClient
-
-let client = Client.QuantumClient(config)
+// Configure authentication
+let workspace = {
+    SubscriptionId = "your-subscription-id"
+    ResourceGroup = "your-resource-group"
+    WorkspaceName = "your-workspace-name"
+    Location = "eastus"
+}
 
 // Authentication handled automatically via DefaultAzureCredential
 // Supports: Azure CLI, Managed Identity, Environment Variables, etc.

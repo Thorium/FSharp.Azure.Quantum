@@ -48,7 +48,7 @@ match HybridSolver.solvePortfolio assets constraints None None None with
 
 ```fsharp
 // Force classical when developing (fast, deterministic)
-let forceClassical = Some HybridSolver.Classical
+let forceClassical = Some HybridSolver.SolverMethod.Classical
 
 match HybridSolver.solveTsp distances None None forceClassical with
 | Ok solution -> 
@@ -71,52 +71,71 @@ match HybridSolver.solveTsp distances budgetLimit None None with
 | Error msg -> eprintfn "Error: %s" msg
 ```
 
-### Pattern 4: Timeout Control
+### Pattern 4: Builder Pattern (Named Entities)
 
 ```fsharp
-// Set timeout to limit execution time
-let timeoutSeconds = Some 30.0  // 30 seconds max
+// TSP with named cities (easier to read)
+let cities = [
+    ("Seattle", 47.6, -122.3)
+    ("Portland", 45.5, -122.7)
+]
 
-match HybridSolver.solveTsp distances None timeoutSeconds None with
-| Ok solution -> 
-    printfn "Solved within timeout: %.2f ms" solution.ElapsedMs
-    printfn "Tour: %A" solution.Result.Tour
-| Error msg -> 
-    eprintfn "Failed or timed out: %s" msg
-```
+match TSP.solveDirectly cities None with
+| Ok tour -> 
+    printfn "Route: %s" (String.concat " → " tour.Cities)
+    printfn "Distance: %.2f miles" tour.TotalDistance
+| Error msg -> eprintfn "Error: %s" msg
 
-### Pattern 5: Combining Budget, Timeout, and Method
+// Portfolio with named assets
+let assets = [
+    ("AAPL", 0.12, 0.18, 150.0)  // (symbol, return, risk, price)
+    ("MSFT", 0.10, 0.15, 300.0)
+]
 
-```fsharp
-// Full control: budget + timeout + force quantum
-let budget = Some 50.0           // $50 max
-let timeout = Some 60.0          // 60s max
-let forceQuantum = Some HybridSolver.Quantum
-
-match HybridSolver.solveTsp distances budget timeout forceQuantum with
-| Ok solution -> 
-    printfn "Method: %A" solution.Method
-    printfn "Cost: (quantum execution cost)"
-    printfn "Time: %.2f ms" solution.ElapsedMs
+match Portfolio.solveDirectly assets 10000.0 None with
+| Ok result ->
+    result.Allocations 
+    |> List.iter (fun a -> 
+        printfn "%s: %d shares = $%.2f" 
+            a.Symbol a.Shares a.Value)
 | Error msg -> eprintfn "Error: %s" msg
 ```
 
-### Pattern 6: Fallback to Classical on Error
+### Pattern 5: Advanced Configuration
 
 ```fsharp
-// Try quantum first, fallback to classical
-let solveWithFallback distances =
-    match HybridSolver.solveTsp distances (Some 10.0) None None with
-    | Ok solution -> solution
-    | Error _ -> 
-        // Budget exceeded or quantum unavailable, force classical
-        match HybridSolver.solveTsp distances None None (Some HybridSolver.Classical) with
-        | Ok classicalSolution -> classicalSolution
-        | Error msg -> failwithf "All methods failed: %s" msg
+// Custom solver configuration
+let tspConfig = {
+    MaxIterations = 50000     // More iterations = better quality
+    UseNearestNeighbor = true // Start with good initial solution
+}
 
-let solution = solveWithFallback distances
-printfn "Method used: %A" solution.Method
-printfn "Tour: %A" solution.Result.Tour
+// Direct classical solver with config
+let solution = TspSolver.solveWithDistances distances tspConfig
+
+printfn "Found tour in %d iterations" solution.Iterations
+printfn "Tour length: %.2f" solution.TourLength
+printfn "Time: %.2f ms" solution.ElapsedMs
+```
+
+### Pattern 6: Robust Error Recovery
+
+```fsharp
+// Try hybrid, fallback to classical on error
+let solveTspRobust distances =
+    match HybridSolver.solveTsp distances None None None with
+    | Ok solution -> Ok solution.Result
+    | Error _ -> 
+        // Hybrid failed, try classical directly
+        try
+            Ok (TspSolver.solveWithDistances distances TspSolver.defaultConfig)
+        with ex ->
+            Error ex.Message
+
+// Usage
+match solveTspRobust distances with
+| Ok result -> printfn "Success: %A" result.Tour
+| Error msg -> eprintfn "All solvers failed: %s" msg
 ```
 
 ### Pattern 7: Validation Before Solving
@@ -124,7 +143,7 @@ printfn "Tour: %A" solution.Result.Tour
 ```fsharp
 // Validate portfolio constraints before solving
 let solvePortfolioSafe assets budget =
-    let constraints: PortfolioSolver.Constraints = {
+    let constraints = {
         Budget = budget
         MinHolding = 0.0
         MaxHolding = budget * 0.5
@@ -142,22 +161,19 @@ let solvePortfolioSafe assets budget =
         |> Result.map (fun solution -> solution.Result)
 ```
 
-### Pattern 8: Understanding Quantum Recommendations
+### Pattern 8: Multiple Runs for Best Solution
 
 ```fsharp
-// Get detailed recommendation from QuantumAdvisor
-match HybridSolver.solveTsp distances None None None with
-| Ok solution -> 
-    printfn "Method: %A" solution.Method
-    printfn "Reasoning: %s" solution.Reasoning
-    
-    match solution.Recommendation with
-    | Some rec ->
-        printfn "Quantum Advantage: %s" rec.Advantage
-        printfn "Estimated Cost: $%.2f" rec.EstimatedCost
-        printfn "Classical Time: %.2f ms" rec.ClassicalTime
-    | None -> printfn "No recommendation available"
-| Error msg -> eprintfn "Error: %s" msg
+// Run classical solver multiple times, take best
+let findBestTspSolution distances numRuns =
+    [1..numRuns]
+    |> List.map (fun _ -> 
+        TspSolver.solveWithDistances distances TspSolver.defaultConfig)
+    |> List.minBy (fun sol -> sol.TourLength)
+
+// Usage: Run 10 times, keep best
+let bestSolution = findBestTspSolution distances 10
+printfn "Best of 10 runs: %.2f" bestSolution.TourLength
 ```
 
 ### Pattern 9: Parallel Solves (Advanced)
@@ -184,28 +200,18 @@ solutions
     | Error msg -> eprintfn "Problem %d failed: %s" i msg)
 ```
 
-### Pattern 10: Portfolio Optimization with HybridSolver
+### Pattern 10: Incremental Problem Building
 
 ```fsharp
-// Portfolio optimization with automatic quantum routing
-let assets = [
-    {Symbol="AAPL"; ExpectedReturn=0.12; Risk=0.18; Price=150.0}
-    {Symbol="MSFT"; ExpectedReturn=0.10; Risk=0.15; Price=300.0}
-    {Symbol="GOOGL"; ExpectedReturn=0.15; Risk=0.22; Price=2800.0}
-]
+// Build problem incrementally
+let problem =
+    TSP.createEmpty()
+    |> TSP.addCity ("Seattle", 0.0, 0.0)
+    |> TSP.addCity ("Portland", 0.0, 174.0)
+    |> TSP.addCity ("San Francisco", 635.0, 807.0)
 
-let constraints = {
-    Budget = 100000.0       // $100k investment
-    MinHolding = 1000.0     // Min $1k per asset
-    MaxHolding = 50000.0    // Max $50k per asset
-}
-
-match HybridSolver.solvePortfolio assets constraints None None None with
-| Ok solution ->
-    printfn "Method: %A" solution.Method
-    printfn "Total Value: $%.2f" solution.Result.TotalValue
-    printfn "Expected Return: %.2f%%" (solution.Result.ExpectedReturn * 100.0)
-    printfn "Risk: %.2f%%" (solution.Result.Risk * 100.0)
+match TSP.solve problem None with
+| Ok tour -> printfn "Route: %A" tour.Cities
 | Error msg -> eprintfn "Error: %s" msg
 ```
 
@@ -441,7 +447,7 @@ Solve portfolio optimization using return/risk ratio greedy approach.
 
 ```fsharp
 val solveGreedyByRatio :
-    assets: PortfolioTypes.Asset list ->
+    assets: Asset list ->
     constraints: Constraints ->
     config: PortfolioConfig ->
     PortfolioSolution
@@ -454,7 +460,7 @@ let assets = [
     { Symbol = "MSFT"; ExpectedReturn = 0.10; Risk = 0.15; Price = 300.0 }
 ]
 
-let constraints: PortfolioSolver.Constraints = {
+let constraints = {
     Budget = 10000.0
     MinHolding = 0.0
     MaxHolding = 5000.0

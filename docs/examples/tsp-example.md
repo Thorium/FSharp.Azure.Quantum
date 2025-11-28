@@ -97,9 +97,11 @@ let largeDistances =
         else calculateDistance coordinates.[i] coordinates.[j])
 
 // Solve with custom configuration
-let customConfig: TspSolver.TspConfig = {
+let customConfig = {
     MaxIterations = 20000
-    UseNearestNeighbor = true
+    InitialTemperature = 200.0
+    CoolingRate = 0.99
+    RandomSeed = Some 42
 }
 
 let largeSolution = TspSolver.solveWithDistances largeDistances customConfig
@@ -114,20 +116,13 @@ Use the builder pattern for more complex scenarios:
 
 ```fsharp
 // Create problem
-// Example city list
-let cities = [
-    ("City1", 0.0, 0.0)
-    ("City2", 1.0, 0.0)
-    ("City3", 0.0, 1.0)
-]
-
-let problem = TSP.createProblem cities
+let problem = Tsp.createProblem()
 
 // Solve with default config
-let solution = TSP.solve problem None
+let solution = Tsp.solve problem
 
 // Or solve with custom config
-let customSolution = TSP.solve problem (Some customConfig)
+let customSolution = Tsp.solveDirectly customConfig problem
 ```
 
 ## Performance Comparison
@@ -212,9 +207,11 @@ let negative = array2D [[0.0; -5.0]; [3.0; 0.0]]
 Implement simulated annealing with custom cooling:
 
 ```fsharp
-let experimentalConfig: TspSolver.TspConfig = {
+let experimentalConfig = {
     MaxIterations = 50000
-    UseNearestNeighbor = true
+    InitialTemperature = 500.0
+    CoolingRate = 0.995  // Slower cooling = better solutions
+    RandomSeed = None     // Random initialization
 }
 
 let solution = TspSolver.solveWithDistances distances experimentalConfig
@@ -228,8 +225,9 @@ Get recommendations before solving:
 match QuantumAdvisor.getRecommendation distances with
 | Ok recommendation ->
     printfn "Problem Size: %d cities" recommendation.ProblemSize
-    printfn "Complexity: %s" recommendation.RecommendationType
+    printfn "Complexity: %s" recommendation.Complexity
     printfn "Recommendation: %A" recommendation.RecommendationType
+    printfn "Estimated Classical Time: %.2f ms" recommendation.EstimatedClassicalTime
     printfn "Reasoning: %s" recommendation.Reasoning
     
     // Now solve based on recommendation
