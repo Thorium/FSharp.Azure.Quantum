@@ -258,84 +258,77 @@ val describeSolution : solution:ColoringSolution -> string
 
 ## C# Usage
 
-C# developers can use the GraphColoring API in two ways:
+**C# developers should NOT use the GraphColoring module.** Instead, use the underlying GraphOptimization framework (TKT-90) directly.
 
-### Option 1: Call F# GraphColoring API from C# (Recommended for Graph Coloring)
+### Why Not GraphColoring from C#?
 
-The F# `graphColoring { }` computation expression is F#-specific syntax. C# developers should call the F# module functions directly:
+The `graphColoring { }` computation expression is an **F#-specific language feature** that doesn't exist in C#. Calling GraphColoring from C# would require:
+- ❌ Manual `FSharpList` conversions
+- ❌ `FSharpOption` wrapping
+- ❌ Awkward, non-idiomatic C# code
 
-```csharp
-using FSharp.Azure.Quantum;
-using Microsoft.FSharp.Collections;
+**This is not the intended use case.**
 
-// Create nodes using F# helper function
-var node1 = GraphColoring.node("A", new[] { "B", "C" }.ToFSharpList());
-var node2 = GraphColoring.node("B", new[] { "A" }.ToFSharpList());
-var node3 = GraphColoring.node("C", new[] { "A" }.ToFSharpList());
+### Correct Approach: Use GraphOptimization (TKT-90)
 
-// Build problem manually (since C# doesn't have computation expressions)
-var problem = new GraphColoring.GraphColoringProblem(
-    Nodes: new[] { node1, node2, node3 }.ToFSharpList(),
-    AvailableColors: new[] { "Red", "Green" }.ToFSharpList(),
-    Objective: GraphColoring.ColoringObjective.MinimizeColors,
-    MaxColors: FSharpOption<int>.None,
-    ConflictPenalty: 1.0
-);
-
-// Solve
-var solution = GraphColoring.solve(problem);
-
-Console.WriteLine($"Used {solution.ColorsUsed} colors");
-Console.WriteLine($"Valid: {solution.IsValid}");
-```
-
-### Option 2: Use Generic Graph Optimization API (TKT-90)
-
-For more control, use the underlying generic graph framework directly:
+C# developers should use the generic graph optimization framework directly:
 
 ```csharp
 using FSharp.Azure.Quantum;
 using static FSharp.Azure.Quantum.GraphOptimization;
 
-// Map graph coloring to generic graph problem
+// Graph coloring in C# using GraphOptimization
 var problem = new GraphOptimizationBuilder<int, Unit>()
     .Nodes(new[] {
-        node("A", 0),
-        node("B", 0),
-        node("C", 0)
+        node("A", 0),  // Node "A" with value 0
+        node("B", 0),  // Node "B" with value 0
+        node("C", 0)   // Node "C" with value 0
     })
     .Edges(new[] {
         edge("A", "B", 1.0),  // A conflicts with B
         edge("A", "C", 1.0)   // A conflicts with C
     })
-    .AddConstraint(GraphConstraint.NoAdjacentEqual)
-    .Objective(GraphObjective.MinimizeColors)
-    .NumColors(2)
+    .AddConstraint(GraphConstraint.NoAdjacentEqual)  // No adjacent nodes same color
+    .Objective(GraphObjective.MinimizeColors)        // Minimize colors used
+    .NumColors(2)                                     // 2 colors available
     .Build();
 
 var solution = solveClassical(problem);
 
-// Extract color assignments from node assignments
-var colorAssignments = solution.NodeAssignments.Value;
+// Access results
+Console.WriteLine($"Feasible: {solution.IsFeasible}");
+if (solution.NodeAssignments.HasValue)
+{
+    var assignments = solution.NodeAssignments.Value;
+    foreach (var kvp in assignments)
+    {
+        Console.WriteLine($"{kvp.Key} → Color {kvp.Value}");
+    }
+}
 ```
 
-**Note:** Option 2 requires manual mapping between graph coloring concepts (conflicts, colors) and generic graph concepts (edges, node values).
+### Mapping Graph Coloring Concepts to GraphOptimization
 
-**Comparison:**
+| Graph Coloring Concept (F#) | GraphOptimization Concept (C#) |
+|------------------------------|-------------------------------|
+| `node "A" ["B"; "C"]` (conflicts) | `node("A", 0)` + `edge("A", "B")` + `edge("A", "C")` |
+| `colors ["Red"; "Green"]` (string names) | `NumColors(2)` (count only, values are indices 0, 1) |
+| `conflictsWith` (domain language) | `Edges` (generic graph edges) |
+| `objective MinimizeColors` | `Objective(GraphObjective.MinimizeColors)` |
+| `solve problem` | `solveClassical(problem)` |
 
-| Aspect | F# GraphColoring API | C# Generic Graph API (TKT-90) |
-|--------|----------------------|-------------------------------|
-| **Language** | F# only (computation expressions) | F# or C# (FluentAPI) |
-| **Domain** | Graph coloring specific | Any graph algorithm |
-| **Concepts** | Nodes, conflicts, colors | Nodes, edges, constraints |
-| **Type Safety** | String-based colors | Generic type parameters |
-| **Learning Curve** | Lower (domain-specific) | Higher (graph theory knowledge) |
-| **Use Case** | Register allocation, frequency assignment, exam scheduling | TSP, MaxCut, spanning trees, custom algorithms |
+**Note:** GraphOptimization uses integer indices for colors (0, 1, 2...) instead of string names ("Red", "Green", "Blue"). You can map indices to color names in your application code.
 
-**Recommendation:**
-- **F# developers:** Use `graphColoring { }` computation expression for graph coloring problems
-- **C# developers:** Use TKT-90 `GraphOptimizationBuilder` for maximum flexibility
-- **Both:** Consider F# interop if you need the domain-specific graph coloring API from C#
+### Summary
+
+| | F# | C# |
+|---|----|----|
+| **Module** | `GraphColoring` (TKT-80) | `GraphOptimization` (TKT-90) |
+| **API Style** | Computation expression | FluentAPI builder |
+| **Colors** | String names | Integer indices |
+| **Conflicts** | `conflictsWith` list | `Edges` with `NoAdjacentEqual` |
+
+**For C# developers:** Use GraphOptimization (TKT-90). It's the correct, idiomatic C# approach for graph coloring problems.
 
 ---
 
