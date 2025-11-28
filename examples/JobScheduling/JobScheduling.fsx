@@ -2,7 +2,7 @@
 // Job Scheduling Example
 // ==============================================================================
 // Demonstrates resource allocation and task scheduling with dependencies using
-// a greedy scheduling algorithm (classical approach).
+// the FSharp.Azure.Quantum Scheduling builder with quantum-ready architecture.
 //
 // Business Context:
 // A manufacturing facility needs to schedule 10 production jobs across 3 machines,
@@ -11,480 +11,236 @@
 //
 // This example shows:
 // - Dependency graph modeling (DAG - Directed Acyclic Graph)
-// - Resource allocation across parallel machines
+// - Resource allocation using Scheduling builder
 // - Makespan minimization (total completion time)
 // - Machine utilization analysis
-//
-// LIBRARY NOTE:
-// This is a standalone educational example showing algorithm implementation details.
-// For production use, consider the Scheduling module in FSharp.Azure.Quantum which provides:
-//   - SchedulingBuilder API for problem definition
-//   - Classical solvers (List Scheduling, Critical Path Method)
-//   - Quantum-ready QUBO encoding for large-scale scheduling
-//   - Resource capacity constraints and time windows
-//   See: FSharp.Azure.Quantum.Scheduling module
+// - Quantum-ready QUBO encoding for large-scale problems
 // ==============================================================================
 
+#r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
+
 open System
+open FSharp.Azure.Quantum.Scheduling
 
 // ==============================================================================
 // DOMAIN MODEL - Job Scheduling Types
 // ==============================================================================
 
-/// Represents a production job with dependencies and duration
-type Job = {
+/// Represents a production job for the domain
+type ProductionJob = {
     Id: string
-    Duration: int  // hours
-    Dependencies: string list  // Jobs that must complete before this job
-    Priority: int  // Higher priority = scheduled earlier (tie-breaker)
-}
-
-/// Machine assignment with start/end times
-type Assignment = {
-    JobId: string
-    Machine: int
-    StartTime: int
-    EndTime: int
-    Duration: int
-}
-
-/// Complete schedule solution
-type Schedule = {
-    Assignments: Assignment list
-    Makespan: int  // Total time to complete all jobs
-    MachineCount: int
-    JobCount: int
-}
-
-/// Schedule analysis with performance metrics
-type ScheduleAnalysis = {
-    Schedule: Schedule
-    AverageUtilization: float  // Average machine utilization %
-    MachineUtilizations: (int * float) list  // Per-machine utilization
-    CriticalPath: string list  // Jobs on critical path (bottleneck)
-    IdleTime: int  // Total idle time across all machines
+    Name: string
+    Duration: float  // hours
+    Dependencies: string list
+    Priority: int
 }
 
 // ==============================================================================
 // JOB DATA - Manufacturing facility production schedule
 // ==============================================================================
-// Realistic manufacturing scenario: 10 production jobs with dependencies
-// representing a product assembly line workflow
 
-let jobs = [
+let productionJobs = [
     // Initial preparation jobs (no dependencies)
-    { Id = "J1_PrepMaterials"; Duration = 3; Dependencies = []; Priority = 1 }
-    { Id = "J5_QualityCheck"; Duration = 2; Dependencies = []; Priority = 1 }
+    { Id = "J1"; Name = "Prep Materials"; Duration = 3.0; Dependencies = []; Priority = 1 }
+    { Id = "J5"; Name = "Quality Check"; Duration = 2.0; Dependencies = []; Priority = 1 }
     
     // Assembly stage 1 (depends on prep)
-    { Id = "J2_BaseAssembly"; Duration = 4; Dependencies = ["J1_PrepMaterials"]; Priority = 2 }
-    { Id = "J3_ComponentA"; Duration = 3; Dependencies = ["J1_PrepMaterials"]; Priority = 2 }
+    { Id = "J2"; Name = "Base Assembly"; Duration = 4.0; Dependencies = ["J1"]; Priority = 2 }
+    { Id = "J3"; Name = "Component A"; Duration = 3.0; Dependencies = ["J1"]; Priority = 2 }
     
     // Assembly stage 2 (depends on stage 1)
-    { Id = "J4_Integration"; Duration = 5; Dependencies = ["J2_BaseAssembly"; "J3_ComponentA"]; Priority = 3 }
-    { Id = "J6_ComponentB"; Duration = 4; Dependencies = ["J5_QualityCheck"]; Priority = 2 }
+    { Id = "J4"; Name = "Integration"; Duration = 5.0; Dependencies = ["J2"; "J3"]; Priority = 3 }
+    { Id = "J6"; Name = "Component B"; Duration = 4.0; Dependencies = ["J5"]; Priority = 2 }
     
     // Final assembly (depends on all previous stages)
-    { Id = "J7_FinalAssembly"; Duration = 6; Dependencies = ["J4_Integration"; "J6_ComponentB"]; Priority = 4 }
+    { Id = "J7"; Name = "Final Assembly"; Duration = 6.0; Dependencies = ["J4"; "J6"]; Priority = 4 }
     
     // Testing and packaging
-    { Id = "J8_Testing"; Duration = 3; Dependencies = ["J7_FinalAssembly"]; Priority = 5 }
-    { Id = "J9_Packaging"; Duration = 2; Dependencies = ["J8_Testing"]; Priority = 6 }
-    { Id = "J10_Shipping"; Duration = 2; Dependencies = ["J9_Packaging"]; Priority = 7 }
+    { Id = "J8"; Name = "Testing"; Duration = 3.0; Dependencies = ["J7"]; Priority = 5 }
+    { Id = "J9"; Name = "Packaging"; Duration = 2.0; Dependencies = ["J8"]; Priority = 6 }
+    { Id = "J10"; Name = "Shipping"; Duration = 2.0; Dependencies = ["J9"]; Priority = 7 }
 ]
 
-let machineCount = 3
-
 // ==============================================================================
-// PURE FUNCTIONS - Scheduling algorithm and analysis
-// ==============================================================================
-
-/// Check if all dependencies are satisfied at given time
-let areDependenciesSatisfied (job: Job) (assignments: Assignment list) : bool =
-    job.Dependencies
-    |> List.forall (fun depId ->
-        assignments
-        |> List.exists (fun a -> a.JobId = depId))
-
-/// Get the earliest time a job can start (after all dependencies complete)
-let getEarliestStartTime (job: Job) (assignments: Assignment list) : int =
-    if List.isEmpty job.Dependencies then
-        0
-    else
-        job.Dependencies
-        |> List.choose (fun depId ->
-            assignments
-            |> List.tryFind (fun a -> a.JobId = depId)
-            |> Option.map (fun a -> a.EndTime))
-        |> function
-            | [] -> 0
-            | times -> List.max times
-
-/// Find the earliest available time slot on a machine
-let findEarliestSlot (machine: int) (startTime: int) (duration: int) (assignments: Assignment list) : int =
-    let machineAssignments =
-        assignments
-        |> List.filter (fun a -> a.Machine = machine)
-        |> List.sortBy (fun a -> a.StartTime)
-    
-    // Check if we can start at the desired start time
-    let rec findSlot currentTime remainingSlots =
-        match remainingSlots with
-        | [] ->
-            // No more slots, can start at currentTime
-            max currentTime startTime
-        
-        | next :: rest ->
-            let proposedEnd = max currentTime startTime + duration
-            if proposedEnd <= next.StartTime then
-                // Fits before next assignment
-                max currentTime startTime
-            else
-                // Try after this assignment
-                findSlot next.EndTime rest
-    
-    findSlot 0 machineAssignments
-
-/// Find the machine with earliest available slot for the job
-let findBestMachine (machines: int list) (job: Job) (earliestStart: int) (assignments: Assignment list) : int * int =
-    machines
-    |> List.map (fun m ->
-        let slotTime = findEarliestSlot m earliestStart job.Duration assignments
-        (m, slotTime))
-    |> List.minBy snd
-
-/// Greedy scheduling algorithm with dependency constraints
-let scheduleJobs (jobs: Job list) (machineCount: int) : Schedule =
-    let machines = [0 .. machineCount - 1]
-    
-    // Topological sort with priority
-    let rec topologicalSort (remaining: Job list) (scheduled: Job list) (assignments: Assignment list) =
-        if List.isEmpty remaining then
-            List.rev scheduled
-        else
-            // Find jobs with all dependencies satisfied
-            let ready =
-                remaining
-                |> List.filter (fun job -> areDependenciesSatisfied job assignments)
-                |> List.sortByDescending (fun j -> j.Priority)  // Higher priority first
-            
-            match ready with
-            | [] ->
-                // This shouldn't happen with valid DAG
-                failwith "Circular dependency detected or invalid job graph"
-            
-            | job :: _ ->
-                // Schedule this job
-                let earliestStart = getEarliestStartTime job assignments
-                let (bestMachine, startTime) = findBestMachine machines job earliestStart assignments
-                
-                let assignment = {
-                    JobId = job.Id
-                    Machine = bestMachine
-                    StartTime = startTime
-                    EndTime = startTime + job.Duration
-                    Duration = job.Duration
-                }
-                
-                let newRemaining = remaining |> List.filter (fun j -> j.Id <> job.Id)
-                topologicalSort newRemaining (job :: scheduled) (assignment :: assignments)
-    
-    let sortedJobs = topologicalSort jobs [] []
-    
-    // Re-run scheduling with sorted order to get assignments
-    let assignments =
-        sortedJobs
-        |> List.fold (fun (assigns: Assignment list) job ->
-            let earliestStart = getEarliestStartTime job assigns
-            let (bestMachine, startTime) = findBestMachine machines job earliestStart assigns
-            
-            let assignment = {
-                JobId = job.Id
-                Machine = bestMachine
-                StartTime = startTime
-                EndTime = startTime + job.Duration
-                Duration = job.Duration
-            }
-            
-            assignment :: assigns
-        ) []
-        |> List.rev
-    
-    let makespan =
-        assignments
-        |> List.map (fun a -> a.EndTime)
-        |> function
-            | [] -> 0
-            | times -> List.max times
-    
-    {
-        Assignments = assignments
-        Makespan = makespan
-        MachineCount = machineCount
-        JobCount = List.length jobs
-    }
-
-/// Calculate machine utilization
-let calculateUtilization (schedule: Schedule) : float list =
-    [0 .. schedule.MachineCount - 1]
-    |> List.map (fun machine ->
-        let busyTime =
-            schedule.Assignments
-            |> List.filter (fun a -> a.Machine = machine)
-            |> List.sumBy (fun a -> a.Duration)
-        
-        if schedule.Makespan = 0 then 0.0
-        else (float busyTime) / (float schedule.Makespan) * 100.0)
-
-/// Find critical path (longest dependency chain)
-let findCriticalPath (jobs: Job list) (schedule: Schedule) : string list =
-    // Build reverse dependency graph
-    let reverseDeps =
-        jobs
-        |> List.collect (fun job ->
-            job.Dependencies
-            |> List.map (fun dep -> (dep, job.Id)))
-        |> List.groupBy fst
-        |> Map.ofList
-        |> Map.map (fun _ deps -> deps |> List.map snd)
-    
-    // Find path with maximum total duration
-    let rec findLongestPath (jobId: string) (visited: Set<string>) : string list =
-        if Set.contains jobId visited then
-            []
-        else
-            let newVisited = Set.add jobId visited
-            match Map.tryFind jobId reverseDeps with
-            | None ->
-                [jobId]
-            | Some children ->
-                children
-                |> List.map (fun child -> findLongestPath child newVisited)
-                |> List.maxBy (fun path ->
-                    path
-                    |> List.sumBy (fun jId ->
-                        jobs |> List.find (fun j -> j.Id = jId) |> fun j -> j.Duration))
-                |> fun longestChild -> jobId :: longestChild
-    
-    // Find all leaf jobs (no dependencies on them)
-    let leafJobs =
-        jobs
-        |> List.filter (fun job ->
-            not (Map.containsKey job.Id reverseDeps))
-        |> List.map (fun j -> j.Id)
-    
-    leafJobs
-    |> List.map (fun leaf -> findLongestPath leaf Set.empty)
-    |> List.maxBy (fun path ->
-        path
-        |> List.sumBy (fun jId ->
-            jobs |> List.find (fun j -> j.Id = jId) |> fun j -> j.Duration))
-    |> List.rev
-
-/// Analyze schedule performance
-let analyzeSchedule (jobs: Job list) (schedule: Schedule) : ScheduleAnalysis =
-    let utilizations = calculateUtilization schedule
-    let avgUtilization = utilizations |> List.average
-    
-    let machineUtils =
-        utilizations
-        |> List.indexed
-        |> List.map (fun (i, util) -> (i, util))
-    
-    let criticalPath = findCriticalPath jobs schedule
-    
-    let totalWorkTime =
-        schedule.Assignments
-        |> List.sumBy (fun a -> a.Duration)
-    
-    let totalAvailableTime = schedule.Makespan * schedule.MachineCount
-    let idleTime = totalAvailableTime - totalWorkTime
-    
-    {
-        Schedule = schedule
-        AverageUtilization = avgUtilization
-        MachineUtilizations = machineUtils
-        CriticalPath = criticalPath
-        IdleTime = idleTime
-    }
-
-// ==============================================================================
-// REPORTING - Pure functions for output
-// ==============================================================================
-
-/// Generate schedule visualization
-let generateScheduleReport (analysis: ScheduleAnalysis) (jobs: Job list) : string list =
-    [
-        "╔══════════════════════════════════════════════════════════════════════════════╗"
-        "║                       JOB SCHEDULE REPORT                                    ║"
-        "╚══════════════════════════════════════════════════════════════════════════════╝"
-        ""
-        "SCHEDULE BY MACHINE:"
-        "────────────────────────────────────────────────────────────────────────────────"
-        
-        yield!
-            [0 .. analysis.Schedule.MachineCount - 1]
-            |> List.collect (fun machine ->
-                let assignments =
-                    analysis.Schedule.Assignments
-                    |> List.filter (fun a -> a.Machine = machine)
-                    |> List.sortBy (fun a -> a.StartTime)
-                
-                let (_, util) = analysis.MachineUtilizations |> List.find (fun (m, _) -> m = machine)
-                
-                [
-                    sprintf "  Machine %d (Utilization: %.1f%%):" (machine + 1) util
-                    yield!
-                        assignments
-                        |> List.map (fun a ->
-                            sprintf "    • %s: hours %d-%d (duration: %dh)"
-                                a.JobId a.StartTime a.EndTime a.Duration)
-                    ""
-                ])
-        
-        "PERFORMANCE SUMMARY:"
-        "────────────────────────────────────────────────────────────────────────────────"
-        sprintf "  Total Jobs:            %d" analysis.Schedule.JobCount
-        sprintf "  Makespan:              %d hours" analysis.Schedule.Makespan
-        sprintf "  Average Utilization:   %.1f%%" analysis.AverageUtilization
-        sprintf "  Total Idle Time:       %d machine-hours" analysis.IdleTime
-        ""
-    ]
-
-/// Generate critical path analysis
-let generateCriticalPathReport (analysis: ScheduleAnalysis) (jobs: Job list) : string list =
-    let criticalDuration =
-        analysis.CriticalPath
-        |> List.sumBy (fun jId ->
-            jobs |> List.find (fun j -> j.Id = jId) |> fun j -> j.Duration)
-    
-    [
-        "╔══════════════════════════════════════════════════════════════════════════════╗"
-        "║                       CRITICAL PATH ANALYSIS                                 ║"
-        "╚══════════════════════════════════════════════════════════════════════════════╝"
-        ""
-        "CRITICAL PATH (Bottleneck):"
-        "────────────────────────────────────────────────────────────────────────────────"
-        
-        yield!
-            analysis.CriticalPath
-            |> List.mapi (fun i jobId ->
-                let job = jobs |> List.find (fun j -> j.Id = jobId)
-                sprintf "  %d. %-20s (duration: %d hours)" (i + 1) job.Id job.Duration)
-        
-        ""
-        sprintf "  Total Critical Path Duration: %d hours" criticalDuration
-        sprintf "  Makespan:                     %d hours" analysis.Schedule.Makespan
-        ""
-        "INSIGHTS:"
-        "────────────────────────────────────────────────────────────────────────────────"
-        
-        if criticalDuration = analysis.Schedule.Makespan then
-            "  ✓ Critical path equals makespan - optimal sequential constraint satisfaction"
-        else
-            "  ✓ Parallelism achieved - jobs executed concurrently where possible"
-        
-        sprintf "  ✓ Average machine utilization: %.1f%%" analysis.AverageUtilization
-        
-        if analysis.AverageUtilization > 75.0 then
-            "  ✓ High utilization - machines are well-utilized"
-        elif analysis.AverageUtilization > 50.0 then
-            "  ⚠ Moderate utilization - some idle time due to dependencies"
-        else
-            "  ⚠ Low utilization - consider reducing machines or adding jobs"
-        ""
-    ]
-
-/// Generate business impact analysis
-let generateBusinessImpact (analysis: ScheduleAnalysis) (jobs: Job list) : string list =
-    let totalWorkHours = jobs |> List.sumBy (fun j -> j.Duration)
-    let sequentialTime = totalWorkHours  // If done on 1 machine sequentially
-    let parallelSpeedup = (float sequentialTime) / (float analysis.Schedule.Makespan)
-    
-    // Assume $500/hour cost per machine
-    let hourlyMachineRate = 500.0
-    let sequentialCost = (float sequentialTime) * hourlyMachineRate
-    let parallelCost = (float analysis.Schedule.Makespan) * hourlyMachineRate * (float analysis.Schedule.MachineCount)
-    let savingsPercent = ((sequentialCost - parallelCost) / sequentialCost) * 100.0
-    
-    [
-        "╔══════════════════════════════════════════════════════════════════════════════╗"
-        "║                       BUSINESS IMPACT ANALYSIS                               ║"
-        "╚══════════════════════════════════════════════════════════════════════════════╝"
-        ""
-        "TIME ANALYSIS:"
-        "────────────────────────────────────────────────────────────────────────────────"
-        sprintf "  Sequential Time (1 machine):   %d hours" sequentialTime
-        sprintf "  Parallel Time (%d machines):    %d hours" analysis.Schedule.MachineCount analysis.Schedule.Makespan
-        sprintf "  Speedup Factor:                %.1fx faster" parallelSpeedup
-        sprintf "  Time Saved:                    %d hours (%.1f%%)" 
-            (sequentialTime - analysis.Schedule.Makespan)
-            ((float (sequentialTime - analysis.Schedule.Makespan) / float sequentialTime) * 100.0)
-        ""
-        "COST ANALYSIS (@ $500/machine-hour):"
-        "────────────────────────────────────────────────────────────────────────────────"
-        sprintf "  Sequential Cost:               $%.2f" sequentialCost
-        sprintf "  Parallel Cost:                 $%.2f" parallelCost
-        
-        if savingsPercent > 0.0 then
-            sprintf "  Cost Savings:                  $%.2f (%.1f%% reduction)" (sequentialCost - parallelCost) savingsPercent
-        else
-            sprintf "  Additional Cost:               $%.2f" (parallelCost - sequentialCost)
-        
-        ""
-        "KEY INSIGHTS:"
-        "────────────────────────────────────────────────────────────────────────────────"
-        sprintf "  ✓ Achieved %.1fx speedup with %d machines" parallelSpeedup analysis.Schedule.MachineCount
-        sprintf "  ✓ Average machine utilization: %.1f%%" analysis.AverageUtilization
-        sprintf "  ✓ Critical path: %d steps (%d hours)" 
-            (List.length analysis.CriticalPath)
-            (analysis.CriticalPath |> List.sumBy (fun jId -> (jobs |> List.find (fun j -> j.Id = jId)).Duration))
-        
-        if savingsPercent > 0.0 then
-            "  ✓ Parallel execution is cost-effective for this workload"
-        else
-            "  ⚠ Sequential execution would be more cost-effective (fewer dependencies needed)"
-        ""
-    ]
-
-// ==============================================================================
-// MAIN EXECUTION
+// PROBLEM SETUP - Using Scheduling Builder
 // ==============================================================================
 
 printfn "╔══════════════════════════════════════════════════════════════════════════════╗"
 printfn "║                   JOB SCHEDULING OPTIMIZATION EXAMPLE                        ║"
-printfn "║                   Using Greedy Scheduling Algorithm                          ║"
+printfn "║                   Using Scheduling Builder (Quantum-Ready)                   ║"
 printfn "╚══════════════════════════════════════════════════════════════════════════════╝"
 printfn ""
-printfn "Problem: Schedule %d jobs across %d machines" (List.length jobs) machineCount
+printfn "Problem: Schedule %d jobs across 3 machines" productionJobs.Length
 printfn "Objective: Minimize makespan (total completion time)"
 printfn "Constraints: Respect job dependencies"
 printfn ""
-printfn "Running scheduling optimization..."
 
-// Time the optimization
+// Convert jobs to ScheduledTasks
+let tasks =
+    productionJobs
+    |> List.map (fun job ->
+        { 
+            Id = job.Id
+            Value = job
+            Duration = job.Duration
+            EarliestStart = None
+            Deadline = None
+            ResourceRequirements = Map.ofList [("Machine", 1.0)]  // Each job needs 1 machine
+            Priority = float job.Priority
+            Properties = Map.empty
+        })
+
+// Define machine resources
+let machines = [
+    { Id = "Machine1"; Value = "Machine"; Capacity = 1.0; AvailableWindows = [(0.0, 1000.0)]; CostPerUnit = 500.0; Properties = Map.empty }
+    { Id = "Machine2"; Value = "Machine"; Capacity = 1.0; AvailableWindows = [(0.0, 1000.0)]; CostPerUnit = 500.0; Properties = Map.empty }
+    { Id = "Machine3"; Value = "Machine"; Capacity = 1.0; AvailableWindows = [(0.0, 1000.0)]; CostPerUnit = 500.0; Properties = Map.empty }
+]
+
+// Convert job dependencies to Finish-To-Start dependencies
+let dependencies =
+    productionJobs
+    |> List.collect (fun job ->
+        job.Dependencies
+        |> List.map (fun depId -> FinishToStart(depId, job.Id, 0.0))
+    )
+
+// Build scheduling problem using the builder API
+let problem =
+    SchedulingBuilder<ProductionJob, string>.Create()
+        .Tasks(tasks)
+        .Resources(machines)
+        .Objective(MinimizeMakespan)
+        .TimeHorizon(100.0)  // 100 hour planning horizon
+        .Build()
+
+// Add dependencies to problem
+let problemWithDeps =
+    { problem with Dependencies = dependencies }
+
+// ==============================================================================
+// SOLVE - Using classical solver (quantum for large-scale)
+// ==============================================================================
+
+printfn "Running scheduling optimization..."
 let startTime = DateTime.UtcNow
 
-// Solve the scheduling problem
-let schedule = scheduleJobs jobs machineCount
-let analysis = analyzeSchedule jobs schedule
+match solveClassical problemWithDeps with
+| Ok schedule ->
+    let elapsed = DateTime.UtcNow - startTime
+    printfn "Completed in %d ms" (int elapsed.TotalMilliseconds)
+    printfn ""
+    
+    // ==============================================================================
+    // RESULTS - Schedule Report
+    // ==============================================================================
+    
+    printfn "╔══════════════════════════════════════════════════════════════════════════════╗"
+    printfn "║                       JOB SCHEDULE REPORT                                    ║"
+    printfn "╚══════════════════════════════════════════════════════════════════════════════╝"
+    printfn ""
+    printfn "SCHEDULE BY JOB:"
+    printfn "────────────────────────────────────────────────────────────────────────────────"
+    
+    // Sort assignments by start time
+    let sortedAssignments =
+        schedule.TaskAssignments
+        |> Map.toList
+        |> List.sortBy (fun (_, assignment) -> assignment.StartTime)
+    
+    for (taskId, assignment) in sortedAssignments do
+        let job = tasks |> List.find (fun t -> t.Id = taskId) |> fun t -> t.Value
+        printfn "  %s: hours %.0f-%.0f (duration: %.0fh, priority: %d)" 
+            job.Name 
+            assignment.StartTime 
+            assignment.EndTime 
+            (assignment.EndTime - assignment.StartTime)
+            job.Priority
+    
+    printfn ""
+    printfn "RESOURCE UTILIZATION:"
+    printfn "────────────────────────────────────────────────────────────────────────────────"
+    
+    for machine in machines do
+        match Map.tryFind machine.Id schedule.ResourceAllocations with
+        | Some allocations ->
+            let totalTime = allocations |> List.sumBy (fun a -> a.EndTime - a.StartTime)
+            let utilization = (totalTime / schedule.Makespan) * 100.0
+            printfn "  %s: %.1f%% utilization (%.0f hours used)" machine.Id utilization totalTime
+        | None ->
+            printfn "  %s: 0.0%% utilization (0 hours used)" machine.Id
+    
+    printfn ""
+    printfn "PERFORMANCE SUMMARY:"
+    printfn "────────────────────────────────────────────────────────────────────────────────"
+    printfn "  Total Jobs:            %d" productionJobs.Length
+    printfn "  Makespan:              %.0f hours" schedule.Makespan
+    printfn "  Total Cost:            $%.2f" schedule.TotalCost
+    
+    // Calculate utilization
+    let totalWorkTime = productionJobs |> List.sumBy (fun j -> j.Duration)
+    let totalAvailableTime = schedule.Makespan * 3.0  // 3 machines
+    let avgUtilization = (totalWorkTime / totalAvailableTime) * 100.0
+    
+    printfn "  Average Utilization:   %.1f%%" avgUtilization
+    printfn "  Total Idle Time:       %.0f machine-hours" (totalAvailableTime - totalWorkTime)
+    printfn ""
+    
+    // ==============================================================================
+    // BUSINESS IMPACT ANALYSIS
+    // ==============================================================================
+    
+    printfn "╔══════════════════════════════════════════════════════════════════════════════╗"
+    printfn "║                       BUSINESS IMPACT ANALYSIS                               ║"
+    printfn "╚══════════════════════════════════════════════════════════════════════════════╝"
+    printfn ""
+    
+    // Calculate sequential time (all jobs on one machine)
+    let sequentialTime = productionJobs |> List.sumBy (fun j -> j.Duration)
+    let speedup = sequentialTime / schedule.Makespan
+    let timeSaved = sequentialTime - schedule.Makespan
+    let timeSavedPct = (timeSaved / sequentialTime) * 100.0
+    
+    printfn "TIME ANALYSIS:"
+    printfn "────────────────────────────────────────────────────────────────────────────────"
+    printfn "  Sequential Time (1 machine):   %.0f hours" sequentialTime
+    printfn "  Parallel Time (3 machines):    %.0f hours" schedule.Makespan
+    printfn "  Speedup Factor:                %.1fx faster" speedup
+    printfn "  Time Saved:                    %.0f hours (%.1f%%)" timeSaved timeSavedPct
+    printfn ""
+    
+    let costPerMachineHour = 500.0
+    let sequentialCost = sequentialTime * costPerMachineHour
+    let parallelCost = schedule.TotalCost
+    let additionalCost = parallelCost - sequentialCost
+    
+    printfn "COST ANALYSIS (@ $%.0f/machine-hour):" costPerMachineHour
+    printfn "────────────────────────────────────────────────────────────────────────────────"
+    printfn "  Sequential Cost:               $%.2f" sequentialCost
+    printfn "  Parallel Cost:                 $%.2f" parallelCost
+    printfn "  Additional Cost:               $%.2f" additionalCost
+    printfn ""
+    
+    printfn "KEY INSIGHTS:"
+    printfn "────────────────────────────────────────────────────────────────────────────────"
+    printfn "  ✓ Achieved %.1fx speedup with 3 machines" speedup
+    printfn "  ✓ Average machine utilization: %.1f%%" avgUtilization
+    
+    if speedup > 1.5 then
+        printfn "  ✓ Parallel scheduling provides significant time savings (%.1f%% faster)" timeSavedPct
+    else
+        printfn "  ⚠ Sequential execution would be more cost-effective (fewer dependencies needed)"
+    
+    printfn ""
+    
+    printfn "╔══════════════════════════════════════════════════════════════════════════════╗"
+    printfn "║                       SCHEDULING SUCCESSFUL                                  ║"
+    printfn "╚══════════════════════════════════════════════════════════════════════════════╝"
+    printfn ""
+    printfn "✨ Note: This example uses the Scheduling builder with classical List Scheduling."
+    printfn "   For large-scale problems (100+ tasks), the builder provides QUBO encoding"
+    printfn "   for quantum backends (QAOA, quantum annealing) via IQuantumBackend interface."
+    printfn ""
 
-let endTime = DateTime.UtcNow
-let elapsed = (endTime - startTime).TotalMilliseconds
-
-printfn "Completed in %.0f ms" elapsed
-printfn ""
-
-// Generate reports
-let scheduleReport = generateScheduleReport analysis jobs
-let criticalPathReport = generateCriticalPathReport analysis jobs
-let businessImpact = generateBusinessImpact analysis jobs
-
-// Print reports
-scheduleReport |> List.iter (printfn "%s")
-criticalPathReport |> List.iter (printfn "%s")
-businessImpact |> List.iter (printfn "%s")
-
-printfn "╔══════════════════════════════════════════════════════════════════════════════╗"
-printfn "║                       SCHEDULING SUCCESSFUL                                  ║"
-printfn "╚══════════════════════════════════════════════════════════════════════════════╝"
+| Error msg ->
+    printfn "❌ Scheduling failed: %s" msg
