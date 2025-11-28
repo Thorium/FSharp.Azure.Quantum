@@ -19,7 +19,7 @@ The Graph Coloring Domain Builder provides an idiomatic F# computation expressio
 3. [F# API Reference](#f-api-reference)
 4. [C# FluentAPI Equivalent](#c-fluentapi-equivalent)
 5. [Real-World Examples](#real-world-examples)
-6. [Why Computation Expressions?](#why-computation-expressions)
+6. [F# Computation Expressions vs C# Fluent APIs](#f-computation-expressions-vs-c-fluent-apis)
 7. [Performance Characteristics](#performance-characteristics)
 
 ---
@@ -300,13 +300,13 @@ var solution = GraphOptimization.solveClassical(problem);
 
 | Feature | F# GraphColoring | C# TKT-90 GraphOptimization |
 |---------|------------------|------------------------------|
-| **Syntax** | Declarative, concise | Fluent, verbose |
-| **Business Domain** | ✅ `conflictsWith` | ❌ `edges` (graph theory) |
-| **Type Safety** | ✅ Strings for colors | ⚠️ Ints for colors |
-| **Readability** | ✅ Reads like spec | ⚠️ Technical |
-| **Progressive Disclosure** | ✅ 3 levels | ❌ One size |
+| **Syntax** | Computation expressions | Fluent API pattern |
+| **Business Domain** | Domain-specific (`conflictsWith`) | Generic (`edges`, flexible) |
+| **Type Parameters** | Strings for colors | Generic type parameters |
+| **API Design** | Progressive disclosure (3 levels) | Consistent builder pattern |
+| **Use Case** | Domain-specific problems | General graph algorithms |
 
-**Recommendation:** Use F# `graphColoring { }` API for domain problems. Use C# TKT-90 for low-level graph algorithms.
+**Both approaches are valid** - choose based on your language preference and problem domain. F# computation expressions provide domain-specific syntax, while C# FluentAPI offers flexibility and type safety through generics.
 
 ---
 
@@ -450,14 +450,16 @@ printfn "\nTime slots needed: %d" solution.ColorsUsed
 
 ---
 
-## Why Computation Expressions?
+## F# Computation Expressions vs C# Fluent APIs
 
-### 7 Key Advantages Over Fluent APIs
+### Language-Specific Strengths
+
+Both F# computation expressions and C# fluent APIs are excellent patterns for building domain-specific APIs. The choice depends on your language preference and project context.
 
 #### 1. **Control Flow Integration**
 
+**F# Computation Expression:**
 ```fsharp
-// ✅ F# Computation Expression - Natural conditional logic
 let problem = graphColoring {
     if highPriority then
         node "Critical" []
@@ -466,8 +468,10 @@ let problem = graphColoring {
     node "B" ["A"]
     colors ["Red"; "Green"]
 }
+```
 
-// ❌ C# FluentAPI - Awkward branching
+**C# Fluent API:**
+```csharp
 var builder = new GraphColoringBuilder();
 if (highPriority) {
     builder = builder.AddNode(node("Critical", new string[0]));
@@ -479,10 +483,12 @@ var problem = builder
     .Build();
 ```
 
+*Both approaches work well - F# integrates control flow directly in the expression, C# uses standard imperative conditionals.*
+
 #### 2. **Iteration Support**
 
+**F# Approach:**
 ```fsharp
-// ✅ F# - Generate nodes from data
 let nodesList = 
     [1..100]
     |> List.map (fun i -> node $"Node{i}" (neighbors i))
@@ -491,59 +497,73 @@ let problem = graphColoring {
     nodes nodesList
     colors availableColors
 }
-
-// ❌ C# - Manual loop accumulation
-var builder = new GraphColoringBuilder();
-for (int i = 1; i <= 100; i++) {
-    builder = builder.AddNode(node($"Node{i}", neighbors(i)));
-}
-var problem = builder.Colors(availableColors).Build();
 ```
 
-#### 3. **Reads Like a Specification**
+**C# Approach:**
+```csharp
+var nodesList = Enumerable.Range(1, 100)
+    .Select(i => node($"Node{i}", neighbors(i)))
+    .ToList();
 
+var problem = new GraphColoringBuilder()
+    .Nodes(nodesList)
+    .Colors(availableColors)
+    .Build();
+```
+
+*Both use LINQ/pipeline operators effectively for data transformation.*
+
+#### 3. **Domain-Specific vs Generic APIs**
+
+**F# Domain-Specific:**
 ```fsharp
-// ✅ F# - Domain language
 let problem = graphColoring {
-    node "Tower1" conflictsWith ["Tower2"; "Tower3"]
-    node "Tower2" conflictsWith ["Tower1"; "Tower4"]
+    node "Tower1" ["Tower2"; "Tower3"]  // Business language
     colors ["2.4GHz"; "5GHz"]
 }
+```
 
-// ❌ C# - Technical graph language
-var problem = new GraphOptimizationBuilder()
+**C# Generic Framework:**
+```csharp
+var problem = new GraphOptimizationBuilder<int, Unit>()
     .Nodes(...)
-    .Edges(...)
+    .Edges(...)  // Generic graph operations
     .AddConstraint(NoAdjacentEqual)
     .Build();
 ```
 
-#### 4. **No `.Build()` Required**
+*F# API is optimized for graph coloring domains, C# API is flexible for any graph algorithm.*
 
+#### 4. **Builder Finalization**
+
+**F# Automatic:**
 ```fsharp
-// ✅ F# - Automatic finalization via Run()
 let problem = graphColoring {
     node "A" ["B"]
     colors ["Red"; "Green"]
-}  // Run() called automatically, validates immediately
+}  // Run() called automatically by compiler
+```
 
-// ❌ C# - Explicit Build() call
+**C# Explicit:**
+```csharp
 var problem = new GraphColoringBuilder()
     .AddNode(...)
     .Colors(...)
-    .Build();  // Easy to forget!
+    .Build();  // Explicit finalization
 ```
 
-#### 5. **Progressive Disclosure**
+*F# compiler automates finalization, C# gives explicit control.*
+
+#### 5. **Progressive Disclosure in F#**
 
 ```fsharp
-// Level 1: Beginner - Simple inline
+// Level 1: Simple inline
 node "A" ["B"; "C"]
 
-// Level 2: Intermediate - Data-driven
+// Level 2: Data-driven
 nodes (loadFromDatabase())
 
-// Level 3: Expert - Full control
+// Level 3: Full builder
 coloredNode {
     id "A"
     conflictsWith ["B"]
@@ -552,26 +572,32 @@ coloredNode {
 }
 ```
 
+*F# computation expressions naturally support progressive API design.*
+
 #### 6. **Type Inference**
 
+**F# Inference:**
 ```fsharp
-// ✅ F# - Full type inference
 let problem = graphColoring {
-    node "A" ["B"]  // Compiler infers everything
+    node "A" ["B"]  // Types inferred automatically
     colors ["Red"; "Green"]
 }
+```
 
-// ❌ C# - Explicit types everywhere
-var problem = new GraphColoringBuilder<string, Unit>()
-    .AddNode(node("A", new string[] { "B" }))
-    .Colors(new string[] { "Red", "Green" })
+**C# with var:**
+```csharp
+var problem = new GraphColoringBuilder()
+    .AddNode(node("A", new[] { "B" }))
+    .Colors(new[] { "Red", "Green" })
     .Build();
 ```
 
-#### 7. **Composition**
+*Both languages support type inference - F# more extensively, C# with var keyword.*
 
+#### 7. **Composition and Reuse**
+
+**F# Fragments:**
 ```fsharp
-// ✅ F# - Reusable fragments
 let baseNodes = [
     node "A" ["B"]
     node "B" ["A"]
@@ -588,6 +614,35 @@ let problem2 = graphColoring {
     colors ["Red"; "Green"; "Blue"]
 }
 ```
+
+**C# Partial Application:**
+```csharp
+var baseBuilder = new GraphColoringBuilder()
+    .Nodes(baseNodes);
+
+var problem1 = baseBuilder
+    .Colors(new[] { "Red", "Green" })
+    .Build();
+
+var problem2 = baseBuilder
+    .AddNode(node("C", new[] { "A" }))
+    .Colors(new[] { "Red", "Green", "Blue" })
+    .Build();
+```
+
+*Both support composition - F# with list concatenation, C# with builder chaining.*
+
+### Summary
+
+| Aspect | F# Computation Expression | C# Fluent API |
+|--------|---------------------------|---------------|
+| **Syntax** | Domain-specific, declarative | Method chaining, imperative |
+| **Control Flow** | Integrated (`if`, `for`) | Standard language constructs |
+| **Type Safety** | Inference + strong typing | Explicit types + generics |
+| **Finalization** | Automatic (`Run()`) | Explicit (`.Build()`) |
+| **Best For** | Domain problems, F# projects | Generic algorithms, C# projects |
+
+**Choose based on your language and problem domain** - both are production-ready, well-designed APIs.
 
 ---
 
