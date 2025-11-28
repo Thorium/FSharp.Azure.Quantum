@@ -387,3 +387,113 @@ module RigettiBackend =
             QuantumError.QuotaExceeded "quantum-credits"
         | _ -> 
             QuantumError.UnknownError(0, sprintf "Rigetti error %s: %s" errorCode errorMessage)
+    
+    // ============================================================================
+    // AZURE QUANTUM INTEGRATION
+    // ============================================================================
+    
+    /// Submit Rigetti circuit to Azure Quantum and wait for results
+    /// 
+    /// Full job submission workflow:
+    /// 1. Create job submission from QuilProgram
+    /// 2. Submit to Azure Quantum workspace
+    /// 3. Poll until job completes
+    /// 4. Download and parse results histogram
+    /// 
+    /// Parameters:
+    /// - httpClient: HTTP client for API requests
+    /// - workspaceUrl: Azure Quantum workspace URL
+    /// - program: Quil program to execute
+    /// - shots: Number of measurement shots
+    /// - target: Rigetti backend (e.g., "rigetti.sim.qvm", "rigetti.qpu.ankaa-3")
+    /// 
+    /// Returns: Async<Result<Map<string, int>, QuantumError>>
+    ///   - Ok: Measurement histogram (bitstring -> count)
+    ///   - Error: QuantumError with details
+    let submitAndWaitForResultsAsync
+        (httpClient: System.Net.Http.HttpClient)
+        (workspaceUrl: string)
+        (program: QuilProgram)
+        (shots: int)
+        (target: string)
+        : Async<Result<Map<string, int>, QuantumError>> =
+        async {
+            // Step 1: Create job submission
+            let submission = createJobSubmission program shots target None
+            
+            // Step 2: Submit job
+            let! submitResult = JobLifecycle.submitJobAsync httpClient workspaceUrl submission
+            match submitResult with
+            | Error err -> return Error err
+            | Ok jobId ->
+                // Step 3: Poll until complete (5 minute timeout, no cancellation)
+                let timeout = TimeSpan.FromMinutes(5.0)
+                let cancellationToken = System.Threading.CancellationToken.None
+                let! pollResult = JobLifecycle.pollJobUntilCompleteAsync httpClient workspaceUrl jobId timeout cancellationToken
+                match pollResult with
+                | Error err -> return Error err
+                | Ok job ->
+                    // Check job status
+                    match job.Status with
+                    | JobStatus.Succeeded ->
+                        // Step 4: Get results from blob storage
+                        match job.OutputDataUri with
+                        | None ->
+                            return Error (QuantumError.UnknownError(500, "Job completed but no output URI available"))
+                        | Some uri ->
+                            let! resultData = JobLifecycle.getJobResultAsync httpClient uri
+                            match resultData with
+                            | Error err -> return Error err
+                            | Ok jobResult ->
+                                // Step 5: Parse histogram from OutputData
+                                try
+                                    let resultJson = jobResult.OutputData :?> string
+                                    match parseRigettiResults resultJson with
+                                    | Ok histogram -> return Ok histogram
+                                    | Error err -> return Error err
+                                with
+                                | ex -> return Error (QuantumError.UnknownError(0, sprintf "Failed to parse Rigetti results: %s" ex.Message))
+                    
+                    | JobStatus.Failed (errorCode, errorMessage) ->
+                        // Map Rigetti error to QuantumError
+                        return Error (mapRigettiError errorCode errorMessage)
+                    
+                    | JobStatus.Cancelled ->
+                        return Error QuantumError.Cancelled
+                    
+                    | _ ->
+                        return Error (QuantumError.UnknownError(0, sprintf "Unexpected job status: %A" job.Status))
+        }
+    
+    /// Submit Rigetti circuit with pre-flight validation
+    /// 
+    /// This function validates the circuit against backend constraints BEFORE submission,
+    /// preventing costly failed Azure API calls.
+    /// 
+    /// Parameters:
+    /// - httpClient: Authenticated HttpClient
+    /// - workspaceUrl: Azure Quantum workspace URL
+    /// - program: Quil program to submit
+    /// - shots: Number of measurement shots
+    /// - target: Rigetti backend target (e.g., "rigetti.sim.qvm", "rigetti.qpu.ankaa-3")
+    /// - constraints: Optional backend constraints (auto-detected from target if None)
+    /// 
+    /// Returns: Async<Result<Map<string, int>, QuantumError>>
+    ///   - Ok: Measurement histogram (bitstring -> count)
+    ///   - Error: QuantumError with validation or execution details
+    let submitAndWaitForResultsWithValidationAsync
+        (httpClient: System.Net.Http.HttpClient)
+        (workspaceUrl: string)
+        (program: QuilProgram)
+        (shots: int)
+        (target: string)
+        (constraints: CircuitValidator.BackendConstraints option)
+        : Async<Result<Map<string, int>, QuantumError>> =
+        async {
+            // Pre-flight validation
+            match validateProgramWithConstraints program target constraints with
+            | Error validationError -> return Error validationError
+            | Ok () ->
+                // Validation passed, submit to Azure
+                return! submitAndWaitForResultsAsync httpClient workspaceUrl program shots target
+        }

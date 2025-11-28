@@ -36,58 +36,81 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Compile Include="Validation.fs" />
-    <Compile Include="Types.fs" />
-    <Compile Include="StateVector.fs" />
-    <Compile Include="Gates.fs" />
-    <Compile Include="QaoaSimulator.fs" />
-    <Compile Include="Measurement.fs" />
-    <Compile Include="GroverOracle.fs" />
-    <Compile Include="GroverIteration.fs" />
-    <Compile Include="GroverSearch.fs" />
-    <Compile Include="AmplitudeAmplification.fs" />
-    <Compile Include="CostEstimation.fs" />
-    <Compile Include="CircuitValidator.fs" />
-    <Compile Include="Authentication.fs" />
-    <Compile Include="Retry.fs" />
-    <Compile Include="RateLimiting.fs" />
-    <Compile Include="Observability.fs" />
-    <Compile Include="Batching.fs" />
-    <Compile Include="JobLifecycle.fs" />
-    <Compile Include="IonQBackend.fs" />
-    <Compile Include="RigettiBackend.fs" />
-    <Compile Include="Client.fs" />
-    <Compile Include="TspTypes.fs" />
-    <Compile Include="TspSolver.fs" />
-    <Compile Include="TspBuilder.fs" />
-    <Compile Include="PortfolioTypes.fs" />
-    <Compile Include="PortfolioSolver.fs" />
-    <Compile Include="PortfolioBuilder.fs" />
-    <Compile Include="ProblemAnalysis.fs" />
-    <Compile Include="QuantumAdvisor.fs" />
-    <Compile Include="HybridSolver.fs" />
-    <Compile Include="CircuitBuilder.fs" />
-    <Compile Include="GateTranspiler.fs" />
-    <Compile Include="OpenQasmExport.fs" />
-    <Compile Include="OpenQasmImport.fs" />
-    <Compile Include="QuboEncoding.fs" />
-    <Compile Include="GraphOptimization.fs" />
-    <Compile Include="GraphColoring.fs" />
-    <Compile Include="ConstraintSatisfaction.fs" />
-    <Compile Include="ZeroNoiseExtrapolation.fs" />
-    <Compile Include="ProbabilisticErrorCancellation.fs" />
-    <Compile Include="ReadoutErrorMitigation.fs" />
-    <Compile Include="ErrorMitigationStrategy.fs" />
-    <Compile Include="PerformanceBenchmarking.fs" />
-    <Compile Include="QaoaCircuit.fs" />
-    <Compile Include="CircuitAbstraction.fs" />
-    <Compile Include="BackendAbstraction.fs" />
-    <Compile Include="QuantumTspSolver.fs" />
-    <Compile Include="QuantumChemistry.fs" />
-    <Compile Include="Scheduling.fs" />
-    <Compile Include="SubsetSelection.fs" />
-    <Compile Include="TaskScheduling.fs" />
-    <Compile Include="QaoaOptimizer.fs" />
+    <!-- Core Layer - Foundation Types -->
+    <Compile Include="Core\Validation.fs" />
+    <Compile Include="Core\Types.fs" />
+
+    <!-- Local Simulator Layer (depends on Types) -->
+    <Compile Include="LocalSimulator\StateVector.fs" />
+    <Compile Include="LocalSimulator\Gates.fs" />
+    <Compile Include="LocalSimulator\QaoaSimulator.fs" />
+    <Compile Include="LocalSimulator\Measurement.fs" />
+
+    <!-- Quantum Algorithms (depends on LocalSimulator) -->
+    <Compile Include="Algorithms\GroverOracle.fs" />
+    <Compile Include="Algorithms\GroverIteration.fs" />
+    <Compile Include="Algorithms\GroverSearch.fs" />
+    <Compile Include="Algorithms\AmplitudeAmplification.fs" />
+
+    <!-- Core Infrastructure (depends on Types, LocalSimulator) -->
+    <Compile Include="Core\CostEstimation.fs" />
+    <Compile Include="Core\CircuitValidator.fs" />
+    <Compile Include="Core\Authentication.fs" />
+    <Compile Include="Core\Retry.fs" />
+    <Compile Include="Core\RateLimiting.fs" />
+    <Compile Include="Core\Observability.fs" />
+    <Compile Include="Core\Batching.fs" />
+    <Compile Include="Core\JobLifecycle.fs" />
+
+    <!-- Backends Layer (depends on Core Infrastructure) -->
+    <Compile Include="Backends\IonQBackend.fs" />
+    <Compile Include="Backends\RigettiBackend.fs" />
+    <Compile Include="Core\Client.fs" />
+
+    <!-- Classical Solvers - Pure CPU algorithms, no quantum backend (depends on Types) -->
+    <Compile Include="Solvers\Classical\TspTypes.fs" />
+    <Compile Include="Solvers\Classical\TspSolver.fs" />
+    <Compile Include="Solvers\Classical\TspBuilder.fs" />
+    <Compile Include="Solvers\Classical\PortfolioTypes.fs" />
+    <Compile Include="Solvers\Classical\PortfolioSolver.fs" />
+    <Compile Include="Solvers\Classical\PortfolioBuilder.fs" />
+    
+    <!-- Hybrid Solvers - Orchestrate classical + quantum (depends on Classical Solvers) -->
+    <Compile Include="Solvers\Hybrid\ProblemAnalysis.fs" />
+    <Compile Include="Solvers\Hybrid\QuantumAdvisor.fs" />
+    <Compile Include="Solvers\Hybrid\HybridSolver.fs" />
+
+    <!-- Builders Layer (depends on Types, LocalSimulator) -->
+    <Compile Include="Builders\CircuitBuilder.fs" />
+    <Compile Include="Builders\GateTranspiler.fs" />
+    <Compile Include="Builders\OpenQasmExport.fs" />
+    <Compile Include="Builders\OpenQasmImport.fs" />
+    <Compile Include="Builders\QuboEncoding.fs" />
+    <Compile Include="Builders\GraphOptimization.fs" />
+    <Compile Include="Builders\ConstraintSatisfaction.fs" />
+
+    <!-- Error Mitigation Layer (depends on Builders) -->
+    <Compile Include="ErrorMitigation\ZeroNoiseExtrapolation.fs" />
+    <Compile Include="ErrorMitigation\ProbabilisticErrorCancellation.fs" />
+    <Compile Include="ErrorMitigation\ReadoutErrorMitigation.fs" />
+    <Compile Include="ErrorMitigation\ErrorMitigationStrategy.fs" />
+
+    <!-- Utilities Layer -->
+    <Compile Include="Utilities\PerformanceBenchmarking.fs" />
+
+    <!-- QAOA Infrastructure (depends on CircuitBuilder, LocalSimulator) -->
+    <Compile Include="Core\QaoaCircuit.fs" />
+    <Compile Include="Core\CircuitAbstraction.fs" />
+    <Compile Include="Backends\BackendAbstraction.fs" />
+    <Compile Include="Core\QaoaOptimizer.fs" />
+
+    <!-- Quantum Solvers (depends on Backends, QAOA) -->
+    <Compile Include="Solvers\Quantum\QuantumTspSolver.fs" />
+    <Compile Include="Solvers\Quantum\QuantumChemistry.fs" />
+
+    <!-- Top-level applications (depends on Solvers) -->
+    <Compile Include="Builders\Scheduling.fs" />
+    <Compile Include="Builders\SubsetSelection.fs" />
   </ItemGroup>
 
   <ItemGroup>

@@ -3,6 +3,18 @@ namespace FSharp.Azure.Quantum.Classical
 open System
 open FSharp.Azure.Quantum
 
+/// Classical TSP Solver - CPU-based algorithms (Nearest Neighbor, 2-opt)
+///
+/// IMPORTANT: This solver uses CLASSICAL algorithms and does NOT accept a quantum backend.
+/// - Execution: CPU-only (no quantum hardware)
+/// - Algorithms: Nearest Neighbor initialization + 2-opt local search
+/// - Speed: Fast (milliseconds for <100 cities)
+/// - Cost: Free (local computation)
+///
+/// For QUANTUM execution, use QuantumTspSolver which requires a backend parameter.
+///
+/// Example:
+///   let result = TspSolver.solveWithDistances distances TspSolver.defaultConfig
 module TspSolver =
 
     // City type is now in shared TspTypes module

@@ -2,8 +2,28 @@ namespace FSharp.Azure.Quantum.Classical
 
 open System
 
-/// Hybrid Solver - automatically routes problems to quantum or classical solvers
-/// based on problem analysis and quantum advantage estimation
+/// Hybrid Solver - Orchestration layer that automatically routes problems
+/// to either classical solvers OR quantum solvers based on problem analysis.
+///
+/// DECISION FRAMEWORK:
+/// - Analyzes problem size, structure, and complexity
+/// - Estimates quantum advantage potential
+/// - Routes to classical solver (fast, free) or quantum backend (scalable, expensive)
+/// - Optionally compares both methods for validation
+///
+/// CLASSICAL ROUTING:
+/// - Small problems (< 50 variables): TspSolver, PortfolioSolver
+/// - Executes on CPU (milliseconds, $0 cost)
+///
+/// QUANTUM ROUTING:
+/// - Large problems (> 100 variables): QuantumTspSolver with backend parameter
+/// - Executes on Azure Quantum (seconds to minutes, ~$10-100 cost)
+///
+/// Example:
+///   match HybridSolver.solveTsp distances None None None with
+///   | Ok solution -> 
+///       printfn "Method: %A" solution.Method  // Classical or Quantum
+///       printfn "Reasoning: %s" solution.Reasoning
 ///
 /// ALL HYBRID SOLVER CODE IN SINGLE FILE (per TKT-26 requirements)
 module HybridSolver =
