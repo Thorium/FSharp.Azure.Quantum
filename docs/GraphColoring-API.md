@@ -256,57 +256,86 @@ val describeSolution : solution:ColoringSolution -> string
 
 ---
 
-## C# FluentAPI Equivalent
+## C# Usage
 
-While the F# computation expression API is the recommended approach, you can use the underlying TKT-90 Generic Graph Optimization from C#:
+C# developers can use the GraphColoring API in two ways:
 
-### F# Computation Expression
+### Option 1: Call F# GraphColoring API from C# (Recommended for Graph Coloring)
 
-```fsharp
-let problem = graphColoring {
-    node "A" ["B"; "C"]
-    node "B" ["A"]
-    node "C" ["A"]
-    colors ["Red"; "Green"]
-}
-
-let solution = solve problem
-```
-
-### C# FluentAPI (TKT-90)
+The F# `graphColoring { }` computation expression is F#-specific syntax. C# developers should call the F# module functions directly:
 
 ```csharp
-using FSharp.Azure.Quantum.GraphOptimization;
+using FSharp.Azure.Quantum;
+using Microsoft.FSharp.Collections;
 
+// Create nodes using F# helper function
+var node1 = GraphColoring.node("A", new[] { "B", "C" }.ToFSharpList());
+var node2 = GraphColoring.node("B", new[] { "A" }.ToFSharpList());
+var node3 = GraphColoring.node("C", new[] { "A" }.ToFSharpList());
+
+// Build problem manually (since C# doesn't have computation expressions)
+var problem = new GraphColoring.GraphColoringProblem(
+    Nodes: new[] { node1, node2, node3 }.ToFSharpList(),
+    AvailableColors: new[] { "Red", "Green" }.ToFSharpList(),
+    Objective: GraphColoring.ColoringObjective.MinimizeColors,
+    MaxColors: FSharpOption<int>.None,
+    ConflictPenalty: 1.0
+);
+
+// Solve
+var solution = GraphColoring.solve(problem);
+
+Console.WriteLine($"Used {solution.ColorsUsed} colors");
+Console.WriteLine($"Valid: {solution.IsValid}");
+```
+
+### Option 2: Use Generic Graph Optimization API (TKT-90)
+
+For more control, use the underlying generic graph framework directly:
+
+```csharp
+using FSharp.Azure.Quantum;
+using static FSharp.Azure.Quantum.GraphOptimization;
+
+// Map graph coloring to generic graph problem
 var problem = new GraphOptimizationBuilder<int, Unit>()
     .Nodes(new[] {
-        GraphOptimization.node("A", 0),
-        GraphOptimization.node("B", 0),
-        GraphOptimization.node("C", 0)
+        node("A", 0),
+        node("B", 0),
+        node("C", 0)
     })
     .Edges(new[] {
-        GraphOptimization.edge("A", "B", 1.0),
-        GraphOptimization.edge("A", "C", 1.0)
+        edge("A", "B", 1.0),  // A conflicts with B
+        edge("A", "C", 1.0)   // A conflicts with C
     })
     .AddConstraint(GraphConstraint.NoAdjacentEqual)
     .Objective(GraphObjective.MinimizeColors)
     .NumColors(2)
     .Build();
 
-var solution = GraphOptimization.solveClassical(problem);
+var solution = solveClassical(problem);
+
+// Extract color assignments from node assignments
+var colorAssignments = solution.NodeAssignments.Value;
 ```
+
+**Note:** Option 2 requires manual mapping between graph coloring concepts (conflicts, colors) and generic graph concepts (edges, node values).
 
 **Comparison:**
 
-| Feature | F# GraphColoring | C# TKT-90 GraphOptimization |
-|---------|------------------|------------------------------|
-| **Syntax** | Computation expressions | Fluent API pattern |
-| **Business Domain** | Domain-specific (`conflictsWith`) | Generic (`edges`, flexible) |
-| **Type Parameters** | Strings for colors | Generic type parameters |
-| **API Design** | Progressive disclosure (3 levels) | Consistent builder pattern |
-| **Use Case** | Domain-specific problems | General graph algorithms |
+| Aspect | F# GraphColoring API | C# Generic Graph API (TKT-90) |
+|--------|----------------------|-------------------------------|
+| **Language** | F# only (computation expressions) | F# or C# (FluentAPI) |
+| **Domain** | Graph coloring specific | Any graph algorithm |
+| **Concepts** | Nodes, conflicts, colors | Nodes, edges, constraints |
+| **Type Safety** | String-based colors | Generic type parameters |
+| **Learning Curve** | Lower (domain-specific) | Higher (graph theory knowledge) |
+| **Use Case** | Register allocation, frequency assignment, exam scheduling | TSP, MaxCut, spanning trees, custom algorithms |
 
-**Both approaches are valid** - choose based on your language preference and problem domain. F# computation expressions provide domain-specific syntax, while C# FluentAPI offers flexibility and type safety through generics.
+**Recommendation:**
+- **F# developers:** Use `graphColoring { }` computation expression for graph coloring problems
+- **C# developers:** Use TKT-90 `GraphOptimizationBuilder` for maximum flexibility
+- **Both:** Consider F# interop if you need the domain-specific graph coloring API from C#
 
 ---
 
@@ -470,20 +499,24 @@ let problem = graphColoring {
 }
 ```
 
-**C# Fluent API:**
+**C# with Generic Graph API:**
 ```csharp
-var builder = new GraphColoringBuilder();
+using static FSharp.Azure.Quantum.GraphOptimization;
+
+var builder = new GraphOptimizationBuilder<int, Unit>();
 if (highPriority) {
-    builder = builder.AddNode(node("Critical", new string[0]));
+    builder = builder.Nodes(new[] { node("Critical", 0) });
 }
+
 var problem = builder
-    .AddNode(node("A", new[] { "B" }))
-    .AddNode(node("B", new[] { "A" }))
-    .Colors(new[] { "Red", "Green" })
+    .Nodes(new[] { node("A", 0), node("B", 0) })
+    .Edges(new[] { edge("A", "B", 1.0) })
+    .AddConstraint(GraphConstraint.NoAdjacentEqual)
+    .NumColors(2)
     .Build();
 ```
 
-*Both approaches work well - F# integrates control flow directly in the expression, C# uses standard imperative conditionals.*
+*Both approaches work well - F# integrates control flow into the computation expression, C# uses standard imperative conditionals with the generic graph framework.*
 
 #### 2. **Iteration Support**
 
@@ -499,19 +532,27 @@ let problem = graphColoring {
 }
 ```
 
-**C# Approach:**
+**C# with Generic Graph API:**
 ```csharp
-var nodesList = Enumerable.Range(1, 100)
-    .Select(i => node($"Node{i}", neighbors(i)))
-    .ToList();
+using static FSharp.Azure.Quantum.GraphOptimization;
 
-var problem = new GraphColoringBuilder()
-    .Nodes(nodesList)
-    .Colors(availableColors)
+var nodes = Enumerable.Range(1, 100)
+    .Select(i => node($"Node{i}", 0))
+    .ToArray();
+
+var edges = Enumerable.Range(1, 100)
+    .SelectMany(i => neighbors(i).Select(n => edge($"Node{i}", n, 1.0)))
+    .ToArray();
+
+var problem = new GraphOptimizationBuilder<int, Unit>()
+    .Nodes(nodes)
+    .Edges(edges)
+    .AddConstraint(GraphConstraint.NoAdjacentEqual)
+    .NumColors(availableColors.Length)
     .Build();
 ```
 
-*Both use LINQ/pipeline operators effectively for data transformation.*
+*Both use LINQ/pipeline operators effectively. F# uses domain language (conflicts), C# uses graph theory concepts (edges).*
 
 #### 3. **Domain-Specific vs Generic APIs**
 
@@ -546,13 +587,17 @@ let problem = graphColoring {
 
 **C# Explicit:**
 ```csharp
-var problem = new GraphColoringBuilder()
-    .AddNode(...)
-    .Colors(...)
-    .Build();  // Explicit finalization
+using static FSharp.Azure.Quantum.GraphOptimization;
+
+var problem = new GraphOptimizationBuilder<int, Unit>()
+    .Nodes(new[] { node("A", 0), node("B", 0) })
+    .Edges(new[] { edge("A", "B", 1.0) })
+    .AddConstraint(GraphConstraint.NoAdjacentEqual)
+    .NumColors(2)
+    .Build();  // Explicit finalization required
 ```
 
-*F# compiler automates finalization, C# gives explicit control.*
+*F# computation expression automates finalization via `Run()`, C# FluentAPI requires explicit `.Build()` call.*
 
 #### 5. **Progressive Disclosure in F#**
 
@@ -586,13 +631,17 @@ let problem = graphColoring {
 
 **C# with var:**
 ```csharp
-var problem = new GraphColoringBuilder()
-    .AddNode(node("A", new[] { "B" }))
-    .Colors(new[] { "Red", "Green" })
+using static FSharp.Azure.Quantum.GraphOptimization;
+
+var problem = new GraphOptimizationBuilder<int, Unit>()
+    .Nodes(new[] { node("A", 0), node("B", 0) })
+    .Edges(new[] { edge("A", "B", 1.0) })
+    .AddConstraint(GraphConstraint.NoAdjacentEqual)
+    .NumColors(2)
     .Build();
 ```
 
-*Both languages support type inference - F# more extensively, C# with var keyword.*
+*F# has extensive type inference throughout. C# uses `var` for local variable type inference but requires explicit type parameters for generics.*
 
 #### 7. **Composition and Reuse**
 
@@ -615,22 +664,30 @@ let problem2 = graphColoring {
 }
 ```
 
-**C# Partial Application:**
+**C# Builder Reuse:**
 ```csharp
-var baseBuilder = new GraphColoringBuilder()
-    .Nodes(baseNodes);
+using static FSharp.Azure.Quantum.GraphOptimization;
+
+var baseNodes = new[] { node("A", 0), node("B", 0) };
+var baseEdges = new[] { edge("A", "B", 1.0) };
+
+var baseBuilder = new GraphOptimizationBuilder<int, Unit>()
+    .Nodes(baseNodes)
+    .Edges(baseEdges)
+    .AddConstraint(GraphConstraint.NoAdjacentEqual);
 
 var problem1 = baseBuilder
-    .Colors(new[] { "Red", "Green" })
+    .NumColors(2)
     .Build();
 
 var problem2 = baseBuilder
-    .AddNode(node("C", new[] { "A" }))
-    .Colors(new[] { "Red", "Green", "Blue" })
+    .Nodes(baseNodes.Append(node("C", 0)).ToArray())
+    .Edges(baseEdges.Append(edge("A", "C", 1.0)).ToArray())
+    .NumColors(3)
     .Build();
 ```
 
-*Both support composition - F# with list concatenation, C# with builder chaining.*
+*Both support composition - F# with list concatenation in the computation expression, C# with builder chaining and LINQ.*
 
 ### Summary
 
