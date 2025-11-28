@@ -37,8 +37,14 @@ match HybridSolver.solveTsp distances None None None with
 | Error msg -> eprintfn "Error: %s" msg
 
 // Portfolio: Let HybridSolver decide everything  
-let assets = [{Symbol="AAPL"; ExpectedReturn=0.12; Risk=0.18; Price=150.0}]
-let constraints = {Budget=1000.0; MinHolding=0.0; MaxHolding=500.0}
+let assets: PortfolioTypes.Asset list = [
+    {Symbol="AAPL"; ExpectedReturn=0.12; Risk=0.18; Price=150.0}
+]
+let constraints: PortfolioSolver.Constraints = {
+    Budget=1000.0
+    MinHolding=0.0
+    MaxHolding=500.0
+}
 match HybridSolver.solvePortfolio assets constraints None None None with
 | Ok solution -> printfn "Value: $%.2f" solution.Result.TotalValue
 | Error msg -> eprintfn "Error: %s" msg
@@ -143,7 +149,7 @@ match solveTspRobust distances with
 ```fsharp
 // Validate portfolio constraints before solving
 let solvePortfolioSafe assets budget =
-    let constraints = {
+    let constraints: PortfolioSolver.Constraints = {
         Budget = budget
         MinHolding = 0.0
         MaxHolding = budget * 0.5
@@ -200,18 +206,22 @@ solutions
     | Error msg -> eprintfn "Problem %d failed: %s" i msg)
 ```
 
-### Pattern 10: Incremental Problem Building
+### Pattern 10: TSP Builder Pattern with Named Cities
 
 ```fsharp
-// Build problem incrementally
-let problem =
-    TSP.createEmpty()
-    |> TSP.addCity ("Seattle", 0.0, 0.0)
-    |> TSP.addCity ("Portland", 0.0, 174.0)
-    |> TSP.addCity ("San Francisco", 635.0, 807.0)
+// Build problem from city list with names and coordinates
+let cities = [
+    ("Seattle", 47.6, -122.3)
+    ("Portland", 45.5, -122.7)
+    ("San Francisco", 37.8, -122.4)
+]
+
+let problem = TSP.createProblem cities
 
 match TSP.solve problem None with
-| Ok tour -> printfn "Route: %A" tour.Cities
+| Ok tour -> 
+    printfn "Route: %s" (String.concat " → " tour.Cities)
+    printfn "Distance: %.2f" tour.TotalDistance
 | Error msg -> eprintfn "Error: %s" msg
 ```
 
@@ -455,12 +465,12 @@ val solveGreedyByRatio :
 
 **Example:**
 ```fsharp
-let assets = [
+let assets: PortfolioTypes.Asset list = [
     { Symbol = "AAPL"; ExpectedReturn = 0.12; Risk = 0.18; Price = 150.0 }
     { Symbol = "MSFT"; ExpectedReturn = 0.10; Risk = 0.15; Price = 300.0 }
 ]
 
-let constraints = {
+let constraints: PortfolioSolver.Constraints = {
     Budget = 10000.0
     MinHolding = 0.0
     MaxHolding = 5000.0
@@ -478,20 +488,22 @@ Domain builder API for constructing and solving portfolio optimization problems.
 ### Types
 
 ```fsharp
-type Asset = {
-    Symbol: string
-    ExpectedReturn: float
-    Risk: float
-    Price: float
-}
+// Asset type (from PortfolioTypes module)
+// type Asset = {
+//     Symbol: string
+//     ExpectedReturn: float
+//     Risk: float
+//     Price: float
+// }
 
-type PortfolioAllocation = {
-    Allocations: (string * float * float) list  // (symbol, shares, value)
-    TotalValue: float
-    ExpectedReturn: float
-    Risk: float
-    IsValid: bool
-}
+// Portfolio allocation result
+// type PortfolioAllocation = {
+//     Allocations: (string * float * float) list  // (symbol, shares, value)
+//     TotalValue: float
+//     ExpectedReturn: float
+//     Risk: float
+//     IsValid: bool
+// }
 ```
 
 ### Functions
@@ -526,14 +538,14 @@ val solveDirectly : assets: (string * float * float * float) list -> budget: flo
 
 **Example:**
 ```fsharp
-let assets = [
+let portfolioAssets = [
     ("AAPL", 0.12, 0.18, 150.0)   // symbol, return, risk, price
     ("MSFT", 0.10, 0.15, 300.0)
     ("GOOGL", 0.15, 0.20, 2800.0)
 ]
 
-let problem = Portfolio.createProblem assets 10000.0
-match Portfolio.solve problem None with
+let portfolioProblem = Portfolio.createProblem portfolioAssets 10000.0
+match Portfolio.solve portfolioProblem None with
 | Ok allocation -> 
     printfn "Total Value: $%.2f" allocation.TotalValue
     printfn "Expected Return: %.2f%%" (allocation.ExpectedReturn * 100.0)
