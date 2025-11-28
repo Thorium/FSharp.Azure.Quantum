@@ -67,16 +67,18 @@
     <Compile Include="Backends\RigettiBackend.fs" />
     <Compile Include="Core\Client.fs" />
 
-    <!-- Classical Solvers (depends on Types) -->
+    <!-- Classical Solvers - Pure CPU algorithms, no quantum backend (depends on Types) -->
     <Compile Include="Solvers\Classical\TspTypes.fs" />
     <Compile Include="Solvers\Classical\TspSolver.fs" />
     <Compile Include="Solvers\Classical\TspBuilder.fs" />
     <Compile Include="Solvers\Classical\PortfolioTypes.fs" />
     <Compile Include="Solvers\Classical\PortfolioSolver.fs" />
     <Compile Include="Solvers\Classical\PortfolioBuilder.fs" />
-    <Compile Include="Solvers\Classical\ProblemAnalysis.fs" />
-    <Compile Include="Solvers\Classical\QuantumAdvisor.fs" />
-    <Compile Include="Solvers\Classical\HybridSolver.fs" />
+    
+    <!-- Hybrid Solvers - Orchestrate classical + quantum (depends on Classical Solvers) -->
+    <Compile Include="Solvers\Hybrid\ProblemAnalysis.fs" />
+    <Compile Include="Solvers\Hybrid\QuantumAdvisor.fs" />
+    <Compile Include="Solvers\Hybrid\HybridSolver.fs" />
 
     <!-- Builders Layer (depends on Types, LocalSimulator) -->
     <Compile Include="Builders\CircuitBuilder.fs" />

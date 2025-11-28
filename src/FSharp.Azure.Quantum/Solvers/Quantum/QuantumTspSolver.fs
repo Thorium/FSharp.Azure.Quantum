@@ -7,6 +7,12 @@ open FSharp.Azure.Quantum.Core
 
 /// Quantum TSP Solver using QAOA and Backend Abstraction
 /// 
+/// IMPORTANT: This solver REQUIRES a quantum backend parameter (IonQ, Rigetti, or Local).
+/// - Execution: Quantum hardware/simulator via backend
+/// - Algorithm: QAOA (Quantum Approximate Optimization Algorithm)
+/// - Speed: Slower (seconds to minutes, includes job queue wait)
+/// - Cost: ~$10-100 per run on real quantum hardware
+///
 /// Implements the full quantum pipeline:
 /// 1. TSP Distance Matrix → GraphOptimization Problem
 /// 2. GraphOptimization → QUBO Matrix  
@@ -14,6 +20,11 @@ open FSharp.Azure.Quantum.Core
 /// 4. Execute on Quantum Backend (IonQ/Rigetti/Local)
 /// 5. Decode Measurements → TSP Tours
 /// 6. Return Best Solution
+///
+/// Example:
+///   let! result = QuantumTspSolver.solve rigettiBackend distances 1000
+///
+/// For CLASSICAL execution (fast, free), use TspSolver instead.
 module QuantumTspSolver =
 
     /// Convert sparse QUBO matrix (Map) to dense 2D array

@@ -3,7 +3,18 @@ namespace FSharp.Azure.Quantum.Classical
 open System
 open FSharp.Azure.Quantum
 
-/// Portfolio optimization solver with greedy-by-ratio and mean-variance algorithms
+/// Classical Portfolio Solver - CPU-based algorithms (Greedy-by-Ratio)
+///
+/// IMPORTANT: This solver uses CLASSICAL algorithms and does NOT accept a quantum backend.
+/// - Execution: CPU-only (no quantum hardware)
+/// - Algorithms: Greedy return/risk ratio optimization
+/// - Speed: Fast (milliseconds for <100 assets)
+/// - Cost: Free (local computation)
+///
+/// For QUANTUM portfolio optimization (when available), use QuantumPortfolioSolver.
+///
+/// Example:
+///   let result = PortfolioSolver.solveGreedyByRatio assets constraints PortfolioSolver.defaultConfig
 module PortfolioSolver =
 
     // ================================================================================
