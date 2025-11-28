@@ -79,6 +79,7 @@
     <Compile Include="ErrorMitigationStrategy.fs" />
     <Compile Include="PerformanceBenchmarking.fs" />
     <Compile Include="QaoaCircuit.fs" />
+    <Compile Include="CircuitAbstraction.fs" />
     <Compile Include="QuantumChemistry.fs" />
     <Compile Include="Scheduling.fs" />
     <Compile Include="SubsetSelection.fs" />
