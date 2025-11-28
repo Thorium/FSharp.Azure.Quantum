@@ -87,6 +87,7 @@
     <Compile Include="Builders\OpenQasmImport.fs" />
     <Compile Include="Builders\QuboEncoding.fs" />
     <Compile Include="Builders\GraphOptimization.fs" />
+    <Compile Include="Builders\GraphColoring.fs" />
     <Compile Include="Builders\ConstraintSatisfaction.fs" />
 
     <!-- Error Mitigation Layer (depends on Builders) -->
