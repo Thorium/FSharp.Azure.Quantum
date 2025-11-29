@@ -10,16 +10,15 @@
 **Architecture:** 100% Quantum-Only - Classical algorithms removed per design philosophy
 
 **Current Features:**
-- ✅ **6 Quantum Optimization Builders:** Graph Coloring, MaxCut, Knapsack, TSP, Portfolio, Network Flow
+- ✅ **Multiple Backends:** LocalBackend (simulation), Azure Quantum (IonQ, Rigetti)
+- ✅ **OpenQASM 2.0:** Import/export compatibility with IBM Qiskit, Amazon Braket, Google Cirq
 - ✅ **QAOA Implementation:** Quantum Approximate Optimization Algorithm with parameter optimization & warm-start
+- ✅ **6 Quantum Optimization Builders:** Graph Coloring, MaxCut, Knapsack, TSP, Portfolio, Network Flow
 - ✅ **VQE Implementation:** Variational Quantum Eigensolver for molecular ground state energies (quantum chemistry)
 - ✅ **Error Mitigation:** ZNE (30-50% error reduction), PEC (2-3x accuracy), REM (50-90% readout correction)
 - ✅ **F# Computation Expressions:** Idiomatic, type-safe problem specification
 - ✅ **C# Interop:** Fluent API extensions for C# developers
-- ✅ **Multiple Backends:** LocalBackend (simulation), Azure Quantum (IonQ, Rigetti)
-- ✅ **Automatic Backend Selection:** Local simulation or cloud quantum hardware
-- ✅ **Circuit Building:** Low-level quantum circuit construction and optimization
-- ✅ **OpenQASM 2.0:** Import/export compatibility with IBM Qiskit, Amazon Braket, Google Cirq
+- ✅ **Circuit Building:** Low-level quantum circuit construction and optimization possible
 
 ---
 
@@ -1519,30 +1518,18 @@ The `Algorithms/` directory contains foundational quantum algorithms for learnin
 - ✅ Grover's Search (quantum search, O(√N) speedup)
 - ✅ Amplitude Amplification (generalization of Grover)
 - ✅ Quantum Fourier Transform (O(n²) vs O(n·2^n) classical FFT)
-- 🔄 **Coming Soon:** Deutsch-Jozsa, Bernstein-Vazirani
-
-**Out of Scope (For Now):**
-- ❌ Cryptographic algorithms (Shor's factoring, discrete log)
-- ❌ Quantum machine learning (QSVM, quantum neural networks)
-- ❌ Topological quantum computing
-- ❌ Quantum error correction codes
-
-**For comprehensive quantum algorithm education, see:**
-- [Microsoft Q# Samples](https://github.com/microsoft/Quantum) - Full algorithm library with Q# language
-- [Qiskit Textbook](https://qiskit.org/textbook) - Python-based quantum computing tutorials
-- [IBM Quantum Experience](https://quantum-computing.ibm.com/) - Web-based quantum programming
 
 **Why F# for Quantum?**
 - Type-safe quantum circuit construction
 - Functional programming matches quantum mathematics
 - Interop with .NET ecosystem (C#, Azure, ML.NET)
-- Alternative to Python (Qiskit) and Q# for F# developers
+- Higher level abstraction than Python (Qiskit) and Q#
 
 ---
 
 ## 🤝 Contributing
 
-Contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+Contributions welcome! 
 
 **Development principles:**
 - Maintain quantum-only architecture (no classical algorithms)
@@ -1564,30 +1551,7 @@ Contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 - **Documentation**: [docs/](docs/)
 - **Issues**: [GitHub Issues](https://github.com/thorium/FSharp.Azure.Quantum/issues)
 - **Examples**: [examples/](examples/)
-- **C# Guide**: [CSHARP-QUANTUM-BUILDER-USAGE-GUIDE.md](CSHARP-QUANTUM-BUILDER-USAGE-GUIDE.md)
-
----
-
-## 🚀 Roadmap
-
-**Current:**
-- ✅ 6 quantum optimization builders (Graph Coloring, MaxCut, Knapsack, TSP, Portfolio, Network Flow)
-- ✅ VQE (Variational Quantum Eigensolver) for quantum chemistry with H2/H2O examples
-- ✅ QAOA parameter optimization with warm-start support (`InitialParameters`)
-- ✅ Constraint handling via penalty-based QUBO encoding (capacity, one-hot, flow conservation)
-- ✅ Error mitigation: ZNE (30-50% reduction), PEC (2-3x accuracy), REM (50-90% readout correction)
-- ✅ LocalBackend + Azure Quantum backends (IonQ, Rigetti)
-- ✅ OpenQASM 2.0 export/import for cross-platform compatibility
-- ✅ F# + C# APIs
-
-**Future:**
-- 🔄 Advanced VQE ansatz (UCCSD, hardware-efficient)
-- 🔄 Adaptive QAOA layer strategies
-- 🔄 Advanced error mitigation (dynamical decoupling, symmetry verification)
-- 🔄 Quantum circuit compilation optimizations
 
 ---
 
 **Status**: Production Ready - Quantum-only architecture, 6 problem builders, full QAOA implementation
-
-**Last Updated**: 2025-11-29
