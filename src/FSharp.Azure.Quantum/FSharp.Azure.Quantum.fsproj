@@ -68,6 +68,7 @@
     <Compile Include="Algorithms\GroverIteration.fs" />
     <Compile Include="Algorithms\GroverSearch.fs" />
     <Compile Include="Algorithms\AmplitudeAmplification.fs" />
+    <Compile Include="Algorithms\QuantumFourierTransform.fs" />
 
     <!-- Core Infrastructure (depends on Types, LocalSimulator) -->
     <Compile Include="Core\CostEstimation.fs" />
