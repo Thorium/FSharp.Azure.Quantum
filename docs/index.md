@@ -81,6 +81,18 @@ dotnet add package FSharp.Azure.Quantum
 5. **Portfolio** - Investment allocation, asset selection, risk management
 6. **Network Flow** - Supply chain optimization, distribution planning
 
+### 🤖 HybridSolver - Automatic Classical/Quantum Routing
+
+**Smart solver that automatically chooses between classical and quantum execution:**
+
+- ✅ **Analyzes problem size** - Estimates quantum advantage potential
+- ✅ **Smart routing** - Classical (fast, free) OR Quantum (scalable, expensive)
+- ✅ **Cost guards** - Budget limits prevent runaway quantum costs
+- ✅ **Transparent reasoning** - Explains why each method was chosen
+- ✅ **Production-ready** - Recommended for production deployments
+
+**See:** [Getting Started Guide](getting-started) for detailed examples and decision criteria
+
 ### 🔬 QAOA Implementation
 
 Quantum Approximate Optimization Algorithm with:
