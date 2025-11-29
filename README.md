@@ -292,6 +292,97 @@ match Search.searchWithPredicate 3 predicate searchConfig with
 
 ---
 
+### Amplitude Amplification
+
+**Generalization of Grover's algorithm for custom initial states.**
+
+Amplitude amplification extends Grover's algorithm to work with arbitrary initial state preparations (not just uniform superposition). This enables quantum speedups for problems beyond simple database search.
+
+**Key Insight:** Grover's algorithm is a special case where:
+- Initial state = uniform superposition H^⊗n|0⟩
+- Reflection operator = Grover diffusion operator
+
+Amplitude amplification allows:
+- Custom initial state preparation A|0⟩
+- Reflection about A|0⟩ (automatically generated)
+
+**F# Example:**
+```fsharp
+open FSharp.Azure.Quantum.GroverSearch.AmplitudeAmplification
+
+// Custom state preparation (W-state: equal superposition of single-excitation states)
+let wState = wStatePreparation 3  // (|100⟩ + |010⟩ + |001⟩)/√3
+
+// Configure amplitude amplification
+let config = {
+    NumQubits = 3
+    StatePreparation = wState
+    Oracle = myOracle
+    ReflectionOperator = None  // Auto-generate from state preparation
+    Iterations = 5
+}
+
+// Execute amplitude amplification
+match execute config with
+| Ok result ->
+    printfn "Success probability: %.2f%%" (result.SuccessProbability * 100.0)
+    printfn "Iterations applied: %d" result.IterationsApplied
+| Error msg ->
+    printfn "Amplification failed: %s" msg
+```
+
+**Features:**
+- ✅ Custom state preparation (W-states, partial superpositions, arbitrary states)
+- ✅ Automatic reflection operator generation
+- ✅ Grover equivalence verification (shows Grover as special case)
+- ✅ Optimal iteration calculation for arbitrary initial success probability
+
+**Use Cases:**
+- Quantum walk algorithms with non-uniform initial distributions
+- Fixed-point search (where initial state biases toward solutions)
+- Quantum sampling with amplification
+
+**Location:** `src/FSharp.Azure.Quantum/Algorithms/AmplitudeAmplification.fs`  
+**Status:** Experimental - Research and education purposes
+
+---
+
+### Library Scope & Focus
+
+**Primary Focus: QAOA-Based Combinatorial Optimization**
+
+This library is designed for **NISQ-era practical quantum advantage** in optimization:
+- ✅ 6 optimization problem builders (Graph Coloring, MaxCut, TSP, Knapsack, Portfolio, Network Flow)
+- ✅ QAOA implementation with automatic parameter tuning
+- ✅ Error mitigation for noisy hardware (ZNE, PEC, REM)
+- ✅ Production-ready solvers with cloud backend integration
+
+**Secondary Focus: Quantum Algorithm Education & Research**
+
+The `Algorithms/` directory contains foundational quantum algorithms for learning:
+- ✅ Grover's Search (quantum search, O(√N) speedup)
+- ✅ Amplitude Amplification (generalization of Grover)
+- 🔄 **Coming Soon:** Quantum Fourier Transform, Deutsch-Jozsa, Bernstein-Vazirani
+
+**Out of Scope (For Now):**
+- ❌ Cryptographic algorithms (Shor's factoring, discrete log)
+- ❌ Quantum machine learning (QSVM, quantum neural networks)
+- ❌ Topological quantum computing
+- ❌ Quantum error correction codes
+
+**For comprehensive quantum algorithm education, see:**
+- [Microsoft Q# Samples](https://github.com/microsoft/Quantum) - Full algorithm library with Q# language
+- [Qiskit Textbook](https://qiskit.org/textbook) - Python-based quantum computing tutorials
+- [IBM Quantum Experience](https://quantum-computing.ibm.com/) - Web-based quantum programming
+
+**Why F# for Quantum?**
+- Type-safe quantum circuit construction
+- Functional programming matches quantum mathematics
+- Interop with .NET ecosystem (C#, Azure, ML.NET)
+- Alternative to Python (Qiskit) and Q# for F# developers
+
+---
+
 ## 🏗️ Architecture
 
 ### 3-Layer Quantum-Only Architecture
