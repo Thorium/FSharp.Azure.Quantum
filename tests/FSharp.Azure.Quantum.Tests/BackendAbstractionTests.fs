@@ -30,9 +30,9 @@ module BackendAbstractionTests =
         Assert.Contains("RZZ", gates)
 
     [<Fact>]
-    let ``LocalBackend should have max 10 qubits`` () =
+    let ``LocalBackend should have max 16 qubits`` () =
         let backend = createLocalBackend()
-        Assert.Equal(10, backend.MaxQubits)
+        Assert.Equal(16, backend.MaxQubits)
 
     [<Fact>]
     let ``LocalBackend should reject negative shots`` () =
@@ -61,14 +61,14 @@ module BackendAbstractionTests =
     [<Fact>]
     let ``LocalBackend should reject circuits with too many qubits`` () =
         let backend = createLocalBackend()
-        let circuit = CircuitBuilder.empty 15  // Exceeds 10 qubit limit
+        let circuit = CircuitBuilder.empty 20  // Exceeds 16 qubit limit
         let wrapper = CircuitWrapper(circuit) :> ICircuit
         
         let result = backend.Execute wrapper 10
         
         match result with
         | Error msg -> 
-            Assert.Contains("10 qubits", msg)
+            Assert.Contains("16 qubits", msg)
         | Ok _ -> Assert.True(false, "Should have failed with too many qubits")
 
     [<Fact>]
@@ -269,15 +269,15 @@ module BackendAbstractionTests =
     [<Fact>]
     let ``validateCircuitForBackend should reject too many qubits`` () =
         let backend = createLocalBackend()
-        let circuit = CircuitBuilder.empty 15  // Exceeds 10 qubit limit
+        let circuit = CircuitBuilder.empty 20  // Exceeds 16 qubit limit
         let wrapper = CircuitWrapper(circuit) :> ICircuit
         
         let result = validateCircuitForBackend wrapper backend
         
         match result with
         | Error msg ->
-            Assert.Contains("15 qubits", msg)
-            Assert.Contains("10 qubits", msg)
+            Assert.Contains("20 qubits", msg)
+            Assert.Contains("16 qubits", msg)
         | Ok () -> Assert.True(false, "Validation should fail with too many qubits")
 
     [<Fact>]

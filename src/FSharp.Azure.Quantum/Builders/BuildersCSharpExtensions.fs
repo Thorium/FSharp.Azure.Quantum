@@ -18,10 +18,7 @@ open Microsoft.FSharp.Collections
 /// - Extension methods keep the core F# API clean and maintainable
 ///
 /// **Builders Covered:**
-/// 1. SubsetSelectionBuilder - Subset selection (knapsack, Kasino, etc.)
-/// 2. GraphOptimizationBuilder - Graph coloring, TSP, MaxCut
-/// 3. SchedulingBuilder - Task scheduling, resource allocation
-/// 4. ConstraintSatisfactionBuilder - CSP problems
+/// 1. GraphOptimizationBuilder - Graph coloring, TSP, MaxCut
 ///
 /// **What This Module Provides:**
 /// - Builder method overloads accepting IEnumerable&lt;T&gt; / T[] instead of F# list
@@ -31,16 +28,6 @@ open Microsoft.FSharp.Collections
 /// </remarks>
 [<Extension>]
 module BuildersCSharpExtensions =
-    
-    // ============================================================================
-    // SUBSET SELECTION BUILDER EXTENSIONS
-    // ============================================================================
-    
-    // NOTE: SubsetSelection extensions are provided by SubsetSelectionCSharpExtensions.fs
-    // to avoid ambiguity. Use the following instead:
-    //   - .ItemsFromArray(items[]) - defined in SubsetSelectionCSharpExtensions
-    //   - .ItemsFromEnumerable(items) - defined in SubsetSelectionCSharpExtensions
-    //   - CSharpBuilders.Item(...) for creating items with C# value tuples
     
     // ============================================================================
     // GRAPH OPTIMIZATION BUILDER EXTENSIONS
@@ -65,44 +52,6 @@ module BuildersCSharpExtensions =
     [<Extension>]
     let EdgesFromArray (builder: GraphOptimization.GraphOptimizationBuilder<'TNode, 'TEdge>) (edges: GraphOptimization.Edge<'TEdge>[]) =
         builder.Edges(Array.toList edges)
-    
-    // ============================================================================
-    // SCHEDULING BUILDER EXTENSIONS
-    // ============================================================================
-    
-    /// <summary>Extension method for SchedulingBuilder to accept IEnumerable&lt;ScheduledTask&lt;T&gt;&gt;.</summary>
-    [<Extension>]
-    let TasksFromEnumerable (builder: Scheduling.SchedulingBuilder<'TTask, 'TResource>) (tasks: IEnumerable<Scheduling.ScheduledTask<'TTask>>) =
-        builder.Tasks(Seq.toList tasks)
-    
-    /// <summary>Extension method for SchedulingBuilder to accept ScheduledTask&lt;T&gt;[].</summary>
-    [<Extension>]
-    let TasksFromArray (builder: Scheduling.SchedulingBuilder<'TTask, 'TResource>) (tasks: Scheduling.ScheduledTask<'TTask>[]) =
-        builder.Tasks(Array.toList tasks)
-    
-    /// <summary>Extension method for SchedulingBuilder to accept IEnumerable&lt;Resource&lt;T&gt;&gt;.</summary>
-    [<Extension>]
-    let ResourcesFromEnumerable (builder: Scheduling.SchedulingBuilder<'TTask, 'TResource>) (resources: IEnumerable<Scheduling.Resource<'TResource>>) =
-        builder.Resources(Seq.toList resources)
-    
-    /// <summary>Extension method for SchedulingBuilder to accept Resource&lt;T&gt;[].</summary>
-    [<Extension>]
-    let ResourcesFromArray (builder: Scheduling.SchedulingBuilder<'TTask, 'TResource>) (resources: Scheduling.Resource<'TResource>[]) =
-        builder.Resources(Array.toList resources)
-    
-    // ============================================================================
-    // CONSTRAINT SATISFACTION BUILDER EXTENSIONS
-    // ============================================================================
-    
-    /// <summary>Extension method for ConstraintSatisfactionBuilder to accept IEnumerable&lt;Variable&lt;T&gt;&gt;.</summary>
-    [<Extension>]
-    let VariablesFromEnumerable (builder: ConstraintSatisfaction.ConstraintSatisfactionBuilder<'T>) (variables: IEnumerable<ConstraintSatisfaction.Variable<'T>>) =
-        builder.Variables(Seq.toList variables)
-    
-    /// <summary>Extension method for ConstraintSatisfactionBuilder to accept Variable&lt;T&gt;[].</summary>
-    [<Extension>]
-    let VariablesFromArray (builder: ConstraintSatisfaction.ConstraintSatisfactionBuilder<'T>) (variables: ConstraintSatisfaction.Variable<'T>[]) =
-        builder.Variables(Array.toList variables)
     
     // ============================================================================
     // COMMON LIST EXTENSIONS - Works for all F# lists
@@ -192,11 +141,7 @@ module BuildersCSharpExtensions =
 /// var item1 = Item("card_2", "2", ("weight", 2.0));
 /// var item2 = Item("card_5", "5", ("weight", 5.0));
 /// 
-/// var subsetProblem = SubsetSelection&lt;string&gt;()
-///     .ItemsFromArray(new[] { item1, item2 })
-///     .AddConstraint(MaxLimit("weight", 10.0))
-///     .Objective(MaximizeWeight("value"))
-///     .Build();
+/// // Use KnapsackBuilder from Solvers/Classical/ instead
 /// </code>
 /// 
 /// **Note:** Named `CSharpBuilders` (not `Builders`) to avoid namespace collision.
@@ -205,55 +150,6 @@ module BuildersCSharpExtensions =
 /// </remarks>
 [<AbstractClass; Sealed>]
 type CSharpBuilders private () =
-    
-    // ============================================================================
-    // SUBSET SELECTION
-    // ============================================================================
-    
-    /// <summary>Create a new SubsetSelectionBuilder (C# entry point).</summary>
-    static member SubsetSelection<'T when 'T : equality>() =
-        SubsetSelection.SubsetSelectionBuilder<'T>.Create()
-    
-    /// <summary>Create an item with multi-dimensional weights from C# value tuples.</summary>
-    static member Item<'T when 'T : equality>(id: string, value: 'T, [<ParamArray>] weights: struct(string * float)[]) =
-        let fsharpWeights = weights |> Array.map (fun struct(name, weight) -> (name, weight)) |> Array.toList
-        SubsetSelection.itemMulti id value fsharpWeights
-    
-    /// <summary>Create a numeric item.</summary>
-    static member Item(id: string, value: float) =
-        SubsetSelection.numericItem id value
-    
-    /// <summary>Create MaxLimit constraint.</summary>
-    static member MaxLimit(dimension: string, limit: float) =
-        SubsetSelection.SelectionConstraint.MaxLimit(dimension, limit)
-    
-    /// <summary>Create MinLimit constraint.</summary>
-    static member MinLimit(dimension: string, limit: float) =
-        SubsetSelection.SelectionConstraint.MinLimit(dimension, limit)
-    
-    /// <summary>Create ExactTarget constraint.</summary>
-    static member ExactTarget(dimension: string, target: float) =
-        SubsetSelection.SelectionConstraint.ExactTarget(dimension, target)
-    
-    /// <summary>Create Range constraint.</summary>
-    static member Range(dimension: string, min: float, max: float) =
-        SubsetSelection.SelectionConstraint.Range(dimension, min, max)
-    
-    /// <summary>Create MaximizeWeight objective.</summary>
-    static member MaximizeWeight(dimension: string) =
-        SubsetSelection.SelectionObjective.MaximizeWeight(dimension)
-    
-    /// <summary>Create MinimizeWeight objective.</summary>
-    static member MinimizeWeight(dimension: string) =
-        SubsetSelection.SelectionObjective.MinimizeWeight(dimension)
-    
-    /// <summary>MinimizeCount objective.</summary>
-    static member MinimizeCount =
-        SubsetSelection.SelectionObjective.MinimizeCount
-    
-    /// <summary>MaximizeCount objective.</summary>
-    static member MaximizeCount =
-        SubsetSelection.SelectionObjective.MaximizeCount
     
     // ============================================================================
     // GRAPH OPTIMIZATION
@@ -280,35 +176,56 @@ type CSharpBuilders private () =
         GraphOptimization.directedEdge source target weight
     
     // ============================================================================
-    // SCHEDULING
+    // MAXCUT BUILDER EXTENSIONS
     // ============================================================================
     
-    // TODO: SchedulingBuilder.Create() is not accessible from this module context
-    // C# users can use: Scheduling.SchedulingBuilder<TTask, TResource>.Create()
+    /// <summary>Create MaxCut problem from vertices and edges (C# helper).</summary>
+    /// <param name="vertices">Array of vertex names</param>
+    /// <param name="edges">Array of (source, target, weight) tuples</param>
+    static member MaxCutProblem(vertices: string[], edges: struct(string * string * float)[]) =
+        let edgeList = edges |> Array.map (fun struct(s, t, w) -> (s, t, w)) |> Array.toList
+        MaxCut.createProblem (Array.toList vertices) edgeList
     
-    /// <summary>Create a scheduled task.</summary>
-    static member Task<'T when 'T : equality>(id: string, value: 'T, duration: float) =
-        Scheduling.task id value duration
+    /// <summary>Create complete graph for MaxCut (all vertices connected) (C# helper).</summary>
+    /// <param name="vertices">Array of vertex names</param>
+    /// <param name="weight">Weight for all edges</param>
+    static member CompleteGraph(vertices: string[], weight: float) =
+        MaxCut.completeGraph (Array.toList vertices) weight
     
-    /// <summary>Create a task dependency (Finish-to-Start).</summary>
-    static member Dependency(from: string, _to: string) =
-        Scheduling.Dependency.FinishToStart(from, _to, 0.0)
-    
-    /// <summary>Create a task dependency (Finish-to-Start with lag).</summary>
-    static member Dependency(from: string, _to: string, lag: float) =
-        Scheduling.Dependency.FinishToStart(from, _to, lag)
+    /// <summary>Create cycle graph for MaxCut (vertices connected in a ring) (C# helper).</summary>
+    /// <param name="vertices">Array of vertex names in cycle order</param>
+    /// <param name="weight">Weight for all edges</param>
+    static member CycleGraph(vertices: string[], weight: float) =
+        MaxCut.cycleGraph (Array.toList vertices) weight
     
     // ============================================================================
-    // CONSTRAINT SATISFACTION
+    // KNAPSACK BUILDER EXTENSIONS
     // ============================================================================
     
-    // TODO: ConstraintSatisfactionBuilder.Create() is not accessible from this module context
-    // C# users can use: ConstraintSatisfaction.ConstraintSatisfactionBuilder<T>.Create()
+    /// <summary>Create knapsack problem from items and capacity (C# helper).</summary>
+    /// <param name="items">Array of (id, weight, value) tuples</param>
+    /// <param name="capacity">Maximum total weight allowed</param>
+    static member KnapsackProblem(items: struct(string * float * float)[], capacity: float) =
+        let itemList = items |> Array.map (fun struct(id, w, v) -> (id, w, v)) |> Array.toList
+        Knapsack.createProblem itemList capacity
     
-    /// <summary>Create a CSP variable.</summary>
-    static member Variable<'T when 'T : equality>(id: string, domain: IEnumerable<'T>) =
-        ConstraintSatisfaction.variable id (Seq.toList domain)
+    // ============================================================================
+    // TSP BUILDER EXTENSIONS
+    // ============================================================================
     
-    /// <summary>Create a CSP variable from array.</summary>
-    static member Variable<'T when 'T : equality>(id: string, [<ParamArray>] domain: 'T[]) =
-        ConstraintSatisfaction.variable id (Array.toList domain)
+    /// <summary>Create TSP problem from cities with coordinates (C# helper).</summary>
+    /// <param name="cities">Array of (name, x, y) tuples</param>
+    static member TspProblem(cities: struct(string * float * float)[]) =
+        let cityList = cities |> Array.map (fun struct(name, x, y) -> (name, x, y)) |> Array.toList
+        TSP.createProblem cityList
+    
+    // ============================================================================
+    // PORTFOLIO BUILDER EXTENSIONS
+    // ============================================================================
+    
+    /// <summary>Create portfolio problem from assets and budget (C# helper).</summary>
+    /// <param name="assets">Array of (symbol, expectedReturn, risk, price) tuples</param>
+    /// <param name="budget">Total budget available</param>
+    static member PortfolioProblem(assets: struct(string * float * float * float)[], budget: float) =
+        let assetList = assets |> Array.map (fun struct(s, r, k, p) -> (s, r, k, p)) |> Array.toList
+        Portfolio.createProblem assetList budget

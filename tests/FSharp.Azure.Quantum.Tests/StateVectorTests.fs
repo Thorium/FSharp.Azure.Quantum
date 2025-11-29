@@ -114,18 +114,18 @@ module StateVectorTests =
         let state0 = StateVector.init 0
         Assert.Equal(1, StateVector.dimension state0)
         
-        // Valid: 10 qubits (maximum)
-        let state10 = StateVector.init 10
-        Assert.Equal(1024, StateVector.dimension state10)
+        // Valid: 16 qubits (maximum)
+        let state16 = StateVector.init 16
+        Assert.Equal(65536, StateVector.dimension state16)
         
         // Invalid: negative qubits
         Assert.Throws<System.Exception>(fun () -> 
             StateVector.init -1 |> ignore
         ) |> ignore
         
-        // Invalid: > 10 qubits
+        // Invalid: > 16 qubits
         Assert.Throws<System.Exception>(fun () -> 
-            StateVector.init 11 |> ignore
+            StateVector.init 17 |> ignore
         )
     
     [<Fact>]

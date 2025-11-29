@@ -34,12 +34,12 @@ let ``Backend constraint should define Rigetti Aspen-M-3 with 79 qubits`` () =
     Assert.Contains("CZ", constraints.SupportedGates)
 
 [<Fact>]
-let ``Backend constraint should define local simulator with 10 qubits`` () =
+let ``Backend constraint should define local simulator with 16 qubits`` () =
     // Arrange
     let constraints = BackendConstraints.localSimulator()
     
     // Assert
-    Assert.Equal(10, constraints.MaxQubits)
+    Assert.Equal(16, constraints.MaxQubits)
     Assert.Equal("Local QAOA Simulator", constraints.Name)
     Assert.True(constraints.HasAllToAllConnectivity)
     Assert.Contains("RZZ", constraints.SupportedGates)
@@ -83,7 +83,7 @@ let ``Validate circuit with qubit count within backend limits should pass`` () =
     // Act
     let result = validateQubitCount constraints circuit
     
-    // Assert - 10 qubits is within IonQ Hardware limit of 11
+    // Assert - 10 qubits is well within IonQ Hardware limit of 11
     match result with
     | Ok () -> Assert.True(true)
     | Error _ -> Assert.True(false, "Expected validation to pass but got error")

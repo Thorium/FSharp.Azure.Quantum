@@ -13,19 +13,39 @@ open FSharp.Azure.Quantum.Core
 /// - Routes to classical solver (fast, free) or quantum backend (scalable, expensive)
 /// - Optionally compares both methods for validation
 ///
+/// SUPPORTED PROBLEM TYPES:
+/// - TSP (Traveling Salesman Problem)
+/// - Portfolio Optimization
+/// - MaxCut (Graph Partitioning)
+/// - Knapsack (0/1 Knapsack)
+/// - Graph Coloring (K-Coloring)
+///
 /// CLASSICAL ROUTING:
-/// - Small problems (< 50 variables): TspSolver, PortfolioSolver
+/// - Small problems (< 50 variables): TspSolver, PortfolioSolver, etc.
 /// - Executes on CPU (milliseconds, $0 cost)
 ///
 /// QUANTUM ROUTING:
-/// - Large problems (> 100 variables): QuantumTspSolver with backend parameter
+/// - Large problems (> 100 variables): Quantum solvers with backend parameter
 /// - Executes on Azure Quantum (seconds to minutes, ~$10-100 cost)
 ///
 /// Example:
+///   // TSP
 ///   match HybridSolver.solveTsp distances None None None with
 ///   | Ok solution -> 
 ///       printfn "Method: %A" solution.Method  // Classical or Quantum
 ///       printfn "Reasoning: %s" solution.Reasoning
+///
+///   // MaxCut
+///   match HybridSolver.solveMaxCut problem None None None with
+///   | Ok solution -> printfn "Cut Value: %f" solution.Result.CutValue
+///
+///   // Knapsack
+///   match HybridSolver.solveKnapsack problem None None None with
+///   | Ok solution -> printfn "Total Value: %f" solution.Result.TotalValue
+///
+///   // Graph Coloring
+///   match HybridSolver.solveGraphColoring problem 3 None None None with
+///   | Ok solution -> printfn "Colors Used: %d" solution.Result.ColorsUsed
 ///
 /// ALL HYBRID SOLVER CODE IN SINGLE FILE (per TKT-26 requirements)
 module HybridSolver =
@@ -389,6 +409,194 @@ module HybridSolver =
             QuantumAdvisor.getRecommendation problemRepresentation
             |> Result.map (fun recommendation ->
                 let reasoning = $"{recommendation.Reasoning} Routing to classical Portfolio solver."
+                solveClassical ()
+                |> createClassicalSolution <| reasoning <| startTime <| Some recommendation
+            )
+
+    // ================================================================================
+    // SOLVER ROUTING - MAXCUT
+    // ================================================================================
+
+    /// Solve MaxCut problem using hybrid solver with automatic quantum vs classical selection
+    ///
+    /// Parameters:
+    ///   problem - MaxCut problem (vertices and edges)
+    ///   budget - Optional budget limit for quantum execution (USD)
+    ///   timeout - Optional timeout for classical solver (milliseconds)
+    ///   forceMethod - Optional override to force specific solver method
+    ///
+    /// Returns:
+    ///   Result with Solution containing MaxCut result, method used, and reasoning
+    let solveMaxCut
+        (problem: QuantumMaxCutSolver.MaxCutProblem)
+        (budget: float option)
+        (timeout: float option)
+        (forceMethod: SolverMethod option)
+        : Result<Solution<QuantumMaxCutSolver.MaxCutSolution>, string> =
+        
+        let startTime = DateTime.UtcNow
+        let solveClassical () = QuantumMaxCutSolver.solveClassical problem
+
+        match forceMethod with
+        | Some Classical ->
+            solveClassical ()
+            |> createClassicalSolution
+                <| "Classical MaxCut solver forced by user override. Quantum Advisor bypassed."
+                <| startTime
+                <| None
+            |> Ok
+
+        | Some Quantum ->
+            // Execute quantum MaxCut solver
+            let quantumConfig = QuantumMaxCutSolver.defaultConfig
+            let backend = BackendAbstraction.createLocalBackend()
+            
+            match QuantumMaxCutSolver.solve backend problem quantumConfig with
+            | Error msg -> Error (sprintf "Quantum MaxCut solver failed: %s" msg)
+            | Ok quantumResult ->
+                {
+                    Method = Quantum
+                    Result = quantumResult
+                    Reasoning = "Quantum MaxCut solver forced by user override."
+                    ElapsedMs = (DateTime.UtcNow - startTime).TotalMilliseconds
+                    Recommendation = None
+                } |> Ok
+
+        | None ->
+            // Create problem representation for Quantum Advisor
+            // Use vertex count as approximation of problem complexity
+            let numVertices = problem.Vertices.Length
+            let problemRepresentation = Array2D.init numVertices numVertices (fun i j -> if i = j then 0.0 else 1.0)
+            
+            QuantumAdvisor.getRecommendation problemRepresentation
+            |> Result.map (fun recommendation ->
+                let reasoning = $"{recommendation.Reasoning} Routing to classical MaxCut solver."
+                solveClassical ()
+                |> createClassicalSolution <| reasoning <| startTime <| Some recommendation
+            )
+
+    // ================================================================================
+    // SOLVER ROUTING - KNAPSACK
+    // ================================================================================
+
+    /// Solve Knapsack problem using hybrid solver with automatic quantum vs classical selection
+    ///
+    /// Parameters:
+    ///   problem - Knapsack problem (items, weights, values, capacity)
+    ///   budget - Optional budget limit for quantum execution (USD)
+    ///   timeout - Optional timeout for classical solver (milliseconds)
+    ///   forceMethod - Optional override to force specific solver method
+    ///
+    /// Returns:
+    ///   Result with Solution containing Knapsack result, method used, and reasoning
+    let solveKnapsack
+        (problem: QuantumKnapsackSolver.KnapsackProblem)
+        (budget: float option)
+        (timeout: float option)
+        (forceMethod: SolverMethod option)
+        : Result<Solution<QuantumKnapsackSolver.KnapsackSolution>, string> =
+        
+        let startTime = DateTime.UtcNow
+        let solveClassical () = QuantumKnapsackSolver.solveClassical problem
+
+        match forceMethod with
+        | Some Classical ->
+            solveClassical ()
+            |> createClassicalSolution
+                <| "Classical Knapsack solver forced by user override. Quantum Advisor bypassed."
+                <| startTime
+                <| None
+            |> Ok
+
+        | Some Quantum ->
+            // Execute quantum Knapsack solver
+            let quantumConfig = QuantumKnapsackSolver.defaultConfig
+            let backend = BackendAbstraction.createLocalBackend()
+            
+            match QuantumKnapsackSolver.solve backend problem quantumConfig with
+            | Error msg -> Error (sprintf "Quantum Knapsack solver failed: %s" msg)
+            | Ok quantumResult ->
+                {
+                    Method = Quantum
+                    Result = quantumResult
+                    Reasoning = "Quantum Knapsack solver forced by user override."
+                    ElapsedMs = (DateTime.UtcNow - startTime).TotalMilliseconds
+                    Recommendation = None
+                } |> Ok
+
+        | None ->
+            // Create problem representation for Quantum Advisor
+            // Use item count as approximation of problem complexity
+            let numItems = problem.Items.Length
+            let problemRepresentation = Array2D.init numItems numItems (fun i j -> if i = j then 0.0 else 1.0)
+            
+            QuantumAdvisor.getRecommendation problemRepresentation
+            |> Result.map (fun recommendation ->
+                let reasoning = $"{recommendation.Reasoning} Routing to classical Knapsack solver."
+                solveClassical ()
+                |> createClassicalSolution <| reasoning <| startTime <| Some recommendation
+            )
+
+    // ================================================================================
+    // SOLVER ROUTING - GRAPH COLORING
+    // ================================================================================
+
+    /// Solve Graph Coloring problem using hybrid solver with automatic quantum vs classical selection
+    ///
+    /// Parameters:
+    ///   problem - Graph Coloring problem (vertices, edges, colors)
+    ///   numColors - Number of colors to use
+    ///   budget - Optional budget limit for quantum execution (USD)
+    ///   timeout - Optional timeout for classical solver (milliseconds)
+    ///   forceMethod - Optional override to force specific solver method
+    ///
+    /// Returns:
+    ///   Result with Solution containing Graph Coloring result, method used, and reasoning
+    let solveGraphColoring
+        (problem: QuantumGraphColoringSolver.GraphColoringProblem)
+        (numColors: int)
+        (budget: float option)
+        (timeout: float option)
+        (forceMethod: SolverMethod option)
+        : Result<Solution<QuantumGraphColoringSolver.GraphColoringSolution>, string> =
+        
+        let startTime = DateTime.UtcNow
+        let solveClassical () = QuantumGraphColoringSolver.solveClassical problem
+
+        match forceMethod with
+        | Some Classical ->
+            solveClassical ()
+            |> createClassicalSolution
+                <| "Classical Graph Coloring solver forced by user override. Quantum Advisor bypassed."
+                <| startTime
+                <| None
+            |> Ok
+
+        | Some Quantum ->
+            // Execute quantum Graph Coloring solver
+            let quantumConfig = QuantumGraphColoringSolver.defaultConfig numColors
+            let backend = BackendAbstraction.createLocalBackend()
+            
+            match QuantumGraphColoringSolver.solve backend problem quantumConfig with
+            | Error msg -> Error (sprintf "Quantum Graph Coloring solver failed: %s" msg)
+            | Ok quantumResult ->
+                {
+                    Method = Quantum
+                    Result = quantumResult
+                    Reasoning = "Quantum Graph Coloring solver forced by user override."
+                    ElapsedMs = (DateTime.UtcNow - startTime).TotalMilliseconds
+                    Recommendation = None
+                } |> Ok
+
+        | None ->
+            // Create problem representation for Quantum Advisor
+            // Use vertex count as approximation of problem complexity
+            let numVertices = problem.Vertices.Length
+            let problemRepresentation = Array2D.init numVertices numVertices (fun i j -> if i = j then 0.0 else 1.0)
+            
+            QuantumAdvisor.getRecommendation problemRepresentation
+            |> Result.map (fun recommendation ->
+                let reasoning = $"{recommendation.Reasoning} Routing to classical Graph Coloring solver."
                 solveClassical ()
                 |> createClassicalSolution <| reasoning <| startTime <| Some recommendation
             )

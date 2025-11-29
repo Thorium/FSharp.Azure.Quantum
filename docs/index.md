@@ -5,34 +5,61 @@ title: FSharp.Azure.Quantum
 
 # FSharp.Azure.Quantum
 
-**F# library for quantum-inspired optimization** - Solve TSP, Portfolio, and combinatorial optimization problems with automatic quantum vs classical routing.
+**Quantum-First F# Library** - Solve combinatorial optimization problems using QAOA (Quantum Approximate Optimization Algorithm) with automatic backend selection.
 
 [![NuGet](https://img.shields.io/nuget/v/FSharp.Azure.Quantum.svg)](https://www.nuget.org/packages/FSharp.Azure.Quantum/)
 [![License](https://img.shields.io/badge/license-Unlicense-blue.svg)](https://github.com/thorium/FSharp.Azure.Quantum/blob/master/LICENSE)
 
 ## 🚀 Quick Start
 
+### F# Computation Expressions
+
 ```fsharp
-open FSharp.Azure.Quantum.Classical
+open FSharp.Azure.Quantum
 
-// Hybrid solver automatically chooses classical or quantum
-// TSP builder routes through HybridSolver for intelligent method selection
-let cities = [
-    ("Seattle", 47.6, -122.3)
-    ("Portland", 45.5, -122.7)
-    ("San Francisco", 37.8, -122.4)
-]
+// Graph Coloring: Register Allocation
+let problem = graphColoring {
+    node "R1" conflictsWith ["R2"; "R3"]
+    node "R2" conflictsWith ["R1"; "R4"]
+    node "R3" conflictsWith ["R1"; "R4"]
+    node "R4" conflictsWith ["R2"; "R3"]
+    colors ["EAX"; "EBX"; "ECX"; "EDX"]
+}
 
-// Convert to distance matrix
-let distances = TSP.calculateDistances cities
-
-// Let HybridSolver decide the best approach
-match HybridSolver.solveTsp distances None None None with
+// Solve using quantum optimization (QAOA)
+match GraphColoring.solve problem 4 None with
 | Ok solution ->
-    printfn "Method: %A" solution.Method  // Classical or Quantum
-    printfn "Reasoning: %s" solution.Reasoning
-    printfn "Best route: %A" solution.Result
-| Error msg -> printfn "Error: %s" msg
+    printfn "Colors used: %d" solution.ColorsUsed
+    solution.Assignments 
+    |> Map.iter (fun node color -> printfn "%s → %s" node color)
+| Error msg -> 
+    printfn "Error: %s" msg
+```
+
+### C# Fluent API
+
+```csharp
+using FSharp.Azure.Quantum;
+using static FSharp.Azure.Quantum.CSharpBuilders;
+
+// MaxCut: Circuit Partitioning
+var vertices = new[] { "A", "B", "C", "D" };
+var edges = new[] {
+    (source: "A", target: "B", weight: 1.0),
+    (source: "B", target: "C", weight: 2.0),
+    (source: "C", target: "D", weight: 1.0),
+    (source: "D", target: "A", weight: 1.0)
+};
+
+var problem = MaxCutProblem(vertices, edges);
+var result = MaxCut.solve(problem, null);
+
+if (result.IsOk) {
+    var solution = result.ResultValue;
+    Console.WriteLine($"Cut Value: {solution.CutValue}");
+    Console.WriteLine($"Partition S: {string.Join(", ", solution.PartitionS)}");
+    Console.WriteLine($"Partition T: {string.Join(", ", solution.PartitionT)}");
+}
 ```
 
 ## 📦 Installation
@@ -43,46 +70,282 @@ dotnet add package FSharp.Azure.Quantum
 
 ## ✨ Features
 
-### 🔀 HybridSolver - Automatic Quantum/Classical Routing
-Automatically chooses the best solver (quantum or classical) based on problem characteristics.
+### 🎯 6 Quantum Optimization Builders
 
-### 🗺️ TSP (Traveling Salesman Problem)
-Solve routing problems with named cities and coordinates.
+**Production-ready quantum algorithms for common combinatorial problems:**
 
-### 💼 Portfolio Optimization
-Optimize asset allocation with budget and risk constraints.
+1. **Graph Coloring** - Register allocation, frequency assignment, scheduling
+2. **MaxCut** - Circuit partitioning, community detection, load balancing
+3. **Knapsack** - Resource allocation, cargo loading, project selection
+4. **TSP** - Route optimization, delivery planning, logistics
+5. **Portfolio** - Investment allocation, asset selection, risk management
+6. **Network Flow** - Supply chain optimization, distribution planning
 
-### 🔬 Quantum Circuit Building
-Build and validate quantum circuits with gate operations.
+### 🔬 QAOA Implementation
 
-### 🧪 Local Quantum Simulation
-Test quantum algorithms offline without Azure credentials - up to 10 qubits.
+Quantum Approximate Optimization Algorithm with:
+- ✅ Automatic QUBO encoding
+- ✅ Variational parameter optimization (Nelder-Mead)
+- ✅ Configurable circuit depth and shot counts
+- ✅ Solution validation and quality metrics
 
-### 📊 QAOA Implementation
-Quantum Approximate Optimization Algorithm for combinatorial problems.
+### 🖥️ Multiple Execution Backends
+
+- **LocalBackend** - Fast simulation (≤10 qubits, free)
+- **IonQBackend** - Azure Quantum (29+ qubits simulator, 11 qubits QPU)
+- **RigettiBackend** - Azure Quantum (40+ qubits simulator, 80 qubits QPU)
+
+### 💻 Cross-Language Support
+
+- **F# First** - Idiomatic computation expressions and type safety
+- **C# Friendly** - Fluent API extensions with value tuples
+- **Seamless Interop** - Works naturally in both languages
+
+## 🎯 Problem Types & Examples
+
+### Graph Coloring
+
+```fsharp
+// Register allocation for compiler optimization
+let registers = graphColoring {
+    node "R1" conflictsWith ["R2"; "R3"; "R5"]
+    node "R2" conflictsWith ["R1"; "R4"]
+    node "R3" conflictsWith ["R1"; "R4"; "R5"]
+    node "R4" conflictsWith ["R2"; "R3"]
+    node "R5" conflictsWith ["R1"; "R3"]
+    colors ["EAX"; "EBX"; "ECX"; "EDX"]
+    objective MinimizeColors
+}
+```
+
+### MaxCut
+
+```fsharp
+// Network community detection
+let vertices = ["User1"; "User2"; "User3"; "User4"]
+let edges = [
+    ("User1", "User2", 3.0)  // interaction strength
+    ("User2", "User3", 5.0)
+    ("User3", "User4", 2.0)
+    ("User4", "User1", 4.0)
+]
+
+let problem = MaxCut.createProblem vertices edges
+let solution = MaxCut.solve problem None
+```
+
+### Knapsack
+
+```fsharp
+// Cargo loading optimization
+let items = [
+    ("Electronics", 50.0, 10000.0)
+    ("Furniture", 200.0, 5000.0)
+    ("Textiles", 30.0, 3000.0)
+    ("Machinery", 150.0, 8000.0)
+]
+
+let problem = Knapsack.createProblem items 300.0  // 300kg capacity
+```
+
+### TSP
+
+```fsharp
+// Delivery route optimization
+let cities = [
+    ("Warehouse", 0.0, 0.0)
+    ("Store A", 5.0, 3.0)
+    ("Store B", 2.0, 7.0)
+    ("Store C", 8.0, 4.0)
+]
+
+let problem = TSP.createProblem cities
+```
+
+### Portfolio
+
+```fsharp
+// Investment allocation
+let assets = [
+    ("Tech ETF", 0.15, 0.20, 100.0)    // return, risk, price
+    ("Bonds", 0.05, 0.05, 50.0)
+    ("Real Estate", 0.10, 0.12, 200.0)
+]
+
+let problem = Portfolio.createProblem assets 10000.0  // $10k budget
+```
+
+### Network Flow
+
+```fsharp
+// Supply chain optimization
+let nodes = [
+    NetworkFlow.SourceNode("Factory", 1000)
+    NetworkFlow.IntermediateNode("Warehouse", 800)
+    NetworkFlow.SinkNode("Customer", 500)
+]
+
+let routes = [
+    NetworkFlow.Route("Factory", "Warehouse", 5.0)
+    NetworkFlow.Route("Warehouse", "Customer", 3.0)
+]
+
+let problem = { NetworkFlow.Nodes = nodes; Routes = routes }
+```
+
+## 🏗️ Architecture
+
+**3-Layer Quantum-Only Design:**
+
+```
+┌─────────────────────────────────────────┐
+│   Layer 1: High-Level Builders         │
+│   (graphColoring { }, MaxCut.solve)    │
+│   - F# computation expressions          │
+│   - C# fluent APIs                      │
+│   - Domain-specific validation          │
+└─────────────────┬───────────────────────┘
+                  │
+┌─────────────────▼───────────────────────┐
+│   Layer 2: Quantum Solvers (QAOA)      │
+│   (QuantumGraphColoringSolver, etc.)    │
+│   - QUBO encoding                       │
+│   - Circuit construction                │
+│   - Parameter optimization              │
+└─────────────────┬───────────────────────┘
+                  │
+┌─────────────────▼───────────────────────┐
+│   Layer 3: Quantum Backends             │
+│   (LocalBackend, IonQ, Rigetti)         │
+│   - State vector simulation             │
+│   - Cloud quantum hardware              │
+│   - Circuit execution                   │
+└─────────────────────────────────────────┘
+```
+
+**Design Philosophy:**
+- ✅ **Quantum-Only**: No classical algorithms (pure quantum optimization library)
+- ✅ **Clear Layers**: No leaky abstractions between layers
+- ✅ **Type-Safe**: F# type system prevents invalid problem specifications
+- ✅ **Extensible**: Easy to add new problem types following existing patterns
 
 ## 📚 Documentation
 
-- [Getting Started](getting-started) - Installation and first steps
-- [Local Simulation](local-simulation) - Quantum simulation without Azure
-- [Backend Switching](backend-switching) - Switch between local and Azure
+### Getting Started
+- [Getting Started Guide](getting-started) - Installation and first steps
+- [C# Usage Guide](../CSHARP-QUANTUM-BUILDER-USAGE-GUIDE.md) - Complete C# interop examples
+
+### Core Concepts
 - [API Reference](api-reference) - Complete API documentation
-- [Examples](examples/tsp-example) - Practical examples and tutorials
+- [Architecture Overview](architecture-overview) - Deep dive into library design
+- [Backend Switching](backend-switching) - Local vs Cloud quantum execution
+
+### Advanced Topics
+- [QUBO Encoding Strategies](qubo-encoding-strategies) - Problem transformations
 - [FAQ](faq) - Frequently asked questions
 
-## 🎯 Use Cases
+### Problem-Specific Guides
+- [Graph Coloring API](GraphColoring-API) - Register allocation, scheduling
+- [Quantum Chemistry API](QuantumChemistry-API) - VQE for molecular simulation
+- [Task Scheduling API](TaskScheduling-API) - Constraint-based scheduling
 
-- **Supply Chain Optimization** - Route planning and logistics
-- **Financial Portfolio** - Asset allocation with constraints
-- **Resource Scheduling** - Task and resource optimization
-- **Network Design** - Optimal network topology
+### Examples
+- [TSP Example](examples/tsp-example) - Route optimization tutorial
+- [Quantum TSP Example](examples/quantum-tsp-example) - QAOA deep dive
+- [Subset Selection Example](examples/subset-selection-example) - Knapsack variants
+
+## 🎯 When to Use This Library
+
+### ✅ Use FSharp.Azure.Quantum When:
+
+- You want to learn quantum optimization algorithms (QAOA)
+- You're building quantum-enabled applications
+- You need quantum solutions for combinatorial problems
+- You're researching quantum algorithm performance
+- You want to experiment with quantum computing
+
+### 🔄 Consider Classical Libraries When:
+
+- Problem size < 50 variables (classical is faster)
+- You need immediate results (< 1 second)
+- Cost is a primary concern
+- Deterministic results required
+
+**Best Practice**: Use this library for quantum experimentation and algorithms research. For production optimization workloads, consider combining with classical solvers based on problem characteristics.
+
+## 🔧 Backend Selection Guide
+
+### LocalBackend (Default)
+
+```fsharp
+// Automatic: No backend parameter needed
+match MaxCut.solve problem None with
+| Ok solution -> (* ... *)
+```
+
+**Characteristics:**
+- ✅ Free (local simulation)
+- ✅ Fast (milliseconds)
+- ✅ Up to 10 qubits
+- ✅ Perfect for development and testing
+
+### Azure Quantum (Cloud)
+
+```fsharp
+// Create cloud backend
+let backend = BackendAbstraction.createIonQBackend(
+    connectionString = "YOUR_CONNECTION_STRING",
+    targetId = "ionq.simulator"  // or "ionq.qpu"
+)
+
+// Pass to solver
+match MaxCut.solve problem (Some backend) with
+| Ok solution -> (* ... *)
+```
+
+**Characteristics:**
+- ⚡ Scalable (29+ qubits)
+- ⚡ Real quantum hardware available
+- 💰 Paid service (~$10-100 per run)
+- ⏱️ Slower (job queue, 10-60 seconds)
+
+## 🤝 Contributing
+
+Contributions welcome! See [GitHub Repository](https://github.com/thorium/FSharp.Azure.Quantum) for contribution guidelines.
+
+**Areas we'd love help with:**
+- New problem builders (SAT, Job Shop Scheduling, Vehicle Routing)
+- QAOA warm-start strategies
+- Alternative quantum algorithms (VQE, QASM)
+- Additional cloud backend support (AWS Braket, IBM Quantum)
+- Performance optimizations
 
 ## 🔗 Links
 
 - [GitHub Repository](https://github.com/thorium/FSharp.Azure.Quantum)
 - [NuGet Package](https://www.nuget.org/packages/FSharp.Azure.Quantum/)
 - [Report Issues](https://github.com/thorium/FSharp.Azure.Quantum/issues)
+- [API Documentation](api-reference)
+
+## 📊 Performance Guidelines
+
+| Problem Type | LocalBackend | Cloud Required |
+|--------------|--------------|----------------|
+| Graph Coloring | ≤10 nodes | 15+ nodes |
+| MaxCut | ≤10 vertices | 15+ vertices |
+| Knapsack | ≤10 items | 15+ items |
+| TSP | ≤5 cities | 8+ cities |
+| Portfolio | ≤10 assets | 15+ assets |
+| Network Flow | ≤8 nodes | 12+ nodes |
+
+**Note:** LocalBackend supports up to 10 qubits. Larger problems require cloud backends.
 
 ## 📄 License
 
 This project is licensed under the [Unlicense](https://unlicense.org/) - dedicated to the public domain.
+
+---
+
+**Status**: Production Ready (v2.0.0) - Quantum-only architecture with 6 problem builders
+
+**Last Updated**: 2025-11-29

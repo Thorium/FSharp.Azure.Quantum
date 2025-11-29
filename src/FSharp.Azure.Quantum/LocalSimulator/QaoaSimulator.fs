@@ -23,8 +23,8 @@ module QaoaSimulator =
     /// For n qubits, creates state |+⟩^⊗n = (1/√(2^n)) Σ|i⟩
     /// This is achieved by applying Hadamard gates to all qubits starting from |0⟩^⊗n
     let initializeUniformSuperposition (numQubits: int) : StateVector.StateVector =
-        if numQubits < 1 || numQubits > 10 then
-            failwith $"Number of qubits must be between 1 and 10, got {numQubits}"
+        if numQubits < 1 || numQubits > 16 then
+            failwith $"Number of qubits must be between 1 and 16, got {numQubits}"
         
         // Apply Hadamard to each qubit to create uniform superposition
         [0 .. numQubits - 1]

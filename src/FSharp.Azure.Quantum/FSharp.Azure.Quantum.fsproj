@@ -94,8 +94,6 @@
     <Compile Include="Builders\OpenQasmImport.fs" />
     <Compile Include="Builders\QuboEncoding.fs" />
     <Compile Include="Builders\GraphOptimization.fs" />
-    <Compile Include="Builders\GraphColoring.fs" />
-    <Compile Include="Builders\ConstraintSatisfaction.fs" />
 
     <!-- Error Mitigation Layer (depends on Builders) -->
     <Compile Include="ErrorMitigation\ZeroNoiseExtrapolation.fs" />
@@ -113,6 +111,9 @@
     <Compile Include="Solvers\Quantum\QuantumTspSolver.fs" />
     <Compile Include="Solvers\Quantum\QuantumNetworkFlowSolver.fs" />
     <Compile Include="Solvers\Quantum\QuantumPortfolioSolver.fs" />
+    <Compile Include="Solvers\Quantum\QuantumMaxCutSolver.fs" />
+    <Compile Include="Solvers\Quantum\QuantumKnapsackSolver.fs" />
+    <Compile Include="Solvers\Quantum\QuantumGraphColoringSolver.fs" />
     <Compile Include="Solvers\Quantum\QuantumChemistry.fs" />
 
     <!-- Hybrid Solvers - Orchestrate classical + quantum (depends on Quantum Solvers) -->
@@ -123,15 +124,13 @@
     <!-- Classical Builders - User-facing APIs (depends on HybridSolver) -->
     <Compile Include="Solvers\Classical\TspBuilder.fs" />
     <Compile Include="Solvers\Classical\PortfolioBuilder.fs" />
+    <Compile Include="Solvers\Classical\NetworkFlowBuilder.fs" />
+    <Compile Include="Solvers\Classical\MaxCutBuilder.fs" />
+    <Compile Include="Solvers\Classical\KnapsackBuilder.fs" />
+    <Compile Include="Solvers\Classical\GraphColoringBuilder.fs" />
 
     <!-- Utilities Layer (depends on Classical Builders) -->
     <Compile Include="Utilities\PerformanceBenchmarking.fs" />
-
-    <!-- Top-level applications (depends on Solvers) -->
-    <Compile Include="Builders\Scheduling.fs" />
-    <Compile Include="Builders\TaskScheduling.fs" />
-    <Compile Include="Builders\SubsetSelection.fs" />
-    <Compile Include="Builders\SubsetSelectionCSharpExtensions.fs" />
     
     <!-- C# Interop Extensions (must come after ALL builders) -->
     <Compile Include="Builders\BuildersCSharpExtensions.fs" />

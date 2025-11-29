@@ -85,8 +85,8 @@ module BackendAbstraction =
                     // Validate parameters
                     if numShots <= 0 then
                         Error "Number of shots must be positive"
-                    elif circuit.NumQubits > 10 then
-                        Error "Local backend supports maximum 10 qubits"
+                    elif circuit.NumQubits > 16 then
+                        Error "Local backend supports maximum 16 qubits"
                     else
                         // Convert ICircuit to QaoaCircuit for simulation
                         // This is a simplified approach - we need to know the circuit format
@@ -153,7 +153,7 @@ module BackendAbstraction =
             
             member _.SupportedGates = ["H"; "RX"; "RY"; "RZ"; "CNOT"; "RZZ"]
             
-            member _.MaxQubits = 10
+            member _.MaxQubits = 16
     
     // ============================================================================
     // IONQ BACKEND WRAPPER

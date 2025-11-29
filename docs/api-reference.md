@@ -5,21 +5,21 @@ title: API Reference
 
 # API Reference
 
-Complete reference for **FSharp.Azure.Quantum** public APIs.
+Complete reference for **FSharp.Azure.Quantum** quantum optimization APIs.
 
 ## Table of Contents
 
-- [Quick Start Patterns](#quick-start-patterns) - Common usage patterns (NEW!)
-- [HybridSolver](#hybridsolver) - Automatic quantum/classical routing
-- [TspSolver](#tspsolver) - Classical TSP solver
-- [TspBuilder](#tspbuilder) - TSP builder pattern API  
-- [PortfolioSolver](#portfoliosolver) - Classical portfolio optimization
-- [PortfolioBuilder](#portfoliobuilder) - Portfolio builder pattern API
-- [QuantumAdvisor](#quantumadvisor) - Decision framework for quantum vs classical
-- [ProblemAnalysis](#problemanalysis) - Problem classification and complexity
-- [CostEstimation](#costestimation) - Cost calculation and budget management
-- [Types](#types) - Core types and data structures
-- **[QUBO Encoding Strategies](qubo-encoding-strategies.md)** - Problem-specific transformations (NEW!)
+- [Quick Start Patterns](#quick-start-patterns) - Common usage patterns
+- [Graph Coloring Builder](#graph-coloring-builder) - Register allocation, scheduling
+- [MaxCut Builder](#maxcut-builder) - Circuit partitioning, community detection
+- [Knapsack Builder](#knapsack-builder) - Resource allocation, cargo loading
+- [TSP Builder](#tsp-builder) - Route optimization, delivery planning
+- [Portfolio Builder](#portfolio-builder) - Investment allocation, asset selection
+- [Network Flow Builder](#network-flow-builder) - Supply chain optimization
+- [Quantum Backends](#quantum-backends) - LocalBackend, IonQ, Rigetti
+- [C# Interop](#c-interop) - Using from C#
+- [Core Types](#core-types) - Data structures and result types
+- **[QUBO Encoding Strategies](qubo-encoding-strategies.md)** - Problem transformations
 
 ---
 
@@ -28,769 +28,789 @@ Complete reference for **FSharp.Azure.Quantum** public APIs.
 ### Pattern 1: Simple Auto-Solve (Recommended)
 
 ```fsharp
-open FSharp.Azure.Quantum.Classical
+open FSharp.Azure.Quantum
 
-// TSP: Let HybridSolver decide everything
-let distances = array2D [[0.0; 10.0]; [10.0; 0.0]]
-match HybridSolver.solveTsp distances None None None with
-| Ok solution -> printfn "Tour: %A" solution.Result.Tour
-| Error msg -> eprintfn "Error: %s" msg
-
-// Portfolio: Let HybridSolver decide everything  
-let assets = [
-    {Symbol="AAPL"; ExpectedReturn=0.12; Risk=0.18; Price=150.0}
-]
-let constraints = {
-    Budget=1000.0
-    MinHolding=0.0
-    MaxHolding=500.0
-}
-match HybridSolver.solvePortfolio assets constraints None None None with
-| Ok solution -> printfn "Value: $%.2f" solution.Result.TotalValue
-| Error msg -> eprintfn "Error: %s" msg
-```
-
-### Pattern 2: Force Classical (Development/Testing)
-
-```fsharp
-// Force classical when developing (fast, deterministic)
-let forceClassical = Some HybridSolver.SolverMethod.Classical
-
-match HybridSolver.solveTsp distances None None forceClassical with
-| Ok solution -> 
-    // Guaranteed fast result from classical solver
-    printfn "Solved in %.2f ms" solution.ElapsedMs
-| Error msg -> eprintfn "Error: %s" msg
-```
-
-### Pattern 3: Budget-Constrained Quantum (Production)
-
-```fsharp
-// Set budget limit for quantum execution
-let budgetLimit = Some 10.0  // $10 USD max
-
-match HybridSolver.solveTsp distances budgetLimit None None with
-| Ok solution -> 
-    match solution.Method with
-    | Classical -> printfn "Used classical (quantum too expensive)"
-    | Quantum -> printfn "Used quantum within budget"
-| Error msg -> eprintfn "Error: %s" msg
-```
-
-### Pattern 4: Builder Pattern (Named Entities)
-
-```fsharp
-// TSP with named cities (easier to read)
-let cities = [
-    ("Seattle", 47.6, -122.3)
-    ("Portland", 45.5, -122.7)
-]
-
-match TSP.solveDirectly cities None with
-| Ok tour -> 
-    printfn "Route: %s" (String.concat " → " tour.Cities)
-    printfn "Distance: %.2f miles" tour.TotalDistance
-| Error msg -> eprintfn "Error: %s" msg
-
-// Portfolio with named assets
-let assets = [
-    ("AAPL", 0.12, 0.18, 150.0)  // (symbol, return, risk, price)
-    ("MSFT", 0.10, 0.15, 300.0)
-]
-
-match Portfolio.solveDirectly assets 10000.0 None with
-| Ok result ->
-    result.Allocations 
-    |> List.iter (fun a -> 
-        printfn "%s: %d shares = $%.2f" 
-            a.Symbol a.Shares a.Value)
-| Error msg -> eprintfn "Error: %s" msg
-```
-
-### Pattern 5: Advanced Configuration
-
-```fsharp
-// Custom solver configuration
-let tspConfig = {
-    MaxIterations = 50000     // More iterations = better quality
-    UseNearestNeighbor = true // Start with good initial solution
+// Graph Coloring: Uses LocalBackend automatically
+let problem = graphColoring {
+    node "R1" conflictsWith ["R2"; "R3"]
+    node "R2" conflictsWith ["R1"]
+    node "R3" conflictsWith ["R1"]
+    colors ["Red"; "Blue"; "Green"]
 }
 
-// Direct classical solver with config
-let solution = TspSolver.solveWithDistances distances tspConfig
-
-printfn "Found tour in %d iterations" solution.Iterations
-printfn "Tour length: %.2f" solution.TourLength
-printfn "Time: %.2f ms" solution.ElapsedMs
+match GraphColoring.solve problem 3 None with
+| Ok solution -> 
+    printfn "Colors used: %d" solution.ColorsUsed
+    printfn "Valid: %b" solution.IsValid
+| Error msg -> 
+    printfn "Error: %s" msg
 ```
 
-### Pattern 6: Robust Error Recovery
+### Pattern 2: Cloud Backend (Large Problems)
 
 ```fsharp
-// Try hybrid, fallback to classical on error
-let solveTspRobust distances =
-    match HybridSolver.solveTsp distances None None None with
-    | Ok solution -> Ok solution.Result
-    | Error _ -> 
-        // Hybrid failed, try classical directly
-        try
-            Ok (TspSolver.solveWithDistances distances TspSolver.defaultConfig)
-        with ex ->
-            Error ex.Message
+// Create Azure Quantum backend
+let backend = BackendAbstraction.createIonQBackend(
+    connectionString = "YOUR_CONNECTION_STRING",
+    targetId = "ionq.simulator"
+)
 
-// Usage
-match solveTspRobust distances with
-| Ok result -> printfn "Success: %A" result.Tour
-| Error msg -> eprintfn "All solvers failed: %s" msg
+// Solve on cloud quantum hardware
+match GraphColoring.solve problem 3 (Some backend) with
+| Ok solution -> 
+    printfn "Solved on: %s" solution.BackendName
+| Error msg -> 
+    printfn "Error: %s" msg
 ```
 
-### Pattern 7: Validation Before Solving
+### Pattern 3: Custom QAOA Configuration
 
 ```fsharp
-// Validate portfolio constraints before solving
-let solvePortfolioSafe assets budget =
-    let constraints: PortfolioSolver.Constraints = {
-        Budget = budget
-        MinHolding = 0.0
-        MaxHolding = budget * 0.5
-    }
-    
-    // Validate first
-    let validation = 
-        PortfolioSolver.validateBudgetConstraint assets constraints
-    
-    if not validation.IsValid then
-        Error (String.concat "; " validation.Messages)
-    else
-        // Validation passed, solve
-        HybridSolver.solvePortfolio assets constraints None None None
-        |> Result.map (fun solution -> solution.Result)
-```
+open FSharp.Azure.Quantum.Quantum
 
-### Pattern 8: Multiple Runs for Best Solution
+// Configure QAOA parameters
+let quantumConfig : QuantumGraphColoringSolver.QuantumGraphColoringConfig = {
+    OptimizationShots = 200
+    FinalShots = 2000
+    EnableOptimization = true
+    InitialParameters = (0.5, 0.5)
+}
 
-```fsharp
-// Run classical solver multiple times, take best
-let findBestTspSolution distances numRuns =
-    [1..numRuns]
-    |> List.map (fun _ -> 
-        TspSolver.solveWithDistances distances TspSolver.defaultConfig)
-    |> List.minBy (fun sol -> sol.TourLength)
-
-// Usage: Run 10 times, keep best
-let bestSolution = findBestTspSolution distances 10
-printfn "Best of 10 runs: %.2f" bestSolution.TourLength
-```
-
-### Pattern 9: Parallel Solves (Advanced)
-
-```fsharp
-open System.Threading.Tasks
-
-// Solve multiple problems in parallel
-let problems = [distances1; distances2; distances3]
-
-let solutions = 
-    problems
-    |> List.map (fun distances ->
-        Task.Run(fun () ->
-            HybridSolver.solveTsp distances None None None))
-    |> Task.WhenAll
-    |> fun task -> task.Result
-
-// Process results
-solutions 
-|> Array.iteri (fun i result ->
-    match result with
-    | Ok sol -> printfn "Problem %d: %.2f" i sol.Result.TourLength
-    | Error msg -> eprintfn "Problem %d failed: %s" i msg)
-```
-
-### Pattern 10: TSP Builder Pattern with Named Cities
-
-```fsharp
-// Build problem from city list with names and coordinates
-let cities = [
-    ("Seattle", 47.6, -122.3)
-    ("Portland", 45.5, -122.7)
-    ("San Francisco", 37.8, -122.4)
-]
-
-let problem = TSP.createProblem cities
-
-match TSP.solve problem None with
-| Ok tour -> 
-    printfn "Route: %s" (String.concat " → " tour.Cities)
-    printfn "Distance: %.2f" tour.TotalDistance
-| Error msg -> eprintfn "Error: %s" msg
+// Use quantum solver directly (expert mode)
+let backend = BackendAbstraction.createLocalBackend()
+match QuantumGraphColoringSolver.solve backend problem quantumConfig with
+| Ok result -> printfn "Cost: %.2f" result.Cost
+| Error msg -> printfn "Error: %s" msg
 ```
 
 ---
 
-## HybridSolver
+## Graph Coloring Builder
 
-Automatically routes optimization problems to quantum or classical solvers based on problem characteristics and cost considerations.
+**Module:** `FSharp.Azure.Quantum.GraphColoring`
+
+**Use Cases:**
+- Register allocation in compilers
+- Frequency assignment for cell towers
+- Exam scheduling (no student conflicts)
+- Task scheduling with resource conflicts
+
+### Computation Expression API
+
+```fsharp
+let problem = graphColoring {
+    // Define nodes with conflicts
+    node "Task1" conflictsWith ["Task2"; "Task3"]
+    node "Task2" conflictsWith ["Task1"; "Task4"]
+    node "Task3" conflictsWith ["Task1"]
+    node "Task4" conflictsWith ["Task2"]
+    
+    // Available colors/resources
+    colors ["Slot A"; "Slot B"; "Slot C"]
+    
+    // Optimization objective
+    objective MinimizeColors  // or MinimizeConflicts, BalanceColors
+}
+```
 
 ### Types
 
 ```fsharp
-type SolverMethod =
-    | Classical
-    | Quantum
+type ColoredNode = {
+    Id: string
+    ConflictsWith: string list
+    FixedColor: string option         // Pre-assigned color
+    Priority: float                   // Tie-breaking priority
+    AvoidColors: string list          // Soft constraints
+    Properties: Map<string, obj>      // Custom metadata
+}
 
-type Solution<'TResult> = {
-    Method: SolverMethod
-    Result: 'TResult
-    Reasoning: string
-    ElapsedMs: float
-    Recommendation: QuantumAdvisor.Recommendation option
+type ColoringObjective =
+    | MinimizeColors      // Minimize chromatic number
+    | MinimizeConflicts   // Allow invalid colorings, minimize violations
+    | BalanceColors       // Load balancing
+
+type ColoringSolution = {
+    Assignments: Map<string, string>   // Node → Color mapping
+    ColorsUsed: int
+    ConflictCount: int
+    IsValid: bool
+    ColorDistribution: Map<string, int>
+    Cost: float
+    BackendName: string
+    IsQuantum: bool
 }
 ```
 
 ### Functions
 
-#### `solveTsp`
-
-Solve TSP problem with automatic quantum vs classical selection.
-
 ```fsharp
-val solveTsp : 
-    distances: float[,] ->
-    budget: float option ->
-    timeout: float option ->
-    forceMethod: SolverMethod option ->
-    Result<Solution<TspSolver.TspSolution>, string>
+/// Validate problem specification
+val validate : GraphColoringProblem → Result<unit, string>
+
+/// Solve graph coloring problem
+val solve : GraphColoringProblem → int → IQuantumBackend option → Result<ColoringSolution, string>
+//  Parameters:
+//    problem        - Graph coloring problem specification
+//    maxColors      - Maximum colors allowed (None = unlimited)
+//    backend        - Quantum backend (None = auto LocalBackend)
 ```
 
-**Parameters:**
-- `distances` - NxN distance matrix for N cities
-- `budget` - Optional budget limit for quantum execution (USD)
-- `timeout` - Optional timeout for classical solver (milliseconds)
-- `forceMethod` - Optional override to force Classical or Quantum
-
-**Example:**
-```fsharp
-// Automatic selection
-let result = HybridSolver.solveTsp distances None None None
-
-// Force classical
-let result = HybridSolver.solveTsp distances None None (Some Classical)
-
-// With budget limit
-let result = HybridSolver.solveTsp distances (Some 10.0) None None
-```
-
-#### `solvePortfolio`
-
-Solve portfolio optimization with automatic routing.
+### Example
 
 ```fsharp
-val solvePortfolio :
-    assets: PortfolioSolver.Asset list ->
-    constraints: PortfolioSolver.Constraints ->
-    budget: float option ->
-    timeout: float option ->
-    forceMethod: SolverMethod option ->
-    Result<Solution<PortfolioSolver.PortfolioSolution>, string>
-```
+// Register allocation for compiler
+let registers = graphColoring {
+    // Variables that interfere (live at same time)
+    node "x" conflictsWith ["y"; "z"]
+    node "y" conflictsWith ["x"; "w"]
+    node "z" conflictsWith ["x"; "w"]
+    node "w" conflictsWith ["y"; "z"]
+    
+    // Available CPU registers
+    colors ["EAX"; "EBX"; "ECX"; "EDX"]
+    
+    objective MinimizeColors
+}
 
-**Example:**
-```fsharp
-let result = HybridSolver.solvePortfolio assets constraints None None None
+match GraphColoring.solve registers 4 None with
+| Ok solution ->
+    printfn "Registers needed: %d" solution.ColorsUsed
+    solution.Assignments 
+    |> Map.iter (fun var reg -> printfn "%s → %s" var reg)
+| Error msg ->
+    printfn "Allocation failed: %s" msg
 ```
 
 ---
 
-## TspSolver
+## MaxCut Builder
 
-Classical Traveling Salesman Problem solver using local search optimization.
+**Module:** `FSharp.Azure.Quantum.MaxCut`
 
-### Types
-
-```fsharp
-type TspConfig = {
-    MaxIterations: int
-    InitialTemperature: float
-    CoolingRate: float
-    RandomSeed: int option
-}
-
-type TspSolution = {
-    Tour: int array
-    TourLength: float
-    Iterations: int
-}
-```
+**Use Cases:**
+- Circuit partitioning (minimize wire crossings)
+- Community detection in social networks
+- Load balancing across servers
+- Image segmentation
 
 ### Functions
 
-#### `solveWithDistances`
-
-Solve TSP given a distance matrix.
-
 ```fsharp
-val solveWithDistances : 
-    distances: float[,] ->
-    config: TspConfig ->
-    TspSolution
-```
+/// Create MaxCut problem from vertices and edges
+val createProblem : string list → (string * string * float) list → MaxCutProblem
 
-**Example:**
-```fsharp
-let config = TspSolver.defaultConfig
-let solution = TspSolver.solveWithDistances distances config
-printfn "Tour: %A, Length: %.2f" solution.Tour solution.TourLength
-```
+/// Create complete graph (all vertices connected)
+val completeGraph : string list → float → MaxCutProblem
 
-#### `defaultConfig`
+/// Create cycle graph (ring topology)
+val cycleGraph : string list → float → MaxCutProblem
 
-Default configuration for TSP solver.
-
-```fsharp
-val defaultConfig : TspConfig
-// MaxIterations = 10000
-// InitialTemperature = 100.0
-// CoolingRate = 0.995
-// RandomSeed = None
-```
-
----
-
-## TSP (TspBuilder)
-
-Domain builder API for constructing and solving TSP problems with named cities. **Routes through HybridSolver for automatic quantum-classical decision making.**
-
-### Architecture
-
-```
-TSP.solveDirectly
-    ↓
-  Convert cities → distance matrix
-    ↓
-  HybridSolver.solveTsp (automatic routing)
-    ↓
-  QuantumAdvisor (recommends Classical or Quantum)
-    ↓
-  Execute with selected method
-    ↓
-  Convert result → Tour (city names)
+/// Solve MaxCut problem
+val solve : MaxCutProblem → IQuantumBackend option → Result<Solution, string>
 ```
 
 ### Types
 
 ```fsharp
-type City = {
-    Name: string
-    X: float
-    Y: float
+type MaxCutProblem = {
+    Vertices: string list
+    Edges: Edge<float> list
+    VertexCount: int
+    EdgeCount: int
+}
+
+type Solution = {
+    PartitionS: string list         // First partition
+    PartitionT: string list         // Second partition
+    CutValue: float                 // Total edge weight crossing partition
+    CutEdges: Edge<float> list      // Edges in the cut
+    BackendName: string
+    IsQuantum: bool
+}
+```
+
+### Example
+
+```fsharp
+// Network partitioning
+let vertices = ["Server1"; "Server2"; "Server3"; "Server4"]
+let edges = [
+    ("Server1", "Server2", 10.0)  // communication cost
+    ("Server2", "Server3", 5.0)
+    ("Server3", "Server4", 8.0)
+    ("Server4", "Server1", 3.0)
+    ("Server1", "Server3", 12.0)
+]
+
+let problem = MaxCut.createProblem vertices edges
+
+match MaxCut.solve problem None with
+| Ok solution ->
+    printfn "Partition 1: %A" solution.PartitionS
+    printfn "Partition 2: %A" solution.PartitionT
+    printfn "Inter-partition traffic: %.2f" solution.CutValue
+| Error msg ->
+    printfn "Partitioning failed: %s" msg
+```
+
+---
+
+## Knapsack Builder
+
+**Module:** `FSharp.Azure.Quantum.Knapsack`
+
+**Use Cases:**
+- Resource allocation within budget
+- Cargo loading optimization
+- Project selection with constraints
+- Portfolio construction
+
+### Functions
+
+```fsharp
+/// Create knapsack problem
+val createProblem : (string * float * float) list → float → Problem
+//  Parameters:
+//    items     - (id, weight, value) tuples
+//    capacity  - Maximum total weight
+
+/// Solve knapsack problem
+val solve : Problem → IQuantumBackend option → Result<Solution, string>
+```
+
+### Types
+
+```fsharp
+type Item = {
+    Id: string
+    Weight: float
+    Value: float
+}
+
+type Problem = {
+    Items: Item list
+    Capacity: float
+    ItemCount: int
+    TotalValue: float
+    TotalWeight: float
+}
+
+type Solution = {
+    SelectedItems: Item list
+    TotalWeight: float
+    TotalValue: float
+    IsFeasible: bool
+    Efficiency: float                // Value per unit weight
+    CapacityUtilization: float       // Percentage used
+    BackendName: string
+    IsQuantum: bool
+}
+```
+
+### Example
+
+```fsharp
+// Cargo loading optimization
+let cargo = [
+    ("Electronics", 50.0, 10000.0)
+    ("Furniture", 200.0, 5000.0)
+    ("Textiles", 30.0, 3000.0)
+    ("Machinery", 150.0, 8000.0)
+    ("Food", 80.0, 2000.0)
+]
+
+let problem = Knapsack.createProblem cargo 300.0  // 300kg capacity
+
+match Knapsack.solve problem None with
+| Ok solution ->
+    printfn "Total value: $%.2f" solution.TotalValue
+    printfn "Weight: %.2f/%.2f kg" solution.TotalWeight problem.Capacity
+    printfn "Efficiency: $%.2f/kg" solution.Efficiency
+    
+    solution.SelectedItems 
+    |> List.iter (fun item -> 
+        printfn "  Load: %s (%.2f kg, $%.2f)" item.Id item.Weight item.Value)
+| Error msg ->
+    printfn "Optimization failed: %s" msg
+```
+
+---
+
+## TSP Builder
+
+**Module:** `FSharp.Azure.Quantum.TSP`
+
+**Use Cases:**
+- Delivery route optimization
+- PCB drilling path planning
+- Logistics and supply chain
+- Robot path planning
+
+### Functions
+
+```fsharp
+/// Create TSP problem from cities with coordinates
+val createProblem : (string * float * float) list → TspProblem
+//  Parameters:
+//    cities - (name, x, y) coordinate tuples
+
+/// Solve TSP problem
+val solve : TspProblem → IQuantumBackend option → Result<Tour, string>
+```
+
+### Types
+
+```fsharp
+type TspProblem = {
+    Cities: City array
+    CityCount: int
+    DistanceMatrix: float[,]
 }
 
 type Tour = {
-    Cities: string list
+    Cities: string list             // City names in tour order
     TotalDistance: float
     IsValid: bool
 }
 ```
 
-### Functions
-
-#### `createProblem`
-
-Create TSP problem from list of cities with coordinates.
+### Example
 
 ```fsharp
-val createProblem : cities: (string * float * float) list -> TspProblem
-```
+// Delivery route optimization
+let cities = [
+    ("Warehouse", 0.0, 0.0)
+    ("Customer A", 5.0, 3.0)
+    ("Customer B", 2.0, 7.0)
+    ("Customer C", 8.0, 4.0)
+    ("Customer D", 3.0, 6.0)
+]
 
-**Parameters:**
-- `cities` - List of (name, x-coordinate, y-coordinate) tuples
-
-#### `solve`
-
-Solve TSP problem using HybridSolver (automatic quantum-classical routing).
-
-```fsharp
-val solve : problem: TspProblem -> config: TspConfig option -> Result<Tour, string>
-```
-
-**Routing Behavior:**
-- Automatically routes through `HybridSolver.solveTsp`
-- QuantumAdvisor analyzes problem size and recommends method
-- Small problems (< 20 cities) use classical (fast, free)
-- Large problems (100+ cities) consider quantum (if available and beneficial)
-
-**Note:** Config parameter currently ignored (HybridSolver uses defaults). Future enhancement planned to support custom solver configurations.
-
-#### `solveDirectly`
-
-Create and solve TSP in one step.
-
-```fsharp
-val solveDirectly : cities: (string * float * float) list -> config: TspConfig option -> Result<Tour, string>
-```
-
-**Example:**
-```fsharp
-let cities = [("Seattle", 0.0, 0.0); ("Portland", 0.0, 174.0); ("SF", 635.0, 807.0)]
-
-// Two equivalent approaches:
-
-// Approach 1: Two-step (create, then solve)
 let problem = TSP.createProblem cities
-match TSP.solve problem None with
-| Ok tour -> printfn "Distance: %.2f" tour.TotalDistance
-| Error msg -> printfn "Error: %s" msg
 
-// Approach 2: One-step (solveDirectly)
-match TSP.solveDirectly cities None with
-| Ok tour -> 
-    printfn "Route: %s" (String.concat " → " tour.Cities)
-    printfn "Distance: %.2f miles" tour.TotalDistance
-| Error msg -> printfn "Error: %s" msg
+match TSP.solve problem None with
+| Ok tour ->
+    printfn "Optimal route: %s" (String.concat " → " tour.Cities)
+    printfn "Total distance: %.2f km" tour.TotalDistance
+| Error msg ->
+    printfn "Route optimization failed: %s" msg
 ```
 
 ---
 
-## PortfolioSolver
+## Portfolio Builder
 
-Classical portfolio optimization solver using greedy and constraint-based approaches.
+**Module:** `FSharp.Azure.Quantum.Portfolio`
+
+**Use Cases:**
+- Investment portfolio allocation
+- Asset selection with budget constraints
+- Risk-return optimization
+- Capital allocation
+
+### Functions
+
+```fsharp
+/// Create portfolio problem
+val createProblem : (string * float * float * float) list → float → PortfolioProblem
+//  Parameters:
+//    assets - (symbol, expectedReturn, risk, price) tuples
+//    budget - Total available capital
+
+/// Solve portfolio optimization problem
+val solve : PortfolioProblem → IQuantumBackend option → Result<PortfolioAllocation, string>
+```
 
 ### Types
 
 ```fsharp
-type Asset = {
-    Symbol: string
-    ExpectedReturn: float
-    Risk: float
-    Price: float
-}
-
-type Constraints = {
+type PortfolioProblem = {
+    Assets: Asset array
+    AssetCount: int
     Budget: float
-    MinHolding: float
-    MaxHolding: float
+    Constraints: Constraints option
 }
 
-type PortfolioSolution = {
-    Allocations: (string * float) list
+type PortfolioAllocation = {
+    Allocations: (string * float * float) list  // (symbol, shares, value)
     TotalValue: float
     ExpectedReturn: float
-    TotalRisk: float
+    Risk: float
+    IsValid: bool
 }
 ```
 
-### Functions
-
-#### `solveGreedyByRatio`
-
-Solve portfolio optimization using return/risk ratio greedy approach.
+### Example
 
 ```fsharp
-val solveGreedyByRatio :
-    assets: Asset list ->
-    constraints: Constraints ->
-    config: PortfolioConfig ->
-    PortfolioSolution
-```
-
-**Example:**
-```fsharp
+// Investment allocation
 let assets = [
-    { Symbol = "AAPL"; ExpectedReturn = 0.12; Risk = 0.18; Price = 150.0 }
-    { Symbol = "MSFT"; ExpectedReturn = 0.10; Risk = 0.15; Price = 300.0 }
+    ("AAPL", 0.12, 0.15, 150.0)      // return, risk, price
+    ("GOOGL", 0.10, 0.12, 2800.0)
+    ("MSFT", 0.11, 0.14, 350.0)
+    ("BONDS", 0.05, 0.03, 100.0)
 ]
 
-let constraints = {
-    Budget = 10000.0
-    MinHolding = 0.0
-    MaxHolding = 5000.0
-}
+let problem = Portfolio.createProblem assets 50000.0  // $50k budget
 
-let solution = PortfolioSolver.solveGreedyByRatio assets constraints PortfolioSolver.defaultConfig
-```
-
----
-
-## Portfolio (PortfolioBuilder)
-
-Domain builder API for constructing and solving portfolio optimization problems. **Routes through HybridSolver for automatic quantum-classical decision making.**
-
-### Architecture
-
-```
-Portfolio.solveDirectly
-    ↓
-  Convert assets → Asset records + constraints
-    ↓
-  HybridSolver.solvePortfolio (automatic routing)
-    ↓
-  QuantumAdvisor (recommends Classical or Quantum)
-    ↓
-  Execute with selected method
-    ↓
-  Convert result → PortfolioAllocation
-```
-
-### Types
-
-```fsharp
-// Asset type (from PortfolioTypes module)
-// type Asset = {
-//     Symbol: string
-//     ExpectedReturn: float
-//     Risk: float
-//     Price: float
-// }
-
-// Portfolio allocation result
-// type PortfolioAllocation = {
-//     Allocations: (string * float * float) list  // (symbol, shares, value)
-//     TotalValue: float
-//     ExpectedReturn: float
-//     Risk: float
-//     IsValid: bool
-// }
-```
-
-### Functions
-
-#### `createProblem`
-
-Create portfolio problem from assets and budget.
-
-```fsharp
-val createProblem : assets: (string * float * float * float) list -> budget: float -> PortfolioProblem
-```
-
-**Parameters:**
-- `assets` - List of (symbol, expectedReturn, risk, price) tuples
-- `budget` - Total budget available for investment
-
-#### `solve`
-
-Solve portfolio optimization problem using HybridSolver.
-
-```fsharp
-val solve : problem: PortfolioProblem -> config: PortfolioConfig option -> Result<PortfolioAllocation, string>
-```
-
-**Routing Behavior:**
-- Automatically routes through `HybridSolver.solvePortfolio`
-- QuantumAdvisor analyzes problem complexity and recommends method
-- Simple portfolios (few assets, basic constraints) use classical greedy algorithm
-- Complex portfolios (many assets, complex constraints) consider quantum optimization (if available)
-
-**Note:** Config parameter currently ignored (HybridSolver uses defaults). Future enhancement planned.
-
-#### `solveDirectly`
-
-Create and solve portfolio in one step.
-
-```fsharp
-val solveDirectly : assets: (string * float * float * float) list -> budget: float -> config: PortfolioConfig option -> Result<PortfolioAllocation, string>
-```
-
-**Example:**
-```fsharp
-let portfolioAssets = [
-    ("AAPL", 0.12, 0.18, 150.0)   // symbol, return, risk, price
-    ("MSFT", 0.10, 0.15, 300.0)
-    ("GOOGL", 0.15, 0.20, 2800.0)
-]
-
-// Automatic routing through HybridSolver
-let portfolioProblem = Portfolio.createProblem portfolioAssets 10000.0
-match Portfolio.solve portfolioProblem None with
-| Ok allocation -> 
-    printfn "Total Value: $%.2f" allocation.TotalValue
-    printfn "Expected Return: %.2f%%" (allocation.ExpectedReturn * 100.0)
-    printfn "Risk: %.2f" allocation.Risk
+match Portfolio.solve problem None with
+| Ok allocation ->
+    printfn "Portfolio value: $%.2f" allocation.TotalValue
+    printfn "Expected return: %.2f%%" (allocation.ExpectedReturn * 100.0)
+    printfn "Portfolio risk: %.2f" allocation.Risk
     
-    // Display allocations
-    allocation.Allocations
+    allocation.Allocations 
     |> List.iter (fun (symbol, shares, value) ->
-        printfn "  %s: %.0f shares = $%.2f" symbol shares value)
-| Error msg -> printfn "Error: %s" msg
-
-// Or solve directly (one step)
-match Portfolio.solveDirectly portfolioAssets 10000.0 None with
-| Ok allocation -> printfn "Allocations: %A" allocation.Allocations
-| Error msg -> printfn "Error: %s" msg
+        printfn "  %s: %.2f shares = $%.2f" symbol shares value)
+| Error msg ->
+    printfn "Allocation failed: %s" msg
 ```
 
 ---
 
-## QuantumAdvisor
+## Network Flow Builder
 
-Decision framework for determining when to use quantum vs classical approaches.
+**Module:** `FSharp.Azure.Quantum.NetworkFlow`
+
+**Use Cases:**
+- Supply chain optimization
+- Distribution network design
+- Transportation planning
+- Manufacturing flow optimization
 
 ### Types
 
 ```fsharp
-type RecommendationType =
-    | StronglyRecommendClassical
-    | ConsiderQuantum
-    | StronglyRecommendQuantum
+type NodeType =
+    | Source        // Supplier, factory
+    | Sink          // Customer, demand point
+    | Intermediate  // Warehouse, distribution center
 
-type Recommendation = {
-    RecommendationType: RecommendationType
-    ProblemSize: int
-    Complexity: string
-    EstimatedClassicalTime: float
-    EstimatedQuantumCost: float option
-    Reasoning: string
+type Node = {
+    Id: string
+    NodeType: NodeType
+    Capacity: int
+    Demand: int option      // Sinks only
+    Supply: int option      // Sources only
+}
+
+type Route = {
+    From: string
+    To: string
+    Cost: float
+}
+
+type FlowSolution = {
+    SelectedRoutes: (string * string * float) list
+    TotalCost: float
+    DemandSatisfied: float
+    TotalDemand: float
+    FillRate: float
+    IsValid: bool
+    BackendName: string
 }
 ```
 
-### Functions
-
-#### `getRecommendation`
-
-Get quantum vs classical recommendation for a problem.
+### Helper Functions
 
 ```fsharp
-val getRecommendation : problem: 'T -> Result<Recommendation, string>
+/// Create source node
+val SourceNode : string → int → Node
+
+/// Create sink node
+val SinkNode : string → int → Node
+
+/// Create intermediate node
+val IntermediateNode : string → int → Node
+
+/// Create route
+val Route : string → string → float → Route
+
+/// Solve network flow problem
+val solve : NetworkFlowProblem → IQuantumBackend option → Result<FlowSolution, string>
 ```
 
-**Example:**
+### Example
+
 ```fsharp
-match QuantumAdvisor.getRecommendation distances with
-| Ok recommendation ->
-    printfn "Recommendation: %A" recommendation.RecommendationType
-    printfn "Reasoning: %s" recommendation.Reasoning
-| Error msg -> printfn "Error: %s" msg
+// Supply chain optimization
+let nodes = [
+    NetworkFlow.SourceNode("Factory A", 1000)
+    NetworkFlow.SourceNode("Factory B", 800)
+    NetworkFlow.IntermediateNode("Warehouse", 1500)
+    NetworkFlow.SinkNode("Store 1", 400)
+    NetworkFlow.SinkNode("Store 2", 600)
+    NetworkFlow.SinkNode("Store 3", 300)
+]
+
+let routes = [
+    NetworkFlow.Route("Factory A", "Warehouse", 5.0)
+    NetworkFlow.Route("Factory B", "Warehouse", 4.0)
+    NetworkFlow.Route("Warehouse", "Store 1", 3.0)
+    NetworkFlow.Route("Warehouse", "Store 2", 2.5)
+    NetworkFlow.Route("Warehouse", "Store 3", 4.5)
+]
+
+let problem = { NetworkFlow.Nodes = nodes; Routes = routes }
+
+match NetworkFlow.solve problem None with
+| Ok flow ->
+    printfn "Total cost: $%.2f" flow.TotalCost
+    printfn "Fill rate: %.1f%%" (flow.FillRate * 100.0)
+    
+    flow.SelectedRoutes 
+    |> List.iter (fun (from, to_, amount) ->
+        printfn "  %s → %s: %.2f units" from to_ amount)
+| Error msg ->
+    printfn "Optimization failed: %s" msg
 ```
 
 ---
 
-## ProblemAnalysis
+## Quantum Backends
 
-Problem classification and complexity analysis for optimization problems.
+**Module:** `FSharp.Azure.Quantum.Core.BackendAbstraction`
 
-### Types
+### LocalBackend
+
+**Characteristics:**
+- ✅ Free (local simulation)
+- ✅ Fast (milliseconds)
+- ✅ Up to 10 qubits
+- ✅ Perfect for development/testing
 
 ```fsharp
-type ProblemType =
-    | TSP
-    | Portfolio
-    | QUBO
-    | Unknown
+let backend = BackendAbstraction.createLocalBackend()
 
-type ProblemInfo = {
-    ProblemType: ProblemType
-    Size: int
-    Complexity: string
-    SearchSpaceSize: float
-    IsSymmetric: bool
-    Density: float
-}
+// Use with any solver
+match GraphColoring.solve problem 3 (Some backend) with
+| Ok solution -> (* ... *)
 ```
 
-### Functions
+### IonQBackend (Azure Quantum)
 
-#### `classifyProblem`
-
-Classify and analyze an optimization problem.
-
-```fsharp
-val classifyProblem : input: 'T -> Result<ProblemInfo, string>
-```
-
----
-
-## CostEstimation
-
-Cost calculation and estimation for quantum backend execution.
-
-### Types
+**Characteristics:**
+- ⚡ 29+ qubits (simulator)
+- ⚡ 11 qubits (QPU hardware)
+- 💰 Paid service
+- ⏱️ Job queue (10-60 seconds)
 
 ```fsharp
-type PricingTier =
-    | Free
-    | Standard
-    | Premium
+let backend = BackendAbstraction.createIonQBackend(
+    connectionString = "Endpoint=https://...",
+    targetId = "ionq.simulator"  // or "ionq.qpu"
+)
 
-type CostEstimate = {
-    EstimatedCost: float
-    Currency: string
-    Breakdown: Map<string, float>
-}
-```
-
-### Functions
-
-#### `estimateQuantumCost`
-
-Estimate cost for quantum execution.
-
-```fsharp
-val estimateQuantumCost : 
-    problemSize: int ->
-    shots: int ->
-    tier: PricingTier ->
-    CostEstimate
-```
-
----
-
-## Types
-
-Core types and data structures used throughout the library.
-
-### Workspace Configuration
-
-```fsharp
-type WorkspaceConfig = {
-    SubscriptionId: string
-    ResourceGroup: string
-    WorkspaceName: string
-    Location: string
-}
-```
-
-### Result Types
-
-All functions return `Result<'T, string>` for error handling:
-- `Ok value` - Success with result
-- `Error message` - Failure with error message
-
----
-
-## Error Handling
-
-All API functions use F#'s `Result<'T, string>` type for error handling:
-
-```fsharp
-match HybridSolver.solveTsp distances None None None with
+match GraphColoring.solve problem 3 (Some backend) with
 | Ok solution -> 
-    // Success - use solution
-    printfn "Solution: %A" solution.Result
-| Error errorMessage ->
-    // Failure - handle error
+    printfn "Executed on: %s" solution.BackendName
+```
+
+### RigettiBackend (Azure Quantum)
+
+```fsharp
+let backend = BackendAbstraction.createRigettiBackend(
+    connectionString = "Endpoint=https://...",
+    targetId = "rigetti.sim.qvm"  // or QPU target
+)
+```
+
+### Backend Selection Guide
+
+| Problem Size | Recommended Backend | Rationale |
+|--------------|---------------------|-----------|
+| ≤10 qubits | LocalBackend | Free, fast, sufficient |
+| 11-15 qubits | IonQ/Rigetti Simulator | Scalable, still affordable |
+| 15+ qubits | IonQ/Rigetti QPU | Real quantum hardware needed |
+
+---
+
+## C# Interop
+
+**Module:** `FSharp.Azure.Quantum.CSharpBuilders`
+
+All problem builders have C#-friendly static methods:
+
+```csharp
+using FSharp.Azure.Quantum;
+using static FSharp.Azure.Quantum.CSharpBuilders;
+
+// MaxCut
+var vertices = new[] { "A", "B", "C" };
+var edges = new[] {
+    (source: "A", target: "B", weight: 1.0),
+    (source: "B", target: "C", weight: 2.0)
+};
+var problem = MaxCutProblem(vertices, edges);
+var result = MaxCut.solve(problem, null);
+
+// Knapsack
+var items = new[] {
+    (id: "laptop", weight: 3.0, value: 1000.0)
+};
+var problem = KnapsackProblem(items, capacity: 5.0);
+
+// TSP
+var cities = new[] {
+    (name: "Seattle", x: 0.0, y: 0.0)
+};
+var problem = TspProblem(cities);
+
+// Portfolio
+var assets = new[] {
+    (symbol: "AAPL", expectedReturn: 0.12, risk: 0.15, price: 150.0)
+};
+var problem = PortfolioProblem(assets, budget: 10000.0);
+```
+
+**See:** [C# Usage Guide](../CSHARP-QUANTUM-BUILDER-USAGE-GUIDE.md) for complete examples
+
+---
+
+## Core Types
+
+### Result Type
+
+All solvers return `Result<'T, string>`:
+
+```fsharp
+match solver.solve problem with
+| Ok solution -> 
+    // Success case
+    printfn "Solution: %A" solution
+| Error errorMessage -> 
+    // Failure case
     printfn "Error: %s" errorMessage
 ```
 
----
-
-## Authentication
-
-The library uses Azure authentication via `DefaultAzureCredential`:
+### IQuantumBackend Interface
 
 ```fsharp
-// Supports (in order):
-// 1. Environment variables (AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_CLIENT_SECRET)
-// 2. Azure CLI (`az login`)
-// 3. Managed Identity (when running in Azure)
-// 4. Visual Studio / VS Code authentication
+type IQuantumBackend =
+    abstract Execute : Circuit → int → ExecutionResult
+    abstract Name : string
 ```
 
-**No authentication needed for classical solvers!**
+### Circuit Types
+
+```fsharp
+type Gate =
+    | H of int                       // Hadamard
+    | RX of int * float              // Rotation-X
+    | RY of int * float              // Rotation-Y
+    | RZ of int * float              // Rotation-Z
+    | CNOT of int * int              // Controlled-NOT
+    | RZZ of int * int * float       // Two-qubit rotation
+
+type QaoaLayer = {
+    CostGates: Gate array
+    MixerGates: Gate array
+    Gamma: float
+    Beta: float
+}
+
+type Circuit = {
+    NumQubits: int
+    InitialStateGates: Gate array
+    Layers: QaoaLayer array
+}
+```
 
 ---
 
-## See Also
+## Advanced Topics
 
-- [Getting Started Guide](getting-started.md)
-- [TSP Example](examples/tsp-example.md)
-- [Portfolio Example](examples/portfolio-example.md)
-- [Hybrid Solver Guide](examples/hybrid-solver.md)
+### Custom QAOA Parameters
+
+```fsharp
+open FSharp.Azure.Quantum.Quantum
+
+// Configure optimization behavior
+let config : QuantumMaxCutSolver.QuantumMaxCutConfig = {
+    OptimizationShots = 50           // Shots per optimization iteration
+    FinalShots = 500                 // Shots for final measurement
+    EnableOptimization = true        // Enable parameter search
+    InitialParameters = (0.5, 0.5)   // Starting (gamma, beta)
+}
+
+// Use with quantum solver directly
+let backend = BackendAbstraction.createLocalBackend()
+match QuantumMaxCutSolver.solve backend problem config with
+| Ok result -> 
+    let (gamma, beta) = result.OptimizedParameters
+    printfn "Optimal parameters: γ=%.3f, β=%.3f" gamma beta
+```
+
+### Error Handling Patterns
+
+```fsharp
+// Pattern 1: Match on Result
+match solver.solve problem with
+| Ok solution -> processSuccess solution
+| Error msg -> handleError msg
+
+// Pattern 2: Result.map
+problem
+|> solver.solve
+|> Result.map (fun solution -> solution.Cost)
+|> Result.defaultValue infinity
+
+// Pattern 3: Railway-oriented programming
+let workflow problem =
+    problem
+    |> validate
+    |> Result.bind solve
+    |> Result.map postProcess
+```
+
+---
+
+## Performance Tips
+
+### 1. Start Small
+
+```fsharp
+// Test with LocalBackend first
+let testProblem = MaxCut.createProblem ["A"; "B"; "C"] []
+match MaxCut.solve testProblem None with
+| Ok _ -> 
+    // Works! Now scale up
+    let largeProblem = MaxCut.createProblem largeVertices largeEdges
+    (* ... *)
+```
+
+### 2. Use Problem Validation
+
+```fsharp
+// Validate before solving
+match GraphColoring.validate problem with
+| Ok () -> 
+    GraphColoring.solve problem 3 None
+| Error msg -> 
+    Error (sprintf "Invalid problem: %s" msg)
+```
+
+### 3. Cache Backends
+
+```fsharp
+// Create once, reuse many times
+let backend = BackendAbstraction.createLocalBackend()
+
+problems 
+|> List.map (fun p -> GraphColoring.solve p 3 (Some backend))
+|> List.choose Result.toOption
+```
+
+---
+
+## Related Documentation
+
+- [Getting Started Guide](getting-started) - Installation and setup
+- [Architecture Overview](architecture-overview) - Library design
+- [QUBO Encoding Strategies](qubo-encoding-strategies) - Problem transformations
+- [FAQ](faq) - Common questions
+
+---
+
+**Last Updated**: 2025-11-29

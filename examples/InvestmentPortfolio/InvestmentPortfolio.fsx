@@ -143,6 +143,17 @@ let optimizePortfolio (stocks: Stock list) (budget: float) : Result<PortfolioAna
     }
     
     // Use HybridSolver for automatic classical/quantum routing
+    // 
+    // ROUTING OPTIONS:
+    // 1. Automatic (None): Quantum Advisor analyzes and recommends Classical/Quantum
+    // 2. Force Classical (Some HybridSolver.SolverMethod.Classical): Use CPU-based greedy algorithm
+    // 3. Force Quantum (Some HybridSolver.SolverMethod.Quantum): Use QAOA on quantum backend
+    //
+    // For this 8-asset problem, Quantum Advisor will recommend Classical (fast, accurate).
+    // To test quantum solver, use: Some HybridSolver.SolverMethod.Quantum
+    //
+    // Note: Quantum portfolio optimization becomes advantageous for 50+ assets with
+    // complex correlation matrices and non-linear constraints.
     match HybridSolver.solvePortfolio assets constraints None None None with
     | Ok solution ->
         // Extract allocations from solution

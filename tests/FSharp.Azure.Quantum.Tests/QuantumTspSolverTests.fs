@@ -66,9 +66,9 @@ module QuantumTspSolverTests =
 
     [<Fact>]
     let ``solve should reject problem too large for backend`` () =
-        let backend = createLocalBackend()  // Max 10 qubits
-        // 4 cities requires 4*4 = 16 qubits (exceeds limit)
-        let distances = Array2D.zeroCreate 5 5
+        let backend = createLocalBackend()  // Max 16 qubits
+        // 5 cities requires 5*5 = 25 qubits (exceeds limit)
+        let distances = Array2D.zeroCreate 6 6
         
         let result = solveWithShots backend distances 100
         
@@ -188,22 +188,24 @@ module QuantumTspSolverTests =
     // ========================================================================
 
     [<Fact>]
-    let ``solve should reject 4-city problem on local backend`` () =
-        let backend = createLocalBackend()  // Max 10 qubits
-        let distances = create4CityProblem()  // Needs 16 qubits
+    let ``solve should reject 5-city problem on local backend`` () =
+        let backend = createLocalBackend()  // Max 16 qubits
+        // 5 cities = 5*5 = 25 qubits (exceeds 16-qubit limit)
+        let distances = Array2D.init 5 5 (fun i j -> 
+            if i = j then 0.0 else float (abs(i - j)))
         
         let result = solveWithShots backend distances 100
         
         match result with
         | Error msg ->
+            Assert.Contains("25 qubits", msg)
             Assert.Contains("16 qubits", msg)
-            Assert.Contains("10 qubits", msg)
-        | Ok _ -> Assert.True(false, "Should reject 4-city problem (16 qubits > 10 qubit limit)")
+        | Ok _ -> Assert.True(false, "Should reject 5-city problem (25 qubits > 16 qubit limit)")
 
     [<Fact>]
     let ``solve with different shot counts should work`` () =
         let backend = createLocalBackend()
-        let distances = create3CityProblem()  // 3 cities = 9 qubits (within 10 qubit limit)
+        let distances = create3CityProblem()  // 3 cities = 9 qubits (within 16 qubit limit)
         
         let result1 = solveWithShots backend distances 10
         match result1 with

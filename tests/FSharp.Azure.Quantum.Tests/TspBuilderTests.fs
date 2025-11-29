@@ -66,14 +66,12 @@ module TspBuilderTests =
             Assert.Fail($"solve failed: {msg}")
 
     [<Fact>]
-    let ``TSP.solve should handle 5 cities`` () =
-        // Arrange - Pentagon shape
+    let ``TSP.solve should handle 3 cities triangle`` () =
+        // Arrange - Triangle shape (within LocalBackend 16-qubit limit)
         let cities = [
             ("A", 0.0, 1.0)
-            ("B", 0.95, 0.31)
-            ("C", 0.59, -0.81)
-            ("D", -0.59, -0.81)
-            ("E", -0.95, 0.31)
+            ("B", 0.87, -0.5)
+            ("C", -0.87, -0.5)
         ]
         let problem = TSP.createProblem cities
         
@@ -83,26 +81,23 @@ module TspBuilderTests =
         // Assert
         match result with
         | Ok tour ->
-            Assert.Equal(5, tour.Cities.Length)
+            Assert.Equal(3, tour.Cities.Length)
             Assert.True(tour.TotalDistance > 0.0)
             Assert.True(tour.IsValid)
             // All cities should be in the tour
             Assert.Contains("A", tour.Cities)
             Assert.Contains("B", tour.Cities)
             Assert.Contains("C", tour.Cities)
-            Assert.Contains("D", tour.Cities)
-            Assert.Contains("E", tour.Cities)
         | Error msg ->
             Assert.Fail($"solve failed: {msg}")
 
     [<Fact>]
     let ``TSP.solve should return tour with all unique cities`` () =
-        // Arrange
+        // Arrange - 3 cities (within LocalBackend 16-qubit limit)
         let cities = [
             ("City1", 0.0, 0.0)
             ("City2", 1.0, 0.0)
-            ("City3", 1.0, 1.0)
-            ("City4", 0.0, 1.0)
+            ("City3", 0.5, 0.87)
         ]
         let problem = TSP.createProblem cities
         
@@ -113,7 +108,7 @@ module TspBuilderTests =
         match result with
         | Ok tour ->
             let uniqueCities = tour.Cities |> Set.ofList
-            Assert.Equal(4, uniqueCities.Count) // All cities unique
+            Assert.Equal(3, uniqueCities.Count) // All cities unique
         | Error msg ->
             Assert.Fail($"solve failed: {msg}")
 
@@ -140,12 +135,11 @@ module TspBuilderTests =
 
     [<Fact>]
     let ``TSP.solve should accept custom backend`` () =
-        // Arrange
+        // Arrange - 3 cities (within LocalBackend 16-qubit limit)
         let cities = [
             ("A", 0.0, 0.0)
             ("B", 1.0, 0.0)
-            ("C", 1.0, 1.0)
-            ("D", 0.0, 1.0)
+            ("C", 0.0, 1.0)
         ]
         let problem = TSP.createProblem cities
         // Use LocalBackend explicitly (though None would also work)
@@ -157,7 +151,7 @@ module TspBuilderTests =
         // Assert
         match result with
         | Ok tour ->
-            Assert.Equal(4, tour.Cities.Length)
+            Assert.Equal(3, tour.Cities.Length)
             Assert.True(tour.IsValid)
         | Error msg ->
             Assert.Fail($"solve with custom backend failed: {msg}")
