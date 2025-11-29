@@ -11,7 +11,8 @@
 
 **Current Features:**
 - ✅ **6 Quantum Optimization Builders:** Graph Coloring, MaxCut, Knapsack, TSP, Portfolio, Network Flow
-- ✅ **QAOA Implementation:** Quantum Approximate Optimization Algorithm with parameter optimization
+- ✅ **QAOA Implementation:** Quantum Approximate Optimization Algorithm with parameter optimization & warm-start
+- ✅ **VQE Implementation:** Variational Quantum Eigensolver for molecular ground state energies (quantum chemistry)
 - ✅ **F# Computation Expressions:** Idiomatic, type-safe problem specification
 - ✅ **C# Interop:** Fluent API extensions for C# developers
 - ✅ **Multiple Backends:** LocalBackend (simulation), Azure Quantum (IonQ, Rigetti)
@@ -952,16 +953,19 @@ Contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 ## 🚀 Roadmap
 
 **Current:**
-- ✅ 6 quantum optimization builders
-- ✅ QAOA parameter optimization
-- ✅ LocalBackend + Azure Quantum backends
+- ✅ 6 quantum optimization builders (Graph Coloring, MaxCut, Knapsack, TSP, Portfolio, Network Flow)
+- ✅ VQE (Variational Quantum Eigensolver) for quantum chemistry with H2/H2O examples
+- ✅ QAOA parameter optimization with warm-start support (`InitialParameters`)
+- ✅ Constraint handling via penalty-based QUBO encoding (capacity, one-hot, flow conservation)
+- ✅ LocalBackend + Azure Quantum backends (IonQ, Rigetti)
+- ✅ OpenQASM 2.0 export/import for cross-platform compatibility
 - ✅ F# + C# APIs
 
 **Future:**
-- 🔄 VQE (Variational Quantum Eigensolver) for quantum chemistry
-- 🔄 QAOA warm-start strategies
-- 🔄 Constraint handling improvements
-- 🔄 Additional cloud backends (AWS Braket, IBM Quantum)
+- 🔄 Advanced VQE ansatz (UCCSD, hardware-efficient)
+- 🔄 Adaptive QAOA layer strategies
+- 🔄 Error mitigation techniques
+- 🔄 Quantum circuit compilation optimizations
 
 ---
 
