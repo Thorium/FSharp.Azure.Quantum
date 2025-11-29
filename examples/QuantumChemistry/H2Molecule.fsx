@@ -46,14 +46,16 @@ printfn "Running VQE calculation..."
 let result = GroundStateEnergy.estimateEnergy h2 config |> Async.RunSynchronously
 
 match result with
-| Ok energy ->
-    printfn "✓ Ground state energy: %.6f Hartree" energy
+| Ok vqeResult ->
+    printfn "✓ Ground state energy: %.6f Hartree" vqeResult.Energy
     printfn "  Expected (experimental): -1.174 Hartree"
-    printfn "  Error: %.6f Hartree" (abs(energy - (-1.174)))
+    printfn "  Error: %.6f Hartree" (abs(vqeResult.Energy - (-1.174)))
+    printfn "  Iterations: %d" vqeResult.Iterations
+    printfn "  Converged: %b" vqeResult.Converged
     printfn ""
     
     // Convert to other units
-    let eV = energy * 27.2114  // 1 Hartree = 27.2114 eV
+    let eV = vqeResult.Energy * 27.2114  // 1 Hartree = 27.2114 eV
     printfn "  In electron volts: %.6f eV" eV
     
 | Error msg ->
@@ -67,8 +69,8 @@ let configDFT = { config with Method = GroundStateMethod.ClassicalDFT }
 let resultDFT = GroundStateEnergy.estimateEnergy h2 configDFT |> Async.RunSynchronously
 
 match resultDFT with
-| Ok energyDFT ->
-    printfn "Classical DFT: %.6f Hartree" energyDFT
+| Ok vqeResultDFT ->
+    printfn "Classical DFT: %.6f Hartree" vqeResultDFT.Energy
 | Error msg ->
     printfn "Classical DFT failed: %s" msg
 
@@ -80,8 +82,8 @@ let configAuto = { config with Method = GroundStateMethod.Automatic }
 let resultAuto = GroundStateEnergy.estimateEnergy h2 configAuto |> Async.RunSynchronously
 
 match resultAuto with
-| Ok energyAuto ->
-    printfn "Automatic method: %.6f Hartree" energyAuto
+| Ok vqeResultAuto ->
+    printfn "Automatic method: %.6f Hartree" vqeResultAuto.Energy
     printfn "(System chose best method based on molecule size)"
 | Error msg ->
     printfn "Automatic method failed: %s" msg

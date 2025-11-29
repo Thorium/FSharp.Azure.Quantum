@@ -44,10 +44,12 @@ printfn "(System will automatically select VQE or Classical DFT)"
 let result = GroundStateEnergy.estimateEnergy h2o config |> Async.RunSynchronously
 
 match result with
-| Ok energy ->
-    printfn "✓ Ground state energy: %.6f Hartree" energy
+| Ok vqeResult ->
+    printfn "✓ Ground state energy: %.6f Hartree" vqeResult.Energy
     printfn "  Expected (experimental): -76.0 Hartree"
-    printfn "  Error: %.6f Hartree" (abs(energy - (-76.0)))
+    printfn "  Error: %.6f Hartree" (abs(vqeResult.Energy - (-76.0)))
+    printfn "  Iterations: %d" vqeResult.Iterations
+    printfn "  Converged: %b" vqeResult.Converged
     printfn ""
     
     // Energy interpretation
