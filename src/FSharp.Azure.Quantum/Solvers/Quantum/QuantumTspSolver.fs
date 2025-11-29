@@ -7,13 +7,31 @@ open FSharp.Azure.Quantum.Core
 
 /// Quantum TSP Solver using QAOA and Backend Abstraction
 /// 
-/// IMPORTANT: Requires a quantum backend (IonQ, Rigetti, or Local).
+/// ALGORITHM-LEVEL API (for advanced users):
+/// This module provides direct access to quantum TSP solving via QAOA.
+/// For business-domain API, use the TSP module instead.
+/// 
+/// COMPARISON:
+///   // Business Domain (Recommended for most users):
+///   open FSharp.Azure.Quantum
+///   let tour = TSP.solve cities None  // Automatic LocalBackend
+///   
+///   // Algorithm Level (This module - for experts):
+///   open FSharp.Azure.Quantum.Quantum
+///   let backend = BackendAbstraction.createIonQBackend(...)
+///   let result = QuantumTspSolver.solve backend distances config
+/// 
+/// RULE 1 COMPLIANCE:
+/// ✅ Requires IQuantumBackend parameter (explicit quantum execution)
+/// 
+/// TECHNICAL DETAILS:
 /// - Execution: Quantum hardware/simulator via backend
 /// - Algorithm: QAOA (Quantum Approximate Optimization Algorithm)
-/// - Speed: Slower (seconds to minutes, includes job queue wait)
-/// - Cost: ~$10-100 per run on real quantum hardware
+/// - Speed: Seconds to minutes (includes job queue wait for cloud backends)
+/// - Cost: ~$10-100 per run on real quantum hardware (IonQ, Rigetti)
+/// - LocalBackend: Free simulation (limited to ~10 qubits)
 ///
-/// Implements the full quantum pipeline:
+/// QUANTUM PIPELINE:
 /// 1. TSP Distance Matrix → GraphOptimization Problem
 /// 2. GraphOptimization → QUBO Matrix  
 /// 3. QUBO → QAOA Circuit (Hamiltonians + Layers)
@@ -22,7 +40,11 @@ open FSharp.Azure.Quantum.Core
 /// 6. Return Best Solution
 ///
 /// Example:
-///   let! result = QuantumTspSolver.solve rigettiBackend distances 1000
+///   let backend = BackendAbstraction.createLocalBackend()
+///   let config = { NumShots = 1000; InitialParameters = (0.5, 0.5) }
+///   match QuantumTspSolver.solve backend distances config with
+///   | Ok result -> printfn "Tour length: %f" result.TourLength
+///   | Error msg -> printfn "Error: %s" msg
 module QuantumTspSolver =
 
     /// Convert sparse QUBO matrix (Map) to dense 2D array

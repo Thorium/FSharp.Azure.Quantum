@@ -3,6 +3,7 @@ namespace FSharp.Azure.Quantum.Tests
 open Xunit
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Classical
+open FSharp.Azure.Quantum.Core
 
 module PortfolioBuilderTests =
 
@@ -87,7 +88,7 @@ module PortfolioBuilderTests =
             Assert.Fail($"solveDirectly failed: {msg}")
 
     [<Fact>]
-    let ``Portfolio.solve should accept custom configuration`` () =
+    let ``Portfolio.solve should accept custom backend`` () =
         // Arrange
         let assets = [
             ("AAPL", 0.12, 0.15, 150.0)
@@ -95,17 +96,18 @@ module PortfolioBuilderTests =
             ("MSFT", 0.11, 0.14, 350.0)
         ]
         let problem = Portfolio.createProblem assets 10000.0
-        let config = { PortfolioSolver.MaxIterations = 100; PortfolioSolver.RiskTolerance = 0.5 }
+        // Use LocalBackend explicitly (though None would also work)
+        let backend = Some (BackendAbstraction.createLocalBackend())
         
         // Act
-        let result = Portfolio.solve problem (Some config)
+        let result = Portfolio.solve problem backend
         
         // Assert
         match result with
         | Ok allocation ->
             Assert.True(allocation.IsValid)
         | Error msg ->
-            Assert.Fail($"solve with config failed: {msg}")
+            Assert.Fail($"solve with backend failed: {msg}")
 
     [<Fact>]
     let ``Portfolio.solve should handle 5 assets`` () =

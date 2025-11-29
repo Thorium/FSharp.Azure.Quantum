@@ -1,10 +1,31 @@
 namespace FSharp.Azure.Quantum
 
 open FSharp.Azure.Quantum.Classical
+open FSharp.Azure.Quantum.Quantum
+open FSharp.Azure.Quantum.Core
 
-/// High-level Portfolio Domain Builder
-/// Provides intuitive API for solving Portfolio optimization problems
-/// Routes through HybridSolver for consistent quantum-classical decision making
+/// High-level Portfolio Domain Builder - Quantum-First API
+/// 
+/// DESIGN PHILOSOPHY:
+/// This is a BUSINESS DOMAIN API for investment managers who want to optimize
+/// portfolios without understanding quantum computing internals (QAOA, QUBO, backends).
+/// 
+/// QUANTUM-FIRST:
+/// - Uses quantum optimization (QAOA) by default via LocalBackend (simulation)
+/// - Optional backend parameter for cloud quantum hardware (IonQ, Rigetti)
+/// - For algorithm-level control, use QuantumPortfolioSolver directly
+/// 
+/// EXAMPLE USAGE:
+///   // Simple: Uses quantum simulation automatically
+///   let allocation = Portfolio.solve problem None
+///   
+///   // Advanced: Specify cloud quantum backend
+///   let ionqBackend = BackendAbstraction.createIonQBackend(...)
+///   let allocation = Portfolio.solve problem (Some ionqBackend)
+///   
+///   // Expert: Direct quantum solver access
+///   open FSharp.Azure.Quantum.Quantum
+///   let result = QuantumPortfolioSolver.solve backend assets constraints config
 module Portfolio =
 
     // ============================================================================
@@ -88,67 +109,86 @@ module Portfolio =
         }
 
     /// <summary>
-    /// Solve Portfolio problem using HybridSolver (automatic quantum-classical routing)
-    /// Routes through HybridSolver for intelligent method selection
-    /// Optional config parameter is currently ignored (HybridSolver uses defaults)
+    /// Solve Portfolio problem using quantum optimization (QAOA)
     /// </summary>
+    /// <remarks>
+    /// QUANTUM-FIRST API:
+    /// - Uses quantum backend by default (LocalBackend for simulation)
+    /// - Specify custom backend for cloud quantum hardware (IonQ, Rigetti)
+    /// - Returns business-domain PortfolioAllocation result (not low-level QAOA output)
+    /// 
+    /// EXAMPLES:
+    ///   // Simple: Automatic quantum simulation
+    ///   let allocation = Portfolio.solve problem None
+    ///   
+    ///   // Cloud execution: Specify IonQ backend
+    ///   let ionqBackend = BackendAbstraction.createIonQBackend(...)
+    ///   let allocation = Portfolio.solve problem (Some ionqBackend)
+    /// </remarks>
     /// <param name="problem">Portfolio problem to solve</param>
-    /// <param name="config">Optional configuration for solver behavior</param>
+    /// <param name="backend">Optional quantum backend (defaults to LocalBackend if None)</param>
     /// <returns>Result with PortfolioAllocation or error message</returns>
-    /// <example>
-    /// <code>
-    /// let allocation = Portfolio.solve problem None
-    /// </code>
-    /// </example>
-    let solve (problem: PortfolioProblem) (config: PortfolioSolver.PortfolioConfig option) : Result<PortfolioAllocation, string> =
-        // Assets are already the correct type (PortfolioTypes.Asset)
-        let solverAssets = problem.Assets |> Array.toList
-        
-        // Create constraints
-        let constraints = 
-            problem.Constraints 
-            |> Option.defaultValue {
-                Budget = problem.Budget
-                MinHolding = 0.0
-                MaxHolding = problem.Budget  // No per-asset limit by default
+    let solve (problem: PortfolioProblem) (backend: BackendAbstraction.IQuantumBackend option) : Result<PortfolioAllocation, string> =
+        try
+            // Use provided backend or create LocalBackend for simulation
+            let actualBackend = 
+                backend 
+                |> Option.defaultValue (BackendAbstraction.createLocalBackend())
+            
+            // Assets are already the correct type (PortfolioTypes.Asset)
+            let solverAssets = problem.Assets |> Array.toList
+            
+            // Create constraints
+            let constraints = 
+                problem.Constraints 
+                |> Option.defaultValue {
+                    Budget = problem.Budget
+                    MinHolding = 0.0
+                    MaxHolding = problem.Budget  // No per-asset limit by default
+                }
+            
+            // Create quantum portfolio solver configuration
+            let quantumConfig : QuantumPortfolioSolver.QuantumPortfolioConfig = {
+                NumShots = 1000
+                RiskAversion = 0.5
+                InitialParameters = (0.5, 0.5)
             }
-        
-        // Route through HybridSolver for consistent quantum-classical decision making
-        match HybridSolver.solvePortfolio solverAssets constraints None None None with
-        | Error msg -> Error $"Portfolio solve failed: {msg}"
-        | Ok hybridResult ->
-            try
+            
+            // Call quantum portfolio solver directly
+            match QuantumPortfolioSolver.solve actualBackend solverAssets constraints quantumConfig with
+            | Error msg -> Error $"Quantum Portfolio solve failed: {msg}"
+            | Ok quantumResult ->
                 // Validate solution
-                let valid = isValidPortfolio hybridResult.Result.TotalValue problem.Budget
+                let valid = isValidPortfolio quantumResult.TotalValue problem.Budget
                 
                 // Convert allocations to simple format
                 let allocations =
-                    hybridResult.Result.Allocations
+                    quantumResult.Allocations
                     |> List.map (fun alloc -> (alloc.Asset.Symbol, alloc.Shares, alloc.Value))
                 
                 Ok {
                     Allocations = allocations
-                    TotalValue = hybridResult.Result.TotalValue
-                    ExpectedReturn = hybridResult.Result.ExpectedReturn
-                    Risk = hybridResult.Result.Risk
+                    TotalValue = quantumResult.TotalValue
+                    ExpectedReturn = quantumResult.ExpectedReturn
+                    Risk = quantumResult.Risk
                     IsValid = valid
                 }
-            with
-            | ex -> Error $"Portfolio result conversion failed: {ex.Message}"
+        with
+        | ex -> Error $"Portfolio solve failed: {ex.Message}"
 
     /// <summary>
-    /// Convenience function: Create problem and solve in one step
+    /// Convenience function: Create problem and solve in one step using quantum optimization
     /// </summary>
     /// <param name="assets">List of (symbol, expectedReturn, risk, price) tuples</param>
     /// <param name="budget">Total budget available for investment</param>
-    /// <param name="config">Optional configuration for solver behavior</param>
+    /// <param name="backend">Optional quantum backend (defaults to LocalBackend if None)</param>
     /// <returns>Result with PortfolioAllocation or error message</returns>
     /// <example>
     /// <code>
     /// let allocation = Portfolio.solveDirectly [("AAPL", 0.12, 0.15, 150.0)] 10000.0 None
     /// </code>
     /// </example>
-    let solveDirectly (assets: (string * float * float * float) list) (budget: float) (config: PortfolioSolver.PortfolioConfig option) : Result<PortfolioAllocation, string> =
+    let solveDirectly (assets: (string * float * float * float) list) (budget: float) (backend: BackendAbstraction.IQuantumBackend option) : Result<PortfolioAllocation, string> =
         let problem = createProblem assets budget
-        solve problem config
+        solve problem backend
 

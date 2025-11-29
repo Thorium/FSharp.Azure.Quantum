@@ -3,6 +3,7 @@ namespace FSharp.Azure.Quantum.Tests
 open Xunit
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Classical
+open FSharp.Azure.Quantum.Core
 
 module TspBuilderTests =
 
@@ -138,7 +139,7 @@ module TspBuilderTests =
             Assert.Fail($"solveDirectly failed: {msg}")
 
     [<Fact>]
-    let ``TSP.solve should accept custom configuration`` () =
+    let ``TSP.solve should accept custom backend`` () =
         // Arrange
         let cities = [
             ("A", 0.0, 0.0)
@@ -147,10 +148,11 @@ module TspBuilderTests =
             ("D", 0.0, 1.0)
         ]
         let problem = TSP.createProblem cities
-        let customConfig = Some { TspSolver.defaultConfig with MaxIterations = 100 }
+        // Use LocalBackend explicitly (though None would also work)
+        let backend = Some (BackendAbstraction.createLocalBackend())
         
         // Act
-        let result = TSP.solve problem customConfig
+        let result = TSP.solve problem backend
         
         // Assert
         match result with
@@ -158,4 +160,4 @@ module TspBuilderTests =
             Assert.Equal(4, tour.Cities.Length)
             Assert.True(tour.IsValid)
         | Error msg ->
-            Assert.Fail($"solve with custom config failed: {msg}")
+            Assert.Fail($"solve with custom backend failed: {msg}")

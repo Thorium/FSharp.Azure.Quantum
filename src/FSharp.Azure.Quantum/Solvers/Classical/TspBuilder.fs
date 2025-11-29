@@ -1,10 +1,31 @@
 namespace FSharp.Azure.Quantum
 
 open FSharp.Azure.Quantum.Classical
+open FSharp.Azure.Quantum.Quantum
+open FSharp.Azure.Quantum.Core
 
-/// High-level TSP Domain Builder
-/// Provides intuitive API for solving Traveling Salesman Problems
-/// Routes through HybridSolver for consistent quantum-classical decision making
+/// High-level TSP Domain Builder - Quantum-First API
+/// 
+/// DESIGN PHILOSOPHY:
+/// This is a BUSINESS DOMAIN API for users who want to solve TSP problems
+/// without understanding quantum computing internals (QAOA, QUBO, backends).
+/// 
+/// QUANTUM-FIRST:
+/// - Uses quantum optimization (QAOA) by default via LocalBackend (simulation)
+/// - Optional backend parameter for cloud quantum hardware (IonQ, Rigetti)
+/// - For algorithm-level control, use QuantumTspSolver directly
+/// 
+/// EXAMPLE USAGE:
+///   // Simple: Uses quantum simulation automatically
+///   let tour = TSP.solve cities None
+///   
+///   // Advanced: Specify cloud quantum backend
+///   let ionqBackend = BackendAbstraction.createIonQBackend(...)
+///   let tour = TSP.solve cities (Some ionqBackend)
+///   
+///   // Expert: Direct quantum solver access
+///   open FSharp.Azure.Quantum.Quantum
+///   let result = QuantumTspSolver.solve backend distances config
 module TSP =
 
     // ============================================================================
@@ -73,26 +94,52 @@ module TSP =
             DistanceMatrix = distanceMatrix
         }
 
-    /// Solve TSP problem using HybridSolver (automatic quantum-classical routing)
-    /// Routes through HybridSolver for intelligent method selection
-    /// Optional config parameter is currently ignored (HybridSolver uses defaults)
-    /// Returns Result with Tour or error message
-    /// Example:
-    ///   let tour = TSP.solve problem
-    ///   let customTour = TSP.solve problem (Some customConfig)
-    let solve (problem: TspProblem) (config: TspSolver.TspConfig option) : Result<Tour, string> =
-        // Route through HybridSolver for consistent quantum-classical decision making
-        // This ensures all solving goes through the same routing logic
-        match HybridSolver.solveTsp problem.DistanceMatrix None None None with
-        | Error msg -> Error $"TSP solve failed: {msg}"
-        | Ok hybridResult ->
-            try
+    /// Solve TSP problem using quantum optimization (QAOA)
+    /// 
+    /// QUANTUM-FIRST API:
+    /// - Uses quantum backend by default (LocalBackend for simulation)
+    /// - Specify custom backend for cloud quantum hardware (IonQ, Rigetti)
+    /// - Returns business-domain Tour result (not low-level QAOA output)
+    /// 
+    /// PARAMETERS:
+    ///   problem - TSP problem with cities and distance matrix
+    ///   backend - Optional quantum backend (defaults to LocalBackend if None)
+    /// 
+    /// EXAMPLES:
+    ///   // Simple: Automatic quantum simulation
+    ///   let tour = TSP.solve problem None
+    ///   
+    ///   // Cloud execution: Specify IonQ backend
+    ///   let ionqBackend = BackendAbstraction.createIonQBackend(...)
+    ///   let tour = TSP.solve problem (Some ionqBackend)
+    /// 
+    /// RETURNS:
+    ///   Result with Tour (city names, distance, validity) or error message
+    let solve (problem: TspProblem) (backend: BackendAbstraction.IQuantumBackend option) : Result<Tour, string> =
+        try
+            // Use provided backend or create LocalBackend for simulation
+            let actualBackend = 
+                backend 
+                |> Option.defaultValue (BackendAbstraction.createLocalBackend())
+            
+            // Create quantum TSP solver configuration
+            let quantumConfig : QuantumTspSolver.QuantumTspConfig = {
+                OptimizationShots = 100
+                FinalShots = 1000
+                EnableOptimization = true
+                InitialParameters = (0.5, 0.5)
+            }
+            
+            // Call quantum TSP solver directly
+            match QuantumTspSolver.solve actualBackend problem.DistanceMatrix quantumConfig with
+            | Error msg -> Error $"Quantum TSP solve failed: {msg}"
+            | Ok quantumResult ->
                 // Validate tour
-                let valid = isValidTour hybridResult.Result.Tour problem.CityCount
+                let valid = isValidTour quantumResult.Tour problem.CityCount
                 
                 // Convert tour indices to city names
                 let cityNames = 
-                    hybridResult.Result.Tour 
+                    quantumResult.Tour 
                     |> Array.map (fun idx -> 
                         match problem.Cities.[idx].Name with
                         | Some name -> name
@@ -101,18 +148,23 @@ module TSP =
                 
                 Ok {
                     Cities = cityNames
-                    TotalDistance = hybridResult.Result.TourLength
+                    TotalDistance = quantumResult.TourLength
                     IsValid = valid
                 }
-            with
-            | ex -> Error $"TSP result conversion failed: {ex.Message}"
+        with
+        | ex -> Error $"TSP solve failed: {ex.Message}"
 
-    /// Convenience function: Create problem and solve in one step
-    /// Input: List of (name, x, y) tuples
-    /// Optional config parameter allows customization
-    /// Output: Result with Tour or error message
-    /// Example:
+    /// Convenience function: Create problem and solve in one step using quantum optimization
+    /// 
+    /// PARAMETERS:
+    ///   cities - List of (name, x, y) tuples defining city locations
+    ///   backend - Optional quantum backend (defaults to LocalBackend if None)
+    /// 
+    /// RETURNS:
+    ///   Result with Tour or error message
+    /// 
+    /// EXAMPLE:
     ///   let tour = TSP.solveDirectly [("A", 0.0, 0.0); ("B", 1.0, 0.0)] None
-    let solveDirectly (cities: (string * float * float) list) (config: TspSolver.TspConfig option) : Result<Tour, string> =
+    let solveDirectly (cities: (string * float * float) list) (backend: BackendAbstraction.IQuantumBackend option) : Result<Tour, string> =
         let problem = createProblem cities
-        solve problem config
+        solve problem backend
