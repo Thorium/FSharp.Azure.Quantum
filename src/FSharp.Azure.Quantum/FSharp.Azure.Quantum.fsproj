@@ -41,6 +41,11 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- Test Visibility: Allow tests to call internal functions -->
+    <InternalsVisibleTo Include="FSharp.Azure.Quantum.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <None Include="..\..\README.md" Pack="true" PackagePath="\" />
   </ItemGroup>
 
@@ -83,11 +88,6 @@
     <Compile Include="Solvers\Classical\PortfolioTypes.fs" />
     <Compile Include="Solvers\Classical\PortfolioSolver.fs" />
     <Compile Include="Solvers\Classical\PortfolioBuilder.fs" />
-    
-    <!-- Hybrid Solvers - Orchestrate classical + quantum (depends on Classical Solvers) -->
-    <Compile Include="Solvers\Hybrid\ProblemAnalysis.fs" />
-    <Compile Include="Solvers\Hybrid\QuantumAdvisor.fs" />
-    <Compile Include="Solvers\Hybrid\HybridSolver.fs" />
 
     <!-- Builders Layer (depends on Types, LocalSimulator) -->
     <Compile Include="Builders\CircuitBuilder.fs" />
@@ -116,7 +116,14 @@
 
     <!-- Quantum Solvers (depends on Backends, QAOA) -->
     <Compile Include="Solvers\Quantum\QuantumTspSolver.fs" />
+    <Compile Include="Solvers\Quantum\QuantumNetworkFlowSolver.fs" />
+    <Compile Include="Solvers\Quantum\QuantumPortfolioSolver.fs" />
     <Compile Include="Solvers\Quantum\QuantumChemistry.fs" />
+
+    <!-- Hybrid Solvers - Orchestrate classical + quantum (depends on Quantum Solvers) -->
+    <Compile Include="Solvers\Hybrid\ProblemAnalysis.fs" />
+    <Compile Include="Solvers\Hybrid\QuantumAdvisor.fs" />
+    <Compile Include="Solvers\Hybrid\HybridSolver.fs" />
 
     <!-- Top-level applications (depends on Solvers) -->
     <Compile Include="Builders\Scheduling.fs" />

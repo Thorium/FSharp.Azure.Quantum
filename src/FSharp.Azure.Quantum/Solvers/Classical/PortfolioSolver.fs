@@ -183,7 +183,7 @@ module PortfolioSolver =
     
     /// Solve portfolio optimization using greedy-by-ratio algorithm
     /// Allocates budget to assets with highest return/risk ratio first
-    let solveGreedyByRatio (assets: Asset list) (constraints: Constraints) (config: PortfolioConfig) : PortfolioSolution =
+    let internal solveGreedyByRatio (assets: Asset list) (constraints: Constraints) (config: PortfolioConfig) : PortfolioSolution =
         let startTime = DateTime.UtcNow
         
         // Sort assets by return/risk ratio (descending)
@@ -264,7 +264,7 @@ module PortfolioSolver =
     
     /// Solve portfolio optimization using simplified mean-variance approach
     /// Uses iterative search to find allocation that maximizes utility function
-    let solveMeanVariance (assets: Asset list) (constraints: Constraints) (config: PortfolioConfig) : PortfolioSolution =
+    let internal solveMeanVariance (assets: Asset list) (constraints: Constraints) (config: PortfolioConfig) : PortfolioSolution =
         let startTime = DateTime.UtcNow
         
         // Convert risk tolerance (0-1) to risk aversion (higher tolerance = lower aversion)

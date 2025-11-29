@@ -129,19 +129,20 @@ module HybridSolverTests =
         | Error msg -> Assert.Fail($"Expected Ok but got Error: {msg}")
 
     [<Fact>]
-    let ``Forcing quantum method should return error`` () =
-        // Arrange: Any TSP problem
-        let distances = createTspDistanceMatrix 5
+    let ``Forcing quantum method should use quantum solver`` () =
+        // Arrange: Small TSP problem (3 cities for LocalSimulator)
+        let distances = createTspDistanceMatrix 3
         
-        // Act: Force quantum method (not implemented yet)
+        // Act: Force quantum method (now implemented!)
         let result = HybridSolver.solveTsp distances None None (Some HybridSolver.SolverMethod.Quantum)
         
-        // Assert: Should return error
+        // Assert: Should succeed and use quantum method
         match result with
-        | Ok _ -> Assert.Fail("Expected Error for forced quantum method")
-        | Error msg -> 
-            Assert.Contains("quantum", msg.ToLower())
-            Assert.Contains("not yet implemented", msg.ToLower())
+        | Error msg -> Assert.Fail($"Expected Ok but got Error: {msg}")
+        | Ok hybridResult -> 
+            Assert.Equal(HybridSolver.SolverMethod.Quantum, hybridResult.Method)
+            Assert.NotNull(hybridResult.Result)
+            Assert.Equal(3, hybridResult.Result.Tour.Length)
 
     // ============================================================================
     // QUANTUM EXECUTION CONFIGURATION TESTS

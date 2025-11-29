@@ -107,7 +107,7 @@ module TspSolver =
 
     /// Nearest Neighbor initialization
     /// Returns a tour starting from city 0, always visiting the nearest unvisited city
-    let nearestNeighborTour (distances: DistanceMatrix) : Tour =
+    let internal nearestNeighborTour (distances: DistanceMatrix) : Tour =
         let n = distances.GetLength(0)
         
         let rec buildTour (currentCity: int) (visited: Set<int>) (tour: int list) : int list =
@@ -139,7 +139,7 @@ module TspSolver =
 
     /// Try to improve tour by reversing segment between i+1 and j (2-opt move)
     /// Returns Some(improvedTour, improvement) if better, None otherwise
-    let tryTwoOptSwap (distances: DistanceMatrix) (tour: Tour) (i: int) (j: int) : (Tour * float) option =
+    let internal tryTwoOptSwap (distances: DistanceMatrix) (tour: Tour) (i: int) (j: int) : (Tour * float) option =
         let n = tour.Length
 
         // Calculate current edges: (i, i+1) and (j, j+1)
@@ -175,7 +175,7 @@ module TspSolver =
 
     /// 2-opt local search algorithm
     /// Iteratively improves tour by removing edge crossings
-    let twoOptImprove (distances: DistanceMatrix) (initialTour: Tour) (maxIterations: int) : Tour * int =
+    let internal twoOptImprove (distances: DistanceMatrix) (initialTour: Tour) (maxIterations: int) : Tour * int =
         let rec improve (tour: Tour) (iteration: int) : Tour * int =
             if iteration >= maxIterations then
                 (tour, iteration)
@@ -210,7 +210,7 @@ module TspSolver =
         }
 
     /// Solve TSP using nearest neighbor + 2-opt
-    let solve (cities: City array) (config: TspConfig) : TspSolution =
+    let internal solve (cities: City array) (config: TspConfig) : TspSolution =
         // Validate input (allow 1 city as trivial case)
         if cities.Length < 1 then
             failwith "Need at least 1 city"
@@ -221,7 +221,7 @@ module TspSolver =
         solveTsp distances config
 
     /// Solve TSP with custom distance matrix
-    let solveWithDistances (distances: DistanceMatrix) (config: TspConfig) : TspSolution =
+    let internal solveWithDistances (distances: DistanceMatrix) (config: TspConfig) : TspSolution =
         // Validate input (throws on invalid input to maintain backward compatibility)
         match validateDistanceMatrix distances with
         | Error msg -> failwith msg

@@ -16,531 +16,645 @@
 - ✅ Job submission, polling, and result parsing
 - ✅ Local quantum simulation (≤10 qubits)
 
-**Production-Ready Azure Quantum Features:**
-- ✅ IonQ simulator and QPU (`ionq.simulator`, `ionq.qpu.aria-1`)
-- ✅ Rigetti QVM and Aspen QPU (`rigetti.sim.qvm`, `rigetti.qpu.aspen-m-3`)
-- ✅ Azure authentication via Azure.Identity (CLI, Managed Identity)
-- ✅ Pre-flight circuit validation (catch errors before submission)
-- ✅ Cost limit enforcement and error handling
-- ✅ Multi-provider QAOA support (OpenQASM 2.0)
-- ✅ Automatic QAOA parameter optimization (Nelder-Mead simplex method)
+---
 
-**Future Enhancements (v1.x):**
-- 🎯 QuantumPortfolioSolver with QAOA parameter optimization
-- 🎯 Advanced result comparison and quantum advantage validation
-- 🎯 Support for IBM Quantum, Amazon Braket, Google Cirq
+## 📖 Table of Contents
 
-## 🚀 Quick Start
+1. [End-User API](#-1-end-user-api) - **Start here!** What you call from your code
+2. [Architectural Layers](#-2-architectural-layers) - How the library is organized
+3. [Quantum Backend Internals](#-3-quantum-backend-internals) - How quantum execution works
+
+---
+
+## 🎯 1. End-User API
+
+**What you interact with:** High-level builders and solvers for common optimization problems.
+
+### API Organization
+
+```mermaid
+graph TD
+    User[Your Application]
+    
+    User -->|"Easy: Named cities/assets<br/>(Classical only)"| Builders[Domain Builders]
+    User -->|"Advanced: Full control<br/>(Classical OR Quantum)"| Hybrid[HybridSolver]
+    
+    Builders --> TSP["TSP module<br/>(TspBuilder)"]
+    Builders --> Portfolio["Portfolio module<br/>(PortfolioBuilder)"]
+    
+    Hybrid --> HybridTSP["HybridSolver.solveTsp"]
+    Hybrid --> HybridPortfolio["HybridSolver.solvePortfolio"]
+    
+    TSP -->|Directly calls| TspClassical["TspSolver<br/>(internal classical)"]
+    Portfolio -->|Directly calls| PortfolioClassical["PortfolioSolver<br/>(internal classical)"]
+    
+    HybridTSP -->|Routes to| ClassicalOrQuantum["Classical OR Quantum<br/>(via QuantumAdvisor)"]
+    HybridPortfolio -->|Routes to| ClassicalOrQuantum
+    
+    style Builders fill:#90EE90
+    style Hybrid fill:#87CEEB
+    style User fill:#FFD700
+    style TspClassical fill:#FFB6C1
+    style PortfolioClassical fill:#FFB6C1
+    style ClassicalOrQuantum fill:#DDA0DD
+```
+
+### 1.1 Domain Builders (Recommended - Easy)
+
+**Use when:** You have domain objects (named cities, assets with prices) and want the simplest API.
+
+#### TSP Builder
 
 ```fsharp
-open FSharp.Azure.Quantum.Classical
+open FSharp.Azure.Quantum
 
-// Hybrid solver automatically chooses classical or quantum
+// Input: Named cities with coordinates
 let cities = [
     ("Seattle", 47.6, -122.3)
     ("Portland", 45.5, -122.7)
     ("San Francisco", 37.8, -122.4)
 ]
 
-// Convert to distance matrix
-let distances = TSP.calculateDistances cities
-
-// Let HybridSolver decide the best approach
-match HybridSolver.solveTsp distances None None None with
-| Ok solution ->
-    printfn "Method: %A" solution.Method  // Classical or Quantum
-    printfn "Reasoning: %s" solution.Reasoning
-    printfn "Best route: %A" solution.Result
+// Solve in one line
+match TSP.solveDirectly cities None with
+| Ok tour ->
+    printfn "Best route: %A" tour.Cities
+    printfn "Total distance: %.2f" tour.TotalDistance
 | Error msg -> printfn "Error: %s" msg
 ```
 
-## 📦 Installation
+**What it does:**
+1. Converts named cities → distance matrix
+2. Calls internal classical solver (`TspSolver.solveWithDistances`)
+3. Converts result back to city names
+4. Returns friendly `Tour` type with validation
 
-**NuGet Package:** [FSharp.Azure.Quantum](https://www.nuget.org/packages/FSharp.Azure.Quantum)
+**Note:** Builders provide a **classical-only** convenience API. For quantum routing, use `HybridSolver` directly.
 
-```bash
-dotnet add package FSharp.Azure.Quantum --prerelease
-```
-
-## ✨ Features
-
-### 🔀 HybridSolver - Automatic Quantum/Classical Routing
-Automatically chooses the best solver (quantum or classical) based on problem characteristics:
+#### Portfolio Builder
 
 ```fsharp
-// Let the solver decide automatically
-match HybridSolver.solveTsp distances None None None with
-| Ok solution ->
-    printfn "Method used: %A" solution.Method  // Classical or Quantum
-    printfn "Reasoning: %s" solution.Reasoning
-    printfn "Solution: %A" solution.Result
-| Error msg -> printfn "Error: %s" msg
-```
+open FSharp.Azure.Quantum
 
-### 🗺️ TSP (Traveling Salesman Problem)
-Solve routing problems with named cities:
-
-```fsharp
-let cities = [("NYC", 40.7, -74.0); ("LA", 34.0, -118.2); ("Chicago", 41.9, -87.6)]
-
-// Option 1: Direct solve (easiest)
-let tour = TSP.solveDirectly cities None
-
-// Option 2: Build problem first (for customization)
-let problem = TSP.createProblem cities
-let tour = TSP.solve problem (Some customConfig)
-```
-
-**Features:**
-- Named cities with coordinates
-- Automatic distance calculation
-- Simulated annealing with 2-opt
-- Configurable iterations and cooling
-
-### 💼 Portfolio Optimization
-Optimize investment portfolios with risk/return constraints:
-
-```fsharp
+// Input: Named assets with return/risk/price
 let assets = [
-    ("AAPL", 0.12, 0.18, 150.0)  // symbol, return, risk, price
+    ("AAPL", 0.12, 0.18, 150.0)  // (symbol, return, risk, price)
     ("MSFT", 0.10, 0.15, 300.0)
     ("GOOGL", 0.15, 0.20, 2800.0)
 ]
 
-let allocation = Portfolio.solveDirectly assets 10000.0 None
+let budget = 10000.0
 
-match allocation with
-| Ok result ->
-    printfn "Total Value: $%.2f" result.TotalValue
-    printfn "Expected Return: %.2f%%" (result.ExpectedReturn * 100.0)
-    printfn "Risk: %.2f" result.Risk
+// Solve with budget constraint
+match Portfolio.solveDirectly assets budget None with
+| Ok allocation ->
+    printfn "Portfolio value: $%.2f" allocation.TotalValue
+    printfn "Expected return: %.2f%%" (allocation.ExpectedReturn * 100.0)
 | Error msg -> printfn "Error: %s" msg
 ```
 
-**Features:**
-- Greedy return/risk ratio optimization
-- Budget constraints
-- Min/max holding limits
-- Efficient allocation
+**What it does:**
+1. Converts asset tuples → Asset records
+2. Creates budget constraints
+3. Calls internal classical solver (`PortfolioSolver.solveGreedyByRatio`)
+4. Returns portfolio allocation with metrics
 
-### 🤖 Quantum Advisor
-Get recommendations on when to use quantum vs classical:
+**Note:** Builders provide a **classical-only** convenience API. For quantum routing, use `HybridSolver` directly.
 
-```fsharp
-match QuantumAdvisor.getRecommendation distances with
-| Ok recommendation ->
-    printfn "Recommendation: %A" recommendation.RecommendationType
-    printfn "Problem size: %d" recommendation.ProblemSize
-    printfn "Reasoning: %s" recommendation.Reasoning
-| Error msg -> printfn "Error: %s" msg
-```
+### 1.2 HybridSolver (Advanced - Full Control)
 
-### 🧪 Classical Solvers
-Direct access to classical optimization algorithms:
+**Use when:** You want control over method selection (Classical/Quantum/Auto) or already have distance matrices.
 
 ```fsharp
-// TSP Solver
-let tspSolution = TspSolver.solveWithDistances distances TspSolver.defaultConfig
+open FSharp.Azure.Quantum.Solvers.Hybrid
 
-// Portfolio Solver  
-let portfolio = PortfolioSolver.solveGreedyByRatio assets constraints PortfolioSolver.defaultConfig
-```
-
-### 🔬 Quantum TSP Solver with QAOA Parameter Optimization
-Solve TSP using quantum algorithms with automatic parameter tuning:
-
-```fsharp
-open FSharp.Azure.Quantum.Quantum.QuantumTspSolver
-open FSharp.Azure.Quantum.Core.BackendAbstraction
-
-// Create distance matrix
+// Build distance matrix (or use existing one)
 let distances = array2D [
-    [ 0.0; 1.0; 2.0 ]
-    [ 1.0; 0.0; 1.5 ]
-    [ 2.0; 1.5; 0.0 ]
+    [0.0; 10.0; 15.0]
+    [10.0; 0.0; 12.0]
+    [15.0; 12.0; 0.0]
 ]
 
-// Option 1: Use default configuration (optimization enabled)
-let backend = createLocalBackend()
-match solve backend distances defaultConfig with
+// Option 1: Automatic routing (recommended)
+match HybridSolver.solveTsp distances None None None with
 | Ok solution ->
-    printfn "Best tour: %A" solution.Tour
-    printfn "Tour length: %.2f" solution.TourLength
-    printfn "Optimized parameters: %A" solution.OptimizedParameters
-    printfn "Optimization converged: %A" solution.OptimizationConverged
-| Error msg -> printfn "Error: %s" msg
+    printfn "Method: %A" solution.Method  // Classical or Quantum
+    printfn "Reasoning: %s" solution.Reasoning
+    printfn "Tour: %A" solution.Result.Tour
 
-// Option 2: Custom configuration
-let config = {
-    OptimizationShots = 100       // Fast parameter search (low shots)
-    FinalShots = 1000             // Accurate result (high shots)
-    EnableOptimization = true     // Enable variational loop
-    InitialParameters = (0.5, 0.5) // Starting guess for (gamma, beta)
-}
-let result = solve backend distances config
+// Option 2: Force classical
+match HybridSolver.solveTsp distances None None (Some Classical) with
+| Ok solution -> printfn "Forced classical: %A" solution.Result
 
-// Option 3: Disable optimization (backward compatibility)
-let resultNoOpt = solveWithShots backend distances 1000
+// Option 3: Force quantum (requires quantum backend)
+match HybridSolver.solveTsp distances None (Some quantumConfig) (Some Quantum) with
+| Ok solution -> printfn "Forced quantum: %A" solution.Result
 ```
 
-**Features:**
-- **Variational quantum-classical loop** - Classical optimizer finds best QAOA parameters
-- **Nelder-Mead simplex method** - Derivative-free optimization for noisy quantum circuits
-- **Problem-specific tuning** - Parameters adapt to each TSP instance
-- **Configurable** - Easy to disable for testing/demos
-- **Convergence tracking** - Iteration count and convergence status
+**Parameters:**
+1. `distances` - Distance matrix (problem input)
+2. `config` - Algorithm configuration (None = defaults)
+3. `quantumConfig` - Azure Quantum settings (None = local simulator)
+4. `forceMethod` - Override auto-routing (None = let QuantumAdvisor decide)
 
-**How It Works:**
-1. Classical optimizer proposes QAOA parameters (gamma, beta)
-2. Quantum backend executes QAOA circuit with those parameters
-3. Measure tour quality (cost)
-4. Optimizer updates parameters based on results
-5. Repeat until convergence
-6. Use optimized parameters for final high-accuracy execution
+### 1.3 API Summary
+
+| Level | Module | Best For | Quantum Support | Example |
+|-------|--------|----------|-----------------|---------|
+| **Easy** | `TSP`, `Portfolio` | Named domain objects | ❌ Classical only | `TSP.solveDirectly cities None` |
+| **Advanced** | `HybridSolver` | Full control, matrices | ✅ Classical OR Quantum (auto-routing) | `HybridSolver.solveTsp distances None None None` |
+| **Expert** | `TspSolver`, `QuantumTspSolver` | Internal use only (via `InternalsVisibleTo`) | N/A (internal API) | Not exposed to users |
+
+---
+
+## 🏗️ 2. Architectural Layers
+
+**How the library is organized internally.**
+
+### Layer Diagram
+
+```mermaid
+graph TB
+    subgraph "Layer 1: User-Facing API"
+        Builders["Domain Builders<br/>(TSP, Portfolio)<br/>Classical Only"]
+        HybridAPI["HybridSolver API<br/>(solveTsp, solvePortfolio)<br/>Classical OR Quantum"]
+    end
+    
+    subgraph "Layer 2: Hybrid Orchestration"
+        HybridLogic["HybridSolver Logic"]
+        Advisor["QuantumAdvisor<br/>(Auto-routing decisions)"]
+        
+        HybridLogic --> Advisor
+    end
+    
+    subgraph "Layer 3: Solver Implementations"
+        Classical["Classical Solvers<br/>(CPU algorithms)"]
+        Quantum["Quantum Solvers<br/>(QAOA algorithms)"]
+        
+        Classical --> TspClassical["TspSolver<br/>(Nearest Neighbor + 2-opt)"]
+        Classical --> PortfolioClassical["PortfolioSolver<br/>(Greedy by ratio)"]
+        
+        Quantum --> TspQuantum["QuantumTspSolver<br/>(QAOA + parameter optimization)"]
+        Quantum --> PortfolioQuantum["QuantumPortfolioSolver<br/>(QAOA)"]
+    end
+    
+    subgraph "Layer 4: Quantum Backends"
+        Backends["Backend Abstraction"]
+        
+        Backends --> Local["LocalSimulator<br/>(≤10 qubits)"]
+        Backends --> IonQ["IonQBackend<br/>(Azure Quantum)"]
+        Backends --> Rigetti["RigettiBackend<br/>(Azure Quantum)"]
+    end
+    
+    Builders -->|"Direct call"| Classical
+    HybridAPI --> HybridLogic
+    
+    HybridLogic -->|Small problems| Classical
+    HybridLogic -->|Large problems| Quantum
+    
+    Classical -.->|"No backend needed"| CPU["CPU Execution"]
+    Quantum --> Backends
+    
+    style Builders fill:#90EE90
+    style HybridAPI fill:#87CEEB
+    style HybridLogic fill:#DDA0DD
+    style Classical fill:#FFB6C1
+    style Quantum fill:#FFA500
+    style Backends fill:#4169E1
+```
+
+### Layer Responsibilities
+
+#### **Layer 1: User-Facing API** 🟢
+**Who uses it:** End users  
+**Visibility:** Public API
+
+- **Domain Builders** (`TSP`, `Portfolio`) - Convert domain objects → classical solvers (direct, no routing)
+- **HybridSolver API** - Entry point for quantum-classical routing
+
+**Key Design:** 
+- Builders = **Classical only** (fast, simple)
+- HybridSolver = **Classical OR Quantum** (auto-routing via QuantumAdvisor)
+- Users choose based on needs: simplicity vs. quantum capability
+
+#### **Layer 2: Hybrid Orchestration** 🟣
+**Who uses it:** HybridSolver  
+**Visibility:** Internal
+
+- **HybridSolver Logic** - Routes problems to Classical or Quantum
+- **QuantumAdvisor** - Analyzes problem, recommends method
+
+**Routing Logic:**
+```fsharp
+match forceMethod with
+| Some Classical → Call internal TspSolver.solve
+| Some Quantum → Call QuantumTspSolver.solve with backend
+| None → QuantumAdvisor decides based on problem size
+```
+
+#### **Layer 3: Solver Implementations** 🟠
+**Who uses it:** HybridSolver (internal)  
+**Visibility:** `internal` (hidden from users, visible to tests)
+
+**Classical Solvers:**
+- ✅ **NO backend parameter** - Pure CPU algorithms
+- ✅ Fast (milliseconds)
+- ✅ Free (local computation)
+- ✅ Deterministic results
+
+```fsharp
+// Internal function - users can't call this
+internal TspSolver.solve : City array → TspConfig → TspSolution
+```
+
+**Quantum Solvers:**
+- ✅ **REQUIRES backend parameter** - Quantum execution
+- ✅ Scalable (100+ variables)
+- ✅ QAOA with parameter optimization
+- ✅ Probabilistic results
+
+```fsharp
+// Internal function - users can't call this
+QuantumTspSolver.solve : IQuantumBackend → DistanceMatrix → Config → Result<Solution>
+```
+
+#### **Layer 4: Quantum Backends** 🔵
+**Who uses it:** Quantum solvers  
+**Visibility:** Public (for backend creation)
+
+**Backend Types:**
+- **LocalSimulator** - State vector simulation (≤10 qubits)
+- **IonQBackend** - Azure Quantum IonQ (simulator/QPU)
+- **RigettiBackend** - Azure Quantum Rigetti (simulator/QPU)
+
+```fsharp
+// Create backend for quantum execution
+let backend = BackendAbstraction.createLocalBackend()
+let backend = BackendAbstraction.createIonQBackend httpClient workspaceUrl "ionq.simulator"
+```
+
+### Key Architectural Decisions
+
+#### 1. **Internal Solvers (New in v1.1.0)**
+
+Classical and quantum solvers are `internal` - users must go through HybridSolver:
+
+```fsharp
+// ❌ WRONG: Can't call directly (internal function)
+let result = TspSolver.solve cities config
+
+// ✅ RIGHT: Use HybridSolver
+let result = HybridSolver.solveTsp distances None None None
+```
 
 **Benefits:**
-- ✅ Better solutions - Optimized parameters → higher success probability
-- ✅ Research-grade - Matches published QAOA implementations
-- ✅ Existing infrastructure - Uses QaoaOptimizer module (Nelder-Mead)
-- ✅ Backward compatible - Old API still works via `solveWithShots`
+- ✅ Single entry point (clear API)
+- ✅ Consistent routing logic
+- ✅ Can refactor internals without breaking users
+- ✅ Tests still have access via `InternalsVisibleTo`
 
-### 🔬 Local Quantum Simulation
-Test quantum algorithms offline without Azure credentials:
+#### 2. **Backend Requirement Rule**
+
+**Rule 1 (CRITICAL):** Quantum solvers MUST require `IQuantumBackend` parameter.
 
 ```fsharp
-open FSharp.Azure.Quantum.Core
-open FSharp.Azure.Quantum.Core.QuantumBackend
-open FSharp.Azure.Quantum.Core.QaoaCircuit
+// Classical - no backend needed
+TspSolver.solve : City array → TspConfig → TspSolution
 
-// Create a QAOA circuit (example: 3-qubit MaxCut)
-let quboMatrix = array2D [[0.0; 0.5; 0.5]; [0.5; 0.0; 0.5]; [0.5; 0.5; 0.0]]
+// Quantum - backend REQUIRED
+QuantumTspSolver.solve : IQuantumBackend → DistanceMatrix → Config → Result<Solution>
+```
+
+**Why:** Makes it obvious which solvers need quantum resources.
+
+#### 3. **Identical Routing Patterns**
+
+TSP and Portfolio have **identical** routing logic in HybridSolver:
+
+```fsharp
+match forceMethod with
+| Some Classical →
+    // Call internal classical solver
+    let solution = TspSolver.solveWithDistances distances config
+    { Method = Classical; Result = solution; ... }
+
+| Some Quantum →
+    // Call quantum solver with backend
+    let backend = createLocalBackend()
+    let quantumResult = QuantumTspSolver.solve backend distances qConfig
+    // Convert to classical format
+    { Method = Quantum; Result = convertedResult; ... }
+
+| None →
+    // QuantumAdvisor decides
+    match QuantumAdvisor.getRecommendation distances with
+    | UseClassical → (* route to classical *)
+    | UseQuantum → (* route to quantum *)
+```
+
+---
+
+## ⚛️ 3. Quantum Backend Internals
+
+**Deep dive:** How LocalSimulator executes quantum circuits.
+
+### LocalSimulator Architecture
+
+```mermaid
+graph TB
+    subgraph "Quantum Solver Layer"
+        QSolver["QuantumTspSolver.solve"]
+        QSolver --> BuildCircuit["1. Build QAOA Circuit"]
+        BuildCircuit --> Optimize["2. Parameter Optimization<br/>(Nelder-Mead)"]
+    end
+    
+    subgraph "Backend Abstraction"
+        Optimize --> Backend["IQuantumBackend interface"]
+        Backend --> Local["LocalSimulator.execute"]
+    end
+    
+    subgraph "LocalSimulator Internals"
+        Local --> StateVec["State Vector Simulation"]
+        
+        StateVec --> Init["Initialize |0⟩^n"]
+        Init --> Gates["Apply Gates Sequentially"]
+        
+        Gates --> SingleQ["Single-Qubit Gates<br/>(H, RX, RY, RZ)"]
+        Gates --> TwoQ["Two-Qubit Gates<br/>(CNOT, RZZ)"]
+        
+        SingleQ --> Matrix1["2x2 Matrix Multiplication"]
+        TwoQ --> Matrix2["4x4 Matrix Multiplication"]
+        
+        Matrix1 --> UpdateState["Update State Vector"]
+        Matrix2 --> UpdateState
+        
+        UpdateState --> Measure["Measurement & Sampling"]
+        Measure --> Results["Return Histogram"]
+    end
+    
+    subgraph "State Vector Details"
+        UpdateState --> Vec["State Vector: Complex[2^n]"]
+        Vec --> Amp["Amplitudes: α₀|00⟩ + α₁|01⟩ + α₂|10⟩ + α₃|11⟩"]
+    end
+    
+    style QSolver fill:#90EE90
+    style Backend fill:#87CEEB
+    style Local fill:#FFB6C1
+    style StateVec fill:#DDA0DD
+    style Vec fill:#FFA500
+```
+
+### Execution Flow
+
+#### **Step 1: Circuit Construction**
+
+```fsharp
+// Quantum solver builds QAOA circuit
 let circuit = {
     NumQubits = 3
-    InitialStateGates = [| H(0); H(1); H(2) |]
+    InitialStateGates = [| H(0); H(1); H(2) |]  // Uniform superposition
     Layers = [|
         {
-            CostGates = [| RZZ(0, 1, 0.5); RZZ(1, 2, 0.5); RZZ(0, 2, 0.5) |]
-            MixerGates = [| RX(0, 1.0); RX(1, 1.0); RX(2, 1.0) |]
-            Gamma = 0.25
-            Beta = 0.5
+            CostGates = [| RZZ(0,1,gamma); RZZ(1,2,gamma) |]  // Problem encoding
+            MixerGates = [| RX(0,beta); RX(1,beta); RX(2,beta) |]  // Exploration
+            Gamma = 0.5
+            Beta = 0.3
         }
     |]
-    ProblemHamiltonian = ProblemHamiltonian.fromQubo quboMatrix
-    MixerHamiltonian = MixerHamiltonian.create 3
 }
-
-// Execute on local simulator
-match Local.simulate circuit 1000 with
-| Ok result ->
-    printfn "Backend: %s" result.Backend
-    printfn "Time: %.2f ms" result.ExecutionTimeMs
-    result.Counts
-    |> Map.toList
-    |> List.sortByDescending snd
-    |> List.take 3
-    |> List.iter (fun (bitstring, count) ->
-        printfn "  %s: %d shots" bitstring count)
-| Error msg ->
-    eprintfn "Error: %s" msg
 ```
 
-**Features:**
-- State vector simulation (up to 10 qubits)
-- QAOA circuit execution with mixer and cost Hamiltonians
-- Measurement and shot sampling
-- Zero external dependencies
-
-**QAOA Multi-Provider Support:**
-
-QAOA circuits use **OpenQASM 2.0** format, making them compatible with all major quantum providers:
+#### **Step 2: Parameter Optimization**
 
 ```fsharp
-open FSharp.Azure.Quantum.Core.QaoaCircuit
+// Nelder-Mead optimizer finds best (gamma, beta)
+let optimizer = NelderMead.create initialParams
 
-// Build QAOA circuit (provider-agnostic)
-let quboMatrix = array2D [[1.0; -2.0]; [-2.0; 1.0]]
-let problemHam = ProblemHamiltonian.fromQubo quboMatrix
-let mixerHam = MixerHamiltonian.create 2
-let circuit = QaoaCircuit.build problemHam mixerHam [|(0.5, 0.3)|]
-
-// Export to OpenQASM 2.0 (universal format)
-let qasm = QaoaCircuit.toOpenQasm circuit
-printfn "%s" qasm
-// Output:
-// OPENQASM 2.0;
-// include "qelib1.inc";
-// qreg q[2];
-// // Initial state preparation
-// h q[0];
-// h q[1];
-// ...
-```
-
-**Provider Compatibility:**
-- ✅ **IonQ** - Native OpenQASM or JSON gate format
-- ✅ **Rigetti** - Translate OpenQASM → Quil (assembly language)
-- ✅ **IBM Qiskit** - Native OpenQASM 2.0 support
-- ✅ **Amazon Braket** - OpenQASM support
-- ✅ **Google Cirq** - OpenQASM import capability
-- ✅ **Local Simulator** - Direct QAOA execution (no translation needed)
-
-**Why QAOA is Provider-Agnostic:**
-- Uses **standard gate set** (H, RX, RY, RZ, RZZ, CNOT)
-- **OpenQASM 2.0** is the industry standard for circuit interchange
-- Algorithm logic is **separate from backend submission** code
-
-### ☁️ Azure Quantum Integration (v0.5.0-beta)
-Execute quantum circuits on Azure Quantum backends (IonQ, Rigetti):
-
-```fsharp
-open FSharp.Azure.Quantum.Core
-open FSharp.Azure.Quantum.Core.Authentication
-open FSharp.Azure.Quantum.Core.IonQBackend
-
-// Step 1: Create authenticated HTTP client
-let credential = CredentialProviders.createDefaultCredential()  // Uses Azure CLI, Managed Identity, etc.
-let httpClient = Authentication.createAuthenticatedClient credential
-
-// Step 2: Build workspace URL
-let subscriptionId = "your-subscription-id"
-let resourceGroup = "your-resource-group"
-let workspaceName = "your-workspace-name"
-let location = "eastus"
-let workspaceUrl = 
-    $"https://management.azure.com/subscriptions/{subscriptionId}/resourceGroups/{resourceGroup}/providers/Microsoft.Quantum/Workspaces/{workspaceName}"
-
-// Step 3: Create IonQ circuit (Bell state example)
-let circuit: IonQCircuit = {
-    Qubits = 2
-    Circuit = [
-        SingleQubit("h", 0)      // Hadamard on qubit 0
-        TwoQubit("cnot", 0, 1)   // CNOT with control=0, target=1
-        Measure([|0; 1|])        // Measure both qubits
-    ]
-}
-
-// Step 4: Submit and execute
-async {
-    let! result = IonQBackend.submitAndWaitForResultsAsync httpClient workspaceUrl circuit 100 "ionq.simulator"
+// Variational loop
+for iteration in 1..maxIterations do
+    // 1. Optimizer proposes parameters
+    let (gamma, beta) = optimizer.NextParameters()
     
-    match result with
-    | Ok histogram ->
-        printfn "✅ Job completed!"
-        histogram 
-        |> Map.iter (fun bitstring count -> 
-            printfn "  %s: %d shots" bitstring count)
-    | Error err ->
-        eprintfn "❌ Error: %A" err
-} |> Async.RunSynchronously
-```
-
-**Supported Backends:**
-- `ionq.simulator` - IonQ cloud simulator
-- `ionq.qpu.aria-1` - IonQ Aria-1 QPU (requires credits)
-- `rigetti.sim.qvm` - Rigetti QVM simulator
-- `rigetti.qpu.aspen-m-3` - Rigetti Aspen-M-3 QPU (requires credits)
-
-**Authentication Methods:**
-- `DefaultAzureCredential()` - Tries Azure CLI, Managed Identity, Environment Variables
-- `AzureCliCredential()` - Uses `az login` credentials  
-- `ManagedIdentityCredential()` - For Azure VMs/App Services
-
-**Features:**
-- Automatic token acquisition and refresh
-- Job submission, polling, and result retrieval
-- Error handling with retry logic
-- Cost tracking and estimation
-
-### 🔍 Circuit Validation (Pre-Flight Checks)
-
-Validate circuits against backend constraints **before submission** to catch errors early and avoid costly failed API calls:
-
-```fsharp
-open FSharp.Azure.Quantum.Core.CircuitValidator
-
-// Example: Validate circuit for IonQ simulator
-let circuit = {
-    NumQubits = 5
-    GateCount = 50
-    UsedGates = Set.ofList ["H"; "CNOT"; "RX"]
-    TwoQubitGates = [(0, 1); (1, 2)]
-}
-
-let constraints = BackendConstraints.ionqSimulator()
-match validateCircuit constraints circuit with
-| Ok () -> 
-    printfn "✅ Circuit valid for IonQ simulator"
-| Error errors ->
-    printfn "❌ Validation failed:"
-    errors |> List.iter (fun err -> 
-        printfn "  - %s" (formatValidationError err))
-```
-
-**Built-in Backend Constraints:**
-
-```fsharp
-// Local simulator (1-10 qubits, all gates, no depth limit)
-let local = BackendConstraints.localSimulator()
-
-// IonQ simulator (29 qubits, all-to-all connectivity, 100 gate limit)
-let ionqSim = BackendConstraints.ionqSimulator()
-
-// IonQ hardware (11 qubits, all-to-all connectivity, 100 gate limit)
-let ionqHw = BackendConstraints.ionqHardware()
-
-// Rigetti Aspen-M-3 (79 qubits, limited connectivity, 50 gate limit)
-let rigetti = BackendConstraints.rigettiAspenM3()
-```
-
-**Auto-Detection from Target String:**
-
-```fsharp
-// Automatically detect constraints from Azure Quantum target
-match KnownTargets.getConstraints "ionq.simulator" with
-| Some constraints -> 
-    // Validate circuit...
-    validateCircuit constraints myCircuit
-| None -> 
-    printfn "Unknown target - provide custom constraints"
-```
-
-**Integrated Validation (IonQ):**
-
-```fsharp
-// IonQ backend validates automatically before submission
-async {
-    let! result = IonQBackend.submitAndWaitForResultsWithValidationAsync
-        httpClient
-        workspaceUrl
-        circuit
-        1000  // shots
-        "ionq.simulator"
-        None  // Auto-detect constraints from target string
+    // 2. Execute circuit with proposed parameters
+    let circuit = updateCircuitParams circuit gamma beta
+    let result = backend.Execute circuit lowShots
     
-    match result with
-    | Ok histogram -> printfn "Success!"
-    | Error (InvalidCircuit errors) -> 
-        printfn "Circuit validation failed before submission:"
-        errors |> List.iter (printfn "  %s")
-    | Error otherError -> 
-        printfn "Execution error: %A" otherError
-} |> Async.RunSynchronously
+    // 3. Evaluate cost (tour quality)
+    let cost = computeTourCost result.Histogram distances
+    
+    // 4. Update optimizer
+    optimizer.Update(cost)
+    
+    if optimizer.HasConverged() then break
 ```
 
-**Custom Backend Constraints:**
+#### **Step 3: State Vector Initialization**
 
 ```fsharp
-// Define constraints for a new quantum provider
-let ibmConstraints = BackendConstraints.create
-    "IBM Quantum Eagle"      // Name
-    127                      // Max qubits
-    ["H"; "X"; "CX"; "RZ"]  // Supported gates
-    (Some 1000)              // Max circuit depth
-    false                    // Limited connectivity
-    [(0,1); (1,2); (2,3)]   // Connected qubit pairs
-
-// Use custom constraints
-match validateCircuit ibmConstraints myCircuit with
-| Ok () -> printfn "Valid for IBM Quantum!"
-| Error errors -> printfn "Validation errors: %A" errors
+// LocalSimulator: Initialize n-qubit state
+let n = 3  // number of qubits
+let stateSize = 2^n  // 2^3 = 8 states
+let state = Array.create stateSize Complex.Zero
+state.[0] <- Complex.One  // |000⟩ - all qubits in |0⟩
 ```
 
-**Validation Checks:**
-- ✅ **Qubit count** - Does circuit exceed backend qubit limit?
-- ✅ **Gate set** - Are all gates supported by the backend?
-- ✅ **Circuit depth** - Does circuit exceed recommended depth limit?
-- ✅ **Connectivity** - Do two-qubit gates respect topology constraints?
+**State representation:**
+```
+|ψ⟩ = α₀|000⟩ + α₁|001⟩ + α₂|010⟩ + α₃|011⟩ + α₄|100⟩ + α₅|101⟩ + α₆|110⟩ + α₇|111⟩
+```
 
-### 📊 Problem Analysis
-Analyze problem complexity and characteristics:
+Initially: `|ψ⟩ = 1|000⟩ + 0|001⟩ + 0|010⟩ + ... + 0|111⟩`
+
+#### **Step 4: Gate Application**
+
+**Hadamard Gate (H):**
+```fsharp
+// Apply H to qubit 0
+let applyH qubit state =
+    // H = 1/√2 * [[1, 1], [1, -1]]
+    for i in 0..stateSize-1 do
+        if hasBit i qubit then
+            // Qubit is |1⟩: swap and negate
+            let j = clearBit i qubit
+            let temp = state.[i]
+            state.[i] <- (state.[j] - temp) / sqrt(2.0)
+            state.[j] <- (state.[j] + temp) / sqrt(2.0)
+```
+
+**After H on all qubits:**
+```
+|ψ⟩ = 1/√8 (|000⟩ + |001⟩ + |010⟩ + |011⟩ + |100⟩ + |101⟩ + |110⟩ + |111⟩)
+```
+**Uniform superposition!**
+
+**RZZ Gate (Cost Layer):**
+```fsharp
+// Apply RZZ(i, j, angle) - encodes problem structure
+let applyRZZ qubit1 qubit2 angle state =
+    // RZZ(θ) = exp(-i θ/2 ZZ)
+    // Adds phase based on bit parity
+    for i in 0..stateSize-1 do
+        let bit1 = getBit i qubit1
+        let bit2 = getBit i qubit2
+        let parity = if bit1 = bit2 then 1.0 else -1.0
+        let phase = exp(Complex.ImaginaryOne * angle * parity / 2.0)
+        state.[i] <- state.[i] * phase
+```
+
+**RX Gate (Mixer Layer):**
+```fsharp
+// Apply RX(angle) - explores solution space
+let applyRX qubit angle state =
+    // RX(θ) = [[cos(θ/2), -i*sin(θ/2)], [-i*sin(θ/2), cos(θ/2)]]
+    let cos_half = cos(angle / 2.0)
+    let sin_half = sin(angle / 2.0)
+    
+    for i in 0..stateSize-1 do
+        let j = flipBit i qubit
+        let temp = state.[i]
+        state.[i] <- temp * cos_half - Complex.ImaginaryOne * state.[j] * sin_half
+        state.[j] <- state.[j] * cos_half - Complex.ImaginaryOne * temp * sin_half
+```
+
+#### **Step 5: Measurement**
 
 ```fsharp
-match ProblemAnalysis.classifyProblem distances with
-| Ok info ->
-    printfn "Type: %A" info.ProblemType
-    printfn "Size: %d" info.Size
-    printfn "Complexity: %s" info.Complexity
-| Error msg -> printfn "Error: %s" msg
+// Collapse state vector to classical bits
+let measure shots state =
+    // 1. Compute probabilities from amplitudes
+    let probabilities = 
+        state |> Array.map (fun amplitude -> 
+            (amplitude * Complex.Conjugate(amplitude)).Real)
+    
+    // 2. Sample bitstrings according to probabilities
+    let histogram = Dictionary<string, int>()
+    for shot in 1..shots do
+        let bitstring = sampleFromDistribution probabilities
+        histogram.[bitstring] <- histogram.[bitstring] + 1
+    
+    histogram
 ```
 
-### 💰 Cost Estimation
-Estimate quantum execution costs before running:
+**Example output:**
+```
+"000": 45 shots
+"001": 12 shots
+"010": 203 shots  ← Likely best solution
+"011": 8 shots
+"100": 150 shots
+"101": 67 shots
+"110": 412 shots
+"111": 103 shots
+```
+
+#### **Step 6: Result Interpretation**
 
 ```fsharp
-let estimate = CostEstimation.estimateQuantumCost problemSize shots tier
-printfn "Estimated cost: $%.2f %s" estimate.EstimatedCost estimate.Currency
+// Convert histogram → tour
+let bestBitstring = 
+    histogram 
+    |> Map.toSeq 
+    |> Seq.maxBy snd 
+    |> fst
+
+// Decode bitstring → tour (problem-specific)
+let tour = decodeTspBitstring bestBitstring
+
+// Return solution
+{
+    Tour = tour
+    TourLength = calculateLength tour distances
+    OptimizedParameters = (gamma, beta)
+    ElapsedMs = executionTime
+}
 ```
+
+### LocalSimulator Limitations
+
+| Limit | Value | Reason |
+|-------|-------|--------|
+| **Max Qubits** | 10 | State vector size = 2^n (1024 complex numbers) |
+| **Memory** | ~16 KB | Each amplitude = 16 bytes (Complex) |
+| **Gates** | Unlimited | Sequential application |
+| **Shots** | Unlimited | Fast sampling from probabilities |
+
+**For 11+ qubits:** Use Azure Quantum backends (IonQ, Rigetti)
+
+### Azure Quantum Backend Flow
+
+```mermaid
+sequenceDiagram
+    participant QS as QuantumSolver
+    participant BA as BackendAbstraction
+    participant IonQ as IonQBackend
+    participant Azure as Azure Quantum API
+    
+    QS->>BA: Execute(circuit, shots)
+    BA->>IonQ: IonQBackend.execute()
+    
+    IonQ->>IonQ: Validate circuit
+    IonQ->>IonQ: Convert to OpenQASM/JSON
+    
+    IonQ->>Azure: POST /jobs (submit)
+    Azure-->>IonQ: Job ID
+    
+    loop Poll every 2 seconds
+        IonQ->>Azure: GET /jobs/{id}
+        Azure-->>IonQ: Status: Running
+    end
+    
+    Azure-->>IonQ: Status: Succeeded
+    IonQ->>Azure: GET /jobs/{id}/results
+    Azure-->>IonQ: Histogram
+    
+    IonQ->>IonQ: Parse results
+    IonQ-->>BA: ExecutionResult
+    BA-->>QS: Solution
+```
+
+**Key differences from LocalSimulator:**
+- ✅ Supports 29+ qubits (IonQ simulator), 11 qubits (IonQ hardware)
+- ✅ Real quantum noise (hardware)
+- ✅ Requires Azure authentication
+- ⏱️ Slower (job queue, ~10-60 seconds)
+- 💰 Costs money (QPU usage)
+
+---
+
+## 🚀 Quick Start
+
+```fsharp
+open FSharp.Azure.Quantum
+
+// Easy: Use domain builder
+let cities = [("Seattle", 47.6, -122.3); ("Portland", 45.5, -122.7); ("SF", 37.8, -122.4)]
+let tour = TSP.solveDirectly cities None
+
+// Advanced: Use HybridSolver with auto-routing
+let distances = TSP.calculateDistances cities
+match HybridSolver.solveTsp distances None None None with
+| Ok solution -> printfn "Method: %A, Tour: %A" solution.Method solution.Result
+```
+
+---
+
+## 📦 Installation
+
+```bash
+dotnet add package FSharp.Azure.Quantum
+```
+
+---
 
 ## 📚 Documentation
 
-- **[Architecture Overview](docs/architecture-overview.md)** - Hybrid quantum-classical design explained
 - **[Getting Started Guide](docs/getting-started.md)** - Installation and first examples
 - **[Local Simulation Guide](docs/local-simulation.md)** - Quantum simulation without Azure
 - **[Backend Switching Guide](docs/backend-switching.md)** - Switch between local and Azure
 - **[API Reference](docs/api-reference.md)** - Complete API documentation
-- **[TSP Example](docs/examples/tsp-example.md)** - Detailed TSP walkthrough
 - **[FAQ](docs/faq.md)** - Common questions and troubleshooting
 
-## 🏗️ Architecture
-
-**Hybrid Design**: Classical algorithms for small problems, quantum for large. [Detailed architecture →](docs/architecture-overview.md)
-
-**Three Layers**:
-1. **Hybrid Orchestration** - `HybridSolver` routes to classical or quantum
-2. **Solvers** - Classical (CPU, no backend) vs Quantum (requires backend)
-3. **Backends** - IonQ, Rigetti, LocalSimulator
-
-**Key Difference**:
-- `TspSolver` - Classical algorithm, NO backend parameter, CPU execution
-- `QuantumTspSolver` - Quantum algorithm, REQUIRES backend parameter
-
-```fsharp
-// Classical - fast, free
-TspSolver.solve distances config
-
-// Quantum with parameter optimization - scalable, research-grade
-QuantumTspSolver.solve rigettiBackend distances defaultConfig
-
-// Quantum without optimization (backward compatibility)
-QuantumTspSolver.solveWithShots rigettiBackend distances 1000
-
-// Hybrid - automatic routing
-HybridSolver.solveTsp distances None None None
-```
-
-### ✅ Production Ready
-
-| Component | Description |
-|-----------|-------------|
-| **Classical Solvers** | TSP, Portfolio optimization with CPU algorithms |
-| **Quantum Solvers** | TSP (QAOA with parameter optimization), Quantum Chemistry (VQE) |
-| **HybridSolver** | Automatic routing based on problem size |
-| **Parameter Optimization** | Variational quantum-classical loop (Nelder-Mead) |
-| **Azure Quantum** | IonQ and Rigetti backend integration |
-| **Local Simulator** | Offline testing (≤10 qubits) |
-| **Problem Builders** | Graph, Subset, Scheduling, CSP |
-| **Error Mitigation** | ZNE, PEC, readout error correction |
-
-### 🧱 Problem Builders
-
-Fluent APIs for encoding optimization problems:
-
-| Builder | Domains |
-|---------|---------|
-| **GraphOptimization** | TSP, Graph Coloring, MaxCut |
-| **SubsetSelection** | Knapsack, Portfolio, Set Cover |
-| **Scheduling** | Task Scheduling, Resource Allocation |
-| **ConstraintSatisfaction** | N-Queens, Sudoku |
-| **CircuitBuilder** | Low-level quantum circuits |
-
-All builders support both classical and quantum solvers.
-
-### 🚧 Roadmap (v1.x)
-
-- **QuantumPortfolioSolver** - QAOA for portfolio optimization with parameter tuning
-- **Additional Providers** - IBM Quantum, Amazon Braket, Google Cirq
-- **More Algorithms** - MaxCut, Graph Coloring quantum solvers
-- **Enhanced Error Mitigation** - Additional ZNE, PEC strategies
+---
 
 ## 🎯 When to Use Quantum
 
@@ -560,80 +674,28 @@ The library automatically recommends quantum vs classical based on:
 
 **Use HybridSolver to decide automatically!**
 
-## 🔧 Development
-
-### Prerequisites
-- .NET 10.0 SDK
-- F# 10.0
-
-### Build
-```bash
-dotnet build
-```
-
-### Test
-```bash
-dotnet test
-```
-
-All 1,021 tests passing ✅ (including QAOA parameter optimization, local simulation, Azure Quantum backends, and validation tests)
-
-### Run Examples
-```bash
-cd examples
-dotnet run
-```
-
-## 📊 Performance
-
-**Classical Solvers (Local Execution):**
-
-| Problem | Size | Time | Quality |
-|---------|------|------|---------|
-| TSP | 10 cities | ~20ms | Optimal |
-| TSP | 50 cities | ~500ms | Within 5% of optimal |
-| TSP | 100 cities | ~2s | Within 10% of optimal |
-| Portfolio | 20 assets | ~10ms | Optimal |
-| Portfolio | 50 assets | ~50ms | Near-optimal |
+---
 
 ## 🤝 Contributing
 
-Contributions welcome! This is an alpha release and we're actively improving.
+Contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
-### Areas for Contribution
-- Additional problem domains (Scheduling, MaxCut, etc.)
-- Quantum backend integration
-- Performance optimizations
-- Documentation improvements
-- Bug fixes
-
-### Development Process
-- Follow TDD methodology (see `docs-for-mulder/AI-DEVELOPMENT-GUIDE.md`)
-- Write tests first (RED → GREEN → REFACTOR)
-- Update documentation
-- Submit PR to `dev` branch
+---
 
 ## 📄 License
 
 **Unlicense** - Public domain. Use freely for any purpose.
 
-## 🙏 Acknowledgments
-
-Built with:
-- F# 10.0
-- .NET 10.0
-- Azure Quantum platform
-
-Developed using AI-assisted TDD methodology.
+---
 
 ## 📞 Support
 
 - **Documentation**: [docs/](docs/)
 - **Issues**: [GitHub Issues](https://github.com/thorium/FSharp.Azure.Quantum/issues)
-- **Examples**: [docs/examples/](docs/examples/)
+- **Examples**: [examples/](examples/)
 
 ---
 
-**Status**: Production Ready (v1.1.0) - QAOA with automatic parameter optimization, all core features complete, fully tested, quantum backends integrated.
+**Status**: Production Ready (v1.1.0) - All core features complete, fully tested, quantum backends integrated.
 
-**Last Updated**: 2025-11-28
+**Last Updated**: 2025-11-29

@@ -1,6 +1,8 @@
 namespace FSharp.Azure.Quantum.Classical
 
 open System
+open FSharp.Azure.Quantum.Quantum
+open FSharp.Azure.Quantum.Core
 
 /// Hybrid Solver - Orchestration layer that automatically routes problems
 /// to either classical solvers OR quantum solvers based on problem analysis.
@@ -279,7 +281,28 @@ module HybridSolver =
             |> Ok
 
         | Some Quantum ->
-            Error "Quantum TSP solver not yet implemented. Use Classical or let advisor decide."
+            // Execute quantum TSP solver
+            let quantumConfig = QuantumTspSolver.defaultConfig
+            let backend = BackendAbstraction.createLocalBackend()
+            
+            match QuantumTspSolver.solve backend distances quantumConfig with
+            | Error msg -> Error (sprintf "Quantum TSP solver failed: %s" msg)
+            | Ok quantumResult ->
+                // Convert quantum result to classical TSP solution format
+                let classicalSolution : TspSolver.TspSolution = {
+                    Tour = quantumResult.Tour
+                    TourLength = quantumResult.TourLength
+                    Iterations = 0  // Quantum solver doesn't track iterations
+                    ElapsedMs = quantumResult.ElapsedMs
+                }
+                
+                {
+                    Method = Quantum
+                    Result = classicalSolution
+                    Reasoning = "Quantum TSP solver forced by user override."
+                    ElapsedMs = quantumResult.ElapsedMs
+                    Recommendation = None
+                } |> Ok
 
         | None ->
             QuantumAdvisor.getRecommendation distances
@@ -332,7 +355,30 @@ module HybridSolver =
             |> Ok
 
         | Some Quantum ->
-            Error "Quantum Portfolio solver not yet implemented. Use Classical or let advisor decide."
+            // Execute quantum portfolio solver
+            let quantumConfig = QuantumPortfolioSolver.defaultConfig
+            let backend = BackendAbstraction.createLocalBackend()
+            
+            match QuantumPortfolioSolver.solve backend assets constraints quantumConfig with
+            | Error msg -> Error (sprintf "Quantum portfolio solver failed: %s" msg)
+            | Ok quantumResult ->
+                // Convert quantum result to classical portfolio solution format
+                let classicalSolution : PortfolioSolver.PortfolioSolution = {
+                    Allocations = quantumResult.Allocations
+                    TotalValue = quantumResult.TotalValue
+                    ExpectedReturn = quantumResult.ExpectedReturn
+                    Risk = quantumResult.Risk
+                    SharpeRatio = quantumResult.SharpeRatio
+                    ElapsedMs = quantumResult.ElapsedMs
+                }
+                
+                {
+                    Method = Quantum
+                    Result = classicalSolution
+                    Reasoning = "Quantum portfolio solver forced by user override."
+                    ElapsedMs = quantumResult.ElapsedMs
+                    Recommendation = None
+                } |> Ok
 
         | None ->
             // Create problem representation for Quantum Advisor
