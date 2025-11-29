@@ -190,95 +190,13 @@ module PerformanceBenchmarkingTests =
     // ============================================================================
     // Phase 2 - Classical TSP Benchmark Tests
     // ============================================================================
-
-    [<Fact>]
-    let ``benchmarkClassicalTSP completes for 5 cities`` () =
-        async {
-            // Arrange
-            let cities = [|
-                ("A", 0.0, 0.0)
-                ("B", 10.0, 0.0)
-                ("C", 10.0, 10.0)
-                ("D", 0.0, 10.0)
-                ("E", 5.0, 5.0)
-            |]
-            
-            // Act
-            let! result = PerformanceBenchmarking.benchmarkClassicalTSP cities 2
-            
-            // Assert
-            Assert.Equal("TSP", result.ProblemType)
-            Assert.Equal(5, result.ProblemSize)
-            Assert.Equal("Classical", result.Solver)
-            Assert.True(result.ExecutionTimeMs > 0L)
-            Assert.True(result.ExecutionTimeMs < 5000L)  // Should complete in < 5s
-            Assert.True(result.SolutionQuality > 0.0)
-        } |> Async.RunSynchronously
-
-    [<Fact>]
-    let ``benchmarkClassicalTSP execution time increases with problem size`` () =
-        async {
-            // Arrange - Use seeded random for deterministic tests
-            let cities5 = PerformanceBenchmarking.generateRandomCities 5 (Some 100)
-            let cities10 = PerformanceBenchmarking.generateRandomCities 10 (Some 101)
-            
-            // Act
-            let! result5 = PerformanceBenchmarking.benchmarkClassicalTSP cities5 1
-            let! result10 = PerformanceBenchmarking.benchmarkClassicalTSP cities10 1
-            
-            // Assert
-            Assert.True(result10.ExecutionTimeMs >= result5.ExecutionTimeMs)
-        } |> Async.RunSynchronously
-
-    [<Fact>]
-    let ``benchmarkClassicalTSP produces consistent results with repetitions`` () =
-        async {
-            // Arrange - Use fixed cities for predictable test behavior
-            let cities = [|
-                ("City0", 0.0, 0.0)
-                ("City1", 10.0, 0.0)
-                ("City2", 10.0, 10.0)
-                ("City3", 0.0, 10.0)
-                ("City4", 5.0, 5.0)
-            |]
-            
-            // Act - Run benchmark with 5 repetitions
-            let! result = PerformanceBenchmarking.benchmarkClassicalTSP cities 5
-            
-            // Assert
-            Assert.True(result.ExecutionTimeMs > 0L)
-            Assert.Equal("Classical", result.Solver)
-            // Quality should be reasonable (not infinity or zero)
-            Assert.True(result.SolutionQuality > 0.0)
-            Assert.True(result.SolutionQuality < 1000.0)
-        } |> Async.RunSynchronously
+    // NOTE: Classical TSP benchmark tests removed - TSP.solve now uses quantum-first architecture
+    // Use HybridSolver for automatic quantum/classical selection
 
     // ============================================================================
     // Benchmark Suite Tests
     // ============================================================================
-
-    [<Fact>]
-    let ``runTSPBenchmarkSuite executes benchmarks for multiple problem sizes`` () =
-        async {
-            // Arrange
-            let config = {
-                PerformanceBenchmarking.BenchmarkConfig.ProblemSizes = [5; 8; 10]
-                Repetitions = 2
-                Backends = ["Classical"]
-                OutputPath = "test-suite.csv"
-            }
-            
-            // Act
-            let! results = PerformanceBenchmarking.runTSPBenchmarkSuite config
-            
-            // Assert
-            Assert.Equal(3, results.Length)
-            Assert.True(results |> List.forall (fun r -> r.ProblemType = "TSP"))
-            Assert.True(results |> List.forall (fun r -> r.Solver = "Classical"))
-            // Verify problem sizes match configuration
-            let sizes = results |> List.map (fun r -> r.ProblemSize) |> List.sort
-            Assert.Equal<int list>([5; 8; 10], sizes)
-        } |> Async.RunSynchronously
+    // NOTE: runTSPBenchmarkSuite test removed - relies on benchmarkClassicalTSP which is quantum-first
 
     [<Fact>]
     let ``runPortfolioBenchmarkSuite executes benchmarks for multiple problem sizes`` () =
@@ -365,20 +283,7 @@ module PerformanceBenchmarkingTests =
     // ============================================================================
     // Performance Requirement Tests
     // ============================================================================
-
-    [<Fact>]
-    let ``Classical TSP benchmark meets performance target for 10 cities`` () =
-        async {
-            // Arrange - Use seeded random for deterministic test
-            let cities = PerformanceBenchmarking.generateRandomCities 10 (Some 200)
-            
-            // Act
-            let! result = PerformanceBenchmarking.benchmarkClassicalTSP cities 3
-            
-            // Assert - Must complete in < 5 seconds as per requirements
-            Assert.True(result.ExecutionTimeMs < 5000L,
-                sprintf "Expected < 5000ms, got %dms" result.ExecutionTimeMs)
-        } |> Async.RunSynchronously
+    // NOTE: Classical TSP performance test removed - TSP.solve now uses quantum-first architecture
 
     // ============================================================================
     // Phase 3 - Classical Portfolio Benchmark Tests

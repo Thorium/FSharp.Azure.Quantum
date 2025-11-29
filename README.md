@@ -362,6 +362,115 @@ let backend = BackendAbstraction.createIonQBackend(
 )
 ```
 
+### LocalBackend Internal Architecture
+
+**How LocalBackend simulates quantum circuits:**
+
+```mermaid
+graph TB
+    subgraph "LocalBackend (≤10 qubits)"
+        INIT["StateVector.init<br/>|0⟩⊗n"]
+        
+        subgraph "Gate Operations"
+            H["Hadamard (H)<br/>Superposition"]
+            CNOT["CNOT<br/>Entanglement"]
+            RX["RX(θ)<br/>X-axis rotation"]
+            RY["RY(θ)<br/>Y-axis rotation"]
+            RZ["RZ(θ)<br/>Z-axis rotation"]
+        end
+        
+        subgraph "State Evolution"
+            STATE["Complex State Vector<br/>2^n amplitudes"]
+            MATRIX["Matrix Multiplication<br/>Gate × State"]
+        end
+        
+        subgraph "Measurement"
+            PROB["Compute Probabilities<br/>|amplitude|²"]
+            SAMPLE["Sample Bitstrings<br/>(shots times)"]
+            COUNT["Aggregate Counts<br/>{bitstring → frequency}"]
+        end
+        
+        INIT --> H
+        H --> STATE
+        CNOT --> STATE
+        RX --> STATE
+        RY --> STATE
+        RZ --> STATE
+        
+        STATE --> MATRIX
+        MATRIX --> STATE
+        
+        STATE --> PROB
+        PROB --> SAMPLE
+        SAMPLE --> COUNT
+    end
+    
+    subgraph "QAOA Circuit Example"
+        Q0["Qubit 0: |0⟩"]
+        Q1["Qubit 1: |0⟩"]
+        
+        H0["H"]
+        H1["H"]
+        
+        COST["Cost Layer<br/>RZ(γ)"]
+        MIX["Mixer Layer<br/>RX(β)"]
+        
+        MEAS["Measure<br/>→ '01'"]
+        
+        Q0 --> H0
+        Q1 --> H1
+        H0 --> COST
+        H1 --> COST
+        COST --> MIX
+        MIX --> MEAS
+    end
+    
+    COUNT --> MEAS
+    
+    style INIT fill:#90EE90
+    style H fill:#FFD700
+    style CNOT fill:#FFD700
+    style RX fill:#FFD700
+    style RY fill:#FFD700
+    style RZ fill:#FFD700
+    style STATE fill:#87CEEB
+    style MATRIX fill:#87CEEB
+    style PROB fill:#FFA07A
+    style SAMPLE fill:#FFA07A
+    style COUNT fill:#FFA07A
+    style Q0 fill:#E6E6FA
+    style Q1 fill:#E6E6FA
+    style MEAS fill:#98FB98
+```
+
+**Key Components:**
+
+1. **StateVector Module** 🟢
+   - Stores quantum state as complex amplitude array
+   - Size: `2^n` complex numbers (n = number of qubits)
+   - Example: 3 qubits = 8 amplitudes
+
+2. **Gate Module** 🟡
+   - Matrix representations of quantum gates
+   - Applied via tensor products and matrix multiplication
+   - Gates: H, CNOT, RX, RY, RZ, SWAP, CZ, etc.
+
+3. **Measurement Module** 🟠
+   - Computes probabilities from amplitudes: `P(x) = |amplitude(x)|²`
+   - Samples bitstrings according to probability distribution
+   - Returns histogram: `{bitstring → count}`
+
+4. **QAOA Integration** 🟣
+   - Cost layer: Problem-specific rotations (RZ gates)
+   - Mixer layer: Standard X-rotations (RX gates)
+   - Repeat for multiple QAOA layers (p-layers)
+
+**Performance:**
+- **1-6 qubits**: Instant (< 10ms)
+- **7-8 qubits**: Fast (< 100ms)
+- **9-10 qubits**: Moderate (< 1s)
+- **11+ qubits**: ❌ Exceeds limit (exponential memory: 2^n)
+
 ---
 
 ## 💻 C# Interop

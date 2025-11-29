@@ -238,12 +238,12 @@ module GroundStateEnergyTests =
         
         // Assert
         match result with
-        | Ok energy ->
+        | Ok vqeResult ->
             // H2 ground state: -1.174 Hartree (allow 5% error for numerical methods)
             let expected = -1.174
             let tolerance = 0.1  // 0.1 Hartree tolerance
-            Assert.True(abs(energy - expected) < tolerance, 
-                sprintf "Expected ~%.3f, got %.3f" expected energy)
+            Assert.True(abs(vqeResult.Energy - expected) < tolerance, 
+                sprintf "Expected ~%.3f, got %.3f" expected vqeResult.Energy)
         | Error msg ->
             Assert.True(false, sprintf "Energy calculation failed: %s" msg)
     
@@ -263,12 +263,12 @@ module GroundStateEnergyTests =
         
         // Assert
         match result with
-        | Ok energy ->
+        | Ok vqeResult ->
             // H2O ground state: -76.0 Hartree (allow larger tolerance for complex molecule)
             let expected = -76.0
             let tolerance = 1.0  // 1.0 Hartree tolerance
-            Assert.True(abs(energy - expected) < tolerance,
-                sprintf "Expected ~%.1f, got %.3f" expected energy)
+            Assert.True(abs(vqeResult.Energy - expected) < tolerance,
+                sprintf "Expected ~%.1f, got %.3f" expected vqeResult.Energy)
         | Error msg ->
             Assert.True(false, sprintf "Energy calculation failed: %s" msg)
     
@@ -307,12 +307,12 @@ module GroundStateEnergyTests =
         
         // Assert
         match result with
-        | Ok energy ->
+        | Ok vqeResult ->
             // DFT should give reasonable approximation
             let expected = -1.174
             let tolerance = 0.2  // DFT may be less accurate
-            Assert.True(abs(energy - expected) < tolerance,
-                sprintf "DFT: Expected ~%.3f, got %.3f" expected energy)
+            Assert.True(abs(vqeResult.Energy - expected) < tolerance,
+                sprintf "DFT: Expected ~%.3f, got %.3f" expected vqeResult.Energy)
         | Error _ ->
             // DFT fallback might not be implemented yet, that's ok
             Assert.True(true, "DFT not implemented - acceptable for now")
@@ -376,10 +376,10 @@ module GroundStateEnergyTests =
         
         // Assert
         match result with
-        | Ok energy ->
+        | Ok vqeResult ->
             // Energy should be negative and in reasonable range for H2
-            Assert.True(energy < 0.0, "Ground state energy should be negative")
-            Assert.True(energy > -10.0, "H2 energy should be > -10 Hartree")
+            Assert.True(vqeResult.Energy < 0.0, "Ground state energy should be negative")
+            Assert.True(vqeResult.Energy > -10.0, "H2 energy should be > -10 Hartree")
         | Error _ ->
             Assert.True(false, "Should calculate energy")
     

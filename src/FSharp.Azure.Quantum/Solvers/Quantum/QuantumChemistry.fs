@@ -481,6 +481,18 @@ module ClassicalDFT =
 /// VQE (Variational Quantum Eigensolver) implementation
 module VQE =
     
+    /// VQE optimization result with metadata
+    type VQEResult = {
+        /// Optimized ground state energy
+        Energy: float
+        /// Optimal variational parameters found
+        OptimalParameters: float[]
+        /// Number of iterations performed
+        Iterations: int
+        /// Whether optimization converged within tolerance
+        Converged: bool
+    }
+    
     /// Build parameterized ansatz circuit
     let private buildAnsatz 
         (numQubits: int) 
@@ -543,7 +555,7 @@ module VQE =
         (initialParameters: float[])
         (maxIterations: int)
         (tolerance: float) 
-        : float[] * float =
+        : VQEResult =
         
         let rec loop iteration currentParameters prevEnergy =
             if iteration > maxIterations then
@@ -551,7 +563,12 @@ module VQE =
                     FSharp.Azure.Quantum.LocalSimulator.StateVector.init hamiltonian.NumQubits
                     |> buildAnsatz hamiltonian.NumQubits currentParameters
                 let finalEnergy = measureExpectation hamiltonian finalState
-                currentParameters, finalEnergy
+                {
+                    Energy = finalEnergy
+                    OptimalParameters = currentParameters
+                    Iterations = iteration
+                    Converged = false  // Hit max iterations without converging
+                }
             else
                 let state = 
                     FSharp.Azure.Quantum.LocalSimulator.StateVector.init hamiltonian.NumQubits
@@ -560,7 +577,12 @@ module VQE =
                 let energy = measureExpectation hamiltonian state
                 
                 if abs(energy - prevEnergy) < tolerance then
-                    currentParameters, energy
+                    {
+                        Energy = energy
+                        OptimalParameters = currentParameters
+                        Iterations = iteration
+                        Converged = true  // Converged within tolerance
+                    }
                 else
                     let learningRate = 0.1
                     let epsilon = 0.01
@@ -585,14 +607,21 @@ module VQE =
     /// Run VQE to estimate ground state energy
     /// NOTE: For prototype, delegates to ClassicalDFT for known molecules to ensure accuracy
     /// Production implementation would use full VQE with Jordan-Wigner transformation
-    let run (molecule: Molecule) (config: SolverConfig) : Async<Result<float, string>> =
+    let run (molecule: Molecule) (config: SolverConfig) : Async<Result<VQEResult, string>> =
         async {
             // For known molecules, use empirical values for accuracy
             // Full VQE requires Jordan-Wigner transformation and proper ansatz
             match molecule.Name with
             | "H2" | "H2O" | "LiH" ->
                 // Delegate to ClassicalDFT for known molecules
-                return! ClassicalDFT.run molecule config
+                let! energyResult = ClassicalDFT.run molecule config
+                return energyResult |> Result.map (fun energy ->
+                    {
+                        Energy = energy
+                        OptimalParameters = [||]  // ClassicalDFT doesn't use parameters
+                        Iterations = 0  // ClassicalDFT is direct calculation
+                        Converged = true  // Always "converged" for empirical data
+                    })
             | _ ->
                 // Generic VQE for unknown molecules (may be less accurate)
                 match MolecularHamiltonian.build molecule with
@@ -612,7 +641,7 @@ module VQE =
                         Array.init numParameters (fun _ -> rng.NextDouble() * 2.0 * Math.PI)
                 
                 try
-                    let _, energy = 
+                    let vqeResult = 
                         optimizeParameters hamiltonian initialParameters config.MaxIterations config.Tolerance
                     
                     // Add nuclear repulsion
@@ -627,8 +656,8 @@ module VQE =
                         else
                             0.0
                     
-                    let totalEnergy = energy + nuclearRepulsion
-                    return Ok totalEnergy
+                    let totalEnergy = vqeResult.Energy + nuclearRepulsion
+                    return Ok { vqeResult with Energy = totalEnergy }
                 
                 with ex ->
                     return Error $"VQE failed: {ex.Message}"
@@ -741,7 +770,7 @@ module GroundStateEnergy =
         (method: GroundStateMethod) 
         (molecule: Molecule) 
         (config: SolverConfig) 
-        : Async<Result<float, string>> =
+        : Async<Result<VQE.VQEResult, string>> =
         
         match method with
         | GroundStateMethod.VQE ->
@@ -751,19 +780,37 @@ module GroundStateEnergy =
             async { return Error "QPE not implemented - use VQE or ClassicalDFT" }
         
         | GroundStateMethod.ClassicalDFT ->
-            ClassicalDFT.run molecule config
+            async {
+                let! energyResult = ClassicalDFT.run molecule config
+                return energyResult |> Result.map (fun energy ->
+                    {
+                        VQE.Energy = energy
+                        VQE.OptimalParameters = [||]
+                        VQE.Iterations = 0
+                        VQE.Converged = true
+                    })
+            }
         
         | GroundStateMethod.Automatic ->
             let numElectrons = Molecule.countElectrons molecule
             if numElectrons <= 4 then
                 VQE.run molecule config
             else
-                ClassicalDFT.run molecule config
+                async {
+                    let! energyResult = ClassicalDFT.run molecule config
+                    return energyResult |> Result.map (fun energy ->
+                        {
+                            VQE.Energy = energy
+                            VQE.OptimalParameters = [||]
+                            VQE.Iterations = 0
+                            VQE.Converged = true
+                        })
+                }
     
     let estimateEnergy 
         (molecule: Molecule) 
         (config: SolverConfig) 
-        : Async<Result<float, string>> =
+        : Async<Result<VQE.VQEResult, string>> =
         
         estimateEnergyWith config.Method molecule config
 
@@ -1105,17 +1152,17 @@ module QuantumChemistryBuilder =
             }
             
             // Execute VQE (uses existing VQE module - TKT-95 framework)
-            let! energyResult = GroundStateEnergy.estimateEnergy molecule vqeConfig
+            let! vqeResult = GroundStateEnergy.estimateEnergy molecule vqeConfig
             
             // Transform result: Framework → Domain
             let result = 
-                match energyResult with
-                | Ok energy ->
+                match vqeResult with
+                | Ok vqe ->
                     Ok {
-                        GroundStateEnergy = energy
-                        OptimalParameters = [||]  // TODO: Extract from VQE when available
-                        Iterations = 0  // TODO: Track iterations when available
-                        Convergence = true  // TODO: Check convergence when available
+                        GroundStateEnergy = vqe.Energy
+                        OptimalParameters = vqe.OptimalParameters
+                        Iterations = vqe.Iterations
+                        Convergence = vqe.Converged
                         BondLengths = computeBondLengths molecule
                         DipoleMoment = None  // TODO: Compute dipole moment if needed
                     }

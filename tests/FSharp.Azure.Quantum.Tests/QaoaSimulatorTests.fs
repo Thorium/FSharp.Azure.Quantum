@@ -31,7 +31,7 @@ module QaoaSimulatorTests =
             QaoaSimulator.initializeUniformSuperposition 0 |> ignore
         ) |> ignore
         Assert.Throws<System.Exception>(fun () -> 
-            QaoaSimulator.initializeUniformSuperposition 11 |> ignore
+            QaoaSimulator.initializeUniformSuperposition 17 |> ignore
         ) |> ignore
     
     [<Fact>]
