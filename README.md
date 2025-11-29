@@ -17,6 +17,7 @@
 - ✅ **Multiple Backends:** LocalBackend (simulation), Azure Quantum (IonQ, Rigetti)
 - ✅ **Automatic Backend Selection:** Local simulation or cloud quantum hardware
 - ✅ **Circuit Building:** Low-level quantum circuit construction and optimization
+- ✅ **OpenQASM 2.0:** Import/export compatibility with IBM Qiskit, Amazon Braket, Google Cirq
 
 ---
 
@@ -637,6 +638,181 @@ let largeProblem = MaxCut.createProblem
 let backend = BackendAbstraction.createIonQBackend(conn, "ionq.simulator")
 let result2 = MaxCut.solve largeProblem (Some backend)  // Scalable, paid
 ```
+
+---
+
+## 🔄 OpenQASM 2.0 Support
+
+**Import and export quantum circuits to IBM Qiskit, Cirq, and other OpenQASM-compatible platforms.**
+
+### Why OpenQASM?
+
+OpenQASM (Open Quantum Assembly Language) is the **industry-standard text format** for quantum circuits:
+- ✅ **IBM Qiskit** - Primary format (6.7k GitHub stars)
+- ✅ **Amazon Braket** - Native support
+- ✅ **Google Cirq** - Import/export compatibility
+- ✅ **Interoperability** - Share circuits between platforms
+
+### Export Circuits to OpenQASM
+
+**F# API:**
+```fsharp
+open FSharp.Azure.Quantum
+open FSharp.Azure.Quantum.CircuitBuilder
+
+// Build circuit using F# circuit builder
+let circuit = 
+    CircuitBuilder.empty 2
+    |> CircuitBuilder.addGate (H 0)
+    |> CircuitBuilder.addGate (CNOT (0, 1))
+    |> CircuitBuilder.addGate (RZ (0, System.Math.PI / 4.0))
+
+// Export to OpenQASM 2.0 string
+let qasmCode = OpenQasm.export circuit
+printfn "%s" qasmCode
+
+// Export to .qasm file
+OpenQasm.exportToFile circuit "bell_state.qasm"
+```
+
+**Output (`bell_state.qasm`):**
+```qasm
+OPENQASM 2.0;
+include "qelib1.inc";
+qreg q[2];
+h q[0];
+cx q[0],q[1];
+rz(0.7853981634) q[0];
+```
+
+### Import Circuits from OpenQASM
+
+**F# API:**
+```fsharp
+open FSharp.Azure.Quantum
+open System.IO
+
+// Parse OpenQASM string
+let qasmCode = """
+OPENQASM 2.0;
+include "qelib1.inc";
+qreg q[3];
+h q[0];
+cx q[0],q[1];
+cx q[1],q[2];
+"""
+
+match OpenQasmImport.parse qasmCode with
+| Ok circuit ->
+    printfn "Loaded %d-qubit circuit with %d gates" 
+        circuit.QubitCount circuit.Gates.Length
+    // Use circuit with LocalBackend or export to another format
+| Error msg -> 
+    printfn "Parse error: %s" msg
+
+// Import from file
+match OpenQasmImport.parseFromFile "grover.qasm" with
+| Ok circuit -> (* use circuit *)
+| Error msg -> printfn "Error: %s" msg
+```
+
+### C# API
+
+```csharp
+using FSharp.Azure.Quantum;
+using FSharp.Azure.Quantum.CircuitBuilder;
+
+// Export circuit to OpenQASM
+var circuit = CircuitBuilder.empty(2)
+    .AddGate(Gate.NewH(0))
+    .AddGate(Gate.NewCNOT(0, 1));
+
+var qasmCode = OpenQasm.export(circuit);
+File.WriteAllText("circuit.qasm", qasmCode);
+
+// Import from OpenQASM
+var qasmInput = File.ReadAllText("qiskit_circuit.qasm");
+var result = OpenQasmImport.parse(qasmInput);
+
+if (result.IsOk) {
+    var imported = result.ResultValue;
+    Console.WriteLine($"Loaded {imported.QubitCount}-qubit circuit");
+}
+```
+
+### Supported Gates
+
+**All standard OpenQASM 2.0 gates supported:**
+
+| Category | Gates |
+|----------|-------|
+| **Pauli** | X, Y, Z, H |
+| **Phase** | S, S†, T, T† |
+| **Rotation** | RX(θ), RY(θ), RZ(θ) |
+| **Two-qubit** | CNOT (CX), CZ, SWAP |
+| **Three-qubit** | CCX (Toffoli) |
+
+### Workflow: Qiskit → F# → IonQ
+
+**Full interoperability workflow:**
+
+```fsharp
+// 1. Load circuit from Qiskit
+let qiskitCircuit = OpenQasmImport.parseFromFile "qiskit_algorithm.qasm"
+
+match qiskitCircuit with
+| Ok circuit ->
+    // 2. Run on LocalBackend for testing
+    let localBackend = BackendAbstraction.createLocalBackend()
+    let testResult = LocalSimulator.QaoaSimulator.simulate circuit 1000
+    
+    printfn "Local test: %d samples" testResult.Shots
+    
+    // 3. Transpile for IonQ hardware
+    let transpiled = GateTranspiler.transpileForBackend "ionq.qpu" circuit
+    
+    // 4. Execute on IonQ
+    let ionqBackend = BackendAbstraction.createIonQBackend(
+        connectionString,
+        "ionq.qpu"
+    )
+    
+    // 5. Export results back to Qiskit format
+    OpenQasm.exportToFile transpiled "results_ionq.qasm"
+| Error msg -> 
+    printfn "Import failed: %s" msg
+```
+
+### Round-Trip Compatibility
+
+**Circuits are preserved through export/import:**
+
+```fsharp
+// Original circuit
+let original = { QubitCount = 3; Gates = [H 0; CNOT (0, 1); RZ (1, 1.5708)] }
+
+// Export → Import → Compare
+let qasm = OpenQasm.export original
+let imported = OpenQasmImport.parse qasm
+
+match imported with
+| Ok circuit ->
+    assert (circuit.QubitCount = original.QubitCount)
+    assert (circuit.Gates.Length = original.Gates.Length)
+    printfn "✅ Round-trip successful"
+| Error msg -> 
+    printfn "❌ Round-trip failed: %s" msg
+```
+
+### Use Cases
+
+1. **Share algorithms** - Export F# quantum algorithms to IBM Qiskit community
+2. **Import research** - Load published Qiskit papers/benchmarks into F# for analysis
+3. **Multi-provider** - Develop in F#, run on IBM Quantum, Amazon Braket, IonQ
+4. **Education** - Students learn quantum with type-safe F#, export to standard format
+5. **Validation** - Cross-check results between F# LocalBackend and IBM simulators
+
+**See:** `tests/OpenQasmIntegrationTests.fs` for comprehensive examples
 
 ---
 
