@@ -28,11 +28,11 @@
 1. [Quick Start](#-quick-start) - **Start here!** Get running in 5 minutes
 2. [Problem Builders](#-problem-builders) - High-level APIs for 6 optimization problems
 3. [HybridSolver](#-hybridsolver---automatic-classicalquantum-routing) - Automatic classical/quantum routing
-4. [Educational Algorithms](#-educational-algorithms) - Grover, QFT, Amplitude Amplification (for learning)
+4. [Architecture](#-architecture) - How the library is organized
 5. [Error Mitigation](#️-error-mitigation) - Reduce quantum noise by 30-90%
-6. [Architecture](#-architecture) - How the library is organized
-7. [C# Interop](#-c-interop) - Using from C#
-8. [Backend Selection](#-backend-selection) - Local vs Cloud quantum execution
+6. [C# Interop](#-c-interop) - Using from C#
+7. [Backend Selection](#-backend-selection) - Local vs Cloud quantum execution
+8. [Educational Algorithms](#-educational-algorithms) - Grover, QFT, Amplitude Amplification (for learning)
 
 ---
 
@@ -357,228 +357,6 @@ match solvePortfolio portfolioProblem None None None with
 
 **Location:** `src/FSharp.Azure.Quantum/Solvers/Hybrid/HybridSolver.fs`  
 **Status:** Production-ready - Recommended for production deployments
-
----
-
-## 📚 Educational Algorithms
-
-**Note:** The following algorithms are provided for **quantum computing education and research**. They are NOT optimization solvers and should not be used for production optimization tasks. For production optimization, use the [Problem Builders](#-problem-builders) or [HybridSolver](#-hybridsolver---automatic-classicalquantum-routing) above.
-
----
-
-In addition to the production-ready optimization solvers above, the library includes **foundational quantum algorithms** for education and research:
-
-### Grover's Search Algorithm
-
-**Quantum search algorithm for finding elements in unsorted databases.**
-
-```fsharp
-open FSharp.Azure.Quantum.GroverSearch
-
-// Search for item satisfying predicate
-let searchConfig = {
-    MaxIterations = Some 10
-    SuccessThreshold = 0.9
-    OptimizeIterations = true
-    Shots = 1000
-    RandomSeed = Some 42
-}
-
-// Search 8-item space for items where f(x) = true
-let predicate x = x = 3 || x = 5  // Looking for indices 3 or 5
-
-match Search.searchWithPredicate 3 predicate searchConfig with
-| Ok result ->
-    printfn "Found solutions: %A" result.Solutions
-    printfn "Success probability: %.2f%%" (result.SuccessProbability * 100.0)
-    printfn "Iterations: %d" result.IterationsApplied
-| Error msg -> 
-    printfn "Search failed: %s" msg
-```
-
-**Features:**
-- ✅ Automatic optimal iteration calculation
-- ✅ Amplitude amplification for multiple solutions
-- ✅ Direct LocalSimulator integration (no IBackend)
-- ✅ Educational/research tool (not production optimizer)
-
-**Location:** `src/FSharp.Azure.Quantum/Algorithms/`  
-**Status:** Experimental - Research and education purposes
-
-**Note:** Grover's algorithm is a standalone quantum search primitive, separate from the QAOA-based optimization builders. It does not use the `IBackend` abstraction and is optimized for specific search problems rather than general combinatorial optimization.
-
----
-
-### Amplitude Amplification
-
-**Generalization of Grover's algorithm for custom initial states.**
-
-Amplitude amplification extends Grover's algorithm to work with arbitrary initial state preparations (not just uniform superposition). This enables quantum speedups for problems beyond simple database search.
-
-**Key Insight:** Grover's algorithm is a special case where:
-- Initial state = uniform superposition H^⊗n|0⟩
-- Reflection operator = Grover diffusion operator
-
-Amplitude amplification allows:
-- Custom initial state preparation A|0⟩
-- Reflection about A|0⟩ (automatically generated)
-
-**F# Example:**
-```fsharp
-open FSharp.Azure.Quantum.GroverSearch.AmplitudeAmplification
-
-// Custom state preparation (W-state: equal superposition of single-excitation states)
-let wState = wStatePreparation 3  // (|100⟩ + |010⟩ + |001⟩)/√3
-
-// Configure amplitude amplification
-let config = {
-    NumQubits = 3
-    StatePreparation = wState
-    Oracle = myOracle
-    ReflectionOperator = None  // Auto-generate from state preparation
-    Iterations = 5
-}
-
-// Execute amplitude amplification
-match execute config with
-| Ok result ->
-    printfn "Success probability: %.2f%%" (result.SuccessProbability * 100.0)
-    printfn "Iterations applied: %d" result.IterationsApplied
-| Error msg ->
-    printfn "Amplification failed: %s" msg
-```
-
-**Features:**
-- ✅ Custom state preparation (W-states, partial superpositions, arbitrary states)
-- ✅ Automatic reflection operator generation
-- ✅ Grover equivalence verification (shows Grover as special case)
-- ✅ Optimal iteration calculation for arbitrary initial success probability
-
-**Use Cases:**
-- Quantum walk algorithms with non-uniform initial distributions
-- Fixed-point search (where initial state biases toward solutions)
-- Quantum sampling with amplification
-
-**Location:** `src/FSharp.Azure.Quantum/Algorithms/AmplitudeAmplification.fs`  
-**Status:** Experimental - Research and education purposes
-
----
-
-### Quantum Fourier Transform (QFT)
-
-**Quantum analog of the discrete Fourier transform - foundational building block for many quantum algorithms.**
-
-The QFT transforms computational basis states into frequency basis with exponential speedup over classical FFT:
-- **Classical FFT**: O(n·2^n) operations
-- **Quantum QFT**: O(n²) quantum gates
-
-**Mathematical Transform:**
-```
-QFT: |j⟩ → (1/√N) Σₖ e^(2πijk/N) |k⟩
-```
-
-**F# Example:**
-```fsharp
-open FSharp.Azure.Quantum.GroverSearch.QuantumFourierTransform
-
-// Initialize state |5⟩ (computational basis)
-let state = StateVector.init 3  // 3 qubits
-// ... prepare |5⟩ = |101⟩
-
-// Apply QFT
-match executeStandard 3 state with
-| Ok result ->
-    printfn "QFT applied successfully"
-    printfn "Gate count: %d" result.GateCount
-    printfn "Final state transformed to frequency basis"
-    
-    // Verify unitarity: QFT · QFT† = I
-    let isUnitary = verifyUnitarity 3 state
-    printfn "Unitary check: %b" isUnitary
-| Error msg ->
-    printfn "QFT failed: %s" msg
-
-// Inverse QFT (decode back to computational basis)
-match executeInverse 3 result.FinalState with
-| Ok invResult ->
-    printfn "Inverse QFT applied - recovered original state"
-| Error msg ->
-    printfn "Inverse QFT failed: %s" msg
-```
-
-**API Options:**
-```fsharp
-// Standard QFT with bit-reversal SWAPs
-executeStandard numQubits state
-
-// Inverse QFT (QFT†) for decoding
-executeInverse numQubits state
-
-// QFT without SWAPs (for quantum phase estimation)
-executeNoSwaps numQubits state
-
-// Transform specific basis state |j⟩
-transformBasisState numQubits basisIndex
-```
-
-**Features:**
-- ✅ O(n²) gate complexity (exponential speedup over classical)
-- ✅ Controlled phase rotation gates (CPhase, CRz)
-- ✅ Bit-reversal SWAP gates (optional for QPE)
-- ✅ Inverse QFT (QFT†) for result decoding
-- ✅ Unitarity verification (QFT · QFT† = I)
-- ✅ Expected gate count calculation: n(n+1)/2 + floor(n/2)
-
-**Use Cases:**
-- **Shor's Algorithm**: Integer factorization (period finding step)
-- **Quantum Phase Estimation**: Eigenvalue estimation for VQE improvements
-- **Period Finding**: Hidden subgroup problems
-- **Quantum Signal Processing**: Frequency domain analysis
-
-**Performance:**
-- 3 qubits: 9 gates (3 H + 3 CPhase + 1 SWAP)
-- 5 qubits: 20 gates (5 H + 10 CPhase + 2 SWAP)
-- 10 qubits: 60 gates (10 H + 45 CPhase + 5 SWAP)
-
-**Location:** `src/FSharp.Azure.Quantum/Algorithms/QuantumFourierTransform.fs`  
-**Status:** Production-ready - Foundational algorithm for advanced applications
-
----
-
-### Library Scope & Focus
-
-**Primary Focus: QAOA-Based Combinatorial Optimization**
-
-This library is designed for **NISQ-era practical quantum advantage** in optimization:
-- ✅ 6 optimization problem builders (Graph Coloring, MaxCut, TSP, Knapsack, Portfolio, Network Flow)
-- ✅ QAOA implementation with automatic parameter tuning
-- ✅ Error mitigation for noisy hardware (ZNE, PEC, REM)
-- ✅ Production-ready solvers with cloud backend integration
-
-**Secondary Focus: Quantum Algorithm Education & Research**
-
-The `Algorithms/` directory contains foundational quantum algorithms for learning:
-- ✅ Grover's Search (quantum search, O(√N) speedup)
-- ✅ Amplitude Amplification (generalization of Grover)
-- ✅ Quantum Fourier Transform (O(n²) vs O(n·2^n) classical FFT)
-- 🔄 **Coming Soon:** Deutsch-Jozsa, Bernstein-Vazirani
-
-**Out of Scope (For Now):**
-- ❌ Cryptographic algorithms (Shor's factoring, discrete log)
-- ❌ Quantum machine learning (QSVM, quantum neural networks)
-- ❌ Topological quantum computing
-- ❌ Quantum error correction codes
-
-**For comprehensive quantum algorithm education, see:**
-- [Microsoft Q# Samples](https://github.com/microsoft/Quantum) - Full algorithm library with Q# language
-- [Qiskit Textbook](https://qiskit.org/textbook) - Python-based quantum computing tutorials
-- [IBM Quantum Experience](https://quantum-computing.ibm.com/) - Web-based quantum programming
-
-**Why F# for Quantum?**
-- Type-safe quantum circuit construction
-- Functional programming matches quantum mathematics
-- Interop with .NET ecosystem (C#, Azure, ML.NET)
-- Alternative to Python (Qiskit) and Q# for F# developers
 
 ---
 
@@ -1537,6 +1315,228 @@ GraphColoring.solve problem 3 None
 3. **Quantum Backends**: Circuit execution (hardware abstraction)
 
 **No leaky abstractions** - Each layer has clear responsibilities.
+
+---
+
+## 📚 Educational Algorithms
+
+**Note:** The following algorithms are provided for **quantum computing education and research**. They are NOT optimization solvers and should not be used for production optimization tasks. For production optimization, use the [Problem Builders](#-problem-builders) or [HybridSolver](#-hybridsolver---automatic-classicalquantum-routing) above.
+
+---
+
+In addition to the production-ready optimization solvers above, the library includes **foundational quantum algorithms** for education and research:
+
+### Grover's Search Algorithm
+
+**Quantum search algorithm for finding elements in unsorted databases.**
+
+```fsharp
+open FSharp.Azure.Quantum.GroverSearch
+
+// Search for item satisfying predicate
+let searchConfig = {
+    MaxIterations = Some 10
+    SuccessThreshold = 0.9
+    OptimizeIterations = true
+    Shots = 1000
+    RandomSeed = Some 42
+}
+
+// Search 8-item space for items where f(x) = true
+let predicate x = x = 3 || x = 5  // Looking for indices 3 or 5
+
+match Search.searchWithPredicate 3 predicate searchConfig with
+| Ok result ->
+    printfn "Found solutions: %A" result.Solutions
+    printfn "Success probability: %.2f%%" (result.SuccessProbability * 100.0)
+    printfn "Iterations: %d" result.IterationsApplied
+| Error msg -> 
+    printfn "Search failed: %s" msg
+```
+
+**Features:**
+- ✅ Automatic optimal iteration calculation
+- ✅ Amplitude amplification for multiple solutions
+- ✅ Direct LocalSimulator integration (no IBackend)
+- ✅ Educational/research tool (not production optimizer)
+
+**Location:** `src/FSharp.Azure.Quantum/Algorithms/`  
+**Status:** Experimental - Research and education purposes
+
+**Note:** Grover's algorithm is a standalone quantum search primitive, separate from the QAOA-based optimization builders. It does not use the `IBackend` abstraction and is optimized for specific search problems rather than general combinatorial optimization.
+
+---
+
+### Amplitude Amplification
+
+**Generalization of Grover's algorithm for custom initial states.**
+
+Amplitude amplification extends Grover's algorithm to work with arbitrary initial state preparations (not just uniform superposition). This enables quantum speedups for problems beyond simple database search.
+
+**Key Insight:** Grover's algorithm is a special case where:
+- Initial state = uniform superposition H^⊗n|0⟩
+- Reflection operator = Grover diffusion operator
+
+Amplitude amplification allows:
+- Custom initial state preparation A|0⟩
+- Reflection about A|0⟩ (automatically generated)
+
+**F# Example:**
+```fsharp
+open FSharp.Azure.Quantum.GroverSearch.AmplitudeAmplification
+
+// Custom state preparation (W-state: equal superposition of single-excitation states)
+let wState = wStatePreparation 3  // (|100⟩ + |010⟩ + |001⟩)/√3
+
+// Configure amplitude amplification
+let config = {
+    NumQubits = 3
+    StatePreparation = wState
+    Oracle = myOracle
+    ReflectionOperator = None  // Auto-generate from state preparation
+    Iterations = 5
+}
+
+// Execute amplitude amplification
+match execute config with
+| Ok result ->
+    printfn "Success probability: %.2f%%" (result.SuccessProbability * 100.0)
+    printfn "Iterations applied: %d" result.IterationsApplied
+| Error msg ->
+    printfn "Amplification failed: %s" msg
+```
+
+**Features:**
+- ✅ Custom state preparation (W-states, partial superpositions, arbitrary states)
+- ✅ Automatic reflection operator generation
+- ✅ Grover equivalence verification (shows Grover as special case)
+- ✅ Optimal iteration calculation for arbitrary initial success probability
+
+**Use Cases:**
+- Quantum walk algorithms with non-uniform initial distributions
+- Fixed-point search (where initial state biases toward solutions)
+- Quantum sampling with amplification
+
+**Location:** `src/FSharp.Azure.Quantum/Algorithms/AmplitudeAmplification.fs`  
+**Status:** Experimental - Research and education purposes
+
+---
+
+### Quantum Fourier Transform (QFT)
+
+**Quantum analog of the discrete Fourier transform - foundational building block for many quantum algorithms.**
+
+The QFT transforms computational basis states into frequency basis with exponential speedup over classical FFT:
+- **Classical FFT**: O(n·2^n) operations
+- **Quantum QFT**: O(n²) quantum gates
+
+**Mathematical Transform:**
+```
+QFT: |j⟩ → (1/√N) Σₖ e^(2πijk/N) |k⟩
+```
+
+**F# Example:**
+```fsharp
+open FSharp.Azure.Quantum.GroverSearch.QuantumFourierTransform
+
+// Initialize state |5⟩ (computational basis)
+let state = StateVector.init 3  // 3 qubits
+// ... prepare |5⟩ = |101⟩
+
+// Apply QFT
+match executeStandard 3 state with
+| Ok result ->
+    printfn "QFT applied successfully"
+    printfn "Gate count: %d" result.GateCount
+    printfn "Final state transformed to frequency basis"
+    
+    // Verify unitarity: QFT · QFT† = I
+    let isUnitary = verifyUnitarity 3 state
+    printfn "Unitary check: %b" isUnitary
+| Error msg ->
+    printfn "QFT failed: %s" msg
+
+// Inverse QFT (decode back to computational basis)
+match executeInverse 3 result.FinalState with
+| Ok invResult ->
+    printfn "Inverse QFT applied - recovered original state"
+| Error msg ->
+    printfn "Inverse QFT failed: %s" msg
+```
+
+**API Options:**
+```fsharp
+// Standard QFT with bit-reversal SWAPs
+executeStandard numQubits state
+
+// Inverse QFT (QFT†) for decoding
+executeInverse numQubits state
+
+// QFT without SWAPs (for quantum phase estimation)
+executeNoSwaps numQubits state
+
+// Transform specific basis state |j⟩
+transformBasisState numQubits basisIndex
+```
+
+**Features:**
+- ✅ O(n²) gate complexity (exponential speedup over classical)
+- ✅ Controlled phase rotation gates (CPhase, CRz)
+- ✅ Bit-reversal SWAP gates (optional for QPE)
+- ✅ Inverse QFT (QFT†) for result decoding
+- ✅ Unitarity verification (QFT · QFT† = I)
+- ✅ Expected gate count calculation: n(n+1)/2 + floor(n/2)
+
+**Use Cases:**
+- **Shor's Algorithm**: Integer factorization (period finding step)
+- **Quantum Phase Estimation**: Eigenvalue estimation for VQE improvements
+- **Period Finding**: Hidden subgroup problems
+- **Quantum Signal Processing**: Frequency domain analysis
+
+**Performance:**
+- 3 qubits: 9 gates (3 H + 3 CPhase + 1 SWAP)
+- 5 qubits: 20 gates (5 H + 10 CPhase + 2 SWAP)
+- 10 qubits: 60 gates (10 H + 45 CPhase + 5 SWAP)
+
+**Location:** `src/FSharp.Azure.Quantum/Algorithms/QuantumFourierTransform.fs`  
+**Status:** Production-ready - Foundational algorithm for advanced applications
+
+---
+
+### Library Scope & Focus
+
+**Primary Focus: QAOA-Based Combinatorial Optimization**
+
+This library is designed for **NISQ-era practical quantum advantage** in optimization:
+- ✅ 6 optimization problem builders (Graph Coloring, MaxCut, TSP, Knapsack, Portfolio, Network Flow)
+- ✅ QAOA implementation with automatic parameter tuning
+- ✅ Error mitigation for noisy hardware (ZNE, PEC, REM)
+- ✅ Production-ready solvers with cloud backend integration
+
+**Secondary Focus: Quantum Algorithm Education & Research**
+
+The `Algorithms/` directory contains foundational quantum algorithms for learning:
+- ✅ Grover's Search (quantum search, O(√N) speedup)
+- ✅ Amplitude Amplification (generalization of Grover)
+- ✅ Quantum Fourier Transform (O(n²) vs O(n·2^n) classical FFT)
+- 🔄 **Coming Soon:** Deutsch-Jozsa, Bernstein-Vazirani
+
+**Out of Scope (For Now):**
+- ❌ Cryptographic algorithms (Shor's factoring, discrete log)
+- ❌ Quantum machine learning (QSVM, quantum neural networks)
+- ❌ Topological quantum computing
+- ❌ Quantum error correction codes
+
+**For comprehensive quantum algorithm education, see:**
+- [Microsoft Q# Samples](https://github.com/microsoft/Quantum) - Full algorithm library with Q# language
+- [Qiskit Textbook](https://qiskit.org/textbook) - Python-based quantum computing tutorials
+- [IBM Quantum Experience](https://quantum-computing.ibm.com/) - Web-based quantum programming
+
+**Why F# for Quantum?**
+- Type-safe quantum circuit construction
+- Functional programming matches quantum mathematics
+- Interop with .NET ecosystem (C#, Azure, ML.NET)
+- Alternative to Python (Qiskit) and Q# for F# developers
 
 ---
 
