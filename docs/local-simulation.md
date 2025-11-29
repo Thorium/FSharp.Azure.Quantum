@@ -23,50 +23,40 @@ FSharp.Azure.Quantum includes a lightweight, pure F# quantum simulator that supp
 ## Quick Start
 
 ```fsharp
-open FSharp.Azure.Quantum.Core
-open FSharp.Azure.Quantum.Core.QuantumBackend
-open FSharp.Azure.Quantum.Core.QaoaCircuit
+open FSharp.Azure.Quantum.Quantum.QuantumTspSolver
+open FSharp.Azure.Quantum.Core.BackendAbstraction
 
-// Create a QAOA circuit (example: simple 2-qubit MaxCut)
-let quboMatrix = array2D [[0.0; 0.5]; [0.5; 0.0]]
-let circuit = {
-    NumQubits = 2
-    InitialStateGates = [| H(0); H(1) |]
-    Layers = [|
-        {
-            CostGates = [| RZZ(0, 1, 0.5) |]
-            MixerGates = [| RX(0, 1.0); RX(1, 1.0) |]
-            Gamma = 0.25
-            Beta = 0.5
-        }
-    |]
-    ProblemHamiltonian = ProblemHamiltonian.fromQubo quboMatrix
-    MixerHamiltonian = MixerHamiltonian.create 2
-}
+// Create distance matrix for a simple 3-city TSP
+let distances = array2D [
+    [ 0.0; 1.0; 2.0 ]
+    [ 1.0; 0.0; 1.5 ]
+    [ 2.0; 1.5; 0.0 ]
+]
 
-// Execute on local simulator
-match Local.simulate circuit 1000 with
-| Ok result ->
-    printfn "Backend: %s" result.Backend
-    printfn "Time: %.2f ms" result.ExecutionTimeMs
-    printfn "Most common outcomes:"
-    result.Counts
-    |> Map.toList
-    |> List.sortByDescending snd
-    |> List.take 3
-    |> List.iter (fun (bitstring, count) ->
-        printfn "  %s: %d shots" bitstring count)
+// Create local backend (supports up to 10 qubits)
+let backend = createLocalBackend()
+
+// Solve with default configuration (QAOA with parameter optimization)
+match solve backend distances defaultConfig with
+| Ok solution ->
+    printfn "Backend: %s" solution.BackendName
+    printfn "Time: %.2f ms" solution.ElapsedMs
+    printfn "Best tour: %A" solution.Tour
+    printfn "Tour length: %.2f" solution.TourLength
+    printfn "Optimized parameters (γ, β): %A" solution.OptimizedParameters
+    printfn "Optimization converged: %b" solution.OptimizationConverged
 | Error msg ->
     eprintfn "Simulation failed: %s" msg
 ```
 
 **Output:**
 ```
-Backend: Local
-Time: 12.45 ms
-Most common outcomes:
-  11: 523 shots
-  00: 477 shots
+Backend: Local QAOA Simulator
+Time: 125.45 ms
+Best tour: [|0; 1; 2|]
+Tour length: 4.50
+Optimized parameters (γ, β): (1.23, 0.87)
+Optimization converged: true
 ```
 
 ## When to Use Local Simulation
@@ -89,62 +79,60 @@ Most common outcomes:
 
 ## Unified Backend API (Recommended)
 
-The `QuantumBackend` module provides a **single consistent API** for both local simulation and Azure Quantum execution. This is the recommended approach for application development.
+The `BackendAbstraction` module provides a **single consistent API** for local simulation, IonQ, and Rigetti backends. This is the recommended approach for quantum algorithm development.
 
-### Using the Local Backend
+### Creating Backends
 
 ```fsharp
-open FSharp.Azure.Quantum.Core
-open FSharp.Azure.Quantum.Core.QuantumBackend
-open FSharp.Azure.Quantum.Core.QaoaCircuit
+open FSharp.Azure.Quantum.Core.BackendAbstraction
+open FSharp.Azure.Quantum.Quantum.QuantumTspSolver
 
-// Create a QAOA circuit
-let circuit = {
-    NumQubits = 3
-    InitialStateGates = [| H(0); H(1); H(2) |]
-    Layers = [|
-        {
-            CostGates = [| RZZ(0, 1, 0.5); RZZ(1, 2, 0.5) |]
-            MixerGates = [| RX(0, 1.0); RX(1, 1.0); RX(2, 1.0) |]
-            Gamma = 0.25
-            Beta = 0.5
-        }
-    |]
-    ProblemHamiltonian = ProblemHamiltonian.fromQubo quboMatrix
-    MixerHamiltonian = MixerHamiltonian.create 3
-}
+// Option 1: Local backend (no configuration needed)
+let localBackend = createLocalBackend()
 
-// Execute locally
-match Local.simulate circuit 1000 with
-| Ok result ->
-    printfn "Executed on: %s" result.Backend       // "Local"
-    printfn "Time: %.2f ms" result.ExecutionTimeMs
-    printfn "Results: %A" result.Counts
-| Error msg ->
-    eprintfn "Error: %s" msg
+// Option 2: IonQ backend (requires Azure Quantum workspace)
+let httpClient = (* authenticated HTTP client *)
+let workspaceUrl = "https://management.azure.com/subscriptions/.../Workspaces/..."
+let ionqBackend = createIonQBackend httpClient workspaceUrl "ionq.simulator"
+
+// Option 3: Rigetti backend
+let rigettiBackend = createRigettiBackend httpClient workspaceUrl "rigetti.sim.qvm"
 ```
 
 ### Backend Switching
 
-**The beauty of the unified API:** Just change one function call to switch backends!
+**The beauty of the unified API:** Use the same solver code with any backend!
 
 ```fsharp
-// Local execution (≤10 qubits, fast, free)
-let localResult = Local.simulate circuit 1000
+let distances = array2D [
+    [ 0.0; 1.0; 2.0 ]
+    [ 1.0; 0.0; 1.5 ]
+    [ 2.0; 1.5; 0.0 ]
+]
 
-// Azure execution (when available, for >10 qubits)
-// let azureResult = Azure.execute circuit 1000 workspace
+// Same code, different backends - just pass different backend instance
+let runWithBackend (backend: IQuantumBackend) =
+    match solve backend distances defaultConfig with
+    | Ok solution ->
+        printfn "%s: Tour length = %.2f (%.2f ms)" 
+            solution.BackendName solution.TourLength solution.ElapsedMs
+    | Error msg -> printfn "Error: %s" msg
 
-// Auto-select based on circuit size
-let autoResult = autoExecute circuit 1000
-// Automatically uses Local for ≤10 qubits
+// Execute on local simulator
+runWithBackend localBackend
+
+// Execute on IonQ (when configured)
+// runWithBackend ionqBackend
+
+// Execute on Rigetti (when configured)
+// runWithBackend rigettiBackend
 ```
 
-**No code changes needed** - same `QaoaCircuit` type, same `ExecutionResult` output!
+**No algorithm changes needed** - same `solve` function, same distance matrix input!
 
-### Using Backend Interfaces
+### Using Backend Interface
 
-For dependency injection or testing, use the `IBackend` interface:
+For dependency injection or testing, use the `IQuantumBackend` interface:
 
 ```fsharp
 let runWithBackend (backend: IBackend) circuit shots =
