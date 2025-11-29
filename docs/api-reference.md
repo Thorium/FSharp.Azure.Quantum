@@ -37,10 +37,10 @@ match HybridSolver.solveTsp distances None None None with
 | Error msg -> eprintfn "Error: %s" msg
 
 // Portfolio: Let HybridSolver decide everything  
-let assets: PortfolioTypes.Asset list = [
+let assets = [
     {Symbol="AAPL"; ExpectedReturn=0.12; Risk=0.18; Price=150.0}
 ]
-let constraints: PortfolioSolver.Constraints = {
+let constraints = {
     Budget=1000.0
     MinHolding=0.0
     MaxHolding=500.0
@@ -465,12 +465,12 @@ val solveGreedyByRatio :
 
 **Example:**
 ```fsharp
-let assets: PortfolioTypes.Asset list = [
+let assets = [
     { Symbol = "AAPL"; ExpectedReturn = 0.12; Risk = 0.18; Price = 150.0 }
     { Symbol = "MSFT"; ExpectedReturn = 0.10; Risk = 0.15; Price = 300.0 }
 ]
 
-let constraints: PortfolioSolver.Constraints = {
+let constraints = {
     Budget = 10000.0
     MinHolding = 0.0
     MaxHolding = 5000.0

@@ -18,103 +18,97 @@ FSharp.Azure.Quantum provides a **unified API** through the `QuantumBackend` mod
 
 ## The Unified API
 
-### Current Implementation (v0.1.0-alpha)
+### Current Implementation (v1.1.0)
 
-The `QuantumBackend` module provides three ways to execute quantum circuits:
+The library provides a unified backend abstraction that works with both local simulation and cloud quantum backends:
 
 ```fsharp
-open FSharp.Azure.Quantum.Core
-open FSharp.Azure.Quantum.Core.QuantumBackend
-open FSharp.Azure.Quantum.Core.QaoaCircuit
+open FSharp.Azure.Quantum.Quantum.QuantumTspSolver
+open FSharp.Azure.Quantum.Core.BackendAbstraction
 
-// Create a circuit once
-let circuit = {
-    NumQubits = 3
-    InitialStateGates = [| H(0); H(1); H(2) |]
-    Layers = [|
-        {
-            CostGates = [| RZZ(0, 1, 0.5); RZZ(1, 2, 0.5) |]
-            MixerGates = [| RX(0, 1.0); RX(1, 1.0); RX(2, 1.0) |]
-            Gamma = 0.25
-            Beta = 0.5
-        }
-    |]
-    ProblemHamiltonian = ProblemHamiltonian.fromQubo quboMatrix
-    MixerHamiltonian = MixerHamiltonian.create 3
-}
+// Define TSP problem (3 cities)
+let distances = array2D [
+    [ 0.0; 1.0; 2.0 ]
+    [ 1.0; 0.0; 1.5 ]
+    [ 2.0; 1.5; 0.0 ]
+]
 
-// Method 1: Direct local execution
-let localResult = Local.simulate circuit 1000
+// Method 1: Local simulator backend (up to 10 qubits)
+let localBackend = createLocalBackend()
+match solve localBackend distances defaultConfig with
+| Ok solution -> printfn "Tour: %A, Length: %.2f" solution.Tour solution.TourLength
+| Error msg -> printfn "Error: %s" msg
 
-// Method 2: Direct Azure execution (when available)
-// let azureResult = Azure.execute circuit 1000 workspace
-
-// Method 3: Automatic selection based on size
-let autoResult = autoExecute circuit 1000
-// Uses Local for ≤10 qubits, Azure for >10 qubits
+// Method 2: Cloud backend (IonQ/Rigetti)
+let cloudBackend = createIonQBackend httpClient workspaceUrl "ionq.simulator"
+match solve cloudBackend distances defaultConfig with
+| Ok solution -> printfn "Tour: %A, Length: %.2f" solution.Tour solution.TourLength
+| Error msg -> printfn "Error: %s" msg
 ```
 
-**That's it!** Same circuit, same result format, just different function calls.
+**That's it!** Same solver API, different backends - just swap the backend creation.
 
 ## Simple Backend Switching
 
 ### Example: Switching with a Single Line
 
 ```fsharp
-/// Solve MaxCut problem
-let solveMaxCut edges numNodes shots =
-    // Build QAOA circuit
-    let quboMatrix = MaxCut.toQubo edges numNodes
-    let circuit = {
-        NumQubits = numNodes
-        InitialStateGates = Array.init numNodes (fun i -> H(i))
-        Layers = [|
-            {
-                CostGates = MaxCut.buildCostGates edges
-                MixerGates = Array.init numNodes (fun i -> RX(i, 1.0))
-                Gamma = 0.5
-                Beta = 0.3
-            }
-        |]
-        ProblemHamiltonian = ProblemHamiltonian.fromQubo quboMatrix
-        MixerHamiltonian = MixerHamiltonian.create numNodes
-    }
+open FSharp.Azure.Quantum.Quantum.QuantumTspSolver
+open FSharp.Azure.Quantum.Core.BackendAbstraction
+
+/// Solve TSP problem with different backends
+let solveTsp distances =
+    // Define TSP problem (distance matrix already defined)
     
-    // Execute on backend - CHANGE THIS ONE LINE TO SWITCH:
-    Local.simulate circuit shots          // ← Local execution
-    // Azure.execute circuit shots workspace  // ← Azure execution
-    // autoExecute circuit shots             // ← Auto-select
+    // CHANGE THIS ONE LINE TO SWITCH BACKENDS:
+    let backend = createLocalBackend()                 // ← Local simulation
+    // let backend = createIonQBackend httpClient workspaceUrl "ionq.simulator"  // ← IonQ simulator
+    // let backend = createIonQBackend httpClient workspaceUrl "ionq.qpu.aria-1" // ← Real quantum hardware
+    
+    // Same solver API for all backends
+    solve backend distances defaultConfig
 
 // Use it
-let edges = [(0, 1); (1, 2); (2, 0)]  // Triangle graph
-match solveMaxCut edges 3 1000 with
-| Ok result ->
-    printfn "Backend: %s" result.Backend
-    printfn "Best solution: %A" (result.Counts |> Map.toList |> List.maxBy snd)
+let distances = array2D [
+    [ 0.0; 1.0; 2.0 ]
+    [ 1.0; 0.0; 1.5 ]
+    [ 2.0; 1.5; 0.0 ]
+]
+
+match solveTsp distances with
+| Ok solution ->
+    printfn "Best tour: %A" solution.Tour
+    printfn "Tour length: %.2f" solution.TourLength
 | Error msg ->
     eprintfn "Error: %s" msg
 ```
 
 ### Uniform Result Format
 
-All backends return the same `ExecutionResult` type:
+All backends return the same `TspSolution` type (via `solve`):
 
 ```fsharp
-type ExecutionResult = {
-    /// Measurement counts (bitstring -> frequency)
-    Counts: Map<string, int>
+type TspSolution = {
+    /// Optimal tour (city visit order)
+    Tour: int[]
     
-    /// Number of shots executed
-    Shots: int
+    /// Total tour length (distance)
+    TourLength: float
     
-    /// Backend identifier ("Local", "Azure", etc.)
-    Backend: string
+    /// Execution method ("Quantum" or "Classical")
+    Method: string
     
-    /// Execution time in milliseconds
-    ExecutionTimeMs: float
+    /// Explanation of why this method was chosen
+    Reasoning: string
     
-    /// Job ID (Azure only, None for local)
-    JobId: string option
+    /// Optimized QAOA parameters (γ, β) if quantum
+    OptimizedParameters: float * float
+    
+    /// Whether optimization converged
+    OptimizationConverged: bool
+    
+    /// Number of optimization iterations
+    OptimizationIterations: int
 }
 ```
 
@@ -129,32 +123,38 @@ This means:
 For production applications, use configuration to control backend selection:
 
 ```fsharp
+open FSharp.Azure.Quantum.Core.BackendAbstraction
+open FSharp.Azure.Quantum.Quantum.QuantumTspSolver
+
 module BackendConfig =
     
     type Config =
         | Local
-        | Azure of workspace: unit  // TODO: Replace with actual WorkspaceConfig
-        | Auto
+        | IonQSimulator of httpClient: System.Net.Http.HttpClient * workspaceUrl: string
+        | IonQHardware of httpClient: System.Net.Http.HttpClient * workspaceUrl: string
     
-    let getBackend (config: Config) (circuit: QaoaCircuit) (shots: int) =
+    let getBackend (config: Config) =
         match config with
         | Local -> 
-            Local.simulate circuit shots
-        | Azure workspace -> 
-            Azure.execute circuit shots workspace
-        | Auto -> 
-            autoExecute circuit shots
+            createLocalBackend()
+        | IonQSimulator (httpClient, workspaceUrl) -> 
+            createIonQBackend httpClient workspaceUrl "ionq.simulator"
+        | IonQHardware (httpClient, workspaceUrl) ->
+            createIonQBackend httpClient workspaceUrl "ionq.qpu.aria-1"
     
     // Load config from environment
-    let fromEnvironment () =
+    let fromEnvironment httpClient workspaceUrl =
         match System.Environment.GetEnvironmentVariable("QUANTUM_BACKEND") with
-        | "azure" -> Azure ()  // TODO: Load workspace config
-        | "local" -> Local
-        | _ -> Auto  // Default: auto-select
+        | "ionq" -> IonQSimulator (httpClient, workspaceUrl)
+        | "ionq-hardware" -> IonQHardware (httpClient, workspaceUrl)
+        | _ -> Local  // Default: local simulator
 
 // Usage
-let config = BackendConfig.fromEnvironment()
-let result = BackendConfig.getBackend config circuit 1000
+let config = BackendConfig.fromEnvironment httpClient workspaceUrl
+let backend = BackendConfig.getBackend config
+match solve backend distances defaultConfig with
+| Ok solution -> printfn "Solution: %A" solution
+| Error msg -> printfn "Error: %s" msg
 ```
 
 Set backend via environment variable:
@@ -164,11 +164,15 @@ Set backend via environment variable:
 export QUANTUM_BACKEND=local
 dotnet run
 
-# Azure execution (when available)
-export QUANTUM_BACKEND=azure
+# IonQ simulator
+export QUANTUM_BACKEND=ionq
 dotnet run
 
-# Auto-select (default)
+# IonQ hardware
+export QUANTUM_BACKEND=ionq-hardware
+dotnet run
+
+# Default (local)
 dotnet run
 ```
             Assert.Fail($"Solver failed: {msg}")
@@ -183,33 +187,26 @@ module Production =
 
 ## Future: Unified High-Level API
 
-**Coming in future release** - A high-level unified API:
+**Current API (v1.1.0)** - Already provides unified solving:
 
 ```fsharp
-// Future API design (not yet implemented)
-open FSharp.Azure.Quantum
+open FSharp.Azure.Quantum.Quantum.QuantumTspSolver
+open FSharp.Azure.Quantum.Core.BackendAbstraction
 
-let result = 
-    Quantum.solve {
-        problem = MaxCut edges
-        backend = Auto  // or Local, or Azure workspace
-        shots = 1000
-        depth = 1
-    }
-
-match result with
+let backend = createLocalBackend()  // or createIonQBackend, createRigettiBackend
+match solve backend distances defaultConfig with
 | Ok solution -> 
-    printfn "Used: %A backend" solution.Backend
-    printfn "Result: %A" solution.BestSolution
+    printfn "Tour: %A" solution.Tour
+    printfn "Length: %.2f" solution.TourLength
 | Error msg -> 
     eprintfn "Error: %s" msg
 ```
 
-This API would:
-- ✅ Automatically select best backend
-- ✅ Provide unified result format
-- ✅ Handle errors gracefully
-- ✅ Support easy backend overrides
+This API provides:
+- ✅ Automatic backend selection (local vs. cloud)
+- ✅ Unified result format
+- ✅ Error handling with Result type
+- ✅ Easy backend switching (one-line change)
 
 ## Comparison: Local vs Azure
 
@@ -235,28 +232,31 @@ This API would:
 | **Qubit limit** | ≤10 qubits (1024 dimensions) | 100+ qubits (cloud) |
 | **Cost** | Free | Pay per shot |
 | **Network** | Offline capable | Requires internet |
-| **Speed (10 qubits)** | <100ms | Seconds (network + queue) |
-| **Use cases** | Development, testing, small problems | Production, large problems |
+| **Speed (3 cities)** | <100ms | Seconds (network + queue) |
+| **Use cases** | Development, testing, small problems | Production, large problems, research |
 | **Hardware access** | ❌ Simulation only | ✅ IonQ, Rigetti, etc. |
 
 ## Summary
 
-**Current Implementation (v0.1.0-alpha):**
-- ✅ **Local simulation**: Fully functional (≤10 qubits)
-- ⏳ **Azure integration**: Coming in future release
-- ✅ **Unified API**: Same `QaoaCircuit` type for both backends
+**Current Implementation (v1.1.0):**
+- ✅ **Local simulation**: Fully functional (≤10 qubits, ~3 cities for TSP)
+- ✅ **Cloud integration**: IonQ and Rigetti backends supported
+- ✅ **Unified API**: Same `solve` function for all backends
 
 **Key Achievement:**
 Backend switching is a **one-line code change** - no refactoring needed!
 
 ```fsharp
 // Change this:
-Local.simulate circuit 1000
+let backend = createLocalBackend()
 
 // To this:
-Azure.execute circuit 1000 workspace
+let backend = createIonQBackend httpClient workspaceUrl "ionq.simulator"
 
 // Everything else stays the same!
+match solve backend distances defaultConfig with
+| Ok solution -> (* use solution *)
+| Error msg -> (* handle error *)
 ```
 
 **Benefits:**
@@ -264,16 +264,15 @@ Azure.execute circuit 1000 workspace
 - ✅ Test locally without Azure credentials
 - ✅ No code changes needed to switch backends
 - ✅ Same result format for analysis/visualization
-- ✅ Future-proof for when Azure backend is ready
+- ✅ Production-ready quantum solving
 
 ## Next Steps
 
 - **[Local Simulation Guide](local-simulation.md)** - Complete local simulator documentation
-- **[QAOA Circuit Builder](qaoa-circuits.md)** - How to construct QAOA circuits
-- **[Examples](examples/)** - MaxCut, TSP, and portfolio optimization examples
+- **[Quantum TSP Example](examples/quantum-tsp-example.md)** - QAOA parameter optimization guide
 - **[API Reference](api-reference.md)** - Full API documentation
 
 ---
 
-**Last Updated**: 2025-11-24  
-**Status**: Local backend complete, Azure backend planned
+**Last Updated**: 2025-11-28  
+**Status**: v1.1.0 - Local and cloud backends supported
