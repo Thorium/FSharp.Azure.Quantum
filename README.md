@@ -27,10 +27,12 @@
 
 1. [Quick Start](#-quick-start) - **Start here!** Get running in 5 minutes
 2. [Problem Builders](#-problem-builders) - High-level APIs for 6 optimization problems
-3. [Error Mitigation](#️-error-mitigation) - Reduce quantum noise by 30-90%
-4. [Architecture](#-architecture) - How the library is organized
-5. [C# Interop](#-c-interop) - Using from C#
-6. [Backend Selection](#-backend-selection) - Local vs Cloud quantum execution
+3. [HybridSolver](#-hybridsolver---automatic-classicalquantum-routing) - Automatic classical/quantum routing
+4. [Educational Algorithms](#-educational-algorithms) - Grover, QFT, Amplitude Amplification (for learning)
+5. [Error Mitigation](#️-error-mitigation) - Reduce quantum noise by 30-90%
+6. [Architecture](#-architecture) - How the library is organized
+7. [C# Interop](#-c-interop) - Using from C#
+8. [Backend Selection](#-backend-selection) - Local vs Cloud quantum execution
 
 ---
 
@@ -247,9 +249,124 @@ match NetworkFlow.solve problem None with
 
 ---
 
-## 🔬 Research Algorithms
+## 🤖 HybridSolver - Automatic Classical/Quantum Routing
 
-In addition to the 6 production-ready optimization builders above, the library includes **experimental quantum search algorithms** for research and education:
+**Smart solver that automatically chooses between classical and quantum execution based on problem analysis.**
+
+The HybridSolver provides a unified API that:
+- ✅ Analyzes problem size, structure, and complexity
+- ✅ Estimates quantum advantage potential
+- ✅ Routes to classical solver (fast, free) OR quantum backend (scalable, expensive)
+- ✅ Provides reasoning for solver selection
+- ✅ Optionally compares both methods for validation
+
+**Decision Framework:**
+- Small problems (< 50 variables) → Classical solver (milliseconds, $0)
+- Large problems (> 100 variables) → Quantum solver (seconds-minutes, ~$10-100)
+- Automatic cost guards and recommendations
+
+### Supported Problems
+
+The HybridSolver supports all 5 main optimization problems:
+
+```fsharp
+open FSharp.Azure.Quantum.Classical.HybridSolver
+
+// TSP with automatic routing
+let distances = array2D [[0.0; 10.0; 15.0]; 
+                          [10.0; 0.0; 20.0]; 
+                          [15.0; 20.0; 0.0]]
+
+match solveTsp distances None None None with
+| Ok solution ->
+    printfn "Method used: %A" solution.Method           // Classical or Quantum
+    printfn "Reasoning: %s" solution.Reasoning          // Why this method?
+    printfn "Time: %.2f ms" solution.ElapsedMs
+    printfn "Route: %A" solution.Result.Route
+    printfn "Distance: %.2f" solution.Result.TotalDistance
+| Error msg -> printfn "Error: %s" msg
+
+// MaxCut with quantum backend config
+let vertices = ["A"; "B"; "C"; "D"]
+let edges = [("A", "B", 1.0); ("B", "C", 2.0); ("C", "D", 1.0)]
+let problem = MaxCut.createProblem vertices edges
+
+let quantumConfig = {
+    Backend = IonQ "ionq.simulator"
+    WorkspaceId = "your-workspace-id"
+    Location = "eastus"
+    ResourceGroup = "quantum-rg"
+    SubscriptionId = "sub-id"
+    MaxCostUSD = Some 50.0          // Cost guard
+    EnableComparison = true         // Compare with classical
+}
+
+match solveMaxCut problem (Some quantumConfig) None None with
+| Ok solution ->
+    printfn "Method: %A" solution.Method
+    printfn "Cut Value: %.2f" solution.Result.CutValue
+    match solution.Recommendation with
+    | Some rec -> printfn "Advisor: %s" rec.Reasoning
+    | None -> ()
+| Error msg -> printfn "Error: %s" msg
+
+// Knapsack
+match solveKnapsack knapsackProblem None None None with
+| Ok solution ->
+    printfn "Total Value: %.2f" solution.Result.TotalValue
+    printfn "Items: %A" solution.Result.SelectedItems
+| Error msg -> printfn "Error: %s" msg
+
+// Graph Coloring
+match solveGraphColoring graphProblem 3 None None None with
+| Ok solution ->
+    printfn "Colors Used: %d/3" solution.Result.ColorsUsed
+    printfn "Valid: %b" solution.Result.IsValid
+| Error msg -> printfn "Error: %s" msg
+
+// Portfolio Optimization
+match solvePortfolio portfolioProblem None None None with
+| Ok solution ->
+    printfn "Portfolio Value: $%.2f" solution.Result.TotalValue
+    printfn "Expected Return: %.2f%%" (solution.Result.ExpectedReturn * 100.0)
+| Error msg -> printfn "Error: %s" msg
+```
+
+### Features
+
+- ✅ **Unified API**: Single function call for any problem size
+- ✅ **Smart Routing**: Automatic classical/quantum decision
+- ✅ **Cost Guards**: `MaxCostUSD` prevents runaway quantum costs
+- ✅ **Validation Mode**: `EnableComparison = true` runs both methods
+- ✅ **Transparent Reasoning**: Explains why each method was chosen
+- ✅ **Quantum Advisor**: Provides recommendations on quantum readiness
+
+### When to Use HybridSolver vs Direct Builders
+
+**Use HybridSolver when:**
+- Problem size varies (sometimes small, sometimes large)
+- You want automatic cost optimization
+- You need validation/comparison between classical and quantum
+- You're prototyping and unsure which approach is better
+
+**Use Direct Builders when:**
+- You always want quantum (for research/learning)
+- Problem size is consistently in quantum range (10-16 qubits)
+- You need fine-grained control over backend configuration
+- You're integrating with specific QAOA parameter tuning
+
+**Location:** `src/FSharp.Azure.Quantum/Solvers/Hybrid/HybridSolver.fs`  
+**Status:** Production-ready - Recommended for production deployments
+
+---
+
+## 📚 Educational Algorithms
+
+**Note:** The following algorithms are provided for **quantum computing education and research**. They are NOT optimization solvers and should not be used for production optimization tasks. For production optimization, use the [Problem Builders](#-problem-builders) or [HybridSolver](#-hybridsolver---automatic-classicalquantum-routing) above.
+
+---
+
+In addition to the production-ready optimization solvers above, the library includes **foundational quantum algorithms** for education and research:
 
 ### Grover's Search Algorithm
 
