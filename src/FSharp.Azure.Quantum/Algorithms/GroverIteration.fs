@@ -49,6 +49,27 @@ module GroverIteration =
         ExpectedSuccessProbability: float
     }
     
+    /// Result from Grover search (used by Search and BackendAdapter)
+    type SearchResult = {
+        /// Solutions found
+        Solutions: int list
+        
+        /// Success probability achieved
+        SuccessProbability: float
+        
+        /// Number of iterations applied
+        IterationsApplied: int
+        
+        /// Measurement counts (bitstring -> count)
+        MeasurementCounts: Map<int, int>
+        
+        /// Total measurement shots
+        Shots: int
+        
+        /// Search succeeded (found solution with probability > threshold)
+        Success: bool
+    }
+    
     // ============================================================================
     // DIFFUSION OPERATOR - Inversion about average
     // ============================================================================

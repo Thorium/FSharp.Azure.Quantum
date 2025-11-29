@@ -171,3 +171,28 @@ module Types =
 
         /// Unknown error
         | UnknownError of statusCode: int * message: string
+
+    /// Grover circuit metadata for optimization and verification
+    /// 
+    /// Stores information about Grover algorithm circuits to enable:
+    /// - Circuit optimization (e.g., gate fusion, cancellation)
+    /// - Result verification (check if measurements match oracle spec)
+    /// - Performance tuning (adjust iterations based on expected solutions)
+    type GroverCircuitMetadata = {
+        /// Number of Grover iterations in circuit
+        NumIterations: int
+        
+        /// Expected solution count (if known)
+        /// Used for calculating optimal iteration count
+        ExpectedSolutions: int option
+        
+        /// Number of qubits in search space
+        SearchSpaceQubits: int
+        
+        /// Oracle description (for debugging/logging)
+        OracleDescription: string
+        
+        /// Marks diffusion operator gates for optimization
+        /// Format: list of (start_gate_idx, end_gate_idx) pairs
+        DiffusionMarkers: (int * int) list
+    }

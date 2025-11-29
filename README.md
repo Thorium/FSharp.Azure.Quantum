@@ -1380,7 +1380,7 @@ Amplitude amplification allows:
 - Custom initial state preparation A|0⟩
 - Reflection about A|0⟩ (automatically generated)
 
-**F# Example:**
+**Local Simulation Example:**
 ```fsharp
 open FSharp.Azure.Quantum.GroverSearch.AmplitudeAmplification
 
@@ -1405,19 +1405,63 @@ match execute config with
     printfn "Amplification failed: %s" msg
 ```
 
+**Backend Execution (NEW - Cloud/Hardware Support):**
+```fsharp
+open FSharp.Azure.Quantum.GroverSearch.AmplitudeAmplificationAdapter
+open FSharp.Azure.Quantum.Core.BackendAbstraction
+
+// Execute amplitude amplification on quantum hardware backend
+let backend = createIonQBackend(connectionString, "ionq.simulator")
+
+// Define oracle (marks solution states)
+let oracle = StateOracle(fun state -> state = 3 || state = 5)
+
+// Configure amplitude amplification
+let config = {
+    NumQubits = 3
+    StatePreparation = UniformSuperposition  // or BasisState(n), PartialSuperposition(states)
+    Oracle = oracle
+    Iterations = 2  // Optimal iterations for 2 solutions in 8-element space
+}
+
+match executeWithBackend config backend 1000 with
+| Ok measurementCounts ->
+    printfn "Amplitude amplification executed on quantum hardware"
+    measurementCounts 
+    |> Map.iter (fun state count -> printfn "  |%d⟩: %d counts" state count)
+| Error msg ->
+    printfn "Backend execution failed: %s" msg
+
+// Convenience functions
+executeUniformAmplification 3 oracle 2 backend 1000      // Uniform initial state
+executeBasisStateAmplification 3 5 oracle 2 backend 1000 // Start from |5⟩
+```
+
 **Features:**
 - ✅ Custom state preparation (W-states, partial superpositions, arbitrary states)
-- ✅ Automatic reflection operator generation
+- ✅ **Cloud backend execution** (IonQ, Rigetti, LocalBackend)
+- ✅ Automatic reflection operator generation (circuit-based A†)
 - ✅ Grover equivalence verification (shows Grover as special case)
 - ✅ Optimal iteration calculation for arbitrary initial success probability
+- ✅ Measurement-based results (histogram of basis states)
+
+**Backend Limitations:**
+- ⚠️ Backend execution returns **measurement statistics only** (not full amplitudes)
+- ⚠️ Quantum phases are **lost during measurement** (fundamental limitation)
+- ✅ Suitable for algorithms that measure amplification results
+- ✅ For amplitude/phase analysis, use local simulation
 
 **Use Cases:**
 - Quantum walk algorithms with non-uniform initial distributions
 - Fixed-point search (where initial state biases toward solutions)
 - Quantum sampling with amplification
+- Fixed-amplitude search (building block for quantum counting)
 
-**Location:** `src/FSharp.Azure.Quantum/Algorithms/AmplitudeAmplification.fs`  
-**Status:** Experimental - Research and education purposes
+**Location:** 
+- Local simulation: `Algorithms/AmplitudeAmplification.fs`  
+- Backend adapter: `Algorithms/AmplitudeAmplificationAdapter.fs`
+
+**Status:** Production-ready - Full backend support (as of Nov 2025)
 
 ---
 
@@ -1434,7 +1478,7 @@ The QFT transforms computational basis states into frequency basis with exponent
 QFT: |j⟩ → (1/√N) Σₖ e^(2πijk/N) |k⟩
 ```
 
-**F# Example:**
+**Local Simulation Example:**
 ```fsharp
 open FSharp.Azure.Quantum.GroverSearch.QuantumFourierTransform
 
@@ -1442,49 +1486,53 @@ open FSharp.Azure.Quantum.GroverSearch.QuantumFourierTransform
 let state = StateVector.init 3  // 3 qubits
 // ... prepare |5⟩ = |101⟩
 
-// Apply QFT
-match executeStandard 3 state with
+// Apply QFT (local simulation)
+match execute config state with
 | Ok result ->
     printfn "QFT applied successfully"
     printfn "Gate count: %d" result.GateCount
     printfn "Final state transformed to frequency basis"
-    
-    // Verify unitarity: QFT · QFT† = I
-    let isUnitary = verifyUnitarity 3 state
-    printfn "Unitary check: %b" isUnitary
 | Error msg ->
     printfn "QFT failed: %s" msg
-
-// Inverse QFT (decode back to computational basis)
-match executeInverse 3 result.FinalState with
-| Ok invResult ->
-    printfn "Inverse QFT applied - recovered original state"
-| Error msg ->
-    printfn "Inverse QFT failed: %s" msg
 ```
 
-**API Options:**
+**Backend Execution (NEW - Cloud/Hardware Support):**
 ```fsharp
-// Standard QFT with bit-reversal SWAPs
-executeStandard numQubits state
+open FSharp.Azure.Quantum.GroverSearch.QFTBackendAdapter
+open FSharp.Azure.Quantum.Core.BackendAbstraction
 
-// Inverse QFT (QFT†) for decoding
-executeInverse numQubits state
+// Execute QFT on quantum hardware backend
+let backend = createIonQBackend(connectionString, "ionq.simulator")
+let config = { NumQubits = 5; ApplySwaps = true; Inverse = false }
 
-// QFT without SWAPs (for quantum phase estimation)
-executeNoSwaps numQubits state
+match executeQFTWithBackend config backend 1000 None with
+| Ok measurementCounts ->
+    printfn "QFT executed on quantum hardware"
+    measurementCounts 
+    |> Map.iter (fun state count -> printfn "  |%d⟩: %d counts" state count)
+| Error msg ->
+    printfn "Backend execution failed: %s" msg
 
-// Transform specific basis state |j⟩
-transformBasisState numQubits basisIndex
+// Convenience functions
+executeStandardQFT 5 backend 1000      // Standard QFT with swaps
+executeInverseQFT 5 backend 1000       // Inverse QFT (QFT†)
+executeQFTOnState 5 7 backend 1000     // QFT on specific input state |7⟩
 ```
 
 **Features:**
 - ✅ O(n²) gate complexity (exponential speedup over classical)
-- ✅ Controlled phase rotation gates (CPhase, CRz)
+- ✅ **Cloud backend execution** (IonQ, Rigetti, LocalBackend)
+- ✅ Controlled phase gates (CP) with correct decomposition
 - ✅ Bit-reversal SWAP gates (optional for QPE)
 - ✅ Inverse QFT (QFT†) for result decoding
-- ✅ Unitarity verification (QFT · QFT† = I)
-- ✅ Expected gate count calculation: n(n+1)/2 + floor(n/2)
+- ✅ Angle validation (prevents NaN/infinity)
+- ✅ Measurement-based results (histogram of basis states)
+
+**Backend Limitations:**
+- ⚠️ Backend execution returns **measurement statistics only** (not full state vector)
+- ⚠️ Amplitudes and phases are **lost during measurement** (fundamental quantum limitation)
+- ✅ Suitable for algorithms that measure QFT output (Shor's, Phase Estimation)
+- ✅ For amplitude/phase analysis, use local simulation
 
 **Use Cases:**
 - **Shor's Algorithm**: Integer factorization (period finding step)
@@ -1493,12 +1541,15 @@ transformBasisState numQubits basisIndex
 - **Quantum Signal Processing**: Frequency domain analysis
 
 **Performance:**
-- 3 qubits: 9 gates (3 H + 3 CPhase + 1 SWAP)
-- 5 qubits: 20 gates (5 H + 10 CPhase + 2 SWAP)
-- 10 qubits: 60 gates (10 H + 45 CPhase + 5 SWAP)
+- 3 qubits: 12 gates (3 H + 6 CPhase + 1 SWAP)
+- 5 qubits: 27 gates (5 H + 20 CPhase + 2 SWAP)
+- 10 qubits: 105 gates (10 H + 90 CPhase + 5 SWAP)
 
-**Location:** `src/FSharp.Azure.Quantum/Algorithms/QuantumFourierTransform.fs`  
-**Status:** Production-ready - Foundational algorithm for advanced applications
+**Location:** 
+- Local simulation: `Algorithms/QuantumFourierTransform.fs`  
+- Backend adapter: `Algorithms/QFTBackendAdapter.fs`
+
+**Status:** Production-ready - Foundational algorithm with full backend support (as of Nov 2025)
 
 ---
 

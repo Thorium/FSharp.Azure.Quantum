@@ -106,7 +106,7 @@ src/FSharp.Azure.Quantum/
 │   ├── Classical/     - CPU algorithms (NO backend param)
 │   ├── Quantum/       - Quantum algorithms (REQUIRES backend)
 │   └── Hybrid/        - Routing logic
-├── Algorithms/        - Grover, Amplitude Amplification
+├── Algorithms/        - Grover, Amplitude Amplification, QFT (backend-enabled)
 ├── Builders/          - QUBO encoding, circuit construction
 ├── ErrorMitigation/   - ZNE, PEC, readout error
 └── Utilities/         - Performance benchmarking
@@ -124,7 +124,7 @@ A: Hybrid approach - classical for small problems, quantum for large. `HybridSol
 
 **Q: What's the difference between Algorithm, Solver, and Backend?**
 
-- **Algorithm** - Mathematical approach (QAOA, Grover, Nearest Neighbor)
+- **Algorithm** - Mathematical approach (QAOA, Grover, QFT, Nearest Neighbor)
 - **Solver** - Problem-specific implementation (TspSolver, QuantumTspSolver)
 - **Backend** - Execution environment (IonQBackend, LocalSimulator)
 

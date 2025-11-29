@@ -16,6 +16,7 @@ module Search =
     open FSharp.Azure.Quantum.LocalSimulator
     open FSharp.Azure.Quantum.GroverSearch.Oracle
     open FSharp.Azure.Quantum.GroverSearch.GroverIteration
+    open FSharp.Azure.Quantum.GroverSearch.BackendAdapter
     
     // ============================================================================
     // TYPES - Search configuration and results
@@ -39,26 +40,8 @@ module Search =
         RandomSeed: int option
     }
     
-    /// Result from Grover search
-    type SearchResult = {
-        /// Solutions found
-        Solutions: int list
-        
-        /// Success probability achieved
-        SuccessProbability: float
-        
-        /// Number of iterations applied
-        IterationsApplied: int
-        
-        /// Measurement counts (bitstring -> count)
-        MeasurementCounts: Map<int, int>
-        
-        /// Total measurement shots
-        Shots: int
-        
-        /// Search succeeded (found solution with probability > threshold)
-        Success: bool
-    }
+    /// Type alias for SearchResult (defined in GroverIteration module)
+    type SearchResult = GroverIteration.SearchResult
     
     // ============================================================================
     // MEASUREMENT - Converting quantum state to classical results
@@ -396,6 +379,127 @@ module Search =
     // EXAMPLES - For documentation
     // ============================================================================
     
+    // ============================================================================
+    // BACKEND EXECUTION - Cloud quantum hardware support
+    // ============================================================================
+    
+    /// Search using IQuantumBackend (cloud or local)
+    /// 
+    /// Enables execution on IonQ, Rigetti, or other quantum backends.
+    /// Uses BackendAdapter to convert Grover algorithm to quantum circuit.
+    let searchWithBackend 
+        (oracle: CompiledOracle) 
+        (backend: FSharp.Azure.Quantum.Core.BackendAbstraction.IQuantumBackend) 
+        (config: SearchConfig) 
+        : Result<SearchResult, string> =
+        
+        // Determine iteration count
+        let iterationCountResult =
+            if config.OptimizeIterations then
+                match optimalIterationsForOracle oracle with
+                | Some (Ok k) -> 
+                    let finalK = match config.MaxIterations with
+                                 | Some maxK -> min k maxK
+                                 | None -> k
+                    Ok finalK
+                | Some (Error msg) -> Error msg
+                | None ->
+                    let defaultK = int (Math.Sqrt(float (1 <<< oracle.NumQubits)))
+                    let finalK = match config.MaxIterations with
+                                 | Some maxK -> min defaultK maxK
+                                 | None -> defaultK
+                    Ok finalK
+            else
+                let k = match config.MaxIterations with
+                        | Some k -> k
+                        | None -> int (Math.Sqrt(float (1 <<< oracle.NumQubits)))
+                Ok k
+        
+        match iterationCountResult with
+        | Error msg -> Error msg
+        | Ok iterationCount ->
+            // Delegate to BackendAdapter
+            BackendAdapter.executeGroverWithBackend oracle backend iterationCount config.Shots
+    
+    /// Search for single value using backend
+    let searchSingleWithBackend 
+        (target: int) 
+        (numQubits: int) 
+        (backend: FSharp.Azure.Quantum.Core.BackendAbstraction.IQuantumBackend) 
+        (config: SearchConfig) 
+        : Result<SearchResult, string> =
+        match Oracle.forValue target numQubits with
+        | Ok oracle -> searchWithBackend oracle backend config
+        | Error msg -> Error msg
+    
+    /// Search for multiple values using backend
+    let searchMultipleWithBackend 
+        (targets: int list) 
+        (numQubits: int) 
+        (backend: FSharp.Azure.Quantum.Core.BackendAbstraction.IQuantumBackend) 
+        (config: SearchConfig) 
+        : Result<SearchResult, string> =
+        if List.isEmpty targets then
+            Error "Target list cannot be empty"
+        else
+            match Oracle.forValues targets numQubits with
+            | Ok oracle -> searchWithBackend oracle backend config
+            | Error msg -> Error msg
+    
+    /// Search with predicate using backend
+    let searchWhereWithBackend 
+        (predicate: int -> bool) 
+        (numQubits: int) 
+        (backend: FSharp.Azure.Quantum.Core.BackendAbstraction.IQuantumBackend) 
+        (config: SearchConfig) 
+        : Result<SearchResult, string> =
+        match Oracle.fromPredicate predicate numQubits with
+        | Ok oracle -> searchWithBackend oracle backend config
+        | Error msg -> Error msg
+    
+    /// Search for even numbers using backend
+    let searchEvenWithBackend 
+        (numQubits: int) 
+        (backend: FSharp.Azure.Quantum.Core.BackendAbstraction.IQuantumBackend) 
+        (config: SearchConfig) 
+        : Result<SearchResult, string> =
+        match Oracle.even numQubits with
+        | Ok oracle -> searchWithBackend oracle backend config
+        | Error msg -> Error msg
+    
+    /// Search for odd numbers using backend
+    let searchOddWithBackend 
+        (numQubits: int) 
+        (backend: FSharp.Azure.Quantum.Core.BackendAbstraction.IQuantumBackend) 
+        (config: SearchConfig) 
+        : Result<SearchResult, string> =
+        match Oracle.odd numQubits with
+        | Ok oracle -> searchWithBackend oracle backend config
+        | Error msg -> Error msg
+    
+    /// Search in range using backend
+    let searchInRangeWithBackend 
+        (min: int) 
+        (max: int) 
+        (numQubits: int) 
+        (backend: FSharp.Azure.Quantum.Core.BackendAbstraction.IQuantumBackend) 
+        (config: SearchConfig) 
+        : Result<SearchResult, string> =
+        match Oracle.inRange min max numQubits with
+        | Ok oracle -> searchWithBackend oracle backend config
+        | Error msg -> Error msg
+    
+    /// Search for numbers divisible by n using backend
+    let searchDivisibleByWithBackend 
+        (n: int) 
+        (numQubits: int) 
+        (backend: FSharp.Azure.Quantum.Core.BackendAbstraction.IQuantumBackend) 
+        (config: SearchConfig) 
+        : Result<SearchResult, string> =
+        match Oracle.divisibleBy n numQubits with
+        | Ok oracle -> searchWithBackend oracle backend config
+        | Error msg -> Error msg
+    
     module Examples =
         
         /// Example: Find value 42 in 6-qubit space
@@ -426,3 +530,11 @@ module Search =
         /// Example: Multi-target search
         let findMultipleTargets () : Result<SearchResult, string> =
             searchMultiple [5; 7; 11; 13] 4 defaultConfig
+        
+        /// Example: Find value 42 using cloud backend
+        let findValue42WithBackend (backend: FSharp.Azure.Quantum.Core.BackendAbstraction.IQuantumBackend) : Result<SearchResult, string> =
+            searchSingleWithBackend 42 6 backend defaultConfig
+        
+        /// Example: Find even number using cloud backend
+        let findEvenNumberWithBackend (backend: FSharp.Azure.Quantum.Core.BackendAbstraction.IQuantumBackend) : Result<SearchResult, string> =
+            searchEvenWithBackend 4 backend defaultConfig

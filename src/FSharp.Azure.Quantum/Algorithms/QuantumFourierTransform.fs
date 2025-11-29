@@ -361,3 +361,5 @@ module QuantumFourierTransform =
     /// This is the first step in many quantum algorithms (e.g., Shor's algorithm)
     let encodeAndTransform (numQubits: int) (value: int) : Result<QFTResult, string> =
         transformBasisState numQubits value
+
+
