@@ -35,7 +35,7 @@ dotnet add package FSharp.Azure.Quantum
 ### Hello World - Simple Graph Coloring
 
 ```fsharp
-open FSharp.Azure.Quantum.GraphColoring
+open FSharp.Azure.Quantum
 
 // Problem: Color 3 nodes (triangle) with minimal colors
 let problem = graphColoring {
@@ -326,7 +326,7 @@ Both provide excellent graph coloring capabilities tailored to each language's i
 **Problem:** Assign 8 live variables to 4 CPU registers.
 
 ```fsharp
-open FSharp.Azure.Quantum.GraphColoring
+open FSharp.Azure.Quantum
 
 // Variable interference graph (from liveness analysis)
 let problem = graphColoring {

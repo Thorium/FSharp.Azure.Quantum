@@ -37,7 +37,7 @@ Assign time slots to tasks with dependencies.
 ### Basic Usage
 
 ```fsharp
-open FSharp.Azure.Quantum.GraphColoring
+open FSharp.Azure.Quantum
 
 // Define problem with computation expression
 let problem = graphColoring {
