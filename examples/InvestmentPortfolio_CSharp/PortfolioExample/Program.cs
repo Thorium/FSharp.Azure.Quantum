@@ -1,0 +1,289 @@
+// ==============================================================================
+// Investment Portfolio Optimization - C# Interop Example
+// ==============================================================================
+// Demonstrates C# interoperability with the F# FSharp.Azure.Quantum library
+// for portfolio optimization using HybridSolver with quantum-ready architecture.
+//
+// This example shows:
+// - Natural C# usage of F# quantum optimization library
+// - Portfolio optimization (mean-variance analysis)
+// - Risk-return trade-off calculations
+// - Sharpe ratio analysis
+// - Automatic classical/quantum solver routing
+// ==============================================================================
+
+using FSharp.Azure.Quantum.Classical;
+using static FSharp.Azure.Quantum.CSharpBuilders;
+
+/// <summary>
+/// Main program class for portfolio optimization example
+/// </summary>
+internal class Program
+{
+    static void Main(string[] args)
+    {
+        Console.WriteLine("╔══════════════════════════════════════════════════════════════════════════════╗");
+        Console.WriteLine("║       INVESTMENT PORTFOLIO OPTIMIZATION - C# INTEROP EXAMPLE                ║");
+        Console.WriteLine("║              Using HybridSolver (Quantum-Ready Optimization)                ║");
+        Console.WriteLine("╚══════════════════════════════════════════════════════════════════════════════╝");
+        Console.WriteLine();
+        
+        // Define investment budget
+        const double budget = 100000.0; // $100,000
+        
+        // Define available stocks with historical performance data
+        var stocks = DefineStockUniverse();
+        
+        Console.WriteLine($"Problem: Allocate ${budget:N2} across {stocks.Length} tech stocks");
+        Console.WriteLine("Objective: Maximize risk-adjusted returns (Sharpe ratio)");
+        Console.WriteLine();
+        
+        // Run portfolio optimization
+        Console.WriteLine("Running portfolio optimization with HybridSolver...");
+        var startTime = DateTime.UtcNow;
+        
+        var result = OptimizePortfolio(stocks, budget);
+        
+        var elapsed = (DateTime.UtcNow - startTime).TotalMilliseconds;
+        Console.WriteLine($"Completed in {elapsed:F0} ms");
+        Console.WriteLine();
+        
+        // Display results
+        if (result.IsOk)
+        {
+            var solution = result.ResultValue;
+            
+            Console.WriteLine($"💡 Solver Decision: {solution.Reasoning}");
+            Console.WriteLine();
+            
+            DisplayAllocationReport(solution, stocks, budget);
+            DisplayRiskReturnAnalysis(solution, stocks, budget);
+            DisplayBusinessImpact(solution, budget);
+            
+            Console.WriteLine("╔══════════════════════════════════════════════════════════════════════════════╗");
+            Console.WriteLine("║                     OPTIMIZATION SUCCESSFUL                                  ║");
+            Console.WriteLine("╚══════════════════════════════════════════════════════════════════════════════╝");
+            Console.WriteLine();
+            Console.WriteLine("✨ Note: HybridSolver automatically routes between classical and quantum solvers");
+            Console.WriteLine("   based on problem size and structure. For 8 assets → classical optimizer.");
+            Console.WriteLine("   For larger portfolios (50+ assets), quantum advantage may emerge.");
+        }
+        else
+        {
+            Console.WriteLine($"❌ Optimization failed: {result.ErrorValue}");
+            Environment.Exit(1);
+        }
+    }
+    
+    /// <summary>
+    /// Define the stock universe with historical performance data
+    /// </summary>
+    static FSharp.Azure.Quantum.PortfolioTypes.Asset[] DefineStockUniverse()
+    {
+        return new[]
+        {
+            new FSharp.Azure.Quantum.PortfolioTypes.Asset
+            {
+                Symbol = "AAPL",
+                ExpectedReturn = 0.18,   // 18% annual return
+                Risk = 0.22,              // 22% volatility
+                Price = 175.00
+            },
+            new FSharp.Azure.Quantum.PortfolioTypes.Asset
+            {
+                Symbol = "MSFT",
+                ExpectedReturn = 0.22,
+                Risk = 0.25,
+                Price = 380.00
+            },
+            new FSharp.Azure.Quantum.PortfolioTypes.Asset
+            {
+                Symbol = "GOOGL",
+                ExpectedReturn = 0.16,
+                Risk = 0.28,
+                Price = 140.00
+            },
+            new FSharp.Azure.Quantum.PortfolioTypes.Asset
+            {
+                Symbol = "AMZN",
+                ExpectedReturn = 0.24,
+                Risk = 0.32,
+                Price = 155.00
+            },
+            new FSharp.Azure.Quantum.PortfolioTypes.Asset
+            {
+                Symbol = "NVDA",
+                ExpectedReturn = 0.35,
+                Risk = 0.45,
+                Price = 485.00
+            },
+            new FSharp.Azure.Quantum.PortfolioTypes.Asset
+            {
+                Symbol = "META",
+                ExpectedReturn = 0.28,
+                Risk = 0.38,
+                Price = 350.00
+            },
+            new FSharp.Azure.Quantum.PortfolioTypes.Asset
+            {
+                Symbol = "TSLA",
+                ExpectedReturn = 0.30,
+                Risk = 0.55,
+                Price = 245.00
+            },
+            new FSharp.Azure.Quantum.PortfolioTypes.Asset
+            {
+                Symbol = "AMD",
+                ExpectedReturn = 0.26,
+                Risk = 0.42,
+                Price = 125.00
+            }
+        };
+    }
+    
+    /// <summary>
+    /// Optimize portfolio allocation using HybridSolver
+    /// </summary>
+    static Microsoft.FSharp.Core.FSharpResult<HybridSolver.Solution<PortfolioSolver.PortfolioSolution>, string> 
+        OptimizePortfolio(FSharp.Azure.Quantum.PortfolioTypes.Asset[] assets, double budget)
+    {
+        // Define constraints
+        var constraints = new PortfolioSolver.Constraints
+        {
+            Budget = budget,
+            MinHolding = 0.0,        // No minimum holding requirement
+            MaxHolding = budget      // Can invest entire budget in one asset if optimal
+        };
+        
+        // Call HybridSolver (quantum-ready optimization)
+        return HybridSolver.solvePortfolio(
+            Microsoft.FSharp.Collections.ListModule.OfSeq(assets),
+            constraints,
+            budget: null,
+            timeout: null,
+            forceMethod: null
+        );
+    }
+    
+    /// <summary>
+    /// Display portfolio allocation report
+    /// </summary>
+    static void DisplayAllocationReport(
+        HybridSolver.Solution<PortfolioSolver.PortfolioSolution> solution,
+        FSharp.Azure.Quantum.PortfolioTypes.Asset[] stocks,
+        double budget)
+    {
+        var portfolio = solution.Result;
+        
+        Console.WriteLine("╔══════════════════════════════════════════════════════════════════════════════╗");
+        Console.WriteLine("║                       PORTFOLIO ALLOCATION REPORT                            ║");
+        Console.WriteLine("╚══════════════════════════════════════════════════════════════════════════════╝");
+        Console.WriteLine();
+        Console.WriteLine("ASSETS SELECTED:");
+        Console.WriteLine("────────────────────────────────────────────────────────────────────────────────");
+        
+        int index = 1;
+        foreach (var allocation in portfolio.Allocations)
+        {
+            double pct = (allocation.Value / portfolio.TotalValue) * 100.0;
+            Console.WriteLine($"  {index}. {allocation.Asset.Symbol,-6} | {allocation.Shares,6:F2} shares @ ${allocation.Asset.Price:N2} = ${allocation.Value:N2} ({pct:F1}%)");
+            index++;
+        }
+        
+        Console.WriteLine();
+        Console.WriteLine("PORTFOLIO SUMMARY:");
+        Console.WriteLine("────────────────────────────────────────────────────────────────────────────────");
+        Console.WriteLine($"  Total Invested:        ${portfolio.TotalValue:N2}");
+        Console.WriteLine($"  Number of Holdings:    {portfolio.Allocations.Length} stocks");
+        Console.WriteLine($"  Expected Annual Return: {portfolio.ExpectedReturn:P2}");
+        Console.WriteLine($"  Portfolio Risk (σ):    {portfolio.Risk:P2}");
+        Console.WriteLine($"  Sharpe Ratio:          {portfolio.SharpeRatio:F2}");
+        Console.WriteLine();
+    }
+    
+    /// <summary>
+    /// Display risk-return analysis comparing portfolio to individual stocks
+    /// </summary>
+    static void DisplayRiskReturnAnalysis(
+        HybridSolver.Solution<PortfolioSolver.PortfolioSolution> solution,
+        FSharp.Azure.Quantum.PortfolioTypes.Asset[] stocks,
+        double budget)
+    {
+        var portfolio = solution.Result;
+        
+        Console.WriteLine("╔══════════════════════════════════════════════════════════════════════════════╗");
+        Console.WriteLine("║                      RISK-RETURN ANALYSIS                                    ║");
+        Console.WriteLine("╚══════════════════════════════════════════════════════════════════════════════╝");
+        Console.WriteLine();
+        Console.WriteLine("INDIVIDUAL STOCK METRICS:");
+        Console.WriteLine("────────────────────────────────────────────────────────────────────────────────");
+        Console.WriteLine("  Symbol  | Expected Return | Volatility | Sharpe Ratio | Allocation");
+        Console.WriteLine("  --------|-----------------|------------|--------------|------------");
+        
+        foreach (var stock in stocks)
+        {
+            double sharpe = stock.ExpectedReturn / stock.Risk;
+            var allocation = portfolio.Allocations.FirstOrDefault(a => a.Asset.Symbol == stock.Symbol);
+            string allocPct = allocation != null 
+                ? $"{(allocation.Value / portfolio.TotalValue) * 100.0:F1}%" 
+                : "0.0%";
+            
+            Console.WriteLine($"  {stock.Symbol,-7} | {stock.ExpectedReturn,14:P2} | {stock.Risk,9:P2} | {sharpe,12:F2} | {allocPct,10}");
+        }
+        
+        Console.WriteLine();
+        Console.WriteLine("PORTFOLIO VS. INDIVIDUAL STOCKS:");
+        Console.WriteLine("────────────────────────────────────────────────────────────────────────────────");
+        
+        double avgReturn = stocks.Average(s => s.ExpectedReturn);
+        double avgRisk = stocks.Average(s => s.Risk);
+        double avgSharpe = avgReturn / avgRisk;
+        
+        Console.WriteLine($"  Average Stock Return:  {avgReturn:P2}");
+        Console.WriteLine($"  Portfolio Return:      {portfolio.ExpectedReturn:P2} ({portfolio.ExpectedReturn / avgReturn:F1}x better)");
+        Console.WriteLine();
+        Console.WriteLine($"  Average Stock Risk:    {avgRisk:P2}");
+        Console.WriteLine($"  Portfolio Risk:        {portfolio.Risk:P2} ({avgRisk / portfolio.Risk:F1}x lower)");
+        Console.WriteLine();
+        Console.WriteLine($"  Average Sharpe Ratio:  {avgSharpe:F2}");
+        Console.WriteLine($"  Portfolio Sharpe:      {portfolio.SharpeRatio:F2} ({portfolio.SharpeRatio / avgSharpe:F1}x better)");
+        Console.WriteLine();
+    }
+    
+    /// <summary>
+    /// Display projected business impact and scenario analysis
+    /// </summary>
+    static void DisplayBusinessImpact(
+        HybridSolver.Solution<PortfolioSolver.PortfolioSolution> solution,
+        double budget)
+    {
+        var portfolio = solution.Result;
+        
+        double expectedGain = portfolio.TotalValue * portfolio.ExpectedReturn;
+        double potentialRange = portfolio.TotalValue * portfolio.Risk;
+        double bestCase = portfolio.TotalValue + expectedGain + potentialRange;
+        double worstCase = portfolio.TotalValue + expectedGain - potentialRange;
+        
+        Console.WriteLine("╔══════════════════════════════════════════════════════════════════════════════╗");
+        Console.WriteLine("║                          BUSINESS IMPACT ANALYSIS                            ║");
+        Console.WriteLine("╚══════════════════════════════════════════════════════════════════════════════╝");
+        Console.WriteLine();
+        Console.WriteLine("PROJECTED ANNUAL OUTCOMES (1 Year):");
+        Console.WriteLine("────────────────────────────────────────────────────────────────────────────────");
+        Console.WriteLine($"  Initial Investment:    ${budget:N2}");
+        Console.WriteLine($"  Expected Return:       ${expectedGain:N2} ({portfolio.ExpectedReturn:P2} gain)");
+        Console.WriteLine();
+        Console.WriteLine("  SCENARIO ANALYSIS (95% confidence interval):");
+        Console.WriteLine($"  • Best Case:           ${bestCase:N2} (+{(bestCase - budget) / budget:P2})");
+        Console.WriteLine($"  • Expected:            ${portfolio.TotalValue + expectedGain:N2} (+{expectedGain / budget:P2})");
+        Console.WriteLine($"  • Worst Case:          ${worstCase:N2} ({(worstCase - budget) / budget:P2})");
+        Console.WriteLine();
+        Console.WriteLine("KEY INSIGHTS:");
+        Console.WriteLine("────────────────────────────────────────────────────────────────────────────────");
+        Console.WriteLine($"  ✓ Diversification across {portfolio.Allocations.Length} tech stocks reduces risk");
+        Console.WriteLine($"  ✓ Sharpe ratio of {portfolio.SharpeRatio:F2} indicates efficient risk-adjusted returns");
+        Console.WriteLine($"  ✓ Expected to generate ${expectedGain:N2} annually");
+        Console.WriteLine("  ✓ Risk-managed approach balances growth and volatility");
+        Console.WriteLine();
+    }
+}
