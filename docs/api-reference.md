@@ -577,7 +577,7 @@ match NetworkFlow.solve problem None with
 **Characteristics:**
 - ✅ Free (local simulation)
 - ✅ Fast (milliseconds)
-- ✅ Up to 10 qubits
+- ✅ Up to 16 qubits
 - ✅ Perfect for development/testing
 
 ```fsharp
@@ -620,9 +620,9 @@ let backend = BackendAbstraction.createRigettiBackend(
 
 | Problem Size | Recommended Backend | Rationale |
 |--------------|---------------------|-----------|
-| ≤10 qubits | LocalBackend | Free, fast, sufficient |
-| 11-15 qubits | IonQ/Rigetti Simulator | Scalable, still affordable |
-| 15+ qubits | IonQ/Rigetti QPU | Real quantum hardware needed |
+| ≤16 qubits | LocalBackend | Free, fast, sufficient |
+| 17-20 qubits | IonQ/Rigetti Simulator | Scalable, still affordable |
+| 20+ qubits | IonQ/Rigetti QPU | Real quantum hardware needed |
 
 ---
 

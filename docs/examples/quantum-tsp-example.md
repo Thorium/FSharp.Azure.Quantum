@@ -54,7 +54,7 @@ let distances = array2D [
     [ 2.0; 1.5; 0.0 ]
 ]
 
-// Create local simulator backend (up to 10 qubits)
+// Create local simulator backend (up to 16 qubits)
 let backend = createLocalBackend()
 
 // Solve with default configuration (optimization enabled)
@@ -258,7 +258,7 @@ let randomStart = { defaultConfig with InitialParameters = (System.Random().Next
 
 **Best for:**
 - Development and testing
-- Small problems (≤10 qubits → ≤3 cities for TSP)
+- Small problems (≤16 qubits → ≤4 cities for TSP)
 - Fast iteration without cloud costs
 
 ```fsharp
@@ -268,10 +268,10 @@ let backend = createLocalBackend()
 // ✅ Free (no cloud costs)
 // ✅ Fast (milliseconds per execution)
 // ✅ Deterministic (no hardware noise)
-// ✅ Up to 10 qubits supported
+// ✅ Up to 16 qubits supported
 
 // Limitations:
-// ⚠️ Limited to 10 qubits (3 cities for TSP)
+// ⚠️ Limited to 16 qubits (4 cities for TSP)
 // ⚠️ No real quantum hardware effects
 ```
 
@@ -468,9 +468,9 @@ let solveWithFallback backend distances =
 
 ## Troubleshooting
 
-### Problem: "Circuit exceeds 10 qubits for local backend"
+### Problem: "Circuit exceeds 16 qubits for local backend"
 
-**Cause:** TSP requires N² qubits for N cities. Local backend limited to 10 qubits (3 cities max).
+**Cause:** TSP requires N² qubits for N cities. Local backend limited to 16 qubits (4 cities max).
 
 **Solution:**
 ```fsharp

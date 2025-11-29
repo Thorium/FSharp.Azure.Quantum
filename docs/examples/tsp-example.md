@@ -365,7 +365,7 @@ match solve backend distances defaultConfig with
 2. **Optimization Shots**: 100 for local, 50 for cloud (cost savings)
 3. **Final Shots**: 1000+ for accurate measurement statistics
 4. **Initial Parameters**: (0.5, 0.5) is a good default for most problems
-5. **Backend Choice**: Local for testing (<10 qubits), IonQ/Rigetti for larger problems
+5. **Backend Choice**: Local for testing (<16 qubits), IonQ/Rigetti for larger problems
 
 ## See Also
 

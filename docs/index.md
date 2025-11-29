@@ -91,7 +91,7 @@ Quantum Approximate Optimization Algorithm with:
 
 ### 🖥️ Multiple Execution Backends
 
-- **LocalBackend** - Fast simulation (≤10 qubits, free)
+- **LocalBackend** - Fast simulation (≤16 qubits, free)
 - **IonQBackend** - Azure Quantum (29+ qubits simulator, 11 qubits QPU)
 - **RigettiBackend** - Azure Quantum (40+ qubits simulator, 80 qubits QPU)
 
@@ -286,7 +286,7 @@ match MaxCut.solve problem None with
 **Characteristics:**
 - ✅ Free (local simulation)
 - ✅ Fast (milliseconds)
-- ✅ Up to 10 qubits
+- ✅ Up to 16 qubits
 - ✅ Perfect for development and testing
 
 ### Azure Quantum (Cloud)
@@ -331,14 +331,14 @@ Contributions welcome! See [GitHub Repository](https://github.com/thorium/FSharp
 
 | Problem Type | LocalBackend | Cloud Required |
 |--------------|--------------|----------------|
-| Graph Coloring | ≤10 nodes | 15+ nodes |
-| MaxCut | ≤10 vertices | 15+ vertices |
-| Knapsack | ≤10 items | 15+ items |
-| TSP | ≤5 cities | 8+ cities |
-| Portfolio | ≤10 assets | 15+ assets |
-| Network Flow | ≤8 nodes | 12+ nodes |
+| Graph Coloring | ≤16 nodes | 20+ nodes |
+| MaxCut | ≤16 vertices | 20+ vertices |
+| Knapsack | ≤16 items | 20+ items |
+| TSP | ≤6 cities | 8+ cities |
+| Portfolio | ≤16 assets | 20+ assets |
+| Network Flow | ≤12 nodes | 16+ nodes |
 
-**Note:** LocalBackend supports up to 10 qubits. Larger problems require cloud backends.
+**Note:** LocalBackend supports up to 16 qubits. Larger problems require cloud backends.
 
 ## 📄 License
 

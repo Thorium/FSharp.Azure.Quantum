@@ -24,7 +24,7 @@ LAYER 3A: Classical Solvers         LAYER 3B: Quantum Solvers
   └─ PortfolioSolver (internal, CPU)    └─ QuantumChemistry (internal, needs backend)
 
 LAYER 4: Execution Backends
-  ├─ LocalSimulator (CPU, ≤10 qubits)
+  ├─ LocalSimulator (CPU, ≤16 qubits)
   ├─ IonQBackend (Azure Quantum)
   └─ RigettiBackend (Azure Quantum)
 ```

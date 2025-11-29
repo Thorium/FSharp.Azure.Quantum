@@ -67,7 +67,7 @@ match GraphColoring.solve problem 4 None with
 1. Computation expression builds graph coloring problem
 2. `GraphColoring.solve` calls `QuantumGraphColoringSolver` internally
 3. QAOA quantum algorithm encodes problem as QUBO
-4. LocalBackend simulates quantum circuit (≤10 qubits)
+4. LocalBackend simulates quantum circuit (≤16 qubits)
 5. Returns color assignments with validation
 
 ---
@@ -243,7 +243,7 @@ graph TB
     end
     
     subgraph "Layer 3: Quantum Backends"
-        LOCAL["LocalBackend<br/>(≤10 qubits)"]
+        LOCAL["LocalBackend<br/>(≤16 qubits)"]
         IONQ["IonQBackend<br/>(Azure Quantum)"]
         RIGETTI["RigettiBackend<br/>(Azure Quantum)"]
     end
@@ -346,7 +346,7 @@ QuantumGraphColoringSolver.solve
 
 | Backend | Qubits | Speed | Cost | Use Case |
 |---------|--------|-------|------|----------|
-| **LocalBackend** | ≤10 | Fast (ms) | Free | Development, testing, small problems |
+| **LocalBackend** | ≤16 | Fast (ms) | Free | Development, testing, small problems |
 | **IonQBackend** | 29+ (sim), 11 (QPU) | Moderate (seconds) | Paid | Production, large problems |
 | **RigettiBackend** | 40+ (sim), 80 (QPU) | Moderate (seconds) | Paid | Production, large problems |
 
@@ -368,7 +368,7 @@ let backend = BackendAbstraction.createIonQBackend(
 
 ```mermaid
 graph TB
-    subgraph "LocalBackend (≤10 qubits)"
+    subgraph "LocalBackend (≤16 qubits)"
         INIT["StateVector.init<br/>|0⟩⊗n"]
         
         subgraph "Gate Operations"
@@ -467,9 +467,10 @@ graph TB
 
 **Performance:**
 - **1-6 qubits**: Instant (< 10ms)
-- **7-8 qubits**: Fast (< 100ms)
-- **9-10 qubits**: Moderate (< 1s)
-- **11+ qubits**: ❌ Exceeds limit (exponential memory: 2^n)
+- **7-10 qubits**: Fast (< 100ms)
+- **11-14 qubits**: Moderate (< 1s)
+- **15-16 qubits**: Slow (< 10s)
+- **17+ qubits**: ❌ Exceeds limit (exponential memory: 2^n)
 
 ---
 
@@ -534,7 +535,7 @@ match GraphColoring.solve problem 3 None with
 **What happens:**
 1. Builder creates `LocalBackend()` automatically
 2. Simulates quantum circuit using state vectors
-3. ≤10 qubits supported (larger problems fail with error)
+3. ≤16 qubits supported (larger problems fail with error)
 
 ### Explicit Cloud Backend
 
@@ -632,14 +633,14 @@ match QuantumGraphColoringSolver.solve backend problem quantumConfig with
 
 | Problem Type | Small (LocalBackend) | Medium | Large (Cloud Required) |
 |--------------|---------------------|--------|----------------------|
-| **Graph Coloring** | ≤10 nodes | 10-15 nodes | 15+ nodes |
-| **MaxCut** | ≤10 vertices | 10-15 vertices | 15+ vertices |
-| **Knapsack** | ≤10 items | 10-15 items | 15+ items |
-| **TSP** | ≤5 cities | 5-8 cities | 8+ cities |
-| **Portfolio** | ≤10 assets | 10-15 assets | 15+ assets |
-| **Network Flow** | ≤8 nodes | 8-12 nodes | 12+ nodes |
+| **Graph Coloring** | ≤16 nodes | 16-25 nodes | 25+ nodes |
+| **MaxCut** | ≤16 vertices | 16-25 vertices | 25+ vertices |
+| **Knapsack** | ≤16 items | 16-25 items | 25+ items |
+| **TSP** | ≤7 cities | 7-10 cities | 10+ cities |
+| **Portfolio** | ≤16 assets | 16-25 assets | 25+ assets |
+| **Network Flow** | ≤12 nodes | 12-20 nodes | 20+ nodes |
 
-**Note:** LocalBackend limited to 10 qubits. Larger problems require Azure Quantum backends.
+**Note:** LocalBackend limited to 16 qubits. Larger problems require Azure Quantum backends.
 
 ---
 

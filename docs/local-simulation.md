@@ -13,7 +13,7 @@ The local quantum simulation module enables rapid development, unit testing, and
 
 FSharp.Azure.Quantum includes a lightweight, pure F# quantum simulator that supports:
 
-- **State vector simulation** up to 10 qubits (1024-dimensional state space)
+- **State vector simulation** up to 16 qubits (65536-dimensional state space)
 - **QAOA circuits** with mixer and cost Hamiltonians
 - **Single-qubit gates**: X, Y, Z, H, Rx, Ry, Rz
 - **Two-qubit gates**: CNOT, CZ
@@ -33,7 +33,7 @@ let distances = array2D [
     [ 2.0; 1.5; 0.0 ]
 ]
 
-// Create local backend (supports up to 10 qubits)
+// Create local backend (supports up to 16 qubits)
 let backend = createLocalBackend()
 
 // Solve with default configuration (QAOA with parameter optimization)
@@ -66,13 +66,13 @@ Optimization converged: true
 - **Unit testing** - Fast, deterministic tests without network I/O
 - **Algorithm development** - Rapid iteration during development
 - **Educational purposes** - Learning quantum concepts interactively
-- **Small problems** - Up to 10 qubits (2^10 = 1024 state dimensions)
+- **Small problems** - Up to 16 qubits (2^16 = 65536 state dimensions)
 - **Offline work** - No internet connection required
 - **Cost-free exploration** - Zero cloud execution costs
 
 ### ⚠️ Use Azure Quantum For:
 
-- **Large problems** - More than 10 qubits
+- **Large problems** - More than 16 qubits
 - **Production workloads** - Scalable cloud execution
 - **Hardware access** - Real quantum hardware (IonQ, Rigetti, etc.)
 - **Performance** - Parallel execution across multiple circuits
@@ -413,11 +413,11 @@ QaoaSimulator.simulate circuit5 100  // ~10ms
 // ✅ Reasonable: 8 qubits, 1000 shots
 QaoaSimulator.simulate circuit8 1000  // ~100ms
 
-// ⚠️ Slow: 10 qubits, 10000 shots
-QaoaSimulator.simulate circuit10 10000  // ~5s
+// ⚠️ Slow: 16 qubits, 10000 shots
+QaoaSimulator.simulate circuit16 10000  // ~several seconds
 
-// ❌ Too large: 11+ qubits
-QaoaSimulator.simulate circuit11 1000  // Error: exceeds 10-qubit limit
+// ❌ Too large: 17+ qubits
+QaoaSimulator.simulate circuit17 1000  // Error: exceeds 16-qubit limit
 ```
 
 ## Complete Example: MaxCut Problem
@@ -633,7 +633,7 @@ The simulator provides detailed error messages for common mistakes:
 let hugeCircuit = { NumQubits = 15; ... }
 match QaoaSimulator.simulate hugeCircuit 1000 with
 | Error msg -> 
-    // "Number of qubits (15) exceeds maximum (10)"
+    // "Number of qubits (15) must be at most 16"
     ()
 
 // ❌ Invalid qubit index
@@ -668,8 +668,8 @@ match QaoaSimulator.simulate invalidCircuit 1000 with
 
 ## FAQ
 
-**Q: Why is simulation limited to 10 qubits?**  
-A: State vector simulation requires 2^n complex numbers. For 10 qubits, that's 1024 complex numbers (16 KB). For 20 qubits, it would be 16 MB, and for 30 qubits, 16 GB. The 10-qubit limit balances functionality with practical memory and performance constraints.
+**Q: Why is simulation limited to 16 qubits?**  
+A: State vector simulation requires 2^n complex numbers. For 16 qubits, that's 65536 complex numbers (1 MB). For 20 qubits, it would be 16 MB, and for 30 qubits, 16 GB. The 16-qubit limit balances functionality with practical memory and performance constraints.
 
 **Q: How accurate is the simulator?**  
 A: The simulator implements exact state vector evolution with floating-point arithmetic. Expect ~1e-14 numerical precision (double precision). This is sufficient for algorithm development and unit testing.
