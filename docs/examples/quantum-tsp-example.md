@@ -3,7 +3,7 @@ layout: default
 title: Quantum TSP with QAOA Parameter Optimization
 ---
 
-# Quantum TSP with QAOA Parameter Optimization (v1.1.0)
+# Quantum TSP with QAOA Parameter Optimization
 
 **Complete guide to solving TSP using Quantum Approximate Optimization Algorithm (QAOA) with automatic parameter tuning.**
 
@@ -29,7 +29,7 @@ title: Quantum TSP with QAOA Parameter Optimization
 - Optimizes circuit parameters (γ, β) via classical optimizer
 - Provides quantum advantage for large combinatorial problems
 
-**New in v1.1.0:**
+**Features:**
 - ✅ **Automatic parameter optimization** via Nelder-Mead simplex method
 - ✅ **Variational quantum-classical loop** for problem-specific tuning
 - ✅ **Configurable optimization settings** (shots, initial parameters, convergence)

@@ -446,9 +446,9 @@ let solveTspWithLimits distances maxBudget maxTime =
 let result = solveTspWithLimits distances 5.0 1000.0  // $5 budget, 1 second
 ```
 
-## Quantum TSP with Parameter Optimization (v1.1.0)
+## Quantum TSP with Parameter Optimization 
 
-FSharp.Azure.Quantum v1.1.0 introduces **automatic QAOA parameter optimization** - a variational quantum-classical loop that finds optimal circuit parameters for your specific problem:
+FSharp.Azure.Quantum provides **automatic QAOA parameter optimization** - a variational quantum-classical loop that finds optimal circuit parameters for your specific problem:
 
 ```fsharp
 open FSharp.Azure.Quantum.Quantum.QuantumTspSolver

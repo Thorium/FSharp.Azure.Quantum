@@ -51,7 +51,7 @@ Small problems (< 50 variables) → Classical is faster and cheaper
 Large problems (> 100 variables) → Quantum may have advantage
 Use `HybridSolver` to decide automatically.
 
-### Builder Routing Architecture (v1.1.0)
+### Builder Routing Architecture
 
 Domain Builders (`TSP`, `Portfolio`) provide a business-friendly API that automatically routes through HybridSolver for intelligent quantum-classical decision making.
 

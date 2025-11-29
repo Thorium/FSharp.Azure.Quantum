@@ -5,11 +5,11 @@
 [![NuGet](https://img.shields.io/nuget/v/FSharp.Azure.Quantum.svg)](https://www.nuget.org/packages/FSharp.Azure.Quantum/)
 [![License](https://img.shields.io/badge/license-Unlicense-blue.svg)](LICENSE)
 
-## ✨ Status: Production Ready (v2.0.0)
+## ✨ Status: Production Ready
 
 **Architecture:** 100% Quantum-Only - Classical algorithms removed per design philosophy
 
-**Current Features (v2.0.0):**
+**Current Features:**
 - ✅ **6 Quantum Optimization Builders:** Graph Coloring, MaxCut, Knapsack, TSP, Portfolio, Network Flow
 - ✅ **QAOA Implementation:** Quantum Approximate Optimization Algorithm with parameter optimization
 - ✅ **F# Computation Expressions:** Idiomatic, type-safe problem specification
@@ -38,12 +38,12 @@
 dotnet add package FSharp.Azure.Quantum
 ```
 
-### Example: Graph Coloring (Register Allocation)
+### F# Computation Expressions
 
 ```fsharp
 open FSharp.Azure.Quantum
 
-// Define register allocation problem using computation expression
+// Graph Coloring: Register Allocation
 let problem = graphColoring {
     node "R1" conflictsWith ["R2"; "R3"]
     node "R2" conflictsWith ["R1"; "R4"]
@@ -52,15 +52,40 @@ let problem = graphColoring {
     colors ["EAX"; "EBX"; "ECX"; "EDX"]
 }
 
-// Solve using quantum optimization (automatic local simulation)
+// Solve using quantum optimization (QAOA)
 match GraphColoring.solve problem 4 None with
 | Ok solution ->
-    solution.Assignments 
-    |> Map.iter (fun node color -> 
-        printfn "%s → %s" node color)
     printfn "Colors used: %d" solution.ColorsUsed
+    solution.Assignments 
+    |> Map.iter (fun node color -> printfn "%s → %s" node color)
 | Error msg -> 
     printfn "Error: %s" msg
+```
+
+### C# Fluent API
+
+```csharp
+using FSharp.Azure.Quantum;
+using static FSharp.Azure.Quantum.CSharpBuilders;
+
+// MaxCut: Circuit Partitioning
+var vertices = new[] { "A", "B", "C", "D" };
+var edges = new[] {
+    (source: "A", target: "B", weight: 1.0),
+    (source: "B", target: "C", weight: 2.0),
+    (source: "C", target: "D", weight: 1.0),
+    (source: "D", target: "A", weight: 1.0)
+};
+
+var problem = MaxCutProblem(vertices, edges);
+var result = MaxCut.solve(problem, null);
+
+if (result.IsOk) {
+    var solution = result.ResultValue;
+    Console.WriteLine($"Cut Value: {solution.CutValue}");
+    Console.WriteLine($"Partition S: {string.Join(", ", solution.PartitionS)}");
+    Console.WriteLine($"Partition T: {string.Join(", ", solution.PartitionT)}");
+}
 ```
 
 **What happens:**
@@ -215,6 +240,51 @@ match NetworkFlow.solve problem None with
     printfn "Fill rate: %.1f%%" (flow.FillRate * 100.0)
 | Error msg -> printfn "Error: %s" msg
 ```
+
+---
+
+## 🔬 Research Algorithms
+
+In addition to the 6 production-ready optimization builders above, the library includes **experimental quantum search algorithms** for research and education:
+
+### Grover's Search Algorithm
+
+**Quantum search algorithm for finding elements in unsorted databases.**
+
+```fsharp
+open FSharp.Azure.Quantum.GroverSearch
+
+// Search for item satisfying predicate
+let searchConfig = {
+    MaxIterations = Some 10
+    SuccessThreshold = 0.9
+    OptimizeIterations = true
+    Shots = 1000
+    RandomSeed = Some 42
+}
+
+// Search 8-item space for items where f(x) = true
+let predicate x = x = 3 || x = 5  // Looking for indices 3 or 5
+
+match Search.searchWithPredicate 3 predicate searchConfig with
+| Ok result ->
+    printfn "Found solutions: %A" result.Solutions
+    printfn "Success probability: %.2f%%" (result.SuccessProbability * 100.0)
+    printfn "Iterations: %d" result.IterationsApplied
+| Error msg -> 
+    printfn "Search failed: %s" msg
+```
+
+**Features:**
+- ✅ Automatic optimal iteration calculation
+- ✅ Amplitude amplification for multiple solutions
+- ✅ Direct LocalSimulator integration (no IBackend)
+- ✅ Educational/research tool (not production optimizer)
+
+**Location:** `src/FSharp.Azure.Quantum/Algorithms/`  
+**Status:** Experimental - Research and education purposes
+
+**Note:** Grover's algorithm is a standalone quantum search primitive, separate from the QAOA-based optimization builders. It does not use the `IBackend` abstraction and is optimized for specific search problems rather than general combinatorial optimization.
 
 ---
 
@@ -705,7 +775,7 @@ Contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ## 🚀 Roadmap
 
-**Current (v2.0.0):**
+**Current:**
 - ✅ 6 quantum optimization builders
 - ✅ QAOA parameter optimization
 - ✅ LocalBackend + Azure Quantum backends
@@ -719,6 +789,6 @@ Contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ---
 
-**Status**: Production Ready (v2.0.0) - Quantum-only architecture, 6 problem builders, full QAOA implementation
+**Status**: Production Ready - Quantum-only architecture, 6 problem builders, full QAOA implementation
 
 **Last Updated**: 2025-11-29

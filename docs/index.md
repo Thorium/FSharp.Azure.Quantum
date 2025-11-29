@@ -346,6 +346,6 @@ This project is licensed under the [Unlicense](https://unlicense.org/) - dedicat
 
 ---
 
-**Status**: Production Ready (v2.0.0) - Quantum-only architecture with 6 problem builders
+**Status**: Production Ready - Quantum-only architecture with 6 problem builders
 
 **Last Updated**: 2025-11-29

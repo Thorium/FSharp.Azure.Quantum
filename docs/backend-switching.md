@@ -18,7 +18,7 @@ FSharp.Azure.Quantum provides a **unified API** through the `QuantumBackend` mod
 
 ## The Unified API
 
-### Current Implementation (v1.1.0)
+### Current Implementation 
 
 The library provides a unified backend abstraction that works with both local simulation and cloud quantum backends:
 
@@ -187,7 +187,7 @@ module Production =
 
 ## Future: Unified High-Level API
 
-**Current API (v1.1.0)** - Already provides unified solving:
+**Current API ** - Already provides unified solving:
 
 ```fsharp
 open FSharp.Azure.Quantum.Quantum.QuantumTspSolver
@@ -238,7 +238,7 @@ This API provides:
 
 ## Summary
 
-**Current Implementation (v1.1.0):**
+**Current Implementation :**
 - ✅ **Local simulation**: Fully functional (≤16 qubits, ~4 cities for TSP)
 - ✅ **Cloud integration**: IonQ and Rigetti backends supported
 - ✅ **Unified API**: Same `solve` function for all backends
@@ -275,4 +275,4 @@ match solve backend distances defaultConfig with
 ---
 
 **Last Updated**: 2025-11-28  
-**Status**: v1.1.0 - Local and cloud backends supported
+**Status**: Current - Local and cloud backends supported

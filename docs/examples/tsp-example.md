@@ -245,7 +245,7 @@ match QuantumAdvisor.getRecommendation distances with
     printfn "Advisor error: %s" msg
 ```
 
-## Quantum TSP with QAOA Parameter Optimization (v1.1.0)
+## Quantum TSP with QAOA Parameter Optimization 
 
 For larger problems or research applications, use quantum TSP solver with automatic parameter optimization:
 
