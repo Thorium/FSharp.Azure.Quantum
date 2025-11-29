@@ -4,7 +4,7 @@ open FSharp.Azure.Quantum.Classical
 
 /// High-level TSP Domain Builder
 /// Provides intuitive API for solving Traveling Salesman Problems
-/// without requiring knowledge of QUBO encoding or quantum circuits
+/// Routes through HybridSolver for consistent quantum-classical decision making
 module TSP =
 
     // ============================================================================
@@ -73,39 +73,39 @@ module TSP =
             DistanceMatrix = distanceMatrix
         }
 
-    /// Solve TSP problem using classical 2-opt algorithm
-    /// Optional config parameter allows customization of solver behavior
+    /// Solve TSP problem using HybridSolver (automatic quantum-classical routing)
+    /// Routes through HybridSolver for intelligent method selection
+    /// Optional config parameter is currently ignored (HybridSolver uses defaults)
     /// Returns Result with Tour or error message
     /// Example:
     ///   let tour = TSP.solve problem
     ///   let customTour = TSP.solve problem (Some customConfig)
     let solve (problem: TspProblem) (config: TspSolver.TspConfig option) : Result<Tour, string> =
-        try
-            // Use provided config or default
-            let solverConfig = config |> Option.defaultValue TspSolver.defaultConfig
-            
-            // Use the existing classical TSP solver with distance matrix
-            let solution = TspSolver.solveWithDistances problem.DistanceMatrix solverConfig
-            
-            // Validate tour
-            let valid = isValidTour solution.Tour problem.CityCount
-            
-            // Convert tour indices to city names
-            let cityNames = 
-                solution.Tour 
-                |> Array.map (fun idx -> 
-                    match problem.Cities.[idx].Name with
-                    | Some name -> name
-                    | None -> $"City {idx}")
-                |> Array.toList
-            
-            Ok {
-                Cities = cityNames
-                TotalDistance = solution.TourLength
-                IsValid = valid
-            }
-        with
-        | ex -> Error $"TSP solve failed: {ex.Message}"
+        // Route through HybridSolver for consistent quantum-classical decision making
+        // This ensures all solving goes through the same routing logic
+        match HybridSolver.solveTsp problem.DistanceMatrix None None None with
+        | Error msg -> Error $"TSP solve failed: {msg}"
+        | Ok hybridResult ->
+            try
+                // Validate tour
+                let valid = isValidTour hybridResult.Result.Tour problem.CityCount
+                
+                // Convert tour indices to city names
+                let cityNames = 
+                    hybridResult.Result.Tour 
+                    |> Array.map (fun idx -> 
+                        match problem.Cities.[idx].Name with
+                        | Some name -> name
+                        | None -> $"City {idx}")
+                    |> Array.toList
+                
+                Ok {
+                    Cities = cityNames
+                    TotalDistance = hybridResult.Result.TourLength
+                    IsValid = valid
+                }
+            with
+            | ex -> Error $"TSP result conversion failed: {ex.Message}"
 
     /// Convenience function: Create problem and solve in one step
     /// Input: List of (name, x, y) tuples

@@ -84,10 +84,8 @@
     <!-- Classical Solvers - Pure CPU algorithms, no quantum backend (depends on Types) -->
     <Compile Include="Solvers\Classical\TspTypes.fs" />
     <Compile Include="Solvers\Classical\TspSolver.fs" />
-    <Compile Include="Solvers\Classical\TspBuilder.fs" />
     <Compile Include="Solvers\Classical\PortfolioTypes.fs" />
     <Compile Include="Solvers\Classical\PortfolioSolver.fs" />
-    <Compile Include="Solvers\Classical\PortfolioBuilder.fs" />
 
     <!-- Builders Layer (depends on Types, LocalSimulator) -->
     <Compile Include="Builders\CircuitBuilder.fs" />
@@ -105,9 +103,6 @@
     <Compile Include="ErrorMitigation\ReadoutErrorMitigation.fs" />
     <Compile Include="ErrorMitigation\ErrorMitigationStrategy.fs" />
 
-    <!-- Utilities Layer -->
-    <Compile Include="Utilities\PerformanceBenchmarking.fs" />
-
     <!-- QAOA Infrastructure (depends on CircuitBuilder, LocalSimulator) -->
     <Compile Include="Core\QaoaCircuit.fs" />
     <Compile Include="Core\CircuitAbstraction.fs" />
@@ -124,6 +119,13 @@
     <Compile Include="Solvers\Hybrid\ProblemAnalysis.fs" />
     <Compile Include="Solvers\Hybrid\QuantumAdvisor.fs" />
     <Compile Include="Solvers\Hybrid\HybridSolver.fs" />
+
+    <!-- Classical Builders - User-facing APIs (depends on HybridSolver) -->
+    <Compile Include="Solvers\Classical\TspBuilder.fs" />
+    <Compile Include="Solvers\Classical\PortfolioBuilder.fs" />
+
+    <!-- Utilities Layer (depends on Classical Builders) -->
+    <Compile Include="Utilities\PerformanceBenchmarking.fs" />
 
     <!-- Top-level applications (depends on Solvers) -->
     <Compile Include="Builders\Scheduling.fs" />

@@ -4,7 +4,7 @@ open FSharp.Azure.Quantum.Classical
 
 /// High-level Portfolio Domain Builder
 /// Provides intuitive API for solving Portfolio optimization problems
-/// without requiring knowledge of QUBO encoding or quantum circuits
+/// Routes through HybridSolver for consistent quantum-classical decision making
 module Portfolio =
 
     // ============================================================================
@@ -88,7 +88,9 @@ module Portfolio =
         }
 
     /// <summary>
-    /// Solve Portfolio problem using classical greedy-by-ratio algorithm
+    /// Solve Portfolio problem using HybridSolver (automatic quantum-classical routing)
+    /// Routes through HybridSolver for intelligent method selection
+    /// Optional config parameter is currently ignored (HybridSolver uses defaults)
     /// </summary>
     /// <param name="problem">Portfolio problem to solve</param>
     /// <param name="config">Optional configuration for solver behavior</param>
@@ -99,42 +101,40 @@ module Portfolio =
     /// </code>
     /// </example>
     let solve (problem: PortfolioProblem) (config: PortfolioSolver.PortfolioConfig option) : Result<PortfolioAllocation, string> =
-        try
-            // Assets are already the correct type (PortfolioTypes.Asset)
-            let solverAssets = problem.Assets |> Array.toList
-            
-            // Use provided config or default
-            let solverConfig = config |> Option.defaultValue PortfolioSolver.defaultConfig
-            
-            // Create constraints
-            let constraints = 
-                problem.Constraints 
-                |> Option.defaultValue {
-                    Budget = problem.Budget
-                    MinHolding = 0.0
-                    MaxHolding = problem.Budget  // No per-asset limit by default
-                }
-            
-            // Solve using greedy-by-ratio algorithm
-            let solution = PortfolioSolver.solveGreedyByRatio solverAssets constraints solverConfig
-            
-            // Validate solution
-            let valid = isValidPortfolio solution.TotalValue problem.Budget
-            
-            // Convert allocations to simple format
-            let allocations =
-                solution.Allocations
-                |> List.map (fun alloc -> (alloc.Asset.Symbol, alloc.Shares, alloc.Value))
-            
-            Ok {
-                Allocations = allocations
-                TotalValue = solution.TotalValue
-                ExpectedReturn = solution.ExpectedReturn
-                Risk = solution.Risk
-                IsValid = valid
+        // Assets are already the correct type (PortfolioTypes.Asset)
+        let solverAssets = problem.Assets |> Array.toList
+        
+        // Create constraints
+        let constraints = 
+            problem.Constraints 
+            |> Option.defaultValue {
+                Budget = problem.Budget
+                MinHolding = 0.0
+                MaxHolding = problem.Budget  // No per-asset limit by default
             }
-        with
-        | ex -> Error $"Portfolio solve failed: {ex.Message}"
+        
+        // Route through HybridSolver for consistent quantum-classical decision making
+        match HybridSolver.solvePortfolio solverAssets constraints None None None with
+        | Error msg -> Error $"Portfolio solve failed: {msg}"
+        | Ok hybridResult ->
+            try
+                // Validate solution
+                let valid = isValidPortfolio hybridResult.Result.TotalValue problem.Budget
+                
+                // Convert allocations to simple format
+                let allocations =
+                    hybridResult.Result.Allocations
+                    |> List.map (fun alloc -> (alloc.Asset.Symbol, alloc.Shares, alloc.Value))
+                
+                Ok {
+                    Allocations = allocations
+                    TotalValue = hybridResult.Result.TotalValue
+                    ExpectedReturn = hybridResult.Result.ExpectedReturn
+                    Risk = hybridResult.Result.Risk
+                    IsValid = valid
+                }
+            with
+            | ex -> Error $"Portfolio result conversion failed: {ex.Message}"
 
     /// <summary>
     /// Convenience function: Create problem and solve in one step
