@@ -11,14 +11,19 @@ FSharp.Azure.Quantum is a **hybrid quantum-classical library**:
 ## Three-Layer Architecture
 
 ```
-LAYER 1: Hybrid Orchestration
-  └─ HybridSolver → Routes to classical or quantum
+LAYER 1: User-Facing API
+  ├─ Domain Builders (TSP, Portfolio) → Routes through HybridSolver
+  └─ HybridSolver API → Direct access to routing layer
 
-LAYER 2A: Classical Solvers       LAYER 2B: Quantum Solvers
-  ├─ TspSolver (CPU only)            ├─ QuantumTspSolver (needs backend)
-  └─ PortfolioSolver (CPU only)      └─ QuantumChemistry (needs backend)
+LAYER 2: Hybrid Orchestration
+  ├─ HybridSolver → Routes to classical or quantum
+  └─ QuantumAdvisor → Decision framework
 
-LAYER 3: Execution Backends
+LAYER 3A: Classical Solvers         LAYER 3B: Quantum Solvers
+  ├─ TspSolver (internal, CPU only)     ├─ QuantumTspSolver (internal, needs backend)
+  └─ PortfolioSolver (internal, CPU)    └─ QuantumChemistry (internal, needs backend)
+
+LAYER 4: Execution Backends
   ├─ LocalSimulator (CPU, ≤10 qubits)
   ├─ IonQBackend (Azure Quantum)
   └─ RigettiBackend (Azure Quantum)
@@ -45,6 +50,50 @@ LAYER 3: Execution Backends
 Small problems (< 50 variables) → Classical is faster and cheaper
 Large problems (> 100 variables) → Quantum may have advantage
 Use `HybridSolver` to decide automatically.
+
+### Builder Routing Architecture (v1.1.0)
+
+Domain Builders (`TSP`, `Portfolio`) provide a business-friendly API that automatically routes through HybridSolver for intelligent quantum-classical decision making.
+
+**Routing Flow:**
+```
+User → TSP.solveDirectly(cities)
+         ↓
+       TSP.createProblem (convert to distance matrix)
+         ↓
+       HybridSolver.solveTsp (routing decision)
+         ↓
+       QuantumAdvisor.getRecommendation
+         ↓
+       Classical OR Quantum (automatic)
+         ↓
+       Convert result back to Tour (city names)
+         ↓
+       Return Result<Tour, string>
+```
+
+**Benefits:**
+- ✅ High abstraction (business domain types: city names, asset symbols)
+- ✅ Quantum routing (automatic, transparent to user)
+- ✅ Single API (simple to use, powerful under the hood)
+- ✅ Future-proof (new optimization methods automatically available)
+
+**Example:**
+```fsharp
+// Builder hides complexity - user just provides city names
+let cities = [("Seattle", 0.0, 0.0); ("Portland", 0.0, 174.0)]
+match TSP.solveDirectly cities None with
+| Ok tour -> printfn "Route: %A" tour.Cities
+| Error msg -> printfn "Error: %s" msg
+
+// HybridSolver provides control - user provides distance matrix
+let distances = array2D [[0.0; 174.0]; [174.0; 0.0]]
+match HybridSolver.solveTsp distances None None None with
+| Ok solution -> 
+    printfn "Method: %A" solution.Method  // Shows Classical or Quantum
+    printfn "Reasoning: %s" solution.Reasoning
+| Error msg -> printfn "Error: %s" msg
+```
 
 ## Folder Structure
 

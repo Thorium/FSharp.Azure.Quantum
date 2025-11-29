@@ -45,8 +45,8 @@ graph TD
     Hybrid --> HybridTSP["HybridSolver.solveTsp"]
     Hybrid --> HybridPortfolio["HybridSolver.solvePortfolio"]
     
-    TSP -->|Directly calls| TspClassical["TspSolver<br/>(internal classical)"]
-    Portfolio -->|Directly calls| PortfolioClassical["PortfolioSolver<br/>(internal classical)"]
+    TSP -->|Routes through| HybridTSP
+    Portfolio -->|Routes through| HybridPortfolio
     
     HybridTSP -->|Routes to| ClassicalOrQuantum["Classical OR Quantum<br/>(via QuantumAdvisor)"]
     HybridPortfolio -->|Routes to| ClassicalOrQuantum
@@ -85,11 +85,11 @@ match TSP.solveDirectly cities None with
 
 **What it does:**
 1. Converts named cities → distance matrix
-2. Calls internal classical solver (`TspSolver.solveWithDistances`)
+2. Routes through `HybridSolver.solveTsp` (automatic quantum-classical routing)
 3. Converts result back to city names
 4. Returns friendly `Tour` type with validation
 
-**Note:** Builders provide a **classical-only** convenience API. For quantum routing, use `HybridSolver` directly.
+**Note:** Builders route through `HybridSolver` automatically. Quantum routing happens transparently when problem size warrants it.
 
 #### Portfolio Builder
 
@@ -116,10 +116,10 @@ match Portfolio.solveDirectly assets budget None with
 **What it does:**
 1. Converts asset tuples → Asset records
 2. Creates budget constraints
-3. Calls internal classical solver (`PortfolioSolver.solveGreedyByRatio`)
+3. Routes through `HybridSolver.solvePortfolio` (automatic quantum-classical routing)
 4. Returns portfolio allocation with metrics
 
-**Note:** Builders provide a **classical-only** convenience API. For quantum routing, use `HybridSolver` directly.
+**Note:** Builders route through `HybridSolver` automatically. Quantum routing happens transparently when problem size warrants it.
 
 ### 1.2 HybridSolver (Advanced - Full Control)
 
@@ -161,7 +161,7 @@ match HybridSolver.solveTsp distances None (Some quantumConfig) (Some Quantum) w
 
 | Level | Module | Best For | Quantum Support | Example |
 |-------|--------|----------|-----------------|---------|
-| **Easy** | `TSP`, `Portfolio` | Named domain objects | ❌ Classical only | `TSP.solveDirectly cities None` |
+| **Easy** | `TSP`, `Portfolio` | Named domain objects | ✅ Automatic (via HybridSolver) | `TSP.solveDirectly cities None` |
 | **Advanced** | `HybridSolver` | Full control, matrices | ✅ Classical OR Quantum (auto-routing) | `HybridSolver.solveTsp distances None None None` |
 | **Expert** | `TspSolver`, `QuantumTspSolver` | Internal use only (via `InternalsVisibleTo`) | N/A (internal API) | Not exposed to users |
 
@@ -176,7 +176,7 @@ match HybridSolver.solveTsp distances None (Some quantumConfig) (Some Quantum) w
 ```mermaid
 graph TB
     subgraph "Layer 1: User-Facing API"
-        Builders["Domain Builders<br/>(TSP, Portfolio)<br/>Classical Only"]
+        Builders["Domain Builders<br/>(TSP, Portfolio)<br/>Routes through HybridSolver"]
         HybridAPI["HybridSolver API<br/>(solveTsp, solvePortfolio)<br/>Classical OR Quantum"]
     end
     
@@ -206,7 +206,7 @@ graph TB
         Backends --> Rigetti["RigettiBackend<br/>(Azure Quantum)"]
     end
     
-    Builders -->|"Direct call"| Classical
+    Builders -->|"Routes through"| HybridLogic
     HybridAPI --> HybridLogic
     
     HybridLogic -->|Small problems| Classical
@@ -229,13 +229,14 @@ graph TB
 **Who uses it:** End users  
 **Visibility:** Public API
 
-- **Domain Builders** (`TSP`, `Portfolio`) - Convert domain objects → classical solvers (direct, no routing)
+- **Domain Builders** (`TSP`, `Portfolio`) - Convert domain objects → HybridSolver (automatic routing)
 - **HybridSolver API** - Entry point for quantum-classical routing
 
 **Key Design:** 
-- Builders = **Classical only** (fast, simple)
-- HybridSolver = **Classical OR Quantum** (auto-routing via QuantumAdvisor)
-- Users choose based on needs: simplicity vs. quantum capability
+- Builders = **High-abstraction** API that routes through HybridSolver
+- HybridSolver = **Routing layer** (Classical OR Quantum decision making)
+- QuantumAdvisor = **Intelligent recommendations** based on problem analysis
+- Users benefit from quantum routing without added complexity
 
 #### **Layer 2: Hybrid Orchestration** 🟣
 **Who uses it:** HybridSolver  

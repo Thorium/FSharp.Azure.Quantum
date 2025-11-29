@@ -358,7 +358,23 @@ val defaultConfig : TspConfig
 
 ## TSP (TspBuilder)
 
-Domain builder API for constructing and solving TSP problems with named cities.
+Domain builder API for constructing and solving TSP problems with named cities. **Routes through HybridSolver for automatic quantum-classical decision making.**
+
+### Architecture
+
+```
+TSP.solveDirectly
+    ↓
+  Convert cities → distance matrix
+    ↓
+  HybridSolver.solveTsp (automatic routing)
+    ↓
+  QuantumAdvisor (recommends Classical or Quantum)
+    ↓
+  Execute with selected method
+    ↓
+  Convert result → Tour (city names)
+```
 
 ### Types
 
@@ -391,11 +407,19 @@ val createProblem : cities: (string * float * float) list -> TspProblem
 
 #### `solve`
 
-Solve TSP problem using classical algorithm.
+Solve TSP problem using HybridSolver (automatic quantum-classical routing).
 
 ```fsharp
 val solve : problem: TspProblem -> config: TspConfig option -> Result<Tour, string>
 ```
+
+**Routing Behavior:**
+- Automatically routes through `HybridSolver.solveTsp`
+- QuantumAdvisor analyzes problem size and recommends method
+- Small problems (< 20 cities) use classical (fast, free)
+- Large problems (100+ cities) consider quantum (if available and beneficial)
+
+**Note:** Config parameter currently ignored (HybridSolver uses defaults). Future enhancement planned to support custom solver configurations.
 
 #### `solveDirectly`
 
@@ -408,14 +432,20 @@ val solveDirectly : cities: (string * float * float) list -> config: TspConfig o
 **Example:**
 ```fsharp
 let cities = [("Seattle", 0.0, 0.0); ("Portland", 0.0, 174.0); ("SF", 635.0, 807.0)]
+
+// Two equivalent approaches:
+
+// Approach 1: Two-step (create, then solve)
 let problem = TSP.createProblem cities
 match TSP.solve problem None with
 | Ok tour -> printfn "Distance: %.2f" tour.TotalDistance
 | Error msg -> printfn "Error: %s" msg
 
-// Or solve directly
+// Approach 2: One-step (solveDirectly)
 match TSP.solveDirectly cities None with
-| Ok tour -> printfn "Cities: %A" tour.Cities
+| Ok tour -> 
+    printfn "Route: %s" (String.concat " → " tour.Cities)
+    printfn "Distance: %.2f miles" tour.TotalDistance
 | Error msg -> printfn "Error: %s" msg
 ```
 
@@ -483,7 +513,23 @@ let solution = PortfolioSolver.solveGreedyByRatio assets constraints PortfolioSo
 
 ## Portfolio (PortfolioBuilder)
 
-Domain builder API for constructing and solving portfolio optimization problems.
+Domain builder API for constructing and solving portfolio optimization problems. **Routes through HybridSolver for automatic quantum-classical decision making.**
+
+### Architecture
+
+```
+Portfolio.solveDirectly
+    ↓
+  Convert assets → Asset records + constraints
+    ↓
+  HybridSolver.solvePortfolio (automatic routing)
+    ↓
+  QuantumAdvisor (recommends Classical or Quantum)
+    ↓
+  Execute with selected method
+    ↓
+  Convert result → PortfolioAllocation
+```
 
 ### Types
 
@@ -522,11 +568,19 @@ val createProblem : assets: (string * float * float * float) list -> budget: flo
 
 #### `solve`
 
-Solve portfolio optimization problem.
+Solve portfolio optimization problem using HybridSolver.
 
 ```fsharp
 val solve : problem: PortfolioProblem -> config: PortfolioConfig option -> Result<PortfolioAllocation, string>
 ```
+
+**Routing Behavior:**
+- Automatically routes through `HybridSolver.solvePortfolio`
+- QuantumAdvisor analyzes problem complexity and recommends method
+- Simple portfolios (few assets, basic constraints) use classical greedy algorithm
+- Complex portfolios (many assets, complex constraints) consider quantum optimization (if available)
+
+**Note:** Config parameter currently ignored (HybridSolver uses defaults). Future enhancement planned.
 
 #### `solveDirectly`
 
@@ -544,15 +598,22 @@ let portfolioAssets = [
     ("GOOGL", 0.15, 0.20, 2800.0)
 ]
 
+// Automatic routing through HybridSolver
 let portfolioProblem = Portfolio.createProblem portfolioAssets 10000.0
 match Portfolio.solve portfolioProblem None with
 | Ok allocation -> 
     printfn "Total Value: $%.2f" allocation.TotalValue
     printfn "Expected Return: %.2f%%" (allocation.ExpectedReturn * 100.0)
+    printfn "Risk: %.2f" allocation.Risk
+    
+    // Display allocations
+    allocation.Allocations
+    |> List.iter (fun (symbol, shares, value) ->
+        printfn "  %s: %.0f shares = $%.2f" symbol shares value)
 | Error msg -> printfn "Error: %s" msg
 
-// Or solve directly
-match Portfolio.solveDirectly assets 10000.0 None with
+// Or solve directly (one step)
+match Portfolio.solveDirectly portfolioAssets 10000.0 None with
 | Ok allocation -> printfn "Allocations: %A" allocation.Allocations
 | Error msg -> printfn "Error: %s" msg
 ```

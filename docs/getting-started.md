@@ -154,7 +154,20 @@ let tspSolution = TspSolver.solveWithDistances distances TspSolver.defaultConfig
 let portfolio = PortfolioSolver.solveGreedyByRatio assets constraints PortfolioSolver.defaultConfig
 ```
 
-### 3. **Builder Pattern** - Simple Domain API
+### 3. **Builder Pattern** - Business-Friendly API with Automatic Routing
+
+Builder APIs (`TSP`, `Portfolio`) provide domain-specific types and automatically route through HybridSolver for intelligent quantum-classical decision making.
+
+**Key Features:**
+- ✅ Named entities (city names, asset symbols)
+- ✅ Domain types (Tour, PortfolioAllocation)
+- ✅ Automatic routing (quantum when appropriate)
+- ✅ Transparent complexity (quantum details hidden)
+
+**Routing Behavior:**
+- Small problems (< 20 cities/assets): Classical (milliseconds, free)
+- Medium problems (20-100): Considers quantum (if beneficial and available)
+- Large problems (100+): Recommends quantum (if budget allows)
 
 Use builder APIs for named cities and assets:
 
@@ -166,6 +179,7 @@ let cities = [
     ("San Francisco", 635.0, 807.0)
 ]
 
+// Routes through HybridSolver automatically!
 let tspProblem = TSP.createProblem cities
 match TSP.solve tspProblem None with
 | Ok tour -> printfn "Tour: %A, Distance: %.2f" tour.Cities tour.TotalDistance

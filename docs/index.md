@@ -16,6 +16,7 @@ title: FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Classical
 
 // Hybrid solver automatically chooses classical or quantum
+// TSP builder routes through HybridSolver for intelligent method selection
 let cities = [
     ("Seattle", 47.6, -122.3)
     ("Portland", 45.5, -122.7)
