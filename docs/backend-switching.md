@@ -23,8 +23,8 @@ FSharp.Azure.Quantum provides a **unified API** through the `QuantumBackend` mod
 The library provides a unified backend abstraction that works with both local simulation and cloud quantum backends:
 
 ```fsharp
-open FSharp.Azure.Quantum.Quantum.QuantumTspSolver
-open FSharp.Azure.Quantum.Core.BackendAbstraction
+open FSharp.Azure.Quantum.Quantum
+open FSharp.Azure.Quantum.Core
 
 // Define TSP problem (3 cities)
 let distances = array2D [
@@ -53,8 +53,8 @@ match solve cloudBackend distances defaultConfig with
 ### Example: Switching with a Single Line
 
 ```fsharp
-open FSharp.Azure.Quantum.Quantum.QuantumTspSolver
-open FSharp.Azure.Quantum.Core.BackendAbstraction
+open FSharp.Azure.Quantum.Quantum
+open FSharp.Azure.Quantum.Core
 
 /// Solve TSP problem with different backends
 let solveTsp distances =
