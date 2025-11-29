@@ -347,6 +347,87 @@ match execute config with
 
 ---
 
+### Quantum Fourier Transform (QFT)
+
+**Quantum analog of the discrete Fourier transform - foundational building block for many quantum algorithms.**
+
+The QFT transforms computational basis states into frequency basis with exponential speedup over classical FFT:
+- **Classical FFT**: O(n·2^n) operations
+- **Quantum QFT**: O(n²) quantum gates
+
+**Mathematical Transform:**
+```
+QFT: |j⟩ → (1/√N) Σₖ e^(2πijk/N) |k⟩
+```
+
+**F# Example:**
+```fsharp
+open FSharp.Azure.Quantum.GroverSearch.QuantumFourierTransform
+
+// Initialize state |5⟩ (computational basis)
+let state = StateVector.init 3  // 3 qubits
+// ... prepare |5⟩ = |101⟩
+
+// Apply QFT
+match executeStandard 3 state with
+| Ok result ->
+    printfn "QFT applied successfully"
+    printfn "Gate count: %d" result.GateCount
+    printfn "Final state transformed to frequency basis"
+    
+    // Verify unitarity: QFT · QFT† = I
+    let isUnitary = verifyUnitarity 3 state
+    printfn "Unitary check: %b" isUnitary
+| Error msg ->
+    printfn "QFT failed: %s" msg
+
+// Inverse QFT (decode back to computational basis)
+match executeInverse 3 result.FinalState with
+| Ok invResult ->
+    printfn "Inverse QFT applied - recovered original state"
+| Error msg ->
+    printfn "Inverse QFT failed: %s" msg
+```
+
+**API Options:**
+```fsharp
+// Standard QFT with bit-reversal SWAPs
+executeStandard numQubits state
+
+// Inverse QFT (QFT†) for decoding
+executeInverse numQubits state
+
+// QFT without SWAPs (for quantum phase estimation)
+executeNoSwaps numQubits state
+
+// Transform specific basis state |j⟩
+transformBasisState numQubits basisIndex
+```
+
+**Features:**
+- ✅ O(n²) gate complexity (exponential speedup over classical)
+- ✅ Controlled phase rotation gates (CPhase, CRz)
+- ✅ Bit-reversal SWAP gates (optional for QPE)
+- ✅ Inverse QFT (QFT†) for result decoding
+- ✅ Unitarity verification (QFT · QFT† = I)
+- ✅ Expected gate count calculation: n(n+1)/2 + floor(n/2)
+
+**Use Cases:**
+- **Shor's Algorithm**: Integer factorization (period finding step)
+- **Quantum Phase Estimation**: Eigenvalue estimation for VQE improvements
+- **Period Finding**: Hidden subgroup problems
+- **Quantum Signal Processing**: Frequency domain analysis
+
+**Performance:**
+- 3 qubits: 9 gates (3 H + 3 CPhase + 1 SWAP)
+- 5 qubits: 20 gates (5 H + 10 CPhase + 2 SWAP)
+- 10 qubits: 60 gates (10 H + 45 CPhase + 5 SWAP)
+
+**Location:** `src/FSharp.Azure.Quantum/Algorithms/QuantumFourierTransform.fs`  
+**Status:** Production-ready - Foundational algorithm for advanced applications
+
+---
+
 ### Library Scope & Focus
 
 **Primary Focus: QAOA-Based Combinatorial Optimization**
@@ -362,7 +443,8 @@ This library is designed for **NISQ-era practical quantum advantage** in optimiz
 The `Algorithms/` directory contains foundational quantum algorithms for learning:
 - ✅ Grover's Search (quantum search, O(√N) speedup)
 - ✅ Amplitude Amplification (generalization of Grover)
-- 🔄 **Coming Soon:** Quantum Fourier Transform, Deutsch-Jozsa, Bernstein-Vazirani
+- ✅ Quantum Fourier Transform (O(n²) vs O(n·2^n) classical FFT)
+- 🔄 **Coming Soon:** Deutsch-Jozsa, Bernstein-Vazirani
 
 **Out of Scope (For Now):**
 - ❌ Cryptographic algorithms (Shor's factoring, discrete log)
