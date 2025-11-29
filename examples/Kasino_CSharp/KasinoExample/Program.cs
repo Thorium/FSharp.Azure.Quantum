@@ -1,21 +1,20 @@
 using System;
 using System.Linq;
 using FSharp.Azure.Quantum;
+using FSharp.Azure.Quantum.Core;
 using Microsoft.FSharp.Collections;
 using Microsoft.FSharp.Core;
-using static FSharp.Azure.Quantum.CSharpBuilders;
-using static FSharp.Azure.Quantum.SubsetSelection;
 
 namespace KasinoExample
 {
     /// <summary>
-    /// C# Kasino Card Game Example - Demonstrates C# interop with F# Subset Selection framework.
+    /// C# Kasino Card Game Example - Demonstrates C# interop with F# Knapsack solver.
     ///
     /// Kasino is a traditional Finnish card game where players capture cards by matching
     /// table cards whose sum equals a card from hand. This example demonstrates:
     ///
     /// 1. C# -> F# interop with FSharp.Azure.Quantum library
-    /// 2. Subset selection problem solving using classical algorithms
+    /// 2. Knapsack problem solving using quantum-ready optimization
     /// 3. Quantum-inspired optimization (32x-181x speedup potential with QUBO encoding)
     ///
     /// Game Rules (simplified):
@@ -29,7 +28,7 @@ namespace KasinoExample
         private static void Main(string[] args)
         {
             Console.WriteLine("╔════════════════════════════════════════════════════════════╗");
-            Console.WriteLine("║  Kasino Card Game - C# Interop with F# Subset Selection   ║");
+            Console.WriteLine("║  Kasino Card Game - C# Interop with F# Knapsack Solver    ║");
             Console.WriteLine("║  Traditional Finnish Card Game (32x-181x Quantum Speedup)  ║");
             Console.WriteLine("╚════════════════════════════════════════════════════════════╝");
             Console.WriteLine();
@@ -48,9 +47,9 @@ namespace KasinoExample
             Console.WriteLine();
             Console.WriteLine("🎯 Key Takeaways:");
             Console.WriteLine("  • C# seamlessly interops with F# quantum optimization library");
-            Console.WriteLine("  • Subset selection problems solved with classical algorithms");
-            Console.WriteLine("  • Fluent builder API works naturally in C# with method chaining");
-            Console.WriteLine("  • F# discriminated unions work as expected in C#");
+            Console.WriteLine("  • Knapsack problems solved with quantum-ready algorithms");
+            Console.WriteLine("  • F# tuple lists work naturally from C# with helper methods");
+            Console.WriteLine("  • F# Result<T,E> works as expected in C#");
             Console.WriteLine("  • Quantum speedup potential: 32x-181x with QUBO encoding");
         }
 
@@ -72,25 +71,24 @@ namespace KasinoExample
             Console.WriteLine("🎯 Goal: Find table cards that maximize value ≤ 13");
             Console.WriteLine();
 
-            // Create items representing table cards using C# extensions (50% less boilerplate!)
-            // Note: C# value tuples now supported via CSharpBuilders static class
+            // Create items representing table cards as (id, weight, value) tuples
+            // For Kasino: weight = card value (constraint), value = card value (maximize)
             var tableCards = new[]
             {
-                Item("card_2", "2", ("weight", 2.0), ("value", 2.0)),
-                Item("card_5", "5", ("weight", 5.0), ("value", 5.0)),
-                Item("card_8", "8", ("weight", 8.0), ("value", 8.0)),
-                Item("card_J", "Jack", ("weight", 11.0), ("value", 11.0)),
+                Tuple.Create("card_2", 2.0, 2.0),
+                Tuple.Create("card_5", 5.0, 5.0),
+                Tuple.Create("card_8", 8.0, 8.0),
+                Tuple.Create("card_J", 11.0, 11.0),
             };
 
-            // Build subset selection problem for Kasino capture using fluent builder with C# array support
-            var problem = SubsetSelectionBuilder<string>.Create()
-                .ItemsFromArray(tableCards)
-                .AddConstraint(SelectionConstraint.NewMaxLimit("weight", 13.0))
-                .Objective(SelectionObjective.NewMaximizeWeight("value"))
-                .Build();
+            // Convert C# array to F# list
+            var itemList = ListModule.OfArray(tableCards);
 
-            // Solve using classical knapsack solver
-            var result = solveKnapsack(problem, "weight", "value");
+            // Create knapsack problem (capacity = hand card value = 13)
+            var problem = Knapsack.createProblem(itemList, 13.0);
+
+            // Solve using Knapsack module (None = use LocalBackend quantum simulation)
+            var result = Knapsack.solve(problem, FSharpOption<BackendAbstraction.IQuantumBackend>.None);
 
             // Display solution using F# Result pattern matching
             if (result.IsOk)
@@ -98,12 +96,11 @@ namespace KasinoExample
                 var solution = result.ResultValue;
 
                 Console.WriteLine("✅ Capture Solution Found!");
-                var selectedCards = string.Join(", ", solution.SelectedItems.Select(item => $"{item.Value} ({item.Weights["value"]})"));
+                var selectedCards = string.Join(", ", solution.SelectedItems.Select(item => $"{item.Id} ({item.Value})"));
                 Console.WriteLine($"   Cards to capture: {selectedCards}");
-                Console.WriteLine($"   Total value: {solution.TotalWeights["value"]}");
-                Console.WriteLine($"   Total weight: {solution.TotalWeights["weight"]}");
+                Console.WriteLine($"   Total value: {solution.TotalValue}");
+                Console.WriteLine($"   Total weight: {solution.TotalWeight}");
                 Console.WriteLine($"   Cards captured: {ListModule.Length(solution.SelectedItems)}");
-                Console.WriteLine($"   Objective achieved: {solution.ObjectiveValue} (maximize value)");
                 Console.WriteLine($"   Feasible: {solution.IsFeasible}");
             }
             else
@@ -138,24 +135,19 @@ namespace KasinoExample
             Console.WriteLine("⚡ Quantum speedup: 32x-181x for finding optimal solution!");
             Console.WriteLine();
 
-            // Create items representing table cards (1-7) using C# extensions
+            // Create items representing table cards (1-7) as (id, weight, value) tuples
             var tableCards = Enumerable.Range(1, 7)
-                .Select(i => Item(
-                    $"card_{i}",
-                    i.ToString(),
-                    ("weight", (double)i),
-                    ("value", (double)i)))
+                .Select(i => Tuple.Create($"card_{i}", (double)i, (double)i))
                 .ToArray();
 
-            // Build subset selection problem with C# array support
-            var problem = SubsetSelectionBuilder<string>.Create()
-                .ItemsFromArray(tableCards)
-                .AddConstraint(SelectionConstraint.NewMaxLimit("weight", 10.0))
-                .Objective(SelectionObjective.NewMaximizeWeight("value"))
-                .Build();
+            // Convert C# array to F# list
+            var itemList = ListModule.OfArray(tableCards);
 
-            // Solve using classical knapsack solver
-            var result = solveKnapsack(problem, "weight", "value");
+            // Create knapsack problem (capacity = hand card value = 10)
+            var problem = Knapsack.createProblem(itemList, 10.0);
+
+            // Solve using Knapsack module (None = use LocalBackend quantum simulation)
+            var result = Knapsack.solve(problem, FSharpOption<BackendAbstraction.IQuantumBackend>.None);
 
             // Display solution
             if (result.IsOk)
@@ -163,12 +155,11 @@ namespace KasinoExample
                 var solution = result.ResultValue;
 
                 Console.WriteLine("✅ Optimal Capture Found!");
-                var selectedCards = string.Join(", ", solution.SelectedItems.Select(item => item.Value));
+                var selectedCards = string.Join(", ", solution.SelectedItems.Select(item => item.Id.Replace("card_", "")));
                 Console.WriteLine($"   Cards to capture: {selectedCards}");
-                Console.WriteLine($"   Total value: {solution.TotalWeights["value"]}");
-                Console.WriteLine($"   Total weight: {solution.TotalWeights["weight"]}");
+                Console.WriteLine($"   Total value: {solution.TotalValue}");
+                Console.WriteLine($"   Total weight: {solution.TotalWeight}");
                 Console.WriteLine($"   Cards captured: {ListModule.Length(solution.SelectedItems)}");
-                Console.WriteLine($"   Objective value: {solution.ObjectiveValue}");
                 Console.WriteLine();
                 Console.WriteLine("🚀 In real quantum hardware, this would run 32x-181x faster!");
             }
@@ -205,31 +196,27 @@ namespace KasinoExample
                 Console.WriteLine($"   Description: {scenario.Description}");
                 Console.Write($"   Table: ");
 
-                // Create table cards using C# extensions
+                // Create table cards as (id, weight, value) tuples
                 var tableCards = scenario.TableCards
-                    .Select((value, index) => Item(
-                        $"card_{index + 1}",
-                        value.ToString(),
-                        ("weight", value),
-                        ("value", value)))
+                    .Select((value, index) => Tuple.Create($"card_{index + 1}", value, value))
                     .ToArray();
 
                 Console.WriteLine(string.Join(", ", scenario.TableCards));
 
-                // Build and solve with C# array support
-                var problem = SubsetSelectionBuilder<string>.Create()
-                    .ItemsFromArray(tableCards)
-                    .AddConstraint(SelectionConstraint.NewMaxLimit("weight", scenario.HandValue))
-                    .Objective(SelectionObjective.NewMaximizeWeight("value"))
-                    .Build();
+                // Convert C# array to F# list
+                var itemList = ListModule.OfArray(tableCards);
 
-                var result = solveKnapsack(problem, "weight", "value");
+                // Create knapsack problem
+                var problem = Knapsack.createProblem(itemList, scenario.HandValue);
+
+                // Solve (None = use LocalBackend quantum simulation)
+                var result = Knapsack.solve(problem, FSharpOption<BackendAbstraction.IQuantumBackend>.None);
 
                 if (result.IsOk)
                 {
                     var solution = result.ResultValue;
-                    var capturedValues = string.Join(", ", solution.SelectedItems.Select(item => item.Weights["value"]));
-                    Console.WriteLine($"   ✅ Captured: [{capturedValues}] = {solution.TotalWeights["value"]} ({ListModule.Length(solution.SelectedItems)} cards)");
+                    var capturedValues = string.Join(", ", solution.SelectedItems.Select(item => item.Value));
+                    Console.WriteLine($"   ✅ Captured: [{capturedValues}] = {solution.TotalValue} ({ListModule.Length(solution.SelectedItems)} cards)");
                 }
                 else
                 {

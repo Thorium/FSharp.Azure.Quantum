@@ -1,8 +1,8 @@
 // ==============================================================================
 // Kasino Card Game - Finnish Traditional Game Example
 // ==============================================================================
-// Demonstrates subset selection optimization using the Generic Subset Selection
-// Framework to find optimal card captures in the traditional Finnish card game.
+// Demonstrates knapsack optimization using the Knapsack solver to find optimal
+// card captures in the traditional Finnish card game.
 //
 // Cultural Context:
 // Kasino is a popular Finnish card game where players capture table cards by
@@ -16,7 +16,7 @@
 // - Real-time game AI benefits from fast optimization
 //
 // This example shows:
-// - Subset Selection framework for constraint satisfaction
+// - Knapsack solver for constraint satisfaction
 // - Multiple capture strategies (minimize count, maximize value)
 // - Real-world application of quantum advantage
 // - Finnish cultural heritage in modern computing
@@ -25,7 +25,7 @@
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 
 open System
-open FSharp.Azure.Quantum.SubsetSelection
+open FSharp.Azure.Quantum
 
 // ==============================================================================
 // DOMAIN MODEL - Kasino Game Types
@@ -92,10 +92,10 @@ let displayCards cards =
     |> String.concat ", "
 
 // ==============================================================================
-// KASINO CAPTURE SOLVER - Using Subset Selection Framework
+// KASINO CAPTURE SOLVER - Using Knapsack Optimization
 // ==============================================================================
 
-/// Find optimal Kasino capture using Subset Selection framework
+/// Find optimal Kasino capture using Knapsack optimization
 let findOptimalCapture (handCard: Card) (tableCards: Card list) (strategy: string) =
     
     printfn "═══════════════════════════════════════════════════════════"
@@ -106,37 +106,21 @@ let findOptimalCapture (handCard: Card) (tableCards: Card list) (strategy: strin
     printfn "🎯 Strategy: %s" strategy
     printfn ""
 
-    // Convert table cards to subset selection items
+    // Convert table cards to knapsack items (id, weight, value)
+    // For Kasino: weight = card value (constraint), value = card value (maximize)
     let items =
         tableCards
-        |> List.map (fun card -> 
-            numericItem card.DisplayName card.Value)
+        |> List.map (fun card -> (card.DisplayName, card.Value, card.Value))
 
-    // Choose objective based on strategy
-    // Note: solveKnapsack always maximizes value within capacity constraint
-    // For Kasino, this means capturing maximum value ≤ hand card value
-    let objective =
-        match strategy with
-        | "Minimize Cards" -> MaximizeWeight "value"  // Still maximize value (knapsack solver behavior)
-        | "Maximize Value" -> MaximizeWeight "value"
-        | _ -> MaximizeWeight "value"
+    // Create knapsack problem
+    // Capacity = hand card value (we can't exceed this sum)
+    // Goal: Find subset of table cards with maximum total value ≤ hand card value
+    let problem = Knapsack.createProblem items handCard.Value
 
-    // Build subset selection problem
-    let problem =
-        SubsetSelectionBuilder.Create()
-            .Items(items)
-            .AddConstraint(MaxLimit("value", handCard.Value))  // Sum ≤ hand card
-            .Objective(objective)
-            .Build()
-
-    // Solve using classical knapsack solver
-    // Note: numericItem creates items with only "value" dimension (weight=value=card value)
-    // So we use "value" for both weight and value dimensions
-    let result = solveKnapsack problem "value" "value"
-
-    match result with
-    | Ok solution when solution.IsFeasible ->
-        // Extract captured cards
+    // Solve using Knapsack module
+    match Knapsack.solve problem None with
+    | Ok solution ->
+        // Extract captured cards from selected items
         let capturedCards =
             solution.SelectedItems
             |> List.choose (fun item ->
@@ -146,10 +130,10 @@ let findOptimalCapture (handCard: Card) (tableCards: Card list) (strategy: strin
             HandCard = handCard
             TableCards = tableCards
             CapturedCards = capturedCards
-            TotalValue = solution.TotalWeights.["value"]
+            TotalValue = solution.TotalValue
             CardCount = capturedCards.Length
             Strategy = strategy
-            IsOptimal = solution.TotalWeights.["value"] = handCard.Value
+            IsOptimal = solution.TotalValue = handCard.Value
         }
 
         // Display result
@@ -158,18 +142,13 @@ let findOptimalCapture (handCard: Card) (tableCards: Card list) (strategy: strin
         printfn "   Total Value: %g (target: %g)" captureResult.TotalValue handCard.Value
         printfn "   Cards Captured: %d" captureResult.CardCount
         printfn "   Strategy: %s" strategy
-        printfn "   Objective Value: %g (maximize value ≤ capacity)" solution.ObjectiveValue
+        printfn "   Total Weight: %g (capacity: %g)" solution.TotalWeight handCard.Value
         
         if captureResult.IsOptimal then
             printfn "   ⭐ EXACT MATCH - Perfect capture!"
         
         printfn ""
         Some captureResult
-
-    | Ok solution ->
-        printfn "❌ No feasible capture found (constraints violated)"
-        printfn ""
-        None
 
     | Error msg ->
         printfn "❌ Solver error: %s" msg
@@ -181,7 +160,7 @@ let findOptimalCapture (handCard: Card) (tableCards: Card list) (strategy: strin
 // ==============================================================================
 
 printfn "╔════════════════════════════════════════════════════════════╗"
-printfn "║       Kasino Card Game - F# Subset Selection Example      ║"
+printfn "║       Kasino Card Game - F# Knapsack Example              ║"
 printfn "║   Traditional Finnish Card Game (32x-181x Quantum Speedup) ║"
 printfn "╚════════════════════════════════════════════════════════════╝"
 printfn ""
