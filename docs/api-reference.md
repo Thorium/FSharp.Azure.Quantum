@@ -391,7 +391,7 @@ let problem = TSP.createProblem cities
 
 match TSP.solve problem None with
 | Ok tour ->
-    printfn "Optimal route: %s" (String.concat " → " tour.Cities)
+    printfn "Optimal route: %s" (System.String.concat " → " tour.Cities)
     printfn "Total distance: %.2f km" tour.TotalDistance
 | Error msg ->
     printfn "Route optimization failed: %s" msg
