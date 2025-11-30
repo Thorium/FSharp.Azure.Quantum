@@ -372,7 +372,7 @@ let solvePortfolioSafely assets budget =
         // Validate budget constraint
         match PortfolioSolver.validateBudgetConstraint assetRecords constraints with
         | validation when not validation.IsValid ->
-            Error $"Validation failed: {String.concat "; " validation.Messages}"
+            Error $"Validation failed: {System.String.concat "; " validation.Messages}"
         | _ ->
             // Solve
             match HybridSolver.solvePortfolio assetRecords constraints None None None with
