@@ -6,24 +6,21 @@
     <GenerateProgramFile>false</GenerateProgramFile>
 
     <!-- Package Metadata -->
-    <Version>1.2.1</Version>
+    <Version>1.2.3</Version>
     <PackageId>FSharp.Azure.Quantum</PackageId>
     <Title>FSharp.Azure.Quantum</Title>
     <Description>F# library for Azure Quantum with quantum-first optimization (Graph Coloring, TSP, MaxCut, Knapsack, Network Flow, Portfolio), Azure Quantum backend integration (IonQ, Rigetti), extensible circuit validation, local quantum simulation, QAOA with automatic parameter optimization (Nelder-Mead), OpenQASM 2.0 support, error mitigation techniques (ZNE, PEC, REM), and educational quantum algorithms (Grover, QFT, Amplitude Amplification) with cloud backend execution. Multi-provider architecture supports IonQ, Rigetti, IBM, Amazon Braket, and Google Cirq.</Description>
     <Summary>F# library for Azure Quantum with quantum-first optimization, quantum backends (IonQ, Rigetti), QAOA with automatic parameter tuning, and educational algorithms with cloud execution</Summary>
-    <PackageReleaseNotes>v1.2.1: Educational Algorithms Backend Execution
-- NEW: QFT (Quantum Fourier Transform) backend execution support (QFTBackendAdapter.fs)
-- NEW: Amplitude Amplification backend execution support (AmplitudeAmplificationAdapter.fs)
-- NEW: Grover Search backend execution support (GroverBackendAdapter.fs)
-- NEW: 14 comprehensive QFT tests (912 total tests passing)
-- FIXED: QFT controlled-Rz decomposition (5-gate controlled-phase implementation)
-- FIXED: Amplitude Amplification reflection circuit (proper A† gate-by-gate inversion)
-- IMPROVED: Input validation for angles (NaN/Infinity rejection)
-- DOCS: Comprehensive backend execution examples in README.md
-- DOCS: Backend limitations clearly documented (measurement-only results)
-- FEATURE: Convenience functions (executeStandardQFT, executeInverseQFT, executeQFTOnState)
-- FEATURE: Circuit-based state preparation for Amplitude Amplification
-- Status: Production-ready educational algorithms with cloud hardware execution</PackageReleaseNotes>
+    <PackageReleaseNotes>v1.2.3: Enhanced Quantum Algorithms and Builder API Improvements
+- NEW: Shor's Algorithm backend execution support (ShorsBackendAdapter.fs)
+- NEW: Quantum Phase Estimation (QPE) backend execution support (QPEBackendAdapter.fs)
+- NEW: Quantum Arithmetic operations (QuantumArithmetic.fs) with addition, subtraction, multiplication
+- NEW: 5 new builder APIs for advanced quantum algorithms (QuantumTreeSearchBuilder, QuantumConstraintSolverBuilder, QuantumPatternMatcherBuilder, QuantumArithmeticBuilder, QuantumPeriodFinderBuilder, QuantumPhaseEstimatorBuilder)
+- IMPROVED: Computation expression syntax for all builder APIs (tree {}, constraint {}, pattern {}, arithmetic {}, period {}, phaseEstimator {})
+- IMPROVED: Consistent API design across all quantum solvers with idiomatic F# patterns
+- FIXED: Builder API composition and backend switching reliability
+- DOCS: Updated examples for Shor's Algorithm and QPE
+- Status: 912+ tests passing, production-ready for advanced quantum algorithms</PackageReleaseNotes>
     
     <!-- Repository Info -->
     <RepositoryUrl>https://github.com/thorium/FSharp.Azure.Quantum</RepositoryUrl>

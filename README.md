@@ -14,10 +14,10 @@
 - ✅ **OpenQASM 2.0:** Import/export compatibility with IBM Qiskit, Amazon Braket, Google Cirq
 - ✅ **QAOA Implementation:** Quantum Approximate Optimization Algorithm with parameter optimization & warm-start
 - ✅ **6 Quantum Optimization Builders:** Graph Coloring, MaxCut, Knapsack, TSP, Portfolio, Network Flow
-- ✅ **3 QFT-Based Application Builders:** Quantum Arithmetic, Cryptographic Analysis (Shor's), Phase Estimation
+- ✅ **8 QFT-Based Application Builders:** Quantum Arithmetic, Cryptographic Analysis (Shor's), Phase Estimation, Tree Search, Constraint Solver, Pattern Matcher, Arithmetic Operations, Period Finder
 - ✅ **VQE Implementation:** Variational Quantum Eigensolver for molecular ground state energies (quantum chemistry)
 - ✅ **Error Mitigation:** ZNE (30-50% error reduction), PEC (2-3x accuracy), REM (50-90% readout correction)
-- ✅ **F# Computation Expressions:** Idiomatic, type-safe problem specification
+- ✅ **F# Computation Expressions:** Idiomatic, type-safe problem specification (tree {}, constraint {}, pattern {}, arithmetic {}, period {}, phaseEstimator {})
 - ✅ **C# Interop:** Fluent API extensions for C# developers
 - ✅ **Circuit Building:** Low-level quantum circuit construction and optimization possible
 
@@ -33,7 +33,8 @@
 6. [C# Interop](#-c-interop) - Using from C#
 7. [Backend Selection](#-backend-selection) - Local vs Cloud quantum execution
 8. [Educational Algorithms](#-educational-algorithms) - Grover, QFT, Amplitude Amplification (for learning)
-9. [Phase 2 Builders](#phase-2-builders-qft-based-quantum-applications) - Quantum Arithmetic, Cryptographic Analysis, Phase Estimation
+9. [Advanced Quantum Builders](#-advanced-quantum-builders) - Tree Search, Constraint Solver, Pattern Matcher, Arithmetic, Period Finder, Phase Estimator
+10. [Phase 2 Builders](#phase-2-builders-qft-based-quantum-applications) - Quantum Arithmetic, Cryptographic Analysis, Phase Estimation
 
 ---
 
@@ -1640,6 +1641,304 @@ var result = ExecutePhaseEstimator(problem);
 - ✅ Educational value for quantum algorithm learning
 - ⚠️ NISQ limitations: Toy examples only (< 20 qubits)
 - ⚠️ Requires fault-tolerant quantum computers for production use
+
+**Current Status:** Educational/research focus - Demonstrates quantum algorithms but hardware insufficient for real-world applications (2024-2025)
+
+---
+
+## 🔬 Advanced Quantum Builders
+
+**High-level builders for specialized quantum algorithms using computation expression syntax.**
+
+Beyond the optimization and QFT-based builders, the library provides five advanced builders for specialized quantum computing tasks:
+
+### 1. Quantum Tree Search Builder
+
+**Use Case:** Graph traversal, decision trees, game tree exploration
+
+```fsharp
+open FSharp.Azure.Quantum.QuantumTreeSearchBuilder
+
+// Search decision tree with quantum parallelism
+let searchProblem = tree {
+    depth 5                    // Tree depth
+    branchingFactor 3          // Children per node
+    target 42                  // Target node value
+    qubits 10
+}
+
+match search searchProblem with
+| Ok result ->
+    printfn "Found path: %A" result.Path
+    printfn "Depth explored: %d" result.DepthReached
+    printfn "Success probability: %.2f%%" (result.Probability * 100.0)
+| Error msg ->
+    printfn "Error: %s" msg
+```
+
+**Features:**
+- ✅ Quantum parallelism for tree exploration
+- ✅ Amplitude amplification for target finding
+- ✅ F# computation expression: `tree { }`
+- ✅ Applications: Game AI, route planning, decision analysis
+
+---
+
+### 2. Quantum Constraint Solver Builder
+
+**Use Case:** SAT solving, constraint satisfaction problems, logic puzzles
+
+```fsharp
+open FSharp.Azure.Quantum.QuantumConstraintSolverBuilder
+
+// Solve boolean satisfiability (SAT) problem
+let satProblem = constraint {
+    variables ["x"; "y"; "z"]
+    clause ["x"; "!y"]         // x OR NOT y
+    clause ["!x"; "z"]         // NOT x OR z
+    clause ["y"; "!z"]         // y OR NOT z
+    qubits 8
+}
+
+match solve satProblem with
+| Ok solution ->
+    printfn "Satisfying assignment:"
+    solution.Assignment 
+    |> Map.iter (fun var value -> printfn "  %s = %b" var value)
+    printfn "Clauses satisfied: %d/%d" solution.SatisfiedClauses solution.TotalClauses
+| Error msg ->
+    printfn "Error: %s" msg
+```
+
+**Features:**
+- ✅ Grover-based SAT solving
+- ✅ CNF (Conjunctive Normal Form) constraint encoding
+- ✅ F# computation expression: `constraint { }`
+- ✅ Applications: Circuit verification, scheduling, logic puzzles
+
+---
+
+### 3. Quantum Pattern Matcher Builder
+
+**Use Case:** String matching, DNA sequence alignment, anomaly detection
+
+```fsharp
+open FSharp.Azure.Quantum.QuantumPatternMatcherBuilder
+
+// Find pattern in data stream with quantum speedup
+let matchProblem = pattern {
+    haystack [1; 2; 3; 4; 5; 6; 7; 8]
+    needle [3; 4; 5]
+    tolerance 0                 // Exact match
+    qubits 12
+}
+
+match find matchProblem with
+| Ok result ->
+    printfn "Pattern found at positions: %A" result.Positions
+    printfn "Total matches: %d" result.MatchCount
+    printfn "Search probability: %.2f%%" (result.Probability * 100.0)
+| Error msg ->
+    printfn "Error: %s" msg
+```
+
+**Features:**
+- ✅ Quantum search for pattern matching
+- ✅ Approximate matching with tolerance
+- ✅ F# computation expression: `pattern { }`
+- ✅ Applications: Bioinformatics, data mining, signal processing
+
+---
+
+### 4. Quantum Arithmetic Builder
+
+**Use Case:** Cryptographic operations, RSA encryption, modular arithmetic
+
+```fsharp
+open FSharp.Azure.Quantum.QuantumArithmeticBuilder
+
+// Quantum integer addition
+let addProblem = arithmetic {
+    operands 15 27              // 15 + 27
+    operation Add
+    qubits 10
+}
+
+match compute addProblem with
+| Ok result ->
+    printfn "Result: %d" result.Value
+    printfn "Carry: %b" result.Carry
+    printfn "Gates used: %d" result.GateCount
+    printfn "Circuit depth: %d" result.CircuitDepth
+| Error msg ->
+    printfn "Error: %s" msg
+
+// Modular exponentiation for RSA
+let rsaProblem = arithmetic {
+    operands 5 3                // base=5, exponent=3
+    operation ModularExponentiate
+    modulus 33                  // RSA modulus
+    qubits 12
+}
+```
+
+**Features:**
+- ✅ Quantum arithmetic operations (Add, Subtract, Multiply, ModularExponentiate)
+- ✅ QFT-based carry propagation
+- ✅ F# computation expression: `arithmetic { }`
+- ✅ Applications: Cryptography, financial calculations, scientific computing
+
+---
+
+### 5. Quantum Period Finder Builder
+
+**Use Case:** Shor's algorithm, cryptanalysis, order finding
+
+```fsharp
+open FSharp.Azure.Quantum.QuantumPeriodFinderBuilder
+
+// Find period of modular function (Shor's algorithm)
+let shorsProblem = period {
+    number 15                   // Composite to factor
+    base_ 7                     // Coprime base
+    precision 12                // QPE precision bits
+    maxAttempts 10              // Probabilistic retries
+}
+
+match findPeriod shorsProblem with
+| Ok result ->
+    printfn "Period found: %d" result.Period
+    match result.Factors with
+    | Some (p, q) ->
+        printfn "Factors: %d × %d = %d" p q (p * q)
+        printfn "⚠️  RSA modulus factored!"
+    | None ->
+        printfn "Retry with different base (probabilistic)"
+| Error msg ->
+    printfn "Error: %s" msg
+```
+
+**Features:**
+- ✅ Quantum Period Finding (QPF) for Shor's algorithm
+- ✅ Quantum Phase Estimation (QPE) integration
+- ✅ F# computation expression: `period { }`
+- ✅ Applications: Cryptanalysis, number theory, discrete logarithm
+
+---
+
+### 6. Quantum Phase Estimator Builder
+
+**Use Case:** Eigenvalue estimation, quantum chemistry, VQE enhancement
+
+```fsharp
+open FSharp.Azure.Quantum.QuantumPhaseEstimatorBuilder
+
+// Estimate eigenphase of unitary operator
+let qpeProblem = phaseEstimator {
+    unitary (RotationZ (Math.PI / 4.0))  // Operator U
+    eigenstate 0                         // |ψ⟩ = |0⟩
+    precision 16                         // 16-bit phase precision
+    qubits 20
+}
+
+match estimate qpeProblem with
+| Ok result ->
+    printfn "Estimated phase: %.6f" result.Phase
+    printfn "Eigenvalue: e^(2πi × %.6f)" result.Phase
+    printfn "Confidence: %.2f%%" (result.Confidence * 100.0)
+    printfn "Application: Molecular energy = %.4f Hartree" (result.Phase * 2.0 * Math.PI)
+| Error msg ->
+    printfn "Error: %s" msg
+```
+
+**Features:**
+- ✅ Quantum Phase Estimation (QPE) with arbitrary precision
+- ✅ Inverse QFT for phase readout
+- ✅ F# computation expression: `phaseEstimator { }`
+- ✅ Applications: Quantum chemistry (VQE), linear systems, machine learning
+
+---
+
+### Advanced Builder Features
+
+**Common Capabilities:**
+- ✅ **Computation Expression Syntax** - Idiomatic F# DSL for all builders
+- ✅ **Backend Switching** - LocalBackend (simulation) or Cloud (IonQ, Rigetti)
+- ✅ **Type Safety** - F# type system prevents invalid quantum circuits
+- ✅ **C# Interop** - Fluent API extensions for all builders
+- ✅ **Circuit Export** - Export to OpenQASM 2.0 for cross-platform execution
+- ✅ **Error Handling** - Comprehensive validation and error messages
+
+**Current Status:** 
+- ⚠️ **Educational/Research Focus** - Suitable for algorithm learning and prototyping
+- ⚠️ **NISQ Limitations** - Toy problems only (< 20 qubits) on current hardware
+- ✅ **Production-Ready Code** - Well-tested, documented, and production-quality implementation
+- ⚠️ **Hardware Bottleneck** - Waiting for fault-tolerant quantum computers for real-world scale
+
+**Use Cases by Builder:**
+
+| Builder | Primary Application | Quantum Advantage | Hardware Readiness |
+|---------|-------------------|-------------------|-------------------|
+| **Tree Search** | Game AI, Route Planning | O(√N) speedup | 2028+ (requires 50+ qubits) |
+| **Constraint Solver** | SAT, Logic Puzzles | O(√2^n) speedup | 2030+ (requires 100+ qubits) |
+| **Pattern Matcher** | DNA Alignment, Data Mining | O(√N) speedup | 2027+ (requires 30+ qubits) |
+| **Arithmetic** | Cryptography, RSA | Polynomial vs exponential | 2026+ (requires 4096+ qubits for RSA-2048) |
+| **Period Finder** | Shor's Algorithm, Cryptanalysis | Exponential speedup | 2029+ (requires 4096+ qubits) |
+| **Phase Estimator** | Quantum Chemistry, VQE | Polynomial speedup | 2025+ (10-20 qubits sufficient for small molecules) |
+
+**Recommendation:**
+- Use for **learning quantum algorithms** and understanding quantum advantage
+- Use for **prototyping** future quantum applications
+- Use **Phase Estimator for small molecules** on current NISQ hardware
+- For **production optimization**, use the [6 QAOA-based builders](#-problem-builders) instead
+
+---
+
+### C# API for Advanced Builders
+
+All advanced builders have C#-friendly fluent APIs:
+
+```csharp
+using FSharp.Azure.Quantum;
+using static FSharp.Azure.Quantum.CSharpBuilders;
+
+// Tree Search
+var treeSearch = TreeSearch(depth: 5, branchingFactor: 3, target: 42);
+var searchResult = ExecuteTreeSearch(treeSearch);
+
+// Constraint Solver
+var satProblem = ConstraintProblem(
+    variables: new[] { "x", "y", "z" },
+    clauses: new[] { 
+        new[] { "x", "!y" },
+        new[] { "!x", "z" }
+    }
+);
+var satResult = SolveConstraints(satProblem);
+
+// Pattern Matcher
+var pattern = PatternMatch(
+    haystack: new[] { 1, 2, 3, 4, 5, 6, 7, 8 },
+    needle: new[] { 3, 4, 5 },
+    tolerance: 0
+);
+var matchResult = FindPattern(pattern);
+
+// Arithmetic
+var add = ArithmeticAdd(15, 27);
+var addResult = ComputeArithmetic(add);
+
+var rsa = ModularExponentiate(baseValue: 5, exponent: 3, modulus: 33);
+var rsaResult = ComputeArithmetic(rsa);
+
+// Period Finder (Shor's)
+var shors = FactorInteger(15, precision: 12);
+var factorResult = FindPeriod(shors);
+
+// Phase Estimator
+var qpe = EstimateRotationZ(Math.PI / 4.0, precision: 16);
+var phaseResult = EstimatePhase(qpe);
+```
 
 **Current Status:** Educational/research focus - Demonstrates quantum algorithms but hardware insufficient for real-world applications (2024-2025)
 
