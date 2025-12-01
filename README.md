@@ -28,13 +28,16 @@
 1. [Quick Start](#-quick-start) - **Start here!** Get running in 5 minutes
 2. [Problem Builders](#-problem-builders) - High-level APIs for 6 optimization problems
 3. [HybridSolver](#-hybridsolver---automatic-classicalquantum-routing) - Automatic classical/quantum routing
-4. [Advanced Quantum Builders](#-advanced-quantum-builders) - Tree Search, Constraint Solver, Pattern Matcher, Arithmetic, Period Finder, Phase Estimator
-5. [Architecture](#-architecture) - How the library is organized
-6. [Error Mitigation](#️-error-mitigation) - Reduce quantum noise by 30-90%
-7. [C# Interop](#-c-interop) - Using from C#
-8. [Backend Selection](#-backend-selection) - Local vs Cloud quantum execution
-9. [Educational Algorithms](#-educational-algorithms) - Grover, QFT, Amplitude Amplification (for learning)
-10. [Phase 2 Builders](#phase-2-builders-qft-based-quantum-applications) - Quantum Arithmetic, Cryptographic Analysis, Phase Estimation
+4. [Architecture](#-architecture) - How the library is organized
+5. [C# Interop](#-c-interop) - Using from C#
+6. [Backend Selection](#-backend-selection) - Local vs Cloud quantum execution
+7. [OpenQASM 2.0 Support](#-openqasm-20-support) - Import/export quantum circuits
+8. [Error Mitigation](#️-error-mitigation) - Reduce quantum noise by 30-90%
+9. [QAOA Algorithm Internals](#-qaoa-algorithm-internals) - How quantum optimization works
+10. [Documentation](#-documentation) - Complete guides and API reference
+11. [Design Philosophy](#-design-philosophy) - Quantum-only architecture principles
+12. [Educational Algorithms](#-educational-algorithms) - Grover, QFT, Amplitude Amplification (for learning)
+13. [Advanced Quantum Builders](#-advanced-quantum-builders) - Tree Search, Constraint Solver, Pattern Matcher, Arithmetic, Period Finder, Phase Estimator (⚠️ Requires future hardware)
 
 ---
 
