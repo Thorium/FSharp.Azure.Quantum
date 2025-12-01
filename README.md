@@ -17,7 +17,7 @@
 - ✅ **8 QFT-Based Application Builders:** Quantum Arithmetic, Cryptographic Analysis (Shor's), Phase Estimation, Tree Search, Constraint Solver, Pattern Matcher, Arithmetic Operations, Period Finder
 - ✅ **VQE Implementation:** Variational Quantum Eigensolver for molecular ground state energies (quantum chemistry)
 - ✅ **Error Mitigation:** ZNE (30-50% error reduction), PEC (2-3x accuracy), REM (50-90% readout correction)
-- ✅ **F# Computation Expressions:** Idiomatic, type-safe problem specification (tree {}, constraint {}, pattern {}, arithmetic {}, period {}, phaseEstimator {})
+- ✅ **F# Computation Expressions:** Idiomatic, type-safe problem specification with builders (quantumTreeSearch, constraintSolver, patternMatcher, quantumArithmetic, periodFinder, phaseEstimator)
 - ✅ **C# Interop:** Fluent API extensions for C# developers
 - ✅ **Circuit Building:** Low-level quantum circuit construction and optimization possible
 
@@ -1660,7 +1660,7 @@ Beyond the optimization and QFT-based builders, the library provides five advanc
 open FSharp.Azure.Quantum.QuantumTreeSearchBuilder
 
 // Search decision tree with quantum parallelism
-let searchProblem = tree {
+let searchProblem = QuantumTreeSearch.quantumTreeSearch {
     depth 5                    // Tree depth
     branchingFactor 3          // Children per node
     target 42                  // Target node value
@@ -1679,7 +1679,7 @@ match search searchProblem with
 **Features:**
 - ✅ Quantum parallelism for tree exploration
 - ✅ Amplitude amplification for target finding
-- ✅ F# computation expression: `tree { }`
+- ✅ F# computation expression: `QuantumTreeSearch.quantumTreeSearch { }`
 - ✅ Applications: Game AI, route planning, decision analysis
 
 ---
@@ -1692,7 +1692,7 @@ match search searchProblem with
 open FSharp.Azure.Quantum.QuantumConstraintSolverBuilder
 
 // Solve boolean satisfiability (SAT) problem
-let satProblem = constraint {
+let satProblem = QuantumConstraintSolver.constraintSolver {
     variables ["x"; "y"; "z"]
     clause ["x"; "!y"]         // x OR NOT y
     clause ["!x"; "z"]         // NOT x OR z
@@ -1713,7 +1713,7 @@ match solve satProblem with
 **Features:**
 - ✅ Grover-based SAT solving
 - ✅ CNF (Conjunctive Normal Form) constraint encoding
-- ✅ F# computation expression: `constraint { }`
+- ✅ F# computation expression: `QuantumConstraintSolver.constraintSolver { }`
 - ✅ Applications: Circuit verification, scheduling, logic puzzles
 
 ---
@@ -1726,7 +1726,7 @@ match solve satProblem with
 open FSharp.Azure.Quantum.QuantumPatternMatcherBuilder
 
 // Find pattern in data stream with quantum speedup
-let matchProblem = pattern {
+let matchProblem = QuantumPatternMatcher.patternMatcher {
     haystack [1; 2; 3; 4; 5; 6; 7; 8]
     needle [3; 4; 5]
     tolerance 0                 // Exact match
@@ -1745,7 +1745,7 @@ match find matchProblem with
 **Features:**
 - ✅ Quantum search for pattern matching
 - ✅ Approximate matching with tolerance
-- ✅ F# computation expression: `pattern { }`
+- ✅ F# computation expression: `QuantumPatternMatcher.patternMatcher { }`
 - ✅ Applications: Bioinformatics, data mining, signal processing
 
 ---
@@ -1758,7 +1758,7 @@ match find matchProblem with
 open FSharp.Azure.Quantum.QuantumArithmeticBuilder
 
 // Quantum integer addition
-let addProblem = arithmetic {
+let addProblem = QuantumArithmeticOps.quantumArithmetic {
     operands 15 27              // 15 + 27
     operation Add
     qubits 10
@@ -1774,7 +1774,7 @@ match compute addProblem with
     printfn "Error: %s" msg
 
 // Modular exponentiation for RSA
-let rsaProblem = arithmetic {
+let rsaProblem = QuantumArithmeticOps.quantumArithmetic {
     operands 5 3                // base=5, exponent=3
     operation ModularExponentiate
     modulus 33                  // RSA modulus
@@ -1785,7 +1785,7 @@ let rsaProblem = arithmetic {
 **Features:**
 - ✅ Quantum arithmetic operations (Add, Subtract, Multiply, ModularExponentiate)
 - ✅ QFT-based carry propagation
-- ✅ F# computation expression: `arithmetic { }`
+- ✅ F# computation expression: `QuantumArithmeticOps.quantumArithmetic { }`
 - ✅ Applications: Cryptography, financial calculations, scientific computing
 
 ---
@@ -1798,7 +1798,7 @@ let rsaProblem = arithmetic {
 open FSharp.Azure.Quantum.QuantumPeriodFinderBuilder
 
 // Find period of modular function (Shor's algorithm)
-let shorsProblem = period {
+let shorsProblem = QuantumPeriodFinder.periodFinder {
     number 15                   // Composite to factor
     base_ 7                     // Coprime base
     precision 12                // QPE precision bits
@@ -1821,7 +1821,7 @@ match findPeriod shorsProblem with
 **Features:**
 - ✅ Quantum Period Finding (QPF) for Shor's algorithm
 - ✅ Quantum Phase Estimation (QPE) integration
-- ✅ F# computation expression: `period { }`
+- ✅ F# computation expression: `QuantumPeriodFinder.periodFinder { }`
 - ✅ Applications: Cryptanalysis, number theory, discrete logarithm
 
 ---
@@ -1832,9 +1832,10 @@ match findPeriod shorsProblem with
 
 ```fsharp
 open FSharp.Azure.Quantum.QuantumPhaseEstimatorBuilder
+open FSharp.Azure.Quantum.Algorithms.QuantumPhaseEstimation
 
 // Estimate eigenphase of unitary operator
-let qpeProblem = phaseEstimator {
+let qpeProblem = QuantumPhaseEstimator.phaseEstimator {
     unitary (RotationZ (Math.PI / 4.0))  // Operator U
     eigenstate 0                         // |ψ⟩ = |0⟩
     precision 16                         // 16-bit phase precision
@@ -1854,7 +1855,7 @@ match estimate qpeProblem with
 **Features:**
 - ✅ Quantum Phase Estimation (QPE) with arbitrary precision
 - ✅ Inverse QFT for phase readout
-- ✅ F# computation expression: `phaseEstimator { }`
+- ✅ F# computation expression: `QuantumPhaseEstimator.phaseEstimator { }`
 - ✅ Applications: Quantum chemistry (VQE), linear systems, machine learning
 
 ---
