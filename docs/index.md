@@ -268,26 +268,28 @@ let problem = { NetworkFlow.Nodes = nodes; Routes = routes }
 
 ### 💡 Working Code Examples
 
+**View source code on GitHub:**
+
 #### Optimization Problems (QAOA)
-- [**DeliveryRouting**](../examples/DeliveryRouting/) - TSP with 16-city NYC routing, HybridSolver
-- [**InvestmentPortfolio**](../examples/InvestmentPortfolio/) - Portfolio optimization with constraints (F#)
-- [**InvestmentPortfolio_CSharp**](../examples/InvestmentPortfolio_CSharp/) - Portfolio optimization (C# version)
-- [**GraphColoring**](../examples/GraphColoring/) - Graph coloring with QAOA
-- [**MaxCut**](../examples/MaxCut/) - Max-Cut problem with QAOA
-- [**Knapsack**](../examples/Knapsack/) - 0/1 Knapsack optimization
-- [**SupplyChain**](../examples/SupplyChain/) - Multi-constraint resource allocation
-- [**JobScheduling**](../examples/JobScheduling/) - Task scheduling with dependencies
+- [**DeliveryRouting**](https://github.com/Thorium/FSharp.Azure.Quantum/tree/main/examples/DeliveryRouting) - TSP with 16-city NYC routing, HybridSolver
+- [**InvestmentPortfolio**](https://github.com/Thorium/FSharp.Azure.Quantum/tree/main/examples/InvestmentPortfolio) - Portfolio optimization with constraints (F#)
+- [**InvestmentPortfolio_CSharp**](https://github.com/Thorium/FSharp.Azure.Quantum/tree/main/examples/InvestmentPortfolio_CSharp) - Portfolio optimization (C# version)
+- [**GraphColoring**](https://github.com/Thorium/FSharp.Azure.Quantum/tree/main/examples/GraphColoring) - Graph coloring with QAOA
+- [**MaxCut**](https://github.com/Thorium/FSharp.Azure.Quantum/tree/main/examples/MaxCut) - Max-Cut problem with QAOA
+- [**Knapsack**](https://github.com/Thorium/FSharp.Azure.Quantum/tree/main/examples/Knapsack) - 0/1 Knapsack optimization
+- [**SupplyChain**](https://github.com/Thorium/FSharp.Azure.Quantum/tree/main/examples/SupplyChain) - Multi-constraint resource allocation
+- [**JobScheduling**](https://github.com/Thorium/FSharp.Azure.Quantum/tree/main/examples/JobScheduling) - Task scheduling with dependencies
 
 #### Advanced Quantum Algorithms
-- [**QuantumChemistry**](../examples/QuantumChemistry/) - VQE for molecular simulation
-- [**PhaseEstimation**](../examples/PhaseEstimation/) - Quantum Phase Estimation (QPE)
-- [**QuantumArithmetic**](../examples/QuantumArithmetic/) - QFT-based arithmetic operations
-- [**CryptographicAnalysis**](../examples/CryptographicAnalysis/) - Shor's algorithm demonstrations
+- [**QuantumChemistry**](https://github.com/Thorium/FSharp.Azure.Quantum/tree/main/examples/QuantumChemistry) - VQE for molecular simulation
+- [**PhaseEstimation**](https://github.com/Thorium/FSharp.Azure.Quantum/tree/main/examples/PhaseEstimation) - Quantum Phase Estimation (QPE)
+- [**QuantumArithmetic**](https://github.com/Thorium/FSharp.Azure.Quantum/tree/main/examples/QuantumArithmetic) - QFT-based arithmetic operations
+- [**CryptographicAnalysis**](https://github.com/Thorium/FSharp.Azure.Quantum/tree/main/examples/CryptographicAnalysis) - Shor's algorithm demonstrations
 
 #### Interactive Demonstrations
-- [**Gomoku**](../examples/Gomoku/) - Quantum vs Classical AI game (with Hybrid mode)
-- [**Kasino**](../examples/Kasino/) - Quantum gambling game demonstrating superposition (F#)
-- [**Kasino_CSharp**](../examples/Kasino_CSharp/) - Quantum gambling game (C# version)
+- [**Gomoku**](https://github.com/Thorium/FSharp.Azure.Quantum/tree/main/examples/Gomoku) - Quantum vs Classical AI game (with Hybrid mode)
+- [**Kasino**](https://github.com/Thorium/FSharp.Azure.Quantum/tree/main/examples/Kasino) - Quantum gambling game demonstrating superposition (F#)
+- [**Kasino_CSharp**](https://github.com/Thorium/FSharp.Azure.Quantum/tree/main/examples/Kasino_CSharp) - Quantum gambling game (C# version)
 
 #### Example Navigation Guides
 - [TSP Example Guide](examples/tsp-example) - Route optimization overview and quickstart
