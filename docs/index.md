@@ -244,31 +244,32 @@ let problem = { NetworkFlow.Nodes = nodes; Routes = routes }
 - ✅ **Type-Safe**: F# type system prevents invalid problem specifications
 - ✅ **Extensible**: Easy to add new problem types following existing patterns
 
-## 📚 Documentation
+## 📚 Complete Documentation
 
-### Getting Started
-- [Getting Started Guide](getting-started) - Installation and first steps
-- [Quantum Computing Introduction](quantum-computing-introduction) - Comprehensive introduction to quantum computing for F# developers (no quantum background needed)
-- [C# Usage Guide](../CSHARP-QUANTUM-BUILDER-USAGE-GUIDE.md) - Complete C# interop examples
+### 🚀 Getting Started
+- [Getting Started Guide](getting-started) - Installation, first steps, and basic examples
+- [Quantum Computing Introduction](quantum-computing-introduction) - **⭐ NEW** Comprehensive introduction to quantum computing for F# developers (no quantum background needed)
+- [C# Usage Guide](../CSHARP-QUANTUM-BUILDER-USAGE-GUIDE.md) - Complete C# interop examples with fluent API
 
-### Core Concepts
-- [API Reference](api-reference) - Complete API documentation
-- [Architecture Overview](architecture-overview) - Deep dive into library design
-- [Backend Switching](backend-switching) - Local vs Cloud quantum execution
+### 📖 Core Concepts
+- [API Reference](api-reference) - Complete API documentation for all modules
+- [Architecture Overview](architecture-overview) - Deep dive into 3-layer quantum-only design
+- [Backend Switching](backend-switching) - Local vs Cloud quantum execution guide
+- [Local Simulation](local-simulation) - LocalBackend internals and performance characteristics
 
-### Advanced Topics
-- [QUBO Encoding Strategies](qubo-encoding-strategies) - Problem transformations
-- [FAQ](faq) - Frequently asked questions
+### 🔬 Advanced Topics
+- [QUBO Encoding Strategies](qubo-encoding-strategies) - Problem-to-QUBO transformations for QAOA
+- [FAQ](faq) - Frequently asked questions and troubleshooting
 
-### Problem-Specific Guides
-- [Graph Coloring API](GraphColoring-API) - Register allocation, scheduling
-- [Quantum Chemistry API](QuantumChemistry-API) - VQE for molecular simulation
-- [Task Scheduling API](TaskScheduling-API) - Constraint-based scheduling
+### 🎯 Problem-Specific API Guides
+- [Graph Coloring API](GraphColoring-API) - Register allocation, frequency assignment, scheduling
+- [Quantum Chemistry API](QuantumChemistry-API) - VQE for molecular ground state energies
+- [Task Scheduling API](TaskScheduling-API) - Constraint-based quantum scheduling
 
-### Examples
-- [TSP Example](examples/tsp-example) - Route optimization tutorial
-- [Quantum TSP Example](examples/quantum-tsp-example) - QAOA deep dive
-- [Subset Selection Example](examples/subset-selection-example) - Knapsack variants
+### 💡 Examples & Tutorials
+- [TSP Example](examples/tsp-example) - Route optimization tutorial for Traveling Salesperson Problem
+- [Quantum TSP Example](examples/quantum-tsp-example) - QAOA deep dive with circuit construction
+- [Subset Selection Example](examples/subset-selection-example) - Knapsack variants and optimization patterns
 
 ## 🎯 When to Use This Library
 
