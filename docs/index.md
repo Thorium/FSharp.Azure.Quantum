@@ -266,10 +266,33 @@ let problem = { NetworkFlow.Nodes = nodes; Routes = routes }
 - [Quantum Chemistry API](QuantumChemistry-API) - VQE for molecular ground state energies
 - [Task Scheduling API](TaskScheduling-API) - Constraint-based quantum scheduling
 
-### 💡 Examples & Tutorials
-- [TSP Example](examples/tsp-example) - Route optimization tutorial for Traveling Salesperson Problem
-- [Quantum TSP Example](examples/quantum-tsp-example) - QAOA deep dive with circuit construction
-- [Subset Selection Example](examples/subset-selection-example) - Knapsack variants and optimization patterns
+### 💡 Working Code Examples
+
+#### Optimization Problems (QAOA)
+- [**DeliveryRouting**](../examples/DeliveryRouting/) - TSP with 16-city NYC routing, HybridSolver
+- [**InvestmentPortfolio**](../examples/InvestmentPortfolio/) - Portfolio optimization with constraints (F#)
+- [**InvestmentPortfolio_CSharp**](../examples/InvestmentPortfolio_CSharp/) - Portfolio optimization (C# version)
+- [**GraphColoring**](../examples/GraphColoring/) - Graph coloring with QAOA
+- [**MaxCut**](../examples/MaxCut/) - Max-Cut problem with QAOA
+- [**Knapsack**](../examples/Knapsack/) - 0/1 Knapsack optimization
+- [**SupplyChain**](../examples/SupplyChain/) - Multi-constraint resource allocation
+- [**JobScheduling**](../examples/JobScheduling/) - Task scheduling with dependencies
+
+#### Advanced Quantum Algorithms
+- [**QuantumChemistry**](../examples/QuantumChemistry/) - VQE for molecular simulation
+- [**PhaseEstimation**](../examples/PhaseEstimation/) - Quantum Phase Estimation (QPE)
+- [**QuantumArithmetic**](../examples/QuantumArithmetic/) - QFT-based arithmetic operations
+- [**CryptographicAnalysis**](../examples/CryptographicAnalysis/) - Shor's algorithm demonstrations
+
+#### Interactive Demonstrations
+- [**Gomoku**](../examples/Gomoku/) - Quantum vs Classical AI game (with Hybrid mode)
+- [**Kasino**](../examples/Kasino/) - Quantum gambling game demonstrating superposition (F#)
+- [**Kasino_CSharp**](../examples/Kasino_CSharp/) - Quantum gambling game (C# version)
+
+#### Example Navigation Guides
+- [TSP Example Guide](examples/tsp-example) - Route optimization overview and quickstart
+- [Quantum TSP Guide](examples/quantum-tsp-example) - QAOA parameter optimization deep dive
+- [Subset Selection Guide](examples/subset-selection-example) - Knapsack and portfolio patterns
 
 ## 🎯 When to Use This Library
 
