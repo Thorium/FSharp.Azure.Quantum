@@ -248,6 +248,7 @@ let problem = { NetworkFlow.Nodes = nodes; Routes = routes }
 
 ### Getting Started
 - [Getting Started Guide](getting-started) - Installation and first steps
+- [Quantum Computing Introduction](quantum-computing-introduction) - Comprehensive introduction to quantum computing for F# developers (no quantum background needed)
 - [C# Usage Guide](../CSHARP-QUANTUM-BUILDER-USAGE-GUIDE.md) - Complete C# interop examples
 
 ### Core Concepts

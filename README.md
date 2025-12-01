@@ -28,12 +28,12 @@
 1. [Quick Start](#-quick-start) - **Start here!** Get running in 5 minutes
 2. [Problem Builders](#-problem-builders) - High-level APIs for 6 optimization problems
 3. [HybridSolver](#-hybridsolver---automatic-classicalquantum-routing) - Automatic classical/quantum routing
-4. [Architecture](#-architecture) - How the library is organized
-5. [Error Mitigation](#️-error-mitigation) - Reduce quantum noise by 30-90%
-6. [C# Interop](#-c-interop) - Using from C#
-7. [Backend Selection](#-backend-selection) - Local vs Cloud quantum execution
-8. [Educational Algorithms](#-educational-algorithms) - Grover, QFT, Amplitude Amplification (for learning)
-9. [Advanced Quantum Builders](#-advanced-quantum-builders) - Tree Search, Constraint Solver, Pattern Matcher, Arithmetic, Period Finder, Phase Estimator
+4. [Advanced Quantum Builders](#-advanced-quantum-builders) - Tree Search, Constraint Solver, Pattern Matcher, Arithmetic, Period Finder, Phase Estimator
+5. [Architecture](#-architecture) - How the library is organized
+6. [Error Mitigation](#️-error-mitigation) - Reduce quantum noise by 30-90%
+7. [C# Interop](#-c-interop) - Using from C#
+8. [Backend Selection](#-backend-selection) - Local vs Cloud quantum execution
+9. [Educational Algorithms](#-educational-algorithms) - Grover, QFT, Amplitude Amplification (for learning)
 10. [Phase 2 Builders](#phase-2-builders-qft-based-quantum-applications) - Quantum Arithmetic, Cryptographic Analysis, Phase Estimation
 
 ---
@@ -1266,6 +1266,7 @@ match QuantumGraphColoringSolver.solve backend problem quantumConfig with
 
 ## 📚 Documentation
 
+- **[Quantum Computing Introduction](docs/quantum-computing-introduction.md)** - Comprehensive introduction to quantum computing for F# developers (no quantum background needed)
 - **[Getting Started Guide](docs/getting-started.md)** - Installation and first examples
 - **[C# Usage Guide](CSHARP-QUANTUM-BUILDER-USAGE-GUIDE.md)** - Complete C# interop guide
 - **[API Reference](docs/api-reference.md)** - Complete API documentation
