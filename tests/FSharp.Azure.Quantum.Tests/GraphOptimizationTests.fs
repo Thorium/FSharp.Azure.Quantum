@@ -112,17 +112,22 @@ module GraphOptimizationTests =
     // ============================================================================
     
     [<Fact>]
-    let ``NoAdjacentEqual constraint defined`` () =
+    let ``NoAdjacentEqual constraint has correct discriminator`` () =
         let constr = NoAdjacentEqual
         
-        // Type check - should compile
-        Assert.NotNull(box constr)
+        // Verify it's the correct discriminated union case
+        match constr with
+        | NoAdjacentEqual -> Assert.True(true)
+        | _ -> Assert.Fail("Expected NoAdjacentEqual constraint")
     
     [<Fact>]
-    let ``VisitOnce constraint defined`` () =
+    let ``VisitOnce constraint has correct discriminator`` () =
         let constr = VisitOnce
         
-        Assert.NotNull(box constr)
+        // Verify it's the correct discriminated union case
+        match constr with
+        | VisitOnce -> Assert.True(true)
+        | _ -> Assert.Fail("Expected VisitOnce constraint")
     
     [<Fact>]
     let ``DegreeLimit constraint with max value`` () =
@@ -137,22 +142,31 @@ module GraphOptimizationTests =
     // ============================================================================
     
     [<Fact>]
-    let ``MinimizeColors objective defined`` () =
+    let ``MinimizeColors objective has correct discriminator`` () =
         let objective = MinimizeColors
         
-        Assert.NotNull(box objective)
+        // Verify it's the correct discriminated union case
+        match objective with
+        | MinimizeColors -> Assert.True(true)
+        | _ -> Assert.Fail("Expected MinimizeColors objective")
     
     [<Fact>]
-    let ``MinimizeTotalWeight objective defined`` () =
+    let ``MinimizeTotalWeight objective has correct discriminator`` () =
         let objective = MinimizeTotalWeight
         
-        Assert.NotNull(box objective)
+        // Verify it's the correct discriminated union case
+        match objective with
+        | MinimizeTotalWeight -> Assert.True(true)
+        | _ -> Assert.Fail("Expected MinimizeTotalWeight objective")
     
     [<Fact>]
-    let ``MaximizeCut objective defined`` () =
+    let ``MaximizeCut objective has correct discriminator`` () =
         let objective = MaximizeCut
         
-        Assert.NotNull(box objective)
+        // Verify it's the correct discriminated union case
+        match objective with
+        | MaximizeCut -> Assert.True(true)
+        | _ -> Assert.Fail("Expected MaximizeCut objective")
     
     // ============================================================================
     // FR-6: FLUENT BUILDER API TESTS
@@ -163,7 +177,10 @@ module GraphOptimizationTests =
         let builder = GraphOptimizationBuilder<string, unit>()
         let problem = builder.Build()
         
-        Assert.NotNull(problem)
+        // Verify problem structure
+        Assert.Empty(problem.Graph.Nodes)
+        Assert.Empty(problem.Graph.Edges)
+        Assert.Empty(problem.Constraints)
     
     [<Fact>]
     let ``Builder with nodes sets graph nodes`` () =
@@ -251,7 +268,19 @@ module GraphOptimizationTests =
         let qubo = toQubo problem
         
         // Should have penalty terms for adjacent nodes with same color
-        Assert.True(qubo.Q.Count > 0)
+        // With 2 nodes (A, B) and 2 colors (0, 1), we have 4 variables: A0, A1, B0, B1
+        // NoAdjacentEqual should add penalty terms for: (A0,B0) and (A1,B1)
+        // These are quadratic terms that penalize both nodes having the same color
+        Assert.True(qubo.Q.Count > 0, "QUBO should contain penalty terms")
+        
+        // Verify we have at least the expected penalty terms for the edge
+        // For each color c, we need a penalty term for variables (A_c, B_c)
+        let hasEdgePenalty = 
+            qubo.Q |> Map.exists (fun (i, j) coeff -> 
+                i <> j && coeff > 0.0)  // Quadratic penalty terms should be positive
+        
+        Assert.True(hasEdgePenalty, 
+            "QUBO should contain quadratic penalty terms for adjacent node pairs")
     
     // ============================================================================
     // FR-7: QUBO ENCODING - TSP TESTS
@@ -968,8 +997,13 @@ module GraphOptimizationTests =
         // 10 nodes * 3 colors = 30 variables
         Assert.Equal(30, qubo.NumVariables)
         
-        // Should complete quickly (< 100ms implied by test execution time)
-        Assert.True(qubo.Q.Count > 0)
+        // Validate efficient encoding: sparse QUBO matrix
+        // Linear chain with 9 edges, each edge contributes penalty terms for 3 colors
+        // Plus one-hot constraints for 10 nodes: ~O(nodes * colors²) terms
+        // Should have significantly fewer than N² terms (N=30, so N²=900)
+        Assert.True(qubo.Q.Count > 0, "QUBO should contain terms")
+        Assert.True(qubo.Q.Count < 300, 
+            sprintf "QUBO should be sparse for linear chain (got %d terms, expected < 300)" qubo.Q.Count)
     
     [<Fact>]
     let ``Classical solver handles disconnected graph components`` () =

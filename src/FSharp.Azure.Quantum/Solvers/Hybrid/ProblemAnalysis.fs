@@ -1,4 +1,4 @@
-namespace FSharp.Azure.Quantum.Classical
+namespace FSharp.Azure.Quantum
 
 open System
 

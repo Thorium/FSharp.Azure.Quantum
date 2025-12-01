@@ -29,12 +29,13 @@ Complete reference for **FSharp.Azure.Quantum** quantum optimization APIs.
 
 ```fsharp
 open FSharp.Azure.Quantum
+open FSharp.Azure.Quantum.GraphColoring
 
 // Graph Coloring: Uses LocalBackend automatically
 let problem = graphColoring {
-    node "R1" conflictsWith ["R2"; "R3"]
-    node "R2" conflictsWith ["R1"]
-    node "R3" conflictsWith ["R1"]
+    node "R1" ["R2"; "R3"]
+    node "R2" ["R1"]
+    node "R3" ["R1"]
     colors ["Red"; "Blue"; "Green"]
 }
 
@@ -58,28 +59,28 @@ let backend = BackendAbstraction.createIonQBackend(
 // Solve on cloud quantum hardware
 match GraphColoring.solve problem 3 (Some backend) with
 | Ok solution -> 
-    printfn "Solved on: %s" solution.BackendName
+    printfn "Colors used: %d" solution.ColorsUsed
+    printfn "Valid: %b" solution.IsValid
 | Error msg -> 
     printfn "Error: %s" msg
 ```
 
-### Pattern 3: Custom QAOA Configuration
+### Pattern 3: Inspect Solution Details
 
 ```fsharp
-open FSharp.Azure.Quantum.Quantum
-
-// Configure QAOA parameters
-let quantumConfig : QuantumGraphColoringSolver.QuantumGraphColoringConfig = {
-    OptimizationShots = 200
-    FinalShots = 2000
-    EnableOptimization = true
-    InitialParameters = (0.5, 0.5)
-}
-
-// Use quantum solver directly (expert mode)
-let backend = BackendAbstraction.createLocalBackend()
-match QuantumGraphColoringSolver.solve backend problem quantumConfig with
-| Ok result -> printfn "Cost: %.2f" result.Cost
+// Solve and inspect detailed results
+match GraphColoring.solve problem 3 None with
+| Ok solution -> 
+    printfn "Solution found!"
+    printfn "  Colors used: %d" solution.ColorsUsed
+    printfn "  Conflicts: %d" solution.ConflictCount
+    printfn "  Valid: %b" solution.IsValid
+    
+    // Print color assignments
+    solution.Assignments
+    |> Map.iter (fun node color ->
+        printfn "  %s -> %s" node color
+    )
 | Error msg -> printfn "Error: %s" msg
 ```
 
@@ -100,10 +101,10 @@ match QuantumGraphColoringSolver.solve backend problem quantumConfig with
 ```fsharp
 let problem = graphColoring {
     // Define nodes with conflicts
-    node "Task1" conflictsWith ["Task2"; "Task3"]
-    node "Task2" conflictsWith ["Task1"; "Task4"]
-    node "Task3" conflictsWith ["Task1"]
-    node "Task4" conflictsWith ["Task2"]
+    node "Task1" ["Task2"; "Task3"]
+    node "Task2" ["Task1"; "Task4"]
+    node "Task3" ["Task1"]
+    node "Task4" ["Task2"]
     
     // Available colors/resources
     colors ["Slot A"; "Slot B"; "Slot C"]
@@ -144,17 +145,15 @@ type ColoringSolution = {
 
 ### Functions
 
-```fsharp
-/// Validate problem specification
+```text
 val validate : GraphColoringProblem → Result<unit, string>
-
-/// Solve graph coloring problem
 val solve : GraphColoringProblem → int → IQuantumBackend option → Result<ColoringSolution, string>
-//  Parameters:
-//    problem        - Graph coloring problem specification
-//    maxColors      - Maximum colors allowed (None = unlimited)
-//    backend        - Quantum backend (None = auto LocalBackend)
 ```
+
+**Parameters:**
+- `problem` - Graph coloring problem specification
+- `maxColors` - Maximum colors allowed (None = unlimited)
+- `backend` - Quantum backend (None = auto LocalBackend)
 
 ### Example
 
@@ -162,10 +161,10 @@ val solve : GraphColoringProblem → int → IQuantumBackend option → Result<C
 // Register allocation for compiler
 let registers = graphColoring {
     // Variables that interfere (live at same time)
-    node "x" conflictsWith ["y"; "z"]
-    node "y" conflictsWith ["x"; "w"]
-    node "z" conflictsWith ["x"; "w"]
-    node "w" conflictsWith ["y"; "z"]
+    node "x" ["y"; "z"]
+    node "y" ["x"; "w"]
+    node "z" ["x"; "w"]
+    node "w" ["y"; "z"]
     
     // Available CPU registers
     colors ["EAX"; "EBX"; "ECX"; "EDX"]
@@ -196,17 +195,10 @@ match GraphColoring.solve registers 4 None with
 
 ### Functions
 
-```fsharp
-/// Create MaxCut problem from vertices and edges
+```text
 val createProblem : string list → (string * string * float) list → MaxCutProblem
-
-/// Create complete graph (all vertices connected)
 val completeGraph : string list → float → MaxCutProblem
-
-/// Create cycle graph (ring topology)
 val cycleGraph : string list → float → MaxCutProblem
-
-/// Solve MaxCut problem
 val solve : MaxCutProblem → IQuantumBackend option → Result<Solution, string>
 ```
 
@@ -268,16 +260,14 @@ match MaxCut.solve problem None with
 
 ### Functions
 
-```fsharp
-/// Create knapsack problem
+```text
 val createProblem : (string * float * float) list → float → Problem
-//  Parameters:
-//    items     - (id, weight, value) tuples
-//    capacity  - Maximum total weight
-
-/// Solve knapsack problem
 val solve : Problem → IQuantumBackend option → Result<Solution, string>
 ```
+
+**Parameters:**
+- `items` - (id, weight, value) tuples
+- `capacity` - Maximum total weight
 
 ### Types
 
@@ -349,15 +339,13 @@ match Knapsack.solve problem None with
 
 ### Functions
 
-```fsharp
-/// Create TSP problem from cities with coordinates
+```text
 val createProblem : (string * float * float) list → TspProblem
-//  Parameters:
-//    cities - (name, x, y) coordinate tuples
-
-/// Solve TSP problem
 val solve : TspProblem → IQuantumBackend option → Result<Tour, string>
 ```
+
+**Parameters:**
+- `cities` - (name, x, y) coordinate tuples
 
 ### Types
 
@@ -411,16 +399,14 @@ match TSP.solve problem None with
 
 ### Functions
 
-```fsharp
-/// Create portfolio problem
+```text
 val createProblem : (string * float * float * float) list → float → PortfolioProblem
-//  Parameters:
-//    assets - (symbol, expectedReturn, risk, price) tuples
-//    budget - Total available capital
-
-/// Solve portfolio optimization problem
 val solve : PortfolioProblem → IQuantumBackend option → Result<PortfolioAllocation, string>
 ```
+
+**Parameters:**
+- `assets` - (symbol, expectedReturn, risk, price) tuples
+- `budget` - Total available capital
 
 ### Types
 
@@ -514,20 +500,11 @@ type FlowSolution = {
 
 ### Helper Functions
 
-```fsharp
-/// Create source node
+```text
 val SourceNode : string → int → Node
-
-/// Create sink node
 val SinkNode : string → int → Node
-
-/// Create intermediate node
 val IntermediateNode : string → int → Node
-
-/// Create route
 val Route : string → string → float → Route
-
-/// Solve network flow problem
 val solve : NetworkFlowProblem → IQuantumBackend option → Result<FlowSolution, string>
 ```
 
@@ -585,7 +562,7 @@ let backend = BackendAbstraction.createLocalBackend()
 
 // Use with any solver
 match GraphColoring.solve problem 3 (Some backend) with
-| Ok solution -> (* ... *)
+| Ok solution -> printfn "Colors used: %d" solution.ColorsUsed
 ```
 
 ### IonQBackend (Azure Quantum)
@@ -688,7 +665,7 @@ match solver.solve problem with
 
 ```fsharp
 type IQuantumBackend =
-    abstract Execute : Circuit → int → ExecutionResult
+    abstract Execute : Circuit -> int -> ExecutionResult
     abstract Name : string
 ```
 
@@ -777,7 +754,7 @@ match MaxCut.solve testProblem None with
 | Ok _ -> 
     // Works! Now scale up
     let largeProblem = MaxCut.createProblem largeVertices largeEdges
-    (* ... *)
+    printfn "Created large problem with %d vertices" largeVertices.Length
 ```
 
 ### 2. Use Problem Validation

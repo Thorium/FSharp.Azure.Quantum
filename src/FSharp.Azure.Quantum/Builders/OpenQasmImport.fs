@@ -82,6 +82,9 @@ module OpenQasmImport =
     /// Match single-qubit gate with one parameter (rotation gates)
     let private rotationPattern = Regex(@"^\s*(\w+)\s*\(\s*([0-9.eE+-]+)\s*\)\s+(\w+)\s*\[\s*(\d+)\s*\]\s*;", RegexOptions.Compiled)
     
+    /// Match two-qubit gate with one parameter (e.g., CP gate)
+    let private twoQubitRotationPattern = Regex(@"^\s*(\w+)\s*\(\s*([0-9.eE+-]+)\s*\)\s+(\w+)\s*\[\s*(\d+)\s*\]\s*,\s*(\w+)\s*\[\s*(\d+)\s*\]\s*;", RegexOptions.Compiled)
+    
     /// Match two-qubit gate
     let private twoQubitPattern = Regex(@"^\s*(\w+)\s+(\w+)\s*\[\s*(\d+)\s*\]\s*,\s*(\w+)\s*\[\s*(\d+)\s*\]\s*;", RegexOptions.Compiled)
     
@@ -147,7 +150,23 @@ module OpenQasmImport =
             | "rx" -> Ok (RX (qubit, angle))
             | "ry" -> Ok (RY (qubit, angle))
             | "rz" -> Ok (RZ (qubit, angle))
+            | "p" | "u1" -> Ok (P (qubit, angle))  // p or u1 (legacy) both map to P gate
             | _ -> Error $"Unknown rotation gate: {gateName}"
+    
+    /// Parse two-qubit rotation gate (with angle parameter)
+    let private parseTwoQubitRotationGate (gateName: string) (angle: float) (qubit1: int) (qubit2: int) (qubitCount: int) : ParseResult<Gate> =
+        match validateQubitIndex qubit1 qubitCount with
+        | Error msg -> Error msg
+        | Ok () ->
+            match validateQubitIndex qubit2 qubitCount with
+            | Error msg -> Error msg
+            | Ok () ->
+                if qubit1 = qubit2 then
+                    Error $"Two-qubit gate cannot have same control and target: {qubit1}"
+                else
+                    match gateName.ToLowerInvariant() with
+                    | "cp" | "cu1" -> Ok (CP (qubit1, qubit2, angle))  // cp or cu1 (legacy) both map to CP gate
+                    | _ -> Error $"Unknown two-qubit rotation gate: {gateName}"
     
     /// Parse two-qubit gate
     let private parseTwoQubitGate (gateName: string) (qubit1: int) (qubit2: int) (qubitCount: int) : ParseResult<Gate> =
@@ -235,6 +254,24 @@ module OpenQasmImport =
                 | Some qCount ->
                     match parseThreeQubitGate gateName qubit1 qubit2 qubit3 qCount with
                     | Ok gate -> Ok { state with Gates = state.Gates @ [gate] }
+                    | Error msg -> Error $"Line {state.LineNumber}: {msg}"
+            
+            // Two-qubit rotation gate (with parameter) - must check before two-qubit gate
+            elif twoQubitRotationPattern.IsMatch(cleanLine) then
+                let m = twoQubitRotationPattern.Match(cleanLine)
+                let gateName = m.Groups.[1].Value
+                let angleStr = m.Groups.[2].Value
+                let qubit1 = Int32.Parse(m.Groups.[4].Value)
+                let qubit2 = Int32.Parse(m.Groups.[6].Value)
+                
+                match state.QubitCount with
+                | None -> Error $"Line {state.LineNumber}: Gate used before qreg declaration"
+                | Some qCount ->
+                    match parseAngle angleStr with
+                    | Ok angle ->
+                        match parseTwoQubitRotationGate gateName angle qubit1 qubit2 qCount with
+                        | Ok gate -> Ok { state with Gates = state.Gates @ [gate] }
+                        | Error msg -> Error $"Line {state.LineNumber}: {msg}"
                     | Error msg -> Error $"Line {state.LineNumber}: {msg}"
             
             // Two-qubit gate

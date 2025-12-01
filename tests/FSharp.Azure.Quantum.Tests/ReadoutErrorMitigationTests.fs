@@ -614,8 +614,12 @@ module ReadoutErrorMitigationTests =
                             | CircuitBuilder.SDG q -> LocalSimulator.Gates.applySDG q state
                             | CircuitBuilder.T q -> LocalSimulator.Gates.applyT q state
                             | CircuitBuilder.TDG q -> LocalSimulator.Gates.applyTDG q state
+                            | CircuitBuilder.P (q, theta) -> LocalSimulator.Gates.applyP q theta state
                             | CircuitBuilder.CNOT (c, t) -> LocalSimulator.Gates.applyCNOT c t state
                             | CircuitBuilder.CZ (c, t) -> LocalSimulator.Gates.applyCZ c t state
+                            | CircuitBuilder.CP (c, t, theta) -> 
+                                // CP gate: Controlled-Phase  
+                                LocalSimulator.Gates.applyCP c t theta state
                             | CircuitBuilder.SWAP (q1, q2) -> LocalSimulator.Gates.applySWAP q1 q2 state
                             | CircuitBuilder.CCX (c1, c2, t) -> LocalSimulator.Gates.applyCCX c1 c2 t state
                             | CircuitBuilder.RX (q, angle) -> LocalSimulator.Gates.applyRx q angle state

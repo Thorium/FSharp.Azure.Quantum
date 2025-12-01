@@ -149,56 +149,13 @@ module AmplitudeAmplification =
         
         afterReflection
     
-    /// Execute amplitude amplification algorithm
-    /// 
-    /// Performs k iterations of amplitude amplification on prepared state
-    let execute (config: AmplificationConfig) : Result<AmplificationResult, string> =
-        try
-            // Validate configuration
-            if config.Iterations < 0 then
-                Error "Iterations must be non-negative"
-            elif config.NumQubits < 1 || config.NumQubits > 20 then
-                Error $"Number of qubits must be between 1 and 20, got {config.NumQubits}"
-            elif config.Oracle.NumQubits <> config.NumQubits then
-                Error $"Oracle has {config.Oracle.NumQubits} qubits, expected {config.NumQubits}"
-            else
-                // Step 1: Prepare initial state A|0⟩
-                let initialState = StateVector.init config.NumQubits
-                let preparedState = config.StatePreparation initialState
-                
-                // Step 2: Determine reflection operator
-                let reflection =
-                    match config.ReflectionOperator with
-                    | Some reflector -> reflector
-                    | None -> reflectionFromPreparation config.NumQubits config.StatePreparation
-                
-                // Step 3: Apply k amplification iterations
-                let finalState =
-                    [1 .. config.Iterations]
-                    |> List.fold (fun state _ ->
-                        applyAmplificationIteration config.Oracle reflection state
-                    ) preparedState
-                
-                // Step 4: Calculate success probability
-                let solutions = Oracle.listSolutions config.Oracle
-                let successProb =
-                    solutions
-                    |> List.sumBy (fun sol -> StateVector.probability sol finalState)
-                
-                // Step 5: Perform measurements for empirical validation
-                let shots = 100
-                let rng = Random()
-                let measurements = FSharp.Azure.Quantum.LocalSimulator.Measurement.sampleAndCount rng shots finalState
-                
-                Ok {
-                    FinalState = finalState
-                    IterationsApplied = config.Iterations
-                    SuccessProbability = successProb
-                    MeasurementCounts = measurements
-                    Shots = shots
-                }
-        with
-        | ex -> Error $"Amplitude amplification failed: {ex.Message}"
+    // ========================================================================
+    // NOTE: For amplitude amplification execution, use AmplitudeAmplificationAdapter module
+    // which provides backend-compatible execution with circuit-based state preparation.
+    // 
+    // The legacy StateVector-based execute() function has been removed in favor of
+    // backend abstraction. See AmplitudeAmplificationAdapter.fs for backend execution.
+    // ========================================================================
     
     // ========================================================================
     // GROVER AS SPECIAL CASE - Show equivalence
@@ -229,33 +186,15 @@ module AmplitudeAmplification =
         }
     
     // ========================================================================
-    // CONVENIENCE FUNCTIONS - Common use cases
+    // NOTE: Legacy convenience functions removed
     // ========================================================================
-    
-    /// Execute Grover search using amplitude amplification
-    /// 
-    /// This is for verification - shows Grover and amplitude amplification are equivalent
-    let executeGroverViaAmplification (oracle: CompiledOracle) (iterations: int) : Result<AmplificationResult, string> =
-        let config = groverAsAmplification oracle iterations
-        execute config
-    
-    /// Execute amplitude amplification with custom state preparation
-    /// 
-    /// Allows arbitrary initial state (not just uniform superposition)
-    let executeWithCustomPreparation 
-        (oracle: CompiledOracle) 
-        (statePrep: StatePreparation) 
-        (iterations: int) : Result<AmplificationResult, string> =
-        
-        let config = {
-            NumQubits = oracle.NumQubits
-            StatePreparation = statePrep
-            Oracle = oracle
-            ReflectionOperator = None  // Auto-generate from state prep
-            Iterations = iterations
-        }
-        
-        execute config
+    // 
+    // executeGroverViaAmplification() and executeWithCustomPreparation() have been removed.
+    // Use AmplitudeAmplificationAdapter module for backend-compatible execution.
+    // 
+    // See: AmplitudeAmplificationAdapter.executeWithBackend()
+    //      AmplitudeAmplificationAdapter.uniformSuperpositionCircuit()
+    //      AmplitudeAmplificationAdapter.partialSuperpositionCircuit()
     
     /// Calculate optimal iterations for amplitude amplification
     /// 
@@ -325,37 +264,9 @@ module AmplitudeAmplification =
     // VERIFICATION - Compare with standard Grover
     // ========================================================================
     
-    /// Verify that Grover via amplitude amplification gives same results as standard Grover
-    let verifyGroverEquivalence (oracle: CompiledOracle) (iterations: int) : bool =
-        // Run standard Grover (via GroverIteration module)
-        let groverConfig = {
-            GroverIteration.NumIterations = iterations
-            GroverIteration.TrackProbabilities = false
-        }
-        
-        let groverResult = GroverIteration.execute oracle groverConfig
-        
-        // Run Grover via amplitude amplification
-        let ampResult = executeGroverViaAmplification oracle iterations
-        
-        match (groverResult, ampResult) with
-        | (Ok gr, Ok ar) ->
-            // Compare final states (should be very similar)
-            let dimension = StateVector.dimension gr.FinalState
-            
-            let maxDifference =
-                [0 .. dimension - 1]
-                |> List.map (fun i ->
-                    let amp1 = StateVector.getAmplitude i gr.FinalState
-                    let amp2 = StateVector.getAmplitude i ar.FinalState
-                    
-                    let diffReal = abs (amp1.Real - amp2.Real)
-                    let diffImag = abs (amp1.Imaginary - amp2.Imaginary)
-                    
-                    max diffReal diffImag
-                )
-                |> List.max
-            
-            // Allow small numerical tolerance
-            maxDifference < 1e-6
-        | _ -> false
+    // NOTE: verifyGroverEquivalence() has been removed because:
+    // - executeGroverViaAmplification() was deleted (legacy LocalSimulator dependency)
+    // - AmplitudeAmplification now requires backend-based approach via AmplitudeAmplificationAdapter
+    // - To verify equivalence, use GroverBackendAdapter and AmplitudeAmplificationAdapter with same backend
+
+

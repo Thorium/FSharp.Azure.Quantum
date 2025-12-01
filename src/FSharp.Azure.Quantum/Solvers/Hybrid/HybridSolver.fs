@@ -1,6 +1,7 @@
-namespace FSharp.Azure.Quantum.Classical
+namespace FSharp.Azure.Quantum
 
 open System
+open FSharp.Azure.Quantum.Classical
 open FSharp.Azure.Quantum.Quantum
 open FSharp.Azure.Quantum.Core
 

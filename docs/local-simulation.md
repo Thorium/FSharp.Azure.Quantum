@@ -91,7 +91,7 @@ open FSharp.Azure.Quantum.Quantum.QuantumTspSolver
 let localBackend = createLocalBackend()
 
 // Option 2: IonQ backend (requires Azure Quantum workspace)
-let httpClient = (* authenticated HTTP client *)
+let httpClient = new System.Net.Http.HttpClient()
 let workspaceUrl = "https://management.azure.com/subscriptions/.../Workspaces/..."
 let ionqBackend = createIonQBackend httpClient workspaceUrl "ionq.simulator"
 
@@ -135,22 +135,22 @@ runWithBackend localBackend
 For dependency injection or testing, use the `IQuantumBackend` interface:
 
 ```fsharp
-let runWithBackend (backend: IBackend) circuit shots =
+let runWithBackend (backend: IQuantumBackend) circuit shots =
     match backend.Execute circuit shots with
-    | Ok result ->
-        printfn "Backend: %s, Shots: %d" result.Backend result.Shots
-        result.Counts
-    | Error msg ->
-        eprintfn "Execution failed: %s" msg
-        Map.empty
+        | Ok result ->
+            printfn "Backend: %s, Shots: %d" result.BackendName result.NumShots
+            result.Measurements
+        | Error msg ->
+            eprintfn "Execution failed: %s" msg
+            [||]
 
 // Use local backend
-let localBackend = LocalBackend() :> IBackend
-let counts = runWithBackend localBackend circuit 1000
+let localBackend = createLocalBackend()
+let measurements = runWithBackend localBackend circuit 1000
 
 // Easy to swap for testing or different backends
-let testBackend = MockBackend() :> IBackend  // Your test implementation
-let testCounts = runWithBackend testBackend circuit 100
+let testBackend = createMockBackend()  // Your test implementation
+let testMeasurements = runWithBackend testBackend circuit 100
 ```
 
 ### Execution Result Format
@@ -196,20 +196,25 @@ The `StateVector` module manages quantum state as a complex-valued vector.
 
 ```fsharp
 open FSharp.Azure.Quantum.LocalSimulator.StateVector
+open FSharp.Azure.Quantum.LocalSimulator.Gates
 
 // Initialize 3 qubits to |000⟩ state
 let state = StateVector.init 3
 
 // Get state properties
-let numQubits = StateVector.numQubits state        // 3
 let dimension = StateVector.dimension state        // 8 (2^3)
-let amplitudes = StateVector.getAmplitudes state   // Complex array
+let amplitudes = 
+    [| 0 .. dimension - 1 |]
+    |> Array.map (fun i -> StateVector.getAmplitude i state)  // Get each amplitude
 
 // Check normalization (should be 1.0)
 let norm = StateVector.norm state  // 1.0
 
 // Create uniform superposition |+⟩^⊗n (all basis states equally likely)
-let superposition = StateVector.uniformSuperposition 2  // 2 qubits
+// Apply Hadamard to all qubits
+let superposition = 
+    let s = StateVector.init 2  // Start with |00⟩
+    s |> Gates.applyH 0 |> Gates.applyH 1  // Apply H to each qubit
 ```
 
 **Key Concepts:**
@@ -227,6 +232,7 @@ Single-qubit and two-qubit gate operations.
 #### Single-Qubit Gates
 
 ```fsharp
+open FSharp.Azure.Quantum.LocalSimulator.StateVector
 open FSharp.Azure.Quantum.LocalSimulator.Gates
 
 let state = StateVector.init 2
@@ -313,6 +319,9 @@ Measure quantum states and sample outcomes.
 
 ```fsharp
 open FSharp.Azure.Quantum.LocalSimulator.Measurement
+open FSharp.Azure.Quantum.LocalSimulator.StateVector
+open FSharp.Azure.Quantum.LocalSimulator.Gates
+open System
 
 // Create a superposition state
 let state = 
@@ -320,29 +329,41 @@ let state =
     |> Gates.applyH 0  // |0⟩ → (|0⟩+|1⟩)/√2 on qubit 0
 
 // Get probability distribution
-let probabilities = Measurement.probabilities state
+let probabilities = Measurement.getProbabilityDistribution state
 // probabilities = [| 0.5; 0.0; 0.5; 0.0 |]
 //                    |00⟩  |01⟩  |10⟩  |11⟩
 
 // Verify Born rule: P(|ψ⟩) = |⟨ψ|α⟩|²
-let prob00 = Measurement.measurementProbability state 0  // 0.5
-let prob10 = Measurement.measurementProbability state 2  // 0.5
+let prob00 = Measurement.getBasisStateProbability 0 state  // 0.5
+let prob10 = Measurement.getBasisStateProbability 2 state  // 0.5
 
 // Sample outcomes with shots
-let samples = Measurement.sample state 1000  // 1000 measurements
+let rng = Random()
+let samples = Measurement.sampleAndCount rng 1000 state  // 1000 measurements
 // Returns: Map<int, int> of basis_index → count
 // Example: Map [(0, 503); (2, 497)]
 
 // Perform single measurement (collapses state)
-let (outcome, collapsedState) = Measurement.measure state
+let outcome = Measurement.measureComputationalBasis rng state
+let collapsedState = Measurement.collapseAfterMeasurement 0 outcome state
 printfn "Measured basis state: %d" outcome  // 0 or 2 (50% chance each)
 
-// Sample bitstrings (for multi-qubit readout)
-let bitstrings = Measurement.sampleBitstrings state 100
+// Sample bitstrings (convert int outcomes to binary strings)
+let rawSamples = Measurement.sampleMeasurements rng 100 state
+let bitstrings = 
+    rawSamples 
+    |> Array.groupBy id 
+    |> Array.map (fun (outcome, arr) -> 
+        (Convert.ToString(outcome, 2).PadLeft(2, '0'), arr.Length))
+    |> Map.ofArray
 // Returns: Map<string, int> of "00" → 52, "10" → 48
 
-// Get expectation value of Pauli-Z operator
-let expectation = Measurement.expectationZ state 0
+// Get expectation value (using computeExpectedValue)
+let pauliZ qubitIdx basisState =
+    let bitMask = 1 <<< qubitIdx
+    if (basisState &&& bitMask) <> 0 then -1.0 else 1.0
+
+let expectation = Measurement.computeExpectedValue (pauliZ 0) state
 // For |+⟩ state on qubit 0: expectation ≈ 0.0
 // For |0⟩ state: expectation = +1.0
 // For |1⟩ state: expectation = -1.0
@@ -361,7 +382,8 @@ let expectation = Measurement.expectationZ state 0
 ```fsharp
 // Run many shots and analyze statistics
 let numShots = 10000
-let samples = Measurement.sample state numShots
+let rng = Random()
+let samples = Measurement.sampleAndCount rng numShots state
 
 let statistics = 
     samples
@@ -369,7 +391,7 @@ let statistics =
     |> List.map (fun (basisIndex, count) ->
         let bitstring = Convert.ToString(basisIndex, 2).PadLeft(2, '0')
         let probability = float count / float numShots
-        let expectedProb = Measurement.measurementProbability state basisIndex
+        let expectedProb = Measurement.getBasisStateProbability basisIndex state
         let error = abs (probability - expectedProb)
         (bitstring, count, probability, expectedProb, error)
     )
@@ -629,34 +651,34 @@ module QaoaTests =
 The simulator provides detailed error messages for common mistakes:
 
 ```fsharp
-// ❌ Too many qubits
-let hugeCircuit = { NumQubits = 15; ... }
-match QaoaSimulator.simulate hugeCircuit 1000 with
-| Error msg -> 
-    // "Number of qubits (15) must be at most 16"
-    ()
+// ❌ Too many qubits (example - incomplete record syntax)
+// let hugeCircuit = { NumQubits = 15; ... }
+// match QaoaSimulator.simulate hugeCircuit 1000 with
+// | Error msg -> 
+//     // "Number of qubits (15) must be at most 16"
+//     ()
 
 // ❌ Invalid qubit index
-let state = StateVector.init 3
-let invalid = Gates.applyX 5 state  // Exception: qubit 5 out of range [0..2]
+// let state = StateVector.init 3
+// let invalid = Gates.applyX 5 state  // Exception: qubit 5 out of range [0..2]
 
-// ❌ Mismatched parameters
-let badCircuit = { NumQubits = 4; Parameters = [|0.5|]; Depth = 2; ... }
-match QaoaSimulator.simulate badCircuit 1000 with
-| Error msg ->
-    // "Expected 4 parameters for depth 2, got 1"
-    ()
+// ❌ Mismatched parameters (example - incomplete record syntax)
+// let badCircuit = { NumQubits = 4; Parameters = [|0.5|]; Depth = 2; ... }
+// match QaoaSimulator.simulate badCircuit 1000 with
+// | Error msg ->
+//     // "Expected 4 parameters for depth 2, got 1"
+//     ()
 
-// ❌ Invalid edge indices
-let invalidCircuit = { 
-    NumQubits = 3
-    CostTerms = [| (0, 5, -1.0) |]  // Qubit 5 doesn't exist!
-    ...
-}
-match QaoaSimulator.simulate invalidCircuit 1000 with
-| Error msg ->
-    // "Cost term edge (0,5) references qubit 5, but only 3 qubits available"
-    ()
+// ❌ Invalid edge indices (example - incomplete record syntax)
+// let invalidCircuit = { 
+//     NumQubits = 3
+//     CostTerms = [| (0, 5, -1.0) |]  // Qubit 5 doesn't exist!
+//     ...
+// }
+// match QaoaSimulator.simulate invalidCircuit 1000 with
+// | Error msg ->
+//     // "Cost term edge (0,5) references qubit 5, but only 3 qubits available"
+//     ()
 ```
 
 ## Next Steps

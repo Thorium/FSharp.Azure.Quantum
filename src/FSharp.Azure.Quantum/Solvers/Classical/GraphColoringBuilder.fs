@@ -183,9 +183,9 @@ module GraphColoring =
                 Properties = Map.empty
             }
         
-        [<CustomOperation("id")>]
-        member _.Id(node: ColoredNode, id: string) : ColoredNode =
-            { node with Id = id }
+        [<CustomOperation("nodeId")>]
+        member _.NodeId(node: ColoredNode, nodeId: string) : ColoredNode =
+            { node with Id = nodeId }
         
         [<CustomOperation("conflictsWith")>]
         member _.ConflictsWith(node: ColoredNode, conflicts: string list) : ColoredNode =

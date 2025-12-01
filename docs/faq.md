@@ -27,77 +27,95 @@ Common questions about FSharp.Azure.Quantum.
 
 ### What is FSharp.Azure.Quantum?
 
-FSharp.Azure.Quantum is an F# library for quantum-inspired optimization using Azure Quantum services. It provides:
-- Classical optimization algorithms (TSP, Portfolio)
-- Hybrid solver that automatically chooses quantum or classical
-- Integration with Azure Quantum for quantum backend access
-- Builder pattern APIs for fluent problem construction
+FSharp.Azure.Quantum is a **quantum-first F# library** for solving combinatorial optimization problems using quantum algorithms (QAOA, VQE, QFT). It provides:
+- Quantum optimization algorithms (QAOA for graph problems, VQE for quantum chemistry)
+- QFT-based algorithms (Shor's factorization, Phase Estimation)
+- LocalBackend for free quantum simulation (up to 16 qubits)
+- Optional HybridSolver with classical fallback for very small problems
+- Integration with Azure Quantum cloud backends (IonQ, Rigetti)
+- High-level computation expression APIs for intuitive problem specification
 
 ### Do I need an Azure account to use this library?
 
-**No!** The classical solvers work entirely offline without any Azure credentials. You only need Azure access if you want to use actual quantum backends (coming soon).
+**No!** The LocalBackend (default) provides quantum simulation entirely offline without Azure credentials. You only need Azure access if you want to use cloud quantum backends (IonQ, Rigetti) for larger problems or real quantum hardware.
 
 ###Is this production-ready?
 
-Currently **0.1.0-alpha** - suitable for:
+Currently **1.1.0** - suitable for:
+- ✅ Production use (quantum algorithms via LocalBackend or cloud backends)
 - ✅ Development and prototyping
-- ✅ Academic research
-- ✅ Learning quantum-inspired algorithms
-- ⚠️ Production use (test thoroughly first)
+- ✅ Academic research and learning
+- ✅ Quantum algorithm experimentation
+
+**LocalBackend** provides fast, free quantum simulation for problems up to 16 qubits. For larger problems, cloud backends (IonQ, Rigetti) are available via Azure Quantum.
 
 ## Technical Questions
 
-### When should I use quantum vs classical?
+### When should I use quantum vs HybridSolver?
 
 #### Quick Comparison Table
 
-| Aspect | Classical Solver | Quantum Solver |
-|--------|-----------------|----------------|
-| **Speed** | 10-2000ms | 5-60 seconds |
-| **Cost** | Free (local) | $10-100 per run |
-| **Accuracy** | 5-10% of optimal | 3-8% of optimal |
-| **Problem Size** | 5-200 variables | 50-500 variables |
-| **Best For** | Development, testing | Production, large problems |
-| **Availability** | ✅ Now | 🚧 Coming soon |
-| **Location** | Local machine | Azure Cloud |
-| **Reproducible** | ✅ Deterministic | ⚠️ Probabilistic |
-| **Scaling** | O(n²) to O(n³) | O(log n) to O(n) |
+| Aspect | Direct Quantum API | HybridSolver (with classical fallback) |
+|--------|-------------------|----------------------------------------|
+| **Approach** | QAOA/VQE quantum algorithms | Auto-routes: Quantum (≥20 vars) or Classical (< 20 vars) |
+| **Speed** | LocalBackend: 1-10s, Cloud: 30-120s | Very small: <100ms, Others: same as quantum |
+| **Cost** | LocalBackend: Free, Cloud: $10-100/run | Optimizes cost for very small problems |
+| **Problem Size** | 5-200 variables (LocalBackend: ≤16 qubits) | 5-500 variables |
+| **Best For** | Consistent quantum API, learning, fixed-size problems | Variable-size production workloads |
+| **Availability** | ✅ Now (LocalBackend + Cloud) | ✅ Now |
+| **Backend** | LocalBackend (default) or Cloud (IonQ/Rigetti) | Same, but optimizes very small problems |
+| **Reproducible** | ⚠️ Probabilistic (quantum nature) | Classical fallback: ✅ Deterministic |
 
 #### Decision Criteria
 
-**Use Classical when:**
-- ✅ Problem size < 100 variables
-- ✅ Need immediate results (ms response time)
-- ✅ Developing/testing locally
-- ✅ Cost is a concern
-- ✅ Need deterministic results
-- ✅ Iterating on problem formulation
+**Use Direct Quantum API when:**
+- ✅ Learning quantum algorithms (QAOA, VQE, QFT)
+- ✅ Problem size is consistent (e.g., always 50-100 variables)
+- ✅ Want consistent quantum experience
+- ✅ LocalBackend simulation is sufficient (≤16 qubits)
+- ✅ Developing/testing quantum algorithms
 
-**Consider Quantum when:**
-- ⚡ Problem size > 100 variables
-- ⚡ Problem has special structure (QUBO-compatible)
-- ⚡ Can tolerate longer wait times (seconds)
-- ⚡ Budget available for quantum execution ($10-100)
-- ⚡ Need best possible solution quality
-- ⚡ Production deployment with scale
+**Use HybridSolver when:**
+- ⚡ Problem size varies significantly (5 to 500 variables)
+- ⚡ Want automatic classical fallback for very small problems (< 20 variables)
+- ⚡ Performance optimization matters for variable-sized input
+- ⚡ Production deployment with unpredictable problem sizes
 
-**Use HybridSolver to decide automatically:**
+**Example:**
 ```fsharp
-HybridSolver.solveTsp distances None None None  // Automatic decision
+// Direct Quantum API (Recommended for most cases)
+match GraphColoring.solve problem 4 None with  // Uses QAOA on LocalBackend
+| Ok solution -> printfn "Colors used: %d" solution.ColorsUsed
+| Error msg -> eprintfn "Error: %s" msg
+
+// HybridSolver (Optimizes very small problems automatically)
+match HybridSolver.solveGraphColoring problem 4 None None None with
+| Ok solution -> 
+    printfn "Method: %A" solution.Method  // Classical or Quantum
+    printfn "Reasoning: %s" solution.Reasoning
+| Error msg -> eprintfn "Error: %s" msg
 ```
 
-**Crossover Point:** Around 100-150 variables is where quantum may start showing advantage, but this depends heavily on problem structure.
+**Crossover Point:** HybridSolver routes to classical for < 20 variables, quantum for ≥ 20 variables. For most use cases, direct quantum API is simpler and sufficient.
 
 ### How accurate are the solutions?
 
-**Classical solvers** provide:
-- Heuristic solutions (not guaranteed optimal)
-- Typically within 5-10% of optimal for TSP
-- Better with more iterations and tuning
+**Quantum algorithms (QAOA/VQE)** provide:
+- Approximate solutions (QAOA = Quantum Approximate Optimization Algorithm)
+- Solution quality depends on circuit depth (p), shot count, and problem structure
+- Typically finds good solutions (often within 5-15% of optimal for graph problems)
+- Probabilistic nature means running multiple times may yield better results
 
 **Solution quality improves with:**
-- Higher `MaxIterations` (e.g., 50000 vs 10000)
-- Better cooling schedule (slower = better)
+- Higher shot counts (e.g., 1000 vs 100 shots)
+- Deeper circuits (higher QAOA depth p)
+- Parameter optimization (variational loop)
+- Error mitigation techniques (ZNE, PEC, REM)
+
+**Classical fallback (via HybridSolver)** provides:
+- Heuristic solutions for very small problems (< 20 variables)
+- Deterministic results
+- Fast execution (< 100ms)
 - Problem-specific tuning
 
 ### What problem sizes can I solve?
@@ -171,18 +189,22 @@ let normalized =
 let config = { TspSolver.defaultConfig with MaxIterations = 50000 }
 ```
 
-2. **Adjust cooling rate:**
+2. **Adjust max iterations:**
 ```fsharp
-let config = { TspSolver.defaultConfig with CoolingRate = 0.999 }
+match HybridSolver.solveTsp distances None None (Some HybridSolver.SolverMethod.Classical) with
+| Ok solution -> printfn "Tour length: %.2f" solution.Result.TourLength
+| Error msg -> printfn "Error: %s" msg
 ```
 
-3. **Run multiple times with different seeds:**
+3. **Run multiple times with quantum optimization:**
 ```fsharp
 [1..10]
-|> List.map (fun seed -> 
-    let config = { TspSolver.defaultConfig with RandomSeed = Some seed }
-    TspSolver.solveWithDistances distances config)
-|> List.minBy (fun sol -> sol.TourLength)
+|> List.map (fun _ -> 
+    match HybridSolver.solveTsp distances None None None with
+    | Ok solution -> Some solution
+    | Error _ -> None)
+|> List.choose id
+|> List.minBy (fun sol -> sol.Result.TourLength)
 ```
 
 ### How do I debug slow performance?
@@ -193,12 +215,14 @@ let config = { TspSolver.defaultConfig with CoolingRate = 0.999 }
 open System.Diagnostics
 
 let sw = Stopwatch.StartNew()
-let solution = TspSolver.solveWithDistances distances config
-sw.Stop()
-
-printfn "Size: %d cities" distances.GetLength(0)
-printfn "Iterations: %d" solution.Iterations
-printfn "Time: %d ms" sw.ElapsedMilliseconds
+match HybridSolver.solveTsp distances None None None with
+| Ok solution -> 
+    sw.Stop()
+    printfn "Size: %d cities" (distances.GetLength(0))
+    printfn "Time: %d ms" sw.ElapsedMilliseconds
+    printfn "Method: %A" solution.Method
+| Error msg -> printfn "Error: %s" msg
+```
 printfn "Time per iteration: %.2f ms" (float sw.ElapsedMilliseconds / float solution.Iterations)
 ```
 
@@ -206,23 +230,39 @@ printfn "Time per iteration: %.2f ms" (float sw.ElapsedMilliseconds / float solu
 
 ### Is quantum backend available yet?
 
-**Status:** Quantum routing is implemented in HybridSolver but quantum backends are not yet connected.
+**Status:** ✅ Quantum algorithms are fully implemented and available via LocalBackend (default) and Azure Quantum cloud backends (IonQ, Rigetti).
 
-**Currently:** HybridSolver uses classical fallback for all problems.
+**Direct Quantum API:**
+- QAOA for optimization problems (GraphColoring, MaxCut, Knapsack, TSP, Portfolio, NetworkFlow)
+- VQE for quantum chemistry
+- QFT-based algorithms (Shor's, Phase Estimation, Quantum Arithmetic)
+- Runs on LocalBackend (free, up to 16 qubits) or cloud backends
 
-**Coming soon:** Azure Quantum backend integration for actual quantum execution.
+**HybridSolver:** Adds classical fallback optimization for very small problems (< 20 variables) where quantum circuit overhead isn't beneficial yet.
 
-### What optimization algorithms are used?
+### What quantum algorithms are used?
 
-**TSP:**
-- Simulated Annealing with adaptive cooling
-- 2-opt local search improvements
-- Random restart heuristics
+**Optimization Problems (QAOA-based):**
+- GraphColoring: QAOA with K-coloring QUBO encoding
+- MaxCut: QAOA with graph cut maximization
+- Knapsack: QAOA with 0/1 knapsack constraints
+- TSP: QAOA with tour feasibility constraints
+- Portfolio: QAOA with budget and risk constraints  
+- NetworkFlow: QAOA with flow conservation
 
-**Portfolio:**
-- Greedy selection by return/risk ratio
-- Constraint satisfaction filtering
-- Knapsack-style optimization
+**Quantum Chemistry (VQE):**
+- Variational Quantum Eigensolver for molecular ground state energies
+- Supports custom Hamiltonians
+- Hardware-efficient ansatz circuits
+
+**QFT-Based Applications:**
+- Shor's Algorithm: Period finding for integer factorization
+- Phase Estimation: Eigenvalue extraction for quantum chemistry
+- Quantum Arithmetic: Modular exponentiation using QFT
+
+**Classical Fallback (HybridSolver only):**
+- TSP: Nearest Neighbor + 2-opt local search
+- Portfolio: Greedy selection by return/risk ratio
 
 ### Can I add my own optimization problems?
 
@@ -299,12 +339,14 @@ if (FSharpResult<Solution, string>.get_IsOk(result)) {
 
 **Library:** Free and open source (Unlicense license)
 
-**Classical solvers:** Free - run entirely local
+**LocalBackend (Quantum Simulation):** Free - runs entirely local, up to 16 qubits
 
-**Quantum backends (future):** Azure Quantum pricing applies
-- Free tier available
-- Pay-per-use for production
-- See [Cost Management Guide](guides/cost-management.md)
+**Cloud Quantum Backends:** Azure Quantum pricing applies
+- Free tier available (limited shots)
+- Pay-per-use for production ($10-100 per run depending on circuit complexity)
+- IonQ: ~11 qubits QPU, 29+ qubits simulator
+- Rigetti: ~80 qubits QPU, 40+ qubits simulator
+- See [Azure Quantum Pricing](https://azure.microsoft.com/en-us/pricing/details/azure-quantum/)
 
 ### What license is it under?
 

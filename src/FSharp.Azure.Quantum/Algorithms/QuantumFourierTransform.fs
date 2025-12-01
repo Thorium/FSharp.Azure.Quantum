@@ -1,4 +1,4 @@
-namespace FSharp.Azure.Quantum.GroverSearch
+namespace FSharp.Azure.Quantum.Algorithms
 
 open System
 open System.Numerics
@@ -361,3 +361,5 @@ module QuantumFourierTransform =
     /// This is the first step in many quantum algorithms (e.g., Shor's algorithm)
     let encodeAndTransform (numQubits: int) (value: int) : Result<QFTResult, string> =
         transformBasisState numQubits value
+
+

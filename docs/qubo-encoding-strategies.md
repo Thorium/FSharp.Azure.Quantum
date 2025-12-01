@@ -273,7 +273,8 @@ let validation = ProblemTransformer.validateTransformation qubo
 if validation.IsValid then
     printfn "✓ Custom QUBO is valid"
 else
-    printfn "✗ Errors: %A" validation.Errors
+    printfn "✗ Errors:"
+    validation.Messages |> List.iter (printfn "  - %s")
 ```
 
 ---
@@ -333,7 +334,7 @@ match validation.IsValid with
     printfn "✓ QUBO is valid - ready for quantum execution"
 | false ->
     printfn "✗ QUBO validation failed:"
-    validation.Errors |> List.iter (printfn "  - %s")
+    validation.Messages |> List.iter (printfn "  - %s")
 ```
 
 ### What Validation Checks
@@ -382,7 +383,8 @@ let penalty = 1000000.0
 let qubo = ProblemTransformer.encodeTspEdgeBased distances penalty
 let validation = ProblemTransformer.validateTransformation qubo
 if not validation.IsValid then
-    failwith (sprintf "Invalid QUBO: %A" validation.Errors)
+    let errorMsg = validation.Messages |> String.concat "; "
+    failwith (sprintf "Invalid QUBO: %s" errorMsg)
 
 // ✗ BAD: Skip validation (waste quantum $$$)
 let qubo = createCustomQubo()  // No validation!

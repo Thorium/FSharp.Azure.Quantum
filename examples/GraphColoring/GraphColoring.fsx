@@ -50,10 +50,10 @@ printfn ""
 // Define variables and their liveness conflicts
 let registerProblem = graphColoring {
     // Variable R1 conflicts with R2 and R3 (live at same time)
-    node "R1" conflictsWith ["R2"; "R3"]
-    node "R2" conflictsWith ["R1"; "R4"]
-    node "R3" conflictsWith ["R1"; "R4"]
-    node "R4" conflictsWith ["R2"; "R3"]
+    node "R1" ["R2"; "R3"]
+    node "R2" ["R1"; "R4"]
+    node "R3" ["R1"; "R4"]
+    node "R4" ["R2"; "R3"]
     
     // Available CPU registers
     colors ["EAX"; "EBX"; "ECX"; "EDX"]
@@ -108,11 +108,11 @@ printfn ""
 // Create frequency assignment problem using graphColoring builder
 let frequencyProblem = graphColoring {
     // Define cell towers and their interference conflicts
-    node "Tower1" conflictsWith ["Tower2"; "Tower3"]
-    node "Tower2" conflictsWith ["Tower1"; "Tower4"]
-    node "Tower3" conflictsWith ["Tower1"; "Tower4"; "Tower5"]
-    node "Tower4" conflictsWith ["Tower2"; "Tower3"; "Tower5"]
-    node "Tower5" conflictsWith ["Tower3"; "Tower4"]
+    node "Tower1" ["Tower2"; "Tower3"]
+    node "Tower2" ["Tower1"; "Tower4"]
+    node "Tower3" ["Tower1"; "Tower4"; "Tower5"]
+    node "Tower4" ["Tower2"; "Tower3"; "Tower5"]
+    node "Tower5" ["Tower3"; "Tower4"]
     
     // Available frequencies
     colors ["F1"; "F2"; "F3"; "F4"; "F5"]
@@ -166,11 +166,11 @@ printfn ""
 // Create exam scheduling problem using graphColoring builder
 let examProblem = graphColoring {
     // Define exams and their student enrollment conflicts
-    node "Math101" conflictsWith ["CS101"; "Physics101"]
-    node "CS101" conflictsWith ["Math101"; "Physics101"]
-    node "Physics101" conflictsWith ["Math101"; "CS101"; "Chem101"]
-    node "Chem101" conflictsWith ["Physics101"; "English101"]
-    node "English101" conflictsWith ["Chem101"]
+    node "Math101" ["CS101"; "Physics101"]
+    node "CS101" ["Math101"; "Physics101"]
+    node "Physics101" ["Math101"; "CS101"; "Chem101"]
+    node "Chem101" ["Physics101"; "English101"]
+    node "English101" ["Chem101"]
     
     // Available time slots
     colors ["Morning1"; "Morning2"; "Afternoon1"; "Afternoon2"; "Evening"]
@@ -219,18 +219,18 @@ printfn ""
 // Petersen graph: 10 vertices, chromatic number = 3
 let petersenGraph = graphColoring {
     // Outer pentagon
-    node "V1" conflictsWith ["V2"; "V5"; "V6"]
-    node "V2" conflictsWith ["V1"; "V3"; "V7"]
-    node "V3" conflictsWith ["V2"; "V4"; "V8"]
-    node "V4" conflictsWith ["V3"; "V5"; "V9"]
-    node "V5" conflictsWith ["V4"; "V1"; "V10"]
+    node "V1" ["V2"; "V5"; "V6"]
+    node "V2" ["V1"; "V3"; "V7"]
+    node "V3" ["V2"; "V4"; "V8"]
+    node "V4" ["V3"; "V5"; "V9"]
+    node "V5" ["V4"; "V1"; "V10"]
     
     // Inner pentagram
-    node "V6" conflictsWith ["V1"; "V8"; "V9"]
-    node "V7" conflictsWith ["V2"; "V9"; "V10"]
-    node "V8" conflictsWith ["V3"; "V6"; "V10"]
-    node "V9" conflictsWith ["V4"; "V6"; "V7"]
-    node "V10" conflictsWith ["V5"; "V7"; "V8"]
+    node "V6" ["V1"; "V8"; "V9"]
+    node "V7" ["V2"; "V9"; "V10"]
+    node "V8" ["V3"; "V6"; "V10"]
+    node "V9" ["V4"; "V6"; "V7"]
+    node "V10" ["V5"; "V7"; "V8"]
     
     colors ["Red"; "Green"; "Blue"; "Yellow"]
     objective MinimizeColors
@@ -276,12 +276,12 @@ printfn ""
 
 let comparisonGraph = graphColoring {
     // 6-vertex graph with complex structure
-    node "A" conflictsWith ["B"; "C"; "E"]
-    node "B" conflictsWith ["A"; "C"; "D"; "F"]
-    node "C" conflictsWith ["A"; "B"; "D"; "E"]
-    node "D" conflictsWith ["B"; "C"; "E"; "F"]
-    node "E" conflictsWith ["A"; "C"; "D"; "F"]
-    node "F" conflictsWith ["B"; "D"; "E"]
+    node "A" ["B"; "C"; "E"]
+    node "B" ["A"; "C"; "D"; "F"]
+    node "C" ["A"; "B"; "D"; "E"]
+    node "D" ["B"; "C"; "E"; "F"]
+    node "E" ["A"; "C"; "D"; "F"]
+    node "F" ["B"; "D"; "E"]
     
     colors ["Color1"; "Color2"; "Color3"; "Color4"]
     objective MinimizeColors
@@ -324,16 +324,16 @@ let precoloredProblem = graphColoring {
     // R1 is pre-assigned to EAX (fixed)
     nodes [
         coloredNode {
-            id "R1"
+            nodeId "R1"
             conflictsWith ["R2"; "R3"]
             fixedColor "EAX"  // Pre-assigned
         }
     ]
     
     // Other variables with normal conflicts
-    node "R2" conflictsWith ["R1"; "R4"]
-    node "R3" conflictsWith ["R1"; "R4"]
-    node "R4" conflictsWith ["R2"; "R3"]
+    node "R2" ["R1"; "R4"]
+    node "R3" ["R1"; "R4"]
+    node "R4" ["R2"; "R3"]
     
     colors ["EAX"; "EBX"; "ECX"; "EDX"]
     objective MinimizeColors

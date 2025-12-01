@@ -147,6 +147,14 @@ module OpenQasmExport =
             $"ry({formatAngle angle}) q[{q}];"
         | RZ (q, angle) -> 
             $"rz({formatAngle angle}) q[{q}];"
+        | P (q, theta) -> 
+            // P(θ) = phase gate = diag(1, e^(iθ))
+            // In OpenQASM 2.0, this is the 'p' gate (also known as 'u1' in older versions)
+            $"p({formatAngle theta}) q[{q}];"
+        | CP (control, target, theta) -> 
+            // CP(θ) = controlled-phase gate
+            // In OpenQASM 2.0, this is 'cp' (controlled-p)
+            $"cp({formatAngle theta}) q[{control}],q[{target}];"
     
     // ========================================================================
     // VALIDATION
@@ -181,9 +189,9 @@ module OpenQasmExport =
                 match gate with
                 | X q | Y q | Z q | H q | S q | SDG q | T q | TDG q -> 
                     checkQubit q "single-qubit gate"
-                | RX (q, _) | RY (q, _) | RZ (q, _) -> 
+                | RX (q, _) | RY (q, _) | RZ (q, _) | P (q, _) -> 
                     checkQubit q "rotation gate"
-                | CNOT (control, target) | CZ (control, target) ->
+                | CNOT (control, target) | CZ (control, target) | CP (control, target, _) ->
                     match checkQubit control "two-qubit control", checkQubit target "two-qubit target" with
                     | Ok (), Ok () -> 
                         if control = target then

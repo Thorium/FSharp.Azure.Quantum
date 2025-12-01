@@ -206,8 +206,8 @@ While this example uses classical dynamic programming algorithms, the same probl
 
 ## Cultural Note
 
-**Kasino** (also spelled *Kasino* or *Casino*) is a popular Finnish card game, part of the Nordic card game tradition. This example honors Finnish cultural heritage while demonstrating modern quantum computing concepts.
+**Kasino** (also spelled *Kasino* or *Cassino* ) is a popular Finnish card game, part of the Nordic card game tradition. This is nothing to do with the casino gambling game. There are other variants as Laistokasino, where you avoid taking points. This example honors Finnish cultural heritage while demonstrating modern quantum computing concepts.
 
 ---
 
-**32x-181x Quantum Speedup** | **C# ↔ F# Interop** | **Finnish Cultural Heritage**
+**32x-181x Quantum Speedup** | **C# and F# Interop** | **Finnish Cultural Heritage**

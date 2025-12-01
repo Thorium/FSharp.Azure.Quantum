@@ -41,10 +41,10 @@ open FSharp.Azure.Quantum.GraphColoring
 
 // Define problem with computation expression
 let problem = graphColoring {
-    node "R1" conflictsWith ["R2"; "R3"]
-    node "R2" conflictsWith ["R1"; "R4"]
-    node "R3" conflictsWith ["R1"; "R4"]
-    node "R4" conflictsWith ["R2"; "R3"]
+    node "R1" ["R2"; "R3"]
+    node "R2" ["R1"; "R4"]
+    node "R3" ["R1"; "R4"]
+    node "R4" ["R2"; "R3"]
     
     colors ["EAX"; "EBX"; "ECX"; "EDX"]
     objective MinimizeColors
@@ -65,10 +65,10 @@ match GraphColoring.solve problem 4 None with
 
 ```fsharp
 // Use IonQ or Rigetti quantum hardware
-let ionqBackend = BackendAbstraction.createIonQBackend(...)
-match GraphColoring.solve problem 4 (Some ionqBackend) with
-| Ok solution -> printfn "Quantum solution found!"
-| Error msg -> printfn "Error: %s" msg
+// let ionqBackend = BackendAbstraction.createIonQBackend(httpClient, workspaceUrl)
+// match GraphColoring.solve problem 4 (Some ionqBackend) with
+// | Ok solution -> printfn "Quantum solution found!"
+// | Error msg -> printfn "Error: %s" msg
 ```
 
 ### Classical Comparison
@@ -158,9 +158,9 @@ Minimize: λ₁ * OneHotPenalty + λ₂ * ConflictPenalty + λ₃ * ColorMinimiz
 ### Computation Expression Builder
 
 ```fsharp
-let problem = graphColoring {
+graphColoring {
     // Inline node definition (simple)
-    node "V1" conflictsWith ["V2"; "V3"]
+    node "V1" ["V2"; "V3"]
     
     // Advanced node with properties
     nodes [
@@ -316,7 +316,7 @@ GraphColoring.describeSolution : ColoringSolution -> string
 
 ```fsharp
 graphColoring {
-    node "V1" conflictsWith ["V2"]     // Simple node
+    node "V1" ["V2"]     // Simple node
     nodes [node1; node2]                // Pre-built nodes
     colors ["Red"; "Green"; "Blue"]     // Available colors
     objective MinimizeColors            // Objective function

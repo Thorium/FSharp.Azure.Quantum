@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>FSharp.Azure.Quantum.Examples.Gomoku</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="Board.fs" />
+    <Compile Include="AI/ThreatDetection.fs" />
+    <Compile Include="AI/Classical.fs" />
+    <Compile Include="AI/Quantum.fs" />
+    <Compile Include="AI/Hybrid.fs" />
+    <Compile Include="AI/QuantumTreeSearch.fs" />
+    <Compile Include="UI/ConsoleRenderer.fs" />
+    <Compile Include="UI/InputHandler.fs" />
+    <Compile Include="Program.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Console UI Library -->
+    <PackageReference Include="Spectre.Console" Version="0.49.1" />
+    <PackageReference Include="FsSpectre" Version="0.5.2" />
+    
+    <!-- Azure Quantum (reference parent project) -->
+    <ProjectReference Include="..\..\src\FSharp.Azure.Quantum\FSharp.Azure.Quantum.fsproj" />
+  </ItemGroup>
+</Project>

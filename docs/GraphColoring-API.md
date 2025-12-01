@@ -239,17 +239,10 @@ type ColoringSolution = {
 
 ### Helper Functions
 
-```fsharp
-// Quick node creation (outside computation expression)
+```text
 val node : id:string -> conflicts:string list -> ColoredNode
-
-// Solve problem
 val solve : problem:GraphColoringProblem -> ColoringSolution
-
-// Validation
 val validate : problem:GraphColoringProblem -> Result<unit, string>
-
-// Visualization
 val exportToDot : problem:GraphColoringProblem -> solution:ColoringSolution -> string
 val describeSolution : solution:ColoringSolution -> string
 ```

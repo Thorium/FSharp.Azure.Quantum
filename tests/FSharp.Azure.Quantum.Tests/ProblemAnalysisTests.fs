@@ -2,7 +2,7 @@ namespace FSharp.Azure.Quantum.Tests
 
 open Xunit
 open System
-open FSharp.Azure.Quantum.Classical
+open FSharp.Azure.Quantum
 
 module ProblemAnalysisTests =
 

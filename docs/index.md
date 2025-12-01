@@ -16,13 +16,14 @@ title: FSharp.Azure.Quantum
 
 ```fsharp
 open FSharp.Azure.Quantum
+open FSharp.Azure.Quantum.GraphColoring
 
 // Graph Coloring: Register Allocation
 let problem = graphColoring {
-    node "R1" conflictsWith ["R2"; "R3"]
-    node "R2" conflictsWith ["R1"; "R4"]
-    node "R3" conflictsWith ["R1"; "R4"]
-    node "R4" conflictsWith ["R2"; "R3"]
+    node "R1" ["R2"; "R3"]
+    node "R2" ["R1"; "R4"]
+    node "R3" ["R1"; "R4"]
+    node "R4" ["R2"; "R3"]
     colors ["EAX"; "EBX"; "ECX"; "EDX"]
 }
 
@@ -81,15 +82,17 @@ dotnet add package FSharp.Azure.Quantum
 5. **Portfolio** - Investment allocation, asset selection, risk management
 6. **Network Flow** - Supply chain optimization, distribution planning
 
-### 🤖 HybridSolver - Automatic Classical/Quantum Routing
+### 🤖 HybridSolver - Optional Smart Routing
 
-**Smart solver that automatically chooses between classical and quantum execution:**
+**Optional optimization layer for variable-sized problems:**
 
-- ✅ **Analyzes problem size** - Estimates quantum advantage potential
-- ✅ **Smart routing** - Classical (fast, free) OR Quantum (scalable, expensive)
+- ✅ **Analyzes problem size** - Routes small problems (< 20 variables) to classical fallback
+- ✅ **Quantum-first** - Uses QAOA on LocalBackend/Cloud for >= 20 variables
 - ✅ **Cost guards** - Budget limits prevent runaway quantum costs
-- ✅ **Transparent reasoning** - Explains why each method was chosen
-- ✅ **Production-ready** - Recommended for production deployments
+- ✅ **Transparent reasoning** - Explains routing decision
+- ✅ **Production-ready** - Useful when problem sizes vary significantly
+
+**Recommendation:** Use direct quantum API (`GraphColoring.solve`, `MaxCut.solve`, etc.) for most cases. HybridSolver adds classical fallback optimization for very small problems.
 
 **See:** [Getting Started Guide](getting-started) for detailed examples and decision criteria
 
@@ -120,11 +123,11 @@ Quantum Approximate Optimization Algorithm with:
 ```fsharp
 // Register allocation for compiler optimization
 let registers = graphColoring {
-    node "R1" conflictsWith ["R2"; "R3"; "R5"]
-    node "R2" conflictsWith ["R1"; "R4"]
-    node "R3" conflictsWith ["R1"; "R4"; "R5"]
-    node "R4" conflictsWith ["R2"; "R3"]
-    node "R5" conflictsWith ["R1"; "R3"]
+    node "R1" ["R2"; "R3"; "R5"]
+    node "R2" ["R1"; "R4"]
+    node "R3" ["R1"; "R4"; "R5"]
+    node "R4" ["R2"; "R3"]
+    node "R5" ["R1"; "R3"]
     colors ["EAX"; "EBX"; "ECX"; "EDX"]
     objective MinimizeColors
 }
@@ -192,14 +195,14 @@ let problem = Portfolio.createProblem assets 10000.0  // $10k budget
 ```fsharp
 // Supply chain optimization
 let nodes = [
-    NetworkFlow.SourceNode("Factory", 1000)
-    NetworkFlow.IntermediateNode("Warehouse", 800)
-    NetworkFlow.SinkNode("Customer", 500)
+    { NetworkFlow.Id = "Factory"; NodeType = NetworkFlow.Source; Capacity = 1000 }
+    { NetworkFlow.Id = "Warehouse"; NodeType = NetworkFlow.Intermediate; Capacity = 800 }
+    { NetworkFlow.Id = "Customer"; NodeType = NetworkFlow.Sink; Capacity = 500 }
 ]
 
 let routes = [
-    NetworkFlow.Route("Factory", "Warehouse", 5.0)
-    NetworkFlow.Route("Warehouse", "Customer", 3.0)
+    { NetworkFlow.From = "Factory"; To = "Warehouse"; Cost = 5.0 }
+    { NetworkFlow.From = "Warehouse"; To = "Customer"; Cost = 3.0 }
 ]
 
 let problem = { NetworkFlow.Nodes = nodes; Routes = routes }
@@ -283,7 +286,11 @@ let problem = { NetworkFlow.Nodes = nodes; Routes = routes }
 - Cost is a primary concern
 - Deterministic results required
 
-**Best Practice**: Use this library for quantum experimentation and algorithms research. For production optimization workloads, consider combining with classical solvers based on problem characteristics.
+**Best Practice**: 
+- **Use direct quantum API** (`GraphColoring.solve`, `MaxCut.solve`, etc.) for consistent quantum experience across all problem sizes
+- **Use HybridSolver** only if you need automatic classical fallback for very small problems (< 20 variables)
+- **LocalBackend (default)** provides free, fast quantum simulation up to 16 qubits - ideal for development, testing, and many production use cases
+- **Cloud backends** (IonQ, Rigetti) for larger problems or real quantum hardware experimentation
 
 ## 🔧 Backend Selection Guide
 
@@ -292,7 +299,8 @@ let problem = { NetworkFlow.Nodes = nodes; Routes = routes }
 ```fsharp
 // Automatic: No backend parameter needed
 match MaxCut.solve problem None with
-| Ok solution -> (* ... *)
+| Ok solution -> printfn "Max cut value: %f" solution.CutValue
+| Error msg -> eprintfn "Error: %s" msg
 ```
 
 **Characteristics:**
@@ -312,7 +320,8 @@ let backend = BackendAbstraction.createIonQBackend(
 
 // Pass to solver
 match MaxCut.solve problem (Some backend) with
-| Ok solution -> (* ... *)
+| Ok solution -> printfn "Max cut value: %f" solution.CutValue
+| Error msg -> eprintfn "Error: %s" msg
 ```
 
 **Characteristics:**

@@ -229,3 +229,295 @@ type CSharpBuilders private () =
     static member PortfolioProblem(assets: struct(string * float * float * float)[], budget: float) =
         let assetList = assets |> Array.map (fun struct(s, r, k, p) -> (s, r, k, p)) |> Array.toList
         Portfolio.createProblem assetList budget
+    
+    // ============================================================================
+    // QUANTUM TREE SEARCH BUILDER EXTENSIONS
+    // ============================================================================
+    
+    /// <summary>Create a simple quantum tree search problem with defaults (C# helper).</summary>
+    /// <typeparam name="T">Game state type</typeparam>
+    /// <param name="initialState">Starting game state</param>
+    /// <param name="evaluator">Function to evaluate positions</param>
+    /// <param name="moveGenerator">Function to generate legal moves</param>
+    static member QuantumTreeSearch<'T>(initialState: 'T, evaluator: Func<'T, float>, moveGenerator: Func<'T, IEnumerable<'T>>) =
+        QuantumTreeSearch.simple 
+            initialState 
+            evaluator.Invoke 
+            (fun state -> moveGenerator.Invoke(state) |> Seq.toList)
+    
+    /// <summary>Create a game AI tree search problem (C# helper).</summary>
+    /// <typeparam name="T">Game board type</typeparam>
+    /// <param name="board">Current board state</param>
+    /// <param name="depth">Search depth</param>
+    /// <param name="branching">Expected branching factor</param>
+    /// <param name="evaluator">Board evaluation function</param>
+    /// <param name="legalMoves">Legal move generator</param>
+    static member GameAISearch<'T>(board: 'T, depth: int, branching: int, evaluator: Func<'T, float>, legalMoves: Func<'T, IEnumerable<'T>>) =
+        QuantumTreeSearch.forGameAI 
+            board 
+            depth 
+            branching 
+            evaluator.Invoke 
+            (fun state -> legalMoves.Invoke(state) |> Seq.toList)
+    
+    /// <summary>Create a decision problem tree search (C# helper).</summary>
+    /// <typeparam name="T">Decision state type</typeparam>
+    /// <param name="initialDecision">Starting decision state</param>
+    /// <param name="steps">Number of decision steps</param>
+    /// <param name="optionsPerStep">Options available per step</param>
+    /// <param name="scorer">Function to score outcomes</param>
+    /// <param name="nextOptions">Function to generate next options</param>
+    static member DecisionProblem<'T>(initialDecision: 'T, steps: int, optionsPerStep: int, scorer: Func<'T, float>, nextOptions: Func<'T, IEnumerable<'T>>) =
+        QuantumTreeSearch.forDecisionProblem 
+            initialDecision 
+            steps 
+            optionsPerStep 
+            scorer.Invoke 
+            (fun state -> nextOptions.Invoke(state) |> Seq.toList)
+    
+    /// <summary>Estimate quantum resources for tree search (C# helper).</summary>
+    /// <param name="maxDepth">Maximum search depth</param>
+    /// <param name="branchingFactor">Expected branching factor</param>
+    /// <returns>Resource estimate description</returns>
+    static member EstimateTreeSearchResources(maxDepth: int, branchingFactor: int) =
+        QuantumTreeSearch.estimateResources maxDepth branchingFactor
+    
+    /// <summary>Solve quantum tree search problem (C# helper).</summary>
+    /// <typeparam name="T">State type</typeparam>
+    /// <param name="problem">Tree search problem</param>
+    /// <returns>Result with best move or error message</returns>
+    static member SolveTreeSearch<'T>(problem: QuantumTreeSearch.TreeSearchProblem<'T>) =
+        QuantumTreeSearch.solve problem
+    
+    // ============================================================================
+    // QUANTUM CONSTRAINT SOLVER BUILDER EXTENSIONS
+    // ============================================================================
+    
+    /// <summary>Create a simple quantum constraint solver problem (C# helper).</summary>
+    /// <typeparam name="T">Domain value type</typeparam>
+    /// <param name="searchSpaceSize">Size of search space</param>
+    /// <param name="domain">Array of valid values</param>
+    /// <param name="singleConstraint">Single constraint predicate</param>
+    static member QuantumConstraintSolver<'T>(searchSpaceSize: int, domain: 'T[], singleConstraint: Func<IDictionary<int, 'T>, bool>) =
+        let domainList = Array.toList domain
+        let constraintFunc (m: Map<int, 'T>) = singleConstraint.Invoke(m :> IDictionary<int,'T>)
+        QuantumConstraintSolver.simple searchSpaceSize domainList constraintFunc
+    
+    /// <summary>Create a constraint solver for Sudoku-style problems (C# helper).</summary>
+    /// <typeparam name="T">Domain value type</typeparam>
+    /// <param name="gridSize">Size of the grid</param>
+    /// <param name="domain">Array of valid values</param>
+    /// <param name="constraints">Array of constraint predicates</param>
+    static member SudokuStyleConstraints<'T>(gridSize: int, domain: 'T[], [<ParamArray>] constraints: Func<IDictionary<int, 'T>, bool>[]) =
+        let domainList = Array.toList domain
+        let constraintList = constraints |> Array.map (fun f -> fun (m: Map<int, 'T>) -> f.Invoke(m :> IDictionary<int,'T>)) |> Array.toList
+        QuantumConstraintSolver.forSudokuStyle gridSize domainList constraintList
+    
+    /// <summary>Create a constraint solver for N-Queens problems (C# helper).</summary>
+    /// <typeparam name="T">Domain value type</typeparam>
+    /// <param name="boardSize">Size of the board</param>
+    /// <param name="domain">Array of valid values</param>
+    /// <param name="constraints">Array of constraint predicates</param>
+    static member NQueensConstraints<'T>(boardSize: int, domain: 'T[], [<ParamArray>] constraints: Func<IDictionary<int, 'T>, bool>[]) =
+        let domainList = Array.toList domain
+        let constraintList = constraints |> Array.map (fun f -> fun (m: Map<int, 'T>) -> f.Invoke(m :> IDictionary<int,'T>)) |> Array.toList
+        QuantumConstraintSolver.forNQueens boardSize domainList constraintList
+    
+    /// <summary>Estimate quantum resources for constraint solving (C# helper).</summary>
+    /// <param name="searchSpaceSize">Size of search space</param>
+    /// <returns>Resource estimate description</returns>
+    static member EstimateConstraintSolverResources(searchSpaceSize: int) =
+        QuantumConstraintSolver.estimateResources searchSpaceSize
+    
+    /// <summary>Solve quantum constraint problem (C# helper).</summary>
+    /// <typeparam name="T">Domain value type</typeparam>
+    /// <param name="problem">Constraint solving problem</param>
+    /// <returns>Result with solution or error message</returns>
+    static member SolveConstraints<'T>(problem: QuantumConstraintSolver.ConstraintProblem<'T>) =
+        QuantumConstraintSolver.solve problem
+    
+    // ============================================================================
+    // QUANTUM PATTERN MATCHER BUILDER EXTENSIONS
+    // ============================================================================
+    
+    /// <summary>Create a simple quantum pattern matcher problem (C# helper).</summary>
+    /// <typeparam name="T">Configuration type</typeparam>
+    /// <param name="configurations">Array of configurations to search</param>
+    /// <param name="pattern">Pattern matching predicate</param>
+    static member QuantumPatternMatcher<'T>(configurations: 'T[], pattern: Func<'T, bool>) =
+        QuantumPatternMatcher.simple (Array.toList configurations) pattern.Invoke
+    
+    /// <summary>Find all matching configurations (C# helper).</summary>
+    /// <typeparam name="T">Configuration type</typeparam>
+    /// <param name="configurations">Array of configurations</param>
+    /// <param name="pattern">Pattern matching predicate</param>
+    static member FindAllMatches<'T>(configurations: 'T[], pattern: Func<'T, bool>) =
+        QuantumPatternMatcher.findAll (Array.toList configurations) pattern.Invoke
+    
+    /// <summary>Create a pattern matcher for configuration optimization (C# helper).</summary>
+    /// <typeparam name="T">Configuration type</typeparam>
+    /// <param name="configurations">Array of configurations</param>
+    /// <param name="performanceCheck">Performance validation predicate</param>
+    /// <param name="topN">Number of top configurations to return</param>
+    static member ConfigurationOptimizer<'T>(configurations: 'T[], performanceCheck: Func<'T, bool>, topN: int) =
+        QuantumPatternMatcher.forConfigOptimization (Array.toList configurations) performanceCheck.Invoke topN
+    
+    /// <summary>Create a pattern matcher for hyperparameter tuning (C# helper).</summary>
+    /// <param name="searchSpaceSize">Number of hyperparameter combinations</param>
+    /// <param name="evaluator">Function to evaluate hyperparameter sets by index</param>
+    /// <param name="topN">Number of top hyperparameter sets to return</param>
+    static member HyperparameterTuning(searchSpaceSize: int, evaluator: Func<int, bool>, topN: int) =
+        QuantumPatternMatcher.forHyperparameterTuning searchSpaceSize evaluator.Invoke topN
+    
+    /// <summary>Create a pattern matcher for feature selection (C# helper).</summary>
+    /// <typeparam name="T">Feature set type</typeparam>
+    /// <param name="featureSets">Array of feature combinations</param>
+    /// <param name="modelPerformance">Function to evaluate feature set quality</param>
+    /// <param name="topN">Number of top feature sets to return</param>
+    static member FeatureSelection<'T>(featureSets: 'T[], modelPerformance: Func<'T, bool>, topN: int) =
+        QuantumPatternMatcher.forFeatureSelection (Array.toList featureSets) modelPerformance.Invoke topN
+    
+    /// <summary>Create a pattern matcher for A/B test variant selection (C# helper).</summary>
+    /// <typeparam name="T">Variant type</typeparam>
+    /// <param name="variants">Array of test variants</param>
+    /// <param name="conversionCheck">Function to check variant performance</param>
+    /// <param name="topN">Number of top variants to return</param>
+    static member ABTestSelection<'T>(variants: 'T[], conversionCheck: Func<'T, bool>, topN: int) =
+        QuantumPatternMatcher.forABTesting (Array.toList variants) conversionCheck.Invoke topN
+    
+    /// <summary>Estimate quantum resources for pattern matching (C# helper).</summary>
+    /// <param name="searchSpaceSize">Size of search space</param>
+    /// <param name="topN">Number of top matches</param>
+    /// <returns>Resource estimate description</returns>
+    static member EstimatePatternMatcherResources(searchSpaceSize: int, topN: int) =
+        QuantumPatternMatcher.estimateResources searchSpaceSize topN
+    
+    /// <summary>Solve quantum pattern matching problem (C# helper).</summary>
+    /// <typeparam name="T">Configuration type</typeparam>
+    /// <param name="problem">Pattern matching problem</param>
+    /// <returns>Result with matching configurations or error message</returns>
+    static member SolvePatternMatch<'T>(problem: QuantumPatternMatcher.PatternProblem<'T>) =
+        QuantumPatternMatcher.solve problem
+    
+    // ============================================================================
+    // QUANTUM ARITHMETIC BUILDER EXTENSIONS (Phase 2: QFT-Based)
+    // ============================================================================
+    
+    /// <summary>Perform quantum addition: a + b (C# helper).</summary>
+    /// <param name="a">First operand</param>
+    /// <param name="b">Second operand</param>
+    /// <param name="qubits">Number of qubits (optional, defaults to 8)</param>
+    /// <returns>Arithmetic operation to execute</returns>
+    static member Add(a: int, b: int, ?qubits: int) =
+        let q = defaultArg qubits 8
+        QuantumArithmeticOps.add a b q
+    
+    /// <summary>Perform modular addition: (a + b) mod N (C# helper).</summary>
+    /// <param name="a">First operand</param>
+    /// <param name="b">Second operand</param>
+    /// <param name="modulus">Modulus N</param>
+    /// <param name="qubits">Number of qubits (optional, defaults to 8)</param>
+    /// <returns>Arithmetic operation to execute</returns>
+    static member ModularAdd(a: int, b: int, modulus: int, ?qubits: int) =
+        let q = defaultArg qubits 8
+        QuantumArithmeticOps.modularAdd a b modulus q
+    
+    /// <summary>Perform modular multiplication: (a * b) mod N (C# helper).</summary>
+    /// <param name="a">First operand</param>
+    /// <param name="b">Second operand</param>
+    /// <param name="modulus">Modulus N</param>
+    /// <param name="qubits">Number of qubits (optional, defaults to 8)</param>
+    /// <returns>Arithmetic operation to execute</returns>
+    static member ModularMultiply(a: int, b: int, modulus: int, ?qubits: int) =
+        let q = defaultArg qubits 8
+        QuantumArithmeticOps.modularMultiply a b modulus q
+    
+    /// <summary>Perform modular exponentiation: (base^exponent) mod N (C# helper).</summary>
+    /// <param name="baseValue">Base value</param>
+    /// <param name="exponent">Exponent</param>
+    /// <param name="modulus">Modulus N</param>
+    /// <param name="qubits">Number of qubits (optional, defaults to 8)</param>
+    /// <returns>Arithmetic operation to execute</returns>
+    static member ModularExponentiate(baseValue: int, exponent: int, modulus: int, ?qubits: int) =
+        let q = defaultArg qubits 8
+        QuantumArithmeticOps.modularExponentiate baseValue exponent modulus q
+    
+    /// <summary>Execute quantum arithmetic operation (C# helper).</summary>
+    /// <param name="operation">Arithmetic operation to execute</param>
+    /// <returns>Result with computed value or error message</returns>
+    static member ExecuteArithmetic(operation: QuantumArithmeticOps.ArithmeticOperation) =
+        QuantumArithmeticOps.execute operation
+    
+    // ============================================================================
+    // QUANTUM PERIOD FINDER BUILDER EXTENSIONS (Phase 2: Shor's Algorithm)
+    // ============================================================================
+    
+    /// <summary>Factor an integer using Shor's algorithm (C# helper).</summary>
+    /// <param name="number">Integer to factor</param>
+    /// <param name="precision">Number of precision qubits (optional, defaults to 8)</param>
+    /// <returns>Period finder problem to solve</returns>
+    static member FactorInteger(number: int, ?precision: int) =
+        let p = defaultArg precision 8
+        QuantumPeriodFinder.factorInteger number p
+    
+    /// <summary>Factor an integer using a specific base value (C# helper).</summary>
+    /// <param name="number">Integer to factor</param>
+    /// <param name="baseValue">Base for period finding</param>
+    /// <param name="precision">Number of precision qubits (optional, defaults to 8)</param>
+    /// <returns>Period finder problem to solve</returns>
+    static member FactorIntegerWithBase(number: int, baseValue: int, ?precision: int) =
+        let p = defaultArg precision 8
+        QuantumPeriodFinder.factorIntegerWithBase number baseValue p
+    
+    /// <summary>Break RSA encryption by factoring the modulus N (C# helper).</summary>
+    /// <param name="rsaModulus">RSA modulus N = p * q</param>
+    /// <returns>Period finder problem to solve</returns>
+    static member BreakRSA(rsaModulus: int) =
+        QuantumPeriodFinder.breakRSA rsaModulus
+    
+    /// <summary>Execute period finder problem to find factors (C# helper).</summary>
+    /// <param name="problem">Period finder problem</param>
+    /// <returns>Result with factors or error message</returns>
+    static member ExecutePeriodFinder(problem: QuantumPeriodFinder.PeriodFinderProblem) =
+        QuantumPeriodFinder.solve problem
+    
+    // ============================================================================
+    // QUANTUM PHASE ESTIMATOR BUILDER EXTENSIONS (Phase 2: QPE)
+    // ============================================================================
+    
+    /// <summary>Estimate eigenphase of T gate (e^(iπ/4)) using QPE (C# helper).</summary>
+    /// <param name="precision">Number of precision qubits (optional, defaults to 8)</param>
+    /// <returns>Phase estimator problem to solve</returns>
+    static member EstimateTGate(?precision: int) =
+        let p = defaultArg precision 8
+        QuantumPhaseEstimator.estimateTGate p
+    
+    /// <summary>Estimate eigenphase of S gate (e^(iπ/2)) using QPE (C# helper).</summary>
+    /// <param name="precision">Number of precision qubits (optional, defaults to 8)</param>
+    /// <returns>Phase estimator problem to solve</returns>
+    static member EstimateSGate(?precision: int) =
+        let p = defaultArg precision 8
+        QuantumPhaseEstimator.estimateSGate p
+    
+    /// <summary>Estimate eigenphase of Phase gate P(θ) = e^(iθ) using QPE (C# helper).</summary>
+    /// <param name="theta">Phase angle in radians</param>
+    /// <param name="precision">Number of precision qubits (optional, defaults to 8)</param>
+    /// <returns>Phase estimator problem to solve</returns>
+    static member EstimatePhaseGate(theta: float, ?precision: int) =
+        let p = defaultArg precision 8
+        QuantumPhaseEstimator.estimatePhaseGate theta p
+    
+    /// <summary>Estimate eigenphase of Rotation-Z gate Rz(θ) = e^(-iθ/2)|0⟩ + e^(iθ/2)|1⟩ (C# helper).</summary>
+    /// <param name="theta">Rotation angle in radians</param>
+    /// <param name="precision">Number of precision qubits (optional, defaults to 8)</param>
+    /// <returns>Phase estimator problem to solve</returns>
+    static member EstimateRotationZ(theta: float, ?precision: int) =
+        let p = defaultArg precision 8
+        QuantumPhaseEstimator.estimateRotationZ theta p
+    
+    /// <summary>Execute phase estimator problem to find eigenvalue (C# helper).</summary>
+    /// <param name="problem">Phase estimator problem</param>
+    /// <returns>Result with phase and eigenvalue or error message</returns>
+    static member ExecutePhaseEstimator(problem: QuantumPhaseEstimator.PhaseEstimatorProblem) =
+        QuantumPhaseEstimator.estimate problem
+

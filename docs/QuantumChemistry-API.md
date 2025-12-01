@@ -140,7 +140,7 @@ Convenience functions for common molecules.
 
 #### h2
 
-```fsharp
+```text
 val h2 : distance:float -> Molecule
 ```
 
@@ -156,7 +156,7 @@ let hydrogen = h2 0.74  // Equilibrium bond length
 
 #### h2o
 
-```fsharp
+```text
 val h2o : bondLength:float -> angle:float -> Molecule
 ```
 
@@ -173,7 +173,7 @@ let water = h2o 0.96 104.5  // Standard geometry
 
 #### lih
 
-```fsharp
+```text
 val lih : distance:float -> Molecule
 ```
 
@@ -191,7 +191,7 @@ let lithiumHydride = lih 1.6  // Typical bond length
 
 #### solve
 
-```fsharp
+```text
 val solve : ChemistryProblem -> Async<Result<ChemistryResult, string>>
 ```
 

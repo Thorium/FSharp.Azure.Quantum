@@ -15,6 +15,41 @@ open System.Numerics
 module QaoaSimulator =
     
     // ============================================================================
+    // 0. HIGH-LEVEL API TYPES
+    // ============================================================================
+    
+    /// QAOA circuit definition for high-level simulation API
+    type QaoaCircuit =
+        {
+            /// Number of qubits in the circuit
+            NumQubits: int
+            
+            /// QAOA parameters: [gamma1; beta1; gamma2; beta2; ...]
+            /// where gamma = cost layer angle, beta = mixer layer angle
+            Parameters: float[]
+            
+            /// Cost terms as (qubit1, qubit2, weight) tuples
+            /// For single-qubit terms, use (qubit, qubit, weight)
+            CostTerms: (int * int * float)[]
+            
+            /// Number of QAOA layers (p parameter)
+            Depth: int
+        }
+    
+    /// Result of QAOA simulation
+    type QaoaResult =
+        {
+            /// Measurement counts: bitstring -> frequency
+            Counts: Map<string, int>
+            
+            /// Total number of shots executed
+            Shots: int
+            
+            /// Execution time in milliseconds
+            ExecutionTimeMs: float
+        }
+    
+    // ============================================================================
     // 1. INITIALIZATION (Depends on StateVector and Gates)
     // ============================================================================
     
@@ -194,3 +229,83 @@ module QaoaSimulator =
             let probability = amplitude.Magnitude * amplitude.Magnitude
             probability * computeBasisCost basisIndex
         )
+    
+    // ============================================================================
+    // 6. HIGH-LEVEL SIMULATION API
+    // ============================================================================
+    
+    /// Simulate QAOA circuit with multiple measurement shots
+    /// 
+    /// High-level API that takes a QaoaCircuit definition and returns measurement results.
+    /// This function:
+    /// 1. Builds the quantum state by applying QAOA layers
+    /// 2. Performs the specified number of measurement shots
+    /// 3. Returns aggregated measurement counts as bitstrings
+    /// 
+    /// Parameters:
+    /// - circuit: QaoaCircuit definition with qubits, parameters, and cost terms
+    /// - numShots: Number of measurements to perform
+    /// 
+    /// Returns: Result with measurement counts or error message
+    let simulate (circuit: QaoaCircuit) (numShots: int) : Result<QaoaResult, string> =
+        try
+            // Validation
+            if circuit.NumQubits < 1 || circuit.NumQubits > 16 then
+                Error $"Number of qubits must be between 1 and 16, got {circuit.NumQubits}"
+            elif numShots < 1 then
+                Error $"Number of shots must be positive, got {numShots}"
+            elif circuit.Depth < 1 then
+                Error $"Circuit depth must be positive, got {circuit.Depth}"
+            elif circuit.Parameters.Length <> circuit.Depth * 2 then
+                Error $"Parameters array length ({circuit.Parameters.Length}) must equal Depth * 2 ({circuit.Depth * 2})"
+            else
+                let startTime = DateTime.Now
+                
+                // Extract gammas and betas from parameters array
+                let gammas = circuit.Parameters |> Array.indexed |> Array.filter (fun (i, _) -> i % 2 = 0) |> Array.map snd
+                let betas = circuit.Parameters |> Array.indexed |> Array.filter (fun (i, _) -> i % 2 = 1) |> Array.map snd
+                
+                // Initialize state to uniform superposition
+                let mutable state = initializeUniformSuperposition circuit.NumQubits
+                
+                // Apply each QAOA layer
+                for layerIdx in 0 .. circuit.Depth - 1 do
+                    let gamma = gammas[layerIdx]
+                    let beta = betas[layerIdx]
+                    
+                    // Apply cost layer: process all cost terms
+                    for (q1, q2, weight) in circuit.CostTerms do
+                        if q1 = q2 then
+                            // Single-qubit term (diagonal)
+                            state <- state |> Gates.applyRz q1 (2.0 * gamma * weight)
+                        else
+                            // Two-qubit interaction term
+                            state <- applyCostInteraction gamma q1 q2 weight state
+                    
+                    // Apply mixer layer
+                    state <- applyMixerLayer beta state
+                
+                // Perform measurements
+                let rng = Random()
+                let counts = Measurement.sampleAndCount rng numShots state
+                
+                // Convert basis indices to bitstrings
+                let bitstringCounts =
+                    counts
+                    |> Map.toSeq
+                    |> Seq.map (fun (basisIndex, count) ->
+                        let bitstring = Convert.ToString((basisIndex: int), 2).PadLeft(circuit.NumQubits, '0')
+                        (bitstring, count)
+                    )
+                    |> Map.ofSeq
+                
+                let endTime = DateTime.Now
+                let executionTimeMs = (endTime - startTime).TotalMilliseconds
+                
+                Ok {
+                    Counts = bitstringCounts
+                    Shots = numShots
+                    ExecutionTimeMs = executionTimeMs
+                }
+        with
+        | ex -> Error $"QAOA simulation failed: {ex.Message}"

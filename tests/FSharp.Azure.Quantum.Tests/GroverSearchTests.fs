@@ -6,10 +6,14 @@ open FSharp.Azure.Quantum.LocalSimulator
 open FSharp.Azure.Quantum.GroverSearch.Oracle
 open FSharp.Azure.Quantum.GroverSearch.GroverIteration
 open FSharp.Azure.Quantum.GroverSearch.Search
+open FSharp.Azure.Quantum.Core.BackendAbstraction
 
 /// Integration tests for Grover Search using local backend
 /// These tests actually RUN the quantum algorithm in simulation
 module GroverSearchTests =
+    
+    /// Helper: Create local quantum backend for testing
+    let createBackend () = createLocalBackend ()
     
     /// Helper: Unwrap Result<CompiledOracle, string> for testing
     let unwrapOracle (result: Result<CompiledOracle, string>) : CompiledOracle =
@@ -169,7 +173,7 @@ module GroverSearchTests =
         let target = 5
         let numQubits = 3
         
-        match searchSingle target numQubits defaultConfig with
+        match searchSingle target numQubits (createBackend ()) defaultConfig with
         | Ok result ->
             // Should find the target
             Assert.Contains(target, result.Solutions)
@@ -191,7 +195,7 @@ module GroverSearchTests =
         let numQubits = 3
         
         for target in [0; 3; 5; 7] do
-            match searchSingle target numQubits (reproducibleConfig 42) with
+            match searchSingle target numQubits (createBackend ()) (reproducibleConfig 42) with
             | Ok result ->
                 Assert.Contains(target, result.Solutions)
             | Error err ->
@@ -203,9 +207,9 @@ module GroverSearchTests =
         let numQubits = 3
         let seed = 12345
         
-        match searchSingle target numQubits (reproducibleConfig seed) with
+        match searchSingle target numQubits (createBackend ()) (reproducibleConfig seed) with
         | Ok result1 ->
-            match searchSingle target numQubits (reproducibleConfig seed) with
+            match searchSingle target numQubits (createBackend ()) (reproducibleConfig seed) with
             | Ok result2 ->
                 // Same seed should give same solutions
                 Assert.Equal<int list>(result1.Solutions, result2.Solutions)
@@ -227,7 +231,7 @@ module GroverSearchTests =
                 Shots = 500
         }
         
-        match searchSingle target numQubits config with
+        match searchSingle target numQubits (createBackend ()) config with
         | Ok result ->
             Assert.Contains(target, result.Solutions)
             
@@ -244,7 +248,7 @@ module GroverSearchTests =
         let targets = [2; 5; 7]
         let numQubits = 3
         
-        match searchMultiple targets numQubits defaultConfig with
+        match searchMultiple targets numQubits (createBackend ()) defaultConfig with
         | Ok result ->
             // Should find at least one solution
             Assert.NotEmpty(result.Solutions)
@@ -259,8 +263,9 @@ module GroverSearchTests =
     let ``SearchWhere finds even numbers`` () =
         let isEven x = x % 2 = 0
         let numQubits = 3
+        let backend = createBackend()
         
-        match searchWhere isEven numQubits defaultConfig with
+        match searchWhere isEven numQubits backend defaultConfig with
         | Ok result ->
             Assert.NotEmpty(result.Solutions)
             
@@ -274,8 +279,9 @@ module GroverSearchTests =
     let ``SearchWhere finds odd numbers`` () =
         let isOdd x = x % 2 = 1
         let numQubits = 3
+        let backend = createBackend()
         
-        match searchWhere isOdd numQubits defaultConfig with
+        match searchWhere isOdd numQubits backend defaultConfig with
         | Ok result ->
             Assert.NotEmpty(result.Solutions)
             
@@ -294,8 +300,9 @@ module GroverSearchTests =
     [<Fact>]
     let ``SearchEven finds even numbers`` () =
         let numQubits = 3
+        let backend = createBackend()
         
-        match searchEven numQubits defaultConfig with
+        match searchEven numQubits backend defaultConfig with
         | Ok result ->
             Assert.NotEmpty(result.Solutions)
             
@@ -309,8 +316,9 @@ module GroverSearchTests =
     [<Fact>]
     let ``SearchOdd finds odd numbers`` () =
         let numQubits = 3
+        let backend = createBackend()
         
-        match searchOdd numQubits defaultConfig with
+        match searchOdd numQubits backend defaultConfig with
         | Ok result ->
             Assert.NotEmpty(result.Solutions)
             
@@ -336,7 +344,7 @@ module GroverSearchTests =
         let target = 7
         let numQubits = 3
         
-        match searchSingle target numQubits highPrecisionConfig with
+        match searchSingle target numQubits (createBackend ()) highPrecisionConfig with
         | Ok result ->
             // With 1000 shots and 0.9 threshold, should have high confidence
             Assert.True(result.Shots = 1000)
@@ -349,7 +357,7 @@ module GroverSearchTests =
         let target = 3
         let numQubits = 3
         
-        match searchSingle target numQubits fastConfig with
+        match searchSingle target numQubits (createBackend ()) fastConfig with
         | Ok result ->
             // Should use only 50 shots
             Assert.Equal(50, result.Shots)
@@ -365,7 +373,7 @@ module GroverSearchTests =
         
         let config = manualConfig manualIterations 100
         
-        match searchSingle target numQubits config with
+        match searchSingle target numQubits (createBackend ()) config with
         | Ok result ->
             // Should use exactly the specified iterations
             Assert.Equal(manualIterations, result.IterationsApplied)
@@ -404,7 +412,7 @@ module GroverSearchTests =
         let classicalResult = classicalSearch (fun x -> x = target) searchSpace
         
         // Quantum search
-        match searchSingle target numQubits defaultConfig with
+        match searchSingle target numQubits (createBackend ()) defaultConfig with
         | Ok quantumResult ->
             match classicalResult with
             | Some classical ->
@@ -420,7 +428,8 @@ module GroverSearchTests =
     
     [<Fact>]
     let ``FindValue42 example works`` () =
-        match Examples.findValue42() with
+        let backend = createBackend()
+        match Examples.findValue42(backend) with
         | Ok result ->
             Assert.Contains(42, result.Solutions)
             Assert.True(result.IterationsApplied > 0)
@@ -435,7 +444,8 @@ module GroverSearchTests =
         // Multi-solution searches can be challenging with default config
         // This is a known limitation - documented in TKT-96
         // Verify the example runs without error (may not always find solution)
-        match Examples.findInRange() with
+        let backend = createBackend()
+        match Examples.findInRange(backend) with
         | Ok result ->
             // Success - just verify no crash
             Assert.True(result.IterationsApplied > 0, "Should have applied iterations")
@@ -446,7 +456,8 @@ module GroverSearchTests =
     let ``FindPrimeNumber example works`` () =
         // Prime search in 4-qubit space (0-15) has solutions: 2, 3, 5, 7, 11, 13
         // Multi-solution searches can be challenging with default config
-        match Examples.findPrimeNumber() with
+        let backend = createBackend()
+        match Examples.findPrimeNumber(backend) with
         | Ok result ->
             // Verify the example runs without error
             Assert.True(result.IterationsApplied > 0, "Should have applied iterations")
@@ -465,7 +476,7 @@ module GroverSearchTests =
         let target = 1
         let numQubits = 1
         
-        match searchSingle target numQubits defaultConfig with
+        match searchSingle target numQubits (createBackend ()) defaultConfig with
         | Ok result ->
             Assert.Contains(target, result.Solutions)
         | Error err ->
@@ -476,7 +487,10 @@ module GroverSearchTests =
         let target = 20
         let numQubits = 5
         
-        match searchSingle target numQubits defaultConfig with
+        // 5-qubit search: 32 states, doubled shots for better reliability
+        let config = { defaultConfig with Shots = 1000 }
+        
+        match searchSingle target numQubits (createBackend ()) config with
         | Ok result ->
             Assert.Contains(target, result.Solutions)
         | Error err ->
@@ -487,7 +501,7 @@ module GroverSearchTests =
         let target = 0
         let numQubits = 3
         
-        match searchSingle target numQubits defaultConfig with
+        match searchSingle target numQubits (createBackend ()) defaultConfig with
         | Ok result ->
             Assert.Contains(target, result.Solutions)
         | Error err ->
@@ -498,7 +512,7 @@ module GroverSearchTests =
         let numQubits = 3
         let target = (1 <<< numQubits) - 1  // 7 for 3 qubits
         
-        match searchSingle target numQubits defaultConfig with
+        match searchSingle target numQubits (createBackend ()) defaultConfig with
         | Ok result ->
             Assert.Contains(target, result.Solutions)
         | Error err ->
@@ -538,7 +552,7 @@ module GroverSearchTests =
         let target = 5
         let numQubits = 3
         
-        match searchSingle target numQubits defaultConfig with
+        match searchSingle target numQubits (createBackend ()) defaultConfig with
         | Ok result ->
             // Verify all result fields are populated
             Assert.NotEmpty(result.Solutions)

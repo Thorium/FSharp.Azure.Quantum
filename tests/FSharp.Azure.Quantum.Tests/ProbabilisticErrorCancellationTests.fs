@@ -786,11 +786,15 @@ module ProbabilisticErrorCancellationTests =
                             | CircuitBuilder.Gate.SDG q -> FSharp.Azure.Quantum.LocalSimulator.Gates.applySDG q state
                             | CircuitBuilder.Gate.T q -> FSharp.Azure.Quantum.LocalSimulator.Gates.applyT q state
                             | CircuitBuilder.Gate.TDG q -> FSharp.Azure.Quantum.LocalSimulator.Gates.applyTDG q state
+                            | CircuitBuilder.Gate.P (q, theta) -> FSharp.Azure.Quantum.LocalSimulator.Gates.applyP q theta state
                             | CircuitBuilder.Gate.RX (q, angle) -> FSharp.Azure.Quantum.LocalSimulator.Gates.applyRx q angle state
                             | CircuitBuilder.Gate.RY (q, angle) -> FSharp.Azure.Quantum.LocalSimulator.Gates.applyRy q angle state
                             | CircuitBuilder.Gate.RZ (q, angle) -> FSharp.Azure.Quantum.LocalSimulator.Gates.applyRz q angle state
                             | CircuitBuilder.Gate.CNOT (ctrl, tgt) -> FSharp.Azure.Quantum.LocalSimulator.Gates.applyCNOT ctrl tgt state
                             | CircuitBuilder.Gate.CZ (ctrl, tgt) -> FSharp.Azure.Quantum.LocalSimulator.Gates.applyCZ ctrl tgt state
+                            | CircuitBuilder.Gate.CP (ctrl, tgt, theta) -> 
+                                // CP gate: Controlled-Phase
+                                FSharp.Azure.Quantum.LocalSimulator.Gates.applyCP ctrl tgt theta state
                             | CircuitBuilder.Gate.SWAP (q1, q2) -> FSharp.Azure.Quantum.LocalSimulator.Gates.applySWAP q1 q2 state
                             | CircuitBuilder.Gate.CCX (c1, c2, tgt) -> FSharp.Azure.Quantum.LocalSimulator.Gates.applyCCX c1 c2 tgt state
                         
@@ -807,11 +811,13 @@ module ProbabilisticErrorCancellationTests =
                                 | CircuitBuilder.Gate.SDG q -> q
                                 | CircuitBuilder.Gate.T q -> q
                                 | CircuitBuilder.Gate.TDG q -> q
+                                | CircuitBuilder.Gate.P (q, _) -> q
                                 | CircuitBuilder.Gate.RX (q, _) -> q
                                 | CircuitBuilder.Gate.RY (q, _) -> q
                                 | CircuitBuilder.Gate.RZ (q, _) -> q
                                 | CircuitBuilder.Gate.CNOT (_, tgt) -> tgt
                                 | CircuitBuilder.Gate.CZ (_, tgt) -> tgt
+                                | CircuitBuilder.Gate.CP (_, tgt, _) -> tgt
                                 | CircuitBuilder.Gate.SWAP (_, q2) -> q2
                                 | CircuitBuilder.Gate.CCX (_, _, tgt) -> tgt
                             FSharp.Azure.Quantum.LocalSimulator.Gates.applyRz qubit randomAngle afterGate

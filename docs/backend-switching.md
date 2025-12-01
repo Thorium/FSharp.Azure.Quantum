@@ -255,8 +255,8 @@ let backend = createIonQBackend httpClient workspaceUrl "ionq.simulator"
 
 // Everything else stays the same!
 match solve backend distances defaultConfig with
-| Ok solution -> (* use solution *)
-| Error msg -> (* handle error *)
+| Ok solution -> printfn "Solution: %A" solution
+| Error msg -> eprintfn "Error: %s" msg
 ```
 
 **Benefits:**

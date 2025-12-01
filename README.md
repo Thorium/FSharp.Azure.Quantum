@@ -7,13 +7,14 @@
 
 ## ✨ Status: Production Ready
 
-**Architecture:** 100% Quantum-Only - Classical algorithms removed per design philosophy
+**Architecture:** Quantum-First Hybrid Library - Quantum algorithms as primary solvers, with intelligent classical fallback for small problems
 
 **Current Features:**
 - ✅ **Multiple Backends:** LocalBackend (simulation), Azure Quantum (IonQ, Rigetti)
 - ✅ **OpenQASM 2.0:** Import/export compatibility with IBM Qiskit, Amazon Braket, Google Cirq
 - ✅ **QAOA Implementation:** Quantum Approximate Optimization Algorithm with parameter optimization & warm-start
 - ✅ **6 Quantum Optimization Builders:** Graph Coloring, MaxCut, Knapsack, TSP, Portfolio, Network Flow
+- ✅ **3 QFT-Based Application Builders:** Quantum Arithmetic, Cryptographic Analysis (Shor's), Phase Estimation
 - ✅ **VQE Implementation:** Variational Quantum Eigensolver for molecular ground state energies (quantum chemistry)
 - ✅ **Error Mitigation:** ZNE (30-50% error reduction), PEC (2-3x accuracy), REM (50-90% readout correction)
 - ✅ **F# Computation Expressions:** Idiomatic, type-safe problem specification
@@ -32,6 +33,7 @@
 6. [C# Interop](#-c-interop) - Using from C#
 7. [Backend Selection](#-backend-selection) - Local vs Cloud quantum execution
 8. [Educational Algorithms](#-educational-algorithms) - Grover, QFT, Amplitude Amplification (for learning)
+9. [Phase 2 Builders](#phase-2-builders-qft-based-quantum-applications) - Quantum Arithmetic, Cryptographic Analysis, Phase Estimation
 
 ---
 
@@ -50,10 +52,10 @@ open FSharp.Azure.Quantum
 
 // Graph Coloring: Register Allocation
 let problem = graphColoring {
-    node "R1" conflictsWith ["R2"; "R3"]
-    node "R2" conflictsWith ["R1"; "R4"]
-    node "R3" conflictsWith ["R1"; "R4"]
-    node "R4" conflictsWith ["R2"; "R3"]
+    node "R1" ["R2"; "R3"]
+    node "R2" ["R1"; "R4"]
+    node "R3" ["R1"; "R4"]
+    node "R4" ["R2"; "R3"]
     colors ["EAX"; "EBX"; "ECX"; "EDX"]
 }
 
@@ -112,10 +114,10 @@ if (result.IsOk) {
 open FSharp.Azure.Quantum
 
 let problem = graphColoring {
-    node "Task1" conflictsWith ["Task2"; "Task3"]
-    node "Task2" conflictsWith ["Task1"; "Task4"]
-    node "Task3" conflictsWith ["Task1"; "Task4"]
-    node "Task4" conflictsWith ["Task2"; "Task3"]
+    node "Task1" ["Task2"; "Task3"]
+    node "Task2" ["Task1"; "Task4"]
+    node "Task3" ["Task1"; "Task4"]
+    node "Task4" ["Task2"; "Task3"]
     colors ["Slot A"; "Slot B"; "Slot C"]
     objective MinimizeColors
 }
@@ -305,7 +307,7 @@ match solveMaxCut problem (Some quantumConfig) None None with
     printfn "Method: %A" solution.Method
     printfn "Cut Value: %.2f" solution.Result.CutValue
     match solution.Recommendation with
-    | Some rec -> printfn "Advisor: %s" rec.Reasoning
+    | Some recommendation -> printfn "Advisor: %s" recommendation.Reasoning
     | None -> ()
 | Error msg -> printfn "Error: %s" msg
 
@@ -451,7 +453,7 @@ graph TB
 ```fsharp
 // F# computation expression
 let problem = graphColoring {
-    node "R1" conflictsWith ["R2"]
+    node "R1" ["R2"]
     colors ["Red"; "Blue"]
 }
 
@@ -701,9 +703,10 @@ let smallProblem = MaxCut.createProblem ["A"; "B"; "C"] [("A","B",1.0)]
 let result1 = MaxCut.solve smallProblem None  // Fast, free
 
 // Large problem: Use cloud backend
-let largeProblem = MaxCut.createProblem 
-    [for i in 1..20 -> sprintf "V%d" i]
-    [for i in 1..19 -> (sprintf "V%d" i, sprintf "V%d" (i+1), 1.0)]
+let largeProblem = 
+    MaxCut.createProblem 
+        [for i in 1..20 -> sprintf "V%d" i]
+        [for i in 1..19 -> (sprintf "V%d" i, sprintf "V%d" (i+1), 1.0)]
 
 let backend = BackendAbstraction.createIonQBackend(conn, "ionq.simulator")
 let result2 = MaxCut.solve largeProblem (Some backend)  // Scalable, paid
@@ -727,8 +730,8 @@ OpenQASM (Open Quantum Assembly Language) is the **industry-standard text format
 
 **F# API:**
 ```fsharp
-open FSharp.Azure.Quantum
-open FSharp.Azure.Quantum.CircuitBuilder
+// open FSharp.Azure.Quantum
+// open FSharp.Azure.Quantum.CircuitBuilder
 
 // Build circuit using F# circuit builder
 let circuit = 
@@ -759,8 +762,8 @@ rz(0.7853981634) q[0];
 
 **F# API:**
 ```fsharp
-open FSharp.Azure.Quantum
-open System.IO
+// open FSharp.Azure.Quantum
+// open System.IO
 
 // Parse OpenQASM string
 let qasmCode = """
@@ -782,7 +785,7 @@ match OpenQasmImport.parse qasmCode with
 
 // Import from file
 match OpenQasmImport.parseFromFile "grover.qasm" with
-| Ok circuit -> (* use circuit *)
+| Ok circuit -> printfn "Loaded %d-qubit circuit" circuit.QubitCount
 | Error msg -> printfn "Error: %s" msg
 ```
 
@@ -1380,44 +1383,61 @@ Amplitude amplification allows:
 - Custom initial state preparation A|0⟩
 - Reflection about A|0⟩ (automatically generated)
 
-**F# Example:**
+**Example:**
 ```fsharp
-open FSharp.Azure.Quantum.GroverSearch.AmplitudeAmplification
+open FSharp.Azure.Quantum.GroverSearch.AmplitudeAmplificationAdapter
+open FSharp.Azure.Quantum.Core.BackendAbstraction
 
-// Custom state preparation (W-state: equal superposition of single-excitation states)
-let wState = wStatePreparation 3  // (|100⟩ + |010⟩ + |001⟩)/√3
+// Execute amplitude amplification on quantum hardware backend
+let backend = createIonQBackend(connectionString, "ionq.simulator")
+
+// Define oracle (marks solution states)
+let oracle = StateOracle(fun state -> state = 3 || state = 5)
 
 // Configure amplitude amplification
 let config = {
     NumQubits = 3
-    StatePreparation = wState
-    Oracle = myOracle
-    ReflectionOperator = None  // Auto-generate from state preparation
-    Iterations = 5
+    StatePreparation = UniformSuperposition  // or BasisState(n), PartialSuperposition(states)
+    Oracle = oracle
+    Iterations = 2  // Optimal iterations for 2 solutions in 8-element space
 }
 
-// Execute amplitude amplification
-match execute config with
-| Ok result ->
-    printfn "Success probability: %.2f%%" (result.SuccessProbability * 100.0)
-    printfn "Iterations applied: %d" result.IterationsApplied
+match executeWithBackend config backend 1000 with
+| Ok measurementCounts ->
+    printfn "Amplitude amplification executed on quantum hardware"
+    measurementCounts 
+    |> Map.iter (fun state count -> printfn "  |%d⟩: %d counts" state count)
 | Error msg ->
-    printfn "Amplification failed: %s" msg
+    printfn "Backend execution failed: %s" msg
+
+// Convenience functions
+executeUniformAmplification 3 oracle 2 backend 1000      // Uniform initial state
+executeBasisStateAmplification 3 5 oracle 2 backend 1000 // Start from |5⟩
 ```
 
 **Features:**
 - ✅ Custom state preparation (W-states, partial superpositions, arbitrary states)
-- ✅ Automatic reflection operator generation
+- ✅ **Cloud backend execution** (IonQ, Rigetti, LocalBackend)
+- ✅ Automatic reflection operator generation (circuit-based A†)
 - ✅ Grover equivalence verification (shows Grover as special case)
 - ✅ Optimal iteration calculation for arbitrary initial success probability
+- ✅ Measurement-based results (histogram of basis states)
+
+**Backend Limitations:**
+- ⚠️ Backend execution returns **measurement statistics only** (not full amplitudes)
+- ⚠️ Quantum phases are **lost during measurement** (fundamental limitation)
+- ✅ Suitable for algorithms that measure amplification results
+- ✅ For amplitude/phase analysis, use local simulation
 
 **Use Cases:**
 - Quantum walk algorithms with non-uniform initial distributions
 - Fixed-point search (where initial state biases toward solutions)
 - Quantum sampling with amplification
+- Fixed-amplitude search (building block for quantum counting)
 
-**Location:** `src/FSharp.Azure.Quantum/Algorithms/AmplitudeAmplification.fs`  
-**Status:** Experimental - Research and education purposes
+**Location:** `Algorithms/AmplitudeAmplificationAdapter.fs`
+
+**Status:** Production-ready
 
 ---
 
@@ -1434,57 +1454,43 @@ The QFT transforms computational basis states into frequency basis with exponent
 QFT: |j⟩ → (1/√N) Σₖ e^(2πijk/N) |k⟩
 ```
 
-**F# Example:**
+**Example:**
 ```fsharp
-open FSharp.Azure.Quantum.GroverSearch.QuantumFourierTransform
+open FSharp.Azure.Quantum.GroverSearch.QFTBackendAdapter
+open FSharp.Azure.Quantum.Core.BackendAbstraction
 
-// Initialize state |5⟩ (computational basis)
-let state = StateVector.init 3  // 3 qubits
-// ... prepare |5⟩ = |101⟩
+// Execute QFT on quantum hardware backend
+let backend = createIonQBackend(connectionString, "ionq.simulator")
+let config = { NumQubits = 5; ApplySwaps = true; Inverse = false }
 
-// Apply QFT
-match executeStandard 3 state with
-| Ok result ->
-    printfn "QFT applied successfully"
-    printfn "Gate count: %d" result.GateCount
-    printfn "Final state transformed to frequency basis"
-    
-    // Verify unitarity: QFT · QFT† = I
-    let isUnitary = verifyUnitarity 3 state
-    printfn "Unitary check: %b" isUnitary
+match executeQFTWithBackend config backend 1000 None with
+| Ok measurementCounts ->
+    printfn "QFT executed on quantum hardware"
+    measurementCounts 
+    |> Map.iter (fun state count -> printfn "  |%d⟩: %d counts" state count)
 | Error msg ->
-    printfn "QFT failed: %s" msg
+    printfn "Backend execution failed: %s" msg
 
-// Inverse QFT (decode back to computational basis)
-match executeInverse 3 result.FinalState with
-| Ok invResult ->
-    printfn "Inverse QFT applied - recovered original state"
-| Error msg ->
-    printfn "Inverse QFT failed: %s" msg
-```
-
-**API Options:**
-```fsharp
-// Standard QFT with bit-reversal SWAPs
-executeStandard numQubits state
-
-// Inverse QFT (QFT†) for decoding
-executeInverse numQubits state
-
-// QFT without SWAPs (for quantum phase estimation)
-executeNoSwaps numQubits state
-
-// Transform specific basis state |j⟩
-transformBasisState numQubits basisIndex
+// Convenience functions
+executeStandardQFT 5 backend 1000      // Standard QFT with swaps
+executeInverseQFT 5 backend 1000       // Inverse QFT (QFT†)
+executeQFTOnState 5 7 backend 1000     // QFT on specific input state |7⟩
 ```
 
 **Features:**
 - ✅ O(n²) gate complexity (exponential speedup over classical)
-- ✅ Controlled phase rotation gates (CPhase, CRz)
+- ✅ **Cloud backend execution** (IonQ, Rigetti, LocalBackend)
+- ✅ Controlled phase gates (CP) with correct decomposition
 - ✅ Bit-reversal SWAP gates (optional for QPE)
 - ✅ Inverse QFT (QFT†) for result decoding
-- ✅ Unitarity verification (QFT · QFT† = I)
-- ✅ Expected gate count calculation: n(n+1)/2 + floor(n/2)
+- ✅ Angle validation (prevents NaN/infinity)
+- ✅ Measurement-based results (histogram of basis states)
+
+**Backend Limitations:**
+- ⚠️ Backend execution returns **measurement statistics only** (not full state vector)
+- ⚠️ Amplitudes and phases are **lost during measurement** (fundamental quantum limitation)
+- ✅ Suitable for algorithms that measure QFT output (Shor's, Phase Estimation)
+- ✅ For amplitude/phase analysis, use local simulation
 
 **Use Cases:**
 - **Shor's Algorithm**: Integer factorization (period finding step)
@@ -1493,12 +1499,149 @@ transformBasisState numQubits basisIndex
 - **Quantum Signal Processing**: Frequency domain analysis
 
 **Performance:**
-- 3 qubits: 9 gates (3 H + 3 CPhase + 1 SWAP)
-- 5 qubits: 20 gates (5 H + 10 CPhase + 2 SWAP)
-- 10 qubits: 60 gates (10 H + 45 CPhase + 5 SWAP)
+- 3 qubits: 12 gates (3 H + 6 CPhase + 1 SWAP)
+- 5 qubits: 27 gates (5 H + 20 CPhase + 2 SWAP)
+- 10 qubits: 105 gates (10 H + 90 CPhase + 5 SWAP)
 
-**Location:** `src/FSharp.Azure.Quantum/Algorithms/QuantumFourierTransform.fs`  
-**Status:** Production-ready - Foundational algorithm for advanced applications
+**Location:** `Algorithms/QFTBackendAdapter.fs`
+
+**Status:** Production-ready
+
+---
+
+### Phase 2 Builders: QFT-Based Quantum Applications
+
+**High-level builders for cryptography, quantum chemistry, and research applications.**
+
+The library provides three advanced builders that wrap QFT-based quantum algorithms for real-world business scenarios:
+
+#### 1. Quantum Arithmetic Builder
+
+**Use Case:** Cryptographic operations, RSA encryption, modular arithmetic
+
+```fsharp
+open FSharp.Azure.Quantum.QuantumArithmeticOps
+
+// RSA encryption: m^e mod n
+let encryptOp = quantumArithmetic {
+    operands 5 3           // message=5, exponent=3
+    operation ModularExponentiate
+    modulus 33             // RSA modulus
+    qubits 8
+}
+
+match execute encryptOp with
+| Ok result -> 
+    printfn "Encrypted: %d" result.Value
+    printfn "Gates: %d, Depth: %d" result.GateCount result.CircuitDepth
+| Error msg -> 
+    printfn "Error: %s" msg
+```
+
+**C# API:**
+```csharp
+using static FSharp.Azure.Quantum.CSharpBuilders;
+
+var encrypt = ModularExponentiate(baseValue: 5, exponent: 3, modulus: 33);
+var result = ExecuteArithmetic(encrypt);
+```
+
+**Business Applications:**
+- Cryptographic algorithm prototyping
+- Educational RSA demonstrations
+- Quantum arithmetic research
+
+**Example:** [`examples/QuantumArithmetic/`](examples/QuantumArithmetic/)
+
+---
+
+#### 2. Cryptographic Analysis Builder (Shor's Algorithm)
+
+**Use Case:** RSA security assessment, post-quantum cryptography planning
+
+```fsharp
+open FSharp.Azure.Quantum.QuantumPeriodFinder
+
+// Factor RSA modulus (security analysis)
+let problem = periodFinder {
+    number 15              // Composite to factor
+    precision 8            // QPE precision
+    maxAttempts 10         // Retries (probabilistic)
+}
+
+match solve problem with
+| Ok result ->
+    match result.Factors with
+    | Some (p, q) -> 
+        printfn "Factors: %d × %d" p q
+        printfn "⚠️  RSA Security Broken!"
+    | None -> 
+        printfn "Try again (probabilistic)"
+| Error msg -> 
+    printfn "Error: %s" msg
+```
+
+**C# API:**
+```csharp
+var problem = FactorInteger(15, precision: 8);
+var result = ExecutePeriodFinder(problem);
+```
+
+**Business Applications:**
+- Security consulting (quantum threat assessment)
+- Post-quantum cryptography migration planning
+- Cryptanalysis research and education
+
+**Example:** [`examples/CryptographicAnalysis/`](examples/CryptographicAnalysis/)
+
+---
+
+#### 3. Phase Estimation Builder (Quantum Chemistry)
+
+**Use Case:** Drug discovery, molecular simulation, materials science
+
+```fsharp
+open FSharp.Azure.Quantum.QuantumPhaseEstimator
+
+// Estimate molecular ground state energy
+let problem = phaseEstimator {
+    unitary (RotationZ (Math.PI / 3.0))  // Molecular Hamiltonian
+    precision 12                          // 12-bit energy precision
+}
+
+match estimate problem with
+| Ok result ->
+    printfn "Phase: %.6f" result.Phase
+    printfn "Energy: %.4f a.u." (result.Phase * 2.0 * Math.PI)
+    printfn "Application: Drug binding affinity prediction"
+| Error msg ->
+    printfn "Error: %s" msg
+```
+
+**C# API:**
+```csharp
+var problem = EstimateRotationZ(Math.PI / 3.0, precision: 12);
+var result = ExecutePhaseEstimator(problem);
+```
+
+**Business Applications:**
+- Pharmaceutical drug discovery (binding energy)
+- Materials science (electronic properties)
+- Quantum chemistry simulations
+
+**Example:** [`examples/PhaseEstimation/`](examples/PhaseEstimation/)
+
+---
+
+**Phase 2 Builder Features:**
+- ✅ Business-focused APIs hiding quantum complexity
+- ✅ F# computation expressions + C# fluent API
+- ✅ Comprehensive examples with real-world scenarios
+- ✅ Educational value for quantum algorithm learning
+- ⚠️ NISQ limitations: Toy examples only (< 20 qubits)
+- ⚠️ Requires fault-tolerant quantum computers for production use
+
+**Current Status:** Educational/research focus - Demonstrates quantum algorithms but hardware insufficient for real-world applications (2024-2025)
 
 ---
 

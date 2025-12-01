@@ -5,7 +5,7 @@ title: Getting Started
 
 # Getting Started with FSharp.Azure.Quantum
 
-Welcome to **FSharp.Azure.Quantum** - an F# library for quantum-inspired optimization using Azure Quantum services. This guide will help you get up and running in 5 minutes.
+Welcome to **FSharp.Azure.Quantum** - an F# library for quantum optimization using quantum algorithms (QAOA, VQE, QFT) with automatic backend selection (local simulation or Azure Quantum cloud). This guide will help you get up and running in 5 minutes.
 
 ## Installation
 
@@ -38,14 +38,83 @@ Install-Package FSharp.Azure.Quantum -Version 1.1.0
 - **Azure Account** (for quantum backend access)
 - **Azure Quantum Workspace** (optional, for quantum execution)
 
-## Quick Start: Your First Optimization
+## Quick Start: Your First Quantum Optimization
 
-Let's solve a simple Traveling Salesman Problem (TSP) using the HybridSolver:
+Let's solve a simple Graph Coloring Problem using the quantum-first API:
+
+```fsharp
+open FSharp.Azure.Quantum
+open FSharp.Azure.Quantum.GraphColoring
+
+// Define a graph coloring problem (register allocation)
+let problem = graphColoring {
+    node "R1" ["R2"; "R3"]
+    node "R2" ["R1"; "R4"]
+    node "R3" ["R1"; "R4"]
+    node "R4" ["R2"; "R3"]
+}
+
+// Solve using QAOA quantum algorithm (LocalBackend simulation)
+match GraphColoring.solve problem 4 None with  // None = LocalBackend (default)
+| Ok solution ->
+    printfn "Colors used: %d" solution.ColorsUsed
+    solution.Assignments 
+    |> Map.iter (fun node color -> printfn "%s → %s" node color)
+| Error msg -> 
+    printfn "Error: %s" msg
+```
+
+**Output:**
+```
+Colors used: 2
+R1 → Color_0
+R2 → Color_1
+R3 → Color_1
+R4 → Color_0
+```
+
+**What happens:**
+1. Computation expression builds graph coloring problem
+2. `GraphColoring.solve` encodes problem as QUBO
+3. QAOA quantum algorithm builds optimization circuit
+4. LocalBackend simulates quantum circuit (up to 16 qubits, free)
+5. Returns color assignments with validation
+
+## Key Concepts
+
+### 1. **Direct Quantum API** - Recommended Approach
+
+Use high-level builders to solve problems with quantum algorithms directly:
+
+```fsharp
+// MaxCut problem (graph partitioning)
+let vertices = ["A"; "B"; "C"; "D"]
+let edges = [
+    ("A", "B", 1.0)
+    ("B", "C", 2.0)
+    ("C", "D", 1.0)
+    ("D", "A", 1.0)
+]
+
+let problem = MaxCut.createProblem vertices edges
+
+// Solve with QAOA on LocalBackend (simulation)
+match MaxCut.solve problem None with
+| Ok solution ->
+    printfn "Cut Value: %.2f" solution.CutValue
+    printfn "Partition S: %A" solution.PartitionS
+    printfn "Partition T: %A" solution.PartitionT
+| Error msg -> printfn "Error: %s" msg
+```
+
+### 2. **HybridSolver** - Optional Optimization for Variable-Sized Problems
+
+The `HybridSolver` provides automatic classical fallback for very small problems where quantum circuit overhead isn't beneficial:
 
 ```fsharp
 open FSharp.Azure.Quantum.Classical
 
-// Define a 5-city distance matrix
+// TSP with 5 cities
 let distances = array2D [
     [0.0; 2.0; 9.0; 10.0; 7.0]
     [1.0; 0.0; 6.0;  4.0; 3.0]
@@ -54,42 +123,14 @@ let distances = array2D [
     [10.0; 4.0; 8.0;  5.0; 0.0]
 ]
 
-// Solve using HybridSolver (automatically chooses classical or quantum)
+// HybridSolver automatically routes to classical (fast) or quantum (scalable)
 match HybridSolver.solveTsp distances None None None with
 | Ok solution ->
-    printfn "Method used: %A" solution.Method
-    printfn "Best tour: %A" solution.Result.Tour
-    printfn "Tour length: %.2f" solution.Result.TourLength
-    printfn "Reasoning: %s" solution.Reasoning
-    printfn "Time: %.2f ms" solution.ElapsedMs
-| Error msg ->
-    printfn "Error: %s" msg
-```
-
-**Output:**
-```
-Method used: Classical
-Best tour: [|0; 1; 3; 2; 4|]
-Tour length: 25.00
-Reasoning: Problem size (5 cities) is small enough for classical optimization...
-Time: 15.32 ms
-```
-
-## Key Concepts
-
-### 1. **HybridSolver** - Automatic Quantum/Classical Routing
-
-The `HybridSolver` automatically decides whether to use quantum or classical approaches based on problem size, complexity, and cost:
-
-```fsharp
-// Let the solver decide (recommended)
-HybridSolver.solveTsp distances None None None
-
-// Force classical solver
-HybridSolver.solveTsp distances None None (Some HybridSolver.SolverMethod.Classical)
-
-// Set budget limit (when quantum available)
-HybridSolver.solveTsp distances (Some 10.0) None None  // $10 USD limit
+    printfn "Method: %A" solution.Method          // Classical or Quantum
+    printfn "Tour: %A" solution.Result.Tour
+    printfn "Length: %.2f" solution.Result.TourLength
+    printfn "Reasoning: %s" solution.Reasoning    // Explains routing decision
+| Error msg -> printfn "Error: %s" msg
 ```
 
 #### How HybridSolver Decides: Decision Flow
@@ -108,12 +149,11 @@ HybridSolver.solveTsp distances (Some 10.0) None None  // $10 USD limit
            │       │
            ▼       ▼
     ┌──────────┐  ┌─────────────────┐
-    │ Classical│  │ QuantumAdvisor  │
-    │    or    │  │  analyzes:      │
-    │ Quantum  │  │  - Problem size │
-    │ (forced) │  │  - Complexity   │
-    └──────────┘  │  - Structure    │
-                  └────────┬─────────┘
+    │ Classical│  │ Analyze Problem │
+    │    or    │  │  - Size         │
+    │ Quantum  │  │  - Complexity   │
+    │ (forced) │  │  - Structure    │
+    └──────────┘  └────────┬─────────┘
                            │
                   ┌────────┴────────┐
                   ▼                 ▼
@@ -122,81 +162,48 @@ HybridSolver.solveTsp distances (Some 10.0) None None  // $10 USD limit
               ▼                     ▼
         ┌──────────┐         ┌──────────┐
         │Classical │         │ Quantum  │
-        │(too small│         │(if budget│
-        │for quantum)        │allows)   │
+        │(too small│         │(QAOA on  │
+        │overhead) │         │backend)  │
         └──────────┘         └──────────┘
-                                  │
-                         No quantum yet?
-                                  │
-                                  ▼
-                           ┌──────────┐
-                           │Classical │
-                           │(fallback)│
-                           └──────────┘
 ```
 
 **Key Decision Factors:**
-- **Size < 20**: Always Classical (too small for quantum advantage)
-- **20 ≤ Size ≤ 200**: Considers Quantum (checks budget, structure)
-- **Size > 200**: Recommends Quantum (if available) or Classical fallback
-- **Budget = 0**: Forces Classical regardless of size
-- **forceMethod**: Overrides all automatic decisions
+- **Size < 20**: Classical (quantum circuit overhead not beneficial yet)
+- **20 ≤ Size ≤ 200**: Quantum (QAOA on LocalBackend or cloud)
+- **Size > 200**: Quantum recommended (potential for quantum advantage)
+- **forceMethod**: Overrides automatic decision
 
-### 2. **Classical Solvers** - Immediate Results
+### 3. **Computation Expression Pattern** - Type-Safe Problem Specification
 
-Use classical solvers directly for guaranteed fast results:
-
-```fsharp
-// TSP with classical solver
-let tspSolution = TspSolver.solveWithDistances distances TspSolver.defaultConfig
-
-// Portfolio optimization
-let portfolio = PortfolioSolver.solveGreedyByRatio assets constraints PortfolioSolver.defaultConfig
-```
-
-### 3. **Builder Pattern** - Business-Friendly API with Automatic Routing
-
-Builder APIs (`TSP`, `Portfolio`) provide domain-specific types and automatically route through HybridSolver for intelligent quantum-classical decision making.
-
-**Key Features:**
-- ✅ Named entities (city names, asset symbols)
-- ✅ Domain types (Tour, PortfolioAllocation)
-- ✅ Automatic routing (quantum when appropriate)
-- ✅ Transparent complexity (quantum details hidden)
-
-**Routing Behavior:**
-- Small problems (< 20 cities/assets): Classical (milliseconds, free)
-- Medium problems (20-100): Considers quantum (if beneficial and available)
-- Large problems (100+): Recommends quantum (if budget allows)
-
-Use builder APIs for named cities and assets:
+Builders provide domain-specific computation expressions for intuitive, type-safe problem construction:
 
 ```fsharp
-// TSP Builder - with named cities and coordinates
-let cities = [
-    ("Seattle", 0.0, 0.0)
-    ("Portland", 0.0, 174.0)
-    ("San Francisco", 635.0, 807.0)
+// Knapsack problem (resource allocation)
+let items = [
+    ("Laptop", 2.0, 1000.0)   // (id, weight, value)
+    ("Tablet", 1.0, 500.0)
+    ("Phone", 0.5, 300.0)
 ]
+let problem = Knapsack.createProblem items 3.0  // capacity = 3.0
 
-// Routes through HybridSolver automatically!
-let tspProblem = TSP.createProblem cities
-match TSP.solve tspProblem None with
-| Ok tour -> printfn "Tour: %A, Distance: %.2f" tour.Cities tour.TotalDistance
-| Error msg -> printfn "Error: %s" msg
-
-// Portfolio Builder - with asset details
-let assets = [
-    ("AAPL", 0.12, 0.18, 150.0)  // symbol, return, risk, price
-    ("MSFT", 0.10, 0.15, 300.0)
-    ("GOOGL", 0.15, 0.20, 2800.0)
-]
-
-let portfolioProblem = Portfolio.createProblem assets 10000.0
-match Portfolio.solve portfolioProblem None with
-| Ok allocation -> printfn "Total: $%.2f, Return: %.2f%%" allocation.TotalValue (allocation.ExpectedReturn * 100.0)
+// Solve with QAOA quantum algorithm
+match Knapsack.solve problem None with
+| Ok solution ->
+    printfn "Total Value: %.2f" solution.TotalValue
+    printfn "Total Weight: %.2f" solution.TotalWeight
+    solution.SelectedItems |> List.iter (fun item -> printfn "  - %s" item.Id)
 | Error msg -> printfn "Error: %s" msg
 ```
+
+**When to Use Direct Quantum API vs HybridSolver:**
+
+| Scenario | Recommendation | Reason |
+|----------|---------------|--------|
+| Learning quantum algorithms | **Direct API** | Consistent quantum experience |
+| Production with fixed problem size | **Direct API** | Simple, predictable behavior |
+| Production with variable size | **HybridSolver** | Optimizes small problems automatically |
+| Prototyping | **Direct API** | LocalBackend is fast enough (≤16 qubits) |
+| Performance-critical variable sizing | **HybridSolver** | Classical fallback saves overhead |
 
 ## Common Pitfalls & How to Avoid Them
 
@@ -244,9 +251,9 @@ let symmetric = array2D [
 ### ❌ Pitfall 3: Ignoring Result Type
 
 ```fsharp
-// ❌ WRONG: Not handling errors
-let solution = HybridSolver.solveTsp distances None None None
-printfn "%A" solution.Result  // Compiler error! 'solution' is Result<T,E>
+// ❌ WRONG: Not handling errors (would cause compiler error)
+// let solution = HybridSolver.solveTsp distances None None None
+// printfn "%A" solution.Result  // Compiler error! 'solution' is Result<T,E>
 ```
 
 **✅ Fix:** Always pattern match on Result
@@ -264,22 +271,23 @@ match HybridSolver.solveTsp distances None None None with
 ```fsharp
 // ❌ WRONG: Budget smaller than minimum asset price
 let assets = [("AAPL", 0.12, 0.18, 150.0)]
-let constraints = { Budget = 100.0; MinHolding = 0.0; MaxHolding = 1000.0 }
+let constraints: PortfolioSolver.Constraints = { Budget = 100.0; MinHolding = 0.0; MaxHolding = 1000.0 }
 // Error: "Budget (100) is insufficient to purchase any asset (minimum price: 150)"
 ```
 
 **✅ Fix:** Ensure budget ≥ cheapest asset price
 ```fsharp
 // ✅ CORRECT: Budget can buy at least one share
-let constraints = { Budget = 500.0; MinHolding = 0.0; MaxHolding = 500.0 }
+let constraints: PortfolioSolver.Constraints = { Budget = 500.0; MinHolding = 0.0; MaxHolding = 500.0 }
 ```
 
 ### ❌ Pitfall 5: Type Inference Confusion
 
+**❌ WRONG:** F# can't infer tuple structure
 ```fsharp
-// ❌ WRONG: F# can't infer tuple structure
-let cities = [("Seattle", 0.0, 0.0); ("Portland", 0.0, 174.0)]
-let problem = TSP.createProblem cities  // Type error!
+// This would cause a type error:
+// let cities = [("Seattle", 0.0, 0.0); ("Portland", 0.0, 174.0)]
+// let problem = TSP.createProblem cities
 ```
 
 **✅ Fix:** Add type annotation
@@ -316,20 +324,9 @@ let solveTspRobust (distances: float[,]) =
             Ok solution
             
         | Error msg ->
-            // Log error and try classical fallback
+            // Log error and return error (no classical fallback in this example)
             eprintfn "⚠ HybridSolver failed: %s" msg
-            eprintfn "  Falling back to classical solver..."
-            
-            try
-                let classicalSolution = 
-                    TspSolver.solveWithDistances distances TspSolver.defaultConfig
-                printfn "✓ Classical fallback succeeded"
-                printfn "  Tour: %A" classicalSolution.Tour
-                Ok classicalSolution
-            with
-            | ex ->
-                eprintfn "✗ Classical fallback also failed: %s" ex.Message
-                Error $"All solvers failed: {msg}; {ex.Message}"
+            Error $"Solver failed: {msg}"
 
 // Usage
 let distances = array2D [[0.0; 10.0]; [10.0; 0.0]]
@@ -353,7 +350,7 @@ let solvePortfolioSafely assets budget =
     elif budget <= 0.0 then
         Error $"Budget must be positive: {budget}"
     else
-        let constraints = {
+        let constraints: PortfolioSolver.Constraints = {
             Budget = budget
             MinHolding = 0.0
             MaxHolding = budget * 0.5  // Max 50% in any asset
@@ -363,7 +360,7 @@ let solvePortfolioSafely assets budget =
         let assetRecords = 
             assets 
             |> List.map (fun (symbol, ret, risk, price) -> {
-                Symbol = symbol
+                PortfolioSolver.Asset.Symbol = symbol
                 ExpectedReturn = ret
                 Risk = risk
                 Price = price
@@ -372,7 +369,7 @@ let solvePortfolioSafely assets budget =
         // Validate budget constraint
         match PortfolioSolver.validateBudgetConstraint assetRecords constraints with
         | validation when not validation.IsValid ->
-            Error $"Validation failed: {String.concat "; " validation.Messages}"
+            Error (sprintf "Validation failed: %s" (String.concat "; " validation.Messages))
         | _ ->
             // Solve
             match HybridSolver.solvePortfolio assetRecords constraints None None None with
@@ -387,7 +384,7 @@ let solvePortfolioSafely assets budget =
                 Error $"Solver failed: {msg}"
 
 // Usage with error recovery
-let assets = [
+let assets: (string * float * float * float) list = [
     ("AAPL", 0.12, 0.18, 150.0)
     ("MSFT", 0.10, 0.15, 300.0)
 ]
@@ -531,14 +528,14 @@ For more details, see:
 - **Examples:** See [examples/](examples/) directory
 - **API Docs:** See [api-reference.md](api-reference.md)
 
-## Authentication (for Quantum Backend)
+## Authentication (for Cloud Quantum Backends)
 
-When using quantum backends, you'll need Azure credentials:
+When using cloud quantum backends (IonQ, Rigetti via Azure Quantum), you'll need Azure credentials:
 
 ```fsharp
 open FSharp.Azure.Quantum
 
-// Configure authentication
+// Configure authentication for Azure Quantum cloud
 let workspace = {
     SubscriptionId = "your-subscription-id"
     ResourceGroup = "your-resource-group"
@@ -550,7 +547,7 @@ let workspace = {
 // Supports: Azure CLI, Managed Identity, Environment Variables, etc.
 ```
 
-**Note:** Classical solvers work without Azure credentials and are perfect for development and testing!
+**Note:** LocalBackend (default) works without Azure credentials - perfect for development, testing, and small problems (≤16 qubits)!
 
 ---
 

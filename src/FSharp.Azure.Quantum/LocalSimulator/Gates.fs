@@ -231,6 +231,22 @@ module Gates =
         let matrix = (Complex.One, Complex.Zero, Complex.Zero, phase)
         applySingleQubitGate qubitIndex matrix state
     
+    /// Apply Phase gate P(θ) to specified qubit
+    /// 
+    /// P(θ) = [[1,  0      ],
+    ///         [0,  e^(iθ) ]]
+    /// 
+    /// Effect: |0⟩ → |0⟩, |1⟩ → e^(iθ)|1⟩
+    /// Adds phase θ to |1⟩ state
+    /// 
+    /// This is the key gate for QFT-based addition (Draper algorithm).
+    /// Unlike RZ(θ) which adds ±θ/2 to both states, P(θ) only affects |1⟩.
+    let applyP (qubitIndex: int) (theta: float) (state: StateVector.StateVector) : StateVector.StateVector =
+        // e^(iθ) = cos(θ) + i*sin(θ)
+        let phase = Complex(cos theta, sin theta)
+        let matrix = (Complex.One, Complex.Zero, Complex.Zero, phase)
+        applySingleQubitGate qubitIndex matrix state
+    
     // ============================================================================
     // 6. TWO-QUBIT GATES (Depend on StateVector operations)
     // ============================================================================
@@ -325,6 +341,56 @@ module Gates =
                 newAmplitudes[i] <- StateVector.getAmplitude i state
         
         StateVector.create newAmplitudes
+    
+    /// Apply controlled phase gate (CPhase) to specified control and target qubits
+    /// 
+    /// CPhase applies phase rotation e^(iθ) to target qubit when control qubit is |1⟩
+    /// Equivalently: multiplies amplitude by e^(iθ) when both qubits are |1⟩
+    /// 
+    /// Truth table:
+    /// |00⟩ → |00⟩
+    /// |01⟩ → |01⟩
+    /// |10⟩ → |10⟩
+    /// |11⟩ → e^(iθ)|11⟩  (both qubits 1, add phase e^(iθ))
+    /// 
+    /// Note: CPhase is symmetric - control and target roles are interchangeable
+    let applyCPhase (controlIndex: int) (targetIndex: int) (angle: float) (state: StateVector.StateVector) : StateVector.StateVector =
+        let numQubits = StateVector.numQubits state
+        if controlIndex < 0 || controlIndex >= numQubits then
+            failwith $"Control qubit index {controlIndex} out of range for {numQubits}-qubit state"
+        if targetIndex < 0 || targetIndex >= numQubits then
+            failwith $"Target qubit index {targetIndex} out of range for {numQubits}-qubit state"
+        if controlIndex = targetIndex then
+            failwith "Control and target qubits must be different"
+        
+        let dimension = StateVector.dimension state
+        let controlMask = 1 <<< controlIndex
+        let targetMask = 1 <<< targetIndex
+        let phase = Complex(cos angle, sin angle)  // e^(iθ)
+        
+        // Create new amplitude array
+        let newAmplitudes = Array.zeroCreate dimension
+        
+        // Process each basis state
+        for i in 0 .. dimension - 1 do
+            let controlIs1 = (i &&& controlMask) <> 0
+            let targetIs1 = (i &&& targetMask) <> 0
+            
+            if controlIs1 && targetIs1 then
+                // Both qubits are 1: multiply by phase e^(iθ)
+                newAmplitudes[i] <- phase * StateVector.getAmplitude i state
+            else
+                // Otherwise: no change
+                newAmplitudes[i] <- StateVector.getAmplitude i state
+        
+        StateVector.create newAmplitudes
+    
+    /// Apply Controlled-Phase gate CP(θ) to specified control and target qubits
+    /// This is an alias for applyCPhase with clearer naming for circuit building
+    /// 
+    /// CP(θ) applies P(θ) to target when control is |1⟩
+    let applyCP (controlIndex: int) (targetIndex: int) (theta: float) (state: StateVector.StateVector) : StateVector.StateVector =
+        applyCPhase controlIndex targetIndex theta state
     
     /// Apply SWAP gate to specified qubits
     /// 

@@ -367,7 +367,7 @@ module QuantumTspSolver =
                         Ok {
                             Tour = bestTour
                             TourLength = bestLength
-                            BackendName = backend.Name
+                            BackendName = execResult.BackendName  // Use actual backend name from execution result
                             NumShots = config.FinalShots
                             ElapsedMs = elapsedMs
                             BestEnergy = bestLength  // For TSP, tour length is the energy

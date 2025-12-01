@@ -74,10 +74,11 @@ module BackendAbstraction =
     // LOCAL BACKEND WRAPPER - QaoaSimulator
     // ============================================================================
     
-    /// Wrapper for local QAOA simulator
+    /// Wrapper for local simulator (supports both QAOA and general circuits)
     /// 
-    /// Adapts QaoaSimulator to IQuantumBackend interface.
     /// Provides fast local execution for development and testing.
+    /// - QAOA circuits: Uses optimized QaoaSimulator
+    /// - General circuits: Uses gate-by-gate simulation with Gates module
     type LocalBackend() =
         interface IQuantumBackend with
             member _.Execute (circuit: ICircuit) (numShots: int) : Result<ExecutionResult, string> =
@@ -85,28 +86,13 @@ module BackendAbstraction =
                     // Validate parameters
                     if numShots <= 0 then
                         Error "Number of shots must be positive"
-                    elif circuit.NumQubits > 16 then
-                        Error "Local backend supports maximum 16 qubits"
+                    elif circuit.NumQubits > 20 then
+                        Error "Local backend supports maximum 20 qubits"
                     else
-                        // Convert ICircuit to QaoaCircuit for simulation
-                        // This is a simplified approach - we need to know the circuit format
-                        // For now, we'll handle CircuitWrapper and QaoaCircuitWrapper
-                        
-                        let qaoaCircuitResult = 
-                            match circuit with
-                            | :? CircuitWrapper as wrapper ->
-                                // Convert CircuitBuilder.Circuit to QaoaCircuit
-                                CircuitAdapter.circuitToQaoaCircuit wrapper.Circuit
-                            | :? QaoaCircuitWrapper as wrapper ->
-                                // Already a QAOA circuit
-                                Ok wrapper.QaoaCircuit
-                            | _ ->
-                                Error "Local backend requires CircuitWrapper or QaoaCircuitWrapper"
-                        
-                        match qaoaCircuitResult with
-                        | Error msg -> Error msg
-                        | Ok qaoaCircuit ->
-                            // Extract parameters and run simulation
+                        match circuit with
+                        | :? QaoaCircuitWrapper as wrapper ->
+                            // QAOA circuit: Use optimized QAOA simulator
+                            let qaoaCircuit = wrapper.QaoaCircuit
                             let numQubits = qaoaCircuit.NumQubits
                             
                             // Extract gamma and beta parameters from layers
@@ -114,7 +100,6 @@ module BackendAbstraction =
                             let betas = qaoaCircuit.Layers |> Array.map (fun l -> l.Beta)
                             
                             // Extract cost coefficients from problem Hamiltonian
-                            // For now, use simplified single-qubit coefficients
                             let costCoefficients = 
                                 qaoaCircuit.ProblemHamiltonian.Terms
                                 |> Array.filter (fun t -> t.QubitsIndices.Length = 1)
@@ -122,7 +107,6 @@ module BackendAbstraction =
                                 |> Array.map (fun (qubit, terms) -> 
                                     terms |> Array.sumBy (fun t -> t.Coefficient))
                                 |> fun coeffs ->
-                                    // Ensure we have coefficients for all qubits
                                     Array.init numQubits (fun i ->
                                         coeffs |> Array.tryItem i |> Option.defaultValue 0.0)
                             
@@ -130,12 +114,11 @@ module BackendAbstraction =
                             let finalState = 
                                 QaoaSimulator.runQaoaCircuit numQubits gammas betas costCoefficients
                             
-                            // Sample measurements - convert basis state index to bitstring
+                            // Sample measurements
                             let rng = Random()
                             let measurements = 
                                 Array.init numShots (fun _ ->
                                     let basisStateIndex = Measurement.measureComputationalBasis rng finalState
-                                    // Convert basis state index to bitstring array
                                     Array.init numQubits (fun qubitIdx ->
                                         if (basisStateIndex >>> qubitIdx) &&& 1 = 1 then 1 else 0))
                             
@@ -145,13 +128,79 @@ module BackendAbstraction =
                                 BackendName = "Local QAOA Simulator"
                                 Metadata = Map.empty
                             }
+                        
+                        | :? CircuitWrapper as wrapper ->
+                            // General circuit: Use gate-by-gate simulation
+                            let generalCircuit = wrapper.Circuit
+                            let numQubits = generalCircuit.QubitCount
+                            
+                            // Initialize state to |0...0⟩
+                            let mutable state = StateVector.init numQubits
+                            
+                            // Apply each gate sequentially
+                            for gate in generalCircuit.Gates do
+                                state <- 
+                                    match gate with
+                                    | CircuitBuilder.H q -> Gates.applyH q state
+                                    | CircuitBuilder.X q -> Gates.applyX q state
+                                    | CircuitBuilder.Y q -> Gates.applyY q state
+                                    | CircuitBuilder.Z q -> Gates.applyZ q state
+                                    | CircuitBuilder.S q -> Gates.applyS q state
+                                    | CircuitBuilder.T q -> Gates.applyT q state
+                                    | CircuitBuilder.SDG q -> Gates.applySDG q state
+                                    | CircuitBuilder.TDG q -> Gates.applyTDG q state
+                                    | CircuitBuilder.RX (q, angle) -> Gates.applyRx q angle state
+                                    | CircuitBuilder.RY (q, angle) -> Gates.applyRy q angle state
+                                    | CircuitBuilder.RZ (q, angle) -> Gates.applyRz q angle state
+                                    | CircuitBuilder.P (q, angle) -> Gates.applyP q angle state
+                                    | CircuitBuilder.CNOT (c, t) -> Gates.applyCNOT c t state
+                                    | CircuitBuilder.CZ (c, t) -> Gates.applyCZ c t state
+                                    | CircuitBuilder.CP (c, t, angle) -> Gates.applyCP c t angle state
+                                    | CircuitBuilder.SWAP (q1, q2) -> Gates.applySWAP q1 q2 state
+                                    | CircuitBuilder.CCX (c1, c2, t) -> 
+                                        // Toffoli gate - use decomposition
+                                        // CCX = H(t), CX(c2,t), TDG(t), CX(c1,t), T(t), CX(c2,t), TDG(t), CX(c1,t), T(c2), T(t), H(t), CX(c1,c2), T(c1), TDG(c2), CX(c1,c2)
+                                        state
+                                        |> Gates.applyH t
+                                        |> Gates.applyCNOT c2 t
+                                        |> Gates.applyTDG t
+                                        |> Gates.applyCNOT c1 t
+                                        |> Gates.applyT t
+                                        |> Gates.applyCNOT c2 t
+                                        |> Gates.applyTDG t
+                                        |> Gates.applyCNOT c1 t
+                                        |> Gates.applyT c2
+                                        |> Gates.applyT t
+                                        |> Gates.applyH t
+                                        |> Gates.applyCNOT c1 c2
+                                        |> Gates.applyT c1
+                                        |> Gates.applyTDG c2
+                                        |> Gates.applyCNOT c1 c2
+                            
+                            // Sample measurements from final state
+                            let rng = Random()
+                            let measurements = 
+                                Array.init numShots (fun _ ->
+                                    let basisStateIndex = Measurement.measureComputationalBasis rng state
+                                    Array.init numQubits (fun qubitIdx ->
+                                        if (basisStateIndex >>> qubitIdx) &&& 1 = 1 then 1 else 0))
+                            
+                            Ok {
+                                Measurements = measurements
+                                NumShots = numShots
+                                BackendName = "Local Simulator"
+                                Metadata = Map.empty
+                            }
+                        
+                        | _ ->
+                            Error "Local backend requires CircuitWrapper or QaoaCircuitWrapper"
                 
                 with ex ->
                     Error (sprintf "Local backend execution failed: %s" ex.Message)
             
-            member _.Name = "Local QAOA Simulator"
+            member _.Name = "Local Simulator"
             
-            member _.SupportedGates = ["H"; "RX"; "RY"; "RZ"; "CNOT"; "RZZ"]
+            member _.SupportedGates = ["H"; "X"; "Y"; "Z"; "S"; "T"; "SDG"; "TDG"; "RX"; "RY"; "RZ"; "P"; "CNOT"; "CZ"; "CP"; "SWAP"; "CCX"]
             
             member _.MaxQubits = 16
     

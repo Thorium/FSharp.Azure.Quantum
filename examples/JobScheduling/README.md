@@ -252,19 +252,20 @@ The greedy scheduling algorithm:
 **Greedy Priority Scheduling with Dependency Resolution:**
 
 ```fsharp
+// Pseudo-code showing scheduling algorithm concept:
 // 1. Topological sort: Order jobs by dependencies
-let sortedJobs = topologicalSort jobs
+// let sortedJobs = topologicalSort jobs
 
 // 2. For each job (in dependency order):
-for job in sortedJobs do
-    // 3. Find earliest time all dependencies complete
-    let earliestStart = max(dependencies.map(_.EndTime))
-    
-    // 4. Find machine with earliest available slot
-    let bestMachine = machines.minBy(availableSlot(earliestStart))
-    
-    // 5. Schedule job on that machine
-    assign(job, bestMachine, earliestStart)
+// for job in sortedJobs do
+//     // 3. Find earliest time all dependencies complete
+//     let earliestStart = max(dependencies.map(_.EndTime))
+//     
+//     // 4. Find machine with earliest available slot
+//     let bestMachine = machines.minBy(availableSlot(earliestStart))
+//     
+//     // 5. Schedule job on that machine
+//     assign(job, bestMachine, earliestStart)
 ```
 
 ### Key Functions
@@ -283,16 +284,17 @@ for job in sortedJobs do
 ### Add Resource Constraints
 
 ```fsharp
-type Job = {
-    // Existing fields...
-    RequiredTools: string list  // Tools needed
-    RequiredSkills: string list  // Operator skills
-}
-
-// Check resource availability when scheduling
-let canSchedule job machine time =
-    toolsAvailable job.RequiredTools machine time &&
-    skillsAvailable job.RequiredSkills machine time
+// Extension idea: Add resource constraints (pseudo-code)
+// type Job = {
+//     // Existing fields...
+//     RequiredTools: string list  // Tools needed
+//     RequiredSkills: string list  // Operator skills
+// }
+// 
+// // Check resource availability when scheduling
+// let canSchedule job machine time =
+//     toolsAvailable job.RequiredTools machine time &&
+//     skillsAvailable job.RequiredSkills machine time
 ```
 
 ### Add Setup Times
@@ -300,14 +302,15 @@ let canSchedule job machine time =
 Account for machine reconfiguration between jobs:
 
 ```fsharp
-type Machine = {
-    Id: int
-    CurrentState: string  // Last job type processed
-}
-
-let setupTime (previousJob: Job) (nextJob: Job) : int =
-    if previousJob.Type = nextJob.Type then 0  // No setup needed
-    else 2  // 2 hours reconfiguration
+// Extension idea: Machine setup times (pseudo-code)
+// type Machine = {
+//     Id: int
+//     CurrentState: string  // Last job type processed
+// }
+// 
+// let setupTime (previousJob: Job) (nextJob: Job) : int =
+//     if previousJob.JobType = nextJob.JobType then 0  // No setup needed
+//     else 15  // 15 minutes setup
 ```
 
 ### Add Time Windows

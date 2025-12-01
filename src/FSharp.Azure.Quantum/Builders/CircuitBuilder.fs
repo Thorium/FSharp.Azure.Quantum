@@ -16,6 +16,7 @@ module CircuitBuilder =
         | SDG of int                  // S-dagger (S†, inverse phase) on qubit
         | T of int                    // T gate (√S, π/8 gate) on qubit
         | TDG of int                  // T-dagger (T†, inverse π/8) on qubit
+        | P of int * float            // Phase gate P(θ) = diag(1, e^(iθ)) on qubit
         
         // Rotation gates
         | RX of int * float           // Rotation around X-axis (qubit, angle)
@@ -25,6 +26,7 @@ module CircuitBuilder =
         // Two-qubit gates
         | CNOT of int * int           // Controlled-NOT (control, target)
         | CZ of int * int             // Controlled-Z (control, target)
+        | CP of int * int * float     // Controlled-P gate: CP(θ) applies P(θ) when control is |1⟩
         | SWAP of int * int           // SWAP two qubits (qubit1, qubit2)
         
         // Three-qubit gates
@@ -118,8 +120,10 @@ module CircuitBuilder =
         | SDG q -> $"sdg q[{q}];"
         | T q -> $"t q[{q}];"
         | TDG q -> $"tdg q[{q}];"
+        | P (q, theta) -> $"p({theta}) q[{q}];"
         | CNOT (control, target) -> $"cx q[{control}],q[{target}];"
         | CZ (control, target) -> $"cz q[{control}],q[{target}];"
+        | CP (c, t, theta) -> $"cp({theta}) q[{c}],q[{t}];"
         | SWAP (q1, q2) -> $"swap q[{q1}],q[{q2}];"
         | CCX (c1, c2, t) -> $"ccx q[{c1}],q[{c2}],q[{t}];"
         | RX (q, angle) -> $"rx({angle}) q[{q}];"
@@ -146,11 +150,13 @@ module CircuitBuilder =
         | SDG _ -> "SDG"
         | T _ -> "T"
         | TDG _ -> "TDG"
+        | P _ -> "P"
         | RX _ -> "Rx"
         | RY _ -> "Ry"
         | RZ _ -> "Rz"
         | CNOT _ -> "CNOT"
         | CZ _ -> "CZ"
+        | CP _ -> "CP"
         | SWAP _ -> "SWAP"
         | CCX _ -> "CCX"
     
@@ -168,9 +174,9 @@ module CircuitBuilder =
             match gate with
             | X q | Y q | Z q | H q | S q | SDG q | T q | TDG q ->
                 validateQubit q |> Option.toList
-            | RX (q, _) | RY (q, _) | RZ (q, _) ->
+            | RX (q, _) | RY (q, _) | RZ (q, _) | P (q, _) ->
                 validateQubit q |> Option.toList
-            | CNOT (control, target) | CZ (control, target) ->
+            | CNOT (control, target) | CZ (control, target) | CP (control, target, _) ->
                 let errors = []
                 let errors = 
                     match validateQubit control with

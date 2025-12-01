@@ -68,21 +68,83 @@ module CircuitAbstraction =
         // ========================================================================
         
         /// Convert CircuitBuilder.Gate to QaoaCircuit.QuantumGate
-        let private circuitBuilderGateToQaoaGate (gate: CircuitBuilder.Gate) : QuantumGate option =
+        /// 
+        /// Note: Some gates require decomposition into multiple QAOA gates.
+        /// This function only converts gates 1-to-1. For gates requiring
+        /// decomposition (SWAP, CZ), use circuitToQaoaCircuit which handles
+        /// gate sequences.
+        let private circuitBuilderGateToQaoaGate (gate: CircuitBuilder.Gate) : QuantumGate list =
             match gate with
-            | CircuitBuilder.H q -> Some (QuantumGate.H q)
-            | CircuitBuilder.X q -> Some (QuantumGate.RX (q, Math.PI))  // X = RX(π)
-            | CircuitBuilder.Y q -> Some (QuantumGate.RY (q, Math.PI))  // Y = RY(π)
-            | CircuitBuilder.Z q -> Some (QuantumGate.RZ (q, Math.PI))  // Z = RZ(π)
-            | CircuitBuilder.RX (q, angle) -> Some (QuantumGate.RX (q, angle))
-            | CircuitBuilder.RY (q, angle) -> Some (QuantumGate.RY (q, angle))
-            | CircuitBuilder.RZ (q, angle) -> Some (QuantumGate.RZ (q, angle))
-            | CircuitBuilder.CNOT (c, t) -> Some (QuantumGate.CNOT (c, t))
+            | CircuitBuilder.H q -> [QuantumGate.H q]
+            | CircuitBuilder.X q -> [QuantumGate.RX (q, Math.PI)]  // X = RX(π)
+            | CircuitBuilder.Y q -> [QuantumGate.RY (q, Math.PI)]  // Y = RY(π)
+            | CircuitBuilder.Z q -> [QuantumGate.RZ (q, Math.PI)]  // Z = RZ(π)
+            | CircuitBuilder.RX (q, angle) -> [QuantumGate.RX (q, angle)]
+            | CircuitBuilder.RY (q, angle) -> [QuantumGate.RY (q, angle)]
+            | CircuitBuilder.RZ (q, angle) -> [QuantumGate.RZ (q, angle)]
+            | CircuitBuilder.CNOT (c, t) -> [QuantumGate.CNOT (c, t)]
             | CircuitBuilder.CZ (c, t) -> 
                 // CZ = H(target) CNOT(c,t) H(target)
-                // For now, approximate with CNOT (full conversion would need sequence)
-                Some (QuantumGate.CNOT (c, t))
-            | _ -> None  // Other gates not supported in basic QAOA gate set
+                [QuantumGate.H t; QuantumGate.CNOT (c, t); QuantumGate.H t]
+            | CircuitBuilder.SWAP (q1, q2) ->
+                // SWAP = CNOT(q1,q2) CNOT(q2,q1) CNOT(q1,q2)
+                [QuantumGate.CNOT (q1, q2); QuantumGate.CNOT (q2, q1); QuantumGate.CNOT (q1, q2)]
+            | CircuitBuilder.CCX (c1, c2, t) ->
+                // Toffoli (CCX) decomposition using 6 CNOTs + T gates (Barenco decomposition)
+                // Reference: Nielsen & Chuang, p. 182
+                // Simplified version using H + CNOT + RZ for QAOA compatibility
+                [
+                    QuantumGate.H t
+                    QuantumGate.CNOT (c2, t)
+                    QuantumGate.RZ (t, -Math.PI / 4.0)  // T† gate
+                    QuantumGate.CNOT (c1, t)
+                    QuantumGate.RZ (t, Math.PI / 4.0)   // T gate
+                    QuantumGate.CNOT (c2, t)
+                    QuantumGate.RZ (t, -Math.PI / 4.0)  // T† gate
+                    QuantumGate.CNOT (c1, t)
+                    QuantumGate.RZ (c2, Math.PI / 4.0)  // T gate on c2
+                    QuantumGate.RZ (t, Math.PI / 4.0)   // T gate on target
+                    QuantumGate.H t
+                    QuantumGate.CNOT (c1, c2)
+                    QuantumGate.RZ (c2, -Math.PI / 4.0)  // T† gate on c2
+                    QuantumGate.CNOT (c1, c2)
+                    QuantumGate.RZ (c1, Math.PI / 4.0)  // T gate on c1
+                ]
+            | CircuitBuilder.S q -> 
+                // S = P(π/2) = diag(1, i)
+                // Note: S ≠ RZ(π/2)! They differ by global phase e^(-iπ/4)
+                // For QAOA simulation: Use RZ but add phase correction if needed
+                [QuantumGate.RZ (q, Math.PI / 2.0)]
+            | CircuitBuilder.T q -> 
+                // T = P(π/4) = diag(1, e^(iπ/4))
+                // Note: T ≠ RZ(π/4)! They differ by global phase e^(-iπ/8)
+                [QuantumGate.RZ (q, Math.PI / 4.0)]
+            | CircuitBuilder.SDG q -> [QuantumGate.RZ (q, -Math.PI / 2.0)]
+            | CircuitBuilder.TDG q -> [QuantumGate.RZ (q, -Math.PI / 4.0)]
+            | CircuitBuilder.P (q, theta) -> 
+                // P(θ) = diag(1, e^(iθ)) - phase gate
+                // WARNING: P(θ) ≠ RZ(θ)! They differ by global phase e^(-iθ/2)
+                // RZ(θ) = e^(-iθ/2) * P(θ), so P(θ) = e^(iθ/2) * RZ(θ)
+                // 
+                // For QAOA simulator: Use RZ(θ) as approximation
+                // Global phase doesn't affect QAOA measurements, but DOES affect
+                // controlled operations and interference patterns!
+                // 
+                // TODO: Implement proper P gate in QAOA simulator or use decomposition:
+                // P(θ) = RZ(θ) * GlobalPhase(e^(iθ/2))
+                [QuantumGate.RZ (q, theta)]
+            | CircuitBuilder.CP (c, t, theta) ->
+                // CP(θ) = Controlled-P(θ) = diag(1, 1, 1, e^(iθ))
+                // Standard decomposition using CNOT and RZ gates
+                // Reference: Nielsen & Chuang, Section 4.3
+                let halfTheta = theta / 2.0
+                [
+                    QuantumGate.RZ (c, halfTheta)
+                    QuantumGate.RZ (t, halfTheta)
+                    QuantumGate.CNOT (c, t)
+                    QuantumGate.RZ (t, -halfTheta)
+                    QuantumGate.CNOT (c, t)
+                ]
         
         // ========================================================================
         // CONVERSION: CircuitBuilder.Circuit → QaoaCircuit
@@ -96,35 +158,44 @@ module CircuitAbstraction =
         /// 
         /// Returns Error if circuit cannot be converted.
         let circuitToQaoaCircuit (circuit: CircuitBuilder.Circuit) : Result<QaoaCircuit, string> =
-            // Convert initial state preparation gates (before first mixing layer)
-            let initialGates = 
+            // Convert gates, collecting decomposed sequences
+            let convertedGates = 
                 circuit.Gates 
-                |> List.choose circuitBuilderGateToQaoaGate
-                |> Array.ofList
+                |> List.collect circuitBuilderGateToQaoaGate
             
-            // Create placeholder Hamiltonians (for general circuits, these are empty)
-            let problemHamiltonian : ProblemHamiltonian = {
-                NumQubits = circuit.QubitCount
-                Terms = [||]
-            }
+            // Check if any gates failed to convert
+            let unconvertedCount = 
+                circuit.Gates 
+                |> List.map circuitBuilderGateToQaoaGate 
+                |> List.filter (fun gates -> gates.IsEmpty)
+                |> List.length
             
-            let mixerHamiltonian = MixerHamiltonian.create circuit.QubitCount
-            
-            // Create single "layer" with all gates (non-standard QAOA structure)
-            let layer = {
-                CostGates = [||]
-                MixerGates = initialGates
-                Gamma = 0.0
-                Beta = 0.0
-            }
-            
-            Ok {
-                NumQubits = circuit.QubitCount
-                InitialStateGates = [||]  // Gates are in layer instead
-                Layers = [| layer |]
-                ProblemHamiltonian = problemHamiltonian
-                MixerHamiltonian = mixerHamiltonian
-            }
+            if unconvertedCount > 0 then
+                Error $"Failed to convert {unconvertedCount} unsupported gates to QAOA format"
+            else
+                // Create placeholder Hamiltonians (for general circuits, these are empty)
+                let problemHamiltonian : ProblemHamiltonian = {
+                    NumQubits = circuit.QubitCount
+                    Terms = [||]
+                }
+                
+                let mixerHamiltonian = MixerHamiltonian.create circuit.QubitCount
+                
+                // Create single "layer" with all gates (non-standard QAOA structure)
+                let layer = {
+                    CostGates = [||]
+                    MixerGates = convertedGates |> Array.ofList
+                    Gamma = 0.0
+                    Beta = 0.0
+                }
+                
+                Ok {
+                    NumQubits = circuit.QubitCount
+                    InitialStateGates = [||]  // Gates are in layer instead
+                    Layers = [| layer |]
+                    ProblemHamiltonian = problemHamiltonian
+                    MixerHamiltonian = mixerHamiltonian
+                }
         
         // ========================================================================
         // CONVERSION: QaoaCircuit → CircuitBuilder.Circuit
@@ -147,38 +218,81 @@ module CircuitAbstraction =
         /// 
         /// Flattens QAOA layer structure into sequential gates.
         let qaoaCircuitToCircuit (qaoa: QaoaCircuit) : CircuitBuilder.Circuit =
-            let mutable gates = []
+            // Convert initial state gates
+            let initialGates = 
+                qaoa.InitialStateGates 
+                |> Array.map qaoaGateToCircuitBuilderGate 
+                |> List.ofArray
             
-            // Add initial state gates
-            gates <- gates @ (qaoa.InitialStateGates |> Array.map qaoaGateToCircuitBuilderGate |> List.ofArray)
+            // Convert all layer gates (cost + mixer) in sequence
+            let layerGates =
+                qaoa.Layers
+                |> Array.collect (fun layer ->
+                    Array.append layer.CostGates layer.MixerGates
+                )
+                |> Array.map qaoaGateToCircuitBuilderGate
+                |> List.ofArray
             
-            // Add gates from each QAOA layer
-            for layer in qaoa.Layers do
-                gates <- gates @ (layer.CostGates |> Array.map qaoaGateToCircuitBuilderGate |> List.ofArray)
-                gates <- gates @ (layer.MixerGates |> Array.map qaoaGateToCircuitBuilderGate |> List.ofArray)
+            // Combine all gates
+            let allGates = initialGates @ layerGates
             
             {
                 QubitCount = qaoa.NumQubits
-                Gates = gates
+                Gates = allGates
             }
         
         // ========================================================================
-        // CONVERSION: ICircuit → Backend-specific formats
+        // CONVERSION: CircuitBuilder.Gate → Backend-specific formats
         // ========================================================================
         
-        /// Convert ICircuit to IonQCircuit (via intermediate QaoaCircuit)
-        /// 
-        /// This will be implemented in Phase 2 when we integrate with IonQBackend.
-        /// For now, returns Error indicating conversion not yet supported.
-        let toIonQCircuit (circuit: ICircuit) : Result<IonQBackend.IonQCircuit, string> =
-            Error "ICircuit → IonQCircuit conversion not yet implemented (Phase 2)"
+        /// Convert CircuitBuilder.Gate to IonQ gate format
+        let private circuitBuilderGateToIonQGate (gate: CircuitBuilder.Gate) : IonQBackend.IonQGate option =
+            match gate with
+            // Single-qubit gates
+            | CircuitBuilder.H q -> Some (IonQBackend.SingleQubit ("h", q))
+            | CircuitBuilder.X q -> Some (IonQBackend.SingleQubit ("x", q))
+            | CircuitBuilder.Y q -> Some (IonQBackend.SingleQubit ("y", q))
+            | CircuitBuilder.Z q -> Some (IonQBackend.SingleQubit ("z", q))
+            | CircuitBuilder.S q -> Some (IonQBackend.SingleQubit ("s", q))
+            | CircuitBuilder.T q -> Some (IonQBackend.SingleQubit ("t", q))
+            
+            // Rotation gates
+            | CircuitBuilder.RX (q, angle) -> Some (IonQBackend.SingleQubitRotation ("rx", q, angle))
+            | CircuitBuilder.RY (q, angle) -> Some (IonQBackend.SingleQubitRotation ("ry", q, angle))
+            | CircuitBuilder.RZ (q, angle) -> Some (IonQBackend.SingleQubitRotation ("rz", q, angle))
+            
+            // Two-qubit gates
+            | CircuitBuilder.CNOT (c, t) -> Some (IonQBackend.TwoQubit ("cnot", c, t))
+            | CircuitBuilder.CZ (c, t) -> Some (IonQBackend.TwoQubit ("cz", c, t))
+            | CircuitBuilder.SWAP (q1, q2) -> Some (IonQBackend.TwoQubit ("swap", q1, q2))
+            
+            | _ -> None  // Unsupported gate
         
-        /// Convert ICircuit to QuilProgram (via intermediate QaoaCircuit)
-        /// 
-        /// This will be implemented in Phase 2 when we integrate with RigettiBackend.
-        /// For now, returns Error indicating conversion not yet supported.
-        let toQuilProgram (circuit: ICircuit) : Result<RigettiBackend.QuilProgram, string> =
-            Error "ICircuit → QuilProgram conversion not yet implemented (Phase 2)"
+        /// Convert CircuitBuilder.Gate to Quil instruction
+        let private circuitBuilderGateToQuilGate (gate: CircuitBuilder.Gate) : RigettiBackend.QuilGate option =
+            match gate with
+            // Single-qubit gates
+            | CircuitBuilder.H q -> Some (RigettiBackend.SingleQubit ("H", q))
+            | CircuitBuilder.X q -> Some (RigettiBackend.SingleQubit ("X", q))
+            | CircuitBuilder.Y q -> Some (RigettiBackend.SingleQubit ("Y", q))
+            | CircuitBuilder.Z q -> Some (RigettiBackend.SingleQubit ("Z", q))
+            | CircuitBuilder.S q -> Some (RigettiBackend.SingleQubit ("S", q))
+            | CircuitBuilder.T q -> Some (RigettiBackend.SingleQubit ("T", q))
+            
+            // Rotation gates
+            | CircuitBuilder.RX (q, angle) -> Some (RigettiBackend.SingleQubitRotation ("RX", angle, q))
+            | CircuitBuilder.RY (q, angle) -> Some (RigettiBackend.SingleQubitRotation ("RY", angle, q))
+            | CircuitBuilder.RZ (q, angle) -> Some (RigettiBackend.SingleQubitRotation ("RZ", angle, q))
+            
+            // Two-qubit gates (CZ is native for Rigetti)
+            | CircuitBuilder.CZ (c, t) -> Some (RigettiBackend.TwoQubit ("CZ", c, t))
+            | CircuitBuilder.CNOT (c, t) -> 
+                // CNOT can be decomposed to H-CZ-H on target, but for simplicity
+                // Rigetti also supports CNOT directly
+                Some (RigettiBackend.TwoQubit ("CNOT", c, t))
+            | CircuitBuilder.SWAP (q1, q2) -> Some (RigettiBackend.TwoQubit ("SWAP", q1, q2))
+            
+            | _ -> None  // Unsupported gate
         
         // ========================================================================
         // HELPER: Extract underlying circuit from wrapper
@@ -190,6 +304,60 @@ module CircuitAbstraction =
             | :? CircuitWrapper as wrapper -> Some wrapper.Circuit
             | :? QaoaCircuitWrapper as wrapper -> Some (qaoaCircuitToCircuit wrapper.QaoaCircuit)
             | _ -> None
+        
+        // ========================================================================
+        // CONVERSION: ICircuit → Backend-specific formats
+        // ========================================================================
+        
+        /// Convert ICircuit to IonQCircuit
+        /// 
+        /// Extracts the underlying CircuitBuilder.Circuit and converts gates to IonQ format.
+        let toIonQCircuit (circuit: ICircuit) : Result<IonQBackend.IonQCircuit, string> =
+            match tryGetCircuit circuit with
+            | None -> Error "Cannot extract CircuitBuilder.Circuit from ICircuit"
+            | Some builderCircuit ->
+                // Convert all gates
+                let convertedGates =
+                    builderCircuit.Gates
+                    |> List.choose circuitBuilderGateToIonQGate
+                
+                // Check if any gates failed to convert
+                if convertedGates.Length < builderCircuit.Gates.Length then
+                    let unsupportedCount = builderCircuit.Gates.Length - convertedGates.Length
+                    Error $"Failed to convert {unsupportedCount} unsupported gates to IonQ format"
+                else
+                    Ok {
+                        IonQBackend.Qubits = builderCircuit.QubitCount
+                        IonQBackend.Circuit = convertedGates
+                    }
+        
+        /// Convert ICircuit to QuilProgram
+        /// 
+        /// Extracts the underlying CircuitBuilder.Circuit and converts to Quil instructions.
+        /// Automatically adds memory declarations for measurements.
+        let toQuilProgram (circuit: ICircuit) : Result<RigettiBackend.QuilProgram, string> =
+            match tryGetCircuit circuit with
+            | None -> Error "Cannot extract CircuitBuilder.Circuit from ICircuit"
+            | Some builderCircuit ->
+                // Convert all gates to Quil instructions
+                let instructions =
+                    builderCircuit.Gates
+                    |> List.choose circuitBuilderGateToQuilGate
+                
+                // Check if any gates failed to convert
+                if instructions.Length < builderCircuit.Gates.Length then
+                    let unsupportedCount = builderCircuit.Gates.Length - instructions.Length
+                    Error $"Failed to convert {unsupportedCount} unsupported gates to Quil format"
+                else
+                    // Add memory declaration for measurement results
+                    // Rigetti requires: DECLARE ro BIT[numQubits]
+                    let memoryDeclaration = 
+                        RigettiBackend.DeclareMemory ("ro", "BIT", builderCircuit.QubitCount)
+                    
+                    Ok {
+                        RigettiBackend.Declarations = [memoryDeclaration]
+                        RigettiBackend.Instructions = instructions
+                    }
         
         /// Try to extract QaoaCircuit from ICircuit wrapper
         let tryGetQaoaCircuit (circuit: ICircuit) : QaoaCircuit option =

@@ -137,7 +137,7 @@ type Route = {
 /// Calculate Haversine distance (pure, testable)
 let haversineDistance (loc1: Location) (loc2: Location) : float =
     // Math calculation with no side effects
-    ...
+    haversineDistance loc1 loc2
 
 /// Calculate total route distance (composition)
 let calculateRouteDistance (route: Location list) : float =
@@ -161,25 +161,26 @@ let formatDistance = function
 
 ### Railway-Oriented Programming
 ```fsharp
-let solveClassical (locations: Location list) : Result<Route * Performance, string> =
-    // Returns Result type for proper error handling
-    match TspBuilder.TSP.solveDirectly problem None with
-    | Ok tour -> 
-        match tourToRoute locations tour with
-        | Ok route -> Ok (route, perf)
-        | Error msg -> Error msg
-    | Error msg -> Error (sprintf "TSP solver failed: %s" msg)
+// Example showing proper error handling and Result types
+// let solveClassical (locations: Location list) : Result<Route * Performance, string> =
+//     // Returns Result type for proper error handling
+//     match TspBuilder.TSP.solveDirectly problem None with
+//     | Ok tour -> 
+//         match tourToRoute locations tour with
+//         | Ok route -> Ok (route, perf)
+//         | Error msg -> Error msg
+//     | Error msg -> Error (sprintf "TSP solver failed: %s" msg)
 ```
 
 ### Side Effects Isolated at Top Level
 ```fsharp
 // Pure domain logic
-let optimizedRoute = solveClassical allStops
+// let optimizedRoute = solveClassical allStops
 
 // Side effects only at top level
-match optimizedRoute with
-| Ok (route, perf) -> printRoute "Optimized" route perf
-| Error msg -> printfn "Failed: %s" msg
+// match optimizedRoute with
+// | Ok (route, perf) -> printRoute "Optimized" route perf
+// | Error msg -> printfn "Failed: %s" msg
 ```
 
 ## Business Value

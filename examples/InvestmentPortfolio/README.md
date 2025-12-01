@@ -218,16 +218,16 @@ The example uses **FSharp.Azure.Quantum's Portfolio.solveDirectly** function, wh
 
 ```fsharp
 // 1. Define stock data with return/risk metrics
-let stocks = [ ... ]
+// let stocks = [ stock1; stock2; stock3 ]
 
 // 2. Call Portfolio.solveDirectly
-match Portfolio.solveDirectly assets budget None with
-| Ok allocation ->
-    // 3. Analyze and report results
-    let analysis = createAnalysis allocation
-    generateReports analysis
-| Error msg ->
-    printfn "Optimization failed: %s" msg
+// match Portfolio.solveDirectly assets budget None with
+// | Ok allocation ->
+//     // 3. Analyze and report results
+//     let analysis = createAnalysis allocation
+//     generateReports analysis
+// | Error msg ->
+//     printfn "Optimization failed: %s" msg
 ```
 
 ### Key Functions
@@ -247,17 +247,17 @@ match Portfolio.solveDirectly assets budget None with
 Replace static data with Yahoo Finance API or similar:
 
 ```fsharp
-// Pseudo-code
-let fetchStockData (symbol: string) : Stock =
-    let prices = YahooFinance.getHistoricalPrices symbol (DateTime.Now.AddYears(-5))
-    let returns = calculateReturns prices
-    let volatility = calculateVolatility returns
-    {
-        Symbol = symbol
-        ExpectedReturn = returns |> List.average
-        Volatility = volatility
-        Price = prices |> List.last
-    }
+// Pseudo-code for future extension
+// let fetchStockData (symbol: string) : Stock =
+//     let prices = YahooFinance.getHistoricalPrices symbol (DateTime.Now.AddYears(-5))
+//     let returns = calculateReturns prices
+//     let volatility = calculateVolatility returns
+//     {
+//         Symbol = symbol
+//         ExpectedReturn = returns |> List.average
+//         Volatility = volatility
+//         Price = prices |> List.last
+//     }
 ```
 
 ### Add Correlation Matrix
@@ -265,13 +265,13 @@ let fetchStockData (symbol: string) : Stock =
 Improve risk modeling by considering asset correlations:
 
 ```fsharp
-// Portfolio risk with correlations
-let portfolioVariance = 
-    assets
-    |> List.sumBy (fun (i, wi) ->
-        assets
-        |> List.sumBy (fun (j, wj) ->
-            wi * wj * covariance.[i,j]))
+// Portfolio risk with correlations (pseudo-code)
+// let portfolioVariance = 
+//     assets
+//     |> List.sumBy (fun (i, wi) ->
+//         assets
+//         |> List.sumBy (fun (j, wj) ->
+//             wi * wj * covariance.[i,j]))
 ```
 
 ### Add Constraints

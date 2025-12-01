@@ -32,6 +32,7 @@ between classical (fast, free) and quantum (scalable) solvers based on problem s
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 
 open System
+open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Classical
 
 // ============================================================================

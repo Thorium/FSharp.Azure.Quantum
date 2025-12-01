@@ -242,3 +242,154 @@ module QaoaSimulatorTests =
         // Note: This is a very rough test - actual QAOA requires parameter optimization
         Assert.True(expectation > -2.0)  // Not the worst case
         Assert.Equal(1.0, StateVector.norm finalState, 10)
+    
+    // ============================================================================
+    // HIGH-LEVEL SIMULATE API TESTS
+    // ============================================================================
+    
+    [<Fact>]
+    let ``simulate - should return Ok result for valid 2-qubit circuit`` () =
+        let circuit: QaoaSimulator.QaoaCircuit = {
+            NumQubits = 2
+            Parameters = [| 0.5; 0.3 |]  // gamma=0.5, beta=0.3
+            CostTerms = [| (0, 1, -1.0) |]  // Single edge interaction
+            Depth = 1
+        }
+        
+        let result = QaoaSimulator.simulate circuit 100
+        
+        match result with
+        | Ok qaoaResult ->
+            Assert.Equal(100, qaoaResult.Shots)
+            Assert.True(qaoaResult.Counts.Count > 0)
+            Assert.True(qaoaResult.ExecutionTimeMs > 0.0)
+            
+            // Verify total counts equal shots
+            let totalCounts = qaoaResult.Counts |> Map.toSeq |> Seq.sumBy snd
+            Assert.Equal(100, totalCounts)
+            
+            // Verify bitstring format (2 qubits = 2 characters)
+            qaoaResult.Counts |> Map.iter (fun bitstring _ ->
+                Assert.Equal(2, bitstring.Length)
+                Assert.True(bitstring |> String.forall (fun c -> c = '0' || c = '1'))
+            )
+        | Error msg -> Assert.True(false, $"Expected Ok, got Error: {msg}")
+    
+    [<Fact>]
+    let ``simulate - should handle single-qubit cost terms`` () =
+        let circuit: QaoaSimulator.QaoaCircuit = {
+            NumQubits = 2
+            Parameters = [| 0.5; 0.3 |]
+            CostTerms = [| (0, 0, 1.0); (1, 1, 1.0) |]  // Single-qubit terms
+            Depth = 1
+        }
+        
+        let result = QaoaSimulator.simulate circuit 50
+        
+        match result with
+        | Ok qaoaResult ->
+            Assert.Equal(50, qaoaResult.Shots)
+            let totalCounts = qaoaResult.Counts |> Map.toSeq |> Seq.sumBy snd
+            Assert.Equal(50, totalCounts)
+        | Error msg -> Assert.True(false, $"Expected Ok, got Error: {msg}")
+    
+    [<Fact>]
+    let ``simulate - should handle multiple QAOA layers`` () =
+        let circuit: QaoaSimulator.QaoaCircuit = {
+            NumQubits = 3
+            Parameters = [| 0.5; 0.3; 0.4; 0.2 |]  // 2 layers: (γ1,β1), (γ2,β2)
+            CostTerms = [| (0, 1, -1.0); (1, 2, -1.0) |]
+            Depth = 2
+        }
+        
+        let result = QaoaSimulator.simulate circuit 200
+        
+        match result with
+        | Ok qaoaResult ->
+            Assert.Equal(200, qaoaResult.Shots)
+            qaoaResult.Counts |> Map.iter (fun bitstring _ ->
+                Assert.Equal(3, bitstring.Length)
+            )
+        | Error msg -> Assert.True(false, $"Expected Ok, got Error: {msg}")
+    
+    [<Fact>]
+    let ``simulate - should return Error for invalid NumQubits`` () =
+        let circuit: QaoaSimulator.QaoaCircuit = {
+            NumQubits = 0  // Invalid
+            Parameters = [| 0.5; 0.3 |]
+            CostTerms = [| |]
+            Depth = 1
+        }
+        
+        let result = QaoaSimulator.simulate circuit 100
+        
+        match result with
+        | Ok _ -> Assert.True(false, "Expected Error, got Ok")
+        | Error msg -> Assert.Contains("qubits", msg.ToLower())
+    
+    [<Fact>]
+    let ``simulate - should return Error for invalid number of shots`` () =
+        let circuit: QaoaSimulator.QaoaCircuit = {
+            NumQubits = 2
+            Parameters = [| 0.5; 0.3 |]
+            CostTerms = [| (0, 1, -1.0) |]
+            Depth = 1
+        }
+        
+        let result = QaoaSimulator.simulate circuit 0  // Invalid
+        
+        match result with
+        | Ok _ -> Assert.True(false, "Expected Error, got Ok")
+        | Error msg -> Assert.Contains("shots", msg.ToLower())
+    
+    [<Fact>]
+    let ``simulate - should return Error for mismatched Parameters length`` () =
+        let circuit: QaoaSimulator.QaoaCircuit = {
+            NumQubits = 2
+            Parameters = [| 0.5 |]  // Should be 2 for Depth=1
+            CostTerms = [| (0, 1, -1.0) |]
+            Depth = 1
+        }
+        
+        let result = QaoaSimulator.simulate circuit 100
+        
+        match result with
+        | Ok _ -> Assert.True(false, "Expected Error, got Ok")
+        | Error msg -> Assert.Contains("parameters", msg.ToLower())
+    
+    [<Fact>]
+    let ``simulate - MaxCut example from documentation`` () =
+        // 4-node MaxCut problem from docs
+        // Graph: 0-1, 1-2, 2-3, 3-0, 0-2 (5 edges)
+        let edges = [(0, 1); (1, 2); (2, 3); (3, 0); (0, 2)]
+        let circuit: QaoaSimulator.QaoaCircuit = {
+            NumQubits = 4
+            Parameters = [| 0.5; 0.3 |]
+            CostTerms = edges |> List.map (fun (i, j) -> (i, j, -1.0)) |> Array.ofList
+            Depth = 1
+        }
+        
+        let result = QaoaSimulator.simulate circuit 1000
+        
+        match result with
+        | Ok qaoaResult ->
+            Assert.Equal(1000, qaoaResult.Shots)
+            
+            // Verify we get multiple different measurement outcomes
+            Assert.True(qaoaResult.Counts.Count > 1, "Should have multiple outcomes")
+            
+            // Verify bitstrings are 4 characters long
+            qaoaResult.Counts |> Map.iter (fun bitstring _ ->
+                Assert.Equal(4, bitstring.Length)
+            )
+            
+            // Find most common outcome
+            let mostCommon = 
+                qaoaResult.Counts 
+                |> Map.toSeq 
+                |> Seq.maxBy snd
+                |> fst
+            
+            // Most common should appear multiple times
+            Assert.True(qaoaResult.Counts[mostCommon] > 10)
+        | Error msg -> Assert.True(false, $"Expected Ok, got Error: {msg}")

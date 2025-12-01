@@ -16,6 +16,7 @@ module Search =
     open FSharp.Azure.Quantum.LocalSimulator
     open FSharp.Azure.Quantum.GroverSearch.Oracle
     open FSharp.Azure.Quantum.GroverSearch.GroverIteration
+    open FSharp.Azure.Quantum.GroverSearch.BackendAdapter
     
     // ============================================================================
     // TYPES - Search configuration and results
@@ -39,211 +40,136 @@ module Search =
         RandomSeed: int option
     }
     
-    /// Result from Grover search
-    type SearchResult = {
-        /// Solutions found
-        Solutions: int list
-        
-        /// Success probability achieved
-        SuccessProbability: float
-        
-        /// Number of iterations applied
-        IterationsApplied: int
-        
-        /// Measurement counts (bitstring -> count)
-        MeasurementCounts: Map<int, int>
-        
-        /// Total measurement shots
-        Shots: int
-        
-        /// Search succeeded (found solution with probability > threshold)
-        Success: bool
-    }
+    /// Type alias for SearchResult (defined in GroverIteration module)
+    type SearchResult = GroverIteration.SearchResult
     
     // ============================================================================
-    // MEASUREMENT - Converting quantum state to classical results
+    // PUBLIC API - All functions use IQuantumBackend
     // ============================================================================
     
-    /// Measure quantum state and return most likely outcomes
+    /// Search using compiled oracle
     /// 
-    /// Performs multiple measurements and returns distribution
-    let measureState (state: StateVector.StateVector) (shots: int) (randomSeed: int option) : Map<int, int> =
-        let rng = 
-            match randomSeed with
-            | Some seed -> Random(seed)
-            | None -> Random()
+    /// Executes Grover's search algorithm on the given backend (cloud or local).
+    /// Uses BackendAdapter to convert Grover algorithm to quantum circuit.
+    let search 
+        (oracle: CompiledOracle) 
+        (backend: FSharp.Azure.Quantum.Core.BackendAbstraction.IQuantumBackend) 
+        (config: SearchConfig) 
+        : Result<SearchResult, string> =
         
-        // Use Measurement module to sample (fully qualified)
-        let rawCounts = FSharp.Azure.Quantum.LocalSimulator.Measurement.sampleAndCount rng shots state
+        // Determine iteration count
+        let iterationCountResult =
+            if config.OptimizeIterations then
+                match optimalIterationsForOracle oracle with
+                | Some (Ok k) -> 
+                    let finalK = match config.MaxIterations with
+                                 | Some maxK -> min k maxK
+                                 | None -> k
+                    Ok finalK
+                | Some (Error msg) -> Error msg
+                | None ->
+                    let defaultK = int (Math.Sqrt(float (1 <<< oracle.NumQubits)))
+                    let finalK = match config.MaxIterations with
+                                 | Some maxK -> min defaultK maxK
+                                 | None -> defaultK
+                    Ok finalK
+            else
+                let k = match config.MaxIterations with
+                        | Some k -> k
+                        | None -> int (Math.Sqrt(float (1 <<< oracle.NumQubits)))
+                Ok k
         
-        rawCounts
+        match iterationCountResult with
+        | Error msg -> Error msg
+        | Ok iterationCount ->
+            // Delegate to BackendAdapter with thresholds from config
+            // Solution threshold: 7% of shots (balances noise filtering with solution capture)
+            // Success threshold: from config.SuccessThreshold
+            BackendAdapter.executeGroverWithBackend 
+                oracle 
+                backend 
+                iterationCount 
+                config.Shots
+                0.07  // 7% solution extraction threshold
+                config.SuccessThreshold
     
-    /// Extract most likely solution from measurement counts
-    let getMostLikelySolution (counts: Map<int, int>) : int option =
-        if Map.isEmpty counts then
-            None
-        else
-            counts
-            |> Map.toList
-            |> List.maxBy snd
-            |> fst
-            |> Some
-    
-    /// Extract top N solutions from measurement counts
-    let getTopSolutions (n: int) (counts: Map<int, int>) : int list =
-        counts
-        |> Map.toList
-        |> List.sortByDescending snd
-        |> List.take (min n (Map.count counts))
-        |> List.map fst
-    
-    // ============================================================================
-    // SEARCH EXECUTION - Core search functions
-    // ============================================================================
-    
-    /// Execute Grover search and measure results
-    /// 
-    /// Internal function that runs the full search pipeline
-    let private executeSearch (oracle: CompiledOracle) (config: SearchConfig) : Result<SearchResult, string> =
-        try
-            // Determine iteration count
-            let iterationCountResult =
-                if config.OptimizeIterations then
-                    match optimalIterationsForOracle oracle with
-                    | Some (Ok k) -> 
-                        // Apply max iterations limit if specified
-                        let finalK = match config.MaxIterations with
-                                     | Some maxK -> min k maxK
-                                     | None -> k
-                        Ok finalK
-                    | Some (Error msg) ->
-                        Error msg
-                    | None ->
-                        // Cannot optimize - use heuristic
-                        let searchSpaceSize = 1 <<< oracle.NumQubits
-                        let defaultK = int (Math.Sqrt(float searchSpaceSize))
-                        let finalK = match config.MaxIterations with
-                                     | Some maxK -> min defaultK maxK
-                                     | None -> defaultK
-                        Ok finalK
-                else
-                    // Use max iterations or default
-                    let k = match config.MaxIterations with
-                            | Some k -> k
-                            | None -> 
-                                let searchSpaceSize = 1 <<< oracle.NumQubits
-                                int (Math.Sqrt(float searchSpaceSize))
-                    Ok k
-            
-            match iterationCountResult with
-            | Error msg -> Error msg
-            | Ok iterationCount ->
-                // Execute Grover iterations
-                let iterConfig = {
-                    NumIterations = iterationCount
-                    TrackProbabilities = false
-                }
-                
-                match GroverIteration.execute oracle iterConfig with
-                | Error msg -> Error msg
-                | Ok iterResult ->
-                    // Measure final state
-                    let counts = measureState iterResult.FinalState config.Shots config.RandomSeed
-                    
-                    // Extract solutions (states with high measurement counts)
-                    let threshold = config.Shots / 10  // At least 10% of shots
-                    let solutions =
-                        counts
-                        |> Map.toList
-                        |> List.filter (fun (_, count) -> count > threshold)
-                        |> List.sortByDescending snd
-                        |> List.map fst
-                    
-                    // Calculate empirical success probability
-                    let successCounts =
-                        solutions
-                        |> List.sumBy (fun sol ->
-                            counts |> Map.tryFind sol |> Option.defaultValue 0)
-                    
-                    let successProb = float successCounts / float config.Shots
-                    
-                    Ok {
-                        Solutions = solutions
-                        SuccessProbability = successProb
-                        IterationsApplied = iterationCount
-                        MeasurementCounts = counts
-                        Shots = config.Shots
-                        Success = successProb >= config.SuccessThreshold
-                    }
-        with
-        | ex -> Error $"Search execution failed: {ex.Message}"
-    
-    // ============================================================================
-    // PUBLIC API - User-facing search functions
-    // ============================================================================
-    
-    /// Search for a single specific value
-    /// 
-    /// Example: Search.searchSingle 42 6 defaultConfig
-    /// Searches for value 42 in 6-qubit space (0-63)
-    let searchSingle (target: int) (numQubits: int) (config: SearchConfig) : Result<SearchResult, string> =
+    /// Search for single value
+    let searchSingle 
+        (target: int) 
+        (numQubits: int) 
+        (backend: FSharp.Azure.Quantum.Core.BackendAbstraction.IQuantumBackend) 
+        (config: SearchConfig) 
+        : Result<SearchResult, string> =
         match Oracle.forValue target numQubits with
-        | Ok oracle -> executeSearch oracle config
+        | Ok oracle -> search oracle backend config
         | Error msg -> Error msg
     
-    /// Search for multiple specific values
-    /// 
-    /// Example: Search.searchMultiple [5; 7; 11] 4 defaultConfig
-    /// Searches for 5, 7, or 11 in 4-qubit space (0-15)
-    let searchMultiple (targets: int list) (numQubits: int) (config: SearchConfig) : Result<SearchResult, string> =
+    /// Search for multiple values
+    let searchMultiple 
+        (targets: int list) 
+        (numQubits: int) 
+        (backend: FSharp.Azure.Quantum.Core.BackendAbstraction.IQuantumBackend) 
+        (config: SearchConfig) 
+        : Result<SearchResult, string> =
         if List.isEmpty targets then
             Error "Target list cannot be empty"
         else
             match Oracle.forValues targets numQubits with
-            | Ok oracle -> executeSearch oracle config
+            | Ok oracle -> search oracle backend config
             | Error msg -> Error msg
     
-    /// Search for values satisfying a predicate
-    /// 
-    /// Example: Search.searchWhere (fun x -> x % 2 = 0) 4 defaultConfig
-    /// Searches for even numbers in 4-qubit space (0-15)
-    let searchWhere (predicate: int -> bool) (numQubits: int) (config: SearchConfig) : Result<SearchResult, string> =
+    /// Search with custom predicate
+    let searchWhere 
+        (predicate: int -> bool) 
+        (numQubits: int) 
+        (backend: FSharp.Azure.Quantum.Core.BackendAbstraction.IQuantumBackend) 
+        (config: SearchConfig) 
+        : Result<SearchResult, string> =
         match Oracle.fromPredicate predicate numQubits with
-        | Ok oracle -> executeSearch oracle config
+        | Ok oracle -> search oracle backend config
         | Error msg -> Error msg
     
-    /// Search using a compiled oracle
-    /// 
-    /// Most flexible - allows custom oracle composition
-    let searchWithOracle (oracle: CompiledOracle) (config: SearchConfig) : Result<SearchResult, string> =
-        executeSearch oracle config
-    
-    // ============================================================================
-    // CONVENIENCE FUNCTIONS - Common search patterns
-    // ============================================================================
-    
     /// Search for even numbers
-    let searchEven (numQubits: int) (config: SearchConfig) : Result<SearchResult, string> =
+    let searchEven 
+        (numQubits: int) 
+        (backend: FSharp.Azure.Quantum.Core.BackendAbstraction.IQuantumBackend) 
+        (config: SearchConfig) 
+        : Result<SearchResult, string> =
         match Oracle.even numQubits with
-        | Ok oracle -> executeSearch oracle config
+        | Ok oracle -> search oracle backend config
         | Error msg -> Error msg
     
     /// Search for odd numbers
-    let searchOdd (numQubits: int) (config: SearchConfig) : Result<SearchResult, string> =
+    let searchOdd 
+        (numQubits: int) 
+        (backend: FSharp.Azure.Quantum.Core.BackendAbstraction.IQuantumBackend) 
+        (config: SearchConfig) 
+        : Result<SearchResult, string> =
         match Oracle.odd numQubits with
-        | Ok oracle -> executeSearch oracle config
+        | Ok oracle -> search oracle backend config
         | Error msg -> Error msg
     
-    /// Search for numbers in range [min, max]
-    let searchInRange (min: int) (max: int) (numQubits: int) (config: SearchConfig) : Result<SearchResult, string> =
+    /// Search in range [min, max]
+    let searchInRange 
+        (min: int) 
+        (max: int) 
+        (numQubits: int) 
+        (backend: FSharp.Azure.Quantum.Core.BackendAbstraction.IQuantumBackend) 
+        (config: SearchConfig) 
+        : Result<SearchResult, string> =
         match Oracle.inRange min max numQubits with
-        | Ok oracle -> executeSearch oracle config
+        | Ok oracle -> search oracle backend config
         | Error msg -> Error msg
     
     /// Search for numbers divisible by n
-    let searchDivisibleBy (n: int) (numQubits: int) (config: SearchConfig) : Result<SearchResult, string> =
+    let searchDivisibleBy 
+        (n: int) 
+        (numQubits: int) 
+        (backend: FSharp.Azure.Quantum.Core.BackendAbstraction.IQuantumBackend) 
+        (config: SearchConfig) 
+        : Result<SearchResult, string> =
         match Oracle.divisibleBy n numQubits with
-        | Ok oracle -> executeSearch oracle config
+        | Ok oracle -> search oracle backend config
         | Error msg -> Error msg
     
     // ============================================================================
@@ -253,14 +179,14 @@ module Search =
     /// Default search configuration
     /// - Optimize iterations: true
     /// - Success threshold: 0.5 (50%)
-    /// - Shots: 100
+    /// - Shots: 200 (doubled for better reliability with probabilistic measurements)
     /// - No max iterations limit
     let defaultConfig : SearchConfig =
         {
             MaxIterations = None
             SuccessThreshold = 0.5
             OptimizeIterations = true
-            Shots = 100
+            Shots = 200
             RandomSeed = None
         }
     
@@ -338,7 +264,12 @@ module Search =
     /// Multi-round search with retry logic
     /// 
     /// Runs search multiple times and aggregates results
-    let searchMultiRound (oracle: CompiledOracle) (config: SearchConfig) (rounds: int) : Result<SearchResult, string> =
+    let searchMultiRound 
+        (oracle: CompiledOracle) 
+        (backend: FSharp.Azure.Quantum.Core.BackendAbstraction.IQuantumBackend)
+        (config: SearchConfig) 
+        (rounds: int) 
+        : Result<SearchResult, string> =
         if rounds < 1 then
             Error "Number of rounds must be positive"
         else
@@ -347,7 +278,7 @@ module Search =
                 let results =
                     [1 .. rounds]
                     |> List.choose (fun _ ->
-                        match executeSearch oracle config with
+                        match search oracle backend config with
                         | Ok res -> Some res
                         | Error _ -> None
                     )
@@ -399,16 +330,18 @@ module Search =
     module Examples =
         
         /// Example: Find value 42 in 6-qubit space
-        let findValue42 () : Result<SearchResult, string> =
-            searchSingle 42 6 defaultConfig
+        /// Uses increased shots for better success rate in 64-state search space
+        let findValue42 (backend: FSharp.Azure.Quantum.Core.BackendAbstraction.IQuantumBackend) : Result<SearchResult, string> =
+            let config = { defaultConfig with Shots = 2000 }
+            searchSingle 42 6 backend config
         
         /// Example: Find any even number in 4-qubit space
-        let findEvenNumber () : Result<SearchResult, string> =
-            searchEven 4 defaultConfig
+        let findEvenNumber (backend: FSharp.Azure.Quantum.Core.BackendAbstraction.IQuantumBackend) : Result<SearchResult, string> =
+            searchEven 4 backend defaultConfig
         
         /// Example: Find numbers between 10 and 15
-        let findInRange () : Result<SearchResult, string> =
-            searchInRange 10 15 4 defaultConfig
+        let findInRange (backend: FSharp.Azure.Quantum.Core.BackendAbstraction.IQuantumBackend) : Result<SearchResult, string> =
+            searchInRange 10 15 4 backend defaultConfig
         
         /// Example: Custom predicate - find prime numbers
         let isPrime (n: int) : bool =
@@ -420,9 +353,18 @@ module Search =
                 [3 .. 2 .. limit]
                 |> List.forall (fun d -> n % d <> 0)
         
-        let findPrimeNumber () : Result<SearchResult, string> =
-            searchWhere isPrime 4 defaultConfig
+        let findPrimeNumber (backend: FSharp.Azure.Quantum.Core.BackendAbstraction.IQuantumBackend) : Result<SearchResult, string> =
+            searchWhere isPrime 4 backend defaultConfig
         
         /// Example: Multi-target search
-        let findMultipleTargets () : Result<SearchResult, string> =
-            searchMultiple [5; 7; 11; 13] 4 defaultConfig
+        let findMultipleTargets (backend: FSharp.Azure.Quantum.Core.BackendAbstraction.IQuantumBackend) : Result<SearchResult, string> =
+            searchMultiple [5; 7; 11; 13] 4 backend defaultConfig
+        
+        /// Example: Find value 42 using custom backend
+        let findValue42CustomBackend (backend: FSharp.Azure.Quantum.Core.BackendAbstraction.IQuantumBackend) : Result<SearchResult, string> =
+            let config = { defaultConfig with Shots = 2000 }
+            searchSingle 42 6 backend config
+        
+        /// Example: Find even number using custom backend
+        let findEvenNumberCustomBackend (backend: FSharp.Azure.Quantum.Core.BackendAbstraction.IQuantumBackend) : Result<SearchResult, string> =
+            searchEven 4 backend defaultConfig

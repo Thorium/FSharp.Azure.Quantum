@@ -2,6 +2,7 @@ namespace FSharp.Azure.Quantum.Tests
 
 open System
 open Xunit
+open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Classical
 
 module HybridSolverTests =

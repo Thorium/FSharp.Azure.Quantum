@@ -1,5 +1,6 @@
 namespace FSharp.Azure.Quantum.GroverSearch
 
+open System
 open System.Numerics
 
 /// Oracle Module for Grover's Search Algorithm

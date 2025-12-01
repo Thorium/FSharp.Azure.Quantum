@@ -2,96 +2,128 @@
 
 ## Design Philosophy
 
-FSharp.Azure.Quantum is a **hybrid quantum-classical library**:
+FSharp.Azure.Quantum is a **quantum-first optimization library** with intelligent classical fallback:
 
-- **Classical solvers** - Fast CPU algorithms for small problems (< 50 variables)
-- **Quantum solvers** - QAOA/VQE algorithms for large problems via quantum backends
-- **Hybrid orchestration** - Automatic routing based on problem size and structure
+- **Quantum solvers (Primary)** - QAOA/VQE algorithms for optimization problems via quantum backends (LocalBackend or Azure Quantum)
+- **Classical solvers (Fallback)** - Fast CPU algorithms for small problems (< 20 variables) where quantum advantage isn't yet beneficial
+- **Hybrid orchestration** - HybridSolver automatically routes based on problem size, complexity, and available resources
 
-## Three-Layer Architecture
+**Philosophy**: Quantum algorithms are the primary approach. Classical solvers serve as an optimization for very small problems where quantum overhead isn't justified.
+
+## Three-Layer Quantum-First Architecture
 
 ```
 LAYER 1: User-Facing API
-  ├─ Domain Builders (TSP, Portfolio) → Routes through HybridSolver
-  └─ HybridSolver API → Direct access to routing layer
+  ├─ High-Level Builders (GraphColoring, MaxCut, TSP, Portfolio, etc.) → Quantum computation expressions
+  └─ HybridSolver API (Optional) → Automatic quantum/classical routing for optimization
 
-LAYER 2: Hybrid Orchestration
-  ├─ HybridSolver → Routes to classical or quantum
-  └─ QuantumAdvisor → Decision framework
+LAYER 2: Problem Solvers
+  ├─ Quantum Solvers (Primary)
+  │   ├─ QAOA-based (GraphColoring, MaxCut, Knapsack, TSP, Portfolio, NetworkFlow)
+  │   ├─ VQE (Quantum Chemistry)
+  │   ├─ QFT-based (Arithmetic, Shor's Factorization, Phase Estimation)
+  │   └─ Educational (Grover, Amplitude Amplification, QFT)
+  │
+  └─ Classical Solvers (Fallback, only via HybridSolver)
+      ├─ TspSolver (Nearest Neighbor, 2-opt)
+      └─ PortfolioSolver (Greedy Ratio)
 
-LAYER 3A: Classical Solvers         LAYER 3B: Quantum Solvers
-  ├─ TspSolver (internal, CPU only)     ├─ QuantumTspSolver (internal, needs backend)
-  └─ PortfolioSolver (internal, CPU)    └─ QuantumChemistry (internal, needs backend)
-
-LAYER 4: Execution Backends
-  ├─ LocalSimulator (CPU, ≤16 qubits)
-  ├─ IonQBackend (Azure Quantum)
-  └─ RigettiBackend (Azure Quantum)
+LAYER 3: Execution Backends
+  ├─ LocalBackend (CPU simulation, ≤16 qubits, default)
+  ├─ IonQBackend (Azure Quantum, trapped ions)
+  └─ RigettiBackend (Azure Quantum, superconducting qubits)
 ```
+
+**Key Architectural Principle**: High-level builders go directly to quantum solvers. Classical solvers are only accessible through HybridSolver for performance optimization of small problems.
 
 ## Key Concepts
 
-### Classical vs Quantum Solvers
+### Quantum-First Approach
 
-**Classical Solvers** (`Solvers/Classical/`):
+**High-Level Builders** (`GraphColoring`, `MaxCut`, `TSP`, `Portfolio`, etc.):
+- Use quantum algorithms directly (QAOA, VQE, QFT)
+- **Require backend parameter** - submit circuits to quantum hardware/simulator
+- Recommended for all problem sizes
+- Example: `GraphColoring.solve problem 4 None` → LocalBackend (default)
+
+**Classical Solvers** (`TspSolver`, `PortfolioSolver` - internal only):
 - Use CPU algorithms (Nearest Neighbor, Greedy, 2-opt)
-- **No backend parameter** - execute directly on CPU
-- Fast (milliseconds), free
-- Example: `TspSolver.solve distances config`
-
-**Quantum Solvers** (`Solvers/Quantum/`):
-- Use quantum algorithms (QAOA, VQE)
-- **Require backend parameter** - submit circuits to quantum hardware
-- Slower (seconds to minutes), ~$10-100 per run
-- Example: `QuantumTspSolver.solve backend distances 1000`
+- **Only accessible via HybridSolver** - not exposed directly
+- Automatically used for very small problems (< 20 variables)
+- Example: `HybridSolver.solveTsp distances None None None` → Routes automatically
 
 ### Why Both?
 
-Small problems (< 50 variables) → Classical is faster and cheaper
-Large problems (> 100 variables) → Quantum may have advantage
-Use `HybridSolver` to decide automatically.
+**Direct Quantum (Recommended)**:
+- Consistent API across all problem sizes
+- Leverages quantum algorithms (QAOA/VQE/QFT)
+- LocalBackend provides free, fast simulation (≤16 qubits)
+- Future-proof as quantum hardware improves
+
+**HybridSolver (Optional Optimization)**:
+- Automatically optimizes very small problems using classical algorithms
+- Saves quantum circuit overhead for problems too small to benefit
+- Transparent routing with reasoning provided
+- Use when performance optimization matters for variable problem sizes
 
 ### Builder Routing Architecture
 
-Domain Builders (`TSP`, `Portfolio`) provide a business-friendly API that automatically routes through HybridSolver for intelligent quantum-classical decision making.
+High-Level Builders (`GraphColoring`, `MaxCut`, `TSP`, `Portfolio`) provide a business-friendly quantum API that encodes problems as QUBO/Ising models and solves them using QAOA or VQE.
 
-**Routing Flow:**
+**Direct Quantum Routing (Default):**
 ```
-User → TSP.solveDirectly(cities)
+User → GraphColoring.solve(problem, colors, backend)
          ↓
-       TSP.createProblem (convert to distance matrix)
+       Encode as QUBO
          ↓
-       HybridSolver.solveTsp (routing decision)
+       Build QAOA Circuit
          ↓
-       QuantumAdvisor.getRecommendation
+       Execute on Backend (LocalBackend default)
          ↓
-       Classical OR Quantum (automatic)
+       Decode Bitstring → Color Assignments
          ↓
-       Convert result back to Tour (city names)
+       Return Result<Solution, string>
+```
+
+**HybridSolver Routing (Optional):**
+```
+User → HybridSolver.solveGraphColoring(problem, colors, budget, timeout, forceMethod)
          ↓
-       Return Result<Tour, string>
+       Analyze Problem (size, complexity)
+         ↓
+       Decision: Size < 20? → Classical (fast)
+                 Size ≥ 20? → Quantum (scalable)
+         ↓
+       Execute chosen method
+         ↓
+       Return Result<Solution, string> + Reasoning
 ```
 
 **Benefits:**
-- ✅ High abstraction (business domain types: city names, asset symbols)
-- ✅ Quantum routing (automatic, transparent to user)
-- ✅ Single API (simple to use, powerful under the hood)
-- ✅ Future-proof (new optimization methods automatically available)
+- ✅ **Direct Builders**: Simple quantum API, consistent across problem sizes, future-proof
+- ✅ **HybridSolver**: Automatic optimization for variable-sized problems, transparent reasoning
+- ✅ **Type-safe**: F# Result types for error handling
+- ✅ **Backend abstraction**: LocalBackend (simulation) or cloud backends (IonQ/Rigetti)
 
 **Example:**
 ```fsharp
-// Builder hides complexity - user just provides city names
-let cities = [("Seattle", 0.0, 0.0); ("Portland", 0.0, 174.0)]
-match TSP.solveDirectly cities None with
-| Ok tour -> printfn "Route: %A" tour.Cities
+open FSharp.Azure.Quantum.GraphColoring
+
+// Direct Quantum Approach (Recommended) - consistent API
+let problem = graphColoring {
+    node "R1" ["R2"; "R3"]
+    node "R2" ["R1"; "R4"]
+}
+match GraphColoring.solve problem 4 None with  // None = LocalBackend
+| Ok solution -> printfn "Colors Used: %d" solution.ColorsUsed
 | Error msg -> printfn "Error: %s" msg
 
-// HybridSolver provides control - user provides distance matrix
-let distances = array2D [[0.0; 174.0]; [174.0; 0.0]]
-match HybridSolver.solveTsp distances None None None with
+// HybridSolver (Optional) - automatic classical fallback for small problems
+match HybridSolver.solveGraphColoring problem 4 None None None with
 | Ok solution -> 
     printfn "Method: %A" solution.Method  // Shows Classical or Quantum
     printfn "Reasoning: %s" solution.Reasoning
+    printfn "Colors Used: %d" solution.Result.ColorsUsed
 | Error msg -> printfn "Error: %s" msg
 ```
 
@@ -99,76 +131,90 @@ match HybridSolver.solveTsp distances None None None with
 
 ```
 src/FSharp.Azure.Quantum/
-├── Core/              - Foundation (types, auth, QAOA)
-├── LocalSimulator/    - CPU-based quantum simulation
-├── Backends/          - IonQ, Rigetti integration
+├── Core/              - Foundation (types, auth, QAOA, VQE, circuit operations)
+├── LocalSimulator/    - CPU-based quantum simulation (default backend)
+├── Backends/          - IonQ, Rigetti cloud backend integration
 ├── Solvers/
-│   ├── Classical/     - CPU algorithms (NO backend param)
-│   ├── Quantum/       - Quantum algorithms (REQUIRES backend)
-│   └── Hybrid/        - Routing logic
-├── Algorithms/        - Grover, Amplitude Amplification
-├── Builders/          - QUBO encoding, circuit construction
-├── ErrorMitigation/   - ZNE, PEC, readout error
-└── Utilities/         - Performance benchmarking
+│   ├── Classical/     - CPU algorithms (internal, only via HybridSolver)
+│   ├── Quantum/       - Quantum algorithms (QAOA, VQE, QFT-based - primary solvers)
+│   └── Hybrid/        - Optional routing logic (HybridSolver)
+├── Algorithms/        - Grover, Amplitude Amplification, QFT (educational & building blocks)
+├── Builders/          - High-level APIs (GraphColoring, MaxCut, TSP, etc.)
+├── ErrorMitigation/   - ZNE, PEC, REM (reduce quantum noise)
+└── Utilities/         - Performance benchmarking, circuit optimization
 ```
 
 ## Common Questions
 
-**Q: Can I execute `TspSolver` on a quantum backend?**
+**Q: Should I use the high-level builders or HybridSolver?**
 
-A: No. `TspSolver` uses classical algorithms (no quantum circuit). Use `QuantumTspSolver` for quantum execution.
+A: **Use high-level builders directly** (`GraphColoring.solve`, `MaxCut.solve`, etc.) for most cases. They provide:
+- Consistent quantum API across all problem sizes
+- LocalBackend simulation (free, fast, ≤16 qubits)
+- Future-proof as quantum hardware improves
 
-**Q: Why have classical solvers in a quantum library?**
+Use HybridSolver only if you need automatic classical fallback for very small problems (< 20 variables) where quantum circuit overhead isn't justified.
 
-A: Hybrid approach - classical for small problems, quantum for large. `HybridSolver` routes automatically.
+**Q: Can I access classical solvers directly?**
 
-**Q: What's the difference between Algorithm, Solver, and Backend?**
+A: No. Classical solvers (`TspSolver`, `PortfolioSolver`) are internal implementation details, only accessible via `HybridSolver`. The primary API is quantum-first.
 
-- **Algorithm** - Mathematical approach (QAOA, Grover, Nearest Neighbor)
-- **Solver** - Problem-specific implementation (TspSolver, QuantumTspSolver)
-- **Backend** - Execution environment (IonQBackend, LocalSimulator)
+**Q: What's the difference between Algorithm, Solver, Builder, and Backend?**
+
+- **Algorithm** - Mathematical approach (QAOA, Grover, QFT, Shor)
+- **Solver** - Problem-specific implementation (uses algorithms internally)
+- **Builder** - User-facing API with computation expressions (e.g., `graphColoring { ... }`)
+- **Backend** - Execution environment (LocalBackend, IonQBackend, RigettiBackend)
 
 ## Design Patterns
 
-**Builder Pattern**: Fluent API for problem construction
+**Computation Expression Pattern**: Fluent, type-safe problem construction
 ```fsharp
-GraphOptimizationBuilder()
-    .Nodes(nodes)
-    .Edges(edges)
-    .Objective(MinimizeTotalWeight)
-    .Build()
+let problem = graphColoring {
+    node "R1" ["R2"; "R3"]
+    node "R2" ["R1"; "R4"]
+    colors ["Red"; "Blue"; "Green"]
+}
 ```
 
-**Backend Abstraction**: Unified interface for all quantum providers
+**Backend Abstraction**: Unified interface for all quantum execution environments
 ```fsharp
-let solve (backend: IQuantumBackend) problem =
-    backend.Execute circuit shots
+let solve (backend: IQuantumBackend option) problem =
+    let actualBackend = backend |> Option.defaultValue (createLocalBackend())
+    actualBackend.Execute circuit shots
 ```
 
-**Pre-Flight Validation**: Catch errors before expensive submission
+**Result Type Pattern**: Explicit error handling
 ```fsharp
-match validateCircuit constraints circuit with
-| Ok () -> backend.Execute circuit
-| Error errors -> // Fix before submission
+match GraphColoring.solve problem 3 None with
+| Ok solution -> 
+    // Process successful result
+    printfn "Colors used: %d" solution.ColorsUsed
+| Error msg -> 
+    // Handle error gracefully
+    printfn "Error: %s" msg
 ```
 
 ## Extending the Library
 
-**Add a Classical Solver**:
-1. Create `Solvers/Classical/NewSolver.fs`
-2. Implement CPU algorithm (NO backend parameter)
-3. Add to `HybridSolver` routing
+**Add a High-Level Builder** (Recommended):
+1. Create `Builders/NewProblem.fs`
+2. Define computation expression for problem specification
+3. Encode to QUBO/Ising model
+4. Use existing QAOA/VQE solver
+5. Add to C# interop if needed
 
-**Add a Quantum Solver**:
-1. Create `Solvers/Quantum/QuantumNewSolver.fs`
-2. Accept `backend: IQuantumBackend` parameter
-3. Build QUBO/circuit, execute via backend
-4. Follow `QuantumTspSolver.fs` pattern
+**Add a Quantum Algorithm**:
+1. Create `Algorithms/NewAlgorithm.fs`
+2. Build quantum circuit using gate operations
+3. Accept `IQuantumBackend` parameter
+4. Follow `QuantumFourierTransform.fs` pattern
 
 **Add a Backend**:
 1. Create `Backends/NewBackend.fs`
 2. Implement `IQuantumBackend` interface
-3. Handle provider-specific circuit format
+3. Handle provider-specific circuit format (or use OpenQASM)
+4. Add authentication and job submission logic
 
 ## References
 

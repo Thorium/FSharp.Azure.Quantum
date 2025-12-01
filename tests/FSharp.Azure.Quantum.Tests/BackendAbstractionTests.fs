@@ -15,19 +15,20 @@ module BackendAbstractionTests =
     [<Fact>]
     let ``LocalBackend should have correct name`` () =
         let backend = createLocalBackend()
-        Assert.Equal("Local QAOA Simulator", backend.Name)
+        Assert.Equal("Local Simulator", backend.Name)
 
     [<Fact>]
     let ``LocalBackend should support QAOA gates`` () =
         let backend = createLocalBackend()
         let gates = backend.SupportedGates
         
+        // LocalBackend supports general quantum gates (including those needed for QAOA)
         Assert.Contains("H", gates)
         Assert.Contains("RX", gates)
         Assert.Contains("RY", gates)
         Assert.Contains("RZ", gates)
         Assert.Contains("CNOT", gates)
-        Assert.Contains("RZZ", gates)
+        Assert.Contains("CZ", gates)  // CZ can be used instead of RZZ in some contexts
 
     [<Fact>]
     let ``LocalBackend should have max 16 qubits`` () =
@@ -158,8 +159,8 @@ module BackendAbstractionTests =
         
         match result with
         | Ok execResult ->
-            // With uniform superposition, we should see all 4 possible outcomes
-            // [0,0], [0,1], [1,0], [1,1] with roughly equal probability
+            // With uniform superposition |++⟩, all 4 outcomes have equal probability (25% each)
+            // With 100 shots, expect ~25 counts per outcome
             let outcomes = 
                 execResult.Measurements
                 |> Array.map (fun bits -> (bits.[0], bits.[1]))
@@ -167,15 +168,25 @@ module BackendAbstractionTests =
                 |> Array.map (fun (outcome, instances) -> (outcome, instances.Length))
                 |> Map.ofArray
             
-            // We should have at least 2 different outcomes with 100 shots
-            // (statistically very unlikely to get only one outcome)
-            Assert.True(outcomes.Count > 1, 
-                sprintf "Expected multiple outcomes, got only: %A" outcomes)
-            
             // All outcomes should be valid bitstrings
             for (bit0, bit1) in outcomes |> Map.toSeq |> Seq.map fst do
                 Assert.True(bit0 = 0 || bit0 = 1)
                 Assert.True(bit1 = 0 || bit1 = 1)
+            
+            // For uniform superposition, we should see all 4 possible outcomes
+            // (statistically very unlikely to miss any with 100 shots)
+            Assert.True(outcomes.Count >= 3, 
+                sprintf "Expected at least 3 outcomes from uniform superposition, got %d: %A" outcomes.Count outcomes)
+            
+            // Validate approximate uniform distribution
+            // Each outcome should appear roughly 25% of the time (25 out of 100 shots)
+            let expectedCount = 100.0 / 4.0  // 25.0
+            for (outcome, count) in outcomes |> Map.toSeq do
+                let deviation = abs(float count - expectedCount)
+                // Allow ±15 for statistical variance (~3 standard deviations for binomial)
+                // σ = √(n*p*(1-p)) = √(100*0.25*0.75) ≈ 4.33, so 3σ ≈ 13
+                Assert.True(deviation <= 15.0,
+                    sprintf "Outcome %A appeared %d times (expected ~25 ± 15 for uniform distribution)" outcome count)
         | Error msg ->
             Assert.True(false, sprintf "Execution failed: %s" msg)
 

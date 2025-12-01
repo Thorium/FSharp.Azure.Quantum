@@ -578,7 +578,7 @@ Solve the scheduling problem and return an optimized schedule.
 
 **Signature:**
 
-```fsharp
+```text
 val solve : problem:SchedulingProblem -> Async<Result<Solution, string>>
 ```
 
@@ -647,7 +647,7 @@ Export the schedule as a Gantt chart in text format.
 
 **Signature:**
 
-```fsharp
+```text
 val exportGanttChart : solution:Solution -> filePath:string -> unit
 ```
 

@@ -2,7 +2,7 @@ namespace FSharp.Azure.Quantum.Tests
 
 open System
 open Xunit
-open FSharp.Azure.Quantum.Classical
+open FSharp.Azure.Quantum
 
 module QuantumAdvisorTests =
 
