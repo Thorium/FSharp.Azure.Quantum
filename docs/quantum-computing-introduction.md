@@ -27,7 +27,27 @@ For F# developers accustomed to algebraic data types and immutability, quantum s
 
 **Type-theoretic view**: Consider the classical bit as `type Bit = Zero | One`. A qubit generalizes this to `type Qubit = Complex * Complex` with the constraint that amplitudes form a unit vector. But unlike classical sum types where values inhabit exactly one branch, qubits exist in linear combinations of basis states—superposition is fundamentally about linear algebra, not branching logic.
 
-![Classical vs Quantum State Space](images/classical-vs-quantum.svg)
+```
+Classical Bit vs Qubit State Space
+===================================
+
+Classical Bit:               Qubit State Space (Bloch Sphere):
+                                      |0⟩ (North Pole)
+  ┌─────┐                              ╱│╲
+  │  0  │                            ╱  │  ╲
+  └─────┘                          ╱    │    ╲
+     OR                          ╱      │      ╲
+  ┌─────┐                      ─────────┼─────────  Equator
+  │  1  │                      ╲        │        ╱  (superpositions)
+  └─────┘                        ╲      │      ╱
+                                   ╲    │    ╱
+  (Discrete states)                  ╲  │  ╱
+                                       ╲│╱
+                                     |1⟩ (South Pole)
+
+  Classical: 2 states            Quantum: Infinite superpositions
+  Space: {0, 1}                  Space: Unit sphere in ℂ²
+```
 
 **Classical vs Quantum:**
 - **Classical:** 2 discrete states {0, 1}
@@ -224,6 +244,30 @@ Each iteration rotates the state vector toward the target state. After ~π√N/4
 
 ![Grover's Algorithm: Amplitude Amplification](images/grover-amplification.svg)
 
+```
+
+Initial State (uniform superposition of N items):
+  All amplitudes equal: 1/√N
+
+Amplitude
+   ▲
+   │     Target
+1  │       █
+   │     █ █ █
+   │   █ █ █ █ █
+   │ █ █ █ █ █ █ █
+0  ├─────────────────► Iterations
+   0   1   2   3   ~√N
+
+After ~π√N/4 Grover iterations:
+  - Target amplitude ≈ 1
+  - Other amplitudes ≈ 0
+  - Measure to get target with high probability
+
+Grover Operator G = -(2|ψ⟩⟨ψ| - I)(2|target⟩⟨target| - I)
+                    └─reflection─┘ └──oracle────┘
+```
+
 **Visual comparison of search complexities:**
 
 ![Classical Search vs Grover Search Comparison](images/grover-vs-classical.svg)
@@ -282,6 +326,34 @@ The F# Azure Quantum library adopts the circuit model, exposing quantum operatio
 ## Building Quantum Intuition: The Bloch Sphere
 
 Single-qubit states have a geometric representation: the **Bloch sphere**. The poles represent |0⟩ (north) and |1⟩ (south). 
+
+```
+Bloch Sphere: Geometric Representation of Single Qubit
+=======================================================
+
+                    |0⟩ (Z-axis, θ=0)
+                     ▲
+                     │
+                     │
+              ╱──────┼──────╲
+           ╱         │         ╲
+        ╱            │            ╲
+      ╱              │              ╲
+    ╱                │                ╲
+   │                 │                 │
+   │        θ        │                 │
+   │         ◜──────●|ψ⟩              │──── X-axis
+   │      ◜          │φ                │     (Hadamard)
+   │   ◜             │                 │
+    ╲                │                ╱
+      ╲              │              ╱
+        ╲            │            ╱
+           ╲         │         ╱
+              ╲──────┼──────╱
+                     │
+                     ▼
+                    |1⟩ (θ=π)
+```
 
 **Bloch Sphere Parameterization:**
 
