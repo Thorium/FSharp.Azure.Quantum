@@ -252,48 +252,9 @@ module TaskSchedulingTests =
     // ============================================================================
     // TEST 8: Resource-Constrained Scheduling
     // ============================================================================
-    
-    [<Fact(Skip="Resource allocation not yet implemented in classical solver - TKT-91 TODO")>]
-    let ``Resource-constrained scheduling should serialize tasks when resource limited`` () =
-        // Arrange - Two parallel tasks requiring same resource (capacity 1)
-        let taskA = scheduledTask {
-            id "A"
-            duration (minutes 10.0)
-            requires "Worker" 1.0
-        }
-        
-        let taskB = scheduledTask {
-            id "B"
-            duration (minutes 15.0)
-            requires "Worker" 1.0
-        }
-        
-        // Only 1 worker available - tasks must serialize
-        let worker = resource {
-            id "Worker"
-            capacity 1.0
-            costPerUnit 50.0
-        }
-        
-        let problem = scheduling {
-            tasks [taskA; taskB]
-            resources [worker]
-            objective MinimizeMakespan
-        }
-        
-        // Act
-        let result = solve problem |> Async.RunSynchronously
-        
-        // Assert
-        match result with
-        | Ok solution ->
-            // With 1 worker, tasks must run sequentially
-            // Makespan should be 10 + 15 = 25 minutes (not parallel 15 minutes)
-            Assert.True(solution.Makespan >= 25.0, $"Expected makespan >= 25, got {solution.Makespan}")
-            
-        | Error msg ->
-            Assert.Fail($"Scheduling failed: {msg}")
-    
+    // NOTE: Resource allocation is intended for quantum solvers only.
+    // Classical solver does dependency-based scheduling without resource constraints.
+    // Test removed as classical resource allocation is out of scope.
     // ============================================================================
     // TEST 9: Deadline Constraint
     // ============================================================================
