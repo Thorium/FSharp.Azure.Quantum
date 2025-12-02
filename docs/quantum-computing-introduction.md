@@ -13,15 +13,15 @@ A single qubit state is represented as:
 **Qubit State Formula:**
 
 <div style="display:block">
-  |ψ⟩ = <span style="color:#0066CC">**α**</span>|0⟩ + <span style="color:#CC0066">**β**</span>|1⟩
+  |ψ⟩ = <span style="color:#0066CC; font-weight:bold">α</span>|0⟩ + <span style="color:#CC0066; font-weight:bold">β</span>|1⟩
 </div>
 
 **Where:**
-- <span style="color:#0066CC">**α (alpha)**</span> = Complex amplitude for state |0⟩  
-- <span style="color:#CC0066">**β (beta)**</span> = Complex amplitude for state |1⟩  
-- **Constraint:** <span style="color:#0066CC">**|α|²**</span> + <span style="color:#CC0066">**|β|²**</span> = 1 (probability conservation)
+- <span style="color:#0066CC; font-weight:bold">α (alpha)</span> = Complex amplitude for state |0⟩  
+- <span style="color:#CC0066; font-weight:bold">β (beta)</span> = Complex amplitude for state |1⟩  
+- **Constraint:** <span style="color:#0066CC; font-weight:bold">|α|²</span> + <span style="color:#CC0066; font-weight:bold">|β|²</span> = 1 (probability conservation)
 
-When measured, the qubit collapses to |0⟩ with probability <span style="color:#0066CC">**|α|²**</span> or |1⟩ with probability <span style="color:#CC0066">**|β|²**</span>.
+When measured, the qubit collapses to |0⟩ with probability <span style="color:#0066CC; font-weight:bold">|α|²</span> or |1⟩ with probability <span style="color:#CC0066; font-weight:bold">|β|²</span>.
 
 For F# developers accustomed to algebraic data types and immutability, quantum states are best understood as immutable vectors in a complex vector space. Quantum operations are **unitary transformations** (reversible linear maps preserving norm), analogous to pure functions that preserve information content.
 
@@ -44,14 +44,14 @@ Crucially, superposition is not probabilistic uncertainty (as in "the bit is 0 o
 **Bell State Example:**
 
 <div style="display:block">
-  <span style="color:#009966">**|Φ⁺⟩**</span> = (<span style="color:#0066CC">**|00⟩**</span> + <span style="color:#CC0066">**|11⟩**</span>)/<span style="color:#666666">**√2**</span>
+  <span style="color:#009966; font-weight:bold">|Φ⁺⟩</span> = (<span style="color:#0066CC; font-weight:bold">|00⟩</span> + <span style="color:#CC0066; font-weight:bold">|11⟩</span>)/<span style="color:#666666; font-weight:bold">√2</span>
 </div>
 
 **Where:**
-- <span style="color:#009966">**|Φ⁺⟩**</span> = Bell state (maximally entangled 2-qubit state)
-- <span style="color:#0066CC">**|00⟩**</span> = Both qubits in state 0
-- <span style="color:#CC0066">**|11⟩**</span> = Both qubits in state 1
-- <span style="color:#666666">**1/√2**</span> = Normalization factor (ensures probabilities sum to 1)
+- <span style="color:#009966; font-weight:bold">|Φ⁺⟩</span> = Bell state (maximally entangled 2-qubit state)
+- <span style="color:#0066CC; font-weight:bold">|00⟩</span> = Both qubits in state 0
+- <span style="color:#CC0066; font-weight:bold">|11⟩</span> = Both qubits in state 1
+- <span style="color:#666666; font-weight:bold">1/√2</span> = Normalization factor (ensures probabilities sum to 1)
 
 Measuring the first qubit determines the second's state with certainty—the joint state cannot be factored into independent qubit states.
 
@@ -105,22 +105,22 @@ These gates compose sequentially and in parallel, forming **quantum circuits**. 
 **Step 1: Apply Hadamard to q0**
 
 <div style="display:block; margin-left: 1em;">
-  |ψ₁⟩ = <span style="color:#0066CC">**H**</span>|0⟩ <span style="color:#009966">**⊗**</span> |0⟩ = (|0⟩ + |1⟩)/√2 <span style="color:#009966">**⊗**</span> |0⟩ = (|00⟩ + |10⟩)/√2
+  |ψ₁⟩ = <span style="color:#0066CC; font-weight:bold">H</span>|0⟩ <span style="color:#009966; font-weight:bold">⊗</span> |0⟩ = (|0⟩ + |1⟩)/√2 <span style="color:#009966; font-weight:bold">⊗</span> |0⟩ = (|00⟩ + |10⟩)/√2
 </div>
   
 **Where:**
-- <span style="color:#0066CC">**H**</span> = Hadamard gate applied to q0
-- <span style="color:#009966">**⊗**</span> = Tensor product (combines qubit states)
+- <span style="color:#0066CC; font-weight:bold">H</span> = Hadamard gate applied to q0
+- <span style="color:#009966; font-weight:bold">⊗</span> = Tensor product (combines qubit states)
 - **Result**: q0 in superposition, q1 still |0⟩ (separable state)
 
 **Step 2: Apply CNOT with q0 as control, q1 as target**
 
 <div style="display:block; margin-left: 1em;">
-  |ψ₂⟩ = <span style="color:#CC0066">**CNOT**</span>|ψ₁⟩ = (|00⟩ + |11⟩)/√2
+  |ψ₂⟩ = <span style="color:#CC0066; font-weight:bold">CNOT</span>|ψ₁⟩ = (|00⟩ + |11⟩)/√2
 </div>
   
 **Where:**
-- <span style="color:#CC0066">**CNOT**</span> = Controlled-NOT (q0 controls q1)
+- <span style="color:#CC0066; font-weight:bold">CNOT</span> = Controlled-NOT (q0 controls q1)
 - **Result**: Entangled Bell state! Measuring q0 determines q1
 
 **Result: Bell state |Φ⁺⟩**
@@ -138,18 +138,18 @@ These gates compose sequentially and in parallel, forming **quantum circuits**. 
 **Measurement Formula:**
 
 <div style="display:block">
-  Measuring |ψ⟩ = <span style="color:#0066CC">**α**</span>|0⟩ + <span style="color:#CC0066">**β**</span>|1⟩
+  Measuring |ψ⟩ = <span style="color:#0066CC; font-weight:bold">α</span>|0⟩ + <span style="color:#CC0066; font-weight:bold">β</span>|1⟩
 </div>
 
 **Outcomes:**
-- **Outcome 0** with probability <span style="color:#0066CC">**|α|²**</span> → state collapses to |0⟩
-- **Outcome 1** with probability <span style="color:#CC0066">**|β|²**</span> → state collapses to |1⟩
+- **Outcome 0** with probability <span style="color:#0066CC; font-weight:bold">|α|²</span> → state collapses to |0⟩
+- **Outcome 1** with probability <span style="color:#CC0066; font-weight:bold">|β|²</span> → state collapses to |1⟩
 
 **Where:**
-- <span style="color:#0066CC">**α**</span> = Complex amplitude for |0⟩ state
-- <span style="color:#CC0066">**β**</span> = Complex amplitude for |1⟩ state
-- <span style="color:#0066CC">**|α|²**</span> = Probability of measuring 0 (Born rule)
-- <span style="color:#CC0066">**|β|²**</span> = Probability of measuring 1 (Born rule)
+- <span style="color:#0066CC; font-weight:bold">α</span> = Complex amplitude for |0⟩ state
+- <span style="color:#CC0066; font-weight:bold">β</span> = Complex amplitude for |1⟩ state
+- <span style="color:#0066CC; font-weight:bold">|α|²</span> = Probability of measuring 0 (Born rule)
+- <span style="color:#CC0066; font-weight:bold">|β|²</span> = Probability of measuring 1 (Born rule)
 
 The superposition is destroyed—measurement is not a pure function.
 
@@ -171,15 +171,15 @@ The quantum analog of the discrete Fourier transform, computed in O(n²) gates v
 **QFT Transformation Formula:**
 
 <div style="display:block">
-  <span style="color:#0066CC">**|j⟩**</span> → (1/<span style="color:#009966">**√N**</span>) <span style="color:#CC6600">**Σ<sub>k</sub>**</span> <span style="color:#9933CC">**e^(2πijk/N)**</span><span style="color:#CC0066">**|k⟩**</span>
+  <span style="color:#0066CC; font-weight:bold">|j⟩</span> → (1/<span style="color:#009966; font-weight:bold">√N</span>) <span style="color:#CC6600; font-weight:bold">Σ<sub>k</sub></span> <span style="color:#9933CC; font-weight:bold">e^(2πijk/N)</span><span style="color:#CC0066; font-weight:bold">|k⟩</span>
 </div>
 
 **Where:**
-- <span style="color:#0066CC">**|j⟩**</span> = Input basis state (j = 0 to N-1)
-- <span style="color:#009966">**N**</span> = Dimension of the Hilbert space (N = 2ⁿ for n qubits)
-- <span style="color:#CC6600">**Σ<sub>k</sub>**</span> = Sum over index k (all basis states)
-- <span style="color:#CC0066">**|k⟩**</span> = Output basis states
-- <span style="color:#9933CC">**e^(2πijk/N)**</span> = Phase factor creating interference patterns
+- <span style="color:#0066CC; font-weight:bold">|j⟩</span> = Input basis state (j = 0 to N-1)
+- <span style="color:#009966; font-weight:bold">N</span> = Dimension of the Hilbert space (N = 2ⁿ for n qubits)
+- <span style="color:#CC6600; font-weight:bold">Σ<sub>k</sub></span> = Sum over index k (all basis states)
+- <span style="color:#CC0066; font-weight:bold">|k⟩</span> = Output basis states
+- <span style="color:#9933CC; font-weight:bold">e^(2πijk/N)</span> = Phase factor creating interference patterns
 
 The transformation creates interference patterns that encode periodicity information.
 
@@ -189,14 +189,14 @@ Given a unitary U and eigenstate |ψ⟩, phase estimation determines the eigenva
 **Eigenvalue Equation:**
 
 <div style="display:block">
-  <span style="color:#0066CC">**U**</span><span style="color:#009966">**|ψ⟩**</span> = <span style="color:#CC0066">**e^(2πiφ)**</span><span style="color:#009966">**|ψ⟩**</span>
+  <span style="color:#0066CC; font-weight:bold">U</span><span style="color:#009966; font-weight:bold">|ψ⟩</span> = <span style="color:#CC0066; font-weight:bold">e^(2πiφ)</span><span style="color:#009966; font-weight:bold">|ψ⟩</span>
 </div>
 
 **Where:**
-- <span style="color:#0066CC">**U**</span> = Unitary operator (quantum gate/operation)
-- <span style="color:#009966">**|ψ⟩**</span> = Eigenstate of U (input state)
-- <span style="color:#CC0066">**e^(2πiφ)**</span> = Eigenvalue (complex number on unit circle)
-- <span style="color:#CC6600">**φ**</span> = Phase to estimate (real number between 0 and 1)
+- <span style="color:#0066CC; font-weight:bold">U</span> = Unitary operator (quantum gate/operation)
+- <span style="color:#009966; font-weight:bold">|ψ⟩</span> = Eigenstate of U (input state)
+- <span style="color:#CC0066; font-weight:bold">e^(2πiφ)</span> = Eigenvalue (complex number on unit circle)
+- <span style="color:#CC6600; font-weight:bold">φ</span> = Phase to estimate (real number between 0 and 1)
 
 Phase estimation uses O(n) qubits and O(n²) gates. This is the core subroutine for quantum chemistry simulations (estimating molecular energies) and cryptanalysis (Shor's algorithm). Phase estimation combines controlled-U operations with inverse QFT—a paradigmatic quantum algorithm demonstrating interference-based computation.
 
@@ -206,15 +206,15 @@ Searches an unstructured database of N items in O(√N) queries versus O(N) clas
 **Grover Operator Formula:**
 
 <div style="display:block">
-  <span style="color:#CC0066">**G**</span> = -(<span style="color:#009966">**2|ψ⟩⟨ψ| - I**</span>)(<span style="color:#9933CC">**2|target⟩⟨target| - I**</span>)
+  <span style="color:#CC0066; font-weight:bold">G</span> = -(<span style="color:#009966; font-weight:bold">2|ψ⟩⟨ψ| - I</span>)(<span style="color:#9933CC; font-weight:bold">2|target⟩⟨target| - I</span>)
 </div>
 
 **Where:**
-- <span style="color:#CC0066">**G**</span> = Grover operator (applied iteratively)
-- <span style="color:#0066CC">**|ψ⟩**</span> = Uniform superposition state = (1/√N)Σᵢ|i⟩
-- <span style="color:#009966">**2|ψ⟩⟨ψ| - I**</span> = Inversion about average (reflection operator)
-- <span style="color:#CC6600">**|target⟩**</span> = Target state we're searching for
-- <span style="color:#9933CC">**2|target⟩⟨target| - I**</span> = Oracle that marks the target
+- <span style="color:#CC0066; font-weight:bold">G</span> = Grover operator (applied iteratively)
+- <span style="color:#0066CC; font-weight:bold">|ψ⟩</span> = Uniform superposition state = (1/√N)Σᵢ|i⟩
+- <span style="color:#009966; font-weight:bold">2|ψ⟩⟨ψ| - I</span> = Inversion about average (reflection operator)
+- <span style="color:#CC6600; font-weight:bold">|target⟩</span> = Target state we're searching for
+- <span style="color:#9933CC; font-weight:bold">2|target⟩⟨target| - I</span> = Oracle that marks the target
 
 Each iteration rotates the state vector toward the target state. After ~π√N/4 iterations, the target amplitude approaches 1, allowing measurement to return the correct answer with high probability. Grover's algorithm is **provably optimal**—no quantum algorithm can search unstructured data faster than O(√N).
 
@@ -243,15 +243,15 @@ NISQ-era algorithms like **VQE** (Variational Quantum Eigensolver) and **QAOA** 
 **VQE Energy Formula:**
 
 <div style="display:block">
-  <span style="color:#CC0066">**E(θ)**</span> = ⟨<span style="color:#0066CC">**ψ(θ)**</span>|<span style="color:#009966">**H**</span>|<span style="color:#0066CC">**ψ(θ)**</span>⟩
+  <span style="color:#CC0066; font-weight:bold">E(θ)</span> = ⟨<span style="color:#0066CC; font-weight:bold">ψ(θ)</span>|<span style="color:#009966; font-weight:bold">H</span>|<span style="color:#0066CC; font-weight:bold">ψ(θ)</span>⟩
 </div>
 
 **Where:**
-- <span style="color:#CC0066">**E(θ)**</span> = Energy as function of parameters θ
-- <span style="color:#0066CC">**|ψ(θ)⟩**</span> = Parameterized quantum state (ansatz)
-- <span style="color:#009966">**H**</span> = Hamiltonian operator (encodes the problem)
-- <span style="color:#CC6600">**⟨ψ|H|ψ⟩**</span> = Expectation value (measured on quantum hardware)
-- <span style="color:#9933CC">**θ**</span> = Classical parameters (optimized with gradient descent, Nelder-Mead, etc.)
+- <span style="color:#CC0066; font-weight:bold">E(θ)</span> = Energy as function of parameters θ
+- <span style="color:#0066CC; font-weight:bold">|ψ(θ)⟩</span> = Parameterized quantum state (ansatz)
+- <span style="color:#009966; font-weight:bold">H</span> = Hamiltonian operator (encodes the problem)
+- <span style="color:#CC6600; font-weight:bold">⟨ψ|H|ψ⟩</span> = Expectation value (measured on quantum hardware)
+- <span style="color:#9933CC; font-weight:bold">θ</span> = Classical parameters (optimized with gradient descent, Nelder-Mead, etc.)
 
 VQE finds molecular ground states for quantum chemistry applications.
 
@@ -286,14 +286,14 @@ Single-qubit states have a geometric representation: the **Bloch sphere**. The p
 **Bloch Sphere Parameterization:**
 
 <div style="display:block">
-  |ψ⟩ = <span style="color:#009966">**cos(θ/2)**</span>|0⟩ + <span style="color:#CC6600">**e^(iφ)sin(θ/2)**</span>|1⟩
+  |ψ⟩ = <span style="color:#009966; font-weight:bold">cos(θ/2)</span>|0⟩ + <span style="color:#CC6600; font-weight:bold">e^(iφ)sin(θ/2)</span>|1⟩
 </div>
 
 **Where:**
-- <span style="color:#0066CC">**θ (theta)**</span> = Polar angle (0 to π), determines |0⟩ vs |1⟩ balance
-- <span style="color:#CC0066">**φ (phi)**</span> = Azimuthal angle (0 to 2π), determines relative phase
-- <span style="color:#009966">**cos(θ/2)**</span> = Amplitude for |0⟩ state
-- <span style="color:#CC6600">**e^(iφ)sin(θ/2)**</span> = Amplitude for |1⟩ state with phase
+- <span style="color:#0066CC; font-weight:bold">θ (theta)</span> = Polar angle (0 to π), determines |0⟩ vs |1⟩ balance
+- <span style="color:#CC0066; font-weight:bold">φ (phi)</span> = Azimuthal angle (0 to 2π), determines relative phase
+- <span style="color:#009966; font-weight:bold">cos(θ/2)</span> = Amplitude for |0⟩ state
+- <span style="color:#CC6600; font-weight:bold">e^(iφ)sin(θ/2)</span> = Amplitude for |1⟩ state with phase
 
 Superpositions lie on the surface of the unit sphere.
 

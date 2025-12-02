@@ -224,14 +224,14 @@ let superposition =
 - **Quantum State Formula:**
 
 <div style="display:block; margin-left: 1em;">
-  <span style="color:#009966">**|ψ⟩**</span> = <span style="color:#CC6600">**Σ<sub>i</sub>**</span> <span style="color:#0066CC">**αᵢ**</span><span style="color:#CC0066">**|i⟩**</span>
+  <span style="color:#009966; font-weight:bold">|ψ⟩</span> = <span style="color:#CC6600; font-weight:bold">Σ<sub>i</sub></span> <span style="color:#0066CC; font-weight:bold">αᵢ</span><span style="color:#CC0066; font-weight:bold">|i⟩</span>
 </div>
   
 **Where:**
-- <span style="color:#009966">**|ψ⟩**</span> = Quantum state vector
-- <span style="color:#0066CC">**αᵢ**</span> = Complex amplitude for basis state |i⟩
-- <span style="color:#CC6600">**Σ<sub>i</sub>**</span> = Sum over all 2ⁿ basis states
-- <span style="color:#CC0066">**|i⟩**</span> = Computational basis state (e.g., |000⟩, |001⟩, etc.)
+- <span style="color:#009966; font-weight:bold">|ψ⟩</span> = Quantum state vector
+- <span style="color:#0066CC; font-weight:bold">αᵢ</span> = Complex amplitude for basis state |i⟩
+- <span style="color:#CC6600; font-weight:bold">Σ<sub>i</sub></span> = Sum over all 2ⁿ basis states
+- <span style="color:#CC0066; font-weight:bold">|i⟩</span> = Computational basis state (e.g., |000⟩, |001⟩, etc.)
 
 - **Normalization**: Σ|α_i|² = 1 (probability conservation)
 - **Qubit Indexing**: Qubit i corresponds to bit i in basis state index
@@ -278,26 +278,26 @@ let stateRz = Gates.applyRz 0 angle state  // Rotate around Z-axis
 **Rx(θ) - Rotation around X-axis:**
 
 <div style="display:block; margin-left: 1em;">
-  Rx(<span style="color:#CC0066">**θ**</span>) = cos(<span style="color:#CC0066">**θ**</span>/2)<span style="color:#0066CC">**I**</span> - i·sin(<span style="color:#CC0066">**θ**</span>/2)<span style="color:#009966">**X**</span>
+  Rx(<span style="color:#CC0066; font-weight:bold">θ</span>) = cos(<span style="color:#CC0066; font-weight:bold">θ</span>/2)<span style="color:#0066CC; font-weight:bold">I</span> - i·sin(<span style="color:#CC0066; font-weight:bold">θ</span>/2)<span style="color:#009966; font-weight:bold">X</span>
 </div>
 
-**Where:** <span style="color:#CC0066">**θ**</span> = rotation angle, <span style="color:#0066CC">**I**</span> = identity matrix, <span style="color:#009966">**X**</span> = Pauli-X matrix
+**Where:** <span style="color:#CC0066; font-weight:bold">θ</span> = rotation angle, <span style="color:#0066CC; font-weight:bold">I</span> = identity matrix, <span style="color:#009966; font-weight:bold">X</span> = Pauli-X matrix
 
 **Ry(θ) - Rotation around Y-axis:**
 
 <div style="display:block; margin-left: 1em;">
-  Ry(<span style="color:#CC0066">**θ**</span>) = cos(<span style="color:#CC0066">**θ**</span>/2)<span style="color:#0066CC">**I**</span> - i·sin(<span style="color:#CC0066">**θ**</span>/2)<span style="color:#CC6600">**Y**</span>
+  Ry(<span style="color:#CC0066; font-weight:bold">θ</span>) = cos(<span style="color:#CC0066; font-weight:bold">θ</span>/2)<span style="color:#0066CC; font-weight:bold">I</span> - i·sin(<span style="color:#CC0066; font-weight:bold">θ</span>/2)<span style="color:#CC6600; font-weight:bold">Y</span>
 </div>
 
-**Where:** <span style="color:#CC0066">**θ**</span> = rotation angle, <span style="color:#CC6600">**Y**</span> = Pauli-Y matrix
+**Where:** <span style="color:#CC0066; font-weight:bold">θ</span> = rotation angle, <span style="color:#CC6600; font-weight:bold">Y</span> = Pauli-Y matrix
 
 **Rz(θ) - Rotation around Z-axis:**
 
 <div style="display:block; margin-left: 1em;">
-  Rz(<span style="color:#CC0066">**θ**</span>) = e^(-i<span style="color:#CC0066">**θ**</span>/2)|0⟩⟨0| + e^(i<span style="color:#CC0066">**θ**</span>/2)|1⟩⟨1|
+  Rz(<span style="color:#CC0066; font-weight:bold">θ</span>) = e^(-i<span style="color:#CC0066; font-weight:bold">θ</span>/2)|0⟩⟨0| + e^(i<span style="color:#CC0066; font-weight:bold">θ</span>/2)|1⟩⟨1|
 </div>
 
-**Where:** <span style="color:#CC0066">**θ**</span> = rotation angle, adds phase based on qubit state
+**Where:** <span style="color:#CC0066; font-weight:bold">θ</span> = rotation angle, adds phase based on qubit state
 
 #### Two-Qubit Gates
 
@@ -347,15 +347,15 @@ For depth p, QAOA applies p layers of:
 **QAOA Circuit Formula:**
 
 <div style="display:block; margin-left: 1em;">
-  <span style="color:#666666">**|0⟩^⊗n**</span> → [<span style="color:#CC0066">**Cost(γ₁)**</span> → <span style="color:#0066CC">**Mix(β₁)**</span>] → ... → [<span style="color:#CC0066">**Cost(γₚ)**</span> → <span style="color:#0066CC">**Mix(βₚ)**</span>] → Measure
+  <span style="color:#666666; font-weight:bold">|0⟩^⊗n</span> → [<span style="color:#CC0066; font-weight:bold">Cost(γ₁)</span> → <span style="color:#0066CC; font-weight:bold">Mix(β₁)</span>] → ... → [<span style="color:#CC0066; font-weight:bold">Cost(γₚ)</span> → <span style="color:#0066CC; font-weight:bold">Mix(βₚ)</span>] → Measure
 </div>
 
 **Where:**
-- <span style="color:#666666">**|0⟩^⊗n**</span> = Initial state (n qubits, all in |0⟩)
-- <span style="color:#CC0066">**Cost(γₖ)**</span> = Cost Hamiltonian layer with parameter γₖ
-- <span style="color:#0066CC">**Mix(βₖ)**</span> = Mixer Hamiltonian layer with parameter βₖ
-- <span style="color:#009966">**p**</span> = Circuit depth (number of layer repetitions)
-- <span style="color:#CC0066">**γₖ**</span>, <span style="color:#0066CC">**βₖ**</span> = Variational parameters (optimized classically)
+- <span style="color:#666666; font-weight:bold">|0⟩^⊗n</span> = Initial state (n qubits, all in |0⟩)
+- <span style="color:#CC0066; font-weight:bold">Cost(γₖ)</span> = Cost Hamiltonian layer with parameter γₖ
+- <span style="color:#0066CC; font-weight:bold">Mix(βₖ)</span> = Mixer Hamiltonian layer with parameter βₖ
+- <span style="color:#009966; font-weight:bold">p</span> = Circuit depth (number of layer repetitions)
+- <span style="color:#CC0066; font-weight:bold">γₖ</span>, <span style="color:#0066CC; font-weight:bold">βₖ</span> = Variational parameters (optimized classically)
 
 ### 4. Measurement - Observation and Sampling
 
@@ -418,13 +418,13 @@ let expectation = Measurement.computeExpectedValue (pauliZ 0) state
 - **Born Rule - Measurement Probability:**
 
 <div style="display:block; margin-left: 1em;">
-  <span style="color:#CC0066">**P(i)**</span> = <span style="color:#009966">**|αᵢ|²**</span>
+  <span style="color:#CC0066; font-weight:bold">P(i)</span> = <span style="color:#009966; font-weight:bold">|αᵢ|²</span>
 </div>
   
 **Where:**
-- <span style="color:#CC0066">**P(i)**</span> = Probability of measuring basis state |i⟩
-- <span style="color:#0066CC">**αᵢ**</span> = Complex amplitude for state |i⟩
-- <span style="color:#009966">**|αᵢ|²**</span> = Squared magnitude (amplitude × conjugate)
+- <span style="color:#CC0066; font-weight:bold">P(i)</span> = Probability of measuring basis state |i⟩
+- <span style="color:#0066CC; font-weight:bold">αᵢ</span> = Complex amplitude for state |i⟩
+- <span style="color:#009966; font-weight:bold">|αᵢ|²</span> = Squared magnitude (amplitude × conjugate)
 
 - **Collapse**: After measurement, state becomes the measured basis state
 - **Shots**: Multiple measurements to estimate probability distribution
@@ -432,13 +432,13 @@ let expectation = Measurement.computeExpectedValue (pauliZ 0) state
 - **Expectation Value:**
 
 <div style="display:block; margin-left: 1em;">
-  <span style="color:#CC6600">**⟨Z⟩**</span> = <span style="color:#666666">**Σ<sub>i</sub>**</span> <span style="color:#CC0066">**P(i)**</span>·<span style="color:#9933CC">**zᵢ**</span>
+  <span style="color:#CC6600; font-weight:bold">⟨Z⟩</span> = <span style="color:#666666; font-weight:bold">Σ<sub>i</sub></span> <span style="color:#CC0066; font-weight:bold">P(i)</span>·<span style="color:#9933CC; font-weight:bold">zᵢ</span>
 </div>
   
 **Where:**
-- <span style="color:#CC6600">**⟨Z⟩**</span> = Average value of observable Z
-- <span style="color:#CC0066">**P(i)**</span> = Probability of state i
-- <span style="color:#9933CC">**zᵢ**</span> = Eigenvalue of Z for state i
+- <span style="color:#CC6600; font-weight:bold">⟨Z⟩</span> = Average value of observable Z
+- <span style="color:#CC0066; font-weight:bold">P(i)</span> = Probability of state i
+- <span style="color:#9933CC; font-weight:bold">zᵢ</span> = Eigenvalue of Z for state i
 
 **Statistical Analysis Example:**
 
