@@ -1,36 +1,37 @@
 # A Brief Introduction to Quantum Computing for F# Developers
 
+As XKCD stated "All the Fun Parts of Life are Optional": so is this tutorial.
+
+> While understanding qubits, gates, and circuits provides valuable intuition, **FSharp.Azure.Quantum prioritizes practical problem-solving over low-level quantum mechanics**.
+
 ## From Classical to Quantum: A Functional Perspective
 
 Classical computation operates on bits—discrete states of 0 or 1. Quantum computation operates on **qubits** (quantum bits), which exist in superposition states described by complex amplitudes. Where classical bits are elements of {0, 1}, qubits inhabit a two-dimensional complex Hilbert space ℂ².
 
-A single qubit state is represented as: |ψ⟩ = α|0⟩ + β|1⟩, where α, β ∈ ℂ and |α|² + |β|² = 1. The constraint ensures probability conservation—when measured, the qubit collapses to |0⟩ with probability |α|² or |1⟩ with probability |β|².
+A single qubit state is represented as:
+
+**Qubit State Formula:**
+
+<div style="display:block">
+  |ψ⟩ = <span style="color:#0066CC">**α**</span>|0⟩ + <span style="color:#CC0066">**β**</span>|1⟩
+</div>
+
+**Where:**
+- <span style="color:#0066CC">**α (alpha)**</span> = Complex amplitude for state |0⟩  
+- <span style="color:#CC0066">**β (beta)**</span> = Complex amplitude for state |1⟩  
+- **Constraint:** <span style="color:#0066CC">**|α|²**</span> + <span style="color:#CC0066">**|β|²**</span> = 1 (probability conservation)
+
+When measured, the qubit collapses to |0⟩ with probability <span style="color:#0066CC">**|α|²**</span> or |1⟩ with probability <span style="color:#CC0066">**|β|²**</span>.
 
 For F# developers accustomed to algebraic data types and immutability, quantum states are best understood as immutable vectors in a complex vector space. Quantum operations are **unitary transformations** (reversible linear maps preserving norm), analogous to pure functions that preserve information content.
 
 **Type-theoretic view**: Consider the classical bit as `type Bit = Zero | One`. A qubit generalizes this to `type Qubit = Complex * Complex` with the constraint that amplitudes form a unit vector. But unlike classical sum types where values inhabit exactly one branch, qubits exist in linear combinations of basis states—superposition is fundamentally about linear algebra, not branching logic.
 
-```
-Classical Bit vs Qubit State Space
-===================================
+![Classical vs Quantum State Space](images/classical-vs-quantum.svg)
 
-Classical Bit:               Qubit State Space (Bloch Sphere):
-                                      |0⟩ (North Pole)
-  ┌─────┐                              ╱│╲
-  │  0  │                            ╱  │  ╲
-  └─────┘                          ╱    │    ╲
-     OR                          ╱      │      ╲
-  ┌─────┐                      ─────────┼─────────  Equator
-  │  1  │                      ╲        │        ╱  (superpositions)
-  └─────┘                        ╲      │      ╱
-                                   ╲    │    ╱
-  (Discrete states)                  ╲  │  ╱
-                                       ╲│╱
-                                     |1⟩ (South Pole)
-
-  Classical: 2 states            Quantum: Infinite superpositions
-  Space: {0, 1}                  Space: Unit sphere in ℂ²
-```
+**Classical vs Quantum:**
+- **Classical:** 2 discrete states {0, 1}
+- **Quantum:** Infinite superpositions on unit sphere in ℂ²
 
 ## Superposition and Entanglement: The Quantum Advantage
 
@@ -38,42 +39,58 @@ Classical Bit:               Qubit State Space (Bloch Sphere):
 
 Crucially, superposition is not probabilistic uncertainty (as in "the bit is 0 or 1, we just don't know which"). The qubit genuinely exists in both states, with amplitudes that can interfere constructively or destructively. This interference is the mechanism behind quantum speedups.
 
-**Entanglement** creates correlations between qubits that have no classical analog. When qubits are entangled, measuring one instantaneously affects the others' probabilities, regardless of spatial separation. The canonical example is the Bell state: |Φ⁺⟩ = (|00⟩ + |11⟩)/√2. Measuring the first qubit determines the second's state with certainty—the joint state cannot be factored into independent qubit states.
+**Entanglement** creates correlations between qubits that have no classical analog. When qubits are entangled, measuring one instantaneously affects the others' probabilities, regardless of spatial separation. 
+
+**Bell State Example:**
+
+<div style="display:block">
+  <span style="color:#009966">**|Φ⁺⟩**</span> = (<span style="color:#0066CC">**|00⟩**</span> + <span style="color:#CC0066">**|11⟩**</span>)/<span style="color:#666666">**√2**</span>
+</div>
+
+**Where:**
+- <span style="color:#009966">**|Φ⁺⟩**</span> = Bell state (maximally entangled 2-qubit state)
+- <span style="color:#0066CC">**|00⟩**</span> = Both qubits in state 0
+- <span style="color:#CC0066">**|11⟩**</span> = Both qubits in state 1
+- <span style="color:#666666">**1/√2**</span> = Normalization factor (ensures probabilities sum to 1)
+
+Measuring the first qubit determines the second's state with certainty—the joint state cannot be factored into independent qubit states.
 
 From a type theory perspective, entanglement means quantum states aren't simply product types. While classical n-bit states live in {0,1}ⁿ (a product space), n-qubit states live in the tensor product ℂ² ⊗ ℂ² ⊗ ... ⊗ ℂ² ≅ ℂ^(2ⁿ), which is exponentially larger. Most states in this space are entangled—separable states form a measure-zero subset.
 
 **Why entanglement matters**: Entanglement is the resource that powers quantum algorithms. Without it, n qubits would require only O(n) parameters to describe classically. With entanglement, you need O(2ⁿ) parameters—this exponential gap is where quantum computers gain their advantage. Entanglement is also fragile: environmental interaction destroys it (decoherence), making it the primary engineering challenge in quantum computing.
 
-```
-State Space Complexity: Separable vs Entangled
-===============================================
-
-2 Classical Bits:           2 Separable Qubits:        2 Entangled Qubits:
-4 possible states           2 independent qubits       Joint state (4 complex amplitudes)
-                           
-  00, 01, 10, 11           |ψ⟩ = (α|0⟩ + β|1⟩) ⊗      |Φ⁺⟩ = (|00⟩ + |11⟩)/√2
-                                  (γ|0⟩ + δ|1⟩)       
-Parameters: 2 bits         Parameters: 4 reals        Parameters: 6 reals
-                           (2 per qubit)              (4 complex - constraints)
-
-n Classical Bits:          n Separable Qubits:        n Entangled Qubits:
-───────────────────────────────────────────────────────────────────────
-Parameters: n              Parameters: O(n)           Parameters: O(2ⁿ)
-Storage: O(n)              Storage: O(n)              Storage: O(2ⁿ)
-
-                    ↑ EXPONENTIAL GAP = QUANTUM ADVANTAGE ↑
-```
+![State Space Complexity: Separable vs Entangled](images/state-space-complexity.svg)
 
 ## Quantum Gates and Circuits: Composable Transformations
 
 Quantum computation proceeds through **quantum gates**—unitary operators acting on qubits. The fundamental single-qubit gates include:
 
 - **Pauli gates** (X, Y, Z): Rotations by π around the respective Bloch sphere axes
-- **Hadamard gate (H)**: Creates equal superposition: H|0⟩ = (|0⟩ + |1⟩)/√2
+- **Hadamard gate (H)**: Creates equal superposition
+  ```
+  H|0⟩ = (|0⟩ + |1⟩)/√2
+  ```
+  **Where:** H = Hadamard gate, transforms |0⟩ to equal superposition of |0⟩ and |1⟩
 - **Phase gates** (S, T): Apply phase shifts without changing measurement probabilities
 - **Rotation gates** (Rx, Ry, Rz): Parameterized rotations by arbitrary angles
 
-Multi-qubit gates create entanglement. The **CNOT** (Controlled-NOT) gate flips a target qubit conditioned on a control qubit's state: CNOT|00⟩ = |00⟩, CNOT|01⟩ = |01⟩, CNOT|10⟩ = |11⟩, CNOT|11⟩ = |10⟩. Applied to superposed states, CNOT creates entanglement: CNOT(H ⊗ I)|00⟩ = (|00⟩ + |11⟩)/√2 (a Bell state).
+Multi-qubit gates create entanglement. The **CNOT** (Controlled-NOT) gate flips a target qubit conditioned on a control qubit's state.
+
+**CNOT Truth Table:**
+- CNOT|00⟩ = |00⟩ (control=0, target unchanged)
+- CNOT|01⟩ = |01⟩ (control=0, target unchanged)
+- CNOT|10⟩ = |11⟩ (control=1, target flipped)
+- CNOT|11⟩ = |10⟩ (control=1, target flipped)
+
+**Creating Entanglement with CNOT:**
+```
+CNOT(H ⊗ I)|00⟩ = (|00⟩ + |11⟩)/√2
+```
+
+**Where:**
+- **H ⊗ I** = Hadamard on first qubit, identity on second
+- **CNOT** = Controlled-NOT gate
+- **Result** = Bell state (maximally entangled)
 
 The **Toffoli** gate (controlled-controlled-NOT) is universal for reversible classical computation and useful for quantum arithmetic. Together with single-qubit rotations, CNOT is **universal** for quantum computation—any unitary operation can be approximated arbitrarily well by composing these gates.
 
@@ -81,45 +98,60 @@ The **Toffoli** gate (controlled-controlled-NOT) is universal for reversible cla
 
 These gates compose sequentially and in parallel, forming **quantum circuits**. The composition model mirrors functional programming: gates are pure transformations, circuits are pipelines, and the entire computation graph is a DAG (directed acyclic graph) of unitary operations.
 
-```
-Bell State Circuit: Creating Entanglement
-==========================================
+**Bell State Circuit: Creating Entanglement**
 
-Initial State:  |00⟩
+![Bell State Circuit: Creating Entanglement](images/bell-state-circuit.svg)
 
-     q0: ─────H─────●───── 
-                    │
-     q1: ───────────X─────
+**Step 1: Apply Hadamard to q0**
 
-Step 1: Apply Hadamard to q0
-  |ψ₁⟩ = H|0⟩ ⊗ |0⟩ = (|0⟩ + |1⟩)/√2 ⊗ |0⟩ = (|00⟩ + |10⟩)/√2
-  (q0 in superposition, q1 still |0⟩ - separable state)
+<div style="display:block; margin-left: 1em;">
+  |ψ₁⟩ = <span style="color:#0066CC">**H**</span>|0⟩ <span style="color:#009966">**⊗**</span> |0⟩ = (|0⟩ + |1⟩)/√2 <span style="color:#009966">**⊗**</span> |0⟩ = (|00⟩ + |10⟩)/√2
+</div>
+  
+**Where:**
+- <span style="color:#0066CC">**H**</span> = Hadamard gate applied to q0
+- <span style="color:#009966">**⊗**</span> = Tensor product (combines qubit states)
+- **Result**: q0 in superposition, q1 still |0⟩ (separable state)
 
-Step 2: Apply CNOT with q0 as control, q1 as target
-  |ψ₂⟩ = CNOT|ψ₁⟩ = (|00⟩ + |11⟩)/√2
-  (Entangled! Measuring q0 determines q1)
+**Step 2: Apply CNOT with q0 as control, q1 as target**
 
-Result: Bell state |Φ⁺⟩
-  - Cannot be written as (α|0⟩ + β|1⟩) ⊗ (γ|0⟩ + δ|1⟩)
-  - Measuring either qubit gives 0 or 1 with 50% probability
-  - But outcomes are perfectly correlated: both 0 or both 1
-```
+<div style="display:block; margin-left: 1em;">
+  |ψ₂⟩ = <span style="color:#CC0066">**CNOT**</span>|ψ₁⟩ = (|00⟩ + |11⟩)/√2
+</div>
+  
+**Where:**
+- <span style="color:#CC0066">**CNOT**</span> = Controlled-NOT (q0 controls q1)
+- **Result**: Entangled Bell state! Measuring q0 determines q1
 
-```mermaid
-graph LR
-    A["|00⟩"] -->|"H ⊗ I"| B["(|00⟩ + |10⟩)/√2"]
-    B -->|CNOT| C["(|00⟩ + |11⟩)/√2"]
-    C -->|Measure| D["00 (50%) or 11 (50%)"]
-    
-    style A fill:#e1f5ff
-    style B fill:#fff4e1
-    style C fill:#ffe1f5
-    style D fill:#e1ffe1
-```
+**Result: Bell state |Φ⁺⟩**
+- **Cannot be factored**: Not expressible as (α|0⟩ + β|1⟩) ⊗ (γ|0⟩ + δ|1⟩)
+- **Measurement outcomes**: 
+  - Each qubit gives 0 or 1 with 50% probability
+  - But outcomes are **perfectly correlated**: both 0 or both 1
+
+![Bell State Transformation Flow](images/bell-state-flow.svg)
 
 ## Measurement and Decoherence: The Observer Effect
 
-**Measurement** is the irreversible process that extracts classical information from quantum states. Unlike classical observation, quantum measurement disturbs the system. Measuring |ψ⟩ = α|0⟩ + β|1⟩ yields outcome 0 with probability |α|² (collapsing to |0⟩) or 1 with probability |β|² (collapsing to |1⟩). The superposition is destroyed—measurement is not a pure function.
+**Measurement** is the irreversible process that extracts classical information from quantum states. Unlike classical observation, quantum measurement disturbs the system. 
+
+**Measurement Formula:**
+
+<div style="display:block">
+  Measuring |ψ⟩ = <span style="color:#0066CC">**α**</span>|0⟩ + <span style="color:#CC0066">**β**</span>|1⟩
+</div>
+
+**Outcomes:**
+- **Outcome 0** with probability <span style="color:#0066CC">**|α|²**</span> → state collapses to |0⟩
+- **Outcome 1** with probability <span style="color:#CC0066">**|β|²**</span> → state collapses to |1⟩
+
+**Where:**
+- <span style="color:#0066CC">**α**</span> = Complex amplitude for |0⟩ state
+- <span style="color:#CC0066">**β**</span> = Complex amplitude for |1⟩ state
+- <span style="color:#0066CC">**|α|²**</span> = Probability of measuring 0 (Born rule)
+- <span style="color:#CC0066">**|β|²**</span> = Probability of measuring 1 (Born rule)
+
+The superposition is destroyed—measurement is not a pure function.
 
 This creates a fundamental constraint: you cannot "peek" at intermediate quantum states without destroying the computation. Quantum algorithms must be designed so that measurement at the end amplifies correct answers' amplitudes while canceling incorrect ones through **destructive interference**—the hallmark of quantum algorithm design.
 
@@ -134,60 +166,67 @@ Current quantum hardware operates in the **NISQ** (Noisy Intermediate-Scale Quan
 Quantum algorithms achieve speedups by exploiting interference—amplifying correct solution amplitudes while canceling incorrect ones. Key paradigms include:
 
 ### Quantum Fourier Transform (QFT)
-The quantum analog of the discrete Fourier transform, computed in O(n²) gates versus O(n·2ⁿ) classically. QFT underlies period-finding algorithms and appears in most quantum speedups. The transformation maps basis state |j⟩ to (1/√N) Σₖ e^(2πijk/N)|k⟩, creating interference patterns that encode periodicity information.
+The quantum analog of the discrete Fourier transform, computed in O(n²) gates versus O(n·2ⁿ) classically. QFT underlies period-finding algorithms and appears in most quantum speedups. 
+
+**QFT Transformation Formula:**
+
+<div style="display:block">
+  <span style="color:#0066CC">**|j⟩**</span> → (1/<span style="color:#009966">**√N**</span>) <span style="color:#CC6600">**Σ<sub>k</sub>**</span> <span style="color:#9933CC">**e^(2πijk/N)**</span><span style="color:#CC0066">**|k⟩**</span>
+</div>
+
+**Where:**
+- <span style="color:#0066CC">**|j⟩**</span> = Input basis state (j = 0 to N-1)
+- <span style="color:#009966">**N**</span> = Dimension of the Hilbert space (N = 2ⁿ for n qubits)
+- <span style="color:#CC6600">**Σ<sub>k</sub>**</span> = Sum over index k (all basis states)
+- <span style="color:#CC0066">**|k⟩**</span> = Output basis states
+- <span style="color:#9933CC">**e^(2πijk/N)**</span> = Phase factor creating interference patterns
+
+The transformation creates interference patterns that encode periodicity information.
 
 ### Phase Estimation
-Given a unitary U and eigenstate |ψ⟩ where U|ψ⟩ = e^(2πiφ)|ψ⟩, phase estimation determines φ to n bits of precision using O(n) qubits and O(n²) gates. This is the core subroutine for quantum chemistry simulations (estimating molecular energies) and cryptanalysis (Shor's algorithm). Phase estimation combines controlled-U operations with inverse QFT—a paradigmatic quantum algorithm demonstrating interference-based computation.
+Given a unitary U and eigenstate |ψ⟩, phase estimation determines the eigenvalue phase φ to n bits of precision.
+
+**Eigenvalue Equation:**
+
+<div style="display:block">
+  <span style="color:#0066CC">**U**</span><span style="color:#009966">**|ψ⟩**</span> = <span style="color:#CC0066">**e^(2πiφ)**</span><span style="color:#009966">**|ψ⟩**</span>
+</div>
+
+**Where:**
+- <span style="color:#0066CC">**U**</span> = Unitary operator (quantum gate/operation)
+- <span style="color:#009966">**|ψ⟩**</span> = Eigenstate of U (input state)
+- <span style="color:#CC0066">**e^(2πiφ)**</span> = Eigenvalue (complex number on unit circle)
+- <span style="color:#CC6600">**φ**</span> = Phase to estimate (real number between 0 and 1)
+
+Phase estimation uses O(n) qubits and O(n²) gates. This is the core subroutine for quantum chemistry simulations (estimating molecular energies) and cryptanalysis (Shor's algorithm). Phase estimation combines controlled-U operations with inverse QFT—a paradigmatic quantum algorithm demonstrating interference-based computation.
 
 ### Grover's Algorithm
-Searches an unstructured database of N items in O(√N) queries versus O(N) classically—a quadratic speedup. The algorithm iteratively amplifies the target state's amplitude through repeated applications of the **Grover operator**: G = -(2|ψ⟩⟨ψ| - I)(2|target⟩⟨target| - I).
+Searches an unstructured database of N items in O(√N) queries versus O(N) classically—a quadratic speedup. 
+
+**Grover Operator Formula:**
+
+<div style="display:block">
+  <span style="color:#CC0066">**G**</span> = -(<span style="color:#009966">**2|ψ⟩⟨ψ| - I**</span>)(<span style="color:#9933CC">**2|target⟩⟨target| - I**</span>)
+</div>
+
+**Where:**
+- <span style="color:#CC0066">**G**</span> = Grover operator (applied iteratively)
+- <span style="color:#0066CC">**|ψ⟩**</span> = Uniform superposition state = (1/√N)Σᵢ|i⟩
+- <span style="color:#009966">**2|ψ⟩⟨ψ| - I**</span> = Inversion about average (reflection operator)
+- <span style="color:#CC6600">**|target⟩**</span> = Target state we're searching for
+- <span style="color:#9933CC">**2|target⟩⟨target| - I**</span> = Oracle that marks the target
 
 Each iteration rotates the state vector toward the target state. After ~π√N/4 iterations, the target amplitude approaches 1, allowing measurement to return the correct answer with high probability. Grover's algorithm is **provably optimal**—no quantum algorithm can search unstructured data faster than O(√N).
 
 **F# analogy**: Classical linear search is `List.find`, requiring O(n) comparisons. Grover's algorithm is like searching with amplitude amplification—but you can't do better than O(√n) because measurement collapses superposition probabilistically.
 
-```
-Grover's Algorithm: Amplitude Amplification
-============================================
+**Grover's Algorithm: Amplitude Amplification**
 
-Initial State (uniform superposition of N items):
-  All amplitudes equal: 1/√N
-
-Amplitude
-   ▲
-   │     Target
-1  │       █
-   │     █ █ █
-   │   █ █ █ █ █
-   │ █ █ █ █ █ █ █
-0  ├─────────────────► Iterations
-   0   1   2   3   ~√N
-
-After ~π√N/4 Grover iterations:
-  - Target amplitude ≈ 1
-  - Other amplitudes ≈ 0
-  - Measure to get target with high probability
-
-Grover Operator G = -(2|ψ⟩⟨ψ| - I)(2|target⟩⟨target| - I)
-                    └─reflection─┘ └──oracle────┘
-```
+![Grover's Algorithm: Amplitude Amplification](images/grover-amplification.svg)
 
 **Visual comparison of search complexities:**
 
-```
-Classical Search:        Grover Search:
-┌────────────┐          ┌────────────┐
-│ Try item 1 │          │ Prepare    │
-├────────────┤          │ uniform    │
-│ Try item 2 │          │ super-     │  O(√N) iterations
-├────────────┤          │ position   │
-│    ...     │  O(N)    ├────────────┤
-├────────────┤          │ Grover     │
-│ Try item N │          │ iterations │
-├────────────┤          ├────────────┤
-│ Found!     │          │ Measure    │
-└────────────┘          └────────────┘
-```
+![Classical Search vs Grover Search Comparison](images/grover-vs-classical.svg)
 
 ### Shor's Algorithm
 Factors integers in polynomial time: O((log N)³) versus best classical algorithms requiring sub-exponential time exp(O((log N)^(1/3))). Shor's algorithm reduces factoring to period-finding in modular exponentiation, solved efficiently via QFT. This threatens RSA cryptography and motivated much quantum computing investment.
@@ -199,70 +238,32 @@ Factors integers in polynomial time: O((log N)³) versus best classical algorith
 ### Variational Quantum Algorithms
 NISQ-era algorithms like **VQE** (Variational Quantum Eigensolver) and **QAOA** (Quantum Approximate Optimization Algorithm) interleave short quantum circuits with classical optimization. These hybrid approaches trade exponential speedups for noise resilience—practical for near-term hardware.
 
-**VQE workflow**: Prepare a parameterized quantum state |ψ(θ)⟩, measure the expectation value ⟨ψ(θ)|H|ψ(θ)⟩ for some Hamiltonian H, use classical optimization (gradient descent, Nelder-Mead) to adjust parameters θ toward the ground state energy. VQE finds molecular ground states for quantum chemistry applications.
+**VQE workflow**: Prepare a parameterized quantum state |ψ(θ)⟩, measure the expectation value, then use classical optimization to adjust parameters toward the ground state energy.
+
+**VQE Energy Formula:**
+
+<div style="display:block">
+  <span style="color:#CC0066">**E(θ)**</span> = ⟨<span style="color:#0066CC">**ψ(θ)**</span>|<span style="color:#009966">**H**</span>|<span style="color:#0066CC">**ψ(θ)**</span>⟩
+</div>
+
+**Where:**
+- <span style="color:#CC0066">**E(θ)**</span> = Energy as function of parameters θ
+- <span style="color:#0066CC">**|ψ(θ)⟩**</span> = Parameterized quantum state (ansatz)
+- <span style="color:#009966">**H**</span> = Hamiltonian operator (encodes the problem)
+- <span style="color:#CC6600">**⟨ψ|H|ψ⟩**</span> = Expectation value (measured on quantum hardware)
+- <span style="color:#9933CC">**θ**</span> = Classical parameters (optimized with gradient descent, Nelder-Mead, etc.)
+
+VQE finds molecular ground states for quantum chemistry applications.
 
 **QAOA**: Applies alternating layers of problem-encoding and mixing Hamiltonians, with parameters optimized classically. QAOA solves combinatorial optimization problems (Max-Cut, TSP) approximately. Performance depends on circuit depth (limited by decoherence) and classical optimizer quality.
 
 **F# perspective**: Variational algorithms are functional pipelines: `quantumCircuit >> measure >> classicalOptimize >> repeat`. The quantum portion is a parameterized pure function; the classical optimizer manages mutable state. This hybrid model suits F#'s strengths in both domains.
 
-```mermaid
-graph TD
-    A[Initialize Parameters θ] --> B[Prepare Quantum State |ψ⟨θ⟩⟩]
-    B --> C[Measure Expectation ⟨H⟩]
-    C --> D{Energy Converged?}
-    D -->|No| E[Classical Optimizer: Update θ]
-    E --> B
-    D -->|Yes| F[Return Ground State Energy]
-    
-    style A fill:#e1f5ff
-    style B fill:#ffe1e1
-    style C fill:#ffe1e1
-    style D fill:#fff4e1
-    style E fill:#e1ffe1
-    style F fill:#e1f5ff
-    
-    subgraph "Quantum Processor"
-    B
-    C
-    end
-    
-    subgraph "Classical Processor"
-    E
-    D
-    end
-```
+![VQE Workflow Diagram](images/vqe-workflow.svg)
 
 **VQE/QAOA Hybrid Loop:**
 
-```
-┌─────────────────────────────────────────────────┐
-│ Variational Quantum Algorithm (VQE/QAOA)       │
-└─────────────────────────────────────────────────┘
-
-Classical CPU              Quantum Processor
-─────────────              ─────────────────
-     │                            │
-     │ 1. Send parameters θ       │
-     │──────────────────────────►│
-     │                            │
-     │                     2. Prepare |ψ(θ)⟩
-     │                     3. Measure ⟨H⟩
-     │                            │
-     │ 4. Receive energy E(θ)     │
-     │◄──────────────────────────│
-     │                            │
-5. Optimize θ                     │
-   (gradient descent,             │
-    Nelder-Mead, etc.)            │
-     │                            │
-     │ 6. Send updated θ'         │
-     │──────────────────────────►│
-     │                            │
-    ...repeat until convergence...
-     │                            │
-     ▼                            ▼
-  Ground state energy         Final |ψ(θ*)⟩
-```
+![VQE/QAOA Hybrid Loop](images/vqe-hybrid-loop.svg)
 
 ## Quantum Computing Models and F# Abstractions
 
@@ -280,7 +281,21 @@ The F# Azure Quantum library adopts the circuit model, exposing quantum operatio
 
 ## Building Quantum Intuition: The Bloch Sphere
 
-Single-qubit states have a geometric representation: the **Bloch sphere**. The poles represent |0⟩ (north) and |1⟩ (south). Superpositions lie on the surface, parameterized by angles θ and φ: |ψ⟩ = cos(θ/2)|0⟩ + e^(iφ)sin(θ/2)|1⟩.
+Single-qubit states have a geometric representation: the **Bloch sphere**. The poles represent |0⟩ (north) and |1⟩ (south). 
+
+**Bloch Sphere Parameterization:**
+
+<div style="display:block">
+  |ψ⟩ = <span style="color:#009966">**cos(θ/2)**</span>|0⟩ + <span style="color:#CC6600">**e^(iφ)sin(θ/2)**</span>|1⟩
+</div>
+
+**Where:**
+- <span style="color:#0066CC">**θ (theta)**</span> = Polar angle (0 to π), determines |0⟩ vs |1⟩ balance
+- <span style="color:#CC0066">**φ (phi)**</span> = Azimuthal angle (0 to 2π), determines relative phase
+- <span style="color:#009966">**cos(θ/2)**</span> = Amplitude for |0⟩ state
+- <span style="color:#CC6600">**e^(iφ)sin(θ/2)**</span> = Amplitude for |1⟩ state with phase
+
+Superpositions lie on the surface of the unit sphere.
 
 Quantum gates correspond to rotations:
 - **X gate**: π rotation around x-axis (bit flip)
@@ -290,59 +305,29 @@ Quantum gates correspond to rotations:
 
 This geometric view builds intuition but breaks down for multi-qubit systems—a 2-qubit state requires 6 real parameters (after normalization and global phase), while two Bloch spheres provide only 4. The additional degrees of freedom represent entanglement, which has no classical geometric analog.
 
-```
-Bloch Sphere: Geometric Representation of Single Qubit
-=======================================================
+**Bloch Sphere: Geometric Representation of Single Qubit**
 
-                    |0⟩ (Z-axis, θ=0)
-                     ▲
-                     │
-                     │
-              ╱──────┼──────╲
-           ╱         │         ╲
-        ╱            │            ╲
-      ╱              │              ╲
-    ╱                │                ╲
-   │                 │                 │
-   │        θ        │                 │
-   │         ◜──────●|ψ⟩              │──── X-axis
-   │      ◜          │φ                │     (Hadamard)
-   │   ◜             │                 │
-    ╲                │                ╱
-      ╲              │              ╱
-        ╲            │            ╱
-           ╲         │         ╱
-              ╲──────┼──────╱
-                     │
-                     ▼
-                    |1⟩ (θ=π)
+![Bloch Sphere: Geometric Representation of Single Qubit](images/bloch-sphere.svg)
 
-State: |ψ⟩ = cos(θ/2)|0⟩ + e^(iφ)sin(θ/2)|1⟩
+**Key Points:**
 
-θ: polar angle (0 to π)
-φ: azimuthal angle (0 to 2π)
+| Location | State | Gate from \|0⟩ |
+|----------|-------|----------------|
+| North Pole | \|0⟩ | I (identity) |
+| South Pole | \|1⟩ | X (bit flip) |
+| +X axis | \|+⟩=(\|0⟩+\|1⟩)/√2 | H |
+| -X axis | \|-⟩=(\|0⟩-\|1⟩)/√2 | H·Z |
+| +Y axis | \|+i⟩=(\|0⟩+i\|1⟩)/√2 | H·S |
+| -Y axis | \|-i⟩=(\|0⟩-i\|1⟩)/√2 | H·S† |
 
-Key Points on Bloch Sphere:
-┌────────────────┬──────────────┬──────────────┐
-│ Location       │ State        │ Gate from |0⟩│
-├────────────────┼──────────────┼──────────────┤
-│ North Pole     │ |0⟩          │ I (identity) │
-│ South Pole     │ |1⟩          │ X (bit flip) │
-│ +X axis        │ |+⟩=(|0⟩+|1⟩)/√2 │ H        │
-│ -X axis        │ |-⟩=(|0⟩-|1⟩)/√2 │ H·Z      │
-│ +Y axis        │ |+i⟩=(|0⟩+i|1⟩)/√2│ H·S      │
-│ -Y axis        │ |-i⟩=(|0⟩-i|1⟩)/√2│ H·S†     │
-└────────────────┴──────────────┴──────────────┘
-
-Gates as Rotations:
-  X: Rotation by π around X-axis
-  Y: Rotation by π around Y-axis
-  Z: Rotation by π around Z-axis
-  H: Rotation by π around (X+Z)/√2 axis
-  Rx(θ): Rotation by θ around X-axis
-  Ry(θ): Rotation by θ around Y-axis
-  Rz(θ): Rotation by θ around Z-axis
-```
+**Gates as Rotations:**
+- **X**: Rotation by π around X-axis
+- **Y**: Rotation by π around Y-axis
+- **Z**: Rotation by π around Z-axis
+- **H**: Rotation by π around (X+Z)/√2 axis
+- **Rx(θ)**: Rotation by θ around X-axis
+- **Ry(θ)**: Rotation by θ around Y-axis
+- **Rz(θ)**: Rotation by θ around Z-axis
 
 ## Quantum Error Correction: Fighting Decoherence
 
@@ -354,46 +339,24 @@ From a software perspective, error correction is akin to memory management in sy
 
 **The scalability challenge**: To run Shor's algorithm on 2048-bit RSA requires ~20 million physical qubits (with surface codes). Current largest machines have ~1000 qubits. Bridging this gap requires advances in qubit coherence times, gate fidelities, and qubit connectivity—the primary hardware challenges over the next decade.
 
-```
-Quantum Error Correction: Logical vs Physical Qubits
-=====================================================
+**Quantum Error Correction: Logical vs Physical Qubits**
 
-Physical Qubit (Noisy):        Logical Qubit (Protected):
-    ┌─────┐                         ┌───────────────┐
-    │  ψ  │ ← Error rate            │   ψ (logical) │
-    └─────┘   ~10^-3                └───────────────┘
-       ↓                                    ▲
-    Errors after                            │
-    ~1000 operations              ┌─────────┴─────────┐
-                                  │ Error correction  │
-                                  │ using ~1000       │
-                                  │ physical qubits   │
-                                  └───────────────────┘
-                                           ▲
-                              ┌────────────┼────────────┐
-                              │            │            │
-                        ┌─────┐      ┌─────┐      ┌─────┐
-                        │ ψ₁  │  ... │ ψₙ  │  ... │ ψₘ  │
-                        └─────┘      └─────┘      └─────┘
-                        Physical qubits (error rate ~10^-3)
+![Quantum Error Correction: Logical vs Physical Qubits](images/error-correction.svg)
 
-Shor Code: 9 Physical Qubits → 1 Logical Qubit
-Surface Code: ~1000 Physical Qubits → 1 Logical Qubit (10^-12 error)
+**Error Correction Code Comparison:**
 
-Resource Requirements for Shor's Algorithm (2048-bit RSA):
-┌──────────────────────┬──────────────┬──────────────┐
-│ Component            │ Logical      │ Physical     │
-│                      │ Qubits       │ Qubits       │
-├──────────────────────┼──────────────┼──────────────┤
-│ Main computation     │ ~20,000      │ ~20,000,000  │
-│ Error correction     │ N/A          │ overhead     │
-├──────────────────────┼──────────────┼──────────────┤
-│ Current hardware     │ 0 (NISQ)     │ ~1,000       │
-│ (2025)               │              │              │
-└──────────────────────┴──────────────┴──────────────┘
+| Code | Physical Qubits | Logical Qubits | Error Rate |
+|------|-----------------|----------------|------------|
+| **Shor Code** | 9 | 1 | ~10⁻⁶ |
+| **Surface Code** | ~1000 | 1 | ~10⁻¹² |
 
-Gap: 20,000× more qubits needed
-```
+**Resource Requirements for Shor's Algorithm (2048-bit RSA):**
+
+| Component | Logical Qubits | Physical Qubits |
+|-----------|----------------|-----------------|
+| Main computation | ~20,000 | ~20,000,000 |
+| Current hardware (2025) | 0 (NISQ era) | ~1,000 |
+| **Gap** | | **20,000× more needed** |
 
 ## Azure Quantum: Practical Quantum Development
 
@@ -406,94 +369,19 @@ Gap: 20,000× more qubits needed
 
 The F# Azure Quantum library exposes quantum operations through computation expressions, leveraging F#'s type system for safety and composability. Quantum workflows compile to QIR (Quantum Intermediate Representation), enabling cross-platform execution.
 
-```mermaid
-graph TB
-    A[F# Code with quantum {} CE] --> B[FSharp.Azure.Quantum Library]
-    B --> C[QIR Compilation]
-    C --> D{Target Backend}
-    
-    D -->|Local| E[Full State Simulator]
-    D -->|Cloud| F[Azure Quantum Service]
-    
-    F --> G[IonQ Trapped Ions]
-    F --> H[Quantinuum Trapped Ions]
-    F --> I[Rigetti Superconducting]
-    F --> J[Resource Estimator]
-    
-    E --> K[Results]
-    G --> K
-    H --> K
-    I --> K
-    J --> L[Resource Report]
-    
-    style A fill:#e1f5ff
-    style B fill:#ffe1e1
-    style C fill:#fff4e1
-    style E fill:#e1ffe1
-    style F fill:#ffe1f5
-    style K fill:#e1f5ff
-    style L fill:#e1f5ff
-```
+![Azure Quantum Service Architecture](images/azure-quantum-architecture.svg)
 
 **Azure Quantum Development Pipeline:**
 
-```
-┌──────────────────────────────────────────────────┐
-│ Development Workflow                             │
-└──────────────────────────────────────────────────┘
+![Azure Quantum Development Pipeline](images/azure-quantum-pipeline.svg)
 
-1. Development (Local)
-   ┌─────────────────────┐
-   │ Write F# quantum {} │
-   │ computation expr.   │
-   └──────────┬──────────┘
-              │
-              ▼
-   ┌─────────────────────┐
-   │ Test with local     │
-   │ full-state simulator│
-   │ (unlimited qubits,  │
-   │  instant feedback)  │
-   └──────────┬──────────┘
-              │
-              ▼
-2. Validation (Cloud)
-   ┌─────────────────────┐
-   │ Azure Quantum       │
-   │ noise simulator     │
-   │ (realistic errors)  │
-   └──────────┬──────────┘
-              │
-              ▼
-3. Resource Estimation
-   ┌─────────────────────┐
-   │ Estimate physical   │
-   │ qubit requirements  │
-   │ for future hardware │
-   └──────────┬──────────┘
-              │
-              ▼
-4. Execution (Real Hardware)
-   ┌─────────────────────┐
-   │ Run on IonQ,        │
-   │ Quantinuum, or      │
-   │ Rigetti QPU         │
-   └─────────────────────┘
+**Backends Available:**
 
-Backends Available:
-┌─────────────┬──────────┬────────────┬─────────────┐
-│ Provider    │ Qubits   │ Technology │ Connectivity│
-├─────────────┼──────────┼────────────┼─────────────┤
-│ IonQ        │ 11-29    │ Trapped    │ All-to-all  │
-│             │          │ ions       │             │
-├─────────────┼──────────┼────────────┼─────────────┤
-│ Quantinuum  │ 20-32    │ Trapped    │ All-to-all  │
-│             │          │ ions       │             │
-├─────────────┼──────────┼────────────┼─────────────┤
-│ Rigetti     │ 80+      │ Super-     │ Limited     │
-│             │          │ conducting │ (lattice)   │
-└─────────────┴──────────┴────────────┴─────────────┘
-```
+| Provider | Qubits | Technology | Connectivity | Best For |
+|----------|--------|------------|--------------|----------|
+| **IonQ** | 11-29 | Trapped ions | All-to-all | High-fidelity gates, small circuits |
+| **Quantinuum** | 20-32 | Trapped ions | All-to-all | Complex algorithms, high accuracy |
+| **Rigetti** | 80+ | Superconducting | Limited (lattice) | Large qubit count, near-term apps |
 
 ## Quantum Computing's Promise and Limitations
 
@@ -512,64 +400,18 @@ Quantum computers are not universal accelerators—they excel at specific proble
 
 **The complexity landscape**: Quantum computers are believed to define a new complexity class **BQP** (Bounded-Error Quantum Polynomial-time), sitting between **P** and **PSPACE**. The relationships are: **P** ⊆ **BPP** ⊆ **BQP** ⊆ **PSPACE**. Whether **BQP** = **P** or **BQP** = **PSPACE** remains open—these are among the deepest questions in complexity theory.
 
-```
-Computational Complexity Landscape
-===================================
+**Computational Complexity Landscape**
 
-                    PSPACE (Polynomial Space)
-    ┌───────────────────────────────────────────────┐
-    │                                               │
-    │           #P (Counting Problems)              │
-    │       ┌─────────────────────────┐             │
-    │       │                         │             │
-    │       │   NP (Nondeterministic  │             │
-    │       │   Polynomial)           │             │
-    │       │  ┌──────────────────┐   │             │
-    │       │  │  NP-Complete     │   │             │
-    │       │  │  (SAT, TSP, etc.)│   │             │
-    │       │  └──────────────────┘   │             │
-    │       │          │               │             │
-    │       └──────────┼───────────────┘             │
-    │                  │                             │
-    │         ┌────────▼────────┐                    │
-    │         │      BQP        │ ← Quantum          │
-    │         │  (Quantum Poly) │   Advantage        │
-    │         │                 │                    │
-    │         │  • Factoring    │                    │
-    │         │  • Simulation   │                    │
-    │         │  • Graph Iso(?) │                    │
-    │         └────────┬────────┘                    │
-    │                  │                             │
-    │         ┌────────▼────────┐                    │
-    │         │      BPP        │                    │
-    │         │ (Probabilistic  │                    │
-    │         │   Polynomial)   │                    │
-    │         └────────┬────────┘                    │
-    │                  │                             │
-    │         ┌────────▼────────┐                    │
-    │         │        P        │                    │
-    │         │ (Deterministic  │                    │
-    │         │   Polynomial)   │                    │
-    │         └─────────────────┘                    │
-    │                                               │
-    └───────────────────────────────────────────────┘
+![Computational Complexity Landscape](images/complexity-landscape.svg)
 
-Known:  P ⊆ BPP ⊆ BQP ⊆ PSPACE
-Unknown: P = BPP? (widely believed equal)
-         BPP = BQP? (widely believed BQP > BPP)
-         BQP = P? (widely believed BQP ≠ P)
-         NP ⊆ BQP? (open question)
+**Quantum Speedups by Problem Class:**
 
-Quantum Speedups by Problem Class:
-┌──────────────────────┬────────────┬──────────────┐
-│ Problem Class        │ Classical  │ Quantum      │
-├──────────────────────┼────────────┼──────────────┤
-│ Factoring (Shor)     │ exp(n^1/3) │ O(n³)        │
-│ Unstructured Search  │ O(N)       │ O(√N)        │
-│ Quantum Simulation   │ Exponential│ Polynomial   │
-│ NP-Complete (SAT)    │ Exponential│ O(√N) (Grov) │
-└──────────────────────┴────────────┴──────────────┘
-```
+| Problem Class | Classical Complexity | Quantum Complexity | Speedup |
+|---------------|---------------------|-------------------|---------|
+| **Factoring** (Shor) | exp(n^(1/3)) | O(n³) | Exponential |
+| **Unstructured Search** (Grover) | O(N) | O(√N) | Quadratic |
+| **Quantum Simulation** | Exponential | Polynomial | Exponential |
+| **NP-Complete** (SAT) | Exponential | O(√N) via Grover | Quadratic only |
 
 The **Church-Turing thesis** remains unchallenged—quantum computers solve the same problems as classical computers (both are Turing-complete). The difference is **computational complexity**: quantum algorithms can solve certain problems exponentially faster.
 
@@ -734,53 +576,30 @@ let ghzState n =
 3. Execute on real quantum hardware (IonQ, Quantinuum, Rigetti)
 4. Use resource estimation to plan for future scaled hardware
 
+**F# Type Safety in Quantum Computing**
+
+![F# Type Safety in Quantum Computing](images/fsharp-type-safety.svg)
+
+**Type System Benefits:**
+
+| Quantum Property | F# Enforcement | Benefit |
+|------------------|----------------|---------|
+| **Circuit structure** | Immutable `Circuit` type | Cannot modify after creation—prevents accidental mutations |
+| **Qubit indices** | Validated at runtime via `validate` function | Catches out-of-bounds errors before execution |
+| **Gate parameters** | Strongly typed `Gate` DU (e.g., `RX of int * float`) | Compile-time type safety for angles and qubit indices |
+| **Backend compatibility** | `IQuantumBackend` interface | Seamless switching between local/IonQ/Rigetti backends |
+
+**Functional Pipeline:**
+
+```fsharp
+CircuitBuilder.empty    : int → Circuit
+CircuitBuilder.addGate  : Gate → Circuit → Circuit
+CircuitBuilder.optimize : Circuit → Circuit
+CircuitBuilder.validate : Circuit → ValidationResult
+Backend.execute         : Circuit → int → Result<Map<string,int>>
 ```
-F# Type Safety in Quantum Computing
-====================================
 
-Functional Circuit Construction vs Imperative Quantum Assembly:
-
-FSharp.Azure.Quantum (Functional):    Q# / Qiskit (Imperative):
-┌────────────────────────────────┐   ┌───────────────────────────┐
-│ let circuit =                  │   │ operation BellState() {   │
-│     empty 2                    │   │     using (q = Qubit[2]) {│
-│     |> addGate (H 0)           │   │         H(q[0]);          │
-│     |> addGate (CNOT (0, 1))   │   │         CNOT(q[0], q[1]); │
-│                                │   │         let r0 = M(q[0]); │
-│ // Circuit is immutable value  │   │         let r1 = M(q[1]); │
-│ let optimized = optimize circuit│   │         return (r0, r1);  │
-│                                │   │     }                     │
-└────────────────────────────────┘   │ }                         │
-                                     └───────────────────────────┘
-Advantages:                          
-- ✅ Pure functions (testable)       - Circuit mutation
-- ✅ Composition with |>             - Mutable qubit registers
-- ✅ Multiple backends               - Platform-specific
-
-Type System Benefits:
-┌──────────────────────────┬─────────────────────────────┐
-│ Quantum Property         │ F# Enforcement              │
-├──────────────────────────┼─────────────────────────────┤
-│ Circuit structure        │ Immutable Circuit type      │
-│                          │ (cannot modify after create)│
-├──────────────────────────┼─────────────────────────────┤
-│ Qubit indices            │ Validated at runtime        │
-│                          │ (validate function)         │
-├──────────────────────────┼─────────────────────────────┤
-│ Gate parameters          │ Strongly typed Gate DU      │
-│ (angles, qubits)         │ (e.g., RX of int * float)   │
-├──────────────────────────┼─────────────────────────────┤
-│ Backend compatibility    │ IQuantumBackend interface   │
-│                          │ (local/IonQ/Rigetti)        │
-└──────────────────────────┴─────────────────────────────┘
-
-Functional Pipeline:
-  CircuitBuilder.empty   : int → Circuit
-  CircuitBuilder.addGate : Gate → Circuit → Circuit
-  CircuitBuilder.optimize: Circuit → Circuit
-  CircuitBuilder.validate: Circuit → ValidationResult
-  Backend.execute        : Circuit → int → Result<Map<string,int>>
-```
+Each function is pure, composable, and type-safe—leveraging F#'s strengths for quantum algorithm development.
 
 ## Further Reading
 

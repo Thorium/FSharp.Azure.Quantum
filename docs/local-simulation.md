@@ -220,7 +220,19 @@ let superposition =
 **Key Concepts:**
 
 - **Basis States**: For n qubits, basis states are |000⟩, |001⟩, ..., |111⟩
-- **Amplitudes**: Complex numbers α_i where state |ψ⟩ = Σ α_i|i⟩
+- **Amplitudes**: Complex numbers α_i in the quantum state superposition
+- **Quantum State Formula:**
+
+<div style="display:block; margin-left: 1em;">
+  <span style="color:#009966">**|ψ⟩**</span> = <span style="color:#CC6600">**Σ<sub>i</sub>**</span> <span style="color:#0066CC">**αᵢ**</span><span style="color:#CC0066">**|i⟩**</span>
+</div>
+  
+**Where:**
+- <span style="color:#009966">**|ψ⟩**</span> = Quantum state vector
+- <span style="color:#0066CC">**αᵢ**</span> = Complex amplitude for basis state |i⟩
+- <span style="color:#CC6600">**Σ<sub>i</sub>**</span> = Sum over all 2ⁿ basis states
+- <span style="color:#CC0066">**|i⟩**</span> = Computational basis state (e.g., |000⟩, |001⟩, etc.)
+
 - **Normalization**: Σ|α_i|² = 1 (probability conservation)
 - **Qubit Indexing**: Qubit i corresponds to bit i in basis state index
   - Example: |10⟩ (basis 2) = qubit_0=0, qubit_1=1
@@ -256,13 +268,36 @@ let stateRz = Gates.applyRz 0 angle state  // Rotate around Z-axis
 
 | Gate | Matrix | Description |
 |------|--------|-------------|
-| **X** | `[[0,1],[1,0]]` | Bit flip: |0⟩↔|1⟩ |
+| **X** | `[[0,1],[1,0]]` | Bit flip: \|0⟩↔\|1⟩ |
 | **Y** | `[[0,-i],[i,0]]` | Bit+phase flip |
-| **Z** | `[[1,0],[0,-1]]` | Phase flip: |1⟩→-|1⟩ |
+| **Z** | `[[1,0],[0,-1]]` | Phase flip: \|1⟩→-\|1⟩ |
 | **H** | `[[1,1],[1,-1]]/√2` | Hadamard: creates superposition |
-| **Rx(θ)** | `cos(θ/2)I - i·sin(θ/2)X` | Rotation around X-axis |
-| **Ry(θ)** | `cos(θ/2)I - i·sin(θ/2)Y` | Rotation around Y-axis |
-| **Rz(θ)** | `e^(-iθ/2)|0⟩⟨0| + e^(iθ/2)|1⟩⟨1|` | Rotation around Z-axis |
+
+**Rotation Gates:**
+
+**Rx(θ) - Rotation around X-axis:**
+
+<div style="display:block; margin-left: 1em;">
+  Rx(<span style="color:#CC0066">**θ**</span>) = cos(<span style="color:#CC0066">**θ**</span>/2)<span style="color:#0066CC">**I**</span> - i·sin(<span style="color:#CC0066">**θ**</span>/2)<span style="color:#009966">**X**</span>
+</div>
+
+**Where:** <span style="color:#CC0066">**θ**</span> = rotation angle, <span style="color:#0066CC">**I**</span> = identity matrix, <span style="color:#009966">**X**</span> = Pauli-X matrix
+
+**Ry(θ) - Rotation around Y-axis:**
+
+<div style="display:block; margin-left: 1em;">
+  Ry(<span style="color:#CC0066">**θ**</span>) = cos(<span style="color:#CC0066">**θ**</span>/2)<span style="color:#0066CC">**I**</span> - i·sin(<span style="color:#CC0066">**θ**</span>/2)<span style="color:#CC6600">**Y**</span>
+</div>
+
+**Where:** <span style="color:#CC0066">**θ**</span> = rotation angle, <span style="color:#CC6600">**Y**</span> = Pauli-Y matrix
+
+**Rz(θ) - Rotation around Z-axis:**
+
+<div style="display:block; margin-left: 1em;">
+  Rz(<span style="color:#CC0066">**θ**</span>) = e^(-i<span style="color:#CC0066">**θ**</span>/2)|0⟩⟨0| + e^(i<span style="color:#CC0066">**θ**</span>/2)|1⟩⟨1|
+</div>
+
+**Where:** <span style="color:#CC0066">**θ**</span> = rotation angle, adds phase based on qubit state
 
 #### Two-Qubit Gates
 
@@ -309,9 +344,18 @@ For depth p, QAOA applies p layers of:
 2. **Mixer Hamiltonian**: Enables exploration
    - Applies Rx rotations to all qubits
 
-```
-|0⟩^⊗n → [Cost(γ₁) → Mix(β₁)] → ... → [Cost(γₚ) → Mix(βₚ)] → Measure
-```
+**QAOA Circuit Formula:**
+
+<div style="display:block; margin-left: 1em;">
+  <span style="color:#666666">**|0⟩^⊗n**</span> → [<span style="color:#CC0066">**Cost(γ₁)**</span> → <span style="color:#0066CC">**Mix(β₁)**</span>] → ... → [<span style="color:#CC0066">**Cost(γₚ)**</span> → <span style="color:#0066CC">**Mix(βₚ)**</span>] → Measure
+</div>
+
+**Where:**
+- <span style="color:#666666">**|0⟩^⊗n**</span> = Initial state (n qubits, all in |0⟩)
+- <span style="color:#CC0066">**Cost(γₖ)**</span> = Cost Hamiltonian layer with parameter γₖ
+- <span style="color:#0066CC">**Mix(βₖ)**</span> = Mixer Hamiltonian layer with parameter βₖ
+- <span style="color:#009966">**p**</span> = Circuit depth (number of layer repetitions)
+- <span style="color:#CC0066">**γₖ**</span>, <span style="color:#0066CC">**βₖ**</span> = Variational parameters (optimized classically)
 
 ### 4. Measurement - Observation and Sampling
 
@@ -371,11 +415,30 @@ let expectation = Measurement.computeExpectedValue (pauliZ 0) state
 
 **Measurement Concepts:**
 
-- **Born Rule**: Probability of measuring state |i⟩ is P(i) = |α_i|²
+- **Born Rule - Measurement Probability:**
+
+<div style="display:block; margin-left: 1em;">
+  <span style="color:#CC0066">**P(i)**</span> = <span style="color:#009966">**|αᵢ|²**</span>
+</div>
+  
+**Where:**
+- <span style="color:#CC0066">**P(i)**</span> = Probability of measuring basis state |i⟩
+- <span style="color:#0066CC">**αᵢ**</span> = Complex amplitude for state |i⟩
+- <span style="color:#009966">**|αᵢ|²**</span> = Squared magnitude (amplitude × conjugate)
+
 - **Collapse**: After measurement, state becomes the measured basis state
 - **Shots**: Multiple measurements to estimate probability distribution
 - **Bitstrings**: Classical outcome representation (e.g., "101" for |101⟩)
-- **Expectation**: Average value of observable: ⟨Z⟩ = Σᵢ P(i)·zᵢ
+- **Expectation Value:**
+
+<div style="display:block; margin-left: 1em;">
+  <span style="color:#CC6600">**⟨Z⟩**</span> = <span style="color:#666666">**Σ<sub>i</sub>**</span> <span style="color:#CC0066">**P(i)**</span>·<span style="color:#9933CC">**zᵢ**</span>
+</div>
+  
+**Where:**
+- <span style="color:#CC6600">**⟨Z⟩**</span> = Average value of observable Z
+- <span style="color:#CC0066">**P(i)**</span> = Probability of state i
+- <span style="color:#9933CC">**zᵢ**</span> = Eigenvalue of Z for state i
 
 **Statistical Analysis Example:**
 
