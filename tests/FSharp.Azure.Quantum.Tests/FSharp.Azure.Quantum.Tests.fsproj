@@ -61,6 +61,7 @@
     <Compile Include="QuantumArithmeticBuilderTests.fs" />
     <Compile Include="QuantumPeriodFinderBuilderTests.fs" />
     <Compile Include="QuantumPhaseEstimatorBuilderTests.fs" />
+    <Compile Include="TaskSchedulingTests.fs" />
     <!-- SchedulingTests.fs removed - tests deleted classical scheduler -->
     <!-- SubsetSelectionTests.fs removed - tests deleted classical DP/greedy solver -->
     <Compile Include="IntegrationTests.fs" />

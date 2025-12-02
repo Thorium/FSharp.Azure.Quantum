@@ -115,11 +115,16 @@ module TaskSchedulingTests =
     
     [<Fact>]
     let ``Time unit helpers should convert correctly`` () =
-        // Assert
-        Assert.Equal(60.0, minutes 60.0)
-        Assert.Equal(60.0, hours 1.0)
-        Assert.Equal(1440.0, days 1.0)
-        Assert.Equal(120.0, hours 2.0)
+        // Assert - Extract float from Duration wrapper
+        let (Duration m60) = minutes 60.0
+        let (Duration h1) = hours 1.0
+        let (Duration d1) = days 1.0
+        let (Duration h2) = hours 2.0
+        
+        Assert.Equal(60.0, m60)
+        Assert.Equal(60.0, h1)
+        Assert.Equal(1440.0, d1)
+        Assert.Equal(120.0, h2)
     
     // ============================================================================
     // TEST 4: Validation - Invalid Dependencies
