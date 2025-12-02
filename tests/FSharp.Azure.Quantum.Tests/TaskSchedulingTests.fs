@@ -250,11 +250,47 @@ module TaskSchedulingTests =
             Assert.Fail($"Scheduling failed: {msg}")
     
     // ============================================================================
-    // TEST 8: Resource-Constrained Scheduling
+    // TEST 8: Resource-Constrained Scheduling (Quantum Backend Required)
     // ============================================================================
-    // NOTE: Resource allocation is intended for quantum solvers only.
-    // Classical solver does dependency-based scheduling without resource constraints.
-    // Test removed as classical resource allocation is out of scope.
+    
+    [<Fact>]
+    let ``Resource-constrained scheduling requires quantum backend`` () =
+        // Arrange - Two parallel tasks requiring same resource (capacity 1)
+        let taskA = scheduledTask {
+            id "A"
+            duration (minutes 10.0)
+            requires "Worker" 1.0
+        }
+        
+        let taskB = scheduledTask {
+            id "B"
+            duration (minutes 15.0)
+            requires "Worker" 1.0
+        }
+        
+        // Only 1 worker available - quantum solver needed for resource constraints
+        let worker = resource {
+            id "Worker"
+            capacity 1.0
+            costPerUnit 50.0
+        }
+        
+        let problem = scheduling {
+            tasks [taskA; taskB]
+            resources [worker]
+            objective MinimizeMakespan
+        }
+        
+        // Act - Use quantum solver (placeholder returns error for now)
+        let backend = FSharp.Azure.Quantum.Core.BackendAbstraction.LocalBackend() :> FSharp.Azure.Quantum.Core.BackendAbstraction.IQuantumBackend
+        let result = solveQuantum backend problem |> Async.RunSynchronously
+        
+        // Assert - Should return "not yet implemented" error
+        match result with
+        | Ok _ -> Assert.Fail("Should return error - quantum QUBO encoding not yet implemented")
+        | Error msg -> 
+            Assert.Contains("not yet implemented", msg)
+            // Once implemented, this will serialize tasks due to resource constraint
     // ============================================================================
     // TEST 9: Deadline Constraint
     // ============================================================================
