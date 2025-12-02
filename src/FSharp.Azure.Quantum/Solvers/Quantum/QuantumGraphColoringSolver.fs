@@ -178,21 +178,16 @@ module QuantumGraphColoringSolver =
                                 let existing = quboTerms |> Map.tryFind (varIdx, varIdx) |> Option.defaultValue 0.0
                                 quboTerms <- quboTerms |> Map.add (varIdx, varIdx) (existing + penaltyWeight * 10.0)
                     | None ->
-                        // Normal one-hot constraint
-                        for c in 0 .. numColors - 1 do
-                            let varIdx = getVarIndex v c
-                            // Linear term: -2 * x_{i,c}
-                            let existingLinear = quboTerms |> Map.tryFind (varIdx, varIdx) |> Option.defaultValue 0.0
-                            quboTerms <- quboTerms |> Map.add (varIdx, varIdx) (existingLinear - 2.0 * penaltyWeight)
+                        // Normal one-hot constraint using shared helper
+                        let varIndices = [ for c in 0 .. numColors - 1 -> getVarIndex v c ]
+                        let oneHotTerms = Qubo.oneHotConstraint varIndices penaltyWeight
                         
-                        // Quadratic terms: x_{i,c} * x_{i,d} for c ≠ d
-                        for c in 0 .. numColors - 1 do
-                            for d in c + 1 .. numColors - 1 do
-                                let varIdx1 = getVarIndex v c
-                                let varIdx2 = getVarIndex v d
-                                let (row, col) = (min varIdx1 varIdx2, max varIdx1 varIdx2)
-                                let existingQuad = quboTerms |> Map.tryFind (row, col) |> Option.defaultValue 0.0
-                                quboTerms <- quboTerms |> Map.add (row, col) (existingQuad + 2.0 * penaltyWeight)
+                        // Merge one-hot terms into quboTerms
+                        quboTerms <- 
+                            oneHotTerms 
+                            |> Map.fold (fun acc key value -> 
+                                let existing = acc |> Map.tryFind key |> Option.defaultValue 0.0
+                                acc |> Map.add key (existing + value)) quboTerms
                 
                 // CONSTRAINT 2: Adjacent vertices have different colors
                 // Penalty: Σ_{(i,j) ∈ E} Σ_c x_{i,c} * x_{j,c}

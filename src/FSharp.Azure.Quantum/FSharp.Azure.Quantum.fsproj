@@ -54,6 +54,9 @@
     <!-- Core Layer - Foundation Types -->
     <Compile Include="Core\Validation.fs" />
     <Compile Include="Core\Types.fs" />
+    
+    <!-- QUBO Helpers - Shared patterns for optimization solvers -->
+    <Compile Include="Qubo.fs" />
 
     <!-- Local Simulator Layer (depends on Types) -->
     <Compile Include="LocalSimulator\StateVector.fs" />
@@ -152,6 +155,13 @@
     <Compile Include="Solvers\Hybrid\HybridSolver.fs" />
 
     <!-- Task Scheduling - Domain-specific API for scheduling problems -->
+    <Compile Include="TaskScheduling\Types.fs" />
+    <Compile Include="TaskScheduling\Validation.fs" />
+    <Compile Include="TaskScheduling\Builders.fs" />
+    <Compile Include="TaskScheduling\ClassicalSolver.fs" />
+    <Compile Include="TaskScheduling\QuboEncoding.fs" />
+    <Compile Include="TaskScheduling\QuantumSolver.fs" />
+    <Compile Include="TaskScheduling\Export.fs" />
     <Compile Include="TaskScheduling.fs" />
 
     <!-- Classical Builders - User-facing APIs (depends on HybridSolver) -->

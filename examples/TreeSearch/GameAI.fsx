@@ -159,18 +159,17 @@ printfn ""
 // Build quantum tree search problem
 let ticTacToeProblem = quantumTreeSearch {
     initialState ticTacToeStartState
-    maxDepth 2  // Depth 2: 4 qubits, 16 states - reliable with LocalBackend
-                // Depth 3 with branching 9 requires 12 qubits - needs real quantum hardware
-    branchingFactor 4
+    maxDepth 2  // Depth 2 with natural branching
+    branchingFactor 9  // Tic-tac-toe has up to 9 possible moves
     evaluateWith evaluatePosition
-    generateMovesWith (fun state ->
-        // Limit to 4 moves max to match branching factor
-        generateMoves state |> List.truncate 4)
+    generateMovesWith generateMoves  // NO truncation - use all legal moves!
     topPercentile 0.2  // Consider top 20% of moves
-    
-    // Use local quantum simulator
     backend localBackend
-    shots 1000  // Number of measurements
+    
+    // LocalBackend tuning (like Gomoku example)
+    shots 100  // Lower shots work better with LocalBackend's uniform noise
+    solutionThreshold 0.01  // 1% - very forgiving
+    successThreshold 0.1  // 10% - accept lower success probability
 }
 
 match solve ticTacToeProblem with
@@ -276,18 +275,15 @@ printfn ""
 
 let chessProblem = quantumTreeSearch {
     initialState chessInitial
-    maxDepth 2  // Depth 2: 4 qubits, 16 states - reliable with LocalBackend
-                // Depth 3+ with branching 16 requires 12+ qubits - needs real quantum hardware
-    branchingFactor 4
+    maxDepth 2  // Depth 2 with realistic branching
+    branchingFactor 16  // Chess-like game with ~16 candidate moves
     evaluateWith evaluateChessPosition
-    generateMovesWith (fun state ->
-        // Take top 4 candidate moves to match branching factor
-        generateChessMoves state |> List.truncate 4)
+    generateMovesWith generateChessMoves  // Use all generated moves
     topPercentile 0.15
-    
-    // Use local quantum simulator
     backend localBackend
-    shots 1000
+    shots 100
+    solutionThreshold 0.01
+    successThreshold 0.1
 }
 
 match solve chessProblem with
@@ -412,25 +408,16 @@ printfn ""
 
 let businessProblem = quantumTreeSearch {
     initialState businessInitial
-    maxDepth 2  // Depth 2: 4 qubits, 16 states - reliable with LocalBackend
-                // Depth 3+ requires more qubits - use real quantum hardware
-    branchingFactor 4
+    maxDepth 3  // 3-stage decision process
+    branchingFactor 4  // Average of 3-4 options per stage
     evaluateWith simulateMarketImpact
-    generateMovesWith (fun state ->
-        // Take top 4 strategic options to match branching factor
-        generateBusinessDecisions state |> List.truncate 4)
+    generateMovesWith generateBusinessDecisions  // Use all decision options
     
     // Backend configuration
     backend localBackend
-    shots 2000  // More shots = better accuracy (default: 2000)
-    
-    // Optional: Tune thresholds for your quantum backend
-    // solutionThreshold 0.03   // Lower for noisy backends (default: 0.03 for 16 states)
-    // successThreshold 0.10    // Success probability threshold (default: 0.10)
-    // 
-    // Good starting values:
-    // - LocalBackend: 2000 shots, 0.03 solution threshold
-    // - Cloud backends: Increase shots to 5000-10000 for stability
+    shots 100
+    solutionThreshold 0.01
+    successThreshold 0.1
 }
 
 match solve businessProblem with

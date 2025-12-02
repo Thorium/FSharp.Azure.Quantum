@@ -150,6 +150,50 @@ module QuantumPatternMatcher =
             | Error msg -> failwith msg
             | Ok () -> problem
         
+        member _.For(sequence: seq<'U>, body: 'U -> PatternProblem<'T>) : PatternProblem<'T> =
+            // Idiomatic F#: Use Seq.fold for functional accumulation with AND logic
+            let zero = {
+                SearchSpace = Choice2Of2 0
+                Pattern = fun _ -> true  // Neutral element for AND
+                TopN = 0
+                Backend = None
+                MaxIterations = None
+                Shots = 0
+            }
+            
+            sequence
+            |> Seq.map body
+            |> Seq.fold (fun acc itemProblem ->
+                {
+                    SearchSpace = match itemProblem.SearchSpace with Choice2Of2 0 -> acc.SearchSpace | s -> s
+                    Pattern = fun x -> acc.Pattern x && itemProblem.Pattern x  // AND logic
+                    TopN = if itemProblem.TopN > 0 then itemProblem.TopN else acc.TopN
+                    Backend = match itemProblem.Backend with Some b -> Some b | None -> acc.Backend
+                    MaxIterations = match itemProblem.MaxIterations with Some i -> Some i | None -> acc.MaxIterations
+                    Shots = if itemProblem.Shots > 0 then itemProblem.Shots else acc.Shots
+                }) zero
+        
+        member _.Combine(problem1: PatternProblem<'T>, problem2: PatternProblem<'T>) : PatternProblem<'T> =
+            // Merge two problems with AND logic on patterns
+            {
+                SearchSpace = match problem2.SearchSpace with Choice2Of2 0 -> problem1.SearchSpace | s -> s
+                Pattern = fun x -> problem1.Pattern x && problem2.Pattern x  // AND both patterns
+                TopN = if problem2.TopN > 0 then problem2.TopN else problem1.TopN
+                Backend = match problem2.Backend with Some b -> Some b | None -> problem1.Backend
+                MaxIterations = match problem2.MaxIterations with Some i -> Some i | None -> problem1.MaxIterations
+                Shots = if problem2.Shots > 0 then problem2.Shots else problem1.Shots
+            }
+        
+        member _.Zero() : PatternProblem<'T> =
+            {
+                SearchSpace = Choice2Of2 0
+                Pattern = fun _ -> true  // Neutral element for AND
+                TopN = 0
+                Backend = None
+                MaxIterations = None
+                Shots = 0
+            }
+        
         [<CustomOperation("searchSpace")>]
         member _.SearchSpaceItems(problem: PatternProblem<'T>, items: 'T list) : PatternProblem<'T> =
             { problem with SearchSpace = Choice1Of2 items }
@@ -233,18 +277,20 @@ module QuantumPatternMatcher =
                 // If we only have size, check pattern on index (user must handle decoding)
                 let oraclePredicate (idx: int) : bool =
                     match searchSpaceItems with
-                    | Some items when idx < List.length items ->
+                    | Some items when idx >= 0 && idx < List.length items ->
                         let item = List.item idx items
                         problem.Pattern item
                     | None ->
                         // User provided only size, pattern must work on indices
-                        // Cast idx to 'T (this is a limitation - works for int, not for other types)
-                        // Better approach: require explicit decoder function
-                        // For now, we'll try the pattern and catch errors
+                        // When using searchSpaceSize, 'T should typically be int
+                        // Try to convert idx to 'T - works when 'T = int
                         try
-                            problem.Pattern (unbox idx)
+                            let indexAsT = box idx :?> 'T
+                            problem.Pattern indexAsT
                         with
-                        | _ -> false
+                        | :? System.InvalidCastException ->
+                            // Type mismatch: searchSpaceSize used with non-int pattern
+                            false
                     | _ -> false
                 
                 // Create oracle for Grover search
@@ -285,14 +331,20 @@ module QuantumPatternMatcher =
                                     | Some items ->
                                         topIndices
                                         |> List.choose (fun idx -> 
-                                            if idx < List.length items then
+                                            if idx >= 0 && idx < List.length items then
                                                 Some (List.item idx items)
                                             else
                                                 None
                                         )
                                     | None ->
-                                        // Return indices as 'T (requires 'T to be compatible with int)
-                                        topIndices |> List.map unbox
+                                        // Return indices as 'T (when using searchSpaceSize, 'T should be int)
+                                        topIndices 
+                                        |> List.choose (fun idx ->
+                                            try
+                                                Some (box idx :?> 'T)
+                                            with
+                                            | :? System.InvalidCastException -> None
+                                        )
                                 
                                 let backendName = 
                                     match problem.Backend with

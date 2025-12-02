@@ -237,3 +237,186 @@ module CircuitBuilder =
             Validation.success
         else
             Validation.failure allErrors
+
+    // ============================================================================
+    // COMPUTATION EXPRESSION BUILDER - Quantum Circuit Builder
+    // ============================================================================
+    
+    /// <summary>
+    /// Computation expression builder for constructing quantum circuits declaratively.
+    /// Enables natural gate composition with support for loops and gate sequences.
+    /// </summary>
+    /// 
+    /// <example>
+    /// <code>
+    /// // Bell state (2-qubit entanglement)
+    /// let bell = circuit {
+    ///     qubits 2
+    ///     H 0
+    ///     CNOT (0, 1)
+    /// }
+    /// 
+    /// // GHZ state with loop
+    /// let ghz = circuit {
+    ///     qubits 5
+    ///     H 0
+    ///     for i in [0..3] do
+    ///         CNOT (i, i+1)
+    /// }
+    /// </code>
+    /// </example>
+    type CircuitBuilderCE() =
+        
+        /// <summary>Initialize an empty circuit</summary>
+        member _.Yield(_) : Circuit =
+            { QubitCount = 0; Gates = [] }
+        
+        member _.For(sequence: seq<'T>, body: 'T -> Circuit) : Circuit =
+            // Idiomatic F#: Use Seq.fold to accumulate gates from sequence
+            let zero = { QubitCount = 0; Gates = [] }
+            
+            sequence
+            |> Seq.map body
+            |> Seq.fold (fun acc circuitPart ->
+                {
+                    QubitCount = if circuitPart.QubitCount > 0 then circuitPart.QubitCount else acc.QubitCount
+                    Gates = acc.Gates @ circuitPart.Gates  // Accumulate gates
+                }) zero
+        
+        member _.Combine(circuit1: Circuit, circuit2: Circuit) : Circuit =
+            // Compose circuits: merge gates and preserve qubit count
+            let qubitCount = max circuit1.QubitCount circuit2.QubitCount
+            {
+                QubitCount = qubitCount
+                Gates = circuit1.Gates @ circuit2.Gates
+            }
+        
+        member _.Zero() : Circuit =
+            { QubitCount = 0; Gates = [] }
+        
+        // Delay/Run pattern for proper lazy evaluation (idiomatic F# CEs)
+        member _.Delay(f: unit -> Circuit) : unit -> Circuit = f
+        
+        member _.Run(f: unit -> Circuit) : Circuit =
+            let circuit = f()
+            // Validate circuit before returning
+            match validate circuit with
+            | result when result.IsValid -> circuit
+            | result -> failwithf "Invalid circuit: %s" (System.String.Join("; ", result.Messages))
+        
+        // ========================================================================
+        // CUSTOM OPERATIONS - Circuit Configuration and Gates
+        // ========================================================================
+        
+        /// <summary>
+        /// Set the number of qubits in the circuit.
+        /// This is typically the first operation in a circuit definition.
+        /// </summary>
+        /// <param name="count">Total number of qubits (indexed 0 to count-1)</param>
+        [<CustomOperation("qubits")>]
+        member _.Qubits(circuit: Circuit, count: int) : Circuit =
+            { circuit with QubitCount = count }
+        
+        // ========================================================================
+        // SINGLE-QUBIT GATES - Custom operations for common gates
+        // ========================================================================
+        
+        /// Apply Hadamard gate to qubit
+        [<CustomOperation("H")>]
+        member _.H(circuit: Circuit, qubit: int) : Circuit =
+            { circuit with Gates = circuit.Gates @ [H qubit] }
+        
+        /// Apply Pauli-X (NOT) gate to qubit
+        [<CustomOperation("X")>]
+        member _.X(circuit: Circuit, qubit: int) : Circuit =
+            { circuit with Gates = circuit.Gates @ [X qubit] }
+        
+        /// Apply Pauli-Y gate to qubit
+        [<CustomOperation("Y")>]
+        member _.Y(circuit: Circuit, qubit: int) : Circuit =
+            { circuit with Gates = circuit.Gates @ [Y qubit] }
+        
+        /// Apply Pauli-Z gate to qubit
+        [<CustomOperation("Z")>]
+        member _.Z(circuit: Circuit, qubit: int) : Circuit =
+            { circuit with Gates = circuit.Gates @ [Z qubit] }
+        
+        /// Apply S gate (phase gate, √Z) to qubit
+        [<CustomOperation("S")>]
+        member _.S(circuit: Circuit, qubit: int) : Circuit =
+            { circuit with Gates = circuit.Gates @ [S qubit] }
+        
+        /// Apply S-dagger (S†, inverse phase) to qubit
+        [<CustomOperation("SDG")>]
+        member _.SDG(circuit: Circuit, qubit: int) : Circuit =
+            { circuit with Gates = circuit.Gates @ [SDG qubit] }
+        
+        /// Apply T gate (π/8 gate, √S) to qubit
+        [<CustomOperation("T")>]
+        member _.T(circuit: Circuit, qubit: int) : Circuit =
+            { circuit with Gates = circuit.Gates @ [T qubit] }
+        
+        /// Apply T-dagger (T†, inverse π/8) to qubit
+        [<CustomOperation("TDG")>]
+        member _.TDG(circuit: Circuit, qubit: int) : Circuit =
+            { circuit with Gates = circuit.Gates @ [TDG qubit] }
+        
+        /// Apply phase gate P(θ) to qubit
+        [<CustomOperation("P")>]
+        member _.P(circuit: Circuit, qubit: int, angle: float) : Circuit =
+            { circuit with Gates = circuit.Gates @ [P (qubit, angle)] }
+        
+        // ========================================================================
+        // ROTATION GATES
+        // ========================================================================
+        
+        /// Apply RX rotation (around X-axis) to qubit
+        [<CustomOperation("RX")>]
+        member _.RX(circuit: Circuit, qubit: int, angle: float) : Circuit =
+            { circuit with Gates = circuit.Gates @ [RX (qubit, angle)] }
+        
+        /// Apply RY rotation (around Y-axis) to qubit
+        [<CustomOperation("RY")>]
+        member _.RY(circuit: Circuit, qubit: int, angle: float) : Circuit =
+            { circuit with Gates = circuit.Gates @ [RY (qubit, angle)] }
+        
+        /// Apply RZ rotation (around Z-axis) to qubit
+        [<CustomOperation("RZ")>]
+        member _.RZ(circuit: Circuit, qubit: int, angle: float) : Circuit =
+            { circuit with Gates = circuit.Gates @ [RZ (qubit, angle)] }
+        
+        // ========================================================================
+        // TWO-QUBIT GATES
+        // ========================================================================
+        
+        /// Apply CNOT (controlled-NOT) gate
+        [<CustomOperation("CNOT")>]
+        member _.CNOT(circuit: Circuit, control: int, target: int) : Circuit =
+            { circuit with Gates = circuit.Gates @ [CNOT (control, target)] }
+        
+        /// Apply CZ (controlled-Z) gate
+        [<CustomOperation("CZ")>]
+        member _.CZ(circuit: Circuit, control: int, target: int) : Circuit =
+            { circuit with Gates = circuit.Gates @ [CZ (control, target)] }
+        
+        /// Apply controlled-phase gate CP(θ)
+        [<CustomOperation("CP")>]
+        member _.CP(circuit: Circuit, control: int, target: int, angle: float) : Circuit =
+            { circuit with Gates = circuit.Gates @ [CP (control, target, angle)] }
+        
+        /// Apply SWAP gate to exchange two qubits
+        [<CustomOperation("SWAP")>]
+        member _.SWAP(circuit: Circuit, qubit1: int, qubit2: int) : Circuit =
+            { circuit with Gates = circuit.Gates @ [SWAP (qubit1, qubit2)] }
+        
+        // ========================================================================
+        // THREE-QUBIT GATES
+        // ========================================================================
+        
+        /// Apply CCX (Toffoli, CCNOT) gate
+        [<CustomOperation("CCX")>]
+        member _.CCX(circuit: Circuit, control1: int, control2: int, target: int) : Circuit =
+            { circuit with Gates = circuit.Gates @ [CCX (control1, control2, target)] }
+    
+    /// Global computation expression instance for circuit construction
+    let circuit = CircuitBuilderCE()

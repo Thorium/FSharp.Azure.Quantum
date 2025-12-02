@@ -79,6 +79,11 @@ module QuantumTreeSearch =
         SolutionThreshold: float option
         /// Success threshold: min total probability for search success (None = auto-scale, typical: 0.05-0.15)
         SuccessThreshold: float option
+        /// Maximum paths to search (None = use full tree, Some(n) = limit to n paths to prevent explosion)
+        MaxPaths: int option
+        /// Maximum Grover iterations for amplitude amplification (None = auto-calculate optimal iterations)
+        /// Higher iterations = stronger amplification but risk of over-rotation
+        MaxIterations: int option
     }
     
     /// <summary>
@@ -144,9 +149,11 @@ module QuantumTreeSearch =
                 MoveGenerator = fun _ -> []
                 TopPercentile = 0.2
                 Backend = None
-                Shots = Some 2000  // Default: 2000 shots for balanced performance
-                SolutionThreshold = Some 0.03  // Default: 3% threshold (60 counts out of 2000)
-                SuccessThreshold = Some 0.10   // Default: 10% total success probability
+                Shots = None  // Auto-scale: 100 (Local) or 500 (Cloud)
+                SolutionThreshold = None  // Auto-scale: 1% (Local) or 2% (Cloud)
+                SuccessThreshold = None  // Auto-scale: 10% (Local) or 20% (Cloud)
+                MaxPaths = None  // Auto-recommend based on tree size
+                MaxIterations = None  // Auto-calculate optimal Grover iterations
             }
         
         member _.Delay(f: unit -> TreeSearchProblem<'T>) : unit -> TreeSearchProblem<'T> = f
@@ -158,11 +165,26 @@ module QuantumTreeSearch =
             | Ok () -> problem
         
         member _.For(sequence: seq<'U>, body: 'U -> TreeSearchProblem<'T>) : TreeSearchProblem<'T> =
-            // Execute for all elements, returning the last problem state
-            let mutable result = Unchecked.defaultof<TreeSearchProblem<'T>>
-            for item in sequence do
-                result <- body item
-            result
+            // Idiomatic F#: Use Seq.fold for functional accumulation
+            // Returns the last problem state (typical for configuration-style CEs)
+            let zero = {
+                InitialState = Unchecked.defaultof<'T>
+                MaxDepth = 3
+                BranchingFactor = 16
+                EvaluationFunction = fun _ -> 0.0
+                MoveGenerator = fun _ -> []
+                TopPercentile = 0.2
+                Backend = None
+                Shots = None
+                SolutionThreshold = None
+                SuccessThreshold = None
+                MaxPaths = None
+                MaxIterations = None
+            }
+            
+            sequence
+            |> Seq.map body
+            |> Seq.fold (fun _ current -> current) zero  // Keep last state
         
         member _.Combine(problem1: TreeSearchProblem<'T>, problem2: TreeSearchProblem<'T>) : TreeSearchProblem<'T> =
             // When combining, use the second problem but preserve any non-default values from first
@@ -207,6 +229,33 @@ module QuantumTreeSearch =
         [<CustomOperation("successThreshold")>]
         member _.SuccessThreshold(problem: TreeSearchProblem<'T>, threshold: float) : TreeSearchProblem<'T> =
             { problem with SuccessThreshold = Some threshold }
+        
+        [<CustomOperation("maxPaths")>]
+        member _.MaxPaths(problem: TreeSearchProblem<'T>, limit: int) : TreeSearchProblem<'T> =
+            { problem with MaxPaths = Some limit }
+        
+        [<CustomOperation("limitSearchSpace")>]
+        member _.LimitSearchSpace(problem: TreeSearchProblem<'T>, enable: bool) : TreeSearchProblem<'T> =
+            // Auto-recommend maxPaths limit based on tree size
+            if enable then
+                let recommendedLimit = GroverSearch.TreeSearch.recommendMaxPaths problem.MaxDepth problem.BranchingFactor
+                { problem with MaxPaths = recommendedLimit }
+            else
+                { problem with MaxPaths = None }
+        
+        /// <summary>
+        /// Set the maximum number of Grover iterations for amplitude amplification.
+        /// Controls the strength of quantum search amplification.
+        /// </summary>
+        /// <param name="iterations">Number of Grover iterations (typical: 1-10)</param>
+        /// <remarks>
+        /// If not specified, automatically calculates optimal iterations based on search space size.
+        /// Too few iterations = weak amplification, too many = over-rotation past optimal state.
+        /// Optimal iterations ≈ π/4 * √(N/M) where N = search space, M = solutions.
+        /// </remarks>
+        [<CustomOperation("maxIterations")>]
+        member _.MaxIterations(problem: TreeSearchProblem<'T>, iterations: int) : TreeSearchProblem<'T> =
+            { problem with MaxIterations = Some iterations }
     
     /// Global instance of quantumTreeSearch builder
     let quantumTreeSearch<'T> = QuantumTreeSearchBuilder<'T>()
@@ -257,7 +306,7 @@ module QuantumTreeSearch =
                     MoveGenerator = problem.MoveGenerator
                 }
                 
-                // Call quantum tree search algorithm with user-provided parameters
+                // Call quantum tree search algorithm with user-provided parameters (including maxPaths)
                 match GroverSearch.TreeSearch.searchGameTree 
                         problem.InitialState 
                         config 
@@ -265,7 +314,8 @@ module QuantumTreeSearch =
                         problem.TopPercentile 
                         problem.Shots
                         problem.SolutionThreshold
-                        problem.SuccessThreshold with
+                        problem.SuccessThreshold
+                        problem.MaxPaths with
                 | Error msg -> Error $"Quantum tree search failed: {msg}"
                 | Ok treeResult ->
                     
@@ -301,9 +351,11 @@ module QuantumTreeSearch =
             MoveGenerator = moveGen
             TopPercentile = 0.2
             Backend = None
-            Shots = Some 2000
-            SolutionThreshold = Some 0.03
-            SuccessThreshold = Some 0.10
+            Shots = None  // Auto-scale
+            SolutionThreshold = None  // Auto-scale
+            SuccessThreshold = None  // Auto-scale
+            MaxPaths = None  // Auto-recommend
+            MaxIterations = None  // Auto-calculate optimal iterations
         }
     
     /// Estimate resource requirements without executing
@@ -380,9 +432,11 @@ Qubits Required: %d%s"""
             MoveGenerator = legalMoves
             TopPercentile = 0.2
             Backend = None
-            Shots = Some 2000
-            SolutionThreshold = Some 0.03
-            SuccessThreshold = Some 0.10
+            Shots = None  // Auto-scale
+            SolutionThreshold = None  // Auto-scale
+            SuccessThreshold = None  // Auto-scale
+            MaxPaths = GroverSearch.TreeSearch.recommendMaxPaths depth branching
+            MaxIterations = None  // Auto-calculate optimal iterations
         }
     
     /// Create a tree search for decision problems (multi-step optimization)
@@ -401,7 +455,9 @@ Qubits Required: %d%s"""
             MoveGenerator = nextOptions
             TopPercentile = 0.15  // More selective for decision problems
             Backend = None
-            Shots = Some 2000
-            SolutionThreshold = Some 0.03
-            SuccessThreshold = Some 0.10
+            Shots = None  // Auto-scale
+            SolutionThreshold = None  // Auto-scale
+            SuccessThreshold = None  // Auto-scale
+            MaxPaths = GroverSearch.TreeSearch.recommendMaxPaths steps optionsPerStep
+            MaxIterations = None  // Auto-calculate optimal iterations
         }

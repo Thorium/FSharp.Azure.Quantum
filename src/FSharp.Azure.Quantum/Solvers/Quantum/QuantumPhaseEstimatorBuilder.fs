@@ -84,6 +84,10 @@ module QuantumPhaseEstimator =
         
         /// Quantum backend to use (None = LocalBackend)
         Backend: BackendAbstraction.IQuantumBackend option
+        
+        /// Number of measurement shots for phase estimation (None = auto-scale: 1024 for Local, 2048 for Cloud)
+        /// Higher shots = better statistical accuracy of phase estimate
+        Shots: int option
     }
     
     /// <summary>
@@ -167,6 +171,7 @@ module QuantumPhaseEstimator =
             TargetQubits = 1             // Single target qubit
             EigenVector = None           // Use |0⟩ eigenstate
             Backend = None               // Use LocalBackend by default
+            Shots = None                 // Auto-scale based on backend
         }
         
         /// Initialize builder with default problem
@@ -196,6 +201,21 @@ module QuantumPhaseEstimator =
         [<CustomOperation("backend")>]
         member _.Backend(problem: PhaseEstimatorProblem, b: BackendAbstraction.IQuantumBackend) : PhaseEstimatorProblem =
             { problem with Backend = Some b }
+        
+        /// <summary>
+        /// Set the number of measurement shots for phase estimation.
+        /// Higher shot counts improve statistical accuracy of the phase estimate.
+        /// </summary>
+        /// <param name="shots">Number of measurements (typical: 1024-4096)</param>
+        /// <remarks>
+        /// If not specified, auto-scales based on backend:
+        /// - LocalBackend: 1024 shots
+        /// - Cloud backends: 2048 shots
+        /// Multiple measurements reduce statistical error in phase estimation.
+        /// </remarks>
+        [<CustomOperation("shots")>]
+        member _.Shots(problem: PhaseEstimatorProblem, shots: int) : PhaseEstimatorProblem =
+            { problem with Shots = Some shots }
         
         /// Finalize and validate the problem
         member _.Run(problem: PhaseEstimatorProblem) : Result<PhaseEstimatorProblem, string> =

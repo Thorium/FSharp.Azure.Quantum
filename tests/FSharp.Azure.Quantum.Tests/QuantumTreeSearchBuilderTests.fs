@@ -472,6 +472,8 @@ module QuantumTreeSearchBuilderTests =
             Shots = None
             SolutionThreshold = None
             SuccessThreshold = None
+            MaxPaths = None
+            MaxIterations = None
         }
         
         // Act

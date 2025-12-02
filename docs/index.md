@@ -253,6 +253,7 @@ let problem = { NetworkFlow.Nodes = nodes; Routes = routes }
 
 ### 📖 Core Concepts
 - [API Reference](api-reference) - Complete API documentation for all modules
+- [Computation Expressions Reference](computation-expressions-reference) - **⭐ NEW** Complete CE reference table with all custom operations (when IntelliSense fails)
 - [Architecture Overview](architecture-overview) - Deep dive into 3-layer quantum-only design
 - [Backend Switching](backend-switching) - Local vs Cloud quantum execution guide
 - [Local Simulation](local-simulation) - LocalBackend internals and performance characteristics

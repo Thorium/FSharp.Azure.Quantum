@@ -82,6 +82,10 @@ module QuantumPeriodFinder =
         
         /// Quantum backend to use (None = LocalBackend)
         Backend: BackendAbstraction.IQuantumBackend option
+        
+        /// Number of measurement shots for QPE (None = auto-scale: 1024 for Local, 2048 for Cloud)
+        /// Higher shots = better phase estimate accuracy but more execution time
+        Shots: int option
     }
     
     /// <summary>
@@ -177,6 +181,7 @@ module QuantumPeriodFinder =
             Precision = 8            // Reasonable default precision
             MaxAttempts = 10         // Standard retry count
             Backend = None           // Use local simulator
+            Shots = None             // Auto-scale based on backend
         }
         
         /// Initialize builder with default problem
@@ -206,6 +211,20 @@ module QuantumPeriodFinder =
         [<CustomOperation("backend")>]
         member _.Backend(problem: PeriodFinderProblem, backend: BackendAbstraction.IQuantumBackend) : PeriodFinderProblem =
             { problem with Backend = Some backend }
+        
+        /// <summary>
+        /// Set the number of measurement shots for quantum phase estimation.
+        /// Higher shot counts improve phase estimate accuracy but increase execution time.
+        /// </summary>
+        /// <param name="shots">Number of measurements (typical: 1024-4096)</param>
+        /// <remarks>
+        /// If not specified, auto-scales based on backend:
+        /// - LocalBackend: 1024 shots
+        /// - Cloud backends: 2048 shots
+        /// </remarks>
+        [<CustomOperation("shots")>]
+        member _.Shots(problem: PeriodFinderProblem, shots: int) : PeriodFinderProblem =
+            { problem with Shots = Some shots }
         
         /// Finalize and validate the problem
         member _.Run(problem: PeriodFinderProblem) : Result<PeriodFinderProblem, string> =

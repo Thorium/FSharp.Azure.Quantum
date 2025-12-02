@@ -83,6 +83,9 @@ module QuantumArithmeticOps =
         Qubits: int
         /// Quantum backend to use (None = LocalBackend)
         Backend: BackendAbstraction.IQuantumBackend option
+        /// Number of measurement shots (None = auto-scale: 100 for Local, 500 for Cloud)
+        /// Used for statistical verification and noise characterization
+        Shots: int option
     }
     
     /// <summary>
@@ -173,6 +176,7 @@ module QuantumArithmeticOps =
             Modulus = None
             Qubits = 8
             Backend = None
+            Shots = None  // Auto-scale based on backend
         }
         
         /// Initialize builder with default operation
@@ -217,6 +221,21 @@ module QuantumArithmeticOps =
         [<CustomOperation("backend")>]
         member _.Backend(operation: ArithmeticOperation, backend: BackendAbstraction.IQuantumBackend) : ArithmeticOperation =
             { operation with Backend = Some backend }
+        
+        /// <summary>
+        /// Set the number of measurement shots for statistical verification.
+        /// Used for noise characterization and error mitigation in noisy quantum environments.
+        /// </summary>
+        /// <param name="shots">Number of measurements (typical: 100-500)</param>
+        /// <remarks>
+        /// If not specified, auto-scales based on backend:
+        /// - LocalBackend: 100 shots (deterministic simulation)
+        /// - Cloud backends: 500 shots (statistical verification on noisy hardware)
+        /// Note: Arithmetic operations are deterministic, but shots help verify correctness on real hardware.
+        /// </remarks>
+        [<CustomOperation("shots")>]
+        member _.Shots(operation: ArithmeticOperation, shots: int) : ArithmeticOperation =
+            { operation with Shots = Some shots }
         
         /// Finalize and validate the operation
         member _.Run(operation: ArithmeticOperation) : Result<ArithmeticOperation, string> =
@@ -338,6 +357,7 @@ module QuantumArithmeticOps =
             Modulus = None
             Qubits = qubits
             Backend = None
+            Shots = None  // Auto-scale
         }
     
     /// Quick helper for modular addition
@@ -349,6 +369,7 @@ module QuantumArithmeticOps =
             Modulus = Some modulus
             Qubits = qubits
             Backend = None
+            Shots = None  // Auto-scale
         }
     
     /// Quick helper for modular multiplication
@@ -360,6 +381,7 @@ module QuantumArithmeticOps =
             Modulus = Some modulus
             Qubits = qubits
             Backend = None
+            Shots = None  // Auto-scale
         }
     
     /// Quick helper for modular exponentiation
@@ -371,6 +393,7 @@ module QuantumArithmeticOps =
             Modulus = Some modulus
             Qubits = qubits
             Backend = None
+            Shots = None  // Auto-scale
         }
     
     /// Estimate resource requirements without executing

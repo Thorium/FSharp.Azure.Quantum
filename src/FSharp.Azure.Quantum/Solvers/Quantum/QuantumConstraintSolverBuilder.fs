@@ -143,6 +143,50 @@ module QuantumConstraintSolver =
             | Error msg -> failwith msg
             | Ok () -> problem
         
+        member _.For(sequence: seq<'U>, body: 'U -> ConstraintProblem<'T>) : ConstraintProblem<'T> =
+            // Idiomatic F#: Use Seq.fold for functional accumulation
+            let zero = {
+                SearchSpaceSize = 0
+                Domain = []
+                Constraints = []
+                Backend = None
+                MaxIterations = None
+                Shots = 0
+            }
+            
+            sequence
+            |> Seq.map body
+            |> Seq.fold (fun acc itemProblem ->
+                {
+                    SearchSpaceSize = if itemProblem.SearchSpaceSize > 0 then itemProblem.SearchSpaceSize else acc.SearchSpaceSize
+                    Domain = if not (List.isEmpty itemProblem.Domain) then itemProblem.Domain else acc.Domain
+                    Constraints = acc.Constraints @ itemProblem.Constraints  // Note: O(n) but typically small constraint lists
+                    Backend = match itemProblem.Backend with Some b -> Some b | None -> acc.Backend
+                    MaxIterations = match itemProblem.MaxIterations with Some i -> Some i | None -> acc.MaxIterations
+                    Shots = if itemProblem.Shots > 0 then itemProblem.Shots else acc.Shots
+                }) zero
+        
+        member _.Combine(problem1: ConstraintProblem<'T>, problem2: ConstraintProblem<'T>) : ConstraintProblem<'T> =
+            // Merge two problems, preferring non-default values from problem2
+            {
+                SearchSpaceSize = if problem2.SearchSpaceSize > 0 then problem2.SearchSpaceSize else problem1.SearchSpaceSize
+                Domain = if not (List.isEmpty problem2.Domain) then problem2.Domain else problem1.Domain
+                Constraints = problem1.Constraints @ problem2.Constraints
+                Backend = match problem2.Backend with Some b -> Some b | None -> problem1.Backend
+                MaxIterations = match problem2.MaxIterations with Some i -> Some i | None -> problem1.MaxIterations
+                Shots = if problem2.Shots > 0 then problem2.Shots else problem1.Shots
+            }
+        
+        member _.Zero() : ConstraintProblem<'T> =
+            {
+                SearchSpaceSize = 0
+                Domain = []
+                Constraints = []
+                Backend = None
+                MaxIterations = None
+                Shots = 0
+            }
+        
         [<CustomOperation("searchSpace")>]
         member _.SearchSpace(problem: ConstraintProblem<'T>, size: int) : ConstraintProblem<'T> =
             { problem with SearchSpaceSize = size }
@@ -214,22 +258,26 @@ module QuantumConstraintSolver =
                 
                 // Create combined constraint predicate
                 let combinedPredicate (idx: int) : bool =
-                    // Convert index to assignment (simplified - maps each bit to a variable)
-                    // This is a placeholder - real implementation would decode based on domain
-                    let assignment = 
-                        problem.Domain
-                        |> List.mapi (fun i value -> 
-                            if i < List.length problem.Domain then
-                                Some (i, value)
-                            else
-                                None
-                        )
-                        |> List.choose id
-                        |> Map.ofList
-                    
-                    // Check all constraints
-                    problem.Constraints
-                    |> List.forall (fun constraintFunc -> constraintFunc assignment)
+                    // Convert index to assignment
+                    // Decode the index into variable assignments based on domain
+                    // Each variable cycles through the domain values
+                    let domainSize = List.length problem.Domain
+                    if domainSize = 0 then false
+                    else
+                        let assignment = 
+                            [0 .. problem.SearchSpaceSize - 1]
+                            |> List.map (fun varIdx ->
+                                // Calculate which domain value this variable should have
+                                // based on the search index
+                                let quotient = idx / (pown domainSize varIdx)
+                                let domainIdx = quotient % domainSize
+                                (varIdx, problem.Domain.[domainIdx])
+                            )
+                            |> Map.ofList
+                        
+                        // Check all constraints
+                        problem.Constraints
+                        |> List.forall (fun constraintFunc -> constraintFunc assignment)
                 
                 // Create oracle for Grover search
                 let oracleResult = GroverSearch.Oracle.fromPredicate combinedPredicate qubitsNeeded
@@ -263,10 +311,17 @@ module QuantumConstraintSolver =
                             else
                                 let bestSolution = List.head searchResult.Solutions
                                 
-                                // Decode solution to assignment (simplified)
+                                // Decode solution to assignment
+                                // Use the same decoding logic as in combinedPredicate
+                                let domainSize = List.length problem.Domain
                                 let assignment = 
-                                    problem.Domain
-                                    |> List.mapi (fun i value -> (i, value))
+                                    [0 .. problem.SearchSpaceSize - 1]
+                                    |> List.map (fun varIdx ->
+                                        // Calculate which domain value this variable should have
+                                        let quotient = bestSolution / (pown domainSize varIdx)
+                                        let domainIdx = quotient % domainSize
+                                        (varIdx, problem.Domain.[domainIdx])
+                                    )
                                     |> Map.ofList
                                 
                                 // Verify all constraints

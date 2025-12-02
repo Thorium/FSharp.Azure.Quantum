@@ -150,7 +150,9 @@ module QuantumKnapsackSolver =
                 // Penalty must be large enough to dominate objective violations
                 let maxValue = problem.Items |> List.map (fun item -> item.Value) |> List.max
                 let totalValue = problem.Items |> List.sumBy (fun item -> item.Value)
-                let penalty = max (2.0 * maxValue) (totalValue * 0.5)
+                
+                // Use shared Lucas Rule helper: penalty >> objective magnitude
+                let penalty = Qubo.computeLucasPenalties (max maxValue totalValue) numItems
                 
                 // Build QUBO terms as Map<(int * int), float>
                 let mutable quboTerms = Map.empty

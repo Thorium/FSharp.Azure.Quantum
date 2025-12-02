@@ -141,10 +141,11 @@ module QuantumNetworkFlowSolver =
             else
                 let mutable quboTerms = []
                 
-                // Penalty weight for constraint violations
+                // Penalty weight for constraint violations using Lucas Rule
                 let penaltyWeight = 
                     let maxCost = problem.Edges |> List.map (fun e -> e.Weight) |> List.max
-                    maxCost * 10.0  // Make penalties dominate objective
+                    let numNodes = allNodes.Length
+                    Qubo.computeLucasPenalties maxCost numNodes
                 
                 // ========================================================================
                 // OBJECTIVE: Minimize total transport cost

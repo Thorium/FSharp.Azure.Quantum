@@ -14,18 +14,18 @@ module TaskSchedulingTests =
     let ``Simple 3-task chain A→B→C should schedule sequentially`` () =
         // Arrange - Define tasks with dependencies
         let taskA = scheduledTask {
-            id "A"
+            taskId "A"
             duration (minutes 10.0)
         }
         
         let taskB = scheduledTask {
-            id "B"
+            taskId "B"
             duration (minutes 20.0)
             after "A"  // B must wait for A
         }
         
         let taskC = scheduledTask {
-            id "C"
+            taskId "C"
             duration (minutes 15.0)
             after "B"  // C must wait for B
         }
@@ -75,12 +75,12 @@ module TaskSchedulingTests =
     let ``Two independent tasks should schedule in parallel`` () =
         // Arrange - Two tasks with NO dependencies
         let taskA = scheduledTask {
-            id "A"
+            taskId "A"
             duration (minutes 10.0)
         }
         
         let taskB = scheduledTask {
-            id "B"
+            taskId "B"
             duration (minutes 20.0)
         }
         
@@ -134,12 +134,12 @@ module TaskSchedulingTests =
     let ``Validation should fail for invalid task dependencies`` () =
         // Arrange - Task B depends on non-existent task "X"
         let taskA = scheduledTask {
-            id "A"
+            taskId "A"
             duration (minutes 10.0)
         }
         
         let taskB = scheduledTask {
-            id "B"
+            taskId "B"
             duration (minutes 20.0)
             after "X"  // Invalid - "X" doesn't exist
         }
@@ -166,12 +166,12 @@ module TaskSchedulingTests =
     let ``Validation should fail for duplicate task IDs`` () =
         // Arrange - Two tasks with same ID
         let taskA1 = scheduledTask {
-            id "A"
+            taskId "A"
             duration (minutes 10.0)
         }
         
         let taskA2 = scheduledTask {
-            id "A"  // Duplicate ID
+            taskId "A"  // Duplicate ID
             duration (minutes 20.0)
         }
         
@@ -211,12 +211,12 @@ module TaskSchedulingTests =
     let ``exportGanttChart should create text file`` () =
         // Arrange
         let taskA = scheduledTask {
-            id "A"
+            taskId "A"
             duration (minutes 10.0)
         }
         
         let taskB = scheduledTask {
-            id "B"
+            taskId "B"
             duration (minutes 20.0)
             after "A"
         }
@@ -257,20 +257,20 @@ module TaskSchedulingTests =
     let ``Resource-constrained scheduling requires quantum backend`` () =
         // Arrange - Two parallel tasks requiring same resource (capacity 1)
         let taskA = scheduledTask {
-            id "A"
+            taskId "A"
             duration (minutes 10.0)
             requires "Worker" 1.0
         }
         
         let taskB = scheduledTask {
-            id "B"
+            taskId "B"
             duration (minutes 15.0)
             requires "Worker" 1.0
         }
         
         // Only 1 worker available - quantum solver needed for resource constraints
         let worker = resource {
-            id "Worker"
+            resourceId "Worker"
             capacity 1.0
             costPerUnit 50.0
         }
@@ -309,12 +309,12 @@ module TaskSchedulingTests =
     let ``Task with deadline should report violation if missed`` () =
         // Arrange - Task chain that violates deadline
         let taskA = scheduledTask {
-            id "A"
+            taskId "A"
             duration (minutes 20.0)
         }
         
         let taskB = scheduledTask {
-            id "B"
+            taskId "B"
             duration (minutes 30.0)
             after "A"
             deadline 40.0  // Deadline at 40, but will finish at 50
@@ -343,12 +343,12 @@ module TaskSchedulingTests =
     let ``Task meeting deadline should not report violation`` () =
         // Arrange - Task chain that meets deadline
         let taskA = scheduledTask {
-            id "A"
+            taskId "A"
             duration (minutes 10.0)
         }
         
         let taskB = scheduledTask {
-            id "B"
+            taskId "B"
             duration (minutes 15.0)
             after "A"
             deadline 30.0  // Deadline at 30, finishes at 25
@@ -384,58 +384,58 @@ module TaskSchedulingTests =
         
         // Phase 1: Safety checks (parallel)
         let safetyElectrical = scheduledTask {
-            id "SafetyElectrical"
+            taskId "SafetyElectrical"
             duration (minutes 15.0)
             priority 10.0  // High priority
         }
         
         let safetyMechanical = scheduledTask {
-            id "SafetyMechanical"
+            taskId "SafetyMechanical"
             duration (minutes 20.0)
             priority 10.0
         }
         
         // Phase 2: System initialization (after safety)
         let initCooling = scheduledTask {
-            id "InitCooling"
+            taskId "InitCooling"
             duration (minutes 30.0)
             afterMultiple ["SafetyElectrical"; "SafetyMechanical"]
         }
         
         let initControl = scheduledTask {
-            id "InitControl"
+            taskId "InitControl"
             duration (minutes 25.0)
             after "SafetyElectrical"
         }
         
         // Phase 3: Component startup (after initialization)
         let startPump1 = scheduledTask {
-            id "StartPump1"
+            taskId "StartPump1"
             duration (minutes 10.0)
             after "InitCooling"
         }
         
         let startPump2 = scheduledTask {
-            id "StartPump2"
+            taskId "StartPump2"
             duration (minutes 10.0)
             after "InitCooling"
         }
         
         let startTurbine = scheduledTask {
-            id "StartTurbine"
+            taskId "StartTurbine"
             duration (minutes 45.0)
             afterMultiple ["StartPump1"; "StartPump2"; "InitControl"]
         }
         
         // Phase 4: Power generation (final)
         let syncGrid = scheduledTask {
-            id "SyncGrid"
+            taskId "SyncGrid"
             duration (minutes 15.0)
             after "StartTurbine"
         }
         
         let fullPower = scheduledTask {
-            id "FullPower"
+            taskId "FullPower"
             duration (minutes 20.0)
             after "SyncGrid"
             deadline 180.0  // Must reach full power within 180 minutes

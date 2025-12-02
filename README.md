@@ -1277,6 +1277,7 @@ match QuantumGraphColoringSolver.solve backend problem quantumConfig with
 - **[Getting Started Guide](docs/getting-started.md)** - Installation and first examples
 - **[C# Usage Guide](CSHARP-QUANTUM-BUILDER-USAGE-GUIDE.md)** - Complete C# interop guide
 - **[API Reference](docs/api-reference.md)** - Complete API documentation
+- **[Computation Expressions Reference](docs/computation-expressions-reference.md)** - ⭐ **NEW** Complete CE reference table with all custom operations (when IntelliSense fails)
 - **[Architecture Overview](docs/architecture-overview.md)** - Deep dive into library design
 - **[Backend Switching Guide](docs/backend-switching.md)** - Local vs Cloud backends
 - **[FAQ](docs/faq.md)** - Common questions and troubleshooting

@@ -1,0 +1,482 @@
+# Computation Expressions (CE) Reference
+
+This document provides a complete reference for all computation expressions (CEs) available in FSharp.Azure.Quantum. Use this as a quick lookup when F# IntelliSense is not showing CE operations.
+
+## Overview
+
+Computation expressions provide a declarative, F#-idiomatic way to construct quantum problems, circuits, and schedules. Each CE supports custom operations that are context-specific to its domain.
+
+## Quick Reference Table
+
+| CE Name | Description | Custom Operations |
+|---------|-------------|-------------------|
+| **circuit** | Build quantum circuits with gates and loops | `qubits`, `H`, `X`, `Y`, `Z`, `S`, `SDG`, `T`, `TDG`, `P`, `RX`, `RY`, `RZ`, `CNOT`, `CZ`, `CP`, `SWAP`, `CCX` |
+| **coloredNode** | Define a node in graph coloring problem | `nodeId`, `conflictsWith`, `fixedColor`, `priority`, `avoidColors`, `property` |
+| **constraintSolver<'T>** | Define constraint satisfaction problems (CSP) | `searchSpace`, `domain`, `satisfies`, `backend`, `maxIterations`, `shots` |
+| **graphColoring** | Define graph coloring optimization problems | `node`, `nodes`, `colors`, `maxColors`, `objective`, `conflictPenalty` |
+| **patternMatcher<'T>** | Define quantum pattern matching problems | `searchSpace`, `searchSpaceSize`, `matchPattern`, `findTop`, `backend`, `maxIterations`, `shots` |
+| **periodFinder** | Define period finding (Shor's algorithm) | `number`, `chosenBase`, `precision`, `maxAttempts`, `backend`, `shots` |
+| **phaseEstimator** | Define quantum phase estimation (QPE) | `unitary`, `precision`, `targetQubits`, `eigenstate`, `backend`, `shots` |
+| **quantumArithmetic** | Define quantum arithmetic operations | `operands`, `operandA`, `operandB`, `operation`, `modulus`, `qubits`, `exponent`, `backend`, `shots` |
+| **quantumTreeSearch<'T>** | Define quantum tree search (game AI, decision trees) | `initialState`, `maxDepth`, `branchingFactor`, `evaluateWith`, `generateMovesWith`, `topPercentile`, `backend`, `shots`, `solutionThreshold`, `successThreshold`, `maxPaths`, `limitSearchSpace`, `maxIterations` |
+| **resource<'T>** | Define scheduling resources | `resourceId`, `capacity`, `costPerUnit`, `availableWindow` |
+| **scheduledTask<'T>** | Define tasks for scheduling | `taskId`, `duration`, `after`, `afterMultiple`, `requires`, `priority`, `deadline`, `earliestStart` |
+| **schedulingProblem<'T>** | Define complete scheduling problems | `tasks`, `resources`, `objective`, `timeHorizon` |
+
+---
+
+## Detailed Documentation
+
+### 1. circuit
+
+**Module**: `FSharp.Azure.Quantum.CircuitBuilder`
+
+**Purpose**: Declaratively construct quantum circuits with automatic validation
+
+**Example**:
+```fsharp
+let bellState = circuit {
+    qubits 2
+    H 0
+    CNOT (0, 1)
+}
+```
+
+**Custom Operations**:
+- `qubits` - Set number of qubits (required first)
+- **Single-Qubit Gates**: `H`, `X`, `Y`, `Z`, `S`, `SDG`, `T`, `TDG`, `P`
+- **Rotation Gates**: `RX`, `RY`, `RZ`
+- **Two-Qubit Gates**: `CNOT`, `CZ`, `CP`, `SWAP`
+- **Three-Qubit Gates**: `CCX` (Toffoli)
+
+**Features**:
+- ✅ Supports `for` loops for applying gates to multiple qubits
+- ✅ Automatic circuit validation on construction
+- ✅ Composable subcircuits with `Combine`
+
+---
+
+### 2. coloredNode
+
+**Module**: `FSharp.Azure.Quantum.GraphColoring`
+
+**Purpose**: Define individual nodes in a graph coloring problem
+
+**Example**:
+```fsharp
+let node1 = coloredNode {
+    nodeId "R1"
+    conflictsWith ["R2"; "R3"]
+    priority 1.0
+}
+```
+
+**Custom Operations**:
+- `nodeId` - Unique identifier for the node
+- `conflictsWith` - List of node IDs that conflict (cannot have same color)
+- `fixedColor` - Pre-assign a specific color
+- `priority` - Priority for tie-breaking (higher = assign first)
+- `avoidColors` - Colors to avoid if possible (soft constraint)
+- `property` - Add metadata key-value pair
+
+---
+
+### 3. constraintSolver<'T>
+
+**Module**: `FSharp.Azure.Quantum.QuantumConstraintSolver`
+
+**Purpose**: Solve constraint satisfaction problems (CSP) using Grover's algorithm
+
+**Example**:
+```fsharp
+let sudokuRow = constraintSolver<int> {
+    searchSpace 9
+    domain [1..9]
+    satisfies (fun vars -> allDifferent vars)
+    shots 1000
+}
+```
+
+**Custom Operations**:
+- `searchSpace` - Number of variables (or search space size in bits)
+- `domain` - Domain of values for each variable
+- `satisfies` - Add constraint predicate (all must be satisfied)
+- `backend` - Quantum backend to use (None = LocalBackend)
+- `maxIterations` - Maximum Grover iterations for amplitude amplification
+- `shots` - Number of measurement shots (None = auto-scale: 1000 for Local, 2000 for Cloud)
+
+**Features**:
+- ✅ Supports `for` loops to add multiple constraints
+- ✅ Uses Grover's algorithm for O(√N) speedup
+- ✅ Generic over variable domain type
+
+---
+
+### 4. graphColoring
+
+**Module**: `FSharp.Azure.Quantum.GraphColoring`
+
+**Purpose**: Define complete graph coloring optimization problems
+
+**Example**:
+```fsharp
+let problem = graphColoring {
+    node (coloredNode { nodeId "R1"; conflictsWith ["R2"] })
+    node (coloredNode { nodeId "R2"; conflictsWith ["R1"; "R3"] })
+    colors ["EAX"; "EBX"; "ECX"]
+    objective MinimizeColors
+}
+```
+
+**Custom Operations**:
+- `node` - Add a single node
+- `nodes` - Add multiple nodes at once
+- `colors` - Available colors to assign
+- `maxColors` - Maximum colors to use (for chromatic number constraint)
+- `objective` - Optimization objective (MinimizeColors | MinimizeConflicts | BalanceColors)
+- `conflictPenalty` - Penalty weight for conflicts
+
+---
+
+### 5. patternMatcher<'T>
+
+**Module**: `FSharp.Azure.Quantum.QuantumPatternMatcher`
+
+**Purpose**: Search for items matching complex patterns using Grover's algorithm
+
+**Example**:
+```fsharp
+let search = patternMatcher<Config> {
+    searchSpace allConfigs
+    matchPattern (fun cfg -> cfg.Performance > 0.8 && cfg.Cost < 100.0)
+    findTop 5
+    shots 500
+}
+```
+
+**Custom Operations**:
+- `searchSpace` - List of items to search through
+- `searchSpaceSize` - Alternative: specify search space size as integer
+- `matchPattern` - Pattern predicate (returns true if item matches)
+- `findTop` - Number of top matches to return
+- `backend` - Quantum backend to use (None = LocalBackend)
+- `maxIterations` - Maximum Grover iterations
+- `shots` - Number of measurement shots (None = auto-scale)
+
+**Features**:
+- ✅ Supports `for` loops to combine multiple patterns with AND logic
+- ✅ Uses Grover's algorithm for O(√N) speedup
+- ✅ Generic over item type
+
+---
+
+### 6. periodFinder
+
+**Module**: `FSharp.Azure.Quantum.QuantumPeriodFinder`
+
+**Purpose**: Find periods in modular exponentiation (Shor's factorization algorithm)
+
+**Example**:
+```fsharp
+let problem = periodFinder {
+    number 15
+    precision 12
+    maxAttempts 10
+    shots 2048
+}
+```
+
+**Custom Operations**:
+- `number` - Number to factor (N > 3, composite)
+- `chosenBase` - Random base a < N (coprime to N). If not specified, auto-selects
+- `precision` - QPE precision qubits (recommended: 2*log₂(N) + 3)
+- `maxAttempts` - Maximum retry attempts if period finding fails
+- `backend` - Quantum backend to use (None = LocalBackend)
+- `shots` - Number of QPE measurement shots (None = auto-scale: 1024 for Local, 2048 for Cloud)
+
+**Notes**:
+- Uses Quantum Phase Estimation (QPE) internally
+- Higher `precision` = better success rate but more qubits required
+- Higher `shots` = better phase estimate accuracy
+
+---
+
+### 7. phaseEstimator
+
+**Module**: `FSharp.Azure.Quantum.QuantumPhaseEstimator`
+
+**Purpose**: Estimate eigenvalues of unitary operators using Quantum Phase Estimation (QPE)
+
+**Example**:
+```fsharp
+let problem = phaseEstimator {
+    unitary TGate
+    precision 8
+    targetQubits 1
+    shots 1024
+}
+```
+
+**Custom Operations**:
+- `unitary` - Unitary operator U to estimate phase of
+- `precision` - Number of counting qubits (n bits precision for φ)
+- `targetQubits` - Number of target qubits for eigenvector |ψ⟩ (default: 1)
+- `eigenstate` - Initial eigenvector |ψ⟩ (None = use |0⟩)
+- `backend` - Quantum backend to use (None = LocalBackend)
+- `shots` - Number of measurement shots (None = auto-scale: 1024 for Local, 2048 for Cloud)
+
+**Notes**:
+- Higher `precision` = more accurate phase estimate
+- Higher `shots` = better statistical accuracy
+- Used internally by period finding and many quantum algorithms
+
+---
+
+### 8. quantumArithmetic
+
+**Module**: `FSharp.Azure.Quantum.QuantumArithmeticOps`
+
+**Purpose**: Perform quantum arithmetic operations (addition, multiplication, exponentiation)
+
+**Example**:
+```fsharp
+let operation = quantumArithmetic {
+    operands 42 17
+    operation Add
+    qubits 8
+    shots 100
+}
+```
+
+**Custom Operations**:
+- `operands` - Set both operands (a, b)
+- `operandA` - Set first operand
+- `operandB` - Set second operand (or exponent for exponentiation)
+- `operation` - Operation type (Add | Multiply | ModularAdd | ModularMultiply | ModularExponentiate)
+- `modulus` - Modulus for modular operations (required for modular ops)
+- `qubits` - Number of qubits for computation
+- `exponent` - Alias for operandB in exponentiation context
+- `backend` - Quantum backend to use (None = LocalBackend)
+- `shots` - Number of measurement shots (None = auto-scale: 100 for Local, 500 for Cloud)
+
+**Notes**:
+- Arithmetic operations are deterministic
+- `shots` used for statistical verification on noisy hardware
+
+---
+
+### 9. quantumTreeSearch<'T>
+
+**Module**: `FSharp.Azure.Quantum.QuantumTreeSearch`
+
+**Purpose**: Search game trees and decision trees using Grover's algorithm
+
+**Example**:
+```fsharp
+let search = quantumTreeSearch<Board> {
+    initialState gameBoard
+    maxDepth 3
+    branchingFactor 9
+    evaluateWith (fun board -> evaluatePosition board)
+    generateMovesWith (fun board -> getLegalMoves board)
+    topPercentile 0.2
+    shots 100
+    maxIterations 5
+}
+```
+
+**Custom Operations**:
+- `initialState` - Starting game/decision state
+- `maxDepth` - Maximum depth to explore in tree
+- `branchingFactor` - Expected branching factor (moves per position)
+- `evaluateWith` - Heuristic evaluation function (higher score = better)
+- `generateMovesWith` - Move generation function (returns list of next states)
+- `topPercentile` - Fraction of best moves to amplify (0.0 < x ≤ 1.0)
+- `backend` - Quantum backend to use (None = LocalBackend)
+- `shots` - Number of measurements (None = auto-scale: 100 for Local, 500 for Cloud)
+- `solutionThreshold` - Min fraction of shots to consider as solution (None = auto-scale: 1% for Local, 2% for Cloud)
+- `successThreshold` - Min total probability for search success (None = auto-scale: 10% for Local, 20% for Cloud)
+- `maxPaths` - Maximum paths to search (None = use full tree)
+- `limitSearchSpace` - Auto-recommend maxPaths limit based on tree size
+- `maxIterations` - Maximum Grover iterations (None = auto-calculate optimal)
+
+**Features**:
+- ✅ Generic over state type
+- ✅ O(√N) quantum speedup over classical minimax
+- ✅ Auto-scaling for different backends
+
+---
+
+### 10. resource<'T>
+
+**Module**: `FSharp.Azure.Quantum.TaskScheduling.Builders`
+
+**Purpose**: Define resources for task scheduling problems
+
+**Example**:
+```fsharp
+let cpu = resource<string> {
+    resourceId "CPU"
+    capacity 4.0
+    costPerUnit 10.0
+    availableWindow (0.0, 100.0)
+}
+```
+
+**Custom Operations**:
+- `resourceId` - Unique identifier for resource
+- `capacity` - Maximum capacity available
+- `costPerUnit` - Cost per unit of resource usage
+- `availableWindow` - Time window when resource is available (start, end)
+
+---
+
+### 11. scheduledTask<'T>
+
+**Module**: `FSharp.Azure.Quantum.TaskScheduling.Builders`
+
+**Purpose**: Define tasks for scheduling optimization
+
+**Example**:
+```fsharp
+let task1 = scheduledTask<string> {
+    taskId "Task1"
+    duration (Duration 5.0)
+    requires "CPU" 2.0
+    priority 1.0
+    deadline 50.0
+}
+```
+
+**Custom Operations**:
+- `taskId` - Unique identifier for task
+- `duration` - Task duration (use `Duration` wrapper)
+- `after` - Single dependency (task must start after specified task)
+- `afterMultiple` - Multiple dependencies
+- `requires` - Resource requirement (resourceId, quantity)
+- `priority` - Priority for tie-breaking (higher = schedule first)
+- `deadline` - Latest completion time
+- `earliestStart` - Earliest start time
+
+---
+
+### 12. schedulingProblem<'T>
+
+**Module**: `FSharp.Azure.Quantum.TaskScheduling.Builders`
+
+**Purpose**: Define complete task scheduling optimization problems
+
+**Example**:
+```fsharp
+let problem = schedulingProblem<string> {
+    tasks [task1; task2; task3]
+    resources [cpu; memory]
+    objective MinimizeMakespan
+    timeHorizon 100.0
+}
+```
+
+**Custom Operations**:
+- `tasks` - List of tasks to schedule
+- `resources` - Available resources
+- `objective` - Optimization objective (MinimizeMakespan | MinimizeCost | BalanceLoad)
+- `timeHorizon` - Total time available for scheduling
+
+---
+
+## Common Patterns
+
+### For Loops in CEs
+
+Many CEs support `for` loops for adding multiple similar items:
+
+```fsharp
+// Circuit: Apply Hadamard to all qubits
+let superposition = circuit {
+    qubits 5
+    for q in [0..4] do
+        H q
+}
+
+// Constraint Solver: Add row constraints for Sudoku
+let sudoku = constraintSolver<int> {
+    searchSpace 81
+    domain [1..9]
+    for row in [0..8] do
+        satisfies (checkRow row)
+}
+
+// Pattern Matcher: Combine multiple patterns with AND logic
+let search = patternMatcher<Config> {
+    searchSpace allConfigs
+    for pattern in [perfPattern; costPattern; securityPattern] do
+        matchPattern pattern  // All must match
+}
+```
+
+### Backend Configuration
+
+Most quantum CEs support backend specification:
+
+```fsharp
+// Default: LocalBackend (simulation)
+let problem1 = periodFinder {
+    number 15
+    precision 12
+}
+
+// Explicit backend
+let ionqBackend = BackendAbstraction.createIonQBackend(...)
+let problem2 = periodFinder {
+    number 15
+    precision 12
+    backend ionqBackend
+}
+```
+
+### Auto-Scaling Parameters
+
+Many CEs have auto-scaling parameters that adapt to backend type:
+
+| Parameter | LocalBackend | Cloud Backend |
+|-----------|--------------|---------------|
+| `shots` | 100-1000 | 500-2048 |
+| `maxIterations` | Auto-calculate | Auto-calculate |
+| `solutionThreshold` | 1% | 2% |
+| `successThreshold` | 10% | 20% |
+
+Use `None` for auto-scaling (recommended), or specify explicit values for fine-tuning.
+
+---
+
+## IntelliSense Tips
+
+### If IntelliSense Doesn't Show Operations
+
+1. **Type the CE name explicitly**:
+   ```fsharp
+   let problem = periodFinder {
+       // Now press Ctrl+Space to see operations
+   }
+   ```
+
+2. **Check you're using the correct CE instance name** (not the builder type):
+   - ✅ `periodFinder { }` - Correct
+   - ❌ `PeriodFinderBuilder { }` - Wrong
+
+3. **For generic CEs, specify the type parameter**:
+   ```fsharp
+   let search = patternMatcher<Config> {
+       // Type parameter helps IntelliSense
+   }
+   ```
+
+4. **Use this reference table** when IntelliSense fails
+
+---
+
+## See Also
+
+- [Getting Started Guide](getting-started.md)
+- [API Reference](api-reference.md)
+- [Architecture Overview](architecture-overview.md)
