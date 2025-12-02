@@ -22,9 +22,10 @@
 //
 // ============================================================================
 
-#r "nuget: FSharp.Azure.Quantum"
+#r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 
 open FSharp.Azure.Quantum
+open FSharp.Azure.Quantum.GraphColoring
 
 // ============================================================================
 // EXAMPLE 1: Register Allocation (Compiler Optimization)

@@ -151,6 +151,9 @@
     <Compile Include="Solvers\Hybrid\QuantumAdvisor.fs" />
     <Compile Include="Solvers\Hybrid\HybridSolver.fs" />
 
+    <!-- Task Scheduling - Domain-specific API for scheduling problems -->
+    <Compile Include="TaskScheduling.fs" />
+
     <!-- Classical Builders - User-facing APIs (depends on HybridSolver) -->
     <Compile Include="Solvers\Classical\TspBuilder.fs" />
     <Compile Include="Solvers\Classical\PortfolioBuilder.fs" />
