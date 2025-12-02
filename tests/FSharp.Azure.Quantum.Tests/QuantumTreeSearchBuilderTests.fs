@@ -469,6 +469,9 @@ module QuantumTreeSearchBuilderTests =
             MoveGenerator = simpleMoveGen
             TopPercentile = 0.2
             Backend = None
+            Shots = None
+            SolutionThreshold = None
+            SuccessThreshold = None
         }
         
         // Act

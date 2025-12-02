@@ -20,7 +20,7 @@
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 
 open System
-open FSharp.Azure.Quantum.Scheduling
+open FSharp.Azure.Quantum
 
 // ==============================================================================
 // DOMAIN MODEL - Job Scheduling Types

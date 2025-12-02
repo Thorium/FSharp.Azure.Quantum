@@ -225,6 +225,9 @@ module TreeSearch =
     /// - config: Tree search configuration
     /// - backend: IQuantumBackend instance
     /// - topPercentile: Fraction of best moves to mark (default: 0.2 = top 20%)
+    /// - numShots: Optional number of measurement shots (None = auto-scale)
+    /// - solutionThreshold: Optional threshold for solution detection (None = auto-scale)
+    /// - successThreshold: Optional threshold for success probability (None = auto-scale)
     /// 
     /// Returns: TreeSearchResult with best move
     let searchGameTree<'T>
@@ -232,6 +235,9 @@ module TreeSearch =
         (config: TreeSearchConfig<'T>)
         (backend: IQuantumBackend)
         (topPercentile: float)
+        (numShots: int option)
+        (solutionThreshold: float option)
+        (successThreshold: float option)
         : Result<TreeSearchResult, string> =
         
         try
@@ -246,8 +252,27 @@ module TreeSearch =
                 match GroverIteration.optimalIterations searchSpaceSize numSolutions with
                 | Error msg -> Error msg
                 | Ok numIterations ->
-                    // Step 3: Execute Grover search
-                    match BackendAdapter.executeGroverWithBackend oracle backend numIterations 1000 0.1 0.3 with
+                    // Step 3: Determine shots and thresholds (use provided or auto-scale)
+                    let actualShots = 
+                        numShots |> Option.defaultWith (fun () ->
+                            if searchSpaceSize <= 16 then 1000      // Small: 1000 shots
+                            elif searchSpaceSize <= 64 then 2000    // Medium: 2000 shots
+                            elif searchSpaceSize <= 256 then 5000   // Large: 5000 shots
+                            else 10000)                             // Very large: 10000 shots
+                    
+                    let actualSolutionThreshold =
+                        solutionThreshold |> Option.defaultWith (fun () ->
+                            if searchSpaceSize <= 16 then 0.05      // 5% for small
+                            elif searchSpaceSize <= 64 then 0.03    // 3% for medium
+                            elif searchSpaceSize <= 256 then 0.02   // 2% for large
+                            else 0.01)                              // 1% for very large
+                    
+                    let actualSuccessThreshold =
+                        successThreshold |> Option.defaultWith (fun () ->
+                            actualSolutionThreshold * 3.0)          // Success = 3x solution threshold
+                    
+                    // Step 4: Execute Grover search with actual parameters
+                    match BackendAdapter.executeGroverWithBackend oracle backend numIterations actualShots actualSolutionThreshold actualSuccessThreshold with
                     | Error msg -> Error msg
                     | Ok searchResult ->
                         // Step 4: Decode best move from result
@@ -280,13 +305,13 @@ module TreeSearch =
     // CONVENIENCE FUNCTIONS
     // ========================================================================
     
-    /// Search with default top percentile (20%)
+    /// Search with default top percentile (20%) and auto-scaled parameters
     let searchGameTreeDefault<'T>
         (rootState: 'T)
         (config: TreeSearchConfig<'T>)
         (backend: IQuantumBackend)
         : Result<TreeSearchResult, string> =
-        searchGameTree rootState config backend 0.2
+        searchGameTree rootState config backend 0.2 None None None
     
     /// Estimate qubits needed for tree search
     let estimateQubitsNeeded (maxDepth: int) (branchingFactor: int) : int =
@@ -317,7 +342,7 @@ module TreeSearch =
             
             let backend = FSharp.Azure.Quantum.Core.BackendAbstraction.createLocalBackend()
             
-            searchGameTree rootState config backend 0.3
+            searchGameTree rootState config backend 0.3 None None None
         
         /// Example: Path finding
         /// Find shortest path in grid
@@ -350,4 +375,4 @@ module TreeSearch =
             
             let backend = FSharp.Azure.Quantum.Core.BackendAbstraction.createLocalBackend()
             
-            searchGameTree rootState config backend 0.25
+            searchGameTree rootState config backend 0.25 None None None

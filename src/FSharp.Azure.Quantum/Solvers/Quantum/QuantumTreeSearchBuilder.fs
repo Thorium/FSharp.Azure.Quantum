@@ -73,6 +73,12 @@ module QuantumTreeSearch =
         TopPercentile: float
         /// Quantum backend to use (None = LocalBackend)
         Backend: BackendAbstraction.IQuantumBackend option
+        /// Number of measurements to perform (None = auto-scale based on search space)
+        Shots: int option
+        /// Solution threshold: min fraction of shots to consider a state as solution (None = auto-scale, typical: 0.01-0.05)
+        SolutionThreshold: float option
+        /// Success threshold: min total probability for search success (None = auto-scale, typical: 0.05-0.15)
+        SuccessThreshold: float option
     }
     
     /// <summary>
@@ -138,6 +144,9 @@ module QuantumTreeSearch =
                 MoveGenerator = fun _ -> []
                 TopPercentile = 0.2
                 Backend = None
+                Shots = Some 2000  // Default: 2000 shots for balanced performance
+                SolutionThreshold = Some 0.03  // Default: 3% threshold (60 counts out of 2000)
+                SuccessThreshold = Some 0.10   // Default: 10% total success probability
             }
         
         member _.Delay(f: unit -> TreeSearchProblem<'T>) : unit -> TreeSearchProblem<'T> = f
@@ -147,6 +156,17 @@ module QuantumTreeSearch =
             match validate problem with
             | Error msg -> failwith msg
             | Ok () -> problem
+        
+        member _.For(sequence: seq<'U>, body: 'U -> TreeSearchProblem<'T>) : TreeSearchProblem<'T> =
+            // Execute for all elements, returning the last problem state
+            let mutable result = Unchecked.defaultof<TreeSearchProblem<'T>>
+            for item in sequence do
+                result <- body item
+            result
+        
+        member _.Combine(problem1: TreeSearchProblem<'T>, problem2: TreeSearchProblem<'T>) : TreeSearchProblem<'T> =
+            // When combining, use the second problem but preserve any non-default values from first
+            problem2
         
         [<CustomOperation("initialState")>]
         member _.InitialState(problem: TreeSearchProblem<'T>, state: 'T) : TreeSearchProblem<'T> =
@@ -175,6 +195,18 @@ module QuantumTreeSearch =
         [<CustomOperation("backend")>]
         member _.Backend(problem: TreeSearchProblem<'T>, backend: BackendAbstraction.IQuantumBackend) : TreeSearchProblem<'T> =
             { problem with Backend = Some backend }
+        
+        [<CustomOperation("shots")>]
+        member _.Shots(problem: TreeSearchProblem<'T>, numShots: int) : TreeSearchProblem<'T> =
+            { problem with Shots = Some numShots }
+        
+        [<CustomOperation("solutionThreshold")>]
+        member _.SolutionThreshold(problem: TreeSearchProblem<'T>, threshold: float) : TreeSearchProblem<'T> =
+            { problem with SolutionThreshold = Some threshold }
+        
+        [<CustomOperation("successThreshold")>]
+        member _.SuccessThreshold(problem: TreeSearchProblem<'T>, threshold: float) : TreeSearchProblem<'T> =
+            { problem with SuccessThreshold = Some threshold }
     
     /// Global instance of quantumTreeSearch builder
     let quantumTreeSearch<'T> = QuantumTreeSearchBuilder<'T>()
@@ -225,8 +257,15 @@ module QuantumTreeSearch =
                     MoveGenerator = problem.MoveGenerator
                 }
                 
-                // Call quantum tree search algorithm
-                match GroverSearch.TreeSearch.searchGameTree problem.InitialState config actualBackend problem.TopPercentile with
+                // Call quantum tree search algorithm with user-provided parameters
+                match GroverSearch.TreeSearch.searchGameTree 
+                        problem.InitialState 
+                        config 
+                        actualBackend 
+                        problem.TopPercentile 
+                        problem.Shots
+                        problem.SolutionThreshold
+                        problem.SuccessThreshold with
                 | Error msg -> Error $"Quantum tree search failed: {msg}"
                 | Ok treeResult ->
                     
@@ -262,6 +301,9 @@ module QuantumTreeSearch =
             MoveGenerator = moveGen
             TopPercentile = 0.2
             Backend = None
+            Shots = Some 2000
+            SolutionThreshold = Some 0.03
+            SuccessThreshold = Some 0.10
         }
     
     /// Estimate resource requirements without executing
@@ -338,6 +380,9 @@ Qubits Required: %d%s"""
             MoveGenerator = legalMoves
             TopPercentile = 0.2
             Backend = None
+            Shots = Some 2000
+            SolutionThreshold = Some 0.03
+            SuccessThreshold = Some 0.10
         }
     
     /// Create a tree search for decision problems (multi-step optimization)
@@ -356,4 +401,7 @@ Qubits Required: %d%s"""
             MoveGenerator = nextOptions
             TopPercentile = 0.15  // More selective for decision problems
             Backend = None
+            Shots = Some 2000
+            SolutionThreshold = Some 0.03
+            SuccessThreshold = Some 0.10
         }

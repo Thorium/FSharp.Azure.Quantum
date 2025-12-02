@@ -21,10 +21,14 @@ namespace KasinoExample
     /// - Table has cards with numeric values (1-13)
     /// - Player has a card from hand (e.g., value 13)
     /// - Goal: Find subset of table cards that sum to or approach hand card value
-    /// - Objective: Maximize captured value within card sum constraint
+    /// - Objective: Maximize captured value within card sum constraint.
     /// </summary>
     internal sealed class Program
     {
+        private Program()
+        {
+        }
+
         private static void Main(string[] args)
         {
             Console.WriteLine("╔════════════════════════════════════════════════════════════╗");
@@ -155,7 +159,7 @@ namespace KasinoExample
                 var solution = result.ResultValue;
 
                 Console.WriteLine("✅ Optimal Capture Found!");
-                var selectedCards = string.Join(", ", solution.SelectedItems.Select(item => item.Id.Replace("card_", "")));
+                var selectedCards = string.Join(", ", solution.SelectedItems.Select(item => item.Id.Replace("card_", string.Empty, StringComparison.Ordinal)));
                 Console.WriteLine($"   Cards to capture: {selectedCards}");
                 Console.WriteLine($"   Total value: {solution.TotalValue}");
                 Console.WriteLine($"   Total weight: {solution.TotalWeight}");

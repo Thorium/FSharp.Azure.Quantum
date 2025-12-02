@@ -53,15 +53,12 @@ printfn "\n=== Example 4: Conditional Basis Selection ==="
 
 let smallMolecule = true
 
+// Compute basis selection outside computation expression
+let selectedBasis = if smallMolecule then "sto-3g" else "6-31g"
+
 let conditionalProblem = quantumChemistry {
     molecule (h2 0.74)
-    
-    // Conditional logic using F# syntax
-    if smallMolecule then
-        basis "sto-3g"  // Fast for small molecules
-    else
-        basis "6-31g"   // More accurate
-    
+    basis selectedBasis  // Use pre-computed value
     ansatz UCCSD
 }
 
