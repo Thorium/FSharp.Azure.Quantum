@@ -279,18 +279,28 @@ module TaskSchedulingTests =
             tasks [taskA; taskB]
             resources [worker]
             objective MinimizeMakespan
+            timeHorizon 6.0  // Limit time slots to 6 for quantum solver (2 tasks * 6 time slots = 12 qubits < 16 limit)
         }
         
-        // Act - Use quantum solver (placeholder returns error for now)
+        // Act - Use quantum solver
         let backend = FSharp.Azure.Quantum.Core.BackendAbstraction.LocalBackend() :> FSharp.Azure.Quantum.Core.BackendAbstraction.IQuantumBackend
         let result = solveQuantum backend problem |> Async.RunSynchronously
         
-        // Assert - Should return "not yet implemented" error
+        // Assert - Quantum solver should execute successfully
+        // Note: QAOA with initial parameters may not always find optimal solution
+        // This test verifies the quantum solver executes without error
         match result with
-        | Ok _ -> Assert.Fail("Should return error - quantum QUBO encoding not yet implemented")
-        | Error msg -> 
-            Assert.Contains("not yet implemented", msg)
-            // Once implemented, this will serialize tasks due to resource constraint
+        | Error msg -> Assert.Fail(sprintf "Quantum solver failed: %s" msg)
+        | Ok solution ->
+            // Solution found - quantum execution successful
+            Assert.NotEmpty(solution.Assignments)
+            Assert.Equal(2, solution.Assignments.Length)
+            
+            // Verify makespan is reasonable (not infinite)
+            Assert.True(solution.Makespan > 0.0 && solution.Makespan < 1000.0)
+            
+            // TODO: Add parameter optimization to improve solution quality
+            // For now, just verify quantum solver can execute
     // ============================================================================
     // TEST 9: Deadline Constraint
     // ============================================================================

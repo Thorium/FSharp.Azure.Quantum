@@ -1,5 +1,8 @@
 namespace FSharp.Azure.Quantum
 
+open FSharp.Azure.Quantum.Core
+open FSharp.Azure.Quantum.GraphOptimization
+
 /// Task Scheduling Domain Builder - F# Computation Expression API
 ///
 /// DESIGN PHILOSOPHY:
@@ -568,6 +571,155 @@ module TaskScheduling =
         Ok solution
 
     // ============================================================================
+    // QUBO ENCODING FOR RESOURCE-CONSTRAINED SCHEDULING
+    // ============================================================================
+    
+    /// Encode resource-constrained scheduling as QUBO problem
+    /// 
+    /// ENCODING SCHEME:
+    /// - Variables: x_{task,time} ∈ {0,1} where x_{task,time}=1 means task starts at time
+    /// - Time discretized into slots (0, 1, 2, ..., T-1)
+    /// - Each task must start at exactly one time slot
+    /// 
+    /// OBJECTIVE (minimize makespan):
+    ///   Σ_{task,time} time * x_{task,time}  (weighted by latest completion)
+    /// 
+    /// CONSTRAINTS (encoded as penalties):
+    ///   1. One-hot: Each task starts exactly once: Σ_time x_{task,time} = 1
+    ///   2. Dependencies: Successor starts after predecessor finishes
+    ///   3. Resources: At any time t, Σ_{overlapping tasks} resource_usage ≤ capacity
+    /// 
+    /// QUBO FORM (minimization for QAOA):
+    ///   H = Objective + λ₁*Penalty₁ + λ₂*Penalty₂ + λ₃*Penalty₃
+    let private toQubo 
+        (problem: SchedulingProblem<'TTask, 'TResource>) 
+        (timeHorizon: int)
+        : Result<GraphOptimization.QuboMatrix, string> =
+        
+        try
+            let numTasks = problem.Tasks.Length
+            
+            if numTasks = 0 then
+                Error "No tasks to schedule"
+            elif timeHorizon <= 0 then
+                Error "Time horizon must be positive"
+            else
+                // Create variable index mapping: (taskId, startTime) -> variableIndex
+                let mutable varIndex = 0
+                let mutable varMapping = Map.empty<string * int, int>
+                let mutable reverseMapping = Map.empty<int, string * int>
+                
+                for task in problem.Tasks do
+                    for t in 0 .. timeHorizon - 1 do
+                        varMapping <- varMapping |> Map.add (task.Id, t) varIndex
+                        reverseMapping <- reverseMapping |> Map.add varIndex (task.Id, t)
+                        varIndex <- varIndex + 1
+                
+                let numVariables = varIndex
+                let mutable quboTerms = Map.empty<int * int, float>
+                
+                // Calculate penalty weights (Lucas Rule: penalties >> objective)
+                let maxDuration = problem.Tasks |> List.map (fun t -> t.Duration) |> List.max
+                let penaltyOneHot = float timeHorizon * 10.0  // Ensure one-hot constraint
+                let penaltyDependency = maxDuration * penaltyOneHot  // Ensure dependencies respected
+                let penaltyResource = maxDuration * penaltyOneHot    // Ensure resource limits
+                
+                // ===== OBJECTIVE: Minimize makespan (latest task completion) =====
+                for task in problem.Tasks do
+                    for t in 0 .. timeHorizon - 1 do
+                        let varIdx = Map.find (task.Id, t) varMapping
+                        let completionTime = float t + task.Duration
+                        
+                        // Linear term: minimize weighted completion time
+                        let currentVal = Map.tryFind (varIdx, varIdx) quboTerms |> Option.defaultValue 0.0
+                        quboTerms <- quboTerms |> Map.add (varIdx, varIdx) (currentVal + completionTime)
+                
+                // ===== CONSTRAINT 1: One-hot encoding (each task starts exactly once) =====
+                // Penalty: λ * (Σ x_t - 1)² = λ * (Σ x_t² + ΣΣ 2*x_i*x_j - 2*Σ x_t + 1)
+                // Simplified: λ * (ΣΣ 2*x_i*x_j - Σ x_t)  (ignoring constant, x² = x for binary)
+                for task in problem.Tasks do
+                    // Linear terms: -λ * x_t
+                    for t in 0 .. timeHorizon - 1 do
+                        let varIdx = Map.find (task.Id, t) varMapping
+                        let currentVal = Map.tryFind (varIdx, varIdx) quboTerms |> Option.defaultValue 0.0
+                        quboTerms <- quboTerms |> Map.add (varIdx, varIdx) (currentVal - penaltyOneHot)
+                    
+                    // Quadratic terms: 2λ * x_i * x_j
+                    for t1 in 0 .. timeHorizon - 1 do
+                        for t2 in t1 + 1 .. timeHorizon - 1 do
+                            let varIdx1 = Map.find (task.Id, t1) varMapping
+                            let varIdx2 = Map.find (task.Id, t2) varMapping
+                            let (i, j) = if varIdx1 < varIdx2 then (varIdx1, varIdx2) else (varIdx2, varIdx1)
+                            let currentVal = Map.tryFind (i, j) quboTerms |> Option.defaultValue 0.0
+                            quboTerms <- quboTerms |> Map.add (i, j) (currentVal + 2.0 * penaltyOneHot)
+                
+                // ===== CONSTRAINT 2: Dependencies (successor starts after predecessor) =====
+                for dep in problem.Dependencies do
+                    match dep with
+                    | FinishToStart(predId, succId, lag) ->
+                        let predTask = problem.Tasks |> List.find (fun t -> t.Id = predId)
+                        let predDuration = predTask.Duration
+                        
+                        // For each valid (pred_start, succ_start) pair where dependency is violated
+                        for t_pred in 0 .. timeHorizon - 1 do
+                            let predEnd = float t_pred + predDuration + lag
+                            for t_succ in 0 .. int predEnd do  // Successor starts before predecessor finishes
+                                let predVarIdx = Map.find (predId, t_pred) varMapping
+                                let succVarIdx = Map.find (succId, t_succ) varMapping
+                                
+                                // Penalty for both being 1 (violation): λ * x_pred * x_succ
+                                let (i, j) = if predVarIdx < succVarIdx then (predVarIdx, succVarIdx) else (succVarIdx, predVarIdx)
+                                let currentVal = Map.tryFind (i, j) quboTerms |> Option.defaultValue 0.0
+                                quboTerms <- quboTerms |> Map.add (i, j) (currentVal + penaltyDependency)
+                
+                // ===== CONSTRAINT 3: Resource capacity =====
+                if not (List.isEmpty problem.Resources) then
+                    for resource in problem.Resources do
+                        // For each time slot, check resource usage
+                        for t in 0 .. timeHorizon - 1 do
+                            // Find tasks that could overlap at time t
+                            let overlappingVars = 
+                                problem.Tasks
+                                |> List.collect (fun task ->
+                                    // Task overlaps at time t if it starts at [t - duration + 1, t]
+                                    let taskDuration = int (ceil task.Duration)
+                                    let startRange = max 0 (t - taskDuration + 1), t
+                                    
+                                    [for startTime in fst startRange .. snd startRange do
+                                        let usage = Map.tryFind resource.Id task.ResourceRequirements |> Option.defaultValue 0.0
+                                        if usage > 0.0 then
+                                            yield (Map.find (task.Id, startTime) varMapping, usage)]
+                                )
+                            
+                            // Constraint: Σ usage_i * x_i ≤ capacity
+                            // Penalty: λ * (Σ usage_i * x_i - capacity)²
+                            // Expanded: λ * (Σ usage_i² * x_i + ΣΣ 2*usage_i*usage_j*x_i*x_j - 2*capacity*Σ usage_i*x_i + capacity²)
+                            
+                            // Linear terms
+                            for (varIdx, usage) in overlappingVars do
+                                let linearCoeff = penaltyResource * (usage * usage - 2.0 * resource.Capacity * usage)
+                                let currentVal = Map.tryFind (varIdx, varIdx) quboTerms |> Option.defaultValue 0.0
+                                quboTerms <- quboTerms |> Map.add (varIdx, varIdx) (currentVal + linearCoeff)
+                            
+                            // Quadratic terms
+                            for idx1 in 0 .. overlappingVars.Length - 1 do
+                                for idx2 in idx1 + 1 .. overlappingVars.Length - 1 do
+                                    let (varIdx1, usage1) = overlappingVars.[idx1]
+                                    let (varIdx2, usage2) = overlappingVars.[idx2]
+                                    let (i, j) = if varIdx1 < varIdx2 then (varIdx1, varIdx2) else (varIdx2, varIdx1)
+                                    
+                                    let quadCoeff = penaltyResource * 2.0 * usage1 * usage2
+                                    let currentVal = Map.tryFind (i, j) quboTerms |> Option.defaultValue 0.0
+                                    quboTerms <- quboTerms |> Map.add (i, j) (currentVal + quadCoeff)
+                
+                Ok {
+                    GraphOptimization.QuboMatrix.Q = quboTerms
+                    GraphOptimization.QuboMatrix.NumVariables = numVariables
+                }
+        with ex ->
+            Error (sprintf "QUBO encoding failed: %s" ex.Message)
+
+    // ============================================================================
     // PUBLIC API
     // ============================================================================
 
@@ -599,14 +751,152 @@ module TaskScheduling =
             | Error msg -> return Error msg
             | Ok () ->
             
-            // TODO: Implement QUBO encoding for resource-constrained scheduling
-            // This will encode:
-            // - Task start times as binary decision variables
-            // - Dependency constraints as QUBO penalties
-            // - Resource capacity constraints as QUBO penalties
-            // - Objective function (minimize makespan or cost) as QUBO weights
+            // Determine time horizon (max possible makespan)
+            let totalDuration = problem.Tasks |> List.sumBy (fun t -> t.Duration)
+            let timeHorizon = 
+                if problem.TimeHorizon > 0.0 then
+                    int (ceil problem.TimeHorizon)
+                else
+                    int (ceil totalDuration)  // Conservative estimate if not specified
             
-            return Error "Quantum resource allocation not yet implemented. Use solve() for dependency-only scheduling."
+            // Encode problem as QUBO
+            match toQubo problem timeHorizon with
+            | Error msg -> return Error msg
+            | Ok quboMatrix ->
+            
+            // Convert sparse QUBO to dense array for QAOA
+            let quboArray = Array2D.zeroCreate quboMatrix.NumVariables quboMatrix.NumVariables
+            for KeyValue((i, j), value) in quboMatrix.Q do
+                quboArray.[i, j] <- value
+            
+            // Create QAOA problem and mixer Hamiltonians
+            let problemHam = QaoaCircuit.ProblemHamiltonian.fromQubo quboArray
+            let mixerHam = QaoaCircuit.MixerHamiltonian.create quboMatrix.NumVariables
+            
+            // Build QAOA circuit with initial parameters
+            let gamma, beta = 0.5, 0.5  // Initial parameters
+            let qaoaCircuit = QaoaCircuit.QaoaCircuit.build problemHam mixerHam [| (gamma, beta) |]
+            
+            // Wrap QAOA circuit for backend execution
+            let circuitWrapper = 
+                CircuitAbstraction.QaoaCircuitWrapper(qaoaCircuit) 
+                :> CircuitAbstraction.ICircuit
+            
+            // Execute on quantum backend
+            let numShots = 1000
+            match backend.Execute circuitWrapper numShots with
+            | Error msg -> return Error (sprintf "Quantum execution failed: %s" msg)
+            | Ok execResult ->
+            
+            // Decode measurements to find best schedule
+            // Create variable mapping for decoding
+            let mutable varMapping = Map.empty<string * int, int>
+            let mutable reverseMapping = Map.empty<int, string * int>
+            let mutable varIndex = 0
+            
+            for task in problem.Tasks do
+                for t in 0 .. timeHorizon - 1 do
+                    varMapping <- varMapping |> Map.add (task.Id, t) varIndex
+                    reverseMapping <- reverseMapping |> Map.add varIndex (task.Id, t)
+                    varIndex <- varIndex + 1
+            
+            // Decode each measurement and find best feasible solution
+            let solutions =
+                execResult.Measurements
+                |> Array.map (fun bitstring ->
+                    // Decode bitstring to task start times
+                    let mutable taskStarts = Map.empty<string, float>
+                    
+                    for i in 0 .. bitstring.Length - 1 do
+                        if bitstring.[i] = 1 then
+                            let (taskId, startTime) = Map.find i reverseMapping
+                            taskStarts <- taskStarts |> Map.add taskId (float startTime)
+                    
+                    // Check if valid (each task starts exactly once)
+                    let isValid = problem.Tasks |> List.forall (fun t -> Map.containsKey t.Id taskStarts)
+                    
+                    if isValid then
+                        // Build solution from decoded starts
+                        let assignments =
+                            problem.Tasks
+                            |> List.map (fun task ->
+                                let startTime = Map.find task.Id taskStarts
+                                {
+                                    TaskId = task.Id
+                                    StartTime = startTime
+                                    EndTime = startTime + task.Duration
+                                    AssignedResources = task.ResourceRequirements
+                                }
+                            )
+                        
+                        let makespan = assignments |> List.map (fun a -> a.EndTime) |> List.max
+                        
+                        Some (makespan, assignments)
+                    else
+                        None
+                )
+                |> Array.choose id
+            
+            if Array.isEmpty solutions then
+                return Error "No valid solutions found from quantum measurements. Try increasing numShots or adjusting QAOA parameters."
+            else
+                // Select best solution (minimum makespan)
+                let (bestMakespan, bestAssignments) = solutions |> Array.minBy fst
+                
+                // Calculate metrics
+                let totalCost =
+                    bestAssignments
+                    |> List.sumBy (fun a ->
+                        let duration = a.EndTime - a.StartTime
+                        a.AssignedResources
+                        |> Map.toList
+                        |> List.sumBy (fun (resourceId, quantity) ->
+                            match problem.Resources |> List.tryFind (fun r -> r.Id = resourceId) with
+                            | Some resource -> resource.CostPerUnit * quantity * duration
+                            | None -> 0.0
+                        )
+                    )
+                
+                // Check deadline violations
+                let completionTimes = bestAssignments |> List.map (fun a -> a.TaskId, a.EndTime) |> Map.ofList
+                let violations =
+                    problem.Tasks
+                    |> List.choose (fun task ->
+                        match task.Deadline with
+                        | Some deadline ->
+                            let completion = Map.find task.Id completionTimes
+                            if completion > deadline then Some task.Id else None
+                        | None -> None
+                    )
+                
+                // Calculate resource utilization
+                let resourceUtil =
+                    problem.Resources
+                    |> List.map (fun r ->
+                        let totalUsage =
+                            bestAssignments
+                            |> List.sumBy (fun a ->
+                                let duration = a.EndTime - a.StartTime
+                                match Map.tryFind r.Id a.AssignedResources with
+                                | Some quantity -> quantity * duration
+                                | None -> 0.0
+                            )
+                        let maxPossible = r.Capacity * bestMakespan
+                        let utilization = if maxPossible > 0.0 then totalUsage / maxPossible else 0.0
+                        r.Id, utilization
+                    )
+                    |> Map.ofList
+                
+                let solution = {
+                    Assignments = bestAssignments
+                    Makespan = bestMakespan
+                    TotalCost = totalCost
+                    ResourceUtilization = resourceUtil
+                    DeadlineViolations = violations
+                    IsValid = List.isEmpty violations
+                }
+                
+                return Ok solution
         }
 
     /// Solve scheduling problem and return optimized schedule (classical dependency-only)
