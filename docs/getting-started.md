@@ -96,10 +96,10 @@ let edges = [
     ("D", "A", 1.0)
 ]
 
-let problem = MaxCut.createProblem vertices edges
+let maxCutProblem = MaxCut.createProblem vertices edges
 
 // Solve with QAOA on LocalBackend (simulation)
-match MaxCut.solve problem None with
+match MaxCut.solve maxCutProblem None with
 | Ok solution ->
     printfn "Cut Value: %.2f" solution.CutValue
     printfn "Partition S: %A" solution.PartitionS
@@ -184,10 +184,10 @@ let items = [
     ("Tablet", 1.0, 500.0)
     ("Phone", 0.5, 300.0)
 ]
-let problem = Knapsack.createProblem items 3.0  // capacity = 3.0
+let knapsackProblem = Knapsack.createProblem items 3.0  // capacity = 3.0
 
 // Solve with QAOA quantum algorithm
-match Knapsack.solve problem None with
+match Knapsack.solve knapsackProblem None with
 | Ok solution ->
     printfn "Total Value: %.2f" solution.TotalValue
     printfn "Total Weight: %.2f" solution.TotalWeight
@@ -278,7 +278,7 @@ let constraints: PortfolioSolver.Constraints = { Budget = 100.0; MinHolding = 0.
 **✅ Fix:** Ensure budget ≥ cheapest asset price
 ```fsharp
 // ✅ CORRECT: Budget can buy at least one share
-let constraints: PortfolioSolver.Constraints = { Budget = 500.0; MinHolding = 0.0; MaxHolding = 500.0 }
+let constraintsFixed: PortfolioSolver.Constraints = { Budget = 500.0; MinHolding = 0.0; MaxHolding = 500.0 }
 ```
 
 ### ❌ Pitfall 5: Type Inference Confusion
@@ -329,8 +329,8 @@ let solveTspRobust (distances: float[,]) =
             Error $"Solver failed: {msg}"
 
 // Usage
-let distances = array2D [[0.0; 10.0]; [10.0; 0.0]]
-match solveTspRobust distances with
+let distancesRobust = array2D [[0.0; 10.0]; [10.0; 0.0]]
+match solveTspRobust distancesRobust with
 | Ok _ -> printfn "Problem solved!"
 | Error msg -> eprintfn "Could not solve: %s" msg
 ```

@@ -69,13 +69,13 @@ let solveTsp distances =
     solve backend distances defaultConfig
 
 // Use it
-let distances = array2D [
+let distances2 = array2D [
     [ 0.0; 1.0; 2.0 ]
     [ 1.0; 0.0; 1.5 ]
     [ 2.0; 1.5; 0.0 ]
 ]
 
-match solveTsp distances with
+match solveTsp distances2 with
 | Ok solution ->
     printfn "Best tour: %A" solution.Tour
     printfn "Tour length: %.2f" solution.TourLength

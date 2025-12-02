@@ -1,7 +1,7 @@
 // ==============================================================================
-// Supply Chain Optimization Example
+// Supply Chain Optimization Example - QUANTUM-FIRST (Rule 1 Compliant)
 // ==============================================================================
-// Demonstrates multi-stage supply chain optimization using the FSharp.Azure.Quantum
+// Demonstrates multi-stage supply chain optimization using quantum QAOA via
 // QuantumNetworkFlowSolver to minimize total logistics cost while meeting demand.
 //
 // Business Context:
@@ -9,12 +9,22 @@
 // distributors → customers. The goal is to route products through the network
 // to meet all customer demand at minimum total cost.
 //
+// QUANTUM APPROACH (Rule 1 - No Classical Fallbacks):
+// - Uses QAOA (Quantum Approximate Optimization Algorithm)
+// - Encodes min-cost flow as QUBO matrix
+// - Executes on quantum backend (LocalSimulator, IonQ, Rigetti)
+// - 14 edges = 14 qubits + complex flow conservation constraints
+//
+// EXPECTED BEHAVIOR:
+// - With p=1 QAOA layers (default): Finds partial solutions (low fill rate)
+// - With p=3+ QAOA layers: Better solution quality (requires more shots)
+// - On real quantum hardware: Potential quantum advantage for large networks
+//
 // This example shows:
-// - Multi-stage network flow optimization using QUBO encoding
-// - Quantum-ready min-cost flow solver (Rule 1 compliant)
+// - Quantum network flow optimization using QUBO encoding
+// - Backend-agnostic quantum execution (Rule 1 compliant)
 // - Capacity-constrained routing with flow conservation
-// - Cost minimization with quantum backend support
-// - Supply chain performance analysis
+// - Multi-stage logistics network optimization
 // ==============================================================================
 
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
@@ -281,31 +291,57 @@ printfn "───────────────────────�
 
 match solutionResult with
 | Error _ ->
-    printfn "  ⚠ Quantum solver requires optimization tuning for this problem size"
-    printfn "  ⚠ Consider adjusting QAOA parameters or using larger shot count"
+    printfn "  ⚠ Quantum solver encountered an error"
+    printfn "  💡 This problem has 14 qubits + complex constraints"
+    printfn "  💡 Try: Increase shots, use p=3+ QAOA layers, or simplify network"
 | Ok solution ->
     if solution.SelectedEdges.IsEmpty then
-        printfn "  ⚠ No feasible flow found - adjust constraints or network topology"
+        printfn "  ⚠ No feasible flow found - QAOA didn't converge"
+        printfn "  💡 Try: More shots (5000+), better QAOA parameters, or simpler network"
     else
-        printfn "  ✓ Quantum QAOA found min-cost flow through network"
+        printfn "  ✓ Quantum QAOA found min-cost routes through network"
         printfn "  ✓ Multi-stage logistics network optimized via QUBO encoding"
         printfn "  ✓ Selected %d optimal routes minimizing total transport cost" solution.SelectedEdges.Length
-        printfn "  ✓ Fill rate: %.1f%% of demand satisfied" (solution.FillRate * 100.0)
+        
+        if solution.FillRate < 0.5 then
+            printfn "  ⚠ Low fill rate (%.1f%%) - p=1 QAOA finds partial solutions" (solution.FillRate * 100.0)
+            printfn "  💡 For production: Use p=3+ QAOA layers for better solution quality"
+        else
+            printfn "  ✓ Fill rate: %.1f%% of demand satisfied" (solution.FillRate * 100.0)
 
 printfn ""
 printfn "ALGORITHM NOTES:"
 printfn "────────────────────────────────────────────────────────────────────────────────"
 printfn "  • Quantum: QAOA with min-cost flow QUBO encoding (Rule 1 compliant)"
 printfn "  • Backend: %s (supports IonQ, Rigetti, Local)" (match solutionResult with Ok s -> s.BackendName | Error _ -> "N/A")
-printfn "  • For large networks (100+ nodes), quantum annealing provides"
-printfn "    significant speedup and improved solution quality over classical algorithms"
+printfn "  • Problem: 14 edges (14 qubits) + multi-stage flow constraints"
+printfn "  • Current: p=1 QAOA layers (basic) - partial solutions expected"
+printfn "  • Production: Use p=3+ layers for better quality (more circuit depth)"
+printfn "  • Quantum advantage: Emerges on larger networks (100+ nodes) with real hardware"
+printfn ""
+printfn "QUANTUM BEHAVIOR NOTES:"
+printfn "────────────────────────────────────────────────────────────────────────────────"
+printfn "  This is a QUANTUM-FIRST example (no classical fallbacks per Rule 1)."
+printfn "  Low fill rates with p=1 QAOA are expected - this demonstrates that:"
+printfn "    1. Complex combinatorial problems need sufficient QAOA depth (p=3+)"
+printfn "    2. Parameter optimization improves solution quality"
+printfn "    3. Real quantum hardware (IonQ/Rigetti) provides better results"
+printfn "    4. For production: tune QAOA parameters or decompose large problems"
 printfn ""
 
 printfn "╔══════════════════════════════════════════════════════════════════════════════╗"
 printfn "║                     OPTIMIZATION COMPLETE                                    ║"
 printfn "╚══════════════════════════════════════════════════════════════════════════════╝"
 printfn ""
-printfn "✨ Note: This example uses QuantumNetworkFlowSolver with LocalBackend."
-printfn "   For production deployments, use Azure Quantum backends (IonQ, Rigetti)"
-printfn "   for improved solution quality on large-scale supply chain networks."
+printfn "✨ QUANTUM-FIRST EXAMPLE (Rule 1 Compliant)"
+printfn "   This example uses QuantumNetworkFlowSolver with LocalBackend."
+printfn "   "
+printfn "   For production deployments:"
+printfn "     • Use Azure Quantum backends (IonQ, Rigetti) for real quantum hardware"
+printfn "     • Increase QAOA layers (p=3 to p=5) for better solution quality"
+printfn "     • Optimize QAOA parameters (gamma, beta) using VQE-style optimization"
+printfn "     • Consider problem decomposition for very large networks (100+ nodes)"
+printfn ""
+printfn "   Note: Low fill rates demonstrate quantum algorithm behavior."
+printfn "   This is educational - showing realistic QAOA performance with p=1 layers."
 printfn ""

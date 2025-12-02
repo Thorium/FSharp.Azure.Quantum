@@ -300,6 +300,10 @@ let strategy = ProblemTransformer.recommendStrategy "Portfolio" 10
 ### Manual Strategy Selection
 
 ```fsharp
+// Example problem parameters
+let problemSize = 15  // Number of cities
+let prioritizeQuality = true  // Quality vs. size trade-off
+
 // Calculate QUBO size for strategy
 let quboSize = ProblemTransformer.calculateQuboSize EncodingStrategy.EdgeBased 15
 printfn "EdgeBased TSP (15 cities): %d variables" quboSize  // 225
@@ -351,6 +355,10 @@ match validation.IsValid with
 ### 1. Choose the Right Strategy
 
 ```fsharp
+// Example distance matrices
+let distances_10_cities = Array2D.create 10 10 1.0
+let distances_100_cities = Array2D.create 100 100 1.0
+
 // ✓ GOOD: EdgeBased for small TSP
 let small_tsp = ProblemTransformer.encodeTspEdgeBased distances_10_cities 200.0
 
@@ -379,6 +387,9 @@ let penalty = 1000000.0
 ### 3. Validate Before Execution
 
 ```fsharp
+// Mock function for demonstration
+let createCustomQubo() = Array2D.create 10 10 1.0
+
 // ✓ GOOD: Always validate
 let qubo = ProblemTransformer.encodeTspEdgeBased distances penalty
 let validation = ProblemTransformer.validateTransformation qubo
@@ -387,7 +398,7 @@ if not validation.IsValid then
     failwith (sprintf "Invalid QUBO: %s" errorMsg)
 
 // ✗ BAD: Skip validation (waste quantum $$$)
-let qubo = createCustomQubo()  // No validation!
+let qubo2 = createCustomQubo()  // No validation!
 // Send to expensive quantum hardware...
 ```
 
@@ -416,6 +427,8 @@ let test_validation = ProblemTransformer.validateTransformation test_qubo
 assert test_validation.IsValid
 
 // Then scale to production
+let production_distances = array2D [[0.0; 50.0; 100.0]; [50.0; 0.0; 75.0]; [100.0; 75.0; 0.0]]  // Mock 3-city distance matrix
+let penalty = 100.0  // Penalty strength for constraint violations
 let prod_qubo = ProblemTransformer.encodeTspEdgeBased production_distances penalty
 ```
 

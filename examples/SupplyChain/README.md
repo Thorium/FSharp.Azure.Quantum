@@ -282,23 +282,15 @@ The greedy network flow algorithm:
 
 **Greedy Multi-Stage Network Flow:**
 
-```fsharp
-// For each customer:
-for customer in customers do
-    // 1. Generate all feasible paths (S→W→D→C)
-    let paths = 
-        suppliers × warehouses × distributors
-        |> filter (edge exists)
-        |> map (path, totalCost)
-        |> sortBy cost
-    
-    // 2. Allocate flow through cheapest available paths
-    for (path, cost) in paths do
-        let capacity = min(pathCapacity, demandRemaining)
-        if capacity > 0 then
-            allocateFlow(path, capacity)
-            updateCapacities(path, -capacity)
-```
+The algorithm follows these key steps:
+
+1. **Generate all feasible paths** from suppliers through warehouses and distributors to each customer
+2. **Calculate total cost** for each path (transport costs + operating costs)
+3. **Sort paths by cost** to prioritize cheapest routes
+4. **Allocate flow** through cheapest paths while respecting capacity constraints
+5. **Update remaining capacities** and continue until all demand is satisfied
+
+_See the actual implementation in `SupplyChain.fsx` for complete working code._
 
 ### Key Functions
 
@@ -318,19 +310,25 @@ for customer in customers do
 Model delivery deadlines and lead times:
 
 ```fsharp
+// Example: Adding time windows to supply chain nodes
 type Node = {
-    // Existing fields...
+    Id: string
+    NodeType: string
+    Capacity: int
     LeadTime: int  // Days to process
 }
 
 type Customer = {
-    // Existing fields...
+    Id: string
+    Demand: int
     Deadline: int  // Latest acceptable delivery day
 }
 
 // Ensure total path lead time < deadline
-let pathLeadTime = path |> List.sumBy (_.LeadTime)
-if pathLeadTime <= customer.Deadline then allocate
+let path = [{ Id = "S1"; NodeType = "Supplier"; Capacity = 100; LeadTime = 2 }]
+let pathLeadTime = path |> List.sumBy (fun node -> node.LeadTime)
+let customer = { Id = "C1"; Demand = 50; Deadline = 5 }
+if pathLeadTime <= customer.Deadline then printfn "Allocate flow"
 ```
 
 ### Add Inventory Costs
@@ -338,13 +336,24 @@ if pathLeadTime <= customer.Deadline then allocate
 Model warehouse holding costs:
 
 ```fsharp
+// Example: Adding inventory costs to warehouses
 type Warehouse = {
-    // Existing fields...
+    Id: string
+    Capacity: int
+    OperatingCost: float
     InventoryHoldingCostPerDay: float
 }
 
-// Add inventory costs to total cost
-let inventoryCost = averageInventory * holdingCostPerDay * days
+let warehouse = { 
+    Id = "W1"
+    Capacity = 1000
+    OperatingCost = 50.0
+    InventoryHoldingCostPerDay = 2.5 
+}
+
+// Calculate total cost including inventory holding
+let daysInInventory = 3.0
+let totalCost = warehouse.OperatingCost + (warehouse.InventoryHoldingCostPerDay * daysInInventory)
 ```
 
 ### Add Multi-Product Support
@@ -352,17 +361,33 @@ let inventoryCost = averageInventory * holdingCostPerDay * days
 Optimize flows for multiple product types:
 
 ```fsharp
+// Example: Multi-product support
 type Product = { Id: string; Weight: float; Volume: float }
 
 type Customer = {
-    // Existing fields...
+    Id: string
+    Location: string
     Demands: Map<string, int>  // Product ID → Quantity
+}
+
+let products = Map.ofList [
+    ("ProductA", { Id = "ProductA"; Weight = 10.0; Volume = 5.0 })
+    ("ProductB", { Id = "ProductB"; Weight = 15.0; Volume = 8.0 })
+]
+
+let customer = {
+    Id = "C1"
+    Location = "Paris"
+    Demands = Map.ofList [("ProductA", 50); ("ProductB", 30)]
 }
 
 // Constraint: Total volume/weight < truck capacity
 let truckVolume = 
-    products
-    |> Map.sumBy (fun (id, qty) -> products.[id].Volume * float qty)
+    customer.Demands
+    |> Map.toList
+    |> List.sumBy (fun (productId, qty) -> products.[productId].Volume * float qty)
+
+printfn "Total volume: %.2f m³" truckVolume
 ```
 
 ---

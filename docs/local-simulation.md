@@ -44,7 +44,7 @@ match solve backend distances defaultConfig with
     printfn "Best tour: %A" solution.Tour
     printfn "Tour length: %.2f" solution.TourLength
     printfn "Optimized parameters (γ, β): %A" solution.OptimizedParameters
-    printfn "Optimization converged: %b" solution.OptimizationConverged
+    printfn "Optimization converged: %b" (solution.OptimizationConverged |> Option.defaultValue false)
 | Error msg ->
     eprintfn "Simulation failed: %s" msg
 ```
@@ -104,7 +104,7 @@ let rigettiBackend = createRigettiBackend httpClient workspaceUrl "rigetti.sim.q
 **The beauty of the unified API:** Use the same solver code with any backend!
 
 ```fsharp
-let distances = array2D [
+let distances_backend_demo = array2D [
     [ 0.0; 1.0; 2.0 ]
     [ 1.0; 0.0; 1.5 ]
     [ 2.0; 1.5; 0.0 ]
@@ -112,7 +112,7 @@ let distances = array2D [
 
 // Same code, different backends - just pass different backend instance
 let runWithBackend (backend: IQuantumBackend) =
-    match solve backend distances defaultConfig with
+    match solve backend distances_backend_demo defaultConfig with
     | Ok solution ->
         printfn "%s: Tour length = %.2f (%.2f ms)" 
             solution.BackendName solution.TourLength solution.ElapsedMs
@@ -135,7 +135,14 @@ runWithBackend localBackend
 For dependency injection or testing, use the `IQuantumBackend` interface:
 
 ```fsharp
-let runWithBackend (backend: IQuantumBackend) circuit shots =
+// Mock circuit for demonstration purposes
+let quboMatrix = array2D [[1.0; -1.0]; [-1.0; 1.0]]
+let problemHam = ProblemHamiltonian.fromQubo quboMatrix
+let mixerHam = MixerHamiltonian.create 2
+let qaoaCircuit = QaoaCircuit.build problemHam mixerHam [|(0.5, 0.3)|]
+let circuit = wrapQaoaCircuit qaoaCircuit
+
+let executeWithBackend (backend: IQuantumBackend) circuit shots =
     match backend.Execute circuit shots with
         | Ok result ->
             printfn "Backend: %s, Shots: %d" result.BackendName result.NumShots
@@ -145,8 +152,8 @@ let runWithBackend (backend: IQuantumBackend) circuit shots =
             [||]
 
 // Use local backend
-let localBackend = createLocalBackend()
-let measurements = runWithBackend localBackend circuit 1000
+let localBackend2 = createLocalBackend()
+let measurements_demo = executeWithBackend localBackend2 circuit 1000
 
 // Easy to swap for testing or different backends
 let testBackend = createMockBackend()  // Your test implementation
@@ -625,6 +632,18 @@ let localResult = QaoaSimulator.simulate circuit 1000
 **Hybrid Development Workflow:**
 
 ```fsharp
+// Mock variables for demonstration
+let numQubits = 4
+let edges = [(0, 1); (1, 2); (2, 3)]  // Example graph edges
+let circuit_demo = circuit  // Re-use circuit defined earlier
+
+// Mock helper functions for demonstration
+let generateCircuits numQubits edges = [circuit_demo]  // Mock: generate test circuits
+let validateResult result = ()  // Mock: validate simulation result
+let parameterGrid = [(1.0, 0.5); (1.5, 0.7); (2.0, 1.0)]  // Mock: parameter combinations to test
+let buildCircuit params = circuit_demo  // Mock: build circuit with given parameters
+let evaluateQuality result = match result with | Ok _ -> 0.85 | Error _ -> 0.0  // Mock: evaluate solution quality
+
 // 1. Develop and test locally
 let testCircuits = generateCircuits numQubits edges
 for circuit in testCircuits do
@@ -702,7 +721,7 @@ module QaoaTests =
             |> Gates.applyH 1
         
         // Act: Get probabilities
-        let probs = Measurement.probabilities state
+        let probs = getProbabilityDistribution state
         
         // Assert: Born rule - probabilities sum to 1
         let total = Array.sum probs

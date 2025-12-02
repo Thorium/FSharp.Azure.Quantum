@@ -45,17 +45,19 @@ let problem = graphColoring {
     colors ["Red"; "Green"; "Blue"]
 }
 
-let solution = solve problem
-
-printfn "Used %d colors" solution.ColorsUsed  // Output: Used 3 colors
-printfn "Valid: %b" solution.IsValid          // Output: Valid: true
-
-for (nodeId, color) in Map.toList solution.Assignments do
-    printfn "%s → %s" nodeId color
-// Output:
-// A → Red
-// B → Green
-// C → Blue
+match solve problem 3 None with
+| Ok solution ->
+    printfn "Used %d colors" solution.ColorsUsed  // Output: Used 3 colors
+    printfn "Valid: %b" solution.IsValid          // Output: Valid: true
+    
+    for (nodeId, color) in Map.toList solution.Assignments do
+        printfn "%s → %s" nodeId color
+    // Output:
+    // A → Red
+    // B → Green
+    // C → Blue
+| Error msg ->
+    eprintfn "Coloring failed: %s" msg
 ```
 
 ---
@@ -77,7 +79,9 @@ let problem = graphColoring {
     colors ["EAX"; "EBX"; "ECX"; "EDX"]
 }
 
-let solution = solve problem
+match solve problem 3 None with
+| Ok solution -> printfn "Solution found with %d colors" solution.ColorsUsed
+| Error msg -> eprintfn "Error: %s" msg
 ```
 
 **Characteristics:**
@@ -337,23 +341,25 @@ let problem = graphColoring {
     objective MinimizeColors
 }
 
-let solution = solve problem
-
-if solution.IsValid then
-    printfn "Register allocation successful!"
-    printfn "Registers used: %d" solution.ColorsUsed
-    
-    for (var, reg) in Map.toList solution.Assignments do
-        printfn "  %s → %s" var reg
-    
-    // Output assembly with register assignments
-    printfn "\nGenerated Assembly:"
-    printfn "  MOV %s, 42     ; v1 = 42" (solution.Assignments.["v1"])
-    printfn "  ADD %s, %s     ; v2 = v1 + ..." 
-        (solution.Assignments.["v2"]) 
-        (solution.Assignments.["v1"])
-else
-    printfn "Spilling required - not enough registers!"
+match solve problem 8 None with
+| Ok solution ->
+    if solution.IsValid then
+        printfn "Register allocation successful!"
+        printfn "Registers used: %d" solution.ColorsUsed
+        
+        for (var, reg) in Map.toList solution.Assignments do
+            printfn "  %s → %s" var reg
+        
+        // Output assembly with register assignments
+        printfn "\nGenerated Assembly:"
+        printfn "  MOV %s, 42     ; v1 = 42" (solution.Assignments.["v1"])
+        printfn "  ADD %s, %s     ; v2 = v1 + ..." 
+            (solution.Assignments.["v2"]) 
+            (solution.Assignments.["v1"])
+    else
+        printfn "Spilling required - not enough registers!"
+| Error msg ->
+    eprintfn "Register allocation failed: %s" msg
 ```
 
 **ROI:**
@@ -390,14 +396,16 @@ let problem = graphColoring {
     objective MinimizeColors
 }
 
-let solution = solve problem
-
-printfn "Frequency Plan:"
-for tower in towers do
-    let freq = solution.Assignments.[tower.Id]
-    printfn "  %s: %s" tower.Id freq
-
-printfn "\nFrequencies needed: %d" solution.ColorsUsed
+match solve problem 4 None with
+| Ok solution ->
+    printfn "Frequency Plan:"
+    for tower in towers do
+        let freq = solution.Assignments.[tower.Id]
+        printfn "  %s: %s" tower.Id freq
+    
+    printfn "\nFrequencies needed: %d" solution.ColorsUsed
+| Error msg ->
+    eprintfn "Frequency allocation failed: %s" msg
 ```
 
 **ROI:**
@@ -435,14 +443,15 @@ let problem = graphColoring {
     objective MinimizeColors
 }
 
-let solution = solve problem
-
-printfn "Exam Schedule:"
-for exam in exams do
-    let timeSlot = solution.Assignments.[exam.Course]
-    printfn "  %s: %s" exam.Course timeSlot
-
-printfn "\nTime slots needed: %d" solution.ColorsUsed
+match solve problem 5 None with
+| Ok solution ->
+    printfn "Exam Schedule:"
+    for exam in exams do
+        let timeSlot = solution.Assignments.[exam.Course]
+        printfn "  %s: %s" exam.Course timeSlot
+    
+    printfn "\nTime slots needed: %d" solution.ColorsUsed
+| Error msg -> eprintfn "Error: %s" msg
 ```
 
 **ROI:**
@@ -462,10 +471,11 @@ Both F# computation expressions and C# fluent APIs are excellent patterns for bu
 
 **F# Computation Expression:**
 ```fsharp
+let highPriority = true
+let criticalNodes = if highPriority then [node "Critical" []] else []
+
 let problem = graphColoring {
-    if highPriority then
-        node "Critical" []
-    
+    nodes criticalNodes
     node "A" ["B"]
     node "B" ["A"]
     colors ["Red"; "Green"]
@@ -495,6 +505,9 @@ var problem = builder
 
 **F# Approach:**
 ```fsharp
+let neighbors i = [sprintf "Node%d" ((i % 100) + 1)]
+let availableColors = ["Red"; "Green"; "Blue"]
+
 let nodesList = 
     [1..100]
     |> List.map (fun i -> node $"Node{i}" (neighbors i))
@@ -575,14 +588,17 @@ var problem = new GraphOptimizationBuilder<int, Unit>()
 #### 5. **Progressive Disclosure in F#**
 
 ```fsharp
+// Mock function for example
+let loadFromDatabase() = [node "DBNode1" []; node "DBNode2" []]
+
 // Level 1: Simple inline
-node "A" ["B"; "C"]
+let _ = node "A" ["B"; "C"]
 
 // Level 2: Data-driven
-nodes (loadFromDatabase())
+let nodesList2 = loadFromDatabase()
 
 // Level 3: Full builder
-coloredNode {
+let _ = coloredNode {
     id "A"
     conflictsWith ["B"]
     fixedColor "Red"

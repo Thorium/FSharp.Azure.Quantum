@@ -122,17 +122,28 @@ let solution = MaxCut.solve problem (Some ionqBackend)
 
 ### Helper Functions
 ```fsharp
-MaxCut.completeGraph vertices weight
-MaxCut.cycleGraph vertices weight
-MaxCut.starGraph center spokes weight
-MaxCut.gridGraph rows cols weight
-MaxCut.pathGraph vertices weight
+// Mock parameters
+let weight = 1.0
+let center = "C"
+let spokes = ["S1"; "S2"; "S3"]
+let rows = 3
+let cols = 3
+
+let _ = MaxCut.completeGraph vertices weight
+let _ = MaxCut.cycleGraph vertices weight
+let _ = MaxCut.starGraph center spokes weight
+let _ = MaxCut.gridGraph rows cols weight
+let _ = MaxCut.pathGraph vertices weight
 ```
 
 ### Validation
 ```fsharp
-MaxCut.isValidPartition problem partitionS partitionT
-MaxCut.calculateCutValue problem partitionS
+// Mock partitions for demonstration
+let partitionS = Set.ofList ["A"; "B"]
+let partitionT = Set.ofList ["C"; "D"]
+
+let _ = MaxCut.isValidPartition problem partitionS partitionT
+let _ = MaxCut.calculateCutValue problem partitionS
 ```
 
 ## Problem Characteristics
@@ -151,8 +162,10 @@ MaxCut.calculateCutValue problem partitionS
 3. **Scale up** to larger graphs (LocalBackend supports up to 16 vertices)
 4. **Try cloud backends** for real quantum hardware execution:
    ```fsharp
+   let workspace = "workspace-url"
+   let target = "ionq.simulator"
    let ionqBackend = BackendAbstraction.createIonQBackend(workspace, target)
-   let solution = MaxCut.solve problem (Some ionqBackend)
+   let solution3 = MaxCut.solve problem (Some ionqBackend)
    ```
 
 ## References

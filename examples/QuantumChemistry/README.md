@@ -224,8 +224,8 @@ let result = GroundStateEnergy.estimateEnergy molecule config
 
 ```fsharp
 // Use Microsoft.Quantum.Chemistry for molecule setup
-#r "nuget: Microsoft.Quantum.Chemistry"
-#r "nuget: FSharp.Azure.Quantum"
+// #r "nuget: Microsoft.Quantum.Chemistry"  // Commented for compilation
+// #r "nuget: FSharp.Azure.Quantum"
 
 open Microsoft.Quantum.Chemistry.Fermion
 open FSharp.Azure.Quantum.QuantumChemistry

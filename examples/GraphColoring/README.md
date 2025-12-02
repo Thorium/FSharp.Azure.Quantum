@@ -184,27 +184,37 @@ graphColoring {
 
 ```fsharp
 // Register allocation helper
-let problem = GraphColoring.registerAllocation 
-    ["R1"; "R2"; "R3"]              // Variables
-    [("R1", "R2"); ("R2", "R3")]    // Conflicts
-    ["EAX"; "EBX"; "ECX"]           // Registers
+let problem_register = 
+    GraphColoring.registerAllocation 
+        ["R1"; "R2"; "R3"]              // Variables
+        [("R1", "R2"); ("R2", "R3")]    // Conflicts
+        ["EAX"; "EBX"; "ECX"]           // Registers
 
 // Frequency assignment helper
-let problem = GraphColoring.frequencyAssignment
-    ["Tower1"; "Tower2"]            // Towers
-    [("Tower1", "Tower2")]          // Interferences
-    ["F1"; "F2"; "F3"]              // Frequencies
+let problem_frequency = 
+    GraphColoring.frequencyAssignment
+        ["Tower1"; "Tower2"]            // Towers
+        [("Tower1", "Tower2")]          // Interferences
+        ["F1"; "F2"; "F3"]              // Frequencies
 
 // Exam scheduling helper
-let problem = GraphColoring.examScheduling
-    ["Math"; "CS"; "Physics"]       // Exams
-    [("Math", "CS")]                // Student conflicts
-    ["Morning"; "Afternoon"]        // Time slots
+let problem_exam = 
+    GraphColoring.examScheduling
+        ["Math"; "CS"; "Physics"]       // Exams
+        [("Math", "CS")]                // Student conflicts
+        ["Morning"; "Afternoon"]        // Time slots
 ```
 
 ### Validation & Utilities
 
 ```fsharp
+// Mock solution for demonstration
+let solution = { 
+    Assignments = Map.ofList [("V1", "Red"); ("V2", "Blue")]
+    ColorsUsed = 2
+    IsValid = true
+}
+
 // Check solution validity
 let isValid = GraphColoring.isValidSolution problem solution
 
@@ -315,6 +325,10 @@ GraphColoring.describeSolution : ColoringSolution -> string
 ### Builder Operations
 
 ```fsharp
+// Mock pre-built nodes
+let node1 = coloredNode { id "N1"; conflictsWith ["N2"] }
+let node2 = coloredNode { id "N2"; conflictsWith ["N1"] }
+
 graphColoring {
     node "V1" ["V2"]     // Simple node
     nodes [node1; node2]                // Pre-built nodes

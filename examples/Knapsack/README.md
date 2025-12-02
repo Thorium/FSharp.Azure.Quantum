@@ -152,24 +152,38 @@ let solution = Knapsack.solve problem (Some ionqBackend)
 
 ### Helper Functions
 ```fsharp
-Knapsack.budgetAllocation projects budget
-Knapsack.cargoLoading cargo capacity_kg
-Knapsack.taskScheduling tasks available_hours
-Knapsack.randomInstance numItems maxWeight maxValue capacityRatio
+// Mock parameters for demonstrations
+let projects = [("Project1", 1000.0, 5000.0)]
+let budget = 10000.0
+let cargo = [("Item1", 50.0, 100.0)]
+let capacity_kg = 200.0
+let tasks = [("Task1", 2.0, 10.0)]
+let available_hours = 8.0
+let numItems = 10
+let maxWeight = 100.0
+let maxValue = 1000.0
+let capacityRatio = 0.5
+
+let _ = Knapsack.budgetAllocation projects budget
+let _ = Knapsack.cargoLoading cargo capacity_kg
+let _ = Knapsack.taskScheduling tasks available_hours
+let _ = Knapsack.randomInstance numItems maxWeight maxValue capacityRatio
 ```
 
 ### Classical Solvers
 ```fsharp
-Knapsack.solveClassicalGreedy problem   // Fast heuristic
-Knapsack.solveClassicalDP problem        // Exact optimal (O(n*W))
+let _ = Knapsack.solveClassicalGreedy problem   // Fast heuristic
+let _ = Knapsack.solveClassicalDP problem        // Exact optimal (O(n*W))
 ```
 
 ### Validation
 ```fsharp
-Knapsack.isFeasible problem selectedItems
-Knapsack.totalValue selectedItems
-Knapsack.totalWeight selectedItems
-Knapsack.efficiency selectedItems  // value/weight ratio
+let selectedItems = [items.[0]; items.[1]]
+
+let _ = Knapsack.isFeasible problem selectedItems
+let _ = Knapsack.totalValue selectedItems
+let _ = Knapsack.totalWeight selectedItems
+let _ = Knapsack.efficiency selectedItems  // value/weight ratio
 ```
 
 ## Algorithm Complexity

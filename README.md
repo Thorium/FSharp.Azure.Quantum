@@ -503,7 +503,8 @@ QuantumGraphColoringSolver.solve
 let backend = BackendAbstraction.createLocalBackend()
 
 // Azure Quantum (cloud)
-let backend = BackendAbstraction.createIonQBackend(
+let connectionString = "InstrumentationKey=..."
+let backend_ionq = BackendAbstraction.createIonQBackend(
     connectionString,
     "ionq.simulator"
 )
@@ -676,7 +677,8 @@ var result = Portfolio.solve(problem, null);
 ```fsharp
 // No backend parameter = automatic LocalBackend creation
 match GraphColoring.solve problem 3 None with
-| Ok solution -> (* ... *)
+| Ok solution -> printfn "Solution found"
+| Error msg -> printfn "Error: %s" msg
 ```
 
 **What happens:**
@@ -941,8 +943,9 @@ let zneConfig = {
 }
 
 // Apply ZNE to circuit expectation value
-let circuit = // ... your QAOA circuit
-let observable = // ... Pauli operator to measure
+// Mock circuit and observable for demonstration
+let circuit = QuantumCircuit.empty()  // Mock circuit
+let observable = PauliOperator.Z(0)   // Mock observable
 
 async {
     let! result = ZeroNoiseExtrapolation.mitigate circuit observable zneConfig backend
@@ -1053,7 +1056,7 @@ async {
         printfn "  Backend: %s" calibMatrix.Backend
         
         // Step 2: Correct measurement histogram (zero overhead!)
-        let noisyHistogram = // ... your measurement results
+        let noisyHistogram = Map.ofList [("00", 0.9); ("01", 0.05); ("10", 0.03); ("11", 0.02)]  // Mock noisy results
         let correctedResult = ReadoutErrorMitigation.correctHistogram noisyHistogram calibMatrix remConfig
         
         match correctedResult with
@@ -1112,7 +1115,7 @@ printfn "Estimated cost multiplier: %.1fx" recommendation.EstimatedCostMultiplie
 printfn "Estimated accuracy: %.1f%%" (recommendation.EstimatedAccuracy * 100.0)
 
 // Apply recommended strategy
-let noisyHistogram = // ... your measurement results
+let noisyHistogram = Map.ofList [("00", 0.9); ("01", 0.05); ("10", 0.03); ("11", 0.02)]  // Mock noisy results
 let mitigatedResult = ErrorMitigationStrategy.applyStrategy noisyHistogram recommendation.Primary
 
 match mitigatedResult with
@@ -1262,7 +1265,8 @@ let quantumConfig : QuantumGraphColoringSolver.QuantumGraphColoringConfig = {
 // Use custom config
 let backend = BackendAbstraction.createLocalBackend()
 match QuantumGraphColoringSolver.solve backend problem quantumConfig with
-| Ok result -> (* ... *)
+| Ok result -> printfn "Colors used: %d" result.ColorsUsed
+| Error msg -> printfn "Error: %s" msg
 ```
 
 ---

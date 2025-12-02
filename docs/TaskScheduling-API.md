@@ -38,50 +38,16 @@ Both APIs produce the same `SchedulingProblem` type - **choose based on your lan
 The F# builder offers specific advantages for F# developers:
 
 ### 1. **Control Flow Integration**
-```fsharp
-// F# Builder: Control flow inside computation expression
-let problem = scheduling {
-    for task in dbTasks do
-        if task.Priority > 5 then
-            tasks [
-                scheduledTask {
-                    id task.Id
-                    duration (hours task.Duration)
-                    if task.HasDeadline then deadline task.Deadline
-                }
-            ]
-}
 
-// C# FluentAPI: Control flow before building (standard C# pattern)
-var taskList = new List<ScheduledTask<string>>();
-foreach (var task in dbTasks)
-{
-    if (task.Priority >= 5)
-    {
-        taskList.Add(/* create task */);
-    }
-}
-var problem = SchedulingBuilder.Create()
-    .Tasks(taskList.ToFSharpList())
-    .Build();
-```
+The F# builder allows control flow (for loops, if statements) directly inside computation expressions, while C# FluentAPI uses standard imperative control flow before building.
+
+_Conceptual comparison example removed - see actual working examples in sections below._
 
 ### 2. **Co-Located Dependencies**
-```fsharp
-// F# Builder: Dependencies at definition point
-let taskB = scheduledTask {
-    id "TaskB"
-    duration (hours 2.0)
-    after "TaskA"  // Dependency visible at definition
-}
 
-// C# FluentAPI: Dependencies added separately (standard fluent pattern)
-var taskB = new ScheduledTask { Id = "TaskB", Duration = 120.0 };
-var problem = SchedulingBuilder.Create()
-    .Tasks(new[] { taskA, taskB })
-    .AddDependency(FinishToStart("TaskA", "TaskB", 0.0))
-    .Build();
-```
+The F# builder allows dependencies to be declared at the task definition point using the `after` keyword.
+
+_Conceptual comparison example removed - see actual working examples in sections below._
 
 ### 3. **Progressive Disclosure**
 ```fsharp
@@ -105,18 +71,10 @@ let complex = scheduledTask {
 **Note**: Both APIs support progressive disclosure - start simple, add complexity as needed.
 
 ### 4. **Type Safety**
-```fsharp
-// F# Builder: Type inference handles generic parameters
-let task = scheduledTask {
-    id "Task1"
-    duration (hours 2.0)
-}
-// Type: ScheduledTask<string> (inferred automatically)
 
-// C# FluentAPI: Generic parameters explicit (standard C#)
-var builder = new SchedulingBuilder<string, string>();
-// Clear type declarations as expected in C#
-```
+The F# builder uses type inference to handle generic parameters automatically.
+
+_Conceptual comparison example removed - see actual working examples in sections below._
 
 ### 5. **Readable Time Units**
 ```fsharp
@@ -132,39 +90,21 @@ Duration = 120.0  // Minutes? Hours? Seconds?
 ### 6. **Composition & Reusability**
 ```fsharp
 // ✅ F# Builder: Compose task templates
-let safetyTaskTemplate priority = scheduledTask {
-    priority priority
-    requires "SafetyCrew" 1.0
+let createSafetyTask priority taskId durationMins = scheduledTask {
+    id taskId
+    duration (Duration.Minutes durationMins)
 }
 
-let electricalSafety = safetyTaskTemplate 10.0 {
-    id "SafetyElectrical"
-    duration (minutes 15.0)
-}
+let electricalSafety = createSafetyTask 10 "SafetyElectrical" 15
 
-let mechanicalSafety = safetyTaskTemplate 10.0 {
-    id "SafetyMechanical"
-    duration (minutes 20.0)
-}
+let mechanicalSafety = createSafetyTask 10 "SafetyMechanical" 20
 ```
 
 ### 7. **Composition Pattern**
-```fsharp
-// F# Builder: Composition via partial application
-let task = scheduledTask {
-    id "Task1"
-    duration (hours 1.0)
-    after "Task0"
-    requires "Worker" 1.0
-}
 
-// C# FluentAPI: Composition via method chaining
-var problem = SchedulingBuilder.Create()
-    .Tasks(taskList)
-    .AddDependency(dep1)
-    .AddDependency(dep2)
-    .Build();
-```
+The F# builder supports composition via partial application, while C# FluentAPI uses method chaining.
+
+_Conceptual comparison example removed - see actual working examples in sections below._
 
 **Note**: Both patterns are idiomatic for their respective languages.
 

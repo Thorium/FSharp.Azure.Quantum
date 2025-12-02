@@ -295,6 +295,9 @@ All examples use **quantum-first optimization** powered by QAOA (Quantum Approxi
 
 **When ready for real quantum hardware:**
 ```fsharp
+// Mock problem for demonstration
+let problem = MaxCut.createProblem ["A"; "B"] [("A", "B", 1.0)]
+
 // Local simulation (default)
 let solution = MaxCut.solve problem None
 

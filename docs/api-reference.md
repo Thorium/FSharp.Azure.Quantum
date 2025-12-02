@@ -99,7 +99,7 @@ match GraphColoring.solve problem 3 None with
 ### Computation Expression API
 
 ```fsharp
-let problem = graphColoring {
+let problem_scheduling = graphColoring {
     // Define nodes with conflicts
     node "Task1" ["Task2"; "Task3"]
     node "Task2" ["Task1"; "Task4"]
@@ -235,9 +235,9 @@ let edges = [
     ("Server1", "Server3", 12.0)
 ]
 
-let problem = MaxCut.createProblem vertices edges
+let problem_maxcut = MaxCut.createProblem vertices edges
 
-match MaxCut.solve problem None with
+match MaxCut.solve problem_maxcut None with
 | Ok solution ->
     printfn "Partition 1: %A" solution.PartitionS
     printfn "Partition 2: %A" solution.PartitionT
@@ -310,12 +310,12 @@ let cargo = [
     ("Food", 80.0, 2000.0)
 ]
 
-let problem = Knapsack.createProblem cargo 300.0  // 300kg capacity
+let problem_knapsack = Knapsack.createProblem cargo 300.0  // 300kg capacity
 
-match Knapsack.solve problem None with
+match Knapsack.solve problem_knapsack None with
 | Ok solution ->
     printfn "Total value: $%.2f" solution.TotalValue
-    printfn "Weight: %.2f/%.2f kg" solution.TotalWeight problem.Capacity
+    printfn "Weight: %.2f/%.2f kg" solution.TotalWeight problem_knapsack.Capacity
     printfn "Efficiency: $%.2f/kg" solution.Efficiency
     
     solution.SelectedItems 
@@ -375,9 +375,9 @@ let cities = [
     ("Customer D", 3.0, 6.0)
 ]
 
-let problem = TSP.createProblem cities
+let problem_tsp = TSP.createProblem cities
 
-match TSP.solve problem None with
+match TSP.solve problem_tsp None with
 | Ok tour ->
     printfn "Optimal route: %s" (String.concat " → " tour.Cities)
     printfn "Total distance: %.2f km" tour.TotalDistance
@@ -438,9 +438,9 @@ let assets = [
     ("BONDS", 0.05, 0.03, 100.0)
 ]
 
-let problem = Portfolio.createProblem assets 50000.0  // $50k budget
+let problem_portfolio = Portfolio.createProblem assets 50000.0  // $50k budget
 
-match Portfolio.solve problem None with
+match Portfolio.solve problem_portfolio None with
 | Ok allocation ->
     printfn "Portfolio value: $%.2f" allocation.TotalValue
     printfn "Expected return: %.2f%%" (allocation.ExpectedReturn * 100.0)
