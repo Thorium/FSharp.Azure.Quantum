@@ -10,7 +10,7 @@
 /// WHAT AutoML DOES:
 /// 1. Analyzes your data automatically
 /// 2. Tries Binary Classification, Multi-Class, Regression, Anomaly Detection
-/// 3. Tests Quantum, Hybrid, and Classical architectures
+/// 3. Tests Quantum and Hybrid architectures
 /// 4. Tunes hyperparameters automatically
 /// 5. Returns best model with detailed report
 /// 
@@ -20,7 +20,7 @@
 /// - Baseline comparison: What's the best possible with this data?
 /// - Model selection: Compare all approaches at once
 
-#r "nuget: FSharp.Azure.Quantum"
+#r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 
 open System
 open FSharp.Azure.Quantum.Business
@@ -50,7 +50,7 @@ let generateSampleData () =
     
     // Labels: Will customer churn? (1 = yes, 0 = no)
     let labels = [|
-        for i in 1..100 ->
+        for i in 0..99 ->
             // Simple rule: churn if low spend + low satisfaction + high support calls
             if features.[i].[1] < 100.0 && features.[i].[4] < 5.0 && features.[i].[2] > 5.0 then
                 1.0
@@ -141,7 +141,7 @@ let generateMultiClassData () =
     |]
     
     let labels = [|
-        for i in 1..80 ->
+        for i in 0..79 ->
             // Segment based on spend + tenure
             let spend = features.[i].[0]
             let tenure = features.[i].[1]
@@ -169,8 +169,8 @@ let result2 = autoML {
     tryAnomalyDetection false            // Skip anomaly detection
     tryRegression false                  // Skip regression
     
-    // Which architectures to test
-    tryArchitectures [Quantum; Hybrid; Classical]
+    // Which architectures to test (Quantum-only per Rule 1)
+    tryArchitectures [Quantum; Hybrid]
     
     // Search budget
     maxTrials 15                         // Limit to 15 trials for speed
@@ -271,7 +271,7 @@ let generateRegressionData () =
     
     // Target: Annual revenue (based on features with some noise)
     let targets = [|
-        for i in 1..70 ->
+        for i in 0..69 ->
             let baseRevenue = features.[i].[0] * 12.0                    // Monthly spend × 12
             let usageBonus = features.[i].[1] * 20.0                     // Usage contribution
             let tenureBonus = features.[i].[2] * 15.0                    // Loyalty value
@@ -292,12 +292,12 @@ let result3 = autoML {
     
     // Focus on regression
     tryBinaryClassification false
-    tryMultiClass false
+    // tryMultiClass false  // Skip - takes int not bool
     tryAnomalyDetection false
     tryRegression true
     
-    // Test all architectures
-    tryArchitectures [Classical; Hybrid; Quantum]
+    // Test quantum architectures only (Rule 1: Quantum-only library)
+    tryArchitectures [Hybrid; Quantum]
     
     maxTrials 12
     verbose true
@@ -352,8 +352,8 @@ let result4 = autoML {
     tryAnomalyDetection true
     tryRegression true
     
-    // All architectures
-    tryArchitectures [Quantum; Hybrid; Classical]
+    // Quantum architectures only
+    tryArchitectures [Quantum; Hybrid]
     
     // Large search
     maxTrials 30
@@ -390,7 +390,6 @@ match result4 with
         let avgScore = trials |> Array.averageBy (fun t -> t.Score)
         let quantumTrials = trials |> Array.filter (fun t -> t.Architecture = AutoML.Quantum)
         let hybridTrials = trials |> Array.filter (fun t -> t.Architecture = AutoML.Hybrid)
-        let classicalTrials = trials |> Array.filter (fun t -> t.Architecture = AutoML.Classical)
         
         printfn "  Best Score: %.2f%%" (bestScore * 100.0)
         printfn "  Avg Score: %.2f%%" (avgScore * 100.0)
@@ -400,9 +399,6 @@ match result4 with
         printfn "  Hybrid trials: %d (best: %.2f%%)" 
             hybridTrials.Length 
             (if hybridTrials.Length > 0 then (hybridTrials |> Array.map (fun t -> t.Score) |> Array.max) * 100.0 else 0.0)
-        printfn "  Classical trials: %d (best: %.2f%%)" 
-            classicalTrials.Length 
-            (if classicalTrials.Length > 0 then (classicalTrials |> Array.map (fun t -> t.Score) |> Array.max) * 100.0 else 0.0)
         printfn ""
     
     printfn "=== WINNER ==="
@@ -423,19 +419,14 @@ match result4 with
         successfulTrials 
         |> Array.filter (fun t -> t.Architecture = AutoML.Hybrid) 
         |> Array.averageBy (fun t -> t.Score)
-    let classicalAvg = 
-        successfulTrials 
-        |> Array.filter (fun t -> t.Architecture = AutoML.Classical) 
-        |> Array.averageBy (fun t -> t.Score)
     
     printfn "Average Performance by Architecture:"
     printfn "  Quantum: %.2f%%" (quantumAvg * 100.0)
     printfn "  Hybrid: %.2f%%" (hybridAvg * 100.0)
-    printfn "  Classical: %.2f%%" (classicalAvg * 100.0)
     printfn ""
     
     let bestArch = 
-        [("Quantum", quantumAvg); ("Hybrid", hybridAvg); ("Classical", classicalAvg)]
+        [("Quantum", quantumAvg); ("Hybrid", hybridAvg)]
         |> List.maxBy snd
         |> fst
     
@@ -455,8 +446,8 @@ let productionAutoMLWorkflow (features: float array array) (labels: float array)
     let result = autoML {
         trainWith features labels
         
-        // Production settings
-        tryArchitectures [Hybrid; Classical]  // Skip Quantum for speed in production
+        // Production settings (Quantum-only library)
+        tryArchitectures [Hybrid; Quantum]
         maxTrials 15
         maxTimeMinutes 5
         validationSplit 0.2

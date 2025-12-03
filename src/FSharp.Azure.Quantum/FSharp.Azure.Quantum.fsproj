@@ -205,6 +205,7 @@
     <Compile Include="MachineLearning\MultiClassSVM.fs" />
     <Compile Include="MachineLearning\DataPreprocessing.fs" />
     <Compile Include="MachineLearning\ModelSerialization.fs" />
+    <Compile Include="MachineLearning\QuantumRegressionHHL.fs" />
     
     <!-- Business-First ML Builders (depends on MachineLearning) -->
     <Compile Include="Business\BinaryClassificationBuilder.fs" />
