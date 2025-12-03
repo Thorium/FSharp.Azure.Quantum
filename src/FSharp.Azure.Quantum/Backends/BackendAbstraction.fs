@@ -546,52 +546,204 @@ module BackendAbstraction =
     /// Wrapper for Azure Quantum SDK-based execution
     /// 
     /// Integrates with Azure Quantum via the official Microsoft.Azure.Quantum.Client SDK.
-    /// Provides better workspace integration including quota checking, job management,
+    /// Provides full workspace integration including quota checking, job management,
     /// and provider discovery.
-    /// 
-    /// Note: This is a placeholder implementation. The SDK approach requires:
-    /// - Converting circuits to provider-specific formats
-    /// - Job submission via SDK
-    /// - Result polling and parsing
-    /// 
-    /// For production use, continue using IonQBackendWrapper or RigettiBackendWrapper
-    /// which use the stable HTTP API approach.
     type AzureQuantumSdkBackendWrapper(workspace: FSharp.Azure.Quantum.Backends.AzureQuantumWorkspace.QuantumWorkspace, targetId: string) =
+        
+        /// Poll for job completion with exponential backoff
+        let rec pollForCompletion (job: Microsoft.Azure.Quantum.CloudJob) (maxAttempts: int) (currentAttempt: int) (delayMs: int) : Async<Result<unit, string>> =
+            async {
+                if currentAttempt >= maxAttempts then
+                    return Error (sprintf "Job polling timeout after %d attempts" maxAttempts)
+                else
+                    // Refresh job status
+                    do! job.RefreshAsync() |> Async.AwaitTask
+                    
+                    if job.Succeeded then
+                        return Ok ()
+                    elif job.Failed then
+                        return Error (sprintf "Job failed with status: %s" job.Status)
+                    elif job.InProgress then
+                        // Exponential backoff: double delay each time, max 30 seconds
+                        let nextDelay = min (delayMs * 2) 30000
+                        do! Async.Sleep delayMs
+                        return! pollForCompletion job maxAttempts (currentAttempt + 1) nextDelay
+                    else
+                        // Unknown status, wait and retry
+                        do! Async.Sleep delayMs
+                        return! pollForCompletion job maxAttempts (currentAttempt + 1) delayMs
+            }
+        
+        /// Parse histogram results from job output
+        let parseHistogram (outputData: string) : Result<Map<string, int>, string> =
+            try
+                // Try to parse as JSON histogram
+                let json = System.Text.Json.JsonDocument.Parse(outputData)
+                let root = json.RootElement
+                
+                // Look for histogram in common locations
+                let mutable histogramElement = Unchecked.defaultof<System.Text.Json.JsonElement>
+                let histogram =
+                    if root.TryGetProperty("histogram", &histogramElement) then
+                        histogramElement
+                    elif root.TryGetProperty("Histogram", &histogramElement) then
+                        histogramElement
+                    else
+                        root  // Assume root is the histogram
+                
+                // Parse histogram entries
+                let counts =
+                    histogram.EnumerateObject()
+                    |> Seq.map (fun prop -> (prop.Name, prop.Value.GetInt32()))
+                    |> Map.ofSeq
+                
+                Ok counts
+            with ex ->
+                Error (sprintf "Failed to parse job output as histogram: %s" ex.Message)
+        
+        /// Convert histogram to measurement results
+        let histogramToMeasurements (histogram: Map<string, int>) (numQubits: int) : int[][] =
+            histogram
+            |> Map.toSeq
+            |> Seq.collect (fun (bitstring, count) ->
+                // Convert bitstring (e.g., "1011") to array [1; 0; 1; 1]
+                let bits =
+                    bitstring
+                    |> Seq.map (fun c -> if c = '1' then 1 else 0)
+                    |> Array.ofSeq
+                
+                // Ensure correct length
+                let paddedBits =
+                    if bits.Length < numQubits then
+                        Array.append (Array.zeroCreate (numQubits - bits.Length)) bits
+                    else
+                        bits
+                
+                // Repeat for count occurrences
+                Seq.replicate count paddedBits
+            )
+            |> Array.ofSeq
         
         interface IQuantumBackend with
             member _.Execute (circuit: ICircuit) (numShots: int) : Result<ExecutionResult, string> =
                 try
-                    // Determine provider from targetId
-                    let provider = 
-                        if targetId.StartsWith("ionq", StringComparison.OrdinalIgnoreCase) then "IonQ"
-                        elif targetId.StartsWith("rigetti", StringComparison.OrdinalIgnoreCase) then "Rigetti"
-                        elif targetId.StartsWith("quantinuum", StringComparison.OrdinalIgnoreCase) then "Quantinuum"
-                        else "Unknown"
-                    
-                    // Return helpful error with implementation guidance
-                    Error (sprintf "Azure Quantum SDK backend not yet implemented for target '%s' (provider: %s).
-
-Implementation roadmap:
-1. Convert ICircuit to provider format (IonQ JSON, Rigetti Quil, etc.)
-2. Submit job via workspace.InnerWorkspace.SubmitJobAsync(targetId, inputParams)
-3. Poll for completion using exponential backoff
-4. Parse histogram results and convert to ExecutionResult
-
-For now, use createIonQBackend or createRigettiBackend which use the HTTP API." targetId provider)
+                    if numShots <= 0 then
+                        Error "Number of shots must be positive"
+                    else
+                        // Step 1: Convert circuit to provider format
+                        match convertCircuitToProviderFormat circuit targetId with
+                        | Error msg -> Error msg
+                        | Ok circuitData ->
+                            async {
+                                // Step 2: Create job details
+                                let providerId = 
+                                    if targetId.Contains(".") then 
+                                        targetId.Substring(0, targetId.IndexOf('.'))
+                                    else 
+                                        targetId
+                                
+                                // Determine input format based on provider
+                                let inputFormat =
+                                    if providerId.Equals("ionq", StringComparison.OrdinalIgnoreCase) then
+                                        "ionq.circuit.v1"
+                                    elif providerId.Equals("rigetti", StringComparison.OrdinalIgnoreCase) then
+                                        "rigetti.quil.v1"
+                                    else
+                                        "json"  // Generic fallback
+                                
+                                // Create job details with inline circuit data
+                                let jobDetails = new Azure.Quantum.Jobs.Models.JobDetails(
+                                    containerUri = "",  // Empty for inline data
+                                    inputDataFormat = inputFormat,
+                                    providerId = providerId,
+                                    target = targetId
+                                )
+                                
+                                // Set job name and input params
+                                jobDetails.Name <- sprintf "FSharp.Azure.Quantum-%s-%d" targetId (System.DateTime.UtcNow.Ticks)
+                                
+                                // Create input params with circuit data and shot count
+                                let inputParams = 
+                                    dict [
+                                        "circuit", box circuitData
+                                        "shots", box numShots
+                                    ]
+                                jobDetails.InputParams <- inputParams
+                                
+                                // Step 3: Create and submit job
+                                let cloudJob = new Microsoft.Azure.Quantum.CloudJob(
+                                    workspace.InnerWorkspace,
+                                    jobDetails
+                                )
+                                
+                                let! submittedJob = workspace.InnerWorkspace.SubmitJobAsync(cloudJob) |> Async.AwaitTask
+                                
+                                // Step 4: Poll for completion (max 60 attempts, start with 1s delay)
+                                let! pollResult = pollForCompletion submittedJob 60 0 1000
+                                
+                                match pollResult with
+                                | Error msg -> return Error msg
+                                | Ok () ->
+                                    // Step 5: Get output data
+                                    if isNull cloudJob.OutputDataUri then
+                                        return Error "Job completed but no output data URI available"
+                                    else
+                                        // Download output data
+                                        use httpClient = new System.Net.Http.HttpClient()
+                                        let! outputData = httpClient.GetStringAsync(cloudJob.OutputDataUri) |> Async.AwaitTask
+                                        
+                                        // Step 6: Parse histogram
+                                        match parseHistogram outputData with
+                                        | Error msg -> return Error msg
+                                        | Ok histogram ->
+                                            // Convert histogram to measurements
+                                            // Get qubit count from circuit
+                                            let numQubits =
+                                                match circuit with
+                                                | :? CircuitWrapper as cw -> cw.Circuit.QubitCount
+                                                | :? QaoaCircuitWrapper as qw -> qw.QaoaCircuit.NumQubits
+                                                | _ -> 
+                                                    // Fallback: infer from histogram keys
+                                                    histogram 
+                                                    |> Map.toSeq 
+                                                    |> Seq.map (fun (bitstring, _) -> bitstring.Length)
+                                                    |> Seq.max
+                                            
+                                            let measurements = histogramToMeasurements histogram numQubits
+                                            
+                                            // Create execution result
+                                            return Ok {
+                                                BackendName = sprintf "Azure Quantum SDK: %s" targetId
+                                                NumShots = measurements.Length
+                                                Measurements = measurements
+                                                Metadata = Map.empty
+                                                                                                .Add("job_id", box cloudJob.Id)
+                                                                                                .Add("provider", box providerId)
+                                                                                                .Add("target", box targetId)
+                                                                                                .Add("status", box cloudJob.Status)
+                                            }
+                            }
+                            |> Async.RunSynchronously
                 
                 with ex ->
-                    Error (sprintf "Azure Quantum SDK backend error: %s" ex.Message)
+                    Error (sprintf "Azure Quantum SDK backend error: %s\n%s" ex.Message ex.StackTrace)
             
             member _.Name = sprintf "Azure Quantum SDK: %s" targetId
             
-            member _.SupportedGates = [
-                "H"; "X"; "Y"; "Z"
-                "RX"; "RY"; "RZ"
-                "CNOT"; "CZ"
-                "MEASURE"
-            ]
+            member _.SupportedGates = 
+                // Determine supported gates based on target
+                if targetId.StartsWith("ionq", StringComparison.OrdinalIgnoreCase) then
+                    [ "H"; "X"; "Y"; "Z"; "S"; "T"; "RX"; "RY"; "RZ"; "CNOT"; "SWAP"; "MEASURE" ]
+                elif targetId.StartsWith("rigetti", StringComparison.OrdinalIgnoreCase) then
+                    [ "H"; "X"; "Y"; "Z"; "RX"; "RY"; "RZ"; "CZ"; "MEASURE" ]
+                else
+                    [ "H"; "X"; "Y"; "Z"; "RX"; "RY"; "RZ"; "CNOT"; "CZ"; "MEASURE" ]
             
-            member _.MaxQubits = 20  // Conservative default
+            member _.MaxQubits = 
+                // Determine max qubits based on target
+                if targetId.StartsWith("ionq", StringComparison.OrdinalIgnoreCase) then 29
+                elif targetId.StartsWith("rigetti", StringComparison.OrdinalIgnoreCase) then 40
+                else 20  // Conservative default
     
     // ============================================================================
     // HELPER FUNCTIONS
