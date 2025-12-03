@@ -43,7 +43,7 @@ module LocalQuantum =
             (pos, totalScore))
     
     /// Use real Grover's algorithm to search for high-scoring positions
-    let private groverSearch (scoredPositions: (Position * float) list) : Result<Position option, string> =
+    let private groverSearch (scoredPositions: (Position * float) list) (backend: FSharp.Azure.Quantum.Core.BackendAbstraction.IQuantumBackend) : Result<Position option, string> =
         let n = scoredPositions.Length
         
         if n = 0 then Ok None
@@ -82,7 +82,7 @@ module LocalQuantum =
                 }
                 
                 // Execute Grover's algorithm using FSharp.Azure.Quantum
-                match Search.searchWhere predicate numQubits config with
+                match Search.searchWhere predicate numQubits backend config with
                 | Ok result when not result.Solutions.IsEmpty ->
                     // Grover found solutions - pick the best scoring one
                     let validSolutions = 
@@ -121,7 +121,7 @@ module LocalQuantum =
     
     /// Select best move using real Grover's quantum search algorithm
     /// This demonstrates the quantum advantage: O(√N) vs O(N) classical search
-    let selectBestMove (board: Board) (candidates: Position list option) : Position option * int =
+    let selectBestMove (board: Board) (backend: FSharp.Azure.Quantum.Core.BackendAbstraction.IQuantumBackend) (candidates: Position list option) : Position option * int =
         // FAST PRE-CHECK: Immediate threats take absolute priority
         // Don't waste quantum resources on obvious tactical moves
         match ThreatDetection.getImmediateThreat board with
@@ -142,7 +142,7 @@ module LocalQuantum =
                 let scoredPositions = evaluatePositions board candidateList
                 
                 // Apply real Grover's algorithm
-                match groverSearch scoredPositions with
+                match groverSearch scoredPositions backend with
                 | Ok (Some bestMove) ->
                     // Calculate theoretical iterations for reporting
                     let numQubits = calculateQubits candidateList.Length

@@ -62,30 +62,31 @@ module Classical =
         else
             // Simulate placing the piece
             match Board.makeMove board pos with
-            | None -> 0.0
-            | Some newBoard ->
-                let mutable score = 0.0
-                
-                // Check all directions for threats
+            | Error _ -> 0.0
+            | Ok newBoard ->
+                // Check all directions for threats using functional fold
                 let directions = [Horizontal; Vertical; DiagonalDown; DiagonalUp]
                 
-                for dir in directions do
-                    let count = countConsecutive newBoard pos player dir
-                    let isOpen = isOpenEnded newBoard pos dir count
-                    
-                    let threat =
-                        match count with
-                        | n when n >= 5 -> ThreatLevel.FiveInRow
-                        | 4 when isOpen -> ThreatLevel.OpenFour
-                        | 4 -> ThreatLevel.Four
-                        | 3 when isOpen -> ThreatLevel.OpenThree
-                        | 3 -> ThreatLevel.Three
-                        | 2 when isOpen -> ThreatLevel.OpenTwo
-                        | 2 -> ThreatLevel.Two
-                        | 1 -> ThreatLevel.One
-                        | _ -> ThreatLevel.None
-                    
-                    score <- score + float (int threat)
+                let threatScore = 
+                    directions
+                    |> List.fold (fun acc dir ->
+                        let count = countConsecutive newBoard pos player dir
+                        let isOpen = isOpenEnded newBoard pos dir count
+                        
+                        let threat =
+                            match count with
+                            | n when n >= 5 -> ThreatLevel.FiveInRow
+                            | 4 when isOpen -> ThreatLevel.OpenFour
+                            | 4 -> ThreatLevel.Four
+                            | 3 when isOpen -> ThreatLevel.OpenThree
+                            | 3 -> ThreatLevel.Three
+                            | 2 when isOpen -> ThreatLevel.OpenTwo
+                            | 2 -> ThreatLevel.Two
+                            | 1 -> ThreatLevel.One
+                            | _ -> ThreatLevel.None
+                        
+                        acc + float (int threat)
+                    ) 0.0
                 
                 // Add positional bonus for center control
                 let centerRow = board.Config.Size / 2
@@ -94,7 +95,7 @@ module Classical =
                     abs (pos.Row - centerRow) + abs (pos.Col - centerCol)
                 let centerBonus = float (board.Config.Size - distFromCenter) * 2.0
                 
-                score + centerBonus
+                threatScore + centerBonus
     
     /// Evaluate all legal moves and return scored list
     let evaluateMoves (board: Board) (player: Cell) : (Position * float) list =
@@ -134,17 +135,9 @@ module Classical =
         | Some threatPos -> Some threatPos
         | None ->
             // No immediate threat - proceed with normal evaluation
-            let moves = evaluateMoves board player
-            
-            match moves with
-            | [] -> None
-            | (bestMove, score) :: _ ->
-                // If we have an immediate win (or must block), take it
-                if score >= float (int ThreatLevel.Four) then
-                    Some bestMove
-                else
-                    // Return best scoring move
-                    Some bestMove
+            evaluateMoves board player
+            |> List.tryHead
+            |> Option.map fst
     
     /// Get top N candidate moves for further analysis
     let getTopCandidates (board: Board) (n: int) : Position list =

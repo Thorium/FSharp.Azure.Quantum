@@ -4,6 +4,73 @@ An interactive console game demonstrating quantum computing concepts through Gom
 
 **Inspired by the classic Thomoku game** - featuring fast pattern-based threat detection and strategic gameplay.
 
+## ⚡ Using the QuantumTreeSearch Builder API
+
+**RECOMMENDED FOR PRODUCTION**: This example now uses the high-level `FSharp.Azure.Quantum.QuantumTreeSearch` builder API instead of calling low-level Grover algorithm functions directly.
+
+### Why Use the Builder?
+
+The `QuantumTreeSearchBuilder` (located in `src/FSharp.Azure.Quantum/Solvers/Quantum/QuantumTreeSearchBuilder.fs`) provides:
+
+✅ **Clean computation expression syntax** - Declarative problem definition  
+✅ **Automatic validation** - Checks qubit requirements, search space size  
+✅ **Backend abstraction** - Works with LocalBackend (simulation) or cloud quantum hardware (IonQ, Rigetti)  
+✅ **Resource estimation** - Calculates qubits, search space, optimal iterations  
+✅ **Idiomatic F# API** - Follows F# Component Design Guidelines  
+
+### Example Usage
+
+```fsharp
+// Define a quantum tree search problem using the builder
+let problem = QuantumTreeSearch.forGameAI 
+                board               // Initial game state
+                2                   // maxDepth (tree depth)
+                15                  // branchingFactor (moves per position)
+                evaluatePosition    // Heuristic evaluation function
+                generateMoves       // Move generation function
+
+// Override defaults if needed
+let customProblem = { problem with 
+                        Backend = Some ionqBackend
+                        TopPercentile = 0.15 }
+
+// Solve and get the best move
+match QuantumTreeSearch.solve customProblem with
+| Ok solution -> 
+    printfn "Best move: %d" solution.BestMove
+    printfn "Score: %.4f" solution.Score
+    printfn "Quantum advantage: %b" solution.QuantumAdvantage
+| Error msg -> 
+    printfn "Error: %s" msg
+```
+
+### Migration from Low-Level API
+
+**Old approach** (direct GroverSearch.TreeSearch calls):
+```fsharp
+// ❌ Low-level API - verbose and error-prone
+let config = {
+    MaxDepth = 2
+    BranchingFactor = 15
+    EvaluationFunction = evalFunc
+    MoveGenerator = moveGen
+}
+match searchGameTree board config backend 0.2 None None None None with
+| Ok result -> ...
+```
+
+**New approach** (QuantumTreeSearchBuilder):
+```fsharp
+// ✅ High-level API - clean and validated
+let problem = QuantumTreeSearch.forGameAI board 2 15 evalFunc moveGen
+match QuantumTreeSearch.solve problem with
+| Ok solution -> ...
+```
+
+See `AI/QuantumTreeSearch.fs` for the complete implementation using the builder API.
+
+---
+
 ## 🎮 Game Rules
 
 **Gomoku** (五目並べ) is a strategic board game where two players alternate placing stones on a grid:
@@ -208,9 +275,13 @@ This example demonstrates:
 ## 🔧 Technical Details
 
 - **Framework**: .NET 10.0
-- **Language**: F# 9.0
+- **Language**: F# 9.0 (idiomatic functional style)
 - **UI Library**: Spectre.Console (rich terminal UI)
 - **Quantum Library**: FSharp.Azure.Quantum (simulated quantum operations)
+- **Code Style**: Follows [F# Component Design Guidelines](https://learn.microsoft.com/dotnet/fsharp/style-guide/component-design-guidelines)
+  - Pure functional programming (no mutable variables)
+  - Computation expressions for quantum problem definition
+  - Pipeline operators and functional composition
 
 ## 📝 Design Decisions
 

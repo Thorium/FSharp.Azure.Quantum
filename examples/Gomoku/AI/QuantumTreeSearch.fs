@@ -2,13 +2,33 @@ namespace FSharp.Azure.Quantum.Examples.Gomoku.AI
 
 open FSharp.Azure.Quantum.Examples.Gomoku
 open FSharp.Azure.Quantum.Core.BackendAbstraction
-open FSharp.Azure.Quantum.GroverSearch.TreeSearch
+open FSharp.Azure.Quantum
 
 /// Quantum Tree Search AI for Gomoku using Grover's algorithm
 /// 
-/// Integrates generic quantum tree search with Gomoku-specific evaluation.
-/// Uses threat detection heuristic to evaluate positions and Grover's algorithm
-/// to find optimal moves.
+/// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+/// ⚡ ARCHITECTURE RECOMMENDATION
+/// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+/// 
+/// **RECOMMENDED FOR PRODUCTION**: Use the high-level `FSharp.Azure.Quantum.QuantumTreeSearch`
+/// builder API instead of calling low-level `GroverSearch.TreeSearch` functions directly.
+/// 
+/// **Builder API Benefits**:
+/// ✅ Clean computation expression syntax
+/// ✅ Automatic validation (qubits, search space, parameters)
+/// ✅ Backend abstraction (LocalBackend or cloud quantum hardware)
+/// ✅ Resource estimation (qubits, iterations, feasibility)
+/// ✅ Idiomatic F# design following F# Component Design Guidelines
+/// 
+/// **Source**: `src/FSharp.Azure.Quantum/Solvers/Quantum/QuantumTreeSearchBuilder.fs`
+/// 
+/// **This Example**: Demonstrates the RECOMMENDED pattern for quantum game AI.
+/// Uses `QuantumTreeSearch.forGameAI` helper to build problems cleanly.
+/// 
+/// **Migration Guide**: See README.md for comparison between old (low-level API)
+/// and new (builder API) approaches.
+/// 
+/// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 module QuantumTreeSearch =
     
     // ========================================================================
@@ -27,12 +47,13 @@ module QuantumTreeSearch =
         
         // Count threats for current player (offensive)
         let myThreats = 
-            ThreatDetection.detectAllThreats board currentPlayer 
+            ThreatDetection.getAllThreats board 
             |> List.length
         
         // Count threats for opponent (defensive)
         let opponentThreats = 
-            ThreatDetection.detectAllThreats board opponent 
+            let oppBoard = { board with CurrentPlayer = opponent }
+            ThreatDetection.getAllThreats oppBoard 
             |> List.length
         
         // Prioritize offense over defense (2:1 ratio)
@@ -90,6 +111,9 @@ module QuantumTreeSearch =
     
     /// Select best move using quantum tree search
     /// 
+    /// **NEW IMPLEMENTATION**: Uses the high-level `QuantumTreeSearch` builder API
+    /// instead of calling `GroverSearch.TreeSearch.searchGameTree` directly.
+    /// 
     /// Parameters:
     /// - board: Current game board
     /// - backend: IQuantumBackend (LocalBackend for testing, IonQ/Rigetti for cloud)
@@ -119,29 +143,35 @@ module QuantumTreeSearch =
             try
                 // Estimate qubits needed
                 let estimatedBranching = min (List.length validMoves) 15  // Cap at 15
-                let qubitsNeeded = estimateQubitsNeeded searchDepth estimatedBranching
+                let qubitsNeeded = GroverSearch.TreeSearch.estimateQubitsNeeded searchDepth estimatedBranching
                 
                 if qubitsNeeded > backend.MaxQubits then
                     Error $"Tree search requires {qubitsNeeded} qubits but backend '{backend.Name}' supports max {backend.MaxQubits}. Reduce search depth."
                 else
-                    // Configure tree search
-                    let config = {
-                        MaxDepth = searchDepth
-                        BranchingFactor = estimatedBranching
-                        EvaluationFunction = evaluateGomokuPosition
-                        MoveGenerator = generateMoves
-                    }
+                    // **RECOMMENDED APPROACH**: Use QuantumTreeSearch builder
+                    // Note: We build the problem step by step due to F# computation expression limitations
+                    let baseProblem = QuantumTreeSearch.forGameAI 
+                                        board 
+                                        searchDepth 
+                                        estimatedBranching 
+                                        evaluateGomokuPosition 
+                                        generateMoves
                     
-                    // Execute quantum tree search
-                    match searchGameTree board config backend percentile with
+                    // Override with custom settings
+                    let problem = { baseProblem with 
+                                      Backend = Some backend
+                                      TopPercentile = percentile }
+                    
+                    // Solve using high-level API
+                    match QuantumTreeSearch.solve problem with
                     | Error msg -> Error $"Quantum search failed: {msg}"
-                    | Ok treeResult ->
+                    | Ok solution ->
                         // Map move index to actual position
-                        if treeResult.BestMove < List.length validMoves then
-                            let bestPosition = List.item treeResult.BestMove validMoves
+                        if solution.BestMove < List.length validMoves then
+                            let bestPosition = List.item solution.BestMove validMoves
                             Ok bestPosition
                         else
-                            Error $"Invalid move index {treeResult.BestMove} returned (only {List.length validMoves} moves available)"
+                            Error $"Invalid move index {solution.BestMove} returned (only {List.length validMoves} moves available)"
             
             with ex ->
                 Error $"Quantum tree search exception: {ex.Message}"
@@ -166,13 +196,15 @@ module QuantumTreeSearch =
         (board: Board)
         (backend: IQuantumBackend)
         (searchDepth: int)
-        : Position =
+        : Result<Position, string> =
         
         match selectMove board backend searchDepth None with
-        | Ok position -> position
+        | Ok position -> Ok position
         | Error _ ->
             // Fallback to classical AI
-            Classical.selectBestMove board
+            match Classical.selectBestMove board with
+            | Some pos -> Ok pos
+            | None -> Error "No valid moves available"
     
     // ========================================================================
     // DIAGNOSTICS
@@ -193,8 +225,8 @@ module QuantumTreeSearch =
     let estimateResources (board: Board) (searchDepth: int) (backend: IQuantumBackend) : ResourceEstimate =
         let validMoves = Board.getValidMoves board
         let branching = min (List.length validMoves) 15
-        let qubits = estimateQubitsNeeded searchDepth branching
-        let searchSpace = estimateSearchSpaceSize searchDepth branching
+        let qubits = GroverSearch.TreeSearch.estimateQubitsNeeded searchDepth branching
+        let searchSpace = GroverSearch.TreeSearch.estimateSearchSpaceSize searchDepth branching
         
         let optimalIter =
             let numSolutions = searchSpace / 5  // Assume top 20%
@@ -223,20 +255,42 @@ module QuantumTreeSearch =
         }
     
     // ========================================================================
-    // EXAMPLES
+    // EXAMPLES - Using QuantumTreeSearch Builder API
     // ========================================================================
     
     module Examples =
         
-        /// Example: Play Gomoku move using local quantum simulator
+        /// Example: Play Gomoku move using local quantum simulator with builder API
         let playWithLocalBackend () =
             let board = Board.init 15 15
             let backend = createLocalBackend()
             
-            match selectMove board backend 2 None with
-            | Ok position -> 
-                printfn "Quantum AI selected: Row %d, Col %d" position.Row position.Col
-                Ok position
+            // **RECOMMENDED**: Use the forGameAI helper for clean, declarative code
+            let problem = QuantumTreeSearch.forGameAI 
+                            board 
+                            2  // maxDepth
+                            15  // branchingFactor
+                            evaluateGomokuPosition 
+                            generateMoves
+            
+            // Override backend if needed
+            let problemWithBackend = { problem with Backend = Some backend }
+            
+            match QuantumTreeSearch.solve problemWithBackend with
+            | Ok solution -> 
+                printfn "Quantum AI selected move: %d" solution.BestMove
+                printfn "Score: %.4f" solution.Score
+                printfn "Paths explored: %d" solution.PathsExplored
+                printfn "Quantum advantage: %b" solution.QuantumAdvantage
+                
+                // Convert move index to position
+                let validMoves = Board.getValidMoves board
+                if solution.BestMove < List.length validMoves then
+                    let position = List.item solution.BestMove validMoves
+                    printfn "Position: Row %d, Col %d" position.Row position.Col
+                    Ok position
+                else
+                    Error "Invalid move index"
             | Error msg ->
                 printfn "Quantum search failed: %s" msg
                 Error msg

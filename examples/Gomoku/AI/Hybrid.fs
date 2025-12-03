@@ -88,8 +88,11 @@ module LocalHybrid =
                 // Use quantum approach with classical pre-filtering
                 let classicalTime = startTime.Elapsed.TotalMilliseconds
                 
+                // Create local backend for quantum simulation
+                let backend = FSharp.Azure.Quantum.Core.BackendAbstraction.createLocalBackend()
+                
                 let quantumStart = System.Diagnostics.Stopwatch.StartNew()
-                let (move, iterations) = LocalQuantum.selectBestMove board (Some candidates)
+                let (move, iterations) = LocalQuantum.selectBestMove board backend (Some candidates)
                 quantumStart.Stop()
                 
                 startTime.Stop()

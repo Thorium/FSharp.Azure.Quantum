@@ -53,8 +53,8 @@ module ThreatDetection =
         
         // Simulate placing the piece
         match Board.makeMove boardWithPlayer pos with
-        | None -> false
-        | Some newBoard ->
+        | Error _ -> false
+        | Ok newBoard ->
             // Use Board's built-in win detection!
             Board.checkWinAtPosition newBoard pos player
     
@@ -69,8 +69,8 @@ module ThreatDetection =
         let boardWithPlayer = { board with CurrentPlayer = player }
         
         match Board.makeMove boardWithPlayer pos with
-        | None -> false
-        | Some newBoard ->
+        | Error _ -> false
+        | Ok newBoard ->
             let directions = [Horizontal; Vertical; DiagonalDown; DiagonalUp]
             directions
             |> List.exists (fun dir ->
@@ -83,8 +83,8 @@ module ThreatDetection =
         let boardWithPlayer = { board with CurrentPlayer = player }
         
         match Board.makeMove boardWithPlayer pos with
-        | None -> false
-        | Some newBoard ->
+        | Error _ -> false
+        | Ok newBoard ->
             let directions = [Horizontal; Vertical; DiagonalDown; DiagonalUp]
             directions
             |> List.exists (fun dir ->

@@ -59,6 +59,11 @@ module Board =
             CurrentPlayer = Black  // Black moves first
         }
     
+    /// Create a new empty board with size (convenience function)
+    let init (rows: int) (cols: int) : Board =
+        let config = { Size = rows; WinLength = 5 }
+        create config
+    
     /// Check if a position is valid (within board bounds)
     let isValidPosition (board: Board) (pos: Position) : bool =
         pos.Row >= 0 && pos.Row < board.Config.Size &&
@@ -82,18 +87,21 @@ module Board =
                 let pos = { Row = row; Col = col }
                 if isEmpty board pos then yield pos ]
     
+    /// Alias for getLegalMoves (backward compatibility)
+    let getValidMoves = getLegalMoves
+    
     /// Place a piece on the board
-    let makeMove (board: Board) (pos: Position) : Board option =
+    let makeMove (board: Board) (pos: Position) : Result<Board, string> =
         if not (isValidPosition board pos) then
-            None
+            Error $"Invalid position: ({pos.Row}, {pos.Col}) out of bounds"
         elif not (isEmpty board pos) then
-            None
+            Error $"Position ({pos.Row}, {pos.Col}) is already occupied"
         else
             // Create new cells array with the move
             let newCells = Array2D.copy board.Cells
             newCells.[pos.Row, pos.Col] <- board.CurrentPlayer
             
-            Some {
+            Ok {
                 Config = board.Config
                 Cells = newCells
                 MoveHistory = pos :: board.MoveHistory
