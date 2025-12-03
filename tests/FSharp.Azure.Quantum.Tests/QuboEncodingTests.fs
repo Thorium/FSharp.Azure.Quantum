@@ -54,22 +54,23 @@ module QuboEncodingTests =
     
     // Integer variable encoding tests
     [<Fact>]
-    let ``Integer variable encoding - should use one-hot encoding`` () =
+    let ``Integer variable encoding - should use BoundedInteger encoding`` () =
         // Arrange: Integer variable x ∈ {0, 1, 2, 3}
         let variables = [ { Name = "x"; VarType = IntegerVar(0, 3) } ]
         
         // Act: Encode as QUBO
         let qubo = QuboEncoding.encodeVariables variables
         
-        // Assert: Should create 4x4 QUBO (one-hot: 4 qubits for values 0-3)
-        Assert.Equal(4, qubo.Size)
-        Assert.Equal<string list>(["x_0"; "x_1"; "x_2"; "x_3"], qubo.VariableNames)
+        // Assert: Should create 2x2 QUBO (BoundedInteger: 2 bits for values 0-3)
+        // ceil(log2(4)) = 2 bits
+        Assert.Equal(2, qubo.Size)
+        Assert.Equal<string list>(["x_bit0"; "x_bit1"], qubo.VariableNames)
     
     [<Fact>]
-    let ``Integer variable decoding - one-hot to integer value`` () =
-        // Arrange: Integer variable x ∈ {0, 1, 2} encoded as one-hot
+    let ``Integer variable decoding - binary to integer value`` () =
+        // Arrange: Integer variable x ∈ {0, 2} encoded as BoundedInteger (2 bits)
         let variables = [ { Name = "x"; VarType = IntegerVar(0, 2) } ]
-        let binarySolution = [0; 1; 0] // One-hot: x=1
+        let binarySolution = [1; 0] // Binary (LSB first): 01 = 1
         
         // Act: Decode solution
         let solution = QuboEncoding.decodeSolution variables binarySolution
@@ -90,29 +91,28 @@ module QuboEncodingTests =
         // Act: Encode as QUBO
         let qubo = QuboEncoding.encodeVariables variables
         
-        // Assert: 1 binary + 3 integer (one-hot) = 4 qubits total
-        Assert.Equal(4, qubo.Size)
-        Assert.Equal<string list>(["b"; "i_0"; "i_1"; "i_2"], qubo.VariableNames)
+        // Assert: 1 binary + 2 integer (BoundedInteger) = 3 qubits total
+        // IntegerVar(0, 2) = 3 values = ceil(log2(3)) = 2 bits
+        Assert.Equal(3, qubo.Size)
+        Assert.Equal<string list>(["b"; "i_bit0"; "i_bit1"], qubo.VariableNames)
     
     [<Fact>]
-    let ``Integer constraint penalty - exactly one bit must be set`` () =
-        // Arrange: Integer variable with one-hot constraint
+    let ``Integer constraint penalty - BoundedInteger has no constraints`` () =
+        // Arrange: Integer variable uses BoundedInteger encoding (no constraints needed)
         let variables = [ { Name = "x"; VarType = IntegerVar(0, 2) } ]
         
         // Act: Encode with constraints
         let qubo = QuboEncoding.encodeVariablesWithConstraints variables
         
-        // Assert: Diagonal should have -1.0 (encourages selection)
-        // Penalty: (x_0 + x_1 + x_2 - 1)^2 = x_0^2 + x_1^2 + x_2^2 - 2*x_0 - 2*x_1 - 2*x_2 + 2*x_0*x_1 + 2*x_0*x_2 + 2*x_1*x_2 + 1
-        // For binary: x^2 = x, so diagonal: -x_i (coefficient -1)
-        Assert.Equal(-1.0, qubo.GetCoefficient(0, 0))
-        Assert.Equal(-1.0, qubo.GetCoefficient(1, 1))
-        Assert.Equal(-1.0, qubo.GetCoefficient(2, 2))
+        // Assert: BoundedInteger encoding doesn't need one-hot constraints
+        // IntegerVar(0, 2) = ceil(log2(3)) = 2 bits, no constraint penalties
+        Assert.Equal(2, qubo.Size)  // Only 2 qubits for binary encoding
         
-        // Off-diagonal should have +2.0 (discourages multiple selections)
-        Assert.Equal(2.0, qubo.GetCoefficient(0, 1))
-        Assert.Equal(2.0, qubo.GetCoefficient(0, 2))
-        Assert.Equal(2.0, qubo.GetCoefficient(1, 2))
+        // All coefficients should be 0 (no constraints for BoundedInteger)
+        Assert.Equal(0.0, qubo.GetCoefficient(0, 0))
+        Assert.Equal(0.0, qubo.GetCoefficient(1, 1))
+        Assert.Equal(0.0, qubo.GetCoefficient(0, 1))
+        Assert.Equal(0.0, qubo.GetCoefficient(1, 0))
     
     // Categorical variables and constraint penalties
     [<Fact>]
@@ -165,36 +165,31 @@ module QuboEncodingTests =
     
     [<Fact>]
     let ``Complex problem - TSP with 3 cities`` () =
-        // Arrange: 3 cities, need position and city at each step
-        // Variables: x_0_0, x_0_1, x_0_2 (city at position 0)
-        //            x_1_0, x_1_1, x_1_2 (city at position 1)
-        //            x_2_0, x_2_1, x_2_2 (city at position 2)
+        // Variables: Each position uses BoundedInteger encoding
         let variables = [
             { Name = "pos0"; VarType = IntegerVar(0, 2) } // Which city at position 0
             { Name = "pos1"; VarType = IntegerVar(0, 2) } // Which city at position 1
             { Name = "pos2"; VarType = IntegerVar(0, 2) } // Which city at position 2
         ]
         
-        // Act: Encode with one-hot constraints
+        // Act: Encode with BoundedInteger (binary encoding)
         let qubo = QuboEncoding.encodeVariablesWithConstraints variables
         
-        // Assert: 9 qubits total (3 positions × 3 cities each)
-        Assert.Equal(9, qubo.Size)
+        // Assert: 6 qubits total (3 positions × 2 bits each)
+        // IntegerVar(0, 2) = 3 values = ceil(log2(3)) = 2 bits per position
+        Assert.Equal(6, qubo.Size)
         let expectedNames = [
-            "pos0_0"; "pos0_1"; "pos0_2"
-            "pos1_0"; "pos1_1"; "pos1_2"
-            "pos2_0"; "pos2_1"; "pos2_2"
+            "pos0_bit0"; "pos0_bit1"
+            "pos1_bit0"; "pos1_bit1"
+            "pos2_bit0"; "pos2_bit1"
         ]
         Assert.Equal<string list>(expectedNames, qubo.VariableNames)
         
-        // Verify one-hot constraints applied to each position variable
-        // pos0: qubits 0,1,2 should have -1 diagonal, +2 off-diagonal
-        Assert.Equal(-1.0, qubo.GetCoefficient(0, 0))
-        Assert.Equal(2.0, qubo.GetCoefficient(0, 1))
-        
-        // pos1: qubits 3,4,5 should have same pattern
-        Assert.Equal(-1.0, qubo.GetCoefficient(3, 3))
-        Assert.Equal(2.0, qubo.GetCoefficient(3, 4))
+        // Verify BoundedInteger encoding has no constraints
+        Assert.Equal(0.0, qubo.GetCoefficient(0, 0))
+        Assert.Equal(0.0, qubo.GetCoefficient(0, 1))
+        Assert.Equal(0.0, qubo.GetCoefficient(2, 2))
+        Assert.Equal(0.0, qubo.GetCoefficient(2, 3))
     
     // ============================================================================
     // TKT-36: Advanced Variable Encoding Tests

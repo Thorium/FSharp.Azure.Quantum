@@ -9,17 +9,19 @@
 
 **Architecture:** Quantum-First Hybrid Library - Quantum algorithms as primary solvers, with intelligent classical fallback for small problems
 
-**Current Version:** 1.2.3 (Enhanced Quantum Algorithms and Builder API Improvements)
+**Current Version:** Latest (D-Wave Support + Quantum Machine Learning + Business Builders)
 
 **Current Features:**
-- ✅ **Multiple Backends:** LocalBackend (simulation), Azure Quantum (IonQ, Rigetti)
+- ✅ **Multiple Backends:** LocalBackend (simulation), Azure Quantum (IonQ, Rigetti), D-Wave quantum annealers (2000+ qubits)
+- ✅ **Quantum Machine Learning:** VQC, Quantum Kernel SVM, Feature Maps, Variational Forms, AutoML
+- ✅ **Business Problem Builders:** AutoML, Anomaly Detection, Binary Classification, Predictive Modeling, Similarity Search
 - ✅ **OpenQASM 2.0:** Import/export compatibility with IBM Qiskit, Amazon Braket, Google Cirq
-- ✅ **QAOA Implementation:** Quantum Approximate Optimization Algorithm with parameter optimization & warm-start
+- ✅ **QAOA Implementation:** Quantum Approximate Optimization Algorithm with advanced parameter optimization
 - ✅ **7 Quantum Optimization Builders:** Graph Coloring, MaxCut, Knapsack, TSP, Portfolio, Network Flow, Task Scheduling
 - ✅ **6 Advanced QFT-Based Builders:** Quantum Arithmetic, Cryptographic Analysis (Shor's), Phase Estimation, Tree Search, Constraint Solver, Pattern Matcher
 - ✅ **VQE Implementation:** Variational Quantum Eigensolver for molecular ground state energies (quantum chemistry)
 - ✅ **Error Mitigation:** ZNE (30-50% error reduction), PEC (2-3x accuracy), REM (50-90% readout correction)
-- ✅ **F# Computation Expressions:** Idiomatic, type-safe problem specification with builders (scheduledTask, quantumTreeSearch, constraintSolver, patternMatcher, quantumArithmetic, periodFinder, phaseEstimator)
+- ✅ **F# Computation Expressions:** Idiomatic, type-safe problem specification with builders
 - ✅ **C# Interop:** Fluent API extensions for C# developers
 - ✅ **Circuit Building:** Low-level quantum circuit construction and optimization possible
 
@@ -29,17 +31,19 @@
 
 1. [Quick Start](#-quick-start) - **Start here!** Get running in 5 minutes
 2. [Problem Builders](#-problem-builders) - High-level APIs for 7 optimization problems
-3. [HybridSolver](#-hybridsolver---automatic-classicalquantum-routing) - Automatic classical/quantum routing
-4. [Architecture](#-architecture) - How the library is organized
-5. [C# Interop](#-c-interop) - Using from C#
-6. [Backend Selection](#-backend-selection) - Local vs Cloud quantum execution
-7. [OpenQASM 2.0 Support](#-openqasm-20-support) - Import/export quantum circuits
-8. [Error Mitigation](#️-error-mitigation) - Reduce quantum noise by 30-90%
-9. [QAOA Algorithm Internals](#-qaoa-algorithm-internals) - How quantum optimization works
-10. [Documentation](#-documentation) - Complete guides and API reference
-11. [Design Philosophy](#-design-philosophy) - Quantum-only architecture principles
-12. [Educational Algorithms](#-educational-algorithms) - Grover, QFT, Amplitude Amplification (for learning)
-13. [Advanced Quantum Builders](#-advanced-quantum-builders) - Tree Search, Constraint Solver, Pattern Matcher, Arithmetic, Period Finder, Phase Estimator (⚠️ Requires future hardware)
+3. [Quantum Machine Learning](#-quantum-machine-learning-qml) - VQC, Quantum Kernels, AutoML
+4. [Business Builders](#-business-problem-builders) - AutoML, Anomaly Detection, Fraud Detection, Customer Churn
+5. [HybridSolver](#-hybridsolver---automatic-classicalquantum-routing) - Automatic classical/quantum routing
+6. [Architecture](#-architecture) - How the library is organized
+7. [C# Interop](#-c-interop) - Using from C#
+8. [Backend Selection](#-backend-selection) - Local vs Cloud vs D-Wave quantum execution
+9. [OpenQASM 2.0 Support](#-openqasm-20-support) - Import/export quantum circuits
+10. [Error Mitigation](#️-error-mitigation) - Reduce quantum noise by 30-90%
+11. [QAOA Algorithm Internals](#-qaoa-algorithm-internals) - How quantum optimization works
+12. [Documentation](#-documentation) - Complete guides and API reference
+13. [Design Philosophy](#-design-philosophy) - Quantum-only architecture principles
+14. [Educational Algorithms](#-educational-algorithms) - Grover, QFT, Amplitude Amplification (for learning)
+15. [Advanced Quantum Builders](#-advanced-quantum-builders) - Tree Search, Constraint Solver, Pattern Matcher, Arithmetic, Period Finder, Phase Estimator (⚠️ Requires future hardware)
 
 ---
 
@@ -329,6 +333,262 @@ match solveQuantum backend problem with
 **Examples:** 
 - [JobScheduling](examples/JobScheduling/) - Manufacturing workflow scheduling
 - [ProjectManagement](examples/ProjectManagement/) - Team task allocation (if exists)
+
+---
+
+## 🤖 Quantum Machine Learning (QML)
+
+**Apply quantum computing to machine learning problems with variational quantum circuits and quantum kernels.**
+
+### Variational Quantum Classifier (VQC)
+
+Train quantum neural networks for classification tasks:
+
+```fsharp
+open FSharp.Azure.Quantum
+open FSharp.Azure.Quantum.MachineLearning
+
+// Setup backend and architecture
+let backend = LocalBackend() :> IQuantumBackend
+let featureMap = AngleEncoding
+let variationalForm = RealAmplitudes 2  // 2 layers
+
+// Prepare training data (features and labels as separate arrays)
+let trainFeatures = [|
+    [| 0.1; 0.2 |]
+    [| 0.9; 0.8 |]
+    [| 0.3; 0.1 |]
+    [| 0.8; 0.9 |]
+|]
+let trainLabels = [| 0; 1; 0; 1 |]
+
+// Configure training
+let config = {
+    LearningRate = 0.1
+    MaxEpochs = 100
+    ConvergenceThreshold = 0.001
+    Shots = 1000
+    Verbose = false
+    Optimizer = VQC.SGD
+}
+
+// Initialize parameters
+let numQubits = trainFeatures.[0].Length
+let numParams = VariationalForms.parameterCount variationalForm numQubits
+let initialParams = Array.init numParams (fun _ -> Random().NextDouble() * 2.0 * Math.PI)
+
+// Train the classifier
+match VQC.train backend featureMap variationalForm initialParams trainFeatures trainLabels config with
+| Ok result ->
+    // Make predictions
+    let testPoint = [| 0.5; 0.5 |]
+    match VQC.predict backend featureMap variationalForm result.Parameters testPoint 1000 with
+    | Ok prediction ->
+        printfn "Prediction: %d (probability: %.2f%%)" 
+            prediction.Label (prediction.Probability * 100.0)
+    | Error msg -> printfn "Error: %s" msg
+| Error msg -> printfn "Training failed: %s" msg
+```
+
+### Quantum Kernel SVM
+
+Use quantum feature spaces for support vector machines:
+
+```fsharp
+open FSharp.Azure.Quantum
+open FSharp.Azure.Quantum.MachineLearning
+
+// Setup backend and quantum feature map
+let backend = LocalBackend() :> IQuantumBackend
+let featureMap = ZZFeatureMap  // Quantum feature map with entanglement
+
+// Training data
+let trainData = [| [| 0.1; 0.2 |]; [| 0.9; 0.8 |]; [| 0.3; 0.1 |]; [| 0.8; 0.9 |] |]
+let trainLabels = [| 0; 1; 0; 1 |]
+
+// SVM configuration
+let config = {
+    C = 1.0
+    Tolerance = 1e-3
+    MaxIterations = 100
+    Verbose = false
+}
+
+// Train SVM with quantum kernel
+match QuantumKernelSVM.train backend featureMap trainData trainLabels config 1000 with
+| Ok model ->
+    // Evaluate on test data
+    let testData = [| [| 0.5; 0.5 |]; [| 0.2; 0.8 |] |]
+    let testLabels = [| 0; 1 |]
+    
+    match QuantumKernelSVM.evaluate backend model testData testLabels 1000 with
+    | Ok accuracy -> printfn "Test accuracy: %.2f%%" (accuracy * 100.0)
+    | Error msg -> printfn "Evaluation error: %s" msg
+| Error msg -> printfn "Training error: %s" msg
+```
+
+**QML Features:**
+- ✅ **VQC** - Variational quantum circuits for supervised learning
+- ✅ **Quantum Kernels** - Leverage quantum feature spaces in SVMs
+- ✅ **Feature Maps** - ZZFeatureMap, PauliFeatureMap for encoding classical data
+- ✅ **Variational Forms** - RealAmplitudes, EfficientSU2 ansatz circuits
+- ✅ **Adam Optimizer** - Gradient-based training with momentum
+- ✅ **Model Serialization** - Save/load trained models
+- ✅ **Data Preprocessing** - Normalization, encoding, splits
+
+**Examples:** 
+- `examples/QML/VQCExample.fsx` - Complete VQC training pipeline
+- `examples/QML/FeatureMapExample.fsx` - Feature encoding demonstrations
+- `examples/QML/VariationalFormExample.fsx` - Ansatz circuit exploration
+
+---
+
+## 📊 Business Problem Builders
+
+**High-level APIs for common business applications powered by quantum machine learning.**
+
+### AutoML - Automated Machine Learning
+
+```fsharp
+open FSharp.Azure.Quantum.Business
+
+// Automated hyperparameter tuning and model selection
+let automl = autoML {
+    dataset trainData
+    target "label_column"
+    features ["feature1"; "feature2"; "feature3"]
+    maxTrials 20
+    timeout (minutes 30.0)
+}
+
+match AutoML.run automl with
+| Ok result ->
+    printfn "Best model accuracy: %.2f%%" (result.BestAccuracy * 100.0)
+    printfn "Best hyperparameters: %A" result.BestHyperparameters
+    
+    // Use best model for predictions
+    let predictions = AutoML.predict result.BestModel newData
+    predictions |> List.iter (printfn "Prediction: %A")
+| Error msg -> printfn "Error: %s" msg
+```
+
+### Anomaly Detection - Security & Fraud Detection
+
+```fsharp
+open FSharp.Azure.Quantum.Business
+
+// Detect outliers in network traffic for security monitoring
+let detector = anomalyDetection {
+    data securityLogs
+    features ["packet_size"; "connection_duration"; "failed_logins"]
+    threshold 0.95
+    sensitivity High
+}
+
+match AnomalyDetection.detect detector with
+| Ok anomalies ->
+    printfn "Found %d anomalies" anomalies.Length
+    anomalies |> List.iter (fun a ->
+        printfn "⚠️  Anomaly score: %.3f - %A" a.Score a.DataPoint)
+| Error msg -> printfn "Error: %s" msg
+```
+
+### Binary Classification - Fraud Detection
+
+```fsharp
+open FSharp.Azure.Quantum.Business
+
+// Classify transactions as fraudulent or legitimate
+let classifier = binaryClassification {
+    trainingData transactions
+    positiveClass "fraud"
+    negativeClass "legitimate"
+    features ["amount"; "location"; "time"; "merchant_type"]
+    algorithm QuantumSVM
+}
+
+match BinaryClassification.train classifier with
+| Ok model ->
+    // Evaluate performance
+    let metrics = BinaryClassification.evaluate model testTransactions
+    printfn "Precision: %.2f%%" (metrics.Precision * 100.0)
+    printfn "Recall: %.2f%%" (metrics.Recall * 100.0)
+    printfn "F1 Score: %.2f" metrics.F1Score
+    
+    // Classify new transactions
+    let newTransaction = ["amount", 1500.0; "location", "foreign"]
+    match BinaryClassification.predict model newTransaction with
+    | Ok prediction ->
+        printfn "Classification: %s (%.2f%% confidence)" 
+            prediction.Class (prediction.Probability * 100.0)
+    | Error msg -> printfn "Error: %s" msg
+| Error msg -> printfn "Training failed: %s" msg
+```
+
+### Predictive Modeling - Customer Churn Prediction
+
+```fsharp
+open FSharp.Azure.Quantum.Business
+
+// Predict which customers are likely to cancel service
+let model = predictiveModel {
+    historicalData customerData
+    targetVariable "churned"
+    predictors ["tenure"; "monthly_charges"; "total_charges"; "contract_type"]
+    horizon (days 30.0)
+}
+
+match PredictiveModel.build model with
+| Ok trained ->
+    // Identify high-risk customers
+    let predictions = PredictiveModel.predict trained activeCustomers
+    let highRisk = predictions |> List.filter (fun p -> p.ChurnProbability > 0.7)
+    
+    printfn "High-risk customers: %d" highRisk.Length
+    highRisk |> List.iter (fun customer ->
+        printfn "Customer %s: %.1f%% churn risk" 
+            customer.Id (customer.ChurnProbability * 100.0))
+| Error msg -> printfn "Error: %s" msg
+```
+
+### Similarity Search - Product Recommendations
+
+```fsharp
+open FSharp.Azure.Quantum.Business
+
+// Find similar products using quantum-enhanced search
+let search = similaritySearch {
+    catalog productCatalog
+    features ["category"; "price"; "rating"; "features"]
+    similarityMetric QuantumKernel
+    topK 10
+}
+
+let targetProduct = "laptop-xyz-2024"
+
+match SimilaritySearch.findSimilar search targetProduct with
+| Ok recommendations ->
+    printfn "Customers who viewed %s also liked:" targetProduct
+    recommendations |> List.iter (fun (product, similarity) ->
+        printfn "  %s (%.1f%% similar)" product.Name (similarity * 100.0))
+| Error msg -> printfn "Error: %s" msg
+```
+
+**Business Builder Features:**
+- ✅ **AutoML** - Automated hyperparameter tuning, model selection, ensemble methods
+- ✅ **Anomaly Detection** - Outlier detection for security, fraud, quality control
+- ✅ **Binary Classification** - Two-class problems (fraud, spam, churn)
+- ✅ **Predictive Modeling** - Time-series forecasting, demand prediction
+- ✅ **Similarity Search** - Recommendations, semantic search, clustering
+- ✅ **Quantum-Enhanced** - Leverages quantum kernels and feature maps
+- ✅ **Production-Ready** - Model serialization, evaluation metrics, validation
+
+**Examples:**
+- `examples/AutoML/QuickPrototyping.fsx` - Complete AutoML pipeline
+- `examples/AnomalyDetection/SecurityThreatDetection.fsx` - Network security monitoring
+- `examples/BinaryClassification/FraudDetection.fsx` - Transaction fraud detection
+- `examples/PredictiveModeling/CustomerChurnPrediction.fsx` - Churn prediction
+- `examples/SimilaritySearch/ProductRecommendations.fsx` - E-commerce recommendations
 
 ---
 
@@ -773,7 +1033,7 @@ match GraphColoring.solve problem 3 None with
 2. Simulates quantum circuit using state vectors
 3. ≤20 qubits supported (larger problems fail with error)
 
-### Explicit Cloud Backend
+### Azure Quantum Cloud Backend
 
 ```fsharp
 // Create Azure Quantum backend
@@ -788,6 +1048,46 @@ match GraphColoring.solve problem 3 (Some backend) with
     printfn "Backend used: %s" solution.BackendName
 ```
 
+### D-Wave Quantum Annealer
+
+```fsharp
+open FSharp.Azure.Quantum.Backends
+
+// Create D-Wave backend (2000+ qubits!)
+let dwaveBackend = DWaveBackend.create(
+    apiToken = "YOUR_DWAVE_TOKEN",
+    solver = "Advantage_system4.1"  // or "hybrid_binary_quadratic_model_version2"
+)
+
+// MaxCut problem automatically converts to QUBO/Ising format
+let vertices = ["A"; "B"; "C"; "D"; "E"]
+let edges = [
+    ("A", "B", 1.0); ("B", "C", 2.0); ("C", "D", 1.0)
+    ("D", "E", 1.5); ("E", "A", 1.2)
+]
+
+let problem = MaxCut.createProblem vertices edges
+
+// Solve on D-Wave (uses quantum annealing, not QAOA)
+match DWaveBackend.solveMaxCut dwaveBackend problem with
+| Ok solution ->
+    printfn "Cut value: %.2f" solution.CutValue
+    printfn "Partition S: %A" solution.PartitionS
+    printfn "Partition T: %A" solution.PartitionT
+    printfn "Annealing time: %.3f ms" solution.AnnealingTime
+| Error msg -> printfn "Error: %s" msg
+```
+
+**D-Wave Features:**
+- ✅ **2000+ qubits** - Far larger than gate-based quantum computers
+- ✅ **Quantum annealing** - Different paradigm than QAOA (finds ground states)
+- ✅ **Hybrid solvers** - Automatic classical-quantum decomposition
+- ✅ **QUBO/Ising native** - Direct problem format support
+- ✅ **Production hardware** - Available now (not simulation)
+- ⚠️ **Specialized** - Best for optimization problems (not universal quantum computing)
+
+**Example:** `examples/DWaveMaxCutExample.fsx`
+
 ### Backend Comparison
 
 ```fsharp
@@ -795,17 +1095,41 @@ match GraphColoring.solve problem 3 (Some backend) with
 let smallProblem = MaxCut.createProblem ["A"; "B"; "C"] [("A","B",1.0)]
 let result1 = MaxCut.solve smallProblem None  // Fast, free
 
-// Large problem: Use cloud backend
-let largeProblem = 
+// Medium problem: Use Azure Quantum
+let mediumProblem = 
     MaxCut.createProblem 
         [for i in 1..20 -> sprintf "V%d" i]
         [for i in 1..19 -> (sprintf "V%d" i, sprintf "V%d" (i+1), 1.0)]
 
-let backend = BackendAbstraction.createIonQBackend(conn, "ionq.simulator")
-let result2 = MaxCut.solve largeProblem (Some backend)  // Scalable, paid
+let azureBackend = BackendAbstraction.createIonQBackend(conn, "ionq.simulator")
+let result2 = MaxCut.solve mediumProblem (Some azureBackend)  // 20-29 qubits
+
+// Large problem: Use D-Wave quantum annealer
+let largeProblem =
+    MaxCut.createProblem
+        [for i in 1..100 -> sprintf "V%d" i]  // 100 vertices!
+        [for i in 1..99 -> (sprintf "V%d" i, sprintf "V%d" (i+1), 1.0)]
+
+let dwaveBackend = DWaveBackend.create(token, "Advantage_system4.1")
+let result3 = DWaveBackend.solveMaxCut dwaveBackend largeProblem  // 2000+ qubits
 ```
 
-### Azure Quantum Workspace Management (NEW in 1.2.4)
+**Backend Selection Guide:**
+
+| Problem Size | Backend | Qubits | Speed | Cost | Best For |
+|--------------|---------|--------|-------|------|----------|
+| **Small** (≤20 variables) | LocalBackend | ≤20 | Milliseconds | Free | Development, testing, prototyping |
+| **Medium** (20-29 variables) | IonQ/Rigetti | 29-80 | Seconds | ~$10-50/run | Gate-based quantum algorithms (QAOA, VQE) |
+| **Large** (100+ variables) | D-Wave | 2000+ | Seconds | ~$1-10/run | Optimization problems (MaxCut, TSP, scheduling) |
+
+**When to use D-Wave:**
+- ✅ Optimization problems with 50+ variables
+- ✅ QUBO/Ising problems (MaxCut, Knapsack, Graph Coloring)
+- ✅ Production workloads needing large problem sizes
+- ✅ Cost-sensitive applications (D-Wave cheaper per qubit)
+- ❌ NOT for: QFT-based algorithms, Grover's search, quantum chemistry (use gate-based)
+
+### Azure Quantum Workspace Management
 
 **Production-ready hybrid approach: Workspace quota management + proven HTTP backends**
 
@@ -900,6 +1224,104 @@ match convertCircuitToProviderFormat wrapper "rigetti.sim.qvm" with
 - IonQ and Rigetti providers (Quantinuum coming soon)
 
 **Example:** See `examples/AzureQuantumWorkspace/WorkspaceExample.fsx`
+
+### SDK Backend - Full Azure Quantum Integration
+
+**Complete SDK-powered backend using Microsoft.Azure.Quantum.Client**
+
+```fsharp
+open FSharp.Azure.Quantum.Backends.AzureQuantumWorkspace
+open FSharp.Azure.Quantum.Core.BackendAbstraction
+
+// Step 1: Create workspace
+use workspace = 
+    createDefault 
+        "your-subscription-id"
+        "your-resource-group"
+        "your-workspace-name"
+        "eastus"
+
+// Step 2: Create SDK backend (NEW!)
+let backend = createFromWorkspace workspace "ionq.simulator"
+
+// Step 3: Build circuit
+let circuit = quantumCircuit {
+    H 0
+    CNOT 0 1
+    MEASURE_ALL
+}
+
+let wrapper = CircuitWrapper(circuit) :> ICircuit
+
+// Step 4: Execute on Azure Quantum
+match backend.Execute wrapper 1000 with
+| Ok result ->
+    printfn "✅ Job completed!"
+    printfn "   Backend: %s" result.BackendName
+    printfn "   Shots: %d" result.NumShots
+    printfn "   Job ID: %s" (result.Metadata.["job_id"] :?> string)
+    
+    // Analyze measurements
+    let counts = result.Measurements |> Array.countBy id
+    counts |> Array.iter (fun (bitstring, count) ->
+        printfn "   %A: %d times" bitstring count)
+| Error msg ->
+    printfn "❌ Error: %s" msg
+```
+
+**SDK Backend Features:**
+- ✅ **Full Job Lifecycle:** Submit → Poll → Retrieve results (all automated)
+- ✅ **Automatic Circuit Conversion:** IonQ JSON / Rigetti Quil format
+- ✅ **Smart Polling:** Exponential backoff (1s → 30s max delay)
+- ✅ **Rich Metadata:** job_id, provider, target, status in results
+- ✅ **Histogram Parsing:** Automatic extraction of measurement distributions
+- ✅ **Resource Safety:** IDisposable workspace for cleanup
+- ✅ **Workspace Integration:** Uses Microsoft.Azure.Quantum SDK internally
+
+**SDK Backend with Quota Check:**
+```fsharp
+async {
+    // Check quota before execution
+    let! quota = workspace.GetTotalQuotaAsync()
+    
+    match quota.Remaining with
+    | Some remaining when remaining < 10.0 ->
+        printfn "⚠️  Low quota: %.2f credits - stopping" remaining
+    | Some remaining ->
+        printfn "✅ Quota available: %.2f credits" remaining
+        
+        // Create backend and execute
+        let backend = createFromWorkspace workspace "ionq.simulator"
+        match backend.Execute circuit 1000 with
+        | Ok result -> printfn "Success!"
+        | Error msg -> printfn "Error: %s" msg
+    | None ->
+        printfn "✅ Unlimited quota"
+        // Execute...
+} |> Async.RunSynchronously
+```
+
+**Backend Comparison:**
+
+| Feature | LocalBackend | HTTP Backend | SDK Backend |
+|---------|-------------|--------------|-------------------|
+| **Setup** | None | HttpClient + URL | Workspace object |
+| **Quota Checking** | ❌ | ❌ | ✅ |
+| **Provider Discovery** | ❌ | ❌ | ✅ |
+| **Job Polling** | ❌ (instant) | Manual | ✅ Automatic |
+| **Resource Cleanup** | ❌ | Manual | ✅ IDisposable |
+| **Circuit Conversion** | ❌ | Manual | ✅ Automatic |
+| **Max Qubits** | 20 | 29 (IonQ) / 40 (Rigetti) | 29 (IonQ) / 40 (Rigetti) |
+| **Cost** | Free | Paid | Paid |
+| **Production Ready** | ✅ | ✅ | ✅ |
+| **Best For** | Testing | Manual control | Full integration |
+
+**When to use each backend:**
+- **LocalBackend:** Development, testing, small circuits (<20 qubits), free tier
+- **HTTP Backend:** Production workloads, proven stability, fine-grained control
+- **SDK Backend:** Full workspace features, quota management, easier setup, complete integration
+
+**Example:** See `examples/AzureQuantumWorkspace/WorkspaceExample.fsx` (Examples 7-9)
 
 ---
 

@@ -83,6 +83,31 @@ dotnet add package FSharp.Azure.Quantum
 6. **Network Flow** - Supply chain optimization, distribution planning
 7. **Task Scheduling** - Manufacturing workflows, project management, resource allocation with dependencies
 
+### 🧠 Quantum Machine Learning
+
+**Apply quantum computing to machine learning:**
+
+- ✅ **Variational Quantum Classifier (VQC)** - Supervised learning with quantum circuits
+- ✅ **Quantum Kernel SVM** - Support vector machines with quantum feature spaces
+- ✅ **Feature Maps** - ZZFeatureMap, PauliFeatureMap for data encoding
+- ✅ **Variational Forms** - RealAmplitudes, EfficientSU2 ansatz circuits
+- ✅ **Adam Optimizer** - Gradient-based training
+- ✅ **Model Serialization** - Save/load trained models
+
+**Examples:** `examples/QML/` (VQCExample, FeatureMapExample, VariationalFormExample)
+
+### 📊 Business Problem Builders
+
+**High-level APIs for business applications:**
+
+- ✅ **AutoML** - Automated machine learning with quantum kernels
+- ✅ **Anomaly Detection** - Security threat detection, fraud prevention
+- ✅ **Binary Classification** - Fraud detection, spam filtering
+- ✅ **Predictive Modeling** - Customer churn, demand forecasting
+- ✅ **Similarity Search** - Product recommendations, semantic search
+
+**Examples:** `examples/AutoML/`, `examples/AnomalyDetection/`, `examples/BinaryClassification/`, `examples/PredictiveModeling/`
+
 ### 🤖 HybridSolver - Optional Smart Routing
 
 **Optional optimization layer for variable-sized problems:**
@@ -101,15 +126,19 @@ dotnet add package FSharp.Azure.Quantum
 
 Quantum Approximate Optimization Algorithm with:
 - ✅ Automatic QUBO encoding
-- ✅ Variational parameter optimization (Nelder-Mead)
+- ✅ Advanced parameter optimization (COBYLA, SPSA, gradient-free)
 - ✅ Configurable circuit depth and shot counts
 - ✅ Solution validation and quality metrics
+- ✅ Integer variable support
+
+**Example:** `examples/QaoaParameterOptimizationExample.fsx`
 
 ### 🖥️ Multiple Execution Backends
 
 - **LocalBackend** - Fast simulation (≤20 qubits, free)
 - **IonQBackend** - Azure Quantum (29+ qubits simulator, 11 qubits QPU)
 - **RigettiBackend** - Azure Quantum (40+ qubits simulator, 80 qubits QPU)
+- **DWaveBackend** - D-Wave quantum annealer (2000+ qubits, production hardware)
 
 ### 💻 Cross-Language Support
 
@@ -256,18 +285,20 @@ match solveQuantum backend problem with
 
 ### 🚀 Getting Started
 - [Getting Started Guide](getting-started) - Installation, first steps, and basic examples
-- [Quantum Computing Introduction](quantum-computing-introduction) - **⭐ NEW** Comprehensive introduction to quantum computing for F# developers (no quantum background needed)
+- [Quantum Computing Introduction](quantum-computing-introduction) - Comprehensive introduction to quantum computing for F# developers (no quantum background needed)
 - [C# Usage Guide](../CSHARP-QUANTUM-BUILDER-USAGE-GUIDE.md) - Complete C# interop examples with fluent API
 
 ### 📖 Core Concepts
 - [API Reference](api-reference) - Complete API documentation for all modules
-- [Computation Expressions Reference](computation-expressions-reference) - **⭐ NEW** Complete CE reference table with all custom operations (when IntelliSense fails)
+- [Computation Expressions Reference](computation-expressions-reference) - Complete CE reference table with all custom operations (when IntelliSense fails)
 - [Architecture Overview](architecture-overview) - Deep dive into 3-layer quantum-only design
-- [Backend Switching](backend-switching) - Local vs Cloud quantum execution guide
+- [Backend Switching](backend-switching) - Local vs Cloud vs D-Wave quantum execution
 - [Local Simulation](local-simulation) - LocalBackend internals and performance characteristics
 
 ### 🔬 Advanced Topics
 - [QUBO Encoding Strategies](qubo-encoding-strategies) - Problem-to-QUBO transformations for QAOA
+- [Quantum Machine Learning Guide](qml-guide) - VQC, Quantum Kernels, Feature Maps (coming soon)
+- [D-Wave Integration Guide](dwave-integration) - Using D-Wave quantum annealers (coming soon)
 - [FAQ](faq) - Frequently asked questions and troubleshooting
 
 ### 🎯 Problem-Specific API Guides

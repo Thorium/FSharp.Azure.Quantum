@@ -35,6 +35,10 @@
     <Compile Include="CircuitBuilderTests.fs" />
     <Compile Include="CircuitAbstractionTests.fs" />
     <Compile Include="BackendAbstractionTests.fs" />
+    <Compile Include="QuboToIsingTests.fs" />
+    <Compile Include="QuboExtractionTests.fs" />
+    <Compile Include="DWaveBackendTests.fs" />
+    <Compile Include="BackendCapabilityDetectionTests.fs" />
     <Compile Include="QuantumTspSolverTests.fs" />
     <Compile Include="QuboEncodingTests.fs" />
     <Compile Include="QaoaCircuitTests.fs" />
@@ -65,6 +69,14 @@
     <Compile Include="TaskSchedulingTests.fs" />
     <!-- SchedulingTests.fs removed - tests deleted classical scheduler -->
     <!-- SubsetSelectionTests.fs removed - tests deleted classical DP/greedy solver -->
+    <Compile Include="VariationalFormTests.fs" />
+    <Compile Include="AdamOptimizerTests.fs" />
+    <Compile Include="QuantumKernelTests.fs" />
+    <Compile Include="QuantumKernelSVMTests.fs" />
+    <Compile Include="MultiClassSVMTests.fs" />
+    <Compile Include="DataPreprocessingTests.fs" />
+    <Compile Include="ModelSerializationTests.fs" />
+    <Compile Include="VQCTests.fs" />
     <Compile Include="IntegrationTests.fs" />
   </ItemGroup>
 

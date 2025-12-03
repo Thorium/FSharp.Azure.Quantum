@@ -56,9 +56,15 @@ module VariableEncoding =
     let qubitCount (encoding: VariableEncoding) : int =
         match encoding with
         | Binary -> 1
-        | OneHot n -> n
-        | DomainWall n -> n - 1
+        | OneHot n -> 
+            if n < 1 then invalidArg "n" "OneHot requires at least 1 option"
+            n
+        | DomainWall n -> 
+            if n < 2 then invalidArg "n" "DomainWall requires at least 2 levels"
+            n - 1
         | BoundedInteger(min, max) ->
+            if min > max then 
+                invalidArg "min,max" (sprintf "Invalid range: min (%d) cannot be greater than max (%d)" min max)
             let range = max - min + 1
             if range <= 1 then 1
             else int (System.Math.Ceiling(System.Math.Log(float range, 2.0)))
@@ -67,18 +73,26 @@ module VariableEncoding =
     let encode (encoding: VariableEncoding) (value: int) : int list =
         match encoding with
         | Binary ->
+            if value <> 0 && value <> 1 then
+                invalidArg "value" (sprintf "Binary encoding requires value 0 or 1, got %d" value)
             [value]
         
         | OneHot n ->
+            if value < 0 || value >= n then
+                invalidArg "value" (sprintf "OneHot encoding requires value in [0, %d), got %d" n value)
             // One-hot: Single bit set at position 'value'
             List.init n (fun i -> if i = value then 1 else 0)
         
         | DomainWall levels ->
+            if value < 1 || value > levels then
+                invalidArg "value" (sprintf "DomainWall encoding requires value in [1, %d], got %d" levels value)
             // Domain-wall: Wall of 1s followed by 0s
             let numQubits = levels - 1
             List.init numQubits (fun i -> if i < value - 1 then 1 else 0)
         
-        | BoundedInteger(min, _) ->
+        | BoundedInteger(min, max) ->
+            if value < min || value > max then
+                invalidArg "value" (sprintf "BoundedInteger encoding requires value in [%d, %d], got %d" min max value)
             // Binary encoding (LSB first)
             let normalizedValue = value - min
             let numQubits = qubitCount encoding
@@ -192,7 +206,10 @@ module QuboEncoding =
     let private qubitCountFor (varType: VariableType) : int =
         match varType with
         | BinaryVar -> 1
-        | IntegerVar(min, max) -> (max - min + 1) // One-hot encoding
+        | IntegerVar(min, max) -> 
+            // Use efficient BoundedInteger encoding (logarithmic scaling)
+            let encoding = VariableEncoding.BoundedInteger(min, max)
+            VariableEncoding.qubitCount encoding
         | CategoricalVar(categories) -> categories.Length
     
     // Helper: Generate qubit names for a variable
@@ -200,7 +217,9 @@ module QuboEncoding =
         match varType with
         | BinaryVar -> [varName]
         | IntegerVar(min, max) ->
-            [min .. max] |> List.map (fun i -> sprintf "%s_%d" varName i)
+            // Use BoundedInteger encoding - generate qubit names as bit indices
+            let numQubits = qubitCountFor varType
+            List.init numQubits (fun i -> sprintf "%s_bit%d" varName i)
         | CategoricalVar(categories) ->
             categories |> List.map (fun cat -> sprintf "%s_%s" varName cat)
     
@@ -254,8 +273,9 @@ module QuboEncoding =
             | BinaryVar ->
                 offset + 1
             | IntegerVar(min, max) ->
-                let numBits = max - min + 1
-                applyOneHotPenalty offset numBits
+                // BoundedInteger encoding doesn't need one-hot constraints
+                // (binary representation is naturally bounded)
+                let numBits = qubitCountFor var.VarType
                 offset + numBits
             | CategoricalVar(categories) ->
                 let numBits = categories.Length
@@ -317,16 +337,13 @@ module QuboEncoding =
                     (assignment :: accAssignments, offset + 1)
                 
                 | IntegerVar(min, max) ->
-                    let numBits = max - min + 1
+                    // Use BoundedInteger decoding (binary representation)
+                    let encoding = VariableEncoding.BoundedInteger(min, max)
+                    let numBits = VariableEncoding.qubitCount encoding
                     let bits = binarySolution.[offset .. offset + numBits - 1]
                     
-                    // Find which bit is set (one-hot decoding)
-                    let value =
-                        bits
-                        |> List.indexed
-                        |> List.tryFind (fun (_, bit) -> bit = 1)
-                        |> Option.map (fun (idx, _) -> min + idx)
-                        |> Option.defaultValue min
+                    // Decode using BoundedInteger (LSB first binary encoding)
+                    let value = VariableEncoding.decode encoding bits
                     
                     let assignment = { Name = var.Name; Value = value }
                     (assignment :: accAssignments, offset + numBits)

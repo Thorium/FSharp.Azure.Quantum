@@ -289,6 +289,24 @@ module QuantumLinearSystemSolver =
         [<CustomOperation("shots")>]
         member _.Shots(problem: LinearSystemProblem, n: int) : LinearSystemProblem =
             { problem with Shots = Some n }
+        
+        /// <summary>
+        /// Finalize and validate the problem.
+        /// Checks matrix properties, vector compatibility, and qubit limits.
+        /// </summary>
+        /// <param name="problem">Linear system problem to validate</param>
+        /// <returns>Validated problem or error message</returns>
+        /// <remarks>
+        /// Validation checks:
+        /// - Eigenvalue qubits: 2-12 (practical range)
+        /// - Matrix dimension: 2-16 (power of 2)
+        /// - Vector dimension matches matrix
+        /// - Total qubits ≤ 20 (eigenvalue + solution + ancilla)
+        /// 
+        /// This method enables early error detection before executing the algorithm.
+        /// </remarks>
+        member _.Run(problem: LinearSystemProblem) : Result<LinearSystemProblem, string> =
+            validate problem |> Result.map (fun _ -> problem)
     
     /// <summary>
     /// Create computation expression builder instance.
@@ -420,13 +438,15 @@ module QuantumLinearSystemSolver =
     let solve2x2 (a11: float) (a12: float) (a21: float) (a22: float) (b1: float) (b2: float) 
         : Result<LinearSystemSolution, string> =
         
-        let problem = linearSystemSolver {
+        let problemResult = linearSystemSolver {
             matrix [[a11; a12]; [a21; a22]]
             vector [b1; b2]
             precision 4
         }
         
-        solve problem
+        match problemResult with
+        | Error msg -> Error msg
+        | Ok problem -> solve problem
     
     /// <summary>
     /// Solve diagonal system (eigenvalues known).
@@ -437,10 +457,12 @@ module QuantumLinearSystemSolver =
     let solveDiagonal (eigenvalues: float list) (inputVector: float list) 
         : Result<LinearSystemSolution, string> =
         
-        let problem = linearSystemSolver {
+        let problemResult = linearSystemSolver {
             diagonalMatrix eigenvalues
             vector inputVector
             precision 6
         }
         
-        solve problem
+        match problemResult with
+        | Error msg -> Error msg
+        | Ok problem -> solve problem

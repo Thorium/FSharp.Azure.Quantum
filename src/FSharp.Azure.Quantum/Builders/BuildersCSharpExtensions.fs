@@ -4,7 +4,10 @@ open System
 open System.Collections.Generic
 open System.Runtime.CompilerServices
 open System.Runtime.InteropServices
+open System.Threading.Tasks
 open Microsoft.FSharp.Collections
+open FSharp.Azure.Quantum.Core.BackendAbstraction
+open FSharp.Azure.Quantum.Core.CircuitAbstraction
 
 /// <summary>
 /// C#-friendly extensions for ALL builder APIs in FSharp.Azure.Quantum.
@@ -108,6 +111,43 @@ module BuildersCSharpExtensions =
     [<Extension>]
     let BindResult (result: Result<'T, 'E>) (binder: System.Func<'T, Result<'U, 'E>>) : Result<'U, 'E> =
         Result.bind binder.Invoke result
+    
+    /// <summary>Check if Result is Ok (C# helper).</summary>
+    [<Extension>]
+    let IsOk (result: Result<'T, 'E>) : bool =
+        match result with
+        | Ok _ -> true
+        | Error _ -> false
+    
+    /// <summary>Check if Result is Error (C# helper).</summary>
+    [<Extension>]
+    let IsError (result: Result<'T, 'E>) : bool =
+        match result with
+        | Ok _ -> false
+        | Error _ -> true
+    
+    /// <summary>Get Ok value from Result (throws if Error) (C# helper).</summary>
+    /// <exception cref="InvalidOperationException">Thrown when result is Error</exception>
+    [<Extension>]
+    let GetOkValue (result: Result<'T, 'E>) : 'T =
+        match result with
+        | Ok v -> v
+        | Error _ -> invalidOp "Cannot get Ok value from Error result"
+    
+    /// <summary>Get Error value from Result (throws if Ok) (C# helper).</summary>
+    /// <exception cref="InvalidOperationException">Thrown when result is Ok</exception>
+    [<Extension>]
+    let GetErrorValue (result: Result<'T, 'E>) : 'E =
+        match result with
+        | Ok _ -> invalidOp "Cannot get Error value from Ok result"
+        | Error e -> e
+    
+    /// <summary>Get Ok value or default (C# helper).</summary>
+    [<Extension>]
+    let GetOkValueOrDefault (result: Result<'T, 'E>) (defaultValue: 'T) : 'T =
+        match result with
+        | Ok v -> v
+        | Error _ -> defaultValue
     
     // ============================================================================
     // TUPLE CONVERSIONS - C# Value Tuples <-> F# Tuples
@@ -521,3 +561,103 @@ type CSharpBuilders private () =
     static member ExecutePhaseEstimator(problem: QuantumPhaseEstimator.PhaseEstimatorProblem) =
         QuantumPhaseEstimator.estimate problem
 
+// ============================================================================
+// QUANTUM BACKEND EXTENSIONS - Task-based Async for C#
+// ============================================================================
+
+/// <summary>
+/// C# extensions for IQuantumBackend to enable Task-based async/await.
+/// </summary>
+/// <remarks>
+/// These extensions convert F# Async to C# Task for idiomatic async/await usage.
+/// 
+/// Example (C#):
+/// <code>
+/// var backend = BackendAbstraction.CreateFromWorkspace(workspace, "ionq.simulator");
+/// var result = await backend.ExecuteAsyncTask(circuit, 1000);
+/// 
+/// if (result.IsOk())
+/// {
+///     var execResult = result.GetOkValue();
+///     Console.WriteLine($"Shots: {execResult.NumShots}");
+/// }
+/// else
+/// {
+///     Console.WriteLine($"Error: {result.GetErrorValue()}");
+/// }
+/// </code>
+/// </remarks>
+[<Extension>]
+module QuantumBackendCSharpExtensions =
+    
+    /// <summary>
+    /// Execute a quantum circuit asynchronously using C# Task (enables async/await).
+    /// </summary>
+    /// <param name="backend">The quantum backend</param>
+    /// <param name="circuit">Circuit to execute (ICircuit interface)</param>
+    /// <param name="numShots">Number of measurement shots</param>
+    /// <returns>Task with execution result or error message</returns>
+    /// <remarks>
+    /// This method converts F# Async to C# Task for idiomatic async/await usage.
+    /// For F# code, use ExecuteAsync directly.
+    /// 
+    /// The returned Result can be checked using extension methods:
+    /// - result.IsOk() - Returns true if execution succeeded
+    /// - result.IsError() - Returns true if execution failed
+    /// - result.GetOkValue() - Gets execution result (throws if error)
+    /// - result.GetErrorValue() - Gets error message (throws if ok)
+    /// - result.GetOkValueOrDefault(defaultValue) - Gets value or default
+    /// </remarks>
+    /// <example>
+    /// C# async/await usage:
+    /// <code>
+    /// var backend = BackendAbstraction.CreateLocalBackend();
+    /// var result = await backend.ExecuteAsyncTask(circuit, 1000);
+    /// 
+    /// if (result.IsOk())
+    /// {
+    ///     var execResult = result.GetOkValue();
+    ///     Console.WriteLine($"Backend: {execResult.BackendName}");
+    ///     Console.WriteLine($"Shots: {execResult.NumShots}");
+    ///     
+    ///     // Process measurements (int[][])
+    ///     foreach (var measurement in execResult.Measurements)
+    ///     {
+    ///         Console.WriteLine(string.Join("", measurement));
+    ///     }
+    /// }
+    /// </code>
+    /// </example>
+    [<Extension>]
+    let ExecuteAsyncTask 
+        (backend: IQuantumBackend) 
+        (circuit: ICircuit) 
+        (numShots: int) : Task<Result<ExecutionResult, string>> =
+        backend.ExecuteAsync circuit numShots |> Async.StartAsTask
+    
+    /// <summary>
+    /// Get backend name (C# property helper).
+    /// </summary>
+    /// <param name="backend">The quantum backend</param>
+    /// <returns>Backend name (e.g., "Local Simulator", "IonQ Simulator")</returns>
+    [<Extension>]
+    let GetName (backend: IQuantumBackend) : string =
+        backend.Name
+    
+    /// <summary>
+    /// Get maximum qubits supported by backend (C# property helper).
+    /// </summary>
+    /// <param name="backend">The quantum backend</param>
+    /// <returns>Maximum number of qubits</returns>
+    [<Extension>]
+    let GetMaxQubits (backend: IQuantumBackend) : int =
+        backend.MaxQubits
+    
+    /// <summary>
+    /// Get supported gate types (C# array helper).
+    /// </summary>
+    /// <param name="backend">The quantum backend</param>
+    /// <returns>Array of supported gate names</returns>
+    [<Extension>]
+    let GetSupportedGates (backend: IQuantumBackend) : string[] =
+        backend.SupportedGates |> List.toArray

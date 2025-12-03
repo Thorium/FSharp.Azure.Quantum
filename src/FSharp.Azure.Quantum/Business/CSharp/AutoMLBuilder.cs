@@ -1,0 +1,579 @@
+using System;
+using System.Linq;
+using FSharp.Azure.Quantum.Core.BackendAbstraction;
+using Microsoft.FSharp.Core;
+using Microsoft.FSharp.Collections;
+
+namespace FSharp.Azure.Quantum.Business.CSharp
+{
+    /// <summary>
+    /// C# Fluent API for Automated Machine Learning (AutoML)
+    /// 
+    /// The simplest possible ML API - just provide your data and AutoML finds the best model automatically.
+    /// 
+    /// What AutoML Does:
+    /// 1. Analyzes your data to understand the problem type
+    /// 2. Tries multiple model types (binary/multi-class classification, regression, anomaly detection)
+    /// 3. Tests different architectures (Quantum, Hybrid, Classical)
+    /// 4. Tunes hyperparameters automatically
+    /// 5. Returns the best performing model with a detailed report
+    /// 
+    /// Perfect For:
+    /// - Quick prototyping: "Just give me a working model"
+    /// - Non-experts: Don't know which algorithm to use
+    /// - Baseline comparison: See what's possible
+    /// - Model selection: Which approach works best?
+    /// 
+    /// Example:
+    /// <code>
+    /// // Minimal usage - AutoML figures everything out
+    /// var result = new AutoMLBuilder()
+    ///     .WithData(features, labels)
+    ///     .Build();
+    ///     
+    /// Console.WriteLine($"Best model: {result.BestModelType}");
+    /// Console.WriteLine($"Score: {result.Score * 100:F2}%");
+    /// 
+    /// var prediction = result.Predict(newSample);
+    /// </code>
+    /// </summary>
+    public class AutoMLBuilder
+    {
+        private double[][] _trainFeatures;
+        private double[] _trainLabels;
+        private bool _tryBinaryClassification = true;
+        private int? _tryMultiClass = null;  // Auto-detect
+        private bool _tryAnomalyDetection = true;
+        private bool _tryRegression = true;
+        private bool _trySimilaritySearch = false;
+        private SearchArchitecture[] _tryArchitectures = new[] 
+        { 
+            SearchArchitecture.Quantum, 
+            SearchArchitecture.Hybrid, 
+            SearchArchitecture.Classical 
+        };
+        private int _maxTrials = 20;
+        private int? _maxTimeMinutes = null;
+        private double _validationSplit = 0.2;
+        private IQuantumBackend _backend = null;
+        private bool _verbose = false;
+        private string _savePath = null;
+        private int? _randomSeed = null;
+
+        /// <summary>
+        /// Set training data (features and labels).
+        /// AutoML will automatically detect the problem type from your labels.
+        /// </summary>
+        public AutoMLBuilder WithData(double[][] features, double[] labels)
+        {
+            _trainFeatures = features;
+            _trainLabels = labels;
+            return this;
+        }
+
+        /// <summary>
+        /// Set training data with integer labels (convenience for classification).
+        /// </summary>
+        public AutoMLBuilder WithData(double[][] features, int[] labels)
+        {
+            _trainFeatures = features;
+            _trainLabels = labels.Select(l => (double)l).ToArray();
+            return this;
+        }
+
+        /// <summary>
+        /// Enable/disable binary classification trials.
+        /// Default: true (enabled if data has 2 unique labels)
+        /// </summary>
+        public AutoMLBuilder TryBinaryClassification(bool enable = true)
+        {
+            _tryBinaryClassification = enable;
+            return this;
+        }
+
+        /// <summary>
+        /// Enable multi-class classification trials with specified number of classes.
+        /// If not set, AutoML will auto-detect from labels.
+        /// </summary>
+        public AutoMLBuilder TryMultiClass(int numClasses)
+        {
+            _tryMultiClass = numClasses;
+            return this;
+        }
+
+        /// <summary>
+        /// Enable/disable anomaly detection trials.
+        /// Default: true
+        /// </summary>
+        public AutoMLBuilder TryAnomalyDetection(bool enable = true)
+        {
+            _tryAnomalyDetection = enable;
+            return this;
+        }
+
+        /// <summary>
+        /// Enable/disable regression trials.
+        /// Default: true (enabled if data has many unique values)
+        /// </summary>
+        public AutoMLBuilder TryRegression(bool enable = true)
+        {
+            _tryRegression = enable;
+            return this;
+        }
+
+        /// <summary>
+        /// Enable/disable similarity search trials.
+        /// Default: false (computationally expensive)
+        /// </summary>
+        public AutoMLBuilder TrySimilaritySearch(bool enable = true)
+        {
+            _trySimilaritySearch = enable;
+            return this;
+        }
+
+        /// <summary>
+        /// Specify which architectures to test.
+        /// Default: All (Quantum, Hybrid, Classical)
+        /// </summary>
+        public AutoMLBuilder WithArchitectures(params SearchArchitecture[] architectures)
+        {
+            _tryArchitectures = architectures;
+            return this;
+        }
+
+        /// <summary>
+        /// Set maximum number of trials (model configurations to try).
+        /// Default: 20
+        /// Higher = more thorough search but slower.
+        /// </summary>
+        public AutoMLBuilder WithMaxTrials(int maxTrials)
+        {
+            _maxTrials = maxTrials;
+            return this;
+        }
+
+        /// <summary>
+        /// Set maximum time budget in minutes.
+        /// Search will stop after this time even if not all trials completed.
+        /// Default: No limit
+        /// </summary>
+        public AutoMLBuilder WithMaxTimeMinutes(int minutes)
+        {
+            _maxTimeMinutes = minutes;
+            return this;
+        }
+
+        /// <summary>
+        /// Set train/validation split ratio.
+        /// Default: 0.2 (20% validation, 80% training)
+        /// </summary>
+        public AutoMLBuilder WithValidationSplit(double split)
+        {
+            _validationSplit = split;
+            return this;
+        }
+
+        /// <summary>
+        /// Specify quantum backend to use.
+        /// Default: LocalBackend (simulation)
+        /// </summary>
+        public AutoMLBuilder WithBackend(IQuantumBackend backend)
+        {
+            _backend = backend;
+            return this;
+        }
+
+        /// <summary>
+        /// Enable verbose logging to see trial progress.
+        /// Default: false
+        /// </summary>
+        public AutoMLBuilder WithVerbose(bool verbose = true)
+        {
+            _verbose = verbose;
+            return this;
+        }
+
+        /// <summary>
+        /// Save best model to specified path.
+        /// </summary>
+        public AutoMLBuilder SaveBestModelTo(string path)
+        {
+            _savePath = path;
+            return this;
+        }
+
+        /// <summary>
+        /// Set random seed for reproducibility.
+        /// </summary>
+        public AutoMLBuilder WithRandomSeed(int seed)
+        {
+            _randomSeed = seed;
+            return this;
+        }
+
+        /// <summary>
+        /// Run AutoML search to find the best model.
+        /// This will try multiple model types, architectures, and hyperparameters.
+        /// Returns the best model found with a detailed report.
+        /// </summary>
+        /// <exception cref="InvalidOperationException">Thrown if search fails.</exception>
+        public IAutoMLResult Build()
+        {
+            // Build F# problem specification
+            var problem = new AutoML.AutoMLProblem(
+                TrainFeatures: _trainFeatures,
+                TrainLabels: _trainLabels,
+                TryBinaryClassification: _tryBinaryClassification,
+                TryMultiClass: _tryMultiClass.HasValue 
+                    ? FSharpOption<int>.Some(_tryMultiClass.Value) 
+                    : FSharpOption<int>.None,
+                TryAnomalyDetection: _tryAnomalyDetection,
+                TryRegression: _tryRegression,
+                TrySimilaritySearch: _trySimilaritySearch,
+                TryArchitectures: ListModule.OfArray(_tryArchitectures.Select(ConvertArchitecture).ToArray()),
+                MaxTrials: _maxTrials,
+                MaxTimeMinutes: _maxTimeMinutes.HasValue 
+                    ? FSharpOption<int>.Some(_maxTimeMinutes.Value) 
+                    : FSharpOption<int>.None,
+                ValidationSplit: _validationSplit,
+                Backend: _backend != null 
+                    ? FSharpOption<IQuantumBackend>.Some(_backend) 
+                    : FSharpOption<IQuantumBackend>.None,
+                Verbose: _verbose,
+                SavePath: _savePath != null 
+                    ? FSharpOption<string>.Some(_savePath) 
+                    : FSharpOption<string>.None,
+                RandomSeed: _randomSeed.HasValue 
+                    ? FSharpOption<int>.Some(_randomSeed.Value) 
+                    : FSharpOption<int>.None
+            );
+
+            // Run AutoML search
+            var result = AutoML.search(problem);
+
+            if (FSharpResult<AutoML.AutoMLResult, string>.get_IsError(result))
+            {
+                var error = ((FSharpResult<AutoML.AutoMLResult, string>.Error)result).ErrorValue;
+                throw new InvalidOperationException($"AutoML search failed: {error}");
+            }
+
+            var automlResult = ((FSharpResult<AutoML.AutoMLResult, string>.Ok)result).ResultValue;
+            return new AutoMLResultWrapper(automlResult);
+        }
+
+        private static AutoML.Architecture ConvertArchitecture(SearchArchitecture arch)
+        {
+            return arch switch
+            {
+                SearchArchitecture.Quantum => AutoML.Architecture.Quantum,
+                SearchArchitecture.Hybrid => AutoML.Architecture.Hybrid,
+                SearchArchitecture.Classical => AutoML.Architecture.Classical,
+                _ => AutoML.Architecture.Quantum
+            };
+        }
+    }
+
+    /// <summary>
+    /// Architecture options for AutoML search.
+    /// </summary>
+    public enum SearchArchitecture
+    {
+        /// <summary>Pure quantum model using variational circuits.</summary>
+        Quantum,
+        
+        /// <summary>Hybrid quantum-classical using quantum kernels.</summary>
+        Hybrid,
+        
+        /// <summary>Classical baseline for comparison.</summary>
+        Classical
+    }
+
+    /// <summary>
+    /// AutoML search result with best model and detailed report.
+    /// </summary>
+    public interface IAutoMLResult
+    {
+        /// <summary>Best model type found (e.g., "Binary Classification", "Regression").</summary>
+        string BestModelType { get; }
+
+        /// <summary>Best architecture found.</summary>
+        SearchArchitecture BestArchitecture { get; }
+
+        /// <summary>Validation score of best model (accuracy for classification, R² for regression).</summary>
+        double Score { get; }
+
+        /// <summary>All trial results (for analysis).</summary>
+        TrialResult[] AllTrials { get; }
+
+        /// <summary>Total time spent searching.</summary>
+        TimeSpan TotalSearchTime { get; }
+
+        /// <summary>Number of successful trials.</summary>
+        int SuccessfulTrials { get; }
+
+        /// <summary>Number of failed trials.</summary>
+        int FailedTrials { get; }
+
+        /// <summary>Model metadata.</summary>
+        AutoMLMetadata Metadata { get; }
+
+        /// <summary>
+        /// Make prediction with the best model.
+        /// Returns appropriate prediction type based on model type.
+        /// </summary>
+        object Predict(double[] features);
+
+        /// <summary>
+        /// Get best hyperparameters found.
+        /// </summary>
+        HyperparameterConfig BestHyperparameters { get; }
+    }
+
+    /// <summary>
+    /// Single trial result from AutoML search.
+    /// </summary>
+    public class TrialResult
+    {
+        /// <summary>Trial ID.</summary>
+        public int Id { get; init; }
+
+        /// <summary>Model type tested.</summary>
+        public string ModelType { get; init; }
+
+        /// <summary>Architecture used.</summary>
+        public SearchArchitecture Architecture { get; init; }
+
+        /// <summary>Hyperparameters used.</summary>
+        public HyperparameterConfig Hyperparameters { get; init; }
+
+        /// <summary>Validation score achieved.</summary>
+        public double Score { get; init; }
+
+        /// <summary>Training time.</summary>
+        public TimeSpan TrainingTime { get; init; }
+
+        /// <summary>Whether trial succeeded.</summary>
+        public bool Success { get; init; }
+
+        /// <summary>Error message (if failed).</summary>
+        public string ErrorMessage { get; init; }
+    }
+
+    /// <summary>
+    /// Hyperparameter configuration.
+    /// </summary>
+    public class HyperparameterConfig
+    {
+        /// <summary>Learning rate.</summary>
+        public double LearningRate { get; init; }
+
+        /// <summary>Maximum training epochs.</summary>
+        public int MaxEpochs { get; init; }
+
+        /// <summary>Convergence threshold.</summary>
+        public double ConvergenceThreshold { get; init; }
+
+        /// <summary>Number of measurement shots.</summary>
+        public int Shots { get; init; }
+    }
+
+    /// <summary>
+    /// AutoML metadata.
+    /// </summary>
+    public class AutoMLMetadata
+    {
+        public int NumFeatures { get; init; }
+        public int NumSamples { get; init; }
+        public DateTime CreatedAt { get; init; }
+        public DateTime SearchCompleted { get; init; }
+        public string Note { get; init; }
+    }
+
+    // ============================================================================
+    // INTERNAL WRAPPER - Hides F# types from C# consumers
+    // ============================================================================
+
+    internal class AutoMLResultWrapper : IAutoMLResult
+    {
+        private readonly AutoML.AutoMLResult _result;
+
+        public AutoMLResultWrapper(AutoML.AutoMLResult result)
+        {
+            _result = result;
+        }
+
+        public string BestModelType => _result.BestModelType;
+
+        public SearchArchitecture BestArchitecture
+        {
+            get
+            {
+                return _result.BestArchitecture.IsQuantum ? SearchArchitecture.Quantum
+                    : _result.BestArchitecture.IsHybrid ? SearchArchitecture.Hybrid
+                    : SearchArchitecture.Classical;
+            }
+        }
+
+        public double Score => _result.Score;
+
+        public TrialResult[] AllTrials
+        {
+            get
+            {
+                return _result.AllTrials.Select(t => new TrialResult
+                {
+                    Id = t.Id,
+                    ModelType = ConvertModelType(t.ModelType),
+                    Architecture = t.Architecture.IsQuantum ? SearchArchitecture.Quantum
+                        : t.Architecture.IsHybrid ? SearchArchitecture.Hybrid
+                        : SearchArchitecture.Classical,
+                    Hyperparameters = new HyperparameterConfig
+                    {
+                        LearningRate = t.Hyperparameters.LearningRate,
+                        MaxEpochs = t.Hyperparameters.MaxEpochs,
+                        ConvergenceThreshold = t.Hyperparameters.ConvergenceThreshold,
+                        Shots = t.Hyperparameters.Shots
+                    },
+                    Score = t.Score,
+                    TrainingTime = t.TrainingTime,
+                    Success = t.Success,
+                    ErrorMessage = FSharpOption<string>.get_IsSome(t.ErrorMessage) 
+                        ? t.ErrorMessage.Value 
+                        : null
+                }).ToArray();
+            }
+        }
+
+        public TimeSpan TotalSearchTime => _result.TotalSearchTime;
+
+        public int SuccessfulTrials => _result.SuccessfulTrials;
+
+        public int FailedTrials => _result.FailedTrials;
+
+        public AutoMLMetadata Metadata
+        {
+            get
+            {
+                var meta = _result.Metadata;
+                return new AutoMLMetadata
+                {
+                    NumFeatures = meta.NumFeatures,
+                    NumSamples = meta.NumSamples,
+                    CreatedAt = meta.CreatedAt,
+                    SearchCompleted = meta.SearchCompleted,
+                    Note = FSharpOption<string>.get_IsSome(meta.Note) ? meta.Note.Value : null
+                };
+            }
+        }
+
+        public HyperparameterConfig BestHyperparameters
+        {
+            get
+            {
+                var hp = _result.BestHyperparameters;
+                return new HyperparameterConfig
+                {
+                    LearningRate = hp.LearningRate,
+                    MaxEpochs = hp.MaxEpochs,
+                    ConvergenceThreshold = hp.ConvergenceThreshold,
+                    Shots = hp.Shots
+                };
+            }
+        }
+
+        public object Predict(double[] features)
+        {
+            var result = AutoML.predict(features, _result);
+
+            if (FSharpResult<AutoML.Prediction, string>.get_IsError(result))
+            {
+                var error = ((FSharpResult<AutoML.Prediction, string>.Error)result).ErrorValue;
+                throw new InvalidOperationException($"Prediction failed: {error}");
+            }
+
+            var prediction = ((FSharpResult<AutoML.Prediction, string>.Ok)result).ResultValue;
+
+            // Unwrap F# discriminated union
+            if (prediction.IsBinaryPrediction)
+            {
+                var binaryPred = ((AutoML.Prediction.BinaryPrediction)prediction).Item;
+                return new ClassificationResult
+                {
+                    Label = binaryPred.Label,
+                    Confidence = binaryPred.Confidence,
+                    IsPositive = binaryPred.IsPositive,
+                    IsNegative = binaryPred.IsNegative
+                };
+            }
+            else if (prediction.IsCategoryPrediction)
+            {
+                var categoryPred = ((AutoML.Prediction.CategoryPrediction)prediction).Item;
+                return new CategoryPrediction
+                {
+                    Category = categoryPred.Category,
+                    Confidence = categoryPred.Confidence,
+                    Probabilities = categoryPred.Probabilities,
+                    ModelType = categoryPred.ModelType
+                };
+            }
+            else if (prediction.IsRegressionPrediction)
+            {
+                var regressionPred = ((AutoML.Prediction.RegressionPrediction)prediction).Item;
+                
+                (double, double)? confidenceInterval = null;
+                if (FSharpOption<Tuple<double, double>>.get_IsSome(regressionPred.ConfidenceInterval))
+                {
+                    var ci = regressionPred.ConfidenceInterval.Value;
+                    confidenceInterval = (ci.Item1, ci.Item2);
+                }
+
+                return new RegressionPrediction
+                {
+                    Value = regressionPred.Value,
+                    ConfidenceInterval = confidenceInterval,
+                    ModelType = regressionPred.ModelType
+                };
+            }
+            else if (prediction.IsAnomalyPrediction)
+            {
+                var anomalyPred = ((AutoML.Prediction.AnomalyPrediction)prediction).Item;
+                return new AnomalyResult
+                {
+                    IsAnomaly = anomalyPred.IsAnomaly,
+                    AnomalyScore = anomalyPred.AnomalyScore,
+                    Threshold = anomalyPred.Threshold
+                };
+            }
+            else
+            {
+                throw new InvalidOperationException("Unknown prediction type");
+            }
+        }
+
+        private string ConvertModelType(AutoML.ModelType modelType)
+        {
+            if (modelType.IsBinaryClassification)
+                return "Binary Classification";
+            else if (modelType.IsMultiClassClassification)
+                return $"Multi-Class Classification ({((AutoML.ModelType.MultiClassClassification)modelType).Item} classes)";
+            else if (modelType.IsRegression)
+                return "Regression";
+            else if (modelType.IsAnomalyDetection)
+                return "Anomaly Detection";
+            else if (modelType.IsSimilaritySearch)
+                return "Similarity Search";
+            else
+                return "Unknown";
+        }
+    }
+
+    /// <summary>
+    /// Anomaly detection result (simplified for C# consumers).
+    /// </summary>
+    public class AnomalyResult
+    {
+        public bool IsAnomaly { get; init; }
+        public double AnomalyScore { get; init; }
+        public double Threshold { get; init; }
+    }
+}

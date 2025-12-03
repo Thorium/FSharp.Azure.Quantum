@@ -10,6 +10,9 @@ Computation expressions provide a declarative, F#-idiomatic way to construct qua
 
 | CE Name | Description | Custom Operations |
 |---------|-------------|-------------------|
+| **anomalyDetection** | Detect outliers and anomalies in data | `trainOnNormalData`, `sensitivity`, `contaminationRate`, `backend`, `shots`, `verbose`, `saveModelTo`, `note` |
+| **autoML** | Automated ML - finds best model automatically | `trainWith`, `tryBinaryClassification`, `tryMultiClass`, `tryAnomalyDetection`, `tryRegression`, `trySimilaritySearch`, `tryArchitectures`, `maxTrials`, `maxTimeMinutes`, `validationSplit`, `backend`, `verbose`, `saveModelTo`, `randomSeed` |
+| **binaryClassification** | Classify items into two categories | `trainWith`, `architecture`, `learningRate`, `maxEpochs`, `convergenceThreshold`, `backend`, `shots`, `verbose`, `saveModelTo`, `note` |
 | **circuit** | Build quantum circuits with gates and loops | `qubits`, `H`, `X`, `Y`, `Z`, `S`, `SDG`, `T`, `TDG`, `P`, `RX`, `RY`, `RZ`, `CNOT`, `CZ`, `CP`, `SWAP`, `CCX` |
 | **coloredNode** | Define a node in graph coloring problem | `nodeId`, `conflictsWith`, `fixedColor`, `priority`, `avoidColors`, `property` |
 | **constraintSolver<'T>** | Define constraint satisfaction problems (CSP) | `searchSpace`, `domain`, `satisfies`, `backend`, `maxIterations`, `shots` |
@@ -17,11 +20,13 @@ Computation expressions provide a declarative, F#-idiomatic way to construct qua
 | **patternMatcher<'T>** | Define quantum pattern matching problems | `searchSpace`, `searchSpaceSize`, `matchPattern`, `findTop`, `backend`, `maxIterations`, `shots` |
 | **periodFinder** | Define period finding (Shor's algorithm) | `number`, `chosenBase`, `precision`, `maxAttempts`, `backend`, `shots` |
 | **phaseEstimator** | Define quantum phase estimation (QPE) | `unitary`, `precision`, `targetQubits`, `eigenstate`, `backend`, `shots` |
+| **predictiveModel** | Predict continuous values or categories | `trainWith`, `problemType`, `architecture`, `learningRate`, `maxEpochs`, `convergenceThreshold`, `backend`, `shots`, `verbose`, `saveModelTo`, `note` |
 | **quantumArithmetic** | Define quantum arithmetic operations | `operands`, `operandA`, `operandB`, `operation`, `modulus`, `qubits`, `exponent`, `backend`, `shots` |
 | **quantumTreeSearch<'T>** | Define quantum tree search (game AI, decision trees) | `initialState`, `maxDepth`, `branchingFactor`, `evaluateWith`, `generateMovesWith`, `topPercentile`, `backend`, `shots`, `solutionThreshold`, `successThreshold`, `maxPaths`, `limitSearchSpace`, `maxIterations` |
 | **resource<'T>** | Define scheduling resources | `resourceId`, `capacity`, `costPerUnit`, `availableWindow` |
 | **scheduledTask<'T>** | Define tasks for scheduling | `taskId`, `duration`, `after`, `afterMultiple`, `requires`, `priority`, `deadline`, `earliestStart` |
 | **schedulingProblem<'T>** | Define complete scheduling problems | `tasks`, `resources`, `objective`, `timeHorizon` |
+| **similaritySearch** | Find similar items using quantum kernels | `indexItems`, `similarityMetric`, `threshold`, `backend`, `shots`, `verbose`, `saveIndexTo`, `note` |
 
 ---
 
@@ -381,6 +386,250 @@ let problem = schedulingProblem<string> {
 - `resources` - Available resources
 - `objective` - Optimization objective (MinimizeMakespan | MinimizeCost | BalanceLoad)
 - `timeHorizon` - Total time available for scheduling
+
+---
+
+### 13. anomalyDetection
+
+**Module**: `FSharp.Azure.Quantum.Business`
+
+**Purpose**: Detect outliers and anomalies in data using quantum one-class classification
+
+**Example**:
+```fsharp
+let detector = anomalyDetection {
+    trainOnNormalData normalTransactions  // Only normal examples needed
+    sensitivity High                       // High sensitivity to detect subtle anomalies
+    contaminationRate 0.1                  // Expect ~10% anomalies
+    shots 1000
+}
+
+match detector with
+| Ok model ->
+    let result = AnomalyDetector.detect suspiciousTransaction model
+    if result.IsAnomaly then
+        printfn "⚠️ Anomaly detected! Score: %.2f" result.AnomalyScore
+| Error e -> printfn "Training failed: %s" e
+```
+
+**Custom Operations**:
+- `trainOnNormalData` - Training data (normal examples only)
+- `sensitivity` - Detection sensitivity (Low | Medium | High)
+- `contaminationRate` - Expected percentage of anomalies (default: 0.1)
+- `backend` - Quantum backend to use (None = LocalBackend)
+- `shots` - Number of measurement shots (default: 1000)
+- `verbose` - Enable verbose logging (default: false)
+- `saveModelTo` - Path to save trained model
+- `note` - Optional note about the model
+
+**Use Cases**:
+- Security threat detection
+- Fraud detection
+- Quality control
+- System monitoring
+- Network intrusion detection
+
+---
+
+### 14. autoML
+
+**Module**: `FSharp.Azure.Quantum.Business`
+
+**Purpose**: Automated machine learning - tries multiple approaches and returns the best model automatically
+
+**Example**:
+```fsharp
+let result = autoML {
+    trainWith features labels
+    
+    // Optional: Control search space
+    tryBinaryClassification true
+    tryMultiClass 4
+    tryRegression true
+    tryAnomalyDetection false
+    
+    // Architectures to test
+    tryArchitectures [Quantum; Hybrid; Classical]
+    
+    // Search budget
+    maxTrials 20
+    maxTimeMinutes 10
+    
+    verbose true
+}
+
+match result with
+| Ok model ->
+    printfn "Best model: %s (%.2f%%)" model.BestModelType (model.Score * 100.0)
+    let prediction = AutoML.predict newSample model
+| Error e -> printfn "AutoML failed: %s" e
+```
+
+**Custom Operations**:
+- `trainWith` - Training features and labels
+- `tryBinaryClassification` - Enable binary classification trials (default: true)
+- `tryMultiClass` - Enable multi-class with N classes (default: auto-detect)
+- `tryAnomalyDetection` - Enable anomaly detection trials (default: true)
+- `tryRegression` - Enable regression trials (default: true)
+- `trySimilaritySearch` - Enable similarity search trials (default: false)
+- `tryArchitectures` - List of architectures to test (default: [Quantum; Hybrid; Classical])
+- `maxTrials` - Maximum number of trials (default: 20)
+- `maxTimeMinutes` - Maximum search time in minutes (default: None)
+- `validationSplit` - Train/validation split ratio (default: 0.2)
+- `backend` - Quantum backend to use (None = LocalBackend)
+- `verbose` - Enable verbose logging (default: false)
+- `saveModelTo` - Path to save best model
+- `randomSeed` - Random seed for reproducibility (default: None)
+
+**Use Cases**:
+- Quick prototyping
+- Model selection
+- Baseline comparison
+- Non-expert users
+
+---
+
+### 15. binaryClassification
+
+**Module**: `FSharp.Azure.Quantum.Business`
+
+**Purpose**: Classify items into two categories (yes/no, fraud/legitimate, spam/ham)
+
+**Example**:
+```fsharp
+let classifier = binaryClassification {
+    trainWith trainFeatures trainLabels
+    architecture Quantum
+    learningRate 0.01
+    maxEpochs 100
+    shots 1000
+}
+
+match classifier with
+| Ok model ->
+    let prediction = BinaryClassifier.predict newTransaction model
+    if prediction.IsFraud then
+        blockTransaction()
+| Error e -> printfn "Training failed: %s" e
+```
+
+**Custom Operations**:
+- `trainWith` - Training features (float[][]) and labels (int[]: 0 or 1)
+- `architecture` - Architecture choice (Quantum | Hybrid | Classical)
+- `learningRate` - Learning rate for training (default: 0.01)
+- `maxEpochs` - Maximum training epochs (default: 100)
+- `convergenceThreshold` - Convergence threshold (default: 0.001)
+- `backend` - Quantum backend to use (None = LocalBackend)
+- `shots` - Number of measurement shots (default: 1000)
+- `verbose` - Enable verbose logging (default: false)
+- `saveModelTo` - Path to save trained model
+- `note` - Optional note about the model
+
+**Use Cases**:
+- Fraud detection
+- Spam filtering
+- Churn prediction (yes/no)
+- Credit risk (approve/reject)
+- Quality control (pass/fail)
+- Medical diagnosis (disease/healthy)
+
+---
+
+### 16. predictiveModel
+
+**Module**: `FSharp.Azure.Quantum.Business`
+
+**Purpose**: Predict continuous values (regression) or categories (multi-class classification)
+
+**Example**:
+```fsharp
+// Regression: Predict revenue
+let revenueModel = predictiveModel {
+    trainWith customerFeatures revenueTargets
+    problemType Regression
+    learningRate 0.01
+    maxEpochs 100
+}
+
+// Multi-class: Predict churn timing
+let churnModel = predictiveModel {
+    trainWith customerFeatures churnLabels  // 0=Stay, 1=Churn30, 2=Churn60, 3=Churn90
+    problemType (MultiClass 4)
+    architecture Quantum
+    shots 1000
+}
+
+match churnModel with
+| Ok model ->
+    let prediction = PredictiveModel.predictCategory customer model
+    match prediction.Category with
+    | 0 -> printfn "Customer will stay"
+    | 1 -> printfn "⚠️ Churn risk in 30 days!"
+    | _ -> ()
+| Error e -> printfn "Training failed: %s" e
+```
+
+**Custom Operations**:
+- `trainWith` - Training features (float[][]) and targets (float[])
+- `problemType` - Problem type (Regression | MultiClass n)
+- `architecture` - Architecture choice (Quantum | Hybrid | Classical)
+- `learningRate` - Learning rate for training (default: 0.01)
+- `maxEpochs` - Maximum training epochs (default: 100)
+- `convergenceThreshold` - Convergence threshold (default: 0.001)
+- `backend` - Quantum backend to use (None = LocalBackend)
+- `shots` - Number of measurement shots (default: 1000)
+- `verbose` - Enable verbose logging (default: false)
+- `saveModelTo` - Path to save trained model
+- `note` - Optional note about the model
+
+**Use Cases**:
+- **Regression**: Revenue forecasting, demand prediction, customer LTV, risk scoring
+- **Multi-Class**: Churn timing prediction, customer segmentation, risk levels, lead scoring
+
+---
+
+### 17. similaritySearch
+
+**Module**: `FSharp.Azure.Quantum.Business`
+
+**Purpose**: Find similar items using quantum kernels
+
+**Example**:
+```fsharp
+let finder = similaritySearch<Product> {
+    indexItems productCatalog  // Array of (item, features)
+    similarityMetric CosineSimilarity
+    threshold 0.7              // Minimum similarity threshold
+    shots 1000
+}
+
+match finder with
+| Ok index ->
+    let similar = SimilarityFinder.findSimilar queryProduct 5 index
+    printfn "Top 5 similar products:"
+    similar |> Array.iter (fun (item, score) ->
+        printfn "  %A: %.2f%% similar" item (score * 100.0)
+    )
+| Error e -> printfn "Indexing failed: %s" e
+```
+
+**Custom Operations**:
+- `indexItems` - Items to index (('T * float array)[])
+- `similarityMetric` - Metric to use (CosineSimilarity | EuclideanDistance | QuantumKernel)
+- `threshold` - Minimum similarity threshold (default: 0.0)
+- `backend` - Quantum backend to use (None = LocalBackend)
+- `shots` - Number of measurement shots (default: 1000)
+- `verbose` - Enable verbose logging (default: false)
+- `saveIndexTo` - Path to save search index
+- `note` - Optional note about the index
+
+**Use Cases**:
+- Product recommendations
+- Duplicate detection
+- Content similarity
+- Clustering
+- Image similarity
+- Document matching
 
 ---
 

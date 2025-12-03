@@ -553,3 +553,4 @@ module Client =
             let timeout = defaultArg timeoutMs 1800000
 
             this.pollForCompletion jobId DateTimeOffset.UtcNow initialDelay maxDelay timeout ct
+

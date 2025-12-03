@@ -15,6 +15,7 @@ This directory contains **7 complete real-world example applications** demonstra
 | **[Kasino](./Kasino/)** | Subset Selection | 32x-181x quantum speedup | ~5ms | ✅ Complete |
 | **[Kasino_CSharp](./Kasino_CSharp/)** | Subset Selection (C# Interop) | 32x-181x quantum speedup | ~5ms | ✅ Complete |
 | **[QuantumChemistry](./QuantumChemistry/)** | Molecular Energy (VQE) | Drug discovery speedup | ~100ms | ✅ Complete |
+| **[IntegerVariables](./IntegerVariables/)** | Integer Encoding | 93% qubit savings | <1ms | ✅ Complete |
 
 ---
 
@@ -31,6 +32,7 @@ cd SupplyChain && dotnet fsi SupplyChain.fsx && cd ..
 cd Kasino && dotnet fsi Kasino.fsx && cd ..
 cd Kasino_CSharp/KasinoExample && dotnet run && cd ../..
 cd QuantumChemistry && dotnet fsi H2Molecule.fsx && cd ..
+cd IntegerVariables && dotnet fsi IntegerVariablesExample.fsx && cd ..
 ```
 
 ### Prerequisites

@@ -76,15 +76,11 @@ module HHLTests =
     
     [<Fact>]
     let ``linearSystemSolver builder accepts diagonal matrices`` () =
-        let problemResult = linearSystemSolver {
+        let problem = linearSystemSolver {
             diagonalMatrix [2.0; 4.0; 8.0; 16.0]
             vector [1.0; 0.0; 0.0; 0.0]
             precision 5
         }
-        
-        let problem = match problemResult with
-                      | Ok p -> p
-                      | Error msg -> failwith $"Builder validation failed: {msg}"
         
         Assert.Equal(4, problem.Matrix.Dimension)
         Assert.True(problem.Matrix.IsDiagonal)
@@ -92,17 +88,13 @@ module HHLTests =
     
     [<Fact>]
     let ``linearSystemSolver builder accepts custom settings`` () =
-        let problemResult = linearSystemSolver {
+        let problem = linearSystemSolver {
             matrix [[2.0; 0.0]; [0.0; 1.0]]
             vector [1.0; 0.0]
             eigenvalueQubits 6
             minEigenvalue 0.001
             inversionMethod (LinearApproximation 1.0)
         }
-        
-        let problem = match problemResult with
-                      | Ok p -> p
-                      | Error msg -> failwith $"Builder validation failed: {msg}"
         
         Assert.Equal(6, problem.EigenvalueQubits)
         Assert.Equal(0.001, problem.MinEigenvalue)
@@ -170,15 +162,11 @@ module HHLTests =
     
     [<Fact>]
     let ``solve with linearSystemSolver builder produces result`` () =
-        let problemResult = linearSystemSolver {
+        let problem = linearSystemSolver {
             matrix [[2.0; 0.0]; [0.0; 1.0]]
             vector [1.0; 0.0]
             precision 4
         }
-        
-        let problem = match problemResult with
-                      | Ok p -> p
-                      | Error msg -> failwith $"Builder validation failed: {msg}"
         
         match solve problem with
         | Error msg ->
@@ -195,14 +183,10 @@ module HHLTests =
     
     [<Fact>]
     let ``solve rejects singular matrices`` () =
-        let problemResult = linearSystemSolver {
+        let problem = linearSystemSolver {
             diagonalMatrix [1.0; 0.0]  // Singular (zero eigenvalue)
             vector [1.0; 0.0]
         }
-        
-        let problem = match problemResult with
-                      | Ok p -> p
-                      | Error msg -> failwith $"Builder validation failed: {msg}"
         
         match solve problem with
         | Error msg ->
@@ -216,14 +200,10 @@ module HHLTests =
     [<Fact>]
     let ``solve handles ill-conditioned matrices`` () =
         // High condition number: κ = 1000
-        let problemResult = linearSystemSolver {
+        let problem = linearSystemSolver {
             diagonalMatrix [1000.0; 1.0]
             vector [1.0; 0.0]
         }
-        
-        let problem = match problemResult with
-                      | Ok p -> p
-                      | Error msg -> failwith $"Builder validation failed: {msg}"
         
         match solve problem with
         | Error msg ->
@@ -247,19 +227,18 @@ module HHLTests =
     
     [<Fact>]
     let ``solve validates eigenvalue qubits range`` () =
-        // Too few qubits - validation now happens in builder Run()
-        let problemResult = linearSystemSolver {
+        // Too few qubits - validation happens in solve()
+        let problem = linearSystemSolver {
             matrix [[2.0; 0.0]; [0.0; 1.0]]
             vector [1.0; 0.0]
             precision 1  // < 2 is invalid
         }
         
-        // Validation should fail in builder
-        match problemResult with
+        match solve problem with
         | Error msg ->
-            Assert.True(msg.ToLower().Contains("qubit"), $"Should report qubit validation error, got: {msg}")
+            Assert.True(msg.ToLower().Contains("qubit"), "Should report qubit validation error")
         | Ok _ ->
-            Assert.Fail("Builder should reject precision < 2")
+            Assert.Fail("Should reject precision < 2")
     
     [<Fact>]
     let ``solve validates matrix dimensions are powers of 2`` () =
@@ -277,43 +256,31 @@ module HHLTests =
     
     [<Fact>]
     let ``Builder accepts 4x4 systems`` () =
-        let problemResult = linearSystemSolver {
+        let problem = linearSystemSolver {
             diagonalMatrix [2.0; 3.0; 4.0; 5.0]
             vector [1.0; 0.0; 0.0; 0.0]
             precision 4
         }
         
-        let problem = match problemResult with
-                      | Ok p -> p
-                      | Error msg -> failwith $"Builder validation failed: {msg}"
-        
         Assert.Equal(4, problem.Matrix.Dimension)
     
     [<Fact>]
     let ``Builder accepts 8x8 systems`` () =
-        let problemResult = linearSystemSolver {
+        let problem = linearSystemSolver {
             diagonalMatrix [1.0; 2.0; 3.0; 4.0; 5.0; 6.0; 7.0; 8.0]
             vector [1.0; 0.0; 0.0; 0.0; 0.0; 0.0; 0.0; 0.0]
             precision 5
         }
         
-        let problem = match problemResult with
-                      | Ok p -> p
-                      | Error msg -> failwith $"Builder validation failed: {msg}"
-        
         Assert.Equal(8, problem.Matrix.Dimension)
     
     [<Fact>]
     let ``Builder accepts high precision settings`` () =
-        let problemResult = linearSystemSolver {
+        let problem = linearSystemSolver {
             diagonalMatrix [2.0; 1.0]
             vector [1.0; 0.0]
             precision 10
         }
-        
-        let problem = match problemResult with
-                      | Ok p -> p
-                      | Error msg -> failwith $"Builder validation failed: {msg}"
         
         Assert.Equal(10, problem.EigenvalueQubits)
     
@@ -323,15 +290,11 @@ module HHLTests =
     
     [<Fact>]
     let ``Builder accepts ExactRotation inversion method`` () =
-        let problemResult = linearSystemSolver {
+        let problem = linearSystemSolver {
             matrix [[2.0; 0.0]; [0.0; 1.0]]
             vector [1.0; 0.0]
             inversionMethod (ExactRotation 1.0)
         }
-        
-        let problem = match problemResult with
-                      | Ok p -> p
-                      | Error msg -> failwith $"Builder validation failed: {msg}"
         
         match problem.InversionMethod with
         | ExactRotation c -> Assert.Equal(1.0, c)
@@ -339,15 +302,11 @@ module HHLTests =
     
     [<Fact>]
     let ``Builder accepts LinearApproximation inversion method`` () =
-        let problemResult = linearSystemSolver {
+        let problem = linearSystemSolver {
             matrix [[2.0; 0.0]; [0.0; 1.0]]
             vector [1.0; 0.0]
             inversionMethod (LinearApproximation 0.5)
         }
-        
-        let problem = match problemResult with
-                      | Ok p -> p
-                      | Error msg -> failwith $"Builder validation failed: {msg}"
         
         match problem.InversionMethod with
         | LinearApproximation c -> Assert.Equal(0.5, c)
@@ -355,29 +314,21 @@ module HHLTests =
     
     [<Fact>]
     let ``Builder accepts custom minEigenvalue threshold`` () =
-        let problemResult = linearSystemSolver {
+        let problem = linearSystemSolver {
             matrix [[2.0; 0.0]; [0.0; 1.0]]
             vector [1.0; 0.0]
             minEigenvalue 0.001
         }
         
-        let problem = match problemResult with
-                      | Ok p -> p
-                      | Error msg -> failwith $"Builder validation failed: {msg}"
-        
         Assert.Equal(0.001, problem.MinEigenvalue)
     
     [<Fact>]
     let ``Builder allows disabling post-selection`` () =
-        let problemResult = linearSystemSolver {
+        let problem = linearSystemSolver {
             matrix [[2.0; 0.0]; [0.0; 1.0]]
             vector [1.0; 0.0]
             postSelection false
         }
-        
-        let problem = match problemResult with
-                      | Ok p -> p
-                      | Error msg -> failwith $"Builder validation failed: {msg}"
         
         Assert.False(problem.UsePostSelection)
     
@@ -387,15 +338,11 @@ module HHLTests =
     
     [<Fact>]
     let ``Solver result contains required fields`` () =
-        let problemResult = linearSystemSolver {
+        let problem = linearSystemSolver {
             matrix [[2.0; 0.0]; [0.0; 1.0]]
             vector [1.0; 0.0]
             precision 3
         }
-        
-        let problem = match problemResult with
-                      | Ok p -> p
-                      | Error msg -> failwith $"Builder validation failed: {msg}"
         
         match solve problem with
         | Error _ -> Assert.True(true, "Prototype may fail")
@@ -407,14 +354,10 @@ module HHLTests =
     
     [<Fact>]
     let ``Solver result marks LocalBackend correctly`` () =
-        let problemResult = linearSystemSolver {
+        let problem = linearSystemSolver {
             matrix [[2.0; 0.0]; [0.0; 1.0]]
             vector [1.0; 0.0]
         }
-        
-        let problem = match problemResult with
-                      | Ok p -> p
-                      | Error msg -> failwith $"Builder validation failed: {msg}"
         
         match solve problem with
         | Error _ -> Assert.True(true)

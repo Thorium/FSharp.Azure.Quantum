@@ -81,10 +81,14 @@
     <Compile Include="Core\JobLifecycle.fs" />
 
     <!-- Backends Layer (depends on Core Infrastructure) -->
+    <Compile Include="Backends\DWaveTypes.fs" />
     <Compile Include="Backends\IonQBackend.fs" />
     <Compile Include="Backends\RigettiBackend.fs" />
     <Compile Include="Backends\AzureQuantumWorkspace.fs" />
     <Compile Include="Core\Client.fs" />
+    
+    <!-- D-Wave Integration (depends on DWaveTypes) -->
+    <Compile Include="Algorithms\QuboToIsing.fs" />
 
     <!-- Classical Solvers - Pure CPU algorithms, no quantum backend (depends on Types) -->
     <Compile Include="Solvers\Classical\TspTypes.fs" />
@@ -111,6 +115,15 @@
     <Compile Include="Core\CircuitAbstraction.fs" />
     <Compile Include="Backends\BackendAbstraction.fs" />
     <Compile Include="Core\QaoaOptimizer.fs" />
+    <Compile Include="Core\QaoaParameterOptimizer.fs" />
+    
+    <!-- D-Wave QUBO Extraction (depends on QaoaCircuit, CircuitAbstraction) -->
+    <Compile Include="Algorithms\QuboExtraction.fs" />
+    
+    <!-- D-Wave Backend (depends on QuboExtraction, QuboToIsing, DWaveTypes, BackendAbstraction) -->
+    <Compile Include="Backends\DWaveBackend.fs" />
+    <Compile Include="Backends\RealDWaveBackend.fs" />
+    <Compile Include="Backends\BackendCapabilityDetection.fs" />
     
     <!-- Grover Backend Extension (depends on BackendAbstraction, GroverIteration) -->
     <Compile Include="Algorithms\GroverBackendAdapter.fs" />
@@ -181,8 +194,32 @@
     <!-- Utilities Layer (depends on Classical Builders) -->
     <Compile Include="Utilities\PerformanceBenchmarking.fs" />
     
+    <!-- Quantum Machine Learning (depends on CircuitBuilder, BackendAbstraction) -->
+    <Compile Include="MachineLearning\QMLTypes.fs" />
+    <Compile Include="MachineLearning\FeatureMap.fs" />
+    <Compile Include="MachineLearning\VariationalForm.fs" />
+    <Compile Include="MachineLearning\AdamOptimizer.fs" />
+    <Compile Include="MachineLearning\QuantumKernel.fs" />
+    <Compile Include="MachineLearning\QuantumKernelSVM.fs" />
+    <Compile Include="MachineLearning\VQC.fs" />
+    <Compile Include="MachineLearning\MultiClassSVM.fs" />
+    <Compile Include="MachineLearning\DataPreprocessing.fs" />
+    <Compile Include="MachineLearning\ModelSerialization.fs" />
+    
+    <!-- Business-First ML Builders (depends on MachineLearning) -->
+    <Compile Include="Business\BinaryClassificationBuilder.fs" />
+    <Compile Include="Business\AnomalyDetectionBuilder.fs" />
+    <Compile Include="Business\SimilaritySearchBuilder.fs" />
+    <Compile Include="Business\PredictiveModelBuilder.fs" />
+    <Compile Include="Business\AutoMLBuilder.fs" />
+    
     <!-- C# Interop Extensions (must come after ALL builders) -->
     <Compile Include="Builders\BuildersCSharpExtensions.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- C# Business Builder Wrappers (included as content for NuGet package) -->
+    <None Include="Business\CSharp\*.cs" Pack="true" PackagePath="contentFiles\cs\any\FSharp.Azure.Quantum.Business.CSharp" />
   </ItemGroup>
 
   <ItemGroup>

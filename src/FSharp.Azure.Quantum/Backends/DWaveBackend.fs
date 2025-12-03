@@ -1,0 +1,227 @@
+namespace FSharp.Azure.Quantum.Backends
+
+open System
+
+/// D-Wave quantum annealing backend implementation.
+///
+/// This module provides:
+/// - MockDWaveBackend: Simulated annealing for testing (no API calls)
+/// - DWaveBackend: Real D-Wave hardware integration (future - requires Ocean SDK)
+///
+/// Design rationale:
+/// - Implements IQuantumBackend for seamless integration with QAOA solvers
+/// - Extracts QUBO from QAOA circuits automatically
+/// - Converts QUBO → Ising → executes → converts results back
+/// - Mock backend allows testing without D-Wave credentials
+module DWaveBackend =
+    
+    open FSharp.Azure.Quantum.Core.BackendAbstraction
+    open FSharp.Azure.Quantum.Core.CircuitAbstraction
+    open FSharp.Azure.Quantum.Backends.DWaveTypes
+    open FSharp.Azure.Quantum.Algorithms.QuboToIsing
+    open FSharp.Azure.Quantum.Algorithms.QuboExtraction
+    
+    // ============================================================================
+    // MOCK D-WAVE SIMULATOR (FOR TESTING)
+    // ============================================================================
+    
+    /// Mock D-Wave annealer using classical simulated annealing
+    ///
+    /// This provides a testable backend without requiring D-Wave API credentials.
+    /// Uses a simple classical simulated annealing algorithm to find approximate solutions.
+    ///
+    /// Note: This is NOT quantum annealing! It's classical simulation for testing only.
+    module MockSimulatedAnnealing =
+        
+        /// Simulated annealing to find low-energy Ising states
+        ///
+        /// Parameters:
+        /// - problem: Ising problem to solve
+        /// - numReads: Number of annealing runs
+        /// - seed: Random seed for reproducibility
+        ///
+        /// Returns: List of solutions with energies and occurrence counts
+        let solve (problem: IsingProblem) (numReads: int) (seed: int option) : DWaveSolution list =
+            let rng = 
+                match seed with
+                | Some s -> Random(s)
+                | None -> Random()
+            
+            let numQubits = 
+                let linearQubits = problem.LinearCoeffs |> Map.toSeq |> Seq.map fst
+                let quadraticQubits = 
+                    problem.QuadraticCoeffs 
+                    |> Map.toSeq 
+                    |> Seq.collect (fun ((i, j), _) -> [i; j])
+                
+                if Seq.isEmpty linearQubits && Seq.isEmpty quadraticQubits then
+                    0
+                else
+                    Seq.concat [linearQubits; quadraticQubits] |> Seq.max |> (+) 1
+            
+            /// Generate random spin configuration
+            let randomSpins () : Map<int, int> =
+                [0 .. numQubits - 1]
+                |> List.map (fun i -> (i, if rng.NextDouble() < 0.5 then -1 else 1))
+                |> Map.ofList
+            
+            /// Flip a single spin
+            let flipSpin (spins: Map<int, int>) (qubit: int) : Map<int, int> =
+                Map.add qubit (-spins.[qubit]) spins
+            
+            /// Simulated annealing run
+            let anneal (initialTemp: float) (coolingRate: float) (maxSteps: int) =
+                let mutable currentSpins = randomSpins ()
+                let mutable currentEnergy = isingEnergy problem currentSpins
+                let mutable temperature = initialTemp
+                
+                for _ in 1 .. maxSteps do
+                    // Random qubit to flip
+                    let qubit = rng.Next(numQubits)
+                    let newSpins = flipSpin currentSpins qubit
+                    let newEnergy = isingEnergy problem newSpins
+                    
+                    // Accept move with Metropolis criterion
+                    let deltaE = newEnergy - currentEnergy
+                    let acceptProb = if deltaE < 0.0 then 1.0 else exp(-deltaE / temperature)
+                    
+                    if rng.NextDouble() < acceptProb then
+                        currentSpins <- newSpins
+                        currentEnergy <- newEnergy
+                    
+                    // Cool down
+                    temperature <- temperature * coolingRate
+                
+                (currentSpins, currentEnergy)
+            
+            // Run multiple annealing cycles
+            let results = 
+                [1 .. numReads]
+                |> List.map (fun _ -> anneal 10.0 0.95 100)
+            
+            // Group by spin configuration and count occurrences
+            results
+            |> List.groupBy fst
+            |> List.map (fun (spins, group) ->
+                let energy = snd (List.head group)
+                {
+                    Spins = spins
+                    Energy = energy
+                    NumOccurrences = List.length group
+                    ChainBreakFraction = 0.0  // Mock: no chain breaks in simulation
+                }
+            )
+            |> List.sortBy (fun sol -> sol.Energy)  // Sort by energy (best first)
+    
+    // ============================================================================
+    // MOCK D-WAVE BACKEND (IDIOMATIC F#)
+    // ============================================================================
+    
+    /// Mock D-Wave backend for testing
+    ///
+    /// Implements IQuantumBackend using classical simulated annealing.
+    /// Allows testing D-Wave integration without requiring API credentials.
+    ///
+    /// Usage:
+    ///   let backend = MockDWaveBackend(Advantage_System6_1, seed = Some 42)
+    ///   let result = backend.Execute(qaoaCircuit, 1000)
+    type MockDWaveBackend(solver: DWaveSolver, ?seed: int) =
+        
+        let solverName = getSolverName solver
+        let maxQubits = getMaxQubits solver
+        
+        /// Core execution logic (shared by Execute and ExecuteAsync)
+        member private _.ExecuteCore (circuit: ICircuit) (numShots: int) : Result<ExecutionResult, string> =
+            // Step 0: Validate numShots parameter
+            if numShots <= 0 then
+                Error $"numShots must be > 0, got {numShots}"
+            else
+                // Step 1: Extract QUBO from QAOA circuit
+                match extractFromICircuit circuit with
+                | Error e -> Error e
+                | Ok qubo ->
+                    // Step 2: Convert QUBO to Ising
+                    let ising = quboToIsing qubo
+                    
+                    // Step 3: Validate qubit count
+                    let numQubits = getNumVariables qubo
+                    if numQubits > maxQubits then
+                        Error $"Problem requires {numQubits} qubits, but {solverName} supports max {maxQubits}"
+                    else
+                        // Step 4: Run simulated annealing
+                        let solutions = MockSimulatedAnnealing.solve ising numShots seed
+                        
+                        // Step 5: Validate solutions list is not empty
+                        match solutions with
+                        | [] -> Error "No solutions found from simulated annealing"
+                        | bestSolution :: _ ->
+                            // Step 6: Convert Ising solutions back to binary measurements
+                            // Expand each solution by its occurrence count
+                            let measurements = 
+                                solutions
+                                |> List.collect (fun sol ->
+                                    let binary = isingToQubo sol.Spins
+                                    let bitstring = 
+                                        [0 .. numQubits - 1]
+                                        |> List.map (fun i -> Map.tryFind i binary |> Option.defaultValue 0)
+                                        |> List.toArray
+                                    // Repeat bitstring NumOccurrences times
+                                    List.replicate sol.NumOccurrences bitstring
+                                )
+                                |> List.toArray
+                            
+                            // Step 7: Create ExecutionResult
+                            let metadata = Map.ofList [
+                                ("backend_type", box "mock_dwave")
+                                ("solver", box solverName)
+                                ("best_energy", box bestSolution.Energy)
+                                ("num_solutions", box solutions.Length)
+                            ]
+                            
+                            Ok {
+                                Measurements = measurements
+                                NumShots = numShots
+                                BackendName = $"Mock D-Wave {solverName}"
+                                Metadata = metadata
+                            }
+        
+        interface IQuantumBackend with
+            member this.ExecuteAsync circuit numShots = async {
+                return this.ExecuteCore circuit numShots
+            }
+            
+            member this.Execute circuit numShots =
+                this.ExecuteCore circuit numShots
+            
+            member _.Name = $"Mock D-Wave {solverName}"
+            
+            member _.SupportedGates = []  // Annealing doesn't use gates
+            
+            member _.MaxQubits = maxQubits
+    
+    // ============================================================================
+    // HELPER FUNCTIONS FOR BACKEND CREATION
+    // ============================================================================
+    
+    /// Create mock D-Wave backend for testing
+    ///
+    /// Parameters:
+    /// - solver: D-Wave solver type (determines qubit count)
+    /// - seed: Optional random seed for reproducible results
+    ///
+    /// Returns: IQuantumBackend implementation
+    ///
+    /// Example:
+    ///   let backend = createMockDWaveBackend Advantage_System6_1 (Some 42)
+    ///   let result = backend.Execute(circuit, 1000)
+    let createMockDWaveBackend (solver: DWaveSolver) (seed: int option) : IQuantumBackend =
+        MockDWaveBackend(solver, ?seed = seed) :> IQuantumBackend
+    
+    /// Create mock D-Wave backend with default parameters
+    ///
+    /// Uses Advantage_System6_1 (5640 qubits) and random seed.
+    ///
+    /// Example:
+    ///   let backend = createDefaultMockBackend()
+    let createDefaultMockBackend () : IQuantumBackend =
+        createMockDWaveBackend Advantage_System6_1 None
