@@ -118,7 +118,7 @@ module PredictiveModel =
     }
     
     and InternalModel =
-        | RegressionVQC of VQC.TrainingResult * FeatureMapType * VariationalForm * int
+        | RegressionVQC of VQC.RegressionTrainingResult * FeatureMapType * VariationalForm * int
         | MultiClassVQC of VQC.TrainingResult * FeatureMapType * VariationalForm * int * int  // num classes
         | SVMRegressor of QuantumKernelSVM.SVMModel
         | SVMMultiClass of MultiClassSVM.MultiClassModel
@@ -269,41 +269,32 @@ module PredictiveModel =
                 match problem.Architecture, problem.ProblemType with
                 
                 // =================================================================
-                // QUANTUM REGRESSION (HHL Algorithm)
+                // QUANTUM REGRESSION (HHL + VQC Fallback)
                 // =================================================================
                 | Quantum, Regression ->
-                    // Use HHL algorithm for quantum linear regression
-                    // Linear regression solves: w = (X^T X)^-1 X^T y
-                    // This is a linear system Aw = b where A = X^T X, b = X^T y
-                    // HHL solves this quantum mechanically with exponential speedup!
+                    // Strategy: Try HHL first (fast for linear), fall back to VQC (handles non-linear)
                     
+                    if problem.Verbose then
+                        printfn "Training Quantum Regression..."
+                        printfn "  Samples: %d, Features: %d" problem.TrainFeatures.Length problem.TrainFeatures.[0].Length
+                    
+                    // Try HHL first for linear regression (exponential speedup!)
                     let hhlConfig : RegressionConfig = {
                         TrainX = problem.TrainFeatures
                         TrainY = problem.TrainTargets
-                        EigenvalueQubits = 5  // Good balance of precision vs qubits
-                        MinEigenvalue = 0.01  // Numerical stability threshold
+                        EigenvalueQubits = 5
+                        MinEigenvalue = 0.01
                         Backend = backend
                         Shots = problem.Shots
-                        FitIntercept = true  // Include bias term
+                        FitIntercept = true
                         Verbose = problem.Verbose
                     }
                     
-                    if problem.Verbose then
-                        printfn "Training Quantum Linear Regression (HHL Algorithm)..."
-                        printfn "  Samples: %d, Features: %d" problem.TrainFeatures.Length problem.TrainFeatures.[0].Length
-                        printfn "  Eigenvalue qubits: %d, Shots: %d" hhlConfig.EigenvalueQubits hhlConfig.Shots
-                    
                     match train hhlConfig with
-                    | Error e -> Error $"HHL regression training failed: {e}"
-                    | Ok hhlResult ->
+                    | Ok hhlResult when hhlResult.RSquared > 0.85 ->
+                        // HHL worked well (linear relationship detected)
                         if problem.Verbose then
-                            printfn "✓ HHL training complete!"
-                            printfn "  R² Score: %.4f" hhlResult.RSquared
-                            printfn "  MSE: %.6f" hhlResult.MSE
-                            printfn "  Success Probability: %.4f" hhlResult.SuccessProbability
-                            match hhlResult.ConditionNumber with
-                            | Some kappa -> printfn "  Condition Number: %.2f" kappa
-                            | None -> ()
+                            printfn "✓ HHL successful! R² = %.4f (linear regression)" hhlResult.RSquared
                         
                         Ok {
                             InternalModel = HHLRegressor hhlResult
@@ -318,6 +309,50 @@ module PredictiveModel =
                                 Note = problem.Note
                             }
                         }
+                    
+                    | _ ->
+                        // HHL failed or poor fit → Try VQC (can handle non-linear)
+                        if problem.Verbose then
+                            printfn "⚠ HHL not suitable, trying VQC (variational) regression..."
+                        
+                        let featureMap = FeatureMapType.ZZFeatureMap 2
+                        let varFormDepth = 3
+                        let varForm = RealAmplitudes varFormDepth
+                        // VQC uses numQubits = features.Length internally
+                        let numFeatureDims = problem.TrainFeatures.[0].Length
+                        let numQubits = min numFeatureDims 5  // Cap at 5 qubits
+                        let numParams = numQubits * varFormDepth  // RealAmplitudes: numQubits × depth
+                        let initParams = Array.init numParams (fun _ -> 0.1)
+                        
+                        let vqcConfig : VQC.TrainingConfig = {
+                            LearningRate = problem.LearningRate
+                            MaxEpochs = problem.MaxEpochs
+                            ConvergenceThreshold = problem.ConvergenceThreshold
+                            Shots = problem.Shots
+                            Verbose = problem.Verbose
+                            Optimizer = VQC.SGD
+                        }
+                        
+                        match VQC.trainRegression backend featureMap varForm initParams problem.TrainFeatures problem.TrainTargets vqcConfig with
+                        | Error e -> Error $"Both HHL and VQC regression failed: {e}"
+                        | Ok vqcResult ->
+                            if problem.Verbose then
+                                printfn "✓ VQC training complete!"
+                                printfn "  R² Score: %.4f (non-linear regression)" vqcResult.TrainRSquared
+                            
+                            Ok {
+                                InternalModel = RegressionVQC (vqcResult, featureMap, varForm, numQubits)
+                                Metadata = {
+                                    ProblemType = Regression
+                                    Architecture = Quantum
+                                    TrainingScore = vqcResult.TrainRSquared
+                                    TrainingTime = DateTime.UtcNow - startTime
+                                    NumFeatures = numFeatures
+                                    NumSamples = numSamples
+                                    CreatedAt = DateTime.UtcNow
+                                    Note = problem.Note
+                                }
+                            }
                 
                 // =================================================================
                 // HYBRID REGRESSION (HHL with fallback capability)
@@ -600,10 +635,6 @@ module PredictiveModel =
                     
                     Ok model
                 
-                // Unsupported combinations
-                | Hybrid, Regression ->
-                    Error "Hybrid architecture for regression not yet implemented (use Quantum or Classical)"
-                
             with ex ->
                 Error $"Training failed: {ex.Message}"
     
@@ -619,12 +650,18 @@ module PredictiveModel =
         | Regression ->
             try
                 match model.InternalModel with
-                | RegressionVQC (_, _, _, _) ->
-                    // TODO: VQC-based regression not yet implemented
-                    // Note: For quantum linear regression, use Architecture.Quantum with Regression
-                    //       (HHL algorithm is already implemented via HHLRegressor!)
-                    // VQC uses parametric quantum circuits with gradient optimization (different approach from HHL)
-                    Error "VQC regression not yet implemented. For quantum regression, use Architecture.Quantum which provides HHL-based quantum linear regression."
+                | RegressionVQC (vqcResult, featureMap, varForm, _) ->
+                    // VQC-based non-linear regression
+                    let backend = LocalBackend() :> IQuantumBackend
+                    
+                    match VQC.predictRegression backend featureMap varForm vqcResult.Parameters features model.Metadata.NumSamples vqcResult.ValueRange with
+                    | Ok pred ->
+                        Ok {
+                            Value = pred.Value
+                            ConfidenceInterval = None
+                            ModelType = "Quantum VQC Regression (Non-Linear)"
+                        }
+                    | Error e -> Error $"VQC regression prediction failed: {e}"
                 
                 | HHLRegressor hhlResult ->
                     // Use HHL regression weights for prediction
@@ -818,7 +855,14 @@ module PredictiveModel =
     /// Save model to file
     let save (path: string) (model: Model) : Result<unit, string> =
         match model.InternalModel with
-        | RegressionVQC (result, featureMap, varForm, numQubits)
+        | RegressionVQC (result, featureMap, varForm, numQubits) ->
+            let fmType = match featureMap with ZZFeatureMap _ -> "ZZFeatureMap" | _ -> "Unknown"
+            let fmDepth = match featureMap with ZZFeatureMap d -> d | _ -> 0
+            let vfType = match varForm with RealAmplitudes _ -> "RealAmplitudes" | _ -> "Unknown"
+            let vfDepth = match varForm with RealAmplitudes d -> d | _ -> 0
+            
+            ModelSerialization.saveVQCRegressionTrainingResult path result numQubits fmType fmDepth vfType vfDepth model.Metadata.Note
+        
         | MultiClassVQC (result, featureMap, varForm, numQubits, _) ->
             let fmType = match featureMap with ZZFeatureMap _ -> "ZZFeatureMap" | _ -> "Unknown"
             let fmDepth = match featureMap with ZZFeatureMap d -> d | _ -> 0
@@ -846,27 +890,34 @@ module PredictiveModel =
                 | "RealAmplitudes" -> VariationalForm.RealAmplitudes vfDepth
                 | _ -> VariationalForm.RealAmplitudes 2
             
-            let result : VQC.TrainingResult = {
-                Parameters = parameters
-                LossHistory = []
-                Epochs = 0
-                TrainAccuracy = 0.0
-                Converged = true
-            }
-            
-            Ok {
-                InternalModel = RegressionVQC (result, featureMap, varForm, numQubits)
-                Metadata = {
-                    ProblemType = Regression
-                    Architecture = Quantum
-                    TrainingScore = 0.0
-                    TrainingTime = TimeSpan.Zero
-                    NumFeatures = numQubits
-                    NumSamples = 0
-                    CreatedAt = DateTime.UtcNow
-                    Note = None
+            // Load full model to get finalLoss (stored as TrainMSE for regression)
+            match ModelSerialization.loadVQCModel path with
+            | Error e -> Error e
+            | Ok serializedModel ->
+                // Create RegressionTrainingResult from saved data
+                let result : VQC.RegressionTrainingResult = {
+                    Parameters = parameters
+                    LossHistory = []  // Not stored
+                    Epochs = 0  // Not stored
+                    TrainMSE = serializedModel.FinalLoss
+                    TrainRSquared = 0.0  // Not stored, set to 0
+                    Converged = true  // Assume converged if saved
+                    ValueRange = (0.0, 1.0)  // Default range, can't recover original
                 }
-            }
+                
+                Ok {
+                    InternalModel = RegressionVQC (result, featureMap, varForm, numQubits)
+                    Metadata = {
+                        ProblemType = Regression
+                        Architecture = Quantum
+                        TrainingScore = 0.0
+                        TrainingTime = TimeSpan.Zero
+                        NumFeatures = numQubits
+                        NumSamples = 0
+                        CreatedAt = DateTime.UtcNow
+                        Note = serializedModel.Note
+                    }
+                }
     
     // ========================================================================
     // COMPUTATION EXPRESSION BUILDER

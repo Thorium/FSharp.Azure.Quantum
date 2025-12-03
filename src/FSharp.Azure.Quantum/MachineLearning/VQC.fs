@@ -496,3 +496,269 @@ module VQC =
         let denominator = p + r
         if denominator = 0.0 then 0.0
         else 2.0 * p * r / denominator
+    
+    // ========================================================================
+    // REGRESSION SUPPORT
+    // ========================================================================
+    
+    /// Regression training result
+    type RegressionTrainingResult = {
+        /// Trained parameters
+        Parameters: float array
+        
+        /// Training loss (MSE) history
+        LossHistory: float list
+        
+        /// Number of epochs completed
+        Epochs: int
+        
+        /// Final Mean Squared Error on training data
+        TrainMSE: float
+        
+        /// Final R² score on training data
+        TrainRSquared: float
+        
+        /// Whether training converged
+        Converged: bool
+        
+        /// Value range used for scaling [min, max]
+        ValueRange: float * float
+    }
+    
+    /// Regression prediction result
+    type RegressionPrediction = {
+        /// Predicted continuous value
+        Value: float
+    }
+    
+    /// Predict continuous value for a single sample (regression)
+    let predictRegression
+        (backend: IQuantumBackend)
+        (featureMap: FeatureMapType)
+        (variationalForm: VariationalForm)
+        (parameters: float array)
+        (features: float array)
+        (shots: int)
+        (valueRange: float * float)
+        : Result<RegressionPrediction, string> =
+        
+        match buildVQCCircuit featureMap variationalForm features parameters with
+        | Error e -> Error e
+        | Ok circuit ->
+            match forwardPass backend circuit shots with
+            | Error e -> Error e
+            | Ok expectation ->
+                // Scale expectation [0, 1] to target range [min, max]
+                let (minVal, maxVal) = valueRange
+                let value = minVal + expectation * (maxVal - minVal)
+                
+                Ok { Value = value }
+    
+    /// Compute Mean Squared Error loss for regression
+    let private computeRegressionLoss
+        (backend: IQuantumBackend)
+        (featureMap: FeatureMapType)
+        (variationalForm: VariationalForm)
+        (parameters: float array)
+        (trainFeatures: float array array)
+        (trainTargets: float array)
+        (shots: int)
+        (valueRange: float * float)
+        : Result<float, string> =
+        
+        let mutable totalLoss = 0.0
+        let mutable errors = []
+        
+        for i in 0 .. trainFeatures.Length - 1 do
+            match predictRegression backend featureMap variationalForm parameters trainFeatures.[i] shots valueRange with
+            | Error e -> errors <- e :: errors
+            | Ok prediction ->
+                let error = prediction.Value - trainTargets.[i]
+                totalLoss <- totalLoss + error * error
+        
+        if errors.IsEmpty then
+            Ok (totalLoss / float trainFeatures.Length)
+        else
+            let errorMsg = String.concat "; " errors
+            Error $"Loss computation failed: {errorMsg}"
+    
+    /// Compute gradient for regression using parameter shift rule
+    let private computeRegressionGradient
+        (backend: IQuantumBackend)
+        (featureMap: FeatureMapType)
+        (variationalForm: VariationalForm)
+        (parameters: float array)
+        (trainFeatures: float array array)
+        (trainTargets: float array)
+        (shots: int)
+        (valueRange: float * float)
+        : Result<float array, string> =
+        
+        let gradient = Array.create parameters.Length 0.0
+        let shift = Math.PI / 2.0
+        let mutable error = None
+        
+        // Compute gradient for each parameter using parameter shift rule
+        let mutable i = 0
+        while i < parameters.Length && error.IsNone do
+            // Shift parameter forward
+            let paramsPlus = Array.copy parameters
+            paramsPlus.[i] <- paramsPlus.[i] + shift
+            
+            // Shift parameter backward
+            let paramsMinus = Array.copy parameters
+            paramsMinus.[i] <- paramsMinus.[i] - shift
+            
+            // Compute losses with shifted parameters
+            match computeRegressionLoss backend featureMap variationalForm paramsPlus trainFeatures trainTargets shots valueRange,
+                  computeRegressionLoss backend featureMap variationalForm paramsMinus trainFeatures trainTargets shots valueRange with
+            | Ok lossPlus, Ok lossMinus ->
+                gradient.[i] <- (lossPlus - lossMinus) / 2.0
+            | Error e, _ | _, Error e ->
+                error <- Some $"Gradient computation failed for parameter {i}: {e}"
+            
+            i <- i + 1
+        
+        match error with
+        | Some e -> Error e
+        | None -> Ok gradient
+    
+    /// Calculate R² score for regression
+    let private calculateRSquared (yTrue: float array) (yPred: float array) : float =
+        let mean = yTrue |> Array.average
+        let ssTot = yTrue |> Array.sumBy (fun y -> (y - mean) ** 2.0)
+        let ssRes = Array.zip yTrue yPred |> Array.sumBy (fun (yt, yp) -> (yt - yp) ** 2.0)
+        
+        if ssTot = 0.0 then 1.0
+        else 1.0 - (ssRes / ssTot)
+    
+    /// Train VQC model for regression using gradient descent
+    let trainRegression
+        (backend: IQuantumBackend)
+        (featureMap: FeatureMapType)
+        (variationalForm: VariationalForm)
+        (initialParameters: float array)
+        (trainFeatures: float array array)
+        (trainTargets: float array)
+        (config: TrainingConfig)
+        : Result<RegressionTrainingResult, string> =
+        
+        // Validate inputs
+        if trainFeatures.Length <> trainTargets.Length then
+            Error "Features and targets must have same length"
+        elif trainFeatures.Length = 0 then
+            Error "Training set cannot be empty"
+        else
+            // Determine value range from training targets
+            let minTarget = trainTargets |> Array.min
+            let maxTarget = trainTargets |> Array.max
+            let valueRange = (minTarget, maxTarget)
+            
+            // Initialize training state
+            let mutable parameters = Array.copy initialParameters
+            let mutable lossHistory = []
+            let mutable converged = false
+            let mutable epoch = 0
+            let mutable trainingError = None
+            
+            // Initialize optimizer state for Adam
+            let mutable adamState = 
+                match config.Optimizer with
+                | Adam _ -> Some (AdamOptimizer.createState parameters.Length)
+                | SGD -> None
+            
+            if config.Verbose then
+                let optimizerName = match config.Optimizer with | SGD -> "SGD" | Adam _ -> "Adam"
+                printfn "Starting VQC Regression training..."
+                printfn "  Features: %d samples" trainFeatures.Length
+                if trainFeatures.Length > 0 then
+                    printfn "            %d dimensions" trainFeatures.[0].Length
+                printfn "  Target range: [%.2f, %.2f]" minTarget maxTarget
+                printfn "  Parameters: %d" parameters.Length
+                printfn "  Optimizer: %s" optimizerName
+                printfn "  Learning rate: %.4f" config.LearningRate
+                printfn "  Max epochs: %d" config.MaxEpochs
+                printfn ""
+            
+            // Training loop
+            while epoch < config.MaxEpochs && not converged && trainingError.IsNone do
+                // Compute current loss
+                match computeRegressionLoss backend featureMap variationalForm parameters trainFeatures trainTargets config.Shots valueRange with
+                | Error e -> trainingError <- Some $"Loss computation failed at epoch {epoch}: {e}"
+                | Ok loss ->
+                    lossHistory <- loss :: lossHistory
+                    
+                    if config.Verbose then
+                        printfn "Epoch %3d: MSE = %.6f" epoch loss
+                    
+                    // Check convergence
+                    if lossHistory.Length >= 2 then
+                        let prevLoss = lossHistory.[1]
+                        let lossChange = abs (prevLoss - loss)
+                        
+                        if lossChange < config.ConvergenceThreshold then
+                            converged <- true
+                            if config.Verbose then
+                                printfn "  Converged! (loss change: %.6f < %.6f)" lossChange config.ConvergenceThreshold
+                    
+                    if not converged then
+                        // Compute gradients
+                        match computeRegressionGradient backend featureMap variationalForm parameters trainFeatures trainTargets config.Shots valueRange with
+                        | Error e -> trainingError <- Some $"Gradient computation failed at epoch {epoch}: {e}"
+                        | Ok gradient ->
+                            // Update parameters using selected optimizer
+                            match config.Optimizer, adamState with
+                            | SGD, _ ->
+                                // Simple gradient descent
+                                for i in 0 .. parameters.Length - 1 do
+                                    parameters.[i] <- parameters.[i] - config.LearningRate * gradient.[i]
+                            
+                            | Adam adamConfig, Some state ->
+                                // Adam optimizer
+                                match AdamOptimizer.update adamConfig state parameters gradient with
+                                | Ok (newParams, newState) ->
+                                    parameters <- newParams
+                                    adamState <- Some newState
+                                | Error e ->
+                                    trainingError <- Some $"Adam optimizer failed at epoch {epoch}: {e}"
+                            
+                            | Adam _, None ->
+                                trainingError <- Some "Adam optimizer state not initialized"
+                            
+                            epoch <- epoch + 1
+            
+            // Check for training errors
+            match trainingError with
+            | Some e -> Error e
+            | None ->
+                // Compute final training metrics
+                let predictions = 
+                    trainFeatures 
+                    |> Array.map (fun features ->
+                        match predictRegression backend featureMap variationalForm parameters features config.Shots valueRange with
+                        | Ok pred -> pred.Value
+                        | Error _ -> 0.0)  // Fallback
+                
+                let finalMSE = 
+                    Array.zip trainTargets predictions
+                    |> Array.averageBy (fun (y, yp) -> (y - yp) ** 2.0)
+                
+                let finalRSquared = calculateRSquared trainTargets predictions
+                
+                if config.Verbose then
+                    printfn ""
+                    printfn "Training complete!"
+                    printfn "  Epochs: %d" epoch
+                    printfn "  Final MSE: %.6f" finalMSE
+                    printfn "  R² score: %.4f" finalRSquared
+                    printfn "  Converged: %b" converged
+                
+                Ok {
+                    Parameters = parameters
+                    LossHistory = List.rev lossHistory
+                    Epochs = epoch
+                    TrainMSE = finalMSE
+                    TrainRSquared = finalRSquared
+                    Converged = converged
+                    ValueRange = valueRange
+                }

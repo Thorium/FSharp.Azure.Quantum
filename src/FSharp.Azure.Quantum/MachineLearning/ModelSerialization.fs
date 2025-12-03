@@ -94,7 +94,7 @@ module ModelSerialization =
         with ex ->
             Error $"Failed to save model: {ex.Message}"
     
-    /// Save VQC training result with metadata
+    /// Save VQC training result with metadata (classification)
     ///
     /// Convenience function that takes VQC.TrainingResult directly
     let saveVQCTrainingResult
@@ -112,6 +112,34 @@ module ModelSerialization =
             match result.LossHistory with
             | [] -> 0.0
             | losses -> List.last losses
+        
+        saveVQCModel
+            filePath
+            result.Parameters
+            finalLoss
+            numQubits
+            featureMapType
+            featureMapDepth
+            variationalFormType
+            variationalFormDepth
+            note
+    
+    /// Save VQC regression training result with metadata
+    ///
+    /// Convenience function that takes VQC.RegressionTrainingResult directly
+    let saveVQCRegressionTrainingResult
+        (filePath: string)
+        (result: VQC.RegressionTrainingResult)
+        (numQubits: int)
+        (featureMapType: string)
+        (featureMapDepth: int)
+        (variationalFormType: string)
+        (variationalFormDepth: int)
+        (note: string option)
+        : Result<unit, string> =
+        
+        // For regression, use TrainMSE as the "loss"
+        let finalLoss = result.TrainMSE
         
         saveVQCModel
             filePath
