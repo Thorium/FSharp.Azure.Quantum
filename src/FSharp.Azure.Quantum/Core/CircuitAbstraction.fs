@@ -145,6 +145,11 @@ module CircuitAbstraction =
                     QuantumGate.RZ (t, -halfTheta)
                     QuantumGate.CNOT (c, t)
                 ]
+            | CircuitBuilder.MCZ (controls, target) ->
+                // Multi-controlled Z gate - not directly supported in QAOA
+                // MCZ gates are primarily used in Grover's algorithm via LocalBackend
+                // For QAOA contexts, this gate should not appear
+                failwith "MCZ (multi-controlled Z) gate cannot be converted to QAOA gates. Use LocalBackend for Grover's algorithm."
         
         // ========================================================================
         // CONVERSION: CircuitBuilder.Circuit → QaoaCircuit

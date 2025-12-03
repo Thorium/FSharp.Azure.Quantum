@@ -87,17 +87,18 @@ module AmplitudeAmplification =
             let innerProduct = StateVector.innerProduct targetState state
             
             // R_ψ|φ⟩ = 2⟨ψ|φ⟩|ψ⟩ - |φ⟩
+            // CRITICAL: Must use complex multiplication for 2⟨ψ|φ⟩ψᵢ
+            // This is where most quantum simulators fail - they only use the real part!
             let reflection =
                 [| 0 .. dimension - 1 |]
                 |> Array.map (fun i ->
                     let psiAmp = StateVector.getAmplitude i targetState
                     let phiAmp = StateVector.getAmplitude i state
                     
-                    // 2⟨ψ|φ⟩ψᵢ - φᵢ
-                    Complex(
-                        2.0 * innerProduct.Real * psiAmp.Real - phiAmp.Real,
-                        2.0 * innerProduct.Real * psiAmp.Imaginary - phiAmp.Imaginary
-                    )
+                    // 2⟨ψ|φ⟩ψᵢ - φᵢ (full complex multiplication)
+                    let twoInnerProduct = 2.0 * innerProduct
+                    let twoPsi = twoInnerProduct * psiAmp
+                    twoPsi - phiAmp
                 )
                 |> StateVector.create
             
@@ -108,10 +109,10 @@ module AmplitudeAmplification =
     /// This is the special case: reflection about |+⟩^⊗n = H^⊗n|0⟩
     let groverReflection (numQubits: int) : ReflectionOperator =
         fun (state: StateVector.StateVector) ->
-            // Create uniform superposition |+⟩^⊗n
-            let mutable uniformState = StateVector.init numQubits
-            for i in 0 .. numQubits - 1 do
-                uniformState <- Gates.applyH i uniformState
+            // Create uniform superposition |+⟩^⊗n using functional pipeline
+            let uniformState = 
+                [0 .. numQubits - 1]
+                |> List.fold (fun s i -> Gates.applyH i s) (StateVector.init numQubits)
             
             // Reflect about uniform superposition
             let reflector = reflectionAboutState uniformState

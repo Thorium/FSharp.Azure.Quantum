@@ -174,6 +174,44 @@ module GateTranspiler =
             | other -> [other])
     
     // ========================================================================
+    // MULTI-CONTROLLED GATE DECOMPOSITIONS (MCZ, MCX)
+    // ========================================================================
+    
+    /// Decompose multi-controlled Z gate (MCZ) into standard gates
+    /// 
+    /// MCZ decomposes as: H(target) · MCX · H(target)
+    /// where MCX is multi-controlled NOT
+    /// 
+    /// Strategy (recursive decomposition using ancilla-free method):
+    /// - 0 controls: Z gate
+    /// - 1 control: CZ gate
+    /// - 2 controls: CCZ gate (H + CCX + H)
+    /// - n controls: Use V-chain decomposition (requires n-2 ancilla qubits)
+    ///               OR Gray-code optimization (ancilla-free but more gates)
+    /// 
+    /// For now: Simple decomposition for n <= 2, error for n > 2
+    /// TODO: Implement full Gray-code decomposition for arbitrary n
+    let rec private decomposeMCZ (controls: int list) (target: int) : Gate list =
+        match controls with
+        | [] -> 
+            // No controls: just Z gate
+            [Z target]
+        | [control] -> 
+            // Single control: CZ gate
+            [CZ (control, target)]
+        | [control1; control2] ->
+            // Two controls: CCZ = H + CCX + H
+            [
+                H target
+                CCX (control1, control2, target)
+                H target
+            ]
+        | _ ->
+            // More than 2 controls: requires advanced decomposition
+            // For now, return an error - this should be rare in practice
+            failwith $"MCZ with {List.length controls} controls not yet supported in transpiler. Use at most 2 controls or implement Gray-code decomposition."
+    
+    // ========================================================================
     // SINGLE GATE TRANSPILATION
     // ========================================================================
     
@@ -209,6 +247,9 @@ module GateTranspiler =
                 decomposeCCXWithRZ c1 c2 t
             else
                 decomposeCCX c1 c2 t
+        
+        // MCZ - always decompose (no backend supports multi-controlled gates natively)
+        | MCZ (controls, target) -> decomposeMCZ controls target
         
         // All other gates - pass through unchanged
         | other -> [other]

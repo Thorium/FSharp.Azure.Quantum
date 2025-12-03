@@ -27,9 +27,9 @@ module BackendAdapter =
     
     /// Add multi-controlled Z gate to circuit
     /// 
-    /// Decomposes MCZ using Toffoli (CCX) and controlled gates.
-    /// For n controls, uses O(n) gates.
-    let rec addMultiControlledZ (controls: int list) (target: int) (circuit: Circuit) : Circuit =
+    /// Uses native MCZ gate for proper multi-controlled Z implementation.
+    /// CRITICAL: Must check ALL controls are 1 simultaneously (chaining CZ is WRONG!)
+    let addMultiControlledZ (controls: int list) (target: int) (circuit: Circuit) : Circuit =
         match controls with
         | [] -> 
             // No controls - single-qubit Z
@@ -39,22 +39,10 @@ module BackendAdapter =
             // Single control - CZ gate
             addGate (CZ (ctrl, target)) circuit
         
-        | [ctrl1; ctrl2] ->
-            // Two controls - CCZ gate
-            // Decompose: CCZ = H(target) · CCX(ctrl1, ctrl2, target) · H(target)
-            circuit
-            |> addGate (H target)
-            |> addGate (CCX (ctrl1, ctrl2, target))
-            |> addGate (H target)
-        
-        | ctrl1 :: ctrl2 :: rest ->
-            // Multiple controls - recursive decomposition
-            // Use auxiliary qubit approach (simplified: chain CZ gates)
-            // Note: This is not optimal but correct for proof-of-concept
-            let mutable c = circuit
-            for ctrl in controls do
-                c <- addGate (CZ (ctrl, target)) c
-            c
+        | _ ->
+            // Multiple controls - use native MCZ gate
+            // This applies phase flip ONLY when ALL controls are |1⟩
+            addGate (MCZ (controls, target)) circuit
     
     // ========================================================================
     // ORACLE TO CIRCUIT CONVERSION

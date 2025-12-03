@@ -439,6 +439,59 @@ module Gates =
     // 7. THREE-QUBIT GATES (Depend on StateVector operations)
     // ============================================================================
     
+    /// Apply multi-controlled Z gate (generalized CZ for n controls)
+    /// 
+    /// Applies Z to target qubit when ALL control qubits are |1⟩
+    /// This is the key gate for Grover's diffusion operator
+    /// 
+    /// Phase table (for target=1):
+    /// All controls=1, target=1 → phase flip (-1)
+    /// All other states → no change
+    /// 
+    /// CRITICAL: This must check ALL controls are 1 simultaneously
+    /// Chaining CZ gates is INCORRECT and causes Grover's algorithm to fail
+    let applyMultiControlledZ (controlIndices: int list) (targetIndex: int) (state: StateVector.StateVector) : StateVector.StateVector =
+        let numQubits = StateVector.numQubits state
+        
+        // Validate control indices
+        let invalidControl = 
+            controlIndices 
+            |> List.tryFind (fun idx -> 
+                idx < 0 || idx >= numQubits || idx = targetIndex)
+        
+        match invalidControl with
+        | Some idx when idx = targetIndex -> 
+            failwith "Control and target qubits must be distinct"
+        | Some idx -> 
+            failwith $"Control qubit index {idx} out of range for {numQubits}-qubit state"
+        | None -> ()
+        
+        // Validate target index
+        if targetIndex < 0 || targetIndex >= numQubits then
+            failwith $"Target qubit index {targetIndex} out of range for {numQubits}-qubit state"
+        
+        let dimension = StateVector.dimension state
+        let controlMasks = controlIndices |> List.map (fun i -> 1 <<< i)
+        let targetMask = 1 <<< targetIndex
+        
+        // Helper: Check if all control qubits are |1⟩ in basis state i
+        let allControlsAre1 i = 
+            controlMasks |> List.forall (fun mask -> (i &&& mask) <> 0)
+        
+        // Helper: Get amplitude with optional phase flip
+        let getAmplitudeWithPhase i =
+            let amplitude = StateVector.getAmplitude i state
+            let targetIs1 = (i &&& targetMask) <> 0
+            
+            match allControlsAre1 i, targetIs1 with
+            | true, true -> -amplitude  // All controls=1 AND target=1: flip phase
+            | _ -> amplitude            // Otherwise: no change
+        
+        // Functional pipeline: create new state with transformed amplitudes
+        [| 0 .. dimension - 1 |]
+        |> Array.map getAmplitudeWithPhase
+        |> StateVector.create
+    
     /// Apply CCX (Toffoli, CCNOT) gate to specified control and target qubits
     /// 
     /// CCX applies X to target qubit when both control qubits are |1⟩

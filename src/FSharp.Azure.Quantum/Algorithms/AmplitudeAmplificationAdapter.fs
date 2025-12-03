@@ -220,8 +220,9 @@ module AmplitudeAmplificationAdapter =
                 | T q -> TDG q  // T† = T-dagger
                 | TDG q -> T q
                 
-                // Toffoli is self-inverse
-                | CCX (c1, c2, t) -> CCX (c1, c2, t))
+                // Multi-qubit gates - self-inverse
+                | CCX (c1, c2, t) -> CCX (c1, c2, t)
+                | MCZ (controls, target) -> MCZ (controls, target))  // MCZ is self-inverse (Z† = Z)
         
         // Add inverted gates to circuit
         let circuitWithInverse =

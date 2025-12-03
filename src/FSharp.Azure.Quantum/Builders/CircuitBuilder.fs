@@ -31,6 +31,9 @@ module CircuitBuilder =
         
         // Three-qubit gates
         | CCX of int * int * int      // Toffoli (CCNOT) (control1, control2, target)
+        
+        // Multi-qubit gates
+        | MCZ of int list * int       // Multi-controlled Z (controls, target)
 
     /// Represents a quantum circuit with gates and qubit count
     type Circuit = {

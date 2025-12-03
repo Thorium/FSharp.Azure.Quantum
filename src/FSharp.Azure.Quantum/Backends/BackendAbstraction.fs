@@ -134,54 +134,57 @@ module BackendAbstraction =
                             let generalCircuit = wrapper.Circuit
                             let numQubits = generalCircuit.QubitCount
                             
-                            // Initialize state to |0...0⟩
-                            let mutable state = StateVector.init numQubits
+                            // Helper: Apply a single gate to state
+                            let applyGate state gate =
+                                match gate with
+                                | CircuitBuilder.H q -> Gates.applyH q state
+                                | CircuitBuilder.X q -> Gates.applyX q state
+                                | CircuitBuilder.Y q -> Gates.applyY q state
+                                | CircuitBuilder.Z q -> Gates.applyZ q state
+                                | CircuitBuilder.S q -> Gates.applyS q state
+                                | CircuitBuilder.T q -> Gates.applyT q state
+                                | CircuitBuilder.SDG q -> Gates.applySDG q state
+                                | CircuitBuilder.TDG q -> Gates.applyTDG q state
+                                | CircuitBuilder.RX (q, angle) -> Gates.applyRx q angle state
+                                | CircuitBuilder.RY (q, angle) -> Gates.applyRy q angle state
+                                | CircuitBuilder.RZ (q, angle) -> Gates.applyRz q angle state
+                                | CircuitBuilder.P (q, angle) -> Gates.applyP q angle state
+                                | CircuitBuilder.CNOT (c, t) -> Gates.applyCNOT c t state
+                                | CircuitBuilder.CZ (c, t) -> Gates.applyCZ c t state
+                                | CircuitBuilder.CP (c, t, angle) -> Gates.applyCP c t angle state
+                                | CircuitBuilder.SWAP (q1, q2) -> Gates.applySWAP q1 q2 state
+                                | CircuitBuilder.CCX (c1, c2, t) -> 
+                                    // Toffoli gate - use standard decomposition
+                                    state
+                                    |> Gates.applyH t
+                                    |> Gates.applyCNOT c2 t
+                                    |> Gates.applyTDG t
+                                    |> Gates.applyCNOT c1 t
+                                    |> Gates.applyT t
+                                    |> Gates.applyCNOT c2 t
+                                    |> Gates.applyTDG t
+                                    |> Gates.applyCNOT c1 t
+                                    |> Gates.applyT c2
+                                    |> Gates.applyT t
+                                    |> Gates.applyH t
+                                    |> Gates.applyCNOT c1 c2
+                                    |> Gates.applyT c1
+                                    |> Gates.applyTDG c2
+                                    |> Gates.applyCNOT c1 c2
+                                | CircuitBuilder.MCZ (controls, target) -> 
+                                    // Multi-controlled Z gate - CRITICAL for Grover's algorithm
+                                    Gates.applyMultiControlledZ controls target state
                             
-                            // Apply each gate sequentially
-                            for gate in generalCircuit.Gates do
-                                state <- 
-                                    match gate with
-                                    | CircuitBuilder.H q -> Gates.applyH q state
-                                    | CircuitBuilder.X q -> Gates.applyX q state
-                                    | CircuitBuilder.Y q -> Gates.applyY q state
-                                    | CircuitBuilder.Z q -> Gates.applyZ q state
-                                    | CircuitBuilder.S q -> Gates.applyS q state
-                                    | CircuitBuilder.T q -> Gates.applyT q state
-                                    | CircuitBuilder.SDG q -> Gates.applySDG q state
-                                    | CircuitBuilder.TDG q -> Gates.applyTDG q state
-                                    | CircuitBuilder.RX (q, angle) -> Gates.applyRx q angle state
-                                    | CircuitBuilder.RY (q, angle) -> Gates.applyRy q angle state
-                                    | CircuitBuilder.RZ (q, angle) -> Gates.applyRz q angle state
-                                    | CircuitBuilder.P (q, angle) -> Gates.applyP q angle state
-                                    | CircuitBuilder.CNOT (c, t) -> Gates.applyCNOT c t state
-                                    | CircuitBuilder.CZ (c, t) -> Gates.applyCZ c t state
-                                    | CircuitBuilder.CP (c, t, angle) -> Gates.applyCP c t angle state
-                                    | CircuitBuilder.SWAP (q1, q2) -> Gates.applySWAP q1 q2 state
-                                    | CircuitBuilder.CCX (c1, c2, t) -> 
-                                        // Toffoli gate - use decomposition
-                                        // CCX = H(t), CX(c2,t), TDG(t), CX(c1,t), T(t), CX(c2,t), TDG(t), CX(c1,t), T(c2), T(t), H(t), CX(c1,c2), T(c1), TDG(c2), CX(c1,c2)
-                                        state
-                                        |> Gates.applyH t
-                                        |> Gates.applyCNOT c2 t
-                                        |> Gates.applyTDG t
-                                        |> Gates.applyCNOT c1 t
-                                        |> Gates.applyT t
-                                        |> Gates.applyCNOT c2 t
-                                        |> Gates.applyTDG t
-                                        |> Gates.applyCNOT c1 t
-                                        |> Gates.applyT c2
-                                        |> Gates.applyT t
-                                        |> Gates.applyH t
-                                        |> Gates.applyCNOT c1 c2
-                                        |> Gates.applyT c1
-                                        |> Gates.applyTDG c2
-                                        |> Gates.applyCNOT c1 c2
+                            // Apply all gates sequentially using functional fold
+                            let finalState = 
+                                generalCircuit.Gates
+                                |> List.fold applyGate (StateVector.init numQubits)
                             
                             // Sample measurements from final state
                             let rng = Random()
                             let measurements = 
                                 Array.init numShots (fun _ ->
-                                    let basisStateIndex = Measurement.measureComputationalBasis rng state
+                                    let basisStateIndex = Measurement.measureComputationalBasis rng finalState
                                     Array.init numQubits (fun qubitIdx ->
                                         if (basisStateIndex >>> qubitIdx) &&& 1 = 1 then 1 else 0))
                             
@@ -226,65 +229,79 @@ module BackendAbstraction =
                         | _ -> 
                             failwith "Unsupported circuit type for IonQ backend"
                     
-                    // Step 2: Convert CircuitBuilder.Circuit to IonQCircuit
-                    let ionqGates = 
-                        builderCircuit.Gates
-                        |> List.choose (fun gate ->
-                            match gate with
-                            | CircuitBuilder.H q -> Some (IonQBackend.SingleQubit("h", q))
-                            | CircuitBuilder.X q -> Some (IonQBackend.SingleQubit("x", q))
-                            | CircuitBuilder.Y q -> Some (IonQBackend.SingleQubit("y", q))
-                            | CircuitBuilder.Z q -> Some (IonQBackend.SingleQubit("z", q))
-                            | CircuitBuilder.S q -> Some (IonQBackend.SingleQubit("s", q))
-                            | CircuitBuilder.T q -> Some (IonQBackend.SingleQubit("t", q))
-                            | CircuitBuilder.RX (q, angle) -> Some (IonQBackend.SingleQubitRotation("rx", q, angle))
-                            | CircuitBuilder.RY (q, angle) -> Some (IonQBackend.SingleQubitRotation("ry", q, angle))
-                            | CircuitBuilder.RZ (q, angle) -> Some (IonQBackend.SingleQubitRotation("rz", q, angle))
-                            | CircuitBuilder.CNOT (c, t) -> Some (IonQBackend.TwoQubit("cnot", c, t))
-                            | CircuitBuilder.SWAP (q1, q2) -> Some (IonQBackend.TwoQubit("swap", q1, q2))
-                            | _ -> None  // Skip unsupported gates
-                        )
+                    // Step 2: Transpile to IonQ-compatible gates (auto-decompose MCZ, CZ, CCX)
+                    let transpiledCircuit = 
+                        GateTranspiler.transpileForBackend "IonQ" builderCircuit
                     
-                    // Add measurement on all qubits
-                    let qubits = [| 0 .. builderCircuit.QubitCount - 1 |]
-                    let ionqCircuit = {
-                        IonQBackend.Qubits = builderCircuit.QubitCount
-                        IonQBackend.Circuit = ionqGates @ [ IonQBackend.Measure qubits ]
-                    }
+                    // Step 3: Convert transpiled circuit to IonQCircuit
+                    // After transpilation, MCZ/CZ/CCX should be decomposed
+                    let ionqGatesResult = 
+                        transpiledCircuit.Gates
+                        |> List.fold (fun (acc: Result<IonQBackend.IonQGate list, string>) gate ->
+                            match acc with
+                            | Error msg -> Error msg
+                            | Ok gates ->
+                                match gate with
+                                | CircuitBuilder.H q -> Ok (gates @ [IonQBackend.SingleQubit("h", q)])
+                                | CircuitBuilder.X q -> Ok (gates @ [IonQBackend.SingleQubit("x", q)])
+                                | CircuitBuilder.Y q -> Ok (gates @ [IonQBackend.SingleQubit("y", q)])
+                                | CircuitBuilder.Z q -> Ok (gates @ [IonQBackend.SingleQubit("z", q)])
+                                | CircuitBuilder.S q -> Ok (gates @ [IonQBackend.SingleQubit("s", q)])
+                                | CircuitBuilder.T q -> Ok (gates @ [IonQBackend.SingleQubit("t", q)])
+                                | CircuitBuilder.RX (q, angle) -> Ok (gates @ [IonQBackend.SingleQubitRotation("rx", q, angle)])
+                                | CircuitBuilder.RY (q, angle) -> Ok (gates @ [IonQBackend.SingleQubitRotation("ry", q, angle)])
+                                | CircuitBuilder.RZ (q, angle) -> Ok (gates @ [IonQBackend.SingleQubitRotation("rz", q, angle)])
+                                | CircuitBuilder.CNOT (c, t) -> Ok (gates @ [IonQBackend.TwoQubit("cnot", c, t)])
+                                | CircuitBuilder.SWAP (q1, q2) -> Ok (gates @ [IonQBackend.TwoQubit("swap", q1, q2)])
+                                | CircuitBuilder.MCZ _ | CircuitBuilder.CZ _ | CircuitBuilder.CCX _ -> 
+                                    Error $"Gate {gate} found after transpilation - this indicates a transpiler bug."
+                                | _ -> 
+                                    Error $"Unsupported gate for IonQ backend after transpilation: {gate}"
+                        ) (Ok [])
                     
-                    // Step 3: Submit to Azure Quantum IonQ backend
-                    let asyncResult = async {
-                        return! IonQBackend.submitAndWaitForResultsAsync httpClient workspaceUrl ionqCircuit numShots target
-                    }
-                    
-                    let result = Async.RunSynchronously asyncResult
-                    
-                    // Step 4: Convert histogram to ExecutionResult
-                    match result with
-                    | Ok histogram ->
-                        // Convert histogram Map<bitstring, count> to measurements int[][]
-                        let measurements = 
-                            histogram
-                            |> Map.toSeq
-                            |> Seq.collect (fun (bitstring, count) ->
-                                // Convert bitstring "01101" to int array [0;1;1;0;1]
-                                let bits = 
-                                    bitstring.ToCharArray()
-                                    |> Array.map (fun c -> if c = '1' then 1 else 0)
-                                // Repeat this bitstring 'count' times
-                                Seq.replicate count bits
-                            )
-                            |> Array.ofSeq
-                        
-                        Ok {
-                            Measurements = measurements
-                            NumShots = numShots
-                            BackendName = sprintf "IonQ via Azure Quantum (%s)" target
-                            Metadata = Map.ofList [ ("target", target :> obj); ("workspace", workspaceUrl :> obj) ]
+                    match ionqGatesResult with
+                    | Error msg -> Error msg
+                    | Ok ionqGates ->
+                        // Add measurement on all qubits
+                        let qubits = [| 0 .. builderCircuit.QubitCount - 1 |]
+                        let ionqCircuit = {
+                            IonQBackend.Qubits = builderCircuit.QubitCount
+                            IonQBackend.Circuit = ionqGates @ [ IonQBackend.Measure qubits ]
                         }
-                    
-                    | Error quantumError ->
-                        Error (sprintf "IonQ execution failed: %A" quantumError)
+                        
+                        // Step 3: Submit to Azure Quantum IonQ backend
+                        let asyncResult = async {
+                            return! IonQBackend.submitAndWaitForResultsAsync httpClient workspaceUrl ionqCircuit numShots target
+                        }
+                        
+                        let result = Async.RunSynchronously asyncResult
+                        
+                        // Step 4: Convert histogram to ExecutionResult
+                        match result with
+                        | Ok histogram ->
+                            // Convert histogram Map<bitstring, count> to measurements int[][]
+                            let measurements = 
+                                histogram
+                                |> Map.toSeq
+                                |> Seq.collect (fun (bitstring, count) ->
+                                    // Convert bitstring "01101" to int array [0;1;1;0;1]
+                                    let bits = 
+                                        bitstring.ToCharArray()
+                                        |> Array.map (fun c -> if c = '1' then 1 else 0)
+                                    // Repeat this bitstring 'count' times
+                                    Seq.replicate count bits
+                                )
+                                |> Array.ofSeq
+                            
+                            Ok {
+                                Measurements = measurements
+                                NumShots = numShots
+                                BackendName = sprintf "IonQ via Azure Quantum (%s)" target
+                                Metadata = Map.ofList [ ("target", target :> obj); ("workspace", workspaceUrl :> obj) ]
+                            }
+                        
+                        | Error quantumError ->
+                            Error (sprintf "IonQ execution failed: %A" quantumError)
                 
                 with ex ->
                     Error (sprintf "IonQ backend error: %s" ex.Message)
@@ -322,71 +339,81 @@ module BackendAbstraction =
                         | _ -> 
                             failwith "Unsupported circuit type for Rigetti backend"
                     
-                    // Step 2: Convert CircuitBuilder.Circuit to QuilProgram
-                    let quilInstructions = 
-                        builderCircuit.Gates
-                        |> List.choose (fun gate ->
-                            match gate with
-                            | CircuitBuilder.H q -> Some (RigettiBackend.SingleQubit("H", q))
-                            | CircuitBuilder.X q -> Some (RigettiBackend.SingleQubit("X", q))
-                            | CircuitBuilder.Y q -> Some (RigettiBackend.SingleQubit("Y", q))
-                            | CircuitBuilder.Z q -> Some (RigettiBackend.SingleQubit("Z", q))
-                            | CircuitBuilder.S q -> Some (RigettiBackend.SingleQubit("S", q))
-                            | CircuitBuilder.T q -> Some (RigettiBackend.SingleQubit("T", q))
-                            | CircuitBuilder.RX (q, angle) -> Some (RigettiBackend.SingleQubitRotation("RX", angle, q))
-                            | CircuitBuilder.RY (q, angle) -> Some (RigettiBackend.SingleQubitRotation("RY", angle, q))
-                            | CircuitBuilder.RZ (q, angle) -> Some (RigettiBackend.SingleQubitRotation("RZ", angle, q))
-                            | CircuitBuilder.CZ (c, t) -> Some (RigettiBackend.TwoQubit("CZ", c, t))
-                            | CircuitBuilder.CNOT (c, t) -> 
-                                // CNOT not native to Rigetti, decompose if needed
-                                // For now, skip (Rigetti uses CZ)
-                                None
-                            | _ -> None
-                        )
+                    // Step 2: Transpile to Rigetti-compatible gates (auto-decompose MCZ, CCX, CNOT)
+                    let transpiledCircuit = 
+                        GateTranspiler.transpileForBackend "Rigetti" builderCircuit
                     
-                    // Add measurements
-                    let measurements = 
-                        [ 0 .. builderCircuit.QubitCount - 1 ]
-                        |> List.map (fun q -> RigettiBackend.Measure(q, sprintf "ro[%d]" q))
+                    // Step 3: Convert transpiled circuit to QuilProgram
+                    // After transpilation, all gates should be Rigetti-compatible
+                    let quilResult = 
+                        transpiledCircuit.Gates
+                        |> List.fold (fun (acc: Result<RigettiBackend.QuilGate list, string>) gate ->
+                            match acc with
+                            | Error msg -> Error msg
+                            | Ok instructions ->
+                                match gate with
+                                | CircuitBuilder.H q -> Ok (instructions @ [RigettiBackend.SingleQubit("H", q)])
+                                | CircuitBuilder.X q -> Ok (instructions @ [RigettiBackend.SingleQubit("X", q)])
+                                | CircuitBuilder.Y q -> Ok (instructions @ [RigettiBackend.SingleQubit("Y", q)])
+                                | CircuitBuilder.Z q -> Ok (instructions @ [RigettiBackend.SingleQubit("Z", q)])
+                                | CircuitBuilder.S q -> Ok (instructions @ [RigettiBackend.SingleQubit("S", q)])
+                                | CircuitBuilder.T q -> Ok (instructions @ [RigettiBackend.SingleQubit("T", q)])
+                                | CircuitBuilder.RX (q, angle) -> Ok (instructions @ [RigettiBackend.SingleQubitRotation("RX", angle, q)])
+                                | CircuitBuilder.RY (q, angle) -> Ok (instructions @ [RigettiBackend.SingleQubitRotation("RY", angle, q)])
+                                | CircuitBuilder.RZ (q, angle) -> Ok (instructions @ [RigettiBackend.SingleQubitRotation("RZ", angle, q)])
+                                | CircuitBuilder.CZ (c, t) -> Ok (instructions @ [RigettiBackend.TwoQubit("CZ", c, t)])
+                                | CircuitBuilder.CNOT _ | CircuitBuilder.MCZ _ | CircuitBuilder.CCX _ -> 
+                                    Error $"Gate {gate} found after transpilation - this indicates a transpiler bug."
+                                | _ -> 
+                                    Error $"Unsupported gate for Rigetti backend after transpilation: {gate}"
+                        ) (Ok [])
                     
-                    let quilProgram = {
-                        RigettiBackend.Declarations = [ RigettiBackend.DeclareMemory("ro", "BIT", builderCircuit.QubitCount) ]
-                        RigettiBackend.Instructions = quilInstructions @ measurements
-                    }
-                    
-                    // Step 3: Submit to Azure Quantum Rigetti backend
-                    let asyncResult = async {
-                        return! RigettiBackend.submitAndWaitForResultsAsync httpClient workspaceUrl quilProgram numShots target
-                    }
-                    
-                    let result = Async.RunSynchronously asyncResult
-                    
-                    // Step 4: Convert histogram to ExecutionResult
-                    match result with
-                    | Ok histogram ->
-                        // Convert histogram Map<bitstring, count> to measurements int[][]
+                    match quilResult with
+                    | Error msg -> Error msg
+                    | Ok quilInstructions ->
+                        // Add measurements
                         let measurements = 
-                            histogram
-                            |> Map.toSeq
-                            |> Seq.collect (fun (bitstring, count) ->
-                                // Convert bitstring "01101" to int array [0;1;1;0;1]
-                                let bits = 
-                                    bitstring.ToCharArray()
-                                    |> Array.map (fun c -> if c = '1' then 1 else 0)
-                                // Repeat this bitstring 'count' times
-                                Seq.replicate count bits
-                            )
-                            |> Array.ofSeq
+                            [ 0 .. builderCircuit.QubitCount - 1 ]
+                            |> List.map (fun q -> RigettiBackend.Measure(q, sprintf "ro[%d]" q))
                         
-                        Ok {
-                            Measurements = measurements
-                            NumShots = numShots
-                            BackendName = sprintf "Rigetti via Azure Quantum (%s)" target
-                            Metadata = Map.ofList [ ("target", target :> obj); ("workspace", workspaceUrl :> obj) ]
+                        let quilProgram = {
+                            RigettiBackend.Declarations = [ RigettiBackend.DeclareMemory("ro", "BIT", builderCircuit.QubitCount) ]
+                            RigettiBackend.Instructions = quilInstructions @ measurements
                         }
-                    
-                    | Error quantumError ->
-                        Error (sprintf "Rigetti execution failed: %A" quantumError)
+                        
+                        // Step 4: Submit to Azure Quantum Rigetti backend
+                        let asyncResult = async {
+                            return! RigettiBackend.submitAndWaitForResultsAsync httpClient workspaceUrl quilProgram numShots target
+                        }
+                        
+                        let result = Async.RunSynchronously asyncResult
+                        
+                        // Step 5: Convert histogram to ExecutionResult
+                        match result with
+                        | Ok histogram ->
+                            // Convert histogram Map<bitstring, count> to measurements int[][]
+                            let measurements = 
+                                histogram
+                                |> Map.toSeq
+                                |> Seq.collect (fun (bitstring, count) ->
+                                    // Convert bitstring "01101" to int array [0;1;1;0;1]
+                                    let bits = 
+                                        bitstring.ToCharArray()
+                                        |> Array.map (fun c -> if c = '1' then 1 else 0)
+                                    // Repeat this bitstring 'count' times
+                                    Seq.replicate count bits
+                                )
+                                |> Array.ofSeq
+                            
+                            Ok {
+                                Measurements = measurements
+                                NumShots = numShots
+                                BackendName = sprintf "Rigetti via Azure Quantum (%s)" target
+                                Metadata = Map.ofList [ ("target", target :> obj); ("workspace", workspaceUrl :> obj) ]
+                            }
+                        
+                        | Error quantumError ->
+                            Error (sprintf "Rigetti execution failed: %A" quantumError)
                 
                 with ex ->
                     Error (sprintf "Rigetti backend error: %s" ex.Message)

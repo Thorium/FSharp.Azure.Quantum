@@ -155,6 +155,10 @@ module OpenQasmExport =
             // CP(θ) = controlled-phase gate
             // In OpenQASM 2.0, this is 'cp' (controlled-p)
             $"cp({formatAngle theta}) q[{control}],q[{target}];"
+        | MCZ (controls, target) ->
+            // MCZ gate should be decomposed before export
+            // This case should not be reached if transpilation is done properly
+            failwith "MCZ gate found in OpenQASM export. Call GateTranspiler.transpile() first to decompose multi-controlled gates."
     
     // ========================================================================
     // VALIDATION
@@ -219,6 +223,23 @@ module OpenQasmExport =
                     | Error msg, _, _ -> Error msg
                     | _, Error msg, _ -> Error msg
                     | _, _, Error msg -> Error msg
+                | MCZ (controls, target) ->
+                    // Validate all control qubits
+                    let controlResults = controls |> List.map (fun c -> checkQubit c "MCZ control")
+                    let targetResult = checkQubit target "MCZ target"
+                    
+                    match List.tryFind Result.isError controlResults with
+                    | Some (Error msg) -> Error msg
+                    | _ ->
+                        match targetResult with
+                        | Error msg -> Error msg
+                        | Ok () ->
+                            // Check all qubits are distinct
+                            let allQubits = target :: controls
+                            if List.distinct allQubits |> List.length <> List.length allQubits then
+                                Error "MCZ control and target qubits must be distinct"
+                            else
+                                Ok ()
             
             // Validate all gates
             circuit.Gates
