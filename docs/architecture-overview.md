@@ -29,7 +29,7 @@ LAYER 2: Problem Solvers
       └─ PortfolioSolver (Greedy Ratio)
 
 LAYER 3: Execution Backends
-  ├─ LocalBackend (CPU simulation, ≤16 qubits, default)
+  ├─ LocalBackend (CPU simulation, ≤20 qubits, default)
   ├─ IonQBackend (Azure Quantum, trapped ions)
   └─ RigettiBackend (Azure Quantum, superconducting qubits)
 ```
@@ -57,7 +57,7 @@ LAYER 3: Execution Backends
 **Direct Quantum (Recommended)**:
 - Consistent API across all problem sizes
 - Leverages quantum algorithms (QAOA/VQE/QFT)
-- LocalBackend provides free, fast simulation (≤16 qubits)
+- LocalBackend provides free, fast simulation (≤20 qubits)
 - Future-proof as quantum hardware improves
 
 **HybridSolver (Optional Optimization)**:
@@ -150,7 +150,7 @@ src/FSharp.Azure.Quantum/
 
 A: **Use high-level builders directly** (`GraphColoring.solve`, `MaxCut.solve`, etc.) for most cases. They provide:
 - Consistent quantum API across all problem sizes
-- LocalBackend simulation (free, fast, ≤16 qubits)
+- LocalBackend simulation (free, fast, ≤20 qubits)
 - Future-proof as quantum hardware improves
 
 Use HybridSolver only if you need automatic classical fallback for very small problems (< 20 variables) where quantum circuit overhead isn't justified.

@@ -737,7 +737,7 @@ As hardware matures from NISQ devices to error-corrected machines, quantum-class
 **Why F# for quantum computing**: The language's emphasis on immutability, composability, and type safety aligns naturally with quantum computing's reversible operations, circuit composition, and need for correctness. But more importantly, F#'s support for **domain-specific embedded languages** (computation expressions, type providers) enables building business-focused quantum APIs that hide quantum complexity.
 
 FSharp.Azure.Quantum brings these abstractions to a practical cloud platform, enabling:
-- **Immediate value**: Solve optimization problems today with local simulation (≤16 qubits) or cloud QPUs (100+ qubits)
+- **Immediate value**: Solve optimization problems today with local simulation (≤20 qubits) or cloud QPUs (100+ qubits)
 - **Future-proofing**: Same code scales from NISQ hardware to error-corrected systems as backends improve
 - **Accessibility**: Enterprise developers leverage quantum advantage without quantum physics expertise
 - **Automation readiness**: APIs designed for both human developers and autonomous AI agents

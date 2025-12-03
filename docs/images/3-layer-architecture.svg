@@ -1,0 +1,154 @@
+<svg width="800" height="900" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <style>
+      .layer-box { fill: #f5f5f5; stroke: #333; stroke-width: 2; }
+      .builder-box { fill: #90EE90; stroke: #2d5016; stroke-width: 2; rx: 5; }
+      .solver-box { fill: #FFA500; stroke: #8B4000; stroke-width: 2; rx: 5; }
+      .backend-box { fill: #4169E1; stroke: #1a3a7d; stroke-width: 2; rx: 5; }
+      .text-title { font-family: Arial, sans-serif; font-size: 16px; font-weight: bold; fill: #333; }
+      .text-label { font-family: Arial, sans-serif; font-size: 12px; fill: #000; text-anchor: middle; }
+      .text-small { font-family: Arial, sans-serif; font-size: 10px; fill: #555; text-anchor: middle; }
+      .arrow { stroke: #333; stroke-width: 2; fill: none; marker-end: url(#arrowhead); }
+      .arrow-dotted { stroke: #666; stroke-width: 1.5; stroke-dasharray: 5,3; fill: none; marker-end: url(#arrowhead-light); }
+    </style>
+    <marker id="arrowhead" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+      <polygon points="0 0, 10 3, 0 6" fill="#333" />
+    </marker>
+    <marker id="arrowhead-light" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+      <polygon points="0 0, 10 3, 0 6" fill="#666" />
+    </marker>
+  </defs>
+  
+  <!-- Title -->
+  <text x="400" y="30" class="text-title" text-anchor="middle" font-size="20">3-Layer Quantum-Only Architecture</text>
+  
+  <!-- Layer 1: High-Level Builders -->
+  <rect x="50" y="60" width="700" height="240" class="layer-box" />
+  <text x="400" y="85" class="text-title" text-anchor="middle">Layer 1: High-Level Builders</text>
+  <text x="400" y="105" class="text-small" text-anchor="middle">F# computation expressions • C# fluent APIs • Domain-specific validation</text>
+  
+  <!-- Builders Row 1 -->
+  <rect x="70" y="120" width="140" height="50" class="builder-box" />
+  <text x="140" y="143" class="text-label">GraphColoring</text>
+  <text x="140" y="158" class="text-small">graphColoring { }</text>
+  
+  <rect x="230" y="120" width="140" height="50" class="builder-box" />
+  <text x="300" y="143" class="text-label">MaxCut</text>
+  <text x="300" y="158" class="text-small">MaxCut.createProblem</text>
+  
+  <rect x="390" y="120" width="140" height="50" class="builder-box" />
+  <text x="460" y="143" class="text-label">Knapsack</text>
+  <text x="460" y="158" class="text-small">Knapsack.createProblem</text>
+  
+  <rect x="550" y="120" width="140" height="50" class="builder-box" />
+  <text x="620" y="143" class="text-label">TSP</text>
+  <text x="620" y="158" class="text-small">TSP.createProblem</text>
+  
+  <!-- Builders Row 2 -->
+  <rect x="90" y="185" width="140" height="50" class="builder-box" />
+  <text x="160" y="208" class="text-label">Portfolio</text>
+  <text x="160" y="223" class="text-small">Portfolio.createProblem</text>
+  
+  <rect x="250" y="185" width="140" height="50" class="builder-box" />
+  <text x="320" y="208" class="text-label">NetworkFlow</text>
+  <text x="320" y="223" class="text-small">NetworkFlow module</text>
+  
+  <rect x="410" y="185" width="140" height="50" class="builder-box" />
+  <text x="480" y="208" class="text-label">TaskScheduling</text>
+  <text x="480" y="223" class="text-small">scheduledTask { }</text>
+  
+  <!-- Layer 2: Quantum Solvers -->
+  <rect x="50" y="340" width="700" height="240" class="layer-box" />
+  <text x="400" y="365" class="text-title" text-anchor="middle">Layer 2: Quantum Solvers (QAOA)</text>
+  <text x="400" y="385" class="text-small" text-anchor="middle">QUBO encoding • Circuit construction • Parameter optimization</text>
+  
+  <!-- Solvers Row 1 -->
+  <rect x="70" y="400" width="160" height="50" class="solver-box" />
+  <text x="150" y="420" class="text-label">QuantumGraphColoring</text>
+  <text x="150" y="435" class="text-small">Solver (QAOA)</text>
+  
+  <rect x="250" y="400" width="160" height="50" class="solver-box" />
+  <text x="330" y="420" class="text-label">QuantumMaxCut</text>
+  <text x="330" y="435" class="text-small">Solver (QAOA)</text>
+  
+  <rect x="430" y="400" width="160" height="50" class="solver-box" />
+  <text x="510" y="420" class="text-label">QuantumKnapsack</text>
+  <text x="510" y="435" class="text-small">Solver (QAOA)</text>
+  
+  <!-- Solvers Row 2 -->
+  <rect x="70" y="465" width="160" height="50" class="solver-box" />
+  <text x="150" y="485" class="text-label">QuantumTSP</text>
+  <text x="150" y="500" class="text-small">Solver (QAOA)</text>
+  
+  <rect x="250" y="465" width="160" height="50" class="solver-box" />
+  <text x="330" y="485" class="text-label">QuantumPortfolio</text>
+  <text x="330" y="500" class="text-small">Solver (QAOA)</text>
+  
+  <rect x="430" y="465" width="160" height="50" class="solver-box" />
+  <text x="510" y="485" class="text-label">QuantumNetworkFlow</text>
+  <text x="510" y="500" class="text-small">Solver (QAOA)</text>
+  
+  <rect x="610" y="465" width="160" height="50" class="solver-box" />
+  <text x="690" y="485" class="text-label">QuantumScheduling</text>
+  <text x="690" y="500" class="text-small">Solver (QAOA)</text>
+  
+  <!-- Layer 3: Quantum Backends -->
+  <rect x="50" y="620" width="700" height="200" class="layer-box" />
+  <text x="400" y="645" class="text-title" text-anchor="middle">Layer 3: Quantum Backends</text>
+  <text x="400" y="665" class="text-small" text-anchor="middle">State vector simulation • Cloud quantum hardware • Circuit execution</text>
+  
+  <!-- Backends -->
+  <rect x="120" y="690" width="180" height="80" class="backend-box" />
+  <text x="210" y="720" class="text-label" fill="#fff">LocalBackend</text>
+  <text x="210" y="740" class="text-small" fill="#ddd">(≤20 qubits)</text>
+  <text x="210" y="755" class="text-small" fill="#ddd">Simulation</text>
+  
+  <rect x="330" y="690" width="180" height="80" class="backend-box" />
+  <text x="420" y="720" class="text-label" fill="#fff">IonQBackend</text>
+  <text x="420" y="740" class="text-small" fill="#ddd">(Azure Quantum)</text>
+  <text x="420" y="755" class="text-small" fill="#ddd">29+ qubits</text>
+  
+  <rect x="540" y="690" width="180" height="80" class="backend-box" />
+  <text x="630" y="720" class="text-label" fill="#fff">RigettiBackend</text>
+  <text x="630" y="740" class="text-small" fill="#ddd">(Azure Quantum)</text>
+  <text x="630" y="755" class="text-small" fill="#ddd">40+ qubits</text>
+  
+  <!-- Arrows from Layer 1 to Layer 2 -->
+  <line x1="140" y1="235" x2="150" y2="400" class="arrow" />
+  <line x1="300" y1="170" x2="330" y2="400" class="arrow" />
+  <line x1="460" y1="170" x2="510" y2="400" class="arrow" />
+  <line x1="620" y1="170" x2="150" y2="465" class="arrow" />
+  <line x1="160" y1="235" x2="330" y2="465" class="arrow" />
+  <line x1="320" y1="235" x2="510" y2="465" class="arrow" />
+  <line x1="480" y1="235" x2="690" y2="465" class="arrow" />
+  
+  <!-- Arrows from Layer 2 to Layer 3 (solid to LocalBackend) -->
+  <line x1="150" y1="515" x2="210" y2="690" class="arrow" />
+  <line x1="330" y1="515" x2="210" y2="690" class="arrow" />
+  <line x1="510" y1="515" x2="210" y2="690" class="arrow" />
+  <line x1="690" y1="515" x2="210" y2="690" class="arrow" />
+  
+  <!-- Arrows from Layer 2 to Layer 3 (dotted to IonQ) -->
+  <line x1="150" y1="515" x2="420" y2="690" class="arrow-dotted" />
+  <line x1="330" y1="515" x2="420" y2="690" class="arrow-dotted" />
+  <line x1="510" y1="515" x2="420" y2="690" class="arrow-dotted" />
+  <line x1="690" y1="515" x2="420" y2="690" class="arrow-dotted" />
+  
+  <!-- Arrows from Layer 2 to Layer 3 (dotted to Rigetti) -->
+  <line x1="150" y1="515" x2="630" y2="690" class="arrow-dotted" />
+  <line x1="330" y1="515" x2="630" y2="690" class="arrow-dotted" />
+  <line x1="510" y1="515" x2="630" y2="690" class="arrow-dotted" />
+  <line x1="690" y1="515" x2="630" y2="690" class="arrow-dotted" />
+  
+  <!-- Legend -->
+  <rect x="50" y="840" width="700" height="50" fill="#fff" stroke="#ccc" stroke-width="1" />
+  <text x="70" y="860" class="text-small" text-anchor="start" font-weight="bold">Legend:</text>
+  <line x1="130" y1="855" x2="170" y2="855" class="arrow" />
+  <text x="180" y="860" class="text-small" text-anchor="start">Default (LocalBackend)</text>
+  <line x1="320" y1="855" x2="360" y2="855" class="arrow-dotted" />
+  <text x="370" y="860" class="text-small" text-anchor="start">Optional (Cloud backends)</text>
+  <rect x="550" y="848" width="30" height="15" class="builder-box" />
+  <text x="590" y="860" class="text-small" text-anchor="start">Builders</text>
+  <rect x="640" y="848" width="30" height="15" class="solver-box" />
+  <text x="680" y="860" class="text-small" text-anchor="start">Solvers</text>
+</svg>

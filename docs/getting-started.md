@@ -77,7 +77,7 @@ R4 → Color_0
 1. Computation expression builds graph coloring problem
 2. `GraphColoring.solve` encodes problem as QUBO
 3. QAOA quantum algorithm builds optimization circuit
-4. LocalBackend simulates quantum circuit (up to 16 qubits, free)
+4. LocalBackend simulates quantum circuit (up to 20 qubits, free)
 5. Returns color assignments with validation
 
 ## Key Concepts
@@ -202,7 +202,7 @@ match Knapsack.solve knapsackProblem None with
 | Learning quantum algorithms | **Direct API** | Consistent quantum experience |
 | Production with fixed problem size | **Direct API** | Simple, predictable behavior |
 | Production with variable size | **HybridSolver** | Optimizes small problems automatically |
-| Prototyping | **Direct API** | LocalBackend is fast enough (≤16 qubits) |
+| Prototyping | **Direct API** | LocalBackend is fast enough (≤20 qubits) |
 | Performance-critical variable sizing | **HybridSolver** | Classical fallback saves overhead |
 
 ## Common Pitfalls & How to Avoid Them
@@ -547,7 +547,7 @@ let workspace = {
 // Supports: Azure CLI, Managed Identity, Environment Variables, etc.
 ```
 
-**Note:** LocalBackend (default) works without Azure credentials - perfect for development, testing, and small problems (≤16 qubits)!
+**Note:** LocalBackend (default) works without Azure credentials - perfect for development, testing, and small problems (≤20 qubits)!
 
 ---
 

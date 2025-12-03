@@ -30,7 +30,7 @@ Common questions about FSharp.Azure.Quantum.
 FSharp.Azure.Quantum is a **quantum-first F# library** for solving combinatorial optimization problems using quantum algorithms (QAOA, VQE, QFT). It provides:
 - Quantum optimization algorithms (QAOA for graph problems, VQE for quantum chemistry)
 - QFT-based algorithms (Shor's factorization, Phase Estimation)
-- LocalBackend for free quantum simulation (up to 16 qubits)
+- LocalBackend for free quantum simulation (up to 20 qubits)
 - Optional HybridSolver with classical fallback for very small problems
 - Integration with Azure Quantum cloud backends (IonQ, Rigetti)
 - High-level computation expression APIs for intuitive problem specification
@@ -47,7 +47,7 @@ Currently **1.1.0** - suitable for:
 - ✅ Academic research and learning
 - ✅ Quantum algorithm experimentation
 
-**LocalBackend** provides fast, free quantum simulation for problems up to 16 qubits. For larger problems, cloud backends (IonQ, Rigetti) are available via Azure Quantum.
+**LocalBackend** provides fast, free quantum simulation for problems up to 20 qubits. For larger problems, cloud backends (IonQ, Rigetti) are available via Azure Quantum.
 
 ## Technical Questions
 
@@ -60,7 +60,7 @@ Currently **1.1.0** - suitable for:
 | **Approach** | QAOA/VQE quantum algorithms | Auto-routes: Quantum (≥20 vars) or Classical (< 20 vars) |
 | **Speed** | LocalBackend: 1-10s, Cloud: 30-120s | Very small: <100ms, Others: same as quantum |
 | **Cost** | LocalBackend: Free, Cloud: $10-100/run | Optimizes cost for very small problems |
-| **Problem Size** | 5-200 variables (LocalBackend: ≤16 qubits) | 5-500 variables |
+| **Problem Size** | 5-200 variables (LocalBackend: ≤20 qubits) | 5-500 variables |
 | **Best For** | Consistent quantum API, learning, fixed-size problems | Variable-size production workloads |
 | **Availability** | ✅ Now (LocalBackend + Cloud) | ✅ Now |
 | **Backend** | LocalBackend (default) or Cloud (IonQ/Rigetti) | Same, but optimizes very small problems |
@@ -72,7 +72,7 @@ Currently **1.1.0** - suitable for:
 - ✅ Learning quantum algorithms (QAOA, VQE, QFT)
 - ✅ Problem size is consistent (e.g., always 50-100 variables)
 - ✅ Want consistent quantum experience
-- ✅ LocalBackend simulation is sufficient (≤16 qubits)
+- ✅ LocalBackend simulation is sufficient (≤20 qubits)
 - ✅ Developing/testing quantum algorithms
 
 **Use HybridSolver when:**
@@ -236,7 +236,7 @@ printfn "Time per iteration: %.2f ms" (float sw.ElapsedMilliseconds / float solu
 - QAOA for optimization problems (GraphColoring, MaxCut, Knapsack, TSP, Portfolio, NetworkFlow)
 - VQE for quantum chemistry
 - QFT-based algorithms (Shor's, Phase Estimation, Quantum Arithmetic)
-- Runs on LocalBackend (free, up to 16 qubits) or cloud backends
+- Runs on LocalBackend (free, up to 20 qubits) or cloud backends
 
 **HybridSolver:** Adds classical fallback optimization for very small problems (< 20 variables) where quantum circuit overhead isn't beneficial yet.
 
@@ -339,7 +339,7 @@ if (FSharpResult<Solution, string>.get_IsOk(result)) {
 
 **Library:** Free and open source (Unlicense license)
 
-**LocalBackend (Quantum Simulation):** Free - runs entirely local, up to 16 qubits
+**LocalBackend (Quantum Simulation):** Free - runs entirely local, up to 20 qubits
 
 **Cloud Quantum Backends:** Azure Quantum pricing applies
 - Free tier available (limited shots)

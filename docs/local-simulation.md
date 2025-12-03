@@ -13,7 +13,7 @@ The local quantum simulation module enables rapid development, unit testing, and
 
 FSharp.Azure.Quantum includes a lightweight, pure F# quantum simulator that supports:
 
-- **State vector simulation** up to 16 qubits (65536-dimensional state space)
+- **State vector simulation** up to 20 qubits (65536-dimensional state space)
 - **QAOA circuits** with mixer and cost Hamiltonians
 - **Single-qubit gates**: X, Y, Z, H, Rx, Ry, Rz
 - **Two-qubit gates**: CNOT, CZ
@@ -33,7 +33,7 @@ let distances = array2D [
     [ 2.0; 1.5; 0.0 ]
 ]
 
-// Create local backend (supports up to 16 qubits)
+// Create local backend (supports up to 20 qubits)
 let backend = createLocalBackend()
 
 // Solve with default configuration (QAOA with parameter optimization)

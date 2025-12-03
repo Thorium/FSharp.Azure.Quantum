@@ -384,12 +384,12 @@ module ShorsBackendAdapter =
         
         let precisionQubits = 
             let logN = int (ceil (Math.Log2(float n)))
-            // Reduce precision to fit 16-qubit local backend limit
+            // Reduce precision to fit 20-qubit local backend limit (updated from 16)
             // Total qubits = precision + register + temp + ancilla
             //             = precision + logN + logN + 1
             //             = precision + 2*logN + 1
-            // For 16-qubit limit: precision = 16 - 2*logN - 1 = 15 - 2*logN
-            let maxPrecision = 15 - 2 * logN
+            // For 20-qubit limit: precision = 20 - 2*logN - 1 = 19 - 2*logN
+            let maxPrecision = 19 - 2 * logN
             // But use at least logN qubits for reasonable accuracy
             max logN (min maxPrecision (2 * logN + 3))
         
@@ -410,7 +410,7 @@ module ShorsBackendAdapter =
         let config = {
             NumberToFactor = 15
             RandomBase = Some 7  // Use a=7
-            PrecisionQubits = 7  // Reduced to fit 16-qubit limit: 7+4+4+1=16
+            PrecisionQubits = 11  // Updated for 20-qubit limit: 11+4+4+1=20
             MaxAttempts = 1
         }
         

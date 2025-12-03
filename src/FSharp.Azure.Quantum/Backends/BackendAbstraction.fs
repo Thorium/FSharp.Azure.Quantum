@@ -205,7 +205,7 @@ module BackendAbstraction =
             
             member _.SupportedGates = ["H"; "X"; "Y"; "Z"; "S"; "T"; "SDG"; "TDG"; "RX"; "RY"; "RZ"; "P"; "CNOT"; "CZ"; "CP"; "SWAP"; "CCX"]
             
-            member _.MaxQubits = 16
+            member _.MaxQubits = 20
     
     // ============================================================================
     // IONQ BACKEND WRAPPER

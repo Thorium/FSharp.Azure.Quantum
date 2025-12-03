@@ -149,9 +149,9 @@ module QuantumTreeSearch =
                 MoveGenerator = fun _ -> []
                 TopPercentile = 0.2
                 Backend = None
-                Shots = None  // Auto-scale: 100 (Local) or 500 (Cloud)
-                SolutionThreshold = None  // Auto-scale: 1% (Local) or 2% (Cloud)
-                SuccessThreshold = None  // Auto-scale: 10% (Local) or 20% (Cloud)
+                Shots = None  // Auto-scale: 50 (Local) or 250 (Cloud) - reduced after bug fixes
+                SolutionThreshold = None  // Auto-scale: 5% (both Local/Cloud) - increased after bug fixes
+                SuccessThreshold = None  // Auto-scale: 50% (Local) or 60% (Cloud) - increased after bug fixes
                 MaxPaths = None  // Auto-recommend based on tree size
                 MaxIterations = None  // Auto-calculate optimal Grover iterations
             }

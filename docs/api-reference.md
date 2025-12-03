@@ -597,7 +597,7 @@ let backend = BackendAbstraction.createRigettiBackend(
 
 | Problem Size | Recommended Backend | Rationale |
 |--------------|---------------------|-----------|
-| ≤16 qubits | LocalBackend | Free, fast, sufficient |
+| ≤20 qubits | LocalBackend | Free, fast, sufficient |
 | 17-20 qubits | IonQ/Rigetti Simulator | Scalable, still affordable |
 | 20+ qubits | IonQ/Rigetti QPU | Real quantum hardware needed |
 

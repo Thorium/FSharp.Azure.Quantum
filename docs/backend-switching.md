@@ -11,7 +11,7 @@ title: Switching Between Local and Azure Backends
 
 FSharp.Azure.Quantum provides a **unified API** through the `QuantumBackend` module that works with both:
 
-1. **Local Simulator** - Fast, free, offline simulation (up to 16 qubits)
+1. **Local Simulator** - Fast, free, offline simulation (up to 20 qubits)
 2. **Azure Quantum** - Scalable cloud execution with real quantum hardware access (coming soon)
 
 **Key Feature:** The same `QaoaCircuit` type is used for both backends, making backend switching a **one-line code change**.
@@ -33,7 +33,7 @@ let distances = array2D [
     [ 2.0; 1.5; 0.0 ]
 ]
 
-// Method 1: Local simulator backend (up to 16 qubits)
+// Method 1: Local simulator backend (up to 20 qubits)
 let localBackend = createLocalBackend()
 match solve localBackend distances defaultConfig with
 | Ok solution -> printfn "Tour: %A, Length: %.2f" solution.Tour solution.TourLength
@@ -216,7 +216,7 @@ This API provides:
 |----------|-------|-------|
 | **Development** | ✅ Instant feedback | ❌ Network latency |
 | **Unit Testing** | ✅ Fast, reliable | ❌ Slow, costs money |
-| **Small problems** (≤16 qubits) | ✅ Free, fast | ❌ Overkill |
+| **Small problems** (≤20 qubits) | ✅ Free, fast | ❌ Overkill |
 | **Offline work** | ✅ No internet needed | ❌ Requires connection |
 | **Algorithm prototyping** | ✅ Rapid iteration | ❌ Slower iteration |
 
@@ -224,12 +224,12 @@ This API provides:
 
 | Scenario | Local | Azure |
 |----------|-------|-------|
-| **Large problems** (>16 qubits) | ❌ Not supported | ✅ Scales to 20+ qubits |
+| **Large problems** (>20 qubits) | ❌ Not supported | ✅ Scales to 20+ qubits |
 ## Comparison: Local vs Azure
 
 | Feature | Local Simulator | Azure Quantum |
 |---------|----------------|---------------|
-| **Qubit limit** | ≤16 qubits (65536 dimensions) | 100+ qubits (cloud) |
+| **Qubit limit** | ≤20 qubits (1048576 dimensions) | 100+ qubits (cloud) |
 | **Cost** | Free | Pay per shot |
 | **Network** | Offline capable | Requires internet |
 | **Speed (3 cities)** | <100ms | Seconds (network + queue) |
@@ -239,7 +239,7 @@ This API provides:
 ## Summary
 
 **Current Implementation :**
-- ✅ **Local simulation**: Fully functional (≤16 qubits, ~4 cities for TSP)
+- ✅ **Local simulation**: Fully functional (≤20 qubits, ~4 cities for TSP)
 - ✅ **Cloud integration**: IonQ and Rigetti backends supported
 - ✅ **Unified API**: Same `solve` function for all backends
 

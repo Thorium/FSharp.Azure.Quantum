@@ -71,7 +71,7 @@ dotnet add package FSharp.Azure.Quantum
 
 ## ✨ Features
 
-### 🎯 6 Quantum Optimization Builders
+### 🎯 7 Quantum Optimization Builders
 
 **Production-ready quantum algorithms for common combinatorial problems:**
 
@@ -81,6 +81,7 @@ dotnet add package FSharp.Azure.Quantum
 4. **TSP** - Route optimization, delivery planning, logistics
 5. **Portfolio** - Investment allocation, asset selection, risk management
 6. **Network Flow** - Supply chain optimization, distribution planning
+7. **Task Scheduling** - Manufacturing workflows, project management, resource allocation with dependencies
 
 ### 🤖 HybridSolver - Optional Smart Routing
 
@@ -106,7 +107,7 @@ Quantum Approximate Optimization Algorithm with:
 
 ### 🖥️ Multiple Execution Backends
 
-- **LocalBackend** - Fast simulation (≤16 qubits, free)
+- **LocalBackend** - Fast simulation (≤20 qubits, free)
 - **IonQBackend** - Azure Quantum (29+ qubits simulator, 11 qubits QPU)
 - **RigettiBackend** - Azure Quantum (40+ qubits simulator, 80 qubits QPU)
 
@@ -208,35 +209,42 @@ let routes = [
 let problem = { NetworkFlow.Nodes = nodes; Routes = routes }
 ```
 
+### Task Scheduling
+
+```fsharp
+// Manufacturing workflow with dependencies
+let taskA = scheduledTask {
+    taskId "TaskA"
+    duration (hours 2.0)
+    priority 10.0
+}
+
+let taskB = scheduledTask {
+    taskId "TaskB"
+    duration (hours 1.5)
+    after "TaskA"  // Must wait for A
+    requires "Worker" 2.0
+    deadline 180.0
+}
+
+let problem = scheduling {
+    tasks [taskA; taskB]
+    objective MinimizeMakespan
+}
+
+// Solve with quantum backend for resource constraints
+let backend = BackendAbstraction.createLocalBackend()
+match solveQuantum backend problem with
+| Ok solution ->
+    printfn "Makespan: %.2f" solution.Makespan
+| Error msg -> printfn "Error: %s" msg
+```
+
 ## 🏗️ Architecture
 
 **3-Layer Quantum-Only Design:**
 
-```
-┌─────────────────────────────────────────┐
-│   Layer 1: High-Level Builders         │
-│   (graphColoring { }, MaxCut.solve)    │
-│   - F# computation expressions          │
-│   - C# fluent APIs                      │
-│   - Domain-specific validation          │
-└─────────────────┬───────────────────────┘
-                  │
-┌─────────────────▼───────────────────────┐
-│   Layer 2: Quantum Solvers (QAOA)      │
-│   (QuantumGraphColoringSolver, etc.)    │
-│   - QUBO encoding                       │
-│   - Circuit construction                │
-│   - Parameter optimization              │
-└─────────────────┬───────────────────────┘
-                  │
-┌─────────────────▼───────────────────────┐
-│   Layer 3: Quantum Backends             │
-│   (LocalBackend, IonQ, Rigetti)         │
-│   - State vector simulation             │
-│   - Cloud quantum hardware              │
-│   - Circuit execution                   │
-└─────────────────────────────────────────┘
-```
+![3-Layer Quantum Architecture](images/3-layer-architecture.svg)
 
 **Design Philosophy:**
 - ✅ **Quantum-Only**: No classical algorithms (pure quantum optimization library)
@@ -317,7 +325,7 @@ let problem = { NetworkFlow.Nodes = nodes; Routes = routes }
 **Best Practice**: 
 - **Use direct quantum API** (`GraphColoring.solve`, `MaxCut.solve`, etc.) for consistent quantum experience across all problem sizes
 - **Use HybridSolver** only if you need automatic classical fallback for very small problems (< 20 variables)
-- **LocalBackend (default)** provides free, fast quantum simulation up to 16 qubits - ideal for development, testing, and many production use cases
+- **LocalBackend (default)** provides free, fast quantum simulation up to 20 qubits - ideal for development, testing, and many production use cases
 - **Cloud backends** (IonQ, Rigetti) for larger problems or real quantum hardware experimentation
 
 ## 🔧 Backend Selection Guide
@@ -334,7 +342,7 @@ match MaxCut.solve problem None with
 **Characteristics:**
 - ✅ Free (local simulation)
 - ✅ Fast (milliseconds)
-- ✅ Up to 16 qubits
+- ✅ Up to 20 qubits
 - ✅ Perfect for development and testing
 
 ### Azure Quantum (Cloud)
@@ -380,14 +388,15 @@ Contributions welcome! See [GitHub Repository](https://github.com/thorium/FSharp
 
 | Problem Type | LocalBackend | Cloud Required |
 |--------------|--------------|----------------|
-| Graph Coloring | ≤16 nodes | 20+ nodes |
-| MaxCut | ≤16 vertices | 20+ vertices |
-| Knapsack | ≤16 items | 20+ items |
-| TSP | ≤6 cities | 8+ cities |
-| Portfolio | ≤16 assets | 20+ assets |
-| Network Flow | ≤12 nodes | 16+ nodes |
+| Graph Coloring | ≤20 nodes | 25+ nodes |
+| MaxCut | ≤20 vertices | 25+ vertices |
+| Knapsack | ≤20 items | 25+ items |
+| TSP | ≤8 cities | 10+ cities |
+| Portfolio | ≤20 assets | 25+ assets |
+| Network Flow | ≤15 nodes | 20+ nodes |
+| Task Scheduling | ≤15 tasks | 20+ tasks |
 
-**Note:** LocalBackend supports up to 16 qubits. Larger problems require cloud backends.
+**Note:** LocalBackend supports up to 20 qubits. Larger problems require cloud backends.
 
 ## 📄 License
 
@@ -395,6 +404,6 @@ This project is licensed under the [Unlicense](https://unlicense.org/) - dedicat
 
 ---
 
-**Status**: Production Ready - Quantum-only architecture with 6 problem builders
+**Status**: Production Ready - Quantum-only architecture with 7 problem builders
 
-**Last Updated**: 2025-11-29
+**Last Updated**: 2025-12-03

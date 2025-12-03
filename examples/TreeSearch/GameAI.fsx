@@ -166,10 +166,10 @@ let ticTacToeProblem = quantumTreeSearch {
     topPercentile 0.2  // Consider top 20% of moves
     backend localBackend
     
-    // LocalBackend tuning (like Gomoku example)
-    shots 100  // Lower shots work better with LocalBackend's uniform noise
-    solutionThreshold 0.01  // 1% - very forgiving
-    successThreshold 0.1  // 10% - accept lower success probability
+    // LocalBackend tuning (improved after MCZ/amplitude bug fixes)
+    shots 50  // Reduced from 100 - algorithm is now much more reliable
+    solutionThreshold 0.05  // 5% - increased from 1% (more rigorous)
+    successThreshold 0.5  // 50% - increased from 10% (much higher confidence)
 }
 
 match solve ticTacToeProblem with
@@ -281,9 +281,9 @@ let chessProblem = quantumTreeSearch {
     generateMovesWith generateChessMoves  // Use all generated moves
     topPercentile 0.15
     backend localBackend
-    shots 100
-    solutionThreshold 0.01
-    successThreshold 0.1
+    shots 50  // Reduced from 100 - algorithm is more reliable
+    solutionThreshold 0.05  // 5% - increased from 1%
+    successThreshold 0.5  // 50% - increased from 10%
 }
 
 match solve chessProblem with
@@ -413,11 +413,11 @@ let businessProblem = quantumTreeSearch {
     evaluateWith simulateMarketImpact
     generateMovesWith generateBusinessDecisions  // Use all decision options
     
-    // Backend configuration
+    // Backend configuration (improved after MCZ/amplitude bug fixes)
     backend localBackend
-    shots 100
-    solutionThreshold 0.01
-    successThreshold 0.1
+    shots 50  // Reduced from 100 - algorithm is more reliable
+    solutionThreshold 0.05  // 5% - increased from 1%
+    successThreshold 0.5  // 50% - increased from 10%
 }
 
 match solve businessProblem with

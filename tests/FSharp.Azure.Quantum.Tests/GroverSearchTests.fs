@@ -178,9 +178,9 @@ module GroverSearchTests =
             // Should find the target
             Assert.Contains(target, result.Solutions)
             
-            // Should have reasonable success probability
-            Assert.True(result.SuccessProbability >= 0.3,
-                $"Success probability {result.SuccessProbability} too low")
+            // Should have high success probability (increased from 0.3 after bug fixes)
+            Assert.True(result.SuccessProbability >= 0.6,
+                $"Success probability {result.SuccessProbability} too low (expected >= 0.6)")
             
             // Should have applied iterations
             Assert.True(result.IterationsApplied > 0)
@@ -238,8 +238,8 @@ module GroverSearchTests =
             // Optimal iterations for N=16, M=1 should be 3
             Assert.InRange(result.IterationsApplied, 3, 4)
             
-            // Success probability should be reasonable
-            Assert.True(result.SuccessProbability >= 0.3)
+            // Success probability should be high (increased from 0.3 after bug fixes)
+            Assert.True(result.SuccessProbability >= 0.6)
         | Error err ->
             Assert.True(false, $"Search failed: {err}")
     
@@ -346,8 +346,8 @@ module GroverSearchTests =
         
         match searchSingle target numQubits (createBackend ()) highPrecisionConfig with
         | Ok result ->
-            // With 1000 shots and 0.9 threshold, should have high confidence
-            Assert.True(result.Shots = 1000)
+            // With 500 shots and 0.95 threshold (updated after bug fixes)
+            Assert.True(result.Shots = 500)
             Assert.Contains(target, result.Solutions)
         | Error err ->
             Assert.True(false, $"High precision search failed: {err}")
@@ -359,8 +359,8 @@ module GroverSearchTests =
         
         match searchSingle target numQubits (createBackend ()) fastConfig with
         | Ok result ->
-            // Should use only 50 shots
-            Assert.Equal(50, result.Shots)
+            // Should use only 30 shots (reduced from 50 after bug fixes)
+            Assert.Equal(30, result.Shots)
             Assert.Contains(target, result.Solutions)
         | Error err ->
             Assert.True(false, $"Fast search failed: {err}")
@@ -487,8 +487,8 @@ module GroverSearchTests =
         let target = 20
         let numQubits = 5
         
-        // 5-qubit search: 32 states, doubled shots for better reliability
-        let config = { defaultConfig with Shots = 1000 }
+        // 5-qubit search: 32 states (reduced shots from 1000 after bug fixes)
+        let config = { defaultConfig with Shots = 200 }
         
         match searchSingle target numQubits (createBackend ()) config with
         | Ok result ->

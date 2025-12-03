@@ -374,30 +374,32 @@ module TreeSearch =
                     // Backend-adaptive defaults: work on both LocalBackend and real quantum hardware
                     let actualShots = 
                         numShots |> Option.defaultWith (fun () ->
-                            // LocalBackend: Low shots work well (50-100)
-                            // Real quantum: Higher shots reduce noise (500-1000)
-                            // Compromise: 500 shots works reasonably on both
+                            // Updated after MCZ/amplitude bug fixes - algorithm is much more reliable
+                            // LocalBackend: Reduced from 100 to 50 shots
+                            // Real quantum: Reduced from 500 to 250 shots
                             match backend.Name with
-                            | name when name.Contains("Local") -> 100
-                            | _ -> 500  // IonQ, Rigetti, or other cloud backends
+                            | name when name.Contains("Local") -> 50
+                            | _ -> 250  // IonQ, Rigetti, or other cloud backends
                         )
                     
                     let actualSolutionThreshold =
                         solutionThreshold |> Option.defaultWith (fun () ->
-                            // LocalBackend: Very forgiving (1%) due to uniform noise
-                            // Real quantum: Moderate (2-3%) for actual amplitude amplification
+                            // Updated after bug fixes - more rigorous thresholds
+                            // LocalBackend: Increased from 1% to 5%
+                            // Real quantum: Increased from 2% to 5%
                             match backend.Name with
-                            | name when name.Contains("Local") -> 0.01  // 1%
-                            | _ -> 0.02  // 2%
+                            | name when name.Contains("Local") -> 0.05  // 5%
+                            | _ -> 0.05  // 5%
                         )
                     
                     let actualSuccessThreshold =
                         successThreshold |> Option.defaultWith (fun () ->
-                            // LocalBackend: Low bar (10%)
-                            // Real quantum: Higher bar (20%) for confidence
+                            // Updated after bug fixes - much higher confidence required
+                            // LocalBackend: Increased from 10% to 50%
+                            // Real quantum: Increased from 20% to 60%
                             match backend.Name with
-                            | name when name.Contains("Local") -> 0.10  // 10%
-                            | _ -> 0.20  // 20%
+                            | name when name.Contains("Local") -> 0.50  // 50%
+                            | _ -> 0.60  // 60%
                         )
                     
                     // Step 5: Execute Grover search with LAZY oracle

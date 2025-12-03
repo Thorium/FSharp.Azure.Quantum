@@ -178,45 +178,55 @@ module Search =
     
     /// Default search configuration
     /// - Optimize iterations: true
-    /// - Success threshold: 0.5 (50%)
-    /// - Shots: 200 (doubled for better reliability with probabilistic measurements)
+    /// - Success threshold: 0.7 (70% - increased from 50% after MCZ/amplitude bug fixes)
+    /// - Shots: 100 (reduced from 200 - algorithm is now much more reliable)
     /// - No max iterations limit
+    /// - Performance: ~90% theoretical success rate at optimal iterations
     let defaultConfig : SearchConfig =
+        {
+            MaxIterations = None
+            SuccessThreshold = 0.7
+            OptimizeIterations = true
+            Shots = 100
+            RandomSeed = None
+        }
+    
+    /// High-precision configuration (more shots, higher threshold)
+    /// - Use when you need near-certain results
+    /// - Success threshold: 0.95 (95% - increased from 90%)
+    /// - Shots: 500 (reduced from 1000 - algorithm stability allows fewer shots)
+    let highPrecisionConfig : SearchConfig =
+        {
+            MaxIterations = None
+            SuccessThreshold = 0.95
+            OptimizeIterations = true
+            Shots = 500
+            RandomSeed = None
+        }
+    
+    /// Fast configuration (minimal shots, moderate threshold)
+    /// - Use for quick prototyping or when speed matters more than accuracy
+    /// - Success threshold: 0.5 (50% - increased from 30%)
+    /// - Shots: 30 (reduced from 50 - fewer shots needed with correct algorithm)
+    let fastConfig : SearchConfig =
         {
             MaxIterations = None
             SuccessThreshold = 0.5
             OptimizeIterations = true
-            Shots = 200
-            RandomSeed = None
-        }
-    
-    /// High-precision configuration (more shots)
-    let highPrecisionConfig : SearchConfig =
-        {
-            MaxIterations = None
-            SuccessThreshold = 0.9
-            OptimizeIterations = true
-            Shots = 1000
-            RandomSeed = None
-        }
-    
-    /// Fast configuration (fewer shots, lower threshold)
-    let fastConfig : SearchConfig =
-        {
-            MaxIterations = None
-            SuccessThreshold = 0.3
-            OptimizeIterations = true
-            Shots = 50
+            Shots = 30
             RandomSeed = None
         }
     
     /// Reproducible configuration (fixed random seed)
+    /// - Use for deterministic testing and debugging
+    /// - Success threshold: 0.7 (70% - increased from 50%)
+    /// - Shots: 50 (reduced from 100 - algorithm is more deterministic now)
     let reproducibleConfig (seed: int) : SearchConfig =
         {
             MaxIterations = None
-            SuccessThreshold = 0.5
+            SuccessThreshold = 0.7
             OptimizeIterations = true
-            Shots = 100
+            Shots = 50
             RandomSeed = Some seed
         }
     

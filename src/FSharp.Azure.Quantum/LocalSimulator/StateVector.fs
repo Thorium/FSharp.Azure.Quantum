@@ -32,8 +32,8 @@ module StateVector =
     /// - amplitude[0] = 1.0 + 0.0i (|00...0⟩ state)
     /// - amplitude[i] = 0.0 + 0.0i for all i > 0
     let init (numQubits: int) : StateVector =
-        if numQubits < 0 || numQubits > 16 then
-            failwith $"Number of qubits must be between 0 and 16, got {numQubits}"
+        if numQubits < 0 || numQubits > 20 then
+            failwith $"Number of qubits must be between 0 and 20, got {numQubits}"
         
         let dimension = 1 <<< numQubits  // 2^numQubits using bit shift
         let amplitudes = Array.create dimension Complex.Zero
@@ -77,8 +77,8 @@ module StateVector =
                 count <- count + 1
             count
         
-        if numQubits > 16 then
-            failwith $"State vector supports maximum 16 qubits (65536 dimensions), got {numQubits} qubits ({n} dimensions)"
+        if numQubits > 20 then
+            failwith $"State vector supports maximum 20 qubits (1048576 dimensions), got {numQubits} qubits ({n} dimensions)"
         
         {
             Amplitudes = Array.copy amplitudes
