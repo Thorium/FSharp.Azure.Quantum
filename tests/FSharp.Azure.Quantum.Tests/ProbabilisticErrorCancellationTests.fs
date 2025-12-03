@@ -792,6 +792,7 @@ module ProbabilisticErrorCancellationTests =
                             | CircuitBuilder.Gate.RZ (q, angle) -> FSharp.Azure.Quantum.LocalSimulator.Gates.applyRz q angle state
                             | CircuitBuilder.Gate.CNOT (ctrl, tgt) -> FSharp.Azure.Quantum.LocalSimulator.Gates.applyCNOT ctrl tgt state
                             | CircuitBuilder.Gate.CZ (ctrl, tgt) -> FSharp.Azure.Quantum.LocalSimulator.Gates.applyCZ ctrl tgt state
+                            | CircuitBuilder.Gate.MCZ (controls, tgt) -> FSharp.Azure.Quantum.LocalSimulator.Gates.applyMultiControlledZ controls tgt state
                             | CircuitBuilder.Gate.CP (ctrl, tgt, theta) -> 
                                 // CP gate: Controlled-Phase
                                 FSharp.Azure.Quantum.LocalSimulator.Gates.applyCP ctrl tgt theta state
@@ -817,6 +818,7 @@ module ProbabilisticErrorCancellationTests =
                                 | CircuitBuilder.Gate.RZ (q, _) -> q
                                 | CircuitBuilder.Gate.CNOT (_, tgt) -> tgt
                                 | CircuitBuilder.Gate.CZ (_, tgt) -> tgt
+                                | CircuitBuilder.Gate.MCZ (_, tgt) -> tgt
                                 | CircuitBuilder.Gate.CP (_, tgt, _) -> tgt
                                 | CircuitBuilder.Gate.SWAP (_, q2) -> q2
                                 | CircuitBuilder.Gate.CCX (_, _, tgt) -> tgt

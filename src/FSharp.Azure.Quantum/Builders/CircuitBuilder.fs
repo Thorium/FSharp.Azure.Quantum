@@ -126,6 +126,11 @@ module CircuitBuilder =
         | P (q, theta) -> $"p({theta}) q[{q}];"
         | CNOT (control, target) -> $"cx q[{control}],q[{target}];"
         | CZ (control, target) -> $"cz q[{control}],q[{target}];"
+        | MCZ (controls, target) -> 
+            // OpenQASM 2.0 doesn't support MCZ natively (OpenQASM 3.1 will)
+            // For now, emit as comment - use GateTranspiler.transpile() to decompose
+            let controlsStr = controls |> List.map string |> String.concat ","
+            $"// MCZ([{controlsStr}], {target}) - transpile to OpenQASM 2.0 compatible gates"
         | CP (c, t, theta) -> $"cp({theta}) q[{c}],q[{t}];"
         | SWAP (q1, q2) -> $"swap q[{q1}],q[{q2}];"
         | CCX (c1, c2, t) -> $"ccx q[{c1}],q[{c2}],q[{t}];"
@@ -162,6 +167,7 @@ module CircuitBuilder =
         | CP _ -> "CP"
         | SWAP _ -> "SWAP"
         | CCX _ -> "CCX"
+        | MCZ _ -> "MCZ"
     
     /// Validates a circuit for correctness (qubit bounds, gate compatibility)
     let validate (circuit: Circuit) : Validation.ValidationResult =
@@ -228,6 +234,29 @@ module CircuitBuilder =
                 let errors = 
                     if control1 = control2 || control1 = target || control2 = target then
                         "CCX (Toffoli) control and target qubits must be distinct" :: errors
+                    else
+                        errors
+                List.rev errors
+            | MCZ (controls, target) ->
+                let errors = []
+                // Validate all control qubits
+                let errors = 
+                    controls
+                    |> List.fold (fun acc c ->
+                        match validateQubit c with
+                        | Some err -> err :: acc
+                        | None -> acc
+                    ) errors
+                // Validate target qubit
+                let errors = 
+                    match validateQubit target with
+                    | Some err -> err :: errors
+                    | None -> errors
+                // Check all qubits are distinct
+                let allQubits = target :: controls
+                let errors = 
+                    if List.length allQubits <> (Set.ofList allQubits |> Set.count) then
+                        "MCZ control and target qubits must all be distinct" :: errors
                     else
                         errors
                 List.rev errors

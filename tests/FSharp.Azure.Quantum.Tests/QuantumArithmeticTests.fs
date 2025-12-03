@@ -57,6 +57,7 @@ module QuantumArithmeticTests =
                 | RZ (q, angle) -> Gates.applyRz q angle currentState
                 | CNOT (c, t) -> Gates.applyCNOT c t currentState
                 | CZ (c, t) -> Gates.applyCZ c t currentState
+                | MCZ (controls, t) -> Gates.applyMultiControlledZ controls t currentState
                 | SWAP (q1, q2) -> Gates.applySWAP q1 q2 currentState
                 | CCX (c1, c2, t) -> Gates.applyCCX c1 c2 t currentState
         

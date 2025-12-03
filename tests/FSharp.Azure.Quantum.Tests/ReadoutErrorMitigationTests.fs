@@ -617,6 +617,7 @@ module ReadoutErrorMitigationTests =
                             | CircuitBuilder.P (q, theta) -> LocalSimulator.Gates.applyP q theta state
                             | CircuitBuilder.CNOT (c, t) -> LocalSimulator.Gates.applyCNOT c t state
                             | CircuitBuilder.CZ (c, t) -> LocalSimulator.Gates.applyCZ c t state
+                            | CircuitBuilder.MCZ (controls, t) -> LocalSimulator.Gates.applyMultiControlledZ controls t state
                             | CircuitBuilder.CP (c, t, theta) -> 
                                 // CP gate: Controlled-Phase  
                                 LocalSimulator.Gates.applyCP c t theta state
