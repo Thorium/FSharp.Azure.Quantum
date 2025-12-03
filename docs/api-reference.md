@@ -9,6 +9,7 @@ Complete reference for **FSharp.Azure.Quantum** quantum optimization APIs.
 
 ## Table of Contents
 
+**Business Optimization APIs:**
 - [Quick Start Patterns](#quick-start-patterns) - Common usage patterns
 - [Graph Coloring Builder](#graph-coloring-builder) - Register allocation, scheduling
 - [MaxCut Builder](#maxcut-builder) - Circuit partitioning, community detection
@@ -16,6 +17,11 @@ Complete reference for **FSharp.Azure.Quantum** quantum optimization APIs.
 - [TSP Builder](#tsp-builder) - Route optimization, delivery planning
 - [Portfolio Builder](#portfolio-builder) - Investment allocation, asset selection
 - [Network Flow Builder](#network-flow-builder) - Supply chain optimization
+
+**Quantum Algorithm APIs (Research & Education):**
+- [Quantum Linear System Solver](#quantum-linear-system-solver-hhl-algorithm) - HHL algorithm for Ax = b
+
+**Infrastructure:**
 - [Quantum Backends](#quantum-backends) - LocalBackend, IonQ, Rigetti
 - [C# Interop](#c-interop) - Using from C#
 - [Core Types](#core-types) - Data structures and result types
@@ -693,6 +699,203 @@ type Circuit = {
     Layers: QaoaLayer array
 }
 ```
+
+---
+
+## Quantum Linear System Solver (HHL Algorithm)
+
+**Module:** `FSharp.Azure.Quantum.QuantumLinearSystemSolver`
+
+**Use Cases (Scientific & Engineering):**
+- Machine learning: quantum SVM, least squares regression, PCA
+- Engineering: solving PDEs/ODEs, finite element analysis, circuit simulation
+- Finance: portfolio optimization with covariance matrices, risk modeling
+- Chemistry: molecular dynamics, quantum chemistry simulations
+- Data science: large-scale optimization, data fitting
+
+**Algorithm:** HHL (Harrow-Hassidim-Lloyd) - solves Ax = b exponentially faster than classical methods
+
+### What is HHL?
+
+HHL solves linear systems **Ax = b** where:
+- **Input**: Hermitian matrix A (N×N), vector |b⟩
+- **Output**: Quantum state |x⟩ encoding solution
+- **Speedup**: O(log N) vs O(N) classical - exponential for large sparse systems!
+
+**Quantum Advantage:**
+- Classical Gaussian elimination: O(N³) operations
+- Quantum HHL: O(log(N) × poly(κ, 1/ε)) operations
+- For N=1000, κ=10: ~10⁹ vs ~10³ operations (million-fold speedup!)
+
+### Computation Expression API
+
+```fsharp
+open FSharp.Azure.Quantum
+open FSharp.Azure.Quantum.QuantumLinearSystemSolver
+
+// Simple 2×2 system: [[3,1],[1,3]] * x = [1,0]
+let problem = linearSystemSolver {
+    matrix [[3.0, 1.0]; [1.0, 3.0]]
+    vector [1.0; 0.0]
+    precision 4  // 4 eigenvalue qubits = 16 bins
+}
+
+match solve problem with
+| Ok solution ->
+    printfn "Success probability: %.4f" solution.SuccessProbability
+    printfn "Condition number: %A" solution.ConditionNumber
+    printfn "Gates used: %d" solution.GateCount
+| Error msg ->
+    printfn "Error: %s" msg
+```
+
+### Advanced Configuration
+
+```fsharp
+// Diagonal system (faster, more accurate)
+let problem = linearSystemSolver {
+    diagonalMatrix [2.0; 4.0; 8.0; 16.0]  // Eigenvalues
+    vector [1.0; 1.0; 1.0; 1.0]
+    precision 8
+    eigenvalueQubits 6                     // Override precision
+    inversionMethod (ExactRotation 1.0)   // Exact vs linear approximation
+    minEigenvalue 0.001                    // Stability threshold
+    postSelection true                     // Higher accuracy, lower success rate
+    backend ionQBackend                    // Cloud quantum hardware
+    shots 2000                             // Measurement samples
+}
+```
+
+### Types
+
+```fsharp
+type LinearSystemProblem = {
+    Matrix: HermitianMatrix
+    InputVector: QuantumVector
+    EigenvalueQubits: int
+    InversionMethod: EigenvalueInversionMethod
+    MinEigenvalue: float
+    UsePostSelection: bool
+    Backend: IQuantumBackend option
+    Shots: int option
+}
+
+type EigenvalueInversionMethod =
+    | ExactRotation of normalizationConstant: float
+    | LinearApproximation of normalizationConstant: float
+    | PiecewiseLinear of segments: (float * float * float)[]
+
+type LinearSystemSolution = {
+    SuccessProbability: float
+    EstimatedEigenvalues: float[]
+    ConditionNumber: float option
+    GateCount: int
+    PostSelectionSuccess: bool
+    SolutionAmplitudes: Map<int, Complex> option
+    BackendName: string
+    IsQuantum: bool
+    Success: bool
+    Message: string
+}
+```
+
+### Functions
+
+```text
+val solve : LinearSystemProblem → Result<LinearSystemSolution, string>
+val solve2x2 : float → float → float → float → float → float → Result<LinearSystemSolution, string>
+val solveDiagonal : float list → float list → Result<LinearSystemSolution, string>
+```
+
+### Example: Engineering Simulation
+
+```fsharp
+// Solve heat equation discretization: Ax = b
+// A = tridiagonal matrix (heat diffusion operator)
+// b = boundary conditions
+
+let heatDiffusion = linearSystemSolver {
+    matrix [
+        [2.0, -1.0,  0.0,  0.0]
+        [-1.0, 2.0, -1.0,  0.0]
+        [0.0, -1.0,  2.0, -1.0]
+        [0.0,  0.0, -1.0,  2.0]
+    ]
+    vector [100.0; 0.0; 0.0; 50.0]  // Boundary temps
+    precision 6
+    minEigenvalue 0.01  // Avoid small eigenvalues
+}
+
+match solve heatDiffusion with
+| Ok solution ->
+    printfn "Temperature distribution computed!"
+    printfn "Condition number: %.2f" (defaultArg solution.ConditionNumber 0.0)
+    
+    match solution.SolutionAmplitudes with
+    | Some amplitudes ->
+        amplitudes 
+        |> Map.iter (fun idx amp -> 
+            printfn "  Point %d: %.4f" idx amp.Magnitude)
+    | None ->
+        printfn "Use measurement statistics for cloud backends"
+| Error msg ->
+    printfn "Simulation failed: %s" msg
+```
+
+### Example: Machine Learning (Least Squares)
+
+```fsharp
+// Solve normal equations: (X^T X) w = X^T y
+// For linear regression: find weights w
+
+let leastSquares = linearSystemSolver {
+    // Covariance matrix X^T X (must be symmetric positive definite)
+    matrix [
+        [10.0,  5.0,  2.0]
+        [ 5.0, 12.0,  3.0]
+        [ 2.0,  3.0,  8.0]
+    ]
+    // Right-hand side X^T y
+    vector [15.0; 20.0; 10.0]
+    precision 8
+    postSelection true  // Higher accuracy for ML
+}
+
+match solve leastSquares with
+| Ok solution ->
+    printfn "Model weights found!"
+    printfn "Success rate: %.2f%%" (solution.SuccessProbability * 100.0)
+| Error msg ->
+    printfn "Training failed: %s" msg
+```
+
+### Important Limitations
+
+⚠️ **Matrix Requirements:**
+- Must be **Hermitian** (A = A†) - real symmetric matrices qualify
+- Non-Hermitian can be embedded: [[0, A], [A†, 0]]
+- Dimension must be power of 2 (2×2, 4×4, 8×8, 16×16)
+
+⚠️ **Solution Format:**
+- Output is **quantum state |x⟩**, not classical vector
+- Local simulation: get amplitude distribution
+- Cloud backend: get measurement statistics (probabilities)
+- Full state tomography needed for exact amplitudes (exponential cost!)
+
+⚠️ **Performance Considerations:**
+- **Best for**: Large (N > 1000), sparse, well-conditioned systems
+- **Condition number κ**: Lower is better (κ < 100 recommended)
+- **Success probability**: ∝ 1/κ² (ill-conditioned = low success rate)
+- **Practical speedup**: Requires large N with low condition number
+
+### When to Use HHL vs Classical
+
+| Problem Size | Condition Number | Sparsity | Recommendation |
+|--------------|------------------|----------|----------------|
+| N ≤ 100 | Any | Any | **Classical** (Gaussian elimination faster) |
+| 100 < N ≤ 1000 | κ < 10 | Sparse | **HHL** (modest speedup) |
+| N > 1000 | κ < 100 | Sparse | **HHL** (exponential speedup!) |
+| Any N | κ > 1000 | Any | **Classical** (HHL success rate too low) |
 
 ---
 

@@ -65,6 +65,8 @@
     <Compile Include="Algorithms\AmplitudeAmplification.fs" />
     <Compile Include="Algorithms\QuantumFourierTransform.fs" />
     <Compile Include="Algorithms\QuantumPhaseEstimation.fs" />
+    <Compile Include="Algorithms\HHLTypes.fs" />
+    <Compile Include="Algorithms\HHLAlgorithm.fs" />
     <Compile Include="Algorithms\ShorsTypes.fs" />
     <Compile Include="Algorithms\ShorsAlgorithm.fs" />
 
@@ -81,6 +83,7 @@
     <!-- Backends Layer (depends on Core Infrastructure) -->
     <Compile Include="Backends\IonQBackend.fs" />
     <Compile Include="Backends\RigettiBackend.fs" />
+    <Compile Include="Backends\AzureQuantumWorkspace.fs" />
     <Compile Include="Core\Client.fs" />
 
     <!-- Classical Solvers - Pure CPU algorithms, no quantum backend (depends on Types) -->
@@ -117,11 +120,18 @@
     <!-- QFT Backend Extension (depends on BackendAbstraction, QuantumFourierTransform) -->
     <Compile Include="Algorithms\QFTBackendAdapter.fs" />
     
+    <!-- Advanced Quantum Algorithms -->
+    <Compile Include="Algorithms\TrotterSuzuki.fs" />
+    <Compile Include="Algorithms\MottonenStatePreparation.fs" />
+    
     <!-- Quantum Arithmetic Circuits (depends on QFTBackendAdapter, CircuitBuilder) -->
     <Compile Include="Algorithms\QuantumArithmetic.fs" />
     
     <!-- QPE Backend Extension (depends on BackendAbstraction, QuantumPhaseEstimation, QFTBackendAdapter) -->
     <Compile Include="Algorithms\QPEBackendAdapter.fs" />
+    
+    <!-- HHL Backend Extension (depends on BackendAbstraction, HHLAlgorithm, QPEBackendAdapter) -->
+    <Compile Include="Algorithms\HHLBackendAdapter.fs" />
     
     <!-- Shor's Backend Extension (depends on BackendAbstraction, ShorsAlgorithm, QPEBackendAdapter) -->
     <Compile Include="Algorithms\ShorsBackendAdapter.fs" />
@@ -142,6 +152,7 @@
     <Compile Include="Solvers\Quantum\QuantumArithmeticBuilder.fs" />
     <Compile Include="Solvers\Quantum\QuantumPeriodFinderBuilder.fs" />
     <Compile Include="Solvers\Quantum\QuantumPhaseEstimatorBuilder.fs" />
+    <Compile Include="Solvers\Quantum\QuantumLinearSystemSolverBuilder.fs" />
     <Compile Include="Solvers\Quantum\QuantumChemistry.fs" />
 
     <!-- Hybrid Solvers - Orchestrate classical + quantum (depends on Quantum Solvers) -->
@@ -178,6 +189,7 @@
     <PackageReference Include="Azure.Identity" Version="1.13.1" />
     <PackageReference Include="MathNet.Numerics" Version="5.0.0" />
     <PackageReference Include="MathNet.Numerics.FSharp" Version="5.0.0" />
+    <PackageReference Include="Microsoft.Azure.Quantum.Client" Version="0.28.302812" />
     <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.0" />
     <PackageReference Include="Serilog" Version="4.3.0" />
     <PackageReference Include="Serilog.Sinks.Console" Version="6.1.1" />

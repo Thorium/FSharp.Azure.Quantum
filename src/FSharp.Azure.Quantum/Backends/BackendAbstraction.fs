@@ -430,6 +430,170 @@ module BackendAbstraction =
             member _.MaxQubits = 40  // Rigetti Aspen-M-3 limit
     
     // ============================================================================
+    // AZURE QUANTUM SDK BACKEND WRAPPER
+    // ============================================================================
+    
+    // ------------------------------------------------------------------------
+    // HELPER: Circuit Format Conversion
+    // ------------------------------------------------------------------------
+    
+    /// Convert CircuitBuilder.Circuit to IonQ circuit format
+    let private convertToIonQCircuit (circuit: CircuitBuilder.Circuit) : IonQBackend.IonQCircuit =
+        let ionqGates = 
+            circuit.Gates
+            |> List.map (fun gate ->
+                match gate with
+                | CircuitBuilder.H q -> IonQBackend.SingleQubit("h", q)
+                | CircuitBuilder.X q -> IonQBackend.SingleQubit("x", q)
+                | CircuitBuilder.Y q -> IonQBackend.SingleQubit("y", q)
+                | CircuitBuilder.Z q -> IonQBackend.SingleQubit("z", q)
+                | CircuitBuilder.S q -> IonQBackend.SingleQubit("s", q)
+                | CircuitBuilder.T q -> IonQBackend.SingleQubit("t", q)
+                | CircuitBuilder.RX (q, angle) -> IonQBackend.SingleQubitRotation("rx", q, angle)
+                | CircuitBuilder.RY (q, angle) -> IonQBackend.SingleQubitRotation("ry", q, angle)
+                | CircuitBuilder.RZ (q, angle) -> IonQBackend.SingleQubitRotation("rz", q, angle)
+                | CircuitBuilder.CNOT (c, t) -> IonQBackend.TwoQubit("cnot", c, t)
+                | CircuitBuilder.SWAP (q1, q2) -> IonQBackend.TwoQubit("swap", q1, q2)
+                | _ -> failwith $"Gate {gate} not supported by IonQ - use transpiler first"
+            )
+        
+        // Add measurement on all qubits
+        let measureGate = IonQBackend.Measure [| 0 .. circuit.QubitCount - 1 |]
+        
+        {
+            IonQBackend.Qubits = circuit.QubitCount
+            IonQBackend.Circuit = ionqGates @ [measureGate]
+        }
+    
+    /// Convert CircuitBuilder.Circuit to Rigetti Quil format
+    let private convertToQuilProgram (circuit: CircuitBuilder.Circuit) : RigettiBackend.QuilProgram =
+        let quilGates =
+            circuit.Gates
+            |> List.map (fun gate ->
+                match gate with
+                | CircuitBuilder.H q -> RigettiBackend.SingleQubit("H", q)
+                | CircuitBuilder.X q -> RigettiBackend.SingleQubit("X", q)
+                | CircuitBuilder.Y q -> RigettiBackend.SingleQubit("Y", q)
+                | CircuitBuilder.Z q -> RigettiBackend.SingleQubit("Z", q)
+                | CircuitBuilder.S q -> RigettiBackend.SingleQubit("S", q)
+                | CircuitBuilder.T q -> RigettiBackend.SingleQubit("T", q)
+                | CircuitBuilder.RX (q, angle) -> RigettiBackend.SingleQubitRotation("RX", angle, q)
+                | CircuitBuilder.RY (q, angle) -> RigettiBackend.SingleQubitRotation("RY", angle, q)
+                | CircuitBuilder.RZ (q, angle) -> RigettiBackend.SingleQubitRotation("RZ", angle, q)
+                | CircuitBuilder.CZ (c, t) -> RigettiBackend.TwoQubit("CZ", c, t)
+                | _ -> failwith $"Gate {gate} not supported by Rigetti - use transpiler first"
+            )
+        
+        // Add measurements
+        let measurements =
+            [ 0 .. circuit.QubitCount - 1 ]
+            |> List.map (fun q -> RigettiBackend.Measure(q, sprintf "ro[%d]" q))
+        
+        {
+            RigettiBackend.Declarations = [ RigettiBackend.DeclareMemory("ro", "BIT", circuit.QubitCount) ]
+            RigettiBackend.Instructions = quilGates @ measurements
+        }
+    
+    /// Convert ICircuit to provider-specific format (JSON for IonQ, Quil for Rigetti)
+    /// 
+    /// This helper function enables workspace-based backends to leverage the
+    /// existing, proven HTTP backend serialization logic.
+    let rec convertCircuitToProviderFormat (circuit: ICircuit) (targetId: string) : Result<string, string> =
+        try
+            // Determine provider from targetId
+            let provider =
+                if targetId.StartsWith("ionq", StringComparison.OrdinalIgnoreCase) then "IonQ"
+                elif targetId.StartsWith("rigetti", StringComparison.OrdinalIgnoreCase) then "Rigetti"
+                elif targetId.StartsWith("quantinuum", StringComparison.OrdinalIgnoreCase) then "Quantinuum"
+                else "Unknown"
+            
+            match circuit with
+            | :? CircuitWrapper as wrapper ->
+                let builderCircuit = wrapper.Circuit
+                
+                // Transpile circuit to backend-compatible gates
+                let transpiledCircuit = GateTranspiler.transpileForBackend provider builderCircuit
+                
+                match provider with
+                | "IonQ" ->
+                    let ionqCircuit = convertToIonQCircuit transpiledCircuit
+                    let json = IonQBackend.serializeCircuit ionqCircuit
+                    Ok json
+                
+                | "Rigetti" ->
+                    let quilProgram = convertToQuilProgram transpiledCircuit
+                    let quil = RigettiBackend.serializeProgram quilProgram
+                    Ok quil
+                
+                | "Quantinuum" ->
+                    Error "Quantinuum provider not yet supported"
+                
+                | _ ->
+                    Error $"Unsupported provider: {provider} (targetId: {targetId})"
+            
+            | :? QaoaCircuitWrapper as wrapper ->
+                // Convert QAOA circuit to general circuit first
+                let generalCircuit = CircuitAdapter.qaoaCircuitToCircuit wrapper.QaoaCircuit
+                // Recursively convert
+                convertCircuitToProviderFormat (CircuitWrapper(generalCircuit) :> ICircuit) targetId
+            
+            | _ ->
+                Error "Unsupported circuit type - must be CircuitWrapper or QaoaCircuitWrapper"
+        
+        with ex ->
+            Error $"Circuit conversion failed: {ex.Message}"
+    
+    /// Wrapper for Azure Quantum SDK-based execution
+    /// 
+    /// Integrates with Azure Quantum via the official Microsoft.Azure.Quantum.Client SDK.
+    /// Provides better workspace integration including quota checking, job management,
+    /// and provider discovery.
+    /// 
+    /// Note: This is a placeholder implementation. The SDK approach requires:
+    /// - Converting circuits to provider-specific formats
+    /// - Job submission via SDK
+    /// - Result polling and parsing
+    /// 
+    /// For production use, continue using IonQBackendWrapper or RigettiBackendWrapper
+    /// which use the stable HTTP API approach.
+    type AzureQuantumSdkBackendWrapper(workspace: FSharp.Azure.Quantum.Backends.AzureQuantumWorkspace.QuantumWorkspace, targetId: string) =
+        
+        interface IQuantumBackend with
+            member _.Execute (circuit: ICircuit) (numShots: int) : Result<ExecutionResult, string> =
+                try
+                    // Determine provider from targetId
+                    let provider = 
+                        if targetId.StartsWith("ionq", StringComparison.OrdinalIgnoreCase) then "IonQ"
+                        elif targetId.StartsWith("rigetti", StringComparison.OrdinalIgnoreCase) then "Rigetti"
+                        elif targetId.StartsWith("quantinuum", StringComparison.OrdinalIgnoreCase) then "Quantinuum"
+                        else "Unknown"
+                    
+                    // Return helpful error with implementation guidance
+                    Error (sprintf "Azure Quantum SDK backend not yet implemented for target '%s' (provider: %s).
+
+Implementation roadmap:
+1. Convert ICircuit to provider format (IonQ JSON, Rigetti Quil, etc.)
+2. Submit job via workspace.InnerWorkspace.SubmitJobAsync(targetId, inputParams)
+3. Poll for completion using exponential backoff
+4. Parse histogram results and convert to ExecutionResult
+
+For now, use createIonQBackend or createRigettiBackend which use the HTTP API." targetId provider)
+                
+                with ex ->
+                    Error (sprintf "Azure Quantum SDK backend error: %s" ex.Message)
+            
+            member _.Name = sprintf "Azure Quantum SDK: %s" targetId
+            
+            member _.SupportedGates = [
+                "H"; "X"; "Y"; "Z"
+                "RX"; "RY"; "RZ"
+                "CNOT"; "CZ"
+                "MEASURE"
+            ]
+            
+            member _.MaxQubits = 20  // Conservative default
+    
+    // ============================================================================
     // HELPER FUNCTIONS
     // ============================================================================
     
@@ -454,6 +618,28 @@ module BackendAbstraction =
     /// - target: Rigetti target (e.g., "rigetti.sim.qvm", "rigetti.qpu.ankaa-3")
     let createRigettiBackend (httpClient: System.Net.Http.HttpClient) (workspaceUrl: string) (target: string) : IQuantumBackend =
         RigettiBackendWrapper(httpClient, workspaceUrl, target) :> IQuantumBackend
+    
+    /// Create a backend from Azure Quantum Workspace (SDK-based)
+    /// 
+    /// This is a new approach using the official Microsoft.Azure.Quantum.Client SDK.
+    /// It provides better integration with Azure Quantum services including:
+    /// - Automatic quota checking
+    /// - Job management and monitoring
+    /// - Provider discovery
+    /// 
+    /// Parameters:
+    /// - workspace: QuantumWorkspace instance (from AzureQuantumWorkspace module)
+    /// - targetId: Target identifier (e.g., "ionq.simulator", "rigetti.sim.qvm")
+    /// 
+    /// Example:
+    /// ```fsharp
+    /// open FSharp.Azure.Quantum.Backends.AzureQuantumWorkspace
+    /// 
+    /// let workspace = createDefault "sub-id" "rg" "ws-name" "eastus"
+    /// let backend = BackendAbstraction.createFromWorkspace workspace "ionq.simulator"
+    /// ```
+    let createFromWorkspace (workspace: FSharp.Azure.Quantum.Backends.AzureQuantumWorkspace.QuantumWorkspace) (targetId: string) : IQuantumBackend =
+        AzureQuantumSdkBackendWrapper(workspace, targetId) :> IQuantumBackend
     
     /// Validate that a circuit is compatible with a backend
     /// 

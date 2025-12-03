@@ -363,3 +363,122 @@ module BackendAbstractionTests =
                 Assert.Equal(numShots, execResult.Measurements.Length)
             | Error msg ->
                 Assert.True(false, sprintf "Execution with %d shots failed: %s" numShots msg)
+
+    // ========================================================================
+    // Circuit Conversion Tests (Phase 2)
+    // ========================================================================
+
+    [<Fact>]
+    let ``convertCircuitToProviderFormat should convert simple circuit to IonQ format`` () =
+        // Create a simple circuit: H 0; CNOT 0 1
+        let circuit = 
+            CircuitBuilder.empty 2
+            |> CircuitBuilder.addGate (CircuitBuilder.H 0)
+            |> CircuitBuilder.addGate (CircuitBuilder.CNOT(0, 1))
+        
+        let wrapper = CircuitWrapper(circuit) :> ICircuit
+        
+        match convertCircuitToProviderFormat wrapper "ionq.simulator" with
+        | Ok json ->
+            // Verify JSON contains expected gates
+            Assert.Contains("\"qubits\":2", json)
+            Assert.Contains("\"h\"", json)  // H gate
+            Assert.Contains("\"cnot\"", json)  // CNOT gate
+        | Error msg ->
+            Assert.True(false, sprintf "Conversion failed: %s" msg)
+
+    [<Fact>]
+    let ``convertCircuitToProviderFormat should convert rotation gates to IonQ format`` () =
+        let circuit = 
+            CircuitBuilder.empty 1
+            |> CircuitBuilder.addGate (CircuitBuilder.RX(0, System.Math.PI / 4.0))
+            |> CircuitBuilder.addGate (CircuitBuilder.RY(0, System.Math.PI / 2.0))
+            |> CircuitBuilder.addGate (CircuitBuilder.RZ(0, System.Math.PI))
+        
+        let wrapper = CircuitWrapper(circuit) :> ICircuit
+        
+        match convertCircuitToProviderFormat wrapper "ionq.qpu" with
+        | Ok json ->
+            Assert.Contains("\"rx\"", json)
+            Assert.Contains("\"ry\"", json)
+            Assert.Contains("\"rz\"", json)
+        | Error msg ->
+            Assert.True(false, sprintf "Conversion failed: %s" msg)
+
+    [<Fact>]
+    let ``convertCircuitToProviderFormat should convert simple circuit to Rigetti format`` () =
+        let circuit = 
+            CircuitBuilder.empty 2
+            |> CircuitBuilder.addGate (CircuitBuilder.H 0)
+            |> CircuitBuilder.addGate (CircuitBuilder.CZ(0, 1))
+        
+        let wrapper = CircuitWrapper(circuit) :> ICircuit
+        
+        match convertCircuitToProviderFormat wrapper "rigetti.sim.qvm" with
+        | Ok quil ->
+            // Verify Quil contains expected instructions
+            Assert.Contains("DECLARE ro BIT", quil)
+            Assert.Contains("H 0", quil)
+            Assert.Contains("CZ 0 1", quil)
+            Assert.Contains("MEASURE", quil)
+        | Error msg ->
+            Assert.True(false, sprintf "Conversion failed: %s" msg)
+
+    [<Fact>]
+    let ``convertCircuitToProviderFormat should reject unsupported provider`` () =
+        let circuit = CircuitBuilder.empty 2
+        let wrapper = CircuitWrapper(circuit) :> ICircuit
+        
+        match convertCircuitToProviderFormat wrapper "quantinuum.simulator" with
+        | Error msg ->
+            Assert.Contains("not yet supported", msg)
+        | Ok _ ->
+            Assert.True(false, "Quantinuum provider should not be supported yet")
+
+    [<Fact>]
+    let ``convertCircuitToProviderFormat should handle QAOA circuits`` () =
+        // Create simple QAOA circuit
+        let problemHam : ProblemHamiltonian = {
+            NumQubits = 2
+            Terms = [||]
+        }
+        let mixerHam = MixerHamiltonian.create 2
+        
+        let qaoaCircuit = {
+            NumQubits = 2
+            InitialStateGates = [| QuantumGate.H 0; QuantumGate.H 1 |]
+            Layers = [||]
+            ProblemHamiltonian = problemHam
+            MixerHamiltonian = mixerHam
+        }
+        
+        let wrapper = QaoaCircuitWrapper(qaoaCircuit) :> ICircuit
+        
+        match convertCircuitToProviderFormat wrapper "ionq.simulator" with
+        | Ok json ->
+            // Should convert QAOA to general circuit, then to IonQ format
+            Assert.Contains("\"qubits\":2", json)
+            Assert.Contains("\"h\"", json)
+        | Error msg ->
+            Assert.True(false, sprintf "QAOA conversion failed: %s" msg)
+
+    [<Fact>]
+    let ``convertCircuitToProviderFormat should use transpiler for phase gates`` () =
+        // S and T gates need transpilation for both IonQ and Rigetti
+        let circuit = 
+            CircuitBuilder.empty 2
+            |> CircuitBuilder.addGate (CircuitBuilder.H 0)
+            |> CircuitBuilder.addGate (CircuitBuilder.S 0)
+            |> CircuitBuilder.addGate (CircuitBuilder.T 1)
+        
+        let wrapper = CircuitWrapper(circuit) :> ICircuit
+        
+        match convertCircuitToProviderFormat wrapper "rigetti.sim.qvm" with
+        | Ok quil ->
+            // After transpilation, S and T become RZ gates
+            Assert.Contains("DECLARE ro BIT", quil)
+            Assert.Contains("H 0", quil)
+            // S becomes RZ(π/2), T becomes RZ(π/4) - check for RZ instructions
+            Assert.Contains("RZ", quil)
+        | Error msg ->
+            Assert.True(false, sprintf "Transpilation failed: %s" msg)

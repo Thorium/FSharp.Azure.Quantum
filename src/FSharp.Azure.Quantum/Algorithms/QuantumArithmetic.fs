@@ -112,11 +112,34 @@ module QuantumArithmetic =
                 // Offset qubit indices to start at startQubit
                 let adjustedGate = 
                     match gate with
+                    // Single-qubit gates
                     | H q -> H (q + startQubit)
+                    | X q -> X (q + startQubit)
+                    | Y q -> Y (q + startQubit)
+                    | Z q -> Z (q + startQubit)
+                    | S q -> S (q + startQubit)
+                    | SDG q -> SDG (q + startQubit)
+                    | T q -> T (q + startQubit)
+                    | TDG q -> TDG (q + startQubit)
+                    
+                    // Single-qubit with parameter
+                    | RX (q, angle) -> RX (q + startQubit, angle)
+                    | RY (q, angle) -> RY (q + startQubit, angle)
                     | RZ (q, angle) -> RZ (q + startQubit, angle)
+                    | P (q, angle) -> P (q + startQubit, angle)
+                    
+                    // Two-qubit gates (CRITICAL: CP used by QFT!)
                     | CNOT (c, t) -> CNOT (c + startQubit, t + startQubit)
+                    | CZ (c, t) -> CZ (c + startQubit, t + startQubit)
                     | SWAP (q1, q2) -> SWAP (q1 + startQubit, q2 + startQubit)
-                    | _ -> gate  // Other gates unchanged
+                    | CP (c, t, angle) -> CP (c + startQubit, t + startQubit, angle)
+                    
+                    // Three-qubit gates
+                    | CCX (c1, c2, t) -> CCX (c1 + startQubit, c2 + startQubit, t + startQubit)
+                    
+                    // Multi-qubit gates
+                    | MCZ (controls, target) -> 
+                        MCZ (List.map (fun c -> c + startQubit) controls, target + startQubit)
                 
                 addGate adjustedGate circ
             ) circuit
@@ -142,11 +165,34 @@ module QuantumArithmetic =
             |> List.fold (fun circ gate ->
                 let adjustedGate = 
                     match gate with
+                    // Single-qubit gates
                     | H q -> H (q + startQubit)
+                    | X q -> X (q + startQubit)
+                    | Y q -> Y (q + startQubit)
+                    | Z q -> Z (q + startQubit)
+                    | S q -> S (q + startQubit)
+                    | SDG q -> SDG (q + startQubit)
+                    | T q -> T (q + startQubit)
+                    | TDG q -> TDG (q + startQubit)
+                    
+                    // Single-qubit with parameter
+                    | RX (q, angle) -> RX (q + startQubit, angle)
+                    | RY (q, angle) -> RY (q + startQubit, angle)
                     | RZ (q, angle) -> RZ (q + startQubit, angle)
+                    | P (q, angle) -> P (q + startQubit, angle)
+                    
+                    // Two-qubit gates (CRITICAL: CP used by QFT!)
                     | CNOT (c, t) -> CNOT (c + startQubit, t + startQubit)
+                    | CZ (c, t) -> CZ (c + startQubit, t + startQubit)
                     | SWAP (q1, q2) -> SWAP (q1 + startQubit, q2 + startQubit)
-                    | _ -> gate
+                    | CP (c, t, angle) -> CP (c + startQubit, t + startQubit, angle)
+                    
+                    // Three-qubit gates
+                    | CCX (c1, c2, t) -> CCX (c1 + startQubit, c2 + startQubit, t + startQubit)
+                    
+                    // Multi-qubit gates
+                    | MCZ (controls, target) -> 
+                        MCZ (List.map (fun c -> c + startQubit) controls, target + startQubit)
                 
                 addGate adjustedGate circ
             ) circuit

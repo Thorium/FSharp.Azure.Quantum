@@ -805,6 +805,102 @@ let backend = BackendAbstraction.createIonQBackend(conn, "ionq.simulator")
 let result2 = MaxCut.solve largeProblem (Some backend)  // Scalable, paid
 ```
 
+### Azure Quantum Workspace Management (NEW in 1.2.4)
+
+**Production-ready hybrid approach: Workspace quota management + proven HTTP backends**
+
+```fsharp
+open FSharp.Azure.Quantum.Backends.AzureQuantumWorkspace
+open FSharp.Azure.Quantum.Core.BackendAbstraction
+open System.Net.Http
+
+// Step 1: Check quota with workspace
+use workspace = 
+    createDefault 
+        "your-subscription-id"
+        "your-resource-group"
+        "your-workspace-name"
+        "eastus"
+
+async {
+    // Check remaining quota before execution
+    let! quota = workspace.GetTotalQuotaAsync()
+    
+    match quota.Remaining with
+    | Some remaining when remaining < 10.0 ->
+        printfn "⚠️  Low quota - stopping"
+    | Some remaining ->
+        printfn "✅ Sufficient quota: %.2f credits" remaining
+        
+        // Step 2: Use HTTP backend for proven execution
+        use httpClient = new HttpClient()
+        let backend = createIonQBackend
+            httpClient
+            "https://your-workspace.quantum.azure.com"
+            "ionq.simulator"
+        
+        // Step 3: Convert circuit and execute
+        let circuit = quantumCircuit { H 0; CNOT 0 1 }
+        let wrapper = CircuitWrapper(circuit) :> ICircuit
+        
+        match convertCircuitToProviderFormat wrapper "ionq.simulator" with
+        | Ok json ->
+            match backend.Execute wrapper 1000 with
+            | Ok result -> printfn "Success!"
+            | Error msg -> printfn "Error: %s" msg
+        | Error msg -> 
+            printfn "Circuit conversion failed: %s" msg
+    | None -> 
+        printfn "✅ Unlimited quota"
+} |> Async.RunSynchronously
+```
+
+**What you get:**
+- ✅ **Workspace Features:** Quota checking, provider discovery, credential management
+- ✅ **Circuit Conversion:** Automatic provider-specific format conversion (IonQ JSON, Rigetti Quil)
+- ✅ **Proven Backends:** Full HTTP-based job submission, polling, and result parsing
+- ✅ **Resource Safety:** IDisposable pattern for proper cleanup
+
+**Environment-Based Configuration:**
+```fsharp
+// Set environment variables:
+// export AZURE_QUANTUM_SUBSCRIPTION_ID="..."
+// export AZURE_QUANTUM_RESOURCE_GROUP="..."
+// export AZURE_QUANTUM_WORKSPACE_NAME="..."
+// export AZURE_QUANTUM_LOCATION="eastus"
+
+match createFromEnvironment() with
+| Ok workspace -> 
+    printfn "✅ Workspace loaded: %s" workspace.Config.WorkspaceName
+| Error msg -> 
+    printfn "⚠️  Environment not configured: %s" msg
+```
+
+**Circuit Format Conversion:**
+```fsharp
+// Convert circuits to provider-specific formats
+let circuit = quantumCircuit { H 0; CNOT 0 1; RX (0, Math.PI / 4.0) }
+let wrapper = CircuitWrapper(circuit) :> ICircuit
+
+// To IonQ JSON
+match convertCircuitToProviderFormat wrapper "ionq.simulator" with
+| Ok ionqJson -> printfn "IonQ: %s" ionqJson
+| Error msg -> printfn "Error: %s" msg
+
+// To Rigetti Quil
+match convertCircuitToProviderFormat wrapper "rigetti.sim.qvm" with
+| Ok quilProgram -> printfn "Quil: %s" quilProgram
+| Error msg -> printfn "Error: %s" msg
+```
+
+**Benefits:**
+- Workspace management without SDK complexity
+- Automatic gate transpilation for backend compatibility
+- Support for CircuitWrapper and QaoaCircuitWrapper
+- IonQ and Rigetti providers (Quantinuum coming soon)
+
+**Example:** See `examples/AzureQuantumWorkspace/WorkspaceExample.fsx`
+
 ---
 
 ## 🔄 OpenQASM 2.0 Support

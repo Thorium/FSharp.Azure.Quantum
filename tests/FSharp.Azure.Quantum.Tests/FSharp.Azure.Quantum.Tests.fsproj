@@ -18,6 +18,7 @@
     <!-- See AmplitudeAmplificationTests.fs.bak for original tests -->
     <Compile Include="QFTTests.fs" />
     <Compile Include="QPETests.fs" />
+    <Compile Include="HHLTests.fs" />
     <Compile Include="ShorsTests.fs" />
     <Compile Include="QuantumArithmeticTests.fs" />
     <Compile Include="QaoaSimulatorTests.fs" />
