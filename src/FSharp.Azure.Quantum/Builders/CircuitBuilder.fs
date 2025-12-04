@@ -291,9 +291,9 @@ module CircuitBuilder =
     /// // GHZ state (use programmatic API for loops)
     /// let ghz = 
     ///     let mutable c = empty 5
-    ///     c <- addGate (H 0) c
+    ///     c &lt;- addGate (H 0) c
     ///     for i in [0..3] do
-    ///         c <- addGate (CNOT (i, i+1)) c
+    ///         c &lt;- addGate (CNOT (i, i+1)) c
     ///     c
     /// 
     /// // Or use the For method directly via helper function
@@ -339,9 +339,7 @@ module CircuitBuilder =
             let mutable state = this.Zero()
             for item in sequence do
                 let itemCircuit = body item
-                printfn "DEBUG For: item=%A produced %d gates" item (List.length itemCircuit.Gates)
                 state <- this.Combine(state, itemCircuit)
-            printfn "DEBUG For: final state has %d gates" (List.length state.Gates)
             state
         
         member _.Run(circuit: Circuit) : Circuit =
@@ -529,12 +527,74 @@ module CircuitBuilder =
     // HELPER FUNCTIONS FOR USE INSIDE FOR LOOPS
     // ============================================================================
     // These functions return single-gate circuits that can be used in for loop bodies
-    // Example: for i in [0..3] do singleGate (CNOT (i, i+1))
+    // Example: for i in [0..3] do yield! singleGate (CNOT (i, i+1))
     
     /// Creates a circuit with a single gate (useful for for loops)
+    /// Use with yield! inside for loops: for i in [0..3] do yield! singleGate (CNOT (i, i+1))
     let singleGate (gate: Gate) : Circuit =
         { QubitCount = 0; Gates = [gate] }
     
     /// Creates a circuit with multiple gates (useful for for loops)
+    /// Use with yield! inside for loops: for gates in gateList do yield! multiGate gates
     let multiGate (gates: Gate list) : Circuit =
         { QubitCount = 0; Gates = gates }
+    
+    // ============================================================================
+    // GATE CONSTRUCTOR HELPERS - For use in for loops
+    // ============================================================================
+    // These helpers create gate values that can be wrapped in singleGate()
+    // They mirror the Gate union cases but are functions, making them easier to use
+    
+    /// Creates an H (Hadamard) gate - for use in for loops
+    let h q = H q
+    
+    /// Creates an X (NOT) gate - for use in for loops
+    let x q = X q
+    
+    /// Creates a Y gate - for use in for loops
+    let y q = Y q
+    
+    /// Creates a Z gate - for use in for loops
+    let z q = Z q
+    
+    /// Creates an S (phase) gate - for use in for loops
+    let s q = S q
+    
+    /// Creates an SDG (inverse phase) gate - for use in for loops
+    let sdg q = SDG q
+    
+    /// Creates a T gate - for use in for loops
+    let t q = T q
+    
+    /// Creates a TDG (inverse T) gate - for use in for loops
+    let tdg q = TDG q
+    
+    /// Creates a P (phase) gate with angle - for use in for loops
+    let p q angle = P (q, angle)
+    
+    /// Creates an RX (X-rotation) gate - for use in for loops
+    let rx q angle = RX (q, angle)
+    
+    /// Creates an RY (Y-rotation) gate - for use in for loops
+    let ry q angle = RY (q, angle)
+    
+    /// Creates an RZ (Z-rotation) gate - for use in for loops
+    let rz q angle = RZ (q, angle)
+    
+    /// Creates a CNOT gate - for use in for loops
+    let cnot control target = CNOT (control, target)
+    
+    /// Creates a CZ gate - for use in for loops
+    let cz control target = CZ (control, target)
+    
+    /// Creates a CP (controlled phase) gate - for use in for loops
+    let cp control target angle = CP (control, target, angle)
+    
+    /// Creates a SWAP gate - for use in for loops
+    let swap q1 q2 = SWAP (q1, q2)
+    
+    /// Creates a CCX (Toffoli) gate - for use in for loops
+    let ccx c1 c2 target = CCX (c1, c2, target)
+    
+    /// Creates an MCZ (multi-controlled Z) gate - for use in for loops
+    let mcz controls target = MCZ (controls, target)

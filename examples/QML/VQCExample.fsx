@@ -55,7 +55,8 @@ printSection "Variational Quantum Classifier (VQC) Example"
 printSection "1. Setup: Backend and Architecture"
 
 // Create quantum backend
-let backend = LocalBackend() :> IQuantumBackend
+open FSharp.Azure.Quantum.LocalSimulator
+let backend = createLocalBackend()
 printResult "Backend" "LocalBackend (quantum simulator)"
 
 // Define VQC architecture

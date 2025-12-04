@@ -56,22 +56,26 @@ let problem1 = linearSystemSolver {
 }
 
 printfn "⚡ Running HHL algorithm on local simulator..."
-match solve problem1 with
-| Error msg -> 
-    printfn "❌ Error: %s" msg
-| Ok result ->
-    printfn "✅ SUCCESS!"
-    printfn ""
-    printfn "RESULTS:"
-    printfn "  Success Probability: %.4f" result.SuccessProbability
-    printfn "  Condition Number (κ): %s" (
-        match result.ConditionNumber with
-        | Some k -> sprintf "%.2f" k
-        | None -> "N/A"
-    )
-    printfn "  Gates Used: %d" result.GateCount
-    printfn "  Backend: %s" result.BackendName
-    printfn ""
+match problem1 with
+| Error msg ->
+    printfn "❌ Problem setup failed: %s" msg
+| Ok prob ->
+    match solve prob with
+    | Error msg -> 
+        printfn "❌ Error: %s" msg
+    | Ok result ->
+        printfn "✅ SUCCESS!"
+        printfn ""
+        printfn "RESULTS:"
+        printfn "  Success Probability: %.4f" result.SuccessProbability
+        printfn "  Condition Number (κ): %s" (
+            match result.ConditionNumber with
+            | Some k -> sprintf "%.2f" k
+            | None -> "N/A"
+        )
+        printfn "  Gates Used: %d" result.GateCount
+        printfn "  Backend: %s" result.BackendName
+        printfn ""
 
 printfn "CLASSICAL VERIFICATION:"
 printfn "  x₁ = 4/2 = 2.0 ✓"
@@ -104,25 +108,29 @@ let problem2 = linearSystemSolver {
 }
 
 printfn "⚡ Running HHL..."
-match solve problem2 with
-| Error msg -> 
-    printfn "❌ Error: %s" msg
-| Ok result ->
-    printfn "✅ Result obtained"
-    printfn ""
-    printfn "CONDITION NUMBER ANALYSIS:"
-    match result.ConditionNumber with
-    | Some k ->
-        printfn "  κ = %.2f (ill-conditioned!)" k
-        printfn "  Expected success rate: ~%.2f%%" (100.0 / (k * k))
-    | None ->
-        printfn "  κ not available"
-    
-    printfn ""
-    printfn "MEASURED RESULTS:"
-    printfn "  Success Probability: %.4f" result.SuccessProbability
-    printfn "  Gates: %d" result.GateCount
-    printfn ""
+match problem2 with
+| Error msg ->
+    printfn "❌ Problem setup failed: %s" msg
+| Ok prob ->
+    match solve prob with
+    | Error msg -> 
+        printfn "❌ Error: %s" msg
+    | Ok result ->
+        printfn "✅ Result obtained"
+        printfn ""
+        printfn "CONDITION NUMBER ANALYSIS:"
+        match result.ConditionNumber with
+        | Some k ->
+            printfn "  κ = %.2f (ill-conditioned!)" k
+            printfn "  Expected success rate: ~%.2f%%" (100.0 / (k * k))
+        | None ->
+            printfn "  κ not available"
+        
+        printfn ""
+        printfn "MEASURED RESULTS:"
+        printfn "  Success Probability: %.4f" result.SuccessProbability
+        printfn "  Gates: %d" result.GateCount
+        printfn ""
 
 printfn "KEY INSIGHT:"
 printfn "  HHL works best with well-conditioned matrices (κ < 100)"
@@ -154,14 +162,18 @@ printfn "  This requires 5 + 2 + 1 = 8 qubits total"
 printfn "  Clock: 5 qubits, Solution: 2 qubits, Ancilla: 1 qubit"
 printfn ""
 
-match solve problem3 with
-| Error msg -> 
-    printfn "❌ Error: %s" msg
-| Ok result ->
-    printfn "✅ Solved 4×4 system!"
-    printfn "  Gates: %d" result.GateCount
-    printfn "  Success: %.4f" result.SuccessProbability
-    printfn ""
+match problem3 with
+| Error msg ->
+    printfn "❌ Problem setup failed: %s" msg
+| Ok prob ->
+    match solve prob with
+    | Error msg -> 
+        printfn "❌ Error: %s" msg
+    | Ok result ->
+        printfn "✅ Solved 4×4 system!"
+        printfn "  Gates: %d" result.GateCount
+        printfn "  Success: %.4f" result.SuccessProbability
+        printfn ""
 
 // ============================================================================
 // SCENARIO 4: Demonstrating M\u00f6tt\u00f6nen's State Preparation

@@ -223,7 +223,8 @@ match backend.Execute circuitWrapper 2000 with
     printfn "║  Maximum Cut Solution                                    ║"
     printfn "╚══════════════════════════════════════════════════════════╝"
     printfn ""
-    printfn $"  Partition: {String.Join("", maxBitstring)}"
+    let maxPartitionStr = String.Join("", maxBitstring)
+    printfn $"  Partition: {maxPartitionStr}"
     printfn $"  Cut Value: {maxCut:F1} / {float edges.Length:F1}"
     printfn $"  Percentage: {maxCut / float edges.Length:P1}"
     printfn $"  Found in: {float maxCount / float execResult.NumShots:P1} of shots"

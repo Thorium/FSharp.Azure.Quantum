@@ -196,7 +196,8 @@ match selectBestBackend backends circuit with
         printfn "║  Best Solution Found                                     ║"
         printfn "╚══════════════════════════════════════════════════════════╝"
         printfn ""
-        printfn $"  Partition: {System.String.Join("", bestBitstring)}"
+        let partitionStr = System.String.Join("", bestBitstring)
+        printfn $"  Partition: {partitionStr}"
         printfn $"  Cut Value: {bestCut:F1} (max possible: 12.0)"
         printfn $"  Occurrences: {bestCount}/{numShots} ({100.0 * float bestCount / float numShots:F1}%%)"
         printfn ""
@@ -206,8 +207,10 @@ match selectBestBackend backends circuit with
         let set1 = [0 .. numVertices - 1] |> List.filter (fun v -> bestBitstring.[v] = 1)
         
         printfn "  Partition Sets:"
-        printfn $"    Set 0: {{{String.concat ", " (set0 |> List.map string)}}}"
-        printfn $"    Set 1: {{{String.concat ", " (set1 |> List.map string)}}}"
+        let set0Str = String.concat ", " (set0 |> List.map string)
+        let set1Str = String.concat ", " (set1 |> List.map string)
+        printfn $"    Set 0: {{{set0Str}}}"
+        printfn $"    Set 1: {{{set1Str}}}"
         printfn ""
         
         // Show cut edges

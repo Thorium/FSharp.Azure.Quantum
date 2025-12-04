@@ -343,7 +343,7 @@ printfn """
             <img src="@match.Item.ImageUrl" />
             <h4>@match.Item.Name</h4>
             <p class="price">$@match.Item.Price</p>
-            <span class="match">@((match.Similarity * 100).ToString("F0"))% match</span>
+            <span class="match">@((match.Similarity * 100).ToString("F0"))%% match</span>
         </div>
     }
 </div>

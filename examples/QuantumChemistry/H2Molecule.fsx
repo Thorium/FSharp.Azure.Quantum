@@ -36,8 +36,10 @@ printfn "Electrons: %d" (Molecule.countElectrons h2)
 printfn ""
 
 // Configure VQE solver
+open FSharp.Azure.Quantum.LocalSimulator
 let config = {
     Method = GroundStateMethod.VQE
+    Backend = createLocalBackend()
     MaxIterations = 100
     Tolerance = 1e-6
     InitialParameters = None

@@ -742,7 +742,9 @@ var problem2 = baseBuilder
 
 ### Common Patterns
 
-1. **Generate nodes from loops outside the builder**
+1. **Using loops with the builder**
+   
+   **Option A:** Generate nodes outside and pass them in (recommended for complex logic):
    ```fsharp
    // Generate nodes first
    let nodesList = [1..10] |> List.map (fun i -> node $"N{i}" [])
@@ -751,7 +753,18 @@ var problem2 = baseBuilder
    graphColoring { nodes nodesList }
    ```
    
-   *Note: `for` loops don't work directly in computation expressions due to F# syntax limitations*
+   **Option B:** Use `for` loops with `yield!` inside the builder:
+   ```fsharp
+   // Use yield! with singleNode helper for loops
+   let problem = graphColoring {
+       colors ["Red"; "Green"; "Blue"]
+       
+       for i in [1..10] do
+           yield! singleNode (node $"N{i}" [$"N{i+1}"])
+   }
+   ```
+   
+   *Note: Custom operations like `node` don't work directly in `for` loops (F# limitation). Use `yield! singleNode(...)` instead.*
 
 2. **Always specify colors** - Required for all problems
    ```fsharp

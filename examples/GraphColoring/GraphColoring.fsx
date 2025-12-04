@@ -110,23 +110,21 @@ printfn ""
 
 // Create frequency assignment problem using graphColoring builder
 let frequencyProblem = graphColoring {
-    // Define cell towers and their interference conflicts
+    // Define cell towers and their interference conflicts (reduced to 3 towers)
     node "Tower1" ["Tower2"; "Tower3"]
-    node "Tower2" ["Tower1"; "Tower4"]
-    node "Tower3" ["Tower1"; "Tower4"; "Tower5"]
-    node "Tower4" ["Tower2"; "Tower3"; "Tower5"]
-    node "Tower5" ["Tower3"; "Tower4"]
+    node "Tower2" ["Tower1"; "Tower3"]
+    node "Tower3" ["Tower1"; "Tower2"]
     
     // Available frequencies
-    colors ["F1"; "F2"; "F3"; "F4"; "F5"]
+    colors ["F1"; "F2"; "F3"]
     objective MinimizeColors
 }
 
-printfn "Problem: Assign frequencies to 5 cell towers"
-printfn "Interference pairs: 6 edges"
+printfn "Problem: Assign frequencies to 3 cell towers"
+printfn "Interference pairs: 3 edges (complete triangle)"
 printfn ""
 
-match GraphColoring.solve frequencyProblem 5 None with
+match GraphColoring.solve frequencyProblem 3 None with
 | Ok solution ->
     printfn "✅ Quantum Solution:"
     printfn "   Used %d frequencies" solution.ColorsUsed
@@ -166,25 +164,23 @@ printfn "EXAMPLE 3: Exam Scheduling"
 printfn "========================================="
 printfn ""
 
-// Create exam scheduling problem using graphColoring builder
+// Create exam scheduling problem using graphColoring builder (reduced to 3 exams to fit 20 qubit limit)
 let examProblem = graphColoring {
     // Define exams and their student enrollment conflicts
     node "Math101" ["CS101"; "Physics101"]
-    node "CS101" ["Math101"; "Physics101"]
-    node "Physics101" ["Math101"; "CS101"; "Chem101"]
-    node "Chem101" ["Physics101"; "English101"]
-    node "English101" ["Chem101"]
+    node "CS101" ["Math101"]
+    node "Physics101" ["Math101"]
     
     // Available time slots
-    colors ["Morning1"; "Morning2"; "Afternoon1"; "Afternoon2"; "Evening"]
+    colors ["Morning"; "Afternoon"; "Evening"]
     objective MinimizeColors
 }
 
-printfn "Problem: Schedule 5 exams into time slots"
-printfn "Student conflicts: 5 pairs"
+printfn "Problem: Schedule 3 exams into time slots"
+printfn "Student conflicts: 2 pairs"
 printfn ""
 
-match GraphColoring.solve examProblem 5 None with
+match GraphColoring.solve examProblem 3 None with
 | Ok solution ->
     printfn "✅ Quantum Solution:"
     printfn "   Used %d time slots" solution.ColorsUsed
@@ -215,35 +211,27 @@ printfn ""
 // - Tests algorithm effectiveness on well-studied graphs
 //
 printfn "========================================="
-printfn "EXAMPLE 4: Petersen Graph Coloring"
+printfn "EXAMPLE 4: Cycle Graph Coloring"
 printfn "========================================="
 printfn ""
 
-// Petersen graph: 10 vertices, chromatic number = 3
-let petersenGraph = graphColoring {
-    // Outer pentagon
-    node "V1" ["V2"; "V5"; "V6"]
-    node "V2" ["V1"; "V3"; "V7"]
-    node "V3" ["V2"; "V4"; "V8"]
-    node "V4" ["V3"; "V5"; "V9"]
-    node "V5" ["V4"; "V1"; "V10"]
+// Simple cycle graph (reduced from Petersen to fit 20 qubit limit)
+// A 4-cycle requires 2 colors
+let cycleGraph = graphColoring {
+    node "V1" ["V2"; "V4"]
+    node "V2" ["V1"; "V3"]
+    node "V3" ["V2"; "V4"]
+    node "V4" ["V3"; "V1"]
     
-    // Inner pentagram
-    node "V6" ["V1"; "V8"; "V9"]
-    node "V7" ["V2"; "V9"; "V10"]
-    node "V8" ["V3"; "V6"; "V10"]
-    node "V9" ["V4"; "V6"; "V7"]
-    node "V10" ["V5"; "V7"; "V8"]
-    
-    colors ["Red"; "Green"; "Blue"; "Yellow"]
+    colors ["Red"; "Green"; "Blue"]
     objective MinimizeColors
 }
 
-printfn "Problem: Color Petersen graph (10 vertices, 15 edges)"
-printfn "Known chromatic number: 3 colors"
+printfn "Problem: Color cycle graph (4 vertices, 4 edges)"
+printfn "Known chromatic number: 2 colors"
 printfn ""
 
-match GraphColoring.solve petersenGraph 4 None with
+match GraphColoring.solve cycleGraph 3 None with
 | Ok solution ->
     printfn "✅ Quantum Solution:"
     printfn "   Used %d colors" solution.ColorsUsed
@@ -278,24 +266,22 @@ printfn "========================================="
 printfn ""
 
 let comparisonGraph = graphColoring {
-    // 6-vertex graph with complex structure
-    node "A" ["B"; "C"; "E"]
-    node "B" ["A"; "C"; "D"; "F"]
-    node "C" ["A"; "B"; "D"; "E"]
-    node "D" ["B"; "C"; "E"; "F"]
-    node "E" ["A"; "C"; "D"; "F"]
-    node "F" ["B"; "D"; "E"]
+    // 4-vertex graph with complex structure (reduced to fit qubit limit)
+    node "A" ["B"; "C"]
+    node "B" ["A"; "C"; "D"]
+    node "C" ["A"; "B"; "D"]
+    node "D" ["B"; "C"]
     
-    colors ["Color1"; "Color2"; "Color3"; "Color4"]
+    colors ["Color1"; "Color2"; "Color3"]
     objective MinimizeColors
 }
 
-printfn "Problem: Color 6-vertex graph with dense edges"
+printfn "Problem: Color 4-vertex graph with dense edges"
 printfn ""
 
 // Quantum solution (LocalBackend simulation)
 printfn "🔬 Quantum QAOA Solution:"
-match GraphColoring.solve comparisonGraph 4 None with
+match GraphColoring.solve comparisonGraph 3 None with
 | Ok solution ->
     printfn "   Colors used: %d" solution.ColorsUsed
     printfn "   Valid: %b | Conflicts: %d" solution.IsValid solution.ConflictCount
@@ -369,7 +355,7 @@ printfn "Graph Coloring Examples Completed:"
 printfn "  1. ✅ Register Allocation (compiler)"
 printfn "  2. ✅ Frequency Assignment (wireless)"
 printfn "  3. ✅ Exam Scheduling (university)"
-printfn "  4. ✅ Petersen Graph (classic problem)"
+printfn "  4. ✅ Cycle Graph (2-colorable)"
 printfn "  5. ✅ Complex Dense Graph (quantum QAOA)"
 printfn "  6. ✅ Pre-colored vertices (constraints)"
 printfn ""

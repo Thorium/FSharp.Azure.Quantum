@@ -64,8 +64,10 @@ let ghzState = circuit {
     H 0  // Hadamard on first qubit
     
     // Chain of CNOTs to propagate entanglement
+    // NOTE: Custom operations don't work inside for loops (F# limitation)
+    // Use yield! with singleGate() helper for loops
     for i in [0..3] do
-        CNOT (i, i+1)
+        yield! singleGate (Gate.CNOT (i, i+1))
 }
 
 printfn "GHZ State Circuit:"
@@ -123,8 +125,9 @@ let superposition = circuit {
     qubits n
     
     // Apply Hadamard to all qubits using a for loop
+    // Use yield! with singleGate() helper for loops
     for q in [0..n-1] do
-        H q
+        yield! singleGate (Gate.H q)
 }
 
 printfn "Superposition Circuit:"

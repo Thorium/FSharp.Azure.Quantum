@@ -213,7 +213,7 @@ module BinaryClassifier =
         }
         
         // Train VQC (initialize parameters randomly)
-        let numParams = 4  // Number of parameters for RealAmplitudes(2)
+        let numParams = AnsatzHelpers.parameterCount variationalForm numQubits
         let initialParams = Array.init numParams (fun _ -> Random().NextDouble() * 2.0 * Math.PI)
         
         match VQC.train backend featureMap variationalForm initialParams features labels trainConfig with

@@ -228,31 +228,35 @@ module GraphColoring =
                 ConflictPenalty = 1.0
             }
         
-        member _.Delay(f: unit -> GraphColoringProblem) : unit -> GraphColoringProblem = f
-        
-        member _.Run(f: unit -> GraphColoringProblem) : GraphColoringProblem =
-            let problem = f()
-            match validate problem with
-            | Error msg -> failwith msg
-            | Ok () -> problem
-        
-        member _.Combine(first: GraphColoringProblem, second: unit -> GraphColoringProblem) : GraphColoringProblem =
-            let second' = second()
-            {
-                Nodes = first.Nodes @ second'.Nodes
-                AvailableColors = if second'.AvailableColors.IsEmpty then first.AvailableColors else second'.AvailableColors
-                Objective = second'.Objective
-                MaxColors = match second'.MaxColors with | Some _ -> second'.MaxColors | None -> first.MaxColors
-                ConflictPenalty = if second'.ConflictPenalty = 1.0 then first.ConflictPenalty else second'.ConflictPenalty
-            }
+        member _.YieldFrom(problem: GraphColoringProblem) : GraphColoringProblem =
+            problem
         
         member this.Zero() : GraphColoringProblem = this.Yield(())
         
+        member _.Combine(first: GraphColoringProblem, second: GraphColoringProblem) : GraphColoringProblem =
+            {
+                Nodes = first.Nodes @ second.Nodes
+                AvailableColors = if second.AvailableColors.IsEmpty then first.AvailableColors else second.AvailableColors
+                Objective = second.Objective
+                MaxColors = match second.MaxColors with | Some _ -> second.MaxColors | None -> first.MaxColors
+                ConflictPenalty = if second.ConflictPenalty = 1.0 then first.ConflictPenalty else second.ConflictPenalty
+            }
+        
+        member inline _.Delay([<InlineIfLambda>] f: unit -> GraphColoringProblem) : GraphColoringProblem = f()
+        
+        member inline this.For(problem: GraphColoringProblem, [<InlineIfLambda>] f: unit -> GraphColoringProblem) : GraphColoringProblem =
+            this.Combine(problem, f())
+        
         member this.For(sequence: seq<'T>, body: 'T -> GraphColoringProblem) : GraphColoringProblem =
-            sequence
-            |> Seq.fold (fun state item ->
-                this.Combine(state, fun () -> body item)
-            ) (this.Zero())
+            let mutable state = this.Zero()
+            for item in sequence do
+                state <- this.Combine(state, body item)
+            state
+        
+        member _.Run(problem: GraphColoringProblem) : GraphColoringProblem =
+            match validate problem with
+            | Error msg -> failwith msg
+            | Ok () -> problem
         
         [<CustomOperation("node")>]
         member _.Node(problem: GraphColoringProblem, id: string, conflicts: string list) : GraphColoringProblem =
@@ -302,6 +306,16 @@ module GraphColoring =
             Priority = 0.0
             AvoidColors = []
             Properties = Map.empty
+        }
+    
+    /// Helper to create a single-node problem (for use in for loops with yield!)
+    let singleNode (coloredNode: ColoredNode) : GraphColoringProblem =
+        {
+            Nodes = [coloredNode]
+            AvailableColors = []
+            Objective = MinimizeColors
+            MaxColors = None
+            ConflictPenalty = 1.0
         }
     
     // ============================================================================
