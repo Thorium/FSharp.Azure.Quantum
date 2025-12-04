@@ -1051,15 +1051,28 @@ match GraphColoring.solve problem 3 (Some backend) with
 ### D-Wave Quantum Annealer
 
 ```fsharp
-open FSharp.Azure.Quantum.Backends
+open FSharp.Azure.Quantum.Backends.DWaveBackend
+open FSharp.Azure.Quantum.Backends.RealDWaveBackend
+open FSharp.Azure.Quantum.Backends.DWaveTypes
 
-// Create D-Wave backend (2000+ qubits!)
-let dwaveBackend = DWaveBackend.create(
-    apiToken = "YOUR_DWAVE_TOKEN",
-    solver = "Advantage_system4.1"  // or "hybrid_binary_quadratic_model_version2"
-)
+// Option 1: Mock D-Wave backend (testing, no credentials needed)
+let mockBackend = createMockDWaveBackend Advantage_System6_1 (Some 42)
 
-// MaxCut problem automatically converts to QUBO/Ising format
+// Option 2: Real D-Wave backend (production, requires API token)
+let dwaveConfig = {
+    ApiToken = "YOUR_DWAVE_TOKEN"  // Get from https://cloud.dwavesys.com/leap/
+    Endpoint = "https://cloud.dwavesys.com/sapi/v2/"
+    Solver = "Advantage_system6.1"  // 5640 qubits, Pegasus topology
+    TimeoutMs = Some 300000  // 5 minutes
+}
+let dwaveBackend = RealDWaveBackend.create dwaveConfig
+
+// Option 3: From environment variables (DWAVE_API_TOKEN, DWAVE_SOLVER)
+match RealDWaveBackend.createFromEnv() with
+| Ok backend -> printfn "D-Wave backend ready: %s" backend.Name
+| Error msg -> printfn "No D-Wave credentials: %s" msg
+
+// Build QAOA circuit for MaxCut (automatically converted to QUBO/Ising)
 let vertices = ["A"; "B"; "C"; "D"; "E"]
 let edges = [
     ("A", "B", 1.0); ("B", "C", 2.0); ("C", "D", 1.0)
@@ -1068,23 +1081,31 @@ let edges = [
 
 let problem = MaxCut.createProblem vertices edges
 
-// Solve on D-Wave (uses quantum annealing, not QAOA)
-match DWaveBackend.solveMaxCut dwaveBackend problem with
+// Solve using D-Wave backend (implements IQuantumBackend)
+// D-Wave automatically extracts QUBO from QAOA circuit and uses quantum annealing
+match MaxCut.solve problem (Some dwaveBackend) with
 | Ok solution ->
     printfn "Cut value: %.2f" solution.CutValue
     printfn "Partition S: %A" solution.PartitionS
     printfn "Partition T: %A" solution.PartitionT
-    printfn "Annealing time: %.3f ms" solution.AnnealingTime
 | Error msg -> printfn "Error: %s" msg
 ```
 
 **D-Wave Features:**
-- ✅ **2000+ qubits** - Far larger than gate-based quantum computers
-- ✅ **Quantum annealing** - Different paradigm than QAOA (finds ground states)
-- ✅ **Hybrid solvers** - Automatic classical-quantum decomposition
-- ✅ **QUBO/Ising native** - Direct problem format support
-- ✅ **Production hardware** - Available now (not simulation)
+- ✅ **2000-5640 qubits** - Far larger than gate-based quantum computers (Advantage series)
+- ✅ **Implements IQuantumBackend** - Seamless integration with QAOA solvers
+- ✅ **Automatic QUBO extraction** - Converts QAOA circuits to native Ising format
+- ✅ **Quantum annealing** - Different paradigm than gate-based (finds ground states via annealing)
+- ✅ **Mock backend** - Test without credentials using classical simulated annealing
+- ✅ **Real backend** - Production D-Wave Leap Cloud API integration (pure .NET, no Python)
+- ✅ **Production hardware** - Available now (Advantage_system6.1: 5640 qubits)
 - ⚠️ **Specialized** - Best for optimization problems (not universal quantum computing)
+
+**Available D-Wave Solvers:**
+- `Advantage_System6_1`: 5640 qubits (Pegasus topology, latest)
+- `Advantage_System4_1`: 5000 qubits (Pegasus topology)
+- `Advantage2_Prototype`: 1200 qubits (Zephyr topology, next-gen)
+- `DW_2000Q_6`: 2048 qubits (Chimera topology, legacy)
 
 **Example:** `examples/DWaveMaxCutExample.fsx`
 
@@ -1110,8 +1131,17 @@ let largeProblem =
         [for i in 1..100 -> sprintf "V%d" i]  // 100 vertices!
         [for i in 1..99 -> (sprintf "V%d" i, sprintf "V%d" (i+1), 1.0)]
 
-let dwaveBackend = DWaveBackend.create(token, "Advantage_system4.1")
-let result3 = DWaveBackend.solveMaxCut dwaveBackend largeProblem  // 2000+ qubits
+// Create D-Wave backend (mock for testing or real for production)
+let dwaveBackend = 
+    // Option 1: Mock backend (no credentials)
+    DWaveBackend.createMockDWaveBackend Advantage_System6_1 None
+    
+    // Option 2: Real backend (requires DWAVE_API_TOKEN env var)
+    // match RealDWaveBackend.createFromEnv() with
+    // | Ok backend -> backend
+    // | Error _ -> DWaveBackend.createDefaultMockBackend()
+
+let result3 = MaxCut.solve largeProblem (Some dwaveBackend)  // 2000+ qubits
 ```
 
 **Backend Selection Guide:**
@@ -2582,6 +2612,112 @@ The `Algorithms/` directory contains foundational quantum algorithms for learnin
 - Functional programming matches quantum mathematics
 - Interop with .NET ecosystem (C#, Azure, ML.NET)
 - Higher level abstraction than Python (Qiskit) and Q#
+
+---
+
+| **Feature Category** | **FSharp.Azure.Quantum** | **IBM Qiskit** | **Microsoft Azure Quantum SDK** | **Google Cirq** | **Amazon Braket SDK** |
+|---------------------|-------------------------|----------------|-------------------------------|----------------|---------------------|
+| **Primary Language** | F# (with C# interop) | Python | Python, C#, Q# | Python | Python |
+| **License** | Unlicense (Public Domain) | Apache 2.0 | MIT | Apache 2.0 | Apache 2.0 |
+| **Target Audience** | .NET developers, optimization problems | General quantum computing | Enterprise quantum developers | Google hardware users | AWS cloud users |
+| | | | | | |
+| **🎯 OPTIMIZATION SOLVERS** | | | | | |
+| MaxCut | ✅ Built-in (QAOA) | ✅ Qiskit Optimization | ❌ Manual | ❌ Manual | ❌ Manual |
+| Knapsack | ✅ Built-in (QAOA) | ✅ Qiskit Optimization | ❌ Manual | ❌ Manual | ❌ Manual |
+| TSP | ✅ Built-in (QAOA) | ✅ Qiskit Optimization | ❌ Manual | ❌ Manual | ❌ Manual |
+| Portfolio Optimization | ✅ Built-in (QAOA) | ✅ Qiskit Finance | ❌ Manual | ❌ Manual | ❌ Manual |
+| Task Scheduling | ✅ Built-in (QAOA) | ❌ Manual | ❌ Manual | ❌ Manual | ❌ Manual |
+| Network Flow | ✅ Built-in (QAOA) | ❌ Manual | ❌ Manual | ❌ Manual | ❌ Manual |
+| Graph Coloring | ✅ Built-in (QAOA) | ❌ Manual implementation | ❌ Manual | ❌ Manual | ❌ Manual |
+| | | | | | |
+| **🤖 QUANTUM MACHINE LEARNING** | | | | | |
+| VQC (Variational Classifier) | ✅ Built-in | ✅ Qiskit Machine Learning | ❌ Manual | ✅ TFQ integration | ✅ Built-in |
+| Quantum Kernel SVM | ✅ Built-in | ✅ Qiskit Machine Learning | ❌ Manual | ❌ Limited | ✅ Built-in |
+| Feature Maps | ✅ ZZ, Pauli, Angle | ✅ Extensive library | ❌ Manual | ✅ Via TFQ | ✅ Built-in |
+| Variational Forms | ✅ RealAmplitudes, EfficientSU2 | ✅ Extensive ansatz library | ❌ Manual | ✅ Via Cirq | ✅ Built-in |
+| AutoML Integration | ✅ Built-in | ❌ External tools | ❌ No | ❌ No | ❌ No |
+| | | | | | |
+| **📊 BUSINESS PROBLEM BUILDERS** | | | | | |
+| Anomaly Detection | ✅ Built-in | ❌ Manual | ❌ No | ❌ No | ❌ No |
+| Binary Classification | ✅ Built-in | ✅ Qiskit ML | ❌ No | ❌ No | ❌ No |
+| Predictive Modeling | ✅ Built-in | ❌ Manual | ❌ No | ❌ No | ❌ No |
+| Similarity Search | ✅ Built-in | ❌ Manual | ❌ No | ❌ No | ❌ No |
+| | | | | | |
+| **🔬 QUANTUM ALGORITHMS** | | | | | |
+| QAOA | ✅ Production-ready, auto-optimized | ✅ Qiskit Optimization | ✅ Q# samples | ✅ Manual | ✅ Built-in |
+| VQE | ✅ Built-in (chemistry) | ✅ Qiskit Nature | ✅ Q# samples | ✅ Built-in | ✅ Built-in |
+| Grover's Algorithm | ✅ Educational | ✅ Built-in | ✅ Q# samples | ✅ Built-in | ✅ Built-in |
+| Shor's Algorithm | ✅ Educational (period finder) | ✅ Built-in | ✅ Q# samples | ✅ Built-in | ✅ Built-in |
+| QFT | ✅ Built-in | ✅ Built-in | ✅ Q# built-in | ✅ Built-in | ✅ Built-in |
+| HHL (Linear Systems) | ✅ Built-in | ✅ Qiskit Aqua | ❌ Manual | ❌ Manual | ❌ Manual |
+| Amplitude Amplification | ✅ Built-in | ✅ Built-in | ✅ Q# built-in | ✅ Built-in | ❌ Manual |
+| | | | | | |
+| **🖥️ LOCAL SIMULATION** | | | | | |
+| Local Simulator | ✅ Built-in (≤20 qubits) | ✅ Aer (≤30 qubits) | ✅ Full-state (≤30 qubits) | ✅ Built-in (≤20 qubits) | ✅ Local simulator |
+| Noise Simulation | ❌ Some | ✅ AerSimulator noise models | ✅ Open/Closed systems | ✅ Built-in | ✅ Built-in |
+| GPU Acceleration | ❌ No | ✅ Aer GPU | ✅ Yes | ✅ Yes | ✅ Yes |
+| State Vector | ✅ Pure F# implementation | ✅ C++ backend | ✅ C++ backend | ✅ C++ backend | ✅ C++ backend |
+| | | | | | |
+| **☁️ CLOUD BACKENDS** | | | | | |
+| Azure Quantum (IonQ) | ✅ Native | ✅ Via Qiskit Runtime | ✅ Native | ❌ No | ❌ No |
+| Azure Quantum (Rigetti) | ✅ Native | ✅ Via Qiskit Runtime | ✅ Native | ❌ No | ❌ No |
+| IBM Quantum | ❌ Via OpenQASM export | ✅ Native | ❌ No | ❌ No | ❌ No |
+| D-Wave Quantum Annealer | ✅ Native | ✅ Via Ocean SDK | ✅ Native | ❌ No | ✅ Native |
+| AWS Braket | ❌ Via OpenQASM export | ✅ Via plugin | ❌ No | ❌ No | ✅ Native |
+| Google Quantum | ❌ Via OpenQASM export | ✅ Via plugin | ❌ No | ✅ Native | ❌ No |
+| | | | | | |
+| **🔄 INTEROPERABILITY** | | | | | |
+| OpenQASM 2.0 Import | ✅ Full support | ✅ Native | ✅ Via conversion | ✅ Full support | ✅ Full support |
+| OpenQASM 2.0 Export | ✅ Full support | ✅ Native | ✅ Via conversion | ✅ Full support | ✅ Full support |
+| QUIL | ❌ No | ❌ Via plugin | ✅ Rigetti native | ❌ No | ✅ Rigetti support |
+| | | | | | |
+| **🛡️ ERROR MITIGATION** | | | | | |
+| Zero-Noise Extrapolation | ✅ Built-in (30-50% reduction) | ✅ Qiskit Experiments | ❌ Manual | ✅ Via Mitiq integration | ❌ Manual |
+| Probabilistic Error Cancellation | ✅ Built-in (2-3x accuracy) | ✅ Via Mitiq | ❌ Manual | ✅ Via Mitiq integration | ❌ Manual |
+| Readout Error Mitigation | ✅ Built-in (50-90% reduction) | ✅ Qiskit Experiments | ❌ Manual | ✅ Via Mitiq integration | ❌ Manual |
+| Automatic Strategy Selection | ✅ Built-in | ❌ Manual | ❌ No | ❌ Manual | ❌ No |
+| | | | | | |
+| **💻 API DESIGN** | | | | | |
+| Computation Expressions | ✅ F# native pattern | ❌ N/A (Python) | ❌ No | ❌ N/A (Python) | ❌ N/A (Python) |
+| Type Safety | ✅ F# compile-time checks | ⚠️ Python dynamic typing | ⚠️ Python/C# mixed | ⚠️ Python dynamic typing | ⚠️ Python dynamic typing |
+| Fluent API (C#) | ✅ Built-in | ❌ N/A | ✅ Native C# | ❌ N/A | ❌ N/A |
+| Functional Programming | ✅ F# first-class | ❌ Object-oriented | ⚠️ Mixed | ⚠️ Mixed | ❌ Object-oriented |
+| Result Type Error Handling | ✅ F# Result<T,E> | ❌ Exceptions | ❌ Exceptions | ❌ Exceptions | ❌ Exceptions |
+| | | | | | |
+| **🤖 HYBRID CLASSICAL-QUANTUM** | | | | | |
+| Automatic Problem Routing | ✅ HybridSolver (optional) | ❌ Manual | ❌ Manual | ❌ Manual | ❌ Manual |
+| Classical Fallback | ✅ Built-in (small problems) | ❌ Manual | ❌ No | ❌ No | ❌ No |
+| Cost Guards | ✅ MaxCostUSD limits | ❌ Manual | ❌ Manual | ❌ Manual | ❌ Manual |
+| Quantum Advantage Analysis | ✅ Built-in reasoning | ❌ Manual | ❌ No | ❌ No | ❌ No |
+| | | | | | |
+| **🧪 QUANTUM CHEMISTRY** | | | | | |
+| VQE for Molecules | ✅ Built-in (H₂, H₂O) | ✅ Qiskit Nature | ✅ Q# Chemistry | ✅ OpenFermion integration | ✅ Built-in |
+| Hamiltonian Construction | ✅ Built-in | ✅ Qiskit Nature | ✅ Broombridge format | ✅ OpenFermion | ✅ OpenFermion |
+| UCC Ansatz | ✅ Built-in | ✅ Qiskit Nature | ✅ Q# Chemistry | ✅ OpenFermion | ✅ Built-in |
+| | | | | | |
+| **📚 ECOSYSTEM** | | | | | |
+| Circuit Visualization | ❌ Export to OpenQASM → Qiskit | ✅ Native (matplotlib) | ✅ Q# visualizer | ✅ Native (matplotlib) | ✅ Native (matplotlib) |
+| Documentation Quality | ✅ Comprehensive (MD docs) | ✅ Extensive (tutorials) | ✅ Microsoft Docs | ✅ Google Docs | ✅ AWS Docs |
+| Example Projects | ✅ 30+ working examples | ✅ 100+ tutorials | ⚠️ Limited examples | ✅ 50+ tutorials | ✅ 40+ examples |
+| Community Size | ⚠️ Small (new library) | ✅ Large (6.7k stars) | ⚠️ Medium | ✅ Medium (Google) | ⚠️ Medium |
+| GitHub Stars | ⚠️ New project | ✅ 6,700+ | ⚠️ Not standalone repo | ✅ 4,000+ | ✅ 800+ |
+| Stack Overflow Support | ⚠️ Limited (F# quantum niche) | ✅ Extensive | ⚠️ Medium | ⚠️ Medium | ⚠️ Limited |
+| | | | | | |
+| **🔧 DEVELOPMENT EXPERIENCE** | | | | | |
+| IDE Support | ✅ Visual Studio, VS Code | ✅ Jupyter, VS Code | ✅ Visual Studio, VS Code | ✅ Jupyter, VS Code | ✅ Jupyter, VS Code |
+| REPL/Interactive | ✅ F# Interactive (FSI) | ✅ Jupyter Notebooks | ✅ Q# Jupyter | ✅ Jupyter Notebooks | ✅ Jupyter Notebooks |
+| Package Manager | ✅ NuGet | ✅ pip | ✅ NuGet, pip | ✅ pip | ✅ pip |
+| Installation | ✅ dotnet add package | ✅ pip install qiskit | ✅ pip install azure-quantum | ✅ pip install cirq | ✅ pip install amazon-braket-sdk |
+| | | | | | |
+| **⚡ PERFORMANCE** | | | | | |
+| Small Problems (<10 qubits) | ✅ LocalBackend (ms) | ✅ Aer (ms) | ✅ Full-state (ms) | ✅ Cirq (ms) | ✅ Local (ms) |
+| Medium Problems (10-20 qubits) | ✅ LocalBackend (<1s) | ✅ Aer (<1s) | ✅ Full-state (<1s) | ✅ Cirq (<10s) | ✅ Local (<1s) |
+| Large Problems (20+ qubits) | ⚠️ Cloud required | ✅ Aer GPU (30 qubits) | ✅ Cloud | ⚠️ Cloud required | ✅ Cloud |
+| | | | | | |
+| **💰 COST** | | | | | |
+| Local Development | ✅ Free | ✅ Free | ✅ Free | ✅ Free | ✅ Free |
+| Cloud QPU Access | 💰 Azure Quantum pricing | 💰 IBM Quantum pricing | 💰 Azure Quantum pricing | 💰 Google Quantum pricing | 💰 AWS Braket pricing |
+| D-Wave Quantum | 💰 ~-10/run | 💰 Via Ocean SDK | 💰 Azure marketplace | ❌ N/A | 💰 AWS Braket |
 
 ---
 
