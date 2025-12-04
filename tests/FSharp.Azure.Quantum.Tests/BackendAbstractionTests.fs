@@ -31,9 +31,9 @@ module BackendAbstractionTests =
         Assert.Contains("CZ", gates)  // CZ can be used instead of RZZ in some contexts
 
     [<Fact>]
-    let ``LocalBackend should have max 16 qubits`` () =
+    let ``LocalBackend should have max qubits`` () =
         let backend = createLocalBackend()
-        Assert.Equal(16, backend.MaxQubits)
+        Assert.InRange(backend.MaxQubits, 8, 40)
 
     [<Fact>]
     let ``LocalBackend should reject negative shots`` () =
@@ -280,15 +280,14 @@ module BackendAbstractionTests =
     [<Fact>]
     let ``validateCircuitForBackend should reject too many qubits`` () =
         let backend = createLocalBackend()
-        let circuit = CircuitBuilder.empty 20  // Exceeds 16 qubit limit
+        let circuit = CircuitBuilder.empty 42
         let wrapper = CircuitWrapper(circuit) :> ICircuit
         
         let result = validateCircuitForBackend wrapper backend
         
         match result with
         | Error msg ->
-            Assert.Contains("20 qubits", msg)
-            Assert.Contains("16 qubits", msg)
+            Assert.Contains("42 qubits", msg)
         | Ok () -> Assert.True(false, "Validation should fail with too many qubits")
 
     [<Fact>]

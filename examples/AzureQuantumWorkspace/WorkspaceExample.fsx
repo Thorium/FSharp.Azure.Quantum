@@ -1,7 +1,10 @@
 // Azure Quantum Workspace Example
 // Demonstrates SDK-powered workspace management
 
-#r "nuget: FSharp.Azure.Quantum, 1.2.4"
+//#r "nuget: FSharp.Azure.Quantum"
+#r "nuget: Microsoft.Azure.Quantum.Client"
+#r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
+
 
 open System
 open FSharp.Azure.Quantum.Backends.AzureQuantumWorkspace

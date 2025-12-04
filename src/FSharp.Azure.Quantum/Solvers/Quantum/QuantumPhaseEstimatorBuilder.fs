@@ -4,6 +4,7 @@ open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Algorithms
 open FSharp.Azure.Quantum.Algorithms.QuantumPhaseEstimation
 open FSharp.Azure.Quantum.Algorithms.QPEBackendAdapter
+open FSharp.Azure.Quantum.Algorithms.TrotterSuzuki
 open FSharp.Azure.Quantum.LocalSimulator
 
 /// High-level Quantum Phase Estimator Builder - QPE for Eigenvalue Extraction
@@ -177,27 +178,32 @@ module QuantumPhaseEstimator =
         /// Initialize builder with default problem
         member _.Yield(_) = defaultProblem
         
-        /// Set unitary operator
+        /// <summary>Set unitary operator.</summary>
+        /// <param name="u">Unitary operator</param>
         [<CustomOperation("unitary")>]
         member _.Unitary(problem: PhaseEstimatorProblem, u: UnitaryOperator) : PhaseEstimatorProblem =
             { problem with Unitary = u }
         
-        /// Set precision (counting qubits)
+        /// <summary>Set precision (counting qubits).</summary>
+        /// <param name="n">Number of precision qubits</param>
         [<CustomOperation("precision")>]
         member _.Precision(problem: PhaseEstimatorProblem, n: int) : PhaseEstimatorProblem =
             { problem with Precision = n }
         
-        /// Set target qubits
+        /// <summary>Set target qubits.</summary>
+        /// <param name="n">Number of target qubits</param>
         [<CustomOperation("targetQubits")>]
         member _.TargetQubits(problem: PhaseEstimatorProblem, n: int) : PhaseEstimatorProblem =
             { problem with TargetQubits = n }
         
-        /// Set eigenvector
+        /// <summary>Set eigenvector.</summary>
+        /// <param name="vec">Eigenstate vector</param>
         [<CustomOperation("eigenstate")>]
         member _.Eigenstate(problem: PhaseEstimatorProblem, vec: StateVector.StateVector) : PhaseEstimatorProblem =
             { problem with EigenVector = Some vec }
         
-        /// Set quantum backend
+        /// <summary>Set quantum backend.</summary>
+        /// <param name="b">Quantum backend instance</param>
         [<CustomOperation("backend")>]
         member _.Backend(problem: PhaseEstimatorProblem, b: BackendAbstraction.IQuantumBackend) : PhaseEstimatorProblem =
             { problem with Backend = Some b }
@@ -294,6 +300,11 @@ module QuantumPhaseEstimator =
                         | PhaseGate theta -> sprintf "Phase Gate (θ=%.4f)" theta
                         | RotationZ theta -> sprintf "Rz Gate (θ=%.4f)" theta
                         | CustomUnitary _ -> "Custom Unitary"
+                        | HamiltonianEvolution (hamiltonianObj, t, steps) -> 
+                            // hamiltonian is stored as obj; cast to get term count
+                            let h = hamiltonianObj :?> PauliHamiltonian
+                            sprintf "Hamiltonian Evolution (t=%.4f, %d Trotter steps, %d Pauli terms)" 
+                                t steps h.Terms.Length
                     
                     // Estimate gate count (histogram doesn't provide this)
                     let estimatedGateCount = 

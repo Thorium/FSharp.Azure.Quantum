@@ -1204,46 +1204,69 @@ module PredictiveModel =
                 Note = None
             }
         
+        /// <summary>Set the training data with features and target values.</summary>
+        /// <param name="features">Training feature vectors</param>
+        /// <param name="targets">Target values for each sample</param>
         [<CustomOperation("trainWith")>]
         member _.TrainWith(problem: PredictionProblem, features: float array array, targets: float array) =
             { problem with TrainFeatures = features; TrainTargets = targets }
         
+        /// <summary>Set the problem type for prediction.</summary>
+        /// <param name="problemType">Problem type (Classification, Regression, or TimeSeries)</param>
         [<CustomOperation("problemType")>]
         member _.ProblemType(problem: PredictionProblem, problemType: ProblemType) =
             { problem with ProblemType = problemType }
         
+        /// <summary>Set the neural network architecture.</summary>
+        /// <param name="arch">Architecture specification</param>
         [<CustomOperation("architecture")>]
         member _.Architecture(problem: PredictionProblem, arch: Architecture) =
             { problem with Architecture = arch }
         
+        /// <summary>Set the learning rate for optimization.</summary>
+        /// <param name="lr">Learning rate (typically 0.001 to 0.1)</param>
         [<CustomOperation("learningRate")>]
         member _.LearningRate(problem: PredictionProblem, lr: float) =
             { problem with LearningRate = lr }
         
+        /// <summary>Set the maximum number of training epochs.</summary>
+        /// <param name="epochs">Maximum epochs</param>
         [<CustomOperation("maxEpochs")>]
         member _.MaxEpochs(problem: PredictionProblem, epochs: int) =
             { problem with MaxEpochs = epochs }
         
+        /// <summary>Set the convergence threshold for early stopping.</summary>
+        /// <param name="threshold">Convergence threshold for loss improvement</param>
         [<CustomOperation("convergenceThreshold")>]
         member _.ConvergenceThreshold(problem: PredictionProblem, threshold: float) =
             { problem with ConvergenceThreshold = threshold }
         
+        /// <summary>Set the quantum backend for execution.</summary>
+        /// <param name="backend">Quantum backend instance</param>
         [<CustomOperation("backend")>]
         member _.Backend(problem: PredictionProblem, backend: IQuantumBackend) =
             { problem with Backend = Some backend }
         
+        /// <summary>Set the number of measurement shots.</summary>
+        /// <param name="shots">Number of circuit measurements</param>
         [<CustomOperation("shots")>]
         member _.Shots(problem: PredictionProblem, shots: int) =
             { problem with Shots = shots }
         
+        /// <summary>Enable or disable verbose output.</summary>
+        /// <param name="verbose">True to enable detailed logging</param>
         [<CustomOperation("verbose")>]
         member _.Verbose(problem: PredictionProblem, verbose: bool) =
             { problem with Verbose = verbose }
         
+        /// <summary>Set the path to save the trained model.</summary>
+        /// <param name="path">File path for saving the model</param>
         [<CustomOperation("saveModelTo")>]
         member _.SaveModelTo(problem: PredictionProblem, path: string) =
             { problem with SavePath = Some path }
         
+        /// <summary>Add a note or description to the prediction problem.</summary>
+        /// <param name="note">Descriptive note</param>
         [<CustomOperation("note")>]
         member _.Note(problem: PredictionProblem, note: string) =
             { problem with Note = Some note }

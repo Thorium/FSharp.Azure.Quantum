@@ -242,14 +242,14 @@ module AutoML =
     // HYPERPARAMETER SEARCH
     // ========================================================================
     
-    let private generateHyperparameterConfigs (randomSeed: int option) : HyperparameterConfig array =
+    let private generateHyperparameterConfigs (randomSeed: int option) : HyperparameterConfig list =
         let random = 
-            match randomSeed with
-            | Some seed -> Random(seed)
-            | None -> Random()
+            randomSeed
+            |> Option.map Random
+            |> Option.defaultWith (fun () -> Random())
         
         // Grid + random search combination
-        let gridConfigs = [|
+        let gridConfigs = [
             // Conservative
             { LearningRate = 0.01; MaxEpochs = 50; ConvergenceThreshold = 0.001; Shots = 1000 }
             { LearningRate = 0.01; MaxEpochs = 100; ConvergenceThreshold = 0.001; Shots = 1000 }
@@ -259,20 +259,19 @@ module AutoML =
             
             // Fine-tuned
             { LearningRate = 0.005; MaxEpochs = 150; ConvergenceThreshold = 0.0001; Shots = 1000 }
-        |]
+        ]
         
         // Add random configurations
-        let randomConfigs = [|
-            for i in 1..6 ->
+        let randomConfigs =
+            List.init 6 (fun _ ->
                 {
                     LearningRate = 0.001 + random.NextDouble() * 0.049  // [0.001, 0.05]
                     MaxEpochs = 50 + random.Next(150)  // [50, 200]
                     ConvergenceThreshold = 0.0001 + random.NextDouble() * 0.0099  // [0.0001, 0.01]
                     Shots = 1000
-                }
-        |]
+                })
         
-        Array.append gridConfigs randomConfigs
+        gridConfigs @ randomConfigs
     
     // ========================================================================
     // MODEL TRAINING - Try different approaches
@@ -373,15 +372,103 @@ module AutoML =
         
         AnomalyDetector.train problem
     
+    let private trySimilaritySearchModel
+        (trainX: float array array)
+        (hyperparams: HyperparameterConfig)
+        (backend: IQuantumBackend option) : Result<SimilaritySearch.SearchIndex<obj>, string> =
+        
+        // Create indexed items (boxed item index, features)
+        let items = trainX |> Array.mapi (fun i features -> (box i, features))
+        
+        let problem : SimilaritySearch.SearchProblem<obj> = {
+            Items = items
+            Metric = SimilaritySearch.SimilarityMetric.Cosine  // Use Cosine for reliability
+            Threshold = 0.5
+            Backend = backend
+            Shots = hyperparams.Shots
+            Verbose = false
+            SavePath = None
+            Note = None
+        }
+        
+        SimilaritySearch.build problem
+    
+    // ========================================================================
+    // TRIAL GENERATION
+    // ========================================================================
+    
+    type private TrialSpec = {
+        Id: int
+        ModelType: ModelType
+        Architecture: Architecture
+        Hyperparameters: HyperparameterConfig
+    }
+    
+    let private detectProblemTypes (labels: float array) =
+        let uniqueLabels = labels |> Array.distinct
+        {|
+            IsLikelyBinary = uniqueLabels.Length = 2
+            IsLikelyMultiClass = uniqueLabels.Length > 2 && uniqueLabels.Length <= 10
+            IsLikelyRegression = uniqueLabels.Length > 10 || (uniqueLabels |> Array.exists (fun x -> x <> floor x))
+            NumClasses = uniqueLabels.Length
+        |}
+    
+    let private generateTrials (problem: AutoMLProblem) (hyperparamConfigs: HyperparameterConfig list) : TrialSpec list =
+        let problemTypes = detectProblemTypes problem.TrainLabels
+        let hpSample = hyperparamConfigs |> List.truncate 3
+        
+        problem.TryArchitectures
+        |> List.collect (fun arch ->
+            hpSample
+            |> List.collect (fun hp ->
+                [
+                    // Binary classification
+                    if problem.TryBinaryClassification && problemTypes.IsLikelyBinary then
+                        Some (BinaryClassification, arch, hp)
+                    else
+                        None
+                    
+                    // Multi-class classification
+                    match problem.TryMultiClass with
+                    | Some numClasses ->
+                        Some (MultiClassClassification numClasses, arch, hp)
+                    | None when problemTypes.IsLikelyMultiClass ->
+                        Some (MultiClassClassification problemTypes.NumClasses, arch, hp)
+                    | _ ->
+                        None
+                    
+                    // Regression
+                    if problem.TryRegression && problemTypes.IsLikelyRegression then
+                        Some (Regression, arch, hp)
+                    else
+                        None
+                    
+                    // Anomaly detection
+                    if problem.TryAnomalyDetection then
+                        Some (AnomalyDetection, arch, hp)
+                    else
+                        None
+                    
+                    // Similarity search
+                    if problem.TrySimilaritySearch then
+                        Some (SimilaritySearch, arch, hp)
+                    else
+                        None
+                ]
+                |> List.choose id
+                |> List.map (fun (modelType, arch, hp) -> (modelType, arch, hp))))
+        |> List.mapi (fun i (modelType, arch, hp) ->
+            { Id = i; ModelType = modelType; Architecture = arch; Hyperparameters = hp })
+        |> List.truncate problem.MaxTrials
+    
     // ========================================================================
     // AUTO ML SEARCH
     // ========================================================================
     
     /// Run AutoML search to find best model
     let search (problem: AutoMLProblem) : Result<AutoMLResult, string> =
-        match validateProblem problem with
-        | Error e -> Error e
-        | Ok () ->
+        validateProblem problem
+        |> Result.bind (fun () ->
             
             let startTime = DateTime.UtcNow
             let backend = problem.Backend |> Option.defaultValue (LocalBackend() :> IQuantumBackend)
@@ -404,304 +491,225 @@ module AutoML =
             if problem.Verbose then
                 printfn $"Train/Val Split: {trainX.Length}/{valX.Length} samples\n"
             
-            // Generate hyperparameter configurations
+            // Generate hyperparameter configurations and trials
             let hyperparamConfigs = generateHyperparameterConfigs problem.RandomSeed
-            
-            // Build trial list
-            let mutable trials = []
-            let mutable trialId = 0
-            
-            // Detect problem type from labels if needed
-            let uniqueLabels = problem.TrainLabels |> Array.distinct
-            let isLikelyBinary = uniqueLabels.Length = 2
-            let isLikelyMultiClass = uniqueLabels.Length > 2 && uniqueLabels.Length <= 10
-            let isLikelyRegression = uniqueLabels.Length > 10 || (uniqueLabels |> Array.exists (fun x -> x <> floor x))
-            
-            // Add trials based on configuration
-            for arch in problem.TryArchitectures do
-                for hp in hyperparamConfigs |> Array.take (min 3 hyperparamConfigs.Length) do
-                    
-                    // Binary classification
-                    if problem.TryBinaryClassification && isLikelyBinary then
-                        trials <- (trialId, BinaryClassification, arch, hp) :: trials
-                        trialId <- trialId + 1
-                    
-                    // Multi-class classification
-                    match problem.TryMultiClass with
-                    | Some numClasses ->
-                        trials <- (trialId, MultiClassClassification numClasses, arch, hp) :: trials
-                        trialId <- trialId + 1
-                    | None when isLikelyMultiClass ->
-                        let numClasses = uniqueLabels.Length
-                        trials <- (trialId, MultiClassClassification numClasses, arch, hp) :: trials
-                        trialId <- trialId + 1
-                    | _ -> ()
-                    
-                    // Regression
-                    if problem.TryRegression && isLikelyRegression then
-                        trials <- (trialId, Regression, arch, hp) :: trials
-                        trialId <- trialId + 1
-                    
-                    // Anomaly detection (only normal data needed)
-                    if problem.TryAnomalyDetection then
-                        trials <- (trialId, AnomalyDetection, arch, hp) :: trials
-                        trialId <- trialId + 1
-            
-            // Limit total trials
-            let trials = trials |> List.take (min problem.MaxTrials trials.Length) |> List.toArray
+            let trials = generateTrials problem hyperparamConfigs
             
             if problem.Verbose then
                 printfn $"Generated {trials.Length} trials to execute\n"
             
-            // Execute trials
-            let mutable results = []
-            let mutable bestScore = -1.0
-            let mutable bestTrial = None
-            let mutable bestModel : obj option = None
+            // Check if time budget exceeded
+            let isTimeBudgetExceeded () =
+                problem.MaxTimeMinutes
+                |> Option.map (fun maxMinutes -> 
+                    (DateTime.UtcNow - startTime).TotalMinutes > float maxMinutes)
+                |> Option.defaultValue false
             
-            for (id, modelType, arch, hp) in trials do
-                
-                // Check time budget
-                let elapsed = DateTime.UtcNow - startTime
-                match problem.MaxTimeMinutes with
-                | Some maxMinutes when elapsed.TotalMinutes > float maxMinutes ->
+            // Execute a single trial and return result with trained model
+            let executeTrial (trial: TrialSpec) : (TrialResult * obj option) option =
+                if isTimeBudgetExceeded() then
                     if problem.Verbose then
-                        printfn "⏱️  Time budget exceeded (%.1f > %d minutes)" elapsed.TotalMinutes maxMinutes
-                    ()
-                | _ ->
-                    
+                        let elapsed = (DateTime.UtcNow - startTime).TotalMinutes
+                        printfn $"⏱️  Time budget exceeded ({elapsed:F1} minutes)"
+                    None
+                else
                     let trialStart = DateTime.UtcNow
                     
                     if problem.Verbose then
-                        printfn $"Trial {id + 1}/{trials.Length}: {modelType} with {arch}..."
+                        printfn $"Trial {trial.Id + 1}/{List.length trials}: {trial.ModelType} with {trial.Architecture}..."
                     
-                    try
-                        match modelType with
-                        
-                        // Binary Classification
-                        | BinaryClassification ->
-                            let trainYInt = trainY |> Array.map int
-                            let valYInt = valY |> Array.map int
-                            
-                            match tryBinaryClassificationModel trainX trainYInt arch hp (Some backend) with
-                            | Ok model ->
-                                // Evaluate on validation set
-                                match BinaryClassifier.evaluate valX valYInt model with
-                                | Ok metrics ->
-                                    let score = metrics.Accuracy
-                                    let trialTime = DateTime.UtcNow - trialStart
-                                    
-                                    if problem.Verbose then
-                                        printfn $"  ✅ Score: {score * 100.0:F2}%% (time: {trialTime.TotalSeconds:F1}s)"
-                                    
-                                    let trialResult = {
-                                        Id = id
-                                        ModelType = modelType
-                                        Architecture = arch
-                                        Hyperparameters = hp
-                                        Score = score
-                                        TrainingTime = trialTime
-                                        Success = true
-                                        ErrorMessage = None
-                                    }
-                                    results <- trialResult :: results
-                                    
-                                    if score > bestScore then
-                                        bestScore <- score
-                                        bestTrial <- Some trialResult
-                                        bestModel <- Some (box model)
-                                
-                                | Error e ->
-                                    if problem.Verbose then
-                                        printfn $"  ⚠️  Evaluation failed: {e}"
-                                    
-                                    results <- {
-                                        Id = id; ModelType = modelType; Architecture = arch
-                                        Hyperparameters = hp; Score = 0.0
-                                        TrainingTime = DateTime.UtcNow - trialStart
-                                        Success = false; ErrorMessage = Some e
-                                    } :: results
-                            
-                            | Error e ->
-                                if problem.Verbose then
-                                    printfn $"  ❌ Training failed: {e}"
-                                
-                                results <- {
-                                    Id = id; ModelType = modelType; Architecture = arch
-                                    Hyperparameters = hp; Score = 0.0
-                                    TrainingTime = DateTime.UtcNow - trialStart
-                                    Success = false; ErrorMessage = Some e
-                                } :: results
-                        
-                        // Multi-Class Classification
-                        | MultiClassClassification numClasses ->
-                            let trainYInt = trainY |> Array.map int
-                            let valYInt = valY |> Array.map int
-                            
-                            match tryMultiClassModel trainX trainYInt numClasses arch hp (Some backend) with
-                            | Ok model ->
-                                match PredictiveModel.evaluateMultiClass valX valYInt model with
-                                | Ok metrics ->
-                                    let score = metrics.Accuracy
-                                    let trialTime = DateTime.UtcNow - trialStart
-                                    
-                                    if problem.Verbose then
-                                        printfn $"  ✅ Score: {score * 100.0:F2}%% (time: {trialTime.TotalSeconds:F1}s)"
-                                    
-                                    let trialResult = {
-                                        Id = id; ModelType = modelType; Architecture = arch
-                                        Hyperparameters = hp; Score = score
-                                        TrainingTime = trialTime; Success = true; ErrorMessage = None
-                                    }
-                                    results <- trialResult :: results
-                                    
-                                    if score > bestScore then
-                                        bestScore <- score
-                                        bestTrial <- Some trialResult
-                                        bestModel <- Some (box model)
-                                
-                                | Error e ->
-                                    results <- {
-                                        Id = id; ModelType = modelType; Architecture = arch
-                                        Hyperparameters = hp; Score = 0.0
-                                        TrainingTime = DateTime.UtcNow - trialStart
-                                        Success = false; ErrorMessage = Some e
-                                    } :: results
-                            
-                            | Error e ->
-                                results <- {
-                                    Id = id; ModelType = modelType; Architecture = arch
-                                    Hyperparameters = hp; Score = 0.0
-                                    TrainingTime = DateTime.UtcNow - trialStart
-                                    Success = false; ErrorMessage = Some e
-                                } :: results
-                        
-                        // Regression
-                        | Regression ->
-                            match tryRegressionModel trainX trainY arch hp (Some backend) with
-                            | Ok model ->
-                                match PredictiveModel.evaluateRegression valX valY model with
-                                | Ok metrics ->
-                                    let score = max 0.0 metrics.RSquared  // R² can be negative
-                                    let trialTime = DateTime.UtcNow - trialStart
-                                    
-                                    if problem.Verbose then
-                                        printfn $"  ✅ R² Score: {score:F4} (time: {trialTime.TotalSeconds:F1}s)"
-                                    
-                                    let trialResult = {
-                                        Id = id; ModelType = modelType; Architecture = arch
-                                        Hyperparameters = hp; Score = score
-                                        TrainingTime = trialTime; Success = true; ErrorMessage = None
-                                    }
-                                    results <- trialResult :: results
-                                    
-                                    if score > bestScore then
-                                        bestScore <- score
-                                        bestTrial <- Some trialResult
-                                        bestModel <- Some (box model)
-                                
-                                | Error e ->
-                                    results <- {
-                                        Id = id; ModelType = modelType; Architecture = arch
-                                        Hyperparameters = hp; Score = 0.0
-                                        TrainingTime = DateTime.UtcNow - trialStart
-                                        Success = false; ErrorMessage = Some e
-                                    } :: results
-                            
-                            | Error e ->
-                                results <- {
-                                    Id = id; ModelType = modelType; Architecture = arch
-                                    Hyperparameters = hp; Score = 0.0
-                                    TrainingTime = DateTime.UtcNow - trialStart
-                                    Success = false; ErrorMessage = Some e
-                                } :: results
-                        
-                        // Anomaly Detection
-                        | AnomalyDetection ->
-                            // For anomaly detection, use all normal data for training
-                            let normalData = trainX  // Assume training data is mostly normal
-                            
-                            match tryAnomalyDetectionModel normalData arch hp (Some backend) with
-                            | Ok detector ->
-                                // Simple evaluation: predict on validation set
-                                // (In production, would need labeled anomalies for proper eval)
-                                let predictions = 
-                                    valX |> Array.choose (fun x ->
-                                        match AnomalyDetector.check x detector with
-                                        | Ok pred -> Some (if pred.IsAnomaly then 1.0 else 0.0)
-                                        | Error _ -> None
-                                    )
-                                
-                                let score = 
-                                    if predictions.Length > 0 then
-                                        // Heuristic: good model finds 5-15% anomalies
-                                        let anomalyRate = predictions |> Array.average
-                                        if anomalyRate >= 0.05 && anomalyRate <= 0.15 then 0.8
-                                        else 0.5
-                                    else 0.0
-                                
-                                let trialTime = DateTime.UtcNow - trialStart
-                                
-                                if problem.Verbose then
-                                    printfn $"  ✅ Heuristic Score: {score:F2} (time: {trialTime.TotalSeconds:F1}s)"
-                                
-                                let trialResult = {
-                                    Id = id; ModelType = modelType; Architecture = arch
-                                    Hyperparameters = hp; Score = score
-                                    TrainingTime = trialTime; Success = true; ErrorMessage = None
-                                }
-                                results <- trialResult :: results
-                                
-                                if score > bestScore then
-                                    bestScore <- score
-                                    bestTrial <- Some trialResult
-                                    bestModel <- Some (box detector)
-                            
-                            | Error e ->
-                                results <- {
-                                    Id = id; ModelType = modelType; Architecture = arch
-                                    Hyperparameters = hp; Score = 0.0
-                                    TrainingTime = DateTime.UtcNow - trialStart
-                                    Success = false; ErrorMessage = Some e
-                                } :: results
-                        
-                        | _ ->
-                            ()  // Similarity search not yet implemented in AutoML
-                    
-                    with ex ->
-                        if problem.Verbose then
-                            printfn $"  ❌ Exception: {ex.Message}"
-                        
-                        results <- {
-                            Id = id; ModelType = modelType; Architecture = arch
-                            Hyperparameters = hp; Score = 0.0
+                    let createFailureResult errorMsg =
+                        ({
+                            Id = trial.Id
+                            ModelType = trial.ModelType
+                            Architecture = trial.Architecture
+                            Hyperparameters = trial.Hyperparameters
+                            Score = 0.0
                             TrainingTime = DateTime.UtcNow - trialStart
-                            Success = false; ErrorMessage = Some ex.Message
-                        } :: results
+                            Success = false
+                            ErrorMessage = Some errorMsg
+                        }, None)
+                    
+                    let createSuccessResult score model =
+                        ({
+                            Id = trial.Id
+                            ModelType = trial.ModelType
+                            Architecture = trial.Architecture
+                            Hyperparameters = trial.Hyperparameters
+                            Score = score
+                            TrainingTime = DateTime.UtcNow - trialStart
+                            Success = true
+                            ErrorMessage = None
+                        }, Some (box model))
+                    
+                    let result =
+                        try
+                            match trial.ModelType with
+                            
+                            // Binary Classification
+                            | BinaryClassification ->
+                                let trainYInt = trainY |> Array.map int
+                                let valYInt = valY |> Array.map int
+                                
+                                tryBinaryClassificationModel trainX trainYInt trial.Architecture trial.Hyperparameters (Some backend)
+                                |> Result.bind (fun model ->
+                                    BinaryClassifier.evaluate valX valYInt model
+                                    |> Result.map (fun metrics ->
+                                        let score = metrics.Accuracy
+                                        if problem.Verbose then
+                                            printfn $"  ✅ Score: {score * 100.0:F2}%% (time: {(DateTime.UtcNow - trialStart).TotalSeconds:F1}s)"
+                                        (score, model)))
+                                |> function
+                                    | Ok (score, model) -> Ok (createSuccessResult score model)
+                                    | Error e ->
+                                        if problem.Verbose then
+                                            printfn $"  ❌ Failed: {e}"
+                                        Ok (createFailureResult e)
+                            
+                            // Multi-Class Classification
+                            | MultiClassClassification numClasses ->
+                                let trainYInt = trainY |> Array.map int
+                                let valYInt = valY |> Array.map int
+                                
+                                tryMultiClassModel trainX trainYInt numClasses trial.Architecture trial.Hyperparameters (Some backend)
+                                |> Result.bind (fun model ->
+                                    PredictiveModel.evaluateMultiClass valX valYInt model
+                                    |> Result.map (fun metrics ->
+                                        let score = metrics.Accuracy
+                                        if problem.Verbose then
+                                            printfn $"  ✅ Score: {score * 100.0:F2}%% (time: {(DateTime.UtcNow - trialStart).TotalSeconds:F1}s)"
+                                        (score, model)))
+                                |> function
+                                    | Ok (score, model) -> Ok (createSuccessResult score model)
+                                    | Error e ->
+                                        if problem.Verbose then
+                                            printfn $"  ❌ Failed: {e}"
+                                        Ok (createFailureResult e)
+                            
+                            // Regression
+                            | Regression ->
+                                tryRegressionModel trainX trainY trial.Architecture trial.Hyperparameters (Some backend)
+                                |> Result.bind (fun model ->
+                                    PredictiveModel.evaluateRegression valX valY model
+                                    |> Result.map (fun metrics ->
+                                        let score = max 0.0 metrics.RSquared  // R² can be negative
+                                        if problem.Verbose then
+                                            printfn $"  ✅ R² Score: {score:F4} (time: {(DateTime.UtcNow - trialStart).TotalSeconds:F1}s)"
+                                        (score, model)))
+                                |> function
+                                    | Ok (score, model) -> Ok (createSuccessResult score model)
+                                    | Error e ->
+                                        if problem.Verbose then
+                                            printfn $"  ❌ Failed: {e}"
+                                        Ok (createFailureResult e)
+                            
+                            // Anomaly Detection
+                            | AnomalyDetection ->
+                                // For anomaly detection, use all normal data for training
+                                let normalData = trainX  // Assume training data is mostly normal
+                                
+                                tryAnomalyDetectionModel normalData trial.Architecture trial.Hyperparameters (Some backend)
+                                |> Result.map (fun detector ->
+                                    // Simple evaluation: predict on validation set
+                                    let predictions = 
+                                        valX 
+                                        |> Array.choose (fun x ->
+                                            AnomalyDetector.check x detector
+                                            |> Result.toOption
+                                            |> Option.map (fun pred -> if pred.IsAnomaly then 1.0 else 0.0))
+                                    
+                                    let score = 
+                                        if predictions.Length > 0 then
+                                            // Heuristic: good model finds 5-15% anomalies
+                                            let anomalyRate = predictions |> Array.average
+                                            if anomalyRate >= 0.05 && anomalyRate <= 0.15 then 0.8 else 0.5
+                                        else 0.0
+                                    
+                                    if problem.Verbose then
+                                        printfn $"  ✅ Heuristic Score: {score:F2} (time: {(DateTime.UtcNow - trialStart).TotalSeconds:F1}s)"
+                                    
+                                    (score, detector))
+                                |> function
+                                    | Ok (score, detector) -> Ok (createSuccessResult score detector)
+                                    | Error e ->
+                                        if problem.Verbose then
+                                            printfn $"  ❌ Failed: {e}"
+                                        Ok (createFailureResult e)
+                            
+                            // Similarity Search
+                            | SimilaritySearch ->
+                                trySimilaritySearchModel trainX trial.Hyperparameters (Some backend)
+                                |> Result.map (fun searchIndex ->
+                                    // Evaluate: test similarity search quality
+                                    // Score based on successful index building
+                                    let score = 
+                                        if searchIndex.Items.Length >= 2 then
+                                            // Successfully built index with multiple items
+                                            0.7
+                                        else
+                                            // Index too small
+                                            0.3
+                                    
+                                    if problem.Verbose then
+                                        printfn $"  ✅ Search Quality Score: {score:F2} (time: {(DateTime.UtcNow - trialStart).TotalSeconds:F1}s)"
+                                    
+                                    (score, searchIndex))
+                                |> function
+                                    | Ok (score, searchIndex) -> Ok (createSuccessResult score searchIndex)
+                                    | Error e ->
+                                        if problem.Verbose then
+                                            printfn $"  ❌ Failed: {e}"
+                                        Ok (createFailureResult e)
+                            
+                        with ex ->
+                            if problem.Verbose then
+                                printfn $"  ❌ Exception: {ex.Message}"
+                            Ok (createFailureResult ex.Message)
+                    
+                    match result with
+                    | Ok resultTuple -> Some resultTuple
+                    | Error e -> None
+            
+            // Execute all trials functionally
+            let resultsWithModels =
+                trials
+                |> List.choose executeTrial
+            
+            let results = resultsWithModels |> List.map fst
             
             let totalTime = DateTime.UtcNow - startTime
             
-            // Return result
-            match bestTrial, bestModel with
-            | Some trial, Some model ->
+            // Find best result
+            let bestResultWithModel =
+                resultsWithModels
+                |> List.filter (fun (r, _) -> r.Success)
+                |> List.sortByDescending (fun (r, _) -> r.Score)
+                |> List.tryHead
+            
+            // Build and return final result
+            match bestResultWithModel with
+            | Some (bestTrial, Some bestModel) ->
                 let modelTypeStr = 
-                    match trial.ModelType with
+                    match bestTrial.ModelType with
                     | BinaryClassification -> "Binary Classification"
                     | MultiClassClassification n -> $"Multi-Class Classification ({n} classes)"
                     | Regression -> "Regression"
                     | AnomalyDetection -> "Anomaly Detection"
                     | SimilaritySearch -> "Similarity Search"
                 
+                let successfulTrials = results |> List.filter (fun r -> r.Success) |> List.length
+                let failedTrials = results |> List.filter (fun r -> not r.Success) |> List.length
+                
                 let result = {
                     BestModelType = modelTypeStr
-                    BestArchitecture = trial.Architecture
-                    BestHyperparameters = trial.Hyperparameters
-                    Score = trial.Score
-                    AllTrials = results |> List.rev |> List.toArray
+                    BestArchitecture = bestTrial.Architecture
+                    BestHyperparameters = bestTrial.Hyperparameters
+                    Score = bestTrial.Score
+                    AllTrials = results |> List.toArray
                     TotalSearchTime = totalTime
-                    SuccessfulTrials = results |> List.filter (fun r -> r.Success) |> List.length
-                    FailedTrials = results |> List.filter (fun r -> not r.Success) |> List.length
-                    Model = model
+                    SuccessfulTrials = successfulTrials
+                    FailedTrials = failedTrials
+                    Model = bestModel
                     Metadata = {
                         NumFeatures = problem.TrainFeatures.[0].Length
                         NumSamples = problem.TrainFeatures.Length
@@ -723,7 +731,8 @@ module AutoML =
                 Ok result
             
             | _ ->
-                Error "All trials failed - no model could be trained successfully"
+                Error "All trials failed - no model could be trained successfully")
+    
     
     // ========================================================================
     // PREDICTION - Use best model
@@ -756,6 +765,20 @@ module AutoML =
                 match AnomalyDetector.check features detector with
                 | Ok pred -> Ok (AnomalyPrediction pred)
                 | Error e -> Error e
+            
+            | "Similarity Search" ->
+                let searchIndex = unbox<SimilaritySearch.SearchIndex<obj>> result.Model
+                // For similarity search, we need an item from the index
+                // Use the first item in the index as a fallback
+                if searchIndex.Items.Length = 0 then
+                    Error "Similarity search index is empty"
+                else
+                    let firstItem, _ = searchIndex.Items.[0]
+                    // Limit topN to number of items minus 1 (exclude query itself)
+                    let topN = min 5 (searchIndex.Items.Length - 1) |> max 1
+                    match SimilaritySearch.findSimilar firstItem features topN searchIndex with
+                    | Ok searchResults -> Ok (SimilarityPrediction searchResults)
+                    | Error e -> Error e
             
             | _ ->
                 Error $"Unsupported model type: {result.BestModelType}"
@@ -819,58 +842,87 @@ module AutoML =
                 RandomSeed = None
             }
         
+        /// <summary>Set the training data with features and labels.</summary>
+        /// <param name="features">Training feature vectors</param>
+        /// <param name="labels">Labels for each sample</param>
         [<CustomOperation("trainWith")>]
         member _.TrainWith(problem: AutoMLProblem, features: float array array, labels: float array) =
             { problem with TrainFeatures = features; TrainLabels = labels }
         
+        /// <summary>Enable or disable binary classification in the search space.</summary>
+        /// <param name="enable">True to include binary classification</param>
         [<CustomOperation("tryBinaryClassification")>]
         member _.TryBinaryClassification(problem: AutoMLProblem, enable: bool) =
             { problem with TryBinaryClassification = enable }
         
+        /// <summary>Enable multi-class classification with specified number of classes.</summary>
+        /// <param name="numClasses">Number of classes for multi-class classification</param>
         [<CustomOperation("tryMultiClass")>]
         member _.TryMultiClass(problem: AutoMLProblem, numClasses: int) =
             { problem with TryMultiClass = Some numClasses }
         
+        /// <summary>Enable or disable anomaly detection in the search space.</summary>
+        /// <param name="enable">True to include anomaly detection</param>
         [<CustomOperation("tryAnomalyDetection")>]
         member _.TryAnomalyDetection(problem: AutoMLProblem, enable: bool) =
             { problem with TryAnomalyDetection = enable }
         
+        /// <summary>Enable or disable regression in the search space.</summary>
+        /// <param name="enable">True to include regression</param>
         [<CustomOperation("tryRegression")>]
         member _.TryRegression(problem: AutoMLProblem, enable: bool) =
             { problem with TryRegression = enable }
         
+        /// <summary>Enable or disable similarity search in the search space.</summary>
+        /// <param name="enable">True to include similarity search</param>
         [<CustomOperation("trySimilaritySearch")>]
         member _.TrySimilaritySearch(problem: AutoMLProblem, enable: bool) =
             { problem with TrySimilaritySearch = enable }
         
+        /// <summary>Specify the architectures to try during optimization.</summary>
+        /// <param name="architectures">List of architectures to evaluate</param>
         [<CustomOperation("tryArchitectures")>]
         member _.TryArchitectures(problem: AutoMLProblem, architectures: Architecture list) =
             { problem with TryArchitectures = architectures }
         
+        /// <summary>Set the maximum number of trials for hyperparameter search.</summary>
+        /// <param name="trials">Maximum number of trials</param>
         [<CustomOperation("maxTrials")>]
         member _.MaxTrials(problem: AutoMLProblem, trials: int) =
             { problem with MaxTrials = trials }
         
+        /// <summary>Set the maximum time limit for AutoML search in minutes.</summary>
+        /// <param name="minutes">Maximum time in minutes</param>
         [<CustomOperation("maxTimeMinutes")>]
         member _.MaxTimeMinutes(problem: AutoMLProblem, minutes: int) =
             { problem with MaxTimeMinutes = Some minutes }
         
+        /// <summary>Set the validation split ratio for model evaluation.</summary>
+        /// <param name="split">Validation split ratio (0.0 to 1.0)</param>
         [<CustomOperation("validationSplit")>]
         member _.ValidationSplit(problem: AutoMLProblem, split: float) =
             { problem with ValidationSplit = split }
         
+        /// <summary>Set the quantum backend for execution.</summary>
+        /// <param name="backend">Quantum backend instance</param>
         [<CustomOperation("backend")>]
         member _.Backend(problem: AutoMLProblem, backend: IQuantumBackend) =
             { problem with Backend = Some backend }
         
+        /// <summary>Enable or disable verbose output.</summary>
+        /// <param name="verbose">True to enable detailed logging</param>
         [<CustomOperation("verbose")>]
         member _.Verbose(problem: AutoMLProblem, verbose: bool) =
             { problem with Verbose = verbose }
         
+        /// <summary>Set the path to save the best model found.</summary>
+        /// <param name="path">File path for saving the model</param>
         [<CustomOperation("saveModelTo")>]
         member _.SaveModelTo(problem: AutoMLProblem, path: string) =
             { problem with SavePath = Some path }
         
+        /// <summary>Set the random seed for reproducibility.</summary>
+        /// <param name="seed">Random seed value</param>
         [<CustomOperation("randomSeed")>]
         member _.RandomSeed(problem: AutoMLProblem, seed: int) =
             { problem with RandomSeed = Some seed }

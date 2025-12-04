@@ -123,15 +123,13 @@ module CircuitAbstraction =
             | CircuitBuilder.TDG q -> [QuantumGate.RZ (q, -Math.PI / 4.0)]
             | CircuitBuilder.P (q, theta) -> 
                 // P(θ) = diag(1, e^(iθ)) - phase gate
-                // WARNING: P(θ) ≠ RZ(θ)! They differ by global phase e^(-iθ/2)
+                // Note: P(θ) and RZ(θ) differ by global phase e^(-iθ/2)
                 // RZ(θ) = e^(-iθ/2) * P(θ), so P(θ) = e^(iθ/2) * RZ(θ)
                 // 
-                // For QAOA simulator: Use RZ(θ) as approximation
-                // Global phase doesn't affect QAOA measurements, but DOES affect
-                // controlled operations and interference patterns!
-                // 
-                // TODO: Implement proper P gate in QAOA simulator or use decomposition:
-                // P(θ) = RZ(θ) * GlobalPhase(e^(iθ/2))
+                // For QAOA simulation: Use RZ(θ) approximation
+                // Global phase doesn't affect measurement outcomes in QAOA,
+                // so this approximation is correct for optimization purposes
+                // (but DOES affect controlled operations and interference patterns).
                 [QuantumGate.RZ (q, theta)]
             | CircuitBuilder.CP (c, t, theta) ->
                 // CP(θ) = Controlled-P(θ) = diag(1, 1, 1, e^(iθ))

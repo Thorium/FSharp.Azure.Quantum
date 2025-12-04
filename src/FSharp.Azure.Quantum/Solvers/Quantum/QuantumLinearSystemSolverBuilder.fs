@@ -6,6 +6,7 @@ open FSharp.Azure.Quantum.Algorithms
 open FSharp.Azure.Quantum.Algorithms.HHLTypes
 open FSharp.Azure.Quantum.Algorithms.HHLAlgorithm
 open FSharp.Azure.Quantum.Algorithms.HHLBackendAdapter
+open FSharp.Azure.Quantum.Core.BackendAbstraction
 
 /// High-level Quantum Linear System Solver Builder - HHL Algorithm
 /// 
@@ -226,7 +227,8 @@ module QuantumLinearSystemSolver =
         /// Initialize builder with default problem
         member _.Yield(_) = defaultProblem
         
-        /// Set matrix from 2D array
+        /// <summary>Set matrix from 2D array.</summary>
+        /// <param name="elements">2D list of matrix elements</param>
         [<CustomOperation("matrix")>]
         member _.Matrix(problem: LinearSystemProblem, elements: float list list) : LinearSystemProblem =
             let n = elements.Length
@@ -239,14 +241,16 @@ module QuantumLinearSystemSolver =
             | Ok matrix -> { problem with Matrix = matrix }
             | Error msg -> failwith msg
         
-        /// Set diagonal matrix from eigenvalues
+        /// <summary>Set diagonal matrix from eigenvalues.</summary>
+        /// <param name="eigenvalues">List of eigenvalues for diagonal matrix</param>
         [<CustomOperation("diagonalMatrix")>]
         member _.DiagonalMatrix(problem: LinearSystemProblem, eigenvalues: float list) : LinearSystemProblem =
             match createDiagonalMatrix (List.toArray eigenvalues) with
             | Ok matrix -> { problem with Matrix = matrix }
             | Error msg -> failwith msg
         
-        /// Set input vector
+        /// <summary>Set input vector.</summary>
+        /// <param name="components">List of vector components</param>
         [<CustomOperation("vector")>]
         member _.Vector(problem: LinearSystemProblem, components: float list) : LinearSystemProblem =
             let complexComponents = components |> List.map (fun x -> Complex(x, 0.0)) |> List.toArray
@@ -255,37 +259,44 @@ module QuantumLinearSystemSolver =
             | Ok vector -> { problem with InputVector = vector }
             | Error msg -> failwith msg
         
-        /// Set eigenvalue qubits (precision)
+        /// <summary>Set eigenvalue qubits (precision).</summary>
+        /// <param name="n">Number of eigenvalue qubits</param>
         [<CustomOperation("eigenvalueQubits")>]
         member _.EigenvalueQubits(problem: LinearSystemProblem, n: int) : LinearSystemProblem =
             { problem with EigenvalueQubits = n }
         
-        /// Alias for eigenvalueQubits
+        /// <summary>Alias for eigenvalueQubits.</summary>
+        /// <param name="n">Number of eigenvalue qubits</param>
         [<CustomOperation("precision")>]
         member this.Precision(problem: LinearSystemProblem, n: int) : LinearSystemProblem =
             this.EigenvalueQubits(problem, n)
         
-        /// Set eigenvalue inversion method
+        /// <summary>Set eigenvalue inversion method.</summary>
+        /// <param name="method">Eigenvalue inversion method</param>
         [<CustomOperation("inversionMethod")>]
         member _.InversionMethod(problem: LinearSystemProblem, method: EigenvalueInversionMethod) : LinearSystemProblem =
             { problem with InversionMethod = method }
         
-        /// Set minimum eigenvalue threshold
+        /// <summary>Set minimum eigenvalue threshold.</summary>
+        /// <param name="threshold">Minimum eigenvalue threshold</param>
         [<CustomOperation("minEigenvalue")>]
         member _.MinEigenvalue(problem: LinearSystemProblem, threshold: float) : LinearSystemProblem =
             { problem with MinEigenvalue = threshold }
         
-        /// Enable/disable post-selection
+        /// <summary>Enable/disable post-selection.</summary>
+        /// <param name="enable">True to enable post-selection</param>
         [<CustomOperation("postSelection")>]
         member _.PostSelection(problem: LinearSystemProblem, enable: bool) : LinearSystemProblem =
             { problem with UsePostSelection = enable }
         
-        /// Set quantum backend
+        /// <summary>Set quantum backend.</summary>
+        /// <param name="backend">Quantum backend instance</param>
         [<CustomOperation("backend")>]
         member _.Backend(problem: LinearSystemProblem, backend: BackendAbstraction.IQuantumBackend) : LinearSystemProblem =
             { problem with Backend = Some backend }
         
-        /// Set number of measurement shots
+        /// <summary>Set number of measurement shots.</summary>
+        /// <param name="n">Number of shots</param>
         [<CustomOperation("shots")>]
         member _.Shots(problem: LinearSystemProblem, n: int) : LinearSystemProblem =
             { problem with Shots = Some n }
@@ -324,7 +335,7 @@ module QuantumLinearSystemSolver =
     /// </summary>
     /// <param name="problem">Linear system problem specification</param>
     /// <returns>Solution with success probability and amplitudes</returns>
-    let solve (problem: LinearSystemProblem) : Result<LinearSystemSolution, string> =
+    let solve (problem: LinearSystemProblem): Result<LinearSystemSolution, string> =
         // Validate problem
         match validate problem with
         | Error msg -> Error msg
@@ -355,71 +366,43 @@ module QuantumLinearSystemSolver =
             let backendName = backend.Name
             let isQuantum = backendName.Contains("IonQ") || backendName.Contains("Rigetti")
             
-            // Solve using appropriate method
-            match backend with
-            | :? BackendAbstraction.LocalBackend ->
-                // Local simulation - use algorithm directly
-                match HHLAlgorithm.execute config with
-                | Error msg -> Error msg
-                | Ok result ->
-                    // Calculate condition number from eigenvalues
-                    let conditionNumber =
-                        if result.EstimatedEigenvalues.Length >= 2 then
-                            let nonZero = result.EstimatedEigenvalues |> Array.filter (fun x -> x > 1e-10)
-                            if nonZero.Length >= 2 then
-                                let maxEig = nonZero |> Array.max
-                                let minEig = nonZero |> Array.min
-                                Some (maxEig / minEig)
-                            else
-                                None
-                        else
-                            None
-                    
-                    Ok {
-                        SuccessProbability = result.SuccessProbability
-                        EstimatedEigenvalues = result.EstimatedEigenvalues
-                        ConditionNumber = conditionNumber
-                        GateCount = result.GateCount
-                        PostSelectionSuccess = result.PostSelectionSuccess
-                        SolutionAmplitudes = result.SolutionAmplitudes
-                        BackendName = backendName
-                        IsQuantum = false
-                        Success = true
-                        Message = $"HHL executed successfully on {backendName}"
-                    }
+            // Cloud backend - use backend adapter
+            let shots = defaultArg problem.Shots 2048
             
-            | _ ->
-                // Cloud backend - use backend adapter
-                let shots = defaultArg problem.Shots 2048
+            // Get gate count from circuit before execution
+            let gateCount = 
+                match HHLBackendAdapter.hhlToCircuit config with
+                | Error _ -> 0  // Fallback to 0 if circuit creation fails
+                | Ok circuit -> circuit.Gates.Length
                 
-                match HHLBackendAdapter.executeWithBackend config backend shots with
-                | Error msg -> Error msg
-                | Ok measurements ->
-                    // Extract solution statistics
-                    let solution = 
-                        HHLBackendAdapter.extractSolutionFromMeasurements
-                            measurements
-                            config.EigenvalueQubits
-                            config.SolutionQubits
-                            (config.EigenvalueQubits + config.SolutionQubits)
+            match HHLBackendAdapter.executeWithBackend config backend shots with
+            | Error msg -> Error msg
+            | Ok measurements ->
+                // Extract solution statistics
+                let solution = 
+                    HHLBackendAdapter.extractSolutionFromMeasurements
+                        measurements
+                        config.EigenvalueQubits
+                        config.SolutionQubits
+                        (config.EigenvalueQubits + config.SolutionQubits)
                     
-                    let successRate = 
-                        HHLBackendAdapter.calculateSuccessRate
-                            measurements
-                            (config.EigenvalueQubits + config.SolutionQubits)
+                let successRate = 
+                    HHLBackendAdapter.calculateSuccessRate
+                        measurements
+                        (config.EigenvalueQubits + config.SolutionQubits)
                     
-                    Ok {
-                        SuccessProbability = successRate
-                        EstimatedEigenvalues = [||]  // Not available from measurements
-                        ConditionNumber = None
-                        GateCount = 0  // Not tracked for backend execution
-                        PostSelectionSuccess = successRate > 0.0
-                        SolutionAmplitudes = None  // Use measurement statistics instead
-                        BackendName = backendName
-                        IsQuantum = isQuantum
-                        Success = true
-                        Message = $"HHL executed on {backendName} with {shots} shots, success rate: {successRate:F4}"
-                    }
+                Ok {
+                    SuccessProbability = successRate
+                    EstimatedEigenvalues = [||]  // Not available from measurements
+                    ConditionNumber = None
+                    GateCount = gateCount  // ✅ Now tracked from circuit
+                    PostSelectionSuccess = successRate > 0.0
+                    SolutionAmplitudes = None  // Use measurement statistics instead
+                    BackendName = backendName
+                    IsQuantum = isQuantum
+                    Success = true
+                    Message = $"HHL executed on {backendName} with {shots} shots, success rate: {successRate:F4}"
+                }
     
     // ============================================================================
     // CONVENIENCE FUNCTIONS

@@ -19,7 +19,9 @@
 // - Use this library for flexible VQE execution on any backend
 // - Bridge via FCIDump files or direct Hamiltonian conversion
 
-#r "nuget: FSharp.Azure.Quantum"
+//#r "nuget: FSharp.Azure.Quantum"
+#r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
+
 
 open FSharp.Azure.Quantum.QuantumChemistry
 

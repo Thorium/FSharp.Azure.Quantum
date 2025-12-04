@@ -526,3 +526,235 @@ module VQCTests =
             Assert.True(false, $"SGD training failed: {sgdErr}")
         | _, Error adamErr ->
             Assert.True(false, $"Adam training failed: {adamErr}")
+    
+    // ========================================================================
+    // MULTI-CLASS VQC TESTS
+    // ========================================================================
+    
+    let private createMultiClassDataset () =
+        // 3-class dataset (iris-like)
+        let features = [|
+            // Class 0 (cluster around [0.1, 0.1])
+            [| 0.1; 0.1 |]
+            [| 0.15; 0.12 |]
+            [| 0.08; 0.14 |]
+            
+            // Class 1 (cluster around [0.5, 0.5])
+            [| 0.5; 0.5 |]
+            [| 0.52; 0.48 |]
+            [| 0.48; 0.52 |]
+            
+            // Class 2 (cluster around [0.9, 0.9])
+            [| 0.9; 0.9 |]
+            [| 0.88; 0.92 |]
+            [| 0.91; 0.87 |]
+        |]
+        
+        let labels = [| 0; 0; 0; 1; 1; 1; 2; 2; 2 |]
+        
+        (features, labels)
+    
+    [<Fact>]
+    let ``trainMultiClass - completes successfully with 3 classes`` () =
+        let backend = createTestBackend()
+        let featureMap = AngleEncoding
+        let variationalForm = RealAmplitudes 1
+        let parameters = randomParameters variationalForm 2 (Some 42)
+        let (features, labels) = createMultiClassDataset()
+        let config = { createTestConfig() with MaxEpochs = 5; Verbose = false }
+        
+        match trainMultiClass backend featureMap variationalForm parameters features labels config with
+        | Error msg ->
+            Assert.True(false, $"Multi-class training failed: {msg}")
+        | Ok result ->
+            // Should have 3 binary classifiers (one per class)
+            Assert.Equal(3, result.Classifiers.Length)
+            Assert.Equal(3, result.NumClasses)
+            
+            // Class labels should be [0; 1; 2]
+            Assert.Equal<int seq>([| 0; 1; 2 |], result.ClassLabels)
+            
+            // Each classifier should have trained parameters
+            for classifier in result.Classifiers do
+                Assert.Equal(parameters.Length, classifier.Parameters.Length)
+                Assert.True(classifier.Epochs > 0, "Classifier should have trained")
+            
+            // Overall training accuracy should be valid
+            Assert.True(result.TrainAccuracy >= 0.0 && result.TrainAccuracy <= 1.0, "Valid accuracy")
+    
+    [<Fact>]
+    let ``trainMultiClass - rejects binary classification (uses standard train)`` () =
+        let backend = createTestBackend()
+        let featureMap = AngleEncoding
+        let variationalForm = RealAmplitudes 1
+        let parameters = randomParameters variationalForm 2 (Some 42)
+        let features = [| [| 0.1; 0.2 |]; [| 0.8; 0.9 |] |]
+        let labels = [| 0; 1 |]
+        let config = createTestConfig()
+        
+        match trainMultiClass backend featureMap variationalForm parameters features labels config with
+        | Error msg ->
+            Assert.True(false, $"Binary classification should work: {msg}")
+        | Ok result ->
+            // Should still work but only have 1 classifier
+            Assert.Equal(1, result.Classifiers.Length)
+            Assert.Equal(2, result.NumClasses)
+    
+    [<Fact>]
+    let ``trainMultiClass - rejects single class`` () =
+        let backend = createTestBackend()
+        let featureMap = AngleEncoding
+        let variationalForm = RealAmplitudes 1
+        let parameters = randomParameters variationalForm 2 (Some 42)
+        let features = [| [| 0.1; 0.2 |]; [| 0.3; 0.4 |] |]
+        let labels = [| 0; 0 |]  // All same class
+        let config = createTestConfig()
+        
+        match trainMultiClass backend featureMap variationalForm parameters features labels config with
+        | Error msg ->
+            Assert.Contains("at least 2 classes", msg)
+        | Ok _ ->
+            Assert.True(false, "Should have rejected single class")
+    
+    [<Fact>]
+    let ``trainMultiClass - rejects empty training set`` () =
+        let backend = createTestBackend()
+        let featureMap = AngleEncoding
+        let variationalForm = RealAmplitudes 1
+        let parameters = randomParameters variationalForm 2 (Some 42)
+        let emptyFeatures = [| |]
+        let emptyLabels = [| |]
+        let config = createTestConfig()
+        
+        match trainMultiClass backend featureMap variationalForm parameters emptyFeatures emptyLabels config with
+        | Error msg ->
+            Assert.Contains("cannot be empty", msg)
+        | Ok _ ->
+            Assert.True(false, "Should have rejected empty training set")
+    
+    [<Fact>]
+    let ``trainMultiClass - rejects mismatched features and labels`` () =
+        let backend = createTestBackend()
+        let featureMap = AngleEncoding
+        let variationalForm = RealAmplitudes 1
+        let parameters = randomParameters variationalForm 2 (Some 42)
+        let features = [| [| 0.1; 0.2 |]; [| 0.3; 0.4 |] |]
+        let labels = [| 0 |]  // Wrong length
+        let config = createTestConfig()
+        
+        match trainMultiClass backend featureMap variationalForm parameters features labels config with
+        | Error msg ->
+            Assert.Contains("same length", msg)
+        | Ok _ ->
+            Assert.True(false, "Should have rejected mismatched lengths")
+    
+    [<Fact>]
+    let ``predictMultiClass - returns valid prediction`` () =
+        let backend = createTestBackend()
+        let featureMap = AngleEncoding
+        let variationalForm = RealAmplitudes 1
+        let parameters = randomParameters variationalForm 2 (Some 42)
+        let (features, labels) = createMultiClassDataset()
+        let config = { createTestConfig() with MaxEpochs = 5; Verbose = false }
+        
+        match trainMultiClass backend featureMap variationalForm parameters features labels config with
+        | Error msg ->
+            Assert.True(false, $"Training failed: {msg}")
+        | Ok trainResult ->
+            // Predict on first training sample (class 0)
+            match predictMultiClass backend featureMap variationalForm trainResult features.[0] 100 with
+            | Error msg ->
+                Assert.True(false, $"Prediction failed: {msg}")
+            | Ok prediction ->
+                // Label should be one of [0, 1, 2]
+                Assert.True(prediction.Label >= 0 && prediction.Label <= 2, "Label should be 0, 1, or 2")
+                
+                // Confidence should be valid
+                Assert.True(prediction.Confidence >= 0.0 && prediction.Confidence <= 1.0, "Valid confidence")
+                
+                // Probabilities should sum to ~1.0
+                let probSum = Array.sum prediction.Probabilities
+                Assert.True(abs (probSum - 1.0) < 0.01, $"Probabilities should sum to 1.0, got {probSum}")
+                
+                // Should have 3 probabilities
+                Assert.Equal(3, prediction.Probabilities.Length)
+                
+                // All probabilities should be non-negative
+                for prob in prediction.Probabilities do
+                    Assert.True(prob >= 0.0, "Probability should be non-negative")
+    
+    [<Fact>]
+    let ``predictMultiClass - confidence matches highest probability`` () =
+        let backend = createTestBackend()
+        let featureMap = AngleEncoding
+        let variationalForm = RealAmplitudes 1
+        let parameters = randomParameters variationalForm 2 (Some 42)
+        let (features, labels) = createMultiClassDataset()
+        let config = { createTestConfig() with MaxEpochs = 3; Verbose = false }
+        
+        match trainMultiClass backend featureMap variationalForm parameters features labels config with
+        | Error msg ->
+            Assert.True(false, $"Training failed: {msg}")
+        | Ok trainResult ->
+            match predictMultiClass backend featureMap variationalForm trainResult features.[0] 100 with
+            | Error msg ->
+                Assert.True(false, $"Prediction failed: {msg}")
+            | Ok prediction ->
+                // Confidence should equal the probability of the predicted class
+                let predictedClassIdx = Array.findIndex ((=) prediction.Label) trainResult.ClassLabels
+                let expectedConfidence = prediction.Probabilities.[predictedClassIdx]
+                Assert.True(abs (prediction.Confidence - expectedConfidence) < 0.001, 
+                           $"Confidence {prediction.Confidence} should match probability {expectedConfidence}")
+    
+    [<Fact>]
+    let ``predictMultiClass - no floating point comparison bugs`` () =
+        // This test verifies fix for Issue #1 (floating-point comparison bug)
+        let backend = createTestBackend()
+        let featureMap = AngleEncoding
+        let variationalForm = RealAmplitudes 1
+        let parameters = randomParameters variationalForm 2 (Some 42)
+        let (features, labels) = createMultiClassDataset()
+        let config = { createTestConfig() with MaxEpochs = 3; Verbose = false }
+        
+        match trainMultiClass backend featureMap variationalForm parameters features labels config with
+        | Error msg ->
+            Assert.True(false, $"Training failed: {msg}")
+        | Ok trainResult ->
+            // Run prediction 10 times to catch any floating-point comparison issues
+            for i in 1 .. 10 do
+                match predictMultiClass backend featureMap variationalForm trainResult features.[0] 100 with
+                | Error msg ->
+                    Assert.True(false, $"Prediction #{i} failed: {msg}")
+                | Ok prediction ->
+                    // Should always succeed without "index not found" errors
+                    Assert.True(prediction.Label >= 0 && prediction.Label <= 2, "Valid label")
+    
+    [<Fact>]
+    let ``End-to-end - multi-class train and predict workflow`` () =
+        let backend = createTestBackend()
+        let featureMap = AngleEncoding
+        let variationalForm = RealAmplitudes 1
+        let initialParams = randomParameters variationalForm 2 (Some 42)
+        let (trainFeatures, trainLabels) = createMultiClassDataset()
+        let config = { createTestConfig() with MaxEpochs = 5; Verbose = false }
+        
+        // Train multi-class model
+        match trainMultiClass backend featureMap variationalForm initialParams trainFeatures trainLabels config with
+        | Error msg ->
+            Assert.True(false, $"Multi-class training failed: {msg}")
+        | Ok trainResult ->
+            Assert.Equal(3, trainResult.NumClasses)
+            
+            // Predict on each class
+            for classLabel in 0 .. 2 do
+                // Find first sample of this class
+                let sampleIdx = Array.findIndex ((=) classLabel) trainLabels
+                let testFeatures = trainFeatures.[sampleIdx]
+                
+                match predictMultiClass backend featureMap variationalForm trainResult testFeatures 100 with
+                | Error msg ->
+                    Assert.True(false, $"Prediction for class {classLabel} failed: {msg}")
+                | Ok prediction ->
+                    // Predicted label should be valid
+                    Assert.True(prediction.Label >= 0 && prediction.Label <= 2, "Valid label")
+                    Assert.True(prediction.Confidence > 0.0, "Should have some confidence")

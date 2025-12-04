@@ -8,7 +8,8 @@
 ///
 /// Run with: dotnet fsi examples/QaoaParameterOptimizationExample.fsx
 
-#r "nuget: FSharp.Azure.Quantum"
+//#r "nuget: FSharp.Azure.Quantum"
+#r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 
 open System
 open FSharp.Azure.Quantum.Core.QaoaCircuit

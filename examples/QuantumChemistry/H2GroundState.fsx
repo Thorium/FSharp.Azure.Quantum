@@ -1,7 +1,9 @@
 // H2 Ground State Calculation using Quantum Chemistry Builder (TKT-79)
 // Demonstrates the F# computation expression API for quantum chemistry
 
+//#r "nuget: FSharp.Azure.Quantum"
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
+
 
 open FSharp.Azure.Quantum.QuantumChemistry
 open FSharp.Azure.Quantum.QuantumChemistry.QuantumChemistryBuilder

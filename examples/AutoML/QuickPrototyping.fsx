@@ -292,7 +292,7 @@ let result3 = autoML {
     
     // Focus on regression
     tryBinaryClassification false
-    // tryMultiClass false  // Skip - takes int not bool
+    // tryMultiClass 3
     tryAnomalyDetection false
     tryRegression true
     

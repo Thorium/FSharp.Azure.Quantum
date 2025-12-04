@@ -181,7 +181,7 @@
     <Compile Include="TaskScheduling\QuboEncoding.fs" />
     <Compile Include="TaskScheduling\QuantumSolver.fs" />
     <Compile Include="TaskScheduling\Export.fs" />
-    <Compile Include="TaskScheduling.fs" />
+    <Compile Include="TaskScheduling\TaskScheduling.fs" />
 
     <!-- Classical Builders - User-facing APIs (depends on HybridSolver) -->
     <Compile Include="Solvers\Classical\TspBuilder.fs" />

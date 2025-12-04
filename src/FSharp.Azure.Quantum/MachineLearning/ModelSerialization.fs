@@ -89,6 +89,37 @@ module ModelSerialization =
         Note: string option
     }
     
+    /// Serializable SVM model (JSON-friendly)
+    type SerializableSVMModel = {
+        /// Support vector indices
+        SupportVectorIndices: int array
+        
+        /// Lagrange multipliers (alphas)
+        Alphas: float array
+        
+        /// Bias term
+        Bias: float
+        
+        /// Training data (support vectors)
+        TrainData: float array array
+        
+        /// Training labels
+        TrainLabels: int array
+        
+        /// Feature map type name
+        FeatureMapType: string
+        
+        /// Feature map depth (if applicable)
+        FeatureMapDepth: int
+        
+        /// Number of qubits
+        NumQubits: int
+        
+        /// Optional metadata
+        SavedAt: string
+        Note: string option
+    }
+    
     // ========================================================================
     // VQC SERIALIZATION
     // ========================================================================
@@ -289,6 +320,73 @@ module ModelSerialization =
         
         loadVQCModel filePath
         |> Result.map (fun model -> model.Parameters)
+    
+    // ========================================================================
+    // SVM SERIALIZATION
+    // ========================================================================
+    
+    /// Save SVM model to JSON file
+    ///
+    /// Parameters:
+    ///   filePath - Path to save JSON file
+    ///   svmModel - Trained SVM model
+    ///   numQubits - Number of qubits used
+    ///   note - Optional note about the model
+    let saveSVMModel
+        (filePath: string)
+        (svmModel: QuantumKernelSVM.SVMModel)
+        (numQubits: int)
+        (note: string option)
+        : Result<unit, string> =
+        
+        try
+            // Extract feature map info
+            let fmType, fmDepth =
+                match svmModel.FeatureMap with
+                | FeatureMapType.ZZFeatureMap d -> ("ZZFeatureMap", d)
+                | FeatureMapType.PauliFeatureMap (_, d) -> ("PauliFeatureMap", d)
+                | FeatureMapType.AngleEncoding -> ("AngleEncoding", 0)
+                | FeatureMapType.AmplitudeEncoding -> ("AmplitudeEncoding", 0)
+            
+            let model = {
+                SupportVectorIndices = svmModel.SupportVectorIndices
+                Alphas = svmModel.Alphas
+                Bias = svmModel.Bias
+                TrainData = svmModel.TrainData
+                TrainLabels = svmModel.TrainLabels
+                FeatureMapType = fmType
+                FeatureMapDepth = fmDepth
+                NumQubits = numQubits
+                SavedAt = DateTime.UtcNow.ToString("o")
+                Note = note
+            }
+            
+            let options = JsonSerializerOptions()
+            options.WriteIndented <- true
+            
+            let json = JsonSerializer.Serialize(model, options)
+            File.WriteAllText(filePath, json)
+            
+            Ok ()
+        with ex ->
+            Error $"Failed to save SVM model: {ex.Message}"
+    
+    /// Load SVM model from JSON file
+    ///
+    /// Returns: Serializable SVM model with all metadata
+    let loadSVMModel
+        (filePath: string)
+        : Result<SerializableSVMModel, string> =
+        
+        try
+            if not (File.Exists filePath) then
+                Error $"File not found: {filePath}"
+            else
+                let json = File.ReadAllText(filePath)
+                let model = JsonSerializer.Deserialize<SerializableSVMModel>(json)
+                Ok model
+        with ex ->
+            Error $"Failed to load SVM model: {ex.Message}"
     
     // ========================================================================
     // MODEL INFORMATION
@@ -511,6 +609,27 @@ module ModelSerialization =
             // Default two-local configuration
             Ok (VariationalForm.TwoLocal ("RY", "CX", vfDepth))
         | _ -> Error $"Unknown variational form type: {vfType}"
+    
+    /// Reconstruct QuantumKernelSVM.SVMModel from serialized data
+    ///
+    /// Returns: Full SVM model ready for prediction
+    let reconstructSVMModel
+        (serialized: SerializableSVMModel)
+        : Result<QuantumKernelSVM.SVMModel, string> =
+        
+        // Parse feature map
+        match parseFeatureMapType serialized.FeatureMapType serialized.FeatureMapDepth with
+        | Error e -> Error e
+        | Ok featureMap ->
+            let svmModel : QuantumKernelSVM.SVMModel = {
+                SupportVectorIndices = serialized.SupportVectorIndices
+                Alphas = serialized.Alphas
+                Bias = serialized.Bias
+                TrainData = serialized.TrainData
+                TrainLabels = serialized.TrainLabels
+                FeatureMap = featureMap
+            }
+            Ok svmModel
     
     // ========================================================================
     // TRANSFER LEARNING UTILITIES

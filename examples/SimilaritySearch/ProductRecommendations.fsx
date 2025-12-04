@@ -12,7 +12,8 @@
 /// Index products with their features (price, category, ratings, etc.)
 /// Use quantum kernel similarity to find most similar items.
 
-#r "nuget: FSharp.Azure.Quantum"
+//#r "nuget: FSharp.Azure.Quantum"
+#r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 
 open System
 open FSharp.Azure.Quantum.Business

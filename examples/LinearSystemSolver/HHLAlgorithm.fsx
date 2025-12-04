@@ -11,7 +11,9 @@
 // - Engineering: Finite element analysis, circuit simulation
 // - Finance: Portfolio optimization with covariance matrices
 
+//#r "nuget: FSharp.Azure.Quantum"
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
+
 
 open System
 open System.Numerics

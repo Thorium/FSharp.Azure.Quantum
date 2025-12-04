@@ -236,23 +236,27 @@ module HHLTypes =
         elif (n &&& (n - 1)) <> 0 then
             Error $"Number of eigenvalues must be power of 2, got {n}"
         else
-            let elements = Array.init (n * n) (fun idx ->
-                let i = idx / n
-                let j = idx % n
-                if i = j then Complex(eigenvalues[i], 0.0) else Complex.Zero
-            )
-            
-            // Calculate condition number
-            let maxEig = eigenvalues |> Array.max
-            let minEig = eigenvalues |> Array.min |> abs
-            let conditionNumber = if minEig > 1e-10 then Some (maxEig / minEig) else None
-            
-            Ok {
-                Dimension = n
-                Elements = elements
-                IsDiagonal = true
-                ConditionNumber = conditionNumber
-            }
+            // Check for singular matrix (zero or near-zero eigenvalues)
+            let minEigAbs = eigenvalues |> Array.map abs |> Array.min
+            if minEigAbs < 1e-10 then
+                Error $"Singular matrix detected: eigenvalue near zero ({minEigAbs:E}). HHL requires invertible matrices."
+            else
+                let elements = Array.init (n * n) (fun idx ->
+                    let i = idx / n
+                    let j = idx % n
+                    if i = j then Complex(eigenvalues[i], 0.0) else Complex.Zero
+                )
+                
+                // Calculate condition number
+                let maxEig = eigenvalues |> Array.max
+                let conditionNumber = Some (maxEig / minEigAbs)
+                
+                Ok {
+                    Dimension = n
+                    Elements = elements
+                    IsDiagonal = true
+                    ConditionNumber = conditionNumber
+                }
     
     /// Default HHL configuration
     let defaultConfig (matrix: HermitianMatrix) (inputVector: QuantumVector) : HHLConfig =

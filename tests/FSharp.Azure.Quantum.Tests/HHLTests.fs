@@ -195,23 +195,33 @@ module HHLTests =
     
     [<Fact>]
     let ``solve rejects singular matrices`` () =
-        let problemResult = linearSystemSolver {
-            diagonalMatrix [1.0; 0.0]  // Singular (zero eigenvalue)
-            vector [1.0; 0.0]
-        }
-        
-        let problem = match problemResult with
-                      | Ok p -> p
-                      | Error msg -> failwith $"Builder validation failed: {msg}"
-        
-        match solve problem with
-        | Error msg ->
-            // Expected to fail
-            Assert.True(true, $"Correctly rejected: {msg}")
-        | Ok result ->
-            // If succeeds, should have very low success probability
-            Assert.True(result.SuccessProbability < 0.1 || not result.Success,
-                       "Singular matrix should fail or have low success")
+        // Singular matrix should be rejected by builder validation
+        try
+            let problemResult = linearSystemSolver {
+                diagonalMatrix [1.0; 0.0]  // Singular (zero eigenvalue)
+                vector [1.0; 0.0]
+            }
+            
+            match problemResult with
+            | Error msg ->
+                // Builder rejected it - good!
+                Assert.Contains("Singular", msg)
+                Assert.True(true, $"Correctly rejected at builder: {msg}")
+            | Ok problem ->
+                // Builder accepted it (shouldn't happen now), try to solve
+                match solve problem with
+                | Error msg ->
+                    // Solver rejected it - also acceptable
+                    Assert.True(true, $"Correctly rejected by solver: {msg}")
+                | Ok result ->
+                    // If succeeds, should have very low success probability
+                    Assert.True(result.SuccessProbability < 0.1 || not result.Success,
+                               "Singular matrix should fail or have low success")
+        with
+        | ex when ex.Message.Contains("Singular") ->
+            // Exception thrown during builder construction - also valid rejection
+            Assert.Contains("Singular", ex.Message)
+            Assert.True(true, $"Correctly rejected with exception: {ex.Message}")
     
     [<Fact>]
     let ``solve handles ill-conditioned matrices`` () =

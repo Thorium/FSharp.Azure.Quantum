@@ -231,6 +231,7 @@ module GroundStateEnergyTests =
             MaxIterations = 100
             Tolerance = 1e-6
             InitialParameters = None
+            Backend = None
         }
         
         // Act
@@ -256,6 +257,7 @@ module GroundStateEnergyTests =
             MaxIterations = 200
             Tolerance = 1e-6
             InitialParameters = None
+            Backend = None
         }
         
         // Act
@@ -281,6 +283,7 @@ module GroundStateEnergyTests =
             MaxIterations = 50
             Tolerance = 1e-6
             InitialParameters = None
+            Backend = None
         }
         
         // Act
@@ -299,6 +302,7 @@ module GroundStateEnergyTests =
             MaxIterations = 50
             Tolerance = 1e-6
             InitialParameters = None
+            Backend = None
         }
         
         // Act
@@ -326,6 +330,7 @@ module GroundStateEnergyTests =
             MaxIterations = 50
             Tolerance = 1e-6
             InitialParameters = None
+            Backend = None
         }
         
         // Act
@@ -349,6 +354,7 @@ module GroundStateEnergyTests =
             MaxIterations = 50
             Tolerance = 1e-6
             InitialParameters = None
+            Backend = None
         }
         
         // Act
@@ -369,6 +375,7 @@ module GroundStateEnergyTests =
             MaxIterations = 50
             Tolerance = 1e-6
             InitialParameters = None
+            Backend = None
         }
         
         // Act
@@ -392,6 +399,7 @@ module GroundStateEnergyTests =
             MaxIterations = 10  // Very few iterations
             Tolerance = 1e-8   // Very tight tolerance
             InitialParameters = None
+            Backend = None
         }
         
         // Act
@@ -415,6 +423,7 @@ module GroundStateEnergyTests =
             MaxIterations = 50
             Tolerance = 1e-6
             InitialParameters = Some initialParams
+            Backend = None
         }
         
         // Act

@@ -276,7 +276,7 @@ module CircuitBuilder =
     
     /// <summary>
     /// Computation expression builder for constructing quantum circuits declaratively.
-    /// Enables natural gate composition with support for loops and gate sequences.
+    /// Enables natural gate composition with custom operations.
     /// </summary>
     /// 
     /// <example>
@@ -285,16 +285,26 @@ module CircuitBuilder =
     /// let bell = circuit {
     ///     qubits 2
     ///     H 0
-    ///     CNOT (0, 1)
+    ///     CNOT 0 1
     /// }
     /// 
-    /// // GHZ state with loop
-    /// let ghz = circuit {
-    ///     qubits 5
-    ///     H 0
+    /// // GHZ state (use programmatic API for loops)
+    /// let ghz = 
+    ///     let mutable c = empty 5
+    ///     c <- addGate (H 0) c
     ///     for i in [0..3] do
-    ///         CNOT (i, i+1)
-    /// }
+    ///         c <- addGate (CNOT (i, i+1)) c
+    ///     c
+    /// 
+    /// // Or use the For method directly via helper function
+    /// let ghzWithFor qubitCount =
+    ///     circuit {
+    ///         qubits qubitCount
+    ///         H 0
+    ///     }
+    ///     |> fun baseCircuit ->
+    ///         let cnots = [0..qubitCount-2] |> List.map (fun i -> CNOT (i, i+1))
+    ///         addGates cnots baseCircuit
     /// </code>
     /// </example>
     type CircuitBuilderCE() =
@@ -303,17 +313,9 @@ module CircuitBuilder =
         member _.Yield(_) : Circuit =
             { QubitCount = 0; Gates = [] }
         
-        member _.For(sequence: seq<'T>, body: 'T -> Circuit) : Circuit =
-            // Idiomatic F#: Use Seq.fold to accumulate gates from sequence
-            let zero = { QubitCount = 0; Gates = [] }
-            
-            sequence
-            |> Seq.map body
-            |> Seq.fold (fun acc circuitPart ->
-                {
-                    QubitCount = if circuitPart.QubitCount > 0 then circuitPart.QubitCount else acc.QubitCount
-                    Gates = acc.Gates @ circuitPart.Gates  // Accumulate gates
-                }) zero
+        /// <summary>Yield an existing circuit (enables yield! syntax)</summary>
+        member _.YieldFrom(circuit: Circuit) : Circuit =
+            circuit
         
         member _.Combine(circuit1: Circuit, circuit2: Circuit) : Circuit =
             // Compose circuits: merge gates and preserve qubit count
@@ -326,11 +328,20 @@ module CircuitBuilder =
         member _.Zero() : Circuit =
             { QubitCount = 0; Gates = [] }
         
-        // Delay/Run pattern for proper lazy evaluation (idiomatic F# CEs)
-        member _.Delay(f: unit -> Circuit) : unit -> Circuit = f
+        // Delay executes immediately (like FsCdk pattern)
+        member _.Delay(f: unit -> Circuit) : Circuit = f()
         
-        member _.Run(f: unit -> Circuit) : Circuit =
-            let circuit = f()
+        // For method for delayed execution patterns (Delay/Run interaction)
+        member this.For(circuit: Circuit, f: unit -> Circuit) : Circuit =
+            this.Combine(circuit, f())
+        
+        member this.For(sequence: seq<'T>, body: 'T -> Circuit) : Circuit =
+            let mutable state = this.Zero()
+            for item in sequence do
+                state <- this.Combine(state, body item)
+            state
+        
+        member _.Run(circuit: Circuit) : Circuit =
             // Validate circuit before returning
             match validate circuit with
             | result when result.IsValid -> circuit
@@ -449,6 +460,29 @@ module CircuitBuilder =
         [<CustomOperation("CCX")>]
         member _.CCX(circuit: Circuit, control1: int, control2: int, target: int) : Circuit =
             { circuit with Gates = circuit.Gates @ [CCX (control1, control2, target)] }
+        
+        // ========================================================================
+        // HELPER FOR FOR-LOOPS
+        // ========================================================================
+        
+        /// Apply a gate (useful in for loops where custom operations don't work directly)
+        [<CustomOperation("gate")>]
+        member _.Gate(circuit: Circuit, g: Gate) : Circuit =
+            { circuit with Gates = circuit.Gates @ [g] }
     
     /// Global computation expression instance for circuit construction
     let circuit = CircuitBuilderCE()
+    
+    // ============================================================================
+    // HELPER FUNCTIONS FOR USE INSIDE FOR LOOPS
+    // ============================================================================
+    // These functions return single-gate circuits that can be used in for loop bodies
+    // Example: for i in [0..3] do singleGate (CNOT (i, i+1))
+    
+    /// Creates a circuit with a single gate (useful for for loops)
+    let singleGate (gate: Gate) : Circuit =
+        { QubitCount = 0; Gates = [gate] }
+    
+    /// Creates a circuit with multiple gates (useful for for loops)
+    let multiGate (gates: Gate list) : Circuit =
+        { QubitCount = 0; Gates = gates }

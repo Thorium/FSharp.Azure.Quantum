@@ -1,6 +1,8 @@
 namespace FSharp.Azure.Quantum.Business
 
 open System
+open System.IO
+open System.Text.Json
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.MachineLearning
 
@@ -294,28 +296,29 @@ module SimilaritySearch =
         
         // Compute similarities
         let similarities =
-            match index.Metric, index.KernelMatrix, queryIdx with
-            | QuantumKernel, Some matrix, Some idx ->
+            match index.Metric with
+            | QuantumKernel when index.KernelMatrix.IsSome && queryIdx.IsSome ->
+                let idx = queryIdx.Value
                 // Use precomputed kernel matrix
                 [| for i in 0 .. index.Items.Length - 1 ->
                     if i = idx then
                         (fst index.Items.[i], 1.0)  // Self-similarity is 1.0
                     else
-                        (fst index.Items.[i], matrix.[idx, i])
+                        (fst index.Items.[i], index.KernelMatrix.Value.[idx, i])
                 |]
             
-            | QuantumKernel, None, _ ->
+            | QuantumKernel ->
                 // Fallback to cosine if kernel not available
                 index.Items
                 |> Array.map (fun (item, features) ->
                     (item, cosineSimilarity queryFeatures features))
             
-            | Cosine, _, _ ->
+            | Cosine ->
                 index.Items
                 |> Array.map (fun (item, features) ->
                     (item, cosineSimilarity queryFeatures features))
             
-            | Euclidean, _, _ ->
+            | Euclidean ->
                 index.Items
                 |> Array.map (fun (item, features) ->
                     (item, euclideanSimilarity queryFeatures features))
@@ -523,13 +526,134 @@ module SimilaritySearch =
     // PERSISTENCE
     // ========================================================================
     
-    /// Save index to file
-    let save (path: string) (index: SearchIndex<'T>) : Result<unit, string> =
-        Error "Index persistence not yet implemented"
+    // ========================================================================
+    // MODEL PERSISTENCE
+    // ========================================================================
     
-    /// Load index from file
+    /// Serializable index format (for JSON)
+    /// Note: Generic items ('T) are not serialized - only feature vectors
+    [<CLIMutable>]
+    type private SerializableIndex = {
+        /// Feature vectors only (items must be re-associated on load)
+        Features: float array array
+        
+        /// Similarity metric
+        Metric: string
+        
+        /// Threshold
+        Threshold: float
+        
+        /// Precomputed kernel matrix (if quantum kernel was used)
+        KernelMatrix: float array array option
+        
+        /// Number of items
+        NumItems: int
+        
+        /// Number of features per item
+        NumFeatures: int
+        
+        /// Created timestamp
+        CreatedAt: string
+        
+        /// Optional note
+        Note: string option
+    }
+    
+    /// Save index to file (feature vectors only - items not serialized)
+    let save (path: string) (index: SearchIndex<'T>) : Result<unit, string> =
+        try
+            let metricName =
+                match index.Metric with
+                | Cosine -> "Cosine"
+                | Euclidean -> "Euclidean"
+                | QuantumKernel -> "QuantumKernel"
+            
+            // Convert 2D kernel matrix to jagged array for JSON serialization
+            let kernelArray =
+                match index.KernelMatrix with
+                | None -> None
+                | Some matrix ->
+                    let rows = Array2D.length1 matrix
+                    let cols = Array2D.length2 matrix
+                    Some [| for i in 0..rows-1 -> [| for j in 0..cols-1 -> matrix.[i,j] |] |]
+            
+            let serializable = {
+                Features = index.Items |> Array.map snd
+                Metric = metricName
+                Threshold = index.Threshold
+                KernelMatrix = kernelArray
+                NumItems = index.Metadata.NumItems
+                NumFeatures = index.Metadata.NumFeatures
+                CreatedAt = index.Metadata.CreatedAt.ToString("o")
+                Note = index.Metadata.Note
+            }
+            
+            let options = JsonSerializerOptions(WriteIndented = true)
+            let json = JsonSerializer.Serialize(serializable, options)
+            File.WriteAllText(path, json)
+            Ok ()
+        with ex ->
+            Error $"Failed to save index: {ex.Message}"
+    
+    /// Load index from file and re-associate with items
+    ///
+    /// IMPORTANT: Items ('T) are not serialized. You must provide the items
+    /// in the same order as they were indexed. The function will pair them
+    /// with the loaded feature vectors.
+    ///
+    /// Example:
+    ///   let index = SimilaritySearch.load "index.json" products
+    let loadWithItems (path: string) (items: 'T array) : Result<SearchIndex<'T>, string> =
+        try
+            if not (File.Exists path) then
+                Error $"File not found: {path}"
+            else
+                let json = File.ReadAllText(path)
+                let serializable = JsonSerializer.Deserialize<SerializableIndex>(json)
+                
+                // Validate items match feature vectors
+                if items.Length <> serializable.Features.Length then
+                    Error $"Item count mismatch: provided {items.Length} items but index has {serializable.Features.Length} feature vectors"
+                else
+                    // Parse metric
+                    let metric =
+                        match serializable.Metric with
+                        | "Cosine" -> Cosine
+                        | "Euclidean" -> Euclidean
+                        | "QuantumKernel" -> QuantumKernel
+                        | _ -> Cosine
+                    
+                    // Reconstruct 2D kernel matrix from jagged array
+                    let kernelMatrix =
+                        match serializable.KernelMatrix with
+                        | None -> None
+                        | Some jaggedArray ->
+                            let rows = jaggedArray.Length
+                            let cols = if rows > 0 then jaggedArray.[0].Length else 0
+                            Some (Array2D.init rows cols (fun i j -> jaggedArray.[i].[j]))
+                    
+                    // Pair items with features
+                    let pairedItems = Array.zip items serializable.Features
+                    
+                    Ok {
+                        Items = pairedItems
+                        Metric = metric
+                        Threshold = serializable.Threshold
+                        KernelMatrix = kernelMatrix
+                        Metadata = {
+                            NumItems = serializable.NumItems
+                            NumFeatures = serializable.NumFeatures
+                            Metric = metric
+                            CreatedAt = DateTime.Parse(serializable.CreatedAt)
+                            Note = serializable.Note
+                        }
+                    }
+        with ex ->
+            Error $"Failed to load index: {ex.Message}"
+    
+    /// Load index from file (deprecated - use loadWithItems instead)
     let load (path: string) : Result<SearchIndex<'T>, string> =
-        Error "Index loading not yet implemented"
+        Error "Cannot load index without items. Use loadWithItems and provide the items array."
     
     // ========================================================================
     // COMPUTATION EXPRESSION BUILDER
@@ -573,34 +697,50 @@ module SimilaritySearch =
                 Note = None
             }
         
+        /// <summary>Set the items to index for similarity search.</summary>
+        /// <param name="items">Array of (item, feature vector) pairs to index</param>
         [<CustomOperation("indexItems")>]
         member _.IndexItems(problem: SearchProblem<'T>, items: ('T * float array) array) =
             { problem with Items = items }
         
+        /// <summary>Set the similarity metric for comparing vectors.</summary>
+        /// <param name="metric">Similarity metric (Cosine, Euclidean, or Manhattan)</param>
         [<CustomOperation("similarityMetric")>]
         member _.SimilarityMetric(problem: SearchProblem<'T>, metric: SimilarityMetric) =
             { problem with Metric = metric }
         
+        /// <summary>Set the similarity threshold for matching.</summary>
+        /// <param name="threshold">Threshold value (0.0 to 1.0) for considering items similar</param>
         [<CustomOperation("threshold")>]
         member _.Threshold(problem: SearchProblem<'T>, threshold: float) =
             { problem with Threshold = threshold }
         
+        /// <summary>Set the quantum backend for execution.</summary>
+        /// <param name="backend">Quantum backend instance</param>
         [<CustomOperation("backend")>]
         member _.Backend(problem: SearchProblem<'T>, backend: IQuantumBackend) =
             { problem with Backend = Some backend }
         
+        /// <summary>Set the number of measurement shots.</summary>
+        /// <param name="shots">Number of circuit measurements</param>
         [<CustomOperation("shots")>]
         member _.Shots(problem: SearchProblem<'T>, shots: int) =
             { problem with Shots = shots }
         
+        /// <summary>Enable or disable verbose output.</summary>
+        /// <param name="verbose">True to enable detailed logging</param>
         [<CustomOperation("verbose")>]
         member _.Verbose(problem: SearchProblem<'T>, verbose: bool) =
             { problem with Verbose = verbose }
         
+        /// <summary>Set the path to save the similarity index.</summary>
+        /// <param name="path">File path for saving the index</param>
         [<CustomOperation("saveIndexTo")>]
         member _.SaveIndexTo(problem: SearchProblem<'T>, path: string) =
             { problem with SavePath = Some path }
         
+        /// <summary>Add a note or description to the search problem.</summary>
+        /// <param name="note">Descriptive note</param>
         [<CustomOperation("note")>]
         member _.Note(problem: SearchProblem<'T>, note: string) =
             { problem with Note = Some note }

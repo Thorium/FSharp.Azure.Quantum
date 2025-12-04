@@ -14,7 +14,8 @@
 /// - Class 2: Will churn within 60 days (warning)
 /// - Class 3: Will churn within 90 days (monitor)
 
-#r "nuget: FSharp.Azure.Quantum"
+//#r "nuget: FSharp.Azure.Quantum"
+#r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 
 open System
 open FSharp.Azure.Quantum.Business

@@ -14,7 +14,9 @@
 /// 3. Constraint enforcement for bounded integers
 /// 4. Performance comparison of different encodings
 
+//#r "nuget: FSharp.Azure.Quantum"
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
+
 
 open FSharp.Azure.Quantum
 open System
