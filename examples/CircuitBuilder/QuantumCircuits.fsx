@@ -17,9 +17,10 @@
 // ============================================================================
 
 #r "nuget: Microsoft.Quantum.Providers.Core"
+#r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 
 open System
-open FSharp.Azure.Quantum.Builders.CircuitBuilder
+open FSharp.Azure.Quantum.CircuitBuilder
 
 // ============================================================================
 // EXAMPLE 1: Bell State (Quantum Entanglement)
