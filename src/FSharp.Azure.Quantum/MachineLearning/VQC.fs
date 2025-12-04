@@ -936,8 +936,8 @@ module VQC =
                             )
                         
                         // Predicted class is the one with highest score
-                        let maxScore = scores |> Array.max
-                        let predictedClassIdx = scores |> Array.findIndex ((=) maxScore)
+                        // Use Array.mapi and maxBy to avoid floating-point comparison issues
+                        let predictedClassIdx = scores |> Array.mapi (fun i s -> (i, s)) |> Array.maxBy snd |> fst
                         let predictedClass = classLabels.[predictedClassIdx]
                         
                         if predictedClass = trainLabels.[i] then
@@ -991,12 +991,12 @@ module VQC =
                     Array.create result.NumClasses (1.0 / float result.NumClasses)
             
             // Predicted class is the one with highest probability
-            let maxProb = probabilities |> Array.max
-            let predictedClassIdx = probabilities |> Array.findIndex ((=) maxProb)
+            // Use Array.mapi and maxBy to avoid floating-point comparison issues
+            let predictedClassIdx = probabilities |> Array.mapi (fun i p -> (i, p)) |> Array.maxBy snd |> fst
             let predictedLabel = result.ClassLabels.[predictedClassIdx]
             
             Ok {
                 Label = predictedLabel
-                Confidence = maxProb
+                Confidence = probabilities.[predictedClassIdx]
                 Probabilities = probabilities
             }

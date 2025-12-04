@@ -43,6 +43,52 @@ module ModelSerialization =
         Note: string option
     }
     
+    /// Serializable binary classifier (for multi-class OVR)
+    type SerializableBinaryClassifier = {
+        /// Classifier parameters
+        Parameters: float array
+        
+        /// Training accuracy for this classifier
+        TrainAccuracy: float
+        
+        /// Number of training iterations
+        NumIterations: int
+    }
+    
+    /// Serializable multi-class VQC model (one-vs-rest)
+    type SerializableMultiClassVQCModel = {
+        /// Binary classifiers (one per class)
+        Classifiers: SerializableBinaryClassifier array
+        
+        /// Class labels
+        ClassLabels: int array
+        
+        /// Overall training accuracy
+        TrainAccuracy: float
+        
+        /// Number of classes
+        NumClasses: int
+        
+        /// Number of qubits
+        NumQubits: int
+        
+        /// Feature map type name
+        FeatureMapType: string
+        
+        /// Feature map depth
+        FeatureMapDepth: int
+        
+        /// Variational form type name
+        VariationalFormType: string
+        
+        /// Variational form depth
+        VariationalFormDepth: int
+        
+        /// Optional metadata
+        SavedAt: string
+        Note: string option
+    }
+    
     // ========================================================================
     // VQC SERIALIZATION
     // ========================================================================
@@ -152,6 +198,54 @@ module ModelSerialization =
             variationalFormDepth
             note
     
+    /// Save VQC multi-class training result (one-vs-rest)
+    ///
+    /// Saves all binary classifiers with full architecture metadata
+    let saveVQCMultiClassTrainingResult
+        (filePath: string)
+        (result: VQC.MultiClassTrainingResult)
+        (numQubits: int)
+        (featureMapType: string)
+        (featureMapDepth: int)
+        (variationalFormType: string)
+        (variationalFormDepth: int)
+        (note: string option)
+        : Result<unit, string> =
+        
+        try
+            // Convert all binary classifiers to serializable format
+            let classifiers =
+                result.Classifiers
+                |> Array.map (fun classifier -> {
+                    Parameters = classifier.Parameters
+                    TrainAccuracy = classifier.TrainAccuracy
+                    NumIterations = classifier.LossHistory.Length
+                })
+            
+            let model = {
+                Classifiers = classifiers
+                ClassLabels = result.ClassLabels
+                TrainAccuracy = result.TrainAccuracy
+                NumClasses = result.NumClasses
+                NumQubits = numQubits
+                FeatureMapType = featureMapType
+                FeatureMapDepth = featureMapDepth
+                VariationalFormType = variationalFormType
+                VariationalFormDepth = variationalFormDepth
+                SavedAt = DateTime.UtcNow.ToString("o")
+                Note = note
+            }
+            
+            let options = JsonSerializerOptions()
+            options.WriteIndented <- true
+            
+            let json = JsonSerializer.Serialize(model, options)
+            File.WriteAllText(filePath, json)
+            
+            Ok ()
+        with ex ->
+            Error $"Failed to save multi-class model: {ex.Message}"
+    
     /// Load VQC model from JSON file
     ///
     /// Returns: Serializable model with all metadata
@@ -168,6 +262,23 @@ module ModelSerialization =
                 Ok model
         with ex ->
             Error $"Failed to load model: {ex.Message}"
+    
+    /// Load VQC multi-class model from JSON file
+    ///
+    /// Returns: Serializable multi-class model with all classifiers
+    let loadVQCMultiClassModel
+        (filePath: string)
+        : Result<SerializableMultiClassVQCModel, string> =
+        
+        try
+            if not (File.Exists filePath) then
+                Error $"File not found: {filePath}"
+            else
+                let json = File.ReadAllText(filePath)
+                let model = JsonSerializer.Deserialize<SerializableMultiClassVQCModel>(json)
+                Ok model
+        with ex ->
+            Error $"Failed to load multi-class model: {ex.Message}"
     
     /// Load only the parameters from a saved model
     ///

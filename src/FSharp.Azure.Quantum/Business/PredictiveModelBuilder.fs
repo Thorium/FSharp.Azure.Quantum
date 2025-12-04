@@ -260,18 +260,13 @@ module PredictiveModel =
             ModelSerialization.saveVQCRegressionTrainingResult path result numQubits fmType fmDepth vfType vfDepth model.Metadata.Note
         
         | MultiClassVQC (multiClassResult, featureMap, varForm, numQubits) ->
-            // ⚠️ NOTE: Currently only saves the first binary classifier
-            // Full one-vs-rest model serialization not yet implemented
-            // TODO: Implement proper MultiClassVQC serialization
+            // Save all binary classifiers with full architecture metadata
             let fmType = match featureMap with ZZFeatureMap _ -> "ZZFeatureMap" | _ -> "Unknown"
             let fmDepth = match featureMap with ZZFeatureMap d -> d | _ -> 0
             let vfType = match varForm with RealAmplitudes _ -> "RealAmplitudes" | _ -> "Unknown"
             let vfDepth = match varForm with RealAmplitudes d -> d | _ -> 0
             
-            if multiClassResult.Classifiers.Length > 0 then
-                ModelSerialization.saveVQCTrainingResult path multiClassResult.Classifiers.[0] numQubits fmType fmDepth vfType vfDepth model.Metadata.Note
-            else
-                Error "MultiClassVQC model has no classifiers to save"
+            ModelSerialization.saveVQCMultiClassTrainingResult path multiClassResult numQubits fmType fmDepth vfType vfDepth model.Metadata.Note
         
         | HHLRegressor hhlResult ->
             HHLModelSerialization.saveHHLRegressionResult path hhlResult model.Metadata.Note
@@ -330,68 +325,115 @@ module PredictiveModel =
                     }
                 }
         | Error _ ->
-            // Try to load as HHL model
-            match HHLModelSerialization.loadHHLRegressionResult path with
-            | Ok hhlResult ->
+            // Try to load as multi-class VQC model
+            match ModelSerialization.loadVQCMultiClassModel path with
+            | Ok multiClassModel ->
+                let featureMap = 
+                    match multiClassModel.FeatureMapType with
+                    | "ZZFeatureMap" -> FeatureMapType.ZZFeatureMap multiClassModel.FeatureMapDepth
+                    | _ -> FeatureMapType.ZZFeatureMap 2
+                
+                let varForm =
+                    match multiClassModel.VariationalFormType with
+                    | "RealAmplitudes" -> VariationalForm.RealAmplitudes multiClassModel.VariationalFormDepth
+                    | _ -> VariationalForm.RealAmplitudes 2
+                
+                // Reconstruct MultiClassTrainingResult from serialized data
+                let classifiers =
+                    multiClassModel.Classifiers
+                    |> Array.map (fun classifier ->
+                        {
+                            Parameters = classifier.Parameters
+                            LossHistory = []  // Not stored
+                            Epochs = classifier.NumIterations
+                            TrainAccuracy = classifier.TrainAccuracy
+                            Converged = true  // Assume converged if saved
+                        } : VQC.TrainingResult
+                    )
+                
+                let multiClassResult : VQC.MultiClassTrainingResult = {
+                    Classifiers = classifiers
+                    ClassLabels = multiClassModel.ClassLabels
+                    TrainAccuracy = multiClassModel.TrainAccuracy
+                    NumClasses = multiClassModel.NumClasses
+                }
+                
                 Ok {
-                    InternalModel = HHLRegressor hhlResult
+                    InternalModel = MultiClassVQC (multiClassResult, featureMap, varForm, multiClassModel.NumQubits)
                     Metadata = {
-                        ProblemType = Regression
+                        ProblemType = MultiClass multiClassModel.NumClasses
                         Architecture = Quantum
-                        TrainingScore = hhlResult.RSquared
+                        TrainingScore = multiClassModel.TrainAccuracy
                         TrainingTime = TimeSpan.Zero
-                        NumFeatures = hhlResult.NumFeatures
-                        NumSamples = hhlResult.NumSamples
+                        NumFeatures = multiClassModel.NumQubits
+                        NumSamples = 0  // Not stored
                         CreatedAt = DateTime.UtcNow
-                        Note = None  // Note is in the serialized model
+                        Note = multiClassModel.Note
                     }
                 }
             | Error _ ->
-                // Try to load as binary SVM model
-                match SVMModelSerialization.loadSVMModel path with
-                | Ok svmModel ->
-                    let numFeatures = if svmModel.TrainData.Length > 0 then svmModel.TrainData.[0].Length else 0
+                // Try to load as HHL model
+                match HHLModelSerialization.loadHHLRegressionResult path with
+                | Ok hhlResult ->
                     Ok {
-                        InternalModel = SVMRegressor svmModel
+                        InternalModel = HHLRegressor hhlResult
                         Metadata = {
                             ProblemType = Regression
                             Architecture = Quantum
-                            TrainingScore = 0.0  // Not stored in SVM model
+                            TrainingScore = hhlResult.RSquared
                             TrainingTime = TimeSpan.Zero
-                            NumFeatures = numFeatures
-                            NumSamples = svmModel.TrainData.Length
+                            NumFeatures = hhlResult.NumFeatures
+                            NumSamples = hhlResult.NumSamples
                             CreatedAt = DateTime.UtcNow
-                            Note = None
+                            Note = None  // Note is in the serialized model
                         }
                     }
                 | Error _ ->
-                    // Try to load as multi-class SVM model
-                    match SVMModelSerialization.loadMultiClassSVMModel path with
-                    | Ok multiClassModel ->
-                        let numFeatures = 
-                            if multiClassModel.BinaryModels.Length > 0 && 
-                               multiClassModel.BinaryModels.[0].TrainData.Length > 0 
-                            then multiClassModel.BinaryModels.[0].TrainData.[0].Length 
-                            else 0
-                        let numSamples = 
-                            if multiClassModel.BinaryModels.Length > 0 
-                            then multiClassModel.BinaryModels.[0].TrainData.Length 
-                            else 0
+                    // Try to load as binary SVM model
+                    match SVMModelSerialization.loadSVMModel path with
+                    | Ok svmModel ->
+                        let numFeatures = if svmModel.TrainData.Length > 0 then svmModel.TrainData.[0].Length else 0
                         Ok {
-                            InternalModel = SVMMultiClass multiClassModel
+                            InternalModel = SVMRegressor svmModel
                             Metadata = {
-                                ProblemType = MultiClass multiClassModel.NumClasses
+                                ProblemType = Regression
                                 Architecture = Quantum
                                 TrainingScore = 0.0  // Not stored in SVM model
                                 TrainingTime = TimeSpan.Zero
                                 NumFeatures = numFeatures
-                                NumSamples = numSamples
+                                NumSamples = svmModel.TrainData.Length
                                 CreatedAt = DateTime.UtcNow
                                 Note = None
                             }
                         }
-                    | Error e ->
-                        Error $"Failed to load model as VQC, HHL, or SVM: {e}"
+                    | Error _ ->
+                        // Try to load as multi-class SVM model
+                        match SVMModelSerialization.loadMultiClassSVMModel path with
+                        | Ok multiClassModel ->
+                            let numFeatures = 
+                                if multiClassModel.BinaryModels.Length > 0 && 
+                                   multiClassModel.BinaryModels.[0].TrainData.Length > 0 
+                                then multiClassModel.BinaryModels.[0].TrainData.[0].Length 
+                                else 0
+                            let numSamples = 
+                                if multiClassModel.BinaryModels.Length > 0 
+                                then multiClassModel.BinaryModels.[0].TrainData.Length 
+                                else 0
+                            Ok {
+                                InternalModel = SVMMultiClass multiClassModel
+                                Metadata = {
+                                    ProblemType = MultiClass multiClassModel.NumClasses
+                                    Architecture = Quantum
+                                    TrainingScore = 0.0  // Not stored in SVM model
+                                    TrainingTime = TimeSpan.Zero
+                                    NumFeatures = numFeatures
+                                    NumSamples = numSamples
+                                    CreatedAt = DateTime.UtcNow
+                                    Note = None
+                                }
+                            }
+                        | Error e ->
+                            Error $"Failed to load model as VQC, multi-class VQC, HHL, or SVM: {e}"
     
     // ========================================================================
     // TRAINING - Core business logic
@@ -860,7 +902,22 @@ module PredictiveModel =
     // ========================================================================
     
     /// Predict continuous value (regression)
-    let predict (features: float array) (model: Model) : Result<RegressionPrediction, string> =
+    ///
+    /// Parameters:
+    ///   features - Input features for prediction
+    ///   model - Trained regression model
+    ///   backend - Quantum backend (defaults to LocalBackend if None)
+    ///   shots - Number of measurement shots for quantum circuits (default: 1000)
+    let predict 
+        (features: float array) 
+        (model: Model) 
+        (backend: IQuantumBackend option) 
+        (shots: int option)
+        : Result<RegressionPrediction, string> =
+        
+        let actualBackend = backend |> Option.defaultWith (fun () -> LocalBackend() :> IQuantumBackend)
+        let actualShots = shots |> Option.defaultValue 1000
+        
         match model.Metadata.ProblemType with
         | MultiClass _ ->
             Error "This model is for multi-class prediction. Use predictCategory instead."
@@ -869,9 +926,7 @@ module PredictiveModel =
                 match model.InternalModel with
                 | RegressionVQC (vqcResult, featureMap, varForm, _) ->
                     // VQC-based non-linear regression
-                    let backend = LocalBackend() :> IQuantumBackend
-                    
-                    match VQC.predictRegression backend featureMap varForm vqcResult.Parameters features model.Metadata.NumSamples vqcResult.ValueRange with
+                    match VQC.predictRegression actualBackend featureMap varForm vqcResult.Parameters features actualShots vqcResult.ValueRange with
                     | Ok pred ->
                         Ok {
                             Value = pred.Value
@@ -892,8 +947,7 @@ module PredictiveModel =
                 
                 | SVMRegressor svmModel ->
                     // Use SVM for regression prediction
-                    let backend = LocalBackend() :> IQuantumBackend
-                    match QuantumKernelSVM.predict backend svmModel features 1000 with
+                    match QuantumKernelSVM.predict actualBackend svmModel features actualShots with
                     | Ok prediction ->
                         Ok {
                             Value = prediction.DecisionValue  // Use the SVM decision value as regression value
@@ -919,7 +973,22 @@ module PredictiveModel =
                 Error $"Prediction failed: {ex.Message}"
     
     /// Predict category (multi-class)
-    let predictCategory (features: float array) (model: Model) : Result<CategoryPrediction, string> =
+    ///
+    /// Parameters:
+    ///   features - Input features for prediction
+    ///   model - Trained multi-class model
+    ///   backend - Quantum backend (defaults to LocalBackend if None)
+    ///   shots - Number of measurement shots for quantum circuits (default: 1000)
+    let predictCategory 
+        (features: float array) 
+        (model: Model) 
+        (backend: IQuantumBackend option) 
+        (shots: int option)
+        : Result<CategoryPrediction, string> =
+        
+        let actualBackend = backend |> Option.defaultWith (fun () -> LocalBackend() :> IQuantumBackend)
+        let actualShots = shots |> Option.defaultValue 1000
+        
         match model.Metadata.ProblemType with
         | Regression ->
             Error "This model is for regression. Use predict instead."
@@ -928,9 +997,7 @@ module PredictiveModel =
                 match model.InternalModel with
                 | MultiClassVQC (multiClassResult, featureMap, varForm, numQubits) ->
                     // VQC multi-class using one-vs-rest strategy
-                    let backend = LocalBackend() :> IQuantumBackend
-                    
-                    match VQC.predictMultiClass backend featureMap varForm multiClassResult features 1000 with
+                    match VQC.predictMultiClass actualBackend featureMap varForm multiClassResult features actualShots with
                     | Error e -> Error $"VQC multi-class prediction failed: {e}"
                     | Ok prediction ->
                         Ok {
@@ -941,8 +1008,7 @@ module PredictiveModel =
                         }
                 
                 | SVMMultiClass multiClassModel ->
-                    let backend = LocalBackend() :> IQuantumBackend
-                    match MultiClassSVM.predict backend multiClassModel features 1000 with
+                    match MultiClassSVM.predict actualBackend multiClassModel features actualShots with
                     | Error e -> Error e
                     | Ok prediction ->
                         let numClasses = multiClassModel.ClassLabels.Length
@@ -962,8 +1028,8 @@ module PredictiveModel =
                         weights 
                         |> Array.map (fun w -> Array.zip xWithIntercept w |> Array.sumBy (fun (x, wi) -> x * wi))
                     
-                    let maxScore = scores |> Array.max
-                    let pred = scores |> Array.findIndex ((=) maxScore)
+                    // Use Array.mapi and maxBy to avoid floating-point comparison issues
+                    let pred = scores |> Array.mapi (fun i s -> (i, s)) |> Array.maxBy snd |> fst
                     
                     // Softmax probabilities
                     let expScores = scores |> Array.map exp
@@ -997,7 +1063,7 @@ module PredictiveModel =
                 let predictions = 
                     testX 
                     |> Array.choose (fun x ->
-                        match predict x model with
+                        match predict x model None None with
                         | Ok pred -> Some pred.Value
                         | Error _ -> None
                     )
@@ -1033,7 +1099,7 @@ module PredictiveModel =
                 let predictions = 
                     testX 
                     |> Array.choose (fun x ->
-                        match predictCategory x model with
+                        match predictCategory x model None None with
                         | Ok pred -> Some pred.Category
                         | Error _ -> None
                     )

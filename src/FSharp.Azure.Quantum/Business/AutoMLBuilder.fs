@@ -741,13 +741,13 @@ module AutoML =
             
             | name when name.StartsWith("Multi-Class") ->
                 let model = unbox<PredictiveModel.Model> result.Model
-                match PredictiveModel.predictCategory features model with
+                match PredictiveModel.predictCategory features model None None with
                 | Ok pred -> Ok (CategoryPrediction pred)
                 | Error e -> Error e
             
             | "Regression" ->
                 let model = unbox<PredictiveModel.Model> result.Model
-                match PredictiveModel.predict features model with
+                match PredictiveModel.predict features model None None with
                 | Ok pred -> Ok (RegressionPrediction pred)
                 | Error e -> Error e
             
