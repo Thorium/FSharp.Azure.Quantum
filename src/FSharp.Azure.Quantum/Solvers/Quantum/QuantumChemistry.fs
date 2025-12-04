@@ -763,6 +763,39 @@ module HamiltonianSimulation =
         [1 .. config.TrotterSteps]
         |> List.fold (fun s _ -> applyTrotterStep s) initialState
 
+/// QPE (Quantum Phase Estimation) for ground state energy
+/// 
+/// ⚠️ NOT YET IMPLEMENTED - RULE1 VIOLATION
+/// 
+/// Current blocker: QPE for quantum chemistry requires:
+/// 1. Hamiltonian time-evolution as quantum circuit (not LocalSimulator state operations)
+/// 2. IQuantumBackend parameter (per RULE1)
+/// 3. Circuit-based Trotter decomposition of exp(-iHt)
+/// 
+/// The existing QPEBackendAdapter supports simple unitaries (T, S, PhaseGate)
+/// but not complex Hamiltonian evolution circuits.
+/// 
+/// For now, GroundStateMethod.QPE returns an honest error message.
+/// Use VQE or ClassicalDFT instead.
+module QPE =
+    
+    /// QPE not implemented for quantum chemistry
+    /// 
+    /// Returns error explaining the limitation and suggesting alternatives.
+    let run (molecule: Molecule) (config: SolverConfig) : Async<Result<VQE.VQEResult, string>> =
+        async.Return(Error 
+            "QPE not implemented for quantum chemistry. \
+             \n\nBLOCKER: Requires Hamiltonian-to-circuit conversion and IQuantumBackend integration. \
+             \n\nCurrent issue: \
+             \n- QPE needs circuit-based time evolution U = exp(-iHt) \
+             \n- HamiltonianSimulation.simulate uses LocalSimulator (violates RULE1) \
+             \n- QPEBackendAdapter doesn't support complex Hamiltonian circuits \
+             \n\nAlternatives: \
+             \n- Use GroundStateMethod.VQE for variational approach \
+             \n- Use GroundStateMethod.ClassicalDFT for known molecules (H2, H2O, LiH) \
+             \n- Use GroundStateMethod.Automatic for smart selection \
+             \n\nSee QUANTUM-CHEMISTRY-RULE1-ANALYSIS.md for full technical details.")
+
 /// Ground state energy estimation
 module GroundStateEnergy =
     
@@ -777,7 +810,7 @@ module GroundStateEnergy =
             VQE.run molecule config
         
         | GroundStateMethod.QPE ->
-            async { return Error "QPE not implemented - use VQE or ClassicalDFT" }
+            QPE.run molecule config
         
         | GroundStateMethod.ClassicalDFT ->
             async {

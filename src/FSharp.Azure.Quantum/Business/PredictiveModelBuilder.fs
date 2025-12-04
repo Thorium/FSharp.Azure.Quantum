@@ -119,7 +119,7 @@ module PredictiveModel =
     
     and InternalModel =
         | RegressionVQC of VQC.RegressionTrainingResult * FeatureMapType * VariationalForm * int
-        | MultiClassVQC of VQC.TrainingResult * FeatureMapType * VariationalForm * int * int  // num classes
+        | MultiClassVQC of VQC.MultiClassTrainingResult * FeatureMapType * VariationalForm * int  // stores all OVR classifiers
         | SVMRegressor of QuantumKernelSVM.SVMModel
         | SVMMultiClass of MultiClassSVM.MultiClassModel
         | HHLRegressor of RegressionResult  // Quantum HHL linear regression
@@ -245,6 +245,155 @@ module PredictiveModel =
             Ok ()
     
     // ========================================================================
+    // PERSISTENCE - Save/Load models (defined before train for forward reference)
+    // ========================================================================
+    
+    /// Save model to file
+    let save (path: string) (model: Model) : Result<unit, string> =
+        match model.InternalModel with
+        | RegressionVQC (result, featureMap, varForm, numQubits) ->
+            let fmType = match featureMap with ZZFeatureMap _ -> "ZZFeatureMap" | _ -> "Unknown"
+            let fmDepth = match featureMap with ZZFeatureMap d -> d | _ -> 0
+            let vfType = match varForm with RealAmplitudes _ -> "RealAmplitudes" | _ -> "Unknown"
+            let vfDepth = match varForm with RealAmplitudes d -> d | _ -> 0
+            
+            ModelSerialization.saveVQCRegressionTrainingResult path result numQubits fmType fmDepth vfType vfDepth model.Metadata.Note
+        
+        | MultiClassVQC (multiClassResult, featureMap, varForm, numQubits) ->
+            // ⚠️ NOTE: Currently only saves the first binary classifier
+            // Full one-vs-rest model serialization not yet implemented
+            // TODO: Implement proper MultiClassVQC serialization
+            let fmType = match featureMap with ZZFeatureMap _ -> "ZZFeatureMap" | _ -> "Unknown"
+            let fmDepth = match featureMap with ZZFeatureMap d -> d | _ -> 0
+            let vfType = match varForm with RealAmplitudes _ -> "RealAmplitudes" | _ -> "Unknown"
+            let vfDepth = match varForm with RealAmplitudes d -> d | _ -> 0
+            
+            if multiClassResult.Classifiers.Length > 0 then
+                ModelSerialization.saveVQCTrainingResult path multiClassResult.Classifiers.[0] numQubits fmType fmDepth vfType vfDepth model.Metadata.Note
+            else
+                Error "MultiClassVQC model has no classifiers to save"
+        
+        | HHLRegressor hhlResult ->
+            HHLModelSerialization.saveHHLRegressionResult path hhlResult model.Metadata.Note
+        
+        | SVMRegressor svmModel ->
+            SVMModelSerialization.saveSVMModel path svmModel model.Metadata.Note
+        
+        | SVMMultiClass multiClassModel ->
+            SVMModelSerialization.saveMultiClassSVMModel path multiClassModel model.Metadata.Note
+        
+        | ClassicalRegressor _
+        | ClassicalMultiClass _ ->
+            Error "Classical models don't support persistence currently"
+    
+    /// Load model from file
+    let load (path: string) : Result<Model, string> =
+        // Try to load as VQC model first
+        match ModelSerialization.loadForTransferLearning path with
+        | Ok (parameters, (numQubits, fmType, fmDepth, vfType, vfDepth)) ->
+            let featureMap = 
+                match fmType with
+                | "ZZFeatureMap" -> FeatureMapType.ZZFeatureMap fmDepth
+                | _ -> FeatureMapType.ZZFeatureMap 2
+            
+            let varForm =
+                match vfType with
+                | "RealAmplitudes" -> VariationalForm.RealAmplitudes vfDepth
+                | _ -> VariationalForm.RealAmplitudes 2
+            
+            // Load full model to get finalLoss (stored as TrainMSE for regression)
+            match ModelSerialization.loadVQCModel path with
+            | Error e -> Error e
+            | Ok serializedModel ->
+                // Create RegressionTrainingResult from saved data
+                let result : VQC.RegressionTrainingResult = {
+                    Parameters = parameters
+                    LossHistory = []  // Not stored
+                    Epochs = 0  // Not stored
+                    TrainMSE = serializedModel.FinalLoss
+                    TrainRSquared = 0.0  // Not stored, set to 0
+                    Converged = true  // Assume converged if saved
+                    ValueRange = (0.0, 1.0)  // Default range, can't recover original
+                }
+                
+                Ok {
+                    InternalModel = RegressionVQC (result, featureMap, varForm, numQubits)
+                    Metadata = {
+                        ProblemType = Regression
+                        Architecture = Quantum
+                        TrainingScore = 0.0
+                        TrainingTime = TimeSpan.Zero
+                        NumFeatures = numQubits
+                        NumSamples = 0
+                        CreatedAt = DateTime.UtcNow
+                        Note = serializedModel.Note
+                    }
+                }
+        | Error _ ->
+            // Try to load as HHL model
+            match HHLModelSerialization.loadHHLRegressionResult path with
+            | Ok hhlResult ->
+                Ok {
+                    InternalModel = HHLRegressor hhlResult
+                    Metadata = {
+                        ProblemType = Regression
+                        Architecture = Quantum
+                        TrainingScore = hhlResult.RSquared
+                        TrainingTime = TimeSpan.Zero
+                        NumFeatures = hhlResult.NumFeatures
+                        NumSamples = hhlResult.NumSamples
+                        CreatedAt = DateTime.UtcNow
+                        Note = None  // Note is in the serialized model
+                    }
+                }
+            | Error _ ->
+                // Try to load as binary SVM model
+                match SVMModelSerialization.loadSVMModel path with
+                | Ok svmModel ->
+                    let numFeatures = if svmModel.TrainData.Length > 0 then svmModel.TrainData.[0].Length else 0
+                    Ok {
+                        InternalModel = SVMRegressor svmModel
+                        Metadata = {
+                            ProblemType = Regression
+                            Architecture = Quantum
+                            TrainingScore = 0.0  // Not stored in SVM model
+                            TrainingTime = TimeSpan.Zero
+                            NumFeatures = numFeatures
+                            NumSamples = svmModel.TrainData.Length
+                            CreatedAt = DateTime.UtcNow
+                            Note = None
+                        }
+                    }
+                | Error _ ->
+                    // Try to load as multi-class SVM model
+                    match SVMModelSerialization.loadMultiClassSVMModel path with
+                    | Ok multiClassModel ->
+                        let numFeatures = 
+                            if multiClassModel.BinaryModels.Length > 0 && 
+                               multiClassModel.BinaryModels.[0].TrainData.Length > 0 
+                            then multiClassModel.BinaryModels.[0].TrainData.[0].Length 
+                            else 0
+                        let numSamples = 
+                            if multiClassModel.BinaryModels.Length > 0 
+                            then multiClassModel.BinaryModels.[0].TrainData.Length 
+                            else 0
+                        Ok {
+                            InternalModel = SVMMultiClass multiClassModel
+                            Metadata = {
+                                ProblemType = MultiClass multiClassModel.NumClasses
+                                Architecture = Quantum
+                                TrainingScore = 0.0  // Not stored in SVM model
+                                TrainingTime = TimeSpan.Zero
+                                NumFeatures = numFeatures
+                                NumSamples = numSamples
+                                CreatedAt = DateTime.UtcNow
+                                Note = None
+                            }
+                        }
+                    | Error e ->
+                        Error $"Failed to load model as VQC, HHL, or SVM: {e}"
+    
+    // ========================================================================
     // TRAINING - Core business logic
     // ========================================================================
     
@@ -296,7 +445,7 @@ module PredictiveModel =
                         if problem.Verbose then
                             printfn "✓ HHL successful! R² = %.4f (linear regression)" hhlResult.RSquared
                         
-                        Ok {
+                        let model = {
                             InternalModel = HHLRegressor hhlResult
                             Metadata = {
                                 ProblemType = Regression
@@ -309,6 +458,16 @@ module PredictiveModel =
                                 Note = problem.Note
                             }
                         }
+                        
+                        // Save model if requested
+                        match problem.SavePath with
+                        | Some path ->
+                            match save path model with
+                            | Ok () -> if problem.Verbose then printfn $"✓ Model saved to: {path}"
+                            | Error e -> if problem.Verbose then printfn $"⚠️ Failed to save model: {e}"
+                        | None -> ()
+                        
+                        Ok model
                     
                     | _ ->
                         // HHL failed or poor fit → Try VQC (can handle non-linear)
@@ -340,7 +499,7 @@ module PredictiveModel =
                                 printfn "✓ VQC training complete!"
                                 printfn "  R² Score: %.4f (non-linear regression)" vqcResult.TrainRSquared
                             
-                            Ok {
+                            let model = {
                                 InternalModel = RegressionVQC (vqcResult, featureMap, varForm, numQubits)
                                 Metadata = {
                                     ProblemType = Regression
@@ -353,6 +512,16 @@ module PredictiveModel =
                                     Note = problem.Note
                                 }
                             }
+                            
+                            // Save model if requested
+                            match problem.SavePath with
+                            | Some path ->
+                                match save path model with
+                                | Ok () -> if problem.Verbose then printfn $"✓ Model saved to: {path}"
+                                | Error e -> if problem.Verbose then printfn $"⚠️ Failed to save model: {e}"
+                            | None -> ()
+                            
+                            Ok model
                 
                 // =================================================================
                 // HYBRID REGRESSION (HHL with fallback capability)
@@ -381,7 +550,7 @@ module PredictiveModel =
                             printfn "✓ Hybrid HHL training succeeded!"
                             printfn "  R² Score: %.4f" hhlResult.RSquared
                         
-                        Ok {
+                        let model = {
                             InternalModel = HHLRegressor hhlResult
                             Metadata = {
                                 ProblemType = Regression
@@ -394,6 +563,16 @@ module PredictiveModel =
                                 Note = problem.Note
                             }
                         }
+                        
+                        // Save model if requested
+                        match problem.SavePath with
+                        | Some path ->
+                            match save path model with
+                            | Ok () -> if problem.Verbose then printfn $"✓ Model saved to: {path}"
+                            | Error e -> if problem.Verbose then printfn $"⚠️ Failed to save model: {e}"
+                        | None -> ()
+                        
+                        Ok model
                     | Error e ->
                         // Fallback to classical regression if HHL fails
                         if problem.Verbose then
@@ -439,57 +618,12 @@ module PredictiveModel =
                         let ssRes = Array.zip y predictions |> Array.sumBy (fun (yt, yp) -> (yt - yp) ** 2.0)
                         let r2 = if ssTot = 0.0 then 1.0 else 1.0 - (ssRes / ssTot)
                         
-                        Ok {
+                        let model = {
                             InternalModel = ClassicalRegressor weights
                             Metadata = {
                                 ProblemType = Regression
-                                Architecture = Hybrid  // Still marked as Hybrid (attempted quantum)
+                                Architecture = Hybrid
                                 TrainingScore = r2
-                                TrainingTime = DateTime.UtcNow - startTime
-                                NumFeatures = m
-                                NumSamples = n
-                                CreatedAt = DateTime.UtcNow
-                                Note = problem.Note
-                            }
-                        }
-                
-                // =================================================================
-                // QUANTUM MULTI-CLASS (Quantum Kernel SVM)
-                // =================================================================
-                | Quantum, MultiClass numClasses ->
-                    let featureMap = FeatureMapType.ZZFeatureMap 2
-                    
-                    // Convert targets to int labels
-                    let labels = problem.TrainTargets |> Array.map int
-                    
-                    let svmConfig : QuantumKernelSVM.SVMConfig = {
-                        C = 1.0
-                        Tolerance = 0.001
-                        MaxIterations = 1000
-                        Verbose = problem.Verbose
-                    }
-                    
-                    match MultiClassSVM.train backend featureMap problem.TrainFeatures labels svmConfig problem.Shots with
-                    | Error e -> Error $"Multi-class training failed: {e}"
-                    | Ok multiClassModel ->
-                        
-                        // Calculate training accuracy
-                        let mutable correctCount = 0
-                        for i in 0 .. problem.TrainFeatures.Length - 1 do
-                            match MultiClassSVM.predict backend multiClassModel problem.TrainFeatures.[i] problem.Shots with
-                            | Ok prediction ->
-                                if prediction.Label = labels.[i] then
-                                    correctCount <- correctCount + 1
-                            | Error _ -> ()
-                        
-                        let accuracy = float correctCount / float labels.Length
-                        
-                        let model = {
-                            InternalModel = SVMMultiClass multiClassModel
-                            Metadata = {
-                                ProblemType = MultiClass numClasses
-                                Architecture = Quantum
-                                TrainingScore = accuracy
                                 TrainingTime = DateTime.UtcNow - startTime
                                 NumFeatures = numFeatures
                                 NumSamples = numSamples
@@ -498,11 +632,70 @@ module PredictiveModel =
                             }
                         }
                         
-                        // Save if requested
-                        // TODO: Implement model save function
+                        // Save model if requested
                         match problem.SavePath with
-                        | Some path -> 
-                            if problem.Verbose then printfn $"⚠️ Model save not yet implemented (path: {path})"
+                        | Some path ->
+                            match save path model with
+                            | Ok () -> if problem.Verbose then printfn $"✓ Model saved to: {path}"
+                            | Error e -> if problem.Verbose then printfn $"⚠️ Failed to save model: {e}"
+                        | None -> ()
+                        
+                        Ok model
+                
+                // =================================================================
+                // QUANTUM MULTI-CLASS (VQC One-vs-Rest)
+                // =================================================================
+                | Quantum, MultiClass numClasses ->
+                    if problem.Verbose then
+                        printfn "Training Quantum Multi-Class (VQC One-vs-Rest)..."
+                    
+                    let featureMap = FeatureMapType.ZZFeatureMap 2
+                    let varFormDepth = 3
+                    let varForm = RealAmplitudes varFormDepth
+                    let numFeatureDims = problem.TrainFeatures.[0].Length
+                    let numQubits = min numFeatureDims 5  // Cap at 5 qubits
+                    let numParams = numQubits * varFormDepth
+                    let initParams = Array.init numParams (fun _ -> 0.1)
+                    
+                    // Convert targets to int labels
+                    let labels = problem.TrainTargets |> Array.map int
+                    
+                    let vqcConfig : VQC.TrainingConfig = {
+                        LearningRate = problem.LearningRate
+                        MaxEpochs = problem.MaxEpochs
+                        ConvergenceThreshold = problem.ConvergenceThreshold
+                        Shots = problem.Shots
+                        Verbose = problem.Verbose
+                        Optimizer = VQC.SGD
+                    }
+                    
+                    match VQC.trainMultiClass backend featureMap varForm initParams problem.TrainFeatures labels vqcConfig with
+                    | Error e -> Error $"VQC multi-class training failed: {e}"
+                    | Ok multiClassResult ->
+                        if problem.Verbose then
+                            printfn "✓ VQC multi-class training complete!"
+                            printfn "  Accuracy: %.4f" multiClassResult.TrainAccuracy
+                        
+                        let model = {
+                            InternalModel = MultiClassVQC (multiClassResult, featureMap, varForm, numQubits)
+                            Metadata = {
+                                ProblemType = MultiClass numClasses
+                                Architecture = Quantum
+                                TrainingScore = multiClassResult.TrainAccuracy
+                                TrainingTime = DateTime.UtcNow - startTime
+                                NumFeatures = numFeatures
+                                NumSamples = numSamples
+                                CreatedAt = DateTime.UtcNow
+                                Note = problem.Note
+                            }
+                        }
+                        
+                        // Save model if requested
+                        match problem.SavePath with
+                        | Some path ->
+                            match save path model with
+                            | Ok () -> if problem.Verbose then printfn $"✓ Model saved to: {path}"
+                            | Error e -> if problem.Verbose then printfn $"⚠️ Failed to save model: {e}"
                         | None -> ()
                         
                         Ok model
@@ -550,6 +743,14 @@ module PredictiveModel =
                             }
                         }
                         
+                        // Save model if requested
+                        match problem.SavePath with
+                        | Some path ->
+                            match save path model with
+                            | Ok () -> if problem.Verbose then printfn $"✓ Model saved to: {path}"
+                            | Error e -> if problem.Verbose then printfn $"⚠️ Failed to save model: {e}"
+                        | None -> ()
+                        
                         Ok model
                 
                 // =================================================================
@@ -588,6 +789,14 @@ module PredictiveModel =
                             Note = problem.Note
                         }
                     }
+                    
+                    // Save model if requested
+                    match problem.SavePath with
+                    | Some path ->
+                        match save path model with
+                        | Ok () -> if problem.Verbose then printfn $"✓ Model saved to: {path}"
+                        | Error e -> if problem.Verbose then printfn $"⚠️ Failed to save model: {e}"
+                    | None -> ()
                     
                     Ok model
                 
@@ -633,6 +842,14 @@ module PredictiveModel =
                         }
                     }
                     
+                    // Save model if requested
+                    match problem.SavePath with
+                    | Some path ->
+                        match save path model with
+                        | Ok () -> if problem.Verbose then printfn $"✓ Model saved to: {path}"
+                        | Error e -> if problem.Verbose then printfn $"⚠️ Failed to save model: {e}"
+                    | None -> ()
+                    
                     Ok model
                 
             with ex ->
@@ -673,6 +890,18 @@ module PredictiveModel =
                         ModelType = "Quantum HHL Linear Regression"
                     }
                 
+                | SVMRegressor svmModel ->
+                    // Use SVM for regression prediction
+                    let backend = LocalBackend() :> IQuantumBackend
+                    match QuantumKernelSVM.predict backend svmModel features 1000 with
+                    | Ok prediction ->
+                        Ok {
+                            Value = prediction.DecisionValue  // Use the SVM decision value as regression value
+                            ConfidenceInterval = None
+                            ModelType = "Quantum Kernel SVM Regression"
+                        }
+                    | Error e -> Error $"SVM regression prediction failed: {e}"
+                
                 | ClassicalRegressor weights ->
                     let xWithIntercept = Array.append [| 1.0 |] features
                     let value = Array.zip xWithIntercept weights |> Array.sumBy (fun (x, w) -> x * w)
@@ -697,9 +926,19 @@ module PredictiveModel =
         | MultiClass numClasses ->
             try
                 match model.InternalModel with
-                | MultiClassVQC (_, _, _, _, _) ->
-                    // TODO: VQC multi-class not implemented (use MultiClassSVM instead)
-                    Error "VQC multi-class prediction not yet implemented"
+                | MultiClassVQC (multiClassResult, featureMap, varForm, numQubits) ->
+                    // VQC multi-class using one-vs-rest strategy
+                    let backend = LocalBackend() :> IQuantumBackend
+                    
+                    match VQC.predictMultiClass backend featureMap varForm multiClassResult features 1000 with
+                    | Error e -> Error $"VQC multi-class prediction failed: {e}"
+                    | Ok prediction ->
+                        Ok {
+                            Category = prediction.Label
+                            Confidence = prediction.Confidence
+                            Probabilities = prediction.Probabilities
+                            ModelType = "Quantum VQC Multi-Class (One-vs-Rest)"
+                        }
                 
                 | SVMMultiClass multiClassModel ->
                     let backend = LocalBackend() :> IQuantumBackend
@@ -847,77 +1086,6 @@ module PredictiveModel =
                     }
             with ex ->
                 Error $"Evaluation failed: {ex.Message}"
-    
-    // ========================================================================
-    // PERSISTENCE - Save/Load models
-    // ========================================================================
-    
-    /// Save model to file
-    let save (path: string) (model: Model) : Result<unit, string> =
-        match model.InternalModel with
-        | RegressionVQC (result, featureMap, varForm, numQubits) ->
-            let fmType = match featureMap with ZZFeatureMap _ -> "ZZFeatureMap" | _ -> "Unknown"
-            let fmDepth = match featureMap with ZZFeatureMap d -> d | _ -> 0
-            let vfType = match varForm with RealAmplitudes _ -> "RealAmplitudes" | _ -> "Unknown"
-            let vfDepth = match varForm with RealAmplitudes d -> d | _ -> 0
-            
-            ModelSerialization.saveVQCRegressionTrainingResult path result numQubits fmType fmDepth vfType vfDepth model.Metadata.Note
-        
-        | MultiClassVQC (result, featureMap, varForm, numQubits, _) ->
-            let fmType = match featureMap with ZZFeatureMap _ -> "ZZFeatureMap" | _ -> "Unknown"
-            let fmDepth = match featureMap with ZZFeatureMap d -> d | _ -> 0
-            let vfType = match varForm with RealAmplitudes _ -> "RealAmplitudes" | _ -> "Unknown"
-            let vfDepth = match varForm with RealAmplitudes d -> d | _ -> 0
-            
-            ModelSerialization.saveVQCTrainingResult path result numQubits fmType fmDepth vfType vfDepth model.Metadata.Note
-        
-        | _ ->
-            Error "Only VQC models support persistence currently"
-    
-    /// Load model from file
-    let load (path: string) : Result<Model, string> =
-        match ModelSerialization.loadForTransferLearning path with
-        | Error e -> Error e
-        | Ok (parameters, (numQubits, fmType, fmDepth, vfType, vfDepth)) ->
-            
-            let featureMap = 
-                match fmType with
-                | "ZZFeatureMap" -> FeatureMapType.ZZFeatureMap fmDepth
-                | _ -> FeatureMapType.ZZFeatureMap 2
-            
-            let varForm =
-                match vfType with
-                | "RealAmplitudes" -> VariationalForm.RealAmplitudes vfDepth
-                | _ -> VariationalForm.RealAmplitudes 2
-            
-            // Load full model to get finalLoss (stored as TrainMSE for regression)
-            match ModelSerialization.loadVQCModel path with
-            | Error e -> Error e
-            | Ok serializedModel ->
-                // Create RegressionTrainingResult from saved data
-                let result : VQC.RegressionTrainingResult = {
-                    Parameters = parameters
-                    LossHistory = []  // Not stored
-                    Epochs = 0  // Not stored
-                    TrainMSE = serializedModel.FinalLoss
-                    TrainRSquared = 0.0  // Not stored, set to 0
-                    Converged = true  // Assume converged if saved
-                    ValueRange = (0.0, 1.0)  // Default range, can't recover original
-                }
-                
-                Ok {
-                    InternalModel = RegressionVQC (result, featureMap, varForm, numQubits)
-                    Metadata = {
-                        ProblemType = Regression
-                        Architecture = Quantum
-                        TrainingScore = 0.0
-                        TrainingTime = TimeSpan.Zero
-                        NumFeatures = numQubits
-                        NumSamples = 0
-                        CreatedAt = DateTime.UtcNow
-                        Note = serializedModel.Note
-                    }
-                }
     
     // ========================================================================
     // COMPUTATION EXPRESSION BUILDER

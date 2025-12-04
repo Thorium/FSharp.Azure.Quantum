@@ -220,6 +220,15 @@ module VQC =
     // TRAINING LOOP
     // ========================================================================
     
+    /// Training state for recursive loop
+    type private TrainingState = {
+        Parameters: float array
+        LossHistory: float list
+        Epoch: int
+        Converged: bool
+        AdamState: AdamOptimizer.AdamState option
+    }
+    
     /// Train VQC model using gradient descent
     let rec train
         (backend: IQuantumBackend)
@@ -237,17 +246,10 @@ module VQC =
         elif trainFeatures.Length = 0 then
             Error "Training set cannot be empty"
         else
-            // Initialize training state
-            let mutable parameters = Array.copy initialParameters
-            let mutable lossHistory = []
-            let mutable converged = false
-            let mutable epoch = 0
-            let mutable trainingError = None
-            
             // Initialize optimizer state for Adam
-            let mutable adamState = 
+            let initialAdamState = 
                 match config.Optimizer with
-                | Adam _ -> Some (AdamOptimizer.createState parameters.Length)
+                | Adam _ -> Some (AdamOptimizer.createState initialParameters.Length)
                 | SGD -> None
             
             if config.Verbose then
@@ -256,84 +258,111 @@ module VQC =
                 printfn "  Features: %d samples" trainFeatures.Length
                 if trainFeatures.Length > 0 then
                     printfn "            %d dimensions" trainFeatures.[0].Length
-                printfn "  Parameters: %d" parameters.Length
+                printfn "  Parameters: %d" initialParameters.Length
                 printfn "  Optimizer: %s" optimizerName
                 printfn "  Learning rate: %.4f" config.LearningRate
                 printfn "  Max epochs: %d" config.MaxEpochs
                 printfn ""
             
-            // Training loop
-            while epoch < config.MaxEpochs && not converged && trainingError.IsNone do
-                // Compute current loss
-                match computeLoss backend featureMap variationalForm parameters trainFeatures trainLabels config.Shots with
-                | Error e -> trainingError <- Some $"Loss computation failed at epoch {epoch}: {e}"
-                | Ok loss ->
-                    
-                    lossHistory <- loss :: lossHistory
-                    
-                    if config.Verbose then
-                        printfn "Epoch %3d: Loss = %.6f" epoch loss
-                    
-                    // Check convergence
-                    if lossHistory.Length >= 2 then
-                        let prevLoss = lossHistory.[1]
-                        let lossChange = abs (prevLoss - loss)
+            // Recursive training loop
+            let rec trainLoop (state: TrainingState) : Result<TrainingState, string> =
+                if state.Epoch >= config.MaxEpochs || state.Converged then
+                    Ok state
+                else
+                    // Compute current loss
+                    match computeLoss backend featureMap variationalForm state.Parameters trainFeatures trainLabels config.Shots with
+                    | Error e -> Error $"Loss computation failed at epoch {state.Epoch}: {e}"
+                    | Ok loss ->
+                        let newLossHistory = loss :: state.LossHistory
                         
-                        if lossChange < config.ConvergenceThreshold then
-                            converged <- true
-                            if config.Verbose then
-                                printfn "  Converged! (loss change: %.6f < %.6f)" lossChange config.ConvergenceThreshold
-                    
-                    if not converged then
-                        // Compute gradients
-                        match computeGradient backend featureMap variationalForm parameters trainFeatures trainLabels config.Shots with
-                        | Error e -> trainingError <- Some $"Gradient computation failed at epoch {epoch}: {e}"
-                        | Ok gradient ->
-                            
-                            // Update parameters using selected optimizer
-                            match config.Optimizer, adamState with
-                            | SGD, _ ->
-                                // Simple gradient descent
-                                for i in 0 .. parameters.Length - 1 do
-                                    parameters.[i] <- parameters.[i] - config.LearningRate * gradient.[i]
-                            
-                            | Adam adamConfig, Some state ->
-                                // Adam optimizer
-                                match AdamOptimizer.update adamConfig state parameters gradient with
-                                | Ok (newParams, newState) ->
-                                    parameters <- newParams
-                                    adamState <- Some newState
-                                | Error e ->
-                                    trainingError <- Some $"Adam optimizer failed at epoch {epoch}: {e}"
-                            
-                            | Adam _, None ->
-                                trainingError <- Some "Adam optimizer state not initialized"
-                            
-                            epoch <- epoch + 1
+                        if config.Verbose then
+                            printfn "Epoch %3d: Loss = %.6f" state.Epoch loss
+                        
+                        // Check convergence
+                        let converged =
+                            if newLossHistory.Length >= 2 then
+                                let prevLoss = newLossHistory.[1]
+                                let lossChange = abs (prevLoss - loss)
+                                
+                                if lossChange < config.ConvergenceThreshold then
+                                    if config.Verbose then
+                                        printfn "  Converged! (loss change: %.6f < %.6f)" lossChange config.ConvergenceThreshold
+                                    true
+                                else
+                                    false
+                            else
+                                false
+                        
+                        if converged then
+                            trainLoop { state with LossHistory = newLossHistory; Converged = true }
+                        else
+                            // Compute gradients
+                            match computeGradient backend featureMap variationalForm state.Parameters trainFeatures trainLabels config.Shots with
+                            | Error e -> Error $"Gradient computation failed at epoch {state.Epoch}: {e}"
+                            | Ok gradient ->
+                                
+                                // Update parameters using selected optimizer
+                                match config.Optimizer, state.AdamState with
+                                | SGD, _ ->
+                                    // Simple gradient descent
+                                    let newParams = 
+                                        Array.map2 (fun p g -> p - config.LearningRate * g) state.Parameters gradient
+                                    
+                                    trainLoop { 
+                                        state with 
+                                            Parameters = newParams
+                                            LossHistory = newLossHistory
+                                            Epoch = state.Epoch + 1 
+                                    }
+                                
+                                | Adam adamConfig, Some adamState ->
+                                    // Adam optimizer
+                                    match AdamOptimizer.update adamConfig adamState state.Parameters gradient with
+                                    | Ok (newParams, newAdamState) ->
+                                        trainLoop {
+                                            state with
+                                                Parameters = newParams
+                                                LossHistory = newLossHistory
+                                                Epoch = state.Epoch + 1
+                                                AdamState = Some newAdamState
+                                        }
+                                    | Error e ->
+                                        Error $"Adam optimizer failed at epoch {state.Epoch}: {e}"
+                                
+                                | Adam _, None ->
+                                    Error "Adam optimizer state not initialized"
             
-            // Check for training errors
-            match trainingError with
-            | Some e -> Error e
-            | None ->
+            // Start training
+            let initialState = {
+                Parameters = Array.copy initialParameters
+                LossHistory = []
+                Epoch = 0
+                Converged = false
+                AdamState = initialAdamState
+            }
+            
+            match trainLoop initialState with
+            | Error e -> Error e
+            | Ok finalState ->
                 // Compute final training accuracy
-                match evaluate backend featureMap variationalForm parameters trainFeatures trainLabels config.Shots with
+                match evaluate backend featureMap variationalForm finalState.Parameters trainFeatures trainLabels config.Shots with
                 | Error e -> Error $"Final evaluation failed: {e}"
                 | Ok accuracy ->
                     
                     if config.Verbose then
                         printfn ""
                         printfn "Training complete!"
-                        printfn "  Epochs: %d" epoch
-                        printfn "  Final loss: %.6f" (List.head lossHistory)
+                        printfn "  Epochs: %d" finalState.Epoch
+                        printfn "  Final loss: %.6f" (List.head finalState.LossHistory)
                         printfn "  Train accuracy: %.2f%%" (accuracy * 100.0)
-                        printfn "  Converged: %b" converged
+                        printfn "  Converged: %b" finalState.Converged
                     
                     Ok {
-                        Parameters = parameters
-                        LossHistory = List.rev lossHistory
-                        Epochs = epoch
+                        Parameters = finalState.Parameters
+                        LossHistory = List.rev finalState.LossHistory
+                        Epochs = finalState.Epoch
                         TrainAccuracy = accuracy
-                        Converged = converged
+                        Converged = finalState.Converged
                     }
     
     // ========================================================================
@@ -566,21 +595,25 @@ module VQC =
         (valueRange: float * float)
         : Result<float, string> =
         
-        let mutable totalLoss = 0.0
-        let mutable errors = []
+        // Compute squared errors for each sample
+        let results =
+            Array.zip trainFeatures trainTargets
+            |> Array.map (fun (features, target) ->
+                match predictRegression backend featureMap variationalForm parameters features shots valueRange with
+                | Error e -> Error e
+                | Ok prediction ->
+                    let error = prediction.Value - target
+                    Ok (error * error))
         
-        for i in 0 .. trainFeatures.Length - 1 do
-            match predictRegression backend featureMap variationalForm parameters trainFeatures.[i] shots valueRange with
-            | Error e -> errors <- e :: errors
-            | Ok prediction ->
-                let error = prediction.Value - trainTargets.[i]
-                totalLoss <- totalLoss + error * error
-        
-        if errors.IsEmpty then
-            Ok (totalLoss / float trainFeatures.Length)
-        else
-            let errorMsg = String.concat "; " errors
-            Error $"Loss computation failed: {errorMsg}"
+        // Check if any predictions failed
+        match results |> Array.tryFind Result.isError with
+        | Some (Error e) -> Error $"Loss computation failed: {e}"
+        | _ ->
+            let squaredErrors = 
+                results 
+                |> Array.choose (function Ok v -> Some v | _ -> None)
+            
+            Ok (Array.average squaredErrors)
     
     /// Compute gradient for regression using parameter shift rule
     let private computeRegressionGradient
@@ -594,13 +627,10 @@ module VQC =
         (valueRange: float * float)
         : Result<float array, string> =
         
-        let gradient = Array.create parameters.Length 0.0
         let shift = Math.PI / 2.0
-        let mutable error = None
         
         // Compute gradient for each parameter using parameter shift rule
-        let mutable i = 0
-        while i < parameters.Length && error.IsNone do
+        let computeParamGradient i =
             // Shift parameter forward
             let paramsPlus = Array.copy parameters
             paramsPlus.[i] <- paramsPlus.[i] + shift
@@ -613,15 +643,23 @@ module VQC =
             match computeRegressionLoss backend featureMap variationalForm paramsPlus trainFeatures trainTargets shots valueRange,
                   computeRegressionLoss backend featureMap variationalForm paramsMinus trainFeatures trainTargets shots valueRange with
             | Ok lossPlus, Ok lossMinus ->
-                gradient.[i] <- (lossPlus - lossMinus) / 2.0
+                Ok ((lossPlus - lossMinus) / 2.0)
             | Error e, _ | _, Error e ->
-                error <- Some $"Gradient computation failed for parameter {i}: {e}"
-            
-            i <- i + 1
+                Error $"Gradient computation failed for parameter {i}: {e}"
         
-        match error with
-        | Some e -> Error e
-        | None -> Ok gradient
+        // Compute gradient for all parameters
+        let results = 
+            parameters 
+            |> Array.mapi (fun i _ -> computeParamGradient i)
+        
+        // Check if any failed
+        match results |> Array.tryFind Result.isError with
+        | Some (Error e) -> Error e
+        | _ ->
+            let gradients = 
+                results 
+                |> Array.choose (function Ok v -> Some v | _ -> None)
+            Ok gradients
     
     /// Calculate R² score for regression
     let private calculateRSquared (yTrue: float array) (yPred: float array) : float =
@@ -654,17 +692,10 @@ module VQC =
             let maxTarget = trainTargets |> Array.max
             let valueRange = (minTarget, maxTarget)
             
-            // Initialize training state
-            let mutable parameters = Array.copy initialParameters
-            let mutable lossHistory = []
-            let mutable converged = false
-            let mutable epoch = 0
-            let mutable trainingError = None
-            
             // Initialize optimizer state for Adam
-            let mutable adamState = 
+            let initialAdamState = 
                 match config.Optimizer with
-                | Adam _ -> Some (AdamOptimizer.createState parameters.Length)
+                | Adam _ -> Some (AdamOptimizer.createState initialParameters.Length)
                 | SGD -> None
             
             if config.Verbose then
@@ -674,68 +705,97 @@ module VQC =
                 if trainFeatures.Length > 0 then
                     printfn "            %d dimensions" trainFeatures.[0].Length
                 printfn "  Target range: [%.2f, %.2f]" minTarget maxTarget
-                printfn "  Parameters: %d" parameters.Length
+                printfn "  Parameters: %d" initialParameters.Length
                 printfn "  Optimizer: %s" optimizerName
                 printfn "  Learning rate: %.4f" config.LearningRate
                 printfn "  Max epochs: %d" config.MaxEpochs
                 printfn ""
             
-            // Training loop
-            while epoch < config.MaxEpochs && not converged && trainingError.IsNone do
-                // Compute current loss
-                match computeRegressionLoss backend featureMap variationalForm parameters trainFeatures trainTargets config.Shots valueRange with
-                | Error e -> trainingError <- Some $"Loss computation failed at epoch {epoch}: {e}"
-                | Ok loss ->
-                    lossHistory <- loss :: lossHistory
-                    
-                    if config.Verbose then
-                        printfn "Epoch %3d: MSE = %.6f" epoch loss
-                    
-                    // Check convergence
-                    if lossHistory.Length >= 2 then
-                        let prevLoss = lossHistory.[1]
-                        let lossChange = abs (prevLoss - loss)
+            // Recursive training loop
+            let rec trainLoop (state: TrainingState) : Result<TrainingState, string> =
+                if state.Epoch >= config.MaxEpochs || state.Converged then
+                    Ok state
+                else
+                    // Compute current loss
+                    match computeRegressionLoss backend featureMap variationalForm state.Parameters trainFeatures trainTargets config.Shots valueRange with
+                    | Error e -> Error $"Loss computation failed at epoch {state.Epoch}: {e}"
+                    | Ok loss ->
+                        let newLossHistory = loss :: state.LossHistory
                         
-                        if lossChange < config.ConvergenceThreshold then
-                            converged <- true
-                            if config.Verbose then
-                                printfn "  Converged! (loss change: %.6f < %.6f)" lossChange config.ConvergenceThreshold
-                    
-                    if not converged then
-                        // Compute gradients
-                        match computeRegressionGradient backend featureMap variationalForm parameters trainFeatures trainTargets config.Shots valueRange with
-                        | Error e -> trainingError <- Some $"Gradient computation failed at epoch {epoch}: {e}"
-                        | Ok gradient ->
-                            // Update parameters using selected optimizer
-                            match config.Optimizer, adamState with
-                            | SGD, _ ->
-                                // Simple gradient descent
-                                for i in 0 .. parameters.Length - 1 do
-                                    parameters.[i] <- parameters.[i] - config.LearningRate * gradient.[i]
-                            
-                            | Adam adamConfig, Some state ->
-                                // Adam optimizer
-                                match AdamOptimizer.update adamConfig state parameters gradient with
-                                | Ok (newParams, newState) ->
-                                    parameters <- newParams
-                                    adamState <- Some newState
-                                | Error e ->
-                                    trainingError <- Some $"Adam optimizer failed at epoch {epoch}: {e}"
-                            
-                            | Adam _, None ->
-                                trainingError <- Some "Adam optimizer state not initialized"
-                            
-                            epoch <- epoch + 1
+                        if config.Verbose then
+                            printfn "Epoch %3d: MSE = %.6f" state.Epoch loss
+                        
+                        // Check convergence
+                        let converged =
+                            if newLossHistory.Length >= 2 then
+                                let prevLoss = newLossHistory.[1]
+                                let lossChange = abs (prevLoss - loss)
+                                
+                                if lossChange < config.ConvergenceThreshold then
+                                    if config.Verbose then
+                                        printfn "  Converged! (loss change: %.6f < %.6f)" lossChange config.ConvergenceThreshold
+                                    true
+                                else
+                                    false
+                            else
+                                false
+                        
+                        if converged then
+                            trainLoop { state with LossHistory = newLossHistory; Converged = true }
+                        else
+                            // Compute gradients
+                            match computeRegressionGradient backend featureMap variationalForm state.Parameters trainFeatures trainTargets config.Shots valueRange with
+                            | Error e -> Error $"Gradient computation failed at epoch {state.Epoch}: {e}"
+                            | Ok gradient ->
+                                
+                                // Update parameters using selected optimizer
+                                match config.Optimizer, state.AdamState with
+                                | SGD, _ ->
+                                    // Simple gradient descent
+                                    let newParams = 
+                                        Array.map2 (fun p g -> p - config.LearningRate * g) state.Parameters gradient
+                                    
+                                    trainLoop { 
+                                        state with 
+                                            Parameters = newParams
+                                            LossHistory = newLossHistory
+                                            Epoch = state.Epoch + 1 
+                                    }
+                                
+                                | Adam adamConfig, Some adamState ->
+                                    // Adam optimizer
+                                    match AdamOptimizer.update adamConfig adamState state.Parameters gradient with
+                                    | Ok (newParams, newAdamState) ->
+                                        trainLoop {
+                                            state with
+                                                Parameters = newParams
+                                                LossHistory = newLossHistory
+                                                Epoch = state.Epoch + 1
+                                                AdamState = Some newAdamState
+                                        }
+                                    | Error e ->
+                                        Error $"Adam optimizer failed at epoch {state.Epoch}: {e}"
+                                
+                                | Adam _, None ->
+                                    Error "Adam optimizer state not initialized"
             
-            // Check for training errors
-            match trainingError with
-            | Some e -> Error e
-            | None ->
+            // Start training
+            let initialState = {
+                Parameters = Array.copy initialParameters
+                LossHistory = []
+                Epoch = 0
+                Converged = false
+                AdamState = initialAdamState
+            }
+            
+            match trainLoop initialState with
+            | Error e -> Error e
+            | Ok finalState ->
                 // Compute final training metrics
                 let predictions = 
                     trainFeatures 
                     |> Array.map (fun features ->
-                        match predictRegression backend featureMap variationalForm parameters features config.Shots valueRange with
+                        match predictRegression backend featureMap variationalForm finalState.Parameters features config.Shots valueRange with
                         | Ok pred -> pred.Value
                         | Error _ -> 0.0)  // Fallback
                 
@@ -748,17 +808,195 @@ module VQC =
                 if config.Verbose then
                     printfn ""
                     printfn "Training complete!"
-                    printfn "  Epochs: %d" epoch
+                    printfn "  Epochs: %d" finalState.Epoch
                     printfn "  Final MSE: %.6f" finalMSE
                     printfn "  R² score: %.4f" finalRSquared
-                    printfn "  Converged: %b" converged
+                    printfn "  Converged: %b" finalState.Converged
                 
                 Ok {
-                    Parameters = parameters
-                    LossHistory = List.rev lossHistory
-                    Epochs = epoch
+                    Parameters = finalState.Parameters
+                    LossHistory = List.rev finalState.LossHistory
+                    Epochs = finalState.Epoch
                     TrainMSE = finalMSE
                     TrainRSquared = finalRSquared
-                    Converged = converged
+                    Converged = finalState.Converged
                     ValueRange = valueRange
                 }
+
+    // ========================================================================
+    // MULTI-CLASS CLASSIFICATION (One-vs-Rest)
+    // ========================================================================
+    
+    /// Multi-class training result (one-vs-rest)
+    type MultiClassTrainingResult = {
+        /// Binary classifiers (one per class)
+        Classifiers: TrainingResult array
+        
+        /// Class labels
+        ClassLabels: int array
+        
+        /// Overall training accuracy
+        TrainAccuracy: float
+        
+        /// Number of classes
+        NumClasses: int
+    }
+    
+    /// Multi-class prediction result
+    type MultiClassPrediction = {
+        /// Predicted class label
+        Label: int
+        
+        /// Confidence score [0, 1]
+        Confidence: float
+        
+        /// Probability distribution over all classes
+        Probabilities: float array
+    }
+    
+    /// Train multi-class VQC using one-vs-rest strategy
+    let trainMultiClass
+        (backend: IQuantumBackend)
+        (featureMap: FeatureMapType)
+        (variationalForm: VariationalForm)
+        (initialParameters: float array)
+        (trainFeatures: float array array)
+        (trainLabels: int array)
+        (config: TrainingConfig)
+        : Result<MultiClassTrainingResult, string> =
+        
+        // Validate inputs
+        if trainFeatures.Length <> trainLabels.Length then
+            Error "Features and labels must have same length"
+        elif trainFeatures.Length = 0 then
+            Error "Training set cannot be empty"
+        else
+            // Get unique class labels
+            let classLabels = trainLabels |> Array.distinct |> Array.sort
+            let numClasses = classLabels.Length
+            
+            if numClasses < 2 then
+                Error "Need at least 2 classes for multi-class classification"
+            elif numClasses = 2 then
+                // Binary classification - just train one classifier
+                match train backend featureMap variationalForm initialParameters trainFeatures trainLabels config with
+                | Error e -> Error e
+                | Ok result ->
+                    Ok {
+                        Classifiers = [| result |]
+                        ClassLabels = classLabels
+                        TrainAccuracy = result.TrainAccuracy
+                        NumClasses = numClasses
+                    }
+            else
+                if config.Verbose then
+                    printfn "Starting VQC multi-class training (one-vs-rest)..."
+                    printfn "  Classes: %d" numClasses
+                    printfn "  Samples: %d" trainFeatures.Length
+                    printfn ""
+                
+                // Train one binary classifier per class
+                let classifierResults = 
+                    classLabels 
+                    |> Array.mapi (fun i classLabel ->
+                        if config.Verbose then
+                            printfn "Training classifier %d/%d (class %d)..." (i + 1) numClasses classLabel
+                        
+                        // Create binary labels: 1 for current class, 0 for others
+                        let binaryLabels = 
+                            trainLabels 
+                            |> Array.map (fun label -> if label = classLabel then 1 else 0)
+                        
+                        // Train binary classifier
+                        match train backend featureMap variationalForm initialParameters trainFeatures binaryLabels config with
+                        | Error e -> Error $"Classifier for class {classLabel} failed: {e}"
+                        | Ok result ->
+                            if config.Verbose then
+                                printfn "  Class %d accuracy: %.4f" classLabel result.TrainAccuracy
+                                printfn ""
+                            Ok result
+                    )
+                
+                // Check if any classifier failed
+                match classifierResults |> Array.tryFind Result.isError with
+                | Some (Error e) -> Error e
+                | _ ->
+                    let classifiers = classifierResults |> Array.choose (function Ok r -> Some r | _ -> None)
+                    
+                    // Compute overall training accuracy using one-vs-rest prediction
+                    let mutable correctCount = 0
+                    for i in 0 .. trainFeatures.Length - 1 do
+                        // Get scores from all classifiers
+                        let scores = 
+                            classifiers 
+                            |> Array.map (fun classifier ->
+                                match predict backend featureMap variationalForm classifier.Parameters trainFeatures.[i] config.Shots with
+                                | Ok pred -> pred.Probability
+                                | Error _ -> 0.0
+                            )
+                        
+                        // Predicted class is the one with highest score
+                        let maxScore = scores |> Array.max
+                        let predictedClassIdx = scores |> Array.findIndex ((=) maxScore)
+                        let predictedClass = classLabels.[predictedClassIdx]
+                        
+                        if predictedClass = trainLabels.[i] then
+                            correctCount <- correctCount + 1
+                    
+                    let accuracy = float correctCount / float trainFeatures.Length
+                    
+                    if config.Verbose then
+                        printfn "Multi-class training complete!"
+                        printfn "  Overall accuracy: %.4f" accuracy
+                    
+                    Ok {
+                        Classifiers = classifiers
+                        ClassLabels = classLabels
+                        TrainAccuracy = accuracy
+                        NumClasses = numClasses
+                    }
+    
+    /// Predict class for multi-class VQC (one-vs-rest)
+    let predictMultiClass
+        (backend: IQuantumBackend)
+        (featureMap: FeatureMapType)
+        (variationalForm: VariationalForm)
+        (result: MultiClassTrainingResult)
+        (features: float array)
+        (shots: int)
+        : Result<MultiClassPrediction, string> =
+        
+        // Get scores from all classifiers
+        let scoreResults = 
+            result.Classifiers 
+            |> Array.map (fun classifier ->
+                match predict backend featureMap variationalForm classifier.Parameters features shots with
+                | Ok pred -> Ok pred.Probability
+                | Error e -> Error e
+            )
+        
+        // Check if any prediction failed
+        match scoreResults |> Array.tryFind Result.isError with
+        | Some (Error e) -> Error $"Multi-class prediction failed: {e}"
+        | _ ->
+            let scores = scoreResults |> Array.choose (function Ok s -> Some s | _ -> None)
+            
+            // Normalize scores to probabilities (softmax-like)
+            let expScores = scores |> Array.map exp
+            let sumExp = expScores |> Array.sum
+            let probabilities = 
+                if sumExp > 0.0 then
+                    expScores |> Array.map (fun e -> e / sumExp)
+                else
+                    Array.create result.NumClasses (1.0 / float result.NumClasses)
+            
+            // Predicted class is the one with highest probability
+            let maxProb = probabilities |> Array.max
+            let predictedClassIdx = probabilities |> Array.findIndex ((=) maxProb)
+            let predictedLabel = result.ClassLabels.[predictedClassIdx]
+            
+            Ok {
+                Label = predictedLabel
+                Confidence = maxProb
+                Probabilities = probabilities
+            }
