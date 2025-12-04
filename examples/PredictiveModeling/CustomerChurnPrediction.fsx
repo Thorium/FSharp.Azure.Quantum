@@ -14,7 +14,8 @@
 /// - Class 2: Will churn within 60 days (warning)
 /// - Class 3: Will churn within 90 days (monitor)
 
-#r "nuget: FSharp.Azure.Quantum"
+//#r "nuget: FSharp.Azure.Quantum"
+#r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 
 open System
 open FSharp.Azure.Quantum.Business
@@ -141,7 +142,7 @@ match result1 with
     // Customer 1: High churn risk (30 days)
     let customer1 = [| 2.0; 25.0; 8.0; 3.0; 2.0 |]  // Short tenure, low spend, many calls, low usage, low satisfaction
     
-    match PredictiveModel.predictCategory customer1 model with
+    match PredictiveModel.predictCategory customer1 None None model with
     | Error e -> printfn "❌ Prediction failed: %s" e
     | Ok pred ->
         printfn "Customer 1 Analysis:"
@@ -162,7 +163,7 @@ match result1 with
     // Customer 2: Stable customer
     let customer2 = [| 24.0; 150.0; 1.0; 25.0; 9.0 |]  // Long tenure, high spend, few calls, high usage, high satisfaction
     
-    match PredictiveModel.predictCategory customer2 model with
+    match PredictiveModel.predictCategory customer2 None None model with
     | Error e -> printfn "❌ Prediction failed: %s" e
     | Ok pred ->
         printfn "Customer 2 Analysis:"
@@ -179,7 +180,7 @@ match result1 with
     // Customer 3: Medium-term risk
     let customer3 = [| 10.0; 50.0; 4.0; 10.0; 5.0 |]  // Medium tenure, declining spend, some calls, medium usage, medium satisfaction
     
-    match PredictiveModel.predictCategory customer3 model with
+    match PredictiveModel.predictCategory customer3 None None model with
     | Error e -> printfn "❌ Prediction failed: %s" e
     | Ok pred ->
         printfn "Customer 3 Analysis:"
@@ -351,7 +352,7 @@ match result3 with
     printfn "=== Revenue Predictions ===\n"
     
     let testCustomer1 = [| 24.0; 150.0; 20.0; 9.0 |]  // High-value customer
-    match PredictiveModel.predict testCustomer1 model with
+    match PredictiveModel.predict testCustomer1 None None model with
     | Error e -> printfn "❌ Prediction failed: %s" e
     | Ok pred ->
         printfn "High-Value Customer:"
@@ -360,7 +361,7 @@ match result3 with
         printfn "  💡 Action: VIP treatment, loyalty rewards\n"
     
     let testCustomer2 = [| 6.0; 60.0; 10.0; 5.0 |]  // Medium-value customer
-    match PredictiveModel.predict testCustomer2 model with
+    match PredictiveModel.predict testCustomer2 None None model with
     | Error e -> printfn "❌ Prediction failed: %s" e
     | Ok pred ->
         printfn "Medium-Value Customer:"
@@ -369,7 +370,7 @@ match result3 with
         printfn "  💡 Action: Upsell opportunities, engagement campaigns\n"
     
     let testCustomer3 = [| 2.0; 30.0; 5.0; 3.0 |]  // Low-value at-risk customer
-    match PredictiveModel.predict testCustomer3 model with
+    match PredictiveModel.predict testCustomer3 None None model with
     | Error e -> printfn "❌ Prediction failed: %s" e
     | Ok pred ->
         printfn "Low-Value At-Risk Customer:"
@@ -387,7 +388,7 @@ printfn "\n=== Example 4: Production Integration Pattern ===\n"
 
 /// Production-ready churn assessment function
 let assessCustomerChurn (customerFeatures: float array) (model: PredictiveModel.Model) =
-    match PredictiveModel.predictCategory customerFeatures model with
+    match PredictiveModel.predictCategory customerFeatures None None model with
     | Error e ->
         printfn "⚠️  Prediction error: %s" e
         None

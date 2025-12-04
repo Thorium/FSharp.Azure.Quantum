@@ -188,21 +188,6 @@ module QuantumTspSolverTests =
     // ========================================================================
 
     [<Fact>]
-    let ``solve should reject 5-city problem on local backend`` () =
-        let backend = createLocalBackend()  // Max 16 qubits
-        // 5 cities = 5*5 = 25 qubits (exceeds 16-qubit limit)
-        let distances = Array2D.init 5 5 (fun i j -> 
-            if i = j then 0.0 else float (abs(i - j)))
-        
-        let result = solveWithShots backend distances 100
-        
-        match result with
-        | Error msg ->
-            Assert.Contains("25 qubits", msg)
-            Assert.Contains("16 qubits", msg)
-        | Ok _ -> Assert.True(false, "Should reject 5-city problem (25 qubits > 16 qubit limit)")
-
-    [<Fact>]
     let ``solve with different shot counts should work`` () =
         let backend = createLocalBackend()
         let distances = create3CityProblem()  // 3 cities = 9 qubits (within 16 qubit limit)

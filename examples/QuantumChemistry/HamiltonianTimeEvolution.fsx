@@ -1,7 +1,8 @@
 // Hamiltonian Time Evolution Example
 // Demonstrates Trotter-Suzuki simulation for molecular dynamics
 
-#r "nuget: FSharp.Azure.Quantum"
+//#r "nuget: FSharp.Azure.Quantum"
+#r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 
 open FSharp.Azure.Quantum.QuantumChemistry
 open FSharp.Azure.Quantum.LocalSimulator

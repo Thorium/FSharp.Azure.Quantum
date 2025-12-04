@@ -11,14 +11,17 @@
     Run with: dotnet fsi VQCExample.fsx
 *)
 
+//#r "nuget: FSharp.Azure.Quantum"
+#r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
+
 #r "nuget: FsUnit"
-#load "../../src/FSharp.Azure.Quantum/Types.fs"
-#load "../../src/FSharp.Azure.Quantum/Backends.fs"
-#load "../../src/FSharp.Azure.Quantum/LocalBackend.fs"
-#load "../../src/FSharp.Azure.Quantum/MachineLearning/QMLTypes.fs"
-#load "../../src/FSharp.Azure.Quantum/MachineLearning/FeatureMap.fs"
-#load "../../src/FSharp.Azure.Quantum/MachineLearning/VariationalForm.fs"
-#load "../../src/FSharp.Azure.Quantum/MachineLearning/VQC.fs"
+//#load "../../src/FSharp.Azure.Quantum/Types.fs"
+//#load "../../src/FSharp.Azure.Quantum/Backends.fs"
+//#load "../../src/FSharp.Azure.Quantum/LocalBackend.fs"
+//#load "../../src/FSharp.Azure.Quantum/MachineLearning/QMLTypes.fs"
+//#load "../../src/FSharp.Azure.Quantum/MachineLearning/FeatureMap.fs"
+//#load "../../src/FSharp.Azure.Quantum/MachineLearning/VariationalForm.fs"
+//#load "../../src/FSharp.Azure.Quantum/MachineLearning/VQC.fs"
 
 open System
 open FSharp.Azure.Quantum
@@ -52,7 +55,8 @@ printSection "Variational Quantum Classifier (VQC) Example"
 printSection "1. Setup: Backend and Architecture"
 
 // Create quantum backend
-let backend = LocalBackend() :> IQuantumBackend
+open FSharp.Azure.Quantum.LocalSimulator
+let backend = createLocalBackend()
 printResult "Backend" "LocalBackend (quantum simulator)"
 
 // Define VQC architecture

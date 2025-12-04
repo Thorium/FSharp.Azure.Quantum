@@ -213,7 +213,7 @@ module BinaryClassifier =
         }
         
         // Train VQC (initialize parameters randomly)
-        let numParams = 4  // Number of parameters for RealAmplitudes(2)
+        let numParams = AnsatzHelpers.parameterCount variationalForm numQubits
         let initialParams = Array.init numParams (fun _ -> Random().NextDouble() * 2.0 * Math.PI)
         
         match VQC.train backend featureMap variationalForm initialParams features labels trainConfig with
@@ -412,49 +412,77 @@ module BinaryClassifier =
             
             ModelSerialization.saveVQCTrainingResult path result numQubits fmType fmDepth vfType vfDepth classifier.Metadata.Note
         
-        | SVMModel (_, _) ->
-            Error "SVM model persistence not yet implemented"
+        | SVMModel (svmModel, numQubits) ->
+            ModelSerialization.saveSVMModel path svmModel numQubits classifier.Metadata.Note
         
         | ClassicalModel _ ->
             Error "Classical model persistence not yet implemented"
     
     /// Load classifier from file
     let load (path: string) : Result<Classifier, string> =
-        match ModelSerialization.loadForTransferLearning path with
-        | Error e -> Error e
-        | Ok (parameters, (numQubits, fmType, fmDepth, vfType, vfDepth)) ->
+        // Detect model type by checking JSON structure
+        try
+            let json = System.IO.File.ReadAllText(path)
             
-            // Reconstruct model
-            let featureMap = 
-                match fmType with
-                | "ZZFeatureMap" -> FeatureMapType.ZZFeatureMap fmDepth
-                | _ -> FeatureMapType.ZZFeatureMap 2
-            
-            let varForm =
-                match vfType with
-                | "RealAmplitudes" -> VariationalForm.RealAmplitudes vfDepth
-                | _ -> VariationalForm.RealAmplitudes 2
-            
-            let result : VQC.TrainingResult = {
-                Parameters = parameters
-                LossHistory = []
-                Epochs = 0
-                TrainAccuracy = 0.0
-                Converged = true
-            }
-            
-            Ok {
-                Model = VQCModel (result, featureMap, varForm, numQubits)
-                Metadata = {
-                    Architecture = Quantum
-                    TrainingAccuracy = 0.0
-                    TrainingTime = TimeSpan.Zero
-                    NumFeatures = numQubits
-                    NumSamples = 0
-                    CreatedAt = DateTime.UtcNow
-                    Note = None
-                }
-            }
+            // Check if it's an SVM model (has SupportVectorIndices field)
+            if json.Contains("\"SupportVectorIndices\"") then
+                // Load as SVM
+                match ModelSerialization.loadSVMModel path with
+                | Error e -> Error $"Failed to load SVM model: {e}"
+                | Ok serialized ->
+                    match ModelSerialization.reconstructSVMModel serialized with
+                    | Error e -> Error e
+                    | Ok svmModel ->
+                        Ok {
+                            Model = SVMModel (svmModel, serialized.NumQubits)
+                            Metadata = {
+                                Architecture = Hybrid
+                                TrainingAccuracy = 0.0
+                                TrainingTime = TimeSpan.Zero
+                                NumFeatures = serialized.NumQubits
+                                NumSamples = serialized.TrainData.Length
+                                CreatedAt = DateTime.UtcNow
+                                Note = serialized.Note
+                            }
+                        }
+            else
+                // Load as VQC model
+                match ModelSerialization.loadForTransferLearning path with
+                | Error e -> Error e
+                | Ok (parameters, (numQubits, fmType, fmDepth, vfType, vfDepth)) ->
+                    // Reconstruct VQC model
+                    let featureMap = 
+                        match fmType with
+                        | "ZZFeatureMap" -> FeatureMapType.ZZFeatureMap fmDepth
+                        | _ -> FeatureMapType.ZZFeatureMap 2
+                    
+                    let varForm =
+                        match vfType with
+                        | "RealAmplitudes" -> VariationalForm.RealAmplitudes vfDepth
+                        | _ -> VariationalForm.RealAmplitudes 2
+                    
+                    let result : VQC.TrainingResult = {
+                        Parameters = parameters
+                        LossHistory = []
+                        Epochs = 0
+                        TrainAccuracy = 0.0
+                        Converged = true
+                    }
+                    
+                    Ok {
+                        Model = VQCModel (result, featureMap, varForm, numQubits)
+                        Metadata = {
+                            Architecture = Quantum
+                            TrainingAccuracy = 0.0
+                            TrainingTime = TimeSpan.Zero
+                            NumFeatures = numQubits
+                            NumSamples = 0
+                            CreatedAt = DateTime.UtcNow
+                            Note = None
+                        }
+                    }
+        with ex ->
+            Error $"Failed to load model: {ex.Message}"
     
     // ========================================================================
     // COMPUTATION EXPRESSION BUILDER
@@ -505,42 +533,63 @@ module BinaryClassifier =
                 Note = None
             }
         
+        /// <summary>Set the training data with features and binary labels.</summary>
+        /// <param name="features">Training feature vectors</param>
+        /// <param name="labels">Binary labels (0 or 1) for each sample</param>
         [<CustomOperation("trainWith")>]
         member _.TrainWith(problem: ClassificationProblem, features: float array array, labels: int array) =
             { problem with TrainFeatures = features; TrainLabels = labels }
         
+        /// <summary>Set the neural network architecture.</summary>
+        /// <param name="arch">Architecture specification</param>
         [<CustomOperation("architecture")>]
         member _.Architecture(problem: ClassificationProblem, arch: Architecture) =
             { problem with Architecture = arch }
         
+        /// <summary>Set the learning rate for optimization.</summary>
+        /// <param name="lr">Learning rate (typically 0.001 to 0.1)</param>
         [<CustomOperation("learningRate")>]
         member _.LearningRate(problem: ClassificationProblem, lr: float) =
             { problem with LearningRate = lr }
         
+        /// <summary>Set the maximum number of training epochs.</summary>
+        /// <param name="epochs">Maximum epochs</param>
         [<CustomOperation("maxEpochs")>]
         member _.MaxEpochs(problem: ClassificationProblem, epochs: int) =
             { problem with MaxEpochs = epochs }
         
+        /// <summary>Set the convergence threshold for early stopping.</summary>
+        /// <param name="threshold">Convergence threshold for loss improvement</param>
         [<CustomOperation("convergenceThreshold")>]
         member _.ConvergenceThreshold(problem: ClassificationProblem, threshold: float) =
             { problem with ConvergenceThreshold = threshold }
         
+        /// <summary>Set the quantum backend for execution.</summary>
+        /// <param name="backend">Quantum backend instance</param>
         [<CustomOperation("backend")>]
         member _.Backend(problem: ClassificationProblem, backend: IQuantumBackend) =
             { problem with Backend = Some backend }
         
+        /// <summary>Set the number of measurement shots.</summary>
+        /// <param name="shots">Number of circuit measurements</param>
         [<CustomOperation("shots")>]
         member _.Shots(problem: ClassificationProblem, shots: int) =
             { problem with Shots = shots }
         
+        /// <summary>Enable or disable verbose output.</summary>
+        /// <param name="verbose">True to enable detailed logging</param>
         [<CustomOperation("verbose")>]
         member _.Verbose(problem: ClassificationProblem, verbose: bool) =
             { problem with Verbose = verbose }
         
+        /// <summary>Set the path to save the trained model.</summary>
+        /// <param name="path">File path for saving the model</param>
         [<CustomOperation("saveModelTo")>]
         member _.SaveModelTo(problem: ClassificationProblem, path: string) =
             { problem with SavePath = Some path }
         
+        /// <summary>Add a note or description to the classification problem.</summary>
+        /// <param name="note">Descriptive note</param>
         [<CustomOperation("note")>]
         member _.Note(problem: ClassificationProblem, note: string) =
             { problem with Note = Some note }

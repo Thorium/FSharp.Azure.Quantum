@@ -276,7 +276,7 @@ module CircuitBuilder =
     
     /// <summary>
     /// Computation expression builder for constructing quantum circuits declaratively.
-    /// Enables natural gate composition with support for loops and gate sequences.
+    /// Enables natural gate composition with custom operations.
     /// </summary>
     /// 
     /// <example>
@@ -285,16 +285,26 @@ module CircuitBuilder =
     /// let bell = circuit {
     ///     qubits 2
     ///     H 0
-    ///     CNOT (0, 1)
+    ///     CNOT 0 1
     /// }
     /// 
-    /// // GHZ state with loop
-    /// let ghz = circuit {
-    ///     qubits 5
-    ///     H 0
+    /// // GHZ state (use programmatic API for loops)
+    /// let ghz = 
+    ///     let mutable c = empty 5
+    ///     c &lt;- addGate (H 0) c
     ///     for i in [0..3] do
-    ///         CNOT (i, i+1)
-    /// }
+    ///         c &lt;- addGate (CNOT (i, i+1)) c
+    ///     c
+    /// 
+    /// // Or use the For method directly via helper function
+    /// let ghzWithFor qubitCount =
+    ///     circuit {
+    ///         qubits qubitCount
+    ///         H 0
+    ///     }
+    ///     |> fun baseCircuit ->
+    ///         let cnots = [0..qubitCount-2] |> List.map (fun i -> CNOT (i, i+1))
+    ///         addGates cnots baseCircuit
     /// </code>
     /// </example>
     type CircuitBuilderCE() =
@@ -303,17 +313,9 @@ module CircuitBuilder =
         member _.Yield(_) : Circuit =
             { QubitCount = 0; Gates = [] }
         
-        member _.For(sequence: seq<'T>, body: 'T -> Circuit) : Circuit =
-            // Idiomatic F#: Use Seq.fold to accumulate gates from sequence
-            let zero = { QubitCount = 0; Gates = [] }
-            
-            sequence
-            |> Seq.map body
-            |> Seq.fold (fun acc circuitPart ->
-                {
-                    QubitCount = if circuitPart.QubitCount > 0 then circuitPart.QubitCount else acc.QubitCount
-                    Gates = acc.Gates @ circuitPart.Gates  // Accumulate gates
-                }) zero
+        /// <summary>Yield an existing circuit (enables yield! syntax)</summary>
+        member _.YieldFrom(circuit: Circuit) : Circuit =
+            circuit
         
         member _.Combine(circuit1: Circuit, circuit2: Circuit) : Circuit =
             // Compose circuits: merge gates and preserve qubit count
@@ -326,11 +328,21 @@ module CircuitBuilder =
         member _.Zero() : Circuit =
             { QubitCount = 0; Gates = [] }
         
-        // Delay/Run pattern for proper lazy evaluation (idiomatic F# CEs)
-        member _.Delay(f: unit -> Circuit) : unit -> Circuit = f
+        // Delay executes immediately (like FsCdk pattern)
+        member inline _.Delay([<InlineIfLambda>] f: unit -> Circuit) : Circuit = f()
         
-        member _.Run(f: unit -> Circuit) : Circuit =
-            let circuit = f()
+        // For method for delayed execution patterns (Delay/Run interaction)
+        member inline this.For(circuit: Circuit, [<InlineIfLambda>] f: unit -> Circuit) : Circuit =
+            this.Combine(circuit, f())
+        
+        member this.For(sequence: seq<'T>, body: 'T -> Circuit) : Circuit =
+            let mutable state = this.Zero()
+            for item in sequence do
+                let itemCircuit = body item
+                state <- this.Combine(state, itemCircuit)
+            state
+        
+        member _.Run(circuit: Circuit) : Circuit =
             // Validate circuit before returning
             match validate circuit with
             | result when result.IsValid -> circuit
@@ -397,6 +409,12 @@ module CircuitBuilder =
         [<CustomOperation("P")>]
         member _.P(circuit: Circuit, qubit: int, angle: float) : Circuit =
             { circuit with Gates = circuit.Gates @ [P (qubit, angle)] }
+
+        /// Apply phase gate P(θ) to qubit, tuple
+        [<CustomOperation("P")>]
+        member _.P(circuit: Circuit, qubitAndAngle: int*float) : Circuit =
+            { circuit with Gates = circuit.Gates @ [P qubitAndAngle] }
+        
         
         // ========================================================================
         // ROTATION GATES
@@ -406,40 +424,78 @@ module CircuitBuilder =
         [<CustomOperation("RX")>]
         member _.RX(circuit: Circuit, qubit: int, angle: float) : Circuit =
             { circuit with Gates = circuit.Gates @ [RX (qubit, angle)] }
+
+        /// Apply RX rotation (around X-axis) to qubit
+        [<CustomOperation("RX")>]
+        member _.RX(circuit: Circuit, qubitAndangle: int*float) : Circuit =
+            { circuit with Gates = circuit.Gates @ [RX qubitAndangle] }
         
         /// Apply RY rotation (around Y-axis) to qubit
         [<CustomOperation("RY")>]
         member _.RY(circuit: Circuit, qubit: int, angle: float) : Circuit =
             { circuit with Gates = circuit.Gates @ [RY (qubit, angle)] }
+
+        /// Apply RY rotation (around Y-axis) to qubit
+        [<CustomOperation("RY")>]
+        member _.RY(circuit: Circuit, qubitAndAngle: int*float) : Circuit =
+            { circuit with Gates = circuit.Gates @ [RY qubitAndAngle] }
         
         /// Apply RZ rotation (around Z-axis) to qubit
         [<CustomOperation("RZ")>]
         member _.RZ(circuit: Circuit, qubit: int, angle: float) : Circuit =
             { circuit with Gates = circuit.Gates @ [RZ (qubit, angle)] }
+
+        /// Apply RZ rotation (around Z-axis) to qubit
+        [<CustomOperation("RZ")>]
+        member _.RZ(circuit: Circuit, qubitAndAngle: int*float) : Circuit =
+            { circuit with Gates = circuit.Gates @ [RZ qubitAndAngle] }
         
         // ========================================================================
         // TWO-QUBIT GATES
         // ========================================================================
         
-        /// Apply CNOT (controlled-NOT) gate
+        /// Apply CNOT (controlled-NOT) gate, control and target (separately)
         [<CustomOperation("CNOT")>]
         member _.CNOT(circuit: Circuit, control: int, target: int) : Circuit =
             { circuit with Gates = circuit.Gates @ [CNOT (control, target)] }
+
+        /// Apply CNOT (controlled-NOT) gate (control and target, tuple)
+        [<CustomOperation("CNOT")>]
+        member _.CNOT(circuit: Circuit, controlAndTarget: int*int) : Circuit =
+            { circuit with Gates = circuit.Gates @ [CNOT controlAndTarget] }
+        
         
         /// Apply CZ (controlled-Z) gate
         [<CustomOperation("CZ")>]
         member _.CZ(circuit: Circuit, control: int, target: int) : Circuit =
             { circuit with Gates = circuit.Gates @ [CZ (control, target)] }
+
+        /// Apply CZ (controlled-Z) gate
+        [<CustomOperation("CZ")>]
+        member _.CZ(circuit: Circuit, controlAndTarget: int*int) : Circuit =
+            { circuit with Gates = circuit.Gates @ [CZ controlAndTarget] }
+        
         
         /// Apply controlled-phase gate CP(θ)
         [<CustomOperation("CP")>]
         member _.CP(circuit: Circuit, control: int, target: int, angle: float) : Circuit =
             { circuit with Gates = circuit.Gates @ [CP (control, target, angle)] }
+
+        /// Apply controlled-phase gate CP(θ)
+        [<CustomOperation("CP")>]
+        member _.CP(circuit: Circuit, controlTargetAngle: int*int*float) : Circuit =
+            { circuit with Gates = circuit.Gates @ [CP controlTargetAngle] }
         
         /// Apply SWAP gate to exchange two qubits
         [<CustomOperation("SWAP")>]
         member _.SWAP(circuit: Circuit, qubit1: int, qubit2: int) : Circuit =
             { circuit with Gates = circuit.Gates @ [SWAP (qubit1, qubit2)] }
+
+        /// Apply SWAP gate to exchange two qubits
+        [<CustomOperation("SWAP")>]
+        member _.SWAP(circuit: Circuit, qubit1and2: int*int) : Circuit =
+            { circuit with Gates = circuit.Gates @ [SWAP qubit1and2] }
+        
         
         // ========================================================================
         // THREE-QUBIT GATES
@@ -449,6 +505,96 @@ module CircuitBuilder =
         [<CustomOperation("CCX")>]
         member _.CCX(circuit: Circuit, control1: int, control2: int, target: int) : Circuit =
             { circuit with Gates = circuit.Gates @ [CCX (control1, control2, target)] }
+        
+        /// Apply CCX (Toffoli, CCNOT) gate
+        [<CustomOperation("CCX")>]
+        member _.CCX(circuit: Circuit, control1control2target: int*int*int) : Circuit =
+            { circuit with Gates = circuit.Gates @ [CCX control1control2target] }
+        
+        // ========================================================================
+        // HELPER FOR FOR-LOOPS
+        // ========================================================================
+        
+        /// Apply a gate (useful in for loops where custom operations don't work directly)
+        [<CustomOperation("gate")>]
+        member _.Gate(circuit: Circuit, g: Gate) : Circuit =
+            { circuit with Gates = circuit.Gates @ [g] }
     
     /// Global computation expression instance for circuit construction
     let circuit = CircuitBuilderCE()
+    
+    // ============================================================================
+    // HELPER FUNCTIONS FOR USE INSIDE FOR LOOPS
+    // ============================================================================
+    // These functions return single-gate circuits that can be used in for loop bodies
+    // Example: for i in [0..3] do yield! singleGate (CNOT (i, i+1))
+    
+    /// Creates a circuit with a single gate (useful for for loops)
+    /// Use with yield! inside for loops: for i in [0..3] do yield! singleGate (CNOT (i, i+1))
+    let singleGate (gate: Gate) : Circuit =
+        { QubitCount = 0; Gates = [gate] }
+    
+    /// Creates a circuit with multiple gates (useful for for loops)
+    /// Use with yield! inside for loops: for gates in gateList do yield! multiGate gates
+    let multiGate (gates: Gate list) : Circuit =
+        { QubitCount = 0; Gates = gates }
+    
+    // ============================================================================
+    // GATE CONSTRUCTOR HELPERS - For use in for loops
+    // ============================================================================
+    // These helpers create gate values that can be wrapped in singleGate()
+    // They mirror the Gate union cases but are functions, making them easier to use
+    
+    /// Creates an H (Hadamard) gate - for use in for loops
+    let h q = H q
+    
+    /// Creates an X (NOT) gate - for use in for loops
+    let x q = X q
+    
+    /// Creates a Y gate - for use in for loops
+    let y q = Y q
+    
+    /// Creates a Z gate - for use in for loops
+    let z q = Z q
+    
+    /// Creates an S (phase) gate - for use in for loops
+    let s q = S q
+    
+    /// Creates an SDG (inverse phase) gate - for use in for loops
+    let sdg q = SDG q
+    
+    /// Creates a T gate - for use in for loops
+    let t q = T q
+    
+    /// Creates a TDG (inverse T) gate - for use in for loops
+    let tdg q = TDG q
+    
+    /// Creates a P (phase) gate with angle - for use in for loops
+    let p q angle = P (q, angle)
+    
+    /// Creates an RX (X-rotation) gate - for use in for loops
+    let rx q angle = RX (q, angle)
+    
+    /// Creates an RY (Y-rotation) gate - for use in for loops
+    let ry q angle = RY (q, angle)
+    
+    /// Creates an RZ (Z-rotation) gate - for use in for loops
+    let rz q angle = RZ (q, angle)
+    
+    /// Creates a CNOT gate - for use in for loops
+    let cnot control target = CNOT (control, target)
+    
+    /// Creates a CZ gate - for use in for loops
+    let cz control target = CZ (control, target)
+    
+    /// Creates a CP (controlled phase) gate - for use in for loops
+    let cp control target angle = CP (control, target, angle)
+    
+    /// Creates a SWAP gate - for use in for loops
+    let swap q1 q2 = SWAP (q1, q2)
+    
+    /// Creates a CCX (Toffoli) gate - for use in for loops
+    let ccx c1 c2 target = CCX (c1, c2, target)
+    
+    /// Creates an MCZ (multi-controlled Z) gate - for use in for loops
+    let mcz controls target = MCZ (controls, target)

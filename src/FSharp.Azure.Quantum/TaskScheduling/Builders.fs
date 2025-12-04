@@ -22,6 +22,45 @@ module Builders =
                 Priority = 0.0
                 Properties = Map.empty
             }
+        
+        member _.YieldFrom(task: ScheduledTask<'T>) : ScheduledTask<'T> =
+            task
+        
+        member _.Zero() : ScheduledTask<'T> =
+            {
+                Id = ""
+                Value = Unchecked.defaultof<'T>
+                Duration = 0.0
+                EarliestStart = None
+                Deadline = None
+                ResourceRequirements = Map.empty
+                Priority = 0.0
+                Properties = Map.empty
+            }
+        
+        member _.Combine(task1: ScheduledTask<'T>, task2: ScheduledTask<'T>) : ScheduledTask<'T> =
+            // For tasks, combine by taking non-default values from task2
+            {
+                Id = if System.String.IsNullOrEmpty task2.Id then task1.Id else task2.Id
+                Value = task2.Value
+                Duration = if task2.Duration = 0.0 then task1.Duration else task2.Duration
+                EarliestStart = match task2.EarliestStart with | Some _ -> task2.EarliestStart | None -> task1.EarliestStart
+                Deadline = match task2.Deadline with | Some _ -> task2.Deadline | None -> task1.Deadline
+                ResourceRequirements = Map.fold (fun acc k v -> Map.add k v acc) task1.ResourceRequirements task2.ResourceRequirements
+                Priority = if task2.Priority = 0.0 then task1.Priority else task2.Priority
+                Properties = Map.fold (fun acc k v -> Map.add k v acc) task1.Properties task2.Properties
+            }
+        
+        member inline _.Delay([<InlineIfLambda>] f: unit -> ScheduledTask<'T>) : ScheduledTask<'T> = f()
+        
+        member inline this.For(task: ScheduledTask<'T>, [<InlineIfLambda>] f: unit -> ScheduledTask<'T>) : ScheduledTask<'T> =
+            this.Combine(task, f())
+        
+        member this.For(sequence: seq<'U>, body: 'U -> ScheduledTask<'T>) : ScheduledTask<'T> =
+            let mutable state = this.Zero()
+            for item in sequence do
+                state <- this.Combine(state, body item)
+            state
 
         /// Set task identifier (required)
         [<CustomOperation("taskId")>]
@@ -97,6 +136,41 @@ module Builders =
                 CostPerUnit = 0.0
                 Properties = Map.empty
             }
+        
+        member _.YieldFrom(resource: Resource<'T>) : Resource<'T> =
+            resource
+        
+        member _.Zero() : Resource<'T> =
+            {
+                Id = ""
+                Value = Unchecked.defaultof<'T>
+                Capacity = 0.0
+                AvailableWindows = [(0.0, System.Double.MaxValue)]
+                CostPerUnit = 0.0
+                Properties = Map.empty
+            }
+        
+        member _.Combine(res1: Resource<'T>, res2: Resource<'T>) : Resource<'T> =
+            // For resources, combine by taking non-default values from res2
+            {
+                Id = if System.String.IsNullOrEmpty res2.Id then res1.Id else res2.Id
+                Value = res2.Value
+                Capacity = if res2.Capacity = 0.0 then res1.Capacity else res2.Capacity
+                AvailableWindows = if res2.AvailableWindows = [(0.0, System.Double.MaxValue)] then res1.AvailableWindows else res2.AvailableWindows
+                CostPerUnit = if res2.CostPerUnit = 0.0 then res1.CostPerUnit else res2.CostPerUnit
+                Properties = Map.fold (fun acc k v -> Map.add k v acc) res1.Properties res2.Properties
+            }
+        
+        member inline _.Delay([<InlineIfLambda>] f: unit -> Resource<'T>) : Resource<'T> = f()
+        
+        member inline this.For(resource: Resource<'T>, [<InlineIfLambda>] f: unit -> Resource<'T>) : Resource<'T> =
+            this.Combine(resource, f())
+        
+        member this.For(sequence: seq<'U>, body: 'U -> Resource<'T>) : Resource<'T> =
+            let mutable state = this.Zero()
+            for item in sequence do
+                state <- this.Combine(state, body item)
+            state
 
         /// Set resource identifier (required)
         [<CustomOperation("resourceId")>]
@@ -146,6 +220,38 @@ module Builders =
                 Objective = MinimizeMakespan
                 TimeHorizon = 1000.0
             }
+        
+        member _.YieldFrom(problem: SchedulingProblem<'TTask, 'TResource>) : SchedulingProblem<'TTask, 'TResource> =
+            problem
+        
+        member _.Zero() : SchedulingProblem<'TTask, 'TResource> =
+            {
+                Tasks = []
+                Resources = []
+                Dependencies = []
+                Objective = MinimizeMakespan
+                TimeHorizon = 1000.0
+            }
+        
+        member _.Combine(prob1: SchedulingProblem<'TTask, 'TResource>, prob2: SchedulingProblem<'TTask, 'TResource>) : SchedulingProblem<'TTask, 'TResource> =
+            {
+                Tasks = prob1.Tasks @ prob2.Tasks
+                Resources = prob1.Resources @ prob2.Resources
+                Dependencies = prob1.Dependencies @ prob2.Dependencies
+                Objective = prob2.Objective  // Take second if set
+                TimeHorizon = if prob2.TimeHorizon = 1000.0 then prob1.TimeHorizon else prob2.TimeHorizon
+            }
+        
+        member inline _.Delay([<InlineIfLambda>] f: unit -> SchedulingProblem<'TTask, 'TResource>) : SchedulingProblem<'TTask, 'TResource> = f()
+        
+        member inline this.For(problem: SchedulingProblem<'TTask, 'TResource>, [<InlineIfLambda>] f: unit -> SchedulingProblem<'TTask, 'TResource>) : SchedulingProblem<'TTask, 'TResource> =
+            this.Combine(problem, f())
+        
+        member this.For(sequence: seq<'U>, body: 'U -> SchedulingProblem<'TTask, 'TResource>) : SchedulingProblem<'TTask, 'TResource> =
+            let mutable state = this.Zero()
+            for item in sequence do
+                state <- this.Combine(state, body item)
+            state
 
         /// Set tasks to schedule (required)
         [<CustomOperation("tasks")>]

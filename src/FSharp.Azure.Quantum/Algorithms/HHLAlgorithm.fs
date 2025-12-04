@@ -272,7 +272,7 @@ module HHLAlgorithm =
     /// - Qubits [0 .. eigenvalueQubits-1]: Eigenvalue register (QPE counting qubits)
     /// - Qubits [eigenvalueQubits .. eigenvalueQubits+solutionQubits-1]: Solution vector register
     /// - Qubit [totalQubits-1]: Ancilla qubit (success indicator)
-    let execute (config: HHLConfig) : Result<HHLResult, string> =
+    let private execute (config: HHLConfig) : Result<HHLResult, string> =
         try
             // Validate configuration
             if config.EigenvalueQubits <= 0 then

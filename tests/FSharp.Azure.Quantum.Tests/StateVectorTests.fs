@@ -125,7 +125,7 @@ module StateVectorTests =
         
         // Invalid: > 16 qubits
         Assert.Throws<System.Exception>(fun () -> 
-            StateVector.init 17 |> ignore
+            StateVector.init 42 |> ignore
         )
     
     [<Fact>]

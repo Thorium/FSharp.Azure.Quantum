@@ -190,50 +190,74 @@ module QuantumTreeSearch =
             // When combining, use the second problem but preserve any non-default values from first
             problem2
         
+        /// <summary>Set the initial state for tree search.</summary>
+        /// <param name="state">Initial state</param>
         [<CustomOperation("initialState")>]
         member _.InitialState(problem: TreeSearchProblem<'T>, state: 'T) : TreeSearchProblem<'T> =
             { problem with InitialState = state }
         
+        /// <summary>Set the maximum depth for tree search.</summary>
+        /// <param name="depth">Maximum search depth</param>
         [<CustomOperation("maxDepth")>]
         member _.MaxDepth(problem: TreeSearchProblem<'T>, depth: int) : TreeSearchProblem<'T> =
             { problem with MaxDepth = depth }
         
+        /// <summary>Set the branching factor for tree expansion.</summary>
+        /// <param name="factor">Branching factor</param>
         [<CustomOperation("branchingFactor")>]
         member _.BranchingFactor(problem: TreeSearchProblem<'T>, factor: int) : TreeSearchProblem<'T> =
             { problem with BranchingFactor = factor }
         
+        /// <summary>Set the evaluation function for state scoring.</summary>
+        /// <param name="evalFunc">Function to evaluate state quality</param>
         [<CustomOperation("evaluateWith")>]
         member _.EvaluateWith(problem: TreeSearchProblem<'T>, evalFunc: 'T -> float) : TreeSearchProblem<'T> =
             { problem with EvaluationFunction = evalFunc }
         
+        /// <summary>Set the move generator function.</summary>
+        /// <param name="moveGen">Function to generate possible moves from a state</param>
         [<CustomOperation("generateMovesWith")>]
         member _.GenerateMovesWith(problem: TreeSearchProblem<'T>, moveGen: 'T -> 'T list) : TreeSearchProblem<'T> =
             { problem with MoveGenerator = moveGen }
         
+        /// <summary>Set the top percentile threshold for path selection.</summary>
+        /// <param name="percentile">Top percentile (0.0 to 1.0)</param>
         [<CustomOperation("topPercentile")>]
         member _.TopPercentile(problem: TreeSearchProblem<'T>, percentile: float) : TreeSearchProblem<'T> =
             { problem with TopPercentile = percentile }
         
+        /// <summary>Set the quantum backend for execution.</summary>
+        /// <param name="backend">Quantum backend instance</param>
         [<CustomOperation("backend")>]
         member _.Backend(problem: TreeSearchProblem<'T>, backend: BackendAbstraction.IQuantumBackend) : TreeSearchProblem<'T> =
             { problem with Backend = Some backend }
         
+        /// <summary>Set the number of measurement shots.</summary>
+        /// <param name="numShots">Number of shots</param>
         [<CustomOperation("shots")>]
         member _.Shots(problem: TreeSearchProblem<'T>, numShots: int) : TreeSearchProblem<'T> =
             { problem with Shots = Some numShots }
         
+        /// <summary>Set the solution quality threshold.</summary>
+        /// <param name="threshold">Solution threshold value</param>
         [<CustomOperation("solutionThreshold")>]
         member _.SolutionThreshold(problem: TreeSearchProblem<'T>, threshold: float) : TreeSearchProblem<'T> =
             { problem with SolutionThreshold = Some threshold }
         
+        /// <summary>Set the success probability threshold.</summary>
+        /// <param name="threshold">Success threshold (0.0 to 1.0)</param>
         [<CustomOperation("successThreshold")>]
         member _.SuccessThreshold(problem: TreeSearchProblem<'T>, threshold: float) : TreeSearchProblem<'T> =
             { problem with SuccessThreshold = Some threshold }
         
+        /// <summary>Set the maximum number of paths to explore.</summary>
+        /// <param name="limit">Maximum path count</param>
         [<CustomOperation("maxPaths")>]
         member _.MaxPaths(problem: TreeSearchProblem<'T>, limit: int) : TreeSearchProblem<'T> =
             { problem with MaxPaths = Some limit }
         
+        /// <summary>Enable automatic search space limiting.</summary>
+        /// <param name="enable">True to limit search space automatically</param>
         [<CustomOperation("limitSearchSpace")>]
         member _.LimitSearchSpace(problem: TreeSearchProblem<'T>, enable: bool) : TreeSearchProblem<'T> =
             // Auto-recommend maxPaths limit based on tree size

@@ -19,7 +19,9 @@
 // - Use this library for flexible VQE execution on any backend
 // - Bridge via FCIDump files or direct Hamiltonian conversion
 
-#r "nuget: FSharp.Azure.Quantum"
+//#r "nuget: FSharp.Azure.Quantum"
+#r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
+
 
 open FSharp.Azure.Quantum.QuantumChemistry
 
@@ -34,8 +36,10 @@ printfn "Electrons: %d" (Molecule.countElectrons h2)
 printfn ""
 
 // Configure VQE solver
+open FSharp.Azure.Quantum.LocalSimulator
 let config = {
     Method = GroundStateMethod.VQE
+    Backend = createLocalBackend()
     MaxIterations = 100
     Tolerance = 1e-6
     InitialParameters = None

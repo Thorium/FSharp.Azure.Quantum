@@ -791,28 +791,30 @@ type DbTask = {
 // Load from database
 let! dbTasks = Database.loadTasksAsync connectionString
 
-// Build scheduling problem with conditional logic
+// Build task list with conditional logic (outside builder)
+let taskList = 
+    dbTasks
+    |> List.filter (fun t -> t.Priority >= 5)  // Filter high-priority tasks
+    |> List.map (fun dbTask ->
+        scheduledTask {
+            taskId dbTask.Id
+            duration (Duration (float dbTask.DurationMinutes))
+            
+            // ✅ Conditional operations
+            match dbTask.DependsOn with
+            | Some taskId -> after taskId
+            | None -> ()
+            
+            if dbTask.Deadline.IsSome then
+                deadline dbTask.Deadline.Value
+            
+            if dbTask.RequiresWorker then
+                requires "Worker" 1.0
+        })
+
+// Build scheduling problem
 let problem = scheduling {
-    // ✅ Natural for loop - add tasks conditionally
-    for dbTask in dbTasks do
-        if dbTask.Priority >= 5 then  // ✅ Natural if expression
-            tasks [
-                scheduledTask {
-                    id dbTask.Id
-                    duration (minutes (float dbTask.DurationMinutes))
-                    
-                    // ✅ Conditional operations
-                    match dbTask.DependsOn with
-                    | Some taskId -> after taskId
-                    | None -> ()
-                    
-                    if dbTask.Deadline.IsSome then
-                        deadline dbTask.Deadline.Value
-                    
-                    if dbTask.RequiresWorker then
-                        requires "Worker" 1.0
-                }
-            ]
+    tasks taskList
     
     // ✅ Environment-specific objective
     objective (

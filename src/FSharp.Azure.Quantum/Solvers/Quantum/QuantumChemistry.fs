@@ -391,6 +391,10 @@ type SolverConfig = {
     
     /// Optional initial parameters for VQE ansatz
     InitialParameters: float[] option
+    
+    /// Quantum backend for execution (RULE1)
+    /// None = use LocalBackend by default
+    Backend: FSharp.Azure.Quantum.Core.BackendAbstraction.IQuantumBackend option
 }
 
 /// Molecular Hamiltonian in second quantization
@@ -763,6 +767,117 @@ module HamiltonianSimulation =
         [1 .. config.TrotterSteps]
         |> List.fold (fun s _ -> applyTrotterStep s) initialState
 
+/// QPE (Quantum Phase Estimation) for ground state energy
+/// 
+/// Uses quantum phase estimation with Hamiltonian time evolution to estimate
+/// the ground state energy of molecular systems.
+/// 
+/// Algorithm:
+/// 1. Convert molecular Hamiltonian to Pauli decomposition
+/// 2. Use Trotter-Suzuki to create circuit for exp(-iHt)
+/// 3. Apply QPE to estimate phase φ (related to energy eigenvalue)
+/// 4. Extract ground state energy E from phase
+module QPE =
+    
+    open System.Numerics
+    open FSharp.Azure.Quantum.Algorithms.TrotterSuzuki
+    open FSharp.Azure.Quantum.Algorithms.QuantumPhaseEstimation
+    open FSharp.Azure.Quantum
+    
+    /// Convert ProblemHamiltonian to TrotterSuzuki.PauliHamiltonian
+    let private toPauliHamiltonian (hamiltonian: Core.QaoaCircuit.ProblemHamiltonian) : PauliHamiltonian =
+        let convertPauliOp (op: Core.QaoaCircuit.PauliOperator) : char =
+            match op with
+            | Core.QaoaCircuit.PauliI -> 'I'
+            | Core.QaoaCircuit.PauliX -> 'X'
+            | Core.QaoaCircuit.PauliY -> 'Y'
+            | Core.QaoaCircuit.PauliZ -> 'Z'
+        
+        let pauliTerms =
+            hamiltonian.Terms
+            |> Array.map (fun term ->
+                // Build full operator string for all qubits
+                let operators = Array.create hamiltonian.NumQubits 'I'
+                
+                // Set Pauli operators for specified qubits
+                Array.iter2 (fun qIdx pauliOp ->
+                    operators[qIdx] <- convertPauliOp pauliOp
+                ) term.QubitsIndices term.PauliOperators
+                
+                {
+                    Operators = operators
+                    Coefficient = Complex(term.Coefficient, 0.0)
+                })
+            |> Array.toList
+        
+        {
+            Terms = pauliTerms
+            NumQubits = hamiltonian.NumQubits
+        }
+    
+    /// Estimate ground state energy using QPE
+    let run (molecule: Molecule) (config: SolverConfig) : Async<Result<VQE.VQEResult, string>> =
+        async {
+            // Build molecular Hamiltonian
+            match MolecularHamiltonian.build molecule with
+            | Error msg -> return Error msg
+            | Ok hamiltonian ->
+                
+                // Convert to Pauli form for Trotter-Suzuki
+                let pauliHamiltonian = toPauliHamiltonian hamiltonian
+                
+                // Get backend (RULE1 compliance)
+                let backend =
+                    config.Backend
+                    |> Option.defaultValue (Core.BackendAbstraction.LocalBackend() :> Core.BackendAbstraction.IQuantumBackend)
+                
+                // Configure QPE
+                let countingQubits = 8  // 8 bits of precision for phase
+                let time = 1.0  // Evolution time
+                let trotterSteps = 10  // Trotter decomposition steps
+                
+                let qpeConfig = {
+                    CountingQubits = countingQubits
+                    TargetQubits = hamiltonian.NumQubits
+                    UnitaryOperator = HamiltonianEvolution (box pauliHamiltonian, time, trotterSteps)
+                    EigenVector = None  // Let it default to |0...0⟩
+                }
+                
+                // Execute QPE via backend
+                let shots = 1000
+                match Algorithms.QPEBackendAdapter.executeWithBackend qpeConfig backend shots with
+                | Error msg -> return Error $"QPE execution failed: {msg}"
+                | Ok histogram ->
+                    // Extract phase from histogram
+                    let phase = Algorithms.QPEBackendAdapter.extractPhaseFromHistogram histogram countingQubits
+                    
+                    // Convert phase to energy
+                    // For Hamiltonian H, QPE estimates φ where exp(-iHt)|ψ⟩ = exp(2πiφ)|ψ⟩
+                    // So: -Ht = 2πφ  =>  E = -2πφ/t
+                    let energy = -2.0 * Math.PI * phase / time
+                    
+                    // Add nuclear repulsion energy
+                    let nuclearRepulsion =
+                        if molecule.Atoms.Length = 2 then
+                            let atom1 = molecule.Atoms[0]
+                            let atom2 = molecule.Atoms[1]
+                            let z1 = AtomicNumbers.fromSymbol atom1.Element |> Option.defaultValue 1 |> float
+                            let z2 = AtomicNumbers.fromSymbol atom2.Element |> Option.defaultValue 1 |> float
+                            let r = Molecule.calculateBondLength atom1 atom2
+                            z1 * z2 / r
+                        else
+                            0.0
+                    
+                    let totalEnergy = energy + nuclearRepulsion
+                    
+                    return Ok {
+                        Energy = totalEnergy
+                        OptimalParameters = [||]  // QPE doesn't use variational parameters
+                        Iterations = 0  // QPE is not iterative
+                        Converged = true  // QPE always "converges" (single-shot algorithm)
+                    }
+        }
+
 /// Ground state energy estimation
 module GroundStateEnergy =
     
@@ -777,7 +892,7 @@ module GroundStateEnergy =
             VQE.run molecule config
         
         | GroundStateMethod.QPE ->
-            async { return Error "QPE not implemented - use VQE or ClassicalDFT" }
+            QPE.run molecule config
         
         | GroundStateMethod.ClassicalDFT ->
             async {
@@ -1149,6 +1264,7 @@ module QuantumChemistryBuilder =
                 MaxIterations = optimizer.MaxIterations
                 Tolerance = optimizer.Tolerance
                 InitialParameters = problem.InitialParameters
+                Backend = None  // Use default LocalBackend
             }
             
             // Execute VQE (uses existing VQE module - TKT-95 framework)

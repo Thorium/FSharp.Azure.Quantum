@@ -203,49 +203,95 @@ module AnomalyDetector =
     /// Serializable detector format (for JSON)
     [<CLIMutable>]
     type private SerializableDetector = {
-        ModelWeights: float array
-        SupportVectors: float array array
-        FeatureMapType: string
-        NumQubits: int
+        /// SVM model data
+        SVMModel: ModelSerialization.SerializableSVMModel
+        
+        /// Detector-specific threshold
         Threshold: float
-        NumFeatures: int
-        NumTrainingSamples: int
-        TrainingTime: float  // milliseconds
+        
+        /// Sensitivity level
+        Sensitivity: string
+        
+        /// Training time in milliseconds
+        TrainingTime: float
+        
+        /// Created timestamp
         CreatedAt: string
+        
+        /// Optional note
         Note: string option
     }
     
     /// Save detector to file
     let saveDetector (detector: Detector) (path: string) : Result<unit, string> =
         try
-            // Extract model data (note: this is a simplified version)
-            // In a real implementation, you'd need full SVM model serialization
-            let serializable = {
-                ModelWeights = [||]  // Placeholder - need access to internal SVM state
-                SupportVectors = [||]
-                FeatureMapType = 
-                    match detector.FeatureMap with
-                    | FeatureMapType.ZZFeatureMap _ -> "ZZFeatureMap"
-                    | FeatureMapType.PauliFeatureMap _ -> "PauliFeatureMap"
-                NumQubits = detector.NumQubits
-                Threshold = detector.Threshold
-                NumFeatures = detector.Metadata.NumFeatures
-                NumTrainingSamples = detector.Metadata.NumNormalSamples
-                TrainingTime = detector.Metadata.TrainingTime.TotalMilliseconds
-                CreatedAt = detector.Metadata.CreatedAt.ToString("o")
-                Note = detector.Metadata.Note
-            }
-            
-            let options = JsonSerializerOptions(WriteIndented = true)
-            let json = JsonSerializer.Serialize(serializable, options)
-            File.WriteAllText(path, json)
-            Ok ()
+            // First save the SVM model to get serializable format
+            match ModelSerialization.saveSVMModel path detector.Model detector.NumQubits detector.Metadata.Note with
+            | Error e -> Error e
+            | Ok () ->
+                // Load it back to get SerializableSVMModel
+                match ModelSerialization.loadSVMModel path with
+                | Error e -> Error e
+                | Ok svmSerialized ->
+                    // Wrap with detector-specific metadata
+                    let detectorData = {
+                        SVMModel = svmSerialized
+                        Threshold = detector.Threshold
+                        Sensitivity = 
+                            match detector.Metadata.Sensitivity with
+                            | Low -> "Low"
+                            | Medium -> "Medium"
+                            | High -> "High"
+                            | VeryHigh -> "VeryHigh"
+                        TrainingTime = detector.Metadata.TrainingTime.TotalMilliseconds
+                        CreatedAt = detector.Metadata.CreatedAt.ToString("o")
+                        Note = detector.Metadata.Note
+                    }
+                    
+                    let options = JsonSerializerOptions(WriteIndented = true)
+                    let json = JsonSerializer.Serialize(detectorData, options)
+                    File.WriteAllText(path, json)
+                    Ok ()
         with ex ->
             Error $"Failed to save detector: {ex.Message}"
     
     /// Load detector from file
     let loadDetector (path: string) : Result<Detector, string> =
-        Error "Detector loading not yet fully implemented - requires full SVM model deserialization"
+        try
+            if not (File.Exists path) then
+                Error $"File not found: {path}"
+            else
+                let json = File.ReadAllText(path)
+                let detectorData = JsonSerializer.Deserialize<SerializableDetector>(json)
+                
+                // Reconstruct SVM model
+                match ModelSerialization.reconstructSVMModel detectorData.SVMModel with
+                | Error e -> Error e
+                | Ok svmModel ->
+                    let sensitivity =
+                        match detectorData.Sensitivity with
+                        | "Low" -> Low
+                        | "Medium" -> Medium
+                        | "High" -> High
+                        | "VeryHigh" -> VeryHigh
+                        | _ -> Medium
+                    
+                    Ok {
+                        Model = svmModel
+                        Metadata = {
+                            Sensitivity = sensitivity
+                            TrainingTime = TimeSpan.FromMilliseconds(detectorData.TrainingTime)
+                            NumFeatures = detectorData.SVMModel.NumQubits
+                            NumNormalSamples = detectorData.SVMModel.TrainData.Length
+                            CreatedAt = DateTime.Parse(detectorData.CreatedAt)
+                            Note = detectorData.Note
+                        }
+                        FeatureMap = svmModel.FeatureMap
+                        NumQubits = detectorData.SVMModel.NumQubits
+                        Threshold = detectorData.Threshold
+                    }
+        with ex ->
+            Error $"Failed to load detector: {ex.Message}"
     
     // ========================================================================
     // TRAINING
@@ -501,34 +547,50 @@ module AnomalyDetector =
                 Note = None
             }
         
+        /// <summary>Set the training data containing normal (non-anomalous) samples.</summary>
+        /// <param name="data">Array of normal data samples as feature vectors</param>
         [<CustomOperation("trainOnNormalData")>]
         member _.TrainOnNormalData(problem: DetectionProblem, data: float array array) =
             { problem with NormalData = data }
         
+        /// <summary>Set the sensitivity level for anomaly detection.</summary>
+        /// <param name="sensitivity">Sensitivity level (Low, Medium, or High)</param>
         [<CustomOperation("sensitivity")>]
         member _.Sensitivity(problem: DetectionProblem, sensitivity: Sensitivity) =
             { problem with Sensitivity = sensitivity }
         
+        /// <summary>Set the expected contamination rate in the training data.</summary>
+        /// <param name="rate">Contamination rate (0.0 to 1.0) indicating fraction of anomalies expected</param>
         [<CustomOperation("contaminationRate")>]
         member _.ContaminationRate(problem: DetectionProblem, rate: float) =
             { problem with ContaminationRate = rate }
         
+        /// <summary>Set the quantum backend for execution.</summary>
+        /// <param name="backend">Quantum backend instance</param>
         [<CustomOperation("backend")>]
         member _.Backend(problem: DetectionProblem, backend: IQuantumBackend) =
             { problem with Backend = Some backend }
         
+        /// <summary>Set the number of measurement shots.</summary>
+        /// <param name="shots">Number of circuit measurements</param>
         [<CustomOperation("shots")>]
         member _.Shots(problem: DetectionProblem, shots: int) =
             { problem with Shots = shots }
         
+        /// <summary>Enable or disable verbose output.</summary>
+        /// <param name="verbose">True to enable detailed logging</param>
         [<CustomOperation("verbose")>]
         member _.Verbose(problem: DetectionProblem, verbose: bool) =
             { problem with Verbose = verbose }
         
+        /// <summary>Set the path to save the trained model.</summary>
+        /// <param name="path">File path for saving the model</param>
         [<CustomOperation("saveModelTo")>]
         member _.SaveModelTo(problem: DetectionProblem, path: string) =
             { problem with SavePath = Some path }
         
+        /// <summary>Add a note or description to the detection problem.</summary>
+        /// <param name="note">Descriptive note</param>
         [<CustomOperation("note")>]
         member _.Note(problem: DetectionProblem, note: string) =
             { problem with Note = Some note }

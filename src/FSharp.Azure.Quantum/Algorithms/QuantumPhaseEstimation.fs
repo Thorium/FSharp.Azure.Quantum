@@ -47,6 +47,11 @@ module QuantumPhaseEstimation =
         
         /// General rotation gate: U = Rz(θ)
         | RotationZ of theta: float
+        
+        /// Hamiltonian time evolution: U = exp(-iHt)
+        /// Used for quantum chemistry and Hamiltonian simulation
+        /// hamiltonian is TrotterSuzuki.PauliHamiltonian (stored as obj to avoid circular dependency)
+        | HamiltonianEvolution of hamiltonian: obj * time: float * trotterSteps: int
     
     /// Configuration for Quantum Phase Estimation
     type QPEConfig = {
@@ -165,6 +170,9 @@ module QuantumPhaseEstimation =
                         
                         | CustomUnitary _ ->
                             failwith "Custom unitary operators not yet supported in controlled-U^k"
+                        
+                        | HamiltonianEvolution _ ->
+                            failwith "Hamiltonian evolution must use backend execution, not state vector simulation"
                     
                     (StateVector.getAmplitude i state) * phase
             )

@@ -43,6 +43,83 @@ module ModelSerialization =
         Note: string option
     }
     
+    /// Serializable binary classifier (for multi-class OVR)
+    type SerializableBinaryClassifier = {
+        /// Classifier parameters
+        Parameters: float array
+        
+        /// Training accuracy for this classifier
+        TrainAccuracy: float
+        
+        /// Number of training iterations
+        NumIterations: int
+    }
+    
+    /// Serializable multi-class VQC model (one-vs-rest)
+    type SerializableMultiClassVQCModel = {
+        /// Binary classifiers (one per class)
+        Classifiers: SerializableBinaryClassifier array
+        
+        /// Class labels
+        ClassLabels: int array
+        
+        /// Overall training accuracy
+        TrainAccuracy: float
+        
+        /// Number of classes
+        NumClasses: int
+        
+        /// Number of qubits
+        NumQubits: int
+        
+        /// Feature map type name
+        FeatureMapType: string
+        
+        /// Feature map depth
+        FeatureMapDepth: int
+        
+        /// Variational form type name
+        VariationalFormType: string
+        
+        /// Variational form depth
+        VariationalFormDepth: int
+        
+        /// Optional metadata
+        SavedAt: string
+        Note: string option
+    }
+    
+    /// Serializable SVM model (JSON-friendly)
+    type SerializableSVMModel = {
+        /// Support vector indices
+        SupportVectorIndices: int array
+        
+        /// Lagrange multipliers (alphas)
+        Alphas: float array
+        
+        /// Bias term
+        Bias: float
+        
+        /// Training data (support vectors)
+        TrainData: float array array
+        
+        /// Training labels
+        TrainLabels: int array
+        
+        /// Feature map type name
+        FeatureMapType: string
+        
+        /// Feature map depth (if applicable)
+        FeatureMapDepth: int
+        
+        /// Number of qubits
+        NumQubits: int
+        
+        /// Optional metadata
+        SavedAt: string
+        Note: string option
+    }
+    
     // ========================================================================
     // VQC SERIALIZATION
     // ========================================================================
@@ -94,7 +171,7 @@ module ModelSerialization =
         with ex ->
             Error $"Failed to save model: {ex.Message}"
     
-    /// Save VQC training result with metadata
+    /// Save VQC training result with metadata (classification)
     ///
     /// Convenience function that takes VQC.TrainingResult directly
     let saveVQCTrainingResult
@@ -124,6 +201,82 @@ module ModelSerialization =
             variationalFormDepth
             note
     
+    /// Save VQC regression training result with metadata
+    ///
+    /// Convenience function that takes VQC.RegressionTrainingResult directly
+    let saveVQCRegressionTrainingResult
+        (filePath: string)
+        (result: VQC.RegressionTrainingResult)
+        (numQubits: int)
+        (featureMapType: string)
+        (featureMapDepth: int)
+        (variationalFormType: string)
+        (variationalFormDepth: int)
+        (note: string option)
+        : Result<unit, string> =
+        
+        // For regression, use TrainMSE as the "loss"
+        let finalLoss = result.TrainMSE
+        
+        saveVQCModel
+            filePath
+            result.Parameters
+            finalLoss
+            numQubits
+            featureMapType
+            featureMapDepth
+            variationalFormType
+            variationalFormDepth
+            note
+    
+    /// Save VQC multi-class training result (one-vs-rest)
+    ///
+    /// Saves all binary classifiers with full architecture metadata
+    let saveVQCMultiClassTrainingResult
+        (filePath: string)
+        (result: VQC.MultiClassTrainingResult)
+        (numQubits: int)
+        (featureMapType: string)
+        (featureMapDepth: int)
+        (variationalFormType: string)
+        (variationalFormDepth: int)
+        (note: string option)
+        : Result<unit, string> =
+        
+        try
+            // Convert all binary classifiers to serializable format
+            let classifiers =
+                result.Classifiers
+                |> Array.map (fun classifier -> {
+                    Parameters = classifier.Parameters
+                    TrainAccuracy = classifier.TrainAccuracy
+                    NumIterations = classifier.LossHistory.Length
+                })
+            
+            let model = {
+                Classifiers = classifiers
+                ClassLabels = result.ClassLabels
+                TrainAccuracy = result.TrainAccuracy
+                NumClasses = result.NumClasses
+                NumQubits = numQubits
+                FeatureMapType = featureMapType
+                FeatureMapDepth = featureMapDepth
+                VariationalFormType = variationalFormType
+                VariationalFormDepth = variationalFormDepth
+                SavedAt = DateTime.UtcNow.ToString("o")
+                Note = note
+            }
+            
+            let options = JsonSerializerOptions()
+            options.WriteIndented <- true
+            
+            let json = JsonSerializer.Serialize(model, options)
+            File.WriteAllText(filePath, json)
+            
+            Ok ()
+        with ex ->
+            Error $"Failed to save multi-class model: {ex.Message}"
+    
     /// Load VQC model from JSON file
     ///
     /// Returns: Serializable model with all metadata
@@ -141,6 +294,23 @@ module ModelSerialization =
         with ex ->
             Error $"Failed to load model: {ex.Message}"
     
+    /// Load VQC multi-class model from JSON file
+    ///
+    /// Returns: Serializable multi-class model with all classifiers
+    let loadVQCMultiClassModel
+        (filePath: string)
+        : Result<SerializableMultiClassVQCModel, string> =
+        
+        try
+            if not (File.Exists filePath) then
+                Error $"File not found: {filePath}"
+            else
+                let json = File.ReadAllText(filePath)
+                let model = JsonSerializer.Deserialize<SerializableMultiClassVQCModel>(json)
+                Ok model
+        with ex ->
+            Error $"Failed to load multi-class model: {ex.Message}"
+    
     /// Load only the parameters from a saved model
     ///
     /// Convenience function when you only need the weights
@@ -150,6 +320,73 @@ module ModelSerialization =
         
         loadVQCModel filePath
         |> Result.map (fun model -> model.Parameters)
+    
+    // ========================================================================
+    // SVM SERIALIZATION
+    // ========================================================================
+    
+    /// Save SVM model to JSON file
+    ///
+    /// Parameters:
+    ///   filePath - Path to save JSON file
+    ///   svmModel - Trained SVM model
+    ///   numQubits - Number of qubits used
+    ///   note - Optional note about the model
+    let saveSVMModel
+        (filePath: string)
+        (svmModel: QuantumKernelSVM.SVMModel)
+        (numQubits: int)
+        (note: string option)
+        : Result<unit, string> =
+        
+        try
+            // Extract feature map info
+            let fmType, fmDepth =
+                match svmModel.FeatureMap with
+                | FeatureMapType.ZZFeatureMap d -> ("ZZFeatureMap", d)
+                | FeatureMapType.PauliFeatureMap (_, d) -> ("PauliFeatureMap", d)
+                | FeatureMapType.AngleEncoding -> ("AngleEncoding", 0)
+                | FeatureMapType.AmplitudeEncoding -> ("AmplitudeEncoding", 0)
+            
+            let model = {
+                SupportVectorIndices = svmModel.SupportVectorIndices
+                Alphas = svmModel.Alphas
+                Bias = svmModel.Bias
+                TrainData = svmModel.TrainData
+                TrainLabels = svmModel.TrainLabels
+                FeatureMapType = fmType
+                FeatureMapDepth = fmDepth
+                NumQubits = numQubits
+                SavedAt = DateTime.UtcNow.ToString("o")
+                Note = note
+            }
+            
+            let options = JsonSerializerOptions()
+            options.WriteIndented <- true
+            
+            let json = JsonSerializer.Serialize(model, options)
+            File.WriteAllText(filePath, json)
+            
+            Ok ()
+        with ex ->
+            Error $"Failed to save SVM model: {ex.Message}"
+    
+    /// Load SVM model from JSON file
+    ///
+    /// Returns: Serializable SVM model with all metadata
+    let loadSVMModel
+        (filePath: string)
+        : Result<SerializableSVMModel, string> =
+        
+        try
+            if not (File.Exists filePath) then
+                Error $"File not found: {filePath}"
+            else
+                let json = File.ReadAllText(filePath)
+                let model = JsonSerializer.Deserialize<SerializableSVMModel>(json)
+                Ok model
+        with ex ->
+            Error $"Failed to load SVM model: {ex.Message}"
     
     // ========================================================================
     // MODEL INFORMATION
@@ -372,6 +609,27 @@ module ModelSerialization =
             // Default two-local configuration
             Ok (VariationalForm.TwoLocal ("RY", "CX", vfDepth))
         | _ -> Error $"Unknown variational form type: {vfType}"
+    
+    /// Reconstruct QuantumKernelSVM.SVMModel from serialized data
+    ///
+    /// Returns: Full SVM model ready for prediction
+    let reconstructSVMModel
+        (serialized: SerializableSVMModel)
+        : Result<QuantumKernelSVM.SVMModel, string> =
+        
+        // Parse feature map
+        match parseFeatureMapType serialized.FeatureMapType serialized.FeatureMapDepth with
+        | Error e -> Error e
+        | Ok featureMap ->
+            let svmModel : QuantumKernelSVM.SVMModel = {
+                SupportVectorIndices = serialized.SupportVectorIndices
+                Alphas = serialized.Alphas
+                Bias = serialized.Bias
+                TrainData = serialized.TrainData
+                TrainLabels = serialized.TrainLabels
+                FeatureMap = featureMap
+            }
+            Ok svmModel
     
     // ========================================================================
     // TRANSFER LEARNING UTILITIES

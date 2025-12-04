@@ -393,7 +393,8 @@ module BackendAbstraction =
                                 | CircuitBuilder.RY (q, angle) -> Ok (instructions @ [RigettiBackend.SingleQubitRotation("RY", angle, q)])
                                 | CircuitBuilder.RZ (q, angle) -> Ok (instructions @ [RigettiBackend.SingleQubitRotation("RZ", angle, q)])
                                 | CircuitBuilder.CZ (c, t) -> Ok (instructions @ [RigettiBackend.TwoQubit("CZ", c, t)])
-                                | CircuitBuilder.CNOT _ | CircuitBuilder.MCZ _ | CircuitBuilder.CCX _ -> 
+                                | CircuitBuilder.CNOT (c, t) -> Ok (instructions @ [RigettiBackend.TwoQubit("CNOT", c, t)])
+                                | CircuitBuilder.MCZ _ | CircuitBuilder.CCX _ -> 
                                     Error $"Gate {gate} found after transpilation - this indicates a transpiler bug."
                                 | _ -> 
                                     Error $"Unsupported gate for Rigetti backend after transpilation: {gate}"
@@ -458,7 +459,8 @@ module BackendAbstraction =
             member _.SupportedGates = [
                 "H"; "X"; "Y"; "Z"
                 "RX"; "RY"; "RZ"
-                "CZ"  // Native Rigetti gate
+                "CZ"    // Native Rigetti gate
+                "CNOT"  // Also supported by Rigetti
                 "MEASURE"
             ]
             

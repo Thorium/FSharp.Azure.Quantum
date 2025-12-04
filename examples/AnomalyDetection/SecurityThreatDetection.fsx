@@ -14,7 +14,8 @@
 /// Train on normal network traffic only. The system learns what "normal" looks like,
 /// then flags anything unusual. No need for labeled attack data!
 
-#r "nuget: FSharp.Azure.Quantum"
+//#r "nuget: FSharp.Azure.Quantum"
+#r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 
 open System
 open FSharp.Azure.Quantum.Business

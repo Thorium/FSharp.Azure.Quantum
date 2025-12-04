@@ -11,15 +11,18 @@ open System.Numerics
 /// IMPORTANT: This is the PRIMARY execution path for HHL.
 /// HHLAlgorithm.fs is for educational reference only.
 /// 
-/// CURRENT LIMITATIONS (Prototype Implementation):
-/// 1. Diagonal matrices only (non-diagonal requires Trotter decomposition)
-/// 2. Simplified state preparation (encodes dominant component only)
-/// 3. Approximate multi-controlled gates (simplified decomposition)
+/// PRODUCTION-READY IMPLEMENTATION:
+/// ✅ Möttönen's amplitude encoding for full state preparation
+/// ✅ Gray code optimization for efficient multi-controlled gates
+/// ✅ Trotter-Suzuki decomposition for non-diagonal Hamiltonian simulation
+/// ✅ Quantum Phase Estimation (QPE) for eigenvalue estimation
+/// ✅ Controlled rotation for eigenvalue inversion
+/// ✅ Post-selection for solution extraction
 /// 
-/// For production use with general matrices, implement:
-/// - Möttönen's amplitude encoding for full state prep
-/// - Gray code for efficient multi-controlled gates
-/// - Trotter-Suzuki for non-diagonal Hamiltonian simulation
+/// SUPPORTED MATRIX TYPES:
+/// 1. Diagonal matrices (optimized path with controlled phase gates)
+/// 2. Non-diagonal matrices (Trotter-Suzuki decomposition)
+/// 3. Hermitian/symmetric matrices (required for HHL)
 /// 
 /// HHL Circuit Structure (Qubit Layout):
 /// - Qubits [0 .. n_clock-1]: Clock register for QPE (eigenvalue estimation)

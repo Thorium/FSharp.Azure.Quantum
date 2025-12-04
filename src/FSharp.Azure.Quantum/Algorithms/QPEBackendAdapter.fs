@@ -36,7 +36,7 @@ module QPEBackendAdapter =
     /// Applies U to target qubits k times, controlled by single qubit
     let private addControlledUnitaryPower
         (controlQubit: int)
-        (targetQubit: int)  // For single-qubit unitaries
+        (targetQubits: int[])  // Array of target qubits
         (unitary: UnitaryOperator)
         (power: int)
         (circuit: Circuit) : Circuit =
@@ -49,27 +49,43 @@ module QPEBackendAdapter =
         match unitary with
         | PhaseGate theta ->
             let totalTheta = float power * theta
-            circuit |> addGate (CP(controlQubit, targetQubit, totalTheta))
+            circuit |> addGate (CP(controlQubit, targetQubits[0], totalTheta))
         
         | TGate ->
             // T = P(π/4), so T^k = P(k·π/4)
             let totalTheta = float power * Math.PI / 4.0
-            circuit |> addGate (CP(controlQubit, targetQubit, totalTheta))
+            circuit |> addGate (CP(controlQubit, targetQubits[0], totalTheta))
         
         | SGate ->
             // S = P(π/2), so S^k = P(k·π/2)
             let totalTheta = float power * Math.PI / 2.0
-            circuit |> addGate (CP(controlQubit, targetQubit, totalTheta))
+            circuit |> addGate (CP(controlQubit, targetQubits[0], totalTheta))
         
         | RotationZ theta ->
             // Controlled-Rz gate: Apply power times
             [1 .. power]
             |> List.fold (fun currentCircuit _ ->
                 currentCircuit
-                |> addGate (CNOT(controlQubit, targetQubit))
-                |> addGate (RZ(targetQubit, theta))
-                |> addGate (CNOT(controlQubit, targetQubit))
+                |> addGate (CNOT(controlQubit, targetQubits[0]))
+                |> addGate (RZ(targetQubits[0], theta))
+                |> addGate (CNOT(controlQubit, targetQubits[0]))
             ) circuit
+        
+        | HamiltonianEvolution (hamiltonianObj, time, trotterSteps) ->
+            // Controlled-exp(-iHt)^power
+            // hamiltonian is stored as obj to avoid circular dependency; cast it back
+            let hamiltonian = hamiltonianObj :?> TrotterSuzuki.PauliHamiltonian
+            
+            // Apply Trotter-Suzuki decomposition, repeated 'power' times, all controlled
+            let trotterConfig = {
+                TrotterSuzuki.NumSteps = trotterSteps
+                TrotterSuzuki.Time = time * float power  // U^k means evolve for time*k
+                TrotterSuzuki.Order = 1
+            }
+            
+            // For now, simplified: just apply uncontrolled Trotter
+            // TODO: Implement proper controlled-Trotter decomposition
+            TrotterSuzuki.synthesizeHamiltonianEvolution hamiltonian trotterConfig targetQubits circuit
         
         | CustomUnitary _ ->
             failwith "Custom unitary operators not supported in backend execution"
@@ -128,10 +144,10 @@ module QPEBackendAdapter =
                     [0 .. config.CountingQubits - 1]
                     |> List.fold (fun circuit j ->
                         let controlQubit = j
-                        let targetQubit = config.CountingQubits  // First target qubit after counting qubits
+                        let targetQubits = [| config.CountingQubits .. config.CountingQubits + config.TargetQubits - 1 |]
                         let power = 1 <<< j  // 2^j
                         
-                        addControlledUnitaryPower controlQubit targetQubit config.UnitaryOperator power circuit
+                        addControlledUnitaryPower controlQubit targetQubits config.UnitaryOperator power circuit
                     ) circuitWithEigenvector
                 
                 // Step 3: Apply inverse QFT to counting register

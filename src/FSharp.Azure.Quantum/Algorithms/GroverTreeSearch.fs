@@ -223,7 +223,7 @@ module TreeSearch =
     /// 
     /// WARNING: This enumerates all paths classically before quantum search,
     /// defeating the quantum advantage. Use createTreeSearchOracleLazy instead.
-    let createTreeSearchOracle<'T> 
+    let internal createTreeSearchOracle<'T> 
         (rootState: 'T) 
         (config: TreeSearchConfig<'T>) 
         (topPercentile: float) 

@@ -403,3 +403,186 @@ module ModelSerializationTests =
                     Assert.Equal(originalNote, model.Note)
         finally
             cleanupTestFile testFile
+    
+    // ========================================================================
+    // MULTI-CLASS VQC SERIALIZATION TESTS
+    // ========================================================================
+    
+    /// Create a mock multi-class training result for testing
+    let private createMockMultiClassResult () =
+        {
+            Classifiers = [|
+                {
+                    Parameters = [| 0.1; 0.2; 0.3 |]
+                    LossHistory = [0.5; 0.3]
+                    Epochs = 2
+                    TrainAccuracy = 0.85
+                    Converged = true
+                }
+                {
+                    Parameters = [| 0.4; 0.5; 0.6 |]
+                    LossHistory = [0.6; 0.4]
+                    Epochs = 2
+                    TrainAccuracy = 0.90
+                    Converged = true
+                }
+                {
+                    Parameters = [| 0.7; 0.8; 0.9 |]
+                    LossHistory = [0.7; 0.5]
+                    Epochs = 2
+                    TrainAccuracy = 0.88
+                    Converged = true
+                }
+            |]
+            ClassLabels = [| 0; 1; 2 |]
+            TrainAccuracy = 0.87
+            NumClasses = 3
+        } : VQC.MultiClassTrainingResult
+    
+    [<Fact>]
+    let ``Save multi-class VQC model creates JSON file`` () =
+        let testFile = "test_multiclass_save.json"
+        cleanupTestFile testFile
+        
+        try
+            let multiClassResult = createMockMultiClassResult()
+            let result = 
+                ModelSerialization.saveVQCMultiClassTrainingResult
+                    testFile
+                    multiClassResult
+                    2
+                    "ZZFeatureMap"
+                    2
+                    "RealAmplitudes"
+                    1
+                    (Some "Multi-class test model")
+            
+            match result with
+            | Ok () ->
+                Assert.True(File.Exists testFile, "JSON file should be created")
+            | Error e ->
+                Assert.Fail($"Save failed: {e}")
+        finally
+            cleanupTestFile testFile
+    
+    [<Fact>]
+    let ``Load multi-class VQC model retrieves all classifiers`` () =
+        let testFile = "test_multiclass_load.json"
+        cleanupTestFile testFile
+        
+        try
+            let multiClassResult = createMockMultiClassResult()
+            
+            // Save model
+            match ModelSerialization.saveVQCMultiClassTrainingResult testFile multiClassResult 2 "ZZFeatureMap" 2 "RealAmplitudes" 1 None with
+            | Error e -> Assert.Fail($"Save failed: {e}")
+            | Ok () ->
+                
+                // Load model
+                match ModelSerialization.loadVQCMultiClassModel testFile with
+                | Error e -> Assert.Fail($"Load failed: {e}")
+                | Ok model ->
+                    // Check all classifiers loaded
+                    Assert.Equal(3, model.Classifiers.Length)
+                    Assert.Equal(3, model.NumClasses)
+                    Assert.Equal<int seq>([| 0; 1; 2 |], model.ClassLabels)
+                    Assert.Equal(0.87, model.TrainAccuracy, 2)
+                    
+                    // Check first classifier
+                    Assert.Equal<float seq>([| 0.1; 0.2; 0.3 |], model.Classifiers.[0].Parameters)
+                    Assert.Equal(0.85, model.Classifiers.[0].TrainAccuracy, 2)
+                    Assert.Equal(2, model.Classifiers.[0].NumIterations)
+                    
+                    // Check architecture metadata
+                    Assert.Equal(2, model.NumQubits)
+                    Assert.Equal("ZZFeatureMap", model.FeatureMapType)
+                    Assert.Equal(2, model.FeatureMapDepth)
+                    Assert.Equal("RealAmplitudes", model.VariationalFormType)
+                    Assert.Equal(1, model.VariationalFormDepth)
+        finally
+            cleanupTestFile testFile
+    
+    [<Fact>]
+    let ``Multi-class roundtrip preserves all data`` () =
+        let testFile = "test_multiclass_roundtrip.json"
+        cleanupTestFile testFile
+        
+        try
+            let originalResult = createMockMultiClassResult()
+            let numQubits = 3
+            let fmType = "ZZFeatureMap"
+            let fmDepth = 2
+            let vfType = "RealAmplitudes"
+            let vfDepth = 1
+            let note = Some "Roundtrip test for multi-class"
+            
+            // Save
+            match ModelSerialization.saveVQCMultiClassTrainingResult 
+                    testFile 
+                    originalResult 
+                    numQubits 
+                    fmType 
+                    fmDepth 
+                    vfType 
+                    vfDepth 
+                    note with
+            | Error e -> Assert.Fail($"Save failed: {e}")
+            | Ok () ->
+                
+                // Load
+                match ModelSerialization.loadVQCMultiClassModel testFile with
+                | Error e -> Assert.Fail($"Load failed: {e}")
+                | Ok model ->
+                    // Verify all data preserved
+                    Assert.Equal(originalResult.NumClasses, model.NumClasses)
+                    Assert.Equal<int seq>(originalResult.ClassLabels, model.ClassLabels)
+                    Assert.Equal(originalResult.TrainAccuracy, model.TrainAccuracy, 2)
+                    Assert.Equal(originalResult.Classifiers.Length, model.Classifiers.Length)
+                    
+                    // Verify each classifier
+                    for i in 0 .. originalResult.Classifiers.Length - 1 do
+                        let original = originalResult.Classifiers.[i]
+                        let loaded = model.Classifiers.[i]
+                        Assert.Equal<float seq>(original.Parameters, loaded.Parameters)
+                        Assert.Equal(original.TrainAccuracy, loaded.TrainAccuracy, 2)
+                        Assert.Equal(original.Epochs, loaded.NumIterations)
+                    
+                    // Verify architecture
+                    Assert.Equal(numQubits, model.NumQubits)
+                    Assert.Equal(fmType, model.FeatureMapType)
+                    Assert.Equal(fmDepth, model.FeatureMapDepth)
+                    Assert.Equal(vfType, model.VariationalFormType)
+                    Assert.Equal(vfDepth, model.VariationalFormDepth)
+                    Assert.Equal(note, model.Note)
+        finally
+            cleanupTestFile testFile
+    
+    [<Fact>]
+    let ``Load multi-class from nonexistent file returns error`` () =
+        let result = ModelSerialization.loadVQCMultiClassModel "nonexistent_multiclass_12345.json"
+        
+        match result with
+        | Ok _ -> Assert.Fail("Should return error for nonexistent file")
+        | Error msg ->
+            Assert.Contains("not found", msg.ToLower())
+    
+    [<Fact>]
+    let ``Multi-class model preserves metadata timestamp`` () =
+        let testFile = "test_multiclass_timestamp.json"
+        cleanupTestFile testFile
+        
+        try
+            let multiClassResult = createMockMultiClassResult()
+            
+            // Save
+            match ModelSerialization.saveVQCMultiClassTrainingResult testFile multiClassResult 2 "ZZFeatureMap" 2 "RealAmplitudes" 1 None with
+            | Error e -> Assert.Fail($"Save failed: {e}")
+            | Ok () ->
+                
+                // Load and check timestamp exists
+                match ModelSerialization.loadVQCMultiClassModel testFile with
+                | Error e -> Assert.Fail($"Load failed: {e}")
+                | Ok model ->
+                    Assert.False(System.String.IsNullOrWhiteSpace(model.SavedAt), "SavedAt timestamp should be set")
+        finally
+            cleanupTestFile testFile
