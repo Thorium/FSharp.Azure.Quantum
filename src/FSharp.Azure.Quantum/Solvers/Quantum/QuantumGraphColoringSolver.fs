@@ -322,27 +322,29 @@ module QuantumGraphColoringSolver =
     // MAIN SOLVER
     // ================================================================================
 
-    /// Solve graph coloring problem using quantum QAOA
+    /// Solve graph coloring problem using quantum QAOA (async version)
     /// 
     /// Parameters:
     ///   - backend: Quantum backend (LocalBackend, IonQ, Rigetti)
     ///   - problem: Graph coloring problem (vertices, edges, colors)
     ///   - config: QAOA configuration (shots, colors, parameters)
     /// 
-    /// Returns: Ok with best coloring found, or Error with message
+    /// Returns: Async<Result<GraphColoringSolution, string>> - Async computation with result or error
     /// 
     /// Example:
     ///   let backend = BackendAbstraction.createLocalBackend()
     ///   let problem = { Vertices = ["A"; "B"; "C"]; Edges = [...]; NumColors = 3; FixedColors = Map.empty }
     ///   let config = defaultConfig 3
-    ///   match solve backend problem config with
-    ///   | Ok solution -> printfn "Colors used: %d" solution.ColorsUsed
-    ///   | Error msg -> printfn "Error: %s" msg
-    let solve 
+    ///   async {
+    ///       match! solveAsync backend problem config with
+    ///       | Ok solution -> printfn "Colors used: %d" solution.ColorsUsed
+    ///       | Error msg -> printfn "Error: %s" msg
+    ///   }
+    let solveAsync 
         (backend: BackendAbstraction.IQuantumBackend) 
         (problem: GraphColoringProblem) 
         (config: QaoaConfig) 
-        : Result<GraphColoringSolution, string> =
+        : Async<Result<GraphColoringSolution, string>> = async {
         
         let startTime = DateTime.Now
         
@@ -351,18 +353,18 @@ module QuantumGraphColoringSolver =
             let numQubits = problem.Vertices.Length * config.NumColors
             
             if numQubits > backend.MaxQubits then
-                Error (sprintf "Problem requires %d qubits but backend '%s' supports max %d qubits" 
+                return Error (sprintf "Problem requires %d qubits but backend '%s' supports max %d qubits" 
                     numQubits backend.Name backend.MaxQubits)
             elif problem.Vertices.Length = 0 then
-                Error "Graph coloring problem has no vertices"
+                return Error "Graph coloring problem has no vertices"
             elif config.NumColors < 1 then
-                Error "Graph coloring problem must have at least 1 color"
+                return Error "Graph coloring problem must have at least 1 color"
             elif problem.Edges.Length = 0 then
-                Error "Graph coloring problem has no edges"
+                return Error "Graph coloring problem has no edges"
             else
                 // Step 2: Encode graph coloring as QUBO
                 match toQubo problem config.PenaltyWeight with
-                | Error msg -> Error (sprintf "Graph coloring encoding failed: %s" msg)
+                | Error msg -> return Error (sprintf "Graph coloring encoding failed: %s" msg)
                 | Ok (quboMatrix, reverseMap) ->
                     
                     // Step 3: Convert QUBO to dense array for QAOA
@@ -380,9 +382,11 @@ module QuantumGraphColoringSolver =
                     // Step 6: Wrap QAOA circuit for backend execution
                     let circuitWrapper = CircuitAbstraction.QaoaCircuitWrapper(qaoaCircuit) :> CircuitAbstraction.ICircuit
                     
-                    // Step 7: Execute on quantum backend
-                    match backend.Execute circuitWrapper config.NumShots with
-                    | Error msg -> Error (sprintf "Backend execution failed: %s" msg)
+                    // Step 7: Execute on quantum backend asynchronously
+                    let! execResult = backend.ExecuteAsync circuitWrapper config.NumShots
+                    
+                    match execResult with
+                    | Error msg -> return Error (sprintf "Backend execution failed: %s" msg)
                     | Ok execResult ->
                         
                         // Step 8: Decode measurements to color assignments
@@ -403,7 +407,7 @@ module QuantumGraphColoringSolver =
                         
                         let elapsedMs = (DateTime.Now - startTime).TotalMilliseconds
                         
-                        Ok {
+                        return Ok {
                             bestSolution with
                                 BackendName = backend.Name
                                 NumShots = config.NumShots
@@ -411,7 +415,34 @@ module QuantumGraphColoringSolver =
                         }
         
         with ex ->
-            Error (sprintf "Quantum graph coloring solve failed: %s" ex.Message)
+            return Error (sprintf "Quantum graph coloring solve failed: %s" ex.Message)
+    }
+
+    /// Solve graph coloring problem using quantum QAOA (synchronous wrapper)
+    /// 
+    /// This is a synchronous wrapper around solveAsync for backward compatibility.
+    /// For cloud backends (IonQ, Rigetti), prefer using solveAsync directly.
+    /// 
+    /// Parameters:
+    ///   - backend: Quantum backend (LocalBackend, IonQ, Rigetti)
+    ///   - problem: Graph coloring problem (vertices, edges, colors)
+    ///   - config: QAOA configuration (shots, colors, parameters)
+    /// 
+    /// Returns: Ok with best coloring found, or Error with message
+    /// 
+    /// Example:
+    ///   let backend = BackendAbstraction.createLocalBackend()
+    ///   let problem = { Vertices = ["A"; "B"; "C"]; Edges = [...]; NumColors = 3; FixedColors = Map.empty }
+    ///   let config = defaultConfig 3
+    ///   match solve backend problem config with
+    ///   | Ok solution -> printfn "Colors used: %d" solution.ColorsUsed
+    ///   | Error msg -> printfn "Error: %s" msg
+    let solve 
+        (backend: BackendAbstraction.IQuantumBackend) 
+        (problem: GraphColoringProblem) 
+        (config: QaoaConfig) 
+        : Result<GraphColoringSolution, string> =
+        solveAsync backend problem config |> Async.RunSynchronously
 
     // ================================================================================
     // CLASSICAL GREEDY SOLVER (for comparison)

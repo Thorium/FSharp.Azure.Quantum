@@ -353,7 +353,7 @@ module QuantumGomokuSolver =
     // MAIN SOLVER
     // ================================================================================
 
-    /// Solve Gomoku move selection using quantum QAOA
+    /// Solve Gomoku move selection using quantum QAOA (async version)
     /// 
     /// Parameters:
     ///   - backend: Quantum backend (LocalBackend, IonQ, Rigetti)
@@ -362,22 +362,22 @@ module QuantumGomokuSolver =
     ///   - config: QAOA configuration (shots, initial parameters)
     /// 
     /// Returns:
-    ///   Result with selected position and confidence, or error message
-    let solve 
+    ///   Async<Result<GomokuSolution, string>> - Async computation with result or error
+    let solveAsync 
         (backend: BackendAbstraction.IQuantumBackend)
         (board: BoardState)
         (candidates: Position list)
         (config: QaoaConfig)
-        : Result<GomokuSolution, string> =
+        : Async<Result<GomokuSolution, string>> = async {
         
         let startTime = DateTime.UtcNow
         
         try
             // Validate inputs
             if List.isEmpty candidates then
-                Error "No candidate positions provided"
+                return Error "No candidate positions provided"
             elif candidates.Length > backend.MaxQubits then
-                Error (sprintf "Too many candidates (%d) - backend '%s' supports max %d qubits" 
+                return Error (sprintf "Too many candidates (%d) - backend '%s' supports max %d qubits" 
                     candidates.Length backend.Name backend.MaxQubits)
             else
                 // Step 1: Evaluate all candidate positions
@@ -387,7 +387,7 @@ module QuantumGomokuSolver =
                 
                 // Step 2: Encode as QUBO
                 match toQubo evaluations with
-                | Error msg -> Error msg
+                | Error msg -> return Error msg
                 | Ok quboMatrix ->
                     // Step 3: Convert QUBO to GraphOptimization problem
                     let vertices = 
@@ -422,14 +422,16 @@ module QuantumGomokuSolver =
                     let (gamma, beta) = config.InitialParameters
                     let qaoaCircuit = QaoaCircuit.QaoaCircuit.build problemHam mixerHam [| (gamma, beta) |]
                     
-                    // Step 5: Execute on backend
+                    // Step 5: Execute on backend asynchronously
                     let circuitWrapper = 
                         CircuitAbstraction.QaoaCircuitWrapper(qaoaCircuit) 
                         :> CircuitAbstraction.ICircuit
                     
-                    match backend.Execute circuitWrapper config.NumShots with
+                    let! execResult = backend.ExecuteAsync circuitWrapper config.NumShots
+                    
+                    match execResult with
                     | Error msg -> 
-                        Error (sprintf "Backend execution failed: %s" msg)
+                        return Error (sprintf "Backend execution failed: %s" msg)
                     | Ok execResult ->
                         // Step 6: Decode measurements
                         let measurementCounts =
@@ -462,13 +464,35 @@ module QuantumGomokuSolver =
                         
                         let elapsedMs = (DateTime.UtcNow - startTime).TotalMilliseconds
                         
-                        Ok {
+                        return Ok {
                             solution with
                                 BackendName = backend.Name
                                 ElapsedMs = elapsedMs
                         }
         with ex ->
-            Error (sprintf "Gomoku quantum solver failed: %s" ex.Message)
+            return Error (sprintf "Gomoku quantum solver failed: %s" ex.Message)
+    }
+
+    /// Solve Gomoku move selection using quantum QAOA (synchronous wrapper)
+    /// 
+    /// This is a synchronous wrapper around solveAsync for backward compatibility.
+    /// For cloud backends (IonQ, Rigetti), prefer using solveAsync directly.
+    /// 
+    /// Parameters:
+    ///   - backend: Quantum backend (LocalBackend, IonQ, Rigetti)
+    ///   - board: Current board state
+    ///   - candidates: List of candidate positions to evaluate
+    ///   - config: QAOA configuration (shots, initial parameters)
+    /// 
+    /// Returns:
+    ///   Result with selected position and confidence, or error message
+    let solve 
+        (backend: BackendAbstraction.IQuantumBackend)
+        (board: BoardState)
+        (candidates: Position list)
+        (config: QaoaConfig)
+        : Result<GomokuSolution, string> =
+        solveAsync backend board candidates config |> Async.RunSynchronously
 
     // ================================================================================
     // CONVENIENCE FUNCTIONS

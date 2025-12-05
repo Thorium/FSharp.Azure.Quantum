@@ -244,27 +244,29 @@ module QuantumKnapsackSolver =
     // MAIN SOLVER
     // ================================================================================
 
-    /// Solve Knapsack problem using quantum QAOA
+    /// Solve Knapsack problem using quantum QAOA (async version)
     /// 
     /// Parameters:
     ///   - backend: Quantum backend (LocalBackend, IonQ, Rigetti)
     ///   - problem: Knapsack problem (items with weights/values, capacity)
     ///   - config: QAOA configuration (shots, initial parameters)
     /// 
-    /// Returns: Ok with best feasible solution found, or Error with message
+    /// Returns: Async<Result<KnapsackSolution, string>> - Async computation with result or error
     /// 
     /// Example:
     ///   let backend = BackendAbstraction.createLocalBackend()
     ///   let problem = { Items = [...]; Capacity = 50.0 }
     ///   let config = { NumShots = 1000; InitialParameters = (0.5, 0.5) }
-    ///   match solve backend problem config with
-    ///   | Ok solution -> printfn "Value: %f" solution.TotalValue
-    ///   | Error msg -> printfn "Error: %s" msg
-    let solve 
+    ///   async {
+    ///       match! solveAsync backend problem config with
+    ///       | Ok solution -> printfn "Value: %f" solution.TotalValue
+    ///       | Error msg -> printfn "Error: %s" msg
+    ///   }
+    let solveAsync 
         (backend: BackendAbstraction.IQuantumBackend) 
         (problem: KnapsackProblem) 
         (config: QaoaConfig) 
-        : Result<KnapsackSolution, string> =
+        : Async<Result<KnapsackSolution, string>> = async {
         
         let startTime = DateTime.Now
         
@@ -273,16 +275,16 @@ module QuantumKnapsackSolver =
             let numQubits = problem.Items.Length
             
             if numQubits > backend.MaxQubits then
-                Error (sprintf "Problem requires %d qubits but backend '%s' supports max %d qubits" 
+                return Error (sprintf "Problem requires %d qubits but backend '%s' supports max %d qubits" 
                     numQubits backend.Name backend.MaxQubits)
             elif numQubits = 0 then
-                Error "Knapsack problem has no items"
+                return Error "Knapsack problem has no items"
             elif problem.Capacity <= 0.0 then
-                Error "Knapsack capacity must be positive"
+                return Error "Knapsack capacity must be positive"
             else
                 // Step 2: Encode Knapsack as QUBO
                 match toQubo problem with
-                | Error msg -> Error (sprintf "Knapsack encoding failed: %s" msg)
+                | Error msg -> return Error (sprintf "Knapsack encoding failed: %s" msg)
                 | Ok quboMatrix ->
                     
                     // Step 3: Convert QUBO to dense array for QAOA
@@ -300,9 +302,11 @@ module QuantumKnapsackSolver =
                     // Step 6: Wrap QAOA circuit for backend execution
                     let circuitWrapper = CircuitAbstraction.QaoaCircuitWrapper(qaoaCircuit) :> CircuitAbstraction.ICircuit
                     
-                    // Step 7: Execute on quantum backend
-                    match backend.Execute circuitWrapper config.NumShots with
-                    | Error msg -> Error (sprintf "Backend execution failed: %s" msg)
+                    // Step 7: Execute on quantum backend asynchronously
+                    let! execResult = backend.ExecuteAsync circuitWrapper config.NumShots
+                    
+                    match execResult with
+                    | Error msg -> return Error (sprintf "Backend execution failed: %s" msg)
                     | Ok execResult ->
                         
                         // Step 8: Decode measurements to selections
@@ -333,7 +337,7 @@ module QuantumKnapsackSolver =
                         
                         let elapsedMs = (DateTime.Now - startTime).TotalMilliseconds
                         
-                        Ok {
+                        return Ok {
                             bestSolution with
                                 BackendName = backend.Name
                                 NumShots = config.NumShots
@@ -341,7 +345,34 @@ module QuantumKnapsackSolver =
                         }
         
         with ex ->
-            Error (sprintf "Quantum Knapsack solve failed: %s" ex.Message)
+            return Error (sprintf "Quantum Knapsack solve failed: %s" ex.Message)
+    }
+
+    /// Solve Knapsack problem using quantum QAOA (synchronous wrapper)
+    /// 
+    /// This is a synchronous wrapper around solveAsync for backward compatibility.
+    /// For cloud backends (IonQ, Rigetti), prefer using solveAsync directly.
+    /// 
+    /// Parameters:
+    ///   - backend: Quantum backend (LocalBackend, IonQ, Rigetti)
+    ///   - problem: Knapsack problem (items with weights/values, capacity)
+    ///   - config: QAOA configuration (shots, initial parameters)
+    /// 
+    /// Returns: Ok with best feasible solution found, or Error with message
+    /// 
+    /// Example:
+    ///   let backend = BackendAbstraction.createLocalBackend()
+    ///   let problem = { Items = [...]; Capacity = 50.0 }
+    ///   let config = { NumShots = 1000; InitialParameters = (0.5, 0.5) }
+    ///   match solve backend problem config with
+    ///   | Ok solution -> printfn "Value: %f" solution.TotalValue
+    ///   | Error msg -> printfn "Error: %s" msg
+    let solve 
+        (backend: BackendAbstraction.IQuantumBackend) 
+        (problem: KnapsackProblem) 
+        (config: QaoaConfig) 
+        : Result<KnapsackSolution, string> =
+        solveAsync backend problem config |> Async.RunSynchronously
 
     // ================================================================================
     // CLASSICAL GREEDY SOLVER (for comparison)

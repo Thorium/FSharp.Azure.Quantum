@@ -241,7 +241,98 @@ module QuantumMaxCutSolver =
     // MAIN SOLVER
     // ================================================================================
 
-    /// Solve MaxCut problem using quantum QAOA
+    /// Solve MaxCut problem using quantum QAOA (async version)
+    /// 
+    /// Parameters:
+    ///   - backend: Quantum backend (LocalBackend, IonQ, Rigetti)
+    ///   - problem: MaxCut problem (graph with vertices and weighted edges)
+    ///   - config: QAOA configuration (shots, initial parameters)
+    /// 
+    /// Returns: Async<Result<MaxCutSolution, string>> - Async computation with result or error
+    /// 
+    /// Example:
+    ///   let backend = BackendAbstraction.createLocalBackend()
+    ///   let problem = { Vertices = ["A"; "B"; "C"]; Edges = [...] }
+    ///   let config = { NumShots = 1000; InitialParameters = (0.5, 0.5) }
+    ///   async {
+    ///       match! solveAsync backend problem config with
+    ///       | Ok solution -> printfn "Cut: %f" solution.CutValue
+    ///       | Error msg -> printfn "Error: %s" msg
+    ///   }
+    let solveAsync 
+        (backend: BackendAbstraction.IQuantumBackend) 
+        (problem: MaxCutProblem) 
+        (config: QaoaConfig) 
+        : Async<Result<MaxCutSolution, string>> = async {
+        
+        let startTime = DateTime.Now
+        
+        try
+            // Step 1: Validate problem size against backend
+            let numQubits = problem.Vertices.Length
+            
+            if numQubits > backend.MaxQubits then
+                return Error (sprintf "Problem requires %d qubits but backend '%s' supports max %d qubits" 
+                    numQubits backend.Name backend.MaxQubits)
+            elif numQubits = 0 then
+                return Error "MaxCut problem has no vertices"
+            elif problem.Edges.Length = 0 then
+                return Error "MaxCut problem has no edges"
+            else
+                // Step 2: Encode MaxCut as QUBO
+                match toQubo problem with
+                | Error msg -> return Error (sprintf "MaxCut encoding failed: %s" msg)
+                | Ok quboMatrix ->
+                    
+                    // Step 3: Convert QUBO to dense array for QAOA
+                    let quboArray = quboMapToArray quboMatrix
+                    
+                    // Step 4: Create QAOA Hamiltonians from QUBO
+                    let problemHam = QaoaCircuit.ProblemHamiltonian.fromQubo quboArray
+                    let mixerHam = QaoaCircuit.MixerHamiltonian.create problemHam.NumQubits
+                    
+                    // Step 5: Build QAOA circuit with parameters
+                    let (gamma, beta) = config.InitialParameters
+                    let parameters = [| gamma, beta |]
+                    let qaoaCircuit = QaoaCircuit.QaoaCircuit.build problemHam mixerHam parameters
+                    
+                    // Step 6: Wrap QAOA circuit for backend execution
+                    let circuitWrapper = CircuitAbstraction.QaoaCircuitWrapper(qaoaCircuit) :> CircuitAbstraction.ICircuit
+                    
+                    // Step 7: Execute on quantum backend asynchronously
+                    let! execResult = backend.ExecuteAsync circuitWrapper config.NumShots
+                    
+                    match execResult with
+                    | Error msg -> return Error (sprintf "Backend execution failed: %s" msg)
+                    | Ok execResult ->
+                        
+                        // Step 7: Decode measurements to partitions
+                        let solutions = 
+                            execResult.Measurements
+                            |> Array.map (fun bitstring -> decodeSolution problem bitstring)
+                        
+                        // Step 8: Find best solution (maximum cut value)
+                        let bestSolution = 
+                            solutions
+                            |> Array.maxBy (fun sol -> sol.CutValue)
+                        
+                        let elapsedMs = (DateTime.Now - startTime).TotalMilliseconds
+                        
+                        return Ok {
+                            bestSolution with
+                                BackendName = backend.Name
+                                NumShots = config.NumShots
+                                ElapsedMs = elapsedMs
+                        }
+        
+        with ex ->
+            return Error (sprintf "Quantum MaxCut solve failed: %s" ex.Message)
+    }
+
+    /// Solve MaxCut problem using quantum QAOA (synchronous wrapper)
+    /// 
+    /// This is a synchronous wrapper around solveAsync for backward compatibility.
+    /// For cloud backends (IonQ, Rigetti), prefer using solveAsync directly.
     /// 
     /// Parameters:
     ///   - backend: Quantum backend (LocalBackend, IonQ, Rigetti)
@@ -262,67 +353,7 @@ module QuantumMaxCutSolver =
         (problem: MaxCutProblem) 
         (config: QaoaConfig) 
         : Result<MaxCutSolution, string> =
-        
-        let startTime = DateTime.Now
-        
-        try
-            // Step 1: Validate problem size against backend
-            let numQubits = problem.Vertices.Length
-            
-            if numQubits > backend.MaxQubits then
-                Error (sprintf "Problem requires %d qubits but backend '%s' supports max %d qubits" 
-                    numQubits backend.Name backend.MaxQubits)
-            elif numQubits = 0 then
-                Error "MaxCut problem has no vertices"
-            elif problem.Edges.Length = 0 then
-                Error "MaxCut problem has no edges"
-            else
-                // Step 2: Encode MaxCut as QUBO
-                match toQubo problem with
-                | Error msg -> Error (sprintf "MaxCut encoding failed: %s" msg)
-                | Ok quboMatrix ->
-                    
-                    // Step 3: Convert QUBO to dense array for QAOA
-                    let quboArray = quboMapToArray quboMatrix
-                    
-                    // Step 4: Create QAOA Hamiltonians from QUBO
-                    let problemHam = QaoaCircuit.ProblemHamiltonian.fromQubo quboArray
-                    let mixerHam = QaoaCircuit.MixerHamiltonian.create problemHam.NumQubits
-                    
-                    // Step 5: Build QAOA circuit with parameters
-                    let (gamma, beta) = config.InitialParameters
-                    let parameters = [| gamma, beta |]
-                    let qaoaCircuit = QaoaCircuit.QaoaCircuit.build problemHam mixerHam parameters
-                    
-                    // Step 6: Wrap QAOA circuit for backend execution
-                    let circuitWrapper = CircuitAbstraction.QaoaCircuitWrapper(qaoaCircuit) :> CircuitAbstraction.ICircuit
-                    
-                    // Step 7: Execute on quantum backend
-                    match backend.Execute circuitWrapper config.NumShots with
-                    | Error msg -> Error (sprintf "Backend execution failed: %s" msg)
-                    | Ok execResult ->
-                        
-                        // Step 7: Decode measurements to partitions
-                        let solutions = 
-                            execResult.Measurements
-                            |> Array.map (fun bitstring -> decodeSolution problem bitstring)
-                        
-                        // Step 8: Find best solution (maximum cut value)
-                        let bestSolution = 
-                            solutions
-                            |> Array.maxBy (fun sol -> sol.CutValue)
-                        
-                        let elapsedMs = (DateTime.Now - startTime).TotalMilliseconds
-                        
-                        Ok {
-                            bestSolution with
-                                BackendName = backend.Name
-                                NumShots = config.NumShots
-                                ElapsedMs = elapsedMs
-                        }
-        
-        with ex ->
-            Error (sprintf "Quantum MaxCut solve failed: %s" ex.Message)
+        solveAsync backend problem config |> Async.RunSynchronously
 
     // ================================================================================
     // CLASSICAL GREEDY SOLVER (for comparison)
