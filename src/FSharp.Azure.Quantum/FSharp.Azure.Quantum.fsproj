@@ -49,6 +49,7 @@
     <!-- Core Layer - Foundation Types -->
     <Compile Include="Core\Validation.fs" />
     <Compile Include="Core\Types.fs" />
+    <Compile Include="Core\Progress.fs" />
     
     <!-- QUBO Helpers - Shared patterns for optimization solvers -->
     <Compile Include="Qubo.fs" />

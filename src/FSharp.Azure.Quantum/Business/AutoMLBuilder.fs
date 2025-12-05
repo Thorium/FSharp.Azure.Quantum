@@ -160,6 +160,12 @@ module AutoML =
         
         /// Random seed for reproducibility
         RandomSeed: int option
+        
+        /// Optional progress reporter for real-time updates
+        ProgressReporter: Core.Progress.IProgressReporter option
+        
+        /// Optional cancellation token for early termination
+        CancellationToken: System.Threading.CancellationToken option
     }
     
     /// AutoML result - best model found
@@ -472,6 +478,11 @@ module AutoML =
             
             let startTime = DateTime.UtcNow
             let backend = problem.Backend |> Option.defaultValue (LocalBackend() :> IQuantumBackend)
+            let reporter = problem.ProgressReporter
+            
+            // Report initial phase
+            reporter |> Option.iter (fun r ->
+                r.Report(Core.Progress.PhaseChanged("AutoML Search", Some "Initializing search")))
             
             if problem.Verbose then
                 printfn "🚀 Starting AutoML Search..."
@@ -505,15 +516,34 @@ module AutoML =
                     (DateTime.UtcNow - startTime).TotalMinutes > float maxMinutes)
                 |> Option.defaultValue false
             
+            // Check if cancellation requested
+            let isCancellationRequested () =
+                match problem.CancellationToken with
+                | Some token when token.IsCancellationRequested -> true
+                | _ ->
+                    reporter |> Option.map (fun r -> r.IsCancellationRequested) |> Option.defaultValue false
+            
             // Execute a single trial and return result with trained model
             let executeTrial (trial: TrialSpec) : (TrialResult * obj option) option =
-                if isTimeBudgetExceeded() then
+                // Check cancellation first
+                if isCancellationRequested() then
+                    if problem.Verbose then
+                        printfn "🛑 Search cancelled by user"
+                    reporter |> Option.iter (fun r ->
+                        r.Report(Core.Progress.ProgressUpdate(0.0, "Search cancelled by user")))
+                    None
+                elif isTimeBudgetExceeded() then
                     if problem.Verbose then
                         let elapsed = (DateTime.UtcNow - startTime).TotalMinutes
                         printfn $"⏱️  Time budget exceeded ({elapsed:F1} minutes)"
                     None
                 else
                     let trialStart = DateTime.UtcNow
+                    
+                    // Report trial start
+                    let modelTypeStr = sprintf "%A" trial.ModelType
+                    reporter |> Option.iter (fun r ->
+                        r.Report(Core.Progress.TrialStarted(trial.Id + 1, trials.Length, modelTypeStr)))
                     
                     if problem.Verbose then
                         printfn $"Trial {trial.Id + 1}/{List.length trials}: {trial.ModelType} with {trial.Architecture}..."
@@ -554,16 +584,27 @@ module AutoML =
                                 tryBinaryClassificationModel trainX trainYInt trial.Architecture trial.Hyperparameters (Some backend)
                                 |> Result.bind (fun model ->
                                     BinaryClassifier.evaluate valX valYInt model
-                                    |> Result.map (fun metrics ->
-                                        let score = metrics.Accuracy
-                                        if problem.Verbose then
-                                            printfn $"  ✅ Score: {score * 100.0:F2}%% (time: {(DateTime.UtcNow - trialStart).TotalSeconds:F1}s)"
-                                        (score, model)))
+                                     |> Result.map (fun metrics ->
+                                         let score = metrics.Accuracy
+                                         let elapsed = (DateTime.UtcNow - trialStart).TotalSeconds
+                                         if problem.Verbose then
+                                             printfn $"  ✅ Score: {score * 100.0:F2}%% (time: {elapsed:F1}s)"
+                                         
+                                         // Report trial completion
+                                         reporter |> Option.iter (fun r ->
+                                             r.Report(Core.Progress.TrialCompleted(trial.Id + 1, score, elapsed)))
+                                         
+                                         (score, model)))
                                 |> function
                                     | Ok (score, model) -> Ok (createSuccessResult score model)
                                     | Error e ->
                                         if problem.Verbose then
                                             printfn $"  ❌ Failed: {e}"
+                                        
+                                        // Report trial failure
+                                        reporter |> Option.iter (fun r ->
+                                            r.Report(Core.Progress.TrialFailed(trial.Id + 1, e)))
+                                        
                                         Ok (createFailureResult e)
                             
                             // Multi-Class Classification
@@ -809,6 +850,8 @@ module AutoML =
                 Verbose = false
                 SavePath = None
                 RandomSeed = None
+                ProgressReporter = None
+                CancellationToken = None
             }
         
         member _.Delay(f: unit -> AutoMLProblem) = f
@@ -840,6 +883,8 @@ module AutoML =
                 Verbose = false
                 SavePath = None
                 RandomSeed = None
+                ProgressReporter = None
+                CancellationToken = None
             }
         
         /// <summary>Set the training data with features and labels.</summary>
@@ -926,6 +971,18 @@ module AutoML =
         [<CustomOperation("randomSeed")>]
         member _.RandomSeed(problem: AutoMLProblem, seed: int) =
             { problem with RandomSeed = Some seed }
+        
+        /// <summary>Set a progress reporter for real-time updates.</summary>
+        /// <param name="reporter">Progress reporter instance</param>
+        [<CustomOperation("progressReporter")>]
+        member _.ProgressReporter(problem: AutoMLProblem, reporter: Core.Progress.IProgressReporter) =
+            { problem with ProgressReporter = Some reporter }
+        
+        /// <summary>Set a cancellation token for early termination.</summary>
+        /// <param name="token">Cancellation token</param>
+        [<CustomOperation("cancellationToken")>]
+        member _.CancellationToken(problem: AutoMLProblem, token: System.Threading.CancellationToken) =
+            { problem with CancellationToken = Some token }
     
     /// Create AutoML computation expression
     let autoML = AutoMLBuilder()

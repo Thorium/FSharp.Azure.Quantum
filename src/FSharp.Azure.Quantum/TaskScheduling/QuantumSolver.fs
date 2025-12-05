@@ -25,7 +25,7 @@ module QuantumSolver =
     /// Example:
     ///   let backend = BackendAbstraction.createLocalBackend()
     ///   let! result = solveQuantum backend problem
-    let solve 
+    let solveAsync 
         (backend: BackendAbstraction.IQuantumBackend)
         (problem: SchedulingProblem<'TTask, 'TResource>) 
         : Async<Result<Solution, string>> =
@@ -68,7 +68,7 @@ module QuantumSolver =
             
             // Execute on quantum backend
             let numShots = 1000
-            match backend.Execute circuitWrapper numShots with
+            match! backend.ExecuteAsync circuitWrapper numShots with
             | Error msg -> return Error (sprintf "Quantum execution failed: %s" msg)
             | Ok execResult ->
             
