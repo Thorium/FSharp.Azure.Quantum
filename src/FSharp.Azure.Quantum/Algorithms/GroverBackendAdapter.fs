@@ -279,9 +279,84 @@ module BackendAdapter =
     // BACKEND EXECUTION
     // ========================================================================
     
-    /// Execute Grover's algorithm using IQuantumBackend
+    /// Execute Grover's algorithm using IQuantumBackend (async version)
     /// 
     /// This is the main entry point for backend-based execution.
+    /// 
+    /// Parameters:
+    /// - oracle: Compiled oracle specification
+    /// - backend: IQuantumBackend instance (LocalBackend, IonQBackend, RigettiBackend)
+    /// - numIterations: Number of Grover iterations to apply
+    /// - numShots: Measurement shots for result extraction
+    /// - solutionThreshold: Minimum probability threshold for solution extraction (default 0.1 = 10%)
+    /// - successThreshold: Minimum probability threshold for success determination (default 0.3 = 30%)
+    /// 
+    /// Returns: Async<Result<SearchResult, string>> - Async computation with result or error
+    let executeGroverWithBackendAsync 
+        (oracle: CompiledOracle) 
+        (backend: IQuantumBackend) 
+        (numIterations: int) 
+        (numShots: int) 
+        (solutionThreshold: float)
+        (successThreshold: float)
+        : Async<Result<GroverIteration.SearchResult, string>> = async {
+        
+        try
+            // Step 1: Validate inputs
+            if numIterations < 0 then
+                return Error "Number of iterations must be non-negative"
+            elif numShots <= 0 then
+                return Error "Number of shots must be positive"
+            elif oracle.NumQubits > backend.MaxQubits then
+                return Error $"Oracle requires {oracle.NumQubits} qubits but backend '{backend.Name}' supports max {backend.MaxQubits}"
+            else
+                // Step 2: Create initial state preparation circuit (H^⊗n)
+                let initCircuit = 
+                    [0 .. oracle.NumQubits - 1]
+                    |> List.fold (fun c q -> addGate (H q) c) (empty oracle.NumQubits)
+                
+                // Step 3: Create Grover iteration circuit
+                match groverIterationToCircuit oracle with
+                | Error msg -> return Error msg
+                | Ok iterationCircuit ->
+                    // Step 4: Compose full circuit: Init + k*(Oracle+Diffusion)
+                    let fullCircuit =
+                        if numIterations = 0 then
+                            initCircuit
+                        else
+                            [1 .. numIterations]
+                            |> List.fold (fun c _ -> compose c iterationCircuit) initCircuit
+                    
+                    // Step 5: Execute on backend asynchronously
+                    let circuitWrapper = CircuitWrapper(fullCircuit)
+                    
+                    let! execResult = backend.ExecuteAsync circuitWrapper numShots
+                    
+                    match execResult with
+                    | Error msg -> return Error $"Backend execution failed: {msg}"
+                    | Ok execResult ->
+                        // Step 6: Convert ExecutionResult to SearchResult
+                        let counts = measurementsToCounts execResult.Measurements
+                        let solutions = extractTopSolutions counts solutionThreshold
+                        let successProb = calculateSuccessProb solutions counts numShots
+                        
+                        return Ok {
+                            Solutions = solutions
+                            SuccessProbability = successProb
+                            IterationsApplied = numIterations
+                            MeasurementCounts = counts
+                            Shots = numShots
+                            Success = successProb >= successThreshold
+                        }
+        
+        with ex ->
+            return Error $"Grover backend execution failed: {ex.Message}"
+    }
+
+    /// Execute Grover's algorithm using IQuantumBackend (synchronous wrapper)
+    /// 
+    /// This is a synchronous wrapper around executeGroverWithBackendAsync for backward compatibility.
+    /// For cloud backends (IonQ, Rigetti), prefer using executeGroverWithBackendAsync directly.
     /// 
     /// Parameters:
     /// - oracle: Compiled oracle specification
@@ -300,52 +375,5 @@ module BackendAdapter =
         (solutionThreshold: float)
         (successThreshold: float)
         : Result<GroverIteration.SearchResult, string> =
-        
-        try
-            // Step 1: Validate inputs
-            if numIterations < 0 then
-                Error "Number of iterations must be non-negative"
-            elif numShots <= 0 then
-                Error "Number of shots must be positive"
-            elif oracle.NumQubits > backend.MaxQubits then
-                Error $"Oracle requires {oracle.NumQubits} qubits but backend '{backend.Name}' supports max {backend.MaxQubits}"
-            else
-                // Step 2: Create initial state preparation circuit (H^⊗n)
-                let initCircuit = 
-                    [0 .. oracle.NumQubits - 1]
-                    |> List.fold (fun c q -> addGate (H q) c) (empty oracle.NumQubits)
-                
-                // Step 3: Create Grover iteration circuit
-                match groverIterationToCircuit oracle with
-                | Error msg -> Error msg
-                | Ok iterationCircuit ->
-                    // Step 4: Compose full circuit: Init + k*(Oracle+Diffusion)
-                    let fullCircuit =
-                        if numIterations = 0 then
-                            initCircuit
-                        else
-                            [1 .. numIterations]
-                            |> List.fold (fun c _ -> compose c iterationCircuit) initCircuit
-                    
-                    // Step 5: Execute on backend
-                    let circuitWrapper = CircuitWrapper(fullCircuit)
-                    
-                    match backend.Execute circuitWrapper numShots with
-                    | Error msg -> Error $"Backend execution failed: {msg}"
-                    | Ok execResult ->
-                        // Step 6: Convert ExecutionResult to SearchResult
-                        let counts = measurementsToCounts execResult.Measurements
-                        let solutions = extractTopSolutions counts solutionThreshold
-                        let successProb = calculateSuccessProb solutions counts numShots
-                        
-                        Ok {
-                            Solutions = solutions
-                            SuccessProbability = successProb
-                            IterationsApplied = numIterations
-                            MeasurementCounts = counts
-                            Shots = numShots
-                            Success = successProb >= successThreshold
-                        }
-        
-        with ex ->
-            Error $"Grover backend execution failed: {ex.Message}"
+        executeGroverWithBackendAsync oracle backend numIterations numShots solutionThreshold successThreshold
+        |> Async.RunSynchronously

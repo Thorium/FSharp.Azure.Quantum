@@ -177,21 +177,23 @@ module QPEBackendAdapter =
     // BACKEND EXECUTION
     // ========================================================================
     
-    /// Execute QPE on backend and extract phase from measurement histogram
-    let executeWithBackend 
+    /// Execute QPE on backend and extract phase from measurement histogram (async version)
+    let executeWithBackendAsync 
         (config: QPEConfig)
         (backend: IQuantumBackend)
-        (shots: int) : Result<Map<int, int>, string> =
+        (shots: int) : Async<Result<Map<int, int>, string>> = async {
         
         match qpeToCircuit config with
-        | Error msg -> Error msg
+        | Error msg -> return Error msg
         | Ok circuit ->
             try
-                // Execute circuit on backend
+                // Execute circuit on backend asynchronously
                 let circuitWrapper = Core.CircuitAbstraction.CircuitWrapper(circuit)
                 
-                match backend.Execute circuitWrapper shots with
-                | Error msg -> Error $"Backend execution failed: {msg}"
+                let! execResult = backend.ExecuteAsync circuitWrapper shots
+                
+                match execResult with
+                | Error msg -> return Error $"Backend execution failed: {msg}"
                 | Ok execResult ->
                     // Extract measurement histogram
                     // Convert int[][] measurements to Map<int, int> histogram
@@ -207,9 +209,20 @@ module QPEBackendAdapter =
                         |> Array.countBy id
                         |> Map.ofArray
                     
-                    Ok histogram
+                    return Ok histogram
             with
-            | ex -> Error $"Backend execution failed: {ex.Message}"
+            | ex -> return Error $"Backend execution failed: {ex.Message}"
+    }
+
+    /// Execute QPE on backend and extract phase from measurement histogram (synchronous wrapper)
+    /// 
+    /// This is a synchronous wrapper around executeWithBackendAsync for backward compatibility.
+    /// For cloud backends (IonQ, Rigetti), prefer using executeWithBackendAsync directly.
+    let executeWithBackend 
+        (config: QPEConfig)
+        (backend: IQuantumBackend)
+        (shots: int) : Result<Map<int, int>, string> =
+        executeWithBackendAsync config backend shots |> Async.RunSynchronously
     
     /// Extract most likely phase from measurement histogram
     let extractPhaseFromHistogram (histogram: Map<int, int>) (precision: int) : float =

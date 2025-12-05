@@ -298,32 +298,32 @@ module AmplitudeAmplificationAdapter =
     // BACKEND EXECUTION
     // ========================================================================
     
-    /// Execute amplitude amplification using IQuantumBackend
+    /// Execute amplitude amplification using IQuantumBackend (async version)
     /// 
     /// Parameters:
     /// - config: Amplitude amplification configuration with circuits
     /// - backend: Quantum backend to execute on
     /// - numShots: Number of measurement shots
     /// 
-    /// Returns: AmplificationResult with solutions and success probability
-    let executeAmplificationWithBackend 
+    /// Returns: Async<Result<SearchResult, string>> - Async computation with result or error
+    let executeAmplificationWithBackendAsync 
         (config: BackendAmplificationConfig) 
         (backend: IQuantumBackend) 
         (numShots: int) 
-        : Result<GroverIteration.SearchResult, string> =
+        : Async<Result<GroverIteration.SearchResult, string>> = async {
         
         try
             // Step 1: Validate inputs
             if config.Iterations < 0 then
-                Error "Number of iterations must be non-negative"
+                return Error "Number of iterations must be non-negative"
             elif numShots <= 0 then
-                Error "Number of shots must be positive"
+                return Error "Number of shots must be positive"
             elif config.NumQubits > backend.MaxQubits then
-                Error $"Amplification requires {config.NumQubits} qubits but backend '{backend.Name}' supports max {backend.MaxQubits}"
+                return Error $"Amplification requires {config.NumQubits} qubits but backend '{backend.Name}' supports max {backend.MaxQubits}"
             else
                 // Step 2: Convert oracle to circuit (reuse from GroverBackendAdapter)
                 match oracleToCircuit config.Oracle.Spec config.NumQubits with
-                | Error msg -> Error msg
+                | Error msg -> return Error msg
                 | Ok oracleCircuit ->
                     // Step 3: Get reflection circuit (use provided or default to Grover diffusion)
                     let reflectionCircuit =
@@ -337,9 +337,11 @@ module AmplitudeAmplificationAdapter =
                     // Step 5: Wrap circuit in ICircuit interface
                     let circuitWrapper = CircuitWrapper(fullCircuit)
                     
-                    // Step 6: Execute on backend
-                    match backend.Execute circuitWrapper numShots with
-                    | Error msg -> Error msg
+                    // Step 6: Execute on backend asynchronously
+                    let! execResult = backend.ExecuteAsync circuitWrapper numShots
+                    
+                    match execResult with
+                    | Error msg -> return Error msg
                     | Ok executionResult ->
                         // Step 7: Convert measurements to basis state counts
                         let counts = 
@@ -356,7 +358,7 @@ module AmplitudeAmplificationAdapter =
                         let solutions = extractTopSolutions counts 0.1
                         let successProb = calculateSuccessProb solutions counts numShots
                         
-                        Ok {
+                        return Ok {
                             Solutions = solutions
                             SuccessProbability = successProb
                             IterationsApplied = config.Iterations
@@ -366,7 +368,27 @@ module AmplitudeAmplificationAdapter =
                         }
         
         with ex ->
-            Error $"Amplitude amplification backend execution failed: {ex.Message}"
+            return Error $"Amplitude amplification backend execution failed: {ex.Message}"
+    }
+
+    /// Execute amplitude amplification using IQuantumBackend (synchronous wrapper)
+    /// 
+    /// This is a synchronous wrapper around executeAmplificationWithBackendAsync for backward compatibility.
+    /// For cloud backends (IonQ, Rigetti), prefer using executeAmplificationWithBackendAsync directly.
+    /// 
+    /// Parameters:
+    /// - config: Amplitude amplification configuration with circuits
+    /// - backend: Quantum backend to execute on
+    /// - numShots: Number of measurement shots
+    /// 
+    /// Returns: AmplificationResult with solutions and success probability
+    let executeAmplificationWithBackend 
+        (config: BackendAmplificationConfig) 
+        (backend: IQuantumBackend) 
+        (numShots: int) 
+        : Result<GroverIteration.SearchResult, string> =
+        executeAmplificationWithBackendAsync config backend numShots
+        |> Async.RunSynchronously
     
     // ========================================================================
     // CONVENIENCE FUNCTIONS

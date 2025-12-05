@@ -428,20 +428,22 @@ module HHLBackendAdapter =
     // BACKEND EXECUTION
     // ========================================================================
     
-    /// Execute HHL on backend and extract solution
-    let executeWithBackend
+    /// Execute HHL on backend and extract solution (async version)
+    let executeWithBackendAsync
         (config: HHLConfig)
         (backend: IQuantumBackend)
-        (shots: int) : Result<Map<string, int>, string> =
+        (shots: int) : Async<Result<Map<string, int>, string>> = async {
         
         match hhlToCircuit config with
-        | Error msg -> Error msg
+        | Error msg -> return Error msg
         | Ok circuit ->
             try
                 let circuitWrapper = CircuitWrapper(circuit)
                 
-                match backend.Execute circuitWrapper shots with
-                | Error msg -> Error $"Backend execution failed: {msg}"
+                let! execResult = backend.ExecuteAsync circuitWrapper shots
+                
+                match execResult with
+                | Error msg -> return Error $"Backend execution failed: {msg}"
                 | Ok execResult ->
                     let outcomes = 
                         execResult.Measurements
@@ -453,9 +455,20 @@ module HHLBackendAdapter =
                         |> Array.countBy id
                         |> Map.ofArray
                     
-                    Ok outcomes
+                    return Ok outcomes
             with
-            | ex -> Error $"Backend execution failed: {ex.Message}"
+            | ex -> return Error $"Backend execution failed: {ex.Message}"
+    }
+
+    /// Execute HHL on backend and extract solution (synchronous wrapper)
+    /// 
+    /// This is a synchronous wrapper around executeWithBackendAsync for backward compatibility.
+    /// For cloud backends (IonQ, Rigetti), prefer using executeWithBackendAsync directly.
+    let executeWithBackend
+        (config: HHLConfig)
+        (backend: IQuantumBackend)
+        (shots: int) : Result<Map<string, int>, string> =
+        executeWithBackendAsync config backend shots |> Async.RunSynchronously
     
     // ========================================================================
     // RESULT EXTRACTION
