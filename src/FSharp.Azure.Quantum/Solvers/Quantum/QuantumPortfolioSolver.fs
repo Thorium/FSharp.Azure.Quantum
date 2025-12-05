@@ -38,12 +38,20 @@ open FSharp.Azure.Quantum.Core
 /// 4. Decode Measurements → Asset Allocations
 /// 5. Return Best Solution
 ///
-/// Example:
+/// Examples:
+///   // Synchronous (blocks until complete):
 ///   let backend = BackendAbstraction.createLocalBackend()
 ///   let config = { NumShots = 1000; RiskAversion = 0.5; InitialParameters = (0.5, 0.5) }
 ///   match QuantumPortfolioSolver.solve backend assets constraints config with
 ///   | Ok result -> printfn "Expected return: %f" result.ExpectedReturn
 ///   | Error msg -> printfn "Error: %s" msg
+///   
+///   // Asynchronous (non-blocking, preferred for cloud backends):
+///   async {
+///     match! QuantumPortfolioSolver.solveAsync backend assets constraints config with
+///     | Ok result -> printfn "Expected return: %f" result.ExpectedReturn
+///     | Error msg -> printfn "Error: %s" msg
+///   } |> Async.RunSynchronously
 module QuantumPortfolioSolver =
 
     // ================================================================================
@@ -320,14 +328,110 @@ module QuantumPortfolioSolver =
         InitialParameters = (0.5, 0.5)
     }
 
-    /// Solve portfolio optimization using quantum backend via QAOA
+    /// Solve portfolio optimization using quantum backend via QAOA (asynchronous)
     /// 
     /// Full Pipeline:
     /// 1. Portfolio problem → QUBO matrix (mean-variance encoding)
     /// 2. QUBO → QaoaCircuit (Hamiltonians + layers)
-    /// 3. Execute circuit on quantum backend
+    /// 3. Execute circuit on quantum backend (async, non-blocking)
     /// 4. Decode measurements → portfolio allocations
     /// 5. Return best solution
+    /// 
+    /// Parameters:
+    ///   backend - Quantum backend to execute on (LocalBackend, IonQ, Rigetti)
+    ///   assets - List of assets to optimize
+    ///   constraints - Portfolio constraints (budget, min/max holding)
+    ///   config - Configuration for execution
+    ///   
+    /// Returns:
+    ///   Async computation that returns Result with QuantumPortfolioSolution or error message
+    ///   
+    /// Note: This is the preferred method for cloud backends (IonQ, Rigetti) as it allows
+    /// non-blocking execution. For synchronous API, use `solve` which wraps this function.
+    let solveAsync 
+        (backend: BackendAbstraction.IQuantumBackend)
+        (assets: PortfolioTypes.Asset list)
+        (constraints: PortfolioSolver.Constraints)
+        (config: QuantumPortfolioConfig)
+        : Async<Result<QuantumPortfolioSolution, string>> = async {
+        
+        let startTime = DateTime.UtcNow
+        
+        // Validate inputs
+        let numAssets = assets.Length
+        let requiredQubits = numAssets
+        
+        if numAssets = 0 then
+            return Error "Portfolio problem has no assets"
+        elif requiredQubits > backend.MaxQubits then
+            return Error (sprintf "Problem requires %d qubits but backend '%s' supports max %d qubits" 
+                requiredQubits backend.Name backend.MaxQubits)
+        elif config.NumShots <= 0 then
+            return Error "Number of shots must be positive"
+        else
+            try
+                // Build portfolio problem
+                let problem : PortfolioProblem = {
+                    Assets = assets
+                    Constraints = constraints
+                    RiskAversion = config.RiskAversion
+                }
+                
+                // Step 1: Encode portfolio as QUBO
+                match toQubo problem with
+                | Error msg -> return Error msg
+                | Ok quboMatrix ->
+                    
+                    // Step 2: Generate QAOA circuit components from QUBO
+                    let quboArray = quboMapToArray quboMatrix
+                    let problemHam = QaoaCircuit.ProblemHamiltonian.fromQubo quboArray
+                    let mixerHam = QaoaCircuit.MixerHamiltonian.create problemHam.NumQubits
+                    
+                    // Step 3: Build QAOA circuit with parameters
+                    let (gamma, beta) = config.InitialParameters
+                    let parameters = [| gamma, beta |]
+                    let qaoaCircuit = QaoaCircuit.QaoaCircuit.build problemHam mixerHam parameters
+                    
+                    // Step 4: Execute on backend (async, non-blocking)
+                    let circuitWrapper = 
+                        CircuitAbstraction.QaoaCircuitWrapper(qaoaCircuit) 
+                        :> CircuitAbstraction.ICircuit
+                    
+                    let! execResultAsync = backend.ExecuteAsync circuitWrapper config.NumShots
+                    match execResultAsync with
+                    | Error msg -> return Error (sprintf "Backend execution failed: %s" msg)
+                    | Ok execResult ->
+                        
+                        // Step 5: Decode measurements to portfolio solutions
+                        let portfolioResults =
+                            execResult.Measurements
+                            |> Array.choose (decodeSolution problem)
+                        
+                        if portfolioResults.Length = 0 then
+                            return Error "No valid portfolio solutions found in quantum measurements"
+                        else
+                            // Select best solution (minimum energy = maximum utility)
+                            let bestSolution = 
+                                portfolioResults
+                                |> Array.minBy (fun sol -> sol.BestEnergy)
+                            
+                            let elapsedMs = (DateTime.UtcNow - startTime).TotalMilliseconds
+                            
+                            return Ok {
+                                bestSolution with
+                                    BackendName = backend.Name
+                                    NumShots = config.NumShots
+                                    ElapsedMs = elapsedMs
+                            }
+            
+            with ex ->
+                return Error (sprintf "Quantum portfolio solver failed: %s" ex.Message)
+    }
+
+    /// Solve portfolio optimization using quantum backend via QAOA (synchronous)
+    /// 
+    /// This is a synchronous wrapper around `solveAsync` for backward compatibility.
+    /// For better performance with cloud backends, prefer using `solveAsync` directly.
     /// 
     /// Parameters:
     ///   backend - Quantum backend to execute on (LocalBackend, IonQ, Rigetti)
@@ -343,77 +447,8 @@ module QuantumPortfolioSolver =
         (constraints: PortfolioSolver.Constraints)
         (config: QuantumPortfolioConfig)
         : Result<QuantumPortfolioSolution, string> =
-        
-        let startTime = DateTime.UtcNow
-        
-        // Validate inputs
-        let numAssets = assets.Length
-        let requiredQubits = numAssets
-        
-        if numAssets = 0 then
-            Error "Portfolio problem has no assets"
-        elif requiredQubits > backend.MaxQubits then
-            Error (sprintf "Problem requires %d qubits but backend '%s' supports max %d qubits" 
-                requiredQubits backend.Name backend.MaxQubits)
-        elif config.NumShots <= 0 then
-            Error "Number of shots must be positive"
-        else
-            try
-                // Build portfolio problem
-                let problem : PortfolioProblem = {
-                    Assets = assets
-                    Constraints = constraints
-                    RiskAversion = config.RiskAversion
-                }
-                
-                // Step 1: Encode portfolio as QUBO
-                match toQubo problem with
-                | Error msg -> Error msg
-                | Ok quboMatrix ->
-                    
-                    // Step 2: Generate QAOA circuit components from QUBO
-                    let quboArray = quboMapToArray quboMatrix
-                    let problemHam = QaoaCircuit.ProblemHamiltonian.fromQubo quboArray
-                    let mixerHam = QaoaCircuit.MixerHamiltonian.create problemHam.NumQubits
-                    
-                    // Step 3: Build QAOA circuit with parameters
-                    let (gamma, beta) = config.InitialParameters
-                    let parameters = [| gamma, beta |]
-                    let qaoaCircuit = QaoaCircuit.QaoaCircuit.build problemHam mixerHam parameters
-                    
-                    // Step 4: Execute on backend
-                    let circuitWrapper = 
-                        CircuitAbstraction.QaoaCircuitWrapper(qaoaCircuit) 
-                        :> CircuitAbstraction.ICircuit
-                    
-                    match backend.Execute circuitWrapper config.NumShots with
-                    | Error msg -> Error (sprintf "Backend execution failed: %s" msg)
-                    | Ok execResult ->
-                        
-                        // Step 5: Decode measurements to portfolio solutions
-                        let portfolioResults =
-                            execResult.Measurements
-                            |> Array.choose (decodeSolution problem)
-                        
-                        if portfolioResults.Length = 0 then
-                            Error "No valid portfolio solutions found in quantum measurements"
-                        else
-                            // Select best solution (minimum energy = maximum utility)
-                            let bestSolution = 
-                                portfolioResults
-                                |> Array.minBy (fun sol -> sol.BestEnergy)
-                            
-                            let elapsedMs = (DateTime.UtcNow - startTime).TotalMilliseconds
-                            
-                            Ok {
-                                bestSolution with
-                                    BackendName = backend.Name
-                                    NumShots = config.NumShots
-                                    ElapsedMs = elapsedMs
-                            }
-            
-            with ex ->
-                Error (sprintf "Quantum portfolio solver failed: %s" ex.Message)
+        solveAsync backend assets constraints config
+        |> Async.RunSynchronously
 
     /// Solve portfolio with default configuration
     let solveWithDefaults 
