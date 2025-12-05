@@ -486,6 +486,194 @@ module BackendAbstraction =
             member _.MaxQubits = 40  // Rigetti Aspen-M-3 limit
     
     // ============================================================================
+    // QUANTINUUM BACKEND WRAPPER
+    // ============================================================================
+    
+    /// Wrapper for Quantinuum backend via Azure Quantum
+    /// 
+    /// Integrates with Azure Quantum to execute circuits on Quantinuum H-Series hardware/simulator.
+    /// Uses the existing QuantinuumBackend module for Azure integration.
+    /// 
+    /// Key Features:
+    /// - Uses OpenQASM 2.0 format (reuses OpenQasmExport module)
+    /// - All-to-all connectivity (32 qubits)
+    /// - 99.9%+ gate fidelity
+    /// - Native CZ gates (trapped-ion advantage)
+    type QuantinuumBackendWrapper(httpClient: System.Net.Http.HttpClient, workspaceUrl: string, target: string) =
+        
+        member private _.ExecuteAsyncCore (circuit: ICircuit) (numShots: int) : Async<Result<ExecutionResult, string>> =
+            async {
+                try
+                    // Step 1: Convert ICircuit to CircuitBuilder.Circuit
+                    let builderCircuit = 
+                        match circuit with
+                        | :? CircuitWrapper as wrapper -> wrapper.Circuit
+                        | :? QaoaCircuitWrapper as wrapper -> 
+                            CircuitAdapter.qaoaCircuitToCircuit wrapper.QaoaCircuit
+                        | _ -> 
+                            failwith "Unsupported circuit type for Quantinuum backend"
+                    
+                    // Step 2: Transpile to Quantinuum-compatible gates (only CCX decomposition needed)
+                    let transpiledCircuit = 
+                        GateTranspiler.transpileForBackend "Quantinuum" builderCircuit
+                    
+                    // Step 3: Convert transpiled circuit to OpenQASM 2.0
+                    let qasmCode = OpenQasmExport.export transpiledCircuit
+                    
+                    // Step 4: Submit to Azure Quantum Quantinuum backend
+                    let! result = QuantinuumBackend.submitAndWaitForResultsAsync httpClient workspaceUrl qasmCode numShots target
+                    
+                    // Step 4: Convert histogram to ExecutionResult
+                    match result with
+                    | Ok histogram ->
+                        // Convert histogram Map<bitstring, count> to measurements int[][]
+                        let measurements = 
+                            histogram
+                            |> Map.toSeq
+                            |> Seq.collect (fun (bitstring, count) ->
+                                // Convert bitstring "01101" to int array [0;1;1;0;1]
+                                let bits = 
+                                    bitstring.ToCharArray()
+                                    |> Array.map (fun c -> if c = '1' then 1 else 0)
+                                // Repeat this bitstring 'count' times
+                                Seq.replicate count bits
+                            )
+                            |> Array.ofSeq
+                        
+                        return Ok {
+                            Measurements = measurements
+                            NumShots = numShots
+                            BackendName = sprintf "Quantinuum via Azure Quantum (%s)" target
+                            Metadata = Map.ofList [ ("target", target :> obj); ("workspace", workspaceUrl :> obj) ]
+                        }
+                    
+                    | Error quantumError ->
+                        return Error (sprintf "Quantinuum execution failed: %A" quantumError)
+                
+                with ex ->
+                    return Error (sprintf "Quantinuum backend error: %s" ex.Message)
+            }
+        
+        interface IQuantumBackend with
+            member this.ExecuteAsync (circuit: ICircuit) (numShots: int) : Async<Result<ExecutionResult, string>> =
+                this.ExecuteAsyncCore circuit numShots
+            
+            member this.Execute (circuit: ICircuit) (numShots: int) : Result<ExecutionResult, string> =
+                this.ExecuteAsyncCore circuit numShots |> Async.RunSynchronously
+            
+            member _.Name = "Quantinuum H-Series"
+            
+            member _.SupportedGates = [
+                "H"; "X"; "Y"; "Z"
+                "S"; "T"; "SDG"; "TDG"
+                "RX"; "RY"; "RZ"
+                "CZ"    // Native Quantinuum gate (trapped-ion)
+                "MEASURE"
+            ]
+            
+            member _.MaxQubits = 
+                // Dynamic qubit limit based on target hardware
+                if target.Contains("h2", StringComparison.OrdinalIgnoreCase) then 
+                    32  // H2-1 hardware
+                elif target.Contains("h1", StringComparison.OrdinalIgnoreCase) then 
+                    20  // H1-1 hardware/simulators
+                else 
+                    32  // Default to H2-1 for future models
+    
+    // ============================================================================
+    // ATOM COMPUTING BACKEND WRAPPER
+    // ============================================================================
+    
+    /// Wrapper for Atom Computing backend via Azure Quantum
+    /// 
+    /// Integrates with Azure Quantum to execute circuits on Atom Computing Phoenix hardware/simulator.
+    /// Uses the existing AtomComputingBackend module for Azure integration.
+    /// 
+    /// Key Features:
+    /// - Uses OpenQASM 2.0 format (reuses OpenQasmExport module)
+    /// - All-to-all connectivity via movable neutral atoms (100+ qubits)
+    /// - CZ-based native gates (neutral atom Rydberg blockade)
+    type AtomComputingBackendWrapper(httpClient: System.Net.Http.HttpClient, workspaceUrl: string, target: string) =
+        
+        member private _.ExecuteAsyncCore (circuit: ICircuit) (numShots: int) : Async<Result<ExecutionResult, string>> =
+            async {
+                try
+                    // Step 1: Convert ICircuit to CircuitBuilder.Circuit
+                    let builderCircuit = 
+                        match circuit with
+                        | :? CircuitWrapper as wrapper -> wrapper.Circuit
+                        | :? QaoaCircuitWrapper as wrapper -> 
+                            CircuitAdapter.qaoaCircuitToCircuit wrapper.QaoaCircuit
+                        | _ -> 
+                            failwith "Unsupported circuit type for Atom Computing backend"
+                    
+                    // Step 2: Transpile to Atom Computing-compatible gates (CZ-native, all-to-all)
+                    let transpiledCircuit = 
+                        GateTranspiler.transpileForBackend "AtomComputing" builderCircuit
+                    
+                    // Step 3: Convert transpiled circuit to OpenQASM 2.0
+                    let qasmCode = OpenQasmExport.export transpiledCircuit
+                    
+                    // Step 4: Submit to Azure Quantum Atom Computing backend
+                    let! result = AtomComputingBackend.submitAndWaitForResultsAsync httpClient workspaceUrl qasmCode numShots target
+                    
+                    // Step 5: Convert histogram to ExecutionResult
+                    match result with
+                    | Ok histogram ->
+                        // Convert histogram Map<bitstring, count> to measurements int[][]
+                        let measurements = 
+                            histogram
+                            |> Map.toSeq
+                            |> Seq.collect (fun (bitstring, count) ->
+                                // Convert bitstring "01101" to int array [0;1;1;0;1]
+                                let bits = 
+                                    bitstring.ToCharArray()
+                                    |> Array.map (fun c -> if c = '1' then 1 else 0)
+                                // Repeat this bitstring 'count' times
+                                Seq.replicate count bits
+                            )
+                            |> Array.ofSeq
+                        
+                        return Ok {
+                            Measurements = measurements
+                            NumShots = numShots
+                            BackendName = sprintf "Atom Computing via Azure Quantum (%s)" target
+                            Metadata = Map.ofList [ ("target", target :> obj); ("workspace", workspaceUrl :> obj) ]
+                        }
+                    
+                    | Error quantumError ->
+                        return Error (sprintf "Atom Computing execution failed: %A" quantumError)
+                
+                with ex ->
+                    return Error (sprintf "Atom Computing backend error: %s" ex.Message)
+            }
+        
+        interface IQuantumBackend with
+            member this.ExecuteAsync (circuit: ICircuit) (numShots: int) : Async<Result<ExecutionResult, string>> =
+                this.ExecuteAsyncCore circuit numShots
+            
+            member this.Execute (circuit: ICircuit) (numShots: int) : Result<ExecutionResult, string> =
+                this.ExecuteAsyncCore circuit numShots |> Async.RunSynchronously
+            
+            member _.Name = "Atom Computing Phoenix"
+            
+            member _.SupportedGates = [
+                "H"; "X"; "Y"; "Z"
+                "S"; "T"; "SDG"; "TDG"
+                "RX"; "RY"; "RZ"
+                "CZ"    // Native Atom Computing gate (Rydberg blockade)
+                "MEASURE"
+            ]
+            
+            member _.MaxQubits = 
+                // Atom Computing Phoenix has 100+ qubits
+                // Specific limits may vary by target
+                if target.Contains("phoenix", StringComparison.OrdinalIgnoreCase) then 
+                    100  // Phoenix QPU
+                else 
+                    100  // Default (simulator may support more)
+    
+    // ============================================================================
     // AZURE QUANTUM SDK BACKEND WRAPPER
     // ============================================================================
     
@@ -561,6 +749,7 @@ module BackendAbstraction =
                 if targetId.StartsWith("ionq", StringComparison.OrdinalIgnoreCase) then "IonQ"
                 elif targetId.StartsWith("rigetti", StringComparison.OrdinalIgnoreCase) then "Rigetti"
                 elif targetId.StartsWith("quantinuum", StringComparison.OrdinalIgnoreCase) then "Quantinuum"
+                elif targetId.StartsWith("atom", StringComparison.OrdinalIgnoreCase) then "AtomComputing"
                 else "Unknown"
             
             match circuit with
@@ -582,7 +771,14 @@ module BackendAbstraction =
                     Ok quil
                 
                 | "Quantinuum" ->
-                    Error "Quantinuum provider not yet supported"
+                    // Quantinuum uses OpenQASM 2.0 format (reuse existing OpenQasmExport!)
+                    let qasm = OpenQasmExport.export transpiledCircuit
+                    Ok qasm
+                
+                | "AtomComputing" ->
+                    // Atom Computing uses OpenQASM 2.0 format (same as Quantinuum!)
+                    let qasm = OpenQasmExport.export transpiledCircuit
+                    Ok qasm
                 
                 | _ ->
                     Error $"Unsupported provider: {provider} (targetId: {targetId})"
@@ -845,6 +1041,38 @@ module BackendAbstraction =
     /// - target: Rigetti target (e.g., "rigetti.sim.qvm", "rigetti.qpu.ankaa-3")
     let createRigettiBackend (httpClient: System.Net.Http.HttpClient) (workspaceUrl: string) (target: string) : IQuantumBackend =
         RigettiBackendWrapper(httpClient, workspaceUrl, target) :> IQuantumBackend
+    
+    /// Create a Quantinuum backend wrapper with Azure Quantum workspace
+    /// 
+    /// Parameters:
+    /// - httpClient: Authenticated HTTP client for Azure Quantum API
+    /// - workspaceUrl: Azure Quantum workspace URL (e.g., "https://my-workspace.quantum.azure.com")
+    /// - target: Quantinuum target (e.g., "quantinuum.sim.h1-1sc", "quantinuum.qpu.h1-1")
+    /// 
+    /// Example:
+    /// ```fsharp
+    /// let httpClient = new System.Net.Http.HttpClient()
+    /// let workspaceUrl = "https://my-workspace.quantum.azure.com"
+    /// let backend = BackendAbstraction.createQuantinuumBackend httpClient workspaceUrl "quantinuum.sim.h1-1sc"
+    /// ```
+    let createQuantinuumBackend (httpClient: System.Net.Http.HttpClient) (workspaceUrl: string) (target: string) : IQuantumBackend =
+        QuantinuumBackendWrapper(httpClient, workspaceUrl, target) :> IQuantumBackend
+    
+    /// Create an Atom Computing backend wrapper with Azure Quantum workspace
+    /// 
+    /// Parameters:
+    /// - httpClient: Authenticated HTTP client for Azure Quantum API
+    /// - workspaceUrl: Azure Quantum workspace URL (e.g., "https://my-workspace.quantum.azure.com")
+    /// - target: Atom Computing target (e.g., "atom-computing.sim", "atom-computing.qpu.phoenix")
+    /// 
+    /// Example:
+    /// ```fsharp
+    /// let httpClient = new System.Net.Http.HttpClient()
+    /// let workspaceUrl = "https://my-workspace.quantum.azure.com"
+    /// let backend = BackendAbstraction.createAtomComputingBackend httpClient workspaceUrl "atom-computing.qpu.phoenix"
+    /// ```
+    let createAtomComputingBackend (httpClient: System.Net.Http.HttpClient) (workspaceUrl: string) (target: string) : IQuantumBackend =
+        AtomComputingBackendWrapper(httpClient, workspaceUrl, target) :> IQuantumBackend
     
     /// Create a backend from Azure Quantum Workspace (SDK-based)
     /// 

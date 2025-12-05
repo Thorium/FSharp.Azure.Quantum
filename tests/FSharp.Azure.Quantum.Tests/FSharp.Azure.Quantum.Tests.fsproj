@@ -54,11 +54,15 @@
     <Compile Include="JobLifecycleTests.fs" />
     <Compile Include="IonQBackendTests.fs" />
     <Compile Include="RigettiBackendTests.fs" />
+    <Compile Include="QuantinuumBackendTests.fs" />
+    <Compile Include="AtomComputingBackendTests.fs" />
     <Compile Include="ZeroNoiseExtrapolationTests.fs" />
     <Compile Include="ProbabilisticErrorCancellationTests.fs" />
     <Compile Include="ReadoutErrorMitigationTests.fs" />
     <Compile Include="ErrorMitigationStrategyTests.fs" />
     <Compile Include="PerformanceBenchmarkingTests.fs" />
+    <Compile Include="QRNGTests.fs" />
+    <Compile Include="FermionMappingTests.fs" />
     <Compile Include="QuantumChemistryTests.fs" />
     <Compile Include="QuantumTreeSearchBuilderTests.fs" />
     <Compile Include="QuantumConstraintSolverBuilderTests.fs" />

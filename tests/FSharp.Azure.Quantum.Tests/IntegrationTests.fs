@@ -99,6 +99,100 @@ module IntegrationTests =
             Assert.Fail($"Expected successful solution, got error: {msg}")
 
     // ===========================================
+    // Test Scenario 4.5: Quantum Portfolio Solver Async vs Sync
+    // ===========================================
+    
+    [<Fact>]
+    let ``QuantumPortfolioSolver - solveAsync produces same results as solve`` () =
+        // Arrange: Small 3-asset portfolio suitable for quantum simulation
+        let assets: PortfolioSolver.Asset list = [
+            { Symbol = "A"; ExpectedReturn = 0.10; Risk = 0.15; Price = 100.0 }
+            { Symbol = "B"; ExpectedReturn = 0.12; Risk = 0.18; Price = 150.0 }
+            { Symbol = "C"; ExpectedReturn = 0.08; Risk = 0.12; Price = 80.0 }
+        ]
+        
+        let constraints: PortfolioSolver.Constraints = {
+            Budget = 500.0
+            MinHolding = 0.0
+            MaxHolding = 500.0
+        }
+        
+        let config: QuantumPortfolioSolver.QuantumPortfolioConfig = {
+            NumShots = 100  // Small for fast test
+            RiskAversion = 0.5
+            InitialParameters = (0.5, 0.5)
+        }
+        
+        let backend = createLocalBackend()
+        
+        // Act: Call both sync and async versions
+        let syncResult = QuantumPortfolioSolver.solve backend assets constraints config
+        let asyncResult = 
+            QuantumPortfolioSolver.solveAsync backend assets constraints config 
+            |> Async.RunSynchronously
+        
+        // Assert: Both should succeed and return similar results
+        match syncResult, asyncResult with
+        | Ok syncSolution, Ok asyncSolution ->
+            // Both should succeed
+            Assert.Equal(syncSolution.NumShots, asyncSolution.NumShots)
+            Assert.Equal("Local Simulator", syncSolution.BackendName)
+            Assert.Equal("Local Simulator", asyncSolution.BackendName)
+            
+            // Should have same number of allocations
+            Assert.Equal(syncSolution.Allocations.Length, asyncSolution.Allocations.Length)
+            
+            // Both should be valid portfolios
+            Assert.True(syncSolution.TotalValue <= constraints.Budget * 1.01)
+            Assert.True(asyncSolution.TotalValue <= constraints.Budget * 1.01)
+            
+        | Error msg, _ -> 
+            Assert.Fail($"Sync version failed: {msg}")
+        | _, Error msg -> 
+            Assert.Fail($"Async version failed: {msg}")
+
+    [<Fact>]
+    let ``QuantumPortfolioSolver - solveAsync allows concurrent execution`` () =
+        // Arrange: Small portfolio problem
+        let assets: PortfolioSolver.Asset list = [
+            { Symbol = "X"; ExpectedReturn = 0.10; Risk = 0.15; Price = 100.0 }
+            { Symbol = "Y"; ExpectedReturn = 0.12; Risk = 0.18; Price = 150.0 }
+        ]
+        
+        let constraints: PortfolioSolver.Constraints = {
+            Budget = 300.0
+            MinHolding = 0.0
+            MaxHolding = 300.0
+        }
+        
+        let config: QuantumPortfolioSolver.QuantumPortfolioConfig = {
+            NumShots = 50
+            RiskAversion = 0.5
+            InitialParameters = (0.5, 0.5)
+        }
+        
+        let backend = createLocalBackend()
+        
+        // Act: Run multiple async operations in parallel
+        let tasks = 
+            [1..3]
+            |> List.map (fun _ -> 
+                QuantumPortfolioSolver.solveAsync backend assets constraints config)
+        
+        let results = Async.Parallel tasks |> Async.RunSynchronously
+        
+        // Assert: All should succeed
+        Assert.Equal(3, results.Length)
+        results |> Array.iter (fun result ->
+            match result with
+            | Ok solution -> 
+                Assert.Equal("Local Simulator", solution.BackendName)
+                Assert.True(solution.TotalValue <= constraints.Budget * 1.01)
+            | Error msg -> 
+                Assert.Fail($"Parallel execution failed: {msg}")
+        )
+
+    // ===========================================
     // Test Scenario 5: HybridSolver Small Problem
     // ===========================================
     

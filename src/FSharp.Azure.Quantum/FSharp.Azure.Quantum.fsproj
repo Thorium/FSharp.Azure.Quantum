@@ -78,6 +78,7 @@
     <Compile Include="Algorithms\HHLAlgorithm.fs" />
     <Compile Include="Algorithms\ShorsTypes.fs" />
     <Compile Include="Algorithms\ShorsAlgorithm.fs" />
+    <Compile Include="Algorithms\QRNG.fs" />
 
     <!-- Core Infrastructure (depends on Types, LocalSimulator) -->
     <Compile Include="Core\CostEstimation.fs" />
@@ -93,6 +94,8 @@
     <Compile Include="Backends\DWaveTypes.fs" />
     <Compile Include="Backends\IonQBackend.fs" />
     <Compile Include="Backends\RigettiBackend.fs" />
+    <Compile Include="Backends\QuantinuumBackend.fs" />
+    <Compile Include="Backends\AtomComputingBackend.fs" />
     <Compile Include="Backends\AzureQuantumWorkspace.fs" />
     <Compile Include="Core\Client.fs" />
     

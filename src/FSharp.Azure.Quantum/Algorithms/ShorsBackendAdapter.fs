@@ -184,24 +184,26 @@ module ShorsBackendAdapter =
     // BACKEND EXECUTION
     // ========================================================================
     
-    /// Execute period-finding on backend
+    /// Execute period-finding on backend (async version)
     /// Returns histogram of measurement outcomes
-    let executePeriodFindingWithBackend
+    let executePeriodFindingWithBackendAsync
         (a: int)
         (n: int)
         (precisionQubits: int)
         (backend: IQuantumBackend)
-        (shots: int) : Result<Map<int, int>, string> =
+        (shots: int) : Async<Result<Map<int, int>, string>> = async {
         
         match periodFindingToCircuit a n precisionQubits with
-        | Error msg -> Error msg
+        | Error msg -> return Error msg
         | Ok circuit ->
             try
-                // Execute circuit on backend
+                // Execute circuit on backend asynchronously
                 let circuitWrapper = Core.CircuitAbstraction.CircuitWrapper(circuit)
                 
-                match backend.Execute circuitWrapper shots with
-                | Error msg -> Error $"Backend execution failed: {msg}"
+                let! execResult = backend.ExecuteAsync circuitWrapper shots
+                
+                match execResult with
+                | Error msg -> return Error $"Backend execution failed: {msg}"
                 | Ok execResult ->
                     // Extract measurement histogram (counting register only)
                     let histogram =
@@ -216,9 +218,25 @@ module ShorsBackendAdapter =
                         |> Array.countBy id
                         |> Map.ofArray
                     
-                    Ok histogram
+                    return Ok histogram
             with
-            | ex -> Error $"Backend execution failed: {ex.Message}"
+            | ex -> return Error $"Backend execution failed: {ex.Message}"
+    }
+
+    /// Execute period-finding on backend (synchronous wrapper)
+    /// 
+    /// This is a synchronous wrapper around executePeriodFindingWithBackendAsync for backward compatibility.
+    /// For cloud backends (IonQ, Rigetti), prefer using executePeriodFindingWithBackendAsync directly.
+    /// 
+    /// Returns histogram of measurement outcomes
+    let executePeriodFindingWithBackend
+        (a: int)
+        (n: int)
+        (precisionQubits: int)
+        (backend: IQuantumBackend)
+        (shots: int) : Result<Map<int, int>, string> =
+        executePeriodFindingWithBackendAsync a n precisionQubits backend shots
+        |> Async.RunSynchronously
     
     /// Extract period from measurement histogram using continued fractions
     /// 

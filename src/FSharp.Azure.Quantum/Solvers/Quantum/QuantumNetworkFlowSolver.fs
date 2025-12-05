@@ -330,7 +330,99 @@ module QuantumNetworkFlowSolver =
         InitialParameters = (0.5, 0.5)
     }
 
-    /// Solve network flow problem using quantum backend via QAOA
+    /// Solve network flow problem using quantum backend via QAOA (async version)
+    /// 
+    /// Full Pipeline:
+    /// 1. Network flow problem → QUBO matrix (min-cost flow encoding)
+    /// 2. QUBO → QaoaCircuit (Hamiltonians + layers)
+    /// 3. Execute circuit on quantum backend asynchronously
+    /// 4. Decode measurements → flow assignments
+    /// 5. Return best solution
+    /// 
+    /// Parameters:
+    ///   backend - Quantum backend to execute on (LocalBackend, IonQ, Rigetti)
+    ///   problem - Network flow problem specification
+    ///   config - Configuration for execution
+    ///   
+    /// Returns:
+    ///   Async<Result<NetworkFlowSolution, string>> - Async computation with result or error
+    let solveAsync 
+        (backend: BackendAbstraction.IQuantumBackend)
+        (problem: NetworkFlowProblem)
+        (config: QuantumFlowConfig)
+        : Async<Result<NetworkFlowSolution, string>> = async {
+        
+        let startTime = DateTime.UtcNow
+        
+        // Validate inputs
+        let numEdges = problem.Edges.Length
+        let requiredQubits = numEdges
+        
+        if numEdges = 0 then
+            return Error "Network flow problem has no edges"
+        elif requiredQubits > backend.MaxQubits then
+            return Error (sprintf "Problem requires %d qubits but backend '%s' supports max %d qubits" 
+                requiredQubits backend.Name backend.MaxQubits)
+        elif config.NumShots <= 0 then
+            return Error "Number of shots must be positive"
+        else
+            try
+                // Step 1: Encode network flow as QUBO
+                match toQubo problem with
+                | Error msg -> return Error msg
+                | Ok quboMatrix ->
+                    
+                    // Step 2: Generate QAOA circuit components from QUBO
+                    let quboArray = quboMapToArray quboMatrix
+                    let problemHam = QaoaCircuit.ProblemHamiltonian.fromQubo quboArray
+                    let mixerHam = QaoaCircuit.MixerHamiltonian.create problemHam.NumQubits
+                    
+                    // Step 3: Build QAOA circuit with parameters
+                    let (gamma, beta) = config.InitialParameters
+                    let parameters = [| gamma, beta |]
+                    let qaoaCircuit = QaoaCircuit.QaoaCircuit.build problemHam mixerHam parameters
+                    
+                    // Step 4: Execute on backend asynchronously
+                    let circuitWrapper = 
+                        CircuitAbstraction.QaoaCircuitWrapper(qaoaCircuit) 
+                        :> CircuitAbstraction.ICircuit
+                    
+                    let! execResult = backend.ExecuteAsync circuitWrapper config.NumShots
+                    
+                    match execResult with
+                    | Error msg -> return Error (sprintf "Backend execution failed: %s" msg)
+                    | Ok execResult ->
+                        
+                        // Step 5: Decode measurements to network flow solutions
+                        let flowResults =
+                            execResult.Measurements
+                            |> Array.choose (decodeSolution problem)
+                        
+                        if flowResults.Length = 0 then
+                            return Error "No valid network flow solutions found in quantum measurements"
+                        else
+                            // Select best solution (minimum cost)
+                            let bestSolution = 
+                                flowResults
+                                |> Array.minBy (fun sol -> sol.TotalCost)
+                            
+                            let elapsedMs = (DateTime.UtcNow - startTime).TotalMilliseconds
+                            
+                            return Ok {
+                                bestSolution with
+                                    BackendName = backend.Name
+                                    NumShots = config.NumShots
+                                    ElapsedMs = elapsedMs
+                            }
+            
+            with ex ->
+                return Error (sprintf "Quantum network flow solver failed: %s" ex.Message)
+    }
+
+    /// Solve network flow problem using quantum backend via QAOA (synchronous wrapper)
+    /// 
+    /// This is a synchronous wrapper around solveAsync for backward compatibility.
+    /// For cloud backends (IonQ, Rigetti), prefer using solveAsync directly.
     /// 
     /// Full Pipeline:
     /// 1. Network flow problem → QUBO matrix (min-cost flow encoding)
@@ -351,70 +443,7 @@ module QuantumNetworkFlowSolver =
         (problem: NetworkFlowProblem)
         (config: QuantumFlowConfig)
         : Result<NetworkFlowSolution, string> =
-        
-        let startTime = DateTime.UtcNow
-        
-        // Validate inputs
-        let numEdges = problem.Edges.Length
-        let requiredQubits = numEdges
-        
-        if numEdges = 0 then
-            Error "Network flow problem has no edges"
-        elif requiredQubits > backend.MaxQubits then
-            Error (sprintf "Problem requires %d qubits but backend '%s' supports max %d qubits" 
-                requiredQubits backend.Name backend.MaxQubits)
-        elif config.NumShots <= 0 then
-            Error "Number of shots must be positive"
-        else
-            try
-                // Step 1: Encode network flow as QUBO
-                match toQubo problem with
-                | Error msg -> Error msg
-                | Ok quboMatrix ->
-                    
-                    // Step 2: Generate QAOA circuit components from QUBO
-                    let quboArray = quboMapToArray quboMatrix
-                    let problemHam = QaoaCircuit.ProblemHamiltonian.fromQubo quboArray
-                    let mixerHam = QaoaCircuit.MixerHamiltonian.create problemHam.NumQubits
-                    
-                    // Step 3: Build QAOA circuit with parameters
-                    let (gamma, beta) = config.InitialParameters
-                    let parameters = [| gamma, beta |]
-                    let qaoaCircuit = QaoaCircuit.QaoaCircuit.build problemHam mixerHam parameters
-                    
-                    // Step 4: Execute on backend
-                    let circuitWrapper = 
-                        CircuitAbstraction.QaoaCircuitWrapper(qaoaCircuit) 
-                        :> CircuitAbstraction.ICircuit
-                    
-                    match backend.Execute circuitWrapper config.NumShots with
-                    | Error msg -> Error (sprintf "Backend execution failed: %s" msg)
-                    | Ok execResult ->
-                        
-                        // Step 5: Decode measurements to network flow solutions
-                        let flowResults =
-                            execResult.Measurements
-                            |> Array.choose (decodeSolution problem)
-                        
-                        if flowResults.Length = 0 then
-                            Error "No valid network flow solutions found in quantum measurements"
-                        else
-                            // Select best solution (minimum cost)
-                            let bestSolution = 
-                                flowResults
-                                |> Array.minBy (fun sol -> sol.TotalCost)
-                            
-                            let elapsedMs = (DateTime.UtcNow - startTime).TotalMilliseconds
-                            
-                            Ok {
-                                bestSolution with
-                                    BackendName = backend.Name
-                                    NumShots = config.NumShots
-                                    ElapsedMs = elapsedMs
-                            }
-            
-            with ex ->
-                Error (sprintf "Quantum network flow solver failed: %s" ex.Message)
+        solveAsync backend problem config |> Async.RunSynchronously
 
     /// Solve network flow with default configuration
     let solveWithDefaults 

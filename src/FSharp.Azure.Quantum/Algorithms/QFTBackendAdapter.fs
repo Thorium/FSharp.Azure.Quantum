@@ -212,7 +212,91 @@ module QFTBackendAdapter =
     // BACKEND EXECUTION
     // ========================================================================
     
-    /// Execute QFT using IQuantumBackend
+    /// Execute QFT using IQuantumBackend (async version)
+    /// 
+    /// Parameters:
+    /// - config: QFT configuration (qubits, swaps, inverse)
+    /// - backend: Quantum backend to execute on
+    /// - numShots: Number of measurement shots
+    /// - inputState: Optional input basis state (default: |0⟩)
+    /// 
+    /// Returns: Async<Result<Map<int, int>, string>> - Async computation with measurement counts
+    /// 
+    /// IMPORTANT LIMITATIONS:
+    /// - Backend execution returns MEASUREMENT STATISTICS ONLY, not full state vector
+    /// - Quantum amplitudes and phases are LOST during measurement
+    /// - Cannot reconstruct the full quantum state from measurement results
+    /// - Only suitable for algorithms that measure QFT output (phase estimation, Shor's)
+    /// - For amplitude/phase analysis, use local simulation instead
+    /// 
+    /// This is a fundamental limitation of quantum hardware - measurements collapse
+    /// the quantum state, and repeated measurements only give probability distributions.
+    let executeQFTWithBackendAsync 
+        (config: QFTConfig) 
+        (backend: IQuantumBackend) 
+        (numShots: int) 
+        (inputState: int option) 
+        : Async<Result<Map<int, int>, string>> = async {
+        
+        try
+            // Step 1: Validate inputs
+            if numShots <= 0 then
+                return Error "Number of shots must be positive"
+            elif config.NumQubits > backend.MaxQubits then
+                return Error $"QFT requires {config.NumQubits} qubits but backend '{backend.Name}' supports max {backend.MaxQubits}"
+            else
+                // Step 2: Convert QFT to circuit
+                match qftToCircuit config with
+                | Error msg -> return Error msg
+                | Ok qftCircuit ->
+                    // Step 3: Prepend input state preparation (if not |0⟩)
+                    let fullCircuit =
+                        match inputState with
+                        | None -> qftCircuit  // Start from |0⟩
+                        | Some state ->
+                            // Prepare input basis state using X gates
+                            let prepCircuit =
+                                [0 .. config.NumQubits - 1]
+                                |> List.fold (fun circuit i ->
+                                    if (state >>> i) &&& 1 = 1 then
+                                        addGate (X i) circuit
+                                    else
+                                        circuit
+                                ) (empty config.NumQubits)
+                            
+                            // Compose: input preparation + QFT
+                            compose prepCircuit qftCircuit
+                    
+                    // Step 4: Wrap circuit in ICircuit interface
+                    let circuitWrapper = CircuitWrapper(fullCircuit)
+                    
+                    // Step 5: Execute on backend asynchronously
+                    let! execResult = backend.ExecuteAsync circuitWrapper numShots
+                    
+                    match execResult with
+                    | Error msg -> return Error msg
+                    | Ok executionResult ->
+                        // Step 6: Convert measurements to basis state counts
+                        let counts = 
+                            executionResult.Measurements
+                            |> Array.map (fun bitstring ->
+                                bitstring 
+                                |> Array.rev
+                                |> Array.fold (fun acc bit -> acc * 2 + bit) 0)
+                            |> Array.groupBy id
+                            |> Array.map (fun (state, instances) -> (state, Array.length instances))
+                            |> Map.ofArray
+                        
+                        return Ok counts
+        
+        with ex ->
+            return Error $"QFT backend execution failed: {ex.Message}"
+    }
+
+    /// Execute QFT using IQuantumBackend (synchronous wrapper)
+    /// 
+    /// This is a synchronous wrapper around executeQFTWithBackendAsync for backward compatibility.
+    /// For cloud backends (IonQ, Rigetti), prefer using executeQFTWithBackendAsync directly.
     /// 
     /// Parameters:
     /// - config: QFT configuration (qubits, swaps, inverse)
@@ -237,58 +321,8 @@ module QFTBackendAdapter =
         (numShots: int) 
         (inputState: int option) 
         : Result<Map<int, int>, string> =
-        
-        try
-            // Step 1: Validate inputs
-            if numShots <= 0 then
-                Error "Number of shots must be positive"
-            elif config.NumQubits > backend.MaxQubits then
-                Error $"QFT requires {config.NumQubits} qubits but backend '{backend.Name}' supports max {backend.MaxQubits}"
-            else
-                // Step 2: Convert QFT to circuit
-                match qftToCircuit config with
-                | Error msg -> Error msg
-                | Ok qftCircuit ->
-                    // Step 3: Prepend input state preparation (if not |0⟩)
-                    let fullCircuit =
-                        match inputState with
-                        | None -> qftCircuit  // Start from |0⟩
-                        | Some state ->
-                            // Prepare input basis state using X gates
-                            let prepCircuit =
-                                [0 .. config.NumQubits - 1]
-                                |> List.fold (fun circuit i ->
-                                    if (state >>> i) &&& 1 = 1 then
-                                        addGate (X i) circuit
-                                    else
-                                        circuit
-                                ) (empty config.NumQubits)
-                            
-                            // Compose: input preparation + QFT
-                            compose prepCircuit qftCircuit
-                    
-                    // Step 4: Wrap circuit in ICircuit interface
-                    let circuitWrapper = CircuitWrapper(fullCircuit)
-                    
-                    // Step 5: Execute on backend
-                    match backend.Execute circuitWrapper numShots with
-                    | Error msg -> Error msg
-                    | Ok executionResult ->
-                        // Step 6: Convert measurements to basis state counts
-                        let counts = 
-                            executionResult.Measurements
-                            |> Array.map (fun bitstring ->
-                                bitstring 
-                                |> Array.rev
-                                |> Array.fold (fun acc bit -> acc * 2 + bit) 0)
-                            |> Array.groupBy id
-                            |> Array.map (fun (state, instances) -> (state, Array.length instances))
-                            |> Map.ofArray
-                        
-                        Ok counts
-        
-        with ex ->
-            Error $"QFT backend execution failed: {ex.Message}"
+        executeQFTWithBackendAsync config backend numShots inputState
+        |> Async.RunSynchronously
     
     // ========================================================================
     // CONVENIENCE FUNCTIONS
