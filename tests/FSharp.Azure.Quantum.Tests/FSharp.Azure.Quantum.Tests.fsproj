@@ -54,6 +54,7 @@
     <Compile Include="JobLifecycleTests.fs" />
     <Compile Include="IonQBackendTests.fs" />
     <Compile Include="RigettiBackendTests.fs" />
+    <Compile Include="QuantinuumBackendTests.fs" />
     <Compile Include="ZeroNoiseExtrapolationTests.fs" />
     <Compile Include="ProbabilisticErrorCancellationTests.fs" />
     <Compile Include="ReadoutErrorMitigationTests.fs" />

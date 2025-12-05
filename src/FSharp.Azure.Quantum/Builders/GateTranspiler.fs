@@ -373,6 +373,9 @@ module GateTranspiler =
     /// - Rigetti: X, Y, Z, H, RX, RY, RZ, CNOT, CZ, SWAP
     ///   → Needs: S/T → RZ, CCX → 6xCNOT
     /// 
+    /// - Quantinuum: H, X, Y, Z, S, T, RX, RY, RZ, CZ (all-to-all connectivity, trapped-ion)
+    ///   → Needs: CCX → 6xCNOT (only)
+    /// 
     /// - Local: All gates supported natively
     ///   → No decomposition needed
     let transpileForBackend (backendName: string) (circuit: Circuit) : Circuit =
@@ -386,6 +389,11 @@ module GateTranspiler =
             // Rigetti doesn't support S, T but has CZ
             | name when name.Contains("rigetti") -> 
                 (true, false, true)
+            
+            // Quantinuum H-Series: Native CZ (trapped-ion), S, T supported
+            // Only needs CCX decomposition
+            | name when name.Contains("quantinuum") -> 
+                (false, false, true)
             
             // Local simulator supports everything
             | name when name.Contains("local") -> 

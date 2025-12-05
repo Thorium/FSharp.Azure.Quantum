@@ -467,6 +467,101 @@ module BackendAbstraction =
             member _.MaxQubits = 40  // Rigetti Aspen-M-3 limit
     
     // ============================================================================
+    // QUANTINUUM BACKEND WRAPPER
+    // ============================================================================
+    
+    /// Wrapper for Quantinuum backend via Azure Quantum
+    /// 
+    /// Integrates with Azure Quantum to execute circuits on Quantinuum H-Series hardware/simulator.
+    /// Uses the existing QuantinuumBackend module for Azure integration.
+    /// 
+    /// Key Features:
+    /// - Uses OpenQASM 2.0 format (reuses OpenQasmExport module)
+    /// - All-to-all connectivity (32 qubits)
+    /// - 99.9%+ gate fidelity
+    /// - Native CZ gates (trapped-ion advantage)
+    type QuantinuumBackendWrapper(httpClient: System.Net.Http.HttpClient, workspaceUrl: string, target: string) =
+        
+        member private _.ExecuteAsyncCore (circuit: ICircuit) (numShots: int) : Async<Result<ExecutionResult, string>> =
+            async {
+                try
+                    // Step 1: Convert ICircuit to CircuitBuilder.Circuit
+                    let builderCircuit = 
+                        match circuit with
+                        | :? CircuitWrapper as wrapper -> wrapper.Circuit
+                        | :? QaoaCircuitWrapper as wrapper -> 
+                            CircuitAdapter.qaoaCircuitToCircuit wrapper.QaoaCircuit
+                        | _ -> 
+                            failwith "Unsupported circuit type for Quantinuum backend"
+                    
+                    // Step 2: Transpile to Quantinuum-compatible gates (only CCX decomposition needed)
+                    let transpiledCircuit = 
+                        GateTranspiler.transpileForBackend "Quantinuum" builderCircuit
+                    
+                    // Step 3: Convert transpiled circuit to OpenQASM 2.0
+                    let qasmCode = OpenQasmExport.export transpiledCircuit
+                    
+                    // Step 4: Submit to Azure Quantum Quantinuum backend
+                    let! result = QuantinuumBackend.submitAndWaitForResultsAsync httpClient workspaceUrl qasmCode numShots target
+                    
+                    // Step 4: Convert histogram to ExecutionResult
+                    match result with
+                    | Ok histogram ->
+                        // Convert histogram Map<bitstring, count> to measurements int[][]
+                        let measurements = 
+                            histogram
+                            |> Map.toSeq
+                            |> Seq.collect (fun (bitstring, count) ->
+                                // Convert bitstring "01101" to int array [0;1;1;0;1]
+                                let bits = 
+                                    bitstring.ToCharArray()
+                                    |> Array.map (fun c -> if c = '1' then 1 else 0)
+                                // Repeat this bitstring 'count' times
+                                Seq.replicate count bits
+                            )
+                            |> Array.ofSeq
+                        
+                        return Ok {
+                            Measurements = measurements
+                            NumShots = numShots
+                            BackendName = sprintf "Quantinuum via Azure Quantum (%s)" target
+                            Metadata = Map.ofList [ ("target", target :> obj); ("workspace", workspaceUrl :> obj) ]
+                        }
+                    
+                    | Error quantumError ->
+                        return Error (sprintf "Quantinuum execution failed: %A" quantumError)
+                
+                with ex ->
+                    return Error (sprintf "Quantinuum backend error: %s" ex.Message)
+            }
+        
+        interface IQuantumBackend with
+            member this.ExecuteAsync (circuit: ICircuit) (numShots: int) : Async<Result<ExecutionResult, string>> =
+                this.ExecuteAsyncCore circuit numShots
+            
+            member this.Execute (circuit: ICircuit) (numShots: int) : Result<ExecutionResult, string> =
+                this.ExecuteAsyncCore circuit numShots |> Async.RunSynchronously
+            
+            member _.Name = "Quantinuum H-Series"
+            
+            member _.SupportedGates = [
+                "H"; "X"; "Y"; "Z"
+                "S"; "T"
+                "RX"; "RY"; "RZ"
+                "CZ"    // Native Quantinuum gate (trapped-ion)
+                "MEASURE"
+            ]
+            
+            member _.MaxQubits = 
+                // Dynamic qubit limit based on target hardware
+                if target.Contains("h2", StringComparison.OrdinalIgnoreCase) then 
+                    32  // H2-1 hardware
+                elif target.Contains("h1", StringComparison.OrdinalIgnoreCase) then 
+                    20  // H1-1 hardware/simulators
+                else 
+                    32  // Default to H2-1 for future models
+    
+    // ============================================================================
     // AZURE QUANTUM SDK BACKEND WRAPPER
     // ============================================================================
     
@@ -563,7 +658,9 @@ module BackendAbstraction =
                     Ok quil
                 
                 | "Quantinuum" ->
-                    Error "Quantinuum provider not yet supported"
+                    // Quantinuum uses OpenQASM 2.0 format (reuse existing OpenQasmExport!)
+                    let qasm = OpenQasmExport.export transpiledCircuit
+                    Ok qasm
                 
                 | _ ->
                     Error $"Unsupported provider: {provider} (targetId: {targetId})"
@@ -814,6 +911,22 @@ module BackendAbstraction =
     /// - target: Rigetti target (e.g., "rigetti.sim.qvm", "rigetti.qpu.ankaa-3")
     let createRigettiBackend (httpClient: System.Net.Http.HttpClient) (workspaceUrl: string) (target: string) : IQuantumBackend =
         RigettiBackendWrapper(httpClient, workspaceUrl, target) :> IQuantumBackend
+    
+    /// Create a Quantinuum backend wrapper with Azure Quantum workspace
+    /// 
+    /// Parameters:
+    /// - httpClient: Authenticated HTTP client for Azure Quantum API
+    /// - workspaceUrl: Azure Quantum workspace URL (e.g., "https://my-workspace.quantum.azure.com")
+    /// - target: Quantinuum target (e.g., "quantinuum.sim.h1-1sc", "quantinuum.qpu.h1-1")
+    /// 
+    /// Example:
+    /// ```fsharp
+    /// let httpClient = new System.Net.Http.HttpClient()
+    /// let workspaceUrl = "https://my-workspace.quantum.azure.com"
+    /// let backend = BackendAbstraction.createQuantinuumBackend httpClient workspaceUrl "quantinuum.sim.h1-1sc"
+    /// ```
+    let createQuantinuumBackend (httpClient: System.Net.Http.HttpClient) (workspaceUrl: string) (target: string) : IQuantumBackend =
+        QuantinuumBackendWrapper(httpClient, workspaceUrl, target) :> IQuantumBackend
     
     /// Create a backend from Azure Quantum Workspace (SDK-based)
     /// 

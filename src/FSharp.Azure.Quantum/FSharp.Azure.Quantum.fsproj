@@ -92,6 +92,7 @@
     <Compile Include="Backends\DWaveTypes.fs" />
     <Compile Include="Backends\IonQBackend.fs" />
     <Compile Include="Backends\RigettiBackend.fs" />
+    <Compile Include="Backends\QuantinuumBackend.fs" />
     <Compile Include="Backends\AzureQuantumWorkspace.fs" />
     <Compile Include="Core\Client.fs" />
     

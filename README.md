@@ -12,7 +12,7 @@
 **Current Version:** Latest (D-Wave Support + Quantum Machine Learning + Business Builders)
 
 **Current Features:**
-- ✅ **Multiple Backends:** LocalBackend (simulation), Azure Quantum (IonQ, Rigetti), D-Wave quantum annealers (2000+ qubits)
+- ✅ **Multiple Backends:** LocalBackend (simulation), Azure Quantum (IonQ, Rigetti, Quantinuum), D-Wave quantum annealers (2000+ qubits)
 - ✅ **Quantum Machine Learning:** VQC, Quantum Kernel SVM, Feature Maps, Variational Forms, AutoML
 - ✅ **Business Problem Builders:** AutoML, Anomaly Detection, Binary Classification, Predictive Modeling, Similarity Search
 - ✅ **OpenQASM 2.0:** Import/export compatibility with IBM Qiskit, Amazon Braket, Google Cirq
@@ -733,6 +733,7 @@ graph TB
         LOCAL["LocalBackend<br/>(≤20 qubits)"]
         IONQ["IonQBackend<br/>(Azure Quantum)"]
         RIGETTI["RigettiBackend<br/>(Azure Quantum)"]
+        QUANTINUUM["QuantinuumBackend<br/>(Azure Quantum, 99.9%+ fidelity)"]
     end
     
     GC --> QGC
@@ -767,6 +768,14 @@ graph TB
     QNF -.-> RIGETTI
     QSCHED -.-> RIGETTI
     
+    QGC -.-> QUANTINUUM
+    QMC -.-> QUANTINUUM
+    QKS -.-> QUANTINUUM
+    QTS -.-> QUANTINUUM
+    QPO -.-> QUANTINUUM
+    QNF -.-> QUANTINUUM
+    QSCHED -.-> QUANTINUUM
+    
     style GC fill:#90EE90
     style MC fill:#90EE90
     style KS fill:#90EE90
@@ -784,6 +793,7 @@ graph TB
     style LOCAL fill:#4169E1
     style IONQ fill:#4169E1
     style RIGETTI fill:#4169E1
+    style QUANTINUUM fill:#9370DB
 ```
 
 ### Layer Responsibilities
@@ -842,6 +852,7 @@ QuantumGraphColoringSolver.solve
 | **LocalBackend** | ≤20 | Fast (ms) | Free | Development, testing, small problems |
 | **IonQBackend** | 29+ (sim), 11 (QPU) | Moderate (seconds) | Paid | Production, large problems |
 | **RigettiBackend** | 40+ (sim), 80 (QPU) | Moderate (seconds) | Paid | Production, large problems |
+| **QuantinuumBackend** | 20-32 (sim), 20-32 (QPU) | Moderate (seconds) | Paid | High-fidelity (99.9%+), trapped-ion |
 
 **Example:**
 ```fsharp
@@ -850,203 +861,57 @@ let backend = BackendAbstraction.createLocalBackend()
 
 // Azure Quantum (cloud)
 let connectionString = "InstrumentationKey=..."
-let backend_ionq = BackendAbstraction.createIonQBackend(
-    connectionString,
-    "ionq.simulator"
-)
-```
 
-### LocalBackend Internal Architecture
+// Using Azure Quantum Workspace (Recommended for cloud backends)
+open FSharp.Azure.Quantum.Backends.AzureQuantumWorkspace
 
-**How LocalBackend simulates quantum circuits:**
+let workspace = createDefault "subscription-id" "resource-group" "workspace-name" "eastus"
 
-```mermaid
-graph TB
-    subgraph "LocalBackend (≤20 qubits)"
-        INIT["StateVector.init<br/>|0⟩⊗n"]
-        
-        subgraph "Gate Operations"
-            H["Hadamard (H)<br/>Superposition"]
-            CNOT["CNOT<br/>Entanglement"]
-            RX["RX(θ)<br/>X-axis rotation"]
-            RY["RY(θ)<br/>Y-axis rotation"]
-            RZ["RZ(θ)<br/>Z-axis rotation"]
-        end
-        
-        subgraph "State Evolution"
-            STATE["Complex State Vector<br/>2^n amplitudes"]
-            MATRIX["Matrix Multiplication<br/>Gate × State"]
-        end
-        
-        subgraph "Measurement"
-            PROB["Compute Probabilities<br/>|amplitude|²"]
-            SAMPLE["Sample Bitstrings<br/>(shots times)"]
-            COUNT["Aggregate Counts<br/>{bitstring → frequency}"]
-        end
-        
-        INIT --> H
-        H --> STATE
-        CNOT --> STATE
-        RX --> STATE
-        RY --> STATE
-        RZ --> STATE
-        
-        STATE --> MATRIX
-        MATRIX --> STATE
-        
-        STATE --> PROB
-        PROB --> SAMPLE
-        SAMPLE --> COUNT
-    end
-    
-    subgraph "QAOA Circuit Example"
-        Q0["Qubit 0: |0⟩"]
-        Q1["Qubit 1: |0⟩"]
-        
-        H0["H"]
-        H1["H"]
-        
-        COST["Cost Layer<br/>RZ(γ)"]
-        MIX["Mixer Layer<br/>RX(β)"]
-        
-        MEAS["Measure<br/>→ '01'"]
-        
-        Q0 --> H0
-        Q1 --> H1
-        H0 --> COST
-        H1 --> COST
-        COST --> MIX
-        MIX --> MEAS
-    end
-    
-    COUNT --> MEAS
-    
-    style INIT fill:#90EE90
-    style H fill:#FFD700
-    style CNOT fill:#FFD700
-    style RX fill:#FFD700
-    style RY fill:#FFD700
-    style RZ fill:#FFD700
-    style STATE fill:#87CEEB
-    style MATRIX fill:#87CEEB
-    style PROB fill:#FFA07A
-    style SAMPLE fill:#FFA07A
-    style COUNT fill:#FFA07A
-    style Q0 fill:#E6E6FA
-    style Q1 fill:#E6E6FA
-    style MEAS fill:#98FB98
-```
+// Using Azure Quantum Workspace (Recommended)
+open FSharp.Azure.Quantum.Backends.AzureQuantumWorkspace
 
-**Key Components:**
+let workspace = createDefault "subscription-id" "resource-group" "workspace-name" "eastus"
 
-1. **StateVector Module** 🟢
-   - Stores quantum state as complex amplitude array
-   - Size: `2^n` complex numbers (n = number of qubits)
-   - Example: 3 qubits = 8 amplitudes
+// IonQ Backend
+let backend_ionq = BackendAbstraction.createFromWorkspace workspace "ionq.simulator"
 
-2. **Gate Module** 🟡
-   - Matrix representations of quantum gates
-   - Applied via tensor products and matrix multiplication
-   - Gates: H, CNOT, RX, RY, RZ, SWAP, CZ, etc.
+// Rigetti Backend  
+let backend_rigetti = BackendAbstraction.createFromWorkspace workspace "rigetti.sim.qvm"
 
-3. **Measurement Module** 🟠
-   - Computes probabilities from amplitudes: `P(x) = |amplitude(x)|²`
-   - Samples bitstrings according to probability distribution
-   - Returns histogram: `{bitstring → count}`
+// Quantinuum Backend (trapped-ion, highest fidelity)
+let backend_quantinuum = BackendAbstraction.createFromWorkspace workspace "quantinuum.sim.h1-1sc"
 
-4. **QAOA Integration** 🟣
-   - Cost layer: Problem-specific rotations (RZ gates)
-   - Mixer layer: Standard X-rotations (RX gates)
-   - Repeat for multiple QAOA layers (p-layers)
-
-**Performance:**
-- **1-6 qubits**: Instant (< 10ms)
-- **7-10 qubits**: Fast (< 100ms)
-- **11-14 qubits**: Moderate (< 1s)
-- **15-17 qubits**: Slow (< 10s)
-- **18-20 qubits**: Very slow (< 60s)
-- **21+ qubits**: ❌ Exceeds limit (exponential memory: 2^n)
-
----
-
-## 💻 C# Interop
-
-### C# Fluent API
-
-All problem builders have C#-friendly extensions:
-
-```csharp
-using FSharp.Azure.Quantum;
-using static FSharp.Azure.Quantum.CSharpBuilders;
-
-// MaxCut
-var vertices = new[] { "A", "B", "C", "D" };
-var edges = new[] {
-    (source: "A", target: "B", weight: 1.0),
-    (source: "B", target: "C", weight: 2.0)
-};
-var problem = MaxCutProblem(vertices, edges);
-var result = MaxCut.solve(problem, null);
-
-// Knapsack
-var items = new[] {
-    (id: "laptop", weight: 3.0, value: 1000.0),
-    (id: "phone", weight: 0.5, value: 500.0)
-};
-var problem = KnapsackProblem(items, capacity: 5.0);
-var result = Knapsack.solve(problem, null);
-
-// TSP
-var cities = new[] {
-    (name: "Seattle", x: 0.0, y: 0.0),
-    (name: "Portland", x: 1.0, y: 0.5)
-};
-var problem = TspProblem(cities);
-var result = TSP.solve(problem, null);
-
-// Portfolio
-var assets = new[] {
-    (symbol: "AAPL", expectedReturn: 0.12, risk: 0.15, price: 150.0),
-    (symbol: "MSFT", expectedReturn: 0.10, risk: 0.12, price: 300.0)
-};
-var problem = PortfolioProblem(assets, budget: 10000.0);
-var result = Portfolio.solve(problem, null);
-```
-
-**See:** [C# Usage Guide](CSHARP-QUANTUM-BUILDER-USAGE-GUIDE.md) for complete examples
-
----
-
-## 🔌 Backend Selection
-
-### Automatic Local Simulation (Default)
-
-```fsharp
-// No backend parameter = automatic LocalBackend creation
-match GraphColoring.solve problem 3 None with
-| Ok solution -> printfn "Solution found"
-| Error msg -> printfn "Error: %s" msg
-```
-
-**What happens:**
-1. Builder creates `LocalBackend()` automatically
-2. Simulates quantum circuit using state vectors
-3. ≤20 qubits supported (larger problems fail with error)
-
-### Azure Quantum Cloud Backend
-
-```fsharp
-// Create Azure Quantum backend
-let backend = BackendAbstraction.createIonQBackend(
+// Rigetti Backend (superconducting, fast gates)
+let backend_rigetti = BackendAbstraction.createRigettiBackend(
     connectionString = "YOUR_CONNECTION_STRING",
-    targetId = "ionq.simulator"  // or "ionq.qpu" for hardware
+    targetId = "rigetti.sim.qvm"  // or "rigetti.qpu.*" for hardware
+)
+
+// Quantinuum Backend (trapped-ion, highest fidelity)
+let backend_quantinuum = BackendAbstraction.createQuantinuumBackend(
+    connectionString = "YOUR_CONNECTION_STRING",
+    targetId = "quantinuum.sim.h1-1sc"  // See available targets below
 )
 
 // Pass to solver
-match GraphColoring.solve problem 3 (Some backend) with
+match GraphColoring.solve problem 3 (Some backend_quantinuum) with
 | Ok solution -> 
     printfn "Backend used: %s" solution.BackendName
 ```
+
+**Quantinuum Targets:**
+- `quantinuum.sim.h1-1sc` - H1-1 System Model SC simulator (20 qubits)
+- `quantinuum.sim.h1-1e` - H1-1 System Model E simulator (20 qubits)
+- `quantinuum.qpu.h1-1` - H1-1 hardware (20 qubits, 99.9%+ fidelity)
+- `quantinuum.qpu.h2-1` - H2-1 hardware (32 qubits, 99.9%+ fidelity)
+
+**Quantinuum Features:**
+- ✅ **All-to-all connectivity** - No SWAP routing needed (trapped-ion architecture)
+- ✅ **99.9%+ gate fidelity** - Highest quality quantum gates commercially available
+- ✅ **Native gates**: H, X, Y, Z, S, T, RX, RY, RZ, CZ (no transpilation for phase gates!)
+- ✅ **OpenQASM 2.0 format** - Standard quantum circuit language
+- ✅ **Mid-circuit measurement** - Advanced quantum features
+- ⚠️ **Premium pricing** - Higher cost per shot than IonQ/Rigetti
 
 ### D-Wave Quantum Annealer
 
@@ -1150,6 +1015,7 @@ let result3 = MaxCut.solve largeProblem (Some dwaveBackend)  // 2000+ qubits
 |--------------|---------|--------|-------|------|----------|
 | **Small** (≤20 variables) | LocalBackend | ≤20 | Milliseconds | Free | Development, testing, prototyping |
 | **Medium** (20-29 variables) | IonQ/Rigetti | 29-80 | Seconds | ~$10-50/run | Gate-based quantum algorithms (QAOA, VQE) |
+| **Medium-High Fidelity** (20-32 variables) | Quantinuum | 20-32 | Seconds | ~$50-100/run | High-precision quantum chemistry, error-sensitive algorithms |
 | **Large** (100+ variables) | D-Wave | 2000+ | Seconds | ~$1-10/run | Optimization problems (MaxCut, TSP, scheduling) |
 
 **When to use D-Wave:**

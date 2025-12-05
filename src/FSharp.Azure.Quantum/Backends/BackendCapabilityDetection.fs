@@ -3,7 +3,7 @@ namespace FSharp.Azure.Quantum.Backends
 /// Backend Capability Detection and Automatic Selection
 ///
 /// This module provides intelligent backend selection based on circuit type:
-/// - Gate-based circuits → LocalBackend, IonQ, Rigetti
+/// - Gate-based circuits → LocalBackend, IonQ, Rigetti, Quantinuum
 /// - QAOA/Annealing circuits → DWaveBackend
 ///
 /// Key Features:
@@ -11,6 +11,12 @@ namespace FSharp.Azure.Quantum.Backends
 /// - Backend capability checking (qubit limits, gate support)
 /// - Intelligent fallback mechanisms
 /// - Performance-based backend ranking
+///
+/// Supported Backend Targets:
+/// - IonQ: ionq.simulator, ionq.qpu
+/// - Rigetti: rigetti.sim.qvm, rigetti.qpu.*
+/// - Quantinuum: quantinuum.sim.h1-1sc, quantinuum.qpu.h1-1, quantinuum.qpu.h2-1
+/// - D-Wave: dwave.solver (annealing)
 module BackendCapabilityDetection =
     
     open FSharp.Azure.Quantum.Core.CircuitAbstraction
@@ -39,6 +45,60 @@ module BackendCapabilityDetection =
         match circuit with
         | :? QaoaCircuitWrapper -> Annealing  // QAOA circuits are annealing-compatible
         | _ -> GateBased                      // Everything else is gate-based
+    
+    // ============================================================================
+    // BACKEND TARGET DETECTION
+    // ============================================================================
+    
+    /// Detect provider from target ID
+    ///
+    /// Parameters:
+    /// - targetId: Azure Quantum target ID (e.g., "ionq.simulator", "quantinuum.sim.h1-1sc")
+    ///
+    /// Returns: Provider name string
+    ///
+    /// Examples:
+    ///   detectProvider "ionq.simulator" → "IonQ"
+    ///   detectProvider "quantinuum.qpu.h1-1" → "Quantinuum"
+    ///   detectProvider "rigetti.sim.qvm" → "Rigetti"
+    let detectProvider (targetId: string) : string =
+        if targetId.StartsWith("ionq", System.StringComparison.OrdinalIgnoreCase) then
+            "IonQ"
+        elif targetId.StartsWith("rigetti", System.StringComparison.OrdinalIgnoreCase) then
+            "Rigetti"
+        elif targetId.StartsWith("quantinuum", System.StringComparison.OrdinalIgnoreCase) then
+            "Quantinuum"
+        elif targetId.StartsWith("dwave", System.StringComparison.OrdinalIgnoreCase) then
+            "D-Wave"
+        else
+            "Unknown"
+    
+    /// Check if target is a Quantinuum backend
+    ///
+    /// Parameters:
+    /// - targetId: Azure Quantum target ID
+    ///
+    /// Returns: true if Quantinuum, false otherwise
+    ///
+    /// Supported Quantinuum targets:
+    /// - quantinuum.sim.h1-1sc (H1-1 System Model SC simulator, 20 qubits)
+    /// - quantinuum.sim.h1-1e (H1-1 System Model E simulator, 20 qubits)
+    /// - quantinuum.qpu.h1-1 (H1-1 hardware, 20 qubits)
+    /// - quantinuum.qpu.h2-1 (H2-1 hardware, 32 qubits)
+    let isQuantinuumTarget (targetId: string) : bool =
+        targetId.StartsWith("quantinuum", System.StringComparison.OrdinalIgnoreCase)
+    
+    /// Check if target is an IonQ backend
+    let isIonQTarget (targetId: string) : bool =
+        targetId.StartsWith("ionq", System.StringComparison.OrdinalIgnoreCase)
+    
+    /// Check if target is a Rigetti backend
+    let isRigettiTarget (targetId: string) : bool =
+        targetId.StartsWith("rigetti", System.StringComparison.OrdinalIgnoreCase)
+    
+    /// Check if target is a D-Wave backend
+    let isDWaveTarget (targetId: string) : bool =
+        targetId.StartsWith("dwave", System.StringComparison.OrdinalIgnoreCase)
     
     // ============================================================================
     // BACKEND CAPABILITY CHECKING
@@ -86,7 +146,16 @@ module BackendCapabilityDetection =
                 // Gate-based: balance qubit count and gate variety
                 let qubitScore = float backend.MaxQubits / 50.0
                 let gateScore = float (List.length backend.SupportedGates) / 10.0
-                qubitScore + gateScore
+                
+                // Bonus for cloud backends (IonQ, Rigetti, Quantinuum)
+                let cloudBonus = 
+                    if backend.Name.Contains("IonQ") then 0.5
+                    elif backend.Name.Contains("Rigetti") then 0.5
+                    elif backend.Name.Contains("Quantinuum") then 1.0  // Highest fidelity
+                    elif backend.Name.Contains("Azure Quantum") then 0.3
+                    else 0.0
+                
+                qubitScore + gateScore + cloudBonus
         
         {
             Name = backend.Name
