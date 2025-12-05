@@ -6,16 +6,24 @@
     <GenerateProgramFile>false</GenerateProgramFile>
 
     <!-- Package Metadata -->
-    <Version>1.2.4</Version>
+    <Version>1.2.5</Version>
     <PackageId>FSharp.Azure.Quantum</PackageId>
     <Title>FSharp.Azure.Quantum</Title>
     <Description>F# library for Azure Quantum with quantum-first optimization (Graph Coloring, TSP, MaxCut, Knapsack, Network Flow, Portfolio), Azure Quantum backend integration (IonQ, Rigetti), extensible circuit validation, local quantum simulation, QAOA with automatic parameter optimization (Nelder-Mead), OpenQASM 2.0 support, error mitigation techniques (ZNE, PEC, REM), and educational quantum algorithms (Grover, QFT, Amplitude Amplification) with cloud backend execution. Multi-provider architecture supports IonQ, Rigetti, IBM, Amazon Braket, and Google Cirq.</Description>
     <Summary>F# library for Azure Quantum with quantum-first optimization, quantum backends (IonQ, Rigetti), QAOA with automatic parameter tuning, and educational algorithms with cloud execution</Summary>
-    <PackageReleaseNotes>v1.2.4: Gate Fixes and Local Backend Improvements
-- FIXED: Pattern matching fixes on MCZ gate operations
-- IMPROVED: Local backend qubit limit increased to 20 qubits for larger simulations
-- IMPROVED: Gate implementation reliability and consistency
-- Status: 912+ tests passing, production-ready</PackageReleaseNotes>
+    <PackageReleaseNotes>v1.2.5: Quantum Machine Learning, Business Builders, and Azure SDK Integration
+- NEW: Quantum Machine Learning (VQC, Quantum Kernel SVM, Feature Maps, Variational Forms, Adam Optimizer)
+- NEW: Business Problem Builders (AutoML, Anomaly Detection, Binary Classification, Predictive Modeling, Similarity Search)
+- NEW: Azure Quantum SDK backend integration with workspace management and circuit conversion
+- NEW: D-Wave quantum annealer support (2000+ qubits) with QUBO/Ising conversion
+- NEW: HHL Algorithm (Quantum Linear System Solver) with backend adapter
+- NEW: QAOA parameter optimization with Nelder-Mead
+- NEW: Mottonen state preparation for arbitrary quantum states
+- NEW: Trotter-Suzuki decomposition for Hamiltonian time evolution
+- IMPROVED: Circuit builder with enhanced gate transpilation
+- IMPROVED: Backend capability detection for multi-provider support
+- ADDED: Comprehensive examples for QML, business problems, and Azure Quantum workspace
+- Status: 1350+ tests passing, production-ready</PackageReleaseNotes>
     
     <!-- Repository Info -->
     <RepositoryUrl>https://github.com/thorium/FSharp.Azure.Quantum</RepositoryUrl>
