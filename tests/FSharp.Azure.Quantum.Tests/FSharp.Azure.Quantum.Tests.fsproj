@@ -61,6 +61,8 @@
     <Compile Include="ReadoutErrorMitigationTests.fs" />
     <Compile Include="ErrorMitigationStrategyTests.fs" />
     <Compile Include="PerformanceBenchmarkingTests.fs" />
+    <Compile Include="QRNGTests.fs" />
+    <Compile Include="FermionMappingTests.fs" />
     <Compile Include="QuantumChemistryTests.fs" />
     <Compile Include="QuantumTreeSearchBuilderTests.fs" />
     <Compile Include="QuantumConstraintSolverBuilderTests.fs" />

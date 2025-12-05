@@ -78,6 +78,7 @@
     <Compile Include="Algorithms\HHLAlgorithm.fs" />
     <Compile Include="Algorithms\ShorsTypes.fs" />
     <Compile Include="Algorithms\ShorsAlgorithm.fs" />
+    <Compile Include="Algorithms\QRNG.fs" />
 
     <!-- Core Infrastructure (depends on Types, LocalSimulator) -->
     <Compile Include="Core\CostEstimation.fs" />

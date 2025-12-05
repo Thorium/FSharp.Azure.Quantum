@@ -97,11 +97,11 @@ module QRNG =
                 |> List.fold (fun s qubitIdx -> Gates.applyH qubitIdx s) state
             
             // Measure all qubits
-            let measurements = Measurement.measureAll rng superpositionState
+            let measurementOutcome = Measurement.measureComputationalBasis rng superpositionState
             
-            // Store results
+            // Extract bits from measurement outcome
             for i in 0 .. currentBatchSize - 1 do
-                bits[startIdx + i] <- measurements[i]
+                bits[startIdx + i] <- ((measurementOutcome >>> i) &&& 1) = 1
         
         // Convert bits to bytes
         let numBytes = (numBits + 7) / 8
@@ -135,7 +135,7 @@ module QRNG =
                 0.0  // No entropy (all 0s or all 1s)
             else
                 // Shannon entropy: H = -Σ p_i log₂(p_i)
-                -p0 * log2 p0 - p1 * log2 p1
+                -p0 * Math.Log2(p0) - p1 * Math.Log2(p1)
         
         {
             Bits = bits
@@ -229,7 +229,7 @@ module QRNG =
                             CircuitAbstraction.Circuit.addMeasurement qubitIdx c) circuitWithH
                     
                     // Execute on backend
-                    let! executionResult = backend.Execute finalCircuit 1
+                    let! executionResult = backend.ExecuteAsync finalCircuit 1 None
                     
                     match executionResult with
                     | Ok result ->
@@ -266,7 +266,7 @@ module QRNG =
                         
                         let entropy =
                             if p0 = 0.0 || p1 = 0.0 then 0.0
-                            else -p0 * log2 p0 - p1 * log2 p1
+                            else -p0 * Math.Log2(p0) - p1 * Math.Log2(p1)
                         
                         return Ok {
                             Bits = bits
@@ -322,7 +322,7 @@ module QRNG =
         let p1 = float count1 / float n
         let entropy =
             if p0 = 0.0 || p1 = 0.0 then 0.0
-            else -p0 * log2 p0 - p1 * log2 p1
+            else -p0 * Math.Log2(p0) - p1 * Math.Log2(p1)
         
         // Quality assessment
         let quality =
