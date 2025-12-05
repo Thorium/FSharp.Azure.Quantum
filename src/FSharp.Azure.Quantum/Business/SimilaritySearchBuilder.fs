@@ -84,6 +84,12 @@ module SimilaritySearch =
         
         /// Optional note
         Note: string option
+        
+        /// Optional progress reporter for real-time updates
+        ProgressReporter: Core.Progress.IProgressReporter option
+        
+        /// Optional cancellation token for early termination
+        CancellationToken: System.Threading.CancellationToken option
     }
     
     /// Trained similarity search index
@@ -672,6 +678,8 @@ module SimilaritySearch =
                 Verbose = false
                 SavePath = None
                 Note = None
+                ProgressReporter = None
+                CancellationToken = None
             }
         
         member _.Delay(f: unit -> SearchProblem<'T>) = f
@@ -695,6 +703,8 @@ module SimilaritySearch =
                 Verbose = false
                 SavePath = None
                 Note = None
+                ProgressReporter = None
+                CancellationToken = None
             }
         
         /// <summary>Set the items to index for similarity search.</summary>
@@ -744,6 +754,18 @@ module SimilaritySearch =
         [<CustomOperation("note")>]
         member _.Note(problem: SearchProblem<'T>, note: string) =
             { problem with Note = Some note }
+        
+        /// <summary>Set a progress reporter for real-time indexing updates.</summary>
+        /// <param name="reporter">Progress reporter instance</param>
+        [<CustomOperation("progressReporter")>]
+        member _.ProgressReporter(problem: SearchProblem<'T>, reporter: Core.Progress.IProgressReporter) =
+            { problem with ProgressReporter = Some reporter }
+        
+        /// <summary>Set a cancellation token for early termination of indexing.</summary>
+        /// <param name="token">Cancellation token</param>
+        [<CustomOperation("cancellationToken")>]
+        member _.CancellationToken(problem: SearchProblem<'T>, token: System.Threading.CancellationToken) =
+            { problem with CancellationToken = Some token }
     
     /// Create similarity search computation expression
     let similaritySearch<'T> = SimilaritySearchBuilder<'T>()

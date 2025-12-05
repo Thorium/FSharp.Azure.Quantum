@@ -99,7 +99,7 @@ module TaskSchedulingTypes =
         (backend: BackendAbstraction.IQuantumBackend)
         (problem: SchedulingProblem<'TTask, 'TResource>) 
         : Async<Result<Solution, string>> =
-        FSharp.Azure.Quantum.TaskScheduling.QuantumSolver.solve backend problem
+        FSharp.Azure.Quantum.TaskScheduling.QuantumSolver.solveAsync backend problem
     
     /// Export schedule as Gantt chart to text file
     let exportGanttChart (solution: Solution) (filePath: string) : unit =

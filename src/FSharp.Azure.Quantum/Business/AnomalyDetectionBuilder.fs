@@ -88,6 +88,12 @@ module AnomalyDetector =
         
         /// Optional note about the model
         Note: string option
+        
+        /// Optional progress reporter for real-time updates
+        ProgressReporter: Core.Progress.IProgressReporter option
+        
+        /// Optional cancellation token for early termination
+        CancellationToken: System.Threading.CancellationToken option
     }
     
     /// Trained anomaly detector
@@ -522,6 +528,8 @@ module AnomalyDetector =
                 Verbose = false
                 SavePath = None
                 Note = None
+                ProgressReporter = None
+                CancellationToken = None
             }
         
         member _.Delay(f: unit -> DetectionProblem) = f
@@ -545,6 +553,8 @@ module AnomalyDetector =
                 Verbose = false
                 SavePath = None
                 Note = None
+                ProgressReporter = None
+                CancellationToken = None
             }
         
         /// <summary>Set the training data containing normal (non-anomalous) samples.</summary>
@@ -594,6 +604,18 @@ module AnomalyDetector =
         [<CustomOperation("note")>]
         member _.Note(problem: DetectionProblem, note: string) =
             { problem with Note = Some note }
+        
+        /// <summary>Set a progress reporter for real-time training updates.</summary>
+        /// <param name="reporter">Progress reporter instance</param>
+        [<CustomOperation("progressReporter")>]
+        member _.ProgressReporter(problem: DetectionProblem, reporter: Core.Progress.IProgressReporter) =
+            { problem with ProgressReporter = Some reporter }
+        
+        /// <summary>Set a cancellation token for early termination of training.</summary>
+        /// <param name="token">Cancellation token</param>
+        [<CustomOperation("cancellationToken")>]
+        member _.CancellationToken(problem: DetectionProblem, token: System.Threading.CancellationToken) =
+            { problem with CancellationToken = Some token }
     
     /// Create anomaly detection computation expression
     let anomalyDetection = AnomalyDetectionBuilder()

@@ -10,9 +10,9 @@ Computation expressions provide a declarative, F#-idiomatic way to construct qua
 
 | CE Name | Description | Custom Operations |
 |---------|-------------|-------------------|
-| **anomalyDetection** | Detect outliers and anomalies in data | `trainOnNormalData`, `sensitivity`, `contaminationRate`, `backend`, `shots`, `verbose`, `saveModelTo`, `note` |
-| **autoML** | Automated ML - finds best model automatically | `trainWith`, `tryBinaryClassification`, `tryMultiClass`, `tryAnomalyDetection`, `tryRegression`, `trySimilaritySearch`, `tryArchitectures`, `maxTrials`, `maxTimeMinutes`, `validationSplit`, `backend`, `verbose`, `saveModelTo`, `randomSeed` |
-| **binaryClassification** | Classify items into two categories | `trainWith`, `architecture`, `learningRate`, `maxEpochs`, `convergenceThreshold`, `backend`, `shots`, `verbose`, `saveModelTo`, `note` |
+| **anomalyDetection** | Detect outliers and anomalies in data | `trainOnNormalData`, `sensitivity`, `contaminationRate`, `backend`, `shots`, `verbose`, `saveModelTo`, `note`, `progressReporter`, `cancellationToken` |
+| **autoML** | Automated ML - finds best model automatically | `trainWith`, `tryBinaryClassification`, `tryMultiClass`, `tryAnomalyDetection`, `tryRegression`, `trySimilaritySearch`, `tryArchitectures`, `maxTrials`, `maxTimeMinutes`, `validationSplit`, `backend`, `verbose`, `saveModelTo`, `randomSeed`, `progressReporter`, `cancellationToken` |
+| **binaryClassification** | Classify items into two categories | `trainWith`, `architecture`, `learningRate`, `maxEpochs`, `convergenceThreshold`, `backend`, `shots`, `verbose`, `saveModelTo`, `note`, `progressReporter`, `cancellationToken` |
 | **circuit** | Build quantum circuits with gates and loops | `qubits`, `H`, `X`, `Y`, `Z`, `S`, `SDG`, `T`, `TDG`, `P`, `RX`, `RY`, `RZ`, `CNOT`, `CZ`, `CP`, `SWAP`, `CCX` |
 | **coloredNode** | Define a node in graph coloring problem | `nodeId`, `conflictsWith`, `fixedColor`, `priority`, `avoidColors`, `property` |
 | **constraintSolver<'T>** | Define constraint satisfaction problems (CSP) | `searchSpace`, `domain`, `satisfies`, `backend`, `maxIterations`, `shots` |
@@ -20,13 +20,13 @@ Computation expressions provide a declarative, F#-idiomatic way to construct qua
 | **patternMatcher<'T>** | Define quantum pattern matching problems | `searchSpace`, `searchSpaceSize`, `matchPattern`, `findTop`, `backend`, `maxIterations`, `shots` |
 | **periodFinder** | Define period finding (Shor's algorithm) | `number`, `chosenBase`, `precision`, `maxAttempts`, `backend`, `shots` |
 | **phaseEstimator** | Define quantum phase estimation (QPE) | `unitary`, `precision`, `targetQubits`, `eigenstate`, `backend`, `shots` |
-| **predictiveModel** | Predict continuous values or categories | `trainWith`, `problemType`, `architecture`, `learningRate`, `maxEpochs`, `convergenceThreshold`, `backend`, `shots`, `verbose`, `saveModelTo`, `note` |
+| **predictiveModel** | Predict continuous values or categories | `trainWith`, `problemType`, `architecture`, `learningRate`, `maxEpochs`, `convergenceThreshold`, `backend`, `shots`, `verbose`, `saveModelTo`, `note`, `progressReporter`, `cancellationToken` |
 | **quantumArithmetic** | Define quantum arithmetic operations | `operands`, `operandA`, `operandB`, `operation`, `modulus`, `qubits`, `exponent`, `backend`, `shots` |
 | **quantumTreeSearch<'T>** | Define quantum tree search (game AI, decision trees) | `initialState`, `maxDepth`, `branchingFactor`, `evaluateWith`, `generateMovesWith`, `topPercentile`, `backend`, `shots`, `solutionThreshold`, `successThreshold`, `maxPaths`, `limitSearchSpace`, `maxIterations` |
 | **resource<'T>** | Define scheduling resources | `resourceId`, `capacity`, `costPerUnit`, `availableWindow` |
 | **scheduledTask<'T>** | Define tasks for scheduling | `taskId`, `duration`, `after`, `afterMultiple`, `requires`, `priority`, `deadline`, `earliestStart` |
 | **schedulingProblem<'T>** | Define complete scheduling problems | `tasks`, `resources`, `objective`, `timeHorizon` |
-| **similaritySearch** | Find similar items using quantum kernels | `indexItems`, `similarityMetric`, `threshold`, `backend`, `shots`, `verbose`, `saveIndexTo`, `note` |
+| **similaritySearch** | Find similar items using quantum kernels | `indexItems`, `similarityMetric`, `threshold`, `backend`, `shots`, `verbose`, `saveIndexTo`, `note`, `progressReporter`, `cancellationToken` |
 
 ---
 
@@ -421,6 +421,8 @@ match detector with
 - `verbose` - Enable verbose logging (default: false)
 - `saveModelTo` - Path to save trained model
 - `note` - Optional note about the model
+- `progressReporter` - Progress reporter for real-time training updates (default: None)
+- `cancellationToken` - Cancellation token for early termination (default: None)
 
 **Use Cases**:
 - Security threat detection
@@ -480,6 +482,8 @@ match result with
 - `verbose` - Enable verbose logging (default: false)
 - `saveModelTo` - Path to save best model
 - `randomSeed` - Random seed for reproducibility (default: None)
+- `progressReporter` - Progress reporter for real-time trial updates (default: None)
+- `cancellationToken` - Cancellation token to stop search early (default: None)
 
 **Use Cases**:
 - Quick prototyping
@@ -524,6 +528,8 @@ match classifier with
 - `verbose` - Enable verbose logging (default: false)
 - `saveModelTo` - Path to save trained model
 - `note` - Optional note about the model
+- `progressReporter` - Progress reporter for real-time training updates (default: None)
+- `cancellationToken` - Cancellation token for early termination (default: None)
 
 **Use Cases**:
 - Fraud detection
@@ -581,6 +587,8 @@ match churnModel with
 - `verbose` - Enable verbose logging (default: false)
 - `saveModelTo` - Path to save trained model
 - `note` - Optional note about the model
+- `progressReporter` - Progress reporter for real-time training updates (default: None)
+- `cancellationToken` - Cancellation token for early termination (default: None)
 
 **Use Cases**:
 - **Regression**: Revenue forecasting, demand prediction, customer LTV, risk scoring
@@ -622,6 +630,8 @@ match finder with
 - `verbose` - Enable verbose logging (default: false)
 - `saveIndexTo` - Path to save search index
 - `note` - Optional note about the index
+- `progressReporter` - Progress reporter for real-time indexing updates (default: None)
+- `cancellationToken` - Cancellation token for early termination (default: None)
 
 **Use Cases**:
 - Product recommendations
@@ -695,6 +705,75 @@ Many CEs have auto-scaling parameters that adapt to backend type:
 | `successThreshold` | 10% | 20% |
 
 Use `None` for auto-scaling (recommended), or specify explicit values for fine-tuning.
+
+### Progress Reporting and Cancellation
+
+All ML builders (`autoML`, `binaryClassification`, `predictiveModel`, `anomalyDetection`, `similaritySearch`) support progress reporting and cancellation for long-running operations:
+
+```fsharp
+open System.Threading
+open FSharp.Azure.Quantum.Core.Progress
+
+// Example 1: Console progress reporter
+let consoleReporter = createConsoleReporter(verbose = true)
+
+let result1 = autoML {
+    trainWith features labels
+    maxTrials 20
+    progressReporter consoleReporter  // Real-time console updates
+}
+
+// Example 2: Event-based progress with cancellation
+let cts = new CancellationTokenSource()
+let reporter = createEventReporter()
+reporter.SetCancellationToken(cts.Token)
+
+// Subscribe to progress events
+reporter.ProgressChanged.Add(fun event ->
+    match event with
+    | TrialCompleted(id, score, elapsed) ->
+        printfn $"Trial {id}: {score * 100.0:F1}%% in {elapsed:F1}s"
+        if score > 0.95 then cts.Cancel()  // Early exit
+    | _ -> ())
+
+let result2 = autoML {
+    trainWith features labels
+    maxTrials 50
+    progressReporter (reporter :> IProgressReporter)
+    cancellationToken cts.Token
+}
+
+// Example 3: Timeout-based cancellation
+let ctsTimeout = new CancellationTokenSource()
+ctsTimeout.CancelAfter(TimeSpan.FromMinutes(5.0))
+
+let result3 = binaryClassification {
+    trainWith features labels
+    maxEpochs 1000
+    cancellationToken ctsTimeout.Token  // Auto-cancel after 5 minutes
+}
+```
+
+**Progress Event Types**:
+- `TrialStarted(trialId, totalTrials, modelType)` - AutoML trial starting
+- `TrialCompleted(trialId, score, elapsedSeconds)` - AutoML trial completed successfully
+- `TrialFailed(trialId, error)` - AutoML trial failed
+- `ProgressUpdate(percentComplete, message)` - General progress update
+- `PhaseChanged(phaseName, message)` - Algorithm phase changed
+- `IterationUpdate(current, total, currentBest)` - Iteration progress
+
+**Built-in Reporters**:
+- `createConsoleReporter()` - Console output with formatting
+- `createEventReporter()` - Event-based for UI integration
+- `createNullReporter()` - No-op reporter
+- `createAggregatingReporter(reporters)` - Combine multiple reporters
+
+**Use Cases**:
+- **Long-running searches**: Monitor AutoML with 20+ trials
+- **UI integration**: Real-time progress bars in WPF/Blazor/Avalonia
+- **Production monitoring**: Log progress to monitoring systems
+- **Resource constraints**: Timeout protection with automatic cancellation
+- **Early exit**: Cancel when good-enough results found
 
 ---
 

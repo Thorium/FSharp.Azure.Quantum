@@ -50,12 +50,14 @@ module BackendAbstraction =
     /// - Circuit execution with specified shots
     /// - Backend identification and capabilities
     /// - Error reporting
+    /// - Cancellation support for long-running operations
     type IQuantumBackend =
-        /// Execute a quantum circuit asynchronously
+        /// Execute a quantum circuit asynchronously with optional cancellation
         /// 
         /// Parameters:
         /// - circuit: Circuit to execute (ICircuit interface)
         /// - numShots: Number of measurement shots
+        /// - cancellationToken: Optional cancellation token for early termination
         /// 
         /// Returns: Async<Result> with measurements or error message
         /// 
@@ -63,20 +65,21 @@ module BackendAbstraction =
         /// - Cloud backends (Azure Quantum, IonQ, Rigetti)
         /// - Long-running executions
         /// - When you want non-blocking execution
-        abstract member ExecuteAsync: ICircuit -> int -> Async<Result<ExecutionResult, string>>
+        abstract member ExecuteAsync: ICircuit -> int -> System.Threading.CancellationToken option -> Async<Result<ExecutionResult, string>>
         
-        /// Execute a quantum circuit synchronously
+        /// Execute a quantum circuit synchronously with optional cancellation
         /// 
         /// Parameters:
         /// - circuit: Circuit to execute (ICircuit interface)
         /// - numShots: Number of measurement shots
+        /// - cancellationToken: Optional cancellation token for early termination
         /// 
         /// Returns: Result with measurements or error message
         /// 
         /// Note: This is a convenience wrapper around ExecuteAsync.
         /// Default implementation calls ExecuteAsync and blocks.
         /// For better performance, use ExecuteAsync directly when possible.
-        abstract member Execute: ICircuit -> int -> Result<ExecutionResult, string>
+        abstract member Execute: ICircuit -> int -> System.Threading.CancellationToken option -> Result<ExecutionResult, string>
         
         /// Backend name (e.g., "IonQ Simulator", "Rigetti QVM", "Local Simulator")
         abstract member Name: string
@@ -100,8 +103,14 @@ module BackendAbstraction =
     type LocalBackend() =
         
         /// Core synchronous execution logic (shared by both Execute and ExecuteAsync)
-        member private _.ExecuteCore (circuit: ICircuit) (numShots: int) : Result<ExecutionResult, string> =
+        member private _.ExecuteCore (circuit: ICircuit) (numShots: int) (cancellationToken: System.Threading.CancellationToken option) : Result<ExecutionResult, string> =
                 try
+                    // Check cancellation before starting
+                    match cancellationToken with
+                    | Some token when token.IsCancellationRequested ->
+                        Error "Operation cancelled before execution"
+                    | _ -> ()
+                    
                     // Validate parameters
                     if numShots <= 0 then
                         Error "Number of shots must be positive"
@@ -221,12 +230,12 @@ module BackendAbstraction =
                     Error (sprintf "Local backend execution failed: %s" ex.Message)
         
         interface IQuantumBackend with
-            member this.ExecuteAsync (circuit: ICircuit) (numShots: int) : Async<Result<ExecutionResult, string>> =
+            member this.ExecuteAsync (circuit: ICircuit) (numShots: int) (cancellationToken: System.Threading.CancellationToken option) : Async<Result<ExecutionResult, string>> =
                 // Local backend is synchronous, so wrap in async
-                async { return this.ExecuteCore circuit numShots }
+                async { return this.ExecuteCore circuit numShots cancellationToken }
             
-            member this.Execute (circuit: ICircuit) (numShots: int) : Result<ExecutionResult, string> =
-                this.ExecuteCore circuit numShots
+            member this.Execute (circuit: ICircuit) (numShots: int) (cancellationToken: System.Threading.CancellationToken option) : Result<ExecutionResult, string> =
+                this.ExecuteCore circuit numShots cancellationToken
             
             member _.Name = "Local Simulator"
             
@@ -244,9 +253,14 @@ module BackendAbstraction =
     /// Uses the existing IonQBackend module for Azure integration.
     type IonQBackendWrapper(httpClient: System.Net.Http.HttpClient, workspaceUrl: string, target: string) =
         
-        member private _.ExecuteAsyncCore (circuit: ICircuit) (numShots: int) : Async<Result<ExecutionResult, string>> =
+        member private _.ExecuteAsyncCore (circuit: ICircuit) (numShots: int) (cancellationToken: System.Threading.CancellationToken option) : Async<Result<ExecutionResult, string>> =
             async {
                 try
+                    // Check cancellation before starting
+                    match cancellationToken with
+                    | Some token when token.IsCancellationRequested ->
+                        return Error "Operation cancelled before execution"
+                    | _ -> ()
                     // Step 1: Convert ICircuit to CircuitBuilder.Circuit
                     let builderCircuit = 
                         match circuit with
@@ -331,11 +345,11 @@ module BackendAbstraction =
             }
         
         interface IQuantumBackend with
-            member this.ExecuteAsync (circuit: ICircuit) (numShots: int) : Async<Result<ExecutionResult, string>> =
-                this.ExecuteAsyncCore circuit numShots
+            member this.ExecuteAsync (circuit: ICircuit) (numShots: int) (cancellationToken: System.Threading.CancellationToken option) : Async<Result<ExecutionResult, string>> =
+                this.ExecuteAsyncCore circuit numShots cancellationToken
             
-            member this.Execute (circuit: ICircuit) (numShots: int) : Result<ExecutionResult, string> =
-                this.ExecuteAsyncCore circuit numShots |> Async.RunSynchronously
+            member this.Execute (circuit: ICircuit) (numShots: int) (cancellationToken: System.Threading.CancellationToken option) : Result<ExecutionResult, string> =
+                this.ExecuteAsyncCore circuit numShots cancellationToken |> Async.RunSynchronously
             
             member _.Name = "IonQ Simulator"
             
@@ -358,9 +372,14 @@ module BackendAbstraction =
     /// Uses the existing RigettiBackend module for Azure integration.
     type RigettiBackendWrapper(httpClient: System.Net.Http.HttpClient, workspaceUrl: string, target: string) =
         
-        member private _.ExecuteAsyncCore (circuit: ICircuit) (numShots: int) : Async<Result<ExecutionResult, string>> =
+        member private _.ExecuteAsyncCore (circuit: ICircuit) (numShots: int) (cancellationToken: System.Threading.CancellationToken option) : Async<Result<ExecutionResult, string>> =
             async {
                 try
+                    // Check cancellation before starting
+                    match cancellationToken with
+                    | Some token when token.IsCancellationRequested ->
+                        return Error "Operation cancelled before execution"
+                    | _ -> ()
                     // Step 1: Convert ICircuit to CircuitBuilder.Circuit
                     let builderCircuit = 
                         match circuit with
@@ -448,11 +467,11 @@ module BackendAbstraction =
             }
         
         interface IQuantumBackend with
-            member this.ExecuteAsync (circuit: ICircuit) (numShots: int) : Async<Result<ExecutionResult, string>> =
-                this.ExecuteAsyncCore circuit numShots
+            member this.ExecuteAsync (circuit: ICircuit) (numShots: int) (cancellationToken: System.Threading.CancellationToken option) : Async<Result<ExecutionResult, string>> =
+                this.ExecuteAsyncCore circuit numShots cancellationToken
             
-            member this.Execute (circuit: ICircuit) (numShots: int) : Result<ExecutionResult, string> =
-                this.ExecuteAsyncCore circuit numShots |> Async.RunSynchronously
+            member this.Execute (circuit: ICircuit) (numShots: int) (cancellationToken: System.Threading.CancellationToken option) : Result<ExecutionResult, string> =
+                this.ExecuteAsyncCore circuit numShots cancellationToken |> Async.RunSynchronously
             
             member _.Name = "Rigetti QVM"
             
@@ -783,9 +802,15 @@ module BackendAbstraction =
     /// and provider discovery.
     type AzureQuantumSdkBackendWrapper(workspace: FSharp.Azure.Quantum.Backends.AzureQuantumWorkspace.QuantumWorkspace, targetId: string) =
         
-        /// Poll for job completion with exponential backoff
-        let rec pollForCompletion (job: Microsoft.Azure.Quantum.CloudJob) (maxAttempts: int) (currentAttempt: int) (delayMs: int) : Async<Result<unit, string>> =
+        /// Poll for job completion with exponential backoff and cancellation support
+        let rec pollForCompletion (job: Microsoft.Azure.Quantum.CloudJob) (maxAttempts: int) (currentAttempt: int) (delayMs: int) (cancellationToken: System.Threading.CancellationToken option) : Async<Result<unit, string>> =
             async {
+                // Check cancellation
+                match cancellationToken with
+                | Some token when token.IsCancellationRequested ->
+                    return Error "Job polling cancelled by user"
+                | _ -> ()
+                
                 if currentAttempt >= maxAttempts then
                     return Error $"Job polling timeout after {maxAttempts} attempts"
                 else
@@ -800,11 +825,11 @@ module BackendAbstraction =
                         // Exponential backoff: double delay each time, max 30 seconds
                         let nextDelay = min (delayMs * 2) 30000
                         do! Async.Sleep delayMs
-                        return! pollForCompletion job maxAttempts (currentAttempt + 1) nextDelay
+                        return! pollForCompletion job maxAttempts (currentAttempt + 1) nextDelay cancellationToken
                     else
                         // Unknown status, wait and retry
                         do! Async.Sleep delayMs
-                        return! pollForCompletion job maxAttempts (currentAttempt + 1) delayMs
+                        return! pollForCompletion job maxAttempts (currentAttempt + 1) delayMs cancellationToken
             }
         
         /// Helper to try getting a JSON property (idiomatic F# with Option)
@@ -859,9 +884,15 @@ module BackendAbstraction =
             )
             |> Array.ofSeq
         
-        member private _.ExecuteAsyncCore (circuit: ICircuit) (numShots: int) : Async<Result<ExecutionResult, string>> =
+        member private _.ExecuteAsyncCore (circuit: ICircuit) (numShots: int) (cancellationToken: System.Threading.CancellationToken option) : Async<Result<ExecutionResult, string>> =
             async {
                 try
+                    // Check cancellation before starting
+                    match cancellationToken with
+                    | Some token when token.IsCancellationRequested ->
+                        return Error "Operation cancelled before execution"
+                    | _ -> ()
+                    
                     if numShots <= 0 then
                         return Error "Number of shots must be positive"
                     else
@@ -913,7 +944,7 @@ module BackendAbstraction =
                             let! submittedJob = workspace.InnerWorkspace.SubmitJobAsync(cloudJob) |> Async.AwaitTask
                             
                             // Step 4: Poll for completion (max 60 attempts, start with 1s delay)
-                            let! pollResult = pollForCompletion submittedJob 60 0 1000
+                            let! pollResult = pollForCompletion submittedJob 60 0 1000 cancellationToken
                             
                             match pollResult with
                             | Error msg -> return Error msg
@@ -962,11 +993,11 @@ module BackendAbstraction =
             }
         
         interface IQuantumBackend with
-            member this.ExecuteAsync (circuit: ICircuit) (numShots: int) : Async<Result<ExecutionResult, string>> =
-                this.ExecuteAsyncCore circuit numShots
+            member this.ExecuteAsync (circuit: ICircuit) (numShots: int) (cancellationToken: System.Threading.CancellationToken option) : Async<Result<ExecutionResult, string>> =
+                this.ExecuteAsyncCore circuit numShots cancellationToken
             
-            member this.Execute (circuit: ICircuit) (numShots: int) : Result<ExecutionResult, string> =
-                this.ExecuteAsyncCore circuit numShots |> Async.RunSynchronously
+            member this.Execute (circuit: ICircuit) (numShots: int) (cancellationToken: System.Threading.CancellationToken option) : Result<ExecutionResult, string> =
+                this.ExecuteAsyncCore circuit numShots cancellationToken |> Async.RunSynchronously
             
             member _.Name = $"Azure Quantum SDK: {targetId}"
             
