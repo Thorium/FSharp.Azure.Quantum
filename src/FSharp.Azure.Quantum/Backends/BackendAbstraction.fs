@@ -546,7 +546,7 @@ module BackendAbstraction =
             
             member _.SupportedGates = [
                 "H"; "X"; "Y"; "Z"
-                "S"; "T"
+                "S"; "T"; "SDG"; "TDG"
                 "RX"; "RY"; "RZ"
                 "CZ"    // Native Quantinuum gate (trapped-ion)
                 "MEASURE"
@@ -640,6 +640,7 @@ module BackendAbstraction =
             
             member _.SupportedGates = [
                 "H"; "X"; "Y"; "Z"
+                "S"; "T"; "SDG"; "TDG"
                 "RX"; "RY"; "RZ"
                 "CZ"    // Native Atom Computing gate (Rydberg blockade)
                 "MEASURE"
