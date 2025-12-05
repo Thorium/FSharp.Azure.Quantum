@@ -395,6 +395,11 @@ module GateTranspiler =
             | name when name.Contains("quantinuum") -> 
                 (false, false, true)
             
+            // Atom Computing Phoenix: Native CZ (Rydberg blockade), all-to-all connectivity
+            // Similar to Quantinuum - only needs CCX decomposition
+            | name when name.Contains("atom") || name.Contains("atomcomputing") -> 
+                (false, false, true)
+            
             // Local simulator supports everything
             | name when name.Contains("local") -> 
                 (false, false, false)

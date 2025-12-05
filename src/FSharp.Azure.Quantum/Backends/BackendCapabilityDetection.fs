@@ -68,6 +68,8 @@ module BackendCapabilityDetection =
             "Rigetti"
         elif targetId.StartsWith("quantinuum", System.StringComparison.OrdinalIgnoreCase) then
             "Quantinuum"
+        elif targetId.StartsWith("atom", System.StringComparison.OrdinalIgnoreCase) then
+            "AtomComputing"
         elif targetId.StartsWith("dwave", System.StringComparison.OrdinalIgnoreCase) then
             "D-Wave"
         else
@@ -99,6 +101,14 @@ module BackendCapabilityDetection =
     /// Check if target is a D-Wave backend
     let isDWaveTarget (targetId: string) : bool =
         targetId.StartsWith("dwave", System.StringComparison.OrdinalIgnoreCase)
+    
+    /// Check if target is an Atom Computing backend
+    ///
+    /// Supported Atom Computing targets:
+    /// - atom-computing.sim (simulator, 100+ qubits)
+    /// - atom-computing.qpu.phoenix (Phoenix QPU, 100+ qubits)
+    let isAtomComputingTarget (targetId: string) : bool =
+        targetId.StartsWith("atom", System.StringComparison.OrdinalIgnoreCase)
     
     // ============================================================================
     // BACKEND CAPABILITY CHECKING
@@ -147,11 +157,12 @@ module BackendCapabilityDetection =
                 let qubitScore = float backend.MaxQubits / 50.0
                 let gateScore = float (List.length backend.SupportedGates) / 10.0
                 
-                // Bonus for cloud backends (IonQ, Rigetti, Quantinuum)
+                // Bonus for cloud backends (IonQ, Rigetti, Quantinuum, Atom Computing)
                 let cloudBonus = 
                     if backend.Name.Contains("IonQ") then 0.5
                     elif backend.Name.Contains("Rigetti") then 0.5
                     elif backend.Name.Contains("Quantinuum") then 1.0  // Highest fidelity
+                    elif backend.Name.Contains("Atom Computing") then 0.8  // High qubit count, good fidelity
                     elif backend.Name.Contains("Azure Quantum") then 0.3
                     else 0.0
                 

@@ -428,11 +428,11 @@ module BackendAbstractionTests =
         let circuit = CircuitBuilder.empty 2
         let wrapper = CircuitWrapper(circuit) :> ICircuit
         
-        match convertCircuitToProviderFormat wrapper "quantinuum.simulator" with
+        match convertCircuitToProviderFormat wrapper "unsupported.provider.target" with
         | Error msg ->
-            Assert.Contains("not yet supported", msg)
+            Assert.Contains("Unsupported provider", msg)
         | Ok _ ->
-            Assert.True(false, "Quantinuum provider should not be supported yet")
+            Assert.True(false, "Unsupported provider should return error")
 
     [<Fact>]
     let ``convertCircuitToProviderFormat should handle QAOA circuits`` () =
