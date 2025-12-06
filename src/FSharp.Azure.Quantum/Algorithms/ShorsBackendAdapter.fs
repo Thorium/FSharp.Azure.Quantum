@@ -310,16 +310,36 @@ module ShorsBackendAdapter =
                         Config = config
                     }
                 else
-                    // Choose base a
-                    let a = 
-                        match config.RandomBase with
-                        | Some baseVal -> baseVal
-                        | None -> 2  // Default to a=2 for deterministic testing
+                    // Check if N is prime (skip expensive quantum simulation for primes)
+                    let isPrime n =
+                        if n < 2 then false
+                        elif n = 2 then true
+                        elif n % 2 = 0 then false
+                        else
+                            let sqrtN = int (sqrt (float n))
+                            [3..2..sqrtN] |> List.forall (fun i -> n % i <> 0)
                     
-                    // Execute period-finding on backend
-                    match executePeriodFindingWithBackend a n config.PrecisionQubits backend shots with
-                    | Error msg -> Error msg
-                    | Ok histogram ->
+                    if isPrime n then
+                        // N is prime - cannot be factored
+                        Ok {
+                            Number = n
+                            Factors = None
+                            PeriodResult = None
+                            Success = false
+                            Message = $"N={n} is prime and cannot be factored into non-trivial factors"
+                            Config = config
+                        }
+                    else
+                        // Choose base a
+                        let a = 
+                            match config.RandomBase with
+                            | Some baseVal -> baseVal
+                            | None -> 2  // Default to a=2 for deterministic testing
+                        
+                        // Execute period-finding on backend
+                        match executePeriodFindingWithBackend a n config.PrecisionQubits backend shots with
+                        | Error msg -> Error msg
+                        | Ok histogram ->
                         // Extract period from measurements
                         match extractPeriodFromHistogram histogram config.PrecisionQubits n with
                         | None ->

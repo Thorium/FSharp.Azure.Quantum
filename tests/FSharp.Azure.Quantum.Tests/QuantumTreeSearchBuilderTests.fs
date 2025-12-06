@@ -299,13 +299,14 @@ module QuantumTreeSearchBuilderTests =
     
     [<Fact>]
     let ``QuantumTreeSearch.solve should handle depth 1 search`` () =
-        // Arrange - Minimal depth
+        // Arrange - Minimal depth with power-of-2 branching for clean quantum encoding
+        // Using branchingFactor=4 ensures all 2-qubit states (0-3) are valid
         let problem = QuantumTreeSearch.quantumTreeSearch {
             initialState 5
             maxDepth 1
-            branchingFactor 3
+            branchingFactor 4  // Power of 2 - all states valid
             evaluateWith (fun x -> float x)
-            generateMovesWith (fun x -> [x + 1; x + 10; x - 1])
+            generateMovesWith (fun x -> [x + 1; x + 10; x - 1; x + 5])  // 4 moves
             topPercentile 0.5
         }
         

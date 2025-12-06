@@ -6,6 +6,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <None Include="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Compile Include="StateVectorTests.fs" />
     <Compile Include="GatesTests.fs" />
     <!-- GraphOptimizationTests.fs removed - uses solveClassical (classical algorithm) -->

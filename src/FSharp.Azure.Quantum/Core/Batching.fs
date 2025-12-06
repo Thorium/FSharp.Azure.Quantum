@@ -1,6 +1,7 @@
 namespace FSharp.Azure.Quantum.Core
 
 open System
+open System.Collections.Concurrent
 
 /// Batching module for optimizing Azure Quantum job submissions
 /// 
@@ -60,7 +61,8 @@ module Batching =
     /// Thread-safe batch accumulator with size and timeout-based triggering.
     /// 
     /// Accumulates items until maxBatchSize is reached or timeout expires,
-    /// then returns the batch. Uses lock-based synchronization for thread safety.
+    /// then returns the batch. Uses ConcurrentQueue for lock-free enqueueing
+    /// and a single lock only when flushing to ensure atomicity.
     /// 
     /// Example:
     /// <code>
@@ -71,28 +73,54 @@ module Batching =
     /// | None -> // Keep accumulating
     /// </code>
     type BatchAccumulator<'T>(config: BatchConfig) =
-        let mutable batch : 'T list = []
+        // Use ConcurrentQueue for lock-free thread-safe enqueueing
+        let queue = ConcurrentQueue<'T>()
+        
+        // Use mutable for batch timing (idiomatic F# with lock-based sync)
         let mutable batchStartTime : DateTimeOffset option = None
         let lockObj = obj()
+        
+        /// Atomically drain up to maxCount items from the queue
+        let drainQueue(maxCount: int option) =
+            let items = ResizeArray<'T>()
+            let mutable item = Unchecked.defaultof<'T>
+            let mutable count = 0
+            let limit = defaultArg maxCount System.Int32.MaxValue
+            
+            while count < limit && queue.TryDequeue(&item) do
+                items.Add(item)
+                count <- count + 1
+            
+            items |> List.ofSeq
         
         /// Add an item to the batch
         /// 
         /// Returns Some(batch) if size trigger activates, None otherwise
         member _.Add(item: 'T) : 'T list option =
+            // Enqueue is lock-free and thread-safe
+            queue.Enqueue(item)
+            
+            // Lock for timer initialization and batch extraction
             lock lockObj (fun () ->
                 // Start timer on first item
                 if batchStartTime.IsNone then
                     batchStartTime <- Some DateTimeOffset.UtcNow
                 
-                // Add item to batch
-                batch <- item :: batch
-                
-                // Check size trigger
-                if batch.Length >= config.MaxBatchSize then
-                    let result = List.rev batch
-                    batch <- []
-                    batchStartTime <- None
-                    Some result  // Trigger batch submission
+                // Check size trigger (inside lock to get accurate count)
+                if queue.Count >= config.MaxBatchSize then
+                    // Drain exactly MaxBatchSize items to prevent oversized batches
+                    let batch = drainQueue(Some config.MaxBatchSize)
+                    
+                    // Reset timer for remaining items or clear if queue is empty
+                    if queue.IsEmpty then
+                        batchStartTime <- None
+                    else
+                        // Restart timer for remaining items
+                        batchStartTime <- Some DateTimeOffset.UtcNow
+                    
+                    // Only return batch if we got items
+                    if batch.IsEmpty then None
+                    else Some batch
                 else
                     None  // Keep accumulating
             )
@@ -108,13 +136,31 @@ module Batching =
                     let elapsed = DateTimeOffset.UtcNow - startTime
                     
                     // Check timeout trigger
-                    if elapsed >= config.Timeout && batch.Length > 0 then
-                        let result = List.rev batch
-                        batch <- []
+                    if elapsed >= config.Timeout && not queue.IsEmpty then
+                        // Drain all items on timeout (no size limit)
+                        let batch = drainQueue(None)
                         batchStartTime <- None
-                        Some result  // Trigger batch submission
+                        
+                        // Only return batch if we got items
+                        if batch.IsEmpty then None
+                        else Some batch
                     else
                         None  // Keep accumulating
+            )
+        
+        /// Force flush all remaining items regardless of timeout
+        /// 
+        /// Returns Some(batch) if items present, None if queue empty.
+        /// Useful for cleanup and testing scenarios.
+        member _.ForceFlush() : 'T list option =
+            lock lockObj (fun () ->
+                if queue.IsEmpty then
+                    None
+                else
+                    let batch = drainQueue(None)
+                    batchStartTime <- None
+                    if batch.IsEmpty then None
+                    else Some batch
             )
     
     // ============================================================================
@@ -165,64 +211,124 @@ module Batching =
     // BATCH METRICS
     // ============================================================================
     
-    // Private type for metrics state
-    type private MetricsState = {
+    /// Immutable snapshot of batch execution metrics
+    /// 
+    /// Represents a point-in-time view of batch performance statistics.
+    type BatchMetrics = {
+        /// Total number of circuits processed across all batches
         TotalCircuits: int
+        
+        /// Total number of batches submitted
         BatchCount: int
-        TotalExecutionTime: float
+        
+        /// Total execution time across all batches (milliseconds)
+        TotalExecutionTimeMs: float
+        
+        /// Individual batch sizes in submission order
         BatchSizes: int list
     }
     
-    /// Metrics tracking for batch execution monitoring
-    /// 
-    /// Tracks batch sizes, execution times, and efficiency metrics for
-    /// monitoring and debugging batch operations.
-    type BatchMetrics() =
-        let mutable state = {
+    /// BatchMetrics module with functional operations
+    module BatchMetrics =
+        
+        /// Empty metrics (initial state)
+        let empty : BatchMetrics = {
             TotalCircuits = 0
             BatchCount = 0
-            TotalExecutionTime = 0.0
+            TotalExecutionTimeMs = 0.0
             BatchSizes = []
         }
-        let lockObj = obj()
         
-        /// Record a completed batch
-        member _.RecordBatch(batchSize: int, executionTimeMs: float) =
-            lock lockObj (fun () ->
-                state <- {
-                    TotalCircuits = state.TotalCircuits + batchSize
-                    BatchCount = state.BatchCount + 1
-                    TotalExecutionTime = state.TotalExecutionTime + executionTimeMs
-                    BatchSizes = batchSize :: state.BatchSizes
-                }
-            )
+        /// Create a new BatchMetrics instance (alias for empty)
+        let create() = empty
         
-        /// Total number of circuits processed
-        member _.TotalCircuits = state.TotalCircuits
+        /// Record a completed batch and return updated metrics
+        /// 
+        /// Pure function - returns new metrics without mutating the original
+        let recordBatch (batchSize: int) (executionTimeMs: float) (metrics: BatchMetrics) : BatchMetrics =
+            {
+                TotalCircuits = metrics.TotalCircuits + batchSize
+                BatchCount = metrics.BatchCount + 1
+                TotalExecutionTimeMs = metrics.TotalExecutionTimeMs + executionTimeMs
+                BatchSizes = batchSize :: metrics.BatchSizes
+            }
         
-        /// Total number of batches submitted
-        member _.BatchCount = state.BatchCount
-        
-        /// Total execution time across all batches (ms)
-        member _.TotalExecutionTimeMs = state.TotalExecutionTime
-        
-        /// Average batch size
-        member _.AverageBatchSize =
-            if state.BatchCount = 0 then 0.0
-            else float state.TotalCircuits / float state.BatchCount
+        /// Calculate average batch size
+        let averageBatchSize (metrics: BatchMetrics) : float =
+            if metrics.BatchCount = 0 then 0.0
+            else float metrics.TotalCircuits / float metrics.BatchCount
         
         /// Calculate batch efficiency (0.0 - 1.0)
         /// 
         /// Efficiency is the ratio of actual batch size to maximum batch size,
         /// averaged across all batches.
-        member this.GetEfficiency(maxBatchSize: int) =
-            if state.BatchCount = 0 || maxBatchSize <= 0 then 0.0
+        let getEfficiency (maxBatchSize: int) (metrics: BatchMetrics) : float =
+            if metrics.BatchCount = 0 || maxBatchSize <= 0 then 0.0
             else
-                let avgSize = this.AverageBatchSize
+                let avgSize = averageBatchSize metrics
                 avgSize / float maxBatchSize
     
-    /// BatchMetrics module with factory functions
-    module BatchMetrics =
+    /// Thread-safe mutable wrapper for BatchMetrics (for stateful scenarios)
+    /// 
+    /// Wraps immutable BatchMetrics with thread-safe mutation for cases where
+    /// you need a shared accumulator. Prefer using immutable BatchMetrics directly
+    /// when possible.
+    /// 
+    /// Performance Note:
+    /// Each property access acquires a lock and creates a snapshot. For bulk access,
+    /// call GetSnapshot() once and read multiple properties from the snapshot:
+    /// 
+    /// Good (1 lock):
+    ///   let snapshot = accumulator.GetSnapshot()
+    ///   let total = snapshot.TotalCircuits
+    ///   let count = snapshot.BatchCount
+    /// 
+    /// Suboptimal (2 locks):
+    ///   let total = accumulator.TotalCircuits
+    ///   let count = accumulator.BatchCount
+    type BatchMetricsAccumulator() =
+        let mutable metrics = BatchMetrics.empty
+        let lockObj = obj()
         
-        /// Create a new BatchMetrics instance
-        let create() = BatchMetrics()
+        /// Record a completed batch (thread-safe)
+        member _.RecordBatch(batchSize: int, executionTimeMs: float) =
+            lock lockObj (fun () ->
+                metrics <- BatchMetrics.recordBatch batchSize executionTimeMs metrics
+            )
+        
+        /// Get current metrics snapshot (thread-safe)
+        /// 
+        /// Returns immutable snapshot of current metrics state.
+        /// Recommended for accessing multiple properties to avoid repeated lock acquisition.
+        member _.GetSnapshot() : BatchMetrics =
+            lock lockObj (fun () -> metrics)
+        
+        /// Total number of circuits processed (thread-safe)
+        /// 
+        /// Note: Acquires lock on each access. For bulk property access, use GetSnapshot().
+        member this.TotalCircuits = 
+            this.GetSnapshot().TotalCircuits
+        
+        /// Total number of batches submitted (thread-safe)
+        /// 
+        /// Note: Acquires lock on each access. For bulk property access, use GetSnapshot().
+        member this.BatchCount = 
+            this.GetSnapshot().BatchCount
+        
+        /// Total execution time across all batches (ms) (thread-safe)
+        /// 
+        /// Note: Acquires lock on each access. For bulk property access, use GetSnapshot().
+        member this.TotalExecutionTimeMs = 
+            this.GetSnapshot().TotalExecutionTimeMs
+        
+        /// Average batch size (thread-safe)
+        /// 
+        /// Note: Acquires lock on each access. For bulk property access, use GetSnapshot().
+        member this.AverageBatchSize = 
+            this.GetSnapshot() |> BatchMetrics.averageBatchSize
+        
+        /// Calculate batch efficiency (0.0 - 1.0) (thread-safe)
+        /// 
+        /// Note: Acquires lock on each access. For bulk property access, use GetSnapshot().
+        member this.GetEfficiency(maxBatchSize: int) = 
+            this.GetSnapshot() |> BatchMetrics.getEfficiency maxBatchSize

@@ -22,13 +22,15 @@ type MockTokenCredential(tokenValue: string, expiresOn: DateTimeOffset) =
 
 [<Fact>]
 let ``TokenManager should acquire token on first request`` () =
-    let expiresOn = DateTimeOffset.UtcNow.AddHours(1.0)
-    let mockCredential = MockTokenCredential("test-token-123", expiresOn)
-    let tokenManager = TokenManager(mockCredential)
+    async {
+        let expiresOn = DateTimeOffset.UtcNow.AddHours(1.0)
+        let mockCredential = MockTokenCredential("test-token-123", expiresOn)
+        let tokenManager = TokenManager(mockCredential)
 
-    let token = tokenManager.GetAccessTokenAsync() |> Async.RunSynchronously
+        let! token = tokenManager.GetAccessTokenAsync()
 
-    Assert.Equal("test-token-123", token)
+        Assert.Equal("test-token-123", token)
+    } |> Async.StartAsTask
 
 [<Fact>]
 let ``TokenManager should cache token on subsequent requests`` () =
@@ -223,7 +225,7 @@ let ``AuthenticationHandler should fail gracefully when token acquisition fails`
     
     let request = new HttpRequestMessage(HttpMethod.Get, "https://quantum.azure.com/test")
     
-    // Async task failures wrap exceptions in AggregateException
+    // Async task failures should throw AuthenticationFailedException
     let ex = 
         Assert.ThrowsAsync<Azure.Identity.AuthenticationFailedException>(fun () ->
             client.SendAsync(request) :> Task
@@ -231,9 +233,8 @@ let ``AuthenticationHandler should fail gracefully when token acquisition fails`
         |> Async.AwaitTask 
         |> Async.RunSynchronously
     
-    // Verify inner exception is AuthenticationFailedException
-    Assert.IsType<AuthenticationFailedException>(ex.InnerException) |> ignore
-    Assert.Contains("Token acquisition failed", ex.InnerException.Message)
+    // Verify exception message
+    Assert.Contains("Token acquisition failed", ex.Message)
 
 [<Fact>]
 let ``TokenManager should recover after clearing cache from failed state`` () =

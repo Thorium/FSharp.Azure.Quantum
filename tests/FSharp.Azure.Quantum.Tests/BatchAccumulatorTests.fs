@@ -239,8 +239,7 @@ module BatchAccumulatorTests =
         // Arrange
         let config = { BatchConfig.defaultConfig with MaxBatchSize = 100 }
         let accumulator = BatchAccumulator<int>(config)
-        let mutable batches = []
-        let lockObj = obj()
+        let batches = System.Collections.Concurrent.ConcurrentBag<int list>()
         
         // Act - 10 threads each adding 10 items
         let tasks = 
@@ -250,8 +249,7 @@ module BatchAccumulatorTests =
                     for i in 1..10 do
                         let item = threadId * 100 + i
                         match accumulator.Add(item) with
-                        | Some batch -> 
-                            lock lockObj (fun () -> batches <- batch :: batches)
+                        | Some batch -> batches.Add(batch)
                         | None -> ()
                 )
             )
@@ -260,11 +258,11 @@ module BatchAccumulatorTests =
         
         // Flush any remaining items
         match accumulator.TryFlush() with
-        | Some batch -> batches <- batch :: batches
+        | Some batch -> batches.Add(batch)
         | None -> ()
         
         // Assert
-        let allItems = batches |> List.collect id
+        let allItems = batches |> Seq.collect id |> Seq.toList
         Assert.Equal(100, allItems.Length)  // All 100 items should be present
         
         // Check no duplicates (each item appears exactly once)
@@ -277,8 +275,7 @@ module BatchAccumulatorTests =
         let maxSize = 10
         let config = { BatchConfig.defaultConfig with MaxBatchSize = maxSize }
         let accumulator = BatchAccumulator<int>(config)
-        let mutable batches = []
-        let lockObj = obj()
+        let batches = System.Collections.Concurrent.ConcurrentBag<int list>()
         
         // Act - Multiple threads adding items
         let tasks = 
@@ -286,8 +283,7 @@ module BatchAccumulatorTests =
             |> List.map (fun item ->
                 System.Threading.Tasks.Task.Run(fun () ->
                     match accumulator.Add(item) with
-                    | Some batch -> 
-                        lock lockObj (fun () -> batches <- batch :: batches)
+                    | Some batch -> batches.Add(batch)
                     | None -> ()
                 )
             )
@@ -295,11 +291,12 @@ module BatchAccumulatorTests =
         System.Threading.Tasks.Task.WaitAll(tasks |> List.toArray)
         
         // Assert - All batches should be at max size (except possibly the last partial one)
-        let fullBatches = batches |> List.filter (fun b -> b.Length = maxSize)
+        let batchList = batches |> Seq.toList
+        let fullBatches = batchList |> List.filter (fun b -> b.Length = maxSize)
         Assert.True(fullBatches.Length >= 4, $"Expected at least 4 full batches, got {fullBatches.Length}")
         
         // All batches should be <= maxSize
-        batches |> List.iter (fun batch ->
+        batchList |> List.iter (fun batch ->
             Assert.True(batch.Length <= maxSize, $"Batch size {batch.Length} exceeds max {maxSize}")
         )
     
@@ -308,8 +305,7 @@ module BatchAccumulatorTests =
         // Arrange
         let config = { BatchConfig.defaultConfig with MaxBatchSize = 1000; Timeout = TimeSpan.FromMilliseconds 50.0 }
         let accumulator = BatchAccumulator<int>(config)
-        let mutable batches = []
-        let lockObj = obj()
+        let batches = System.Collections.Concurrent.ConcurrentBag<int list>()
         
         // Act - Some threads adding, others flushing
         let addTasks = 
@@ -318,8 +314,7 @@ module BatchAccumulatorTests =
                 System.Threading.Tasks.Task.Run(fun () ->
                     System.Threading.Thread.Sleep(5 * item)  // Stagger additions
                     match accumulator.Add(item) with
-                    | Some batch -> 
-                        lock lockObj (fun () -> batches <- batch :: batches)
+                    | Some batch -> batches.Add(batch)
                     | None -> ()
                 )
             )
@@ -331,8 +326,7 @@ module BatchAccumulatorTests =
                     for _ in 1..5 do
                         System.Threading.Thread.Sleep(20)
                         match accumulator.TryFlush() with
-                        | Some batch -> 
-                            lock lockObj (fun () -> batches <- batch :: batches)
+                        | Some batch -> batches.Add(batch)
                         | None -> ()
                 )
             )
@@ -340,13 +334,13 @@ module BatchAccumulatorTests =
         let allTasks = addTasks @ flushTasks
         System.Threading.Tasks.Task.WaitAll(allTasks |> List.toArray)
         
-        // Final flush
-        match accumulator.TryFlush() with
-        | Some batch -> batches <- batch :: batches
+        // Final flush - use ForceFlush to ensure all items are retrieved
+        match accumulator.ForceFlush() with
+        | Some batch -> batches.Add(batch)
         | None -> ()
         
         // Assert - All 20 items should be accounted for
-        let allItems = batches |> List.collect id
+        let allItems = batches |> Seq.collect id |> Seq.toList
         Assert.Equal(20, allItems.Length)
         
         // Check all expected items present
@@ -491,7 +485,7 @@ module BatchAccumulatorTests =
     [<Fact>]
     let ``BatchMetrics should track total circuits processed`` () =
         // Arrange
-        let metrics = BatchMetrics.create()
+        let metrics = BatchMetricsAccumulator()
         
         // Act
         metrics.RecordBatch(3, 100.0)
@@ -504,7 +498,7 @@ module BatchAccumulatorTests =
     [<Fact>]
     let ``BatchMetrics should calculate average batch size`` () =
         // Arrange
-        let metrics = BatchMetrics.create()
+        let metrics = BatchMetricsAccumulator()
         
         // Act
         metrics.RecordBatch(10, 100.0)
@@ -518,7 +512,7 @@ module BatchAccumulatorTests =
     [<Fact>]
     let ``BatchMetrics should track total execution time`` () =
         // Arrange
-        let metrics = BatchMetrics.create()
+        let metrics = BatchMetricsAccumulator()
         
         // Act
         metrics.RecordBatch(10, 123.5)
@@ -530,7 +524,7 @@ module BatchAccumulatorTests =
     [<Fact>]
     let ``BatchMetrics should calculate batch efficiency`` () =
         // Arrange
-        let metrics = BatchMetrics.create()
+        let metrics = BatchMetricsAccumulator()
         
         // Act - With max batch size of 50
         metrics.RecordBatch(50, 100.0)  // 100% efficient

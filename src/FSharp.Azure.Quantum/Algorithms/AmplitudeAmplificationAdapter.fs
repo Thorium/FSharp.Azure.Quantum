@@ -358,7 +358,7 @@ module AmplitudeAmplificationAdapter =
                             |> Map.ofArray
                         
                         // Step 8: Extract solutions (top 10% by count)
-                        let solutions = extractTopSolutions counts 0.1
+                        let solutions = extractTopSolutions counts 0.1 config.Oracle
                         let successProb = calculateSuccessProb solutions counts numShots
                         
                         return Ok {

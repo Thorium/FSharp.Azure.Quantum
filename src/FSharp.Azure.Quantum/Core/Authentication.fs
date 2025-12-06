@@ -28,14 +28,20 @@ module Authentication =
         let createManagedIdentityCredential () : TokenCredential =
             upcast ManagedIdentityCredential()
 
+    /// Cached token state (immutable record for thread-safety)
+    type private TokenCache = {
+        Token: AccessToken
+        ExpiresOn: DateTimeOffset
+    }
+
     /// Manages Azure AD token acquisition and caching
     type TokenManager(credential: TokenCredential) =
 
-        let mutable cachedToken: AccessToken option = None
-        let mutable tokenExpiry: DateTimeOffset = DateTimeOffset.MinValue
-        let tokenLock = obj ()
+        // Use SemaphoreSlim for async-safe token refresh coordination
+        let refreshSemaphore = new SemaphoreSlim(1, 1)
+        let mutable cachedToken: TokenCache option = None
 
-        /// Get access token with automatic refresh
+        /// Get access token with automatic refresh (async-safe)
         member this.GetAccessTokenAsync(?cancellationToken: CancellationToken) =
             async {
                 let ct = defaultArg cancellationToken CancellationToken.None
@@ -43,37 +49,45 @@ module Authentication =
                 // Check if cached token is still valid (with 5-minute buffer)
                 let now = DateTimeOffset.UtcNow
 
-                let needsRefresh =
-                    lock tokenLock (fun () ->
-                        let isExpired = tokenExpiry <= now.AddMinutes(5.0)
+                // Quick check without lock (safe - reading option is atomic)
+                match cachedToken with
+                | Some cache when cache.ExpiresOn > now.AddMinutes(5.0) ->
+                    // Token is still valid, return immediately
+                    return cache.Token.Token
+                | _ ->
+                    // Token needs refresh - use semaphore for async coordination
+                    do! refreshSemaphore.WaitAsync(ct) |> Async.AwaitTask
+                    try
+                        // Double-check after acquiring semaphore (another thread may have refreshed)
+                        match cachedToken with
+                        | Some cache when cache.ExpiresOn > now.AddMinutes(5.0) ->
+                            return cache.Token.Token
+                        | _ ->
+                            // Acquire new token
+                            let tokenRequestContext = TokenRequestContext([| quantumScope |])
+                            let! accessToken = credential.GetTokenAsync(tokenRequestContext, ct).AsTask() |> Async.AwaitTask
 
-                        match cachedToken, isExpired with
-                        | Some _, false -> false // Token is valid
-                        | _ -> true // Need to refresh
-                    )
+                            // Cache the token (immutable update)
+                            cachedToken <- Some {
+                                Token = accessToken
+                                ExpiresOn = accessToken.ExpiresOn
+                            }
 
-                if not needsRefresh then
-                    // Return cached token
-                    let token = lock tokenLock (fun () -> cachedToken.Value)
-                    return token.Token
-                else
-                    // Acquire new token
-                    let tokenRequestContext = TokenRequestContext([| quantumScope |])
-                    let! accessToken = credential.GetTokenAsync(tokenRequestContext, ct).AsTask() |> Async.AwaitTask
-
-                    // Cache the token
-                    lock tokenLock (fun () ->
-                        cachedToken <- Some accessToken
-                        tokenExpiry <- accessToken.ExpiresOn)
-
-                    return accessToken.Token
+                            return accessToken.Token
+                    finally
+                        refreshSemaphore.Release() |> ignore
             }
 
         /// Clear cached token (force refresh on next request)
+        /// 
+        /// Thread-safe - waits for any ongoing token refresh to complete
+        /// before clearing the cache.
         member this.ClearCache() =
-            lock tokenLock (fun () ->
+            refreshSemaphore.Wait()
+            try
                 cachedToken <- None
-                tokenExpiry <- DateTimeOffset.MinValue)
+            finally
+                refreshSemaphore.Release() |> ignore
 
     /// DelegatingHandler that adds Authorization Bearer token to HTTP requests
     type AuthenticationHandler(tokenManager: TokenManager) =

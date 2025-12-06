@@ -61,45 +61,38 @@ module RateLimiting =
     // 3. RATE LIMITER CLASS
     // ============================================================================
     
-    /// Rate limiter with mutable state tracking
+    /// Rate limiter with thread-safe state tracking
+    /// 
+    /// Uses locks for state updates and Interlocked for atomic counter operations.
+    /// This ensures no torn reads when accessing RateLimitInfo fields.
     type RateLimiter() =
         let mutable currentState: RateLimitInfo option = None
         let mutable attemptNumber = 0
         let lockObj = obj()
         
-        /// Update rate limit state from new information
+        /// Update rate limit state from new information (thread-safe)
         member this.UpdateState(info: RateLimitInfo) =
-            lock lockObj (fun () ->
-                currentState <- Some info
-            )
+            lock lockObj (fun () -> currentState <- Some info)
         
-        /// Get current rate limit state
+        /// Get current rate limit state (thread-safe)
         member this.GetCurrentState() : RateLimitInfo option =
-            lock lockObj (fun () ->
-                currentState
-            )
+            lock lockObj (fun () -> currentState)
         
-        /// Check if we should throttle based on current state
+        /// Check if we should throttle based on current state (thread-safe)
         /// Returns true if remaining requests < 10
         member this.ShouldThrottle() : bool =
             lock lockObj (fun () ->
                 match currentState with
                 | Some info -> info.Remaining < 10
-                | None -> false
-            )
+                | None -> false)
         
-        /// Increment attempt number for exponential backoff (thread-safe)
+        /// Increment attempt number for exponential backoff (lock-free atomic)
         member this.IncrementAttempt() : int =
-            lock lockObj (fun () ->
-                attemptNumber <- attemptNumber + 1
-                attemptNumber
-            )
+            Threading.Interlocked.Increment(&attemptNumber)
         
-        /// Reset attempt number on successful request (thread-safe)
+        /// Reset attempt number on successful request (lock-free atomic)
         member this.ResetAttempt() =
-            lock lockObj (fun () ->
-                attemptNumber <- 0
-            )
+            Threading.Interlocked.Exchange(&attemptNumber, 0) |> ignore
     
     // ============================================================================
     // 4. EXPONENTIAL BACKOFF

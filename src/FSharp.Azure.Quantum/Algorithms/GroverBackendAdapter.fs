@@ -257,13 +257,22 @@ module BackendAdapter =
         |> Map.ofArray
     
     /// Extract top solutions from measurement counts
-    let extractTopSolutions (counts: Map<int, int>) (threshold: float) : int list =
+    /// 
+    /// Filters by both frequency threshold AND oracle validation.
+    /// Only returns states that:
+    /// 1. Appear frequently enough (>= threshold * totalShots)
+    /// 2. Are actual solutions according to the oracle
+    /// 
+    /// This prevents false positives from quantum noise.
+    let extractTopSolutions (counts: Map<int, int>) (threshold: float) (oracle: CompiledOracle) : int list =
         let totalShots = counts |> Map.toSeq |> Seq.sumBy snd
         let minCount = int (threshold * float totalShots)
         
         counts
         |> Map.toList
-        |> List.filter (fun (_, count) -> count >= minCount)
+        |> List.filter (fun (state, count) -> 
+            // Must meet frequency threshold AND be valid solution
+            count >= minCount && Oracle.isSolution oracle.Spec state)
         |> List.sortByDescending snd
         |> List.map fst
     
@@ -337,7 +346,7 @@ module BackendAdapter =
                     | Ok execResult ->
                         // Step 6: Convert ExecutionResult to SearchResult
                         let counts = measurementsToCounts execResult.Measurements
-                        let solutions = extractTopSolutions counts solutionThreshold
+                        let solutions = extractTopSolutions counts solutionThreshold oracle
                         let successProb = calculateSuccessProb solutions counts numShots
                         
                         return Ok {
