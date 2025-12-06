@@ -198,7 +198,7 @@ module Progress =
         NullProgressReporter() :> IProgressReporter
     
     /// Create a console reporter
-    let createConsoleReporter (?verbose: bool) (?cancellationToken: CancellationToken) : IProgressReporter =
+    let createConsoleReporter (verbose: bool option) (cancellationToken: CancellationToken option) : IProgressReporter =
         ConsoleProgressReporter(?verbose = verbose, ?cancellationToken = cancellationToken) :> IProgressReporter
     
     /// Create an event-based reporter

@@ -325,6 +325,9 @@ module HHLBackendAdapter =
                             // Multi-qubit gates
                             | MCZ (controls, target) -> 
                                 MCZ (List.map (fun c -> c + clockStart) controls, target + clockStart)
+                            
+                            // Measurement
+                            | Measure q -> Measure (q + clockStart)
                         )
                     
                     let circuitAfterInverseQFT =
@@ -388,6 +391,9 @@ module HHLBackendAdapter =
                                 // Multi-qubit gates
                                 | MCZ (controls, target) -> 
                                     MCZ (List.map (fun c -> c + clockStart) controls, target + clockStart)
+                                
+                                // Measurement
+                                | Measure q -> Measure (q + clockStart)
                             )
                         
                         let circuitAfterForwardQFT =

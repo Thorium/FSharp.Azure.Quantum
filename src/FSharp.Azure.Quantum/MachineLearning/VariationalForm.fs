@@ -31,23 +31,31 @@ module VariationalForms =
         if parameters.Length <> expectedParams then
             Error $"RealAmplitudes requires {expectedParams} parameters for {numQubits} qubits and depth {depth}, got {parameters.Length}"
         else
-            let mutable circuit = empty numQubits
-            let mutable paramIdx = 0
+            let (finalCircuit, _) =
+                [0 .. depth - 1]
+                |> List.fold (fun (circ, paramIdx) layer ->
+                    // Layer 1: Ry rotations on all qubits
+                    let (circWithRy, newParamIdx) =
+                        [0 .. numQubits - 1]
+                        |> List.fold (fun (c, pIdx) qubit ->
+                            let angle = parameters.[pIdx]
+                            (addGate (RY(qubit, angle)) c, pIdx + 1)
+                        ) (circ, paramIdx)
+                    
+                    // Layer 2: CZ entanglement (linear connectivity)
+                    let circWithCz =
+                        if layer < depth - 1 || depth = 1 then
+                            [0 .. numQubits - 2]
+                            |> List.fold (fun c qubit ->
+                                addGate (CZ(qubit, qubit + 1)) c
+                            ) circWithRy
+                        else
+                            circWithRy
+                    
+                    (circWithCz, newParamIdx)
+                ) (empty numQubits, 0)
             
-            for layer in 0 .. depth - 1 do
-                // Layer 1: Ry rotations on all qubits
-                for qubit in 0 .. numQubits - 1 do
-                    let angle = parameters.[paramIdx]
-                    circuit <- addGate (RY(qubit, angle)) circuit
-                    paramIdx <- paramIdx + 1
-                
-                // Layer 2: CZ entanglement (linear connectivity)
-                // Only add entanglement if not the last layer (optional)
-                if layer < depth - 1 || depth = 1 then
-                    for qubit in 0 .. numQubits - 2 do
-                        circuit <- addGate (CZ(qubit, qubit + 1)) circuit
-            
-            Ok circuit
+            Ok finalCircuit
     
     // ========================================================================
     // TWO-LOCAL ANSATZ
@@ -73,9 +81,6 @@ module VariationalForms =
         if parameters.Length <> expectedParams then
             Error $"TwoLocal requires {expectedParams} parameters for {numQubits} qubits and depth {depth}, got {parameters.Length}"
         else
-            let mutable circuit = empty numQubits
-            let mutable paramIdx = 0
-            
             // Parse rotation type
             let rotationGate = 
                 match rotation.ToUpper() with
@@ -91,19 +96,31 @@ module VariationalForms =
                 | "CZ" -> fun q1 q2 -> CZ(q1, q2)
                 | _ -> fun q1 q2 -> CZ(q1, q2)  // Default to CZ
             
-            for layer in 0 .. depth - 1 do
-                // Layer 1: Single-qubit rotations
-                for qubit in 0 .. numQubits - 1 do
-                    let angle = parameters.[paramIdx]
-                    circuit <- addGate (rotationGate qubit angle) circuit
-                    paramIdx <- paramIdx + 1
-                
-                // Layer 2: Two-qubit entanglement
-                if layer < depth - 1 || depth = 1 then
-                    for qubit in 0 .. numQubits - 2 do
-                        circuit <- addGate (entanglementGate qubit (qubit + 1)) circuit
+            let (finalCircuit, _) =
+                [0 .. depth - 1]
+                |> List.fold (fun (circ, paramIdx) layer ->
+                    // Layer 1: Single-qubit rotations
+                    let (circWithRot, newParamIdx) =
+                        [0 .. numQubits - 1]
+                        |> List.fold (fun (c, pIdx) qubit ->
+                            let angle = parameters.[pIdx]
+                            (addGate (rotationGate qubit angle) c, pIdx + 1)
+                        ) (circ, paramIdx)
+                    
+                    // Layer 2: Two-qubit entanglement
+                    let circWithEnt =
+                        if layer < depth - 1 || depth = 1 then
+                            [0 .. numQubits - 2]
+                            |> List.fold (fun c qubit ->
+                                addGate (entanglementGate qubit (qubit + 1)) c
+                            ) circWithRot
+                        else
+                            circWithRot
+                    
+                    (circWithEnt, newParamIdx)
+                ) (empty numQubits, 0)
             
-            Ok circuit
+            Ok finalCircuit
     
     // ========================================================================
     // EFFICIENT SU(2) ANSATZ

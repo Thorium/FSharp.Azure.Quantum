@@ -165,46 +165,58 @@ module Batching =
     // BATCH METRICS
     // ============================================================================
     
+    // Private type for metrics state
+    type private MetricsState = {
+        TotalCircuits: int
+        BatchCount: int
+        TotalExecutionTime: float
+        BatchSizes: int list
+    }
+    
     /// Metrics tracking for batch execution monitoring
     /// 
     /// Tracks batch sizes, execution times, and efficiency metrics for
     /// monitoring and debugging batch operations.
     type BatchMetrics() =
-        let mutable totalCircuits = 0
-        let mutable batchCount = 0
-        let mutable totalExecutionTime = 0.0
-        let mutable batchSizes : int list = []
+        let mutable state = {
+            TotalCircuits = 0
+            BatchCount = 0
+            TotalExecutionTime = 0.0
+            BatchSizes = []
+        }
         let lockObj = obj()
         
         /// Record a completed batch
         member _.RecordBatch(batchSize: int, executionTimeMs: float) =
             lock lockObj (fun () ->
-                totalCircuits <- totalCircuits + batchSize
-                batchCount <- batchCount + 1
-                totalExecutionTime <- totalExecutionTime + executionTimeMs
-                batchSizes <- batchSize :: batchSizes
+                state <- {
+                    TotalCircuits = state.TotalCircuits + batchSize
+                    BatchCount = state.BatchCount + 1
+                    TotalExecutionTime = state.TotalExecutionTime + executionTimeMs
+                    BatchSizes = batchSize :: state.BatchSizes
+                }
             )
         
         /// Total number of circuits processed
-        member _.TotalCircuits = totalCircuits
+        member _.TotalCircuits = state.TotalCircuits
         
         /// Total number of batches submitted
-        member _.BatchCount = batchCount
+        member _.BatchCount = state.BatchCount
         
         /// Total execution time across all batches (ms)
-        member _.TotalExecutionTimeMs = totalExecutionTime
+        member _.TotalExecutionTimeMs = state.TotalExecutionTime
         
         /// Average batch size
         member _.AverageBatchSize =
-            if batchCount = 0 then 0.0
-            else float totalCircuits / float batchCount
+            if state.BatchCount = 0 then 0.0
+            else float state.TotalCircuits / float state.BatchCount
         
         /// Calculate batch efficiency (0.0 - 1.0)
         /// 
         /// Efficiency is the ratio of actual batch size to maximum batch size,
         /// averaged across all batches.
         member this.GetEfficiency(maxBatchSize: int) =
-            if batchCount = 0 || maxBatchSize <= 0 then 0.0
+            if state.BatchCount = 0 || maxBatchSize <= 0 then 0.0
             else
                 let avgSize = this.AverageBatchSize
                 avgSize / float maxBatchSize

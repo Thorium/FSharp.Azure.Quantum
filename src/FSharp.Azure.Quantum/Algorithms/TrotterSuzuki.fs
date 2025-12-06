@@ -268,27 +268,31 @@ module TrotterSuzuki =
             | _ -> circuit
         else
             // Multi-qubit rotation - use CNOT ladder
-            let mutable circ = circuit
             
             // Step 1: Change of basis
-            for (idx, op) in nonIdentityIndices do
-                let qubit = qubits[idx]
-                circ <- 
+            let circ1 =
+                nonIdentityIndices
+                |> Array.fold (fun circ (idx, op) ->
+                    let qubit = qubits[idx]
                     match op with
                     | 'X' -> circ |> addGate (H qubit)
                     | 'Y' -> circ |> addGate (SDG qubit) |> addGate (H qubit)
                     | 'Z' -> circ  // No change needed
                     | _ -> circ
+                ) circuit
             
             // Step 2: CNOT ladder (entangle all qubits)
             let targetQubit = qubits[fst nonIdentityIndices[nonIdentityIndices.Length - 1]]
-            for i in 0 .. nonIdentityIndices.Length - 2 do
-                let controlQubit = qubits[fst nonIdentityIndices[i]]
-                circ <- circ |> addGate (CNOT(controlQubit, targetQubit))
+            let circ2 =
+                [| 0 .. nonIdentityIndices.Length - 2 |]
+                |> Array.fold (fun circ i ->
+                    let controlQubit = qubits[fst nonIdentityIndices[i]]
+                    circ |> addGate (CNOT(controlQubit, targetQubit))
+                ) circ1
             
             // Step 3: RZ rotation on target qubit
             let angle = 2.0 * pauliString.Coefficient.Real * time
-            circ <- circ |> addGate (RZ(targetQubit, angle))
+            let circ3 = circ2 |> addGate (RZ(targetQubit, angle))
             
             // Step 4: Inverse CNOT ladder
             let circ4 =
@@ -296,7 +300,7 @@ module TrotterSuzuki =
                 |> List.fold (fun c i ->
                     let controlQubit = qubits[fst nonIdentityIndices[i]]
                     c |> addGate (CNOT(controlQubit, targetQubit))
-                ) circ
+                ) circ3
             
             // Step 5: Inverse change of basis
             [ nonIdentityIndices.Length - 1 .. -1 .. 0 ]

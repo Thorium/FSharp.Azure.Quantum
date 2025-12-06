@@ -980,34 +980,27 @@ module CostEstimation =
                             try
                                 // Parse CSV line (handle quoted fields with commas)
                                 let fields = 
-                                    let mutable inQuotes = false
-                                    let mutable currentField = System.Text.StringBuilder()
-                                    let mutable fields = []
-                                    let mutable i = 0
+                                    let rec parseFields pos inQuotes currentField fields =
+                                        if pos >= line.Length then
+                                            // Add final field
+                                            List.rev (currentField :: fields)
+                                        else
+                                            let c = line.[pos]
+                                            match c with
+                                            | '"' -> 
+                                                if inQuotes && pos + 1 < line.Length && line.[pos + 1] = '"' then
+                                                    // Escaped quote - add single quote and skip next char
+                                                    parseFields (pos + 2) inQuotes (currentField + "\"") fields
+                                                else
+                                                    // Toggle quote mode
+                                                    parseFields (pos + 1) (not inQuotes) currentField fields
+                                            | ',' when not inQuotes ->
+                                                // Field delimiter
+                                                parseFields (pos + 1) inQuotes "" (currentField :: fields)
+                                            | _ ->
+                                                parseFields (pos + 1) inQuotes (currentField + string c) fields
                                     
-                                    while i < line.Length do
-                                        let c = line.[i]
-                                        match c with
-                                        | '"' -> 
-                                            if inQuotes && i + 1 < line.Length && line.[i + 1] = '"' then
-                                                // Escaped quote - add single quote and skip next char
-                                                currentField.Append('"') |> ignore
-                                                i <- i + 1  // Skip the second quote
-                                            else
-                                                // Toggle quote mode
-                                                inQuotes <- not inQuotes
-                                        | ',' when not inQuotes ->
-                                            // Field delimiter
-                                            fields <- currentField.ToString() :: fields
-                                            currentField.Clear() |> ignore
-                                        | _ ->
-                                            currentField.Append(c) |> ignore
-                                        
-                                        i <- i + 1
-                                    
-                                    // Add final field
-                                    fields <- currentField.ToString() :: fields
-                                    List.rev fields
+                                    parseFields 0 false "" []
                                 
                                 if fields.Length <> 10 then
                                     None

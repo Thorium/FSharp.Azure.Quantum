@@ -33,31 +33,26 @@ module Gates =
         let dimension = StateVector.dimension state
         let (a, b, c, d) = matrix
         
-        // Create new amplitude array
-        let newAmplitudes = Array.zeroCreate dimension
-        
-        // Iterate over all basis states
-        for i in 0 .. dimension - 1 do
-            // Check if qubit at position qubitIndex is 0 or 1
-            let bitMask = 1 <<< qubitIndex
-            let qubitIs1 = (i &&& bitMask) <> 0
-            
-            if qubitIs1 then
-                // This basis state has qubit=1, compute index with qubit=0
-                let i0 = i ^^^ bitMask  // Flip the qubit bit to get |...0...⟩ index
-                let amp0 = StateVector.getAmplitude i0 state
-                let amp1 = StateVector.getAmplitude i state
+        // Create new amplitude array functionally
+        let newAmplitudes =
+            Array.init dimension (fun i ->
+                let bitMask = 1 <<< qubitIndex
+                let qubitIs1 = (i &&& bitMask) <> 0
                 
-                // Apply matrix: new_amp1 = c*amp0 + d*amp1
-                newAmplitudes[i] <- c * amp0 + d * amp1
-            else
-                // This basis state has qubit=0, compute index with qubit=1
-                let i1 = i ||| bitMask  // Set the qubit bit to get |...1...⟩ index
-                let amp0 = StateVector.getAmplitude i state
-                let amp1 = StateVector.getAmplitude i1 state
-                
-                // Apply matrix: new_amp0 = a*amp0 + b*amp1
-                newAmplitudes[i] <- a * amp0 + b * amp1
+                if qubitIs1 then
+                    // This basis state has qubit=1, compute index with qubit=0
+                    let i0 = i ^^^ bitMask  // Flip the qubit bit to get |...0...⟩ index
+                    let amp0 = StateVector.getAmplitude i0 state
+                    let amp1 = StateVector.getAmplitude i state
+                    // Apply matrix: new_amp1 = c*amp0 + d*amp1
+                    c * amp0 + d * amp1
+                else
+                    // This basis state has qubit=0, compute index with qubit=1
+                    let i1 = i ||| bitMask  // Set the qubit bit to get |...1...⟩ index
+                    let amp0 = StateVector.getAmplitude i state
+                    let amp1 = StateVector.getAmplitude i1 state
+                    // Apply matrix: new_amp0 = a*amp0 + b*amp1
+                    a * amp0 + b * amp1)
         
         StateVector.create newAmplitudes
     
@@ -275,28 +270,18 @@ module Gates =
         let controlMask = 1 <<< controlIndex
         let targetMask = 1 <<< targetIndex
         
-        // Create new amplitude array
-        let newAmplitudes = Array.zeroCreate dimension
-        
-        // Process each basis state
-        for i in 0 .. dimension - 1 do
-            let controlIs1 = (i &&& controlMask) <> 0
-            
-            if controlIs1 then
-                // Control is 1: swap amplitudes between |...0...⟩ and |...1...⟩ at target position
-                let targetIs1 = (i &&& targetMask) <> 0
+        // Create new amplitude array functionally
+        let newAmplitudes =
+            Array.init dimension (fun i ->
+                let controlIs1 = (i &&& controlMask) <> 0
                 
-                if targetIs1 then
-                    // This is |...1...⟩ at target, get amplitude from |...0...⟩
+                if controlIs1 then
+                    // Control is 1: swap amplitudes between |...0...⟩ and |...1...⟩ at target position
                     let flippedIndex = i ^^^ targetMask
-                    newAmplitudes[i] <- StateVector.getAmplitude flippedIndex state
+                    StateVector.getAmplitude flippedIndex state
                 else
-                    // This is |...0...⟩ at target, get amplitude from |...1...⟩
-                    let flippedIndex = i ^^^ targetMask
-                    newAmplitudes[i] <- StateVector.getAmplitude flippedIndex state
-            else
-                // Control is 0: no operation, keep amplitude as is
-                newAmplitudes[i] <- StateVector.getAmplitude i state
+                    // Control is 0: no operation, keep amplitude as is
+                    StateVector.getAmplitude i state)
         
         StateVector.create newAmplitudes
     
@@ -326,19 +311,17 @@ module Gates =
         let targetMask = 1 <<< targetIndex
         
         // Create new amplitude array
-        let newAmplitudes = Array.zeroCreate dimension
-        
-        // Process each basis state
-        for i in 0 .. dimension - 1 do
-            let controlIs1 = (i &&& controlMask) <> 0
-            let targetIs1 = (i &&& targetMask) <> 0
-            
-            if controlIs1 && targetIs1 then
-                // Both qubits are 1: add phase -1
-                newAmplitudes[i] <- -StateVector.getAmplitude i state
-            else
-                // Otherwise: no change
-                newAmplitudes[i] <- StateVector.getAmplitude i state
+        let newAmplitudes =
+            Array.init dimension (fun i ->
+                let controlIs1 = (i &&& controlMask) <> 0
+                let targetIs1 = (i &&& targetMask) <> 0
+                
+                if controlIs1 && targetIs1 then
+                    // Both qubits are 1: add phase -1
+                    -StateVector.getAmplitude i state
+                else
+                    // Otherwise: no change
+                    StateVector.getAmplitude i state)
         
         StateVector.create newAmplitudes
     

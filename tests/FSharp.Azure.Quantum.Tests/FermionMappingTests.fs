@@ -217,7 +217,7 @@ module FermionMappingTests =
         
         [<Fact>]
         let ``transformTerm empty operators returns identity`` () =
-            let term = {
+            let term : FermionTerm = {
                 Coefficient = Complex(2.5, 0.0)
                 Operators = []
             }
@@ -230,7 +230,7 @@ module FermionMappingTests =
         
         [<Fact>]
         let ``transformTerm single operator returns 2 pauli strings`` () =
-            let term = {
+            let term : FermionTerm = {
                 Coefficient = Complex.One
                 Operators = [{
                     OrbitalIndex = 0
@@ -245,7 +245,7 @@ module FermionMappingTests =
         
         [<Fact>]
         let ``transformTerm two operators returns 4 pauli strings`` () =
-            let term = {
+            let term : FermionTerm = {
                 Coefficient = Complex.One
                 Operators = [
                     { OrbitalIndex = 0; OperatorType = Creation }
@@ -261,7 +261,7 @@ module FermionMappingTests =
         [<Fact>]
         let ``transformTerm preserves coefficient`` () =
             let coeff = Complex(2.5, 1.3)
-            let term = {
+            let term : FermionTerm = {
                 Coefficient = coeff
                 Operators = [{
                     OrbitalIndex = 0
@@ -401,7 +401,7 @@ module FermionMappingTests =
         
         [<Fact>]
         let ``transformTerm produces pauli strings`` () =
-            let term = {
+            let term : FermionTerm = {
                 Coefficient = Complex.One
                 Operators = [{
                     OrbitalIndex = 1
@@ -545,7 +545,7 @@ module FermionMappingTests =
         
         [<Fact>]
         let ``toQaoaHamiltonian converts QubitHamiltonian correctly`` () =
-            let hamiltonian = {
+            let hamiltonian : QubitHamiltonian = {
                 NumQubits = 2
                 Terms = [
                     {
@@ -563,7 +563,7 @@ module FermionMappingTests =
         
         [<Fact>]
         let ``toQaoaHamiltonian extracts real part of coefficients`` () =
-            let hamiltonian = {
+            let hamiltonian : QubitHamiltonian = {
                 NumQubits = 1
                 Terms = [
                     {

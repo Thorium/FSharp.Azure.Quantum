@@ -123,28 +123,27 @@ module AdamOptimizer =
                 let biasCorrection2 = 1.0 - beta2PowerT
 
                 // Update moment vectors and compute new parameters
-                let newM = Array.zeroCreate parameters.Length
-                let newV = Array.zeroCreate parameters.Length
-                let newParams = Array.zeroCreate parameters.Length
-
-                for i = 0 to parameters.Length - 1 do
-                    let g = gradients.[i]
-
-                    // Update biased first moment estimate (momentum)
-                    newM.[i] <- config.Beta1 * state.M.[i] + (1.0 - config.Beta1) * g
-
-                    // Update biased second moment estimate (RMSprop)
-                    newV.[i] <- config.Beta2 * state.V.[i] + (1.0 - config.Beta2) * (g * g)
-
-                    // Compute bias-corrected first moment estimate
-                    let mHat = newM.[i] / biasCorrection1
-
-                    // Compute bias-corrected second moment estimate
-                    let vHat = newV.[i] / biasCorrection2
-
-                    // Update parameter with adaptive learning rate
-                    newParams.[i] <- parameters.[i] - config.LearningRate * mHat / (sqrt vHat + config.Epsilon)
-
+                let updates =
+                    Array.zip3 parameters gradients (Array.zip state.M state.V)
+                    |> Array.map (fun (param, g, (m, v)) ->
+                        // Update biased first moment estimate (momentum)
+                        let newM = config.Beta1 * m + (1.0 - config.Beta1) * g
+                        
+                        // Update biased second moment estimate (RMSprop)
+                        let newV = config.Beta2 * v + (1.0 - config.Beta2) * (g * g)
+                        
+                        // Compute bias-corrected estimates
+                        let mHat = newM / biasCorrection1
+                        let vHat = newV / biasCorrection2
+                        
+                        // Update parameter with adaptive learning rate
+                        let newParam = param - config.LearningRate * mHat / (sqrt vHat + config.Epsilon)
+                        
+                        (newParam, newM, newV))
+                
+                let newParams = updates |> Array.map (fun (p, _, _) -> p)
+                let newM = updates |> Array.map (fun (_, m, _) -> m)
+                let newV = updates |> Array.map (fun (_, _, v) -> v)
                 let newState = { M = newM; V = newV; T = t }
                 Ok (newParams, newState)
 

@@ -448,16 +448,18 @@ module QuantumKnapsackSolver =
                     // Can't include this item - carry forward previous best
                     dp.[i, capacity] <- dp.[i - 1, capacity]
         
-        // Backtrack to find selected items
-        let mutable selectedItems = []
-        let mutable remainingCapacity = intCapacity
-        
-        for i in n .. -1 .. 1 do
-            if dp.[i, remainingCapacity] <> dp.[i - 1, remainingCapacity] then
+        // Backtrack to find selected items using recursion
+        let rec backtrack i capacity acc =
+            if i = 0 || capacity = 0 then
+                acc
+            elif dp.[i, capacity] <> dp.[i - 1, capacity] then
                 // Item i-1 was included
                 let item = problem.Items.[i - 1]
-                selectedItems <- item :: selectedItems
-                remainingCapacity <- remainingCapacity - intWeights.[i - 1]
+                backtrack (i - 1) (capacity - intWeights.[i - 1]) (item :: acc)
+            else
+                backtrack (i - 1) capacity acc
+        
+        let selectedItems = backtrack n intCapacity []
         
         let totalWeight = selectedItems |> List.sumBy (fun item -> item.Weight)
         let totalValue = selectedItems |> List.sumBy (fun item -> item.Value)

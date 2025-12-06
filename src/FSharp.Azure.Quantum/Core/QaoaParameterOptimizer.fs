@@ -171,11 +171,7 @@ module QaoaParameterOptimizer =
         (backend: IQuantumBackend)
         (numShots: int) : (float[] -> float) =
         
-        let mutable evaluationCount = 0
-        
         fun (parameters: float[]) ->
-            evaluationCount <- evaluationCount + 1
-            
             // Convert flat array to (γ, β) pairs
             let p = parameters.Length / 2
             let paramPairs = 
@@ -189,7 +185,7 @@ module QaoaParameterOptimizer =
             let circuit = QaoaCircuit.build problemHam mixerHam paramPairs
             let circuitWrapper = QaoaCircuitWrapper(circuit) :> ICircuit
             
-            // Execute on backend
+            // Execute on backend (pass None for cancellation token)
             match backend.Execute circuitWrapper numShots with
             | Error e -> 
                 // On error, return large penalty
@@ -256,16 +252,17 @@ module QaoaParameterOptimizer =
             )
         
         // Track history
-        let history = ResizeArray<float[] * float>()
+        // Use ref cell for history tracking (more explicit than ResizeArray)
+        let historyRef = ref []
         let trackedObjective (parameters: float[]) =
             let value = objectiveFunc parameters
-            history.Add((Array.copy parameters, value))
+            historyRef := (Array.copy parameters, value) :: !historyRef
             value
         
         // Run optimization
         let result = Optimizer.minimizeWithBounds trackedObjective flatParams lowerBounds upperBounds
         
-        (result, history |> Seq.toList)
+        (result, List.rev !historyRef)
     
     /// Multi-start optimization
     let private optimizeMultiStart

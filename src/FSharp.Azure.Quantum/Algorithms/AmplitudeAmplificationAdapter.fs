@@ -222,7 +222,10 @@ module AmplitudeAmplificationAdapter =
                 
                 // Multi-qubit gates - self-inverse
                 | CCX (c1, c2, t) -> CCX (c1, c2, t)
-                | MCZ (controls, target) -> MCZ (controls, target))  // MCZ is self-inverse (Z† = Z)
+                | MCZ (controls, target) -> MCZ (controls, target)  // MCZ is self-inverse (Z† = Z)
+                
+                // Measurement - preserve as-is (though shouldn't typically appear in state prep)
+                | Measure q -> Measure q)
         
         // Add inverted gates to circuit
         let circuitWithInverse =

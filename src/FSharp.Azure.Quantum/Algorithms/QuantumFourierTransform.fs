@@ -171,24 +171,25 @@ module QuantumFourierTransform =
         (state: StateVector.StateVector) : StateVector.StateVector * int =
         
         // Step 1: Apply Hadamard to target qubit
-        let mutable currentState = Gates.applyH targetQubit state
-        let mutable gateCount = 1
+        let stateAfterH = Gates.applyH targetQubit state
         
-        // Step 2: Apply controlled phase rotations
-        // For each qubit k > targetQubit, apply controlled phase rotation
-        for k in (targetQubit + 1) .. (numQubits - 1) do
-            // Phase angle: 2π / 2^(k - targetQubit + 1)
-            let power = k - targetQubit + 1
-            let angle = 2.0 * Math.PI / (float (1 <<< power))
-            
-            // For inverse QFT, negate the angle
-            let finalAngle = if inverse then -angle else angle
-            
-            // Apply controlled phase: control=k, target=targetQubit
-            currentState <- applyControlledPhase k targetQubit finalAngle currentState
-            gateCount <- gateCount + 1
+        // Step 2: Apply controlled phase rotations using fold
+        let (finalState, totalGates) =
+            [targetQubit + 1 .. numQubits - 1]
+            |> List.fold (fun (currState, gateCount) k ->
+                // Phase angle: 2π / 2^(k - targetQubit + 1)
+                let power = k - targetQubit + 1
+                let angle = 2.0 * Math.PI / (float (1 <<< power))
+                
+                // For inverse QFT, negate the angle
+                let finalAngle = if inverse then -angle else angle
+                
+                // Apply controlled phase: control=k, target=targetQubit
+                let newState = applyControlledPhase k targetQubit finalAngle currState
+                (newState, gateCount + 1)
+            ) (stateAfterH, 1)
         
-        (currentState, gateCount)
+        (finalState, totalGates)
     
     /// Apply bit-reversal SWAP gates
     /// 
@@ -198,16 +199,20 @@ module QuantumFourierTransform =
         (numQubits: int)
         (state: StateVector.StateVector) : StateVector.StateVector * int =
         
-        let mutable currentState = state
-        let mutable gateCount = 0
+        // Generate SWAP pairs functionally
+        let swapPairs = 
+            [0 .. (numQubits / 2 - 1)]
+            |> List.map (fun i -> (i, numQubits - 1 - i))
         
-        // SWAP qubit i with qubit (n-1-i)
-        for i in 0 .. (numQubits / 2 - 1) do
-            let j = numQubits - 1 - i
-            currentState <- Gates.applySWAP i j currentState
-            gateCount <- gateCount + 1
+        // Apply swaps using fold
+        let (finalState, gateCount) =
+            swapPairs
+            |> List.fold (fun (currState, count) (i, j) ->
+                let newState = Gates.applySWAP i j currState
+                (newState, count + 1)
+            ) (state, 0)
         
-        (currentState, gateCount)
+        (finalState, gateCount)
     
     /// Execute Quantum Fourier Transform
     /// 
@@ -228,23 +233,24 @@ module QuantumFourierTransform =
             elif StateVector.numQubits state <> config.NumQubits then
                 Error $"State has {StateVector.numQubits state} qubits, expected {config.NumQubits}"
             else
-                // Apply QFT to each qubit
-                let mutable currentState = state
-                let mutable totalGates = 0
-                
-                for j in 0 .. (config.NumQubits - 1) do
-                    let (newState, gates) = applyQFTStep j config.NumQubits config.Inverse currentState
-                    currentState <- newState
-                    totalGates <- totalGates + gates
+                // Apply QFT to each qubit using functional fold
+                let (stateAfterQFT, gatesAfterQFT) =
+                    [0 .. (config.NumQubits - 1)]
+                    |> List.fold (fun (currState, gateCount) j ->
+                        let (newState, gates) = applyQFTStep j config.NumQubits config.Inverse currState
+                        (newState, gateCount + gates)
+                    ) (state, 0)
                 
                 // Apply bit-reversal SWAPs if requested
-                if config.ApplySwaps then
-                    let (newState, swapGates) = applyBitReversalSwaps config.NumQubits currentState
-                    currentState <- newState
-                    totalGates <- totalGates + swapGates
+                let (finalState, totalGates) =
+                    if config.ApplySwaps then
+                        let (newState, swapGates) = applyBitReversalSwaps config.NumQubits stateAfterQFT
+                        (newState, gatesAfterQFT + swapGates)
+                    else
+                        (stateAfterQFT, gatesAfterQFT)
                 
                 Ok {
-                    FinalState = currentState
+                    FinalState = finalState
                     GateCount = totalGates
                     Config = config
                 }

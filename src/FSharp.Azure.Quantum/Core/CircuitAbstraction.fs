@@ -148,6 +148,10 @@ module CircuitAbstraction =
                 // MCZ gates are primarily used in Grover's algorithm via LocalBackend
                 // For QAOA contexts, this gate should not appear
                 failwith "MCZ (multi-controlled Z) gate cannot be converted to QAOA gates. Use LocalBackend for Grover's algorithm."
+            | CircuitBuilder.Measure _ ->
+                // Measurements are handled separately by the backend
+                // Don't include in gate sequence
+                []
         
         // ========================================================================
         // CONVERSION: CircuitBuilder.Circuit → QaoaCircuit

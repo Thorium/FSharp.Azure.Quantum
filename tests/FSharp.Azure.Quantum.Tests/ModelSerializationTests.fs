@@ -37,7 +37,7 @@ module ModelSerializationTests =
         try
             let parameters = [| 0.1; 0.2; 0.3 |]
             let result = 
-                ModelSerialization.saveVQCModel
+                ModelSerialization.saveVQCModelAsync
                     testFile
                     parameters
                     0.5
@@ -47,6 +47,7 @@ module ModelSerializationTests =
                     "RealAmplitudes"
                     1
                     (Some "Test model")
+                |> Async.RunSynchronously
             
             match result with
             | Ok () ->
@@ -58,31 +59,34 @@ module ModelSerializationTests =
     
     [<Fact>]
     let ``Load VQC model retrieves saved data`` () =
-        let testFile = "test_vqc_load.json"
-        cleanupTestFile testFile
-        
-        try
-            let parameters = [| 0.5; 0.6; 0.7; 0.8 |]
-            let finalLoss = 0.42
-            
-            // Save model
-            match ModelSerialization.saveVQCModel testFile parameters finalLoss 2 "ZZFeatureMap" 2 "RealAmplitudes" 1 None with
-            | Error e -> Assert.Fail($"Save failed: {e}")
-            | Ok () ->
-                
-                // Load model
-                match ModelSerialization.loadVQCModel testFile with
-                | Error e -> Assert.Fail($"Load failed: {e}")
-                | Ok model ->
-                    Assert.Equal<float seq>(parameters, model.Parameters)
-                    Assert.Equal(finalLoss, model.FinalLoss)
-                    Assert.Equal(2, model.NumQubits)
-                    Assert.Equal("ZZFeatureMap", model.FeatureMapType)
-                    Assert.Equal(2, model.FeatureMapDepth)
-                    Assert.Equal("RealAmplitudes", model.VariationalFormType)
-                    Assert.Equal(1, model.VariationalFormDepth)
-        finally
+        async {
+            let testFile = "test_vqc_load.json"
             cleanupTestFile testFile
+            
+            try
+                let parameters = [| 0.5; 0.6; 0.7; 0.8 |]
+                let finalLoss = 0.42
+                
+                // Save model
+                let! saveResult = ModelSerialization.saveVQCModelAsync testFile parameters finalLoss 2 "ZZFeatureMap" 2 "RealAmplitudes" 1 None
+                match saveResult with
+                | Error e -> Assert.Fail($"Save failed: {e}")
+                | Ok () ->
+                    
+                    // Load model
+                    match ModelSerialization.loadVQCModel testFile with
+                    | Error e -> Assert.Fail($"Load failed: {e}")
+                    | Ok model ->
+                        Assert.Equal<float seq>(parameters, model.Parameters)
+                        Assert.Equal(finalLoss, model.FinalLoss)
+                        Assert.Equal(2, model.NumQubits)
+                        Assert.Equal("ZZFeatureMap", model.FeatureMapType)
+                        Assert.Equal(2, model.FeatureMapDepth)
+                        Assert.Equal("RealAmplitudes", model.VariationalFormType)
+                        Assert.Equal(1, model.VariationalFormDepth)
+            finally
+                cleanupTestFile testFile
+        } |> Async.StartAsTask
     
     [<Fact>]
     let ``Load nonexistent file returns error`` () =
@@ -146,22 +150,25 @@ module ModelSerializationTests =
     
     [<Fact>]
     let ``Load VQC parameters returns only parameter array`` () =
-        let testFile = "test_params_only.json"
-        cleanupTestFile testFile
-        
-        try
-            let parameters = [| 1.0; 2.0; 3.0; 4.0; 5.0 |]
-            
-            match ModelSerialization.saveVQCModel testFile parameters 0.1 3 "ZZFeatureMap" 1 "RealAmplitudes" 1 None with
-            | Error e -> Assert.Fail($"Save failed: {e}")
-            | Ok () ->
-                
-                match ModelSerialization.loadVQCParameters testFile with
-                | Error e -> Assert.Fail($"Load failed: {e}")
-                | Ok loadedParams ->
-                    Assert.Equal<float seq>(parameters, loadedParams)
-        finally
+        async {
+            let testFile = "test_params_only.json"
             cleanupTestFile testFile
+            
+            try
+                let parameters = [| 1.0; 2.0; 3.0; 4.0; 5.0 |]
+                
+                let! saveResult = ModelSerialization.saveVQCModelAsync testFile parameters 0.1 3 "ZZFeatureMap" 1 "RealAmplitudes" 1 None
+                match saveResult with
+                | Error e -> Assert.Fail($"Save failed: {e}")
+                | Ok () ->
+                    
+                    match ModelSerialization.loadVQCParameters testFile with
+                    | Error e -> Assert.Fail($"Load failed: {e}")
+                    | Ok loadedParams ->
+                        Assert.Equal<float seq>(parameters, loadedParams)
+            finally
+                cleanupTestFile testFile
+        } |> Async.StartAsTask
     
     // ========================================================================
     // MODEL INFO TESTS
@@ -169,46 +176,52 @@ module ModelSerializationTests =
     
     [<Fact>]
     let ``Get VQC model info returns metadata`` () =
-        let testFile = "test_info.json"
-        cleanupTestFile testFile
-        
-        try
-            let parameters = [| 0.1; 0.2; 0.3; 0.4 |]
-            let numQubits = 2
-            let finalLoss = 0.25
-            
-            match ModelSerialization.saveVQCModel testFile parameters finalLoss numQubits "ZZFeatureMap" 2 "RealAmplitudes" 1 None with
-            | Error e -> Assert.Fail($"Save failed: {e}")
-            | Ok () ->
-                
-                match ModelSerialization.getVQCModelInfo testFile with
-                | Error e -> Assert.Fail($"Get info failed: {e}")
-                | Ok (qubits, numParams, loss, savedAt) ->
-                    Assert.Equal(numQubits, qubits)
-                    Assert.Equal(4, numParams)
-                    Assert.Equal(finalLoss, loss)
-                    Assert.NotEmpty(savedAt)
-        finally
+        async {
+            let testFile = "test_info.json"
             cleanupTestFile testFile
+            
+            try
+                let parameters = [| 0.1; 0.2; 0.3; 0.4 |]
+                let numQubits = 2
+                let finalLoss = 0.25
+                
+                let! saveResult = ModelSerialization.saveVQCModelAsync testFile parameters finalLoss numQubits "ZZFeatureMap" 2 "RealAmplitudes" 1 None
+                match saveResult with
+                | Error e -> Assert.Fail($"Save failed: {e}")
+                | Ok () ->
+                    
+                    match ModelSerialization.getVQCModelInfo testFile with
+                    | Error e -> Assert.Fail($"Get info failed: {e}")
+                    | Ok (qubits, numParams, loss, savedAt) ->
+                        Assert.Equal(numQubits, qubits)
+                        Assert.Equal(4, numParams)
+                        Assert.Equal(finalLoss, loss)
+                        Assert.NotEmpty(savedAt)
+            finally
+                cleanupTestFile testFile
+        } |> Async.StartAsTask
     
     [<Fact>]
     let ``Print VQC model info displays metadata`` () =
-        let testFile = "test_print_info.json"
-        cleanupTestFile testFile
-        
-        try
-            let parameters = [| 0.1; 0.2 |]
-            
-            match ModelSerialization.saveVQCModel testFile parameters 0.5 1 "ZFeatureMap" 1 "RY" 2 (Some "Test note") with
-            | Error e -> Assert.Fail($"Save failed: {e}")
-            | Ok () ->
-                
-                match ModelSerialization.printVQCModelInfo testFile with
-                | Error e -> Assert.Fail($"Print info failed: {e}")
-                | Ok () ->
-                    Assert.True(true, "Print should succeed")
-        finally
+        async {
+            let testFile = "test_print_info.json"
             cleanupTestFile testFile
+            
+            try
+                let parameters = [| 0.1; 0.2 |]
+                
+                let! saveResult = ModelSerialization.saveVQCModelAsync testFile parameters 0.5 1 "ZFeatureMap" 1 "RY" 2 (Some "Test note")
+                match saveResult with
+                | Error e -> Assert.Fail($"Save failed: {e}")
+                | Ok () ->
+                    
+                    match ModelSerialization.printVQCModelInfo testFile with
+                    | Error e -> Assert.Fail($"Print info failed: {e}")
+                    | Ok () ->
+                        Assert.True(true, "Print should succeed")
+            finally
+                cleanupTestFile testFile
+        } |> Async.StartAsTask
     
     // ========================================================================
     // BATCH OPERATIONS TESTS
@@ -297,64 +310,73 @@ module ModelSerializationTests =
     
     [<Fact>]
     let ``Saved model includes timestamp`` () =
-        let testFile = "test_timestamp.json"
-        cleanupTestFile testFile
-        
-        try
-            let parameters = [| 0.1 |]
-            
-            match ModelSerialization.saveVQCModel testFile parameters 0.5 1 "ZFeatureMap" 1 "RY" 1 None with
-            | Error e -> Assert.Fail($"Save failed: {e}")
-            | Ok () ->
-                
-                match ModelSerialization.loadVQCModel testFile with
-                | Error e -> Assert.Fail($"Load failed: {e}")
-                | Ok model ->
-                    Assert.NotEmpty(model.SavedAt)
-                    // Verify timestamp format (ISO 8601)
-                    Assert.Contains("T", model.SavedAt)
-        finally
+        async {
+            let testFile = "test_timestamp.json"
             cleanupTestFile testFile
+            
+            try
+                let parameters = [| 0.1 |]
+                
+                let! saveResult = ModelSerialization.saveVQCModelAsync testFile parameters 0.5 1 "ZFeatureMap" 1 "RY" 1 None
+                match saveResult with
+                | Error e -> Assert.Fail($"Save failed: {e}")
+                | Ok () ->
+                    
+                    match ModelSerialization.loadVQCModel testFile with
+                    | Error e -> Assert.Fail($"Load failed: {e}")
+                    | Ok model ->
+                        Assert.NotEmpty(model.SavedAt)
+                        // Verify timestamp format (ISO 8601)
+                        Assert.Contains("T", model.SavedAt)
+            finally
+                cleanupTestFile testFile
+        } |> Async.StartAsTask
     
     [<Fact>]
     let ``Saved model preserves optional note`` () =
-        let testFile = "test_note.json"
-        cleanupTestFile testFile
-        
-        try
-            let parameters = [| 0.1; 0.2 |]
-            let note = "This is a test model for XOR classification"
-            
-            match ModelSerialization.saveVQCModel testFile parameters 0.3 2 "ZZFeatureMap" 2 "RealAmplitudes" 1 (Some note) with
-            | Error e -> Assert.Fail($"Save failed: {e}")
-            | Ok () ->
-                
-                match ModelSerialization.loadVQCModel testFile with
-                | Error e -> Assert.Fail($"Load failed: {e}")
-                | Ok model ->
-                    Assert.True(model.Note.IsSome)
-                    Assert.Equal(note, model.Note.Value)
-        finally
+        async {
+            let testFile = "test_note.json"
             cleanupTestFile testFile
+            
+            try
+                let parameters = [| 0.1; 0.2 |]
+                let note = "This is a test model for XOR classification"
+                
+                let! saveResult = ModelSerialization.saveVQCModelAsync testFile parameters 0.3 2 "ZZFeatureMap" 2 "RealAmplitudes" 1 (Some note)
+                match saveResult with
+                | Error e -> Assert.Fail($"Save failed: {e}")
+                | Ok () ->
+                    
+                    match ModelSerialization.loadVQCModel testFile with
+                    | Error e -> Assert.Fail($"Load failed: {e}")
+                    | Ok model ->
+                        Assert.True(model.Note.IsSome)
+                        Assert.Equal(note, model.Note.Value)
+            finally
+                cleanupTestFile testFile
+        } |> Async.StartAsTask
     
     [<Fact>]
     let ``Saved model handles None note`` () =
-        let testFile = "test_no_note.json"
-        cleanupTestFile testFile
-        
-        try
-            let parameters = [| 0.1 |]
-            
-            match ModelSerialization.saveVQCModel testFile parameters 0.5 1 "ZFeatureMap" 1 "RY" 1 None with
-            | Error e -> Assert.Fail($"Save failed: {e}")
-            | Ok () ->
-                
-                match ModelSerialization.loadVQCModel testFile with
-                | Error e -> Assert.Fail($"Load failed: {e}")
-                | Ok model ->
-                    Assert.True(model.Note.IsNone)
-        finally
+        async {
+            let testFile = "test_no_note.json"
             cleanupTestFile testFile
+            
+            try
+                let parameters = [| 0.1 |]
+                
+                let! saveResult = ModelSerialization.saveVQCModelAsync testFile parameters 0.5 1 "ZFeatureMap" 1 "RY" 1 None
+                match saveResult with
+                | Error e -> Assert.Fail($"Save failed: {e}")
+                | Ok () ->
+                    
+                    match ModelSerialization.loadVQCModel testFile with
+                    | Error e -> Assert.Fail($"Load failed: {e}")
+                    | Ok model ->
+                        Assert.True(model.Note.IsNone)
+            finally
+                cleanupTestFile testFile
+        } |> Async.StartAsTask
     
     // ========================================================================
     // ROUNDTRIP TESTS
@@ -362,47 +384,49 @@ module ModelSerializationTests =
     
     [<Fact>]
     let ``Complete save-load roundtrip preserves all data`` () =
-        let testFile = "test_roundtrip.json"
-        cleanupTestFile testFile
-        
-        try
-            let originalParams = [| 0.123; 0.456; 0.789; 1.234; 5.678 |]
-            let originalLoss = 0.0987
-            let originalQubits = 3
-            let originalFMType = "ZZFeatureMap"
-            let originalFMDepth = 3
-            let originalVFType = "EfficientSU2"
-            let originalVFDepth = 2
-            let originalNote = Some "Complete roundtrip test"
-            
-            // Save
-            match ModelSerialization.saveVQCModel 
-                    testFile 
-                    originalParams 
-                    originalLoss 
-                    originalQubits 
-                    originalFMType 
-                    originalFMDepth 
-                    originalVFType 
-                    originalVFDepth 
-                    originalNote with
-            | Error e -> Assert.Fail($"Save failed: {e}")
-            | Ok () ->
-                
-                // Load
-                match ModelSerialization.loadVQCModel testFile with
-                | Error e -> Assert.Fail($"Load failed: {e}")
-                | Ok model ->
-                    Assert.Equal<float seq>(originalParams, model.Parameters)
-                    Assert.Equal(originalLoss, model.FinalLoss)
-                    Assert.Equal(originalQubits, model.NumQubits)
-                    Assert.Equal(originalFMType, model.FeatureMapType)
-                    Assert.Equal(originalFMDepth, model.FeatureMapDepth)
-                    Assert.Equal(originalVFType, model.VariationalFormType)
-                    Assert.Equal(originalVFDepth, model.VariationalFormDepth)
-                    Assert.Equal(originalNote, model.Note)
-        finally
+        async {
+            let testFile = "test_roundtrip.json"
             cleanupTestFile testFile
+        
+            try
+                let originalParams = [| 0.123; 0.456; 0.789; 1.234; 5.678 |]
+                let originalLoss = 0.0987
+                let originalQubits = 3
+                let originalFMType = "ZZFeatureMap"
+                let originalFMDepth = 3
+                let originalVFType = "EfficientSU2"
+                let originalVFDepth = 2
+                let originalNote = Some "Complete roundtrip test"
+            
+                // Save
+                match! ModelSerialization.saveVQCModelAsync 
+                        testFile 
+                        originalParams 
+                        originalLoss 
+                        originalQubits 
+                        originalFMType 
+                        originalFMDepth 
+                        originalVFType 
+                        originalVFDepth 
+                        originalNote with
+                | Error e -> Assert.Fail($"Save failed: {e}")
+                | Ok () ->
+                
+                    // Load
+                    match ModelSerialization.loadVQCModel testFile with
+                    | Error e -> Assert.Fail($"Load failed: {e}")
+                    | Ok model ->
+                        Assert.Equal<float seq>(originalParams, model.Parameters)
+                        Assert.Equal(originalLoss, model.FinalLoss)
+                        Assert.Equal(originalQubits, model.NumQubits)
+                        Assert.Equal(originalFMType, model.FeatureMapType)
+                        Assert.Equal(originalFMDepth, model.FeatureMapDepth)
+                        Assert.Equal(originalVFType, model.VariationalFormType)
+                        Assert.Equal(originalVFDepth, model.VariationalFormDepth)
+                        Assert.Equal(originalNote, model.Note)
+            finally
+                cleanupTestFile testFile
+        } |> Async.StartAsTask
     
     // ========================================================================
     // MULTI-CLASS VQC SERIALIZATION TESTS

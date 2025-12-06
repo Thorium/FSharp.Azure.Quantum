@@ -3,6 +3,7 @@ namespace FSharp.Azure.Quantum.Business
 open System
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.MachineLearning
+open FSharp.Azure.Quantum
 
 /// Automated Machine Learning Builder - Zero-Config ML
 /// 
@@ -304,6 +305,8 @@ module AutoML =
             Verbose = false
             SavePath = None
             Note = None
+            ProgressReporter = None
+            CancellationToken = None
         }
         
         BinaryClassifier.train problem
@@ -330,6 +333,8 @@ module AutoML =
             Verbose = false
             SavePath = None
             Note = None
+            ProgressReporter = None
+            CancellationToken = None
         }
         
         PredictiveModel.train problem
@@ -356,6 +361,8 @@ module AutoML =
             Verbose = false
             SavePath = None
             Note = None
+            ProgressReporter = None
+            CancellationToken = None
         }
         
         PredictiveModel.train problem
@@ -374,6 +381,8 @@ module AutoML =
             Verbose = false
             SavePath = None
             Note = None
+            ProgressReporter = None
+            CancellationToken = None
         }
         
         AnomalyDetector.train problem
@@ -395,6 +404,8 @@ module AutoML =
             Verbose = false
             SavePath = None
             Note = None
+            ProgressReporter = None
+            CancellationToken = None
         }
         
         SimilaritySearch.build problem
@@ -479,6 +490,10 @@ module AutoML =
             let startTime = DateTime.UtcNow
             let backend = problem.Backend |> Option.defaultValue (LocalBackend() :> IQuantumBackend)
             let reporter = problem.ProgressReporter
+            
+            // Set cancellation token on backend if provided
+            problem.CancellationToken |> Option.iter (fun token ->
+                backend.SetCancellationToken(Some token))
             
             // Report initial phase
             reporter |> Option.iter (fun r ->
@@ -711,10 +726,22 @@ module AutoML =
                     | Ok resultTuple -> Some resultTuple
                     | Error e -> None
             
-            // Execute all trials functionally
+            // 🚀 PARALLELIZED: Execute trials in parallel with controlled concurrency
+            // Use maxDegreeOfParallelism to avoid overwhelming the system
+            // Still respects cancellation and time budget per trial
+            let maxDegreeOfParallelism = min 4 (trials.Length / 2 |> max 1)
+            
             let resultsWithModels =
                 trials
-                |> List.choose executeTrial
+                |> List.chunkBySize maxDegreeOfParallelism
+                |> List.collect (fun batch ->
+                    // Execute each batch in parallel
+                    batch
+                    |> List.map (fun trial -> async { return executeTrial trial })
+                    |> Async.Parallel
+                    |> Async.RunSynchronously
+                    |> Array.choose id
+                    |> Array.toList)
             
             let results = resultsWithModels |> List.map fst
             

@@ -136,6 +136,43 @@ module ModelSerialization =
     ///   variationalFormType - Variational form type name (e.g., "RealAmplitudes")  
     ///   variationalFormDepth - Variational form depth
     ///   note - Optional note about the model
+    let saveVQCModelAsync
+        (filePath: string)
+        (parameters: float array)
+        (finalLoss: float)
+        (numQubits: int)
+        (featureMapType: string)
+        (featureMapDepth: int)
+        (variationalFormType: string)
+        (variationalFormDepth: int)
+        (note: string option)
+        : Async<Result<unit, string>> =
+        async {
+            try
+                let model = {
+                    Parameters = parameters
+                    FinalLoss = finalLoss
+                    NumQubits = numQubits
+                    FeatureMapType = featureMapType
+                    FeatureMapDepth = featureMapDepth
+                    VariationalFormType = variationalFormType
+                    VariationalFormDepth = variationalFormDepth
+                    SavedAt = DateTime.UtcNow.ToString("o")
+                    Note = note
+                }
+                
+                let options = JsonSerializerOptions()
+                options.WriteIndented <- true
+                
+                let json = JsonSerializer.Serialize(model, options)
+                do! File.WriteAllTextAsync(filePath, json) |> Async.AwaitTask
+                
+                return Ok ()
+            with ex ->
+                return Error $"Failed to save model: {ex.Message}"
+        }
+    
+    [<System.Obsolete("Use saveVQCModelAsync for better performance and to avoid blocking threads")>]
     let saveVQCModel
         (filePath: string)
         (parameters: float array)
@@ -147,29 +184,8 @@ module ModelSerialization =
         (variationalFormDepth: int)
         (note: string option)
         : Result<unit, string> =
-        
-        try
-            let model = {
-                Parameters = parameters
-                FinalLoss = finalLoss
-                NumQubits = numQubits
-                FeatureMapType = featureMapType
-                FeatureMapDepth = featureMapDepth
-                VariationalFormType = variationalFormType
-                VariationalFormDepth = variationalFormDepth
-                SavedAt = DateTime.UtcNow.ToString("o")
-                Note = note
-            }
-            
-            let options = JsonSerializerOptions()
-            options.WriteIndented <- true
-            
-            let json = JsonSerializer.Serialize(model, options)
-            File.WriteAllText(filePath, json)
-            
-            Ok ()
-        with ex ->
-            Error $"Failed to save model: {ex.Message}"
+        saveVQCModelAsync filePath parameters finalLoss numQubits featureMapType featureMapDepth variationalFormType variationalFormDepth note
+        |> Async.RunSynchronously
     
     /// Save VQC training result with metadata (classification)
     ///
@@ -190,7 +206,7 @@ module ModelSerialization =
             | [] -> 0.0
             | losses -> List.last losses
         
-        saveVQCModel
+        saveVQCModelAsync
             filePath
             result.Parameters
             finalLoss
@@ -200,6 +216,7 @@ module ModelSerialization =
             variationalFormType
             variationalFormDepth
             note
+        |> Async.RunSynchronously
     
     /// Save VQC regression training result with metadata
     ///
@@ -218,7 +235,7 @@ module ModelSerialization =
         // For regression, use TrainMSE as the "loss"
         let finalLoss = result.TrainMSE
         
-        saveVQCModel
+        saveVQCModelAsync
             filePath
             result.Parameters
             finalLoss
@@ -228,6 +245,7 @@ module ModelSerialization =
             variationalFormType
             variationalFormDepth
             note
+        |> Async.RunSynchronously
     
     /// Save VQC multi-class training result (one-vs-rest)
     ///
@@ -449,7 +467,7 @@ module ModelSerialization =
             models
             |> Array.mapi (fun i (parameters, finalLoss, note) ->
                 let fileName = $"{baseFileName}_{i + 1}.json"
-                match saveVQCModel fileName parameters finalLoss numQubits featureMapType featureMapDepth variationalFormType variationalFormDepth note with
+                match saveVQCModelAsync fileName parameters finalLoss numQubits featureMapType featureMapDepth variationalFormType variationalFormDepth note |> Async.RunSynchronously with
                 | Ok () -> Ok fileName
                 | Error e -> Error e)
         

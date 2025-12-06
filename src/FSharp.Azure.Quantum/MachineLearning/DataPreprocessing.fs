@@ -24,13 +24,13 @@ module DataPreprocessing =
             let numFeatures = data.[0].Length
             
             // Compute min and max for each feature
-            let minValues = Array.zeroCreate numFeatures
-            let maxValues = Array.zeroCreate numFeatures
+            let minMaxPairs =
+                Array.init numFeatures (fun featureIdx ->
+                    let featureValues = data |> Array.map (fun sample -> sample.[featureIdx])
+                    (Array.min featureValues, Array.max featureValues))
             
-            for featureIdx in 0 .. numFeatures - 1 do
-                let featureValues = data |> Array.map (fun sample -> sample.[featureIdx])
-                minValues.[featureIdx] <- Array.min featureValues
-                maxValues.[featureIdx] <- Array.max featureValues
+            let minValues = minMaxPairs |> Array.map fst
+            let maxValues = minMaxPairs |> Array.map snd
             
             // Normalize each sample
             let normalizedData =
@@ -181,15 +181,19 @@ module DataPreprocessing =
                 | Some s -> Random(s)
                 | None -> Random()
             
-            // Create shuffled indices
-            let indices = [| 0 .. n - 1 |]
-            
-            // Fisher-Yates shuffle (imperative)
-            for i = n - 1 downto 1 do
-                let j = rng.Next(i + 1)
-                let temp = indices.[i]
-                indices.[i] <- indices.[j]
-                indices.[j] <- temp
+            // Create shuffled indices using functional Fisher-Yates shuffle
+            let indices =
+                [| 0 .. n - 1 |]
+                |> Array.fold (fun (arr : int array, remaining) _ ->
+                    if remaining = 0 then (arr, 0)
+                    else
+                        let j = rng.Next(remaining + 1)
+                        let temp = arr.[remaining]
+                        arr.[remaining] <- arr.[j]
+                        arr.[j] <- temp
+                        (arr, remaining - 1)
+                ) ([| 0 .. n - 1 |], n - 1)
+                |> fst
             
             // Split indices
             let trainIndices = indices.[0 .. numTrain - 1]
@@ -240,14 +244,19 @@ module DataPreprocessing =
                 | Some s -> Random(s)
                 | None -> Random()
             
-            let indices = [| 0 .. n - 1 |]
-            
-            // Fisher-Yates shuffle
-            for i = n - 1 downto 1 do
-                let j = rng.Next(i + 1)
-                let temp = indices.[i]
-                indices.[i] <- indices.[j]
-                indices.[j] <- temp
+            // Fisher-Yates shuffle using functional approach
+            let indices =
+                [| 0 .. n - 1 |]
+                |> Array.fold (fun (arr : int array, remaining) _ ->
+                    if remaining = 0 then (arr, 0)
+                    else
+                        let j = rng.Next(remaining + 1)
+                        let temp = arr.[remaining]
+                        arr.[remaining] <- arr.[j]
+                        arr.[j] <- temp
+                        (arr, remaining - 1)
+                ) ([| 0 .. n - 1 |], n - 1)
+                |> fst
             
             // Create k folds
             let foldSize = n / k
@@ -320,13 +329,19 @@ module DataPreprocessing =
                 let numTest = max 1 (int (float n * testSize))  // At least 1 sample per class in test
                 let numTrain = n - numTest
                 
-                // Shuffle class indices
-                let shuffled = Array.copy classIndices
-                for i = n - 1 downto 1 do
-                    let j = rng.Next(i + 1)
-                    let temp = shuffled.[i]
-                    shuffled.[i] <- shuffled.[j]
-                    shuffled.[j] <- temp
+                // Shuffle class indices using functional Fisher-Yates
+                let shuffled =
+                    Array.copy classIndices
+                    |> Array.fold (fun (arr : int array, remaining) _ ->
+                        if remaining = 0 then (arr, 0)
+                        else
+                            let j = rng.Next(remaining + 1)
+                            let temp = arr.[remaining]
+                            arr.[remaining] <- arr.[j]
+                            arr.[j] <- temp
+                            (arr, remaining - 1)
+                    ) (Array.copy classIndices, n - 1)
+                    |> fst
                 
                 // Split
                 trainIndicesList.AddRange(shuffled.[0 .. numTrain - 1])

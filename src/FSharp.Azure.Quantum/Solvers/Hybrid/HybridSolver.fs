@@ -170,6 +170,9 @@ module HybridSolver =
 
     /// Solve TSP problem using hybrid solver with quantum execution support
     /// 
+    /// ⚠️ WARNING: This function uses Async.RunSynchronously internally and can block for minutes.
+    /// Consider refactoring to async if calling from async context.
+    /// 
     /// Parameters:
     ///   distances - Distance matrix for TSP problem
     ///   quantumConfig - Optional quantum execution configuration

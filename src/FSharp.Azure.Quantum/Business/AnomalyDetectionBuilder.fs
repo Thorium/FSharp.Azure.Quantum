@@ -5,6 +5,7 @@ open System.IO
 open System.Text.Json
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.MachineLearning
+open FSharp.Azure.Quantum
 
 /// High-Level Anomaly Detection Builder - Business-First API
 /// 
@@ -316,6 +317,10 @@ module AnomalyDetector =
                 match problem.Backend with
                 | Some b -> b
                 | None -> LocalBackend() :> IQuantumBackend
+            
+            // Set cancellation token on backend if provided
+            problem.CancellationToken |> Option.iter (fun token ->
+                backend.SetCancellationToken(Some token))
             
             // Smart defaults for quantum architecture
             let numQubits = min numFeatures 8

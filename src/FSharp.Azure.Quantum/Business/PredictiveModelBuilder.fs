@@ -4,6 +4,7 @@ open System
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.MachineLearning
 open FSharp.Azure.Quantum.MachineLearning.QuantumRegressionHHL
+open FSharp.Azure.Quantum
 
 /// High-Level Predictive Model Builder - Business-First API
 /// 
@@ -278,10 +279,12 @@ module PredictiveModel =
             HHLModelSerialization.saveHHLRegressionResult path hhlResult model.Metadata.Note
         
         | SVMRegressor svmModel ->
-            SVMModelSerialization.saveSVMModel path svmModel model.Metadata.Note
+            SVMModelSerialization.saveSVMModelAsync path svmModel model.Metadata.Note
+            |> Async.RunSynchronously
         
         | SVMMultiClass multiClassModel ->
-            SVMModelSerialization.saveMultiClassSVMModel path multiClassModel model.Metadata.Note
+            SVMModelSerialization.saveMultiClassSVMModelAsync path multiClassModel model.Metadata.Note
+            |> Async.RunSynchronously
         
         | ClassicalRegressor _
         | ClassicalMultiClass _ ->
@@ -396,7 +399,7 @@ module PredictiveModel =
                     }
                 | Error _ ->
                     // Try to load as binary SVM model
-                    match SVMModelSerialization.loadSVMModel path with
+                    match SVMModelSerialization.loadSVMModelAsync path |> Async.RunSynchronously with
                     | Ok svmModel ->
                         let numFeatures = if svmModel.TrainData.Length > 0 then svmModel.TrainData.[0].Length else 0
                         Ok {
@@ -414,7 +417,7 @@ module PredictiveModel =
                         }
                     | Error _ ->
                         // Try to load as multi-class SVM model
-                        match SVMModelSerialization.loadMultiClassSVMModel path with
+                        match SVMModelSerialization.loadMultiClassSVMModelAsync path |> Async.RunSynchronously with
                         | Ok multiClassModel ->
                             let numFeatures = 
                                 if multiClassModel.BinaryModels.Length > 0 && 
@@ -455,6 +458,10 @@ module PredictiveModel =
             let backend = problem.Backend |> Option.defaultValue (LocalBackend() :> IQuantumBackend)
             let numFeatures = problem.TrainFeatures.[0].Length
             let numSamples = problem.TrainFeatures.Length
+            
+            // Set cancellation token on backend if provided
+            problem.CancellationToken |> Option.iter (fun token ->
+                backend.SetCancellationToken(Some token))
             
             if problem.Verbose then
                 printfn "🚀 Training Predictive Model..."

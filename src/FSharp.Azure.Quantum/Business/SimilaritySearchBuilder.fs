@@ -5,6 +5,7 @@ open System.IO
 open System.Text.Json
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.MachineLearning
+open FSharp.Azure.Quantum
 
 /// High-Level Similarity Search Builder - Business-First API
 /// 
@@ -243,6 +244,10 @@ module SimilaritySearch =
                         | Some b -> b
                         | None -> LocalBackend() :> IQuantumBackend
                     
+                    // Set cancellation token on backend if provided
+                    problem.CancellationToken |> Option.iter (fun token ->
+                        backend.SetCancellationToken(Some token))
+                    
                     let numQubits = min numFeatures 8
                     let featureMap = FeatureMapType.ZZFeatureMap 2
                     let features = problem.Items |> Array.map snd
@@ -405,54 +410,59 @@ module SimilaritySearch =
         if threshold < 0.0 || threshold > 1.0 then
             Error "Threshold must be between 0.0 and 1.0"
         else
-            // Compute all pairwise similarities
+            // Compute all pairwise similarities using functional approach
             let n = index.Items.Length
-            let visited = Array.create n false
-            let groups = ResizeArray<DuplicateGroup<'T>>()
             
-            for i in 0 .. n - 1 do
-                if not visited.[i] then
+            let computeSimilarity i j repFeatures features =
+                match index.Metric with
+                | Cosine -> cosineSimilarity repFeatures features
+                | Euclidean -> euclideanSimilarity repFeatures features
+                | QuantumKernel ->
+                    match index.KernelMatrix with
+                    | Some matrix -> matrix.[i, j]
+                    | None -> cosineSimilarity repFeatures features
+            
+            let rec findGroups i visited groups =
+                if i >= n then
+                    groups
+                elif Set.contains i visited then
+                    findGroups (i + 1) visited groups
+                else
                     let (representative, repFeatures) = index.Items.[i]
-                    let duplicates = ResizeArray<'T>()
-                    let similarities = ResizeArray<float>()
-                    
-                    duplicates.Add(representative)
-                    visited.[i] <- true
                     
                     // Find all items similar to representative
-                    for j in (i + 1) .. n - 1 do
-                        if not visited.[j] then
-                            let (item, features) = index.Items.[j]
-                            
-                            let similarity =
-                                match index.Metric with
-                                | Cosine -> cosineSimilarity repFeatures features
-                                | Euclidean -> euclideanSimilarity repFeatures features
-                                | QuantumKernel ->
-                                    match index.KernelMatrix with
-                                    | Some matrix -> matrix.[i, j]
-                                    | None -> cosineSimilarity repFeatures features
-                            
-                            if similarity >= threshold then
-                                duplicates.Add(item)
-                                similarities.Add(similarity)
-                                visited.[j] <- true
+                    let (duplicateItems, newVisited) =
+                        [i + 1 .. n - 1]
+                        |> List.fold (fun (dups, vis) j ->
+                            if Set.contains j vis then
+                                (dups, vis)
+                            else
+                                let (item, features) = index.Items.[j]
+                                let similarity = computeSimilarity i j repFeatures features
+                                if similarity >= threshold then
+                                    ((item, similarity) :: dups, Set.add j vis)
+                                else
+                                    (dups, vis)
+                        ) ([], Set.add i visited)
                     
                     // Only create group if there are duplicates
-                    if duplicates.Count > 1 then
-                        let avgSim = 
-                            if similarities.Count > 0 then
-                                similarities |> Seq.average
-                            else
-                                1.0
-                        
-                        groups.Add({
-                            Representative = representative
-                            Items = duplicates.ToArray()
-                            AvgSimilarity = avgSim
-                        })
+                    let newGroups =
+                        if List.isEmpty duplicateItems then
+                            groups
+                        else
+                            let items = representative :: (duplicateItems |> List.map fst)
+                            let avgSim =
+                                if List.isEmpty duplicateItems then 1.0
+                                else duplicateItems |> List.averageBy snd
+                            {
+                                Representative = representative
+                                Items = Array.ofList items
+                                AvgSimilarity = avgSim
+                            } :: groups
+                    
+                    findGroups (i + 1) newVisited newGroups
             
-            Ok (groups.ToArray())
+            Ok (findGroups 0 Set.empty [] |> List.rev |> Array.ofList)
     
     // ========================================================================
     // CLUSTERING
@@ -477,54 +487,60 @@ module SimilaritySearch =
             let d = features.[0].Length
             
             // Initialize centroids randomly
-            let mutable centroids =
-                [| for _ in 1 .. numClusters ->
-                    features.[random.Next(n)]
-                |]
+            let initialCentroids =
+                Array.init numClusters (fun _ -> features.[random.Next(n)])
             
-            let mutable assignments = Array.create n 0
-            let mutable changed = true
-            let mutable iter = 0
+            // Helper: Compute average centroid from cluster features
+            let computeCentroid (clusterFeatures : float array array) =
+                let count = Array.length clusterFeatures
+                Array.init d (fun j ->
+                    clusterFeatures 
+                    |> Array.sumBy (fun (feature : float array) -> feature.[j])
+                    |> fun sum -> sum / float count)
             
-            while changed && iter < maxIterations do
-                changed <- false
-                iter <- iter + 1
-                
-                // Assignment step
-                for i in 0 .. n - 1 do
-                    let bestCluster =
-                        [| 0 .. numClusters - 1 |]
-                        |> Array.maxBy (fun c ->
-                            cosineSimilarity features.[i] centroids.[c])
-                    
-                    if assignments.[i] <> bestCluster then
-                        assignments.[i] <- bestCluster
-                        changed <- true
-                
-                // Update centroids
-                for c in 0 .. numClusters - 1 do
-                    let clusterItems =
-                        [| 0 .. n - 1 |]
-                        |> Array.filter (fun i -> assignments.[i] = c)
-                    
-                    if clusterItems.Length > 0 then
-                        let newCentroid = Array.create d 0.0
-                        for i in clusterItems do
-                            for j in 0 .. d - 1 do
-                                newCentroid.[j] <- newCentroid.[j] + features.[i].[j]
-                        
-                        for j in 0 .. d - 1 do
-                            newCentroid.[j] <- newCentroid.[j] / float clusterItems.Length
-                        
-                        centroids.[c] <- newCentroid
+            // Helper: Assign each point to nearest centroid
+            let assignClusters (centroids : float array array) =
+                features
+                |> Array.map (fun (feature : float array) ->
+                    [| 0 .. numClusters - 1 |]
+                    |> Array.maxBy (fun c -> cosineSimilarity feature centroids.[c]))
+            
+            // Helper: Update centroids based on assignments
+            let updateCentroids (assignments : int array) (centroids : float array array) =
+                [| 0 .. numClusters - 1 |]
+                |> Array.map (fun c ->
+                    let clusterFeatures =
+                        features
+                        |> Array.indexed
+                        |> Array.filter (fun (i, _) -> assignments.[i] = c)
+                        |> Array.map snd
+                    if Array.isEmpty clusterFeatures 
+                    then centroids.[c]
+                    else computeCentroid clusterFeatures)
+            
+            // Recursive k-means iteration
+            let rec kmeansIteration iter centroids prevAssignments =
+                if iter >= maxIterations then
+                    prevAssignments
+                else
+                    let newAssignments = assignClusters centroids
+                    if newAssignments = prevAssignments then
+                        newAssignments
+                    else
+                        let newCentroids = updateCentroids newAssignments centroids
+                        kmeansIteration (iter + 1) newCentroids newAssignments
+            
+            let finalAssignments = 
+                kmeansIteration 0 initialCentroids (Array.create n 0)
             
             // Group items by cluster
             let clusters =
-                [| for c in 0 .. numClusters - 1 ->
-                    [| 0 .. n - 1 |]
-                    |> Array.filter (fun i -> assignments.[i] = c)
-                    |> Array.map (fun i -> fst index.Items.[i])
-                |]
+                [| 0 .. numClusters - 1 |]
+                |> Array.map (fun c ->
+                    index.Items
+                    |> Array.indexed
+                    |> Array.filter (fun (i, _) -> finalAssignments.[i] = c)
+                    |> Array.map (fun (_, (itemId, _)) -> itemId))
             
             Ok clusters
     

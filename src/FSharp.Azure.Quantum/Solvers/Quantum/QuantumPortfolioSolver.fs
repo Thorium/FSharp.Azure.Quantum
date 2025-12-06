@@ -168,23 +168,35 @@ module QuantumPortfolioSolver =
                 
                 let totalBudget = problem.Constraints.Budget
                 
-                // Encourage not exceeding budget by penalizing expensive combinations
-                for i in 0 .. numAssets - 1 do
-                    let asset_i = problem.Assets.[i]
-                    
-                    // Diagonal penalty for selecting expensive assets
-                    if asset_i.Price > totalBudget * 0.5 then
-                        let budgetPenalty = penaltyWeight * (asset_i.Price / totalBudget)
-                        quboTerms <- ((i, i), budgetPenalty) :: quboTerms
-                    
-                    // Off-diagonal: Penalize pairs that would exceed budget
-                    for j in i + 1 .. numAssets - 1 do
-                        let asset_j = problem.Assets.[j]
+                // Functional approach: collect all budget constraint terms
+                let budgetConstraintTerms =
+                    [0 .. numAssets - 1]
+                    |> List.collect (fun i ->
+                        let asset_i = problem.Assets.[i]
                         
-                        if asset_i.Price + asset_j.Price > totalBudget then
-                            // Strong penalty for selecting both
-                            let pairPenalty = 2.0 * penaltyWeight
-                            quboTerms <- ((i, j), pairPenalty) :: quboTerms
+                        // Diagonal penalty for expensive assets
+                        let diagonalTerms =
+                            if asset_i.Price > totalBudget * 0.5 then
+                                let budgetPenalty = penaltyWeight * (asset_i.Price / totalBudget)
+                                [((i, i), budgetPenalty)]
+                            else
+                                []
+                        
+                        // Off-diagonal: penalize pairs that exceed budget
+                        let offDiagonalTerms =
+                            [i + 1 .. numAssets - 1]
+                            |> List.choose (fun j ->
+                                let asset_j = problem.Assets.[j]
+                                if asset_i.Price + asset_j.Price > totalBudget then
+                                    Some ((i, j), 2.0 * penaltyWeight)
+                                else
+                                    None
+                            )
+                        
+                        diagonalTerms @ offDiagonalTerms
+                    )
+                
+                quboTerms <- budgetConstraintTerms @ quboTerms
                 
                 // ========================================================================
                 // CONSTRAINT 2: Diversification (soft constraint)
@@ -192,9 +204,14 @@ module QuantumPortfolioSolver =
                 // Add small negative bias to encourage more selections
                 // ========================================================================
                 
-                for i in 0 .. numAssets - 1 do
-                    let diversificationBonus = -0.1 * penaltyWeight / float numAssets
-                    quboTerms <- ((i, i), diversificationBonus) :: quboTerms
+                let diversificationTerms =
+                    [0 .. numAssets - 1]
+                    |> List.map (fun i ->
+                        let diversificationBonus = -0.1 * penaltyWeight / float numAssets
+                        ((i, i), diversificationBonus)
+                    )
+                
+                quboTerms <- diversificationTerms @ quboTerms
                 
                 // ========================================================================
                 // Build QUBO Matrix

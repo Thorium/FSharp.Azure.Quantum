@@ -30,7 +30,7 @@ module QuantumArithmeticTests =
         
         prob0
     
-    /// Execute circuit by applying gates to state vector
+    /// Execute circuit by applying gates to state vector (with realistic measurement)
     let private executeCircuit (circuit: Circuit) : StateVector.StateVector =
         let numQubits = qubitCount circuit
         let initialState = StateVector.init numQubits
@@ -38,6 +38,7 @@ module QuantumArithmeticTests =
         let gates = getGates circuit
         
         // Apply each gate sequentially
+        let rng = System.Random(42)  // Fixed seed for reproducibility
         let mutable currentState = initialState
         for gate in gates do
             currentState <- 
@@ -60,6 +61,10 @@ module QuantumArithmeticTests =
                 | MCZ (controls, t) -> Gates.applyMultiControlledZ controls t currentState
                 | SWAP (q1, q2) -> Gates.applySWAP q1 q2 currentState
                 | CCX (c1, c2, t) -> Gates.applyCCX c1 c2 t currentState
+                | Measure q -> 
+                    // Perform realistic measurement with state collapse
+                    let outcome = Measurement.measureSingleQubit rng q currentState
+                    Measurement.collapseAfterMeasurement q outcome currentState
         
         currentState
     

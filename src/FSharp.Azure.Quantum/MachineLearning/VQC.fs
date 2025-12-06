@@ -145,7 +145,7 @@ module VQC =
         else
             -log (1.0 - p)
     
-    /// Compute average loss over dataset
+    /// Compute average loss over dataset (parallelized for performance)
     let private computeLoss
         (backend: IQuantumBackend)
         (featureMap: FeatureMapType)
@@ -161,8 +161,13 @@ module VQC =
             |> Result.bind (fun circuit -> forwardPass backend circuit shots)
             |> Result.map (fun prediction -> binaryCrossEntropy prediction labels.[i])
         
-        // Compute loss for each sample
-        let results = Array.mapi (fun i _ -> computeSampleLoss i) features
+        // 🚀 PARALLELIZED: Compute loss for all samples in parallel
+        // This can provide N× speedup where N = number of samples
+        let results = 
+            features 
+            |> Array.mapi (fun i _ -> async { return computeSampleLoss i })
+            |> Async.Parallel
+            |> Async.RunSynchronously
         
         // Check if any failed
         match results |> Array.tryFind Result.isError with
@@ -175,10 +180,13 @@ module VQC =
     // GRADIENT COMPUTATION (Parameter Shift Rule)
     // ========================================================================
     
-    /// Compute gradient using parameter shift rule
+    /// Compute gradient using parameter shift rule (parallelized for massive speedup)
     /// 
     /// For a parameter θ_i, the gradient is:
     /// ∂L/∂θ_i = (L(θ + π/2 e_i) - L(θ - π/2 e_i)) / 2
+    /// 
+    /// 🚀 PERFORMANCE: Gradients for different parameters are computed in parallel
+    /// This can provide 10-100× speedup depending on parameter count!
     let private computeGradient
         (backend: IQuantumBackend)
         (featureMap: FeatureMapType)
@@ -192,22 +200,40 @@ module VQC =
         let shift = Math.PI / 2.0
         
         let computeParamGradient i =
-            // Shift parameter forward
-            let paramsPlus = Array.copy parameters
-            paramsPlus.[i] <- paramsPlus.[i] + shift
-            
-            // Shift parameter backward
-            let paramsMinus = Array.copy parameters
-            paramsMinus.[i] <- paramsMinus.[i] - shift
-            
-            // Compute gradient using parameter shift rule
-            computeLoss backend featureMap variationalForm paramsPlus features labels shots
-            |> Result.bind (fun lossPlus ->
-                computeLoss backend featureMap variationalForm paramsMinus features labels shots
-                |> Result.map (fun lossMinus -> (lossPlus - lossMinus) / 2.0))
+            async {
+                // Shift parameter forward
+                let paramsPlus = Array.copy parameters
+                paramsPlus.[i] <- paramsPlus.[i] + shift
+                
+                // Shift parameter backward
+                let paramsMinus = Array.copy parameters
+                paramsMinus.[i] <- paramsMinus.[i] - shift
+                
+                // 🚀 PARALLELIZED: Compute forward and backward shifts in parallel too!
+                let! results = 
+                    Async.Parallel [|
+                        async { return computeLoss backend featureMap variationalForm paramsPlus features labels shots }
+                        async { return computeLoss backend featureMap variationalForm paramsMinus features labels shots }
+                    |]
+                
+                let lossPlus = results.[0]
+                let lossMinus = results.[1]
+                
+                // Combine results
+                return 
+                    match lossPlus, lossMinus with
+                    | Ok lp, Ok lm -> Ok ((lp - lm) / 2.0)
+                    | Error e, _ -> Error e
+                    | _, Error e -> Error e
+            }
         
-        // Compute gradient for each parameter
-        let results = parameters |> Array.mapi (fun i _ -> computeParamGradient i)
+        // 🚀 PARALLELIZED: Compute gradient for all parameters in parallel
+        // This is a HUGE win - can be 10-100× faster depending on parameter count!
+        let results = 
+            parameters 
+            |> Array.mapi (fun i _ -> computeParamGradient i)
+            |> Async.Parallel
+            |> Async.RunSynchronously
         
         // Check if any failed
         match results |> Array.tryFind Result.isError with

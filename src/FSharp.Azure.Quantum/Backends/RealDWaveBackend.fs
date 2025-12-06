@@ -205,6 +205,7 @@ module RealDWaveBackend =
     
     /// Real D-Wave backend using Leap Cloud API
     type RealDWaveBackend(config: DWaveConfig) =
+        let mutable cancellationToken : System.Threading.CancellationToken option = None
         
         let client = new DWaveClient(config)
         
@@ -274,10 +275,27 @@ module RealDWaveBackend =
             }
         
         interface IQuantumBackend with
-            member this.ExecuteAsync circuit numShots =
-                this.ExecuteCore(circuit, numShots)
+            member _.SetCancellationToken (token: System.Threading.CancellationToken option) : unit =
+                cancellationToken <- token
             
+            member this.ExecuteAsync circuit numShots = async {
+                // Check cancellation before starting
+                match cancellationToken with
+                | Some token when token.IsCancellationRequested ->
+                    return Error "Operation cancelled before execution"
+                | _ ->
+                return! this.ExecuteCore(circuit, numShots)
+            }
+            
+            /// WARNING: This blocks the calling thread for 5+ minutes during D-Wave job polling.
+            /// Use ExecuteAsync instead for non-blocking execution.
+            [<System.Obsolete("Use ExecuteAsync to avoid blocking the calling thread. D-Wave jobs can take 5+ minutes with polling every 5 seconds.")>]
             member this.Execute circuit numShots =
+                // Check cancellation before starting
+                match cancellationToken with
+                | Some token when token.IsCancellationRequested ->
+                    Error "Operation cancelled before execution"
+                | _ ->
                 this.ExecuteCore(circuit, numShots) |> Async.RunSynchronously
             
             member _.Name = $"D-Wave {config.Solver} (Leap Cloud)"

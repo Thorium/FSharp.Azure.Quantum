@@ -128,31 +128,33 @@ module QuantumMaxCutSolver =
             elif problem.Edges.Length = 0 then
                 Error "MaxCut problem has no edges"
             else
-                // Build QUBO terms as Map<(int * int), float>
-                let mutable quboTerms = Map.empty
-                
-                // Process each edge: add contributions to QUBO matrix
-                for edge in problem.Edges do
-                    let i = vertexIndexMap.[edge.Source]
-                    let j = vertexIndexMap.[edge.Target]
-                    let weight = edge.Weight
-                    
-                    // MaxCut QUBO formulation: 
-                    // For edge (i,j) with weight w:
-                    //   Minimize: -w * (x_i + x_j - 2*x_i*x_j)
-                    //           = -w*x_i - w*x_j + 2*w*x_i*x_j
-                    
-                    // Linear terms: Q_ii and Q_jj
-                    let existingQii = quboTerms |> Map.tryFind (i, i) |> Option.defaultValue 0.0
-                    let existingQjj = quboTerms |> Map.tryFind (j, j) |> Option.defaultValue 0.0
-                    
-                    quboTerms <- quboTerms |> Map.add (i, i) (existingQii - weight)
-                    quboTerms <- quboTerms |> Map.add (j, j) (existingQjj - weight)
-                    
-                    // Quadratic term: Q_ij (only upper triangle for symmetry)
-                    let (row, col) = if i <= j then (i, j) else (j, i)
-                    let existingQij = quboTerms |> Map.tryFind (row, col) |> Option.defaultValue 0.0
-                    quboTerms <- quboTerms |> Map.add (row, col) (existingQij + 2.0 * weight)
+                // Build QUBO terms as Map<(int * int), float> using functional fold
+                let quboTerms =
+                    problem.Edges
+                    |> List.fold (fun terms edge ->
+                        let i = vertexIndexMap.[edge.Source]
+                        let j = vertexIndexMap.[edge.Target]
+                        let weight = edge.Weight
+                        
+                        // MaxCut QUBO formulation: 
+                        // For edge (i,j) with weight w:
+                        //   Minimize: -w * (x_i + x_j - 2*x_i*x_j)
+                        //           = -w*x_i - w*x_j + 2*w*x_i*x_j
+                        
+                        // Linear terms: Q_ii and Q_jj
+                        let existingQii = terms |> Map.tryFind (i, i) |> Option.defaultValue 0.0
+                        let existingQjj = terms |> Map.tryFind (j, j) |> Option.defaultValue 0.0
+                        
+                        let termsWithLinear = 
+                            terms 
+                            |> Map.add (i, i) (existingQii - weight)
+                            |> Map.add (j, j) (existingQjj - weight)
+                        
+                        // Quadratic term: Q_ij (only upper triangle for symmetry)
+                        let (row, col) = if i <= j then (i, j) else (j, i)
+                        let existingQij = termsWithLinear |> Map.tryFind (row, col) |> Option.defaultValue 0.0
+                        termsWithLinear |> Map.add (row, col) (existingQij + 2.0 * weight)
+                    ) Map.empty
                 
                 Ok {
                     Q = quboTerms
@@ -378,25 +380,25 @@ module QuantumMaxCutSolver =
             if not improved then
                 currentS  // No improvement found, done
             else
-                let mutable bestS = currentS
-                let mutable bestCut = calculateCutValue problem currentS
-                let mutable foundImprovement = false
-                
-                // Try moving each vertex
-                for vertex in problem.Vertices do
-                    let inS = List.contains vertex currentS
-                    let newS = 
-                        if inS then
-                            currentS |> List.filter ((<>) vertex)  // Remove from S
+                // Try moving each vertex and find best improvement
+                let currentCut = calculateCutValue problem currentS
+                let (bestS, bestCut, foundImprovement) =
+                    problem.Vertices
+                    |> List.fold (fun (accS, accCut, accImproved) vertex ->
+                        let inS = List.contains vertex currentS
+                        let newS = 
+                            if inS then
+                                currentS |> List.filter ((<>) vertex)  // Remove from S
+                            else
+                                vertex :: currentS  // Add to S
+                        
+                        let newCut = calculateCutValue problem newS
+                        
+                        if newCut > accCut then
+                            (newS, newCut, true)
                         else
-                            vertex :: currentS  // Add to S
-                    
-                    let newCut = calculateCutValue problem newS
-                    
-                    if newCut > bestCut then
-                        bestS <- newS
-                        bestCut <- newCut
-                        foundImprovement <- true
+                            (accS, accCut, accImproved)
+                    ) (currentS, currentCut, false)
                 
                 improvePartition bestS foundImprovement
         

@@ -191,20 +191,21 @@ module ReadoutErrorMitigation =
                                 for prepared in 0 .. dimension - 1 do
                                     for measured in 0 .. dimension - 1 do
                                         // Calculate probability as product of individual qubit probabilities
-                                        let mutable prob = 1.0
-                                        for q in 0 .. qubits - 1 do
-                                            let preparedBit = (prepared >>> q) &&& 1
-                                            let measuredBit = (measured >>> q) &&& 1
-                                            
-                                            let qubitProb =
-                                                match (preparedBit, measuredBit) with
-                                                | (0, 0) -> p0_to_0       // P(measure 0 | prepared 0)
-                                                | (0, 1) -> 1.0 - p0_to_0  // P(measure 1 | prepared 0)
-                                                | (1, 0) -> p0_to_1       // P(measure 0 | prepared 1)
-                                                | (1, 1) -> 1.0 - p0_to_1  // P(measure 1 | prepared 1)
-                                                | _ -> 1.0
-                                            
-                                            prob <- prob * qubitProb
+                                        let prob =
+                                            [0 .. qubits - 1]
+                                            |> List.fold (fun accProb q ->
+                                                let preparedBit = (prepared >>> q) &&& 1
+                                                let measuredBit = (measured >>> q) &&& 1
+                                                
+                                                let qubitProb =
+                                                    match (preparedBit, measuredBit) with
+                                                    | (0, 0) -> p0_to_0       // P(measure 0 | prepared 0)
+                                                    | (0, 1) -> 1.0 - p0_to_0  // P(measure 1 | prepared 0)
+                                                    | (1, 0) -> p0_to_1       // P(measure 0 | prepared 1)
+                                                    | (1, 1) -> 1.0 - p0_to_1  // P(measure 1 | prepared 1)
+                                                    | _ -> 1.0
+                                                
+                                                accProb * qubitProb) 1.0
                                         
                                         matrix.[measured, prepared] <- prob
                             
@@ -294,14 +295,12 @@ module ReadoutErrorMitigation =
                     |]
                 
                 // Step 3: Apply inverse matrix: corrected = M^-1 × measured
-                let correctedVector = Array.zeroCreate dimension
-                for i in 0 .. dimension - 1 do
-                    let sum = 
+                let correctedVector =
+                    Array.init dimension (fun i ->
                         [| for j in 0 .. dimension - 1 ->
                             inverse.[i, j] * measuredVector.[j]
                         |]
-                        |> Array.sum
-                    correctedVector.[i] <- sum
+                        |> Array.sum)
                 
                 // Step 4: Clip negative values if configured
                 let clippedVector =
@@ -430,26 +429,30 @@ module ReadoutErrorMitigation =
                     expectedDim expectedDim calibration.Qubits rowCount colCount)
             else
                 // Check probability constraints
-                let mutable errors = []
-                
-                for i in 0 .. rowCount - 1 do
-                    for j in 0 .. colCount - 1 do
-                        let value = calibration.Matrix.[i, j]
-                        if value < 0.0 || value > 1.0 then
-                            errors <- sprintf "Element [%d,%d] = %.4f not in [0,1]" i j value :: errors
+                let rangeErrors =
+                    [| for i in 0 .. rowCount - 1 do
+                        for j in 0 .. colCount - 1 do
+                            let value = calibration.Matrix.[i, j]
+                            if value < 0.0 || value > 1.0 then
+                                yield sprintf "Element [%d,%d] = %.4f not in [0,1]" i j value
+                    |]
                 
                 // Check columns sum to 1.0 (prepared states)
-                for j in 0 .. colCount - 1 do
-                    let colSum = 
-                        [| for i in 0 .. rowCount - 1 -> calibration.Matrix.[i, j] |]
-                        |> Array.sum
-                    
-                    if abs (colSum - 1.0) > 0.01 then
-                        errors <- sprintf "Column %d sums to %.4f (expected 1.0)" j colSum :: errors
+                let sumErrors =
+                    [| for j in 0 .. colCount - 1 do
+                        let colSum = 
+                            [| for i in 0 .. rowCount - 1 -> calibration.Matrix.[i, j] |]
+                            |> Array.sum
+                        
+                        if abs (colSum - 1.0) > 0.01 then
+                            yield sprintf "Column %d sums to %.4f (expected 1.0)" j colSum
+                    |]
                 
-                if List.isEmpty errors then
+                let allErrors = Array.append rangeErrors sumErrors
+                
+                if Array.isEmpty allErrors then
                     Ok ()
                 else
-                    Error (String.concat "; " errors)
+                    Error (String.concat "; " allErrors)
         with
         | ex -> Error (sprintf "Validation error: %s" ex.Message)

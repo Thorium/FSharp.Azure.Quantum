@@ -61,48 +61,36 @@ module QuboToIsing =
     ///          J = {(0,1)→-1.25, (1,2)→-0.75}
     ///          offset = 1.75
     let quboToIsing (qubo: Map<(int * int), float>) : IsingProblem =
+        let addToMap key value map =
+            let current = Map.tryFind key map |> Option.defaultValue 0.0
+            Map.add key (current + value) map
         
-        // Accumulate linear, quadratic, and offset terms
-        let mutable linearCoeffs = Map.empty
-        let mutable quadraticCoeffs = Map.empty
-        let mutable offset = 0.0
-        
-        // Helper: Add to linear coefficient
-        let addLinear qubit value =
-            let current = Map.tryFind qubit linearCoeffs |> Option.defaultValue 0.0
-            linearCoeffs <- Map.add qubit (current + value) linearCoeffs
-        
-        // Helper: Add to quadratic coefficient (ensure i < j)
-        let addQuadratic i j value =
-            let (iMin, jMax) = if i < j then (i, j) else (j, i)
-            let current = Map.tryFind (iMin, jMax) quadraticCoeffs |> Option.defaultValue 0.0
-            quadraticCoeffs <- Map.add (iMin, jMax) (current + value) quadraticCoeffs
-        
-        // Process each QUBO term
-        for KeyValue((i, j), q_ij) in qubo do
-            if i = j then
-                // Diagonal term: Q_ii * x_i  (x² = x for binary)
-                // Transformation: Q_ii * (1 + s_i) / 2 = Q_ii/2 + (Q_ii/2) * s_i
-                // Linear: h_i += Q_ii/2
-                // Offset: +Q_ii/2
-                addLinear i (q_ij / 2.0)
-                offset <- offset + (q_ij / 2.0)
-            else
-                // Off-diagonal term: Q_ij * x_i * x_j
-                // Transformation: Q_ij * ((1 + s_i) / 2) * ((1 + s_j) / 2)
-                //               = Q_ij/4 * (1 + s_i + s_j + s_i*s_j)
-                // Linear: h_i += Q_ij/4, h_j += Q_ij/4
-                // Quadratic: J_ij = Q_ij/4
-                // Offset: +Q_ij/4
-                addLinear i (q_ij / 4.0)
-                addLinear j (q_ij / 4.0)
-                addQuadratic i j (q_ij / 4.0)
-                offset <- offset + (q_ij / 4.0)
+        let (finalLinear, finalQuadratic, finalOffset) =
+            qubo
+            |> Map.fold (fun (linear, quadratic, offset) (i, j) q_ij ->
+                if i = j then
+                    // Diagonal term: Q_ii * x_i  (x² = x for binary)
+                    // Transformation: Q_ii * (1 + s_i) / 2 = Q_ii/2 + (Q_ii/2) * s_i
+                    // Linear: h_i += Q_ii/2
+                    // Offset: +Q_ii/2
+                    (addToMap i (q_ij / 2.0) linear, quadratic, offset + (q_ij / 2.0))
+                else
+                    // Off-diagonal term: Q_ij * x_i * x_j
+                    // Transformation: Q_ij * ((1 + s_i) / 2) * ((1 + s_j) / 2)
+                    //               = Q_ij/4 * (1 + s_i + s_j + s_i*s_j)
+                    // Linear: h_i += Q_ij/4, h_j += Q_ij/4
+                    // Quadratic: J_ij = Q_ij/4
+                    // Offset: +Q_ij/4
+                    let (iMin, jMax) = if i < j then (i, j) else (j, i)
+                    let newLinear = addToMap i (q_ij / 4.0) linear |> addToMap j (q_ij / 4.0)
+                    let newQuadratic = addToMap (iMin, jMax) (q_ij / 4.0) quadratic
+                    (newLinear, newQuadratic, offset + (q_ij / 4.0))
+            ) (Map.empty, Map.empty, 0.0)
         
         {
-            LinearCoeffs = linearCoeffs
-            QuadraticCoeffs = quadraticCoeffs
-            Offset = offset
+            LinearCoeffs = finalLinear
+            QuadraticCoeffs = finalQuadratic
+            Offset = finalOffset
         }
     
     // ============================================================================

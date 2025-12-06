@@ -69,30 +69,33 @@ module DWaveBackend =
             let flipSpin (spins: Map<int, int>) (qubit: int) : Map<int, int> =
                 Map.add qubit (-spins.[qubit]) spins
             
-            /// Simulated annealing run
+            /// Simulated annealing run using recursive approach
             let anneal (initialTemp: float) (coolingRate: float) (maxSteps: int) =
-                let mutable currentSpins = randomSpins ()
-                let mutable currentEnergy = isingEnergy problem currentSpins
-                let mutable temperature = initialTemp
+                let initialSpins = randomSpins ()
+                let initialEnergy = isingEnergy problem initialSpins
                 
-                for _ in 1 .. maxSteps do
-                    // Random qubit to flip
-                    let qubit = rng.Next(numQubits)
-                    let newSpins = flipSpin currentSpins qubit
-                    let newEnergy = isingEnergy problem newSpins
-                    
-                    // Accept move with Metropolis criterion
-                    let deltaE = newEnergy - currentEnergy
-                    let acceptProb = if deltaE < 0.0 then 1.0 else exp(-deltaE / temperature)
-                    
-                    if rng.NextDouble() < acceptProb then
-                        currentSpins <- newSpins
-                        currentEnergy <- newEnergy
-                    
-                    // Cool down
-                    temperature <- temperature * coolingRate
+                let rec annealStep step temperature currentSpins currentEnergy =
+                    if step > maxSteps then
+                        (currentSpins, currentEnergy)
+                    else
+                        // Random qubit to flip
+                        let qubit = rng.Next(numQubits)
+                        let newSpins = flipSpin currentSpins qubit
+                        let newEnergy = isingEnergy problem newSpins
+                        
+                        // Accept move with Metropolis criterion
+                        let deltaE = newEnergy - currentEnergy
+                        let acceptProb = if deltaE < 0.0 then 1.0 else exp(-deltaE / temperature)
+                        
+                        let (nextSpins, nextEnergy) =
+                            if rng.NextDouble() < acceptProb 
+                            then (newSpins, newEnergy)
+                            else (currentSpins, currentEnergy)
+                        
+                        // Cool down and continue
+                        annealStep (step + 1) (temperature * coolingRate) nextSpins nextEnergy
                 
-                (currentSpins, currentEnergy)
+                annealStep 1 initialTemp initialSpins initialEnergy
             
             // Run multiple annealing cycles
             let results = 
@@ -126,6 +129,7 @@ module DWaveBackend =
     ///   let backend = MockDWaveBackend(Advantage_System6_1, seed = Some 42)
     ///   let result = backend.Execute(qaoaCircuit, 1000)
     type MockDWaveBackend(solver: DWaveSolver, ?seed: int) =
+        let mutable cancellationToken : System.Threading.CancellationToken option = None
         
         let solverName = getSolverName solver
         let maxQubits = getMaxQubits solver
@@ -186,11 +190,24 @@ module DWaveBackend =
                             }
         
         interface IQuantumBackend with
+            member _.SetCancellationToken (token: System.Threading.CancellationToken option) : unit =
+                cancellationToken <- token
+            
             member this.ExecuteAsync circuit numShots = async {
+                // Check cancellation before starting
+                match cancellationToken with
+                | Some token when token.IsCancellationRequested ->
+                    return Error "Operation cancelled before execution"
+                | _ ->
                 return this.ExecuteCore circuit numShots
             }
             
             member this.Execute circuit numShots =
+                // Check cancellation before starting
+                match cancellationToken with
+                | Some token when token.IsCancellationRequested ->
+                    Error "Operation cancelled before execution"
+                | _ ->
                 this.ExecuteCore circuit numShots
             
             member _.Name = $"Mock D-Wave {solverName}"

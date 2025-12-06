@@ -84,11 +84,11 @@ module Authentication =
             base.SendAsync(request, cancellationToken)
         
         override this.SendAsync(request: HttpRequestMessage, cancellationToken: CancellationToken) : Task<HttpResponseMessage> =
-            // Get bearer token
-            let tokenTask = tokenManager.GetAccessTokenAsync(cancellationToken) |> Async.StartAsTask
-            tokenTask.ContinueWith(fun (t: Task<string>) ->
-                this.SendAsyncCore(request, cancellationToken, t.Result)
-            ).Unwrap()
+            // Get bearer token asynchronously without blocking
+            async {
+                let! token = tokenManager.GetAccessTokenAsync(cancellationToken)
+                return! this.SendAsyncCore(request, cancellationToken, token) |> Async.AwaitTask
+            } |> Async.StartAsTask
     
     /// Create an authenticated HttpClient for Azure Quantum API calls
     /// 

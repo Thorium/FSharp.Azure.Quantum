@@ -50,21 +50,14 @@ module ShorsAlgorithm =
     let private continuedFractionConvergent (phi: float) (maxDenom: int) : (int * int) option =
         // Simple continued fraction approximation
         // Find s/r such that |phi - s/r| is minimized
-        let mutable bestNum = 0
-        let mutable bestDenom = 1
-        let mutable bestError = abs phi
-        
-        for denom in 1 .. maxDenom do
+        [1 .. maxDenom]
+        |> List.map (fun denom ->
             let num = int (round (phi * float denom))
             let error = abs (phi - float num / float denom)
-            
-            if error < bestError then
-                bestNum <- num
-                bestDenom <- denom
-                bestError <- error
-        
-        if bestDenom > 0 then Some (bestNum, bestDenom)
-        else None
+            (num, denom, error))
+        |> List.minBy (fun (_, _, error) -> error)
+        |> fun (num, denom, _) -> 
+            if denom > 0 then Some (num, denom) else None
     
     // ========================================================================
     // QUANTUM PERIOD-FINDING (CLASSICAL HELPERS ONLY)

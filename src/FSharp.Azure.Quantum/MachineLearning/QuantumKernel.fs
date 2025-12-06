@@ -164,28 +164,44 @@ module QuantumKernels =
             Error "Dataset cannot be empty"
         else
             let n = data.Length
-            let kernelMatrix = Array2D.zeroCreate n n
             
-            // Compute kernel values (exploit symmetry)
-            let mutable error = None
+            // Compute kernel values (exploit symmetry) using functional approach
+            let computeAllKernels () =
+                [0 .. n - 1]
+                |> List.tryPick (fun i ->
+                    [i .. n - 1]
+                    |> List.tryPick (fun j ->
+                        match computeKernel backend featureMap data.[i] data.[j] shots with
+                        | Error e -> Some (Error $"Kernel computation failed at ({i},{j}): {e}")
+                        | Ok _ -> None))
+                |> Option.defaultWith (fun () ->
+                    // 🚀 PARALLELIZED: Compute all unique kernel entries in parallel
+                    // For symmetric matrix, only compute upper triangle (i,j) where j >= i
+                    let uniquePairs = 
+                        [| for i in 0 .. n - 1 do
+                            for j in i .. n - 1 do
+                                yield (i, j) |]
+                    
+                    let kernelEntries =
+                        uniquePairs
+                        |> Array.map (fun (i, j) -> 
+                            async { 
+                                return (i, j, computeKernel backend featureMap data.[i] data.[j] shots)
+                            })
+                        |> Async.Parallel
+                        |> Async.RunSynchronously
+                    
+                    let kernelMatrix = Array2D.zeroCreate n n
+                    for (i, j, result) in kernelEntries do
+                        match result with
+                        | Ok kernelValue ->
+                            kernelMatrix.[i, j] <- kernelValue
+                            if i <> j then
+                                kernelMatrix.[j, i] <- kernelValue
+                        | Error _ -> () // Already checked in tryPick
+                    Ok kernelMatrix)
             
-            for i in 0 .. n - 1 do
-                if error.IsNone then
-                    for j in i .. n - 1 do
-                        if error.IsNone then
-                            match computeKernel backend featureMap data.[i] data.[j] shots with
-                            | Error e -> 
-                                error <- Some $"Kernel computation failed at ({i},{j}): {e}"
-                            | Ok kernelValue ->
-                                kernelMatrix.[i, j] <- kernelValue
-                                
-                                // Exploit symmetry: K(x,y) = K(y,x)
-                                if i <> j then
-                                    kernelMatrix.[j, i] <- kernelValue
-            
-            match error with
-            | Some e -> Error e
-            | None -> Ok kernelMatrix
+            computeAllKernels ()
     
     /// Compute kernel matrix between train and test sets
     ///
@@ -218,24 +234,33 @@ module QuantumKernels =
         else
             let nTest = testData.Length
             let nTrain = trainData.Length
-            let kernelMatrix = Array2D.zeroCreate nTest nTrain
             
-            let mutable error = None
-            
-            // Compute kernel between each test and train sample
-            for i in 0 .. nTest - 1 do
-                if error.IsNone then
+            // 🚀 PARALLELIZED: Compute all kernel entries in parallel
+            // Each test-train pair is independent
+            let allPairs = 
+                [| for i in 0 .. nTest - 1 do
                     for j in 0 .. nTrain - 1 do
-                        if error.IsNone then
-                            match computeKernel backend featureMap testData.[i] trainData.[j] shots with
-                            | Error e -> 
-                                error <- Some $"Kernel computation failed at test[{i}], train[{j}]: {e}"
-                            | Ok kernelValue ->
-                                kernelMatrix.[i, j] <- kernelValue
+                        yield (i, j) |]
             
-            match error with
-            | Some e -> Error e
-            | None -> Ok kernelMatrix
+            let kernelEntries =
+                allPairs
+                |> Array.map (fun (i, j) ->
+                    async {
+                        return (i, j, computeKernel backend featureMap testData.[i] trainData.[j] shots)
+                    })
+                |> Async.Parallel
+                |> Async.RunSynchronously
+            
+            // Check for errors and build matrix
+            match kernelEntries |> Array.tryFind (fun (i, j, result) -> Result.isError result) with
+            | Some (i, j, Error e) -> Error $"Kernel computation failed at test[{i}], train[{j}]: {e}"
+            | _ ->
+                let kernelMatrix = Array2D.zeroCreate nTest nTrain
+                for (i, j, result) in kernelEntries do
+                    match result with
+                    | Ok kernelValue -> kernelMatrix.[i, j] <- kernelValue
+                    | Error _ -> () // Already handled above
+                Ok kernelMatrix
     
     // ========================================================================
     // KERNEL PROPERTIES

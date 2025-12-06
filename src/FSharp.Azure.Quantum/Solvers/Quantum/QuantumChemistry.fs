@@ -202,77 +202,85 @@ module MolecularInput =
     /// O  0.000  0.000  0.119
     /// H  0.000  0.757  0.587
     /// H  0.000 -0.757  0.587
-    let fromXYZ (filePath: string) : Result<Molecule, string> =
-        try
-            if not (File.Exists filePath) then
-                Error $"File not found: {filePath}"
-            else
-                let lines = File.ReadAllLines(filePath) |> Array.filter (fun l -> not (System.String.IsNullOrWhiteSpace l))
-                
-                if lines.Length < 3 then
-                    Error "XYZ file must have at least 3 lines (count, title, and atoms)"
+    let fromXYZAsync (filePath: string) : Async<Result<Molecule, string>> =
+        async {
+            try
+                if not (File.Exists filePath) then
+                    return Error $"File not found: {filePath}"
                 else
-                    // Parse atom count
-                    match System.Int32.TryParse(lines[0].Trim()) with
-                    | false, _ -> Error "First line must be atom count"
-                    | true, atomCount ->
-                    
-                    if atomCount < 1 then
-                        Error "Atom count must be positive"
-                    elif lines.Length < 2 + atomCount then
-                        Error $"File has {lines.Length} lines but needs {2 + atomCount} for {atomCount} atoms"
+                    let! lines = File.ReadAllLinesAsync(filePath) |> Async.AwaitTask
+                    let lines = lines |> Array.filter (fun l -> not (System.String.IsNullOrWhiteSpace l))
+                
+                    if lines.Length < 3 then
+                        return Error "XYZ file must have at least 3 lines (count, title, and atoms)"
                     else
-                        let name = lines[1].Trim()
+                        // Parse atom count
+                        match System.Int32.TryParse(lines[0].Trim()) with
+                        | false, _ -> return Error "First line must be atom count"
+                        | true, atomCount ->
                         
-                        // Parse atoms
-                        let atomsResult =
-                            lines[2 .. 1 + atomCount]
-                            |> Array.mapi (fun i line ->
-                                let parts = line.Split([| ' '; '\t' |], System.StringSplitOptions.RemoveEmptyEntries)
-                                if parts.Length < 4 then
-                                    Error $"Line {i + 3}: Expected 'Element X Y Z', got '{line}'"
-                                else
-                                    let element = parts[0].Trim()
-                                    match System.Double.TryParse(parts[1]), 
-                                          System.Double.TryParse(parts[2]), 
-                                          System.Double.TryParse(parts[3]) with
-                                    | (true, x), (true, y), (true, z) ->
-                                        Ok { Element = element; Position = (x, y, z) }
-                                    | _ ->
-                                        Error $"Line {i + 3}: Could not parse coordinates from '{line}'"
-                            )
-                            |> Array.fold (fun acc result ->
-                                match acc, result with
-                                | Error e, _ -> Error e
-                                | _, Error e -> Error e
-                                | Ok atoms, Ok atom -> Ok (atom :: atoms)
-                            ) (Ok [])
-                            |> Result.map List.rev
-                        
-                        match atomsResult with
-                        | Error e -> Error e
-                        | Ok atoms ->
-                            // Infer bonds from distances (simple heuristic)
-                            let bonds =
-                                [
-                                    for i in 0 .. atoms.Length - 2 do
-                                        for j in i + 1 .. atoms.Length - 1 do
-                                            let distance = Molecule.calculateBondLength atoms[i] atoms[j]
-                                            // Typical bond lengths: C-C ~1.5 Å, C-H ~1.1 Å, O-H ~1.0 Å, N-H ~1.0 Å
-                                            // Use generous cutoff of 1.8 Å for single bonds
-                                            if distance < 1.8 then
-                                                yield { Atom1 = i; Atom2 = j; BondOrder = 1.0 }
-                                ]
+                        if atomCount < 1 then
+                            return Error "Atom count must be positive"
+                        elif lines.Length < 2 + atomCount then
+                            return Error $"File has {lines.Length} lines but needs {2 + atomCount} for {atomCount} atoms"
+                        else
+                            let name = lines[1].Trim()
                             
-                            Ok {
-                                Name = if System.String.IsNullOrWhiteSpace name then "Molecule" else name
-                                Atoms = atoms
-                                Bonds = bonds
-                                Charge = 0  // Assume neutral
-                                Multiplicity = 1  // Assume singlet
-                            }
-        with
-        | ex -> Error $"Failed to parse XYZ file: {ex.Message}"
+                            // Parse atoms
+                            let atomsResult =
+                                lines[2 .. 1 + atomCount]
+                                |> Array.mapi (fun i line ->
+                                    let parts = line.Split([| ' '; '\t' |], System.StringSplitOptions.RemoveEmptyEntries)
+                                    if parts.Length < 4 then
+                                        Error $"Line {i + 3}: Expected 'Element X Y Z', got '{line}'"
+                                    else
+                                        let element = parts[0].Trim()
+                                        match System.Double.TryParse(parts[1]), 
+                                              System.Double.TryParse(parts[2]), 
+                                              System.Double.TryParse(parts[3]) with
+                                        | (true, x), (true, y), (true, z) ->
+                                            Ok { Element = element; Position = (x, y, z) }
+                                        | _ ->
+                                            Error $"Line {i + 3}: Could not parse coordinates from '{line}'"
+                                )
+                                |> Array.fold (fun acc result ->
+                                    match acc, result with
+                                    | Error e, _ -> Error e
+                                    | _, Error e -> Error e
+                                    | Ok atoms, Ok atom -> Ok (atom :: atoms)
+                                ) (Ok [])
+                                |> Result.map List.rev
+                            
+                            match atomsResult with
+                            | Error e -> return Error e
+                            | Ok atoms ->
+                                // Infer bonds from distances (simple heuristic)
+                                let bonds =
+                                    [
+                                        for i in 0 .. atoms.Length - 2 do
+                                            for j in i + 1 .. atoms.Length - 1 do
+                                                let distance = Molecule.calculateBondLength atoms[i] atoms[j]
+                                                // Typical bond lengths: C-C ~1.5 Å, C-H ~1.1 Å, O-H ~1.0 Å, N-H ~1.0 Å
+                                                // Use generous cutoff of 1.8 Å for single bonds
+                                                if distance < 1.8 then
+                                                    yield { Atom1 = i; Atom2 = j; BondOrder = 1.0 }
+                                    ]
+                                
+                                return Ok {
+                                    Name = if System.String.IsNullOrWhiteSpace name then "Molecule" else name
+                                    Atoms = atoms
+                                    Bonds = bonds
+                                    Charge = 0  // Assume neutral
+                                    Multiplicity = 1  // Assume singlet
+                                }
+            with
+            | ex -> return Error $"Failed to parse XYZ file: {ex.Message}"
+        }
+    
+    /// Synchronous wrapper for backwards compatibility
+    [<System.Obsolete("Use fromXYZAsync for better performance and to avoid blocking threads")>]
+    let fromXYZ (filePath: string) : Result<Molecule, string> =
+        fromXYZAsync filePath |> Async.RunSynchronously
     
     /// Parse simplified FCIDump format (header only, for molecule geometry)
     /// 
@@ -285,54 +293,61 @@ module MolecularInput =
     /// - MS2: 2*Spin (multiplicity - 1)
     /// 
     /// Returns a minimal Molecule structure with inferred properties.
+    let fromFCIDumpAsync (filePath: string) : Async<Result<Molecule, string>> =
+        async {
+            try
+                if not (File.Exists filePath) then
+                    return Error $"File not found: {filePath}"
+                else
+                    let! lines = File.ReadAllLinesAsync(filePath) |> Async.AwaitTask
+                    
+                    // Find header line (&FCI ... &END)
+                    let headerLine = 
+                        lines 
+                        |> Array.tryFind (fun line -> line.Trim().StartsWith("&FCI"))
+                    
+                    match headerLine with
+                    | None -> return Error "No FCIDump header found (&FCI line)"
+                    | Some header ->
+                        
+                        // Extract NORB, NELEC, MS2
+                        let extractParam name =
+                            let pattern = $"{name}\\s*=\\s*(\\d+)"
+                            let m = Regex.Match(header, pattern, RegexOptions.IgnoreCase)
+                            if m.Success then Some (int m.Groups[1].Value) else None
+                        
+                        let norb = extractParam "NORB"
+                        let nelec = extractParam "NELEC"
+                        let ms2 = extractParam "MS2"
+                        
+                        match norb, nelec with
+                        | None, _ -> return Error "NORB (number of orbitals) not found in FCIDump header"
+                        | _, None -> return Error "NELEC (number of electrons) not found in FCIDump header"
+                        | Some orbitals, Some electrons ->
+                            
+                            let multiplicity = match ms2 with | Some m -> m + 1 | None -> 1
+                            
+                            // Create minimal molecule representation
+                            // We don't have geometry, so create placeholder atoms
+                            let atoms =
+                                [ for i in 0 .. electrons - 1 do
+                                    { Element = "X"; Position = (float i, 0.0, 0.0) } ]
+                            
+                            return Ok {
+                                Name = "FCIDump molecule"
+                                Atoms = atoms
+                                Bonds = []  // No geometry available
+                                Charge = orbitals - electrons  // Inferred
+                                Multiplicity = multiplicity
+                            }
+            with
+            | ex -> return Error $"Failed to parse FCIDump file: {ex.Message}"
+        }
+    
+    /// Synchronous wrapper for backwards compatibility
+    [<System.Obsolete("Use fromFCIDumpAsync for better performance and to avoid blocking threads")>]
     let fromFCIDump (filePath: string) : Result<Molecule, string> =
-        try
-            if not (File.Exists filePath) then
-                Error $"File not found: {filePath}"
-            else
-                let lines = File.ReadAllLines(filePath)
-                
-                // Find header line (&FCI ... &END)
-                let headerLine = 
-                    lines 
-                    |> Array.tryFind (fun line -> line.Trim().StartsWith("&FCI"))
-                
-                match headerLine with
-                | None -> Error "No FCIDump header found (&FCI line)"
-                | Some header ->
-                    
-                    // Extract NORB, NELEC, MS2
-                    let extractParam name =
-                        let pattern = $"{name}\\s*=\\s*(\\d+)"
-                        let m = Regex.Match(header, pattern, RegexOptions.IgnoreCase)
-                        if m.Success then Some (int m.Groups[1].Value) else None
-                    
-                    let norb = extractParam "NORB"
-                    let nelec = extractParam "NELEC"
-                    let ms2 = extractParam "MS2"
-                    
-                    match norb, nelec with
-                    | None, _ -> Error "NORB (number of orbitals) not found in FCIDump header"
-                    | _, None -> Error "NELEC (number of electrons) not found in FCIDump header"
-                    | Some orbitals, Some electrons ->
-                        
-                        let multiplicity = match ms2 with | Some m -> m + 1 | None -> 1
-                        
-                        // Create minimal molecule representation
-                        // We don't have geometry, so create placeholder atoms
-                        let atoms =
-                            [ for i in 0 .. electrons - 1 do
-                                { Element = "X"; Position = (float i, 0.0, 0.0) } ]
-                        
-                        Ok {
-                            Name = "FCIDump molecule"
-                            Atoms = atoms
-                            Bonds = []  // No geometry available
-                            Charge = orbitals - electrons  // Inferred
-                            Multiplicity = multiplicity
-                        }
-        with
-        | ex -> Error $"Failed to parse FCIDump file: {ex.Message}"
+        fromFCIDumpAsync filePath |> Async.RunSynchronously
     
     /// Create XYZ file content from a Molecule
     let toXYZ (molecule: Molecule) : string =
@@ -352,13 +367,20 @@ module MolecularInput =
         sb.ToString()
     
     /// Save molecule to XYZ file
+    let saveXYZAsync (filePath: string) (molecule: Molecule) : Async<Result<unit, string>> =
+        async {
+            try
+                let content = toXYZ molecule
+                do! File.WriteAllTextAsync(filePath, content) |> Async.AwaitTask
+                return Ok ()
+            with
+            | ex -> return Error $"Failed to write XYZ file: {ex.Message}"
+        }
+    
+    /// Synchronous wrapper for backwards compatibility
+    [<System.Obsolete("Use saveXYZAsync for better performance and to avoid blocking threads")>]
     let saveXYZ (filePath: string) (molecule: Molecule) : Result<unit, string> =
-        try
-            let content = toXYZ molecule
-            File.WriteAllText(filePath, content)
-            Ok ()
-        with
-        | ex -> Error $"Failed to write XYZ file: {ex.Message}"
+        saveXYZAsync filePath molecule |> Async.RunSynchronously
 
 // ============================================================================
 // FERMION-TO-QUBIT MAPPINGS
@@ -474,20 +496,25 @@ module FermionMapping =
             Set.union (ps1.Operators |> Map.keys |> Set.ofSeq) 
                       (ps2.Operators |> Map.keys |> Set.ofSeq)
         
-        // Multiply Pauli operators qubit-by-qubit
-        let mutable totalPhase = ps1.Coefficient * ps2.Coefficient
-        let mutable resultOperators = Map.empty
-        
-        for qubitIdx in allQubits do
-            let pauli1 = ps1.Operators |> Map.tryFind qubitIdx |> Option.defaultValue QaoaCircuit.PauliI
-            let pauli2 = ps2.Operators |> Map.tryFind qubitIdx |> Option.defaultValue QaoaCircuit.PauliI
-            
-            let (phase, resultPauli) = multiplyPaulis pauli1 pauli2
-            totalPhase <- totalPhase * phase
-            
-            // Only store non-identity operators
-            if resultPauli <> QaoaCircuit.PauliI then
-                resultOperators <- resultOperators |> Map.add qubitIdx resultPauli
+        // Multiply Pauli operators qubit-by-qubit using fold
+        let (totalPhase, resultOperators) =
+            allQubits
+            |> Set.fold (fun (phase, ops) qubitIdx ->
+                let pauli1 = ps1.Operators |> Map.tryFind qubitIdx |> Option.defaultValue QaoaCircuit.PauliI
+                let pauli2 = ps2.Operators |> Map.tryFind qubitIdx |> Option.defaultValue QaoaCircuit.PauliI
+                
+                let (newPhase, resultPauli) = multiplyPaulis pauli1 pauli2
+                let updatedPhase = phase * newPhase
+                
+                // Only store non-identity operators
+                let updatedOps =
+                    if resultPauli <> QaoaCircuit.PauliI then
+                        ops |> Map.add qubitIdx resultPauli
+                    else
+                        ops
+                
+                (updatedPhase, updatedOps)
+            ) (ps1.Coefficient * ps2.Coefficient, Map.empty)
         
         {
             Coefficient = totalPhase
@@ -666,23 +693,20 @@ module FermionMapping =
             let pSet = paritySet j numOrbitals
             let uSet = updateSet j numOrbitals
             
-            // Build operator string
+            // Build operator string using functional approach
             let buildOperators (mainOp: QaoaCircuit.PauliOperator) =
-                let mutable ops = Map.empty
-                
+                Map.empty
                 // Parity set (excluding j): Z operators
-                for k in pSet do
-                    if k <> j then
-                        ops <- ops |> Map.add k QaoaCircuit.PauliZ
-                
+                |> fun ops ->
+                    pSet
+                    |> List.filter ((<>) j)
+                    |> List.fold (fun m k -> Map.add k QaoaCircuit.PauliZ m) ops
                 // Qubit j: main operator (X or Y)
-                ops <- ops |> Map.add j mainOp
-                
+                |> Map.add j mainOp
                 // Update set: X operators
-                for k in uSet do
-                    ops <- ops |> Map.add k QaoaCircuit.PauliX
-                
-                ops
+                |> fun ops ->
+                    uSet
+                    |> List.fold (fun m k -> Map.add k QaoaCircuit.PauliX m) ops
             
             match op.OperatorType with
             | Creation ->

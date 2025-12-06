@@ -102,60 +102,77 @@ module SVMModelSerialization =
     // BINARY SVM SERIALIZATION
     // ========================================================================
     
-    /// Save binary SVM model to JSON file
+    /// Save binary SVM model to JSON file (async)
+    let saveSVMModelAsync
+        (filePath: string)
+        (model: QuantumKernelSVM.SVMModel)
+        (note: string option)
+        : Async<Result<unit, string>> =
+        async {
+            try
+                let serializable = {
+                    SupportVectorIndices = model.SupportVectorIndices
+                    Alphas = model.Alphas
+                    Bias = model.Bias
+                    TrainData = model.TrainData
+                    TrainLabels = model.TrainLabels
+                    FeatureMap = featureMapToSerializable model.FeatureMap
+                    SavedAt = DateTime.UtcNow.ToString("o")
+                    Note = note
+                }
+                
+                let options = JsonSerializerOptions()
+                options.WriteIndented <- true
+                
+                let json = JsonSerializer.Serialize(serializable, options)
+                do! File.WriteAllTextAsync(filePath, json) |> Async.AwaitTask
+                
+                return Ok ()
+            with ex ->
+                return Error $"Failed to save SVM model: {ex.Message}"
+        }
+    
+    [<System.Obsolete("Use saveSVMModelAsync for better performance and to avoid blocking threads")>]
     let saveSVMModel
         (filePath: string)
         (model: QuantumKernelSVM.SVMModel)
         (note: string option)
         : Result<unit, string> =
-        
-        try
-            let serializable = {
-                SupportVectorIndices = model.SupportVectorIndices
-                Alphas = model.Alphas
-                Bias = model.Bias
-                TrainData = model.TrainData
-                TrainLabels = model.TrainLabels
-                FeatureMap = featureMapToSerializable model.FeatureMap
-                SavedAt = DateTime.UtcNow.ToString("o")
-                Note = note
-            }
-            
-            let options = JsonSerializerOptions()
-            options.WriteIndented <- true
-            
-            let json = JsonSerializer.Serialize(serializable, options)
-            File.WriteAllText(filePath, json)
-            
-            Ok ()
-        with ex ->
-            Error $"Failed to save SVM model: {ex.Message}"
+        saveSVMModelAsync filePath model note |> Async.RunSynchronously
     
-    /// Load binary SVM model from JSON file
+    /// Load binary SVM model from JSON file (async)
+    let loadSVMModelAsync
+        (filePath: string)
+        : Async<Result<QuantumKernelSVM.SVMModel, string>> =
+        async {
+            try
+                if not (File.Exists filePath) then
+                    return Error $"File not found: {filePath}"
+                else
+                    let! json = File.ReadAllTextAsync(filePath) |> Async.AwaitTask
+                    let serializable = JsonSerializer.Deserialize<SerializableSVMModel>(json)
+                    
+                    return
+                        match serializableToFeatureMap serializable.FeatureMap with
+                        | Error e -> Error e
+                        | Ok featureMap ->
+                            Ok {
+                                SupportVectorIndices = serializable.SupportVectorIndices
+                                Alphas = serializable.Alphas
+                                Bias = serializable.Bias
+                                TrainData = serializable.TrainData
+                                TrainLabels = serializable.TrainLabels
+                                FeatureMap = featureMap
+                            }
+            with ex ->
+                return Error $"Failed to load SVM model: {ex.Message}"
+        }
+    
+    [<System.Obsolete("Use loadSVMModelAsync for better performance and to avoid blocking threads")>]
     let loadSVMModel
         (filePath: string)
         : Result<QuantumKernelSVM.SVMModel, string> =
-        
-        try
-            if not (File.Exists filePath) then
-                Error $"File not found: {filePath}"
-            else
-                let json = File.ReadAllText(filePath)
-                let serializable = JsonSerializer.Deserialize<SerializableSVMModel>(json)
-                
-                match serializableToFeatureMap serializable.FeatureMap with
-                | Error e -> Error e
-                | Ok featureMap ->
-                    Ok {
-                        SupportVectorIndices = serializable.SupportVectorIndices
-                        Alphas = serializable.Alphas
-                        Bias = serializable.Bias
-                        TrainData = serializable.TrainData
-                        TrainLabels = serializable.TrainLabels
-                        FeatureMap = featureMap
-                    }
-        with ex ->
-            Error $"Failed to load SVM model: {ex.Message}"
+        loadSVMModelAsync filePath |> Async.RunSynchronously
     
     /// Print binary SVM model information
     let printSVMModelInfo
@@ -192,92 +209,109 @@ module SVMModelSerialization =
     // MULTI-CLASS SVM SERIALIZATION
     // ========================================================================
     
-    /// Save multi-class SVM model to JSON file
+    /// Save multi-class SVM model to JSON file (async)
+    let saveMultiClassSVMModelAsync
+        (filePath: string)
+        (model: MultiClassSVM.MultiClassModel)
+        (note: string option)
+        : Async<Result<unit, string>> =
+        async {
+            try
+                let binaryModels =
+                    model.BinaryModels
+                    |> Array.map (fun bm ->
+                        {
+                            SupportVectorIndices = bm.SupportVectorIndices
+                            Alphas = bm.Alphas
+                            Bias = bm.Bias
+                            TrainData = bm.TrainData
+                            TrainLabels = bm.TrainLabels
+                            FeatureMap = featureMapToSerializable bm.FeatureMap
+                            SavedAt = DateTime.UtcNow.ToString("o")
+                            Note = None
+                        })
+                
+                let serializable = {
+                    BinaryModels = binaryModels
+                    ClassLabels = model.ClassLabels
+                    NumClasses = model.NumClasses
+                    SavedAt = DateTime.UtcNow.ToString("o")
+                    Note = note
+                }
+                
+                let options = JsonSerializerOptions()
+                options.WriteIndented <- true
+                
+                let json = JsonSerializer.Serialize(serializable, options)
+                do! File.WriteAllTextAsync(filePath, json) |> Async.AwaitTask
+                
+                return Ok ()
+            with ex ->
+                return Error $"Failed to save multi-class SVM model: {ex.Message}"
+        }
+    
+    [<System.Obsolete("Use saveMultiClassSVMModelAsync for better performance and to avoid blocking threads")>]
     let saveMultiClassSVMModel
         (filePath: string)
         (model: MultiClassSVM.MultiClassModel)
         (note: string option)
         : Result<unit, string> =
-        
-        try
-            let binaryModels =
-                model.BinaryModels
-                |> Array.map (fun bm ->
-                    {
-                        SupportVectorIndices = bm.SupportVectorIndices
-                        Alphas = bm.Alphas
-                        Bias = bm.Bias
-                        TrainData = bm.TrainData
-                        TrainLabels = bm.TrainLabels
-                        FeatureMap = featureMapToSerializable bm.FeatureMap
-                        SavedAt = DateTime.UtcNow.ToString("o")
-                        Note = None
-                    })
-            
-            let serializable = {
-                BinaryModels = binaryModels
-                ClassLabels = model.ClassLabels
-                NumClasses = model.NumClasses
-                SavedAt = DateTime.UtcNow.ToString("o")
-                Note = note
-            }
-            
-            let options = JsonSerializerOptions()
-            options.WriteIndented <- true
-            
-            let json = JsonSerializer.Serialize(serializable, options)
-            File.WriteAllText(filePath, json)
-            
-            Ok ()
-        with ex ->
-            Error $"Failed to save multi-class SVM model: {ex.Message}"
+        saveMultiClassSVMModelAsync filePath model note |> Async.RunSynchronously
     
-    /// Load multi-class SVM model from JSON file
+    /// Load multi-class SVM model from JSON file (async)
+    let loadMultiClassSVMModelAsync
+        (filePath: string)
+        : Async<Result<MultiClassSVM.MultiClassModel, string>> =
+        async {
+            try
+                if not (File.Exists filePath) then
+                    return Error $"File not found: {filePath}"
+                else
+                    let! json = File.ReadAllTextAsync(filePath) |> Async.AwaitTask
+                    let serializable = JsonSerializer.Deserialize<SerializableMultiClassSVMModel>(json)
+                    
+                    // Convert all binary models
+                    let binaryModelsResult =
+                        serializable.BinaryModels
+                        |> Array.map (fun bm ->
+                            match serializableToFeatureMap bm.FeatureMap with
+                            | Error e -> Error e
+                            | Ok featureMap ->
+                                let svmModel : QuantumKernelSVM.SVMModel = {
+                                    SupportVectorIndices = bm.SupportVectorIndices
+                                    Alphas = bm.Alphas
+                                    Bias = bm.Bias
+                                    TrainData = bm.TrainData
+                                    TrainLabels = bm.TrainLabels
+                                    FeatureMap = featureMap
+                                }
+                                Ok svmModel)
+                        |> Array.fold (fun state item ->
+                            match state, item with
+                            | Ok models, Ok model -> Ok (Array.append models [| model |])
+                            | Error e, _ -> Error e
+                            | _, Error e -> Error e
+                        ) (Ok [||])
+                
+                    return
+                        match binaryModelsResult with
+                        | Error e -> Error e
+                        | Ok binaryModels ->
+                            let multiClassModel : MultiClassSVM.MultiClassModel = {
+                                BinaryModels = binaryModels
+                                ClassLabels = serializable.ClassLabels
+                                NumClasses = serializable.NumClasses
+                            }
+                            Ok multiClassModel
+            with ex ->
+                return Error $"Failed to load multi-class SVM model: {ex.Message}"
+        }
+    
+    [<System.Obsolete("Use loadMultiClassSVMModelAsync for better performance and to avoid blocking threads")>]
     let loadMultiClassSVMModel
         (filePath: string)
         : Result<MultiClassSVM.MultiClassModel, string> =
-        
-        try
-            if not (File.Exists filePath) then
-                Error $"File not found: {filePath}"
-            else
-                let json = File.ReadAllText(filePath)
-                let serializable = JsonSerializer.Deserialize<SerializableMultiClassSVMModel>(json)
-                
-                // Convert all binary models
-                let binaryModelsResult =
-                    serializable.BinaryModels
-                    |> Array.map (fun bm ->
-                        match serializableToFeatureMap bm.FeatureMap with
-                        | Error e -> Error e
-                        | Ok featureMap ->
-                            let svmModel : QuantumKernelSVM.SVMModel = {
-                                SupportVectorIndices = bm.SupportVectorIndices
-                                Alphas = bm.Alphas
-                                Bias = bm.Bias
-                                TrainData = bm.TrainData
-                                TrainLabels = bm.TrainLabels
-                                FeatureMap = featureMap
-                            }
-                            Ok svmModel)
-                    |> Array.fold (fun state item ->
-                        match state, item with
-                        | Ok models, Ok model -> Ok (Array.append models [| model |])
-                        | Error e, _ -> Error e
-                        | _, Error e -> Error e
-                    ) (Ok [||])
-                
-                match binaryModelsResult with
-                | Error e -> Error e
-                | Ok binaryModels ->
-                    let multiClassModel : MultiClassSVM.MultiClassModel = {
-                        BinaryModels = binaryModels
-                        ClassLabels = serializable.ClassLabels
-                        NumClasses = serializable.NumClasses
-                    }
-                    Ok multiClassModel
-        with ex ->
-            Error $"Failed to load multi-class SVM model: {ex.Message}"
+        loadMultiClassSVMModelAsync filePath |> Async.RunSynchronously
     
     /// Print multi-class SVM model information
     let printMultiClassSVMModelInfo

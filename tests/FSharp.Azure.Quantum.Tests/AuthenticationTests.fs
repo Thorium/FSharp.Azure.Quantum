@@ -225,7 +225,7 @@ let ``AuthenticationHandler should fail gracefully when token acquisition fails`
     
     // Async task failures wrap exceptions in AggregateException
     let ex = 
-        Assert.ThrowsAsync<AggregateException>(fun () ->
+        Assert.ThrowsAsync<Azure.Identity.AuthenticationFailedException>(fun () ->
             client.SendAsync(request) :> Task
         ) 
         |> Async.AwaitTask 

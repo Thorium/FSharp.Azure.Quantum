@@ -34,6 +34,9 @@ module CircuitBuilder =
         
         // Multi-qubit gates
         | MCZ of int list * int       // Multi-controlled Z (controls, target)
+        
+        // Measurement
+        | Measure of int              // Measurement of qubit in computational basis
 
     /// Represents a quantum circuit with gates and qubit count
     type Circuit = {
@@ -60,6 +63,10 @@ module CircuitBuilder =
     /// Adds multiple gates to the end of a circuit
     let addGates (gates: Gate list) (circuit: Circuit) : Circuit =
         { circuit with Gates = circuit.Gates @ gates }
+
+    /// Adds a measurement operation to the end of a circuit
+    let addMeasurement (qubit: int) (circuit: Circuit) : Circuit =
+        addGate (Measure qubit) circuit
 
     /// Composes two circuits by appending the gates of the second to the first
     let compose (circuit1: Circuit) (circuit2: Circuit) : Circuit =
@@ -137,6 +144,7 @@ module CircuitBuilder =
         | RX (q, angle) -> $"rx({angle}) q[{q}];"
         | RY (q, angle) -> $"ry({angle}) q[{q}];"
         | RZ (q, angle) -> $"rz({angle}) q[{q}];"
+        | Measure q -> $"measure q[{q}];"
 
     /// Converts a circuit to OpenQASM 2.0 format for Azure Quantum submission
     let toOpenQASM (circuit: Circuit) : string =
@@ -168,6 +176,7 @@ module CircuitBuilder =
         | SWAP _ -> "SWAP"
         | CCX _ -> "CCX"
         | MCZ _ -> "MCZ"
+        | Measure _ -> "Measure"
     
     /// Validates a circuit for correctness (qubit bounds, gate compatibility)
     let validate (circuit: Circuit) : Validation.ValidationResult =
@@ -181,7 +190,7 @@ module CircuitBuilder =
 
         let validateGate (gate: Gate) : string list =
             match gate with
-            | X q | Y q | Z q | H q | S q | SDG q | T q | TDG q ->
+            | X q | Y q | Z q | H q | S q | SDG q | T q | TDG q | Measure q ->
                 validateQubit q |> Option.toList
             | RX (q, _) | RY (q, _) | RZ (q, _) | P (q, _) ->
                 validateQubit q |> Option.toList

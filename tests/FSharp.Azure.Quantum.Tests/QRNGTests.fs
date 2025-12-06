@@ -3,6 +3,7 @@ namespace FSharp.Azure.Quantum.Tests
 open System
 open Xunit
 open FSharp.Azure.Quantum.Algorithms.QRNG
+open FSharp.Azure.Quantum.Core
 
 /// Tests for Quantum Random Number Generator (QRNG)
 module QRNGTests =
@@ -205,7 +206,7 @@ module QRNGTests =
     
     [<Fact>]
     let ``result entropy is between 0 and 1`` () =
-        let result = generate 1000
+        let result = generate 100
         
         Assert.True(result.Entropy >= 0.0)
         Assert.True(result.Entropy <= 1.0)

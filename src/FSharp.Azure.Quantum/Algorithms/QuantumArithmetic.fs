@@ -140,6 +140,9 @@ module QuantumArithmetic =
                     // Multi-qubit gates
                     | MCZ (controls, target) -> 
                         MCZ (List.map (fun c -> c + startQubit) controls, target + startQubit)
+                    
+                    // Measurement
+                    | Measure q -> Measure (q + startQubit)
                 
                 addGate adjustedGate circ
             ) circuit
@@ -193,6 +196,9 @@ module QuantumArithmetic =
                     // Multi-qubit gates
                     | MCZ (controls, target) -> 
                         MCZ (List.map (fun c -> c + startQubit) controls, target + startQubit)
+                    
+                    // Measurement
+                    | Measure q -> Measure (q + startQubit)
                 
                 addGate adjustedGate circ
             ) circuit

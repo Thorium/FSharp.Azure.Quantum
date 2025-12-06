@@ -26,13 +26,11 @@ module FeatureMap =
     /// Circuit: Ry(π * x_i) for each feature
     let angleEncoding (features: FeatureVector) : Circuit =
         let numQubits = features.Length
-        let mutable circ = empty numQubits
-        
-        for i in 0 .. numQubits - 1 do
+        [0 .. numQubits - 1]
+        |> List.fold (fun circ i ->
             let angle = Math.PI * features.[i]
-            circ <- addGate (RY(i, angle)) circ
-        
-        circ
+            addGate (RY(i, angle)) circ
+        ) (empty numQubits)
     
     // ========================================================================
     // ZZ FEATURE MAP
@@ -48,31 +46,33 @@ module FeatureMap =
     /// φ(x) = x_i * x_j for pairs (i,j)
     let zzFeatureMap (depth: int) (features: FeatureVector) : Circuit =
         let numQubits = features.Length
-        let mutable circ = empty numQubits
         
-        for layer in 0 .. depth - 1 do
+        [0 .. depth - 1]
+        |> List.fold (fun circ layer ->
             // Step 1: Hadamard layer (create superposition)
-            for i in 0 .. numQubits - 1 do
-                circ <- addGate (H i) circ
+            let circWithH =
+                [0 .. numQubits - 1]
+                |> List.fold (fun c i -> addGate (H i) c) circ
             
             // Step 2: Feature rotation layer
-            // Apply Rz(2 * φ(x_i)) to each qubit
-            for i in 0 .. numQubits - 1 do
-                let angle = 2.0 * features.[i]
-                circ <- addGate (RZ(i, angle)) circ
+            let circWithRz =
+                [0 .. numQubits - 1]
+                |> List.fold (fun c i ->
+                    let angle = 2.0 * features.[i]
+                    addGate (RZ(i, angle)) c
+                ) circWithH
             
             // Step 3: ZZ entanglement layer
-            // Apply exp(-i * φ(x_i, x_j) * Z_i ⊗ Z_j)
-            // Implemented as: CNot(i,j), Rz(2*φ), CNot(i,j)
-            for i in 0 .. numQubits - 2 do
+            [0 .. numQubits - 2]
+            |> List.fold (fun c i ->
                 let j = i + 1
                 let angle = 2.0 * features.[i] * features.[j]
-                
-                circ <- addGate (CNOT(i, j)) circ
-                circ <- addGate (RZ(j, angle)) circ
-                circ <- addGate (CNOT(i, j)) circ
-        
-        circ
+                c
+                |> addGate (CNOT(i, j))
+                |> addGate (RZ(j, angle))
+                |> addGate (CNOT(i, j))
+            ) circWithRz
+        ) (empty numQubits)
     
     // ========================================================================
     // PAULI FEATURE MAP
@@ -86,45 +86,46 @@ module FeatureMap =
     /// Example: "ZZ", "XY", "ZZZ" etc.
     let pauliFeatureMap (pauliStrings: string list) (depth: int) (features: FeatureVector) : Circuit =
         let numQubits = features.Length
-        let mutable circ = empty numQubits
         
-        for layer in 0 .. depth - 1 do
+        let applyPauliRotation circ pauliIdx (pauliStr : string) =
+            let featureIdx = pauliIdx % features.Length
+            let angle = 2.0 * features.[featureIdx]
+            
+            match pauliStr.ToUpper() with
+            | "ZZ" when numQubits >= 2 ->
+                circ
+                |> addGate (CNOT(0, 1))
+                |> addGate (RZ(1, angle))
+                |> addGate (CNOT(0, 1))
+            | "XX" when numQubits >= 2 ->
+                circ
+                |> addGate (H 0)
+                |> addGate (H 1)
+                |> addGate (CNOT(0, 1))
+                |> addGate (RZ(1, angle))
+                |> addGate (CNOT(0, 1))
+                |> addGate (H 0)
+                |> addGate (H 1)
+            | "Z" ->
+                addGate (RZ(0, angle)) circ
+            | _ ->
+                let qubit = pauliIdx % numQubits
+                addGate (RZ(qubit, angle)) circ
+        
+        [0 .. depth - 1]
+        |> List.fold (fun circ layer ->
             // Hadamard layer
-            for i in 0 .. numQubits - 1 do
-                circ <- addGate (H i) circ
+            let circWithH =
+                [0 .. numQubits - 1]
+                |> List.fold (fun c i -> addGate (H i) c) circ
             
             // Apply each Pauli string rotation
-            for (pauliIdx, pauliStr) in List.indexed pauliStrings do
-                // For now, simplified implementation: use first two features
-                let featureIdx = pauliIdx % features.Length
-                let angle = 2.0 * features.[featureIdx]
-                
-                // Parse Pauli string and apply corresponding gates
-                // Simplified: support ZZ, XX, YY patterns
-                match pauliStr.ToUpper() with
-                | "ZZ" when numQubits >= 2 ->
-                    circ <- addGate (CNOT(0, 1)) circ
-                    circ <- addGate (RZ(1, angle)) circ
-                    circ <- addGate (CNOT(0, 1)) circ
-                
-                | "XX" when numQubits >= 2 ->
-                    circ <- addGate (H 0) circ
-                    circ <- addGate (H 1) circ
-                    circ <- addGate (CNOT(0, 1)) circ
-                    circ <- addGate (RZ(1, angle)) circ
-                    circ <- addGate (CNOT(0, 1)) circ
-                    circ <- addGate (H 0) circ
-                    circ <- addGate (H 1) circ
-                
-                | "Z" ->
-                    circ <- addGate (RZ(0, angle)) circ
-                
-                | _ ->
-                    // Default: single qubit Z rotation
-                    let qubit = pauliIdx % numQubits
-                    circ <- addGate (RZ(qubit, angle)) circ
-        
-        circ
+            pauliStrings
+            |> List.indexed
+            |> List.fold (fun c (pauliIdx, pauliStr) ->
+                applyPauliRotation c pauliIdx pauliStr
+            ) circWithH
+        ) (empty numQubits)
     
     // ========================================================================
     // AMPLITUDE ENCODING

@@ -3,6 +3,7 @@ namespace FSharp.Azure.Quantum.Business
 open System
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.MachineLearning
+open FSharp.Azure.Quantum
 
 /// High-Level Binary Classification Builder - Business-First API
 /// 
@@ -319,6 +320,10 @@ module BinaryClassifier =
                 match problem.Backend with
                 | Some b -> b
                 | None -> LocalBackend() :> IQuantumBackend  // Default to local simulation
+            
+            // Set cancellation token on backend if provided
+            problem.CancellationToken |> Option.iter (fun token ->
+                backend.SetCancellationToken(Some token))
             
             match problem.Architecture with
             | Quantum -> trainQuantum backend problem.TrainFeatures problem.TrainLabels problem

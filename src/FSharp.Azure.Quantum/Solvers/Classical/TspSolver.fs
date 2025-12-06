@@ -125,16 +125,17 @@ module TspSolver =
     let private reverseSegment (arr: 'T array) (start: int) (finish: int) : 'T array =
         let n = arr.Length
         let newArr = Array.copy arr
-        let mutable left = start
-        let mutable right = finish
         
-        while left <> right && (left - 1 + n) % n <> right do
-            let temp = newArr.[left]
-            newArr.[left] <- newArr.[right]
-            newArr.[right] <- temp
-            left <- (left + 1) % n
-            right <- (right - 1 + n) % n
+        let rec swapElements left right =
+            if left = right || (left - 1 + n) % n = right then
+                ()
+            else
+                let temp = newArr.[left]
+                newArr.[left] <- newArr.[right]
+                newArr.[right] <- temp
+                swapElements ((left + 1) % n) ((right - 1 + n) % n)
         
+        swapElements start finish
         newArr
 
     /// Try to improve tour by reversing segment between i+1 and j (2-opt move)

@@ -78,7 +78,6 @@
     <Compile Include="Algorithms\HHLAlgorithm.fs" />
     <Compile Include="Algorithms\ShorsTypes.fs" />
     <Compile Include="Algorithms\ShorsAlgorithm.fs" />
-    <Compile Include="Algorithms\QRNG.fs" />
 
     <!-- Core Infrastructure (depends on Types, LocalSimulator) -->
     <Compile Include="Core\CostEstimation.fs" />
@@ -128,7 +127,9 @@
     <Compile Include="Backends\BackendAbstraction.fs" />
     <Compile Include="Core\QaoaOptimizer.fs" />
     <Compile Include="Core\QaoaParameterOptimizer.fs" />
-    
+
+    <!-- QAOA Algorithm (depends on QaoaCircuit, CircuitAbstraction, QaoaOptimizer) -->
+    <Compile Include="Algorithms\QRNG.fs" />
     <!-- D-Wave QUBO Extraction (depends on QaoaCircuit, CircuitAbstraction) -->
     <Compile Include="Algorithms\QuboExtraction.fs" />
     

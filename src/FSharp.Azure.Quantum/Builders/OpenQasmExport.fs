@@ -159,6 +159,8 @@ module OpenQasmExport =
             // MCZ gate should be decomposed before export
             // This case should not be reached if transpilation is done properly
             failwith "MCZ gate found in OpenQASM export. Call GateTranspiler.transpile() first to decompose multi-controlled gates."
+        | Measure q ->
+            $"measure q[{q}];"
     
     // ========================================================================
     // VALIDATION
@@ -191,7 +193,7 @@ module OpenQasmExport =
                         Ok ()
                 
                 match gate with
-                | X q | Y q | Z q | H q | S q | SDG q | T q | TDG q -> 
+                | X q | Y q | Z q | H q | S q | SDG q | T q | TDG q | Measure q -> 
                     checkQubit q "single-qubit gate"
                 | RX (q, _) | RY (q, _) | RZ (q, _) | P (q, _) -> 
                     checkQubit q "rotation gate"

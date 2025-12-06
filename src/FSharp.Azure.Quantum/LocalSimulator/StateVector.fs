@@ -1,5 +1,6 @@
 namespace FSharp.Azure.Quantum.LocalSimulator
 
+open System
 open System.Numerics
 
 /// State Vector Module for Local Quantum Simulation
@@ -69,13 +70,7 @@ module StateVector =
         if n = 0 || (n &&& (n - 1)) <> 0 then
             failwith $"Amplitude array length must be a power of 2, got {n}"
         
-        let numQubits = 
-            let mutable count = 0
-            let mutable value = n
-            while value > 1 do
-                value <- value >>> 1
-                count <- count + 1
-            count
+        let numQubits = int (Math.Log(float n, 2.0))
         
         if numQubits > 20 then
             failwith $"State vector supports maximum 20 qubits (1048576 dimensions), got {numQubits} qubits ({n} dimensions)"
@@ -119,10 +114,9 @@ module StateVector =
         if bra.Amplitudes.Length <> ket.Amplitudes.Length then
             failwith "State vectors must have same dimension for inner product"
         
-        let mutable sum = Complex.Zero
-        for i in 0 .. bra.Amplitudes.Length - 1 do
-            sum <- sum + (Complex.Conjugate bra.Amplitudes[i]) * ket.Amplitudes[i]
-        sum
+        Array.zip bra.Amplitudes ket.Amplitudes
+        |> Array.fold (fun sum (braAmp, ketAmp) -> 
+            sum + (Complex.Conjugate braAmp) * ketAmp) Complex.Zero
     
     /// Calculate probability of measuring basis state |i⟩
     /// P(i) = |αᵢ|² where αᵢ is amplitude at index i
@@ -162,10 +156,10 @@ module StateVector =
         let dim2 = state2.Amplitudes.Length
         let resultDim = dim1 * dim2
         
-        let resultAmps = Array.zeroCreate resultDim
-        
-        for i in 0 .. dim1 - 1 do
-            for j in 0 .. dim2 - 1 do
-                resultAmps[i * dim2 + j] <- state1.Amplitudes[i] * state2.Amplitudes[j]
+        let resultAmps =
+            Array.init resultDim (fun idx ->
+                let i = idx / dim2
+                let j = idx % dim2
+                state1.Amplitudes[i] * state2.Amplitudes[j])
         
         create resultAmps

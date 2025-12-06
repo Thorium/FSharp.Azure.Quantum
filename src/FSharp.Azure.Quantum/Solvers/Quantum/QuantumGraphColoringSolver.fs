@@ -471,29 +471,30 @@ module QuantumGraphColoringSolver =
             )
             |> Map.ofList
         
-        // Greedy coloring algorithm
-        let mutable colorAssignments = Map.empty
-        
-        for vertex in problem.Vertices do
-            // Check if vertex has fixed color
-            match Map.tryFind vertex problem.FixedColors with
-            | Some fixedColor ->
-                colorAssignments <- colorAssignments |> Map.add vertex fixedColor
-            | None ->
-                // Find colors used by neighbors
-                let neighbors = Map.find vertex adjacencyMap
-                let neighborColors = 
-                    neighbors
-                    |> Set.toList
-                    |> List.choose (fun neighbor -> Map.tryFind neighbor colorAssignments)
-                    |> Set.ofList
-                
-                // Assign first available color (not used by any neighbor)
-                let assignedColor = 
-                    seq { 0 .. problem.NumColors - 1 }
-                    |> Seq.find (fun color -> not (Set.contains color neighborColors))
-                
-                colorAssignments <- colorAssignments |> Map.add vertex assignedColor
+        // Greedy coloring algorithm using functional fold
+        let colorAssignments =
+            problem.Vertices
+            |> List.fold (fun assignments vertex ->
+                // Check if vertex has fixed color
+                match Map.tryFind vertex problem.FixedColors with
+                | Some fixedColor ->
+                    assignments |> Map.add vertex fixedColor
+                | None ->
+                    // Find colors used by neighbors
+                    let neighbors = Map.find vertex adjacencyMap
+                    let neighborColors = 
+                        neighbors
+                        |> Set.toList
+                        |> List.choose (fun neighbor -> Map.tryFind neighbor assignments)
+                        |> Set.ofList
+                    
+                    // Assign first available color (not used by any neighbor)
+                    let assignedColor = 
+                        seq { 0 .. problem.NumColors - 1 }
+                        |> Seq.find (fun color -> not (Set.contains color neighborColors))
+                    
+                    assignments |> Map.add vertex assignedColor
+            ) Map.empty
         
         // Count distinct colors used
         let colorsUsed = 

@@ -106,33 +106,40 @@ module QaoaCircuit =
             if n <> Array2D.length2 quboMatrix then
                 failwith "QUBO matrix must be square"
             
-            let terms = ResizeArray<HamiltonianTerm>()
-            
-            // Process diagonal terms (single-qubit Z operators)
-            for i in 0 .. n - 1 do
-                let qii = quboMatrix[i, i]
-                if abs qii > 1e-10 then  // Skip near-zero terms
-                    terms.Add {
-                        Coefficient = -qii / 2.0
-                        QubitsIndices = [| i |]
-                        PauliOperators = [| PauliZ |]
-                    }
-            
-            // Process off-diagonal terms (two-qubit ZZ interactions)
-            // QUBO is symmetric, so we only need upper triangle
-            for i in 0 .. n - 1 do
-                for j in i + 1 .. n - 1 do
-                    let qij = quboMatrix[i, j] + quboMatrix[j, i]  // Symmetrize
-                    if abs qij > 1e-10 then  // Skip near-zero terms
-                        terms.Add {
-                            Coefficient = qij / 4.0
-                            QubitsIndices = [| i; j |]
-                            PauliOperators = [| PauliZ; PauliZ |]
+            // Collect diagonal terms (single-qubit Z operators)
+            let diagonalTerms =
+                [| 0 .. n - 1 |]
+                |> Array.choose (fun i ->
+                    let qii = quboMatrix[i, i]
+                    if abs qii > 1e-10 then  // Skip near-zero terms
+                        Some {
+                            Coefficient = -qii / 2.0
+                            QubitsIndices = [| i |]
+                            PauliOperators = [| PauliZ |]
                         }
+                    else
+                        None)
+            
+            // Collect off-diagonal terms (two-qubit ZZ interactions)
+            // QUBO is symmetric, so we only need upper triangle
+            let offDiagonalTerms =
+                [| 0 .. n - 1 |]
+                |> Array.collect (fun i ->
+                    [| i + 1 .. n - 1 |]
+                    |> Array.choose (fun j ->
+                        let qij = quboMatrix[i, j] + quboMatrix[j, i]  // Symmetrize
+                        if abs qij > 1e-10 then  // Skip near-zero terms
+                            Some {
+                                Coefficient = qij / 4.0
+                                QubitsIndices = [| i; j |]
+                                PauliOperators = [| PauliZ; PauliZ |]
+                            }
+                        else
+                            None))
             
             {
                 NumQubits = n
-                Terms = terms.ToArray()
+                Terms = Array.append diagonalTerms offDiagonalTerms
             }
     
     // ============================================================================
@@ -175,46 +182,46 @@ module QaoaCircuit =
         /// - Two-qubit ZZ: RZZ(2*c*γ)
         /// - Single-qubit X: RX(2*c*β)
         let buildLayer (problemHam: ProblemHamiltonian) (mixerHam: MixerHamiltonian) (gamma: float) (beta: float) : QaoaLayer =
-            let costGates = ResizeArray<QuantumGate>()
-            
             // Build cost layer gates from problem Hamiltonian
-            for term in problemHam.Terms do
-                let angle = 2.0 * term.Coefficient * gamma
-                
-                match term.QubitsIndices.Length with
-                | 1 -> 
-                    // Single-qubit Z rotation
-                    match term.PauliOperators[0] with
-                    | PauliZ -> costGates.Add(RZ(term.QubitsIndices[0], angle))
-                    | _ -> failwith "Unsupported Pauli operator in problem Hamiltonian"
-                
-                | 2 ->
-                    // Two-qubit ZZ rotation
-                    match term.PauliOperators[0], term.PauliOperators[1] with
-                    | PauliZ, PauliZ -> 
-                        costGates.Add(RZZ(term.QubitsIndices[0], term.QubitsIndices[1], angle))
-                    | _ -> failwith "Unsupported Pauli operators in problem Hamiltonian"
-                
-                | _ -> failwith "Only single and two-qubit terms supported"
-            
-            let mixerGates = ResizeArray<QuantumGate>()
+            let costGates =
+                problemHam.Terms
+                |> Array.map (fun term ->
+                    let angle = 2.0 * term.Coefficient * gamma
+                    
+                    match term.QubitsIndices.Length with
+                    | 1 -> 
+                        // Single-qubit Z rotation
+                        match term.PauliOperators[0] with
+                        | PauliZ -> RZ(term.QubitsIndices[0], angle)
+                        | _ -> failwith "Unsupported Pauli operator in problem Hamiltonian"
+                    
+                    | 2 ->
+                        // Two-qubit ZZ rotation
+                        match term.PauliOperators[0], term.PauliOperators[1] with
+                        | PauliZ, PauliZ -> 
+                            RZZ(term.QubitsIndices[0], term.QubitsIndices[1], angle)
+                        | _ -> failwith "Unsupported Pauli operators in problem Hamiltonian"
+                    
+                    | _ -> failwith "Only single and two-qubit terms supported")
             
             // Build mixer layer gates from mixer Hamiltonian
-            for term in mixerHam.Terms do
-                let angle = 2.0 * term.Coefficient * beta
-                
-                match term.QubitsIndices.Length with
-                | 1 ->
-                    // Single-qubit X rotation
-                    match term.PauliOperators[0] with
-                    | PauliX -> mixerGates.Add(RX(term.QubitsIndices[0], angle))
-                    | _ -> failwith "Unsupported Pauli operator in mixer Hamiltonian"
-                
-                | _ -> failwith "Mixer should only have single-qubit terms"
+            let mixerGates =
+                mixerHam.Terms
+                |> Array.map (fun term ->
+                    let angle = 2.0 * term.Coefficient * beta
+                    
+                    match term.QubitsIndices.Length with
+                    | 1 ->
+                        // Single-qubit X rotation
+                        match term.PauliOperators[0] with
+                        | PauliX -> RX(term.QubitsIndices[0], angle)
+                        | _ -> failwith "Unsupported Pauli operator in mixer Hamiltonian"
+                    
+                    | _ -> failwith "Mixer should only have single-qubit terms")
             
             {
-                CostGates = costGates.ToArray()
-                MixerGates = mixerGates.ToArray()
+                CostGates = costGates
+                MixerGates = mixerGates
                 Gamma = gamma
                 Beta = beta
             }

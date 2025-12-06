@@ -798,6 +798,10 @@ module ProbabilisticErrorCancellationTests =
                                 FSharp.Azure.Quantum.LocalSimulator.Gates.applyCP ctrl tgt theta state
                             | CircuitBuilder.Gate.SWAP (q1, q2) -> FSharp.Azure.Quantum.LocalSimulator.Gates.applySWAP q1 q2 state
                             | CircuitBuilder.Gate.CCX (c1, c2, tgt) -> FSharp.Azure.Quantum.LocalSimulator.Gates.applyCCX c1 c2 tgt state
+                            | CircuitBuilder.Gate.Measure q -> 
+                                // Perform realistic measurement with state collapse
+                                let outcome = FSharp.Azure.Quantum.LocalSimulator.Measurement.measureSingleQubit rng q state
+                                FSharp.Azure.Quantum.LocalSimulator.Measurement.collapseAfterMeasurement q outcome state
                         
                         // Add depolarizing noise: random Z rotation with probability noise
                         if rng.NextDouble() < noise then
@@ -822,6 +826,7 @@ module ProbabilisticErrorCancellationTests =
                                 | CircuitBuilder.Gate.CP (_, tgt, _) -> tgt
                                 | CircuitBuilder.Gate.SWAP (_, q2) -> q2
                                 | CircuitBuilder.Gate.CCX (_, _, tgt) -> tgt
+                                | CircuitBuilder.Gate.Measure q -> q
                             FSharp.Azure.Quantum.LocalSimulator.Gates.applyRz qubit randomAngle afterGate
                         else
                             afterGate

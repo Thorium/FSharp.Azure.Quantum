@@ -2,7 +2,10 @@ namespace FSharp.Azure.Quantum.Algorithms
 
 open System
 open FSharp.Azure.Quantum.Core
+open FSharp.Azure.Quantum.Core.BackendAbstraction
+open FSharp.Azure.Quantum.Core.CircuitAbstraction
 open FSharp.Azure.Quantum.LocalSimulator
+open FSharp.Azure.Quantum
 
 /// Quantum Random Number Generator (QRNG)
 /// 
@@ -77,50 +80,43 @@ module QRNG =
             | None -> Random()
         
         // Generate random bits using quantum measurement
-        let bits = Array.zeroCreate<bool> numBits
-        
-        // Process in batches of qubits to avoid excessive state vector size
-        let batchSize = min 20 numBits  // Process ≤20 qubits at a time
-        let numBatches = (numBits + batchSize - 1) / batchSize
-        
-        for batchIdx in 0 .. numBatches - 1 do
-            let startIdx = batchIdx * batchSize
-            let endIdx = min (startIdx + batchSize) numBits
-            let currentBatchSize = endIdx - startIdx
-            
-            // Initialize quantum state for this batch
-            let state = StateVector.init currentBatchSize  // All qubits in |0⟩
-            
-            // Apply Hadamard to all qubits → uniform superposition
-            let superpositionState =
-                [0 .. currentBatchSize - 1]
-                |> List.fold (fun s qubitIdx -> Gates.applyH qubitIdx s) state
-            
-            // Measure all qubits
-            let measurementOutcome = Measurement.measureComputationalBasis rng superpositionState
-            
-            // Extract bits from measurement outcome
-            for i in 0 .. currentBatchSize - 1 do
-                bits[startIdx + i] <- ((measurementOutcome >>> i) &&& 1) = 1
+        // Since qubits are independent (no entanglement), we measure 1 qubit at a time
+        // This is MUCH faster than batching: 2^1 = 2 amplitudes vs 2^20 = 1M amplitudes!
+        let bits =
+            [0 .. numBits - 1]
+            |> List.map (fun _ ->
+                // Initialize single-qubit state |0⟩
+                let state = StateVector.init 1
+                
+                // Apply Hadamard → (|0⟩ + |1⟩)/√2
+                let superpositionState = Gates.applyH 0 state
+                
+                // Measure qubit (50% chance of 0 or 1)
+                let measurementOutcome = Measurement.measureComputationalBasis rng superpositionState
+                
+                // Extract bit from measurement (0 or 1)
+                measurementOutcome = 1)
+            |> Array.ofList
         
         // Convert bits to bytes
         let numBytes = (numBits + 7) / 8
-        let bytes = Array.zeroCreate<byte> numBytes
-        
-        for i in 0 .. numBits - 1 do
-            if bits[i] then
-                let byteIdx = i / 8
-                let bitIdx = i % 8
-                bytes[byteIdx] <- bytes[byteIdx] ||| (1uy <<< bitIdx)
+        let bytes =
+            Array.init numBytes (fun byteIdx ->
+                [0 .. 7]
+                |> List.fold (fun acc bitIdx ->
+                    let i = byteIdx * 8 + bitIdx
+                    if i < numBits && bits.[i] 
+                    then acc ||| (1uy <<< bitIdx)
+                    else acc) 0uy)
         
         // Convert to integer if possible (≤64 bits)
         let asInteger =
             if numBits <= 64 then
-                let mutable value = 0UL
-                for i in 0 .. numBits - 1 do
-                    if bits[i] then
-                        value <- value ||| (1UL <<< i)
-                Some value
+                bits
+                |> Array.indexed
+                |> Array.filter snd
+                |> Array.fold (fun acc (i, _) -> acc ||| (1UL <<< i)) 0UL
+                |> Some
             else
                 None
         
@@ -213,30 +209,34 @@ module QRNG =
             else
                 try
                     // Build quantum circuit for QRNG
-                    let circuit = CircuitAbstraction.Circuit.empty numBits
+                    let circuit = CircuitBuilder.empty numBits
                     
                     // Apply Hadamard to all qubits
                     let circuitWithH =
                         [0 .. numBits - 1]
                         |> List.fold (fun c qubitIdx ->
-                            CircuitAbstraction.Circuit.addGate 
-                                (CircuitAbstraction.Gate.H qubitIdx) c) circuit
+                            CircuitBuilder.addGate 
+                                (CircuitBuilder.Gate.H qubitIdx) c) circuit
                     
                     // Measure all qubits
                     let finalCircuit =
                         [0 .. numBits - 1]
                         |> List.fold (fun c qubitIdx ->
-                            CircuitAbstraction.Circuit.addMeasurement qubitIdx c) circuitWithH
+                            CircuitBuilder.addMeasurement qubitIdx c) circuitWithH
                     
                     // Execute on backend
-                    let! executionResult = backend.ExecuteAsync finalCircuit 1 None
+                    let wrappedCircuit = CircuitAbstraction.CircuitWrapper(finalCircuit) :> ICircuit
+                    let! executionResult = backend.ExecuteAsync wrappedCircuit 1
                     
                     match executionResult with
                     | Ok result ->
-                        // Extract measurement results
-                        let bits = Array.zeroCreate<bool> numBits
-                        for (qubitIdx, value) in result.Measurements do
-                            bits[qubitIdx] <- value
+                        // Extract measurement results from the first shot
+                        let bits = 
+                            match result.Measurements with
+                            | [||] -> Array.zeroCreate<bool> numBits
+                            | measurements -> 
+                                measurements.[0] 
+                                |> Array.map (fun bitValue -> bitValue = 1)
                         
                         // Convert to bytes
                         let numBytes = (numBits + 7) / 8
