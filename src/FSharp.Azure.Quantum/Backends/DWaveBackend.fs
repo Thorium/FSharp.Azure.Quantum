@@ -17,6 +17,7 @@ module DWaveBackend =
     
     open FSharp.Azure.Quantum.Core.BackendAbstraction
     open FSharp.Azure.Quantum.Core.CircuitAbstraction
+    open FSharp.Azure.Quantum.Core
     open FSharp.Azure.Quantum.Backends.DWaveTypes
     open FSharp.Azure.Quantum.Algorithms.QuboToIsing
     open FSharp.Azure.Quantum.Algorithms.QuboExtraction
@@ -106,7 +107,11 @@ module DWaveBackend =
             results
             |> List.groupBy fst
             |> List.map (fun (spins, group) ->
-                let energy = snd (List.head group)
+                // List.groupBy guarantees non-empty groups, but use pattern matching for clarity
+                let energy = 
+                    match group with
+                    | (_, e) :: _ -> e  // Extract energy from first item
+                    | [] -> 0.0  // Should never happen, but safe fallback
                 {
                     Spins = spins
                     Energy = energy
@@ -135,14 +140,14 @@ module DWaveBackend =
         let maxQubits = getMaxQubits solver
         
         /// Core execution logic (shared by Execute and ExecuteAsync)
-        member private _.ExecuteCore (circuit: ICircuit) (numShots: int) : Result<ExecutionResult, string> =
+        member private _.ExecuteCore (circuit: ICircuit) (numShots: int) : Result<ExecutionResult, QuantumError> =
             // Step 0: Validate numShots parameter
             if numShots <= 0 then
-                Error $"numShots must be > 0, got {numShots}"
+                Error (QuantumError.ValidationError ("numShots", $"must be > 0, got {numShots}"))
             else
                 // Step 1: Extract QUBO from QAOA circuit
                 match extractFromICircuit circuit with
-                | Error e -> Error e
+                | Error e -> Error (QuantumError.ValidationError ("QUBO extraction", e))
                 | Ok qubo ->
                     // Step 2: Convert QUBO to Ising
                     let ising = quboToIsing qubo
@@ -150,14 +155,14 @@ module DWaveBackend =
                     // Step 3: Validate qubit count
                     let numQubits = getNumVariables qubo
                     if numQubits > maxQubits then
-                        Error $"Problem requires {numQubits} qubits, but {solverName} supports max {maxQubits}"
+                        Error (QuantumError.ValidationError ("qubit count", $"Problem requires {numQubits} qubits, but {solverName} supports max {maxQubits}"))
                     else
                         // Step 4: Run simulated annealing
                         let solutions = MockSimulatedAnnealing.solve ising numShots seed
                         
                         // Step 5: Validate solutions list is not empty
                         match solutions with
-                        | [] -> Error "No solutions found from simulated annealing"
+                        | [] -> Error (QuantumError.OperationError ("simulated annealing", "No solutions found"))
                         | bestSolution :: _ ->
                             // Step 6: Convert Ising solutions back to binary measurements
                             // Expand each solution by its occurrence count
@@ -197,7 +202,7 @@ module DWaveBackend =
                 // Check cancellation before starting
                 match cancellationToken with
                 | Some token when token.IsCancellationRequested ->
-                    return Error "Operation cancelled before execution"
+                    return Error (QuantumError.BackendError ("D-Wave Mock", "Operation cancelled before execution"))
                 | _ ->
                 return this.ExecuteCore circuit numShots
             }
@@ -206,7 +211,7 @@ module DWaveBackend =
                 // Check cancellation before starting
                 match cancellationToken with
                 | Some token when token.IsCancellationRequested ->
-                    Error "Operation cancelled before execution"
+                    Error (QuantumError.BackendError ("D-Wave Mock", "Operation cancelled before execution"))
                 | _ ->
                 this.ExecuteCore circuit numShots
             

@@ -1,6 +1,7 @@
 namespace FSharp.Azure.Quantum.Algorithms
 
 /// QUBO extraction from QAOA circuits for D-Wave backend.
+open FSharp.Azure.Quantum.Core
 ///
 /// This module provides utilities to extract QUBO matrices from QAOA circuits
 /// for execution on quantum annealing hardware (D-Wave).
@@ -130,8 +131,8 @@ module QuboExtraction =
     /// Parameters:
     /// - qubo: QUBO matrix as Map<(int * int), float>
     ///
-    /// Returns: Result<unit, string> - Ok if symmetric, Error with details
-    let validateSymmetric (qubo: Map<(int * int), float>) : Result<unit, string> =
+    /// Returns: QuantumResult<unit> - Ok if symmetric, Error with details
+    let validateSymmetric (qubo: Map<(int * int), float>) : QuantumResult<unit> =
         let asymmetricTerms = 
             qubo
             |> Map.toList
@@ -153,7 +154,7 @@ module QuboExtraction =
                 asymmetricTerms 
                 |> List.map (fun ((i, j), qij) -> $"Q[{i},{j}] ≠ Q[{j},{i}]")
                 |> String.concat ", "
-            Error $"QUBO matrix is not symmetric: {details}"
+            Error (QuantumError.ValidationError ("QUBO matrix", $"not symmetric: {details}"))
     
     /// Get number of variables (qubits) in QUBO problem
     ///

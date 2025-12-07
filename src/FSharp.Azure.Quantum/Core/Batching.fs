@@ -9,6 +9,8 @@ open System.Collections.Concurrent
 /// Azure Quantum's 30s-5min communication overhead across multiple circuits.
 module Batching =
     
+    open FSharp.Azure.Quantum.Core
+    
     // ============================================================================
     // BATCH CONFIGURATION
     // ============================================================================
@@ -31,11 +33,11 @@ module Batching =
     module BatchConfig =
         
         /// Create a batch configuration with validation
-        let create maxBatchSize timeout enabled : Result<BatchConfig, string> =
+        let create maxBatchSize timeout enabled : QuantumResult<BatchConfig> =
             if maxBatchSize <= 0 then
-                Error "MaxBatchSize must be positive"
+                Error (QuantumError.ValidationError ("MaxBatchSize", "must be positive"))
             elif timeout <= TimeSpan.Zero then
-                Error "Timeout must be positive"
+                Error (QuantumError.ValidationError ("Timeout", "must be positive"))
             else
                 Ok {
                     MaxBatchSize = maxBatchSize

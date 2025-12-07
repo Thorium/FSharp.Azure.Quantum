@@ -105,8 +105,8 @@ match encryptOperation with
         printfn "• Real RSA uses 2048+ bit keys (requires ~4096+ qubits on quantum hardware)"
         printfn "• Current NISQ hardware limited to ~100 qubits, so only toy examples work"
 
-    | Error msg ->
-        printfn "❌ Execution Error: %s" msg
+    | Error err ->
+        printfn "❌ Execution Error: %s" err.Message
 
-| Error msg ->
-    printfn "❌ Builder Error: %s" msg
+| Error err ->
+    printfn "❌ Builder Error: %s" err.Message

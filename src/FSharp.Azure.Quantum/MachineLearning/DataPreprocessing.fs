@@ -5,6 +5,7 @@ namespace FSharp.Azure.Quantum.MachineLearning
 /// Provides essential data preprocessing functions for preparing datasets
 /// for quantum machine learning models (VQC, Quantum Kernels, etc.)
 
+open FSharp.Azure.Quantum.Core
 open System
 
 module DataPreprocessing =

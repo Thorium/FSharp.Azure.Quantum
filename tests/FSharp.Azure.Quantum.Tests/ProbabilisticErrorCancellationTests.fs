@@ -790,12 +790,16 @@ module ProbabilisticErrorCancellationTests =
                             | CircuitBuilder.Gate.RX (q, angle) -> FSharp.Azure.Quantum.LocalSimulator.Gates.applyRx q angle state
                             | CircuitBuilder.Gate.RY (q, angle) -> FSharp.Azure.Quantum.LocalSimulator.Gates.applyRy q angle state
                             | CircuitBuilder.Gate.RZ (q, angle) -> FSharp.Azure.Quantum.LocalSimulator.Gates.applyRz q angle state
+                            | CircuitBuilder.Gate.U3 (q, theta, phi, lambda) -> FSharp.Azure.Quantum.LocalSimulator.Gates.applyU3 q theta phi lambda state
                             | CircuitBuilder.Gate.CNOT (ctrl, tgt) -> FSharp.Azure.Quantum.LocalSimulator.Gates.applyCNOT ctrl tgt state
                             | CircuitBuilder.Gate.CZ (ctrl, tgt) -> FSharp.Azure.Quantum.LocalSimulator.Gates.applyCZ ctrl tgt state
                             | CircuitBuilder.Gate.MCZ (controls, tgt) -> FSharp.Azure.Quantum.LocalSimulator.Gates.applyMultiControlledZ controls tgt state
                             | CircuitBuilder.Gate.CP (ctrl, tgt, theta) -> 
                                 // CP gate: Controlled-Phase
                                 FSharp.Azure.Quantum.LocalSimulator.Gates.applyCP ctrl tgt theta state
+                            | CircuitBuilder.Gate.CRX (ctrl, tgt, angle) -> FSharp.Azure.Quantum.LocalSimulator.Gates.applyCRX ctrl tgt angle state
+                            | CircuitBuilder.Gate.CRY (ctrl, tgt, angle) -> FSharp.Azure.Quantum.LocalSimulator.Gates.applyCRY ctrl tgt angle state
+                            | CircuitBuilder.Gate.CRZ (ctrl, tgt, angle) -> FSharp.Azure.Quantum.LocalSimulator.Gates.applyCRZ ctrl tgt angle state
                             | CircuitBuilder.Gate.SWAP (q1, q2) -> FSharp.Azure.Quantum.LocalSimulator.Gates.applySWAP q1 q2 state
                             | CircuitBuilder.Gate.CCX (c1, c2, tgt) -> FSharp.Azure.Quantum.LocalSimulator.Gates.applyCCX c1 c2 tgt state
                             | CircuitBuilder.Gate.Measure q -> 
@@ -820,10 +824,14 @@ module ProbabilisticErrorCancellationTests =
                                 | CircuitBuilder.Gate.RX (q, _) -> q
                                 | CircuitBuilder.Gate.RY (q, _) -> q
                                 | CircuitBuilder.Gate.RZ (q, _) -> q
+                                | CircuitBuilder.Gate.U3 (q, _, _, _) -> q
                                 | CircuitBuilder.Gate.CNOT (_, tgt) -> tgt
                                 | CircuitBuilder.Gate.CZ (_, tgt) -> tgt
                                 | CircuitBuilder.Gate.MCZ (_, tgt) -> tgt
                                 | CircuitBuilder.Gate.CP (_, tgt, _) -> tgt
+                                | CircuitBuilder.Gate.CRX (_, tgt, _) -> tgt
+                                | CircuitBuilder.Gate.CRY (_, tgt, _) -> tgt
+                                | CircuitBuilder.Gate.CRZ (_, tgt, _) -> tgt
                                 | CircuitBuilder.Gate.SWAP (_, q2) -> q2
                                 | CircuitBuilder.Gate.CCX (_, _, tgt) -> tgt
                                 | CircuitBuilder.Gate.Measure q -> q

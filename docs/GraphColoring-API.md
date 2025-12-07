@@ -246,7 +246,7 @@ type ColoringSolution = {
 ```text
 val node : id:string -> conflicts:string list -> ColoredNode
 val solve : problem:GraphColoringProblem -> ColoringSolution
-val validate : problem:GraphColoringProblem -> Result<unit, string>
+val validate : problem:GraphColoringProblem -> QuantumResult<unit>
 val exportToDot : problem:GraphColoringProblem -> solution:ColoringSolution -> string
 val describeSolution : solution:ColoringSolution -> string
 ```

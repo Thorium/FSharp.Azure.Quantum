@@ -155,6 +155,22 @@ module OpenQasmExport =
             // CP(θ) = controlled-phase gate
             // In OpenQASM 2.0, this is 'cp' (controlled-p)
             $"cp({formatAngle theta}) q[{control}],q[{target}];"
+        | CRX (control, target, theta) ->
+            // CRX(θ) = controlled-RX gate
+            // In OpenQASM 3.0, this is 'crx'
+            $"crx({formatAngle theta}) q[{control}],q[{target}];"
+        | CRY (control, target, theta) ->
+            // CRY(θ) = controlled-RY gate
+            // In OpenQASM 3.0, this is 'cry'
+            $"cry({formatAngle theta}) q[{control}],q[{target}];"
+        | CRZ (control, target, theta) ->
+            // CRZ(θ) = controlled-RZ gate
+            // In OpenQASM 3.0, this is 'crz'
+            $"crz({formatAngle theta}) q[{control}],q[{target}];"
+        | U3 (q, theta, phi, lambda) ->
+            // U3(θ,φ,λ) = universal single-qubit gate
+            // In OpenQASM 2.0, this is the 'u3' gate (also known as 'u' gate)
+            $"u3({formatAngle theta},{formatAngle phi},{formatAngle lambda}) q[{q}];"
         | MCZ (controls, target) ->
             // MCZ gate should be decomposed before export
             // This case should not be reached if transpilation is done properly
@@ -197,7 +213,10 @@ module OpenQasmExport =
                     checkQubit q "single-qubit gate"
                 | RX (q, _) | RY (q, _) | RZ (q, _) | P (q, _) -> 
                     checkQubit q "rotation gate"
-                | CNOT (control, target) | CZ (control, target) | CP (control, target, _) ->
+                | U3 (q, _, _, _) ->
+                    checkQubit q "U3 gate"
+                | CNOT (control, target) | CZ (control, target) | CP (control, target, _) 
+                | CRX (control, target, _) | CRY (control, target, _) | CRZ (control, target, _) ->
                     match checkQubit control "two-qubit control", checkQubit target "two-qubit target" with
                     | Ok (), Ok () -> 
                         if control = target then

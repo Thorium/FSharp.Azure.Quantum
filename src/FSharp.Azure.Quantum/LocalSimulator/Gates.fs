@@ -172,6 +172,48 @@ module Gates =
         let matrix = (a, b, c, d)
         applySingleQubitGate qubitIndex matrix state
     
+    /// Apply U3 gate (universal single-qubit gate) to specified qubit
+    /// 
+    /// U3(θ, φ, λ) is the most general single-qubit unitary gate in OpenQASM 2.0
+    /// 
+    /// Matrix form:
+    /// U3(θ,φ,λ) = [[cos(θ/2),          -e^(iλ) * sin(θ/2)     ],
+    ///              [e^(iφ) * sin(θ/2),  e^(i(φ+λ)) * cos(θ/2) ]]
+    /// 
+    /// Decomposition: U3(θ, φ, λ) = RZ(φ) · RY(θ) · RZ(λ)
+    /// 
+    /// Parameters:
+    /// - θ: Rotation angle (0 to π)
+    /// - φ: Phase angle for RZ before RY
+    /// - λ: Phase angle for RZ after RY
+    /// 
+    /// Special cases:
+    /// - U3(π/2, 0, π) = H (Hadamard)
+    /// - U3(π, 0, π) = X (Pauli-X)
+    /// - U3(π, π/2, π/2) = Y (Pauli-Y)
+    /// - U3(0, 0, λ) = RZ(λ)
+    let applyU3 (qubitIndex: int) (theta: float) (phi: float) (lambda: float) (state: StateVector.StateVector) : StateVector.StateVector =
+        let halfTheta = theta / 2.0
+        let cosHalfTheta = cos halfTheta
+        let sinHalfTheta = sin halfTheta
+        
+        // Matrix elements:
+        // a = cos(θ/2)
+        let a = Complex(cosHalfTheta, 0.0)
+        
+        // b = -e^(iλ) * sin(θ/2) = -sin(θ/2) * (cos(λ) + i*sin(λ))
+        let b = Complex(-sinHalfTheta * cos lambda, -sinHalfTheta * sin lambda)
+        
+        // c = e^(iφ) * sin(θ/2) = sin(θ/2) * (cos(φ) + i*sin(φ))
+        let c = Complex(sinHalfTheta * cos phi, sinHalfTheta * sin phi)
+        
+        // d = e^(i(φ+λ)) * cos(θ/2) = cos(θ/2) * (cos(φ+λ) + i*sin(φ+λ))
+        let phiPlusLambda = phi + lambda
+        let d = Complex(cosHalfTheta * cos phiPlusLambda, cosHalfTheta * sin phiPlusLambda)
+        
+        let matrix = (a, b, c, d)
+        applySingleQubitGate qubitIndex matrix state
+    
     // ============================================================================
     // 5. PHASE GATES (Depend on applySingleQubitGate)
     // ============================================================================
@@ -374,6 +416,141 @@ module Gates =
     /// CP(θ) applies P(θ) to target when control is |1⟩
     let applyCP (controlIndex: int) (targetIndex: int) (theta: float) (state: StateVector.StateVector) : StateVector.StateVector =
         applyCPhase controlIndex targetIndex theta state
+    
+    /// Apply CRX (Controlled-RX) gate to specified control and target qubits
+    /// 
+    /// CRX applies RX(θ) rotation to target qubit when control qubit is |1⟩
+    /// Matrix: [[1, 0, 0, 0],
+    ///          [0, 1, 0, 0],
+    ///          [0, 0, cos(θ/2), -i*sin(θ/2)],
+    ///          [0, 0, -i*sin(θ/2), cos(θ/2)]]
+    let applyCRX (controlIndex: int) (targetIndex: int) (angle: float) (state: StateVector.StateVector) : StateVector.StateVector =
+        let numQubits = StateVector.numQubits state
+        if controlIndex < 0 || controlIndex >= numQubits then
+            failwith $"Control qubit index {controlIndex} out of range for {numQubits}-qubit state"
+        if targetIndex < 0 || targetIndex >= numQubits then
+            failwith $"Target qubit index {targetIndex} out of range for {numQubits}-qubit state"
+        if controlIndex = targetIndex then
+            failwith "Control and target qubits must be different"
+        
+        let dimension = StateVector.dimension state
+        let controlMask = 1 <<< controlIndex
+        let targetMask = 1 <<< targetIndex
+        let cosHalfAngle = cos (angle / 2.0)
+        let sinHalfAngle = sin (angle / 2.0)
+        
+        // Create new amplitude array functionally
+        let newAmplitudes =
+            Array.init dimension (fun i ->
+                let controlIs1 = (i &&& controlMask) <> 0
+                
+                if controlIs1 then
+                    // Control is 1: apply RX(θ) to target qubit
+                    let targetIs1 = (i &&& targetMask) <> 0
+                    let flippedIndex = i ^^^ targetMask
+                    
+                    if targetIs1 then
+                        // Target is |1⟩ → cos(θ/2)|1⟩ - i*sin(θ/2)|0⟩
+                        cosHalfAngle * StateVector.getAmplitude i state + 
+                        Complex(0.0, -sinHalfAngle) * StateVector.getAmplitude flippedIndex state
+                    else
+                        // Target is |0⟩ → cos(θ/2)|0⟩ - i*sin(θ/2)|1⟩
+                        cosHalfAngle * StateVector.getAmplitude i state + 
+                        Complex(0.0, -sinHalfAngle) * StateVector.getAmplitude flippedIndex state
+                else
+                    // Control is 0: no operation
+                    StateVector.getAmplitude i state)
+        
+        StateVector.create newAmplitudes
+    
+    /// Apply CRY (Controlled-RY) gate to specified control and target qubits
+    /// 
+    /// CRY applies RY(θ) rotation to target qubit when control qubit is |1⟩
+    /// Matrix: [[1, 0, 0, 0],
+    ///          [0, 1, 0, 0],
+    ///          [0, 0, cos(θ/2), -sin(θ/2)],
+    ///          [0, 0, sin(θ/2), cos(θ/2)]]
+    let applyCRY (controlIndex: int) (targetIndex: int) (angle: float) (state: StateVector.StateVector) : StateVector.StateVector =
+        let numQubits = StateVector.numQubits state
+        if controlIndex < 0 || controlIndex >= numQubits then
+            failwith $"Control qubit index {controlIndex} out of range for {numQubits}-qubit state"
+        if targetIndex < 0 || targetIndex >= numQubits then
+            failwith $"Target qubit index {targetIndex} out of range for {numQubits}-qubit state"
+        if controlIndex = targetIndex then
+            failwith "Control and target qubits must be different"
+        
+        let dimension = StateVector.dimension state
+        let controlMask = 1 <<< controlIndex
+        let targetMask = 1 <<< targetIndex
+        let cosHalfAngle = cos (angle / 2.0)
+        let sinHalfAngle = sin (angle / 2.0)
+        
+        // Create new amplitude array functionally
+        let newAmplitudes =
+            Array.init dimension (fun i ->
+                let controlIs1 = (i &&& controlMask) <> 0
+                
+                if controlIs1 then
+                    // Control is 1: apply RY(θ) to target qubit
+                    let targetIs1 = (i &&& targetMask) <> 0
+                    let flippedIndex = i ^^^ targetMask
+                    
+                    if targetIs1 then
+                        // Target is |1⟩ → cos(θ/2)|1⟩ + sin(θ/2)|0⟩
+                        cosHalfAngle * StateVector.getAmplitude i state + 
+                        sinHalfAngle * StateVector.getAmplitude flippedIndex state
+                    else
+                        // Target is |0⟩ → cos(θ/2)|0⟩ - sin(θ/2)|1⟩
+                        cosHalfAngle * StateVector.getAmplitude i state - 
+                        sinHalfAngle * StateVector.getAmplitude flippedIndex state
+                else
+                    // Control is 0: no operation
+                    StateVector.getAmplitude i state)
+        
+        StateVector.create newAmplitudes
+    
+    /// Apply CRZ (Controlled-RZ) gate to specified control and target qubits
+    /// 
+    /// CRZ applies RZ(θ) rotation to target qubit when control qubit is |1⟩
+    /// Matrix: [[1, 0, 0, 0],
+    ///          [0, 1, 0, 0],
+    ///          [0, 0, e^(-iθ/2), 0],
+    ///          [0, 0, 0, e^(iθ/2)]]
+    let applyCRZ (controlIndex: int) (targetIndex: int) (angle: float) (state: StateVector.StateVector) : StateVector.StateVector =
+        let numQubits = StateVector.numQubits state
+        if controlIndex < 0 || controlIndex >= numQubits then
+            failwith $"Control qubit index {controlIndex} out of range for {numQubits}-qubit state"
+        if targetIndex < 0 || targetIndex >= numQubits then
+            failwith $"Target qubit index {targetIndex} out of range for {numQubits}-qubit state"
+        if controlIndex = targetIndex then
+            failwith "Control and target qubits must be different"
+        
+        let dimension = StateVector.dimension state
+        let controlMask = 1 <<< controlIndex
+        let targetMask = 1 <<< targetIndex
+        let phaseNeg = Complex(cos (-angle / 2.0), sin (-angle / 2.0))  // e^(-iθ/2)
+        let phasePos = Complex(cos (angle / 2.0), sin (angle / 2.0))    // e^(iθ/2)
+        
+        // Create new amplitude array functionally
+        let newAmplitudes =
+            Array.init dimension (fun i ->
+                let controlIs1 = (i &&& controlMask) <> 0
+                
+                if controlIs1 then
+                    // Control is 1: apply RZ(θ) to target qubit
+                    let targetIs1 = (i &&& targetMask) <> 0
+                    
+                    if targetIs1 then
+                        // Target is |1⟩ → e^(iθ/2)|1⟩
+                        phasePos * StateVector.getAmplitude i state
+                    else
+                        // Target is |0⟩ → e^(-iθ/2)|0⟩
+                        phaseNeg * StateVector.getAmplitude i state
+                else
+                    // Control is 0: no operation
+                    StateVector.getAmplitude i state)
+        
+        StateVector.create newAmplitudes
     
     /// Apply SWAP gate to specified qubits
     /// 

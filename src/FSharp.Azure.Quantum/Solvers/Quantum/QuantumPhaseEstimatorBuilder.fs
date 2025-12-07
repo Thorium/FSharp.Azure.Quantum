@@ -135,22 +135,22 @@ module QuantumPhaseEstimator =
     /// Validates a phase estimation problem specification.
     /// Checks precision bounds, target qubits, and configuration validity.
     /// </summary>
-    let private validate (problem: PhaseEstimatorProblem) : Result<unit, string> =
+    let private validate (problem: PhaseEstimatorProblem) : Result<unit, QuantumError> =
         // Check precision
         if problem.Precision < 1 then
-            Error "Precision must be at least 1 qubit"
+            Error (QuantumError.ValidationError("Precision", "must be at least 1 qubit"))
         elif problem.Precision > 20 then
-            Error "Precision exceeds practical limit (20 qubits) for NISQ devices"
+            Error (QuantumError.ValidationError("Precision", "exceeds practical limit (20 qubits) for NISQ devices"))
         
         // Check target qubits
         elif problem.TargetQubits < 1 then
-            Error "Target qubits must be at least 1"
+            Error (QuantumError.ValidationError("TargetQubits", "must be at least 1"))
         elif problem.TargetQubits > 10 then
-            Error "Target qubits exceeds simulation limit (10 qubits)"
+            Error (QuantumError.ValidationError("TargetQubits", "exceeds simulation limit (10 qubits)"))
         
         // Check total qubits
         elif problem.Precision + problem.TargetQubits > 25 then
-            Error "Total qubits (precision + target) exceeds limit (25 qubits)"
+            Error (QuantumError.ValidationError("TotalQubits", $"({problem.Precision + problem.TargetQubits}) exceeds limit (25 qubits)"))
         
         else
             Ok ()
@@ -224,7 +224,7 @@ module QuantumPhaseEstimator =
             { problem with Shots = Some shots }
         
         /// Finalize and validate the problem
-        member _.Run(problem: PhaseEstimatorProblem) : Result<PhaseEstimatorProblem, string> =
+        member _.Run(problem: PhaseEstimatorProblem) : Result<PhaseEstimatorProblem, QuantumError> =
             validate problem |> Result.map (fun _ -> problem)
     
     /// Global computation expression instance for phase estimation
@@ -250,12 +250,12 @@ module QuantumPhaseEstimator =
     ///   }
     ///   match estimate problem with
     ///   | Ok result -> printfn "Phase: %.6f, Eigenvalue: %A" result.Phase result.Eigenvalue
-    ///   | Error msg -> printfn "Error: %s" msg
-    let estimate (problem: PhaseEstimatorProblem) : Result<PhaseEstimatorResult, string> =
+    ///   | Error err -> printfn "Error: %s" err.Message
+    let estimate (problem: PhaseEstimatorProblem) : Result<PhaseEstimatorResult, QuantumError> =
         try
             // Validate problem first
             match validate problem with
-            | Error msg -> Error msg
+            | Error err -> Error err
             | Ok () ->
                 
                 // Convert to QPEConfig
@@ -275,7 +275,7 @@ module QuantumPhaseEstimator =
                 let shots = 1000  // Default shots for measurement statistics
                 
                 match executeWithBackend config backend shots with
-                | Error msg -> Error msg
+                | Error msg -> Error (QuantumError.OperationError("Phase estimation execution", msg))
                 | Ok histogram ->
                     
                     // Extract phase from histogram
@@ -329,7 +329,7 @@ module QuantumPhaseEstimator =
                     Ok result
         
         with
-        | ex -> Error $"Phase estimation failed: {ex.Message}"
+        | ex -> Error (QuantumError.OperationError("Phase estimation", ex.Message))
     
     // ============================================================================
     // CONVENIENCE HELPERS
@@ -338,7 +338,7 @@ module QuantumPhaseEstimator =
     /// Quick helper for estimating phase of common gates
     /// 
     /// Example: estimateTGate 10 (Some backend)
-    let estimateTGate (p: int) (backend: BackendAbstraction.IQuantumBackend option) : Result<PhaseEstimatorProblem, string> =
+    let estimateTGate (p: int) (backend: BackendAbstraction.IQuantumBackend option) : Result<PhaseEstimatorProblem, QuantumError> =
         phaseEstimator {
             unitary TGate
             precision p
@@ -352,7 +352,7 @@ module QuantumPhaseEstimator =
     /// Quick helper for estimating phase of S gate
     /// 
     /// Example: estimateSGate 10 (Some backend)
-    let estimateSGate (p: int) (backend: BackendAbstraction.IQuantumBackend option) : Result<PhaseEstimatorProblem, string> =
+    let estimateSGate (p: int) (backend: BackendAbstraction.IQuantumBackend option) : Result<PhaseEstimatorProblem, QuantumError> =
         phaseEstimator {
             unitary SGate
             precision p
@@ -366,7 +366,7 @@ module QuantumPhaseEstimator =
     /// Quick helper for estimating phase of custom phase gate
     /// 
     /// Example: estimatePhaseGate (Math.PI / 4.0) 12 (Some backend)
-    let estimatePhaseGate (theta: float) (p: int) (backend: BackendAbstraction.IQuantumBackend option) : Result<PhaseEstimatorProblem, string> =
+    let estimatePhaseGate (theta: float) (p: int) (backend: BackendAbstraction.IQuantumBackend option) : Result<PhaseEstimatorProblem, QuantumError> =
         phaseEstimator {
             unitary (PhaseGate theta)
             precision p
@@ -380,7 +380,7 @@ module QuantumPhaseEstimator =
     /// Quick helper for estimating phase of rotation gate
     /// 
     /// Example: estimateRotationZ (Math.PI / 3.0) 12 (Some backend)
-    let estimateRotationZ (theta: float) (p: int) (backend: BackendAbstraction.IQuantumBackend option) : Result<PhaseEstimatorProblem, string> =
+    let estimateRotationZ (theta: float) (p: int) (backend: BackendAbstraction.IQuantumBackend option) : Result<PhaseEstimatorProblem, QuantumError> =
         phaseEstimator {
             unitary (RotationZ theta)
             precision p

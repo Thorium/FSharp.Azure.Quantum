@@ -73,8 +73,8 @@ match estimate problem with
 | Ok result ->
     printfn "Phase: %.6f" result.Phase
     printfn "Eigenvalue: %A" result.Eigenvalue
-| Error msg ->
-    printfn "Error: %s" msg
+| Error err ->
+    printfn "Error: %s" err.Message
 ```
 
 ### F# Convenience Functions

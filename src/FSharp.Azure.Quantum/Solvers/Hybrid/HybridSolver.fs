@@ -150,7 +150,7 @@ module HybridSolver =
     let private executeQuantumTsp
         (distances: float[,])
         (quantumConfig: QuantumExecutionConfig)
-        : Async<Result<TspSolver.TspSolution, string>> =
+        : Async<QuantumResult<TspSolver.TspSolution>> =
         async {
             // Use classical TSP solver as backend
             // Full QUBO-to-circuit workflow:
@@ -188,7 +188,7 @@ module HybridSolver =
         (budget: float option)
         (timeout: float option)
         (forceMethod: SolverMethod option)
-        : Result<Solution<TspSolver.TspSolution>, string> =
+        : QuantumResult<Solution<TspSolver.TspSolution>> =
         
         let startTime = DateTime.UtcNow
         let config = TspSolver.defaultConfig
@@ -204,7 +204,7 @@ module HybridSolver =
             |> Ok
 
         | Some Quantum when quantumConfig.IsNone ->
-            Error "Quantum method forced but no quantum configuration provided."
+            Error (QuantumError.ValidationError ("Configuration", "Quantum method forced but no quantum configuration provided."))
 
         | Some Quantum ->
             // Execute quantum path
@@ -217,7 +217,7 @@ module HybridSolver =
                     ElapsedMs = (DateTime.UtcNow - startTime).TotalMilliseconds
                     Recommendation = None
                 } |> Ok
-            | Error msg -> Error msg
+            | Error err -> Error err
 
         | None ->
             // Consult Quantum Advisor for recommendation
@@ -245,7 +245,7 @@ module HybridSolver =
                                     ElapsedMs = (DateTime.UtcNow - startTime).TotalMilliseconds
                                     Recommendation = Some recommendation
                                 } |> Ok
-                            | Error msg -> Error msg
+                            | Error err -> Error err
                     | _ ->
                         // No cost limit or execute quantum
                         match Async.RunSynchronously (executeQuantumTsp distances qConfig) with
@@ -257,7 +257,7 @@ module HybridSolver =
                                 ElapsedMs = (DateTime.UtcNow - startTime).TotalMilliseconds
                                 Recommendation = Some recommendation
                             } |> Ok
-                        | Error msg -> Error msg
+                        | Error err -> Error err
                 
                 | QuantumAdvisor.RecommendationType.StronglyRecommendQuantum, None ->
                     // Quantum recommended but no config - fallback to classical
@@ -289,7 +289,7 @@ module HybridSolver =
         (budget: float option)
         (timeout: float option)
         (forceMethod: SolverMethod option)
-        : Result<Solution<TspSolver.TspSolution>, string> =
+        : QuantumResult<Solution<TspSolver.TspSolution>> =
         
         let startTime = DateTime.UtcNow
         let config = TspSolver.defaultConfig
@@ -310,7 +310,7 @@ module HybridSolver =
             let backend = BackendAbstraction.createLocalBackend()
             
             match QuantumTspSolver.solve backend distances quantumConfig with
-            | Error msg -> Error (sprintf "Quantum TSP solver failed: %s" msg)
+            | Error err -> Error (QuantumError.OperationError ("Quantum TSP solver", QuantumResult.toString err))
             | Ok quantumResult ->
                 // Convert quantum result to classical TSP solution format
                 let classicalSolution : TspSolver.TspSolution = {
@@ -363,7 +363,7 @@ module HybridSolver =
         (budget: float option)
         (timeout: float option)
         (forceMethod: SolverMethod option)
-        : Result<Solution<PortfolioSolver.PortfolioSolution>, string> =
+        : QuantumResult<Solution<PortfolioSolver.PortfolioSolution>> =
         
         let startTime = DateTime.UtcNow
         let config = PortfolioSolver.defaultConfig
@@ -384,7 +384,7 @@ module HybridSolver =
             let backend = BackendAbstraction.createLocalBackend()
             
             match QuantumPortfolioSolver.solve backend assets constraints quantumConfig with
-            | Error msg -> Error (sprintf "Quantum portfolio solver failed: %s" msg)
+            | Error err -> Error (QuantumError.OperationError ("Quantum portfolio solver", QuantumResult.toString err))
             | Ok quantumResult ->
                 // Convert quantum result to classical portfolio solution format
                 let classicalSolution : PortfolioSolver.PortfolioSolution = {
@@ -436,7 +436,7 @@ module HybridSolver =
         (budget: float option)
         (timeout: float option)
         (forceMethod: SolverMethod option)
-        : Result<Solution<QuantumMaxCutSolver.MaxCutSolution>, string> =
+        : QuantumResult<Solution<QuantumMaxCutSolver.MaxCutSolution>> =
         
         let startTime = DateTime.UtcNow
         let solveClassical () = QuantumMaxCutSolver.solveClassical problem
@@ -456,7 +456,7 @@ module HybridSolver =
             let backend = BackendAbstraction.createLocalBackend()
             
             match QuantumMaxCutSolver.solve backend problem quantumConfig with
-            | Error msg -> Error (sprintf "Quantum MaxCut solver failed: %s" msg)
+            | Error err -> Error (QuantumError.OperationError ("Quantum MaxCut solver", QuantumResult.toString err))
             | Ok quantumResult ->
                 {
                     Method = Quantum
@@ -498,7 +498,7 @@ module HybridSolver =
         (budget: float option)
         (timeout: float option)
         (forceMethod: SolverMethod option)
-        : Result<Solution<QuantumKnapsackSolver.KnapsackSolution>, string> =
+        : QuantumResult<Solution<QuantumKnapsackSolver.KnapsackSolution>> =
         
         let startTime = DateTime.UtcNow
         let solveClassical () = QuantumKnapsackSolver.solveClassical problem
@@ -518,7 +518,7 @@ module HybridSolver =
             let backend = BackendAbstraction.createLocalBackend()
             
             match QuantumKnapsackSolver.solve backend problem quantumConfig with
-            | Error msg -> Error (sprintf "Quantum Knapsack solver failed: %s" msg)
+            | Error err -> Error (QuantumError.OperationError ("Quantum Knapsack solver", QuantumResult.toString err))
             | Ok quantumResult ->
                 {
                     Method = Quantum
@@ -562,7 +562,7 @@ module HybridSolver =
         (budget: float option)
         (timeout: float option)
         (forceMethod: SolverMethod option)
-        : Result<Solution<QuantumGraphColoringSolver.GraphColoringSolution>, string> =
+        : QuantumResult<Solution<QuantumGraphColoringSolver.GraphColoringSolution>> =
         
         let startTime = DateTime.UtcNow
         let solveClassical () = QuantumGraphColoringSolver.solveClassical problem
@@ -582,7 +582,7 @@ module HybridSolver =
             let backend = BackendAbstraction.createLocalBackend()
             
             match QuantumGraphColoringSolver.solve backend problem quantumConfig with
-            | Error msg -> Error (sprintf "Quantum Graph Coloring solver failed: %s" msg)
+            | Error err -> Error (QuantumError.OperationError ("Quantum Graph Coloring solver", QuantumResult.toString err))
             | Ok quantumResult ->
                 {
                     Method = Quantum
@@ -610,5 +610,5 @@ module HybridSolver =
     // ================================================================================
 
     /// Legacy solve function for backward compatibility (TSP only, no optional parameters)
-    let solve (distances: float[,]) : Result<Solution<TspSolver.TspSolution>, string> =
+    let solve (distances: float[,]) : QuantumResult<Solution<TspSolver.TspSolution>> =
         solveTsp distances None None None

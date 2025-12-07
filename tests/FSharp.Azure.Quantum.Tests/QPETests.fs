@@ -69,11 +69,11 @@ module QPETests =
     let ``QPE validates qubit count`` () =
         match estimateTGatePhase 0 with
         | Ok _ -> Assert.Fail("Should reject 0 counting qubits")
-        | Error msg -> Assert.Contains("positive", msg.ToLower())
+        | Error msg -> Assert.Contains("positive", msg.Message.ToLower())
         
         match estimateTGatePhase 17 with
         | Ok _ -> Assert.Fail("Should reject > 16 counting qubits for local sim")
-        | Error msg -> Assert.Contains("16", msg)
+        | Error msg -> Assert.Contains("16", msg.Message)
     
     [<Fact>]
     let ``QPE estimates phase gate correctly`` () =
@@ -104,7 +104,7 @@ module QPETests =
         
         match execute invalidConfig1 with
         | Ok _ -> Assert.Fail("Should reject 0 counting qubits")
-        | Error msg -> Assert.Contains("positive", msg.ToLower())
+        | Error msg -> Assert.Contains("positive", msg.Message.ToLower())
         
         let invalidConfig2 = {
             CountingQubits = 3
@@ -115,7 +115,7 @@ module QPETests =
         
         match execute invalidConfig2 with
         | Ok _ -> Assert.Fail("Should reject 0 target qubits")
-        | Error msg -> Assert.Contains("positive", msg.ToLower())
+        | Error msg -> Assert.Contains("positive", msg.Message.ToLower())
     
     [<Fact>]
     let ``QPE returns correct gate count`` () =
@@ -252,7 +252,7 @@ module QPETests =
         
         match qpeToCircuit config with
         | Ok _ -> Assert.Fail("Should reject > 20 counting qubits")
-        | Error msg -> Assert.Contains("20", msg)
+        | Error msg -> Assert.Contains("20", msg.Message)
     
     [<Fact>]
     let ``QPE preserves quantum state structure`` () =

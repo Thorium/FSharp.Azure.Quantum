@@ -1,4 +1,5 @@
 namespace FSharp.Azure.Quantum.TaskScheduling
+open FSharp.Azure.Quantum.Core
 
 open Types
 
@@ -178,10 +179,10 @@ module ClassicalSolver =
     /// 
     /// Note: This solver handles dependencies but ignores resource capacity constraints.
     /// For resource-constrained scheduling, use QuantumSolver.solveQuantum with IQuantumBackend.
-    let solve (problem: SchedulingProblem<'TTask, 'TResource>) : Result<Solution, string> =
+    let solve (problem: SchedulingProblem<'TTask, 'TResource>) : QuantumResult<Solution> =
         // Validate problem first
         match Validation.validateProblem problem with
-        | Error msg -> Error msg
+        | Error err -> Error err
         | Ok () ->
 
         // Topological sort tasks by dependencies

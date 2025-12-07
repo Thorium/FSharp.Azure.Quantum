@@ -27,7 +27,7 @@ module QuantumArithmeticBuilderTests =
         }
         
         match result with
-        | Error msg -> Assert.Contains("non-negative", msg)
+        | Error err -> Assert.Contains("non-negative", err.Message)
         | Ok _ -> Assert.True(false, "Should have rejected negative operands")
     
     [<Fact>]
@@ -39,7 +39,7 @@ module QuantumArithmeticBuilderTests =
         }
         
         match result with
-        | Error msg -> Assert.Contains("At least 2", msg)
+        | Error err -> Assert.Contains("at least 2", err.Message)
         | Ok _ -> Assert.True(false, "Should have rejected insufficient qubits")
     
     [<Fact>]
@@ -51,7 +51,7 @@ module QuantumArithmeticBuilderTests =
         }
         
         match result with
-        | Error msg -> Assert.Contains("exceeds maximum", msg)
+        | Error err -> Assert.Contains("exceeds maximum", err.Message)
         | Ok _ -> Assert.True(false, "Should have rejected excessive qubits")
     
     [<Fact>]
@@ -63,7 +63,7 @@ module QuantumArithmeticBuilderTests =
         }
         
         match result with
-        | Error msg -> Assert.Contains("Modulus is required", msg)
+        | Error err -> Assert.Contains("modulus is required", err.Message)
         | Ok _ -> Assert.True(false, "Should have required modulus")
     
     [<Fact>]
@@ -75,7 +75,7 @@ module QuantumArithmeticBuilderTests =
         }
         
         match result with
-        | Error msg -> Assert.Contains("requires more than", msg)
+        | Error err -> Assert.Contains("requires more than", err.Message)
         | Ok _ -> Assert.True(false, "Should have rejected operand too large for qubits")
     
     [<Fact>]
@@ -88,7 +88,7 @@ module QuantumArithmeticBuilderTests =
         }
         
         match result with
-        | Error msg -> Assert.Contains("smaller than modulus", msg)
+        | Error err -> Assert.Contains("smaller than modulus", err.Message)
         | Ok _ -> Assert.True(false, "Should have rejected operands >= modulus")
     
     [<Fact>]
@@ -107,7 +107,7 @@ module QuantumArithmeticBuilderTests =
             Assert.Equal(0, op.OperandB)
             Assert.Equal(Add, op.Operation)
             Assert.Equal(8, op.Qubits)
-        | Error msg -> Assert.True(false, $"Should have accepted valid operation: {msg}")
+        | Error err -> Assert.True(false, $"Should have accepted valid operation: {err.Message}")
     
     // ========================================================================
     // ARITHMETIC CORRECTNESS TESTS
@@ -128,7 +128,7 @@ module QuantumArithmeticBuilderTests =
             Assert.Equal(59, res.Value)
             Assert.Equal(OperationType.Add, res.OperationType)
             Assert.False(res.IsModular)
-        | Error msg -> Assert.True(false, $"Operation failed: {msg}")
+        | Error err -> Assert.True(false, $"Operation failed: {err.Message}")
     
     [<Fact>]
     let ``multiply operation produces correct result`` () =
@@ -144,7 +144,7 @@ module QuantumArithmeticBuilderTests =
         | Ok res ->
             Assert.Equal(42, res.Value)
             Assert.Equal(OperationType.Multiply, res.OperationType)
-        | Error msg -> Assert.True(false, $"Operation failed: {msg}")
+        | Error err -> Assert.True(false, $"Operation failed: {err.Message}")
     
     [<Fact>]
     let ``modular add operation produces correct result`` () =
@@ -161,7 +161,7 @@ module QuantumArithmeticBuilderTests =
         | Ok res ->
             Assert.Equal(5, res.Value)  // (10 + 7) mod 12 = 5
             Assert.True(res.IsModular)
-        | Error msg -> Assert.True(false, $"Operation failed: {msg}")
+        | Error err -> Assert.True(false, $"Operation failed: {err.Message}")
     
     [<Fact>]
     let ``modular multiply operation produces correct result`` () =
@@ -178,7 +178,7 @@ module QuantumArithmeticBuilderTests =
         | Ok res ->
             Assert.Equal(2, res.Value)  // (7 * 5) mod 11 = 2
             Assert.True(res.IsModular)
-        | Error msg -> Assert.True(false, $"Operation failed: {msg}")
+        | Error err -> Assert.True(false, $"Operation failed: {err.Message}")
     
     [<Fact>]
     let ``modular exponentiate operation produces correct result`` () =
@@ -195,7 +195,7 @@ module QuantumArithmeticBuilderTests =
         | Ok res ->
             Assert.Equal(4, res.Value)  // (3^4) mod 7 = 81 mod 7 = 4
             Assert.True(res.IsModular)
-        | Error msg -> Assert.True(false, $"Operation failed: {msg}")
+        | Error err -> Assert.True(false, $"Operation failed: {err.Message}")
     
     [<Fact>]
     let ``add convenience helper works correctly`` () =
@@ -207,7 +207,7 @@ module QuantumArithmeticBuilderTests =
         | Ok res ->
             Assert.Equal(55, res.Value)
             Assert.Equal(OperationType.Add, res.OperationType)
-        | Error msg -> Assert.True(false, $"Operation failed: {msg}")
+        | Error err -> Assert.True(false, $"Operation failed: {err.Message}")
     
     [<Fact>]
     let ``modularAdd convenience helper works correctly`` () =
@@ -219,7 +219,7 @@ module QuantumArithmeticBuilderTests =
         | Ok res ->
             Assert.Equal(10, res.Value)  // (15 + 20) mod 25 = 10
             Assert.True(res.IsModular)
-        | Error msg -> Assert.True(false, $"Operation failed: {msg}")
+        | Error err -> Assert.True(false, $"Operation failed: {err.Message}")
     
     [<Fact>]
     let ``modularMultiply convenience helper works correctly`` () =
@@ -231,7 +231,7 @@ module QuantumArithmeticBuilderTests =
         | Ok res ->
             Assert.Equal(9, res.Value)  // (6 * 8) mod 13 = 48 mod 13 = 9
             Assert.True(res.IsModular)
-        | Error msg -> Assert.True(false, $"Operation failed: {msg}")
+        | Error err -> Assert.True(false, $"Operation failed: {err.Message}")
     
     [<Fact>]
     let ``modularExponentiate convenience helper works correctly`` () =
@@ -243,7 +243,7 @@ module QuantumArithmeticBuilderTests =
         | Ok res ->
             Assert.Equal(10, res.Value)  // (2^5) mod 11 = 32 mod 11 = 10
             Assert.True(res.IsModular)
-        | Error msg -> Assert.True(false, $"Operation failed: {msg}")
+        | Error err -> Assert.True(false, $"Operation failed: {err.Message}")
     
     // ========================================================================
     // CRYPTOGRAPHY-RELEVANT TESTS
@@ -268,7 +268,7 @@ module QuantumArithmeticBuilderTests =
             Assert.Equal(10, res.Value)  // Encrypted ciphertext
             Assert.True(res.IsModular)
             Assert.Equal(OperationType.ModularExponentiate, res.OperationType)
-        | Error msg -> Assert.True(false, $"RSA encryption failed: {msg}")
+        | Error err -> Assert.True(false, $"RSA encryption failed: {err.Message}")
     
     [<Fact>]
     let ``modular exponentiation for Shors algorithm period finding`` () =
@@ -288,7 +288,7 @@ module QuantumArithmeticBuilderTests =
         | Ok res -> 
             Assert.Equal(1, res.Value)  // 2^4 mod 15 = 1 (found period!)
             Assert.True(res.IsModular)
-        | Error msg -> Assert.True(false, $"Shor's algorithm test failed: {msg}")
+        | Error err -> Assert.True(false, $"Shor's algorithm test failed: {err.Message}")
     
     [<Fact>]
     let ``modular multiplication for discrete logarithm problem`` () =
@@ -308,7 +308,7 @@ module QuantumArithmeticBuilderTests =
         | Ok res -> 
             Assert.Equal(7, res.Value)  // (5 * 6) mod 23 = 30 mod 23 = 7
             Assert.True(res.IsModular)
-        | Error msg -> Assert.True(false, $"DLP multiplication failed: {msg}")
+        | Error err -> Assert.True(false, $"DLP multiplication failed: {err.Message}")
     
     // ========================================================================
     // EDGE CASES AND BOUNDARY TESTS
@@ -326,7 +326,7 @@ module QuantumArithmeticBuilderTests =
         
         match result with
         | Ok res -> Assert.Equal(5, res.Value)
-        | Error msg -> Assert.True(false, $"Operation failed: {msg}")
+        | Error err -> Assert.True(false, $"Operation failed: {err.Message}")
     
     [<Fact>]
     let ``handles identity operations`` () =
@@ -365,7 +365,7 @@ module QuantumArithmeticBuilderTests =
         
         match result with
         | Ok res -> Assert.Equal(0, res.Value)  // (8 + 7) mod 15 = 15 mod 15 = 0
-        | Error msg -> Assert.True(false, $"Operation failed: {msg}")
+        | Error err -> Assert.True(false, $"Operation failed: {err.Message}")
     
     // ========================================================================
     // RESULT METADATA TESTS
@@ -389,7 +389,7 @@ module QuantumArithmeticBuilderTests =
             Assert.True(res.CircuitDepth > 0)
             Assert.NotEmpty(res.BackendName)
             Assert.False(res.IsModular)
-        | Error msg -> Assert.True(false, $"Operation failed: {msg}")
+        | Error err -> Assert.True(false, $"Operation failed: {err.Message}")
     
     [<Fact>]
     let ``modular operation metadata includes modular flag`` () =
@@ -406,4 +406,4 @@ module QuantumArithmeticBuilderTests =
         | Ok res ->
             Assert.True(res.IsModular)
             Assert.Equal(OperationType.ModularAdd, res.OperationType)
-        | Error msg -> Assert.True(false, $"Operation failed: {msg}")
+        | Error err -> Assert.True(false, $"Operation failed: {err.Message}")

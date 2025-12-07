@@ -113,21 +113,21 @@ module QuantumTreeSearch =
     /// <summary>
     /// Validates a quantum tree search problem specification.
     /// </summary>
-    let validate (problem: TreeSearchProblem<'T>) : Result<unit, string> =
+    let validate (problem: TreeSearchProblem<'T>) : Result<unit, QuantumError> =
         if problem.MaxDepth < 1 then
-            Error "MaxDepth must be at least 1"
+            Error (QuantumError.ValidationError ("MaxDepth", "must be at least 1"))
         elif problem.MaxDepth > 8 then
-            Error "MaxDepth exceeds 8 (would require too many qubits for NISQ devices)"
+            Error (QuantumError.ValidationError ("MaxDepth", "exceeds 8 (would require too many qubits for NISQ devices)"))
         elif problem.BranchingFactor < 2 then
-            Error "BranchingFactor must be at least 2"
+            Error (QuantumError.ValidationError ("BranchingFactor", "must be at least 2"))
         elif problem.BranchingFactor > 256 then
-            Error "BranchingFactor exceeds 256 (would require too many qubits)"
+            Error (QuantumError.ValidationError ("BranchingFactor", "exceeds 256 (would require too many qubits)"))
         elif problem.TopPercentile <= 0.0 || problem.TopPercentile > 1.0 then
-            Error $"TopPercentile must be in range (0.0, 1.0], got {problem.TopPercentile}"
+            Error (QuantumError.ValidationError ("TopPercentile", $"must be in range (0.0, 1.0], got {problem.TopPercentile}"))
         else
             let qubitsNeeded = GroverSearch.TreeSearch.estimateQubitsNeeded problem.MaxDepth problem.BranchingFactor
             if qubitsNeeded > 16 then
-                Error $"Problem requires {qubitsNeeded} qubits (depth={problem.MaxDepth}, branching={problem.BranchingFactor}). Max: 16. Reduce depth or branching factor."
+                Error (QuantumError.ValidationError ("TreeSearchSize", $"requires {qubitsNeeded} qubits (depth={problem.MaxDepth}, branching={problem.BranchingFactor}). Max: 16"))
             else
                 Ok ()
     
@@ -161,7 +161,7 @@ module QuantumTreeSearch =
         member _.Run(f: unit -> TreeSearchProblem<'T>) : TreeSearchProblem<'T> =
             let problem = f()
             match validate problem with
-            | Error msg -> failwith msg
+            | Error err -> failwith err.Message
             | Ok () -> problem
         
         member _.For(sequence: seq<'U>, body: 'U -> TreeSearchProblem<'T>) : TreeSearchProblem<'T> =
@@ -309,12 +309,12 @@ module QuantumTreeSearch =
     ///       ...
     ///   }
     ///   let solution = QuantumTreeSearch.solve problem
-    let solve (problem: TreeSearchProblem<'T>) : Result<TreeSearchSolution, string> =
+    let solve (problem: TreeSearchProblem<'T>) : Result<TreeSearchSolution, QuantumError> =
         
         try
             // Validate problem first
             match validate problem with
-            | Error msg -> Error msg
+            | Error err -> Error err
             | Ok () ->
                 
                 // Use provided backend or create LocalBackend for simulation
@@ -340,7 +340,7 @@ module QuantumTreeSearch =
                         problem.SolutionThreshold
                         problem.SuccessThreshold
                         problem.MaxPaths with
-                | Error msg -> Error $"Quantum tree search failed: {msg}"
+                | Error msg -> Error (QuantumError.OperationError ("QuantumTreeSearch", $"Quantum tree search failed: {msg}"))
                 | Ok treeResult ->
                     
                     let qubitsNeeded = GroverSearch.TreeSearch.estimateQubitsNeeded problem.MaxDepth problem.BranchingFactor
@@ -359,7 +359,7 @@ module QuantumTreeSearch =
                         AllSolutions = treeResult.AllSolutions
                     }
         with
-        | ex -> Error $"Tree search solve failed: {ex.Message}"
+        | ex -> Error (QuantumError.OperationError ("TreeSearchSolver", $"Tree search solve failed: {ex.Message}"))
     
     // ============================================================================
     // CONVENIENCE FUNCTIONS

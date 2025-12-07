@@ -199,13 +199,13 @@ module QRNG =
     let generateWithBackend 
         (numBits: int) 
         (backend: BackendAbstraction.IQuantumBackend) 
-        : Async<Result<QRNGResult, string>> =
+        : Async<QuantumResult<QRNGResult>> =
         
         async {
             if numBits <= 0 then
-                return Error "NumBits must be positive"
+                return Error (QuantumError.ValidationError ("NumBits", "must be positive"))
             elif numBits > 1000 then
-                return Error "NumBits too large for single backend execution (max 1000)"
+                return Error (QuantumError.ValidationError ("NumBits", "too large for single backend execution (max 1000)"))
             else
                 try
                     // Build quantum circuit for QRNG
@@ -275,11 +275,11 @@ module QRNG =
                             Entropy = entropy
                         }
                     
-                    | Error msg ->
-                        return Error msg
+                    | Error err ->
+                        return Error err
                 
                 with ex ->
-                    return Error $"QRNG backend execution failed: {ex.Message}"
+                    return Error (QuantumError.BackendError ("QRNG", $"backend execution failed: {ex.Message}"))
         }
     
     // ========================================================================

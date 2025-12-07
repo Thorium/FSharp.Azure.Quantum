@@ -1,6 +1,7 @@
 namespace FSharp.Azure.Quantum.GroverSearch
 
 open System
+open FSharp.Azure.Quantum.Core
 
 /// Grover Iteration Module
 /// 
@@ -191,13 +192,13 @@ module GroverIteration =
     ///       M = number of solutions
     /// 
     /// Returns the integer closest to theoretical optimum
-    let optimalIterations (searchSpaceSize: int) (numSolutions: int) : Result<int, string> =
+    let optimalIterations (searchSpaceSize: int) (numSolutions: int) : QuantumResult<int> =
         if searchSpaceSize < 1 then
-            Error $"Search space size must be positive, got {searchSpaceSize}"
+            Error (QuantumError.ValidationError ("SearchSpaceSize", $"must be positive, got {searchSpaceSize}"))
         elif numSolutions < 1 then
-            Error $"Number of solutions must be positive, got {numSolutions}"
+            Error (QuantumError.ValidationError ("NumSolutions", $"must be positive, got {numSolutions}"))
         elif numSolutions > searchSpaceSize then
-            Error $"Number of solutions ({numSolutions}) exceeds search space size ({searchSpaceSize})"
+            Error (QuantumError.ValidationError ("NumSolutions", $"({numSolutions}) exceeds search space size ({searchSpaceSize})"))
         else
             // Special case: all states are solutions
             if numSolutions = searchSpaceSize then
@@ -212,7 +213,7 @@ module GroverIteration =
     
     /// Calculate optimal iterations from oracle
     /// Uses oracle's expected solution count if available
-    let optimalIterationsForOracle (oracle: CompiledOracle) : Result<int, string> option =
+    let optimalIterationsForOracle (oracle: CompiledOracle) : QuantumResult<int> option =
         match oracle.ExpectedSolutions with
         | Some numSolutions ->
             let searchSpaceSize = 1 <<< oracle.NumQubits
@@ -261,7 +262,7 @@ module GroverIteration =
     /// Execute Grover's algorithm with optimal iterations
     /// 
     /// Returns final state and diagnostics
-    let execute (oracle: CompiledOracle) (config: IterationConfig) : Result<IterationResult, string> =
+    let execute (oracle: CompiledOracle) (config: IterationConfig) : QuantumResult<IterationResult> =
         try
             // Initialize uniform superposition
             let initialState = StateVector.init oracle.NumQubits
@@ -301,10 +302,10 @@ module GroverIteration =
                 ExpectedSuccessProbability = expectedProb
             }
         with
-        | ex -> Error $"Grover execution failed: {ex.Message}"
+        | ex -> Error (QuantumError.OperationError ("Grover execution", $"failed: {ex.Message}"))
     
     /// Execute Grover's algorithm with automatic optimal iteration count
-    let executeOptimal (oracle: CompiledOracle) (trackProbabilities: bool) : Result<IterationResult, string> =
+    let executeOptimal (oracle: CompiledOracle) (trackProbabilities: bool) : QuantumResult<IterationResult> =
         match optimalIterationsForOracle oracle with
         | Some kResult ->
             match kResult with
@@ -314,10 +315,10 @@ module GroverIteration =
                     TrackProbabilities = trackProbabilities
                 }
                 execute oracle config
-            | Error msg ->
-                Error msg
+            | Error err ->
+                Error err
         | None ->
-            Error "Cannot determine optimal iterations: oracle solution count unknown"
+            Error (QuantumError.OperationError ("Grover optimal iterations", "cannot determine optimal iterations: oracle solution count unknown"))
     
     // ============================================================================
     // UTILITY FUNCTIONS

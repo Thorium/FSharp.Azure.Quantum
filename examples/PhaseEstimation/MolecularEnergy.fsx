@@ -61,11 +61,11 @@ match tGateProblem with
         printfn "  Gate Count:           %d" result.GateCount
         printfn "  Precision:            %d bits" result.Precision
 
-    | Error msg ->
-        printfn "❌ Execution Error: %s" msg
+    | Error err ->
+        printfn "❌ Execution Error: %s" err.Message
 
-| Error msg ->
-    printfn "❌ Builder Error: %s" msg
+| Error err ->
+    printfn "❌ Builder Error: %s" err.Message
 
 printfn ""
 printfn "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -122,11 +122,11 @@ match molecularProblem with
         printfn "  Gate Count:           %d gates" result.GateCount
         printfn "  Precision:            %d bits (%.4f%% accuracy)" prob.Precision (100.0 / (2.0 ** float prob.Precision))
 
-    | Error msg ->
-        printfn "❌ Execution Error: %s" msg
+    | Error err ->
+        printfn "❌ Execution Error: %s" err.Message
 
-| Error msg ->
-    printfn "❌ Builder Error: %s" msg
+| Error err ->
+    printfn "❌ Builder Error: %s" err.Message
 
 printfn ""
 printfn "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

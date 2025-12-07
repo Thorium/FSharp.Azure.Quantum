@@ -133,32 +133,32 @@ module QuantumPeriodFinder =
     /// Validates a period-finding problem specification.
     /// Checks number range, precision bounds, and configuration validity.
     /// </summary>
-    let private validate (problem: PeriodFinderProblem) : Result<unit, string> =
+    let private validate (problem: PeriodFinderProblem) : Result<unit, QuantumError> =
         // Check number is valid for factorization
         if problem.Number < 4 then
-            Error "Number must be at least 4 for factorization"
+            Error (QuantumError.ValidationError("Number", "must be at least 4 for factorization"))
         elif problem.Number > 10000 then
-            Error "Number exceeds simulation limit (10000) for period finding"
+            Error (QuantumError.ValidationError("Number", "exceeds simulation limit (10000) for period finding"))
         
         // Check precision
         elif problem.Precision < 1 then
-            Error "Precision must be at least 1 qubit"
+            Error (QuantumError.ValidationError("Precision", "must be at least 1 qubit"))
         elif problem.Precision > 20 then
-            Error "Precision exceeds practical limit (20 qubits) for NISQ devices"
+            Error (QuantumError.ValidationError("Precision", "exceeds practical limit (20 qubits) for NISQ devices"))
         
         // Check attempts
         elif problem.MaxAttempts < 1 then
-            Error "MaxAttempts must be at least 1"
+            Error (QuantumError.ValidationError("MaxAttempts", "must be at least 1"))
         elif problem.MaxAttempts > 100 then
-            Error "MaxAttempts exceeds reasonable limit (100)"
+            Error (QuantumError.ValidationError("MaxAttempts", "exceeds reasonable limit (100)"))
         
         // Check base if specified
         elif problem.Base.IsSome then
             let baseVal = problem.Base.Value
             if baseVal < 2 then
-                Error "Base must be at least 2"
+                Error (QuantumError.ValidationError("Base", "must be at least 2"))
             elif baseVal >= problem.Number then
-                Error "Base must be less than Number"
+                Error (QuantumError.ValidationError("Base", "must be less than Number"))
             else
                 Ok ()
         else
@@ -227,7 +227,7 @@ module QuantumPeriodFinder =
             { problem with Shots = Some shots }
         
         /// Finalize and validate the problem
-        member _.Run(problem: PeriodFinderProblem) : Result<PeriodFinderProblem, string> =
+        member _.Run(problem: PeriodFinderProblem) : Result<PeriodFinderProblem, QuantumError> =
             validate problem |> Result.map (fun _ -> problem)
     
     /// Global computation expression instance for period finding
@@ -252,12 +252,12 @@ module QuantumPeriodFinder =
     ///   }
     ///   match solve problem with
     ///   | Ok result -> printfn "Period: %d, Factors: %A" result.Period result.Factors
-    ///   | Error msg -> printfn "Error: %s" msg
-    let solve (problem: PeriodFinderProblem) : Result<PeriodFinderResult, string> =
+    ///   | Error err -> printfn "Error: %s" err.Message
+    let solve (problem: PeriodFinderProblem) : Result<PeriodFinderResult, QuantumError> =
         try
             // Validate problem first
             match validate problem with
-            | Error msg -> Error msg
+            | Error err -> Error err
             | Ok () ->
                 
                 // Convert to ShorsConfig
@@ -279,7 +279,7 @@ module QuantumPeriodFinder =
                 
                 // Execute Shor's algorithm with backend
                 match ShorsBackendAdapter.executeShorsWithBackend config actualBackend shots with
-                | Error msg -> Error msg
+                | Error err -> Error err
                 | Ok shorsResult ->
                     
                     // Determine backend name
@@ -314,7 +314,7 @@ module QuantumPeriodFinder =
                     }
         
         with
-        | ex -> Error $"Period finding failed: {ex.Message}"
+        | ex -> Error (QuantumError.OperationError("Period finding", ex.Message))
     
     // ============================================================================
     // CONVENIENCE HELPERS
@@ -323,7 +323,7 @@ module QuantumPeriodFinder =
     /// Quick helper for simple factorization with defaults
     /// 
     /// Example: factorInteger 15 8
-    let factorInteger (n: int) (p: int) : Result<PeriodFinderProblem, string> =
+    let factorInteger (n: int) (p: int) : Result<PeriodFinderProblem, QuantumError> =
         periodFinder {
             number n
             precision p
@@ -332,7 +332,7 @@ module QuantumPeriodFinder =
     /// Quick helper for factorization with custom base
     /// 
     /// Example: factorIntegerWithBase 15 7 8
-    let factorIntegerWithBase (n: int) (baseVal: int) (p: int) : Result<PeriodFinderProblem, string> =
+    let factorIntegerWithBase (n: int) (baseVal: int) (p: int) : Result<PeriodFinderProblem, QuantumError> =
         periodFinder {
             number n
             chosenBase baseVal
@@ -343,7 +343,7 @@ module QuantumPeriodFinder =
     /// Uses recommended precision (2*log₂(N) + 3) for high success rate
     /// 
     /// Example: breakRSA 15  // N = 15 (p=3, q=5)
-    let breakRSA (rsaModulus: int) : Result<PeriodFinderProblem, string> =
+    let breakRSA (rsaModulus: int) : Result<PeriodFinderProblem, QuantumError> =
         let recommendedPrecision = 
             2 * int (ceil (log (float rsaModulus) / log 2.0)) + 3
         

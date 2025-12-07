@@ -101,6 +101,7 @@ module GateTranspilerTests =
         Assert.All(transpiled.Gates, fun gate ->
             match gate with
             | RZ _ -> ()
+            | U3 _ -> failwith "U3 should not appear (decomposes to RZ-RY-RZ)"
             | _ -> failwith "Expected all RZ gates")
     
     // ========================================================================
@@ -167,7 +168,9 @@ module GateTranspilerTests =
         Assert.All(transpiled.Gates, fun gate ->
             match gate with
             | X _ | Y _ | Z _ | H _ | RX _ | RY _ | RZ _ | CNOT _ | SWAP _ -> ()
-            | _ -> failwith $"Unsupported gate for IonQ: {gate}")
+            | U3 _ -> failwith "U3 should decompose to RZ-RY-RZ"
+            | S _ | SDG _ | T _ | TDG _ | P _ | CP _ | CRX _ | CRY _ | CRZ _ | CZ _ | MCZ _ | CCX _ | Measure _ -> 
+                failwith $"Unsupported gate for IonQ: {gate}")
     
     [<Fact>]
     let ``Transpile CCX gate for Rigetti`` () =
@@ -185,7 +188,9 @@ module GateTranspilerTests =
         Assert.All(transpiled.Gates, fun gate ->
             match gate with
             | X _ | Y _ | Z _ | H _ | RX _ | RY _ | RZ _ | CNOT _ | CZ _ | SWAP _ -> ()
-            | _ -> failwith $"Unsupported gate for Rigetti: {gate}")
+            | U3 _ -> failwith "U3 should decompose to RZ-RY-RZ"
+            | S _ | SDG _ | T _ | TDG _ | P _ | CP _ | CRX _ | CRY _ | CRZ _ | MCZ _ | CCX _ | Measure _ -> 
+                failwith $"Unsupported gate for Rigetti: {gate}")
     
     // ========================================================================
     // BACKEND-AWARE TRANSPILATION TESTS

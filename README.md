@@ -13,6 +13,7 @@
 
 **Current Features:**
 - ✅ **Multiple Backends:** LocalBackend (simulation), Azure Quantum (IonQ, Rigetti, Quantinuum), D-Wave quantum annealers (2000+ qubits)
+- ✅ **Topological Quantum Computing:** Anyon braiding simulator (Ising & Fibonacci anyons) - Microsoft Majorana architecture
 - ✅ **Quantum Machine Learning:** VQC, Quantum Kernel SVM, Feature Maps, Variational Forms, AutoML
 - ✅ **Business Problem Builders:** AutoML, Anomaly Detection, Binary Classification, Predictive Modeling, Similarity Search
 - ✅ **OpenQASM 2.0:** Import/export compatibility with IBM Qiskit, Amazon Braket, Google Cirq
@@ -33,17 +34,18 @@
 2. [Problem Builders](#-problem-builders) - High-level APIs for 7 optimization problems
 3. [Quantum Machine Learning](#-quantum-machine-learning-qml) - VQC, Quantum Kernels, AutoML
 4. [Business Builders](#-business-problem-builders) - AutoML, Anomaly Detection, Fraud Detection, Customer Churn
-5. [HybridSolver](#-hybridsolver---automatic-classicalquantum-routing) - Automatic classical/quantum routing
-6. [Architecture](#-architecture) - How the library is organized
-7. [C# Interop](#-c-interop) - Using from C#
-8. [Backend Selection](#-backend-selection) - Local vs Cloud vs D-Wave quantum execution
-9. [OpenQASM 2.0 Support](#-openqasm-20-support) - Import/export quantum circuits
-10. [Error Mitigation](#️-error-mitigation) - Reduce quantum noise by 30-90%
-11. [QAOA Algorithm Internals](#-qaoa-algorithm-internals) - How quantum optimization works
-12. [Documentation](#-documentation) - Complete guides and API reference
-13. [Design Philosophy](#-design-philosophy) - Quantum-only architecture principles
-14. [Educational Algorithms](#-educational-algorithms) - Grover, QFT, Amplitude Amplification (for learning)
-15. [Advanced Quantum Builders](#-advanced-quantum-builders) - Tree Search, Constraint Solver, Pattern Matcher, Arithmetic, Period Finder, Phase Estimator (⚠️ Requires future hardware)
+5. [Topological Quantum Computing](#-topological-quantum-computing) - Anyon braiding simulator (Microsoft Majorana)
+6. [HybridSolver](#-hybridsolver---automatic-classicalquantum-routing) - Automatic classical/quantum routing
+7. [Architecture](#-architecture) - How the library is organized
+8. [C# Interop](#-c-interop) - Using from C#
+9. [Backend Selection](#-backend-selection) - Local vs Cloud vs D-Wave quantum execution
+10. [OpenQASM 2.0 Support](#-openqasm-20-support) - Import/export quantum circuits
+11. [Error Mitigation](#️-error-mitigation) - Reduce quantum noise by 30-90%
+12. [QAOA Algorithm Internals](#-qaoa-algorithm-internals) - How quantum optimization works
+13. [Documentation](#-documentation) - Complete guides and API reference
+14. [Design Philosophy](#-design-philosophy) - Quantum-only architecture principles
+15. [Educational Algorithms](#-educational-algorithms) - Grover, QFT, Amplitude Amplification (for learning)
+16. [Advanced Quantum Builders](#-advanced-quantum-builders) - Tree Search, Constraint Solver, Pattern Matcher, Arithmetic, Period Finder, Phase Estimator (⚠️ Requires future hardware)
 
 ---
 
@@ -593,6 +595,83 @@ match SimilaritySearch.findSimilar search targetProduct with
 ---
 
 ## 🤖 HybridSolver - Automatic Classical/Quantum Routing
+
+## 🌀 Topological Quantum Computing
+
+**NEW:** Simulate topological quantum computers using anyon braiding - the approach behind Microsoft's Majorana quantum computing program.
+
+Unlike gate-based quantum computing (which uses qubits and gates), topological quantum computing encodes information in **anyons** (exotic quasiparticles) and performs operations by **braiding** their worldlines. This provides inherent fault-tolerance through **topological protection**.
+
+### Quick Example: Ising Anyons (Microsoft Majorana)
+
+```fsharp
+open FSharp.Azure.Quantum.Topological
+
+// Create backend for Ising anyons (Microsoft's approach)
+let backend = TopologicalBackend.createSimulator AnyonSpecies.AnyonType.Ising 10
+
+// Create entangled state via braiding
+let! result = topological backend {
+    // Initialize 4 sigma anyons
+    do! TopologicalBuilder.initialize AnyonSpecies.AnyonType.Ising 4
+    
+    // Braiding creates entanglement geometrically
+    do! TopologicalBuilder.braid 0  // Braid anyons 0-1
+    do! TopologicalBuilder.braid 2  // Braid anyons 2-3
+    
+    // Measure fusion outcome
+    let! (outcome, _) = TopologicalBuilder.measure 0
+    return outcome
+}
+
+match result with
+| Ok particle ->
+    printfn "Fusion outcome: %A" particle  // Vacuum or Psi
+| Error err ->
+    printfn "Error: %s" err.Message
+```
+
+### Key Concepts
+
+**Anyons:**
+- Ising anyons: `{1 (vacuum), σ (sigma), ψ (psi)}` - Microsoft's Majorana approach
+- Fibonacci anyons: `{1, τ}` - Theoretical universal braiding
+- Fusion rule for Ising: `σ × σ = 1 + ψ` (creates quantum superposition)
+
+**Operations:**
+- **Braiding**: Exchange anyons (replaces quantum gates)
+- **Fusion**: Measurement (collapses superposition to classical outcome)
+- **F-moves**: Change fusion tree basis (advanced)
+
+**Advantages:**
+- ✅ **Topological protection**: Error rates ~10⁻¹² (vs 10⁻³ for gate-based)
+- ✅ **Passive error correction**: Immunity to local noise
+- ✅ **Scalability**: Potentially 1:1 physical-to-logical qubit ratio
+
+**Comparison: Gate-Based vs Topological**
+
+| Aspect | Gate-Based QC | Topological QC |
+|--------|---------------|----------------|
+| State | Qubit amplitudes | Fusion trees |
+| Operations | H, CNOT, RZ gates | Braid, Measure |
+| Error Correction | Active (surface codes) | Passive (topology) |
+| Hardware | IonQ, Rigetti, IBM | Microsoft Majorana (experimental) |
+
+### Examples
+
+See `examples/TopologicalSimulator/` for complete examples:
+- **BasicFusion.fsx** - Fusion rules and statistics
+- **BellState.fsx** - Creating entanglement via braiding
+- **BackendComparison.fsx** - Ising vs Fibonacci anyons
+
+### Documentation
+
+- **Library README**: `src/FSharp.Azure.Quantum.Topological/README.md`
+- **Examples**: `examples/TopologicalSimulator/README.md`
+- **Format Spec**: `docs/topological-format-spec.md` (import/export)
+
+---
+
 
 **Smart solver that automatically chooses between classical and quantum execution based on problem analysis.**
 

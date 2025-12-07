@@ -377,12 +377,12 @@ module CostEstimation =
         (backend: CostBackend) 
         (circuit: CircuitCostProfile) 
         (shots: int<shot>) 
-        : Result<CostEstimate, string> =
+        : Result<CostEstimate, QuantumError> =
         
         if int shots < 1 then
-            Error "Shot count must be at least 1"
+            Error (QuantumError.ValidationError("shots", "Shot count must be at least 1"))
         elif int circuit.QubitCount < 1 then
-            Error "Circuit must have at least 1 qubit"
+            Error (QuantumError.ValidationError("circuit.QubitCount", "Circuit must have at least 1 qubit"))
         else
             try
                 let estimate = 
@@ -402,14 +402,14 @@ module CostEstimation =
                 
                 Ok estimate
             with
-            | ex -> Error (sprintf "Cost estimation failed: %s" ex.Message)
+            | ex -> Error (QuantumError.OperationError("Cost estimation", ex.Message))
     
     /// Compare costs across multiple backends
     let compareCosts 
         (backends: CostBackend list) 
         (circuit: CircuitCostProfile) 
         (shots: int<shot>) 
-        : Result<CostEstimate list, string> =
+        : Result<CostEstimate list, QuantumError> =
         
         backends
         |> List.map (fun backend -> estimateCost backend circuit shots)
@@ -426,10 +426,10 @@ module CostEstimation =
         (backends: CostBackend list) 
         (circuit: CircuitCostProfile) 
         (shots: int<shot>) 
-        : Result<CostBackend * CostEstimate, string> =
+        : Result<CostBackend * CostEstimate, QuantumError> =
         
         if backends.IsEmpty then
-            Error "No backends provided"
+            Error (QuantumError.ValidationError("backends", "No backends provided - at least one backend is required"))
         else
             compareCosts backends circuit shots
             |> Result.map (fun estimates ->
@@ -477,7 +477,7 @@ module CostEstimation =
         (availableBackends: CostBackend list)
         (circuit: CircuitCostProfile)
         (shots: int<shot>)
-        : Result<CostRecommendation option, string> =
+        : Result<CostRecommendation option, QuantumError> =
         
         match estimateCost currentBackend circuit shots with
         | Error msg -> Error msg
@@ -816,11 +816,11 @@ module CostEstimation =
     
     /// Simplified cost estimation based on target string and shot count
     /// This is a compatibility wrapper for Client.fs (legacy Cost.fs API)
-    let estimateCostSimple (target: string) (shots: int) : Result<SimpleCostEstimate, string> =
+    let estimateCostSimple (target: string) (shots: int) : Result<SimpleCostEstimate, QuantumError> =
         if shots < 1 then
-            Error "Shot count must be at least 1"
+            Error (QuantumError.ValidationError("shots", "Shot count must be at least 1"))
         elif String.IsNullOrWhiteSpace(target) then
-            Error "Target backend cannot be empty"
+            Error (QuantumError.ValidationError("target", "Target backend cannot be empty"))
         else
             // Detect backend type from target string
             let isSimulator = target.ToLowerInvariant().Contains("simulator")
@@ -923,16 +923,16 @@ module CostEstimation =
         | Rigetti -> "Rigetti"
     
     /// Parse backend from CSV string representation
-    let private backendFromCsvString (str: string) : Result<CostBackend, string> =
+    let private backendFromCsvString (str: string) : Result<CostBackend, QuantumError> =
         match str with
         | "IonQ-EM" -> Ok (IonQ true)
         | "IonQ-NoEM" -> Ok (IonQ false)
         | "Quantinuum" -> Ok Quantinuum
         | "Rigetti" -> Ok Rigetti
-        | _ -> Error (sprintf "Unknown backend: %s" str)
+        | _ -> Error (QuantumError.ValidationError("backend", $"Unknown backend string: '{str}' - expected IonQ-EM, IonQ-NoEM, Quantinuum, or Rigetti"))
     
     /// Save cost tracking record to CSV file (appends if file exists)
-    let saveCostRecordToCsv (filePath: string) (record: CostTrackingRecord) : Result<unit, string> =
+    let saveCostRecordToCsv (filePath: string) (record: CostTrackingRecord) : Result<unit, QuantumError> =
         try
             // CSV format: JobId,Backend,EstimatedCost,ActualCost,Timestamp,SingleQubitGates,TwoQubitGates,Measurements,QubitCount,Shots
             let actualCostStr = 
@@ -959,10 +959,10 @@ module CostEstimation =
             System.IO.File.AppendAllLines(filePath, [csvLine])
             Ok ()
         with ex ->
-            Error (sprintf "Failed to save cost record to CSV: %s" ex.Message)
+            Error (QuantumError.IOError("CSV write", filePath, ex.Message))
     
     /// Load cost history from CSV file
-    let loadCostHistoryFromCsv (filePath: string) : Result<CostTrackingRecord list, string> =
+    let loadCostHistoryFromCsv (filePath: string) : Result<CostTrackingRecord list, QuantumError> =
         try
             if not (System.IO.File.Exists(filePath)) then
                 // Return empty list for non-existent file (not an error)
@@ -1034,4 +1034,4 @@ module CostEstimation =
                 
                 Ok records
         with ex ->
-            Error (sprintf "Failed to load cost history from CSV: %s" ex.Message)
+            Error (QuantumError.IOError("CSV read", filePath, ex.Message))

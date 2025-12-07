@@ -183,7 +183,7 @@ module BackendCapabilityDetectionTests =
         match selectBestBackend backends circuit with
         | Ok _ -> Assert.True(false, "Should fail with empty backend list")
         | Error msg ->
-            Assert.Contains("No compatible backend", msg)
+            Assert.Contains("No compatible backend", msg.Message)
     
     [<Fact>]
     let ``selectBestBackend ranks backends by performance score`` () =
@@ -259,7 +259,7 @@ module BackendCapabilityDetectionTests =
         match executeWithAutomaticBackend circuit 50 with
         | Error e -> 
             // Expected error from LocalBackend - backend was correctly selected
-            Assert.Contains("CircuitWrapper", e)
+            Assert.Contains("CircuitWrapper", e.Message)
         | Ok _ ->
             // If we ever fix LocalBackend to accept raw ICircuit, this is fine too
             Assert.True(true)

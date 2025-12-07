@@ -28,11 +28,11 @@ module QuantumSolver =
     let solveAsync 
         (backend: BackendAbstraction.IQuantumBackend)
         (problem: SchedulingProblem<'TTask, 'TResource>) 
-        : Async<Result<Solution, string>> =
+        : Async<QuantumResult<Solution>> =
         async {
             // Validate problem first
             match Validation.validateProblem problem with
-            | Error msg -> return Error msg
+            | Error err -> return Error err
             | Ok () ->
             
             // Determine time horizon (max possible makespan)
@@ -45,7 +45,7 @@ module QuantumSolver =
             
             // Encode problem as QUBO
             match QuboEncoding.toQubo problem timeHorizon with
-            | Error msg -> return Error msg
+            | Error err -> return Error err
             | Ok quboMatrix ->
             
             // Convert sparse QUBO to dense array for QAOA
@@ -68,8 +68,9 @@ module QuantumSolver =
             
             // Execute on quantum backend
             let numShots = 1000
-            match! backend.ExecuteAsync circuitWrapper numShots with
-            | Error msg -> return Error (sprintf "Quantum execution failed: %s" msg)
+            let! execResult = backend.ExecuteAsync circuitWrapper numShots
+            match execResult with
+            | Error err -> return Error err
             | Ok execResult ->
             
             // Decode measurements to find best schedule
@@ -90,7 +91,7 @@ module QuantumSolver =
                 )
             
             if Array.isEmpty solutions then
-                return Error "No valid solutions found from quantum measurements. Try increasing numShots or adjusting QAOA parameters."
+                return Error (QuantumError.OperationError ("Quantum scheduling", "No valid solutions found from quantum measurements. Try increasing numShots or adjusting QAOA parameters."))
             else
                 // Select best solution (minimum makespan)
                 let (bestMakespan, bestAssignments) = solutions |> Array.minBy fst

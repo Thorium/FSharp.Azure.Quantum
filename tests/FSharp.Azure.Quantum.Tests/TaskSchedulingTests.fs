@@ -156,7 +156,7 @@ module TaskSchedulingTests =
         // Assert - Should return error
         match result with
         | Ok _ -> Assert.Fail("Should have failed validation")
-        | Error msg -> Assert.Contains("X", msg)  // Error should mention invalid dependency "X"
+        | Error msg -> Assert.Contains("X", msg.Message)  // Error should mention invalid dependency "X"
     
     // ============================================================================
     // TEST 5: Validation - Duplicate Task IDs
@@ -187,7 +187,7 @@ module TaskSchedulingTests =
         // Assert - Should return error
         match result with
         | Ok _ -> Assert.Fail("Should have failed validation")
-        | Error msg -> Assert.Contains("Duplicate", msg)
+        | Error msg -> Assert.Contains("Duplicate", msg.Message)
     
     // ============================================================================
     // TEST 6: Resource Helper - crew
@@ -290,7 +290,7 @@ module TaskSchedulingTests =
         // Note: QAOA with initial parameters may not always find optimal solution
         // This test verifies the quantum solver executes without error
         match result with
-        | Error msg -> Assert.Fail(sprintf "Quantum solver failed: %s" msg)
+        | Error msg -> Assert.Fail(sprintf "Quantum solver failed: %s" msg.Message)
         | Ok solution ->
             // Solution found - quantum execution successful
             Assert.NotEmpty(solution.Assignments)

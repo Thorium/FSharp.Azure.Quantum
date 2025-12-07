@@ -1,5 +1,7 @@
 namespace FSharp.Azure.Quantum.MachineLearning
 
+open FSharp.Azure.Quantum.Core
+
 /// Feature Map Implementation for QML
 ///
 /// Encodes classical feature vectors into quantum states using various strategies:
@@ -173,7 +175,7 @@ module FeatureMap =
     // ========================================================================
     
     /// Build feature map circuit for given configuration
-    let buildFeatureMap (featureMapType: FeatureMapType) (features: FeatureVector) : Result<Circuit, string> =
+    let buildFeatureMap (featureMapType: FeatureMapType) (features: FeatureVector) : QuantumResult<Circuit> =
         try
             let circuit =
                 match featureMapType with
@@ -192,4 +194,4 @@ module FeatureMap =
             Ok circuit
         
         with ex ->
-            Error $"Failed to build feature map: {ex.Message}"
+            Error (QuantumError.ValidationError ("Input", $"Failed to build feature map: {ex.Message}"))

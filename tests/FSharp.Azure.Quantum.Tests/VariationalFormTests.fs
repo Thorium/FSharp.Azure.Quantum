@@ -114,8 +114,8 @@ module VariationalFormTests =
             Assert.True(false, "Should fail with wrong parameter count")
         
         | Error msg ->
-            Assert.Contains("requires 6 parameters", msg)
-            Assert.Contains("got 2", msg)
+            Assert.Contains("requires 6 parameters", msg.Message)
+            Assert.Contains("got 2", msg.Message)
     
     [<Fact>]
     let ``RealAmplitudes - handles single qubit`` () =
@@ -262,8 +262,8 @@ module VariationalFormTests =
             Assert.True(false, "Should fail with wrong parameter count")
         
         | Error msg ->
-            Assert.Contains("requires 6 parameters", msg)
-            Assert.Contains("got 3", msg)
+            Assert.Contains("requires 6 parameters", msg.Message)
+            Assert.Contains("got 3", msg.Message)
     
     // ========================================================================
     // VALIDATION TESTS
@@ -278,7 +278,7 @@ module VariationalFormTests =
             Assert.True(false, "Should reject zero qubits")
         
         | Error msg ->
-            Assert.Contains("at least 1", msg)
+            Assert.Contains("at least 1", msg.Message)
     
     [<Fact>]
     let ``buildVariationalForm - rejects negative qubits`` () =
@@ -289,7 +289,7 @@ module VariationalFormTests =
             Assert.True(false, "Should reject negative qubits")
         
         | Error msg ->
-            Assert.Contains("at least 1", msg)
+            Assert.Contains("at least 1", msg.Message)
     
     [<Fact>]
     let ``buildVariationalForm - rejects zero depth`` () =
@@ -300,7 +300,7 @@ module VariationalFormTests =
             Assert.True(false, "Should reject zero depth")
         
         | Error msg ->
-            Assert.Contains("Depth must be at least 1", msg)
+            Assert.Contains("Depth must be at least 1", msg.Message)
     
     [<Fact>]
     let ``buildVariationalForm - rejects negative depth`` () =
@@ -311,7 +311,7 @@ module VariationalFormTests =
             Assert.True(false, "Should reject negative depth")
         
         | Error msg ->
-            Assert.Contains("Depth must be at least 1", msg)
+            Assert.Contains("Depth must be at least 1", msg.Message)
     
     // ========================================================================
     // PARAMETER INITIALIZATION TESTS
@@ -418,9 +418,9 @@ module VariationalFormTests =
             Assert.True(false, "Should reject qubit count mismatch")
         
         | Error msg ->
-            Assert.Contains("Qubit count mismatch", msg)
-            Assert.Contains("3 qubits", msg)
-            Assert.Contains("4 qubits", msg)
+            Assert.Contains("Qubit count mismatch", msg.Message)
+            Assert.Contains("3 qubits", msg.Message)
+            Assert.Contains("4 qubits", msg.Message)
     
     // ========================================================================
     // INTEGRATION TESTS

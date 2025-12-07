@@ -142,7 +142,7 @@ module PerformanceBenchmarking =
                     | Ok tour -> yield (sw.Elapsed.TotalMilliseconds, tour.TotalDistance)
                     | Error err -> 
                         // Log error but continue - some runs might succeed
-                        eprintfn "TSP solve failed: %s" err
+                        eprintfn "TSP solve failed: %s" err.Message
             ]
             
             // Ensure we got at least one successful result
@@ -198,7 +198,7 @@ module PerformanceBenchmarking =
                     | Ok allocation -> yield (sw.Elapsed.TotalMilliseconds, allocation.ExpectedReturn)
                     | Error err -> 
                         // Log error but continue - some runs might succeed
-                        eprintfn "Portfolio solve failed: %s" err
+                        eprintfn "Portfolio solve failed: %s" err.Message
             ]
             
             // Ensure we got at least one successful result

@@ -82,7 +82,7 @@ module QuantumPatternMatcherBuilderTests =
                 findTop 0  // Invalid
             } |> ignore
         )
-        Assert.Contains("TopN must be at least 1", ex.Message)
+        Assert.Contains("must be at least 1", ex.Message)
     
     [<Fact>]
     let ``Builder should reject TopN > search space size`` () =
@@ -274,9 +274,9 @@ module QuantumPatternMatcherBuilderTests =
             Assert.True(solution.QubitsRequired > 0)
             Assert.NotEmpty(solution.BackendName)
             Assert.Equal(16, solution.SearchSpaceSize)
-        | Error msg ->
+        | Error err ->
             // Algorithm may fail to find patterns (LocalBackend simulation limitation)
-            Assert.True(msg.Length > 0, "Should return descriptive error message")
+            Assert.True(err.Message.Length > 0, "Should return descriptive error message")
     
     [<Fact>]
     let ``QuantumPatternMatcher.solve should use LocalBackend by default`` () =
@@ -290,9 +290,9 @@ module QuantumPatternMatcherBuilderTests =
         match result with
         | Ok solution ->
             Assert.Contains("LocalBackend", solution.BackendName)
-        | Error msg ->
+        | Error err ->
             // Algorithm may fail (backend limitation) - just verify it attempted execution
-            Assert.True(msg.Length > 0, "Should return descriptive error message")
+            Assert.True(err.Message.Length > 0, "Should return descriptive error message")
     
     [<Fact>]
     let ``QuantumPatternMatcher.solve should use custom backend when provided`` () =
@@ -313,9 +313,9 @@ module QuantumPatternMatcherBuilderTests =
             Assert.NotEmpty(solution.BackendName)
             // Backend name should be the type name of LocalBackend
             Assert.True(solution.BackendName.Contains("Backend") || solution.BackendName.Contains("Local"))
-        | Error msg ->
+        | Error err ->
             // Algorithm may fail (backend limitation) - verify backend was attempted
-            Assert.True(msg.Length > 0, "Should return descriptive error message")
+            Assert.True(err.Message.Length > 0, "Should return descriptive error message")
     
     [<Fact>]
     let ``QuantumPatternMatcher.solve should return sensible qubit requirements`` () =
@@ -446,8 +446,8 @@ module QuantumPatternMatcherBuilderTests =
         
         // Assert
         match result with
-        | Error msg ->
-            Assert.Contains("exceeds maximum", msg)
+        | Error err ->
+            Assert.Contains("exceeds maximum", err.Message)
         | Ok _ ->
             Assert.Fail("Expected solve to return error")
     
@@ -467,11 +467,11 @@ module QuantumPatternMatcherBuilderTests =
         
         // Assert
         match result with
-        | Error msg ->
+        | Error err ->
             // Should get error about predicate or no matches
             Assert.True(
-                msg.Contains("Grover search failed") || msg.Contains("No matching patterns found"),
-                $"Expected error about search failure or no matches, got: {msg}"
+                err.Message.Contains("Grover search failed") || err.Message.Contains("No matching patterns found"),
+                $"Expected error about search failure or no matches, got: {err.Message}"
             )
         | Ok solution ->
             // Or succeed but with empty matches

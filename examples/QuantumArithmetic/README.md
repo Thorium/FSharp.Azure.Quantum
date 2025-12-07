@@ -68,8 +68,8 @@ match execute operation with
 | Ok result -> 
     printfn "Result: %d" result.Value
     printfn "Qubits: %d" result.QubitsUsed
-| Error msg -> 
-    printfn "Error: %s" msg
+| Error err -> 
+    printfn "Error: %s" err.Message
 ```
 
 ### F# Convenience Functions

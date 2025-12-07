@@ -444,7 +444,7 @@ module RigettiBackendTests =
         // Assert
         match result with
         | Ok () -> Assert.True(true)
-        | Error msg -> Assert.True(false, sprintf "Expected Ok, got Error: %s" msg)
+        | Error msg -> Assert.True(false, sprintf "Expected Ok, got Error: %s" msg.Message)
     
     [<Fact>]
     let ``validateProgram - returns Error for invalid two-qubit gate`` () =
@@ -466,8 +466,8 @@ module RigettiBackendTests =
         match result with
         | Ok () -> Assert.True(false, "Expected Error, got Ok")
         | Error msg ->
-            Assert.Contains("CZ 0 2", msg)
-            Assert.Contains("connectivity", msg.ToLower())
+            Assert.Contains("CZ 0 2", msg.Message)
+            Assert.Contains("connectivity", msg.Message.ToLower())
     
     [<Fact>]
     let ``validateProgram - returns Error with gate details for multiple invalid gates`` () =
@@ -488,7 +488,7 @@ module RigettiBackendTests =
         match result with
         | Ok () -> Assert.True(false, "Expected Error, got Ok")
         | Error msg ->
-            Assert.Contains("CZ 0 2", msg)
+            Assert.Contains("CZ 0 2", msg.Message)
             // Should report first invalid gate
     
     // ============================================================================

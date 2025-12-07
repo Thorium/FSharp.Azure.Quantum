@@ -4,6 +4,7 @@ open Xunit
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Core.CircuitAbstraction
 open FSharp.Azure.Quantum.Core.QaoaCircuit
+open FSharp.Azure.Quantum.Core
 
 module CircuitAbstractionTests =
 
@@ -53,7 +54,7 @@ module CircuitAbstractionTests =
         
         match result with
         | Ok qaoaCircuit -> Assert.Equal(5, qaoaCircuit.NumQubits)
-        | Error msg -> Assert.True(false, sprintf "Conversion failed: %s" msg)
+        | Error err -> Assert.True(false, sprintf "Conversion failed: %s" err.Message)
 
     [<Fact>]
     let ``circuitToQaoaCircuit should convert Hadamard gates`` () =
@@ -77,7 +78,7 @@ module CircuitAbstractionTests =
             match mixerGates.[1] with
             | QuantumGate.H q -> Assert.Equal(1, q)
             | _ -> Assert.True(false, "Expected H gate")
-        | Error msg -> Assert.True(false, sprintf "Conversion failed: %s" msg)
+        | Error err -> Assert.True(false, sprintf "Conversion failed: %s" err.Message)
 
     [<Fact>]
     let ``circuitToQaoaCircuit should convert RX gates with angles`` () =
@@ -97,7 +98,7 @@ module CircuitAbstractionTests =
                 Assert.Equal(0, q)
                 Assert.Equal(1.5, angle, 6)
             | _ -> Assert.True(false, "Expected RX gate")
-        | Error msg -> Assert.True(false, sprintf "Conversion failed: %s" msg)
+        | Error err -> Assert.True(false, sprintf "Conversion failed: %s" err.Message)
 
     [<Fact>]
     let ``circuitToQaoaCircuit should convert CNOT gates`` () =
@@ -117,7 +118,7 @@ module CircuitAbstractionTests =
                 Assert.Equal(0, c)
                 Assert.Equal(1, t)
             | _ -> Assert.True(false, "Expected CNOT gate")
-        | Error msg -> Assert.True(false, sprintf "Conversion failed: %s" msg)
+        | Error err -> Assert.True(false, sprintf "Conversion failed: %s" err.Message)
 
     [<Fact>]
     let ``circuitToQaoaCircuit should handle empty circuits`` () =
@@ -130,7 +131,7 @@ module CircuitAbstractionTests =
             Assert.Equal(3, qaoaCircuit.NumQubits)
             Assert.Equal(1, qaoaCircuit.Layers.Length)
             Assert.Equal(0, qaoaCircuit.Layers.[0].MixerGates.Length)
-        | Error msg -> Assert.True(false, sprintf "Conversion failed: %s" msg)
+        | Error err -> Assert.True(false, sprintf "Conversion failed: %s" err.Message)
 
     [<Fact>]
     let ``circuitToQaoaCircuit should create placeholder Hamiltonians`` () =
@@ -147,7 +148,7 @@ module CircuitAbstractionTests =
             // Mixer Hamiltonian should have X terms
             Assert.Equal(2, qaoaCircuit.MixerHamiltonian.NumQubits)
             Assert.Equal(2, qaoaCircuit.MixerHamiltonian.Terms.Length)
-        | Error msg -> Assert.True(false, sprintf "Conversion failed: %s" msg)
+        | Error err -> Assert.True(false, sprintf "Conversion failed: %s" err.Message)
 
     // ========================================================================
     // CircuitAdapter - QaoaCircuit to CircuitBuilder Conversion Tests
@@ -283,7 +284,7 @@ module CircuitAbstractionTests =
         | Ok qaoaCircuit ->
             let finalCircuit = CircuitAdapter.qaoaCircuitToCircuit qaoaCircuit
             Assert.Equal(originalCircuit.QubitCount, finalCircuit.QubitCount)
-        | Error msg -> Assert.True(false, sprintf "Conversion failed: %s" msg)
+        | Error err -> Assert.True(false, sprintf "Conversion failed: %s" err.Message)
 
     [<Fact>]
     let ``Round-trip conversion should preserve gate structure`` () =
@@ -310,7 +311,7 @@ module CircuitAbstractionTests =
                 Assert.Equal(1, q)
                 Assert.Equal(1.5, angle, 6)
             | _ -> Assert.True(false, "Expected RX gate")
-        | Error msg -> Assert.True(false, sprintf "Conversion failed: %s" msg)
+        | Error err -> Assert.True(false, sprintf "Conversion failed: %s" err.Message)
 
     // ========================================================================
     // Edge Cases and Error Handling
@@ -324,7 +325,7 @@ module CircuitAbstractionTests =
         
         match result with
         | Ok qaoaCircuit -> Assert.Equal(1, qaoaCircuit.NumQubits)
-        | Error msg -> Assert.True(false, sprintf "Conversion failed: %s" msg)
+        | Error err -> Assert.True(false, sprintf "Conversion failed: %s" err.Message)
 
     [<Fact>]
     let ``circuitToQaoaCircuit should handle circuits with many gates`` () =
@@ -339,7 +340,7 @@ module CircuitAbstractionTests =
         | Ok qaoaCircuit -> 
             Assert.Equal(3, qaoaCircuit.NumQubits)
             Assert.Equal(6, qaoaCircuit.Layers.[0].MixerGates.Length)
-        | Error msg -> Assert.True(false, sprintf "Conversion failed: %s" msg)
+        | Error err -> Assert.True(false, sprintf "Conversion failed: %s" err.Message)
 
     [<Fact>]
     let ``qaoaCircuitToCircuit should handle empty layers`` () =

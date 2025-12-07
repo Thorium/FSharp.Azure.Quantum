@@ -1,6 +1,7 @@
 namespace FSharp.Azure.Quantum.Core
 
 open System
+open FSharp.Azure.Quantum
 
 /// Unified circuit abstraction for all quantum backends
 /// 
@@ -82,6 +83,9 @@ module CircuitAbstraction =
             | CircuitBuilder.RX (q, angle) -> [QuantumGate.RX (q, angle)]
             | CircuitBuilder.RY (q, angle) -> [QuantumGate.RY (q, angle)]
             | CircuitBuilder.RZ (q, angle) -> [QuantumGate.RZ (q, angle)]
+            | CircuitBuilder.U3 (q, theta, phi, lambda) ->
+                // U3(θ,φ,λ) = RZ(φ) RY(θ) RZ(λ) decomposition
+                [QuantumGate.RZ (q, lambda); QuantumGate.RY (q, theta); QuantumGate.RZ (q, phi)]
             | CircuitBuilder.CNOT (c, t) -> [QuantumGate.CNOT (c, t)]
             | CircuitBuilder.CZ (c, t) -> 
                 // CZ = H(target) CNOT(c,t) H(target)
@@ -143,6 +147,34 @@ module CircuitAbstraction =
                     QuantumGate.RZ (t, -halfTheta)
                     QuantumGate.CNOT (c, t)
                 ]
+            | CircuitBuilder.CRX (c, t, angle) ->
+                // CRX(θ) = Controlled-RX(θ) decomposition
+                // Reference: Nielsen & Chuang
+                let halfAngle = angle / 2.0
+                [
+                    QuantumGate.RX (t, halfAngle)
+                    QuantumGate.CNOT (c, t)
+                    QuantumGate.RX (t, -halfAngle)
+                    QuantumGate.CNOT (c, t)
+                ]
+            | CircuitBuilder.CRY (c, t, angle) ->
+                // CRY(θ) = Controlled-RY(θ) decomposition
+                let halfAngle = angle / 2.0
+                [
+                    QuantumGate.RY (t, halfAngle)
+                    QuantumGate.CNOT (c, t)
+                    QuantumGate.RY (t, -halfAngle)
+                    QuantumGate.CNOT (c, t)
+                ]
+            | CircuitBuilder.CRZ (c, t, angle) ->
+                // CRZ(θ) = Controlled-RZ(θ) decomposition
+                let halfAngle = angle / 2.0
+                [
+                    QuantumGate.RZ (t, halfAngle)
+                    QuantumGate.CNOT (c, t)
+                    QuantumGate.RZ (t, -halfAngle)
+                    QuantumGate.CNOT (c, t)
+                ]
             | CircuitBuilder.MCZ (controls, target) ->
                 // Multi-controlled Z gate - not directly supported in QAOA
                 // MCZ gates are primarily used in Grover's algorithm via LocalBackend
@@ -164,7 +196,7 @@ module CircuitAbstraction =
         /// so not all circuits can be represented as valid QAOA.
         /// 
         /// Returns Error if circuit cannot be converted.
-        let circuitToQaoaCircuit (circuit: CircuitBuilder.Circuit) : Result<QaoaCircuit, string> =
+        let circuitToQaoaCircuit (circuit: CircuitBuilder.Circuit) : Result<QaoaCircuit, QuantumError> =
             // Convert gates, collecting decomposed sequences
             let convertedGates = 
                 circuit.Gates 
@@ -178,7 +210,9 @@ module CircuitAbstraction =
                 |> List.length
             
             if unconvertedCount > 0 then
-                Error $"Failed to convert {unconvertedCount} unsupported gates to QAOA format"
+                Error (QuantumError.OperationError(
+                    "Circuit conversion", 
+                    $"Failed to convert {unconvertedCount} gates from CircuitBuilder to QAOA format - some gate types are not supported in QAOA"))
             else
                 // Create placeholder Hamiltonians (for general circuits, these are empty)
                 let problemHamiltonian : ProblemHamiltonian = {
@@ -319,9 +353,9 @@ module CircuitAbstraction =
         /// Convert ICircuit to IonQCircuit
         /// 
         /// Extracts the underlying CircuitBuilder.Circuit and converts gates to IonQ format.
-        let toIonQCircuit (circuit: ICircuit) : Result<IonQBackend.IonQCircuit, string> =
+        let toIonQCircuit (circuit: ICircuit) : Result<IonQBackend.IonQCircuit, QuantumError> =
             match tryGetCircuit circuit with
-            | None -> Error "Cannot extract CircuitBuilder.Circuit from ICircuit"
+            | None -> Error (QuantumError.OperationError("Circuit extraction", "Cannot extract CircuitBuilder.Circuit from ICircuit wrapper"))
             | Some builderCircuit ->
                 // Convert all gates
                 let convertedGates =
@@ -331,7 +365,9 @@ module CircuitAbstraction =
                 // Check if any gates failed to convert
                 if convertedGates.Length < builderCircuit.Gates.Length then
                     let unsupportedCount = builderCircuit.Gates.Length - convertedGates.Length
-                    Error $"Failed to convert {unsupportedCount} unsupported gates to IonQ format"
+                    Error (QuantumError.OperationError(
+                        "Circuit conversion", 
+                        $"Failed to convert {unsupportedCount} gates to IonQ format - some gate types are not supported by IonQ backend"))
                 else
                     Ok {
                         IonQBackend.Qubits = builderCircuit.QubitCount
@@ -342,9 +378,9 @@ module CircuitAbstraction =
         /// 
         /// Extracts the underlying CircuitBuilder.Circuit and converts to Quil instructions.
         /// Automatically adds memory declarations for measurements.
-        let toQuilProgram (circuit: ICircuit) : Result<RigettiBackend.QuilProgram, string> =
+        let toQuilProgram (circuit: ICircuit) : Result<RigettiBackend.QuilProgram, QuantumError> =
             match tryGetCircuit circuit with
-            | None -> Error "Cannot extract CircuitBuilder.Circuit from ICircuit"
+            | None -> Error (QuantumError.OperationError("Circuit extraction", "Cannot extract CircuitBuilder.Circuit from ICircuit wrapper"))
             | Some builderCircuit ->
                 // Convert all gates to Quil instructions
                 let instructions =
@@ -354,7 +390,9 @@ module CircuitAbstraction =
                 // Check if any gates failed to convert
                 if instructions.Length < builderCircuit.Gates.Length then
                     let unsupportedCount = builderCircuit.Gates.Length - instructions.Length
-                    Error $"Failed to convert {unsupportedCount} unsupported gates to Quil format"
+                    Error (QuantumError.OperationError(
+                        "Circuit conversion", 
+                        $"Failed to convert {unsupportedCount} gates to Quil format - some gate types are not supported by Rigetti backend"))
                 else
                     // Add memory declaration for measurement results
                     // Rigetti requires: DECLARE ro BIT[numQubits]

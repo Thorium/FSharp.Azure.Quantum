@@ -44,7 +44,7 @@ module QuantumConstraintSolverBuilderTests =
                 satisfies allEvenConstraint
             } |> ignore
         )
-        Assert.Contains("SearchSpaceSize must be at least 1", ex.Message)
+        Assert.Contains("must be at least 1", ex.Message)
     
     [<Fact>]
     let ``Builder should reject SearchSpaceSize > 2^16`` () =
@@ -68,7 +68,7 @@ module QuantumConstraintSolverBuilderTests =
                 satisfies allEvenConstraint
             } |> ignore
         )
-        Assert.Contains("Domain cannot be empty", ex.Message)
+        Assert.Contains("cannot be empty", ex.Message)
     
     [<Fact>]
     let ``Builder should reject problem with no constraints`` () =
@@ -80,7 +80,7 @@ module QuantumConstraintSolverBuilderTests =
                 // No satisfies clause
             } |> ignore
         )
-        Assert.Contains("At least one constraint is required", ex.Message)
+        Assert.Contains("at least one constraint is required", ex.Message)
     
     [<Fact>]
     let ``Builder should reject problem requiring > 16 qubits`` () =
@@ -239,9 +239,9 @@ module QuantumConstraintSolverBuilderTests =
         | Ok solution ->
             Assert.True(solution.QubitsRequired > 0)
             Assert.NotEmpty(solution.BackendName)
-        | Error msg ->
+        | Error err ->
             // Algorithm may fail to find solution (LocalBackend simulation limitation)
-            Assert.True(msg.Length > 0, "Should return descriptive error message")
+            Assert.True(err.Message.Length > 0, "Should return descriptive error message")
     
     [<Fact>]
     let ``QuantumConstraintSolver.solve should use LocalBackend by default`` () =
@@ -255,9 +255,9 @@ module QuantumConstraintSolverBuilderTests =
         match result with
         | Ok solution ->
             Assert.Contains("LocalBackend", solution.BackendName)
-        | Error msg ->
+        | Error err ->
             // Algorithm may fail (backend limitation) - just verify it attempted execution
-            Assert.True(msg.Length > 0, "Should return descriptive error message")
+            Assert.True(err.Message.Length > 0, "Should return descriptive error message")
     
     [<Fact>]
     let ``QuantumConstraintSolver.solve should use custom backend when provided`` () =
@@ -279,9 +279,9 @@ module QuantumConstraintSolverBuilderTests =
             Assert.NotEmpty(solution.BackendName)
             // Backend name should be the type name of LocalBackend
             Assert.True(solution.BackendName.Contains("Backend") || solution.BackendName.Contains("Local"))
-        | Error msg ->
+        | Error err ->
             // Algorithm may fail (backend limitation) - verify backend was attempted
-            Assert.True(msg.Length > 0, "Should return descriptive error message")
+            Assert.True(err.Message.Length > 0, "Should return descriptive error message")
     
     [<Fact>]
     let ``QuantumConstraintSolver.solve should return sensible qubit requirements`` () =
@@ -390,9 +390,9 @@ module QuantumConstraintSolverBuilderTests =
         
         // Assert
         match result with
-        | Error msg ->
+        | Error err ->
             // Error says "exceeds maximum" for large search space
-            Assert.Contains("exceeds maximum", msg)
+            Assert.Contains("exceeds maximum", err.Message)
         | Ok _ ->
             Assert.Fail("Expected solve to return error")
     
@@ -412,9 +412,9 @@ module QuantumConstraintSolverBuilderTests =
         
         // Assert
         match result with
-        | Error msg ->
+        | Error err ->
             // Should get error about no solution found
-            Assert.True(msg.Length > 0)
+            Assert.True(err.Message.Length > 0)
         | Ok solution ->
             // Or succeed but with low probability
             Assert.False(solution.AllConstraintsSatisfied)

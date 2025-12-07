@@ -1,0 +1,34 @@
+# Topological Bell State Program
+# This program creates a Bell state using Ising anyons (Majorana zero modes)
+#
+# Bell state: (|00⟩ + |11⟩)/√2
+#
+# Topological implementation:
+# 1. Initialize 4 sigma anyons (creates 2 topological qubits)
+# 2. Braid anyons 0-1 (applies phase to first qubit)
+# 3. Braid anyons 2-3 (applies phase to second qubit)
+# 4. Measure fusion of anyons 1-2 (entangles the qubits)
+#
+# Physical realization:
+# - Each sigma anyon is a Majorana zero mode
+# - Braiding = physically moving anyons around each other
+# - Measurement = bringing anyons together and measuring fusion outcome
+
+ANYON Ising
+
+# Initialize 4 sigma anyons (2 topological qubits)
+# Convention: Pair (0,1) = qubit A, Pair (2,3) = qubit B
+INIT 4
+
+# Apply Hadamard-like operation to qubit A
+# (In Ising anyons, requires specific braiding sequence)
+BRAID 0
+
+# Create entanglement between qubits A and B
+# This is the topological equivalent of a CNOT gate
+BRAID 1
+BRAID 2
+
+# Measure fusion of anyons 1-2 to collapse into Bell state
+# Outcome determines which Bell state: |Φ+⟩ or |Ψ+⟩
+MEASURE 1

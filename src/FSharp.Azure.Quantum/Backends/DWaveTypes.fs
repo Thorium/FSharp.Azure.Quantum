@@ -1,4 +1,5 @@
 namespace FSharp.Azure.Quantum.Backends
+open FSharp.Azure.Quantum.Core
 
 open System
 

@@ -168,26 +168,26 @@ module QuantumLinearSystemSolver =
     /// Validates a linear system problem specification.
     /// Checks matrix properties, vector compatibility, and qubit limits.
     /// </summary>
-    let private validate (problem: LinearSystemProblem) : Result<unit, string> =
+    let private validate (problem: LinearSystemProblem) : Result<unit, QuantumError> =
         // Check eigenvalue qubits
         if problem.EigenvalueQubits < 2 then
-            Error "Eigenvalue qubits must be at least 2 (4 eigenvalue bins minimum)"
+            Error (QuantumError.ValidationError ("EigenvalueQubits", "must be at least 2 (4 eigenvalue bins minimum)"))
         elif problem.EigenvalueQubits > 12 then
-            Error "Eigenvalue qubits exceeds practical limit (12 qubits = 4096 bins)"
+            Error (QuantumError.ValidationError ("EigenvalueQubits", "exceeds practical limit (12 qubits = 4096 bins)"))
         
         // Check matrix dimension
         elif problem.Matrix.Dimension < 2 then
-            Error "Matrix dimension must be at least 2×2"
+            Error (QuantumError.ValidationError ("MatrixDimension", "must be at least 2×2"))
         elif problem.Matrix.Dimension > 16 then
-            Error "Matrix dimension exceeds simulation limit (16×16)"
+            Error (QuantumError.ValidationError ("MatrixDimension", "exceeds simulation limit (16×16)"))
         
         // Check matrix is power of 2
         elif (problem.Matrix.Dimension &&& (problem.Matrix.Dimension - 1)) <> 0 then
-            Error $"Matrix dimension must be power of 2, got {problem.Matrix.Dimension}"
+            Error (QuantumError.ValidationError ("MatrixDimension", $"must be power of 2, got {problem.Matrix.Dimension}"))
         
         // Check vector matches matrix
         elif problem.InputVector.Dimension <> problem.Matrix.Dimension then
-            Error $"Vector dimension ({problem.InputVector.Dimension}) must match matrix ({problem.Matrix.Dimension})"
+            Error (QuantumError.ValidationError ("VectorDimension", $"({problem.InputVector.Dimension}) must match matrix ({problem.Matrix.Dimension})"))
         
         // Calculate solution qubits
         else
@@ -198,7 +198,7 @@ module QuantumLinearSystemSolver =
             let totalQubits = problem.EigenvalueQubits + solutionQubits + 1  // +1 for ancilla
             
             if totalQubits > 20 then
-                Error $"Total qubits ({totalQubits}) exceeds practical limit (20 qubits)"
+                Error (QuantumError.ValidationError ("TotalQubits", $"({totalQubits}) exceeds practical limit (20 qubits)"))
             else
                 Ok ()
     
@@ -239,7 +239,7 @@ module QuantumLinearSystemSolver =
             
             match createHermitianMatrix array2D with
             | Ok matrix -> { problem with Matrix = matrix }
-            | Error msg -> failwith msg
+            | Error err -> failwith err.Message
         
         /// <summary>Set diagonal matrix from eigenvalues.</summary>
         /// <param name="eigenvalues">List of eigenvalues for diagonal matrix</param>
@@ -247,7 +247,7 @@ module QuantumLinearSystemSolver =
         member _.DiagonalMatrix(problem: LinearSystemProblem, eigenvalues: float list) : LinearSystemProblem =
             match createDiagonalMatrix (List.toArray eigenvalues) with
             | Ok matrix -> { problem with Matrix = matrix }
-            | Error msg -> failwith msg
+            | Error err -> failwith err.Message
         
         /// <summary>Set input vector.</summary>
         /// <param name="components">List of vector components</param>
@@ -257,7 +257,7 @@ module QuantumLinearSystemSolver =
             
             match createQuantumVector complexComponents with
             | Ok vector -> { problem with InputVector = vector }
-            | Error msg -> failwith msg
+            | Error err -> failwith err.Message
         
         /// <summary>Set eigenvalue qubits (precision).</summary>
         /// <param name="n">Number of eigenvalue qubits</param>
@@ -316,7 +316,7 @@ module QuantumLinearSystemSolver =
         /// 
         /// This method enables early error detection before executing the algorithm.
         /// </remarks>
-        member _.Run(problem: LinearSystemProblem) : Result<LinearSystemProblem, string> =
+        member _.Run(problem: LinearSystemProblem) : Result<LinearSystemProblem, QuantumError> =
             validate problem |> Result.map (fun _ -> problem)
     
     /// <summary>
@@ -335,10 +335,10 @@ module QuantumLinearSystemSolver =
     /// </summary>
     /// <param name="problem">Linear system problem specification</param>
     /// <returns>Solution with success probability and amplitudes</returns>
-    let solve (problem: LinearSystemProblem): Result<LinearSystemSolution, string> =
+    let solve (problem: LinearSystemProblem): Result<LinearSystemSolution, QuantumError> =
         // Validate problem
         match validate problem with
-        | Error msg -> Error msg
+        | Error err -> Error err
         | Ok () ->
             // Determine solution qubits
             let solutionQubits = 
@@ -376,7 +376,7 @@ module QuantumLinearSystemSolver =
                 | Ok circuit -> circuit.Gates.Length
                 
             match HHLBackendAdapter.executeWithBackend config backend shots with
-            | Error msg -> Error msg
+            | Error msg -> Error (QuantumError.OperationError ("HHL algorithm execution", msg))
             | Ok measurements ->
                 // Extract solution statistics
                 let solution = 
@@ -419,7 +419,7 @@ module QuantumLinearSystemSolver =
     /// <param name="b1">Vector component 1</param>
     /// <param name="b2">Vector component 2</param>
     let solve2x2 (a11: float) (a12: float) (a21: float) (a22: float) (b1: float) (b2: float) 
-        : Result<LinearSystemSolution, string> =
+        : Result<LinearSystemSolution, QuantumError> =
         
         let problemResult = linearSystemSolver {
             matrix [[a11; a12]; [a21; a22]]
@@ -428,7 +428,7 @@ module QuantumLinearSystemSolver =
         }
         
         match problemResult with
-        | Error msg -> Error msg
+        | Error err -> Error err
         | Ok problem -> solve problem
     
     /// <summary>
@@ -438,7 +438,7 @@ module QuantumLinearSystemSolver =
     /// <param name="eigenvalues">Diagonal elements of matrix</param>
     /// <param name="inputVector">Input vector components</param>
     let solveDiagonal (eigenvalues: float list) (inputVector: float list) 
-        : Result<LinearSystemSolution, string> =
+        : Result<LinearSystemSolution, QuantumError> =
         
         let problemResult = linearSystemSolver {
             diagonalMatrix eigenvalues
@@ -447,5 +447,5 @@ module QuantumLinearSystemSolver =
         }
         
         match problemResult with
-        | Error msg -> Error msg
+        | Error err -> Error err
         | Ok problem -> solve problem

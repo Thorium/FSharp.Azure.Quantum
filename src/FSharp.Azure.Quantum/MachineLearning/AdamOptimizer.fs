@@ -1,5 +1,7 @@
 namespace FSharp.Azure.Quantum.MachineLearning
 
+open FSharp.Azure.Quantum.Core
+
 /// Adam (Adaptive Moment Estimation) optimizer for quantum machine learning.
 ///
 /// Adam is an adaptive learning rate optimization algorithm that combines
@@ -57,26 +59,26 @@ module AdamOptimizer =
         }
 
     /// Validate Adam configuration parameters
-    let private validateConfig (config: AdamConfig) : Result<unit, string> =
+    let private validateConfig (config: AdamConfig) : QuantumResult<unit> =
         if config.LearningRate <= 0.0 then
-            Error "Learning rate must be positive"
+            Error (QuantumError.ValidationError ("Input", "Learning rate must be positive"))
         elif config.Beta1 < 0.0 || config.Beta1 >= 1.0 then
-            Error "Beta1 must be in range [0, 1)"
+            Error (QuantumError.ValidationError ("Input", "Beta1 must be in range [0, 1)"))
         elif config.Beta2 < 0.0 || config.Beta2 >= 1.0 then
-            Error "Beta2 must be in range [0, 1)"
+            Error (QuantumError.ValidationError ("Input", "Beta2 must be in range [0, 1)"))
         elif config.Epsilon <= 0.0 then
-            Error "Epsilon must be positive"
+            Error (QuantumError.ValidationError ("Input", "Epsilon must be positive"))
         else
             Ok ()
 
     /// Validate parameter and gradient dimensions match optimizer state
-    let private validateDimensions (state: AdamState) (parameters: float array) (gradients: float array) : Result<unit, string> =
+    let private validateDimensions (state: AdamState) (parameters: float array) (gradients: float array) : QuantumResult<unit> =
         if parameters.Length <> state.M.Length then
-            Error (sprintf "Parameters length (%d) does not match optimizer state (%d)" parameters.Length state.M.Length)
+            Error (QuantumError.ValidationError ("Input", sprintf "Parameters length (%d) does not match optimizer state (%d)" parameters.Length state.M.Length))
         elif gradients.Length <> state.M.Length then
-            Error (sprintf "Gradients length (%d) does not match optimizer state (%d)" gradients.Length state.M.Length)
+            Error (QuantumError.ValidationError ("Input", sprintf "Gradients length (%d) does not match optimizer state (%d)" gradients.Length state.M.Length))
         elif parameters.Length <> gradients.Length then
-            Error (sprintf "Parameters length (%d) does not match gradients length (%d)" parameters.Length gradients.Length)
+            Error (QuantumError.ValidationError ("Input", sprintf "Parameters length (%d) does not match gradients length (%d)" parameters.Length gradients.Length))
         else
             Ok ()
 
@@ -103,7 +105,7 @@ module AdamOptimizer =
         (state: AdamState)
         (parameters: float array)
         (gradients: float array)
-        : Result<float array * AdamState, string> =
+        : QuantumResult<float array * AdamState> =
 
         // Validate inputs
         match validateConfig config with
@@ -152,7 +154,7 @@ module AdamOptimizer =
         (state: AdamState)
         (parameters: float array)
         (gradients: float array)
-        : Result<float array * AdamState, string> =
+        : QuantumResult<float array * AdamState> =
         update defaultConfig state parameters gradients
 
     /// Get current learning rate adjusted by bias correction
@@ -204,7 +206,7 @@ module AdamOptimizer =
         (beta1: float)
         (beta2: float)
         (epsilon: float)
-        : Result<AdamConfig, string> =
+        : QuantumResult<AdamConfig> =
         let config = {
             LearningRate = learningRate
             Beta1 = beta1

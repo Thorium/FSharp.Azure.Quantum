@@ -197,8 +197,8 @@ module DWaveBackendTests =
         
         Assert.True(result.IsError, "Should reject non-QAOA circuit")
         match result with
-        | Error msg -> 
-            Assert.Contains("QAOA", msg)
+        | Error err -> 
+            Assert.Contains("QAOA", err.Message)
         | Ok _ -> Assert.True(false, "Should have failed")
     
     [<Fact>]
@@ -220,9 +220,9 @@ module DWaveBackendTests =
         
         Assert.True(result.IsError, "Should reject circuit exceeding qubit limit")
         match result with
-        | Error msg ->
-            Assert.Contains("requires", msg)
-            Assert.True(msg.Contains("requires") && msg.Contains("6000"))  // Should mention the limit
+        | Error err ->
+            Assert.Contains("requires", err.Message)
+            Assert.True(err.Message.Contains("requires") && err.Message.Contains("6000"))  // Should mention the limit
         | Ok _ -> Assert.True(false, "Should have failed")
     
     [<Fact>]

@@ -141,12 +141,12 @@ module ShorsTests =
         // Too small
         match factorWithBackend 2 (LocalBackend()) 1000 with
         | Ok _ -> Assert.Fail("Should reject N < 4")
-        | Error msg -> Assert.Contains("4", msg)
+        | Error msg -> Assert.Contains("4", msg.Message)
         
         // Too large
         match factorWithBackend 100000 (LocalBackend()) 1000 with
         | Ok _ -> Assert.Fail("Should reject N > 1000")
-        | Error msg -> Assert.Contains("1000", msg)
+        | Error msg -> Assert.Contains("1000", msg.Message)
     
     [<Fact>]
     let ``Shor with specific base`` () =
@@ -187,7 +187,7 @@ module ShorsTests =
         
         match executeShorsWithBackend invalidConfig (LocalBackend()) 1000 with
         | Ok _ -> Assert.Fail("Should reject 0 precision qubits")
-        | Error msg -> Assert.Contains("positive", msg.ToLower())
+        | Error msg -> Assert.Contains("positive", msg.Message.ToLower())
         
         let invalidConfig2 = {
             NumberToFactor = 15
@@ -198,7 +198,7 @@ module ShorsTests =
         
         match executeShorsWithBackend invalidConfig2 (LocalBackend()) 1000 with
         | Ok _ -> Assert.Fail("Should reject > 20 precision qubits")
-        | Error msg -> Assert.Contains("20", msg)
+        | Error msg -> Assert.Contains("20", msg.Message)
     
     [<Fact>]
     let ``Shor factors small composites`` () =
@@ -262,12 +262,12 @@ module ShorsTests =
         // Too small
         match factorWithBackend 2 backend 100 with
         | Ok _ -> Assert.Fail("Should reject N < 4")
-        | Error msg -> Assert.Contains("4", msg)
+        | Error msg -> Assert.Contains("4", msg.Message)
         
         // Too large for backend
         match factorWithBackend 10000 backend 100 with
         | Ok _ -> Assert.Fail("Should reject N > 1000 for backend")
-        | Error msg -> Assert.Contains("1000", msg)
+        | Error msg -> Assert.Contains("1000", msg.Message)
     
     [<Fact>]
     let ``Shor backend handles even numbers`` () =
@@ -384,12 +384,12 @@ module ShorsTests =
         // Too few qubits
         match periodFindingToCircuit 7 15 0 with
         | Ok _ -> Assert.Fail("Should reject 0 precision qubits")
-        | Error msg -> Assert.Contains("positive", msg.ToLower())
+        | Error msg -> Assert.Contains("positive", msg.Message.ToLower())
         
         // Too many qubits
         match periodFindingToCircuit 7 15 25 with
         | Ok _ -> Assert.Fail("Should reject > 20 precision qubits")
-        | Error msg -> Assert.Contains("20", msg)
+        | Error msg -> Assert.Contains("20", msg.Message)
     
     [<Fact>]
     let ``Shor backend config uses correct precision`` () =

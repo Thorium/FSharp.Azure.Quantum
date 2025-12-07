@@ -615,12 +615,21 @@ module ReadoutErrorMitigationTests =
                             | CircuitBuilder.T q -> LocalSimulator.Gates.applyT q state
                             | CircuitBuilder.TDG q -> LocalSimulator.Gates.applyTDG q state
                             | CircuitBuilder.P (q, theta) -> LocalSimulator.Gates.applyP q theta state
+                            | CircuitBuilder.U3 (q, theta, phi, lambda) -> 
+                                // U3(θ,φ,λ) = RZ(φ) · RY(θ) · RZ(λ)
+                                state
+                                |> LocalSimulator.Gates.applyRz q lambda
+                                |> LocalSimulator.Gates.applyRy q theta
+                                |> LocalSimulator.Gates.applyRz q phi
                             | CircuitBuilder.CNOT (c, t) -> LocalSimulator.Gates.applyCNOT c t state
                             | CircuitBuilder.CZ (c, t) -> LocalSimulator.Gates.applyCZ c t state
                             | CircuitBuilder.MCZ (controls, t) -> LocalSimulator.Gates.applyMultiControlledZ controls t state
                             | CircuitBuilder.CP (c, t, theta) -> 
                                 // CP gate: Controlled-Phase  
                                 LocalSimulator.Gates.applyCP c t theta state
+                            | CircuitBuilder.CRX (c, t, angle) -> LocalSimulator.Gates.applyCRX c t angle state
+                            | CircuitBuilder.CRY (c, t, angle) -> LocalSimulator.Gates.applyCRY c t angle state
+                            | CircuitBuilder.CRZ (c, t, angle) -> LocalSimulator.Gates.applyCRZ c t angle state
                             | CircuitBuilder.SWAP (q1, q2) -> LocalSimulator.Gates.applySWAP q1 q2 state
                             | CircuitBuilder.CCX (c1, c2, t) -> LocalSimulator.Gates.applyCCX c1 c2 t state
                             | CircuitBuilder.RX (q, angle) -> LocalSimulator.Gates.applyRx q angle state

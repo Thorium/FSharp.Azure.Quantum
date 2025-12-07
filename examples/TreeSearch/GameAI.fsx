@@ -185,8 +185,8 @@ match solve ticTacToeProblem with
     printfn "  Quantum Advantage: %b" result.QuantumAdvantage
     printfn ""
 
-| Error msg ->
-    printfn "❌ Error: %s" msg
+| Error err ->
+    printfn "❌ Error: %s" err.Message
 
 printfn ""
 printfn ""
@@ -298,8 +298,8 @@ match solve chessProblem with
     printfn "  Quantum Advantage: %b" result.QuantumAdvantage
     printfn ""
 
-| Error msg ->
-    printfn "❌ Error: %s" msg
+| Error err ->
+    printfn "❌ Error: %s" err.Message
 
 printfn ""
 printfn ""
@@ -433,8 +433,8 @@ match solve businessProblem with
     printfn "  Quantum Advantage: %b" result.QuantumAdvantage
     printfn ""
 
-| Error msg ->
-    printfn "❌ Error: %s" msg
+| Error err ->
+    printfn "❌ Error: %s" err.Message
 
 printfn ""
 printfn ""

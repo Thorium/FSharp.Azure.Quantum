@@ -1,6 +1,7 @@
 namespace FSharp.Azure.Quantum.GroverSearch
 
 open System
+open FSharp.Azure.Quantum.Core
 
 /// Amplitude Amplification Backend Adapter Module
 /// 
@@ -33,6 +34,7 @@ module AmplitudeAmplificationAdapter =
     open FSharp.Azure.Quantum
     open FSharp.Azure.Quantum.Core.BackendAbstraction
     open FSharp.Azure.Quantum.Core.CircuitAbstraction
+    open FSharp.Azure.Quantum.Core
     open FSharp.Azure.Quantum.CircuitBuilder
     open FSharp.Azure.Quantum.GroverSearch.Oracle
     open FSharp.Azure.Quantum.GroverSearch.GroverIteration
@@ -213,6 +215,10 @@ module AmplitudeAmplificationAdapter =
                 | RZ (q, angle) -> RZ (q, -angle)
                 | P (q, theta) -> P (q, -theta)  // P† = P(-θ)
                 | CP (c, t, theta) -> CP (c, t, -theta)  // CP† = CP(-θ)
+                | CRX (c, t, angle) -> CRX (c, t, -angle)  // CRX† = CRX(-θ)
+                | CRY (c, t, angle) -> CRY (c, t, -angle)  // CRY† = CRY(-θ)
+                | CRZ (c, t, angle) -> CRZ (c, t, -angle)  // CRZ† = CRZ(-θ)
+                | U3 (q, theta, phi, lambda) -> U3 (q, -theta, -lambda, -phi)  // U3† = U3(-θ, -λ, -φ)
                 
                 // Phase gates
                 | S q -> SDG q  // S† = S-dagger
@@ -313,20 +319,20 @@ module AmplitudeAmplificationAdapter =
         (config: BackendAmplificationConfig) 
         (backend: IQuantumBackend) 
         (numShots: int) 
-        : Async<Result<GroverIteration.SearchResult, string>> = async {
+        : Async<QuantumResult<GroverIteration.SearchResult>> = async {
         
         try
             // Step 1: Validate inputs
             if config.Iterations < 0 then
-                return Error "Number of iterations must be non-negative"
+                return Error (QuantumError.ValidationError ("Iterations", "must be non-negative"))
             elif numShots <= 0 then
-                return Error "Number of shots must be positive"
+                return Error (QuantumError.ValidationError ("NumShots", "must be positive"))
             elif config.NumQubits > backend.MaxQubits then
-                return Error $"Amplification requires {config.NumQubits} qubits but backend '{backend.Name}' supports max {backend.MaxQubits}"
+                return Error (QuantumError.BackendError (backend.Name, $"amplification requires {config.NumQubits} qubits but backend supports max {backend.MaxQubits}"))
             else
                 // Step 2: Convert oracle to circuit (reuse from GroverBackendAdapter)
                 match oracleToCircuit config.Oracle.Spec config.NumQubits with
-                | Error msg -> return Error msg
+                | Error err -> return Error err
                 | Ok oracleCircuit ->
                     // Step 3: Get reflection circuit (use provided or default to Grover diffusion)
                     let reflectionCircuit =
@@ -344,7 +350,7 @@ module AmplitudeAmplificationAdapter =
                     let! execResult = backend.ExecuteAsync circuitWrapper numShots
                     
                     match execResult with
-                    | Error msg -> return Error msg
+                    | Error err -> return Error err
                     | Ok executionResult ->
                         // Step 7: Convert measurements to basis state counts
                         let counts = 
@@ -371,7 +377,7 @@ module AmplitudeAmplificationAdapter =
                         }
         
         with ex ->
-            return Error $"Amplitude amplification backend execution failed: {ex.Message}"
+            return Error (QuantumError.BackendError ("Amplitude amplification", $"Backend execution failed: {ex.Message}"))
     }
 
     /// Execute amplitude amplification using IQuantumBackend (synchronous wrapper)
@@ -389,7 +395,7 @@ module AmplitudeAmplificationAdapter =
         (config: BackendAmplificationConfig) 
         (backend: IQuantumBackend) 
         (numShots: int) 
-        : Result<GroverIteration.SearchResult, string> =
+        : QuantumResult<GroverIteration.SearchResult> =
         executeAmplificationWithBackendAsync config backend numShots
         |> Async.RunSynchronously
     
@@ -404,7 +410,7 @@ module AmplitudeAmplificationAdapter =
         (backend: IQuantumBackend) 
         (iterations: int) 
         (numShots: int) 
-        : Result<GroverIteration.SearchResult, string> =
+        : QuantumResult<GroverIteration.SearchResult> =
         
         let config = {
             NumQubits = oracle.NumQubits
@@ -423,7 +429,7 @@ module AmplitudeAmplificationAdapter =
         (backend: IQuantumBackend) 
         (iterations: int) 
         (numShots: int) 
-        : Result<GroverIteration.SearchResult, string> =
+        : QuantumResult<GroverIteration.SearchResult> =
         
         let config = {
             NumQubits = oracle.NumQubits
@@ -442,14 +448,14 @@ module AmplitudeAmplificationAdapter =
     module Examples =
         
         /// Example: Amplitude amplification with partial superposition
-        let partialAmplification () : Result<GroverIteration.SearchResult, string> =
+        let partialAmplification () : QuantumResult<GroverIteration.SearchResult> =
             // Search in 4-qubit space, but only superpose first 3 qubits
             let numQubits = 4
             let targetValue = 5  // Binary: 0101
             
             // Create oracle for target
             match Oracle.forValue targetValue numQubits with
-            | Error msg -> Error msg
+            | Error err -> Error err
             | Ok oracle ->
                 // Prepare superposition only on qubits [0, 1, 2]
                 let statePrep = partialSuperpositionCircuit numQubits [0; 1; 2]
@@ -462,6 +468,6 @@ module AmplitudeAmplificationAdapter =
                 let numSolutions = 1
                 
                 match GroverIteration.optimalIterations searchSpaceSize numSolutions with
-                | Error msg -> Error msg
+                | Error err -> Error err
                 | Ok iterations ->
                     executeWithCustomPreparation oracle statePrep backend iterations 1000

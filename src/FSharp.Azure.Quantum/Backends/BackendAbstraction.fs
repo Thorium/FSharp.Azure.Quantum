@@ -1,4 +1,5 @@
 namespace FSharp.Azure.Quantum.Core
+open FSharp.Azure.Quantum.Core
 
 open System
 
@@ -57,7 +58,8 @@ module BackendAbstraction =
         /// Parameters:
         /// - token: Optional cancellation token for early termination
         /// 
-        /// Note: Call this before Execute/ExecuteAsync to enable cancellation
+        /// Note: Call this before Execute/ExecuteAsync to enable cancellation.
+        /// Thread-safe: Can be called concurrently with Execute/ExecuteAsync.
         abstract member SetCancellationToken: System.Threading.CancellationToken option -> unit
         
         /// Execute a quantum circuit asynchronously
@@ -66,7 +68,7 @@ module BackendAbstraction =
         /// - circuit: Circuit to execute (ICircuit interface)
         /// - numShots: Number of measurement shots
         /// 
-        /// Returns: Async<Result> with measurements or error message
+        /// Returns: Async<Result> with measurements or error
         /// 
         /// Note: This is the primary execution method. Use this for:
         /// - Cloud backends (Azure Quantum, IonQ, Rigetti)
@@ -74,7 +76,7 @@ module BackendAbstraction =
         /// - When you want non-blocking execution
         /// 
         /// Cancellation: Call SetCancellationToken before execution to enable cancellation
-        abstract member ExecuteAsync: ICircuit -> int -> Async<Result<ExecutionResult, string>>
+        abstract member ExecuteAsync: ICircuit -> int -> Async<Result<ExecutionResult, QuantumError>>
         
         /// Execute a quantum circuit synchronously
         /// 
@@ -82,14 +84,14 @@ module BackendAbstraction =
         /// - circuit: Circuit to execute (ICircuit interface)
         /// - numShots: Number of measurement shots
         /// 
-        /// Returns: Result with measurements or error message
+        /// Returns: Result with measurements or error
         /// 
         /// Note: This is a convenience wrapper around ExecuteAsync.
         /// Default implementation calls ExecuteAsync and blocks.
         /// For better performance, use ExecuteAsync directly when possible.
         /// 
         /// Cancellation: Call SetCancellationToken before execution to enable cancellation
-        abstract member Execute: ICircuit -> int -> Result<ExecutionResult, string>
+        abstract member Execute: ICircuit -> int -> Result<ExecutionResult, QuantumError>
         
         /// Backend name (e.g., "IonQ Simulator", "Rigetti QVM", "Local Simulator")
         abstract member Name: string
@@ -112,21 +114,23 @@ module BackendAbstraction =
     /// - General circuits: Uses gate-by-gate simulation with Gates module
     type LocalBackend() =
         let mutable cancellationToken : System.Threading.CancellationToken option = None
+        let lockObj = obj()  // Thread-safety for cancellation token
         
         /// Core synchronous execution logic (shared by both Execute and ExecuteAsync)
-        member private _.ExecuteCore (circuit: ICircuit) (numShots: int) : Result<ExecutionResult, string> =
+        member private _.ExecuteCore (circuit: ICircuit) (numShots: int) : Result<ExecutionResult, QuantumError> =
                 try
-                    // Check cancellation before starting
-                    match cancellationToken with
+                    // Check cancellation before starting (thread-safe read)
+                    let ct = lock lockObj (fun () -> cancellationToken)
+                    match ct with
                     | Some token when token.IsCancellationRequested ->
-                        Error "Operation cancelled before execution"
+                        Error (QuantumError.OperationError("Circuit execution", "Operation cancelled before execution"))
                     | _ ->
                     
                     // Validate parameters
                     if numShots <= 0 then
-                        Error "Number of shots must be positive"
+                        Error (QuantumError.ValidationError("numShots", "Number of shots must be positive"))
                     elif circuit.NumQubits > 20 then
-                        Error "Local backend supports maximum 20 qubits"
+                        Error (QuantumError.BackendError("LocalBackend", "Local backend supports maximum 20 qubits"))
                     else
                         match circuit with
                         | :? QaoaCircuitWrapper as wrapper ->
@@ -191,9 +195,18 @@ module BackendAbstraction =
                                 | CircuitBuilder.RY (q, angle) -> Gates.applyRy q angle state
                                 | CircuitBuilder.RZ (q, angle) -> Gates.applyRz q angle state
                                 | CircuitBuilder.P (q, angle) -> Gates.applyP q angle state
+                                | CircuitBuilder.U3 (q, theta, phi, lambda) ->
+                                    // U3(θ,φ,λ) = RZ(φ) RY(θ) RZ(λ) decomposition
+                                    state
+                                    |> Gates.applyRz q lambda
+                                    |> Gates.applyRy q theta
+                                    |> Gates.applyRz q phi
                                 | CircuitBuilder.CNOT (c, t) -> Gates.applyCNOT c t state
                                 | CircuitBuilder.CZ (c, t) -> Gates.applyCZ c t state
                                 | CircuitBuilder.CP (c, t, angle) -> Gates.applyCP c t angle state
+                                | CircuitBuilder.CRX (c, t, angle) -> Gates.applyCRX c t angle state
+                                | CircuitBuilder.CRY (c, t, angle) -> Gates.applyCRY c t angle state
+                                | CircuitBuilder.CRZ (c, t, angle) -> Gates.applyCRZ c t angle state
                                 | CircuitBuilder.SWAP (q1, q2) -> Gates.applySWAP q1 q2 state
                                 | CircuitBuilder.CCX (c1, c2, t) -> 
                                     // Toffoli gate - use standard decomposition
@@ -241,19 +254,20 @@ module BackendAbstraction =
                             }
                         
                         | _ ->
-                            Error "Local backend requires CircuitWrapper or QaoaCircuitWrapper"
+                            Error (QuantumError.BackendError("LocalBackend", "Local backend requires CircuitWrapper or QaoaCircuitWrapper"))
                 
                 with ex ->
-                    Error (sprintf "Local backend execution failed: %s" ex.Message)
+                    Error (QuantumError.BackendError("LocalBackend", $"Execution failed: {ex.Message}"))
         
         interface IQuantumBackend with
-            member _.SetCancellationToken(token) = cancellationToken <- token
+            member _.SetCancellationToken(token) = 
+                lock lockObj (fun () -> cancellationToken <- token)
             
-            member this.ExecuteAsync (circuit: ICircuit) (numShots: int) : Async<Result<ExecutionResult, string>> =
+            member this.ExecuteAsync (circuit: ICircuit) (numShots: int) : Async<Result<ExecutionResult, QuantumError>> =
                 // Local backend is synchronous, so wrap in async
                 async { return this.ExecuteCore circuit numShots }
             
-            member this.Execute (circuit: ICircuit) (numShots: int) : Result<ExecutionResult, string> =
+            member this.Execute (circuit: ICircuit) (numShots: int) : Result<ExecutionResult, QuantumError> =
                 this.ExecuteCore circuit numShots
             
             member _.Name = "Local Simulator"
@@ -272,14 +286,16 @@ module BackendAbstraction =
     /// Uses the existing IonQBackend module for Azure integration.
     type IonQBackendWrapper(httpClient: System.Net.Http.HttpClient, workspaceUrl: string, target: string) =
         let mutable cancellationToken : System.Threading.CancellationToken option = None
+        let lockObj = obj()  // Thread-safety for cancellation token
         
-        member private _.ExecuteAsyncCore (circuit: ICircuit) (numShots: int) : Async<Result<ExecutionResult, string>> =
+        member private _.ExecuteAsyncCore (circuit: ICircuit) (numShots: int) : Async<Result<ExecutionResult, QuantumError>> =
             async {
                 try
-                    // Check cancellation before starting
-                    match cancellationToken with
+                    // Check cancellation before starting (thread-safe read)
+                    let ct = lock lockObj (fun () -> cancellationToken)
+                    match ct with
                     | Some token when token.IsCancellationRequested ->
-                        return Error "Operation cancelled before execution"
+                        return Error (QuantumError.OperationError("Circuit execution", "Operation cancelled before execution"))
                     | _ ->
                     
                     // Step 1: Convert ICircuit to CircuitBuilder.Circuit
@@ -299,7 +315,7 @@ module BackendAbstraction =
                     // After transpilation, MCZ/CZ/CCX should be decomposed
                     let ionqGatesResult = 
                         transpiledCircuit.Gates
-                        |> List.fold (fun (acc: Result<IonQBackend.IonQGate list, string>) gate ->
+                        |> List.fold (fun (acc: QuantumResult<IonQBackend.IonQGate list>) gate ->
                             match acc with
                             | Error msg -> Error msg
                             | Ok gates ->
@@ -316,13 +332,13 @@ module BackendAbstraction =
                                 | CircuitBuilder.CNOT (c, t) -> Ok (gates @ [IonQBackend.TwoQubit("cnot", c, t)])
                                 | CircuitBuilder.SWAP (q1, q2) -> Ok (gates @ [IonQBackend.TwoQubit("swap", q1, q2)])
                                 | CircuitBuilder.MCZ _ | CircuitBuilder.CZ _ | CircuitBuilder.CCX _ -> 
-                                    Error $"Gate {gate} found after transpilation - this indicates a transpiler bug."
+                                    Error (QuantumError.OperationError ("Transpilation", $"Gate {gate} found after transpilation - this indicates a transpiler bug."))
                                 | _ -> 
-                                    Error $"Unsupported gate for IonQ backend after transpilation: {gate}"
+                                    Error (QuantumError.OperationError ("Transpilation", $"Unsupported gate for IonQ backend after transpilation: {gate}"))
                         ) (Ok [])
                     
                     match ionqGatesResult with
-                    | Error msg -> return Error msg
+                    | Error err -> return Error err
                     | Ok ionqGates ->
                         // Add measurement on all qubits
                         let qubits = [| 0 .. builderCircuit.QubitCount - 1 |]
@@ -359,23 +375,23 @@ module BackendAbstraction =
                             }
                         
                         | Error quantumError ->
-                            return Error (sprintf "IonQ execution failed: %A" quantumError)
+                            return Error (QuantumError.BackendError("IonQ", $"Execution failed: {quantumError}"))
                 
                 with ex ->
-                    return Error (sprintf "IonQ backend error: %s" ex.Message)
+                    return Error (QuantumError.BackendError("IonQ", $"Backend error: {ex.Message}"))
             }
         
         interface IQuantumBackend with
             member _.SetCancellationToken (token: System.Threading.CancellationToken option) : unit =
-                cancellationToken <- token
+                lock lockObj (fun () -> cancellationToken <- token)
             
-            member this.ExecuteAsync (circuit: ICircuit) (numShots: int) : Async<Result<ExecutionResult, string>> =
+            member this.ExecuteAsync (circuit: ICircuit) (numShots: int) : Async<Result<ExecutionResult, QuantumError>> =
                 this.ExecuteAsyncCore circuit numShots
             
             /// WARNING: This blocks the calling thread and can cause deadlocks in UI applications.
             /// Use ExecuteAsync instead for non-blocking execution.
             [<System.Obsolete("Use ExecuteAsync to avoid blocking the calling thread. This method can cause deadlocks in UI applications (Blazor, WPF, etc.)")>]
-            member this.Execute (circuit: ICircuit) (numShots: int) : Result<ExecutionResult, string> =
+            member this.Execute (circuit: ICircuit) (numShots: int) : Result<ExecutionResult, QuantumError> =
                 this.ExecuteAsyncCore circuit numShots |> Async.RunSynchronously
             
             member _.Name = "IonQ Simulator"
@@ -399,14 +415,16 @@ module BackendAbstraction =
     /// Uses the existing RigettiBackend module for Azure integration.
     type RigettiBackendWrapper(httpClient: System.Net.Http.HttpClient, workspaceUrl: string, target: string) =
         let mutable cancellationToken : System.Threading.CancellationToken option = None
+        let lockObj = obj()  // Thread-safety for cancellation token
         
-        member private _.ExecuteAsyncCore (circuit: ICircuit) (numShots: int) : Async<Result<ExecutionResult, string>> =
+        member private _.ExecuteAsyncCore (circuit: ICircuit) (numShots: int) : Async<Result<ExecutionResult, QuantumError>> =
             async {
                 try
-                    // Check cancellation before starting
-                    match cancellationToken with
+                    // Check cancellation before starting (thread-safe read)
+                    let ct = lock lockObj (fun () -> cancellationToken)
+                    match ct with
                     | Some token when token.IsCancellationRequested ->
-                        return Error "Operation cancelled before execution"
+                        return Error (QuantumError.OperationError("Circuit execution", "Operation cancelled before execution"))
                     | _ ->
                     
                     // Step 1: Convert ICircuit to CircuitBuilder.Circuit
@@ -426,7 +444,7 @@ module BackendAbstraction =
                     // After transpilation, all gates should be Rigetti-compatible
                     let quilResult = 
                         transpiledCircuit.Gates
-                        |> List.fold (fun (acc: Result<RigettiBackend.QuilGate list, string>) gate ->
+                        |> List.fold (fun (acc: QuantumResult<RigettiBackend.QuilGate list>) gate ->
                             match acc with
                             | Error msg -> Error msg
                             | Ok instructions ->
@@ -443,13 +461,13 @@ module BackendAbstraction =
                                 | CircuitBuilder.CZ (c, t) -> Ok (instructions @ [RigettiBackend.TwoQubit("CZ", c, t)])
                                 | CircuitBuilder.CNOT (c, t) -> Ok (instructions @ [RigettiBackend.TwoQubit("CNOT", c, t)])
                                 | CircuitBuilder.MCZ _ | CircuitBuilder.CCX _ -> 
-                                    Error $"Gate {gate} found after transpilation - this indicates a transpiler bug."
+                                    Error (QuantumError.OperationError ("Transpilation", $"Gate {gate} found after transpilation - this indicates a transpiler bug."))
                                 | _ -> 
-                                    Error $"Unsupported gate for Rigetti backend after transpilation: {gate}"
+                                    Error (QuantumError.OperationError ("Transpilation", $"Unsupported gate for Rigetti backend after transpilation: {gate}"))
                         ) (Ok [])
                     
                     match quilResult with
-                    | Error msg -> return Error msg
+                    | Error err -> return Error err
                     | Ok quilInstructions ->
                         // Add measurements
                         let measurements = 
@@ -489,23 +507,23 @@ module BackendAbstraction =
                             }
                         
                         | Error quantumError ->
-                            return Error (sprintf "Rigetti execution failed: %A" quantumError)
+                            return Error (QuantumError.BackendError("Rigetti", $"Execution failed: {quantumError}"))
                 
                 with ex ->
-                    return Error (sprintf "Rigetti backend error: %s" ex.Message)
+                    return Error (QuantumError.BackendError("Rigetti", $"Backend error: {ex.Message}"))
             }
         
         interface IQuantumBackend with
             member _.SetCancellationToken (token: System.Threading.CancellationToken option) : unit =
-                cancellationToken <- token
+                lock lockObj (fun () -> cancellationToken <- token)
             
-            member this.ExecuteAsync (circuit: ICircuit) (numShots: int) : Async<Result<ExecutionResult, string>> =
+            member this.ExecuteAsync (circuit: ICircuit) (numShots: int) : Async<Result<ExecutionResult, QuantumError>> =
                 this.ExecuteAsyncCore circuit numShots
             
             /// WARNING: This blocks the calling thread and can cause deadlocks in UI applications.
             /// Use ExecuteAsync instead for non-blocking execution.
             [<System.Obsolete("Use ExecuteAsync to avoid blocking the calling thread. This method can cause deadlocks in UI applications (Blazor, WPF, etc.)")>]
-            member this.Execute (circuit: ICircuit) (numShots: int) : Result<ExecutionResult, string> =
+            member this.Execute (circuit: ICircuit) (numShots: int) : Result<ExecutionResult, QuantumError> =
                 this.ExecuteAsyncCore circuit numShots |> Async.RunSynchronously
             
             member _.Name = "Rigetti QVM"
@@ -536,14 +554,16 @@ module BackendAbstraction =
     /// - Native CZ gates (trapped-ion advantage)
     type QuantinuumBackendWrapper(httpClient: System.Net.Http.HttpClient, workspaceUrl: string, target: string) =
         let mutable cancellationToken : System.Threading.CancellationToken option = None
+        let lockObj = obj()  // Thread-safety for cancellation token
         
-        member private _.ExecuteAsyncCore (circuit: ICircuit) (numShots: int) : Async<Result<ExecutionResult, string>> =
+        member private _.ExecuteAsyncCore (circuit: ICircuit) (numShots: int) : Async<Result<ExecutionResult, QuantumError>> =
             async {
                 try
-                    // Check cancellation before starting
-                    match cancellationToken with
+                    // Check cancellation before starting (thread-safe read)
+                    let ct = lock lockObj (fun () -> cancellationToken)
+                    match ct with
                     | Some token when token.IsCancellationRequested ->
-                        return Error "Operation cancelled before execution"
+                        return Error (QuantumError.OperationError("Circuit execution", "Operation cancelled before execution"))
                     | _ ->
                     
                     // Step 1: Convert ICircuit to CircuitBuilder.Circuit
@@ -590,23 +610,23 @@ module BackendAbstraction =
                         }
                     
                     | Error quantumError ->
-                        return Error (sprintf "Quantinuum execution failed: %A" quantumError)
+                        return Error (QuantumError.BackendError("Quantinuum", $"Execution failed: {quantumError}"))
                 
                 with ex ->
-                    return Error (sprintf "Quantinuum backend error: %s" ex.Message)
+                    return Error (QuantumError.BackendError("Quantinuum", $"Backend error: {ex.Message}"))
             }
         
         interface IQuantumBackend with
             member _.SetCancellationToken (token: System.Threading.CancellationToken option) : unit =
-                cancellationToken <- token
+                lock lockObj (fun () -> cancellationToken <- token)
             
-            member this.ExecuteAsync (circuit: ICircuit) (numShots: int) : Async<Result<ExecutionResult, string>> =
+            member this.ExecuteAsync (circuit: ICircuit) (numShots: int) : Async<Result<ExecutionResult, QuantumError>> =
                 this.ExecuteAsyncCore circuit numShots
             
             /// WARNING: This blocks the calling thread and can cause deadlocks in UI applications.
             /// Use ExecuteAsync instead for non-blocking execution.
             [<System.Obsolete("Use ExecuteAsync to avoid blocking the calling thread. This method can cause deadlocks in UI applications (Blazor, WPF, etc.)")>]
-            member this.Execute (circuit: ICircuit) (numShots: int) : Result<ExecutionResult, string> =
+            member this.Execute (circuit: ICircuit) (numShots: int) : Result<ExecutionResult, QuantumError> =
                 this.ExecuteAsyncCore circuit numShots |> Async.RunSynchronously
             
             member _.Name = "Quantinuum H-Series"
@@ -643,14 +663,16 @@ module BackendAbstraction =
     /// - CZ-based native gates (neutral atom Rydberg blockade)
     type AtomComputingBackendWrapper(httpClient: System.Net.Http.HttpClient, workspaceUrl: string, target: string) =
         let mutable cancellationToken : System.Threading.CancellationToken option = None
+        let lockObj = obj()  // Thread-safety for cancellation token
         
-        member private _.ExecuteAsyncCore (circuit: ICircuit) (numShots: int) : Async<Result<ExecutionResult, string>> =
+        member private _.ExecuteAsyncCore (circuit: ICircuit) (numShots: int) : Async<Result<ExecutionResult, QuantumError>> =
             async {
                 try
-                    // Check cancellation before starting
-                    match cancellationToken with
+                    // Check cancellation before starting (thread-safe read)
+                    let ct = lock lockObj (fun () -> cancellationToken)
+                    match ct with
                     | Some token when token.IsCancellationRequested ->
-                        return Error "Operation cancelled before execution"
+                        return Error (QuantumError.OperationError("Circuit execution", "Operation cancelled before execution"))
                     | _ ->
                     
                     // Step 1: Convert ICircuit to CircuitBuilder.Circuit
@@ -697,23 +719,23 @@ module BackendAbstraction =
                         }
                     
                     | Error quantumError ->
-                        return Error (sprintf "Atom Computing execution failed: %A" quantumError)
+                        return Error (QuantumError.BackendError("AtomComputing", $"Execution failed: {quantumError}"))
                 
                 with ex ->
-                    return Error (sprintf "Atom Computing backend error: %s" ex.Message)
+                    return Error (QuantumError.BackendError("AtomComputing", $"Backend error: {ex.Message}"))
             }
         
         interface IQuantumBackend with
             member _.SetCancellationToken (token: System.Threading.CancellationToken option) : unit =
-                cancellationToken <- token
+                lock lockObj (fun () -> cancellationToken <- token)
             
-            member this.ExecuteAsync (circuit: ICircuit) (numShots: int) : Async<Result<ExecutionResult, string>> =
+            member this.ExecuteAsync (circuit: ICircuit) (numShots: int) : Async<Result<ExecutionResult, QuantumError>> =
                 this.ExecuteAsyncCore circuit numShots
             
             /// WARNING: This blocks the calling thread and can cause deadlocks in UI applications.
             /// Use ExecuteAsync instead for non-blocking execution.
             [<System.Obsolete("Use ExecuteAsync to avoid blocking the calling thread. This method can cause deadlocks in UI applications (Blazor, WPF, etc.)")>]
-            member this.Execute (circuit: ICircuit) (numShots: int) : Result<ExecutionResult, string> =
+            member this.Execute (circuit: ICircuit) (numShots: int) : Result<ExecutionResult, QuantumError> =
                 this.ExecuteAsyncCore circuit numShots |> Async.RunSynchronously
             
             member _.Name = "Atom Computing Phoenix"
@@ -803,7 +825,7 @@ module BackendAbstraction =
     /// 
     /// This helper function enables workspace-based backends to leverage the
     /// existing, proven HTTP backend serialization logic.
-    let rec convertCircuitToProviderFormat (circuit: ICircuit) (targetId: string) : Result<string, string> =
+    let rec convertCircuitToProviderFormat (circuit: ICircuit) (targetId: string) : QuantumResult<string> =
         try
             // Determine provider from targetId
             let provider =
@@ -842,7 +864,7 @@ module BackendAbstraction =
                     Ok qasm
                 
                 | _ ->
-                    Error $"Unsupported provider: {provider} (targetId: {targetId})"
+                    Error (QuantumError.BackendError ("Provider", $"Unsupported provider: {provider} (targetId: {targetId})"))
             
             | :? QaoaCircuitWrapper as wrapper ->
                 // Convert QAOA circuit to general circuit first
@@ -851,10 +873,10 @@ module BackendAbstraction =
                 convertCircuitToProviderFormat (CircuitWrapper(generalCircuit) :> ICircuit) targetId
             
             | _ ->
-                Error "Unsupported circuit type - must be CircuitWrapper or QaoaCircuitWrapper"
+                Error (QuantumError.ValidationError ("CircuitType", "Unsupported circuit type - must be CircuitWrapper or QaoaCircuitWrapper"))
         
         with ex ->
-            Error $"Circuit conversion failed: {ex.Message}"
+            Error (QuantumError.OperationError ("Circuit conversion", $"Failed: {ex.Message}"))
     
     /// Wrapper for Azure Quantum SDK-based execution
     /// 
@@ -865,16 +887,16 @@ module BackendAbstraction =
         let mutable cancellationToken : System.Threading.CancellationToken option = None
         
         /// Poll for job completion with exponential backoff and cancellation support
-        let rec pollForCompletion (job: Microsoft.Azure.Quantum.CloudJob) (maxAttempts: int) (currentAttempt: int) (delayMs: int) : Async<Result<unit, string>> =
+        let rec pollForCompletion (job: Microsoft.Azure.Quantum.CloudJob) (maxAttempts: int) (currentAttempt: int) (delayMs: int) : Async<QuantumResult<unit>> =
             async {
                 // Check cancellation
                 match cancellationToken with
                 | Some token when token.IsCancellationRequested ->
-                    return Error "Job polling cancelled by user"
+                    return Error (QuantumError.Other "Job polling cancelled by user")
                 | _ ->
                 
                 if currentAttempt >= maxAttempts then
-                    return Error $"Job polling timeout after {maxAttempts} attempts"
+                    return Error (QuantumError.OperationError ("Job polling", $"Timeout after {maxAttempts} attempts"))
                 else
                     // Refresh job status
                     do! job.RefreshAsync() |> Async.AwaitTask
@@ -882,7 +904,7 @@ module BackendAbstraction =
                     if job.Succeeded then
                         return Ok ()
                     elif job.Failed then
-                        return Error $"Job failed with status: {job.Status}"
+                        return Error (QuantumError.OperationError ("Job execution", $"Job failed with status: {job.Status}"))
                     elif job.InProgress then
                         // Exponential backoff: double delay each time, max 30 seconds
                         let nextDelay = min (delayMs * 2) 30000
@@ -946,21 +968,21 @@ module BackendAbstraction =
             )
             |> Array.ofSeq
         
-        member private _.ExecuteAsyncCore (circuit: ICircuit) (numShots: int) : Async<Result<ExecutionResult, string>> =
+        member private _.ExecuteAsyncCore (circuit: ICircuit) (numShots: int) : Async<Result<ExecutionResult, QuantumError>> =
             async {
                 try
                     // Check cancellation before starting
                     match cancellationToken with
                     | Some token when token.IsCancellationRequested ->
-                        return Error "Operation cancelled before execution"
+                        return Error (QuantumError.OperationError("Circuit execution", "Operation cancelled before execution"))
                     | _ ->
                     
                     if numShots <= 0 then
-                        return Error "Number of shots must be positive"
+                        return Error (QuantumError.ValidationError("numShots", "Number of shots must be positive"))
                     else
                         // Step 1: Convert circuit to provider format
                         match convertCircuitToProviderFormat circuit targetId with
-                        | Error msg -> return Error msg
+                        | Error err -> return Error err
                         | Ok circuitData ->
                             // Step 2: Create job details
                             let providerId = 
@@ -1009,11 +1031,11 @@ module BackendAbstraction =
                             let! pollResult = pollForCompletion submittedJob 60 0 1000
                             
                             match pollResult with
-                            | Error msg -> return Error msg
+                            | Error err -> return Error err
                             | Ok () ->
                                 // Step 5: Get output data
                                 if isNull cloudJob.OutputDataUri then
-                                    return Error "Job completed but no output data URI available"
+                                    return Error (QuantumError.BackendError("AzureQuantumSdk", "Job completed but no output data URI available"))
                                 else
                                     // Download output data
                                     use httpClient = new System.Net.Http.HttpClient()
@@ -1021,7 +1043,7 @@ module BackendAbstraction =
                                     
                                     // Step 6: Parse histogram
                                     match parseHistogram outputData with
-                                    | Error msg -> return Error msg
+                                    | Error msg -> return Error (QuantumError.IOError("Parse histogram", "job output", msg))
                                     | Ok histogram ->
                                         // Convert histogram to measurements
                                         // Get qubit count from circuit
@@ -1051,20 +1073,20 @@ module BackendAbstraction =
                                         }
                 
                 with ex ->
-                    return Error $"Azure Quantum SDK backend error: {ex.Message}\n{ex.StackTrace}"
+                    return Error (QuantumError.BackendError("AzureQuantumSdk", $"Backend error: {ex.Message}\n{ex.StackTrace}"))
             }
         
         interface IQuantumBackend with
             member _.SetCancellationToken (token: System.Threading.CancellationToken option) : unit =
                 cancellationToken <- token
             
-            member this.ExecuteAsync (circuit: ICircuit) (numShots: int) : Async<Result<ExecutionResult, string>> =
+            member this.ExecuteAsync (circuit: ICircuit) (numShots: int) : Async<Result<ExecutionResult, QuantumError>> =
                 this.ExecuteAsyncCore circuit numShots
             
             /// WARNING: This blocks the calling thread and can cause deadlocks in UI applications.
             /// Use ExecuteAsync instead for non-blocking execution.
             [<System.Obsolete("Use ExecuteAsync to avoid blocking the calling thread. This method can cause deadlocks in UI applications (Blazor, WPF, etc.)")>]
-            member this.Execute (circuit: ICircuit) (numShots: int) : Result<ExecutionResult, string> =
+            member this.Execute (circuit: ICircuit) (numShots: int) : Result<ExecutionResult, QuantumError> =
                 this.ExecuteAsyncCore circuit numShots |> Async.RunSynchronously
             
             member _.Name = $"Azure Quantum SDK: {targetId}"
@@ -1171,11 +1193,11 @@ module BackendAbstraction =
     /// - All gates supported by backend
     /// 
     /// Returns: Ok() if compatible, Error with reason if not
-    let validateCircuitForBackend (circuit: ICircuit) (backend: IQuantumBackend) : Result<unit, string> =
+    let validateCircuitForBackend (circuit: ICircuit) (backend: IQuantumBackend) : Result<unit, QuantumError> =
         // Check qubit count
         if circuit.NumQubits > backend.MaxQubits then
-            Error (sprintf "Circuit requires %d qubits but backend '%s' supports max %d qubits" 
-                circuit.NumQubits backend.Name backend.MaxQubits)
+            Error (QuantumError.ValidationError("circuit", 
+                $"Circuit requires {circuit.NumQubits} qubits but backend '{backend.Name}' supports max {backend.MaxQubits} qubits"))
         else
             // Gate validation would require extracting gates from ICircuit
             // For now, assume compatible if qubit count is OK

@@ -49,7 +49,7 @@ let ``train - should reject empty training data`` () =
     
     match result with
     | Error msg ->
-        Assert.Contains("cannot be empty", msg)
+        Assert.Contains("cannot be empty", msg.Message)
     | Ok _ ->
         Assert.True(false, "Should have rejected empty data")
 
@@ -65,7 +65,7 @@ let ``train - should reject mismatched data and labels`` () =
     
     match result with
     | Error msg ->
-        Assert.Contains("same length", msg)
+        Assert.Contains("same length", msg.Message)
     | Ok _ ->
         Assert.True(false, "Should have rejected mismatched lengths")
 
@@ -81,7 +81,7 @@ let ``train - should reject invalid labels`` () =
     
     match result with
     | Error msg ->
-        Assert.Contains("must be 0 or 1", msg)
+        Assert.Contains("must be 0 or 1", msg.Message)
     | Ok _ ->
         Assert.True(false, "Should have rejected invalid labels")
 
@@ -96,7 +96,7 @@ let ``train - should reject non-positive C`` () =
     
     match result with
     | Error msg ->
-        Assert.Contains("must be positive", msg)
+        Assert.Contains("must be positive", msg.Message)
     | Ok _ ->
         Assert.True(false, "Should have rejected non-positive C")
 
@@ -111,7 +111,7 @@ let ``train - should reject non-positive shots`` () =
     
     match result with
     | Error msg ->
-        Assert.Contains("must be positive", msg)
+        Assert.Contains("must be positive", msg.Message)
     | Ok _ ->
         Assert.True(false, "Should have rejected zero shots")
 
@@ -135,7 +135,7 @@ let ``train - should complete successfully on simple dataset`` () =
         Assert.Equal(trainData.Length, model.TrainData.Length)
         Assert.Equal(trainLabels.Length, model.TrainLabels.Length)
     | Error err ->
-        Assert.True(false, sprintf "Training should succeed: %s" err)
+        Assert.True(false, sprintf "Training should succeed: %s" err.Message)
 
 [<Fact>]
 let ``train - support vectors should have positive alphas`` () =
@@ -152,7 +152,7 @@ let ``train - support vectors should have positive alphas`` () =
         for alpha in model.Alphas do
             Assert.True(alpha > 0.0, sprintf "Alpha should be positive, got %f" alpha)
     | Error err ->
-        Assert.True(false, sprintf "Training should succeed: %s" err)
+        Assert.True(false, sprintf "Training should succeed: %s" err.Message)
 
 [<Fact>]
 let ``train - should handle balanced classes`` () =
@@ -171,7 +171,7 @@ let ``train - should handle balanced classes`` () =
     | Ok model ->
         Assert.True(model.SupportVectorIndices.Length > 0, "Should have support vectors")
     | Error err ->
-        Assert.True(false, sprintf "Training should succeed: %s" err)
+        Assert.True(false, sprintf "Training should succeed: %s" err.Message)
 
 // ============================================================================
 // Prediction Tests
@@ -186,13 +186,13 @@ let ``predict - should return valid label`` () =
     
     match train backend featureMap trainData trainLabels config shots with
     | Error err ->
-        Assert.True(false, sprintf "Training failed: %s" err)
+        Assert.True(false, sprintf "Training failed: %s" err.Message)
     | Ok model ->
         let testSample = [| 0.15; 0.15 |]  // Should be class 0
         
         match predict backend model testSample shots with
         | Error err ->
-            Assert.True(false, sprintf "Prediction failed: %s" err)
+            Assert.True(false, sprintf "Prediction failed: %s" err.Message)
         | Ok prediction ->
             Assert.True(prediction.Label = 0 || prediction.Label = 1, "Label should be 0 or 1")
 
@@ -205,13 +205,13 @@ let ``predict - should reject non-positive shots`` () =
     
     match train backend featureMap trainData trainLabels config shots with
     | Error err ->
-        Assert.True(false, sprintf "Training failed: %s" err)
+        Assert.True(false, sprintf "Training failed: %s" err.Message)
     | Ok model ->
         let testSample = [| 0.15; 0.15 |]
         
         match predict backend model testSample 0 with
         | Error msg ->
-            Assert.Contains("must be positive", msg)
+            Assert.Contains("must be positive", msg.Message)
         | Ok _ ->
             Assert.True(false, "Should have rejected zero shots")
 
@@ -224,7 +224,7 @@ let ``predict - should classify training samples correctly`` () =
     
     match train backend featureMap trainData trainLabels config shots with
     | Error err ->
-        Assert.True(false, sprintf "Training failed: %s" err)
+        Assert.True(false, sprintf "Training failed: %s" err.Message)
     | Ok model ->
         // Test on training samples (should classify most correctly)
         let mutable correctCount = 0
@@ -249,13 +249,13 @@ let ``predict - decision value should have correct sign`` () =
     
     match train backend featureMap trainData trainLabels config shots with
     | Error err ->
-        Assert.True(false, sprintf "Training failed: %s" err)
+        Assert.True(false, sprintf "Training failed: %s" err.Message)
     | Ok model ->
         let testSample = [| 0.15; 0.15 |]
         
         match predict backend model testSample shots with
         | Error err ->
-            Assert.True(false, sprintf "Prediction failed: %s" err)
+            Assert.True(false, sprintf "Prediction failed: %s" err.Message)
         | Ok prediction ->
             // Decision value sign should match label
             if prediction.Label = 1 then
@@ -278,11 +278,11 @@ let ``evaluate - should return accuracy between 0 and 1`` () =
     
     match train backend featureMap trainData trainLabels config shots with
     | Error err ->
-        Assert.True(false, sprintf "Training failed: %s" err)
+        Assert.True(false, sprintf "Training failed: %s" err.Message)
     | Ok model ->
         match evaluate backend model trainData trainLabels shots with
         | Error err ->
-            Assert.True(false, sprintf "Evaluation failed: %s" err)
+            Assert.True(false, sprintf "Evaluation failed: %s" err.Message)
         | Ok accuracy ->
             Assert.True(accuracy >= 0.0 && accuracy <= 1.0,
                 sprintf "Accuracy should be in [0,1], got %f" accuracy)
@@ -296,11 +296,11 @@ let ``evaluate - should reject empty test data`` () =
     
     match train backend featureMap trainData trainLabels config shots with
     | Error err ->
-        Assert.True(false, sprintf "Training failed: %s" err)
+        Assert.True(false, sprintf "Training failed: %s" err.Message)
     | Ok model ->
         match evaluate backend model [||] [||] shots with
         | Error msg ->
-            Assert.Contains("cannot be empty", msg)
+            Assert.Contains("cannot be empty", msg.Message)
         | Ok _ ->
             Assert.True(false, "Should have rejected empty test data")
 
@@ -313,14 +313,14 @@ let ``evaluate - should reject mismatched test data and labels`` () =
     
     match train backend featureMap trainData trainLabels config shots with
     | Error err ->
-        Assert.True(false, sprintf "Training failed: %s" err)
+        Assert.True(false, sprintf "Training failed: %s" err.Message)
     | Ok model ->
         let testData = [| [| 0.5; 0.5 |] |]
         let testLabels = [| 0; 1 |]  // Wrong length
         
         match evaluate backend model testData testLabels shots with
         | Error msg ->
-            Assert.Contains("same length", msg)
+            Assert.Contains("same length", msg.Message)
         | Ok _ ->
             Assert.True(false, "Should have rejected mismatched lengths")
 
@@ -333,11 +333,11 @@ let ``evaluate - should achieve reasonable accuracy on training data`` () =
     
     match train backend featureMap trainData trainLabels config shots with
     | Error err ->
-        Assert.True(false, sprintf "Training failed: %s" err)
+        Assert.True(false, sprintf "Training failed: %s" err.Message)
     | Ok model ->
         match evaluate backend model trainData trainLabels shots with
         | Error err ->
-            Assert.True(false, sprintf "Evaluation failed: %s" err)
+            Assert.True(false, sprintf "Evaluation failed: %s" err.Message)
         | Ok accuracy ->
             // With quantum noise, should get at least 50% accuracy
             Assert.True(accuracy >= 0.5,
@@ -357,7 +357,7 @@ let ``train and predict - end-to-end workflow`` () =
     // Train
     match train backend featureMap trainData trainLabels config shots with
     | Error err ->
-        Assert.True(false, sprintf "Training failed: %s" err)
+        Assert.True(false, sprintf "Training failed: %s" err.Message)
     | Ok model ->
         // Predict on new samples
         let testSamples = [|
@@ -368,7 +368,7 @@ let ``train and predict - end-to-end workflow`` () =
         for testSample in testSamples do
             match predict backend model testSample shots with
             | Error err ->
-                Assert.True(false, sprintf "Prediction failed: %s" err)
+                Assert.True(false, sprintf "Prediction failed: %s" err.Message)
             | Ok prediction ->
                 Assert.True(prediction.Label = 0 || prediction.Label = 1,
                     "Should return valid label")
@@ -382,13 +382,13 @@ let ``train with different feature maps`` () =
     // Test with AngleEncoding
     match train backend AngleEncoding trainData trainLabels config shots with
     | Error err ->
-        Assert.True(false, sprintf "AngleEncoding training failed: %s" err)
+        Assert.True(false, sprintf "AngleEncoding training failed: %s" err.Message)
     | Ok _ -> ()
     
     // Test with ZZFeatureMap
     match train backend (ZZFeatureMap 1) trainData trainLabels config shots with
     | Error err ->
-        Assert.True(false, sprintf "ZZFeatureMap training failed: %s" err)
+        Assert.True(false, sprintf "ZZFeatureMap training failed: %s" err.Message)
     | Ok _ -> ()
 
 [<Fact>]
@@ -401,7 +401,7 @@ let ``train with different C values`` () =
     let configSmallC = { defaultConfig with C = 0.1; Verbose = false }
     match train backend featureMap trainData trainLabels configSmallC shots with
     | Error err ->
-        Assert.True(false, sprintf "Small C training failed: %s" err)
+        Assert.True(false, sprintf "Small C training failed: %s" err.Message)
     | Ok modelSmallC ->
         Assert.True(modelSmallC.SupportVectorIndices.Length > 0, "Should have support vectors")
     
@@ -409,6 +409,6 @@ let ``train with different C values`` () =
     let configLargeC = { defaultConfig with C = 10.0; Verbose = false }
     match train backend featureMap trainData trainLabels configLargeC shots with
     | Error err ->
-        Assert.True(false, sprintf "Large C training failed: %s" err)
+        Assert.True(false, sprintf "Large C training failed: %s" err.Message)
     | Ok modelLargeC ->
         Assert.True(modelLargeC.SupportVectorIndices.Length > 0, "Should have support vectors")

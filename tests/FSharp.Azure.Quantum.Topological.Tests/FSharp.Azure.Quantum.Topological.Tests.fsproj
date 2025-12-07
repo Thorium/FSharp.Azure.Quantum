@@ -1,0 +1,43 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="AnyonSpeciesTests.fs" />
+    <Compile Include="FusionRulesTests.fs" />
+    <Compile Include="BraidingOperatorsTests.fs" />
+    <Compile Include="FusionTreeTests.fs" />
+    <Compile Include="TopologicalOperationsTests.fs" />
+    <Compile Include="ModularDataTests.fs" />
+    <Compile Include="FMatrixTests.fs" />
+    <Compile Include="RMatrixTests.fs" />
+    <Compile Include="BraidingConsistencyTests.fs" />
+    <Compile Include="BraidGroupTests.fs" />
+    <Compile Include="BraidToGateTests.fs" />
+    <Compile Include="SolovayKitaevTests.fs" />
+    <Compile Include="GateToBraidCorrectionTests.fs" />
+    <Compile Include="ToricCodeTests.fs" />
+    <Compile Include="TopologicalBackendTests.fs" />
+    <Compile Include="TopologicalBuilderTests.fs" />
+    <Compile Include="TopologicalFormatTests.fs" />
+    <Compile Include="MagicStateDistillationTests.fs" />
+    <Compile Include="EntanglementEntropyTests.fs" />
+    <Compile Include="TopologicalBackendAdapterTests.fs" />
+    <Compile Include="AlgorithmExtensionsTests.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" Version="6.0.4" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\FSharp.Azure.Quantum.Topological\FSharp.Azure.Quantum.Topological.fsproj" />
+  </ItemGroup>
+
+</Project>

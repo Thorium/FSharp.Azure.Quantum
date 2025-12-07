@@ -20,53 +20,58 @@ module QuantumArithmeticTests =
     /// Measure probability that a specific qubit is in |0⟩ state
     let private measureQubitProbability (qubitIndex: int) (state: StateVector.StateVector) : float =
         let dim = StateVector.dimension state
-        let mutable prob0 = 0.0
         
-        // Sum probabilities of all basis states where qubit is 0
-        for i in 0 .. dim - 1 do
-            if (i >>> qubitIndex) &&& 1 = 0 then
-                let amp = StateVector.getAmplitude i state
-                prob0 <- prob0 + amp.Magnitude * amp.Magnitude
-        
-        prob0
+        // Sum probabilities of all basis states where qubit is 0 (functional style)
+        seq { 0 .. dim - 1 }
+        |> Seq.filter (fun i -> (i >>> qubitIndex) &&& 1 = 0)
+        |> Seq.sumBy (fun i ->
+            let amp = StateVector.getAmplitude i state
+            amp.Magnitude * amp.Magnitude)
     
     /// Execute circuit by applying gates to state vector (with realistic measurement)
     let private executeCircuit (circuit: Circuit) : StateVector.StateVector =
         let numQubits = qubitCount circuit
         let initialState = StateVector.init numQubits
-        
         let gates = getGates circuit
-        
-        // Apply each gate sequentially
         let rng = System.Random(42)  // Fixed seed for reproducibility
-        let mutable currentState = initialState
-        for gate in gates do
-            currentState <- 
-                match gate with
-                | X q -> Gates.applyX q currentState
-                | Y q -> Gates.applyY q currentState
-                | Z q -> Gates.applyZ q currentState
-                | H q -> Gates.applyH q currentState
-                | S q -> Gates.applyS q currentState
-                | SDG q -> Gates.applySDG q currentState
-                | T q -> Gates.applyT q currentState
-                | TDG q -> Gates.applyTDG q currentState
-                | P (q, angle) -> Gates.applyP q angle currentState
-                | CP (c, t, angle) -> Gates.applyCPhase c t angle currentState
-                | RX (q, angle) -> Gates.applyRx q angle currentState
-                | RY (q, angle) -> Gates.applyRy q angle currentState
-                | RZ (q, angle) -> Gates.applyRz q angle currentState
-                | CNOT (c, t) -> Gates.applyCNOT c t currentState
-                | CZ (c, t) -> Gates.applyCZ c t currentState
-                | MCZ (controls, t) -> Gates.applyMultiControlledZ controls t currentState
-                | SWAP (q1, q2) -> Gates.applySWAP q1 q2 currentState
-                | CCX (c1, c2, t) -> Gates.applyCCX c1 c2 t currentState
-                | Measure q -> 
-                    // Perform realistic measurement with state collapse
-                    let outcome = Measurement.measureSingleQubit rng q currentState
-                    Measurement.collapseAfterMeasurement q outcome currentState
         
-        currentState
+        /// Apply a single gate to a state vector
+        let applyGate (state: StateVector.StateVector) (gate: Gate) : StateVector.StateVector =
+            match gate with
+            | X q -> Gates.applyX q state
+            | Y q -> Gates.applyY q state
+            | Z q -> Gates.applyZ q state
+            | H q -> Gates.applyH q state
+            | S q -> Gates.applyS q state
+            | SDG q -> Gates.applySDG q state
+            | T q -> Gates.applyT q state
+            | TDG q -> Gates.applyTDG q state
+            | P (q, angle) -> Gates.applyP q angle state
+            | CP (c, t, angle) -> Gates.applyCPhase c t angle state
+            | CRX (c, t, angle) -> Gates.applyCRX c t angle state
+            | CRY (c, t, angle) -> Gates.applyCRY c t angle state
+            | CRZ (c, t, angle) -> Gates.applyCRZ c t angle state
+            | RX (q, angle) -> Gates.applyRx q angle state
+            | RY (q, angle) -> Gates.applyRy q angle state
+            | RZ (q, angle) -> Gates.applyRz q angle state
+            | U3 (q, theta, phi, lambda) ->
+                // U3(θ,φ,λ) = RZ(φ) RY(θ) RZ(λ)
+                state
+                |> Gates.applyRz q lambda
+                |> Gates.applyRy q theta
+                |> Gates.applyRz q phi
+            | CNOT (c, t) -> Gates.applyCNOT c t state
+            | CZ (c, t) -> Gates.applyCZ c t state
+            | MCZ (controls, t) -> Gates.applyMultiControlledZ controls t state
+            | SWAP (q1, q2) -> Gates.applySWAP q1 q2 state
+            | CCX (c1, c2, t) -> Gates.applyCCX c1 c2 t state
+            | Measure q -> 
+                // Perform realistic measurement with state collapse
+                let outcome = Measurement.measureSingleQubit rng q state
+                Measurement.collapseAfterMeasurement q outcome state
+        
+        // Apply all gates using functional fold
+        gates |> List.fold applyGate initialState
     
     // ========================================================================
     // DOUBLY-CONTROLLED OPERATION TESTS (Ancilla Restoration)
@@ -146,17 +151,16 @@ module QuantumArithmeticTests =
         let finalState = executeCircuit circuit
         
         // Register should be unchanged (still |5⟩) since control2 is |0⟩
-        // Check that we have significant amplitude with register=5
-        let mutable foundUnchanged = false
+        // Check that we have significant amplitude with register=5 (functional style)
         let dim = StateVector.dimension finalState
-        for i in 0 .. dim - 1 do
-            let amp = StateVector.getAmplitude i finalState
-            if amp.Magnitude > 0.999 then
+        let hasUnchangedRegister =
+            seq { 0 .. dim - 1 }
+            |> Seq.exists (fun i ->
+                let amp = StateVector.getAmplitude i finalState
                 let registerValue = (i >>> 2) &&& 0xF  // Extract register bits
-                if registerValue = 5 then
-                    foundUnchanged <- true
+                amp.Magnitude > 0.999 && registerValue = 5)
         
-        Assert.True(foundUnchanged, 
+        Assert.True(hasUnchangedRegister, 
             "Register should be unchanged when only one control is |1⟩")
     
     // ========================================================================
@@ -232,17 +236,16 @@ module QuantumArithmeticTests =
         
         let finalState = executeCircuit circuit
         
-        // Register should still be |5⟩, temps should be |0⟩
-        let mutable foundOriginalState = false
+        // Register should still be |5⟩, temps should be |0⟩ (functional style)
         let dim = StateVector.dimension finalState
-        for i in 0 .. dim - 1 do
-            let amp = StateVector.getAmplitude i finalState
-            if amp.Magnitude > 0.99 then
+        let hasOriginalState =
+            seq { 0 .. dim - 1 }
+            |> Seq.exists (fun i ->
+                let amp = StateVector.getAmplitude i finalState
                 let registerValue = (i >>> 1) &&& 0xF
-                if registerValue = 5 then
-                    foundOriginalState <- true
+                amp.Magnitude > 0.99 && registerValue = 5)
         
-        Assert.True(foundOriginalState, "Register should be unchanged when control=|0⟩")
+        Assert.True(hasOriginalState, "Register should be unchanged when control=|0⟩")
     
     [<Fact(Skip="Known limitation: Temp qubit uncomputation incomplete due to SWAP-based approach. See QuantumArithmetic.fs:436-484. Multiplication result IS correct, only cleanup fails.")>]
     let ``In-place modular multiplication works for basic example`` () =
@@ -265,37 +268,43 @@ module QuantumArithmeticTests =
         let inputValue = 2
         let expectedResult = 14  // 2 × 7 mod 15 = 14
         
-        // Build circuit to set register to input value
-        let mutable circuit = empty numQubits |> addGate (X controlQubit)
-        
-        // Set register bits based on input value
-        for i in 0 .. 3 do
-            if (inputValue >>> i) &&& 1 = 1 then
-                circuit <- circuit |> addGate (X registerQubits.[i])
-        
-        // Apply multiplication
-        circuit <- circuit |> controlledMultiplyConstantModNInPlace 
-            controlQubit registerQubits constant modulus tempQubits ancillaQubit
+        // Build circuit to set register to input value (functional style)
+        let circuit =
+            // Start with control |1⟩
+            empty numQubits
+            |> addGate (X controlQubit)
+            // Set register bits based on input value
+            |> fun c ->
+                [0..3]
+                |> List.fold (fun circuit i ->
+                    if (inputValue >>> i) &&& 1 = 1 then
+                        circuit |> addGate (X registerQubits.[i])
+                    else
+                        circuit
+                ) c
+            // Apply multiplication
+            |> controlledMultiplyConstantModNInPlace 
+                controlQubit registerQubits constant modulus tempQubits ancillaQubit
         
         let finalState = executeCircuit circuit
         
         // ⚠️ THIS CHECK FAILS: Temp qubits are NOT fully restored (P(0) ≈ 0.5)
-        for tempQubit in tempQubits do
+        tempQubits
+        |> List.iter (fun tempQubit ->
             let prob0 = measureQubitProbability tempQubit finalState
             Assert.True(prob0 > 0.90, 
-                $"Test {inputValue} × {constant} mod {modulus}: temp qubits not restored, P(0)={prob0}")
+                $"Test {inputValue} × {constant} mod {modulus}: temp qubits not restored, P(0)={prob0}"))
         
-        // ✅ THIS CHECK PASSES: Result IS correct despite dirty temps
-        let mutable foundResult = false
+        // ✅ THIS CHECK PASSES: Result IS correct despite dirty temps (functional style)
         let dim = StateVector.dimension finalState
-        for i in 0 .. dim - 1 do
-            let amp = StateVector.getAmplitude i finalState
-            if amp.Magnitude > 0.1 then
+        let hasCorrectResult =
+            seq { 0 .. dim - 1 }
+            |> Seq.exists (fun i ->
+                let amp = StateVector.getAmplitude i finalState
                 let registerValue = (i >>> 1) &&& 0xF
-                if registerValue = expectedResult then
-                    foundResult <- true
+                amp.Magnitude > 0.1 && registerValue = expectedResult)
         
-        Assert.True(foundResult, 
+        Assert.True(hasCorrectResult, 
             $"Expected {inputValue} × {constant} mod {modulus} = {expectedResult}")
     
     // ========================================================================
@@ -321,14 +330,113 @@ module QuantumArithmeticTests =
         
         let finalState = executeCircuit circuit
         
-        // State should be back to |1⟩|5⟩
-        let mutable foundOriginal = false
+        // State should be back to |1⟩|5⟩ (functional style)
         let dim = StateVector.dimension finalState
-        for i in 0 .. dim - 1 do
-            let amp = StateVector.getAmplitude i finalState
-            if amp.Magnitude > 0.999 then
+        let hasOriginalState =
+            seq { 0 .. dim - 1 }
+            |> Seq.exists (fun i ->
+                let amp = StateVector.getAmplitude i finalState
                 let registerValue = (i >>> 1) &&& 0xF
-                if registerValue = 5 then
-                    foundOriginal <- true
+                amp.Magnitude > 0.999 && registerValue = 5)
         
-        Assert.True(foundOriginal, "Add then subtract should be identity")
+        Assert.True(hasOriginalState, "Add then subtract should be identity")
+    
+    // ========================================================================
+    // U3 GATE TESTS (Universal Single-Qubit Rotation)
+    // ========================================================================
+    
+    [<Fact>]
+    let ``U3 gate applies correct universal rotation`` () =
+        // Test U3(θ,φ,λ) gate implementation
+        // U3(π, 0, π) should convert |0⟩ to |1⟩ (equivalent to X gate)
+        
+        let qubit = 0
+        let numQubits = 1
+        let theta = System.Math.PI
+        let phi = 0.0
+        let lambda = System.Math.PI
+        
+        let circuit =
+            empty numQubits
+            |> addGate (U3 (qubit, theta, phi, lambda))
+        
+        let finalState = executeCircuit circuit
+        
+        // Should be in |1⟩ state with high probability
+        let prob0 = measureQubitProbability qubit finalState
+        Assert.True(prob0 < 0.01, 
+            $"U3(π, 0, π) should flip |0⟩ to |1⟩, but P(0) = {prob0}")
+    
+    [<Fact>]
+    let ``U3 gate decomposes correctly via RZ-RY-RZ`` () =
+        // Test that U3(θ,φ,λ) = RZ(φ) RY(θ) RZ(λ)
+        // Compare U3 gate with explicit decomposition
+        
+        let qubit = 0
+        let numQubits = 1
+        let theta = System.Math.PI / 3.0   // 60 degrees
+        let phi = System.Math.PI / 4.0     // 45 degrees
+        let lambda = System.Math.PI / 6.0  // 30 degrees
+        
+        // Circuit 1: Using U3 gate
+        let circuit1 =
+            empty numQubits
+            |> addGate (U3 (qubit, theta, phi, lambda))
+        
+        // Circuit 2: Using explicit RZ-RY-RZ decomposition
+        let circuit2 =
+            empty numQubits
+            |> addGate (RZ (qubit, lambda))
+            |> addGate (RY (qubit, theta))
+            |> addGate (RZ (qubit, phi))
+        
+        let state1 = executeCircuit circuit1
+        let state2 = executeCircuit circuit2
+        
+        // Both states should have same |0⟩ probability (up to numerical precision)
+        let prob0_u3 = measureQubitProbability qubit state1
+        let prob0_decomposed = measureQubitProbability qubit state2
+        let difference = abs (prob0_u3 - prob0_decomposed)
+        
+        Assert.True(difference < 0.001, 
+            $"U3 and RZ-RY-RZ decomposition should match. Difference = {difference}")
+    
+    [<Fact>]
+    let ``U3 gate with zero parameters is identity`` () =
+        // Test U3(0,0,0) = I (identity)
+        
+        let qubit = 0
+        let numQubits = 1
+        
+        let circuit =
+            empty numQubits
+            |> addGate (U3 (qubit, 0.0, 0.0, 0.0))
+        
+        let finalState = executeCircuit circuit
+        
+        // Should remain in |0⟩ state
+        let prob0 = measureQubitProbability qubit finalState
+        Assert.True(prob0 > 0.999, 
+            $"U3(0,0,0) should be identity, but P(0) = {prob0}")
+    
+    [<Fact>]
+    let ``U3 gate can create superposition`` () =
+        // Test U3(π/2, 0, 0) creates equal superposition (Hadamard-like)
+        // U3(π/2, 0, 0) = RY(π/2) which creates (|0⟩ + |1⟩)/√2
+        
+        let qubit = 0
+        let numQubits = 1
+        let theta = System.Math.PI / 2.0
+        
+        let circuit =
+            empty numQubits
+            |> addGate (U3 (qubit, theta, 0.0, 0.0))
+        
+        let finalState = executeCircuit circuit
+        
+        // Should be 50/50 superposition
+        let prob0 = measureQubitProbability qubit finalState
+        let difference = abs (prob0 - 0.5)
+        
+        Assert.True(difference < 0.01, 
+            $"U3(π/2, 0, 0) should create 50/50 superposition, but P(0) = {prob0}")

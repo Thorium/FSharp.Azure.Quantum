@@ -6,24 +6,25 @@
     <GenerateProgramFile>false</GenerateProgramFile>
 
     <!-- Package Metadata -->
-    <Version>1.2.5</Version>
+    <Version>1.2.7</Version>
     <PackageId>FSharp.Azure.Quantum</PackageId>
     <Title>FSharp.Azure.Quantum</Title>
-    <Description>F# library for Azure Quantum with quantum-first optimization (Graph Coloring, TSP, MaxCut, Knapsack, Network Flow, Portfolio), Azure Quantum backend integration (IonQ, Rigetti), extensible circuit validation, local quantum simulation, QAOA with automatic parameter optimization (Nelder-Mead), OpenQASM 2.0 support, error mitigation techniques (ZNE, PEC, REM), and educational quantum algorithms (Grover, QFT, Amplitude Amplification) with cloud backend execution. Multi-provider architecture supports IonQ, Rigetti, IBM, Amazon Braket, and Google Cirq.</Description>
-    <Summary>F# library for Azure Quantum with quantum-first optimization, quantum backends (IonQ, Rigetti), QAOA with automatic parameter tuning, and educational algorithms with cloud execution</Summary>
-    <PackageReleaseNotes>v1.2.5: Quantum Machine Learning, Business Builders, and Azure SDK Integration
-- NEW: Quantum Machine Learning (VQC, Quantum Kernel SVM, Feature Maps, Variational Forms, Adam Optimizer)
-- NEW: Business Problem Builders (AutoML, Anomaly Detection, Binary Classification, Predictive Modeling, Similarity Search)
-- NEW: Azure Quantum SDK backend integration with workspace management and circuit conversion
-- NEW: D-Wave quantum annealer support (2000+ qubits) with QUBO/Ising conversion
-- NEW: HHL Algorithm (Quantum Linear System Solver) with backend adapter
-- NEW: QAOA parameter optimization with Nelder-Mead
-- NEW: Mottonen state preparation for arbitrary quantum states
-- NEW: Trotter-Suzuki decomposition for Hamiltonian time evolution
-- IMPROVED: Circuit builder with enhanced gate transpilation
-- IMPROVED: Backend capability detection for multi-provider support
-- ADDED: Comprehensive examples for QML, business problems, and Azure Quantum workspace
-- Status: 1350+ tests passing, production-ready</PackageReleaseNotes>
+    <Description>F# library for Azure Quantum with quantum-first optimization (Graph Coloring, TSP, MaxCut, Knapsack, Network Flow, Portfolio), Azure Quantum backend integration (IonQ, Rigetti, Quantinuum, Atom Computing), extensible circuit validation, local quantum simulation, QAOA with automatic parameter optimization (Nelder-Mead), OpenQASM 2.0 support, error mitigation techniques (ZNE, PEC, REM), Quantum Random Number Generation (QRNG), and educational quantum algorithms (Grover, QFT, Amplitude Amplification) with cloud backend execution. Multi-provider architecture supports IonQ, Rigetti, Quantinuum, Atom Computing, IBM, Amazon Braket, and Google Cirq.</Description>
+    <Summary>F# library for Azure Quantum with quantum-first optimization, quantum backends (IonQ, Rigetti, Quantinuum, Atom Computing), QAOA with automatic parameter tuning, QRNG, and educational algorithms with cloud execution</Summary>
+    <PackageReleaseNotes>v1.2.7: Quantinuum and Atom Computing Backends, QRNG, Async Improvements, Enhanced Quantum Chemistry
+- NEW: Quantinuum Backend (H1, H2 series) with dynamic qubit limits and improved gate support (S, T, SDG, TDG)
+- NEW: Atom Computing Phoenix Backend (100+ qubit neutral atom quantum computer) with gate support
+- NEW: Quantum Random Number Generation (QRNG) with true quantum randomness, multi-bit generation, statistical validation
+- NEW: Async execution methods for quantum solvers (ExecuteAsync pattern) and algorithm adapters
+- IMPROVED: Quantum Chemistry - Enhanced fermion mappings (Jordan-Wigner, Bravyi-Kitaev, Parity), molecular Hamiltonians
+- IMPROVED: Backend capability detection for Quantinuum and Atom Computing platforms
+- IMPROVED: Circuit builder with extended gate transpilation for new backends
+- IMPROVED: Model serialization and data preprocessing for ML algorithms
+- IMPROVED: Progress reporting with cancellation support for AutoML workflows
+- IMPROVED: Batch accumulator with better async handling
+- ADDED: Comprehensive hardware selection guide and mathematical foundations documentation
+- ADDED: Examples for QRNG, cancellation/progress monitoring, topological computing
+- Status: 1400+ tests passing in main package, production-ready</PackageReleaseNotes>
     
     <!-- Repository Info -->
     <RepositoryUrl>https://github.com/thorium/FSharp.Azure.Quantum</RepositoryUrl>
@@ -55,6 +56,7 @@
 
   <ItemGroup>
     <!-- Core Layer - Foundation Types -->
+    <Compile Include="Core\QuantumError.fs" />
     <Compile Include="Core\Validation.fs" />
     <Compile Include="Core\Types.fs" />
     <Compile Include="Core\Progress.fs" />

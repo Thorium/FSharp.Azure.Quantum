@@ -98,21 +98,21 @@ module QuantumConstraintSolver =
     /// <summary>
     /// Validates a constraint satisfaction problem specification.
     /// </summary>
-    let validate (problem: ConstraintProblem<'T>) : Result<unit, string> =
+    let validate (problem: ConstraintProblem<'T>) : Result<unit, QuantumError> =
         if problem.SearchSpaceSize < 1 then
-            Error "SearchSpaceSize must be at least 1"
+            Error (QuantumError.ValidationError ("SearchSpaceSize", "must be at least 1"))
         elif problem.SearchSpaceSize > (1 <<< 16) then
-            Error $"SearchSpaceSize {problem.SearchSpaceSize} exceeds maximum (2^16 = 65536)"
+            Error (QuantumError.ValidationError ("SearchSpaceSize", $"{problem.SearchSpaceSize} exceeds maximum (2^16 = 65536)"))
         elif List.isEmpty problem.Domain then
-            Error "Domain cannot be empty"
+            Error (QuantumError.ValidationError ("Domain", "cannot be empty"))
         elif List.isEmpty problem.Constraints then
-            Error "At least one constraint is required"
+            Error (QuantumError.ValidationError ("Constraints", "at least one constraint is required"))
         elif problem.Shots < 1 then
-            Error "Shots must be at least 1"
+            Error (QuantumError.ValidationError ("Shots", "must be at least 1"))
         else
             let qubitsNeeded = int (ceil (log (float problem.SearchSpaceSize) / log 2.0))
             if qubitsNeeded > 16 then
-                Error $"Problem requires {qubitsNeeded} qubits (search space {problem.SearchSpaceSize}). Max: 16. Reduce search space size."
+                Error (QuantumError.ValidationError ("SearchSpaceSize", $"requires {qubitsNeeded} qubits (search space {problem.SearchSpaceSize}). Max: 16"))
             else
                 Ok ()
     
@@ -140,7 +140,7 @@ module QuantumConstraintSolver =
         member _.Run(f: unit -> ConstraintProblem<'T>) : ConstraintProblem<'T> =
             let problem = f()
             match validate problem with
-            | Error msg -> failwith msg
+            | Error err -> failwith err.Message
             | Ok () -> problem
         
         member _.For(sequence: seq<'U>, body: 'U -> ConstraintProblem<'T>) : ConstraintProblem<'T> =
@@ -240,12 +240,12 @@ module QuantumConstraintSolver =
     ///       backend ionqBackend
     ///   }
     ///   let solution = QuantumConstraintSolver.solve problem
-    let solve (problem: ConstraintProblem<'T>) : Result<ConstraintSolution<'T>, string> =
+    let solve (problem: ConstraintProblem<'T>) : Result<ConstraintSolution<'T>, QuantumError> =
         
         try
             // Validate problem first
             match validate problem with
-            | Error msg -> Error msg
+            | Error err -> Error err
             | Ok () ->
                 
                 // Use provided backend or create LocalBackend for simulation
@@ -282,14 +282,14 @@ module QuantumConstraintSolver =
                 // Create oracle for Grover search
                 let oracleResult = GroverSearch.Oracle.fromPredicate combinedPredicate qubitsNeeded
                 match oracleResult with
-                | Error msg -> Error $"Failed to create oracle: {msg}"
+                | Error msg -> Error (QuantumError.OperationError ("OracleCreation", $"Failed to create oracle: {msg}"))
                 | Ok oracle ->
                     
                     // Calculate optimal iterations
                     let numSolutions = 1  // Assume we want to find one solution
                     let iterationsResult = GroverSearch.GroverIteration.optimalIterations problem.SearchSpaceSize numSolutions
                     match iterationsResult with
-                    | Error msg -> Error $"Failed to calculate iterations: {msg}"
+                    | Error msg -> Error (QuantumError.OperationError ("IterationCalculation", $"Failed to calculate iterations: {msg}"))
                     | Ok calculatedIters ->
                         
                         let iterations = 
@@ -303,11 +303,11 @@ module QuantumConstraintSolver =
                         let solutionThreshold = 0.05  // 5% (down from 10%)
                         let successThreshold = 0.10   // 10% (down from 50%)
                         match GroverSearch.BackendAdapter.executeGroverWithBackend oracle actualBackend iterations problem.Shots solutionThreshold successThreshold with
-                        | Error msg -> Error $"Grover search failed: {msg}"
+                        | Error msg -> Error (QuantumError.OperationError ("GroverSearch", $"Grover search failed: {msg}"))
                         | Ok searchResult ->
                             
                             if List.isEmpty searchResult.Solutions then
-                                Error "No solution found by quantum search"
+                                Error (QuantumError.OperationError ("GroverSearch", "No solution found by quantum search"))
                             else
                                 let bestSolution = List.head searchResult.Solutions
                                 
@@ -343,7 +343,7 @@ module QuantumConstraintSolver =
                                     IterationsUsed = iterations
                                 }
         with
-        | ex -> Error $"Constraint solver failed: {ex.Message}"
+        | ex -> Error (QuantumError.OperationError ("ConstraintSolver", $"Constraint solver failed: {ex.Message}"))
     
     // ============================================================================
     // CONVENIENCE FUNCTIONS

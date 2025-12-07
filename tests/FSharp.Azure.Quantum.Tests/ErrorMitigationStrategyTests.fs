@@ -228,7 +228,7 @@ module ErrorMitigationStrategyTests =
             Assert.False(mitigated.UsedFallback)
             Assert.Equal(2, Map.count mitigated.Histogram)
         | Error msg ->
-            Assert.Fail(sprintf "Strategy application failed: %s" msg)
+            Assert.Fail(sprintf "Strategy application failed: %s" msg.Message)
     
     [<Fact>]
     let ``Strategy with fallback should provide secondary option`` () =

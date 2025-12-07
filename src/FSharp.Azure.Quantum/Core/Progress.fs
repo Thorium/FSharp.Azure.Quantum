@@ -210,11 +210,11 @@ module Progress =
         AggregatingProgressReporter(reporters) :> IProgressReporter
     
     /// Helper to check cancellation and return error if cancelled
-    let checkCancellation (reporter: IProgressReporter option) (token: CancellationToken option) : Result<unit, string> =
+    let checkCancellation (reporter: IProgressReporter option) (token: CancellationToken option) : Result<unit, QuantumError> =
         let tokenCancelled = token |> Option.map (fun t -> t.IsCancellationRequested) |> Option.defaultValue false
         let reporterCancelled = reporter |> Option.map (fun r -> r.IsCancellationRequested) |> Option.defaultValue false
         
         if tokenCancelled || reporterCancelled then
-            Error "Operation cancelled by user"
+            Error (QuantumError.OperationError("Cancellation", "Operation cancelled by user request"))
         else
             Ok ()

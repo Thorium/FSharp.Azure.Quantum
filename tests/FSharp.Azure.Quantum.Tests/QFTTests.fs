@@ -180,7 +180,7 @@ module QFTTests =
         
         match qftToCircuit config with
         | Ok _ -> Assert.Fail("Should reject excessive qubits")
-        | Error msg -> Assert.Contains("practical", msg.ToLower())
+        | Error msg -> Assert.Contains("practical", msg.Message.ToLower())
     
     [<Fact>]
     let ``QFT on computational basis state produces uniform superposition`` () =

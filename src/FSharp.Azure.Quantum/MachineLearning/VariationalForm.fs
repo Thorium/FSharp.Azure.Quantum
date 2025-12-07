@@ -1,5 +1,7 @@
 namespace FSharp.Azure.Quantum.MachineLearning
 
+open FSharp.Azure.Quantum.Core
+
 /// Variational Form (Ansatz) Implementation for QML
 ///
 /// Parameterized quantum circuits for variational algorithms:
@@ -25,11 +27,11 @@ module VariationalForms =
     /// 2. CZ entanglement between neighbors
     ///
     /// Parameters: numQubits * depth rotation angles
-    let realAmplitudes (depth: int) (parameters: float array) (numQubits: int) : Result<Circuit, string> =
+    let realAmplitudes (depth: int) (parameters: float array) (numQubits: int) : QuantumResult<Circuit> =
         // Validate parameters
         let expectedParams = numQubits * depth
         if parameters.Length <> expectedParams then
-            Error $"RealAmplitudes requires {expectedParams} parameters for {numQubits} qubits and depth {depth}, got {parameters.Length}"
+            Error (QuantumError.ValidationError ("Input", $"RealAmplitudes requires {expectedParams} parameters for {numQubits} qubits and depth {depth}, got {parameters.Length}"))
         else
             let (finalCircuit, _) =
                 [0 .. depth - 1]
@@ -74,12 +76,12 @@ module VariationalForms =
         (depth: int) 
         (parameters: float array) 
         (numQubits: int) 
-        : Result<Circuit, string> =
+        : QuantumResult<Circuit> =
         
         // Validate parameters
         let expectedParams = numQubits * depth
         if parameters.Length <> expectedParams then
-            Error $"TwoLocal requires {expectedParams} parameters for {numQubits} qubits and depth {depth}, got {parameters.Length}"
+            Error (QuantumError.ValidationError ("Input", $"TwoLocal requires {expectedParams} parameters for {numQubits} qubits and depth {depth}, got {parameters.Length}"))
         else
             // Parse rotation type
             let rotationGate = 
@@ -133,11 +135,11 @@ module VariationalForms =
     /// 2. CX entanglement between neighbors
     ///
     /// Parameters: 2 * numQubits * depth rotation angles
-    let efficientSU2 (depth: int) (parameters: float array) (numQubits: int) : Result<Circuit, string> =
+    let efficientSU2 (depth: int) (parameters: float array) (numQubits: int) : QuantumResult<Circuit> =
         // Validate parameters
         let expectedParams = 2 * numQubits * depth
         if parameters.Length <> expectedParams then
-            Error $"EfficientSU2 requires {expectedParams} parameters (2 per qubit) for {numQubits} qubits and depth {depth}, got {parameters.Length}"
+            Error (QuantumError.ValidationError ("Input", $"EfficientSU2 requires {expectedParams} parameters (2 per qubit) for {numQubits} qubits and depth {depth}, got {parameters.Length}"))
         else
             let mutable circuit = empty numQubits
             let mutable paramIdx = 0
@@ -171,27 +173,27 @@ module VariationalForms =
         (ansatz: VariationalForm) 
         (parameters: float array) 
         (numQubits: int) 
-        : Result<Circuit, string> =
+        : QuantumResult<Circuit> =
         
         if numQubits < 1 then
-            Error "Number of qubits must be at least 1"
+            Error (QuantumError.ValidationError ("Input", "Number of qubits must be at least 1"))
         else
             match ansatz with
             | RealAmplitudes depth ->
                 if depth < 1 then
-                    Error "Depth must be at least 1"
+                    Error (QuantumError.ValidationError ("Input", "Depth must be at least 1"))
                 else
                     realAmplitudes depth parameters numQubits
             
             | TwoLocal(rotation, entanglement, depth) ->
                 if depth < 1 then
-                    Error "Depth must be at least 1"
+                    Error (QuantumError.ValidationError ("Input", "Depth must be at least 1"))
                 else
                     twoLocal rotation entanglement depth parameters numQubits
             
             | EfficientSU2 depth ->
                 if depth < 1 then
-                    Error "Depth must be at least 1"
+                    Error (QuantumError.ValidationError ("Input", "Depth must be at least 1"))
                 else
                     efficientSU2 depth parameters numQubits
     
@@ -228,13 +230,13 @@ module VariationalForms =
     let composeWithFeatureMap 
         (featureMapCircuit: Circuit)
         (variationalCircuit: Circuit)
-        : Result<Circuit, string> =
+        : QuantumResult<Circuit> =
         
         if featureMapCircuit.QubitCount <> variationalCircuit.QubitCount then
-            Error $"Qubit count mismatch: feature map has {featureMapCircuit.QubitCount} qubits, variational form has {variationalCircuit.QubitCount} qubits"
+            Error (QuantumError.ValidationError ("Input", $"Qubit count mismatch: feature map has {featureMapCircuit.QubitCount} qubits, variational form has {variationalCircuit.QubitCount} qubits"))
         else
             try
                 let composed = compose featureMapCircuit variationalCircuit
                 Ok composed
             with ex ->
-                Error $"Failed to compose circuits: {ex.Message}"
+                Error (QuantumError.ValidationError ("Input", $"Failed to compose circuits: {ex.Message}"))

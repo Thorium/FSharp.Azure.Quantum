@@ -2,6 +2,7 @@ namespace FSharp.Azure.Quantum.Examples.Gomoku.AI
 
 open FSharp.Azure.Quantum.Examples.Gomoku
 open FSharp.Azure.Quantum.GroverSearch
+open FSharp.Azure.Quantum.Core
 open System
 
 /// Local Quantum AI for Gomoku using real Grover's algorithm implementation
@@ -43,7 +44,7 @@ module LocalQuantum =
             (pos, totalScore))
     
     /// Use real Grover's algorithm to search for high-scoring positions
-    let private groverSearch (scoredPositions: (Position * float) list) (backend: FSharp.Azure.Quantum.Core.BackendAbstraction.IQuantumBackend) : Result<Position option, string> =
+    let private groverSearch (scoredPositions: (Position * float) list) (backend: FSharp.Azure.Quantum.Core.BackendAbstraction.IQuantumBackend) : QuantumResult<Position option> =
         let n = scoredPositions.Length
         
         if n = 0 then Ok None
@@ -112,12 +113,12 @@ module LocalQuantum =
                     let bestPos = scoredPositions |> List.maxBy snd |> fst
                     Ok (Some bestPos)
                 
-                | Error msg ->
+                | Error e ->
                     // Grover search failed - fall back to classical
-                    Error msg
+                    Error e
             
             with
-            | ex -> Error $"Grover search exception: {ex.Message}"
+            | ex -> Error (QuantumError.OperationError ("Grover search", $"Exception: {ex.Message}"))
     
     /// Select best move using real Grover's quantum search algorithm
     /// This demonstrates the quantum advantage: O(√N) vs O(N) classical search
@@ -153,9 +154,9 @@ module LocalQuantum =
                     // No move found (shouldn't happen)
                     (None, 0)
                 
-                | Error msg ->
+                | Error err ->
                     // Grover search failed - fall back to classical best
-                    printfn "Grover search failed: %s - falling back to classical" msg
+                    printfn "Grover search failed: %s - falling back to classical" err.Message
                     let bestMove = scoredPositions |> List.maxBy snd |> fst
                     (Some bestMove, 0)
     

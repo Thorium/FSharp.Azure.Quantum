@@ -1,6 +1,7 @@
 namespace FSharp.Azure.Quantum.Algorithms
 
 open System
+open FSharp.Azure.Quantum.Core
 open System.Numerics
 open FSharp.Azure.Quantum.Core.CircuitAbstraction
 open FSharp.Azure.Quantum.CircuitBuilder
@@ -116,14 +117,14 @@ module TrotterSuzuki =
     
     /// Decompose arbitrary Hermitian matrix into Pauli basis
     /// H = Σᵢ cᵢ Pᵢ where Pᵢ are tensor products of Pauli operators
-    let decomposeMatrixToPauli (matrix: Complex[,]) : Result<PauliHamiltonian, string> =
+    let decomposeMatrixToPauli (matrix: Complex[,]) : QuantumResult<PauliHamiltonian> =
         let n = Array2D.length1 matrix
         let m = Array2D.length2 matrix
         
         if n <> m then
-            Error "Matrix must be square"
+            Error (QuantumError.ValidationError ("Matrix", "must be square"))
         elif (n &&& (n - 1)) <> 0 then
-            Error $"Matrix dimension must be power of 2, got {n}"
+            Error (QuantumError.Other $"Matrix dimension must be power of 2, got {n}")
         else
             // Calculate number of qubits
             let numQubits = 

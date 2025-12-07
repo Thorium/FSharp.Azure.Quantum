@@ -1,6 +1,7 @@
 namespace FSharp.Azure.Quantum.Algorithms
 
 open System
+open FSharp.Azure.Quantum.Core
 open System.Numerics
 
 /// HHL Algorithm (Harrow-Hassidim-Lloyd) Module
@@ -272,17 +273,17 @@ module HHLAlgorithm =
     /// - Qubits [0 .. eigenvalueQubits-1]: Eigenvalue register (QPE counting qubits)
     /// - Qubits [eigenvalueQubits .. eigenvalueQubits+solutionQubits-1]: Solution vector register
     /// - Qubit [totalQubits-1]: Ancilla qubit (success indicator)
-    let private execute (config: HHLConfig) : Result<HHLResult, string> =
+    let private execute (config: HHLConfig) : QuantumResult<HHLResult> =
         try
             // Validate configuration
             if config.EigenvalueQubits <= 0 then
-                Error "Number of eigenvalue qubits must be positive"
+                Error (QuantumError.ValidationError ("EigenvalueQubits", "must be positive"))
             elif config.SolutionQubits <= 0 then
-                Error "Number of solution qubits must be positive"
+                Error (QuantumError.ValidationError ("SolutionQubits", "must be positive"))
             elif config.Matrix.Dimension <> config.InputVector.Dimension then
-                Error "Matrix and input vector dimensions must match"
+                Error (QuantumError.ValidationError ("Dimensions", "matrix and input vector dimensions must match"))
             elif config.Matrix.Dimension <> (1 <<< config.SolutionQubits) then
-                Error $"Matrix dimension {config.Matrix.Dimension} must equal 2^{config.SolutionQubits}"
+                Error (QuantumError.ValidationError ("Matrix", $"dimension {config.Matrix.Dimension} must equal 2^{config.SolutionQubits}"))
             else
                 // Calculate total qubits needed
                 let eigenvalueQubits = config.EigenvalueQubits
@@ -373,7 +374,7 @@ module HHLAlgorithm =
                 }
         
         with
-        | ex -> Error $"HHL execution failed: {ex.Message}"
+        | ex -> Error (QuantumError.Other $"HHL execution failed: {ex.Message}")
     
     // ========================================================================
     // CONVENIENCE FUNCTIONS
@@ -382,12 +383,12 @@ module HHLAlgorithm =
     /// Solve simple 2×2 system using HHL
     /// 
     /// Example: Solve [[3,1],[1,3]] * x = [1,0]
-    let solve2x2System (matrix2x2: Complex[,]) (vector2: Complex[]) : Result<HHLResult, string> =
+    let solve2x2System (matrix2x2: Complex[,]) (vector2: Complex[]) : QuantumResult<HHLResult> =
         match createHermitianMatrix matrix2x2 with
-        | Error msg -> Error msg
+        | Error err -> Error err
         | Ok matrix ->
             match createQuantumVector vector2 with
-            | Error msg -> Error msg
+            | Error err -> Error err
             | Ok inputVector ->
                 let config = defaultConfig matrix inputVector
                 execute config
@@ -395,12 +396,12 @@ module HHLAlgorithm =
     /// Solve diagonal system (eigenvalues known)
     /// 
     /// Useful for testing and validating HHL implementation
-    let solveDiagonalSystem (eigenvalues: float[]) (inputVector: Complex[]) : Result<HHLResult, string> =
+    let solveDiagonalSystem (eigenvalues: float[]) (inputVector: Complex[]) : QuantumResult<HHLResult> =
         match createDiagonalMatrix eigenvalues with
-        | Error msg -> Error msg
+        | Error err -> Error err
         | Ok matrix ->
             match createQuantumVector inputVector with
-            | Error msg -> Error msg
+            | Error err -> Error err
             | Ok vector ->
                 let config = defaultConfig matrix vector
                 execute config

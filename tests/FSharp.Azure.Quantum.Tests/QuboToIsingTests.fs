@@ -246,7 +246,7 @@ module QuboToIsingTests =
         
         Assert.True(result.IsError)
         match result with
-        | Error msg -> Assert.Contains("Invalid spin", msg)
+        | Error msg -> Assert.Contains("Invalid spin", msg.Message)
         | Ok _ -> Assert.True(false, "Should have failed validation")
     
     [<Fact>]
@@ -265,7 +265,7 @@ module QuboToIsingTests =
         
         Assert.True(result.IsError)
         match result with
-        | Error msg -> Assert.Contains("Invalid binary", msg)
+        | Error msg -> Assert.Contains("Invalid binary", msg.Message)
         | Ok _ -> Assert.True(false, "Should have failed validation")
     
     // ========================================================================

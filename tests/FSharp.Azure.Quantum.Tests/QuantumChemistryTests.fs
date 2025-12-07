@@ -101,7 +101,7 @@ module MoleculeTests =
         
         // Assert
         match result with
-        | Error msg -> Assert.Contains("Bond references non-existent atom", msg)
+        | Error err -> Assert.Contains("Bond references non-existent atom", err.Message)
         | Ok _ -> Assert.True(false, "Should have failed validation")
     
     [<Fact>]
@@ -245,8 +245,8 @@ module GroundStateEnergyTests =
             let tolerance = 0.1  // 0.1 Hartree tolerance
             Assert.True(abs(vqeResult.Energy - expected) < tolerance, 
                 sprintf "Expected ~%.3f, got %.3f" expected vqeResult.Energy)
-        | Error msg ->
-            Assert.True(false, sprintf "Energy calculation failed: %s" msg)
+        | Error err ->
+            Assert.True(false, sprintf "Energy calculation failed: %s" err.Message)
     
     [<Fact>]
     let ``Estimate H2O ground state energy should be approximately -76.0 Hartree`` () =
@@ -271,8 +271,8 @@ module GroundStateEnergyTests =
             let tolerance = 1.0  // 1.0 Hartree tolerance
             Assert.True(abs(vqeResult.Energy - expected) < tolerance,
                 sprintf "Expected ~%.1f, got %.3f" expected vqeResult.Energy)
-        | Error msg ->
-            Assert.True(false, sprintf "Energy calculation failed: %s" msg)
+        | Error err ->
+            Assert.True(false, sprintf "Energy calculation failed: %s" err.Message)
     
     [<Fact>]
     let ``VQE method should be selectable`` () =
@@ -363,7 +363,7 @@ module GroundStateEnergyTests =
         
         // Assert
         match result with
-        | Error msg -> Assert.Contains("Invalid", msg)
+        | Error err -> Assert.Contains("Invalid", err.Message)
         | Ok _ -> Assert.True(false, "Should have failed for invalid molecule")
     
     [<Fact>]
@@ -409,7 +409,7 @@ module GroundStateEnergyTests =
         // Should either converge or return error about max iterations
         match result with
         | Ok _ -> Assert.True(true, "Converged successfully")
-        | Error msg -> 
+        | Error err -> 
             // Acceptable to hit max iterations with tight constraints
             Assert.True(true, "Hit max iterations - acceptable")
     
@@ -497,7 +497,7 @@ module HamiltonianSimulationTests =
         let hamiltonianResult = MolecularHamiltonian.build h2
         
         match hamiltonianResult with
-        | Error msg -> Assert.True(false, $"Hamiltonian construction failed: {msg}")
+        | Error err -> Assert.True(false, $"Hamiltonian construction failed: {err.Message}")
         | Ok hamiltonian ->
         
         let initialState = StateVector.init hamiltonian.NumQubits
@@ -632,7 +632,7 @@ module MolecularInputTests =
                 
                 // Assert
                 match result with
-                | Error msg -> Assert.True(false, $"Parsing failed: {msg}")
+                | Error err -> Assert.True(false, $"Parsing failed: {err.Message}")
                 | Ok molecule ->
                     Assert.Equal("H2 molecule", molecule.Name)
                     Assert.Equal(2, molecule.Atoms.Length)
@@ -674,7 +674,7 @@ module MolecularInputTests =
                 
                 // Assert
                 match result with
-                | Error msg -> Assert.True(false, $"Parsing failed: {msg}")
+                | Error err -> Assert.True(false, $"Parsing failed: {err.Message}")
                 | Ok molecule ->
                     Assert.Equal("Water molecule", molecule.Name)
                     Assert.Equal(3, molecule.Atoms.Length)
@@ -706,7 +706,7 @@ module MolecularInputTests =
                 
                 // Assert
                 match result with
-                | Error msg -> Assert.True(false, $"Should handle whitespace: {msg}")
+                | Error err -> Assert.True(false, $"Should handle whitespace: {err.Message}")
                 | Ok molecule ->
                     Assert.Equal(2, molecule.Atoms.Length)
             finally
@@ -732,7 +732,7 @@ module MolecularInputTests =
                 // Assert
                 match result with
                 | Ok _ -> Assert.True(false, "Should reject file with wrong atom count")
-                | Error msg -> Assert.Contains("needs", msg)
+                | Error err -> Assert.Contains("needs", err.Message)
             finally
                 File.Delete(tempFile)
         } |> Async.StartAsTask
@@ -755,7 +755,7 @@ module MolecularInputTests =
                 
                 // Assert
                 match result with
-                | Error msg -> Assert.True(false, $"Parsing failed: {msg}")
+                | Error err -> Assert.True(false, $"Parsing failed: {err.Message}")
                 | Ok molecule ->
                     // Should extract NORB=2, NELEC=2
                     Assert.Equal(2, molecule.Atoms.Length)  // NELEC electrons
@@ -782,7 +782,7 @@ module MolecularInputTests =
                 // Assert
                 match result with
                 | Ok _ -> Assert.True(false, "Should require NORB parameter")
-                | Error msg -> Assert.Contains("NORB", msg)
+                | Error err -> Assert.Contains("NORB", err.Message)
             finally
                 File.Delete(tempFile)
         } |> Async.StartAsTask
@@ -815,14 +815,14 @@ module MolecularInputTests =
                 let! saveResult = MolecularInput.saveXYZAsync tempFile original
                 
                 match saveResult with
-                | Error msg -> Assert.True(false, $"Save failed: {msg}")
+                | Error err -> Assert.True(false, $"Save failed: {err.Message}")
                 | Ok () ->
                 
                 // Act - reload from file
                 let! loadResult = MolecularInput.fromXYZAsync tempFile
                 
                 match loadResult with
-                | Error msg -> Assert.True(false, $"Load failed: {msg}")
+                | Error err -> Assert.True(false, $"Load failed: {err.Message}")
                 | Ok reloaded ->
                     // Assert - should match original
                     Assert.Equal(original.Atoms.Length, reloaded.Atoms.Length)
@@ -1050,8 +1050,8 @@ module QuantumChemistryBuilderTests =
             let hasHHBond = chemResult.BondLengths |> Map.exists (fun k _ -> k.Contains("H"))
             Assert.True(hasHHBond, "Should have H-H bond length")
             
-        | Error msg ->
-            Assert.True(false, sprintf "Solve failed: %s" msg)
+        | Error err ->
+            Assert.True(false, sprintf "Solve failed: %s" err.Message)
     
     [<Fact>]
     let ``Solve should compute bond lengths for H2O`` () =
@@ -1072,8 +1072,8 @@ module QuantumChemistryBuilderTests =
             // H2O should have multiple bond lengths (O-H bonds)
             Assert.True(chemResult.BondLengths.Count >= 2, "H2O should have at least 2 bond lengths")
             
-        | Error msg ->
-            Assert.True(false, sprintf "Solve failed: %s" msg)
+        | Error err ->
+            Assert.True(false, sprintf "Solve failed: %s" err.Message)
     
     // ========================================================================
     // TEST 7: Multiple Molecules
@@ -1132,3 +1132,4 @@ module QuantumChemistryBuilderTests =
         Assert.True(problem.Molecule.IsSome)
         Assert.True(problem.Basis.IsSome)
         Assert.True(problem.Ansatz.IsSome)
+

@@ -115,29 +115,29 @@ module QuantumArithmeticOps =
     /// <summary>
     /// Validates an arithmetic operation specification.
     /// </summary>
-    let private validate (operation: ArithmeticOperation) : Result<unit, string> =
+    let private validate (operation: ArithmeticOperation) : Result<unit, QuantumError> =
         // Check operands are non-negative
         if operation.OperandA < 0 then
-            Error "OperandA must be non-negative"
+            Error (QuantumError.ValidationError ("OperandA", "must be non-negative"))
         elif operation.OperandB < 0 then
-            Error "OperandB must be non-negative"
+            Error (QuantumError.ValidationError ("OperandB", "must be non-negative"))
         
         // Check qubits
         elif operation.Qubits < 2 then
-            Error "At least 2 qubits are required"
+            Error (QuantumError.ValidationError ("Qubits", "at least 2 qubits are required"))
         elif operation.Qubits > 16 then
-            Error $"Qubit count {operation.Qubits} exceeds maximum (16 qubits for NISQ devices)"
+            Error (QuantumError.ValidationError ("Qubits", $"qubit count {operation.Qubits} exceeds maximum (16 qubits for NISQ devices)"))
         
         // Check modulus for modular operations
         elif match operation.Operation with
              | ModularAdd | ModularMultiply | ModularExponentiate -> operation.Modulus.IsNone
              | _ -> false
         then
-            Error "Modulus is required for modular arithmetic operations"
+            Error (QuantumError.ValidationError ("Modulus", "modulus is required for modular arithmetic operations"))
         
         // Check modulus is positive
         elif operation.Modulus.IsSome && operation.Modulus.Value <= 0 then
-            Error "Modulus must be positive"
+            Error (QuantumError.ValidationError ("Modulus", "modulus must be positive"))
         
         // Check modulus is larger than operands
         elif match operation.Operation with
@@ -145,15 +145,15 @@ module QuantumArithmeticOps =
                  operation.OperandA >= operation.Modulus.Value || operation.OperandB >= operation.Modulus.Value
              | _ -> false
         then
-            Error "Operands must be smaller than modulus for modular arithmetic"
+            Error (QuantumError.ValidationError ("Operands", "operands must be smaller than modulus for modular arithmetic"))
         
         // Check operand A fits in qubit count
         elif operation.OperandA >= (1 <<< operation.Qubits) then
-            Error $"OperandA ({operation.OperandA}) requires more than {operation.Qubits} qubits"
+            Error (QuantumError.ValidationError ("OperandA", $"operandA ({operation.OperandA}) requires more than {operation.Qubits} qubits"))
         
         // Check operand B fits in qubit count (except for exponentiation where B is exponent)
         elif operation.Operation <> ModularExponentiate && operation.OperandB >= (1 <<< operation.Qubits) then
-            Error $"OperandB ({operation.OperandB}) requires more than {operation.Qubits} qubits"
+            Error (QuantumError.ValidationError ("OperandB", $"operandB ({operation.OperandB}) requires more than {operation.Qubits} qubits"))
         
         else
             Ok ()
@@ -238,7 +238,7 @@ module QuantumArithmeticOps =
             { operation with Shots = Some shots }
         
         /// Finalize and validate the operation
-        member _.Run(operation: ArithmeticOperation) : Result<ArithmeticOperation, string> =
+        member _.Run(operation: ArithmeticOperation) : Result<ArithmeticOperation, QuantumError> =
             validate operation |> Result.map (fun _ -> operation)
     
     /// Global computation expression instance for quantum arithmetic
@@ -257,12 +257,12 @@ module QuantumArithmeticOps =
     ///       qubits 8
     ///   }
     ///   let result = QuantumArithmeticOps.execute operation
-    let execute (operation: ArithmeticOperation) : Result<ArithmeticResult, string> =
+    let execute (operation: ArithmeticOperation) : Result<ArithmeticResult, QuantumError> =
         
         try
             // Validate operation first
             match validate operation with
-            | Error msg -> Error msg
+            | Error err -> Error err
             | Ok () ->
                 
                 // Use provided backend or create LocalBackend for simulation
@@ -342,7 +342,7 @@ module QuantumArithmeticOps =
                     IsModular = isModular
                 }
         with
-        | ex -> Error $"Quantum arithmetic execution failed: {ex.Message}"
+        | ex -> Error (QuantumError.OperationError ("quantum arithmetic execution", ex.Message))
     
     // ============================================================================
     // CONVENIENCE FUNCTIONS

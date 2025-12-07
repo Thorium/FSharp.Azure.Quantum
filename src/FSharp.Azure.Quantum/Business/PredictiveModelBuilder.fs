@@ -1,5 +1,6 @@
 namespace FSharp.Azure.Quantum.Business
 
+open FSharp.Azure.Quantum.Core
 open System
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.MachineLearning
@@ -208,26 +209,26 @@ module PredictiveModel =
     // VALIDATION - Ensure data quality
     // ========================================================================
     
-    let private validateProblem (problem: PredictionProblem) : Result<unit, string> =
+    let private validateProblem (problem: PredictionProblem) : QuantumResult<unit> =
         // Check features
         if problem.TrainFeatures.Length = 0 then
-            Error "Training features cannot be empty"
+            Error (QuantumError.ValidationError ("Input", "Training features cannot be empty"))
         elif problem.TrainTargets.Length = 0 then
-            Error "Training targets cannot be empty"
+            Error (QuantumError.ValidationError ("Input", "Training targets cannot be empty"))
         elif problem.TrainFeatures.Length <> problem.TrainTargets.Length then
-            Error $"Feature count ({problem.TrainFeatures.Length}) must match target count ({problem.TrainTargets.Length})"
+            Error (QuantumError.ValidationError ("Input", $"Feature count ({problem.TrainFeatures.Length}) must match target count ({problem.TrainTargets.Length})"))
         
         // Check feature dimensions
         elif problem.TrainFeatures |> Array.exists (fun f -> f.Length = 0) then
-            Error "All feature arrays must have at least one element"
+            Error (QuantumError.ValidationError ("Input", "All feature arrays must have at least one element"))
         elif problem.TrainFeatures |> Array.map Array.length |> Array.distinct |> Array.length > 1 then
-            Error "All feature arrays must have the same length"
+            Error (QuantumError.ValidationError ("Input", "All feature arrays must have the same length"))
         
         // Check problem type
         elif (match problem.ProblemType with
               | MultiClass numClasses when numClasses < 2 -> true
               | _ -> false) then
-            Error "Multi-class classification requires at least 2 classes"
+            Error (QuantumError.Other "Multi-class classification requires at least 2 classes")
         
         // Check targets match problem type
         elif (match problem.ProblemType with
@@ -236,17 +237,17 @@ module PredictiveModel =
                   let minLabel = problem.TrainTargets |> Array.min |> int
                   minLabel < 0 || maxLabel >= numClasses
               | Regression -> false) then
-            Error "Target labels must be in range [0, numClasses-1]"
+            Error (QuantumError.ValidationError ("Input", "Target labels must be in range [0, numClasses-1]"))
         
         // Check hyperparameters
         elif problem.LearningRate <= 0.0 then
-            Error "Learning rate must be positive"
+            Error (QuantumError.ValidationError ("Input", "Learning rate must be positive"))
         elif problem.MaxEpochs <= 0 then
-            Error "Max epochs must be positive"
+            Error (QuantumError.ValidationError ("Input", "Max epochs must be positive"))
         elif problem.ConvergenceThreshold <= 0.0 then
-            Error "Convergence threshold must be positive"
+            Error (QuantumError.ValidationError ("Input", "Convergence threshold must be positive"))
         elif problem.Shots <= 0 then
-            Error "Number of shots must be positive"
+            Error (QuantumError.ValidationError ("Input", "Number of shots must be positive"))
         
         else
             Ok ()
@@ -256,7 +257,7 @@ module PredictiveModel =
     // ========================================================================
     
     /// Save model to file
-    let save (path: string) (model: Model) : Result<unit, string> =
+    let save (path: string) (model: Model) : QuantumResult<unit> =
         match model.InternalModel with
         | RegressionVQC (result, featureMap, varForm, numQubits) ->
             let fmType = match featureMap with ZZFeatureMap _ -> "ZZFeatureMap" | _ -> "Unknown"
@@ -288,10 +289,10 @@ module PredictiveModel =
         
         | ClassicalRegressor _
         | ClassicalMultiClass _ ->
-            Error "Classical models don't support persistence currently"
+            Error (QuantumError.Other "Classical models don't support persistence currently")
     
     /// Load model from file
-    let load (path: string) : Result<Model, string> =
+    let load (path: string) : QuantumResult<Model> =
         // Try to load as VQC model first
         match ModelSerialization.loadForTransferLearning path with
         | Ok (parameters, (numQubits, fmType, fmDepth, vfType, vfDepth)) ->
@@ -442,14 +443,14 @@ module PredictiveModel =
                                 }
                             }
                         | Error e ->
-                            Error $"Failed to load model as VQC, multi-class VQC, HHL, or SVM: {e}"
+                            Error (QuantumError.ValidationError ("Input", $"Failed to load model as VQC, multi-class VQC, HHL, or SVM: {e}"))
     
     // ========================================================================
     // TRAINING - Core business logic
     // ========================================================================
     
     /// Train a predictive model
-    let train (problem: PredictionProblem) : Result<Model, string> =
+    let train (problem: PredictionProblem) : QuantumResult<Model> =
         match validateProblem problem with
         | Error e -> Error e
         | Ok () ->
@@ -548,7 +549,7 @@ module PredictiveModel =
                         }
                         
                         match VQC.trainRegression backend featureMap varForm initParams problem.TrainFeatures problem.TrainTargets vqcConfig with
-                        | Error e -> Error $"Both HHL and VQC regression failed: {e}"
+                        | Error e -> Error (QuantumError.ValidationError ("Input", $"Both HHL and VQC regression failed: {e}"))
                         | Ok vqcResult ->
                             if problem.Verbose then
                                 printfn "✓ VQC training complete!"
@@ -631,7 +632,7 @@ module PredictiveModel =
                     | Error e ->
                         // Fallback to classical regression if HHL fails
                         if problem.Verbose then
-                            printfn "⚠ HHL failed (%s), falling back to classical..." e
+                            printfn "⚠ HHL failed (%s), falling back to classical..." e.Message
                         
                         // Use classical regression as fallback
                         let X = problem.TrainFeatures
@@ -725,7 +726,7 @@ module PredictiveModel =
                     }
                     
                     match VQC.trainMultiClass backend featureMap varForm initParams problem.TrainFeatures labels vqcConfig with
-                    | Error e -> Error $"VQC multi-class training failed: {e}"
+                    | Error e -> Error (QuantumError.ValidationError ("Input", $"VQC multi-class training failed: {e}"))
                     | Ok multiClassResult ->
                         if problem.Verbose then
                             printfn "✓ VQC multi-class training complete!"
@@ -771,7 +772,7 @@ module PredictiveModel =
                     }
                     
                     match MultiClassSVM.train backend featureMap problem.TrainFeatures labels svmConfig problem.Shots with
-                    | Error e -> Error $"Hybrid multi-class training failed: {e}"
+                    | Error e -> Error (QuantumError.ValidationError ("Input", $"Hybrid multi-class training failed: {e}"))
                     | Ok multiClassModel ->
                         
                         let mutable correctCount = 0
@@ -908,7 +909,7 @@ module PredictiveModel =
                     Ok model
                 
             with ex ->
-                Error $"Training failed: {ex.Message}"
+                Error (QuantumError.ValidationError ("Input", $"Training failed: {ex.Message}"))
     
     // ========================================================================
     // PREDICTION - Use trained model
@@ -926,14 +927,14 @@ module PredictiveModel =
         (model: Model) 
         (backend: IQuantumBackend option) 
         (shots: int option)
-        : Result<RegressionPrediction, string> =
+        : QuantumResult<RegressionPrediction> =
         
         let actualBackend = backend |> Option.defaultWith (fun () -> LocalBackend() :> IQuantumBackend)
         let actualShots = shots |> Option.defaultValue 1000
         
         match model.Metadata.ProblemType with
         | MultiClass _ ->
-            Error "This model is for multi-class prediction. Use predictCategory instead."
+            Error (QuantumError.Other "This model is for multi-class prediction. Use predictCategory instead.")
         | Regression ->
             try
                 match model.InternalModel with
@@ -946,7 +947,7 @@ module PredictiveModel =
                             ConfidenceInterval = None
                             ModelType = "Quantum VQC Regression (Non-Linear)"
                         }
-                    | Error e -> Error $"VQC regression prediction failed: {e}"
+                    | Error e -> Error (QuantumError.ValidationError ("Input", $"VQC regression prediction failed: {e}"))
                 
                 | HHLRegressor hhlResult ->
                     // Use HHL regression weights for prediction
@@ -967,7 +968,7 @@ module PredictiveModel =
                             ConfidenceInterval = None
                             ModelType = "Quantum Kernel SVM Regression"
                         }
-                    | Error e -> Error $"SVM regression prediction failed: {e}"
+                    | Error e -> Error (QuantumError.ValidationError ("Input", $"SVM regression prediction failed: {e}"))
                 
                 | ClassicalRegressor weights ->
                     let xWithIntercept = Array.append [| 1.0 |] features
@@ -980,10 +981,10 @@ module PredictiveModel =
                     }
                 
                 | _ ->
-                    Error "Unsupported model type for regression prediction"
+                    Error (QuantumError.Other "Unsupported model type for regression prediction")
                     
             with ex ->
-                Error $"Prediction failed: {ex.Message}"
+                Error (QuantumError.ValidationError ("Input", $"Prediction failed: {ex.Message}"))
     
     /// Predict category (multi-class)
     ///
@@ -997,21 +998,21 @@ module PredictiveModel =
         (model: Model) 
         (backend: IQuantumBackend option) 
         (shots: int option)
-        : Result<CategoryPrediction, string> =
+        : QuantumResult<CategoryPrediction> =
         
         let actualBackend = backend |> Option.defaultWith (fun () -> LocalBackend() :> IQuantumBackend)
         let actualShots = shots |> Option.defaultValue 1000
         
         match model.Metadata.ProblemType with
         | Regression ->
-            Error "This model is for regression. Use predict instead."
+            Error (QuantumError.Other "This model is for regression. Use predict instead.")
         | MultiClass numClasses ->
             try
                 match model.InternalModel with
                 | MultiClassVQC (multiClassResult, featureMap, varForm, numQubits) ->
                     // VQC multi-class using one-vs-rest strategy
                     match VQC.predictMultiClass actualBackend featureMap varForm multiClassResult features actualShots with
-                    | Error e -> Error $"VQC multi-class prediction failed: {e}"
+                    | Error e -> Error (QuantumError.ValidationError ("Input", $"VQC multi-class prediction failed: {e}"))
                     | Ok prediction ->
                         Ok {
                             Category = prediction.Label
@@ -1057,20 +1058,20 @@ module PredictiveModel =
                     }
                 
                 | _ ->
-                    Error "Unsupported model type for multi-class prediction"
+                    Error (QuantumError.Other "Unsupported model type for multi-class prediction")
                     
             with ex ->
-                Error $"Prediction failed: {ex.Message}"
+                Error (QuantumError.ValidationError ("Input", $"Prediction failed: {ex.Message}"))
     
     // ========================================================================
     // EVALUATION - Measure model performance
     // ========================================================================
     
     /// Evaluate regression model
-    let evaluateRegression (testX: float array array) (testY: float array) (model: Model) : Result<RegressionMetrics, string> =
+    let evaluateRegression (testX: float array array) (testY: float array) (model: Model) : QuantumResult<RegressionMetrics> =
         match model.Metadata.ProblemType with
         | MultiClass _ ->
-            Error "Use evaluateMultiClass for multi-class models"
+            Error (QuantumError.Other "Use evaluateMultiClass for multi-class models")
         | Regression ->
             try
                 let predictions = 
@@ -1082,7 +1083,7 @@ module PredictiveModel =
                     )
                 
                 if predictions.Length <> testY.Length then
-                    Error "Some predictions failed"
+                    Error (QuantumError.OperationError ("Operation", "Some predictions failed"))
                 else
                     let mean = testY |> Array.average
                     let ssTot = testY |> Array.sumBy (fun y -> (y - mean) ** 2.0)
@@ -1100,13 +1101,13 @@ module PredictiveModel =
                         RMSE = rmse
                     }
             with ex ->
-                Error $"Evaluation failed: {ex.Message}"
+                Error (QuantumError.ValidationError ("Input", $"Evaluation failed: {ex.Message}"))
     
     /// Evaluate multi-class model
-    let evaluateMultiClass (testX: float array array) (testY: int array) (model: Model) : Result<MultiClassMetrics, string> =
+    let evaluateMultiClass (testX: float array array) (testY: int array) (model: Model) : QuantumResult<MultiClassMetrics> =
         match model.Metadata.ProblemType with
         | Regression ->
-            Error "Use evaluateRegression for regression models"
+            Error (QuantumError.Other "Use evaluateRegression for regression models")
         | MultiClass numClasses ->
             try
                 let predictions = 
@@ -1118,7 +1119,7 @@ module PredictiveModel =
                     )
                 
                 if predictions.Length <> testY.Length then
-                    Error "Some predictions failed"
+                    Error (QuantumError.OperationError ("Operation", "Some predictions failed"))
                 else
                     // Confusion matrix
                     let confusionMatrix = Array2D.create numClasses numClasses 0
@@ -1164,7 +1165,7 @@ module PredictiveModel =
                         ConfusionMatrix = confusionMatrixArray
                     }
             with ex ->
-                Error $"Evaluation failed: {ex.Message}"
+                Error (QuantumError.ValidationError ("Input", $"Evaluation failed: {ex.Message}"))
     
     // ========================================================================
     // COMPUTATION EXPRESSION BUILDER
@@ -1193,7 +1194,7 @@ module PredictiveModel =
         
         member _.Delay(f: unit -> PredictionProblem) = f
         
-        member _.Run(f: unit -> PredictionProblem) : Result<Model, string> =
+        member _.Run(f: unit -> PredictionProblem) : QuantumResult<Model> =
             let problem = f()
             train problem
         

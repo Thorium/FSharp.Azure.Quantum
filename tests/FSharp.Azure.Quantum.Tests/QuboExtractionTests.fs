@@ -228,7 +228,7 @@ module QuboExtractionTests =
         
         Assert.True(result.IsError, "Asymmetric QUBO should fail validation")
         match result with
-        | Error msg -> Assert.Contains("not symmetric", msg)
+        | Error msg -> Assert.Contains("not symmetric", msg.Message)
         | Ok _ -> Assert.True(false, "Should have failed validation")
     
     [<Fact>]

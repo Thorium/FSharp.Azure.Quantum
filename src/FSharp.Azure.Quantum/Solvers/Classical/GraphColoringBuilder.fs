@@ -127,17 +127,17 @@ module GraphColoring =
     /// <summary>
     /// Validates a graph coloring problem specification.
     /// </summary>
-    let validate (problem: GraphColoringProblem) : Result<unit, string> =
+    let validate (problem: GraphColoringProblem) : QuantumResult<unit> =
         if problem.Nodes.IsEmpty then
-            Error "Graph coloring problem must have at least one node"
+            Error (QuantumError.ValidationError ("Nodes", "Graph coloring problem must have at least one node"))
         elif problem.AvailableColors.IsEmpty then
-            Error "Graph coloring problem must have at least one available color"
+            Error (QuantumError.ValidationError ("Colors", "Graph coloring problem must have at least one available color"))
         elif problem.Nodes |> List.exists (fun n -> System.String.IsNullOrWhiteSpace(n.Id)) then
-            Error "All nodes must have non-empty IDs"
+            Error (QuantumError.ValidationError ("NodeIds", "All nodes must have non-empty IDs"))
         else
             let nodeIds = problem.Nodes |> List.map (fun n -> n.Id) |> Set.ofList
             if nodeIds.Count <> problem.Nodes.Length then
-                Error "Node IDs must be unique"
+                Error (QuantumError.ValidationError ("NodeIds", "Node IDs must be unique"))
             else
                 let invalidConflicts = 
                     problem.Nodes
@@ -145,7 +145,7 @@ module GraphColoring =
                     |> List.filter (fun conflictId -> not (nodeIds.Contains conflictId))
                 
                 if not invalidConflicts.IsEmpty then
-                    Error (sprintf "Invalid conflict references: %A" invalidConflicts)
+                    Error (QuantumError.ValidationError ("Conflicts", sprintf "Invalid conflict references: %A" invalidConflicts))
                 else
                     let availableColorSet = Set.ofList problem.AvailableColors
                     let invalidFixedColors =
@@ -154,13 +154,13 @@ module GraphColoring =
                         |> List.filter (fun color -> not (availableColorSet.Contains color))
                     
                     if not invalidFixedColors.IsEmpty then
-                        Error (sprintf "Fixed colors not in available colors: %A" invalidFixedColors)
+                        Error (QuantumError.ValidationError ("FixedColors", sprintf "Fixed colors not in available colors: %A" invalidFixedColors))
                     else
                         match problem.MaxColors with
                         | Some maxColors when maxColors < 1 ->
-                            Error "MaxColors must be at least 1"
+                            Error (QuantumError.ValidationError ("MaxColors", "MaxColors must be at least 1"))
                         | Some maxColors when maxColors > problem.AvailableColors.Length ->
-                            Error (sprintf "MaxColors (%d) exceeds available colors (%d)" maxColors problem.AvailableColors.Length)
+                            Error (QuantumError.ValidationError ("MaxColors", sprintf "MaxColors (%d) exceeds available colors (%d)" maxColors problem.AvailableColors.Length))
                         | _ ->
                             Ok ()
     
@@ -255,7 +255,7 @@ module GraphColoring =
         
         member _.Run(problem: GraphColoringProblem) : GraphColoringProblem =
             match validate problem with
-            | Error msg -> failwith msg
+            | Error err -> failwith err.Message
             | Ok () -> problem
         
         [<CustomOperation("node")>]
@@ -345,13 +345,12 @@ module GraphColoring =
         (problem: GraphColoringProblem) 
         (numColors: int) 
         (backend: BackendAbstraction.IQuantumBackend option) 
-        : Result<ColoringSolution, string> =
+        : QuantumResult<ColoringSolution> =
         
-        try
-            // Validate problem first
-            match validate problem with
-            | Error msg -> Error msg
-            | Ok () ->
+        quantumResult {
+            try
+                // Validate problem first
+                do! validate problem
                 
                 // Use provided backend or create LocalBackend for simulation
                 let actualBackend = 
@@ -399,53 +398,53 @@ module GraphColoring =
                 let quantumConfig = QuantumGraphColoringSolver.defaultConfig numColors
                 
                 // Call quantum solver
-                match QuantumGraphColoringSolver.solve actualBackend quantumProblem quantumConfig with
-                | Error msg -> Error $"Quantum graph coloring solve failed: {msg}"
-                | Ok quantumResult ->
-                    
-                    // Map color indices back to color names
-                    let indexToColor = 
-                        problem.AvailableColors 
-                        |> List.mapi (fun i color -> i, color)
-                        |> Map.ofList
-                    
-                    let assignments =
-                        quantumResult.ColorAssignments
-                        |> Map.toList
-                        |> List.map (fun (nodeId, colorIdx) ->
-                            let colorName = Map.find colorIdx indexToColor
-                            nodeId, colorName
-                        )
-                        |> Map.ofList
-                    
-                    // Color distribution
-                    let colorDistribution =
-                        assignments
-                        |> Map.toList
-                        |> List.map snd
-                        |> List.groupBy id
-                        |> List.map (fun (color, group) -> color, List.length group)
-                        |> Map.ofList
-                    
-                    Ok {
-                        Assignments = assignments
-                        ColorsUsed = quantumResult.ColorsUsed
-                        ConflictCount = quantumResult.ConflictCount
-                        IsValid = quantumResult.IsValid
-                        ColorDistribution = colorDistribution
-                        Cost = quantumResult.BestEnergy
-                        BackendName = quantumResult.BackendName
-                        IsQuantum = true
-                    }
-        with
-        | ex -> Error $"Graph coloring solve failed: {ex.Message}"
+                let! quantumResult = QuantumGraphColoringSolver.solve actualBackend quantumProblem quantumConfig
+                
+                // Map color indices back to color names
+                let indexToColor = 
+                    problem.AvailableColors 
+                    |> List.mapi (fun i color -> i, color)
+                    |> Map.ofList
+                
+                let assignments =
+                    quantumResult.ColorAssignments
+                    |> Map.toList
+                    |> List.map (fun (nodeId, colorIdx) ->
+                        let colorName = Map.find colorIdx indexToColor
+                        nodeId, colorName
+                    )
+                    |> Map.ofList
+                
+                // Color distribution
+                let colorDistribution =
+                    assignments
+                    |> Map.toList
+                    |> List.map snd
+                    |> List.groupBy id
+                    |> List.map (fun (color, group) -> color, List.length group)
+                    |> Map.ofList
+                
+                return {
+                    Assignments = assignments
+                    ColorsUsed = quantumResult.ColorsUsed
+                    ConflictCount = quantumResult.ConflictCount
+                    IsValid = quantumResult.IsValid
+                    ColorDistribution = colorDistribution
+                    Cost = quantumResult.BestEnergy
+                    BackendName = quantumResult.BackendName
+                    IsQuantum = true
+                }
+            with
+            | ex -> 
+                return! Error (QuantumError.OperationError ("Graph coloring solve", $"Failed: {ex.Message}"))
+        }
     
     /// Solve graph coloring using classical greedy algorithm (for comparison)
-    let solveClassical (problem: GraphColoringProblem) (numColors: int) : Result<ColoringSolution, string> =
-        try
-            match validate problem with
-            | Error msg -> Error msg
-            | Ok () ->
+    let solveClassical (problem: GraphColoringProblem) (numColors: int) : QuantumResult<ColoringSolution> =
+        quantumResult {
+            try
+                // Validate problem first
+                do! validate problem
                 
                 let vertices = problem.Nodes |> List.map (fun n -> n.Id)
                 
@@ -504,7 +503,7 @@ module GraphColoring =
                     |> List.map (fun (color, group) -> color, List.length group)
                     |> Map.ofList
                 
-                Ok {
+                return {
                     Assignments = assignments
                     ColorsUsed = classicalResult.ColorsUsed
                     ConflictCount = classicalResult.ConflictCount
@@ -514,8 +513,10 @@ module GraphColoring =
                     BackendName = "Classical Greedy"
                     IsQuantum = false
                 }
-        with
-        | ex -> Error $"Classical graph coloring solve failed: {ex.Message}"
+            with
+            | ex -> 
+                return! Error (QuantumError.OperationError ("Classical graph coloring solve", $"Failed: {ex.Message}"))
+        }
     
     // ============================================================================
     // COMMON GRAPH PATTERNS - HELPER FUNCTIONS

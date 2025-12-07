@@ -1,5 +1,6 @@
 namespace FSharp.Azure.Quantum.Business
 
+open FSharp.Azure.Quantum.Core
 open System
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.MachineLearning
@@ -161,26 +162,26 @@ module BinaryClassifier =
     // ========================================================================
     
     /// Validate classification problem
-    let private validate (problem: ClassificationProblem) : Result<unit, string> =
+    let private validate (problem: ClassificationProblem) : QuantumResult<unit> =
         if problem.TrainFeatures.Length = 0 then
-            Error "Training features cannot be empty"
+            Error (QuantumError.ValidationError ("Input", "Training features cannot be empty"))
         elif problem.TrainLabels.Length = 0 then
-            Error "Training labels cannot be empty"
+            Error (QuantumError.ValidationError ("Input", "Training labels cannot be empty"))
         elif problem.TrainFeatures.Length <> problem.TrainLabels.Length then
-            Error $"Features ({problem.TrainFeatures.Length}) and labels ({problem.TrainLabels.Length}) must have same length"
+            Error (QuantumError.ValidationError ("Input", $"Features ({problem.TrainFeatures.Length}) and labels ({problem.TrainLabels.Length}) must have same length"))
         elif problem.TrainLabels |> Array.exists (fun l -> l <> 0 && l <> 1) then
-            Error "Labels must be 0 or 1 for binary classification"
+            Error (QuantumError.ValidationError ("Input", "Labels must be 0 or 1 for binary classification"))
         elif problem.LearningRate <= 0.0 then
-            Error "Learning rate must be positive"
+            Error (QuantumError.ValidationError ("Input", "Learning rate must be positive"))
         elif problem.MaxEpochs < 1 then
-            Error "MaxEpochs must be at least 1"
+            Error (QuantumError.ValidationError ("Input", "MaxEpochs must be at least 1"))
         elif problem.Shots < 1 then
-            Error "Shots must be at least 1"
+            Error (QuantumError.ValidationError ("Input", "Shots must be at least 1"))
         else
             let numFeatures = problem.TrainFeatures.[0].Length
             let allSameLength = problem.TrainFeatures |> Array.forall (fun x -> x.Length = numFeatures)
             if not allSameLength then
-                Error "All feature vectors must have the same length"
+                Error (QuantumError.ValidationError ("Input", "All feature vectors must have the same length"))
             else
                 Ok ()
     
@@ -194,7 +195,7 @@ module BinaryClassifier =
         (features: float array array)
         (labels: int array)
         (config: ClassificationProblem)
-        : Result<Classifier, string> =
+        : QuantumResult<Classifier> =
         
         let startTime = DateTime.UtcNow
         let numFeatures = features.[0].Length
@@ -224,7 +225,7 @@ module BinaryClassifier =
         let initialParams = Array.init numParams (fun _ -> Random().NextDouble() * 2.0 * Math.PI)
         
         match VQC.train backend featureMap variationalForm initialParams features labels trainConfig with
-        | Error e -> Error $"VQC training failed: {e}"
+        | Error e -> Error (QuantumError.ValidationError ("Input", $"VQC training failed: {e}"))
         | Ok result ->
             
             let endTime = DateTime.UtcNow
@@ -253,7 +254,7 @@ module BinaryClassifier =
                 
                 match ModelSerialization.saveVQCTrainingResult 
                         path result numQubits "ZZFeatureMap" 2 "RealAmplitudes" 2 note with
-                | Error e -> printfn "Warning: Failed to save model: %s" e
+                | Error e -> printfn "Warning: Failed to save model: %s" e.Message
                 | Ok () -> ()
             
             Ok classifier
@@ -264,7 +265,7 @@ module BinaryClassifier =
         (features: float array array)
         (labels: int array)
         (config: ClassificationProblem)
-        : Result<Classifier, string> =
+        : QuantumResult<Classifier> =
         
         let startTime = DateTime.UtcNow
         let numFeatures = features.[0].Length
@@ -281,7 +282,7 @@ module BinaryClassifier =
         }
         
         match QuantumKernelSVM.train backend featureMap features labels svmConfig config.Shots with
-        | Error e -> Error $"Hybrid training failed: {e}"
+        | Error e -> Error (QuantumError.ValidationError ("Input", $"Hybrid training failed: {e}"))
         | Ok model ->
             
             let endTime = DateTime.UtcNow
@@ -311,7 +312,7 @@ module BinaryClassifier =
             Ok classifier
     
     /// Train classifier based on architecture choice
-    let train (problem: ClassificationProblem) : Result<Classifier, string> =
+    let train (problem: ClassificationProblem) : QuantumResult<Classifier> =
         match validate problem with
         | Error e -> Error e
         | Ok () ->
@@ -328,14 +329,14 @@ module BinaryClassifier =
             match problem.Architecture with
             | Quantum -> trainQuantum backend problem.TrainFeatures problem.TrainLabels problem
             | Hybrid -> trainHybrid backend problem.TrainFeatures problem.TrainLabels problem
-            | Classical -> Error "Classical architecture not yet implemented"
+            | Classical -> Error (QuantumError.NotImplemented ("Classical architecture", None))
     
     // ========================================================================
     // PREDICTION
     // ========================================================================
     
     /// Make prediction on new sample
-    let predict (sample: float array) (classifier: Classifier) : Result<Prediction, string> =
+    let predict (sample: float array) (classifier: Classifier) : QuantumResult<Prediction> =
         match classifier.Model with
         | VQCModel (result, featureMap, varForm, numQubits) ->
             let backend = LocalBackend() :> IQuantumBackend
@@ -365,17 +366,17 @@ module BinaryClassifier =
                 }
         
         | ClassicalModel _ ->
-            Error "Classical model prediction not implemented"
+            Error (QuantumError.Other "Classical model prediction not implemented")
     
     /// Evaluate classifier on test set
     let evaluate 
         (testFeatures: float array array) 
         (testLabels: int array) 
         (classifier: Classifier) 
-        : Result<EvaluationMetrics, string> =
+        : QuantumResult<EvaluationMetrics> =
         
         if testFeatures.Length <> testLabels.Length then
-            Error "Test features and labels must have same length"
+            Error (QuantumError.ValidationError ("Input", "Test features and labels must have same length"))
         else
             // Make predictions
             let predictions = 
@@ -413,7 +414,7 @@ module BinaryClassifier =
     // ========================================================================
     
     /// Save classifier to file
-    let save (path: string) (classifier: Classifier) : Result<unit, string> =
+    let save (path: string) (classifier: Classifier) : QuantumResult<unit> =
         match classifier.Model with
         | VQCModel (result, featureMap, varForm, numQubits) ->
             let fmType = match featureMap with ZZFeatureMap _ -> "ZZFeatureMap" | _ -> "Unknown"
@@ -427,10 +428,10 @@ module BinaryClassifier =
             ModelSerialization.saveSVMModel path svmModel numQubits classifier.Metadata.Note
         
         | ClassicalModel _ ->
-            Error "Classical model persistence not yet implemented"
+            Error (QuantumError.Other "Classical model persistence not yet implemented")
     
     /// Load classifier from file
-    let load (path: string) : Result<Classifier, string> =
+    let load (path: string) : QuantumResult<Classifier> =
         // Detect model type by checking JSON structure
         try
             let json = System.IO.File.ReadAllText(path)
@@ -439,7 +440,7 @@ module BinaryClassifier =
             if json.Contains("\"SupportVectorIndices\"") then
                 // Load as SVM
                 match ModelSerialization.loadSVMModel path with
-                | Error e -> Error $"Failed to load SVM model: {e}"
+                | Error e -> Error (QuantumError.ValidationError ("Input", $"Failed to load SVM model: {e}"))
                 | Ok serialized ->
                     match ModelSerialization.reconstructSVMModel serialized with
                     | Error e -> Error e
@@ -493,7 +494,7 @@ module BinaryClassifier =
                         }
                     }
         with ex ->
-            Error $"Failed to load model: {ex.Message}"
+            Error (QuantumError.ValidationError ("Input", $"Failed to load model: {ex.Message}"))
     
     // ========================================================================
     // COMPUTATION EXPRESSION BUILDER
@@ -521,7 +522,7 @@ module BinaryClassifier =
         
         member _.Delay(f: unit -> ClassificationProblem) = f
         
-        member _.Run(f: unit -> ClassificationProblem) : Result<Classifier, string> =
+        member _.Run(f: unit -> ClassificationProblem) : QuantumResult<Classifier> =
             let problem = f()
             train problem
         

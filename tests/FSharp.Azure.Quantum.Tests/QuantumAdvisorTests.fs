@@ -97,7 +97,7 @@ module QuantumAdvisorTests =
         // Assert: Should return error
         match result with
         | Ok _ -> Assert.Fail("Expected Error but got Ok")
-        | Error msg -> Assert.Contains("null", msg.ToLower())
+        | Error msg -> Assert.Contains("null", msg.Message.ToLower())
 
     [<Fact>]
     let ``Invalid input (empty matrix) should return error`` () =
@@ -110,7 +110,7 @@ module QuantumAdvisorTests =
         // Assert: Should return error
         match result with
         | Ok _ -> Assert.Fail("Expected Error but got Ok")
-        | Error msg -> Assert.Contains("empty", msg.ToLower())
+        | Error msg -> Assert.Contains("empty", msg.Message.ToLower())
 
     [<Fact>]
     let ``Recommendation should include confidence level`` () =

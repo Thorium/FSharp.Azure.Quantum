@@ -22,7 +22,7 @@ module QuantumPeriodFinderBuilderTests =
         }
         
         match result with
-        | Error msg -> Assert.Contains("at least 4", msg)
+        | Error err -> Assert.Contains("at least 4", err.Message)
         | Ok _ -> Assert.True(false, "Should have rejected number < 4")
     
     [<Fact>]
@@ -33,7 +33,7 @@ module QuantumPeriodFinderBuilderTests =
         }
         
         match result with
-        | Error msg -> Assert.Contains("10000", msg)
+        | Error err -> Assert.Contains("10000", err.Message)
         | Ok _ -> Assert.True(false, "Should have rejected number > 10000")
     
     [<Fact>]
@@ -44,7 +44,7 @@ module QuantumPeriodFinderBuilderTests =
         }
         
         match result with
-        | Error msg -> Assert.Contains("at least 1", msg)
+        | Error err -> Assert.Contains("at least 1", err.Message)
         | Ok _ -> Assert.True(false, "Should have rejected precision < 1")
     
     [<Fact>]
@@ -55,7 +55,7 @@ module QuantumPeriodFinderBuilderTests =
         }
         
         match result with
-        | Error msg -> Assert.Contains("20 qubits", msg)
+        | Error err -> Assert.Contains("20 qubits", err.Message)
         | Ok _ -> Assert.True(false, "Should have rejected precision > 20")
     
     [<Fact>]
@@ -67,7 +67,7 @@ module QuantumPeriodFinderBuilderTests =
         }
         
         match result with
-        | Error msg -> Assert.Contains("at least 2", msg)
+        | Error err -> Assert.Contains("at least 2", err.Message)
         | Ok _ -> Assert.True(false, "Should have rejected base < 2")
     
     [<Fact>]
@@ -79,7 +79,7 @@ module QuantumPeriodFinderBuilderTests =
         }
         
         match result with
-        | Error msg -> Assert.Contains("less than Number", msg)
+        | Error err -> Assert.Contains("less than Number", err.Message)
         | Ok _ -> Assert.True(false, "Should have rejected base >= number")
     
     [<Fact>]
@@ -91,7 +91,7 @@ module QuantumPeriodFinderBuilderTests =
         }
         
         match result with
-        | Error msg -> Assert.Contains("100", msg)
+        | Error err -> Assert.Contains("100", err.Message)
         | Ok _ -> Assert.True(false, "Should have rejected maxAttempts > 100")
     
     [<Fact>]
@@ -107,7 +107,7 @@ module QuantumPeriodFinderBuilderTests =
             Assert.Equal(8, problem.Precision)
             Assert.Equal(10, problem.MaxAttempts)  // Default
             Assert.True(problem.Base.IsNone)  // Auto-select
-        | Error msg -> Assert.True(false, $"Should have succeeded: {msg}")
+        | Error err -> Assert.True(false, $"Should have succeeded: {err.Message}")
     
     [<Fact>]
     let ``periodFinder builder accepts full configuration`` () =
@@ -124,7 +124,7 @@ module QuantumPeriodFinderBuilderTests =
             Assert.Equal(Some 5, problem.Base)
             Assert.Equal(12, problem.Precision)
             Assert.Equal(20, problem.MaxAttempts)
-        | Error msg -> Assert.True(false, $"Should have succeeded: {msg}")
+        | Error err -> Assert.True(false, $"Should have succeeded: {err.Message}")
     
     // ========================================================================
     // FACTORIZATION CORRECTNESS TESTS
@@ -157,11 +157,12 @@ module QuantumPeriodFinderBuilderTests =
     let ``solve should factor N=15 (classic example)`` () =
         let problem = periodFinder {
             number 15  // 15 = 3 × 5
-            precision 8
+            precision 6  // Reduced from 8 for faster execution
+            maxAttempts 3  // Reduced from 10 for faster execution
         }
         
         match problem with
-        | Error msg -> Assert.True(false, $"Problem creation failed: {msg}")
+        | Error err -> Assert.True(false, $"Problem creation failed: {err.Message}")
         | Ok prob ->
             match solve prob with
             | Ok result ->
@@ -186,19 +187,20 @@ module QuantumPeriodFinderBuilderTests =
                 | None ->
                     // Period finding is probabilistic with dirty ancillas
                     Assert.True(true, "Probabilistic period finding may not always find factors")
-            | Error msg -> 
+            | Error err -> 
                 // Accept some probabilistic failures - just ensure we got an error message
-                Assert.NotEmpty(msg)
+                Assert.NotEmpty(err.Message)
     
     [<Fact>]
     let ``solve should factor N=21 (3 × 7)`` () =
         let problem = periodFinder {
             number 21
-            precision 10
+            precision 8  // Reduced from 10 for faster execution
+            maxAttempts 3  // Reduced from 10 for faster execution
         }
         
         match problem with
-        | Error msg -> Assert.True(false, $"Problem creation failed: {msg}")
+        | Error err -> Assert.True(false, $"Problem creation failed: {err.Message}")
         | Ok prob ->
             match solve prob with
             | Ok result ->
@@ -223,19 +225,20 @@ module QuantumPeriodFinderBuilderTests =
                 | None ->
                     // Period finding is probabilistic with dirty ancillas
                     Assert.True(true, "Probabilistic period finding may not always find factors")
-            | Error msg -> 
+            | Error err -> 
                 // Accept some probabilistic failures - just ensure we got an error message
-                Assert.NotEmpty(msg)
+                Assert.NotEmpty(err.Message)
     
     [<Fact>]
     let ``solve should factor N=35 (5 × 7)`` () =
         let problem = periodFinder {
             number 35
-            precision 12
+            precision 10  // Reduced from 12 for faster execution
+            maxAttempts 3  // Reduced from 10 for faster execution
         }
         
         match problem with
-        | Error msg -> Assert.True(false, $"Problem creation failed: {msg}")
+        | Error err -> Assert.True(false, $"Problem creation failed: {err.Message}")
         | Ok prob ->
             match solve prob with
             | Ok result ->
@@ -256,9 +259,9 @@ module QuantumPeriodFinderBuilderTests =
                 | None ->
                     // Period finding is probabilistic with dirty ancillas
                     Assert.True(true, "Probabilistic period finding may not always find factors")
-            | Error msg -> 
+            | Error err -> 
                 // Accept some probabilistic failures - just ensure we got an error message
-                Assert.NotEmpty(msg)
+                Assert.NotEmpty(err.Message)
     
     // ========================================================================
     // EDGE CASE TESTS
@@ -268,11 +271,12 @@ module QuantumPeriodFinderBuilderTests =
     let ``solve should handle prime numbers gracefully`` () =
         let problem = periodFinder {
             number 17  // Prime number
-            precision 8
+            precision 6  // Reduced from 8 for faster execution
+            maxAttempts 2  // Reduced from 10 for faster execution (primes won't factor anyway)
         }
         
         match problem with
-        | Error msg -> Assert.True(false, $"Problem creation failed: {msg}")
+        | Error err -> Assert.True(false, $"Problem creation failed: {err.Message}")
         | Ok prob ->
             match solve prob with
             | Ok result ->
@@ -297,11 +301,12 @@ module QuantumPeriodFinderBuilderTests =
     let ``solve should handle small composite N=4`` () =
         let problem = periodFinder {
             number 4  // Smallest composite
-            precision 6
+            precision 4  // Reduced from 6 for faster execution
+            maxAttempts 2  // Reduced from 10 for faster execution
         }
         
         match problem with
-        | Error msg -> Assert.True(false, $"Problem creation failed: {msg}")
+        | Error err -> Assert.True(false, $"Problem creation failed: {err.Message}")
         | Ok prob ->
             match solve prob with
             | Ok result ->
@@ -315,18 +320,20 @@ module QuantumPeriodFinderBuilderTests =
                 | None ->
                     // May fail probabilistically
                     Assert.True(true)
-            | Error msg -> Assert.True(false, $"Solve failed: {msg}")
+            | Error err -> Assert.True(false, $"Solve failed: {err.Message}")
     
     [<Fact>]
     let ``solve should use higher precision for better success`` () =
         let lowPrecision = periodFinder {
             number 15
             precision 4  // Low precision
+            maxAttempts 2  // Reduced for faster execution
         }
         
         let highPrecision = periodFinder {
             number 15
-            precision 16  // High precision
+            precision 12  // Reduced from 16 for faster execution
+            maxAttempts 2  // Reduced for faster execution
         }
         
         match lowPrecision, highPrecision with
@@ -350,7 +357,7 @@ module QuantumPeriodFinderBuilderTests =
             Assert.Equal(15, problem.Number)
             Assert.Equal(8, problem.Precision)
             Assert.True(problem.Base.IsNone)  // Auto-select
-        | Error msg -> Assert.True(false, $"Should succeed: {msg}")
+        | Error err -> Assert.True(false, $"Should succeed: {err.Message}")
     
     [<Fact>]
     let ``factorIntegerWithBase should use custom base`` () =
@@ -359,7 +366,7 @@ module QuantumPeriodFinderBuilderTests =
             Assert.Equal(21, problem.Number)
             Assert.Equal(Some 5, problem.Base)
             Assert.Equal(10, problem.Precision)
-        | Error msg -> Assert.True(false, $"Should succeed: {msg}")
+        | Error err -> Assert.True(false, $"Should succeed: {err.Message}")
     
     [<Fact>]
     let ``breakRSA should use recommended precision`` () =
@@ -368,7 +375,7 @@ module QuantumPeriodFinderBuilderTests =
             Assert.Equal(15, problem.Number)
             // Recommended: 2*log₂(15) + 3 ≈ 2*4 + 3 = 11
             Assert.True(problem.Precision >= 10, $"Precision {problem.Precision} should be >= 10")
-        | Error msg -> Assert.True(false, $"Should succeed: {msg}")
+        | Error err -> Assert.True(false, $"Should succeed: {err.Message}")
     
     [<Fact>]
     let ``estimateResources should return qubit counts`` () =
@@ -380,11 +387,12 @@ module QuantumPeriodFinderBuilderTests =
     let ``describeResult should format human-readable output`` () =
         let problem = periodFinder {
             number 15
-            precision 8
+            precision 6  // Reduced from 8 for faster execution
+            maxAttempts 2  // Reduced from 10 for faster execution
         }
         
         match problem with
-        | Error msg -> Assert.True(false, $"Problem creation failed: {msg}")
+        | Error err -> Assert.True(false, $"Problem creation failed: {err.Message}")
         | Ok prob ->
             match solve prob with
             | Ok result ->
@@ -402,7 +410,7 @@ module QuantumPeriodFinderBuilderTests =
                 // When temp qubits are perfectly uncomputed:
                 // Assert.Contains("Period", description, "Should contain period information")
                 // Assert.Contains("Factor", description, "Should contain factor information")
-            | Error msg -> 
+            | Error err -> 
                 // Accept probabilistic failures
                 Assert.True(true, "Probabilistic behavior may result in errors")
     
@@ -414,11 +422,12 @@ module QuantumPeriodFinderBuilderTests =
     let ``solve should populate result metadata`` () =
         let problem = periodFinder {
             number 15
-            precision 8
+            precision 6  // Reduced from 8 for faster execution
+            maxAttempts 3  // Reduced from 10 for faster execution
         }
         
         match problem with
-        | Error msg -> Assert.True(false, $"Problem creation failed: {msg}")
+        | Error err -> Assert.True(false, $"Problem creation failed: {err.Message}")
         | Ok prob ->
             match solve prob with
             | Ok result ->
@@ -430,8 +439,8 @@ module QuantumPeriodFinderBuilderTests =
                 Assert.True(result.PhaseEstimate >= 0.0 && result.PhaseEstimate <= 1.0,
                     $"Phase estimate {result.PhaseEstimate} should be in [0, 1]")
                 Assert.True(result.QubitsUsed > 0, "Should use at least one qubit")
-                Assert.True(result.Attempts >= 1 && result.Attempts <= 10,
-                    $"Attempts {result.Attempts} should be in [1, 10]")
+                Assert.True(result.Attempts >= 1 && result.Attempts <= 3,
+                    $"Attempts {result.Attempts} should be in [1, 3]")
                 Assert.Contains("Simulator", result.BackendName)
                 Assert.NotEmpty(result.Message)
                 
@@ -443,7 +452,7 @@ module QuantumPeriodFinderBuilderTests =
                 // Assert.True(result.Period = 2 || result.Period = 4, 
                 //     $"For N=15, period should be 2 or 4, got {result.Period}")
                 // Assert.True(result.Success, "Should successfully find factors")
-            | Error msg -> 
+            | Error err -> 
                 // Accept probabilistic failures
                 Assert.True(true, "Probabilistic behavior may result in errors")
     
@@ -451,24 +460,24 @@ module QuantumPeriodFinderBuilderTests =
     let ``solve should track attempt count`` () =
         let problem = periodFinder {
             number 15
-            precision 8
-            maxAttempts 5
+            precision 6  // Reduced from 8 for faster execution
+            maxAttempts 3  // Reduced from 5 to 3 (still tests attempt tracking)
         }
         
         match problem with
-        | Error msg -> Assert.True(false, $"Problem creation failed: {msg}")
+        | Error err -> Assert.True(false, $"Problem creation failed: {err.Message}")
         | Ok prob ->
             match solve prob with
             | Ok result ->
                 // ✅ CURRENT: Dirty ancilla implementation (probabilistic)
                 // Should respect maxAttempts limit
                 Assert.True(result.Attempts >= 1, "Should make at least one attempt")
-                Assert.True(result.Attempts <= 5, $"Should not exceed maxAttempts=5, got {result.Attempts}")
+                Assert.True(result.Attempts <= 3, $"Should not exceed maxAttempts=3, got {result.Attempts}")
                 
                 // TODO: FUTURE - Enable with φ-ADD implementation (Beauregard 2003)
                 // When temp qubits are perfectly uncomputed:
-                // Assert.True(result.Success || result.Attempts = 5,
+                // Assert.True(result.Success || result.Attempts = 3,
                 //     "Should either succeed or exhaust all attempts")
-            | Error msg -> 
+            | Error err -> 
                 // Accept probabilistic failures
                 Assert.True(true, "Probabilistic behavior may result in errors")

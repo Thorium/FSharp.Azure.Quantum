@@ -57,12 +57,12 @@ let problem1 = linearSystemSolver {
 
 printfn "⚡ Running HHL algorithm on local simulator..."
 match problem1 with
-| Error msg ->
-    printfn "❌ Problem setup failed: %s" msg
+| Error err ->
+    printfn "❌ Problem setup failed: %s" err.Message
 | Ok prob ->
     match solve prob with
-    | Error msg -> 
-        printfn "❌ Error: %s" msg
+    | Error err -> 
+        printfn "❌ Error: %s" err.Message
     | Ok result ->
         printfn "✅ SUCCESS!"
         printfn ""
@@ -109,12 +109,12 @@ let problem2 = linearSystemSolver {
 
 printfn "⚡ Running HHL..."
 match problem2 with
-| Error msg ->
-    printfn "❌ Problem setup failed: %s" msg
+| Error err ->
+    printfn "❌ Problem setup failed: %s" err.Message
 | Ok prob ->
     match solve prob with
-    | Error msg -> 
-        printfn "❌ Error: %s" msg
+    | Error err -> 
+        printfn "❌ Error: %s" err.Message
     | Ok result ->
         printfn "✅ Result obtained"
         printfn ""
@@ -163,12 +163,12 @@ printfn "  Clock: 5 qubits, Solution: 2 qubits, Ancilla: 1 qubit"
 printfn ""
 
 match problem3 with
-| Error msg ->
-    printfn "❌ Problem setup failed: %s" msg
+| Error err ->
+    printfn "❌ Problem setup failed: %s" err.Message
 | Ok prob ->
     match solve prob with
-    | Error msg -> 
-        printfn "❌ Error: %s" msg
+    | Error err -> 
+        printfn "❌ Error: %s" err.Message
     | Ok result ->
         printfn "✅ Solved 4×4 system!"
         printfn "  Gates: %d" result.GateCount

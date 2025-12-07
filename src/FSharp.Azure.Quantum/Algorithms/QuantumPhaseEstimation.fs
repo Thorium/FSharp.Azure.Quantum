@@ -1,6 +1,7 @@
 namespace FSharp.Azure.Quantum.Algorithms
 
 open System
+open FSharp.Azure.Quantum.Core
 open System.Numerics
 
 /// Quantum Phase Estimation (QPE) Module
@@ -192,14 +193,14 @@ module QuantumPhaseEstimation =
     ///    - Apply controlled-U^(2^j) with control=counting[j], target=|ψ⟩
     /// 4. Apply inverse QFT to counting register
     /// 5. Measure counting register to extract phase
-    let execute (config: QPEConfig) : Result<QPEResult, string> =
+    let execute (config: QPEConfig) : QuantumResult<QPEResult> =
         try
             if config.CountingQubits <= 0 then
-                Error "Number of counting qubits must be positive"
+                Error (QuantumError.ValidationError ("CountingQubits", "must be positive"))
             elif config.TargetQubits <= 0 then
-                Error "Number of target qubits must be positive"
+                Error (QuantumError.ValidationError ("TargetQubits", "must be positive"))
             elif config.CountingQubits > 16 then
-                Error "More than 16 counting qubits is not practical for local simulation"
+                Error (QuantumError.ValidationError ("CountingQubits", "more than 16 is not practical for local simulation"))
             else
                 let totalQubits = config.CountingQubits + config.TargetQubits
                 
@@ -302,14 +303,14 @@ module QuantumPhaseEstimation =
                     Config = config
                 }
         with
-        | ex -> Error $"QPE execution failed: {ex.Message}"
+        | ex -> Error (QuantumError.Other $"QPE execution failed: {ex.Message}")
     
     // ========================================================================
     // CONVENIENCE FUNCTIONS
     // ========================================================================
     
     /// Estimate phase of T gate (φ = 1/8, since T = e^(iπ/4) = e^(2πi·1/8))
-    let estimateTGatePhase (countingQubits: int) : Result<QPEResult, string> =
+    let estimateTGatePhase (countingQubits: int) : QuantumResult<QPEResult> =
         let config = {
             CountingQubits = countingQubits
             TargetQubits = 1
@@ -319,7 +320,7 @@ module QuantumPhaseEstimation =
         execute config
     
     /// Estimate phase of S gate (φ = 1/4, since S = e^(iπ/2) = e^(2πi·1/4))
-    let estimateSGatePhase (countingQubits: int) : Result<QPEResult, string> =
+    let estimateSGatePhase (countingQubits: int) : QuantumResult<QPEResult> =
         let config = {
             CountingQubits = countingQubits
             TargetQubits = 1
@@ -329,7 +330,7 @@ module QuantumPhaseEstimation =
         execute config
     
     /// Estimate phase of general phase gate U = e^(iθ)
-    let estimatePhaseGate (theta: float) (countingQubits: int) : Result<QPEResult, string> =
+    let estimatePhaseGate (theta: float) (countingQubits: int) : QuantumResult<QPEResult> =
         let config = {
             CountingQubits = countingQubits
             TargetQubits = 1

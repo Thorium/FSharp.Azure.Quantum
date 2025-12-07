@@ -1,6 +1,7 @@
 namespace FSharp.Azure.Quantum.Algorithms
 
 open System
+open FSharp.Azure.Quantum.Core
 
 /// QPE Backend Adapter Module
 /// 
@@ -102,14 +103,14 @@ module QPEBackendAdapter =
     ///    - Apply controlled-U^(2^j) with control=counting[j]
     /// 3. Apply inverse QFT to counting register
     /// 4. Measure counting qubits
-    let qpeToCircuit (config: QPEConfig) : Result<Circuit, string> =
+    let qpeToCircuit (config: QPEConfig) : QuantumResult<Circuit> =
         try
             if config.CountingQubits <= 0 then
-                Error "Number of counting qubits must be positive"
+                Error (QuantumError.ValidationError ("CountingQubits", "must be positive"))
             elif config.TargetQubits <= 0 then
-                Error "Number of target qubits must be positive"
+                Error (QuantumError.ValidationError ("TargetQubits", "must be positive"))
             elif config.CountingQubits > 20 then
-                Error "More than 20 counting qubits is not practical"
+                Error (QuantumError.ValidationError ("CountingQubits", "more than 20 is not practical"))
             else
                 let totalQubits = config.CountingQubits + config.TargetQubits
                 
@@ -159,7 +160,7 @@ module QPEBackendAdapter =
                 }
                 
                 match qftToCircuit qftConfig with
-                | Error msg -> Error $"Failed to create inverse QFT circuit: {msg}"
+                | Error err -> Error (QuantumError.OperationError ("QFT circuit creation", $"Failed to create inverse QFT circuit: {err.Message}"))
                 | Ok qftCircuit ->
                     // Add QFT gates to main circuit
                     let qftGates = getGates qftCircuit
@@ -171,7 +172,7 @@ module QPEBackendAdapter =
                     
                     Ok finalCircuit
         with
-        | ex -> Error $"QPE circuit synthesis failed: {ex.Message}"
+        | ex -> Error (QuantumError.OperationError ("QPE circuit synthesis", ex.Message))
     
     // ========================================================================
     // BACKEND EXECUTION
@@ -184,7 +185,7 @@ module QPEBackendAdapter =
         (shots: int) : Async<Result<Map<int, int>, string>> = async {
         
         match qpeToCircuit config with
-        | Error msg -> return Error msg
+        | Error err -> return Error err.Message
         | Ok circuit ->
             try
                 // Execute circuit on backend asynchronously
@@ -193,7 +194,7 @@ module QPEBackendAdapter =
                 let! execResult = backend.ExecuteAsync circuitWrapper shots
                 
                 match execResult with
-                | Error msg -> return Error $"Backend execution failed: {msg}"
+                | Error err -> return Error $"Backend execution failed: {err.Message}"
                 | Ok execResult ->
                     // Extract measurement histogram
                     // Convert int[][] measurements to Map<int, int> histogram
@@ -244,7 +245,7 @@ module QPEBackendAdapter =
     let estimateTGatePhaseBackend 
         (countingQubits: int)
         (backend: IQuantumBackend)
-        (shots: int) : Result<float, string> =
+        (shots: int) : QuantumResult<float> =
         
         let config = {
             CountingQubits = countingQubits
@@ -254,7 +255,7 @@ module QPEBackendAdapter =
         }
         
         match executeWithBackend config backend shots with
-        | Error msg -> Error msg
+        | Error err -> Error (QuantumError.BackendError ("T-gate phase estimation", err))
         | Ok histogram ->
             let phase = extractPhaseFromHistogram histogram countingQubits
             Ok phase
@@ -263,7 +264,7 @@ module QPEBackendAdapter =
     let estimateSGatePhaseBackend 
         (countingQubits: int)
         (backend: IQuantumBackend)
-        (shots: int) : Result<float, string> =
+        (shots: int) : QuantumResult<float> =
         
         let config = {
             CountingQubits = countingQubits
@@ -273,7 +274,7 @@ module QPEBackendAdapter =
         }
         
         match executeWithBackend config backend shots with
-        | Error msg -> Error msg
+        | Error err -> Error (QuantumError.BackendError ("S-gate phase estimation", err))
         | Ok histogram ->
             let phase = extractPhaseFromHistogram histogram countingQubits
             Ok phase
@@ -283,7 +284,7 @@ module QPEBackendAdapter =
         (theta: float)
         (countingQubits: int)
         (backend: IQuantumBackend)
-        (shots: int) : Result<float, string> =
+        (shots: int) : QuantumResult<float> =
         
         let config = {
             CountingQubits = countingQubits
@@ -293,7 +294,7 @@ module QPEBackendAdapter =
         }
         
         match executeWithBackend config backend shots with
-        | Error msg -> Error msg
+        | Error err -> Error (QuantumError.BackendError ("Phase gate estimation", err))
         | Ok histogram ->
             let phase = extractPhaseFromHistogram histogram countingQubits
             Ok phase

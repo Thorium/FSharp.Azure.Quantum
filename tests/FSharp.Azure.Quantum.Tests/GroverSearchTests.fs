@@ -7,6 +7,7 @@ open FSharp.Azure.Quantum.GroverSearch.Oracle
 open FSharp.Azure.Quantum.GroverSearch.GroverIteration
 open FSharp.Azure.Quantum.GroverSearch.Search
 open FSharp.Azure.Quantum.Core.BackendAbstraction
+open FSharp.Azure.Quantum.Core  // Add this for QuantumError
 
 /// Integration tests for Grover Search using local backend
 /// These tests actually RUN the quantum algorithm in simulation
@@ -15,17 +16,17 @@ module GroverSearchTests =
     /// Helper: Create local quantum backend for testing
     let createBackend () = createLocalBackend ()
     
-    /// Helper: Unwrap Result<CompiledOracle, string> for testing
-    let unwrapOracle (result: Result<CompiledOracle, string>) : CompiledOracle =
+    /// Helper: Unwrap Result<CompiledOracle, QuantumError> for testing
+    let unwrapOracle (result: Result<CompiledOracle, QuantumError>) : CompiledOracle =
         match result with
         | Ok oracle -> oracle
-        | Error msg -> failwith $"Oracle creation failed: {msg}"
+        | Error err -> failwith $"Oracle creation failed: {err.Message}"
     
-    /// Helper: Unwrap Result<int, string> for testing
-    let unwrapInt (result: Result<int, string>) : int =
+    /// Helper: Unwrap Result<int, QuantumError> for testing
+    let unwrapInt (result: Result<int, QuantumError>) : int =
         match result with
         | Ok value -> value
-        | Error msg -> failwith $"Operation failed: {msg}"
+        | Error err -> failwith $"Operation failed: {err.Message}"
     
     // ========================================================================
     // ORACLE TESTS - Verify oracle compilation and marking

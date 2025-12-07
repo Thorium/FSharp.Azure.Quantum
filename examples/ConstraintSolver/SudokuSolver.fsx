@@ -161,8 +161,8 @@ match solve sudoku4x4Problem with
     printfn "    Search space explored: 4096 states"
     printfn "    Quantum advantage: √4096 = 64× fewer evaluations"
 
-| Error msg ->
-    printfn "❌ Error: %s" msg
+| Error err ->
+    printfn "❌ Error: %s" err.Message
 
 printfn ""
 printfn ""
@@ -258,8 +258,8 @@ match solve queensProblem with
     printfn "    Search space: 16,777,216 states"
     printfn "    Quantum advantage: √16M = 4096× fewer evaluations"
 
-| Error msg ->
-    printfn "❌ Error: %s" msg
+| Error err ->
+    printfn "❌ Error: %s" err.Message
 
 printfn ""
 printfn ""
@@ -406,8 +406,8 @@ match solve schedulingProblem with
     printfn "    Search space: 3,125 states"
     printfn "    Quantum advantage: √3125 = 56× fewer evaluations"
 
-| Error msg ->
-    printfn "❌ Error: %s" msg
+| Error err ->
+    printfn "❌ Error: %s" err.Message
 
 printfn ""
 printfn ""

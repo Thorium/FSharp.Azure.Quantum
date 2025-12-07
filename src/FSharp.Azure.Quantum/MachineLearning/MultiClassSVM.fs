@@ -8,6 +8,7 @@ namespace FSharp.Azure.Quantum.MachineLearning
 /// Strategy: For each class k, train binary classifier (class k vs. all others)
 
 open System
+open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 
 module MultiClassSVM =
@@ -82,15 +83,15 @@ module MultiClassSVM =
         (trainLabels: int array)
         (config: QuantumKernelSVM.SVMConfig)
         (shots: int)
-        : Result<MultiClassModel, string> =
+        : QuantumResult<MultiClassModel> =
         
         // Validate inputs
         if trainData.Length = 0 then
-            Error "Training data cannot be empty"
+            Error (QuantumError.Other "Training data cannot be empty")
         elif trainLabels.Length = 0 then
-            Error "Training labels cannot be empty"
+            Error (QuantumError.Other "Training labels cannot be empty")
         elif trainData.Length <> trainLabels.Length then
-            Error $"Data and labels must have same length: {trainData.Length} vs {trainLabels.Length}"
+            Error (QuantumError.ValidationError ("Input", $"Data and labels must have same length: {trainData.Length} vs {trainLabels.Length}"))
         else
             // Extract unique class labels
             let uniqueClasses =
@@ -101,9 +102,9 @@ module MultiClassSVM =
             let numClasses = uniqueClasses.Length
             
             if numClasses < 2 then
-                Error $"Need at least 2 classes, found {numClasses}"
+                Error (QuantumError.ValidationError ("Input", $"Need at least 2 classes, found {numClasses}"))
             elif numClasses = 2 then
-                Error "For binary classification, use QuantumKernelSVM.train directly"
+                Error (QuantumError.Other "For binary classification, use QuantumKernelSVM.train directly")
             else
                 if config.Verbose then
                     printfn "Training One-vs-Rest multi-class SVM..."
@@ -120,7 +121,7 @@ module MultiClassSVM =
                     
                     // Train binary SVM
                     QuantumKernelSVM.train backend featureMap trainData binaryLabels config shots
-                    |> Result.mapError (fun e -> $"Failed to train classifier for class {classLabel}: {e}"))
+                    |> Result.mapError (fun e -> QuantumError.OperationError ("MultiClassSVM training", $"Failed to train classifier for class {classLabel}: {e.Message}")))
                 |> traverseResult
                 |> Result.map (fun binaryModels ->
                     if config.Verbose then
@@ -153,10 +154,10 @@ module MultiClassSVM =
         (model: MultiClassModel)
         (sample: float array)
         (shots: int)
-        : Result<MultiClassPrediction, string> =
+        : QuantumResult<MultiClassPrediction> =
         
         if shots <= 0 then
-            Error "Number of shots must be positive"
+            Error (QuantumError.ValidationError ("Input", "Number of shots must be positive"))
         else
             // Get predictions from all binary classifiers (functional)
             model.BinaryModels
@@ -198,12 +199,12 @@ module MultiClassSVM =
         (testData: float array array)
         (testLabels: int array)
         (shots: int)
-        : Result<float, string> =
+        : QuantumResult<float> =
         
         if testData.Length = 0 then
-            Error "Test data cannot be empty"
+            Error (QuantumError.Other "Test data cannot be empty")
         elif testData.Length <> testLabels.Length then
-            Error "Test data and labels must have same length"
+            Error (QuantumError.ValidationError ("Input", "Test data and labels must have same length"))
         else
             // Get predictions for all test samples (functional)
             testData

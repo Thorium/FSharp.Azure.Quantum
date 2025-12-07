@@ -125,7 +125,7 @@ module QuantumGraphColoringSolver =
     /// 
     /// QUBO FORMULATION:
     ///   Minimize: λ₁ * OneHotPenalty + λ₂ * ConflictPenalty + λ₃ * ColorMinimizationPenalty
-    let toQubo (problem: GraphColoringProblem) (penaltyWeight: float) : Result<QuboMatrix * Map<int, string * int>, string> =
+    let toQubo (problem: GraphColoringProblem) (penaltyWeight: float) : Result<QuboMatrix * Map<int, string * int>, QuantumError> =
         try
             // Create variable mapping: (vertex_index, color_index) → qubo_variable_index
             let vertexIndexMap = 
@@ -138,11 +138,11 @@ module QuantumGraphColoringSolver =
             let numVars = numVertices * numColors
             
             if numVertices = 0 then
-                Error "Graph coloring problem has no vertices"
+                Error (QuantumError.ValidationError ("numVertices", "Graph coloring problem has no vertices"))
             elif numColors < 1 then
-                Error "Graph coloring problem must have at least 1 color"
+                Error (QuantumError.ValidationError ("numColors", "Graph coloring problem must have at least 1 color"))
             elif problem.Edges.Length = 0 then
-                Error "Graph coloring problem has no edges"
+                Error (QuantumError.ValidationError ("numEdges", "Graph coloring problem has no edges"))
             else
                 // Create reverse mapping: qubo_variable_index → (vertex, color)
                 let reverseMap = 
@@ -225,7 +225,7 @@ module QuantumGraphColoringSolver =
                     NumVariables = numVars
                 }, reverseMap)
         with ex ->
-            Error (sprintf "Graph coloring QUBO encoding failed: %s" ex.Message)
+            Error (QuantumError.OperationError ("QuboEncoding", sprintf "Graph coloring QUBO encoding failed: %s" ex.Message))
 
     // ================================================================================
     // SOLUTION DECODING
@@ -329,7 +329,7 @@ module QuantumGraphColoringSolver =
     ///   - problem: Graph coloring problem (vertices, edges, colors)
     ///   - config: QAOA configuration (shots, colors, parameters)
     /// 
-    /// Returns: Async<Result<GraphColoringSolution, string>> - Async computation with result or error
+    /// Returns: Async<Result<GraphColoringSolution, QuantumError>> - Async computation with result or error
     /// 
     /// Example:
     ///   let backend = BackendAbstraction.createLocalBackend()
@@ -344,7 +344,7 @@ module QuantumGraphColoringSolver =
         (backend: BackendAbstraction.IQuantumBackend) 
         (problem: GraphColoringProblem) 
         (config: QaoaConfig) 
-        : Async<Result<GraphColoringSolution, string>> = async {
+        : Async<Result<GraphColoringSolution, QuantumError>> = async {
         
         let startTime = DateTime.Now
         
@@ -353,18 +353,19 @@ module QuantumGraphColoringSolver =
             let numQubits = problem.Vertices.Length * config.NumColors
             
             if numQubits > backend.MaxQubits then
-                return Error (sprintf "Problem requires %d qubits but backend '%s' supports max %d qubits" 
-                    numQubits backend.Name backend.MaxQubits)
+                return Error (QuantumError.ValidationError ("qubitCount",
+                    sprintf "Problem requires %d qubits but backend '%s' supports max %d qubits" 
+                        numQubits backend.Name backend.MaxQubits))
             elif problem.Vertices.Length = 0 then
-                return Error "Graph coloring problem has no vertices"
+                return Error (QuantumError.ValidationError ("numVertices", "Graph coloring problem has no vertices"))
             elif config.NumColors < 1 then
-                return Error "Graph coloring problem must have at least 1 color"
+                return Error (QuantumError.ValidationError ("numColors", "Graph coloring problem must have at least 1 color"))
             elif problem.Edges.Length = 0 then
-                return Error "Graph coloring problem has no edges"
+                return Error (QuantumError.ValidationError ("numEdges", "Graph coloring problem has no edges"))
             else
                 // Step 2: Encode graph coloring as QUBO
                 match toQubo problem config.PenaltyWeight with
-                | Error msg -> return Error (sprintf "Graph coloring encoding failed: %s" msg)
+                | Error err -> return Error err
                 | Ok (quboMatrix, reverseMap) ->
                     
                     // Step 3: Convert QUBO to dense array for QAOA
@@ -386,7 +387,7 @@ module QuantumGraphColoringSolver =
                     let! execResult = backend.ExecuteAsync circuitWrapper config.NumShots
                     
                     match execResult with
-                    | Error msg -> return Error (sprintf "Backend execution failed: %s" msg)
+                    | Error err -> return Error err
                     | Ok execResult ->
                         
                         // Step 8: Decode measurements to color assignments
@@ -415,7 +416,7 @@ module QuantumGraphColoringSolver =
                         }
         
         with ex ->
-            return Error (sprintf "Quantum graph coloring solve failed: %s" ex.Message)
+            return Error (QuantumError.OperationError ("QuantumGraphColoringSolver", sprintf "Quantum graph coloring solve failed: %s" ex.Message))
     }
 
     /// Solve graph coloring problem using quantum QAOA (synchronous wrapper)
@@ -428,7 +429,7 @@ module QuantumGraphColoringSolver =
     ///   - problem: Graph coloring problem (vertices, edges, colors)
     ///   - config: QAOA configuration (shots, colors, parameters)
     /// 
-    /// Returns: Ok with best coloring found, or Error with message
+    /// Returns: Ok with best coloring found, or Error with QuantumError
     /// 
     /// Example:
     ///   let backend = BackendAbstraction.createLocalBackend()
@@ -441,7 +442,7 @@ module QuantumGraphColoringSolver =
         (backend: BackendAbstraction.IQuantumBackend) 
         (problem: GraphColoringProblem) 
         (config: QaoaConfig) 
-        : Result<GraphColoringSolution, string> =
+        : Result<GraphColoringSolution, QuantumError> =
         solveAsync backend problem config |> Async.RunSynchronously
 
     // ================================================================================

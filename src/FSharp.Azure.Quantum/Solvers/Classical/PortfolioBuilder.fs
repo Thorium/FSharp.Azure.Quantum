@@ -128,7 +128,7 @@ module Portfolio =
     /// <param name="problem">Portfolio problem to solve</param>
     /// <param name="backend">Optional quantum backend (defaults to LocalBackend if None)</param>
     /// <returns>Result with PortfolioAllocation or error message</returns>
-    let solve (problem: PortfolioProblem) (backend: BackendAbstraction.IQuantumBackend option) : Result<PortfolioAllocation, string> =
+    let solve (problem: PortfolioProblem) (backend: BackendAbstraction.IQuantumBackend option) : QuantumResult<PortfolioAllocation> =
         try
             // Use provided backend or create LocalBackend for simulation
             let actualBackend = 
@@ -154,10 +154,10 @@ module Portfolio =
                 InitialParameters = (0.5, 0.5)
             }
             
-            // Call quantum portfolio solver directly
-            match QuantumPortfolioSolver.solve actualBackend solverAssets constraints quantumConfig with
-            | Error msg -> Error $"Quantum Portfolio solve failed: {msg}"
-            | Ok quantumResult ->
+            // Call quantum portfolio solver directly using computation expression
+            quantumResult {
+                let! quantumResult = QuantumPortfolioSolver.solve actualBackend solverAssets constraints quantumConfig
+                
                 // Validate solution
                 let valid = isValidPortfolio quantumResult.TotalValue problem.Budget
                 
@@ -166,15 +166,16 @@ module Portfolio =
                     quantumResult.Allocations
                     |> List.map (fun alloc -> (alloc.Asset.Symbol, alloc.Shares, alloc.Value))
                 
-                Ok {
+                return {
                     Allocations = allocations
                     TotalValue = quantumResult.TotalValue
                     ExpectedReturn = quantumResult.ExpectedReturn
                     Risk = quantumResult.Risk
                     IsValid = valid
                 }
+            }
         with
-        | ex -> Error $"Portfolio solve failed: {ex.Message}"
+        | ex -> Error (QuantumError.OperationError ("Portfolio solve failed: ", $"Failed: {ex.Message}"))
 
     /// <summary>
     /// Convenience function: Create problem and solve in one step using quantum optimization
@@ -188,7 +189,7 @@ module Portfolio =
     /// let allocation = Portfolio.solveDirectly [("AAPL", 0.12, 0.15, 150.0)] 10000.0 None
     /// </code>
     /// </example>
-    let solveDirectly (assets: (string * float * float * float) list) (budget: float) (backend: BackendAbstraction.IQuantumBackend option) : Result<PortfolioAllocation, string> =
+    let solveDirectly (assets: (string * float * float * float) list) (budget: float) (backend: BackendAbstraction.IQuantumBackend option) : QuantumResult<PortfolioAllocation> =
         let problem = createProblem assets budget
         solve problem backend
 

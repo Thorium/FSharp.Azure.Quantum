@@ -1,5 +1,7 @@
 namespace FSharp.Azure.Quantum.MachineLearning
 
+open FSharp.Azure.Quantum.Core
+
 /// Simple Model Serialization for VQC Models
 ///
 /// Provides basic save/load functionality for trained VQC models.
@@ -146,7 +148,7 @@ module ModelSerialization =
         (variationalFormType: string)
         (variationalFormDepth: int)
         (note: string option)
-        : Async<Result<unit, string>> =
+        : Async<QuantumResult<unit>> =
         async {
             try
                 let model = {
@@ -169,7 +171,7 @@ module ModelSerialization =
                 
                 return Ok ()
             with ex ->
-                return Error $"Failed to save model: {ex.Message}"
+                return Error (QuantumError.ValidationError ("Input", $"Failed to save model: {ex.Message}"))
         }
     
     [<System.Obsolete("Use saveVQCModelAsync for better performance and to avoid blocking threads")>]
@@ -183,7 +185,7 @@ module ModelSerialization =
         (variationalFormType: string)
         (variationalFormDepth: int)
         (note: string option)
-        : Result<unit, string> =
+        : QuantumResult<unit> =
         saveVQCModelAsync filePath parameters finalLoss numQubits featureMapType featureMapDepth variationalFormType variationalFormDepth note
         |> Async.RunSynchronously
     
@@ -199,7 +201,7 @@ module ModelSerialization =
         (variationalFormType: string)
         (variationalFormDepth: int)
         (note: string option)
-        : Result<unit, string> =
+        : QuantumResult<unit> =
         
         let finalLoss =
             match result.LossHistory with
@@ -230,7 +232,7 @@ module ModelSerialization =
         (variationalFormType: string)
         (variationalFormDepth: int)
         (note: string option)
-        : Result<unit, string> =
+        : QuantumResult<unit> =
         
         // For regression, use TrainMSE as the "loss"
         let finalLoss = result.TrainMSE
@@ -259,7 +261,7 @@ module ModelSerialization =
         (variationalFormType: string)
         (variationalFormDepth: int)
         (note: string option)
-        : Result<unit, string> =
+        : QuantumResult<unit> =
         
         try
             // Convert all binary classifiers to serializable format
@@ -293,48 +295,48 @@ module ModelSerialization =
             
             Ok ()
         with ex ->
-            Error $"Failed to save multi-class model: {ex.Message}"
+            Error (QuantumError.ValidationError ("Input", $"Failed to save multi-class model: {ex.Message}"))
     
     /// Load VQC model from JSON file
     ///
     /// Returns: Serializable model with all metadata
     let loadVQCModel
         (filePath: string)
-        : Result<SerializableVQCModel, string> =
+        : QuantumResult<SerializableVQCModel> =
         
         try
             if not (File.Exists filePath) then
-                Error $"File not found: {filePath}"
+                Error (QuantumError.ValidationError ("Input", $"File not found: {filePath}"))
             else
                 let json = File.ReadAllText(filePath)
                 let model = JsonSerializer.Deserialize<SerializableVQCModel>(json)
                 Ok model
         with ex ->
-            Error $"Failed to load model: {ex.Message}"
+            Error (QuantumError.ValidationError ("Input", $"Failed to load model: {ex.Message}"))
     
     /// Load VQC multi-class model from JSON file
     ///
     /// Returns: Serializable multi-class model with all classifiers
     let loadVQCMultiClassModel
         (filePath: string)
-        : Result<SerializableMultiClassVQCModel, string> =
+        : QuantumResult<SerializableMultiClassVQCModel> =
         
         try
             if not (File.Exists filePath) then
-                Error $"File not found: {filePath}"
+                Error (QuantumError.ValidationError ("Input", $"File not found: {filePath}"))
             else
                 let json = File.ReadAllText(filePath)
                 let model = JsonSerializer.Deserialize<SerializableMultiClassVQCModel>(json)
                 Ok model
         with ex ->
-            Error $"Failed to load multi-class model: {ex.Message}"
+            Error (QuantumError.ValidationError ("Input", $"Failed to load multi-class model: {ex.Message}"))
     
     /// Load only the parameters from a saved model
     ///
     /// Convenience function when you only need the weights
     let loadVQCParameters
         (filePath: string)
-        : Result<float array, string> =
+        : QuantumResult<float array> =
         
         loadVQCModel filePath
         |> Result.map (fun model -> model.Parameters)
@@ -355,7 +357,7 @@ module ModelSerialization =
         (svmModel: QuantumKernelSVM.SVMModel)
         (numQubits: int)
         (note: string option)
-        : Result<unit, string> =
+        : QuantumResult<unit> =
         
         try
             // Extract feature map info
@@ -387,24 +389,24 @@ module ModelSerialization =
             
             Ok ()
         with ex ->
-            Error $"Failed to save SVM model: {ex.Message}"
+            Error (QuantumError.ValidationError ("Input", $"Failed to save SVM model: {ex.Message}"))
     
     /// Load SVM model from JSON file
     ///
     /// Returns: Serializable SVM model with all metadata
     let loadSVMModel
         (filePath: string)
-        : Result<SerializableSVMModel, string> =
+        : QuantumResult<SerializableSVMModel> =
         
         try
             if not (File.Exists filePath) then
-                Error $"File not found: {filePath}"
+                Error (QuantumError.ValidationError ("Input", $"File not found: {filePath}"))
             else
                 let json = File.ReadAllText(filePath)
                 let model = JsonSerializer.Deserialize<SerializableSVMModel>(json)
                 Ok model
         with ex ->
-            Error $"Failed to load SVM model: {ex.Message}"
+            Error (QuantumError.ValidationError ("Input", $"Failed to load SVM model: {ex.Message}"))
     
     // ========================================================================
     // MODEL INFORMATION
@@ -415,7 +417,7 @@ module ModelSerialization =
     /// Returns: (num_qubits, num_parameters, final_loss, saved_at)
     let getVQCModelInfo
         (filePath: string)
-        : Result<int * int * float * string, string> =
+        : QuantumResult<int * int * float * string> =
         
         loadVQCModel filePath
         |> Result.map (fun model ->
@@ -427,7 +429,7 @@ module ModelSerialization =
     /// Print model information to console
     let printVQCModelInfo
         (filePath: string)
-        : Result<unit, string> =
+        : QuantumResult<unit> =
         
         match loadVQCModel filePath with
         | Error e -> Error e
@@ -461,7 +463,7 @@ module ModelSerialization =
         (featureMapDepth: int)
         (variationalFormType: string)
         (variationalFormDepth: int)
-        : Result<string array, string> =
+        : QuantumResult<string array> =
         
         let results =
             models
@@ -496,16 +498,16 @@ module ModelSerialization =
     let loadVQCModelBatch
         (directory: string)
         (pattern: string)
-        : Result<SerializableVQCModel array, string> =
+        : QuantumResult<SerializableVQCModel array> =
         
         try
             if not (Directory.Exists directory) then
-                Error $"Directory not found: {directory}"
+                Error (QuantumError.ValidationError ("Input", $"Directory not found: {directory}"))
             else
                 let files = Directory.GetFiles(directory, pattern)
                 
                 if files.Length = 0 then
-                    Error $"No files matching pattern '{pattern}' found in {directory}"
+                    Error (QuantumError.ValidationError ("Input", $"No files matching pattern '{pattern}' found in {directory}"))
                 else
                     let results =
                         files
@@ -530,7 +532,7 @@ module ModelSerialization =
                                 | Error _ -> failwith "Unreachable")
                         Ok models
         with ex ->
-            Error $"Failed to load batch: {ex.Message}"
+            Error (QuantumError.ValidationError ("Input", $"Failed to load batch: {ex.Message}"))
     
     // ========================================================================
     // TRANSFER LEARNING SUPPORT
@@ -541,7 +543,7 @@ module ModelSerialization =
     /// Returns: (parameters, architecture_info) for initializing new VQC
     let loadForTransferLearning
         (filePath: string)
-        : Result<float array * (int * string * int * string * int), string> =
+        : QuantumResult<float array * (int * string * int * string * int)> =
         
         loadVQCModel filePath
         |> Result.map (fun model ->
@@ -565,17 +567,17 @@ module ModelSerialization =
         (pretrainedParams: float array)
         (numLayers: int)
         (freezeLayers: int)
-        : Result<float array * int array, string> =
+        : QuantumResult<float array * int array> =
         
         if freezeLayers < 0 then
-            Error "freezeLayers must be non-negative"
+            Error (QuantumError.ValidationError ("Input", "freezeLayers must be non-negative"))
         elif freezeLayers > numLayers then
-            Error $"freezeLayers ({freezeLayers}) cannot exceed numLayers ({numLayers})"
+            Error (QuantumError.ValidationError ("Input", $"freezeLayers ({freezeLayers}) cannot exceed numLayers ({numLayers})"))
         else
             let paramsPerLayer = pretrainedParams.Length / numLayers
             
             if pretrainedParams.Length % numLayers <> 0 then
-                Error $"Parameters ({pretrainedParams.Length}) not evenly divisible by layers ({numLayers})"
+                Error (QuantumError.ValidationError ("Input", $"Parameters ({pretrainedParams.Length}) not evenly divisible by layers ({numLayers})"))
             else
                 // Indices of frozen parameters (first freezeLayers * paramsPerLayer)
                 let frozenIndices =
@@ -606,7 +608,7 @@ module ModelSerialization =
     /// Parse FeatureMapType from saved string representation
     ///
     /// Helper for reconstructing feature map from serialized model
-    let parseFeatureMapType (fmType: string) (fmDepth: int) : Result<FeatureMapType, string> =
+    let parseFeatureMapType (fmType: string) (fmDepth: int) : QuantumResult<FeatureMapType> =
         match fmType with
         | "ZZFeatureMap" -> Ok (FeatureMapType.ZZFeatureMap fmDepth)
         | "PauliFeatureMap" -> 
@@ -614,26 +616,26 @@ module ModelSerialization =
             Ok (FeatureMapType.PauliFeatureMap (["Z"; "ZZ"], fmDepth))
         | "AngleEncoding" -> Ok FeatureMapType.AngleEncoding
         | "AmplitudeEncoding" -> Ok FeatureMapType.AmplitudeEncoding
-        | _ -> Error $"Unknown feature map type: {fmType}"
+        | _ -> Error (QuantumError.ValidationError ("Input", $"Unknown feature map type: {fmType}"))
     
     /// Parse VariationalForm from saved string representation
     ///
     /// Helper for reconstructing variational form from serialized model
-    let parseVariationalForm (vfType: string) (vfDepth: int) : Result<VariationalForm, string> =
+    let parseVariationalForm (vfType: string) (vfDepth: int) : QuantumResult<VariationalForm> =
         match vfType with
         | "RealAmplitudes" -> Ok (VariationalForm.RealAmplitudes vfDepth)
         | "EfficientSU2" -> Ok (VariationalForm.EfficientSU2 vfDepth)
         | "TwoLocal" ->
             // Default two-local configuration
             Ok (VariationalForm.TwoLocal ("RY", "CX", vfDepth))
-        | _ -> Error $"Unknown variational form type: {vfType}"
+        | _ -> Error (QuantumError.ValidationError ("Input", $"Unknown variational form type: {vfType}"))
     
     /// Reconstruct QuantumKernelSVM.SVMModel from serialized data
     ///
     /// Returns: Full SVM model ready for prediction
     let reconstructSVMModel
         (serialized: SerializableSVMModel)
-        : Result<QuantumKernelSVM.SVMModel, string> =
+        : QuantumResult<QuantumKernelSVM.SVMModel> =
         
         // Parse feature map
         match parseFeatureMapType serialized.FeatureMapType serialized.FeatureMapDepth with
@@ -659,7 +661,7 @@ module ModelSerialization =
     let areModelsCompatible
         (model1Path: string)
         (model2Path: string)
-        : Result<bool, string> =
+        : QuantumResult<bool> =
         
         match loadVQCModel model1Path, loadVQCModel model2Path with
         | Error e, _ -> Error e
@@ -680,17 +682,17 @@ module ModelSerialization =
         (modelPath: string)
         (numLayers: int)
         (extractLayers: int)
-        : Result<float array, string> =
+        : QuantumResult<float array> =
         
         if extractLayers > numLayers then
-            Error $"extractLayers ({extractLayers}) cannot exceed numLayers ({numLayers})"
+            Error (QuantumError.ValidationError ("Input", $"extractLayers ({extractLayers}) cannot exceed numLayers ({numLayers})"))
         else
             match loadVQCParameters modelPath with
             | Error e -> Error e
             | Ok parameters ->
                 let paramsPerLayer = parameters.Length / numLayers
                 if parameters.Length % numLayers <> 0 then
-                    Error $"Parameters ({parameters.Length}) not evenly divisible by layers ({numLayers})"
+                    Error (QuantumError.ValidationError ("Input", $"Parameters ({parameters.Length}) not evenly divisible by layers ({numLayers})"))
                 else
                     let extractedParams = parameters.[0 .. (extractLayers * paramsPerLayer - 1)]
                     Ok extractedParams

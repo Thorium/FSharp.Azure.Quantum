@@ -1,0 +1,10 @@
+# Topological Quantum Program
+# Generated: 2025-12-06 20:56:02
+
+ANYON Ising
+
+# Ising anyon example
+INIT 4
+BRAID 0
+BRAID 1
+MEASURE 0

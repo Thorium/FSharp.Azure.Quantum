@@ -113,7 +113,7 @@ module QuantumMaxCutSolver =
     /// Expanded to QUBO matrix Q:
     ///   Q_ii = -Σ_{j: (i,j) ∈ E} w_ij         (linear terms)
     ///   Q_ij = 2*w_ij for edge (i,j)           (quadratic terms)
-    let toQubo (problem: MaxCutProblem) : Result<QuboMatrix, string> =
+    let toQubo (problem: MaxCutProblem) : Result<QuboMatrix, QuantumError> =
         try
             // Create vertex index mapping
             let vertexIndexMap = 
@@ -124,9 +124,9 @@ module QuantumMaxCutSolver =
             let numVars = problem.Vertices.Length
             
             if numVars = 0 then
-                Error "MaxCut problem has no vertices"
+                Error (QuantumError.ValidationError ("numVertices", "MaxCut problem has no vertices"))
             elif problem.Edges.Length = 0 then
-                Error "MaxCut problem has no edges"
+                Error (QuantumError.ValidationError ("numEdges", "MaxCut problem has no edges"))
             else
                 // Build QUBO terms as Map<(int * int), float> using functional fold
                 let quboTerms =
@@ -161,7 +161,7 @@ module QuantumMaxCutSolver =
                     NumVariables = numVars
                 }
         with ex ->
-            Error (sprintf "MaxCut QUBO encoding failed: %s" ex.Message)
+            Error (QuantumError.OperationError ("QuboEncoding", sprintf "MaxCut QUBO encoding failed: %s" ex.Message))
 
     // ================================================================================
     // SOLUTION DECODING
@@ -250,7 +250,7 @@ module QuantumMaxCutSolver =
     ///   - problem: MaxCut problem (graph with vertices and weighted edges)
     ///   - config: QAOA configuration (shots, initial parameters)
     /// 
-    /// Returns: Async<Result<MaxCutSolution, string>> - Async computation with result or error
+    /// Returns: Async<Result<MaxCutSolution, QuantumError>> - Async computation with result or error
     /// 
     /// Example:
     ///   let backend = BackendAbstraction.createLocalBackend()
@@ -265,7 +265,7 @@ module QuantumMaxCutSolver =
         (backend: BackendAbstraction.IQuantumBackend) 
         (problem: MaxCutProblem) 
         (config: QaoaConfig) 
-        : Async<Result<MaxCutSolution, string>> = async {
+        : Async<Result<MaxCutSolution, QuantumError>> = async {
         
         let startTime = DateTime.Now
         
@@ -274,16 +274,17 @@ module QuantumMaxCutSolver =
             let numQubits = problem.Vertices.Length
             
             if numQubits > backend.MaxQubits then
-                return Error (sprintf "Problem requires %d qubits but backend '%s' supports max %d qubits" 
-                    numQubits backend.Name backend.MaxQubits)
+                return Error (QuantumError.ValidationError ("qubitCount",
+                    sprintf "Problem requires %d qubits but backend '%s' supports max %d qubits" 
+                        numQubits backend.Name backend.MaxQubits))
             elif numQubits = 0 then
-                return Error "MaxCut problem has no vertices"
+                return Error (QuantumError.ValidationError ("numVertices", "MaxCut problem has no vertices"))
             elif problem.Edges.Length = 0 then
-                return Error "MaxCut problem has no edges"
+                return Error (QuantumError.ValidationError ("numEdges", "MaxCut problem has no edges"))
             else
                 // Step 2: Encode MaxCut as QUBO
                 match toQubo problem with
-                | Error msg -> return Error (sprintf "MaxCut encoding failed: %s" msg)
+                | Error err -> return Error err
                 | Ok quboMatrix ->
                     
                     // Step 3: Convert QUBO to dense array for QAOA
@@ -305,7 +306,7 @@ module QuantumMaxCutSolver =
                     let! execResult = backend.ExecuteAsync circuitWrapper config.NumShots
                     
                     match execResult with
-                    | Error msg -> return Error (sprintf "Backend execution failed: %s" msg)
+                    | Error err -> return Error err
                     | Ok execResult ->
                         
                         // Step 7: Decode measurements to partitions
@@ -328,7 +329,7 @@ module QuantumMaxCutSolver =
                         }
         
         with ex ->
-            return Error (sprintf "Quantum MaxCut solve failed: %s" ex.Message)
+            return Error (QuantumError.OperationError ("QuantumMaxCutSolver", sprintf "Quantum MaxCut solve failed: %s" ex.Message))
     }
 
     /// Solve MaxCut problem using quantum QAOA (synchronous wrapper)
@@ -341,7 +342,7 @@ module QuantumMaxCutSolver =
     ///   - problem: MaxCut problem (graph with vertices and weighted edges)
     ///   - config: QAOA configuration (shots, initial parameters)
     /// 
-    /// Returns: Ok with best partition found, or Error with message
+    /// Returns: Ok with best partition found, or Error with QuantumError
     /// 
     /// Example:
     ///   let backend = BackendAbstraction.createLocalBackend()
@@ -354,7 +355,7 @@ module QuantumMaxCutSolver =
         (backend: BackendAbstraction.IQuantumBackend) 
         (problem: MaxCutProblem) 
         (config: QaoaConfig) 
-        : Result<MaxCutSolution, string> =
+        : Result<MaxCutSolution, QuantumError> =
         solveAsync backend problem config |> Async.RunSynchronously
 
     // ================================================================================

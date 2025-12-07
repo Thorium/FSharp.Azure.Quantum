@@ -127,12 +127,12 @@ module QuantumPortfolioSolver =
     /// Constraints (as penalty terms):
     /// 1. Budget constraint: Σ (price_i * x_i) ≤ budget
     /// 2. Diversification: Encourage selecting multiple assets (optional)
-    let toQubo (problem: PortfolioProblem) : Result<GraphOptimization.QuboMatrix, string> =
+    let toQubo (problem: PortfolioProblem) : Result<GraphOptimization.QuboMatrix, QuantumError> =
         try
             let numAssets = problem.Assets.Length
             
             if numAssets = 0 then
-                Error "Portfolio problem has no assets"
+                Error (QuantumError.ValidationError ("numAssets", "Portfolio problem has no assets"))
             else
                 let mutable quboTerms = []
                 
@@ -232,7 +232,7 @@ module QuantumPortfolioSolver =
                 }
         
         with ex ->
-            Error (sprintf "Failed to encode portfolio as QUBO: %s" ex.Message)
+            Error (QuantumError.OperationError ("QuboEncoding", sprintf "Failed to encode portfolio as QUBO: %s" ex.Message))
 
     // ================================================================================
     // SOLUTION DECODING
@@ -361,7 +361,7 @@ module QuantumPortfolioSolver =
     ///   config - Configuration for execution
     ///   
     /// Returns:
-    ///   Async computation that returns Result with QuantumPortfolioSolution or error message
+    ///   Async computation that returns Result with QuantumPortfolioSolution or QuantumError
     ///   
     /// Note: This is the preferred method for cloud backends (IonQ, Rigetti) as it allows
     /// non-blocking execution. For synchronous API, use `solve` which wraps this function.
@@ -370,7 +370,7 @@ module QuantumPortfolioSolver =
         (assets: PortfolioTypes.Asset list)
         (constraints: PortfolioSolver.Constraints)
         (config: QuantumPortfolioConfig)
-        : Async<Result<QuantumPortfolioSolution, string>> = async {
+        : Async<Result<QuantumPortfolioSolution, QuantumError>> = async {
         
         let startTime = DateTime.UtcNow
         
@@ -379,12 +379,13 @@ module QuantumPortfolioSolver =
         let requiredQubits = numAssets
         
         if numAssets = 0 then
-            return Error "Portfolio problem has no assets"
+            return Error (QuantumError.ValidationError ("numAssets", "Portfolio problem has no assets"))
         elif requiredQubits > backend.MaxQubits then
-            return Error (sprintf "Problem requires %d qubits but backend '%s' supports max %d qubits" 
-                requiredQubits backend.Name backend.MaxQubits)
+            return Error (QuantumError.ValidationError ("qubitCount",
+                sprintf "Problem requires %d qubits but backend '%s' supports max %d qubits" 
+                    requiredQubits backend.Name backend.MaxQubits))
         elif config.NumShots <= 0 then
-            return Error "Number of shots must be positive"
+            return Error (QuantumError.ValidationError ("numShots", "Number of shots must be positive"))
         else
             try
                 // Build portfolio problem
@@ -416,7 +417,7 @@ module QuantumPortfolioSolver =
                     
                     let! execResultAsync = backend.ExecuteAsync circuitWrapper config.NumShots
                     match execResultAsync with
-                    | Error msg -> return Error (sprintf "Backend execution failed: %s" msg)
+                    | Error err -> return Error err
                     | Ok execResult ->
                         
                         // Step 5: Decode measurements to portfolio solutions
@@ -425,7 +426,7 @@ module QuantumPortfolioSolver =
                             |> Array.choose (decodeSolution problem)
                         
                         if portfolioResults.Length = 0 then
-                            return Error "No valid portfolio solutions found in quantum measurements"
+                            return Error (QuantumError.OperationError ("DecodeSolution", "No valid portfolio solutions found in quantum measurements"))
                         else
                             // Select best solution (minimum energy = maximum utility)
                             let bestSolution = 
@@ -442,7 +443,7 @@ module QuantumPortfolioSolver =
                             }
             
             with ex ->
-                return Error (sprintf "Quantum portfolio solver failed: %s" ex.Message)
+                return Error (QuantumError.OperationError ("QuantumPortfolioSolver", sprintf "Quantum portfolio solver failed: %s" ex.Message))
     }
 
     /// Solve portfolio optimization using quantum backend via QAOA (synchronous)
@@ -457,13 +458,13 @@ module QuantumPortfolioSolver =
     ///   config - Configuration for execution
     ///   
     /// Returns:
-    ///   Result with QuantumPortfolioSolution or error message
+    ///   Result with QuantumPortfolioSolution or QuantumError
     let solve 
         (backend: BackendAbstraction.IQuantumBackend)
         (assets: PortfolioTypes.Asset list)
         (constraints: PortfolioSolver.Constraints)
         (config: QuantumPortfolioConfig)
-        : Result<QuantumPortfolioSolution, string> =
+        : Result<QuantumPortfolioSolution, QuantumError> =
         solveAsync backend assets constraints config
         |> Async.RunSynchronously
 
@@ -472,7 +473,7 @@ module QuantumPortfolioSolver =
         (backend: BackendAbstraction.IQuantumBackend)
         (assets: PortfolioTypes.Asset list)
         (constraints: PortfolioSolver.Constraints)
-        : Result<QuantumPortfolioSolution, string> =
+        : Result<QuantumPortfolioSolution, QuantumError> =
         solve backend assets constraints defaultConfig
     
     /// Solve portfolio with custom number of shots and risk aversion
@@ -482,6 +483,6 @@ module QuantumPortfolioSolver =
         (constraints: PortfolioSolver.Constraints)
         (numShots: int)
         (riskAversion: float)
-        : Result<QuantumPortfolioSolution, string> =
+        : Result<QuantumPortfolioSolution, QuantumError> =
         let config = { defaultConfig with NumShots = numShots; RiskAversion = riskAversion }
         solve backend assets constraints config

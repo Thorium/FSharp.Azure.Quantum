@@ -1,4 +1,5 @@
 namespace FSharp.Azure.Quantum
+open FSharp.Azure.Quantum.Core
 
 open System
 
@@ -36,34 +37,34 @@ module ProblemAnalysis =
         }
 
     /// Validate that a 2D array is not null
-    let private validateNotNull (matrix: float[,]) : Result<unit, string> =
+    let private validateNotNull (matrix: float[,]) : QuantumResult<unit> =
         if isNull (box matrix) then
-            Error "Distance matrix cannot be null"
+            Error (QuantumError.ValidationError ("Matrix", "Distance matrix cannot be null"))
         else
             Ok()
 
     /// Validate that a matrix is not empty
-    let private validateNotEmpty (matrix: float[,]) : Result<unit, string> =
+    let private validateNotEmpty (matrix: float[,]) : QuantumResult<unit> =
         let rows = Array2D.length1 matrix
         let cols = Array2D.length2 matrix
 
         if rows = 0 || cols = 0 then
-            Error "Distance matrix cannot be empty"
+            Error (QuantumError.ValidationError ("Matrix", "Distance matrix cannot be empty"))
         else
             Ok()
 
     /// Validate that a matrix is square
-    let private validateSquare (matrix: float[,]) : Result<unit, string> =
+    let private validateSquare (matrix: float[,]) : QuantumResult<unit> =
         let rows = Array2D.length1 matrix
         let cols = Array2D.length2 matrix
 
         if rows <> cols then
-            Error $"Distance matrix must be square (got {rows}x{cols} dimensions)"
+            Error (QuantumError.ValidationError ("Matrix", $"Distance matrix must be square (got {rows}x{cols} dimensions)"))
         else
             Ok()
 
     /// Validate that all matrix values are valid (not NaN, not infinity, non-negative)
-    let private validateValues (matrix: float[,]) : Result<unit, string> =
+    let private validateValues (matrix: float[,]) : QuantumResult<unit> =
         let rows = Array2D.length1 matrix
         let cols = Array2D.length2 matrix
 
@@ -72,11 +73,11 @@ module ProblemAnalysis =
                 for j in 0 .. cols - 1 do
                     let value = matrix.[i, j]
                     if Double.IsNaN(value) then
-                        yield Error "Distance matrix contains NaN values"
+                        yield Error (QuantumError.ValidationError ("Values", "Distance matrix contains NaN values"))
                     elif Double.IsInfinity(value) then
-                        yield Error "Distance matrix contains infinity values"
+                        yield Error (QuantumError.ValidationError ("Values", "Distance matrix contains infinity values"))
                     elif value < 0.0 then
-                        yield Error $"Distance matrix contains negative values (found {value} at position [{i},{j}])"
+                        yield Error (QuantumError.ValidationError ("Values", $"Distance matrix contains negative values (found {value} at position [{i},{j}])"))
         }
         |> Seq.tryHead
         |> Option.defaultValue (Ok())
@@ -118,19 +119,19 @@ module ProblemAnalysis =
             |> List.fold (fun acc i -> acc * float i) 1.0
 
     /// Classify a distance matrix problem
-    let private classifyDistanceMatrix (matrix: float[,]) : Result<ProblemInfo, string> =
+    let private classifyDistanceMatrix (matrix: float[,]) : QuantumResult<ProblemInfo> =
         // Validate inputs with comprehensive error checking
         match validateNotNull matrix with
-        | Error msg -> Error msg
+        | Error err -> Error err
         | Ok() ->
             match validateNotEmpty matrix with
-            | Error msg -> Error msg
+            | Error err -> Error err
             | Ok() ->
                 match validateSquare matrix with
-                | Error msg -> Error msg
+                | Error err -> Error err
                 | Ok() ->
                     match validateValues matrix with
-                    | Error msg -> Error msg
+                    | Error err -> Error err
                     | Ok() ->
                         // All validations passed - analyze the matrix
                         let n = Array2D.length1 matrix
@@ -150,16 +151,16 @@ module ProblemAnalysis =
 
     /// Classify a problem from its input representation
     /// Returns Result with ProblemInfo or error message
-    let classifyProblem (input: 'T) : Result<ProblemInfo, string> =
+    let classifyProblem (input: 'T) : QuantumResult<ProblemInfo> =
         // Handle null first before type checking
         let boxed = box input
 
         if isNull boxed then
-            Error "Input cannot be null"
+            Error (QuantumError.ValidationError ("Input", "Input cannot be null"))
         else
             match boxed with
             | :? (float[,]) as matrix -> classifyDistanceMatrix matrix
-            | _ -> Error $"Cannot classify input of type {typeof<'T>.Name}"
+            | _ -> Error (QuantumError.ValidationError ("InputType", $"Cannot classify input of type { typeof<'T>.Name}"))
 
     /// Quantum advantage estimation result
     type QuantumAdvantage =
@@ -185,10 +186,10 @@ module ProblemAnalysis =
 
     /// Estimate quantum advantage for a given problem
     /// Returns Result with QuantumAdvantage or error message
-    let estimateQuantumAdvantage (input: 'T) : Result<QuantumAdvantage, string> =
+    let estimateQuantumAdvantage (input: 'T) : QuantumResult<QuantumAdvantage> =
         // First classify the problem
         match classifyProblem input with
-        | Error msg -> Error msg
+        | Error err -> Error err
         | Ok problemInfo ->
             let n = problemInfo.Size
 

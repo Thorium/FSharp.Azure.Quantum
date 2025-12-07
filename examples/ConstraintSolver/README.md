@@ -81,7 +81,7 @@ match solve problem with
 | Ok solution -> 
     printfn "Worker assignments: %A" solution.Assignment
     printfn "Constraints satisfied: %b" solution.AllConstraintsSatisfied
-| Error msg -> printfn "Error: %s" msg
+| Error err -> printfn "Error: %s" err.Message
 ```
 
 ## Related Examples

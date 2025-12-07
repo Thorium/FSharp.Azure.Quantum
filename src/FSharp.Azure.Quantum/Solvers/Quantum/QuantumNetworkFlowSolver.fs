@@ -121,7 +121,7 @@ module QuantumNetworkFlowSolver =
     /// 2. Demand satisfaction: Each sink receives required demand
     /// 3. Supply limits: Each source doesn't exceed supply capacity
     /// 4. Edge capacity: Flow on edge doesn't exceed edge capacity
-    let toQubo (problem: NetworkFlowProblem) : Result<QuboMatrix, string> =
+    let toQubo (problem: NetworkFlowProblem) : Result<QuboMatrix, QuantumError> =
         try
             // Create node index mapping
             let allNodes = problem.Sources @ problem.IntermediateNodes @ problem.Sinks |> List.distinct
@@ -137,7 +137,7 @@ module QuantumNetworkFlowSolver =
             let numVars = numEdges
             
             if numVars = 0 then
-                Error "Network flow problem has no edges"
+                Error (QuantumError.ValidationError ("numEdges", "Network flow problem has no edges"))
             else
                 let mutable quboTerms = []
                 
@@ -239,7 +239,7 @@ module QuantumNetworkFlowSolver =
                 }
         
         with ex ->
-            Error (sprintf "Failed to encode network flow as QUBO: %s" ex.Message)
+            Error (QuantumError.OperationError ("QuboEncoding", sprintf "Failed to encode network flow as QUBO: %s" ex.Message))
 
     // ================================================================================
     // SOLUTION DECODING
@@ -345,12 +345,12 @@ module QuantumNetworkFlowSolver =
     ///   config - Configuration for execution
     ///   
     /// Returns:
-    ///   Async<Result<NetworkFlowSolution, string>> - Async computation with result or error
+    ///   Async<Result<NetworkFlowSolution, QuantumError>> - Async computation with result or error
     let solveAsync 
         (backend: BackendAbstraction.IQuantumBackend)
         (problem: NetworkFlowProblem)
         (config: QuantumFlowConfig)
-        : Async<Result<NetworkFlowSolution, string>> = async {
+        : Async<Result<NetworkFlowSolution, QuantumError>> = async {
         
         let startTime = DateTime.UtcNow
         
@@ -359,12 +359,13 @@ module QuantumNetworkFlowSolver =
         let requiredQubits = numEdges
         
         if numEdges = 0 then
-            return Error "Network flow problem has no edges"
+            return Error (QuantumError.ValidationError ("numEdges", "Network flow problem has no edges"))
         elif requiredQubits > backend.MaxQubits then
-            return Error (sprintf "Problem requires %d qubits but backend '%s' supports max %d qubits" 
-                requiredQubits backend.Name backend.MaxQubits)
+            return Error (QuantumError.ValidationError ("qubitCount",
+                sprintf "Problem requires %d qubits but backend '%s' supports max %d qubits" 
+                    requiredQubits backend.Name backend.MaxQubits))
         elif config.NumShots <= 0 then
-            return Error "Number of shots must be positive"
+            return Error (QuantumError.ValidationError ("numShots", "Number of shots must be positive"))
         else
             try
                 // Step 1: Encode network flow as QUBO
@@ -390,7 +391,7 @@ module QuantumNetworkFlowSolver =
                     let! execResult = backend.ExecuteAsync circuitWrapper config.NumShots
                     
                     match execResult with
-                    | Error msg -> return Error (sprintf "Backend execution failed: %s" msg)
+                    | Error err -> return Error err
                     | Ok execResult ->
                         
                         // Step 5: Decode measurements to network flow solutions
@@ -399,7 +400,7 @@ module QuantumNetworkFlowSolver =
                             |> Array.choose (decodeSolution problem)
                         
                         if flowResults.Length = 0 then
-                            return Error "No valid network flow solutions found in quantum measurements"
+                            return Error (QuantumError.OperationError ("DecodeSolution", "No valid network flow solutions found in quantum measurements"))
                         else
                             // Select best solution (minimum cost)
                             let bestSolution = 
@@ -416,7 +417,7 @@ module QuantumNetworkFlowSolver =
                             }
             
             with ex ->
-                return Error (sprintf "Quantum network flow solver failed: %s" ex.Message)
+                return Error (QuantumError.OperationError ("QuantumNetworkFlowSolver", sprintf "Quantum network flow solver failed: %s" ex.Message))
     }
 
     /// Solve network flow problem using quantum backend via QAOA (synchronous wrapper)
@@ -437,19 +438,19 @@ module QuantumNetworkFlowSolver =
     ///   config - Configuration for execution
     ///   
     /// Returns:
-    ///   Result with NetworkFlowSolution or error message
+    ///   Result with NetworkFlowSolution or QuantumError
     let solve 
         (backend: BackendAbstraction.IQuantumBackend)
         (problem: NetworkFlowProblem)
         (config: QuantumFlowConfig)
-        : Result<NetworkFlowSolution, string> =
+        : Result<NetworkFlowSolution, QuantumError> =
         solveAsync backend problem config |> Async.RunSynchronously
 
     /// Solve network flow with default configuration
     let solveWithDefaults 
         (backend: BackendAbstraction.IQuantumBackend)
         (problem: NetworkFlowProblem)
-        : Result<NetworkFlowSolution, string> =
+        : Result<NetworkFlowSolution, QuantumError> =
         solve backend problem defaultConfig
     
     /// Solve network flow with custom number of shots
@@ -457,6 +458,6 @@ module QuantumNetworkFlowSolver =
         (backend: BackendAbstraction.IQuantumBackend)
         (problem: NetworkFlowProblem)
         (numShots: int)
-        : Result<NetworkFlowSolution, string> =
+        : Result<NetworkFlowSolution, QuantumError> =
         let config = { defaultConfig with NumShots = numShots }
         solve backend problem config

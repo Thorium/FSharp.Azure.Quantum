@@ -1,6 +1,7 @@
 namespace FSharp.Azure.Quantum.Algorithms
 
 open System
+open FSharp.Azure.Quantum.Core
 open System.Numerics
 
 /// Quantum Fourier Transform (QFT) Module
@@ -225,13 +226,13 @@ module QuantumFourierTransform =
     /// 2. Apply bit-reversal SWAPs (if config.ApplySwaps = true)
     /// 
     /// Time complexity: O(n²) gates
-    let execute (config: QFTConfig) (state: StateVector.StateVector) : Result<QFTResult, string> =
+    let execute (config: QFTConfig) (state: StateVector.StateVector) : QuantumResult<QFTResult> =
         try
             // Validate configuration
             if config.NumQubits < 1 || config.NumQubits > 20 then
-                Error $"Number of qubits must be between 1 and 20, got {config.NumQubits}"
+                Error (QuantumError.Other $"Number of qubits must be between 1 and 20, got {config.NumQubits}")
             elif StateVector.numQubits state <> config.NumQubits then
-                Error $"State has {StateVector.numQubits state} qubits, expected {config.NumQubits}"
+                Error (QuantumError.Other $"State has {StateVector.numQubits state} qubits, expected {config.NumQubits}")
             else
                 // Apply QFT to each qubit using functional fold
                 let (stateAfterQFT, gatesAfterQFT) =
@@ -255,7 +256,7 @@ module QuantumFourierTransform =
                     Config = config
                 }
         with
-        | ex -> Error $"QFT execution failed: {ex.Message}"
+        | ex -> Error (QuantumError.Other $"QFT execution failed: {ex.Message}")
     
     // ========================================================================
     // CONVENIENCE FUNCTIONS - Common use cases
@@ -269,14 +270,14 @@ module QuantumFourierTransform =
     }
     
     /// Execute standard QFT (forward transform with SWAPs)
-    let executeStandard (numQubits: int) (state: StateVector.StateVector) : Result<QFTResult, string> =
+    let executeStandard (numQubits: int) (state: StateVector.StateVector) : QuantumResult<QFTResult> =
         let config = defaultConfig numQubits
         execute config state
     
     /// Execute inverse QFT (QFT†)
     /// 
     /// Used for decoding QFT results back to computational basis
-    let executeInverse (numQubits: int) (state: StateVector.StateVector) : Result<QFTResult, string> =
+    let executeInverse (numQubits: int) (state: StateVector.StateVector) : QuantumResult<QFTResult> =
         let config = { defaultConfig numQubits with Inverse = true }
         execute config state
     
@@ -284,7 +285,7 @@ module QuantumFourierTransform =
     /// 
     /// Some algorithms (e.g., quantum phase estimation) don't require bit-reversal
     /// This saves n/2 SWAP gates
-    let executeNoSwaps (numQubits: int) (state: StateVector.StateVector) : Result<QFTResult, string> =
+    let executeNoSwaps (numQubits: int) (state: StateVector.StateVector) : QuantumResult<QFTResult> =
         let config = { defaultConfig numQubits with ApplySwaps = false }
         execute config state
     
@@ -349,9 +350,9 @@ module QuantumFourierTransform =
     /// 
     /// Result: (1/√N) Σₖ e^(2πijk/N) |k⟩
     /// This creates an equal superposition with phase relationships
-    let transformBasisState (numQubits: int) (basisIndex: int) : Result<QFTResult, string> =
+    let transformBasisState (numQubits: int) (basisIndex: int) : QuantumResult<QFTResult> =
         if basisIndex < 0 || basisIndex >= (1 <<< numQubits) then
-            Error $"Basis index {basisIndex} out of range for {numQubits} qubits"
+            Error (QuantumError.Other $"Basis index {basisIndex} out of range for {numQubits} qubits")
         else
             // Create computational basis state |j⟩
             let dimension = 1 <<< numQubits
@@ -365,7 +366,7 @@ module QuantumFourierTransform =
     /// Encode integer into quantum state and apply QFT
     /// 
     /// This is the first step in many quantum algorithms (e.g., Shor's algorithm)
-    let encodeAndTransform (numQubits: int) (value: int) : Result<QFTResult, string> =
+    let encodeAndTransform (numQubits: int) (value: int) : QuantumResult<QFTResult> =
         transformBasisState numQubits value
 
 

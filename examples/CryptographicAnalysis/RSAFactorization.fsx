@@ -74,11 +74,11 @@ match problem1 with
         printfn "  Precision:            %d qubits" prob.Precision
         printfn "  Attempts Made:        %d/%d" result.Attempts prob.MaxAttempts
 
-    | Error msg ->
-        printfn "❌ Execution Error: %s" msg
+    | Error err ->
+        printfn "❌ Execution Error: %s" err.Message
 
-| Error msg ->
-    printfn "❌ Builder Error: %s" msg
+| Error err ->
+    printfn "❌ Builder Error: %s" err.Message
 
 printfn ""
 printfn "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -121,11 +121,11 @@ match problem2 with
         | None ->
             printfn "Period found but did not yield factors (retry recommended)"
 
-    | Error msg ->
-        printfn "❌ Execution Error: %s" msg
+    | Error err ->
+        printfn "❌ Execution Error: %s" err.Message
 
-| Error msg ->
-    printfn "❌ Builder Error: %s" msg
+| Error err ->
+    printfn "❌ Builder Error: %s" err.Message
 
 printfn ""
 printfn "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

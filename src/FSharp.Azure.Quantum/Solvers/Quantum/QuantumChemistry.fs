@@ -101,7 +101,7 @@ type Molecule = {
 module Molecule =
     
     /// Validate molecule structure
-    let validate (molecule: Molecule) : Result<unit, string> =
+    let validate (molecule: Molecule) : Result<unit, QuantumError> =
         // Check all bonds reference valid atoms
         let invalidBonds =
             molecule.Bonds
@@ -110,7 +110,7 @@ module Molecule =
                 bond.Atom2 < 0 || bond.Atom2 >= molecule.Atoms.Length)
         
         if not invalidBonds.IsEmpty then
-            Error (sprintf "Bond references non-existent atom indices: %A" invalidBonds)
+            Error (QuantumError.ValidationError("Bonds", sprintf "Bond references non-existent atom indices: %A" invalidBonds))
         else
             Ok ()
     
@@ -202,27 +202,27 @@ module MolecularInput =
     /// O  0.000  0.000  0.119
     /// H  0.000  0.757  0.587
     /// H  0.000 -0.757  0.587
-    let fromXYZAsync (filePath: string) : Async<Result<Molecule, string>> =
+    let fromXYZAsync (filePath: string) : Async<Result<Molecule, QuantumError>> =
         async {
             try
                 if not (File.Exists filePath) then
-                    return Error $"File not found: {filePath}"
+                    return Error (QuantumError.ValidationError("FilePath", $"File not found: {filePath}"))
                 else
                     let! lines = File.ReadAllLinesAsync(filePath) |> Async.AwaitTask
                     let lines = lines |> Array.filter (fun l -> not (System.String.IsNullOrWhiteSpace l))
                 
                     if lines.Length < 3 then
-                        return Error "XYZ file must have at least 3 lines (count, title, and atoms)"
+                        return Error (QuantumError.ValidationError("XYZFile", "XYZ file must have at least 3 lines (count, title, and atoms)"))
                     else
                         // Parse atom count
                         match System.Int32.TryParse(lines[0].Trim()) with
-                        | false, _ -> return Error "First line must be atom count"
+                        | false, _ -> return Error (QuantumError.ValidationError("XYZFile", "First line must be atom count"))
                         | true, atomCount ->
                         
                         if atomCount < 1 then
-                            return Error "Atom count must be positive"
+                            return Error (QuantumError.ValidationError("AtomCount", "Atom count must be positive"))
                         elif lines.Length < 2 + atomCount then
-                            return Error $"File has {lines.Length} lines but needs {2 + atomCount} for {atomCount} atoms"
+                            return Error (QuantumError.ValidationError("XYZFile", $"File has {lines.Length} lines but needs {2 + atomCount} for {atomCount} atoms"))
                         else
                             let name = lines[1].Trim()
                             
@@ -232,7 +232,7 @@ module MolecularInput =
                                 |> Array.mapi (fun i line ->
                                     let parts = line.Split([| ' '; '\t' |], System.StringSplitOptions.RemoveEmptyEntries)
                                     if parts.Length < 4 then
-                                        Error $"Line {i + 3}: Expected 'Element X Y Z', got '{line}'"
+                                        Error (QuantumError.ValidationError("XYZLine", $"Line {i + 3}: Expected 'Element X Y Z', got '{line}'"))
                                     else
                                         let element = parts[0].Trim()
                                         match System.Double.TryParse(parts[1]), 
@@ -241,7 +241,7 @@ module MolecularInput =
                                         | (true, x), (true, y), (true, z) ->
                                             Ok { Element = element; Position = (x, y, z) }
                                         | _ ->
-                                            Error $"Line {i + 3}: Could not parse coordinates from '{line}'"
+                                            Error (QuantumError.ValidationError("XYZLine", $"Line {i + 3}: Could not parse coordinates from '{line}'"))
                                 )
                                 |> Array.fold (fun acc result ->
                                     match acc, result with
@@ -274,12 +274,12 @@ module MolecularInput =
                                     Multiplicity = 1  // Assume singlet
                                 }
             with
-            | ex -> return Error $"Failed to parse XYZ file: {ex.Message}"
+            | ex -> return Error (QuantumError.OperationError("XYZParsing", $"Failed to parse XYZ file: {ex.Message}"))
         }
     
     /// Synchronous wrapper for backwards compatibility
     [<System.Obsolete("Use fromXYZAsync for better performance and to avoid blocking threads")>]
-    let fromXYZ (filePath: string) : Result<Molecule, string> =
+    let fromXYZ (filePath: string) : Result<Molecule, QuantumError> =
         fromXYZAsync filePath |> Async.RunSynchronously
     
     /// Parse simplified FCIDump format (header only, for molecule geometry)
@@ -293,11 +293,11 @@ module MolecularInput =
     /// - MS2: 2*Spin (multiplicity - 1)
     /// 
     /// Returns a minimal Molecule structure with inferred properties.
-    let fromFCIDumpAsync (filePath: string) : Async<Result<Molecule, string>> =
+    let fromFCIDumpAsync (filePath: string) : Async<Result<Molecule, QuantumError>> =
         async {
             try
                 if not (File.Exists filePath) then
-                    return Error $"File not found: {filePath}"
+                    return Error (QuantumError.ValidationError("FilePath", $"File not found: {filePath}"))
                 else
                     let! lines = File.ReadAllLinesAsync(filePath) |> Async.AwaitTask
                     
@@ -307,7 +307,7 @@ module MolecularInput =
                         |> Array.tryFind (fun line -> line.Trim().StartsWith("&FCI"))
                     
                     match headerLine with
-                    | None -> return Error "No FCIDump header found (&FCI line)"
+                    | None -> return Error (QuantumError.ValidationError("FCIDumpFile", "No FCIDump header found (&FCI line)"))
                     | Some header ->
                         
                         // Extract NORB, NELEC, MS2
@@ -321,8 +321,8 @@ module MolecularInput =
                         let ms2 = extractParam "MS2"
                         
                         match norb, nelec with
-                        | None, _ -> return Error "NORB (number of orbitals) not found in FCIDump header"
-                        | _, None -> return Error "NELEC (number of electrons) not found in FCIDump header"
+                        | None, _ -> return Error (QuantumError.ValidationError("FCIDumpHeader", "NORB (number of orbitals) not found in FCIDump header"))
+                        | _, None -> return Error (QuantumError.ValidationError("FCIDumpHeader", "NELEC (number of electrons) not found in FCIDump header"))
                         | Some orbitals, Some electrons ->
                             
                             let multiplicity = match ms2 with | Some m -> m + 1 | None -> 1
@@ -341,12 +341,12 @@ module MolecularInput =
                                 Multiplicity = multiplicity
                             }
             with
-            | ex -> return Error $"Failed to parse FCIDump file: {ex.Message}"
+            | ex -> return Error (QuantumError.OperationError("FCIDumpParsing", $"Failed to parse FCIDump file: {ex.Message}"))
         }
     
     /// Synchronous wrapper for backwards compatibility
     [<System.Obsolete("Use fromFCIDumpAsync for better performance and to avoid blocking threads")>]
-    let fromFCIDump (filePath: string) : Result<Molecule, string> =
+    let fromFCIDump (filePath: string) : Result<Molecule, QuantumError> =
         fromFCIDumpAsync filePath |> Async.RunSynchronously
     
     /// Create XYZ file content from a Molecule
@@ -367,19 +367,19 @@ module MolecularInput =
         sb.ToString()
     
     /// Save molecule to XYZ file
-    let saveXYZAsync (filePath: string) (molecule: Molecule) : Async<Result<unit, string>> =
+    let saveXYZAsync (filePath: string) (molecule: Molecule) : Async<Result<unit, QuantumError>> =
         async {
             try
                 let content = toXYZ molecule
                 do! File.WriteAllTextAsync(filePath, content) |> Async.AwaitTask
                 return Ok ()
             with
-            | ex -> return Error $"Failed to write XYZ file: {ex.Message}"
+            | ex -> return Error (QuantumError.OperationError("XYZWriting", $"Failed to write XYZ file: {ex.Message}"))
         }
     
     /// Synchronous wrapper for backwards compatibility
     [<System.Obsolete("Use saveXYZAsync for better performance and to avoid blocking threads")>]
-    let saveXYZ (filePath: string) (molecule: Molecule) : Result<unit, string> =
+    let saveXYZ (filePath: string) (molecule: Molecule) : Result<unit, QuantumError> =
         saveXYZAsync filePath molecule |> Async.RunSynchronously
 
 // ============================================================================
@@ -861,16 +861,16 @@ module MolecularHamiltonian =
     /// H = Σᵢⱼ hᵢⱼ a†ᵢ aⱼ + ½ Σᵢⱼₖₗ gᵢⱼₖₗ a†ᵢ a†ⱼ aₖ aₗ
     /// 
     /// Then applies fermion-to-qubit mapping (Jordan-Wigner or Bravyi-Kitaev)
-    let rec buildWithMapping (molecule: Molecule) (mapping: MappingMethod) : Result<QaoaCircuit.ProblemHamiltonian, string> =
+    let rec buildWithMapping (molecule: Molecule) (mapping: MappingMethod) : Result<QaoaCircuit.ProblemHamiltonian, QuantumError> =
         // Validate molecule
         match Molecule.validate molecule with
-        | Error msg -> Error msg
+        | Error err -> Error err
         | Ok _ ->
         
         if molecule.Atoms.IsEmpty then
-            Error "Invalid molecule: no atoms"
+            Error (QuantumError.ValidationError("Molecule", "Invalid molecule: no atoms"))
         elif Molecule.countElectrons molecule <= 0 then
-            Error "Invalid molecule: non-positive electron count"
+            Error (QuantumError.ValidationError("Molecule", "Invalid molecule: non-positive electron count"))
         else
             match mapping with
             | Empirical ->
@@ -883,7 +883,7 @@ module MolecularHamiltonian =
                 let numOrbitals = molecule.Atoms.Length * 2  // Minimal basis: 2 orbitals per atom
                 
                 if numOrbitals > 20 then
-                    Error $"Molecule too large: {numOrbitals} orbitals (max 20)"
+                    Error (QuantumError.ValidationError("MoleculeSize", $"Molecule too large: {numOrbitals} orbitals (max 20)"))
                 else
                     // Build simplified fermionic Hamiltonian
                     // NOTE: In production, this would use Hartree-Fock integrals from PySCF/Psi4
@@ -946,16 +946,16 @@ module MolecularHamiltonian =
     /// use full molecular orbital calculations (Hartree-Fock, etc.)
     /// 
     /// For research-grade calculations, use buildWithMapping with JordanWigner or BravyiKitaev
-    and build (molecule: Molecule) : Result<QaoaCircuit.ProblemHamiltonian, string> =
+    and build (molecule: Molecule) : Result<QaoaCircuit.ProblemHamiltonian, QuantumError> =
         // Validate molecule
         match Molecule.validate molecule with
-        | Error msg -> Error msg
+        | Error err -> Error err
         | Ok _ ->
             
         if molecule.Atoms.IsEmpty then
-            Error "Invalid molecule: no atoms"
+            Error (QuantumError.ValidationError("Molecule", "Invalid molecule: no atoms"))
         elif Molecule.countElectrons molecule <= 0 then
-            Error "Invalid molecule: non-positive electron count"
+            Error (QuantumError.ValidationError("Molecule", "Invalid molecule: non-positive electron count"))
         else
             // Empirical Hamiltonian parameters for known molecules
             // NOTE: These are POSITIVE - we negate the expectation value in measurement
@@ -975,7 +975,7 @@ module MolecularHamiltonian =
                     (nq, 1.0, 0.5)
             
             if numQubits > 10 then
-                Error $"Molecule too large: {numQubits} qubits required (max 10)"
+                Error (QuantumError.ValidationError("MoleculeSize", $"Molecule too large: {numQubits} qubits required (max 10)"))
             else
                 let terms = ResizeArray<QaoaCircuit.HamiltonianTerm>()
                 
@@ -1012,14 +1012,14 @@ module ClassicalDFT =
             ("LiH", -8.0)
         ]
     
-    let run (molecule: Molecule) (config: SolverConfig) : Async<Result<float, string>> =
+    let run (molecule: Molecule) (config: SolverConfig) : Async<Result<float, QuantumError>> =
         async {
             match empiricalEnergies.TryFind molecule.Name with
             | Some energy ->
                 let perturbation = 0.01 * (1.0 - 2.0 * Random().NextDouble())
                 return Ok (energy + perturbation)
             | None ->
-                return Error $"No empirical data for: {molecule.Name}"
+                return Error (QuantumError.ValidationError("Molecule", $"No empirical data for: {molecule.Name}"))
         }
 
 /// VQE (Variational Quantum Eigensolver) implementation
@@ -1151,7 +1151,7 @@ module VQE =
     /// Run VQE to estimate ground state energy
     /// NOTE: For prototype, delegates to ClassicalDFT for known molecules to ensure accuracy
     /// Production implementation would use full VQE with Jordan-Wigner transformation
-    let run (molecule: Molecule) (config: SolverConfig) : Async<Result<VQEResult, string>> =
+    let run (molecule: Molecule) (config: SolverConfig) : Async<Result<VQEResult, QuantumError>> =
         async {
             // For known molecules, use empirical values for accuracy
             // Full VQE requires Jordan-Wigner transformation and proper ansatz
@@ -1169,7 +1169,7 @@ module VQE =
             | _ ->
                 // Generic VQE for unknown molecules (may be less accurate)
                 match MolecularHamiltonian.build molecule with
-                | Error msg -> return Error msg
+                | Error err -> return Error err
                 | Ok hamiltonian ->
                 
                 let numQubits = hamiltonian.NumQubits
@@ -1204,7 +1204,7 @@ module VQE =
                     return Ok { vqeResult with Energy = totalEnergy }
                 
                 with ex ->
-                    return Error $"VQE failed: {ex.Message}"
+                    return Error (QuantumError.OperationError("VQE", $"VQE failed: {ex.Message}"))
         }
 
 /// Hamiltonian Simulation using Trotter-Suzuki decomposition
@@ -1356,11 +1356,11 @@ module QPE =
         }
     
     /// Estimate ground state energy using QPE
-    let run (molecule: Molecule) (config: SolverConfig) : Async<Result<VQE.VQEResult, string>> =
+    let run (molecule: Molecule) (config: SolverConfig) : Async<Result<VQE.VQEResult, QuantumError>> =
         async {
             // Build molecular Hamiltonian
             match MolecularHamiltonian.build molecule with
-            | Error msg -> return Error msg
+            | Error err -> return Error err
             | Ok hamiltonian ->
                 
                 // Convert to Pauli form for Trotter-Suzuki
@@ -1386,7 +1386,7 @@ module QPE =
                 // Execute QPE via backend
                 let shots = 1000
                 match Algorithms.QPEBackendAdapter.executeWithBackend qpeConfig backend shots with
-                | Error msg -> return Error $"QPE execution failed: {msg}"
+                | Error msg -> return Error (QuantumError.OperationError("QPE", $"QPE execution failed: {msg}"))
                 | Ok histogram ->
                     // Extract phase from histogram
                     let phase = Algorithms.QPEBackendAdapter.extractPhaseFromHistogram histogram countingQubits
@@ -1425,7 +1425,7 @@ module GroundStateEnergy =
         (method: GroundStateMethod) 
         (molecule: Molecule) 
         (config: SolverConfig) 
-        : Async<Result<VQE.VQEResult, string>> =
+        : Async<Result<VQE.VQEResult, QuantumError>> =
         
         match method with
         | GroundStateMethod.VQE ->
@@ -1465,7 +1465,7 @@ module GroundStateEnergy =
     let estimateEnergy 
         (molecule: Molecule) 
         (config: SolverConfig) 
-        : Async<Result<VQE.VQEResult, string>> =
+        : Async<Result<VQE.VQEResult, QuantumError>> =
         
         estimateEnergyWith config.Method molecule config
 
@@ -1792,7 +1792,7 @@ module QuantumChemistryBuilder =
     /// </summary>
     /// <param name="problem">Chemistry problem specification</param>
     /// <returns>Async result with ground state energy and bond information</returns>
-    let solve (problem: ChemistryProblem) : Async<Result<ChemistryResult, string>> =
+    let solve (problem: ChemistryProblem) : Async<Result<ChemistryResult, QuantumError>> =
         async {
             // Extract validated configuration
             let molecule = problem.Molecule.Value
@@ -1822,8 +1822,8 @@ module QuantumChemistryBuilder =
                         BondLengths = computeBondLengths molecule
                         DipoleMoment = None  // TODO: Compute dipole moment if needed
                     }
-                | Error msg ->
-                    Error msg
+                | Error err ->
+                    Error err
             
             return result
         }

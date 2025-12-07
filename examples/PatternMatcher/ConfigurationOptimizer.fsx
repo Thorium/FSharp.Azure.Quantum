@@ -182,8 +182,8 @@ match solve dbOptimizationProblem with
     printfn "    Quantum advantage: √256 = 16× fewer benchmarks"
     printfn "    Time saved: 256 → 16 evaluations (16× speedup)"
 
-| Error msg ->
-    printfn "❌ Error: %s" msg
+| Error err ->
+    printfn "❌ Error: %s" err.Message
 
 printfn ""
 printfn ""
@@ -306,8 +306,8 @@ match solve mlTuningProblem with
     printfn "    Search space: 128 configurations"
     printfn "    Quantum advantage: √128 ≈ 11× fewer training runs"
 
-| Error msg ->
-    printfn "❌ Error: %s" msg
+| Error err ->
+    printfn "❌ Error: %s" err.Message
 
 printfn ""
 printfn ""
@@ -420,8 +420,8 @@ match solve featureSelectionProblem with
     printfn "    Search space: 256 feature subsets"
     printfn "    Quantum advantage: √256 = 16× fewer model trainings"
 
-| Error msg ->
-    printfn "❌ Error: %s" msg
+| Error err ->
+    printfn "❌ Error: %s" err.Message
 
 printfn ""
 printfn ""

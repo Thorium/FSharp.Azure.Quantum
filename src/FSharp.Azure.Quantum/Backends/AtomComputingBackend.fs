@@ -1,4 +1,5 @@
 namespace FSharp.Azure.Quantum.Core
+open FSharp.Azure.Quantum.Core
 
 open System
 open System.IO

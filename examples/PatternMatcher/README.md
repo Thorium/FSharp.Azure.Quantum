@@ -98,7 +98,7 @@ let problem = patternMatcher {
 
 match solve problem with
 | Ok result -> printfn "Found %d matches" result.Matches.Length
-| Error msg -> printfn "Error: %s" msg
+| Error err -> printfn "Error: %s" err.Message
 ```
 
 ## Related Examples

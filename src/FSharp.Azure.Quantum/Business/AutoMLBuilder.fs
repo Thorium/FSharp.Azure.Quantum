@@ -1,5 +1,6 @@
 namespace FSharp.Azure.Quantum.Business
 
+open FSharp.Azure.Quantum.Core
 open System
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.MachineLearning
@@ -222,26 +223,26 @@ module AutoML =
     // VALIDATION
     // ========================================================================
     
-    let private validateProblem (problem: AutoMLProblem) : Result<unit, string> =
+    let private validateProblem (problem: AutoMLProblem) : QuantumResult<unit> =
         if problem.TrainFeatures.Length = 0 then
-            Error "Training features cannot be empty"
+            Error (QuantumError.ValidationError ("Input", "Training features cannot be empty"))
         elif problem.TrainLabels.Length = 0 then
-            Error "Training labels cannot be empty"
+            Error (QuantumError.ValidationError ("Input", "Training labels cannot be empty"))
         elif problem.TrainFeatures.Length <> problem.TrainLabels.Length then
-            Error $"Feature count ({problem.TrainFeatures.Length}) must match label count ({problem.TrainLabels.Length})"
+            Error (QuantumError.ValidationError ("Input", $"Feature count ({problem.TrainFeatures.Length}) must match label count ({problem.TrainLabels.Length})"))
         elif problem.TrainFeatures |> Array.exists (fun f -> f.Length = 0) then
-            Error "All feature arrays must have at least one element"
+            Error (QuantumError.ValidationError ("Input", "All feature arrays must have at least one element"))
         elif problem.TrainFeatures |> Array.map Array.length |> Array.distinct |> Array.length > 1 then
-            Error "All feature arrays must have the same length"
+            Error (QuantumError.ValidationError ("Input", "All feature arrays must have the same length"))
         elif problem.MaxTrials <= 0 then
-            Error "MaxTrials must be positive"
+            Error (QuantumError.ValidationError ("Input", "MaxTrials must be positive"))
         elif problem.ValidationSplit <= 0.0 || problem.ValidationSplit >= 1.0 then
-            Error "ValidationSplit must be between 0 and 1"
+            Error (QuantumError.ValidationError ("Input", "ValidationSplit must be between 0 and 1"))
         elif not (problem.TryBinaryClassification || problem.TryMultiClass.IsSome || 
                   problem.TryAnomalyDetection || problem.TryRegression || problem.TrySimilaritySearch) then
-            Error "At least one model type must be enabled"
+            Error (QuantumError.ValidationError ("Input", "At least one model type must be enabled"))
         elif problem.TryArchitectures.IsEmpty then
-            Error "At least one architecture must be enabled"
+            Error (QuantumError.ValidationError ("Input", "At least one architecture must be enabled"))
         else
             Ok ()
     
@@ -287,7 +288,7 @@ module AutoML =
     let private tryBinaryClassificationModel 
         (trainX: float array array) (trainY: int array)
         (arch: Architecture) (hyperparams: HyperparameterConfig)
-        (backend: IQuantumBackend option) : Result<BinaryClassifier.Classifier, string> =
+        (backend: IQuantumBackend option) : QuantumResult<BinaryClassifier.Classifier> =
         
         let problem : BinaryClassifier.ClassificationProblem = {
             TrainFeatures = trainX
@@ -314,7 +315,7 @@ module AutoML =
     let private tryMultiClassModel
         (trainX: float array array) (trainY: int array) (numClasses: int)
         (arch: Architecture) (hyperparams: HyperparameterConfig)
-        (backend: IQuantumBackend option) : Result<PredictiveModel.Model, string> =
+        (backend: IQuantumBackend option) : QuantumResult<PredictiveModel.Model> =
         
         let problem : PredictiveModel.PredictionProblem = {
             TrainFeatures = trainX
@@ -342,7 +343,7 @@ module AutoML =
     let private tryRegressionModel
         (trainX: float array array) (trainY: float array)
         (arch: Architecture) (hyperparams: HyperparameterConfig)
-        (backend: IQuantumBackend option) : Result<PredictiveModel.Model, string> =
+        (backend: IQuantumBackend option) : QuantumResult<PredictiveModel.Model> =
         
         let problem : PredictiveModel.PredictionProblem = {
             TrainFeatures = trainX
@@ -370,7 +371,7 @@ module AutoML =
     let private tryAnomalyDetectionModel
         (trainX: float array array)
         (arch: Architecture) (hyperparams: HyperparameterConfig)
-        (backend: IQuantumBackend option) : Result<AnomalyDetector.Detector, string> =
+        (backend: IQuantumBackend option) : QuantumResult<AnomalyDetector.Detector> =
         
         let problem : AnomalyDetector.DetectionProblem = {
             NormalData = trainX
@@ -390,7 +391,7 @@ module AutoML =
     let private trySimilaritySearchModel
         (trainX: float array array)
         (hyperparams: HyperparameterConfig)
-        (backend: IQuantumBackend option) : Result<SimilaritySearch.SearchIndex<obj>, string> =
+        (backend: IQuantumBackend option) : QuantumResult<SimilaritySearch.SearchIndex<obj>> =
         
         // Create indexed items (boxed item index, features)
         let items = trainX |> Array.mapi (fun i features -> (box i, features))
@@ -483,7 +484,7 @@ module AutoML =
     // ========================================================================
     
     /// Run AutoML search to find best model
-    let search (problem: AutoMLProblem) : Result<AutoMLResult, string> =
+    let search (problem: AutoMLProblem) : QuantumResult<AutoMLResult> =
         validateProblem problem
         |> Result.bind (fun () ->
             
@@ -618,9 +619,9 @@ module AutoML =
                                         
                                         // Report trial failure
                                         reporter |> Option.iter (fun r ->
-                                            r.Report(Core.Progress.TrialFailed(trial.Id + 1, e)))
+                                            r.Report(Core.Progress.TrialFailed(trial.Id + 1, e.Message)))
                                         
-                                        Ok (createFailureResult e)
+                                        Ok (createFailureResult e.Message)
                             
                             // Multi-Class Classification
                             | MultiClassClassification numClasses ->
@@ -640,7 +641,7 @@ module AutoML =
                                     | Error e ->
                                         if problem.Verbose then
                                             printfn $"  ❌ Failed: {e}"
-                                        Ok (createFailureResult e)
+                                        Ok (createFailureResult e.Message)
                             
                             // Regression
                             | Regression ->
@@ -657,7 +658,7 @@ module AutoML =
                                     | Error e ->
                                         if problem.Verbose then
                                             printfn $"  ❌ Failed: {e}"
-                                        Ok (createFailureResult e)
+                                        Ok (createFailureResult e.Message)
                             
                             // Anomaly Detection
                             | AnomalyDetection ->
@@ -690,7 +691,7 @@ module AutoML =
                                     | Error e ->
                                         if problem.Verbose then
                                             printfn $"  ❌ Failed: {e}"
-                                        Ok (createFailureResult e)
+                                        Ok (createFailureResult e.Message)
                             
                             // Similarity Search
                             | SimilaritySearch ->
@@ -715,7 +716,7 @@ module AutoML =
                                     | Error e ->
                                         if problem.Verbose then
                                             printfn $"  ❌ Failed: {e}"
-                                        Ok (createFailureResult e)
+                                        Ok (createFailureResult e.Message)
                             
                         with ex ->
                             if problem.Verbose then
@@ -799,7 +800,7 @@ module AutoML =
                 Ok result
             
             | _ ->
-                Error "All trials failed - no model could be trained successfully")
+                Error (QuantumError.OperationError ("Operation", "All trials failed - no model could be trained successfully")))
     
     
     // ========================================================================
@@ -807,7 +808,7 @@ module AutoML =
     // ========================================================================
     
     /// Predict with AutoML result (wrapper for underlying model)
-    let predict (features: float array) (result: AutoMLResult) : Result<Prediction, string> =
+    let predict (features: float array) (result: AutoMLResult) : QuantumResult<Prediction> =
         try
             match result.BestModelType with
             | name when name.StartsWith("Binary") ->
@@ -839,7 +840,7 @@ module AutoML =
                 // For similarity search, we need an item from the index
                 // Use the first item in the index as a fallback
                 if searchIndex.Items.Length = 0 then
-                    Error "Similarity search index is empty"
+                    Error (QuantumError.ValidationError ("Input", "Similarity search index is empty"))
                 else
                     let firstItem, _ = searchIndex.Items.[0]
                     // Limit topN to number of items minus 1 (exclude query itself)
@@ -849,9 +850,9 @@ module AutoML =
                     | Error e -> Error e
             
             | _ ->
-                Error $"Unsupported model type: {result.BestModelType}"
+                Error (QuantumError.ValidationError ("Input", $"Unsupported model type: {result.BestModelType}"))
         with ex ->
-            Error $"Prediction failed: {ex.Message}"
+            Error (QuantumError.ValidationError ("Input", $"Prediction failed: {ex.Message}"))
     
     // ========================================================================
     // COMPUTATION EXPRESSION BUILDER
@@ -883,7 +884,7 @@ module AutoML =
         
         member _.Delay(f: unit -> AutoMLProblem) = f
         
-        member _.Run(f: unit -> AutoMLProblem) : Result<AutoMLResult, string> =
+        member _.Run(f: unit -> AutoMLProblem) : QuantumResult<AutoMLResult> =
             let problem = f()
             search problem
         

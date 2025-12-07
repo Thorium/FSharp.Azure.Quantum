@@ -1,4 +1,5 @@
 namespace FSharp.Azure.Quantum.Backends
+open FSharp.Azure.Quantum.Core
 
 open System
 open System.Collections.Generic
@@ -239,11 +240,11 @@ module AzureQuantumWorkspace =
             Credential = Some credential
         }
     
-    let createFromEnvironment() : Result<QuantumWorkspace, string> =
+    let createFromEnvironment() : QuantumResult<QuantumWorkspace> =
         try
             let getEnvVar name =
                 match Environment.GetEnvironmentVariable(name) with
-                | null | "" -> Error $"Environment variable {name} not set"
+                | null | "" -> Error (QuantumError.ValidationError ("Configuration", $"Environment variable {name} not set"))
                 | value -> Ok value
             
             match getEnvVar "AZURE_QUANTUM_SUBSCRIPTION_ID",
@@ -253,4 +254,4 @@ module AzureQuantumWorkspace =
             | Ok sub, Ok rg, Ok ws, Ok loc -> Ok (createDefault sub rg ws loc)
             | Error msg, _, _, _ | _, Error msg, _, _ | _, _, Error msg, _ | _, _, _, Error msg -> Error msg
         with ex ->
-            Error $"Failed to create workspace from environment: {ex.Message}"
+            Error (QuantumError.OperationError ("Workspace creation", $"Failed: {ex.Message}"))

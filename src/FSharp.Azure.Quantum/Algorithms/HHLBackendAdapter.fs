@@ -1,6 +1,7 @@
 namespace FSharp.Azure.Quantum.Algorithms
 
 open System
+open FSharp.Azure.Quantum.Core
 open System.Numerics
 
 /// HHL Backend Adapter Module
@@ -219,7 +220,7 @@ module HHLBackendAdapter =
     /// 3. Eigenvalue inversion: Rotation on ancilla ∝ 1/λ
     /// 4. QPE backward: Forward QFT + inverse controlled-U + H (uncompute)
     /// 5. Measurement: ancilla + |b⟩ register
-    let hhlToCircuit (config: HHLConfig) : Result<Circuit, string> =
+    let hhlToCircuit (config: HHLConfig) : QuantumResult<Circuit> =
         try
             let clockQubits = config.EigenvalueQubits
             let bQubits = config.SolutionQubits
@@ -229,7 +230,7 @@ module HHLBackendAdapter =
             let totalQubits = clockQubits + bQubits + 1
             
             if totalQubits > 20 then
-                Error $"HHL requires {totalQubits} qubits which exceeds practical limit of 20"
+                Error (QuantumError.Other $"HHL requires {totalQubits} qubits which exceeds practical limit of 20")
             else
                 // ✅ Now supports both diagonal and non-diagonal matrices!
                 let useTrotterSuzuki = not config.Matrix.IsDiagonal
@@ -289,7 +290,7 @@ module HHLBackendAdapter =
                 }
                 
                 match qftToCircuit qftConfig with
-                | Error msg -> Error $"Failed to create inverse QFT: {msg}"
+                | Error err -> Error (QuantumError.OperationError ("QFT circuit creation", $"Failed to create inverse QFT: {err.Message}"))
                 | Ok inverseQftCircuit ->
                     // Offset QFT gates to clock register
                     let qftGates = getGates inverseQftCircuit
@@ -312,12 +313,16 @@ module HHLBackendAdapter =
                             | RY (q, angle) -> RY (q + clockStart, angle)
                             | RZ (q, angle) -> RZ (q + clockStart, angle)
                             | P (q, angle) -> P (q + clockStart, angle)
+                            | U3 (q, theta, phi, lambda) -> U3 (q + clockStart, theta, phi, lambda)
                             
                             // Two-qubit gates
                             | CNOT (c, t) -> CNOT (c + clockStart, t + clockStart)
                             | CZ (c, t) -> CZ (c + clockStart, t + clockStart)
                             | SWAP (q1, q2) -> SWAP (q1 + clockStart, q2 + clockStart)
                             | CP (c, t, angle) -> CP (c + clockStart, t + clockStart, angle)
+                            | CRX (c, t, angle) -> CRX (c + clockStart, t + clockStart, angle)
+                            | CRY (c, t, angle) -> CRY (c + clockStart, t + clockStart, angle)
+                            | CRZ (c, t, angle) -> CRZ (c + clockStart, t + clockStart, angle)
                             
                             // Three-qubit gates
                             | CCX (c1, c2, t) -> CCX (c1 + clockStart, c2 + clockStart, t + clockStart)
@@ -356,7 +361,7 @@ module HHLBackendAdapter =
                     // Step 4a: Apply forward QFT
                     let forwardQftConfig = { qftConfig with Inverse = false }
                     match qftToCircuit forwardQftConfig with
-                    | Error msg -> Error $"Failed to create forward QFT: {msg}"
+                    | Error err -> Error (QuantumError.OperationError ("QFT circuit creation", $"Failed to create forward QFT: {err.Message}"))
                     | Ok forwardQftCircuit ->
                         let fwdQftGates = getGates forwardQftCircuit
                         let offsetFwdQftGates = 
@@ -378,12 +383,16 @@ module HHLBackendAdapter =
                                 | RY (q, angle) -> RY (q + clockStart, angle)
                                 | RZ (q, angle) -> RZ (q + clockStart, angle)
                                 | P (q, angle) -> P (q + clockStart, angle)
+                                | U3 (q, theta, phi, lambda) -> U3 (q + clockStart, theta, phi, lambda)
                                 
                                 // Two-qubit gates
                                 | CNOT (c, t) -> CNOT (c + clockStart, t + clockStart)
                                 | CZ (c, t) -> CZ (c + clockStart, t + clockStart)
                                 | SWAP (q1, q2) -> SWAP (q1 + clockStart, q2 + clockStart)
                                 | CP (c, t, angle) -> CP (c + clockStart, t + clockStart, angle)
+                                | CRX (c, t, angle) -> CRX (c + clockStart, t + clockStart, angle)
+                                | CRY (c, t, angle) -> CRY (c + clockStart, t + clockStart, angle)
+                                | CRZ (c, t, angle) -> CRZ (c + clockStart, t + clockStart, angle)
                                 
                                 // Three-qubit gates
                                 | CCX (c1, c2, t) -> CCX (c1 + clockStart, c2 + clockStart, t + clockStart)
@@ -428,7 +437,7 @@ module HHLBackendAdapter =
                         
                         Ok finalCircuit
         with
-        | ex -> Error $"HHL circuit synthesis failed: {ex.Message}"
+        | ex -> Error (QuantumError.Other $"HHL circuit synthesis failed: {ex.Message}")
     
     // ========================================================================
     // BACKEND EXECUTION
@@ -441,7 +450,7 @@ module HHLBackendAdapter =
         (shots: int) : Async<Result<Map<string, int>, string>> = async {
         
         match hhlToCircuit config with
-        | Error msg -> return Error msg
+        | Error err -> return Error err.Message
         | Ok circuit ->
             try
                 let circuitWrapper = CircuitWrapper(circuit)
@@ -449,7 +458,7 @@ module HHLBackendAdapter =
                 let! execResult = backend.ExecuteAsync circuitWrapper shots
                 
                 match execResult with
-                | Error msg -> return Error $"Backend execution failed: {msg}"
+                | Error err -> return Error $"Backend execution failed: {err.Message}"
                 | Ok execResult ->
                     let outcomes = 
                         execResult.Measurements
@@ -548,15 +557,15 @@ module HHLBackendAdapter =
         (shots: int) : Result<Map<int, float>, string> =
         
         match HHLTypes.createHermitianMatrix matrix with
-        | Error msg -> Error msg
+        | Error err -> Error err.Message
         | Ok hermitianMatrix ->
             match HHLTypes.createQuantumVector vector with
-            | Error msg -> Error msg
+            | Error err -> Error err.Message
             | Ok inputVector ->
                 let config = HHLTypes.defaultConfig hermitianMatrix inputVector
                 
                 match executeWithBackend config backend shots with
-                | Error msg -> Error msg
+                | Error err -> Error err
                 | Ok measurements ->
                     let solution = extractSolutionFromMeasurements
                                     measurements
@@ -573,15 +582,15 @@ module HHLBackendAdapter =
         (shots: int) : Result<Map<int, float>, string> =
         
         match HHLTypes.createDiagonalMatrix eigenvalues with
-        | Error msg -> Error msg
+        | Error err -> Error err.Message
         | Ok matrix ->
             match HHLTypes.createQuantumVector vector with
-            | Error msg -> Error msg
+            | Error err -> Error err.Message
             | Ok inputVector ->
                 let config = HHLTypes.defaultConfig matrix inputVector
                 
                 match executeWithBackend config backend shots with
-                | Error msg -> Error msg
+                | Error err -> Error err
                 | Ok measurements ->
                     let solution = extractSolutionFromMeasurements
                                     measurements

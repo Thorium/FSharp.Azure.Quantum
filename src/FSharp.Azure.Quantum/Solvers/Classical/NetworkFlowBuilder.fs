@@ -245,7 +245,7 @@ module NetworkFlow =
     /// 
     /// RETURNS:
     ///   Result with FlowSolution (routes, cost, fill rate) or error message
-    let solve (problem: NetworkFlowProblem) (backend: BackendAbstraction.IQuantumBackend option) : Result<FlowSolution, string> =
+    let solve (problem: NetworkFlowProblem) (backend: BackendAbstraction.IQuantumBackend option) : QuantumResult<FlowSolution> =
         try
             // Use provided backend or create LocalBackend for simulation
             let actualBackend = 
@@ -257,12 +257,12 @@ module NetworkFlow =
             
             // Call quantum network flow solver with default shots
             match QuantumNetworkFlowSolver.solveWithShots actualBackend quantumProblem 1000 with
-            | Error msg -> Error $"Quantum Network Flow solve failed: {msg}"
+            | Error err -> Error err  // Quantum Network Flow solve failed
             | Ok quantumResult ->
                 let solution = fromQuantumSolution quantumResult
                 Ok solution
         with
-        | ex -> Error $"Network Flow solve failed: {ex.Message}"
+        | ex -> Error (QuantumError.OperationError ("Network Flow solve failed: ", $"Failed: {ex.Message}"))
 
     /// Convenience function: Create problem and solve in one step using quantum optimization
     /// 
@@ -283,6 +283,6 @@ module NetworkFlow =
     ///       NetworkFlow.createRoute "S1" "C1" 10.0
     ///   ]
     ///   let solution = NetworkFlow.solveDirectly nodes routes None
-    let solveDirectly (nodes: Node list) (routes: Route list) (backend: BackendAbstraction.IQuantumBackend option) : Result<FlowSolution, string> =
+    let solveDirectly (nodes: Node list) (routes: Route list) (backend: BackendAbstraction.IQuantumBackend option) : QuantumResult<FlowSolution> =
         let problem = createProblem nodes routes
         solve problem backend

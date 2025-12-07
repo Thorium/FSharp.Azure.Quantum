@@ -251,8 +251,8 @@ module HybridSolverTests =
         match result with
         | Ok _ -> Assert.Fail("Expected Error when forcing quantum without config")
         | Error msg ->
-            Assert.Contains("quantum", msg.ToLower())
-            Assert.Contains("configuration", msg.ToLower())
+            Assert.Contains("quantum", msg.Message.ToLower())
+            Assert.Contains("configuration", msg.Message.ToLower())
 
     // ============================================================================
     // RESULT COMPARISON TESTS

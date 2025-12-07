@@ -1,5 +1,6 @@
 namespace FSharp.Azure.Quantum.Business
 
+open FSharp.Azure.Quantum.Core
 open System
 open System.IO
 open System.Text.Json
@@ -160,13 +161,13 @@ module SimilaritySearch =
     // ========================================================================
     
     /// Validate search problem
-    let private validate (problem: SearchProblem<'T>) : Result<unit, string> =
+    let private validate (problem: SearchProblem<'T>) : QuantumResult<unit> =
         if problem.Items.Length = 0 then
-            Error "Items cannot be empty"
+            Error (QuantumError.ValidationError ("Input", "Items cannot be empty"))
         elif problem.Threshold < 0.0 || problem.Threshold > 1.0 then
-            Error "Threshold must be between 0.0 and 1.0"
+            Error (QuantumError.ValidationError ("Input", "Threshold must be between 0.0 and 1.0"))
         elif problem.Shots < 1 then
-            Error "Shots must be at least 1"
+            Error (QuantumError.ValidationError ("Input", "Shots must be at least 1"))
         else
             let numFeatures = snd problem.Items.[0] |> Array.length
             let allSameLength = 
@@ -174,7 +175,7 @@ module SimilaritySearch =
                 |> Array.forall (fun (_, features) -> features.Length = numFeatures)
             
             if not allSameLength then
-                Error "All feature vectors must have the same length"
+                Error (QuantumError.ValidationError ("Input", "All feature vectors must have the same length"))
             else
                 Ok ()
     
@@ -211,7 +212,7 @@ module SimilaritySearch =
         (shots: int)
         (a: float array)
         (b: float array)
-        : Result<float, string> =
+        : QuantumResult<float> =
         
         QuantumKernels.computeKernel backend featureMap a b shots
     
@@ -220,7 +221,7 @@ module SimilaritySearch =
     // ========================================================================
     
     /// Build similarity search index
-    let build (problem: SearchProblem<'T>) : Result<SearchIndex<'T>, string> =
+    let build (problem: SearchProblem<'T>) : QuantumResult<SearchIndex<'T>> =
         match validate problem with
         | Error e -> Error e
         | Ok () ->
@@ -259,7 +260,7 @@ module SimilaritySearch =
                     | Ok matrix -> Some matrix
                     | Error e ->
                         if problem.Verbose then
-                            printfn "  ⚠️  Warning: Kernel computation failed: %s" e
+                            printfn "  ⚠️  Warning: Kernel computation failed: %s" e.Message
                             printfn "  Falling back to cosine similarity"
                         None
                 
@@ -296,7 +297,7 @@ module SimilaritySearch =
         (queryFeatures: float array)
         (topN: int)
         (index: SearchIndex<'T>)
-        : Result<SearchResults<'T>, string> =
+        : QuantumResult<SearchResults<'T>> =
         
         let startTime = DateTime.UtcNow
         
@@ -363,7 +364,7 @@ module SimilaritySearch =
     let findAllSimilar
         (queryFeatures: float array)
         (index: SearchIndex<'T>)
-        : Result<Match<'T> array, string> =
+        : QuantumResult<Match<'T> array> =
         
         // Compute similarities for all items
         let similarities =
@@ -405,10 +406,10 @@ module SimilaritySearch =
     let findDuplicates
         (threshold: float)
         (index: SearchIndex<'T>)
-        : Result<DuplicateGroup<'T> array, string> =
+        : QuantumResult<DuplicateGroup<'T> array> =
         
         if threshold < 0.0 || threshold > 1.0 then
-            Error "Threshold must be between 0.0 and 1.0"
+            Error (QuantumError.ValidationError ("Threshold", "must be between 0.0 and 1.0"))
         else
             // Compute all pairwise similarities using functional approach
             let n = index.Items.Length
@@ -473,12 +474,12 @@ module SimilaritySearch =
         (numClusters: int)
         (maxIterations: int)
         (index: SearchIndex<'T>)
-        : Result<('T array) array, string> =
+        : QuantumResult<('T array) array> =
         
         if numClusters < 1 then
-            Error "Number of clusters must be at least 1"
+            Error (QuantumError.ValidationError ("Input", "Number of clusters must be at least 1"))
         elif numClusters > index.Items.Length then
-            Error "Number of clusters cannot exceed number of items"
+            Error (QuantumError.Other "Number of clusters cannot exceed number of items")
         else
             // Simple k-means clustering
             let random = Random(42)
@@ -582,7 +583,7 @@ module SimilaritySearch =
     }
     
     /// Save index to file (feature vectors only - items not serialized)
-    let save (path: string) (index: SearchIndex<'T>) : Result<unit, string> =
+    let save (path: string) (index: SearchIndex<'T>) : QuantumResult<unit> =
         try
             let metricName =
                 match index.Metric with
@@ -615,7 +616,7 @@ module SimilaritySearch =
             File.WriteAllText(path, json)
             Ok ()
         with ex ->
-            Error $"Failed to save index: {ex.Message}"
+            Error (QuantumError.ValidationError ("Input", $"Failed to save index: {ex.Message}"))
     
     /// Load index from file and re-associate with items
     ///
@@ -625,17 +626,17 @@ module SimilaritySearch =
     ///
     /// Example:
     ///   let index = SimilaritySearch.load "index.json" products
-    let loadWithItems (path: string) (items: 'T array) : Result<SearchIndex<'T>, string> =
+    let loadWithItems (path: string) (items: 'T array) : QuantumResult<SearchIndex<'T>> =
         try
             if not (File.Exists path) then
-                Error $"File not found: {path}"
+                Error (QuantumError.ValidationError ("Input", $"File not found: {path}"))
             else
                 let json = File.ReadAllText(path)
                 let serializable = JsonSerializer.Deserialize<SerializableIndex>(json)
                 
                 // Validate items match feature vectors
                 if items.Length <> serializable.Features.Length then
-                    Error $"Item count mismatch: provided {items.Length} items but index has {serializable.Features.Length} feature vectors"
+                    Error (QuantumError.ValidationError ("Input", $"Item count mismatch: provided {items.Length} items but index has {serializable.Features.Length} feature vectors"))
                 else
                     // Parse metric
                     let metric =
@@ -671,11 +672,11 @@ module SimilaritySearch =
                         }
                     }
         with ex ->
-            Error $"Failed to load index: {ex.Message}"
+            Error (QuantumError.ValidationError ("Input", $"Failed to load index: {ex.Message}"))
     
     /// Load index from file (deprecated - use loadWithItems instead)
-    let load (path: string) : Result<SearchIndex<'T>, string> =
-        Error "Cannot load index without items. Use loadWithItems and provide the items array."
+    let load (path: string) : QuantumResult<SearchIndex<'T>> =
+        Error (QuantumError.Other "Cannot load index without items. Use loadWithItems and provide the items array.")
     
     // ========================================================================
     // COMPUTATION EXPRESSION BUILDER
@@ -700,7 +701,7 @@ module SimilaritySearch =
         
         member _.Delay(f: unit -> SearchProblem<'T>) = f
         
-        member _.Run(f: unit -> SearchProblem<'T>) : Result<SearchIndex<'T>, string> =
+        member _.Run(f: unit -> SearchProblem<'T>) : QuantumResult<SearchIndex<'T>> =
             let problem = f()
             build problem
         

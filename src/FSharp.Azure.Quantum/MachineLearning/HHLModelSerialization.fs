@@ -1,5 +1,7 @@
 namespace FSharp.Azure.Quantum.MachineLearning
 
+open FSharp.Azure.Quantum.Core
+
 /// HHL Model Serialization
 ///
 /// Provides save/load functionality for trained HHL regression models.
@@ -62,7 +64,7 @@ module HHLModelSerialization =
         (hasIntercept: bool)
         (conditionNumber: float option)
         (note: string option)
-        : Result<unit, string> =
+        : QuantumResult<unit> =
         
         try
             let model = {
@@ -86,7 +88,7 @@ module HHLModelSerialization =
             
             Ok ()
         with ex ->
-            Error $"Failed to save HHL model: {ex.Message}"
+            Error (QuantumError.ValidationError ("Input", $"Failed to save HHL model: {ex.Message}"))
     
     /// Save HHL regression result with metadata
     ///
@@ -95,7 +97,7 @@ module HHLModelSerialization =
         (filePath: string)
         (result: QuantumRegressionHHL.RegressionResult)
         (note: string option)
-        : Result<unit, string> =
+        : QuantumResult<unit> =
         
         saveHHLModel
             filePath
@@ -114,24 +116,24 @@ module HHLModelSerialization =
     /// Returns: Serializable HHL model with all metadata
     let loadHHLModel
         (filePath: string)
-        : Result<SerializableHHLModel, string> =
+        : QuantumResult<SerializableHHLModel> =
         
         try
             if not (File.Exists filePath) then
-                Error $"File not found: {filePath}"
+                Error (QuantumError.ValidationError ("Input", $"File not found: {filePath}"))
             else
                 let json = File.ReadAllText(filePath)
                 let model = JsonSerializer.Deserialize<SerializableHHLModel>(json)
                 Ok model
         with ex ->
-            Error $"Failed to load HHL model: {ex.Message}"
+            Error (QuantumError.ValidationError ("Input", $"Failed to load HHL model: {ex.Message}"))
     
     /// Load HHL model and reconstruct RegressionResult
     ///
     /// Convenience function for full deserialization
     let loadHHLRegressionResult
         (filePath: string)
-        : Result<QuantumRegressionHHL.RegressionResult, string> =
+        : QuantumResult<QuantumRegressionHHL.RegressionResult> =
         
         loadHHLModel filePath
         |> Result.map (fun model ->
@@ -149,7 +151,7 @@ module HHLModelSerialization =
     /// Print HHL model information to console
     let printHHLModelInfo
         (filePath: string)
-        : Result<unit, string> =
+        : QuantumResult<unit> =
         
         match loadHHLModel filePath with
         | Error e -> Error e

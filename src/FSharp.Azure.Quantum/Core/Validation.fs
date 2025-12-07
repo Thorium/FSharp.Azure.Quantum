@@ -1,5 +1,7 @@
 namespace FSharp.Azure.Quantum
 
+open FSharp.Azure.Quantum.Core
+
 /// <summary>
 /// Shared validation utilities used across FSharp.Azure.Quantum modules
 /// </summary>
@@ -43,13 +45,16 @@ module Validation =
         { IsValid = allValid; Messages = allMessages }
 
     /// <summary>
-    /// Map validation result to Result&lt;'T, string list&gt;
+    /// Map validation result to Result&lt;'T, QuantumError&gt;
+    /// 
+    /// Converts validation failures to ValidationError with field name and combined reason
     /// </summary>
-    let toResult (value: 'T) (validation: ValidationResult) : Result<'T, string list> =
+    let toResult (field: string) (value: 'T) (validation: ValidationResult) : Result<'T, QuantumError> =
         if validation.IsValid then
             Ok value
         else
-            Error validation.Messages
+            let combinedReason = String.concat "; " validation.Messages
+            Error (QuantumError.ValidationError(field, combinedReason))
 
     /// <summary>
     /// Format validation errors as a multi-line string

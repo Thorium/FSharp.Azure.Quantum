@@ -25,6 +25,7 @@ module RealDWaveBackend =
     open System.Threading.Tasks
     open FSharp.Azure.Quantum.Core.CircuitAbstraction
     open FSharp.Azure.Quantum.Core.BackendAbstraction
+    open FSharp.Azure.Quantum.Core
     open FSharp.Azure.Quantum.Algorithms.QuboExtraction
     open FSharp.Azure.Quantum.Algorithms.QuboToIsing
     open FSharp.Azure.Quantum.Backends.DWaveTypes
@@ -49,7 +50,7 @@ module RealDWaveBackend =
     }
     
     /// Create default D-Wave configuration from environment variables
-    let defaultConfig () : Result<DWaveConfig, string> =
+    let defaultConfig () : QuantumResult<DWaveConfig> =
         let apiToken = Environment.GetEnvironmentVariable("DWAVE_API_TOKEN")
         let endpoint = 
             let env = Environment.GetEnvironmentVariable("DWAVE_ENDPOINT")
@@ -64,7 +65,7 @@ module RealDWaveBackend =
             else env
         
         if String.IsNullOrEmpty(apiToken) then
-            Error "DWAVE_API_TOKEN environment variable not set"
+            Error (QuantumError.ValidationError ("Configuration", "DWAVE_API_TOKEN environment variable not set"))
         else
             Ok {
                 ApiToken = apiToken
@@ -219,12 +220,12 @@ module RealDWaveBackend =
             else 5000  // Default
         
         /// Execute circuit on D-Wave hardware
-        member private _.ExecuteCore(circuit: ICircuit, numShots: int) : Async<Result<ExecutionResult, string>> =
+        member private _.ExecuteCore(circuit: ICircuit, numShots: int) : Async<Result<ExecutionResult, QuantumError>> =
             async {
                 // Extract QUBO from QAOA circuit
                 match extractFromICircuit circuit with
                 | Error e ->
-                    return Error $"Failed to extract QUBO from circuit: {e}"
+                    return Error (QuantumError.ValidationError ("QUBO extraction", $"Failed to extract QUBO from circuit: {e}"))
                 
                 | Ok qubo ->
                     // Convert QUBO to Ising
@@ -235,19 +236,19 @@ module RealDWaveBackend =
                     let maxQubits = getMaxQubits config.Solver
                     
                     if numQubits > maxQubits then
-                        return Error $"Problem requires {numQubits} qubits, but {config.Solver} supports max {maxQubits}"
+                        return Error (QuantumError.ValidationError ("qubit count", $"Problem requires {numQubits} qubits, but {config.Solver} supports max {maxQubits}"))
                     else
                         // Submit to D-Wave
                         let! submitResult = client.SubmitProblemAsync(ising, numShots)
                         
                         match submitResult with
-                        | Error e -> return Error e
+                        | Error e -> return Error (QuantumError.BackendError ("D-Wave Submit", e))
                         | Ok jobId ->
                             // Wait for completion
                             let! pollResult = client.PollJobAsync(jobId)
                             
                             match pollResult with
-                            | Error e -> return Error e
+                            | Error e -> return Error (QuantumError.BackendError ("D-Wave Poll", e))
                             | Ok solution ->
                                 // Convert solutions to measurements
                                 let measurements =
@@ -282,7 +283,7 @@ module RealDWaveBackend =
                 // Check cancellation before starting
                 match cancellationToken with
                 | Some token when token.IsCancellationRequested ->
-                    return Error "Operation cancelled before execution"
+                    return Error (QuantumError.BackendError ("D-Wave", "Operation cancelled before execution"))
                 | _ ->
                 return! this.ExecuteCore(circuit, numShots)
             }
@@ -294,7 +295,7 @@ module RealDWaveBackend =
                 // Check cancellation before starting
                 match cancellationToken with
                 | Some token when token.IsCancellationRequested ->
-                    Error "Operation cancelled before execution"
+                    Error (QuantumError.BackendError ("D-Wave", "Operation cancelled before execution"))
                 | _ ->
                 this.ExecuteCore(circuit, numShots) |> Async.RunSynchronously
             
@@ -336,12 +337,12 @@ module RealDWaveBackend =
     /// - DWAVE_ENDPOINT: API endpoint (optional, defaults to cloud.dwavesys.com)
     /// - DWAVE_SOLVER: Solver name (optional, defaults to Advantage_system6.1)
     ///
-    /// Returns: Result<IQuantumBackend, string>
+    /// Returns: QuantumResult<IQuantumBackend>
     ///
     /// Example:
     ///   match createFromEnv() with
     ///   | Ok backend -> backend.Execute circuit 1000
     ///   | Error msg -> printfn $"Error: {msg}"
-    let createFromEnv () : Result<IQuantumBackend, string> =
+    let createFromEnv () : QuantumResult<IQuantumBackend> =
         defaultConfig()
         |> Result.map create

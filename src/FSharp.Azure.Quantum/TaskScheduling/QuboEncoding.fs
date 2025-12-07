@@ -1,4 +1,5 @@
 namespace FSharp.Azure.Quantum.TaskScheduling
+open FSharp.Azure.Quantum.Core
 
 open FSharp.Azure.Quantum
 open Types
@@ -238,14 +239,14 @@ module QuboEncoding =
     let toQubo 
         (problem: SchedulingProblem<'TTask, 'TResource>) 
         (timeHorizon: int)
-        : Result<GraphOptimization.QuboMatrix, string> =
+        : QuantumResult<GraphOptimization.QuboMatrix> =
         
         let numTasks = problem.Tasks.Length
         
         if numTasks = 0 then
-            Error "No tasks to schedule"
+            Error (QuantumError.ValidationError ("Tasks", "No tasks to schedule"))
         elif timeHorizon <= 0 then
-            Error "Time horizon must be positive"
+            Error (QuantumError.ValidationError ("TimeHorizon", "Time horizon must be positive"))
         else
             // Create variable mappings functionally
             let (varMapping, _, numVariables) = createVariableMappings problem.Tasks timeHorizon

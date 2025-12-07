@@ -23,10 +23,16 @@ module CircuitBuilder =
         | RY of int * float           // Rotation around Y-axis (qubit, angle)
         | RZ of int * float           // Rotation around Z-axis (qubit, angle)
         
+        // Universal single-qubit gate
+        | U3 of int * float * float * float  // U3(θ, φ, λ) = RZ(φ) RY(θ) RZ(λ) on qubit
+        
         // Two-qubit gates
         | CNOT of int * int           // Controlled-NOT (control, target)
         | CZ of int * int             // Controlled-Z (control, target)
         | CP of int * int * float     // Controlled-P gate: CP(θ) applies P(θ) when control is |1⟩
+        | CRX of int * int * float    // Controlled-RX: CRX(θ) applies RX(θ) when control is |1⟩
+        | CRY of int * int * float    // Controlled-RY: CRY(θ) applies RY(θ) when control is |1⟩
+        | CRZ of int * int * float    // Controlled-RZ: CRZ(θ) applies RZ(θ) when control is |1⟩
         | SWAP of int * int           // SWAP two qubits (qubit1, qubit2)
         
         // Three-qubit gates
@@ -139,11 +145,15 @@ module CircuitBuilder =
             let controlsStr = controls |> List.map string |> String.concat ","
             $"// MCZ([{controlsStr}], {target}) - transpile to OpenQASM 2.0 compatible gates"
         | CP (c, t, theta) -> $"cp({theta}) q[{c}],q[{t}];"
+        | CRX (c, t, theta) -> $"crx({theta}) q[{c}],q[{t}];"
+        | CRY (c, t, theta) -> $"cry({theta}) q[{c}],q[{t}];"
+        | CRZ (c, t, theta) -> $"crz({theta}) q[{c}],q[{t}];"
         | SWAP (q1, q2) -> $"swap q[{q1}],q[{q2}];"
         | CCX (c1, c2, t) -> $"ccx q[{c1}],q[{c2}],q[{t}];"
         | RX (q, angle) -> $"rx({angle}) q[{q}];"
         | RY (q, angle) -> $"ry({angle}) q[{q}];"
         | RZ (q, angle) -> $"rz({angle}) q[{q}];"
+        | U3 (q, theta, phi, lambda) -> $"u3({theta},{phi},{lambda}) q[{q}];"
         | Measure q -> $"measure q[{q}];"
 
     /// Converts a circuit to OpenQASM 2.0 format for Azure Quantum submission
@@ -170,9 +180,13 @@ module CircuitBuilder =
         | RX _ -> "Rx"
         | RY _ -> "Ry"
         | RZ _ -> "Rz"
+        | U3 _ -> "U3"
         | CNOT _ -> "CNOT"
         | CZ _ -> "CZ"
         | CP _ -> "CP"
+        | CRX _ -> "CRX"
+        | CRY _ -> "CRY"
+        | CRZ _ -> "CRZ"
         | SWAP _ -> "SWAP"
         | CCX _ -> "CCX"
         | MCZ _ -> "MCZ"
@@ -192,9 +206,10 @@ module CircuitBuilder =
             match gate with
             | X q | Y q | Z q | H q | S q | SDG q | T q | TDG q | Measure q ->
                 validateQubit q |> Option.toList
-            | RX (q, _) | RY (q, _) | RZ (q, _) | P (q, _) ->
+            | RX (q, _) | RY (q, _) | RZ (q, _) | P (q, _) | U3 (q, _, _, _) ->
                 validateQubit q |> Option.toList
-            | CNOT (control, target) | CZ (control, target) | CP (control, target, _) ->
+            | CNOT (control, target) | CZ (control, target) | CP (control, target, _) 
+            | CRX (control, target, _) | CRY (control, target, _) | CRZ (control, target, _) ->
                 let errors = []
                 let errors = 
                     match validateQubit control with
@@ -607,3 +622,387 @@ module CircuitBuilder =
     
     /// Creates an MCZ (multi-controlled Z) gate - for use in for loops
     let mcz controls target = MCZ (controls, target)
+    
+    // ========================================================================
+    // COMPOSITION OPERATORS (Functional Extensions)
+    // ========================================================================
+    
+    /// Sequential composition operator (circuit1 followed by circuit2)
+    /// Alias for existing `compose` function
+    /// Example: let combined = bellState ++ measurement
+    let (++) = compose
+    
+    /// Right-pipe composition for fluent gate addition
+    /// Example: circuit |+ H 0 |+ CNOT(0, 1)
+    let (|+) (circuit: Circuit) (gate: Gate) : Circuit =
+        addGate gate circuit
+    
+    /// Apply circuit transformation
+    /// Example: circuit |>> optimize |>> validate
+    let (|>>) (circuit: Circuit) (transform: Circuit -> Circuit) : Circuit =
+        transform circuit
+    
+    // ========================================================================
+    // HIGHER-ORDER FUNCTIONS (Functional Combinators)
+    // ========================================================================
+    
+    /// Map function over all gates
+    /// Example: mapGates (fun g -> shiftQubit g 5) circuit
+    let mapGates (f: Gate -> Gate) (circuit: Circuit) : Circuit =
+        { circuit with Gates = List.map f circuit.Gates }
+    
+    /// Filter gates by predicate
+    /// Example: filterGates (fun g -> not (isMeasurement g)) circuit
+    let filterGates (predicate: Gate -> bool) (circuit: Circuit) : Circuit =
+        { circuit with Gates = List.filter predicate circuit.Gates }
+    
+    /// Fold over gates (left fold)
+    /// Example: foldGates (fun count gate -> count + 1) 0 circuit
+    let foldGates (folder: 'State -> Gate -> 'State) (state: 'State) (circuit: Circuit) : 'State =
+        List.fold folder state circuit.Gates
+    
+    /// Count gates matching predicate
+    /// Example: countGatesWhere (fun g -> match g with T _ -> true | _ -> false) circuit
+    let countGatesWhere (predicate: Gate -> bool) (circuit: Circuit) : int =
+        circuit.Gates |> List.filter predicate |> List.length
+    
+    /// Reverse circuit (creates inverse/adjoint circuit)
+    /// Useful for uncomputation in quantum algorithms
+    let reverse (circuit: Circuit) : Circuit =
+        let inverseGate (gate: Gate) : Gate =
+            match gate with
+            // Self-inverse gates
+            | H q -> H q
+            | X q -> X q
+            | Y q -> Y q
+            | Z q -> Z q
+            | CNOT (c, t) -> CNOT (c, t)
+            | CZ (c, t) -> CZ (c, t)
+            | SWAP (q1, q2) -> SWAP (q1, q2)
+            | CCX (c1, c2, t) -> CCX (c1, c2, t)
+            | MCZ (controls, target) -> MCZ (controls, target)
+            
+            // Inverse pairs
+            | S q -> SDG q
+            | SDG q -> S q
+            | T q -> TDG q
+            | TDG q -> T q
+            
+            // Rotations (negate angle)
+            | P (q, theta) -> P (q, -theta)
+            | RX (q, theta) -> RX (q, -theta)
+            | RY (q, theta) -> RY (q, -theta)
+            | RZ (q, theta) -> RZ (q, -theta)
+            | CP (c, t, theta) -> CP (c, t, -theta)
+            | CRX (c, t, theta) -> CRX (c, t, -theta)
+            | CRY (c, t, theta) -> CRY (c, t, -theta)
+            | CRZ (c, t, theta) -> CRZ (c, t, -theta)
+            
+            // U3 gate (negate all angles for inverse)
+            | U3 (q, theta, phi, lambda) -> U3 (q, -theta, -lambda, -phi)
+            
+            // Measurement not reversible (approximate as identity)
+            | Measure q -> Measure q
+        
+        { circuit with Gates = circuit.Gates |> List.rev |> List.map inverseGate }
+    
+    // ========================================================================
+    // COMMON CIRCUIT PATTERNS (Quantum Subroutines)
+    // ========================================================================
+    
+    /// Create Bell state circuit: |Φ+⟩ = (|00⟩ + |11⟩)/√2
+    /// The fundamental two-qubit entangled state
+    let bellState (q1: int) (q2: int) : Circuit =
+        empty (max q1 q2 + 1)
+        |> addGate (H q1)
+        |> addGate (CNOT(q1, q2))
+    
+    /// Create GHZ state: |GHZ_n⟩ = (|000...0⟩ + |111...1⟩)/√2
+    /// Maximally entangled state for n qubits
+    let ghzState (qubits: int list) : Circuit =
+        match qubits with
+        | [] -> empty 0
+        | first :: rest ->
+            let n = List.length qubits
+            let circuit = empty n |> addGate (H first)
+            rest |> List.fold (fun c q -> c |> addGate (CNOT(first, q))) circuit
+    
+    /// Create W state: |W_n⟩ = (|100...0⟩ + |010...0⟩ + ... + |000...1⟩)/√n
+    /// Another type of multi-qubit entangled state (not equivalent to GHZ)
+    let wState (n: int) : Circuit =
+        if n < 2 then
+            empty n
+        else
+            // Simplified W-state preparation (not perfect but demonstrates pattern)
+            let circuit = empty n |> addGate (H 0)
+            [0 .. n-2] 
+            |> List.fold (fun c i -> c |> addGate (CNOT(i, i+1))) circuit
+    
+    /// Quantum Fourier Transform (QFT) on specified qubits
+    /// The quantum analogue of the discrete Fourier transform
+    let qft (qubits: int list) : Circuit =
+        let n = List.length qubits
+        if n = 0 then
+            empty 0
+        else
+            let maxQubit = List.max qubits
+            let circuit = empty (maxQubit + 1)
+            
+            // QFT algorithm: for each qubit, apply H then controlled rotations
+            List.indexed qubits
+            |> List.fold (fun c (i, q) ->
+                // Apply Hadamard
+                let c1 = c |> addGate (H q)
+                
+                // Apply controlled phase rotations
+                qubits
+                |> List.skip (i + 1)
+                |> List.indexed
+                |> List.fold (fun c2 (j, target) ->
+                    let k = j + 1
+                    let angle = System.Math.PI / (2.0 ** float k)
+                    c2 |> addGate (CP(q, target, angle))
+                ) c1
+            ) circuit
+    
+    /// Inverse Quantum Fourier Transform
+    /// Used in quantum phase estimation and Shor's algorithm
+    let inverseQFT (qubits: int list) : Circuit =
+        qft qubits |> reverse
+    
+    /// SWAP gate using 3 CNOTs (for demonstration/education)
+    /// Note: SWAP is a primitive gate, but this shows decomposition
+    let swapViaCNOT (q1: int) (q2: int) : Circuit =
+        empty (max q1 q2 + 1)
+        |> addGate (CNOT(q1, q2))
+        |> addGate (CNOT(q2, q1))
+        |> addGate (CNOT(q1, q2))
+    
+    /// Toffoli (CCX) gate using Clifford+T decomposition
+    /// Standard fault-tolerant decomposition: 7 T gates, 8 CNOTs, 2 H
+    /// Critical for understanding fault-tolerant quantum computation cost
+    let toffoliViaCliffordT (c1: int) (c2: int) (target: int) : Circuit =
+        let maxQubit = max c1 (max c2 target)
+        empty (maxQubit + 1)
+        |> addGate (H target)
+        |> addGate (CNOT(c2, target))
+        |> addGate (TDG target)
+        |> addGate (CNOT(c1, target))
+        |> addGate (T target)
+        |> addGate (CNOT(c2, target))
+        |> addGate (TDG target)
+        |> addGate (CNOT(c1, target))
+        |> addGate (T c2)
+        |> addGate (T target)
+        |> addGate (CNOT(c1, c2))
+        |> addGate (H target)
+        |> addGate (T c1)
+        |> addGate (TDG c2)
+        |> addGate (CNOT(c1, c2))
+    
+    // ========================================================================
+    // GATE COMMUTATION ANALYSIS (For Optimization)
+    // ========================================================================
+    
+    /// Get qubits affected by a gate
+    let private getAffectedQubits (gate: Gate) : int list =
+        match gate with
+        | X q | Y q | Z q | H q -> [q]
+        | S q | SDG q | T q | TDG q -> [q]
+        | P (q, _) | RX (q, _) | RY (q, _) | RZ (q, _) -> [q]
+        | U3 (q, _, _, _) -> [q]
+        | CNOT (c, t) | CZ (c, t) -> [c; t]
+        | CP (c, t, _) -> [c; t]
+        | CRX (c, t, _) -> [c; t]
+        | CRY (c, t, _) -> [c; t]
+        | CRZ (c, t, _) -> [c; t]
+        | SWAP (c, t) -> [c; t]
+        | CCX (c1, c2, t) -> [c1; c2; t]
+        | MCZ (controls, target) -> controls @ [target]
+        | Measure q -> [q]
+    
+    /// Check if two gates act on disjoint qubits (always commute)
+    let private areDisjoint (gate1: Gate) (gate2: Gate) : bool =
+        let qubits1 = getAffectedQubits gate1 |> Set.ofList
+        let qubits2 = getAffectedQubits gate2 |> Set.ofList
+        Set.intersect qubits1 qubits2 |> Set.isEmpty
+    
+    /// Check if two gates commute (can be safely reordered)
+    /// Used for optimization: reordering gates to cancel inverses
+    let commute (gate1: Gate) (gate2: Gate) : bool =
+        // Disjoint gates always commute
+        if areDisjoint gate1 gate2 then
+            true
+        else
+            match gate1, gate2 with
+            // Z gates commute with each other on same qubit
+            | Z q1, Z q2 when q1 = q2 -> true
+            
+            // Z commutes with CNOT when Z is on control qubit
+            | Z c, CNOT (c', _) when c = c' -> true
+            | CNOT (c', _), Z c when c = c' -> true
+            
+            // X commutes with CNOT when X is on target qubit  
+            | X t, CNOT (_, t') when t = t' -> true
+            | CNOT (_, t'), X t when t = t' -> true
+            
+            // CZ is symmetric - commutes with Z on either qubit
+            | Z q, CZ (c, t) when q = c || q = t -> true
+            | CZ (c, t), Z q when q = c || q = t -> true
+            
+            // CZ gates commute with each other on same qubits (order doesn't matter)
+            | CZ (c1, t1), CZ (c2, t2) when (c1 = c2 && t1 = t2) || (c1 = t2 && t1 = c2) -> true
+            
+            // RZ rotations commute with Z gates (both are Z-axis operations)
+            | RZ (q1, _), Z q2 when q1 = q2 -> true
+            | Z q1, RZ (q2, _) when q1 = q2 -> true
+            
+            // RZ rotations commute with each other (already merged by optimize)
+            | RZ (q1, _), RZ (q2, _) when q1 = q2 -> true
+            
+            // Phase gates (S, T) commute with Z on same qubit
+            | S q1, Z q2 when q1 = q2 -> true
+            | Z q1, S q2 when q1 = q2 -> true
+            | T q1, Z q2 when q1 = q2 -> true
+            | Z q1, T q2 when q1 = q2 -> true
+            
+            // Default: gates don't commute (conservative approach)
+            | _ -> false
+    
+    // ========================================================================
+    // CIRCUIT STATISTICS (Useful for Rigetti workflows)
+    // ========================================================================
+    
+    /// Circuit statistics for analysis and optimization
+    type CircuitStatistics = {
+        TotalGates: int
+        SingleQubitGates: int
+        TwoQubitGates: int
+        MultiQubitGates: int
+        MeasurementCount: int
+        MaxQubitIndex: int
+        GateTypeCounts: Map<string, int>
+    }
+    
+    /// Compute comprehensive statistics for a circuit
+    /// Useful for analyzing circuit complexity before Rigetti execution
+    let statistics (circuit: Circuit) : CircuitStatistics =
+        let gates = circuit.Gates
+        
+        let singleQubitCount = gates |> List.filter (fun g -> (getAffectedQubits g).Length = 1) |> List.length
+        let twoQubitCount = gates |> List.filter (fun g -> (getAffectedQubits g).Length = 2) |> List.length
+        let multiQubitCount = gates |> List.filter (fun g -> (getAffectedQubits g).Length > 2) |> List.length
+        let measurementCount = gates |> List.filter (fun g -> match g with Measure _ -> true | _ -> false) |> List.length
+        
+        let maxQubit = 
+            gates 
+            |> List.collect getAffectedQubits
+            |> function
+                | [] -> 0
+                | qubits -> List.max qubits
+        
+        let gateTypeCounts =
+            gates
+            |> List.groupBy getGateName
+            |> List.map (fun (name, gateList) -> (name, List.length gateList))
+            |> Map.ofList
+        
+        {
+            TotalGates = gates.Length
+            SingleQubitGates = singleQubitCount
+            TwoQubitGates = twoQubitCount
+            MultiQubitGates = multiQubitCount
+            MeasurementCount = measurementCount
+            MaxQubitIndex = maxQubit
+            GateTypeCounts = gateTypeCounts
+        }
+    
+    /// Count two-qubit gates (CNOT count is critical for NISQ devices like Rigetti)
+    /// Two-qubit gates are 10-100x noisier than single-qubit gates
+    let twoQubitGateCount (circuit: Circuit) : int =
+        circuit.Gates
+        |> List.filter (fun g -> (getAffectedQubits g).Length = 2)
+        |> List.length
+    
+    /// Calculate circuit depth (critical path length when gates are parallelized)
+    /// Lower depth = faster execution and less decoherence on real hardware
+    let depth (circuit: Circuit) : int =
+        let gates = circuit.Gates
+        
+        // Build layers by tracking which qubits are occupied
+        let rec buildLayers (remainingGates: Gate list) (currentLayer: Gate list) (occupiedQubits: Set<int>) (currentDepth: int) : int =
+            match remainingGates with
+            | [] -> 
+                // Finished all gates - return final depth
+                if List.isEmpty currentLayer then currentDepth else currentDepth + 1
+            
+            | gate :: rest ->
+                let qubits = getAffectedQubits gate |> Set.ofList
+                
+                // Check if gate can be added to current layer
+                if Set.intersect qubits occupiedQubits |> Set.isEmpty then
+                    // No conflict - add to current layer
+                    buildLayers rest (gate :: currentLayer) (Set.union occupiedQubits qubits) currentDepth
+                else
+                    // Conflict - start new layer
+                    buildLayers rest [gate] qubits (currentDepth + 1)
+        
+        buildLayers gates [] Set.empty 0
+    
+    // ========================================================================
+    // ENHANCED OPTIMIZATION (Using Commutation)
+    // ========================================================================
+    
+    /// Optimize circuit using commutation to bring inverse pairs together
+    /// Example: H-X-H becomes X (X gates commute through, H-H cancel)
+    let optimizeWithCommutation (circuit: Circuit) : Circuit =
+        let rec trySwapGates (gates: Gate list) : Gate list option =
+            match gates with
+            | [] | [_] -> None
+            | g1 :: g2 :: rest when commute g1 g2 ->
+                // Found commuting pair - try swapping
+                Some (g2 :: g1 :: rest)
+            | firstGate :: rest ->
+                // Try next position
+                match trySwapGates rest with
+                | Some optimized -> Some (firstGate :: optimized)
+                | None -> None
+        
+        let rec optimizeLoop (gates: Gate list) (maxIterations: int) : Gate list =
+            if maxIterations <= 0 then
+                gates
+            else
+                // First try standard optimizations (inverse cancellation, rotation merging)
+                let optimized1 = (optimize { circuit with Gates = gates }).Gates
+                
+                // Then try commutation-based swaps
+                match trySwapGates optimized1 with
+                | Some swapped ->
+                    // Made progress - continue optimizing
+                    optimizeLoop swapped (maxIterations - 1)
+                | None ->
+                    // No more commuting pairs to swap
+                    optimized1
+        
+        { circuit with Gates = optimizeLoop circuit.Gates 10 }
+    
+    /// Remove identity gates (gates that do nothing)
+    /// Example: RZ(0) is identity, can be removed
+    let removeIdentities (circuit: Circuit) : Circuit =
+        let isIdentity (gate: Gate) : bool =
+            match gate with
+            | RX (_, angle) | RY (_, angle) | RZ (_, angle) when abs angle < 1e-10 -> true
+            | P (_, angle) when abs angle < 1e-10 -> true
+            | CP (_, _, angle) when abs angle < 1e-10 -> true
+            | _ -> false
+        
+        { circuit with Gates = circuit.Gates |> List.filter (not << isIdentity) }
+    
+    /// Full optimization pipeline combining all techniques
+    /// Recommended before sending circuits to Rigetti hardware
+    let optimizeFully (circuit: Circuit) : Circuit =
+        circuit
+        |> optimize                    // Inverse cancellation + rotation merging
+        |> removeIdentities           // Remove RZ(0), etc.
+        |> optimizeWithCommutation    // Use commutation to find more cancellations
+        |> removeIdentities           // Clean up any new identities

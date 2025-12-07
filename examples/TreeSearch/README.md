@@ -103,7 +103,7 @@ match solve problem with
 | Ok result -> 
     printfn "Best move: %A" result.BestMove
     printfn "Score: %.2f" result.Score
-| Error msg -> printfn "Error: %s" msg
+| Error err -> printfn "Error: %s" err.Message
 ```
 
 ## Real-World Example

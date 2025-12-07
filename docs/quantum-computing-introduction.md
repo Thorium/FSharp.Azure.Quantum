@@ -587,7 +587,7 @@ let problem = phaseEstimator {
 
 match estimate problem with
 | Ok result -> printfn "Phase: %.6f" result.Phase
-| Error msg -> printfn "Error: %s" msg
+| Error err -> printfn "Error: %s" err.Message
 
 // Quantum arithmetic operations
 open QuantumArithmeticBuilder
@@ -600,7 +600,7 @@ let problem = quantumArithmetic {
 
 match solve problem with
 | Ok result -> printfn "Sum: %A" result.Result
-| Error msg -> printfn "Error: %s" msg
+| Error err -> printfn "Error: %s" err.Message
 
 // Tree search with quantum speedup
 open QuantumTreeSearch
@@ -613,7 +613,7 @@ let problem = quantumTreeSearch {
 
 match search problem with
 | Ok result -> printfn "Found at depth: %d" result.Depth
-| Error msg -> printfn "Error: %s" msg
+| Error err -> printfn "Error: %s" err.Message
 ```
 
 These builders (`phaseEstimator`, `quantumArithmetic`, `quantumTreeSearch`, `constraintSolver`, `patternMatcher`, `periodFinder`) provide higher-level abstractions for quantum algorithms, reducing boilerplate and encoding best practices.

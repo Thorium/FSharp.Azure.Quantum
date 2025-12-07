@@ -1,6 +1,7 @@
 namespace FSharp.Azure.Quantum.Algorithms
 
 open System
+open FSharp.Azure.Quantum.Core
 
 /// Shor's Algorithm Backend Adapter Module
 /// 
@@ -93,7 +94,7 @@ module ShorsBackendAdapter =
         (countingQubits: int)
         (registerQubits: int)
         (a: int)
-        (n: int) : Result<Circuit, string> =
+        (n: int) : QuantumResult<Circuit> =
         
         try
             let totalQubits = countingQubits + registerQubits
@@ -127,7 +128,7 @@ module ShorsBackendAdapter =
             
             Ok finalCircuit
         with
-        | ex -> Error $"Modular exponentiation circuit creation failed: {ex.Message}"
+        | ex -> Error (QuantumError.Other $"Modular exponentiation circuit creation failed: {ex.Message}")
     
     // ========================================================================
     // PERIOD-FINDING CIRCUIT SYNTHESIS
@@ -144,15 +145,15 @@ module ShorsBackendAdapter =
     let periodFindingToCircuit
         (a: int)
         (n: int)
-        (precisionQubits: int) : Result<Circuit, string> =
+        (precisionQubits: int) : QuantumResult<Circuit> =
         
         try
             if precisionQubits <= 0 then
-                Error "Precision qubits must be positive"
+                Error (QuantumError.ValidationError ("PrecisionQubits", "must be positive"))
             elif precisionQubits > 20 then
-                Error "More than 20 precision qubits is not practical"
+                Error (QuantumError.ValidationError ("PrecisionQubits", "more than 20 is not practical"))
             elif n < 2 then
-                Error "Modulus N must be at least 2"
+                Error (QuantumError.ValidationError ("Modulus", "must be at least 2"))
             else
                 // Number of qubits needed for register = ceil(log₂(N))
                 let registerQubits = int (ceil (Math.Log2(float n)))
@@ -175,10 +176,10 @@ module ShorsBackendAdapter =
                 
                 // Use QuantumArithmetic module to create modular exponentiation circuit
                 match QuantumArithmetic.createModularExpCircuit countingQubits targetQubits a n initialCircuit with
-                | Error msg -> Error $"Failed to create modular exponentiation circuit: {msg}"
+                | Error err -> Error (QuantumError.OperationError ("Modular exponentiation circuit", $"Failed to create circuit: {err.Message}"))
                 | Ok circuit -> Ok circuit
         with
-        | ex -> Error $"Period-finding circuit creation failed: {ex.Message}"
+        | ex -> Error (QuantumError.Other $"Period-finding circuit creation failed: {ex.Message}")
     
     // ========================================================================
     // BACKEND EXECUTION
@@ -194,7 +195,7 @@ module ShorsBackendAdapter =
         (shots: int) : Async<Result<Map<int, int>, string>> = async {
         
         match periodFindingToCircuit a n precisionQubits with
-        | Error msg -> return Error msg
+        | Error err -> return Error err.Message
         | Ok circuit ->
             try
                 // Execute circuit on backend asynchronously
@@ -203,7 +204,7 @@ module ShorsBackendAdapter =
                 let! execResult = backend.ExecuteAsync circuitWrapper shots
                 
                 match execResult with
-                | Error msg -> return Error $"Backend execution failed: {msg}"
+                | Error err -> return Error $"Backend execution failed: {err.Message}"
                 | Ok execResult ->
                     // Extract measurement histogram (counting register only)
                     let histogram =
@@ -287,16 +288,16 @@ module ShorsBackendAdapter =
     let executeShorsWithBackend
         (config: ShorsConfig)
         (backend: IQuantumBackend)
-        (shots: int) : Result<ShorsResult, string> =
+        (shots: int) : QuantumResult<ShorsResult> =
         
         try
             let n = config.NumberToFactor
             
             // Input validation
             if n < 4 then
-                Error "Number to factor must be at least 4"
+                Error (QuantumError.ValidationError ("NumberToFactor", "must be at least 4"))
             elif n > 1000 then
-                Error "Backend execution limited to N ≤ 1000"
+                Error (QuantumError.ValidationError ("NumberToFactor", "backend execution limited to N ≤ 1000"))
             else
                 // Classical pre-checks
                 if n % 2 = 0 then
@@ -338,7 +339,7 @@ module ShorsBackendAdapter =
                         
                         // Execute period-finding on backend
                         match executePeriodFindingWithBackend a n config.PrecisionQubits backend shots with
-                        | Error msg -> Error msg
+                        | Error err -> Error (QuantumError.BackendError ("Period finding", err))
                         | Ok histogram ->
                         // Extract period from measurements
                         match extractPeriodFromHistogram histogram config.PrecisionQubits n with
@@ -408,7 +409,7 @@ module ShorsBackendAdapter =
                                         Config = config
                                     }
         with
-        | ex -> Error $"Shor's backend execution failed: {ex.Message}"
+        | ex -> Error (QuantumError.Other $"Shor's backend execution failed: {ex.Message}")
     
     // ========================================================================
     // CONVENIENCE FUNCTIONS
@@ -418,7 +419,7 @@ module ShorsBackendAdapter =
     let factorWithBackend
         (n: int)
         (backend: IQuantumBackend)
-        (shots: int) : Result<ShorsResult, string> =
+        (shots: int) : QuantumResult<ShorsResult> =
         
         let precisionQubits = 
             let logN = int (ceil (Math.Log2(float n)))
@@ -443,7 +444,7 @@ module ShorsBackendAdapter =
     /// Factor 15 using backend (standard Shor's example)
     let factor15WithBackend
         (backend: IQuantumBackend)
-        (shots: int) : Result<ShorsResult, string> =
+        (shots: int) : QuantumResult<ShorsResult> =
         
         let config = {
             NumberToFactor = 15

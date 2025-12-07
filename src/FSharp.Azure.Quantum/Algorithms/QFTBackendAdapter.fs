@@ -1,6 +1,7 @@
 namespace FSharp.Azure.Quantum.Algorithms
 
 open System
+open FSharp.Azure.Quantum.Core
 
 /// QFT Backend Adapter Module
 /// 
@@ -24,6 +25,7 @@ module QFTBackendAdapter =
     open FSharp.Azure.Quantum
     open FSharp.Azure.Quantum.Core.BackendAbstraction
     open FSharp.Azure.Quantum.Core.CircuitAbstraction
+    open FSharp.Azure.Quantum.Core
     open FSharp.Azure.Quantum.CircuitBuilder
     open FSharp.Azure.Quantum.Algorithms.QuantumFourierTransform
     open FSharp.Azure.Quantum.LocalSimulator.StateVector
@@ -68,12 +70,12 @@ module QFTBackendAdapter =
     ///      - Apply controlled-Rz(2π/2^(k-j+1)) with control=k, target=j
     /// 
     /// Optionally apply SWAP gates to reverse qubit order
-    let qftToCircuit (config: QFTConfig) : Result<Circuit, string> =
+    let qftToCircuit (config: QFTConfig) : QuantumResult<Circuit> =
         try
             if config.NumQubits <= 0 then
-                Error "Number of qubits must be positive"
+                Error (QuantumError.ValidationError ("NumQubits", "must be positive"))
             elif config.NumQubits > 20 then
-                Error "QFT with more than 20 qubits is not practical"
+                Error (QuantumError.ValidationError ("NumQubits", "QFT with more than 20 qubits is not practical"))
             else
                 // Start with empty circuit
                 let initialCircuit = empty config.NumQubits
@@ -159,7 +161,7 @@ module QFTBackendAdapter =
                 Ok finalCircuit
         
         with ex ->
-            Error $"QFT circuit synthesis failed: {ex.Message}"
+            Error (QuantumError.Other $"QFT circuit synthesis failed: {ex.Message}")
     
     // ========================================================================
     // RESULT CONVERSION
@@ -241,13 +243,13 @@ module QFTBackendAdapter =
         try
             // Step 1: Validate inputs
             if numShots <= 0 then
-                return Error "Number of shots must be positive"
+                return Error "NumShots must be positive"
             elif config.NumQubits > backend.MaxQubits then
                 return Error $"QFT requires {config.NumQubits} qubits but backend '{backend.Name}' supports max {backend.MaxQubits}"
             else
                 // Step 2: Convert QFT to circuit
                 match qftToCircuit config with
-                | Error msg -> return Error msg
+                | Error err -> return Error err.Message
                 | Ok qftCircuit ->
                     // Step 3: Prepend input state preparation (if not |0⟩)
                     let fullCircuit =
@@ -274,7 +276,7 @@ module QFTBackendAdapter =
                     let! execResult = backend.ExecuteAsync circuitWrapper numShots
                     
                     match execResult with
-                    | Error msg -> return Error msg
+                    | Error err -> return Error (err |> QuantumResult.toString)
                     | Ok executionResult ->
                         // Step 6: Convert measurements to basis state counts
                         let counts = 

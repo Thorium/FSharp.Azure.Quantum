@@ -72,7 +72,7 @@ module TaskSchedulingTypes =
     /// 
     /// Note: This solver handles dependencies but ignores resource capacity constraints.
     /// For resource-constrained scheduling, use solveQuantum with IQuantumBackend.
-    let solve (problem: SchedulingProblem<'TTask, 'TResource>) : Async<Result<Solution, string>> =
+    let solve (problem: SchedulingProblem<'TTask, 'TResource>) : Async<QuantumResult<Solution>> =
         async {
             return FSharp.Azure.Quantum.TaskScheduling.ClassicalSolver.solve problem
         }
@@ -98,7 +98,7 @@ module TaskSchedulingTypes =
     let solveQuantum 
         (backend: BackendAbstraction.IQuantumBackend)
         (problem: SchedulingProblem<'TTask, 'TResource>) 
-        : Async<Result<Solution, string>> =
+        : Async<QuantumResult<Solution>> =
         FSharp.Azure.Quantum.TaskScheduling.QuantumSolver.solveAsync backend problem
     
     /// Export schedule as Gantt chart to text file
@@ -174,5 +174,5 @@ module Scheduling =
         static member MinimizeLateness = MinimizeLateness
 
     /// Solve scheduling problem (synchronous for C#)
-    let solveClassical (problem: SchedulingProblem<'TTask, 'TResource>) : Result<Solution, string> =
+    let solveClassical (problem: SchedulingProblem<'TTask, 'TResource>) : QuantumResult<Solution> =
         solve problem |> Async.RunSynchronously

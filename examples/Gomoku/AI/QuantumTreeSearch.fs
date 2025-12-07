@@ -2,6 +2,7 @@ namespace FSharp.Azure.Quantum.Examples.Gomoku.AI
 
 open FSharp.Azure.Quantum.Examples.Gomoku
 open FSharp.Azure.Quantum.Core.BackendAbstraction
+open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum
 
 /// Quantum Tree Search AI for Gomoku using Grover's algorithm
@@ -126,7 +127,7 @@ module QuantumTreeSearch =
         (backend: IQuantumBackend) 
         (searchDepth: int) 
         (topPercentile: float option) 
-        : Result<Position, string> =
+        : QuantumResult<Position> =
         
         let percentile = topPercentile |> Option.defaultValue 0.2
         
@@ -134,11 +135,11 @@ module QuantumTreeSearch =
         let validMoves = Board.getValidMoves board
         
         if List.isEmpty validMoves then
-            Error "No valid moves available"
+            Error (QuantumError.ValidationError ("Moves", "No valid moves available"))
         elif searchDepth < 1 then
-            Error "Search depth must be at least 1"
+            Error (QuantumError.ValidationError ("SearchDepth", "Search depth must be at least 1"))
         elif searchDepth > 3 then
-            Error "Search depth > 3 not recommended for NISQ devices (too many qubits required)"
+            Error (QuantumError.ValidationError ("SearchDepth", "Search depth > 3 not recommended for NISQ devices (too many qubits required)"))
         else
             try
                 // Estimate qubits needed
@@ -146,7 +147,7 @@ module QuantumTreeSearch =
                 let qubitsNeeded = GroverSearch.TreeSearch.estimateQubitsNeeded searchDepth estimatedBranching
                 
                 if qubitsNeeded > backend.MaxQubits then
-                    Error $"Tree search requires {qubitsNeeded} qubits but backend '{backend.Name}' supports max {backend.MaxQubits}. Reduce search depth."
+                    Error (QuantumError.ValidationError ("Qubits", $"Tree search requires {qubitsNeeded} qubits but backend '{backend.Name}' supports max {backend.MaxQubits}. Reduce search depth."))
                 else
                     // **RECOMMENDED APPROACH**: Use QuantumTreeSearch builder
                     // Note: We build the problem step by step due to F# computation expression limitations
@@ -164,24 +165,24 @@ module QuantumTreeSearch =
                     
                     // Solve using high-level API
                     match QuantumTreeSearch.solve problem with
-                    | Error msg -> Error $"Quantum search failed: {msg}"
+                    | Error err -> Error err
                     | Ok solution ->
                         // Map move index to actual position
                         if solution.BestMove < List.length validMoves then
                             let bestPosition = List.item solution.BestMove validMoves
                             Ok bestPosition
                         else
-                            Error $"Invalid move index {solution.BestMove} returned (only {List.length validMoves} moves available)"
+                            Error (QuantumError.ValidationError ("MoveIndex", $"Invalid move index {solution.BestMove} returned (only {List.length validMoves} moves available)"))
             
             with ex ->
-                Error $"Quantum tree search exception: {ex.Message}"
+                Error (QuantumError.OperationError ("Quantum tree search", $"Exception: {ex.Message}"))
     
     /// Select best move with default parameters
     /// 
     /// Uses:
     /// - Search depth: 2 (practical for near-term quantum devices)
     /// - Top percentile: 20% (marks top 20% of moves as solutions)
-    let selectMoveDefault (board: Board) (backend: IQuantumBackend) : Result<Position, string> =
+    let selectMoveDefault (board: Board) (backend: IQuantumBackend) : QuantumResult<Position> =
         selectMove board backend 2 None
     
     // ========================================================================
@@ -196,7 +197,7 @@ module QuantumTreeSearch =
         (board: Board)
         (backend: IQuantumBackend)
         (searchDepth: int)
-        : Result<Position, string> =
+        : QuantumResult<Position> =
         
         match selectMove board backend searchDepth None with
         | Ok position -> Ok position
@@ -204,7 +205,7 @@ module QuantumTreeSearch =
             // Fallback to classical AI
             match Classical.selectBestMove board with
             | Some pos -> Ok pos
-            | None -> Error "No valid moves available"
+            | None -> Error (QuantumError.ValidationError ("Moves", "No valid moves available"))
     
     // ========================================================================
     // DIAGNOSTICS
@@ -291,9 +292,9 @@ module QuantumTreeSearch =
                     Ok position
                 else
                     Error "Invalid move index"
-            | Error msg ->
-                printfn "Quantum search failed: %s" msg
-                Error msg
+            | Error err ->
+                printfn "Quantum search failed: %s" err.Message
+                Error err.Message
         
         /// Example: Estimate resources for different search depths
         let estimateForAllDepths (board: Board) (backend: IQuantumBackend) =

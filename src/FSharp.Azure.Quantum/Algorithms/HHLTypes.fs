@@ -1,6 +1,7 @@
 namespace FSharp.Azure.Quantum.Algorithms
 
 open System
+open FSharp.Azure.Quantum.Core
 open System.Numerics
 
 /// HHL Algorithm Types Module
@@ -155,16 +156,16 @@ module HHLTypes =
     // ========================================================================
     
     /// Create Hermitian matrix from 2D array
-    let createHermitianMatrix (elements: Complex[,]) : Result<HermitianMatrix, string> =
+    let createHermitianMatrix (elements: Complex[,]) : QuantumResult<HermitianMatrix> =
         let n = Array2D.length1 elements
         let m = Array2D.length2 elements
         
         if n <> m then
-            Error "Matrix must be square"
+            Error (QuantumError.ValidationError ("Matrix", "must be square"))
         elif n = 0 then
-            Error "Matrix dimension must be positive"
+            Error (QuantumError.ValidationError ("Matrix", "dimension must be positive"))
         elif (n &&& (n - 1)) <> 0 then
-            Error $"Matrix dimension must be power of 2, got {n}"
+            Error (QuantumError.ValidationError ("Matrix", $"dimension must be power of 2, got {n}"))
         else
             // Check Hermitian property: A[i,j] = conj(A[j,i])
             let isHermitian =
@@ -177,7 +178,7 @@ module HHLTypes =
                 |> List.forall id
             
             if not isHermitian then
-                Error "Matrix must be Hermitian (A = A†)"
+                Error (QuantumError.ValidationError ("Matrix", "must be Hermitian (A = A†)"))
             else
                 // Check if diagonal
                 let isDiag =
@@ -202,13 +203,13 @@ module HHLTypes =
                 }
     
     /// Create quantum vector from complex array
-    let createQuantumVector (components: Complex[]) : Result<QuantumVector, string> =
+    let createQuantumVector (components: Complex[]) : QuantumResult<QuantumVector> =
         let n = components.Length
         
         if n = 0 then
-            Error "Vector dimension must be positive"
+            Error (QuantumError.ValidationError ("Vector", "dimension must be positive"))
         elif (n &&& (n - 1)) <> 0 then
-            Error $"Vector dimension must be power of 2, got {n}"
+            Error (QuantumError.ValidationError ("Vector", $"dimension must be power of 2, got {n}"))
         else
             // Normalize vector
             let norm = 
@@ -217,7 +218,7 @@ module HHLTypes =
                 |> sqrt
             
             if norm < 1e-10 then
-                Error "Vector must have non-zero norm"
+                Error (QuantumError.ValidationError ("Vector", "must have non-zero norm"))
             else
                 let normalized = components |> Array.map (fun c -> c / norm)
                 
@@ -228,18 +229,18 @@ module HHLTypes =
     
     /// Create simple diagonal Hermitian matrix
     /// Useful for testing and simple cases
-    let createDiagonalMatrix (eigenvalues: float[]) : Result<HermitianMatrix, string> =
+    let createDiagonalMatrix (eigenvalues: float[]) : QuantumResult<HermitianMatrix> =
         let n = eigenvalues.Length
         
         if n = 0 then
-            Error "Must have at least one eigenvalue"
+            Error (QuantumError.ValidationError ("Eigenvalues", "must have at least one eigenvalue"))
         elif (n &&& (n - 1)) <> 0 then
-            Error $"Number of eigenvalues must be power of 2, got {n}"
+            Error (QuantumError.ValidationError ("Eigenvalues", $"number must be power of 2, got {n}"))
         else
             // Check for singular matrix (zero or near-zero eigenvalues)
             let minEigAbs = eigenvalues |> Array.map abs |> Array.min
             if minEigAbs < 1e-10 then
-                Error $"Singular matrix detected: eigenvalue near zero ({minEigAbs:E}). HHL requires invertible matrices."
+                Error (QuantumError.Other $"Singular matrix detected: eigenvalue near zero ({minEigAbs:E}). HHL requires invertible matrices.")
             else
                 let elements = Array.init (n * n) (fun idx ->
                     let i = idx / n

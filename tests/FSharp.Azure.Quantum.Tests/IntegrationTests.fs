@@ -312,7 +312,7 @@ module IntegrationTests =
             Assert.True(tour.Cities.Length = 0 || tour.TotalDistance >= 0.0)
         | Error msg ->
             // Error is also acceptable for empty input
-            Assert.False(String.IsNullOrWhiteSpace(msg))
+            Assert.False(String.IsNullOrWhiteSpace(msg.Message))
 
     [<Fact>]
     let ``Error Handling - Invalid constraints in Portfolio should handle gracefully`` () =
@@ -330,7 +330,7 @@ module IntegrationTests =
         | Ok allocation ->
             Assert.Empty(allocation.Allocations)
         | Error msg ->
-            Assert.False(String.IsNullOrWhiteSpace(msg))
+            Assert.False(String.IsNullOrWhiteSpace(msg.Message))
 
     [<Fact>]
     let ``Error Handling - HybridSolver with invalid input returns error`` () =
@@ -347,8 +347,8 @@ module IntegrationTests =
             Assert.True(solution.Result.Tour.Length <= 1)
         | Error msg -> 
             // If it errors, message should be informative
-            Assert.False(String.IsNullOrWhiteSpace(msg))
-            Assert.True(msg.Length > 5, "Error message should be descriptive")
+            Assert.False(String.IsNullOrWhiteSpace(msg.Message))
+            Assert.True(msg.Message.Length > 5, "Error message should be descriptive")
 
     [<Fact>]
     let ``Error Handling - TSP with single city should return valid trivial tour`` () =

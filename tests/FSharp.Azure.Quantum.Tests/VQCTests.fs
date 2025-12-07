@@ -68,7 +68,7 @@ module VQCTests =
         
         match train backend featureMap variationalForm parameters emptyFeatures emptyLabels config with
         | Error msg ->
-            Assert.Contains("cannot be empty", msg)
+            Assert.Contains("cannot be empty", msg.Message)
         | Ok _ ->
             Assert.True(false, "Should have rejected empty training set")
     
@@ -84,7 +84,7 @@ module VQCTests =
         
         match train backend featureMap variationalForm parameters features labels config with
         | Error msg ->
-            Assert.Contains("same length", msg)
+            Assert.Contains("same length", msg.Message)
         | Ok _ ->
             Assert.True(false, "Should have rejected mismatched lengths")
     
@@ -99,7 +99,7 @@ module VQCTests =
         
         match evaluate backend featureMap variationalForm parameters emptyFeatures emptyLabels 100 with
         | Error msg ->
-            Assert.Contains("cannot be empty", msg)
+            Assert.Contains("cannot be empty", msg.Message)
         | Ok _ ->
             Assert.True(false, "Should have rejected empty dataset")
     
@@ -114,7 +114,7 @@ module VQCTests =
         
         match evaluate backend featureMap variationalForm parameters features labels 100 with
         | Error msg ->
-            Assert.Contains("same length", msg)
+            Assert.Contains("same length", msg.Message)
         | Ok _ ->
             Assert.True(false, "Should have rejected mismatched lengths")
     
@@ -612,7 +612,7 @@ module VQCTests =
         
         match trainMultiClass backend featureMap variationalForm parameters features labels config with
         | Error msg ->
-            Assert.Contains("at least 2 classes", msg)
+            Assert.Contains("at least 2 classes", msg.Message)
         | Ok _ ->
             Assert.True(false, "Should have rejected single class")
     
@@ -628,7 +628,7 @@ module VQCTests =
         
         match trainMultiClass backend featureMap variationalForm parameters emptyFeatures emptyLabels config with
         | Error msg ->
-            Assert.Contains("cannot be empty", msg)
+            Assert.Contains("cannot be empty", msg.Message)
         | Ok _ ->
             Assert.True(false, "Should have rejected empty training set")
     
@@ -644,7 +644,7 @@ module VQCTests =
         
         match trainMultiClass backend featureMap variationalForm parameters features labels config with
         | Error msg ->
-            Assert.Contains("same length", msg)
+            Assert.Contains("same length", msg.Message)
         | Ok _ ->
             Assert.True(false, "Should have rejected mismatched lengths")
     

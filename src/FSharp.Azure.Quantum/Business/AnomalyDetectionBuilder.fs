@@ -1,5 +1,6 @@
 namespace FSharp.Azure.Quantum.Business
 
+open FSharp.Azure.Quantum.Core
 open System
 open System.IO
 open System.Text.Json
@@ -162,20 +163,20 @@ module AnomalyDetector =
     // ========================================================================
     
     /// Validate anomaly detection problem
-    let private validate (problem: DetectionProblem) : Result<unit, string> =
+    let private validate (problem: DetectionProblem) : QuantumResult<unit> =
         if problem.NormalData.Length = 0 then
-            Error "Normal data cannot be empty"
+            Error (QuantumError.ValidationError ("Input", "Normal data cannot be empty"))
         elif problem.ContaminationRate < 0.0 || problem.ContaminationRate > 0.5 then
-            Error "Contamination rate must be between 0.0 and 0.5"
+            Error (QuantumError.ValidationError ("Input", "Contamination rate must be between 0.0 and 0.5"))
         elif problem.Shots < 1 then
-            Error "Shots must be at least 1"
+            Error (QuantumError.ValidationError ("Input", "Shots must be at least 1"))
         elif problem.NormalData.Length < 10 then
-            Error "Need at least 10 normal samples for reliable detection"
+            Error (QuantumError.Other "Need at least 10 normal samples for reliable detection")
         else
             let numFeatures = problem.NormalData.[0].Length
             let allSameLength = problem.NormalData |> Array.forall (fun x -> x.Length = numFeatures)
             if not allSameLength then
-                Error "All feature vectors must have the same length"
+                Error (QuantumError.ValidationError ("Input", "All feature vectors must have the same length"))
             else
                 Ok ()
     
@@ -230,7 +231,7 @@ module AnomalyDetector =
     }
     
     /// Save detector to file
-    let saveDetector (detector: Detector) (path: string) : Result<unit, string> =
+    let saveDetector (detector: Detector) (path: string) : QuantumResult<unit> =
         try
             // First save the SVM model to get serializable format
             match ModelSerialization.saveSVMModel path detector.Model detector.NumQubits detector.Metadata.Note with
@@ -260,13 +261,13 @@ module AnomalyDetector =
                     File.WriteAllText(path, json)
                     Ok ()
         with ex ->
-            Error $"Failed to save detector: {ex.Message}"
+            Error (QuantumError.ValidationError ("Input", $"Failed to save detector: {ex.Message}"))
     
     /// Load detector from file
-    let loadDetector (path: string) : Result<Detector, string> =
+    let loadDetector (path: string) : QuantumResult<Detector> =
         try
             if not (File.Exists path) then
-                Error $"File not found: {path}"
+                Error (QuantumError.ValidationError ("Input", $"File not found: {path}"))
             else
                 let json = File.ReadAllText(path)
                 let detectorData = JsonSerializer.Deserialize<SerializableDetector>(json)
@@ -298,14 +299,14 @@ module AnomalyDetector =
                         Threshold = detectorData.Threshold
                     }
         with ex ->
-            Error $"Failed to load detector: {ex.Message}"
+            Error (QuantumError.ValidationError ("Input", $"Failed to load detector: {ex.Message}"))
     
     // ========================================================================
     // TRAINING
     // ========================================================================
     
     /// Train anomaly detector using one-class quantum kernel SVM
-    let train (problem: DetectionProblem) : Result<Detector, string> =
+    let train (problem: DetectionProblem) : QuantumResult<Detector> =
         match validate problem with
         | Error e -> Error e
         | Ok () ->
@@ -348,7 +349,7 @@ module AnomalyDetector =
                 printfn "  Sensitivity: %A (nu=%.3f)" problem.Sensitivity nu
             
             match QuantumKernelSVM.train backend featureMap problem.NormalData labels svmConfig problem.Shots with
-            | Error e -> Error $"Training failed: {e}"
+            | Error e -> Error (QuantumError.ValidationError ("Input", $"Training failed: {e}"))
             | Ok model ->
                 
                 let endTime = DateTime.UtcNow
@@ -383,7 +384,7 @@ module AnomalyDetector =
                         Ok detector
                     | Error msg ->
                         if problem.Verbose then
-                            printfn "⚠️  Warning: Failed to save detector: %s" msg
+                            printfn "⚠️  Warning: Failed to save detector: %s" msg.Message
                         // Don't fail the entire training just because save failed
                         Ok detector
     
@@ -397,7 +398,7 @@ module AnomalyDetector =
         (detector: Detector)
         (sample: float array)
         (shots: int)
-        : Result<float, string> =
+        : QuantumResult<float> =
         
         // Use SVM decision value as anomaly score
         // Positive = normal, Negative = anomaly
@@ -422,7 +423,7 @@ module AnomalyDetector =
             Ok score
     
     /// Check if sample is anomalous
-    let check (sample: float array) (detector: Detector) : Result<AnomalyResult, string> =
+    let check (sample: float array) (detector: Detector) : QuantumResult<AnomalyResult> =
         let backend = LocalBackend() :> IQuantumBackend
         
         match computeAnomalyScore backend detector sample 1000 with
@@ -442,7 +443,7 @@ module AnomalyDetector =
     let checkBatch 
         (samples: float array array) 
         (detector: Detector) 
-        : Result<BatchResults, string> =
+        : QuantumResult<BatchResults> =
         
         let results = samples |> Array.map (fun s -> check s detector)
         
@@ -484,7 +485,7 @@ module AnomalyDetector =
         (sample: float array) 
         (detector: Detector) 
         (trainingData: float array array)
-        : Result<(string * float) array, string> =
+        : QuantumResult<(string * float) array> =
         
         // Compute distance from normal examples in each feature
         let featureContributions =
@@ -509,12 +510,12 @@ module AnomalyDetector =
     // ========================================================================
     
     /// Save detector to file
-    let save (path: string) (detector: Detector) : Result<unit, string> =
-        Error "Detector persistence not yet implemented"
+    let save (path: string) (detector: Detector) : QuantumResult<unit> =
+        Error (QuantumError.Other "Detector persistence not yet implemented")
     
     /// Load detector from file
-    let load (path: string) : Result<Detector, string> =
-        Error "Detector loading not yet implemented"
+    let load (path: string) : QuantumResult<Detector> =
+        Error (QuantumError.Other "Detector loading not yet implemented")
     
     // ========================================================================
     // COMPUTATION EXPRESSION BUILDER
@@ -539,7 +540,7 @@ module AnomalyDetector =
         
         member _.Delay(f: unit -> DetectionProblem) = f
         
-        member _.Run(f: unit -> DetectionProblem) : Result<Detector, string> =
+        member _.Run(f: unit -> DetectionProblem) : QuantumResult<Detector> =
             let problem = f()
             train problem
         

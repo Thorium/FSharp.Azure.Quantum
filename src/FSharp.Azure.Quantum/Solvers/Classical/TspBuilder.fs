@@ -114,8 +114,8 @@ module TSP =
     ///   let tour = TSP.solve problem (Some ionqBackend)
     /// 
     /// RETURNS:
-    ///   Result with Tour (city names, distance, validity) or error message
-    let solve (problem: TspProblem) (backend: BackendAbstraction.IQuantumBackend option) : Result<Tour, string> =
+    ///   QuantumResult with Tour (city names, distance, validity) or QuantumError
+    let solve (problem: TspProblem) (backend: BackendAbstraction.IQuantumBackend option) : QuantumResult<Tour> =
         try
             // Use provided backend or create LocalBackend for simulation
             let actualBackend = 
@@ -130,10 +130,10 @@ module TSP =
                 InitialParameters = (0.5, 0.5)
             }
             
-            // Call quantum TSP solver directly
-            match QuantumTspSolver.solve actualBackend problem.DistanceMatrix quantumConfig with
-            | Error msg -> Error $"Quantum TSP solve failed: {msg}"
-            | Ok quantumResult ->
+            // Call quantum TSP solver directly using computation expression
+            quantumResult {
+                let! quantumResult = QuantumTspSolver.solve actualBackend problem.DistanceMatrix quantumConfig
+                
                 // Validate tour
                 let valid = isValidTour quantumResult.Tour problem.CityCount
                 
@@ -146,13 +146,14 @@ module TSP =
                         | None -> $"City {idx}")
                     |> Array.toList
                 
-                Ok {
+                return {
                     Cities = cityNames
                     TotalDistance = quantumResult.TourLength
                     IsValid = valid
                 }
+            }
         with
-        | ex -> Error $"TSP solve failed: {ex.Message}"
+        | ex -> Error (QuantumError.OperationError ("TSP solve", $"Failed: {ex.Message}"))
 
     /// Convenience function: Create problem and solve in one step using quantum optimization
     /// 
@@ -165,6 +166,6 @@ module TSP =
     /// 
     /// EXAMPLE:
     ///   let tour = TSP.solveDirectly [("A", 0.0, 0.0); ("B", 1.0, 0.0)] None
-    let solveDirectly (cities: (string * float * float) list) (backend: BackendAbstraction.IQuantumBackend option) : Result<Tour, string> =
+    let solveDirectly (cities: (string * float * float) list) (backend: BackendAbstraction.IQuantumBackend option) : QuantumResult<Tour> =
         let problem = createProblem cities
         solve problem backend

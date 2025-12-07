@@ -100,26 +100,26 @@ module QuantumPatternMatcher =
     /// <summary>
     /// Validates a pattern matching problem specification.
     /// </summary>
-    let validate (problem: PatternProblem<'T>) : Result<unit, string> =
+    let validate (problem: PatternProblem<'T>) : Result<unit, QuantumError> =
         let searchSpaceSize = 
             match problem.SearchSpace with
             | Choice1Of2 items -> List.length items
             | Choice2Of2 size -> size
         
         if searchSpaceSize < 1 then
-            Error "SearchSpace must contain at least 1 item"
+            Error (QuantumError.ValidationError ("SearchSpace", "must contain at least 1 item"))
         elif searchSpaceSize > (1 <<< 16) then
-            Error $"SearchSpace size {searchSpaceSize} exceeds maximum (2^16 = 65536)"
+            Error (QuantumError.ValidationError ("SearchSpace", $"size {searchSpaceSize} exceeds maximum (2^16 = 65536)"))
         elif problem.TopN < 1 then
-            Error "TopN must be at least 1"
+            Error (QuantumError.ValidationError ("TopN", "must be at least 1"))
         elif problem.TopN > searchSpaceSize then
-            Error $"TopN ({problem.TopN}) cannot exceed search space size ({searchSpaceSize})"
+            Error (QuantumError.ValidationError ("TopN", $"({problem.TopN}) cannot exceed search space size ({searchSpaceSize})"))
         elif problem.Shots < 1 then
-            Error "Shots must be at least 1"
+            Error (QuantumError.ValidationError ("Shots", "must be at least 1"))
         else
             let qubitsNeeded = int (ceil (log (float searchSpaceSize) / log 2.0))
             if qubitsNeeded > 16 then
-                Error $"Problem requires {qubitsNeeded} qubits (search space {searchSpaceSize}). Max: 16. Reduce search space size."
+                Error (QuantumError.ValidationError ("SearchSpace", $"requires {qubitsNeeded} qubits (size {searchSpaceSize}). Max: 16"))
             else
                 Ok ()
     
@@ -147,7 +147,7 @@ module QuantumPatternMatcher =
         member _.Run(f: unit -> PatternProblem<'T>) : PatternProblem<'T> =
             let problem = f()
             match validate problem with
-            | Error msg -> failwith msg
+            | Error err -> failwith err.Message
             | Ok () -> problem
         
         member _.For(sequence: seq<'U>, body: 'U -> PatternProblem<'T>) : PatternProblem<'T> =
@@ -250,12 +250,12 @@ module QuantumPatternMatcher =
     ///       backend ionqBackend
     ///   }
     ///   let solution = QuantumPatternMatcher.solve problem
-    let solve (problem: PatternProblem<'T>) : Result<PatternSolution<'T>, string> =
+    let solve (problem: PatternProblem<'T>) : Result<PatternSolution<'T>, QuantumError> =
         
         try
             // Validate problem first
             match validate problem with
-            | Error msg -> Error msg
+            | Error err -> Error err
             | Ok () ->
                 
                 // Use provided backend or create LocalBackend for simulation
@@ -296,13 +296,13 @@ module QuantumPatternMatcher =
                 // Create oracle for Grover search
                 let oracleResult = GroverSearch.Oracle.fromPredicate oraclePredicate qubitsNeeded
                 match oracleResult with
-                | Error msg -> Error $"Failed to create oracle: {msg}"
+                | Error msg -> Error (QuantumError.OperationError ("OracleCreation", $"Failed to create oracle: {msg}"))
                 | Ok oracle ->
                     
                     // Calculate optimal iterations (looking for TopN solutions)
                     let iterationsResult = GroverSearch.GroverIteration.optimalIterations searchSpaceSize problem.TopN
                     match iterationsResult with
-                    | Error msg -> Error $"Failed to calculate iterations: {msg}"
+                    | Error msg -> Error (QuantumError.OperationError ("IterationCalculation", $"Failed to calculate iterations: {msg}"))
                     | Ok calculatedIters ->
                         
                         let iterations = 
@@ -316,11 +316,11 @@ module QuantumPatternMatcher =
                         let solutionThreshold = 0.05  // 5% (down from 10%)
                         let successThreshold = 0.10   // 10% (down from 50%)
                         match GroverSearch.BackendAdapter.executeGroverWithBackend oracle actualBackend iterations problem.Shots solutionThreshold successThreshold with
-                        | Error msg -> Error $"Grover search failed: {msg}"
+                        | Error msg -> Error (QuantumError.OperationError ("GroverSearch", $"Grover search failed: {msg}"))
                         | Ok searchResult ->
                             
                             if List.isEmpty searchResult.Solutions then
-                                Error "No matching patterns found by quantum search"
+                                Error (QuantumError.OperationError ("GroverSearch", "No matching patterns found by quantum search"))
                             else
                                 // Take top N solutions
                                 let topIndices = searchResult.Solutions |> List.take (min problem.TopN (List.length searchResult.Solutions))
@@ -360,7 +360,7 @@ module QuantumPatternMatcher =
                                     SearchSpaceSize = searchSpaceSize
                                 }
         with
-        | ex -> Error $"Pattern matcher failed: {ex.Message}"
+        | ex -> Error (QuantumError.OperationError ("PatternMatcher", $"Pattern matcher failed: {ex.Message}"))
     
     // ============================================================================
     // CONVENIENCE FUNCTIONS

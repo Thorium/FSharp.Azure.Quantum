@@ -30,7 +30,7 @@ module QuantumRegressionHHLTests =
         }
         
         match train config with
-        | Error msg -> Assert.Contains("empty", msg.ToLower())
+        | Error msg -> Assert.Contains("empty", msg.Message.ToLower())
         | Ok _ -> Assert.Fail("Should reject empty features")
     
     [<Fact>]
@@ -48,7 +48,7 @@ module QuantumRegressionHHLTests =
         }
         
         match train config with
-        | Error msg -> Assert.Contains("mismatch", msg.ToLower())
+        | Error msg -> Assert.Contains("mismatch", msg.Message.ToLower())
         | Ok _ -> Assert.Fail("Should reject mismatched sample counts")
     
     [<Fact>]
@@ -66,7 +66,7 @@ module QuantumRegressionHHLTests =
         }
         
         match train config with
-        | Error msg -> Assert.Contains("qubit", msg.ToLower())
+        | Error msg -> Assert.Contains("qubit", msg.Message.ToLower())
         | Ok _ -> Assert.Fail("Should reject < 2 eigenvalue qubits")
     
     // ========================================================================
@@ -351,7 +351,7 @@ module QuantumRegressionHHLTests =
         
         match train config with
         | Error msg -> 
-            Assert.Contains("NaN", msg)
+            Assert.Contains("NaN", msg.Message)
         | Ok _ -> 
             Assert.Fail("Should reject NaN inputs")
     
@@ -371,7 +371,7 @@ module QuantumRegressionHHLTests =
         
         match train config with
         | Error msg -> 
-            Assert.Contains("Shots", msg)
+            Assert.Contains("Shots", msg.Message)
         | Ok _ -> 
             Assert.Fail("Should reject insufficient shots")
 

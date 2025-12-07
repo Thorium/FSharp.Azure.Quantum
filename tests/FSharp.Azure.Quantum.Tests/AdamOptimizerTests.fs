@@ -39,44 +39,44 @@ let ``createConfig should accept valid parameters`` () =
         Assert.Equal(0.9, config.Beta1)
         Assert.Equal(0.999, config.Beta2)
         Assert.Equal(1e-8, config.Epsilon)
-    | Error err -> failwithf "Should not fail: %s" err
+    | Error err -> failwithf "Should not fail: %s" err.Message
 
 [<Fact>]
 let ``createConfig should reject negative learning rate`` () =
     let result = createConfig -0.001 0.9 0.999 1e-8
     match result with
-    | Error msg -> Assert.Contains("Learning rate", msg)
+    | Error msg -> Assert.Contains("Learning rate", msg.Message)
     | Ok _ -> failwith "Should have failed"
 
 [<Fact>]
 let ``createConfig should reject Beta1 outside range`` () =
     let result1 = createConfig 0.001 -0.1 0.999 1e-8
     match result1 with
-    | Error msg -> Assert.Contains("Beta1", msg)
+    | Error msg -> Assert.Contains("Beta1", msg.Message)
     | Ok _ -> failwith "Should have failed for negative Beta1"
 
     let result2 = createConfig 0.001 1.0 0.999 1e-8
     match result2 with
-    | Error msg -> Assert.Contains("Beta1", msg)
+    | Error msg -> Assert.Contains("Beta1", msg.Message)
     | Ok _ -> failwith "Should have failed for Beta1 = 1.0"
 
 [<Fact>]
 let ``createConfig should reject Beta2 outside range`` () =
     let result1 = createConfig 0.001 0.9 -0.1 1e-8
     match result1 with
-    | Error msg -> Assert.Contains("Beta2", msg)
+    | Error msg -> Assert.Contains("Beta2", msg.Message)
     | Ok _ -> failwith "Should have failed for negative Beta2"
 
     let result2 = createConfig 0.001 0.9 1.0 1e-8
     match result2 with
-    | Error msg -> Assert.Contains("Beta2", msg)
+    | Error msg -> Assert.Contains("Beta2", msg.Message)
     | Ok _ -> failwith "Should have failed for Beta2 = 1.0"
 
 [<Fact>]
 let ``createConfig should reject non-positive epsilon`` () =
     let result = createConfig 0.001 0.9 0.999 0.0
     match result with
-    | Error msg -> Assert.Contains("Epsilon", msg)
+    | Error msg -> Assert.Contains("Epsilon", msg.Message)
     | Ok _ -> failwith "Should have failed"
 
 // ============================================================================
@@ -117,7 +117,7 @@ let ``update should increment time step`` () =
     match result with
     | Ok (_, newState) ->
         Assert.Equal(1, newState.T)
-    | Error err -> failwithf "Should not fail: %s" err
+    | Error err -> failwithf "Should not fail: %s" err.Message
 
 [<Fact>]
 let ``update should reject mismatched parameter dimensions`` () =
@@ -128,7 +128,7 @@ let ``update should reject mismatched parameter dimensions`` () =
     
     let result = update config state parameters gradients
     match result with
-    | Error msg -> Assert.Contains("Parameters length", msg)
+    | Error msg -> Assert.Contains("Parameters length", msg.Message)
     | Ok _ -> failwith "Should have failed"
 
 [<Fact>]
@@ -140,7 +140,7 @@ let ``update should reject mismatched gradient dimensions`` () =
     
     let result = update config state parameters gradients
     match result with
-    | Error msg -> Assert.Contains("Gradients length", msg)
+    | Error msg -> Assert.Contains("Gradients length", msg.Message)
     | Ok _ -> failwith "Should have failed"
 
 [<Fact>]
@@ -155,7 +155,7 @@ let ``update should move parameters in direction opposite to gradient`` () =
     | Ok (newParams, _) ->
         // With positive gradient, parameter should decrease
         Assert.True(newParams.[0] < parameters.[0], "Parameter should decrease")
-    | Error err -> failwithf "Should not fail: %s" err
+    | Error err -> failwithf "Should not fail: %s" err.Message
 
 [<Fact>]
 let ``update should handle zero gradients`` () =
@@ -171,7 +171,7 @@ let ``update should handle zero gradients`` () =
         // With zero gradients, parameters should change slightly due to bias correction
         // but should be very close to original
         assertArraysClose 0.01 parameters newParams
-    | Error err -> failwithf "Should not fail: %s" err
+    | Error err -> failwithf "Should not fail: %s" err.Message
 
 // ============================================================================
 // Update Tests - Momentum (First Moment)
@@ -189,7 +189,7 @@ let ``update should accumulate momentum over multiple steps`` () =
         match update config state parameters gradients with
         | Ok (_, newState) ->
             state <- newState
-        | Error err -> failwithf "Should not fail: %s" err
+        | Error err -> failwithf "Should not fail: %s" err.Message
     
     // Momentum should accumulate (M should be non-zero and growing)
     Assert.True(state.M.[0] > 0.0, "Momentum should be positive")
@@ -208,7 +208,7 @@ let ``update should apply exponential decay to momentum`` () =
         // With zero gradient and Beta1 = 0.9:
         // newM = 0.9 * 10.0 + 0.1 * 0.0 = 9.0
         Assert.True(abs (newState.M.[0] - 9.0) < 0.01, sprintf "Expected 9.0, got %f" newState.M.[0])
-    | Error err -> failwithf "Should not fail: %s" err
+    | Error err -> failwithf "Should not fail: %s" err.Message
 
 // ============================================================================
 // Update Tests - RMSprop (Second Moment)
@@ -227,7 +227,7 @@ let ``update should accumulate squared gradients in second moment`` () =
         // V should contain squared gradient term
         // newV = 0.999 * 0.0 + 0.001 * (2.0^2) = 0.004
         Assert.True(abs (newState.V.[0] - 0.004) < 0.001, sprintf "Expected 0.004, got %f" newState.V.[0])
-    | Error err -> failwithf "Should not fail: %s" err
+    | Error err -> failwithf "Should not fail: %s" err.Message
 
 [<Fact>]
 let ``update should adapt learning rate based on gradient history`` () =
@@ -247,7 +247,7 @@ let ``update should adapt learning rate based on gradient history`` () =
         // Both parameters should change
         Assert.True(change1 > 0.0, "First parameter should change")
         Assert.True(change2 > 0.0, "Second parameter should change")
-    | Error err -> failwithf "Should not fail: %s" err
+    | Error err -> failwithf "Should not fail: %s" err.Message
 
 // ============================================================================
 // Update Tests - Bias Correction
@@ -268,7 +268,7 @@ let ``update should apply bias correction to first moment`` () =
         // With bias correction, M_hat = M / (1 - 0.9^1) = 0.1 / 0.1 = 1.0
         Assert.True(abs (newState.M.[0] - 0.1) < 0.01, sprintf "Expected M=0.1, got %f" newState.M.[0])
         Assert.Equal(1, newState.T)
-    | Error err -> failwithf "Should not fail: %s" err
+    | Error err -> failwithf "Should not fail: %s" err.Message
 
 [<Fact>]
 let ``update should apply bias correction to second moment`` () =
@@ -284,7 +284,7 @@ let ``update should apply bias correction to second moment`` () =
         // bias_correction2 = 1 - 0.999^1 = 0.001
         // V_hat = 0.001 / 0.001 = 1.0 (bias corrected)
         Assert.True(abs (newState.V.[0] - 0.001) < 0.0001, sprintf "Expected V=0.001, got %f" newState.V.[0])
-    | Error err -> failwithf "Should not fail: %s" err
+    | Error err -> failwithf "Should not fail: %s" err.Message
 
 // ============================================================================
 // Integration Tests - Convergence Behavior
@@ -304,7 +304,7 @@ let ``update should converge on simple quadratic function`` () =
         | Ok (newParams, newState) ->
             parameters <- newParams
             state <- newState
-        | Error err -> failwithf "Should not fail: %s" err
+        | Error err -> failwithf "Should not fail: %s" err.Message
     
     // Should converge closer to x = 0 (Adam may not reach exact 0 but should be much smaller)
     Assert.True(abs parameters.[0] < abs 10.0, sprintf "Expected convergence closer to 0 than 10.0, got %f" parameters.[0])
@@ -328,7 +328,7 @@ let ``update should handle multiple parameters independently`` () =
         Assert.True(newParams.[0] < parameters.[0], "Param 0 should decrease (positive gradient)")
         Assert.True(newParams.[1] > parameters.[1], "Param 1 should increase (negative gradient)")
         Assert.True(newParams.[2] < parameters.[2], "Param 2 should decrease (positive gradient)")
-    | Error err -> failwithf "Should not fail: %s" err
+    | Error err -> failwithf "Should not fail: %s" err.Message
 
 [<Fact>]
 let ``updateWithDefaults should use defaultConfig`` () =
@@ -394,7 +394,7 @@ let ``update should handle very large gradients without overflow`` () =
         Assert.False(System.Double.IsPositiveInfinity(newParams.[0]), "Should not overflow to +Inf")
         Assert.False(System.Double.IsNegativeInfinity(newParams.[0]), "Should not overflow to -Inf")
         Assert.False(System.Double.IsNaN(newParams.[0]), "Should not be NaN")
-    | Error err -> failwithf "Should not fail: %s" err
+    | Error err -> failwithf "Should not fail: %s" err.Message
 
 [<Fact>]
 let ``update should handle very small gradients without underflow`` () =
@@ -407,7 +407,7 @@ let ``update should handle very small gradients without underflow`` () =
     match result with
     | Ok (newParams, _) ->
         Assert.False(System.Double.IsNaN(newParams.[0]), "Should not be NaN")
-    | Error err -> failwithf "Should not fail: %s" err
+    | Error err -> failwithf "Should not fail: %s" err.Message
 
 [<Fact>]
 let ``update should be deterministic with same inputs`` () =

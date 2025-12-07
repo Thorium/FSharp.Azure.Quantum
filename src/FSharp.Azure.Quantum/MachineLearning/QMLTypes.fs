@@ -1,5 +1,7 @@
 namespace FSharp.Azure.Quantum.MachineLearning
 
+open FSharp.Azure.Quantum.Core
+
 /// Types for Quantum Machine Learning (QML)
 ///
 /// This module provides core types for quantum machine learning:
@@ -151,17 +153,17 @@ module FeatureMapHelpers =
             0  // No trainable parameters
     
     /// Validate feature vector dimensions
-    let validateFeatures (numQubits: int) (features: FeatureVector) (featureMap: FeatureMapType) : Result<unit, string> =
+    let validateFeatures (numQubits: int) (features: FeatureVector) (featureMap: FeatureMapType) : QuantumResult<unit> =
         match featureMap with
         | AmplitudeEncoding ->
             let expected = 1 <<< numQubits  // 2^numQubits
             if features.Length <> expected then
-                Error $"AmplitudeEncoding requires {expected} features for {numQubits} qubits, got {features.Length}"
+                Error (QuantumError.ValidationError ("Input", $"AmplitudeEncoding requires {expected} features for {numQubits} qubits, got {features.Length}"))
             else
                 Ok ()
         | AngleEncoding ->
             if features.Length <> numQubits then
-                Error $"AngleEncoding requires {numQubits} features for {numQubits} qubits, got {features.Length}"
+                Error (QuantumError.ValidationError ("Input", $"AngleEncoding requires {numQubits} features for {numQubits} qubits, got {features.Length}"))
             else
                 Ok ()
         | ZZFeatureMap _ | PauliFeatureMap _ ->

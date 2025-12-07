@@ -218,7 +218,7 @@ module ProbabilisticErrorCancellation =
         let cumulative = 
             probabilities 
             |> List.scan (+) 0.0 
-            |> List.tail  // Remove initial 0.0
+            |> List.skip 1  // Remove initial 0.0 (List.scan always produces at least one element)
         
         let u = rng.NextDouble()
         

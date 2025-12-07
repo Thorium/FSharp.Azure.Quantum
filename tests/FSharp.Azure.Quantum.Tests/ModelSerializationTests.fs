@@ -95,7 +95,7 @@ module ModelSerializationTests =
         match result with
         | Ok _ -> Assert.Fail("Should return error for nonexistent file")
         | Error msg ->
-            Assert.Contains("not found", msg.ToLower())
+            Assert.Contains("not found", msg.Message.ToLower())
     
     // ========================================================================
     // SAVE TRAINING RESULT TESTS
@@ -283,7 +283,7 @@ module ModelSerializationTests =
         match result with
         | Ok _ -> Assert.Fail("Should return error for nonexistent directory")
         | Error msg ->
-            Assert.Contains("not found", msg.ToLower())
+            Assert.Contains("not found", msg.Message.ToLower())
     
     [<Fact>]
     let ``Load VQC model batch with no matching files returns error`` () =
@@ -299,7 +299,7 @@ module ModelSerializationTests =
             match result with
             | Ok _ -> Assert.Fail("Should return error when no files match")
             | Error msg ->
-                Assert.Contains("no files", msg.ToLower())
+                Assert.Contains("no files", msg.Message.ToLower())
         finally
             if Directory.Exists testDir then
                 Directory.Delete(testDir, true)
@@ -588,7 +588,7 @@ module ModelSerializationTests =
         match result with
         | Ok _ -> Assert.Fail("Should return error for nonexistent file")
         | Error msg ->
-            Assert.Contains("not found", msg.ToLower())
+            Assert.Contains("not found", msg.Message.ToLower())
     
     [<Fact>]
     let ``Multi-class model preserves metadata timestamp`` () =

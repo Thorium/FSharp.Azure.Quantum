@@ -32,7 +32,7 @@ let ``computeKernel - should return value between 0 and 1`` () =
         Assert.True(kernelValue >= 0.0 && kernelValue <= 1.0, 
             sprintf "Kernel value should be in [0,1], got %f" kernelValue)
     | Error err ->
-        Assert.True(false, sprintf "Should not fail: %s" err)
+        Assert.True(false, sprintf "Should not fail: %s" err.Message)
 
 [<Fact>]
 let ``computeKernel - identical vectors should give high kernel value`` () =
@@ -49,7 +49,7 @@ let ``computeKernel - identical vectors should give high kernel value`` () =
         Assert.True(kernelValue > 0.8, 
             sprintf "K(x,x) should be high (>0.8), got %f" kernelValue)
     | Error err ->
-        Assert.True(false, sprintf "Should not fail: %s" err)
+        Assert.True(false, sprintf "Should not fail: %s" err.Message)
 
 [<Fact>]
 let ``computeKernel - should reject empty feature vectors`` () =
@@ -62,7 +62,7 @@ let ``computeKernel - should reject empty feature vectors`` () =
     
     match result with
     | Error msg ->
-        Assert.Contains("cannot be empty", msg)
+        Assert.Contains("cannot be empty", msg.Message)
     | Ok _ ->
         Assert.True(false, "Should have rejected empty vectors")
 
@@ -77,7 +77,7 @@ let ``computeKernel - should reject mismatched vector lengths`` () =
     
     match result with
     | Error msg ->
-        Assert.Contains("same length", msg)
+        Assert.Contains("same length", msg.Message)
     | Ok _ ->
         Assert.True(false, "Should have rejected mismatched lengths")
 
@@ -92,7 +92,7 @@ let ``computeKernel - should reject non-positive shots`` () =
     
     match result with
     | Error msg ->
-        Assert.Contains("must be positive", msg)
+        Assert.Contains("must be positive", msg.Message)
     | Ok _ ->
         Assert.True(false, "Should have rejected zero shots")
 
@@ -112,7 +112,7 @@ let ``computeKernel - orthogonal states should give low kernel value`` () =
         Assert.True(kernelValue < 0.8, 
             sprintf "K(x,y) for distant states should be lower, got %f" kernelValue)
     | Error err ->
-        Assert.True(false, sprintf "Should not fail: %s" err)
+        Assert.True(false, sprintf "Should not fail: %s" err.Message)
 
 // ============================================================================
 // Kernel Matrix Tests
@@ -143,7 +143,7 @@ let ``computeKernelMatrix - should be square and symmetric`` () =
                     sprintf "Matrix should be symmetric at (%d,%d): %f vs %f" 
                         i j matrix.[i,j] matrix.[j,i])
     | Error err ->
-        Assert.True(false, sprintf "Should not fail: %s" err)
+        Assert.True(false, sprintf "Should not fail: %s" err.Message)
 
 [<Fact>]
 let ``computeKernelMatrix - diagonal should be close to 1`` () =
@@ -163,7 +163,7 @@ let ``computeKernelMatrix - diagonal should be close to 1`` () =
             Assert.True(matrix.[i, i] > 0.8,
                 sprintf "K(%d,%d) should be high, got %f" i i matrix.[i,i])
     | Error err ->
-        Assert.True(false, sprintf "Should not fail: %s" err)
+        Assert.True(false, sprintf "Should not fail: %s" err.Message)
 
 [<Fact>]
 let ``computeKernelMatrix - should reject empty dataset`` () =
@@ -175,7 +175,7 @@ let ``computeKernelMatrix - should reject empty dataset`` () =
     
     match result with
     | Error msg ->
-        Assert.Contains("cannot be empty", msg)
+        Assert.Contains("cannot be empty", msg.Message)
     | Ok _ ->
         Assert.True(false, "Should have rejected empty dataset")
 
@@ -198,7 +198,7 @@ let ``computeKernelMatrix - all values should be in range 0 to 1`` () =
                 Assert.True(matrix.[i, j] >= 0.0 && matrix.[i, j] <= 1.0,
                     sprintf "K[%d,%d]=%f should be in [0,1]" i j matrix.[i,j])
     | Error err ->
-        Assert.True(false, sprintf "Should not fail: %s" err)
+        Assert.True(false, sprintf "Should not fail: %s" err.Message)
 
 // ============================================================================
 // Train/Test Kernel Matrix Tests
@@ -226,7 +226,7 @@ let ``computeKernelMatrixTrainTest - should have correct dimensions`` () =
         Assert.Equal(2, Array2D.length1 matrix)
         Assert.Equal(3, Array2D.length2 matrix)
     | Error err ->
-        Assert.True(false, sprintf "Should not fail: %s" err)
+        Assert.True(false, sprintf "Should not fail: %s" err.Message)
 
 [<Fact>]
 let ``computeKernelMatrixTrainTest - all values should be in range`` () =
@@ -244,7 +244,7 @@ let ``computeKernelMatrixTrainTest - all values should be in range`` () =
                 Assert.True(matrix.[i, j] >= 0.0 && matrix.[i, j] <= 1.0,
                     sprintf "K[%d,%d]=%f should be in [0,1]" i j matrix.[i,j])
     | Error err ->
-        Assert.True(false, sprintf "Should not fail: %s" err)
+        Assert.True(false, sprintf "Should not fail: %s" err.Message)
 
 [<Fact>]
 let ``computeKernelMatrixTrainTest - should reject empty train data`` () =
@@ -257,7 +257,7 @@ let ``computeKernelMatrixTrainTest - should reject empty train data`` () =
     
     match result with
     | Error msg ->
-        Assert.Contains("Training dataset cannot be empty", msg)
+        Assert.Contains("Training dataset cannot be empty", msg.Message)
     | Ok _ ->
         Assert.True(false, "Should have rejected empty train data")
 
@@ -272,7 +272,7 @@ let ``computeKernelMatrixTrainTest - should reject empty test data`` () =
     
     match result with
     | Error msg ->
-        Assert.Contains("Test dataset cannot be empty", msg)
+        Assert.Contains("Test dataset cannot be empty", msg.Message)
     | Ok _ ->
         Assert.True(false, "Should have rejected empty test data")
 
@@ -346,7 +346,7 @@ let ``normalizeKernelMatrix - should normalize diagonal to 1`` () =
         Assert.True(abs (normalized.[0, 1] - expected) < 0.01,
             sprintf "K_norm[0,1] should be %f, got %f" expected normalized.[0,1])
     | Error err ->
-        Assert.True(false, sprintf "Should not fail: %s" err)
+        Assert.True(false, sprintf "Should not fail: %s" err.Message)
 
 [<Fact>]
 let ``normalizeKernelMatrix - should reject non-square matrix`` () =
@@ -356,7 +356,7 @@ let ``normalizeKernelMatrix - should reject non-square matrix`` () =
     
     match result with
     | Error msg ->
-        Assert.Contains("must be square", msg)
+        Assert.Contains("must be square", msg.Message)
     | Ok _ ->
         Assert.True(false, "Should have rejected non-square matrix")
 
@@ -368,7 +368,7 @@ let ``normalizeKernelMatrix - should reject matrix with zero diagonal`` () =
     
     match result with
     | Error msg ->
-        Assert.Contains("must be positive", msg)
+        Assert.Contains("must be positive", msg.Message)
     | Ok _ ->
         Assert.True(false, "Should have rejected zero diagonal")
 
@@ -438,7 +438,7 @@ let ``computeKernel - should work with ZZFeatureMap`` () =
         Assert.True(kernelValue >= 0.0 && kernelValue <= 1.0,
             sprintf "Kernel value should be in [0,1], got %f" kernelValue)
     | Error err ->
-        Assert.True(false, sprintf "Should not fail: %s" err)
+        Assert.True(false, sprintf "Should not fail: %s" err.Message)
 
 [<Fact>]
 let ``computeKernelMatrix - should work with ZZFeatureMap`` () =
@@ -460,7 +460,7 @@ let ``computeKernelMatrix - should work with ZZFeatureMap`` () =
         Assert.True(matrix.[0, 0] > 0.7, sprintf "K[0,0] should be high, got %f" matrix.[0,0])
         Assert.True(matrix.[1, 1] > 0.7, sprintf "K[1,1] should be high, got %f" matrix.[1,1])
     | Error err ->
-        Assert.True(false, sprintf "Should not fail: %s" err)
+        Assert.True(false, sprintf "Should not fail: %s" err.Message)
 
 [<Fact>]
 let ``computeKernelMatrix - properties should hold for real quantum kernel`` () =
@@ -490,4 +490,4 @@ let ``computeKernelMatrix - properties should hold for real quantum kernel`` () 
         Assert.True(stats.DiagonalMean > 0.8,
             sprintf "Diagonal mean should be high, got %f" stats.DiagonalMean)
     | Error err ->
-        Assert.True(false, sprintf "Should not fail: %s" err)
+        Assert.True(false, sprintf "Should not fail: %s" err.Message)

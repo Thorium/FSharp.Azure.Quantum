@@ -1,4 +1,5 @@
 namespace FSharp.Azure.Quantum
+open FSharp.Azure.Quantum.Core
 
 open System
 
@@ -118,10 +119,10 @@ module QuantumAdvisor =
                 $"Very large problem (n={n}). Quantum computing strongly recommended due to exponential classical complexity."
 
     /// Make recommendation with configurable thresholds
-    let getRecommendationWithThresholds (thresholds: DecisionThresholds) (input: 'T) : Result<Recommendation, string> =
+    let getRecommendationWithThresholds (thresholds: DecisionThresholds) (input: 'T) : QuantumResult<Recommendation> =
         // Use ProblemAnalysis to classify the problem
         match ProblemAnalysis.classifyProblem input with
-        | Error msg -> Error msg
+        | Error err -> Error err
         | Ok problemInfo ->
             let n = problemInfo.Size
 
@@ -175,5 +176,5 @@ module QuantumAdvisor =
 
     /// Get recommendation with default conservative thresholds
     /// Returns Result with Recommendation or error message
-    let getRecommendation (input: 'T) : Result<Recommendation, string> =
+    let getRecommendation (input: 'T) : QuantumResult<Recommendation> =
         getRecommendationWithThresholds defaultThresholds input

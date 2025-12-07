@@ -1,4 +1,5 @@
 namespace FSharp.Azure.Quantum.TaskScheduling
+open FSharp.Azure.Quantum.Core
 
 /// Task Scheduling Domain Types
 ///

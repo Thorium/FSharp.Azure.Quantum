@@ -275,11 +275,11 @@ module ErrorMitigationStrategy =
     /// Apply mitigation strategy to a circuit with fallback handling.
     /// 
     /// Tries primary strategy first, falls back to secondary if primary fails.
-    /// Returns Result type for error handling.
+    /// Returns QuantumResult type for error handling.
     let applyStrategy 
         (histogram: Map<string, int>)
         (strategy: RecommendedStrategy)
-        : Result<MitigatedResult, string> =
+        : QuantumResult<MitigatedResult> =
         
         try
             // For now, apply readout correction as demonstration
@@ -314,6 +314,6 @@ module ErrorMitigationStrategy =
                         ActualCostMultiplier = strategy.EstimatedCostMultiplier / 2.0
                     }
                 with ex2 ->
-                    Error (sprintf "Primary and fallback failed: %s, %s" ex.Message ex2.Message)
+                    Error (QuantumError.OperationError ("Error mitigation", $"Primary and fallback failed: {ex.Message}, {ex2.Message}"))
             | None ->
-                Error (sprintf "Mitigation failed: %s" ex.Message)
+                Error (QuantumError.OperationError ("Error mitigation", $"Mitigation failed: {ex.Message}"))

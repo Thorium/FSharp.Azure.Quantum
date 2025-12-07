@@ -1,6 +1,7 @@
 namespace FSharp.Azure.Quantum.GroverSearch
 
 open System
+open FSharp.Azure.Quantum.Core
 
 /// Grover Search API Module
 /// 
@@ -55,7 +56,7 @@ module Search =
         (oracle: CompiledOracle) 
         (backend: FSharp.Azure.Quantum.Core.BackendAbstraction.IQuantumBackend) 
         (config: SearchConfig) 
-        : Result<SearchResult, string> =
+        : QuantumResult<SearchResult> =
         
         // Determine iteration count
         let iterationCountResult =
@@ -66,7 +67,7 @@ module Search =
                                  | Some maxK -> min k maxK
                                  | None -> k
                     Ok finalK
-                | Some (Error msg) -> Error msg
+                | Some (Error err) -> Error err
                 | None ->
                     let defaultK = int (Math.Sqrt(float (1 <<< oracle.NumQubits)))
                     let finalK = match config.MaxIterations with
@@ -80,7 +81,7 @@ module Search =
                 Ok k
         
         match iterationCountResult with
-        | Error msg -> Error msg
+        | Error err -> Error err
         | Ok iterationCount ->
             // Delegate to BackendAdapter with thresholds from config
             // Solution threshold: 7% of shots (balances noise filtering with solution capture)
@@ -99,10 +100,10 @@ module Search =
         (numQubits: int) 
         (backend: FSharp.Azure.Quantum.Core.BackendAbstraction.IQuantumBackend) 
         (config: SearchConfig) 
-        : Result<SearchResult, string> =
+        : QuantumResult<SearchResult> =
         match Oracle.forValue target numQubits with
         | Ok oracle -> search oracle backend config
-        | Error msg -> Error msg
+        | Error err -> Error err
     
     /// Search for multiple values
     let searchMultiple 
@@ -110,13 +111,13 @@ module Search =
         (numQubits: int) 
         (backend: FSharp.Azure.Quantum.Core.BackendAbstraction.IQuantumBackend) 
         (config: SearchConfig) 
-        : Result<SearchResult, string> =
+        : QuantumResult<SearchResult> =
         if List.isEmpty targets then
-            Error "Target list cannot be empty"
+            Error (QuantumError.ValidationError ("Targets", "list cannot be empty"))
         else
             match Oracle.forValues targets numQubits with
             | Ok oracle -> search oracle backend config
-            | Error msg -> Error msg
+            | Error err -> Error err
     
     /// Search with custom predicate
     let searchWhere 
@@ -124,30 +125,30 @@ module Search =
         (numQubits: int) 
         (backend: FSharp.Azure.Quantum.Core.BackendAbstraction.IQuantumBackend) 
         (config: SearchConfig) 
-        : Result<SearchResult, string> =
+        : QuantumResult<SearchResult> =
         match Oracle.fromPredicate predicate numQubits with
         | Ok oracle -> search oracle backend config
-        | Error msg -> Error msg
+        | Error err -> Error err
     
     /// Search for even numbers
     let searchEven 
         (numQubits: int) 
         (backend: FSharp.Azure.Quantum.Core.BackendAbstraction.IQuantumBackend) 
         (config: SearchConfig) 
-        : Result<SearchResult, string> =
+        : QuantumResult<SearchResult> =
         match Oracle.even numQubits with
         | Ok oracle -> search oracle backend config
-        | Error msg -> Error msg
+        | Error err -> Error err
     
     /// Search for odd numbers
     let searchOdd 
         (numQubits: int) 
         (backend: FSharp.Azure.Quantum.Core.BackendAbstraction.IQuantumBackend) 
         (config: SearchConfig) 
-        : Result<SearchResult, string> =
+        : QuantumResult<SearchResult> =
         match Oracle.odd numQubits with
         | Ok oracle -> search oracle backend config
-        | Error msg -> Error msg
+        | Error err -> Error err
     
     /// Search in range [min, max]
     let searchInRange 
@@ -156,10 +157,10 @@ module Search =
         (numQubits: int) 
         (backend: FSharp.Azure.Quantum.Core.BackendAbstraction.IQuantumBackend) 
         (config: SearchConfig) 
-        : Result<SearchResult, string> =
+        : QuantumResult<SearchResult> =
         match Oracle.inRange min max numQubits with
         | Ok oracle -> search oracle backend config
-        | Error msg -> Error msg
+        | Error err -> Error err
     
     /// Search for numbers divisible by n
     let searchDivisibleBy 
@@ -167,10 +168,10 @@ module Search =
         (numQubits: int) 
         (backend: FSharp.Azure.Quantum.Core.BackendAbstraction.IQuantumBackend) 
         (config: SearchConfig) 
-        : Result<SearchResult, string> =
+        : QuantumResult<SearchResult> =
         match Oracle.divisibleBy n numQubits with
         | Ok oracle -> search oracle backend config
-        | Error msg -> Error msg
+        | Error err -> Error err
     
     // ============================================================================
     // CONFIGURATION BUILDERS - Convenient config creation
@@ -279,9 +280,9 @@ module Search =
         (backend: FSharp.Azure.Quantum.Core.BackendAbstraction.IQuantumBackend)
         (config: SearchConfig) 
         (rounds: int) 
-        : Result<SearchResult, string> =
+        : QuantumResult<SearchResult> =
         if rounds < 1 then
-            Error "Number of rounds must be positive"
+            Error (QuantumError.ValidationError ("Rounds", "number of rounds must be positive"))
         else
             try
                 // Execute search multiple times
@@ -294,7 +295,7 @@ module Search =
                     )
                 
                 if List.isEmpty results then
-                    Error "All search rounds failed"
+                    Error (QuantumError.OperationError ("Grover search rounds", "all search rounds failed"))
                 else
                     // Aggregate results
                     let allSolutions =
@@ -331,7 +332,7 @@ module Search =
                         Success = avgSuccessProb >= config.SuccessThreshold
                     }
             with
-            | ex -> Error $"Multi-round search failed: {ex.Message}"
+            | ex -> Error (QuantumError.OperationError ("Multi-round search", $"failed: {ex.Message}"))
     
     // ============================================================================
     // EXAMPLES - For documentation
@@ -341,16 +342,16 @@ module Search =
         
         /// Example: Find value 42 in 6-qubit space
         /// Uses increased shots for better success rate in 64-state search space
-        let findValue42 (backend: FSharp.Azure.Quantum.Core.BackendAbstraction.IQuantumBackend) : Result<SearchResult, string> =
+        let findValue42 (backend: FSharp.Azure.Quantum.Core.BackendAbstraction.IQuantumBackend) : QuantumResult<SearchResult> =
             let config = { defaultConfig with Shots = 2000 }
             searchSingle 42 6 backend config
         
         /// Example: Find any even number in 4-qubit space
-        let findEvenNumber (backend: FSharp.Azure.Quantum.Core.BackendAbstraction.IQuantumBackend) : Result<SearchResult, string> =
+        let findEvenNumber (backend: FSharp.Azure.Quantum.Core.BackendAbstraction.IQuantumBackend) : QuantumResult<SearchResult> =
             searchEven 4 backend defaultConfig
         
         /// Example: Find numbers between 10 and 15
-        let findInRange (backend: FSharp.Azure.Quantum.Core.BackendAbstraction.IQuantumBackend) : Result<SearchResult, string> =
+        let findInRange (backend: FSharp.Azure.Quantum.Core.BackendAbstraction.IQuantumBackend) : QuantumResult<SearchResult> =
             searchInRange 10 15 4 backend defaultConfig
         
         /// Example: Custom predicate - find prime numbers
@@ -363,18 +364,18 @@ module Search =
                 [3 .. 2 .. limit]
                 |> List.forall (fun d -> n % d <> 0)
         
-        let findPrimeNumber (backend: FSharp.Azure.Quantum.Core.BackendAbstraction.IQuantumBackend) : Result<SearchResult, string> =
+        let findPrimeNumber (backend: FSharp.Azure.Quantum.Core.BackendAbstraction.IQuantumBackend) : QuantumResult<SearchResult> =
             searchWhere isPrime 4 backend defaultConfig
         
         /// Example: Multi-target search
-        let findMultipleTargets (backend: FSharp.Azure.Quantum.Core.BackendAbstraction.IQuantumBackend) : Result<SearchResult, string> =
+        let findMultipleTargets (backend: FSharp.Azure.Quantum.Core.BackendAbstraction.IQuantumBackend) : QuantumResult<SearchResult> =
             searchMultiple [5; 7; 11; 13] 4 backend defaultConfig
         
         /// Example: Find value 42 using custom backend
-        let findValue42CustomBackend (backend: FSharp.Azure.Quantum.Core.BackendAbstraction.IQuantumBackend) : Result<SearchResult, string> =
+        let findValue42CustomBackend (backend: FSharp.Azure.Quantum.Core.BackendAbstraction.IQuantumBackend) : QuantumResult<SearchResult> =
             let config = { defaultConfig with Shots = 2000 }
             searchSingle 42 6 backend config
         
         /// Example: Find even number using custom backend
-        let findEvenNumberCustomBackend (backend: FSharp.Azure.Quantum.Core.BackendAbstraction.IQuantumBackend) : Result<SearchResult, string> =
+        let findEvenNumberCustomBackend (backend: FSharp.Azure.Quantum.Core.BackendAbstraction.IQuantumBackend) : QuantumResult<SearchResult> =
             searchEven 4 backend defaultConfig

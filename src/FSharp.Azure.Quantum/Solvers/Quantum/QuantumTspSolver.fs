@@ -86,7 +86,7 @@ module QuantumTspSolver =
                 :> CircuitAbstraction.ICircuit
             
             match backend.Execute circuitWrapper numShots with
-            | Error msg -> 
+            | Error _ -> 
                 // Return large penalty if execution fails
                 System.Double.MaxValue
             | Ok execResult ->
@@ -212,12 +212,12 @@ module QuantumTspSolver =
     ///   config - Configuration for optimization and execution
     ///   
     /// Returns:
-    ///   Result with QuantumTspSolution or error message
+    ///   Result with QuantumTspSolution or QuantumError
     let solve 
         (backend: BackendAbstraction.IQuantumBackend)
         (distances: float[,])
         (config: QuantumTspConfig)
-        : Result<QuantumTspSolution, string> =
+        : Result<QuantumTspSolution, QuantumError> =
         
         let startTime = DateTime.UtcNow
         
@@ -226,12 +226,13 @@ module QuantumTspSolver =
         let requiredQubits = numCities * numCities  // TSP uses N^2 qubits for N cities
         
         if numCities < 2 then
-            Error "TSP requires at least 2 cities"
+            Error (QuantumError.ValidationError ("numCities", "TSP requires at least 2 cities"))
         elif requiredQubits > backend.MaxQubits then
-            Error (sprintf "Problem requires %d qubits but backend '%s' supports max %d qubits" 
-                requiredQubits backend.Name backend.MaxQubits)
+            Error (QuantumError.ValidationError ("qubitCount", 
+                sprintf "Problem requires %d qubits but backend '%s' supports max %d qubits" 
+                    requiredQubits backend.Name backend.MaxQubits))
         elif config.FinalShots <= 0 then
-            Error "Number of shots must be positive"
+            Error (QuantumError.ValidationError ("numShots", "Number of shots must be positive"))
         else
             try
                 // Step 1: Build GraphOptimization problem from distance matrix
@@ -301,7 +302,7 @@ module QuantumTspSolver =
                     :> CircuitAbstraction.ICircuit
                 
                 match backend.Execute circuitWrapper config.FinalShots with
-                | Error msg -> Error (sprintf "Backend execution failed: %s" msg)
+                | Error err -> Error err
                 | Ok execResult ->
                     // Step 7: Decode measurements to tours
                     let tourResults =
@@ -347,7 +348,7 @@ module QuantumTspSolver =
                         |> Array.choose id
                     
                     if tourResults.Length = 0 then
-                        Error "No valid tours found in quantum measurements"
+                        Error (QuantumError.OperationError ("DecodeSolution", "No valid tours found in quantum measurements"))
                     else
                         // Group by tour and count frequencies
                         let tourFrequencies =
@@ -381,10 +382,10 @@ module QuantumTspSolver =
                         }
             
             with ex ->
-                Error (sprintf "Quantum TSP solver failed: %s" ex.Message)
+                Error (QuantumError.OperationError ("QuantumTspSolver", sprintf "Quantum TSP solver failed: %s" ex.Message))
 
     /// Solve TSP with default configuration (LocalBackend, optimization enabled)
-    let solveWithDefaults (distances: float[,]) : Result<QuantumTspSolution, string> =
+    let solveWithDefaults (distances: float[,]) : Result<QuantumTspSolution, QuantumError> =
         let backend = BackendAbstraction.createLocalBackend()
         solve backend distances defaultConfig
     
@@ -394,6 +395,6 @@ module QuantumTspSolver =
         (backend: BackendAbstraction.IQuantumBackend)
         (distances: float[,])
         (numShots: int)
-        : Result<QuantumTspSolution, string> =
+        : Result<QuantumTspSolution, QuantumError> =
         let config = { defaultConfig with FinalShots = numShots; EnableOptimization = false }
         solve backend distances config

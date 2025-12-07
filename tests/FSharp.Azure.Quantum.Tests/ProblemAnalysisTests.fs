@@ -39,8 +39,8 @@ module ProblemAnalysisTests =
         match result with
         | Ok _ -> Assert.Fail("Should reject null matrix with error, not return Ok")
         | Error errorMsg ->
-            Assert.Contains("null", errorMsg.ToLower())
-            Assert.False(String.IsNullOrWhiteSpace(errorMsg), "Error message should be meaningful")
+            Assert.Contains("null", errorMsg.Message.ToLower())
+            Assert.False(String.IsNullOrWhiteSpace(errorMsg.Message), "Error message should be meaningful")
 
     [<Fact>]
     let ``Should reject empty distance matrix`` () =
@@ -54,8 +54,8 @@ module ProblemAnalysisTests =
         match result with
         | Ok _ -> Assert.Fail("Should reject empty matrix with error")
         | Error errorMsg ->
-            Assert.Contains("empty", errorMsg.ToLower())
-            Assert.False(String.IsNullOrWhiteSpace(errorMsg), "Error message should be meaningful")
+            Assert.Contains("empty", errorMsg.Message.ToLower())
+            Assert.False(String.IsNullOrWhiteSpace(errorMsg.Message), "Error message should be meaningful")
 
     [<Fact>]
     let ``Should reject non-square distance matrix`` () =
@@ -74,8 +74,8 @@ module ProblemAnalysisTests =
         | Ok _ -> Assert.Fail("Should reject non-square matrix")
         | Error errorMsg ->
             Assert.True(
-                errorMsg.Contains("square") || errorMsg.Contains("dimensions"),
-                $"Error should mention matrix shape issue, got: {errorMsg}"
+                errorMsg.Message.Contains("square") || errorMsg.Message.Contains("dimensions"),
+                $"Error should mention matrix shape issue, got: {errorMsg.Message}"
             )
 
     [<Fact>]
@@ -114,7 +114,7 @@ module ProblemAnalysisTests =
             Assert.True(true, "Detected problem characteristics")
         | Error errorMsg ->
             // Or reject as invalid TSP
-            Assert.False(String.IsNullOrWhiteSpace(errorMsg))
+            Assert.False(String.IsNullOrWhiteSpace(errorMsg.Message))
 
     [<Fact>]
     let ``Should reject matrix with negative distances`` () =
@@ -130,8 +130,8 @@ module ProblemAnalysisTests =
         | Ok _ -> Assert.Fail("Should reject negative distances in TSP")
         | Error errorMsg ->
             Assert.True(
-                errorMsg.Contains("negative") || errorMsg.Contains("invalid"),
-                $"Error should mention negative/invalid distances, got: {errorMsg}"
+                errorMsg.Message.Contains("negative") || errorMsg.Message.Contains("invalid"),
+                $"Error should mention negative/invalid distances, got: {errorMsg.Message}"
             )
 
     [<Fact>]
@@ -148,8 +148,8 @@ module ProblemAnalysisTests =
         | Ok _ -> Assert.Fail("Should reject NaN values")
         | Error errorMsg ->
             Assert.True(
-                errorMsg.Contains("NaN") || errorMsg.Contains("invalid"),
-                $"Error should mention NaN/invalid values, got: {errorMsg}"
+                errorMsg.Message.Contains("NaN") || errorMsg.Message.Contains("invalid"),
+                $"Error should mention NaN/invalid values, got: {errorMsg.Message}"
             )
 
     [<Fact>]
@@ -169,8 +169,8 @@ module ProblemAnalysisTests =
         | Ok _ -> Assert.Fail("Should reject infinity values")
         | Error errorMsg ->
             Assert.True(
-                errorMsg.Contains("infinity") || errorMsg.Contains("invalid"),
-                $"Error should mention infinity/invalid values, got: {errorMsg}"
+                errorMsg.Message.Contains("infinity") || errorMsg.Message.Contains("invalid"),
+                $"Error should mention infinity/invalid values, got: {errorMsg.Message}"
             )
 
     // ===== Search Space Estimation Tests =====
@@ -310,7 +310,7 @@ module ProblemAnalysisTests =
         // Assert
         match result with
         | Ok _ -> Assert.Fail("Should reject null matrix")
-        | Error errorMsg -> Assert.Contains("null", errorMsg.ToLower())
+        | Error errorMsg -> Assert.Contains("null", errorMsg.Message.ToLower())
 
     [<Fact>]
     let ``Quantum advantage should reject invalid matrix`` () =
@@ -323,4 +323,4 @@ module ProblemAnalysisTests =
         // Assert
         match result with
         | Ok _ -> Assert.Fail("Should reject invalid matrix")
-        | Error errorMsg -> Assert.False(String.IsNullOrWhiteSpace(errorMsg))
+        | Error errorMsg -> Assert.False(String.IsNullOrWhiteSpace(errorMsg.Message))

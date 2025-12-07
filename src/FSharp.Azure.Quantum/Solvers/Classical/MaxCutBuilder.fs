@@ -233,7 +233,7 @@ module MaxCut =
     /// 
     /// RETURNS:
     ///   Result with Solution (partitions, cut value) or error message
-    let solve (problem: MaxCutProblem) (backend: BackendAbstraction.IQuantumBackend option) : Result<Solution, string> =
+    let solve (problem: MaxCutProblem) (backend: BackendAbstraction.IQuantumBackend option) : QuantumResult<Solution> =
         try
             // Use provided backend or create LocalBackend for simulation
             let actualBackend = 
@@ -252,11 +252,11 @@ module MaxCut =
                 InitialParameters = (0.5, 0.5)
             }
             
-            // Call quantum MaxCut solver directly
-            match QuantumMaxCutSolver.solve actualBackend quantumProblem quantumConfig with
-            | Error msg -> Error $"Quantum MaxCut solve failed: {msg}"
-            | Ok quantumResult ->
-                Ok {
+            // Call quantum MaxCut solver directly using computation expression
+            quantumResult {
+                let! quantumResult = QuantumMaxCutSolver.solve actualBackend quantumProblem quantumConfig
+                
+                return {
                     PartitionS = quantumResult.PartitionS
                     PartitionT = quantumResult.PartitionT
                     CutValue = quantumResult.CutValue
@@ -264,8 +264,9 @@ module MaxCut =
                     BackendName = quantumResult.BackendName
                     IsQuantum = true
                 }
+            }
         with
-        | ex -> Error $"MaxCut solve failed: {ex.Message}"
+        | ex -> Error (QuantumError.OperationError ("MaxCut solve failed: ", $"Failed: {ex.Message}"))
 
     /// Solve MaxCut using classical greedy algorithm (for comparison)
     /// 
@@ -313,7 +314,7 @@ module MaxCut =
         (vertices: string list) 
         (edges: (string * string * float) list) 
         (backend: BackendAbstraction.IQuantumBackend option) 
-        : Result<Solution, string> =
+        : QuantumResult<Solution> =
         
         let problem = createProblem vertices edges
         solve problem backend

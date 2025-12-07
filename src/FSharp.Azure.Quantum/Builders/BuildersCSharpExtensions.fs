@@ -8,6 +8,7 @@ open System.Threading.Tasks
 open Microsoft.FSharp.Collections
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.Core.CircuitAbstraction
+open FSharp.Azure.Quantum.Core
 
 /// <summary>
 /// C#-friendly extensions for ALL builder APIs in FSharp.Azure.Quantum.
@@ -633,7 +634,10 @@ module QuantumBackendCSharpExtensions =
         (backend: IQuantumBackend) 
         (circuit: ICircuit) 
         (numShots: int) : Task<Result<ExecutionResult, string>> =
-        backend.ExecuteAsync circuit numShots |> Async.StartAsTask
+        async {
+            let! result = backend.ExecuteAsync circuit numShots
+            return result |> QuantumResult.toStringResult
+        } |> Async.StartAsTask
     
     /// <summary>
     /// Get backend name (C# property helper).
@@ -691,9 +695,12 @@ module ModelSerializationCSharpExtensions =
         (variationalFormDepth: int)
         (note: string option)
         : Task<Result<unit, string>> =
-        ModelSerialization.saveVQCModelAsync 
-            filePath parameters finalLoss numQubits 
-            featureMapType featureMapDepth variationalFormType variationalFormDepth note
+        async {
+            let! result = ModelSerialization.saveVQCModelAsync 
+                            filePath parameters finalLoss numQubits 
+                            featureMapType featureMapDepth variationalFormType variationalFormDepth note
+            return Result.mapError (fun (e: QuantumError) -> e.Message) result
+        }
         |> Async.StartAsTask
 
 // ============================================================================
@@ -711,21 +718,21 @@ module QuantumChemistryCSharpExtensions =
     /// Load molecule from XYZ file asynchronously using C# Task.
     /// </summary>
     [<Extension>]
-    let FromXYZTask (filePath: string) : Task<Result<Molecule, string>> =
+    let FromXYZTask (filePath: string) : Task<Result<Molecule, QuantumError>> =
         MolecularInput.fromXYZAsync filePath |> Async.StartAsTask
     
     /// <summary>
     /// Save molecule to XYZ file asynchronously using C# Task.
     /// </summary>
     [<Extension>]
-    let SaveXYZTask (filePath: string) (molecule: Molecule) : Task<Result<unit, string>> =
+    let SaveXYZTask (filePath: string) (molecule: Molecule) : Task<Result<unit, QuantumError>> =
         MolecularInput.saveXYZAsync filePath molecule |> Async.StartAsTask
     
     /// <summary>
     /// Load molecule from FCIDump file asynchronously using C# Task.
     /// </summary>
     [<Extension>]
-    let FromFCIDumpTask (filePath: string) : Task<Result<Molecule, string>> =
+    let FromFCIDumpTask (filePath: string) : Task<Result<Molecule, QuantumError>> =
         MolecularInput.fromFCIDumpAsync filePath |> Async.StartAsTask
 
 // ============================================================================
@@ -748,14 +755,22 @@ module SVMModelSerializationCSharpExtensions =
         (model: QuantumKernelSVM.SVMModel)
         (note: string option)
         : Task<Result<unit, string>> =
-        SVMModelSerialization.saveSVMModelAsync filePath model note |> Async.StartAsTask
+        async {
+            let! result = SVMModelSerialization.saveSVMModelAsync filePath model note
+            return Result.mapError (fun (e: QuantumError) -> e.Message) result
+        }
+        |> Async.StartAsTask
     
     /// <summary>
     /// Load SVM model asynchronously using C# Task.
     /// </summary>
     [<Extension>]
     let LoadSVMModelTask (filePath: string) : Task<Result<QuantumKernelSVM.SVMModel, string>> =
-        SVMModelSerialization.loadSVMModelAsync filePath |> Async.StartAsTask
+        async {
+            let! result = SVMModelSerialization.loadSVMModelAsync filePath
+            return Result.mapError (fun (e: QuantumError) -> e.Message) result
+        }
+        |> Async.StartAsTask
     
     /// <summary>
     /// Save multi-class SVM model asynchronously using C# Task.
@@ -766,11 +781,19 @@ module SVMModelSerializationCSharpExtensions =
         (model: MultiClassSVM.MultiClassModel)
         (note: string option)
         : Task<Result<unit, string>> =
-        SVMModelSerialization.saveMultiClassSVMModelAsync filePath model note |> Async.StartAsTask
+        async {
+            let! result = SVMModelSerialization.saveMultiClassSVMModelAsync filePath model note
+            return Result.mapError (fun (e: QuantumError) -> e.Message) result
+        }
+        |> Async.StartAsTask
     
     /// <summary>
     /// Load multi-class SVM model asynchronously using C# Task.
     /// </summary>
     [<Extension>]
     let LoadMultiClassSVMModelTask (filePath: string) : Task<Result<MultiClassSVM.MultiClassModel, string>> =
-        SVMModelSerialization.loadMultiClassSVMModelAsync filePath |> Async.StartAsTask
+        async {
+            let! result = SVMModelSerialization.loadMultiClassSVMModelAsync filePath
+            return Result.mapError (fun (e: QuantumError) -> e.Message) result
+        }
+        |> Async.StartAsTask

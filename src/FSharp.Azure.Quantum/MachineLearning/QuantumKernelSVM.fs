@@ -9,6 +9,7 @@ namespace FSharp.Azure.Quantum.MachineLearning
 /// feature spaces" Nature (2019)
 
 open System
+open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 
 module QuantumKernelSVM =
@@ -249,7 +250,7 @@ module QuantumKernelSVM =
         (kernelMatrix: float[,])
         (labels: int array)
         (config: SVMConfig)
-        : Result<float array * float, string> =
+        : QuantumResult<float array * float> =
         
         let n = labels.Length
         
@@ -301,31 +302,31 @@ module QuantumKernelSVM =
         (trainLabels: int array)
         (config: SVMConfig)
         (shots: int)
-        : Result<SVMModel, string> =
+        : QuantumResult<SVMModel> =
         
         // Validate inputs
         if trainData.Length = 0 then
-            Error "Training data cannot be empty"
+            Error (QuantumError.Other "Training data cannot be empty")
         elif trainLabels.Length = 0 then
-            Error "Training labels cannot be empty"
+            Error (QuantumError.Other "Training labels cannot be empty")
         elif trainData.Length <> trainLabels.Length then
-            Error $"Data and labels must have same length: {trainData.Length} vs {trainLabels.Length}"
+            Error (QuantumError.ValidationError ("Input", $"Data and labels must have same length: {trainData.Length} vs {trainLabels.Length}"))
         elif config.C <= 0.0 then
-            Error "Regularization parameter C must be positive"
+            Error (QuantumError.ValidationError ("Input", "Regularization parameter C must be positive"))
         elif shots <= 0 then
-            Error "Number of shots must be positive"
+            Error (QuantumError.ValidationError ("Input", "Number of shots must be positive"))
         else
             // Check labels are binary (0 or 1)
             let validLabels = trainLabels |> Array.forall (fun l -> l = 0 || l = 1)
             if not validLabels then
-                Error "Labels must be 0 or 1"
+                Error (QuantumError.ValidationError ("Input", "Labels must be 0 or 1"))
             else
                 if config.Verbose then
                     printfn "Computing quantum kernel matrix..."
                 
                 // Compute kernel matrix
                 match QuantumKernels.computeKernelMatrix backend featureMap trainData shots with
-                | Error e -> Error $"Kernel matrix computation failed: {e}"
+                | Error e -> Error (QuantumError.ValidationError ("Input", $"Kernel matrix computation failed: {e}"))
                 | Ok kernelMatrix ->
                     
                     if config.Verbose then
@@ -385,17 +386,17 @@ module QuantumKernelSVM =
         (model: SVMModel)
         (sample: float array)
         (shots: int)
-        : Result<Prediction, string> =
+        : QuantumResult<Prediction> =
         
         if shots <= 0 then
-            Error "Number of shots must be positive"
+            Error (QuantumError.ValidationError ("Input", "Number of shots must be positive"))
         else
             // Compute kernels between sample and support vectors (functional style)
             let kernelResults =
                 model.SupportVectorIndices
                 |> Array.map (fun svIdx ->
                     QuantumKernels.computeKernel backend model.FeatureMap sample model.TrainData.[svIdx] shots
-                    |> Result.mapError (fun e -> $"Kernel computation failed: {e}"))
+                    |> Result.mapError (fun e -> QuantumError.OperationError ("Kernel computation", $"Kernel computation failed: {e.Message}")))
             
             // Traverse Result array to get array Result
             kernelResults
@@ -430,12 +431,12 @@ module QuantumKernelSVM =
         (testData: float array array)
         (testLabels: int array)
         (shots: int)
-        : Result<float, string> =
+        : QuantumResult<float> =
         
         if testData.Length = 0 then
-            Error "Test data cannot be empty"
+            Error (QuantumError.Other "Test data cannot be empty")
         elif testData.Length <> testLabels.Length then
-            Error "Test data and labels must have same length"
+            Error (QuantumError.ValidationError ("Input", "Test data and labels must have same length"))
         else
             // Compute predictions for all test samples
             let predictionResults =

@@ -1,6 +1,7 @@
 namespace FSharp.Azure.Quantum.GroverSearch
 
 open System
+open FSharp.Azure.Quantum.Core
 
 /// Backend Adapter Module for Grover's Search Algorithm
 /// 
@@ -59,9 +60,9 @@ module BackendAdapter =
     ///   - Apply X to qubit 1 (bit is 0 in target)
     ///   - Apply MCZ with controls=[0,1,2]
     ///   - Apply X to qubit 1 (undo)
-    let private synthesizeSingleTargetOracle (target: int) (numQubits: int) : Result<Circuit, string> =
+    let private synthesizeSingleTargetOracle (target: int) (numQubits: int) : QuantumResult<Circuit> =
         if target < 0 || target >= (1 <<< numQubits) then
-            Error $"Target {target} out of range for {numQubits} qubits (valid range: 0-{(1<<<numQubits)-1})"
+            Error (QuantumError.ValidationError ("Target", $"{target} out of range for {numQubits} qubits (valid range: 0-{(1<<<numQubits)-1})"))
         else
             try
                 // Create empty circuit
@@ -98,12 +99,12 @@ module BackendAdapter =
                 
                 Ok afterX2
             with ex ->
-                Error $"Oracle synthesis failed: {ex.Message}"
+                Error (QuantumError.OperationError ("Oracle synthesis", $"failed: {ex.Message}"))
     
     /// Convert OracleSpec to circuit
     /// 
     /// Recursively synthesizes oracle circuits from specifications
-    let rec oracleToCircuit (spec: OracleSpec) (numQubits: int) : Result<Circuit, string> =
+    let rec oracleToCircuit (spec: OracleSpec) (numQubits: int) : QuantumResult<Circuit> =
         match spec with
         | SingleTarget target ->
             synthesizeSingleTargetOracle target numQubits
@@ -114,10 +115,10 @@ module BackendAdapter =
             targets
             |> List.fold (fun circuitResult target ->
                 match circuitResult with
-                | Error msg -> Error msg
+                | Error err -> Error err
                 | Ok circuit ->
                     match synthesizeSingleTargetOracle target numQubits with
-                    | Error msg -> Error msg
+                    | Error err -> Error err
                     | Ok targetCircuit -> 
                         // Compose circuits sequentially
                         Ok (compose circuit targetCircuit)
@@ -127,15 +128,18 @@ module BackendAdapter =
             // Enumerate all solutions classically, then synthesize
             let searchSpaceSize = 1 <<< numQubits
             
-            if numQubits > 16 then
-                Error $"Predicate oracle with {numQubits} qubits requires enumerating {searchSpaceSize} states (too large). Use numQubits <= 16."
+            // Pragmatic limit: Allow up to 24 qubits (16M states) for classical enumeration
+            // Beyond this, memory and time become prohibitive (2^25 = 33M, 2^30 = 1B)
+            // Note: Actual backend limits are checked separately (Rigetti=40, IonQ=29)
+            if numQubits > 24 then
+                Error (QuantumError.ValidationError ("NumQubits", $"predicate oracle with {numQubits} qubits requires enumerating {searchSpaceSize} states classically (prohibitive). For large search spaces, use explicit Solutions oracle instead, or restructure to avoid predicate enumeration. Pragmatic limit: ≤24 qubits."))
             else
                 let solutions = 
                     [0 .. searchSpaceSize - 1]
                     |> List.filter pred
                 
                 if List.isEmpty solutions then
-                    Error "Predicate matches no solutions"
+                    Error (QuantumError.ValidationError ("Predicate", "matches no solutions"))
                 else
                     oracleToCircuit (Solutions solutions) numQubits
         
@@ -143,15 +147,16 @@ module BackendAdapter =
             // Apply both oracles sequentially (marks states satisfying both)
             match oracleToCircuit spec1 numQubits, oracleToCircuit spec2 numQubits with
             | Ok circuit1, Ok circuit2 -> Ok (compose circuit1 circuit2)
-            | Error msg, _ -> Error msg
-            | _, Error msg -> Error msg
+            | Error err, _ -> Error err
+            | _, Error err -> Error err
         
         | Or (spec1, spec2) ->
             // Enumerate solutions for both specs and synthesize
             let searchSpaceSize = 1 <<< numQubits
             
-            if numQubits > 16 then
-                Error $"OR oracle with {numQubits} qubits requires enumerating {searchSpaceSize} states (too large). Use numQubits <= 16."
+            // Pragmatic limit: Allow up to 24 qubits (16M states) for classical enumeration
+            if numQubits > 24 then
+                Error (QuantumError.ValidationError ("NumQubits", $"OR oracle with {numQubits} qubits requires enumerating {searchSpaceSize} states classically (prohibitive). For large search spaces, use explicit Solutions oracle instead. Pragmatic limit: ≤24 qubits."))
             else
                 let solutions =
                     [0 .. searchSpaceSize - 1]
@@ -160,7 +165,7 @@ module BackendAdapter =
                     )
                 
                 if List.isEmpty solutions then
-                    Error "OR oracle has no solutions"
+                    Error (QuantumError.ValidationError ("OR oracle", "has no solutions"))
                 else
                     oracleToCircuit (Solutions solutions) numQubits
         
@@ -168,8 +173,9 @@ module BackendAdapter =
             // Negate oracle: mark all states NOT marked by inner oracle
             let searchSpaceSize = 1 <<< numQubits
             
-            if numQubits > 16 then
-                Error $"NOT oracle with {numQubits} qubits requires enumerating {searchSpaceSize} states (too large). Use numQubits <= 16."
+            // Pragmatic limit: Allow up to 24 qubits (16M states) for classical enumeration
+            if numQubits > 24 then
+                Error (QuantumError.ValidationError ("NumQubits", $"NOT oracle with {numQubits} qubits requires enumerating {searchSpaceSize} states classically (prohibitive). For large search spaces, use explicit Solutions oracle instead. Pragmatic limit: ≤24 qubits."))
             else
                 let innerSolutions =
                     [0 .. searchSpaceSize - 1]
@@ -180,7 +186,7 @@ module BackendAdapter =
                     |> List.filter (fun i -> not (List.contains i innerSolutions))
                 
                 if List.isEmpty negatedSolutions then
-                    Error "NOT oracle has no solutions"
+                    Error (QuantumError.ValidationError ("NOT oracle", "has no solutions"))
                 else
                     oracleToCircuit (Solutions negatedSolutions) numQubits
     
@@ -233,9 +239,9 @@ module BackendAdapter =
     // ========================================================================
     
     /// Compose full Grover iteration: Oracle + Diffusion
-    let groverIterationToCircuit (oracle: CompiledOracle) : Result<Circuit, string> =
+    let groverIterationToCircuit (oracle: CompiledOracle) : QuantumResult<Circuit> =
         match oracleToCircuit oracle.Spec oracle.NumQubits with
-        | Error msg -> Error msg
+        | Error err -> Error err
         | Ok oracleCircuit ->
             let diffusionCircuit = diffusionToCircuit oracle.NumQubits
             Ok (compose oracleCircuit diffusionCircuit)
@@ -300,7 +306,7 @@ module BackendAdapter =
     /// - solutionThreshold: Minimum probability threshold for solution extraction (default 0.1 = 10%)
     /// - successThreshold: Minimum probability threshold for success determination (default 0.3 = 30%)
     /// 
-    /// Returns: Async<Result<SearchResult, string>> - Async computation with result or error
+    /// Returns: Async<QuantumResult<SearchResult>> - Async computation with result or error
     let executeGroverWithBackendAsync 
         (oracle: CompiledOracle) 
         (backend: IQuantumBackend) 
@@ -308,16 +314,16 @@ module BackendAdapter =
         (numShots: int) 
         (solutionThreshold: float)
         (successThreshold: float)
-        : Async<Result<GroverIteration.SearchResult, string>> = async {
+        : Async<QuantumResult<GroverIteration.SearchResult>> = async {
         
         try
             // Step 1: Validate inputs
             if numIterations < 0 then
-                return Error "Number of iterations must be non-negative"
+                return Error (QuantumError.ValidationError ("NumIterations", "must be non-negative"))
             elif numShots <= 0 then
-                return Error "Number of shots must be positive"
+                return Error (QuantumError.ValidationError ("NumShots", "must be positive"))
             elif oracle.NumQubits > backend.MaxQubits then
-                return Error $"Oracle requires {oracle.NumQubits} qubits but backend '{backend.Name}' supports max {backend.MaxQubits}"
+                return Error (QuantumError.BackendError (backend.Name, $"oracle requires {oracle.NumQubits} qubits but backend supports max {backend.MaxQubits}"))
             else
                 // Step 2: Create initial state preparation circuit (H^⊗n)
                 let initCircuit = 
@@ -326,7 +332,7 @@ module BackendAdapter =
                 
                 // Step 3: Create Grover iteration circuit
                 match groverIterationToCircuit oracle with
-                | Error msg -> return Error msg
+                | Error err -> return Error err
                 | Ok iterationCircuit ->
                     // Step 4: Compose full circuit: Init + k*(Oracle+Diffusion)
                     let fullCircuit =
@@ -342,7 +348,7 @@ module BackendAdapter =
                     let! execResult = backend.ExecuteAsync circuitWrapper numShots
                     
                     match execResult with
-                    | Error msg -> return Error $"Backend execution failed: {msg}"
+                    | Error err -> return Error (QuantumError.BackendError (backend.Name, err.Message))
                     | Ok execResult ->
                         // Step 6: Convert ExecutionResult to SearchResult
                         let counts = measurementsToCounts execResult.Measurements
@@ -359,7 +365,7 @@ module BackendAdapter =
                         }
         
         with ex ->
-            return Error $"Grover backend execution failed: {ex.Message}"
+            return Error (QuantumError.BackendError ("Grover", $"backend execution failed: {ex.Message}"))
     }
 
     /// Execute Grover's algorithm using IQuantumBackend (synchronous wrapper)
@@ -383,6 +389,6 @@ module BackendAdapter =
         (numShots: int) 
         (solutionThreshold: float)
         (successThreshold: float)
-        : Result<GroverIteration.SearchResult, string> =
+        : QuantumResult<GroverIteration.SearchResult> =
         executeGroverWithBackendAsync oracle backend numIterations numShots solutionThreshold successThreshold
         |> Async.RunSynchronously

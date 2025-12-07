@@ -5,6 +5,7 @@ open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.Core.CircuitAbstraction
 open FSharp.Azure.Quantum.Core.QaoaCircuit
+open FSharp.Azure.Quantum.Core
 
 module BackendAbstractionTests =
 
@@ -44,7 +45,7 @@ module BackendAbstractionTests =
         let result = backend.Execute wrapper -1
         
         match result with
-        | Error msg -> Assert.Contains("positive", msg)
+        | Error err -> Assert.Contains("positive", err.Message)
         | Ok _ -> Assert.True(false, "Should have failed with negative shots")
 
     [<Fact>]
@@ -56,7 +57,7 @@ module BackendAbstractionTests =
         let result = backend.Execute wrapper 0
         
         match result with
-        | Error msg -> Assert.Contains("positive", msg)
+        | Error err -> Assert.Contains("positive", err.Message)
         | Ok _ -> Assert.True(false, "Should have failed with zero shots")
 
     [<Fact>]
@@ -68,8 +69,8 @@ module BackendAbstractionTests =
         let result = backend.Execute wrapper 10
         
         match result with
-        | Error msg -> 
-            Assert.Contains("20 qubits", msg)
+        | Error err -> 
+            Assert.Contains("20 qubits", err.Message)
         | Ok _ -> Assert.True(false, "Should have failed with too many qubits")
 
     [<Fact>]
@@ -113,8 +114,8 @@ module BackendAbstractionTests =
                 // Each qubit should be 0 or 1
                 for qubit in measurement do
                     Assert.True(qubit = 0 || qubit = 1, sprintf "Expected 0 or 1, got %d" qubit)
-        | Error msg ->
-            Assert.True(false, sprintf "Execution failed: %s" msg)
+        | Error err ->
+            Assert.True(false, sprintf "Execution failed: %s" err.Message)
 
     [<Fact>]
     let ``LocalBackend should handle empty circuit`` () =
@@ -132,8 +133,8 @@ module BackendAbstractionTests =
             // Each measurement should be a 3-element array
             for measurement in execResult.Measurements do
                 Assert.Equal(3, measurement.Length)
-        | Error msg ->
-            Assert.True(false, sprintf "Execution failed: %s" msg)
+        | Error err ->
+            Assert.True(false, sprintf "Execution failed: %s" err.Message)
 
     [<Fact>]
     let ``LocalBackend should produce valid measurement bitstrings`` () =
@@ -187,8 +188,8 @@ module BackendAbstractionTests =
                 // σ = √(n*p*(1-p)) = √(100*0.25*0.75) ≈ 4.33, so 3σ ≈ 13
                 Assert.True(deviation <= 15.0,
                     sprintf "Outcome %A appeared %d times (expected ~25 ± 15 for uniform distribution)" outcome count)
-        | Error msg ->
-            Assert.True(false, sprintf "Execution failed: %s" msg)
+        | Error err ->
+            Assert.True(false, sprintf "Execution failed: %s" err.Message)
 
     // ========================================================================
     // IonQ Backend Tests
@@ -275,7 +276,7 @@ module BackendAbstractionTests =
         
         match result with
         | Ok () -> Assert.True(true)
-        | Error msg -> Assert.True(false, sprintf "Validation should succeed: %s" msg)
+        | Error err -> Assert.True(false, sprintf "Validation should succeed: %s" err.Message)
 
     [<Fact>]
     let ``validateCircuitForBackend should reject too many qubits`` () =
@@ -286,8 +287,8 @@ module BackendAbstractionTests =
         let result = validateCircuitForBackend wrapper backend
         
         match result with
-        | Error msg ->
-            Assert.Contains("42 qubits", msg)
+        | Error err ->
+            Assert.Contains("42 qubits", err.Message)
         | Ok () -> Assert.True(false, "Validation should fail with too many qubits")
 
     [<Fact>]
@@ -304,12 +305,12 @@ module BackendAbstractionTests =
         // IonQ: 25 qubits OK (< 29)
         match validateCircuitForBackend wrapper25 ionqBackend with
         | Ok () -> Assert.True(true)
-        | Error msg -> Assert.True(false, sprintf "IonQ should accept 25 qubits: %s" msg)
+        | Error err -> Assert.True(false, sprintf "IonQ should accept 25 qubits: %s" err.Message)
         
         // Rigetti: 25 qubits OK (< 40)
         match validateCircuitForBackend wrapper25 rigettiBackend with
         | Ok () -> Assert.True(true)
-        | Error msg -> Assert.True(false, sprintf "Rigetti should accept 25 qubits: %s" msg)
+        | Error err -> Assert.True(false, sprintf "Rigetti should accept 25 qubits: %s" err.Message)
 
     [<Fact>]
     let ``validateCircuitForBackend should reject at exact limit`` () =
@@ -321,9 +322,9 @@ module BackendAbstractionTests =
         let wrapper30 = CircuitWrapper(circuit30) :> ICircuit
         
         match validateCircuitForBackend wrapper30 ionqBackend with
-        | Error msg ->
-            Assert.Contains("30 qubits", msg)
-            Assert.Contains("29 qubits", msg)
+        | Error err ->
+            Assert.Contains("30 qubits", err.Message)
+            Assert.Contains("29 qubits", err.Message)
         | Ok () -> Assert.True(false, "IonQ should reject 30 qubits")
 
     // ========================================================================
@@ -342,8 +343,8 @@ module BackendAbstractionTests =
         | Ok execResult ->
             Assert.NotNull(execResult.Metadata)
             Assert.True(Map.isEmpty execResult.Metadata)  // Empty for local backend
-        | Error msg ->
-            Assert.True(false, sprintf "Execution failed: %s" msg)
+        | Error err ->
+            Assert.True(false, sprintf "Execution failed: %s" err.Message)
 
     [<Fact>]
     let ``ExecutionResult measurements should match requested shots`` () =
@@ -360,8 +361,8 @@ module BackendAbstractionTests =
             | Ok execResult ->
                 Assert.Equal(numShots, execResult.NumShots)
                 Assert.Equal(numShots, execResult.Measurements.Length)
-            | Error msg ->
-                Assert.True(false, sprintf "Execution with %d shots failed: %s" numShots msg)
+            | Error err ->
+                Assert.True(false, sprintf "Execution with %d shots failed: %s" numShots err.Message)
 
     // ========================================================================
     // Circuit Conversion Tests (Phase 2)
@@ -384,7 +385,7 @@ module BackendAbstractionTests =
             Assert.Contains("\"h\"", json)  // H gate
             Assert.Contains("\"cnot\"", json)  // CNOT gate
         | Error msg ->
-            Assert.True(false, sprintf "Conversion failed: %s" msg)
+            Assert.True(false, sprintf "Conversion failed: %s" msg.Message)
 
     [<Fact>]
     let ``convertCircuitToProviderFormat should convert rotation gates to IonQ format`` () =
@@ -402,7 +403,7 @@ module BackendAbstractionTests =
             Assert.Contains("\"ry\"", json)
             Assert.Contains("\"rz\"", json)
         | Error msg ->
-            Assert.True(false, sprintf "Conversion failed: %s" msg)
+            Assert.True(false, sprintf "Conversion failed: %s" msg.Message)
 
     [<Fact>]
     let ``convertCircuitToProviderFormat should convert simple circuit to Rigetti format`` () =
@@ -421,7 +422,7 @@ module BackendAbstractionTests =
             Assert.Contains("CZ 0 1", quil)
             Assert.Contains("MEASURE", quil)
         | Error msg ->
-            Assert.True(false, sprintf "Conversion failed: %s" msg)
+            Assert.True(false, sprintf "Conversion failed: %s" msg.Message)
 
     [<Fact>]
     let ``convertCircuitToProviderFormat should reject unsupported provider`` () =
@@ -430,7 +431,7 @@ module BackendAbstractionTests =
         
         match convertCircuitToProviderFormat wrapper "unsupported.provider.target" with
         | Error msg ->
-            Assert.Contains("Unsupported provider", msg)
+            Assert.Contains("Unsupported provider", msg.Message)
         | Ok _ ->
             Assert.True(false, "Unsupported provider should return error")
 
@@ -459,7 +460,7 @@ module BackendAbstractionTests =
             Assert.Contains("\"qubits\":2", json)
             Assert.Contains("\"h\"", json)
         | Error msg ->
-            Assert.True(false, sprintf "QAOA conversion failed: %s" msg)
+            Assert.True(false, sprintf "QAOA conversion failed: %s" msg.Message)
 
     [<Fact>]
     let ``convertCircuitToProviderFormat should use transpiler for phase gates`` () =
@@ -480,4 +481,4 @@ module BackendAbstractionTests =
             // S becomes RZ(π/2), T becomes RZ(π/4) - check for RZ instructions
             Assert.Contains("RZ", quil)
         | Error msg ->
-            Assert.True(false, sprintf "Transpilation failed: %s" msg)
+            Assert.True(false, sprintf "Transpilation failed: %s" msg.Message)

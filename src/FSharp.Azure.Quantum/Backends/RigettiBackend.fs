@@ -1,4 +1,5 @@
 namespace FSharp.Azure.Quantum.Core
+open FSharp.Azure.Quantum.Core
 
 open System
 open System.Text
@@ -187,7 +188,7 @@ module RigettiBackend =
     /// 
     /// This prevents submission of circuits that would fail on hardware
     /// due to limited qubit connectivity.
-    let validateProgram (graph: ConnectivityGraph) (program: QuilProgram) : Result<unit, string> =
+    let validateProgram (graph: ConnectivityGraph) (program: QuilProgram) : QuantumResult<unit> =
         // Check all gates (declarations + instructions)
         let allGates = List.append program.Declarations program.Instructions
         
@@ -200,7 +201,7 @@ module RigettiBackend =
         | None -> Ok ()
         | Some gate ->
             let gateText = serializeGate gate
-            Error (sprintf "Gate '%s' violates connectivity constraints. Qubits are not directly connected in the hardware topology." gateText)
+            Error (QuantumError.ValidationError ("Connectivity", sprintf "Gate '%s' violates connectivity constraints. Qubits are not directly connected in the hardware topology." gateText))
     
     // ============================================================================
     // CIRCUIT VALIDATION (Pre-Flight Checks)

@@ -1,4 +1,5 @@
 namespace FSharp.Azure.Quantum.TaskScheduling
+open FSharp.Azure.Quantum.Core
 
 open Types
 
@@ -6,11 +7,11 @@ open Types
 module Validation =
 
     /// Validate scheduling problem before solving
-    let validateProblem (problem: SchedulingProblem<'TTask, 'TResource>) : Result<unit, string> =
+    let validateProblem (problem: SchedulingProblem<'TTask, 'TResource>) : QuantumResult<unit> =
         // Check all tasks have non-empty IDs
         let emptyIds = problem.Tasks |> List.filter (fun t -> System.String.IsNullOrWhiteSpace(t.Id))
         if not (List.isEmpty emptyIds) then
-            Error "All tasks must have non-empty unique IDs"
+            Error (QuantumError.ValidationError ("TaskIds", "All tasks must have non-empty unique IDs"))
         else
 
         // Check all tasks have unique IDs
@@ -21,7 +22,7 @@ module Validation =
             |> List.map fst
 
         if not (List.isEmpty duplicates) then
-            Error (sprintf "Duplicate task IDs found: %A" duplicates)
+            Error (QuantumError.ValidationError ("TaskIds", sprintf "Duplicate task IDs found: %A" duplicates))
         else
 
         // Check all dependencies reference existing tasks
@@ -35,6 +36,6 @@ module Validation =
             )
 
         if not (List.isEmpty invalidDeps) then
-            Error (sprintf "Invalid task dependencies reference non-existent tasks: %A" invalidDeps)
+            Error (QuantumError.ValidationError ("Dependencies", sprintf "Invalid task dependencies reference non-existent tasks: %A" invalidDeps))
         else
             Ok ()

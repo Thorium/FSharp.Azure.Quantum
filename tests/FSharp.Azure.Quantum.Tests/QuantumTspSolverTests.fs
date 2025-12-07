@@ -39,7 +39,7 @@ module QuantumTspSolverTests =
         let result = solveWithShots backend distances 100
         
         match result with
-        | Error msg -> Assert.Contains("at least 2 cities", msg)
+        | Error err -> Assert.Contains("at least 2 cities", err.Message)
         | Ok _ -> Assert.True(false, "Should reject single city")
 
     [<Fact>]
@@ -50,7 +50,7 @@ module QuantumTspSolverTests =
         let result = solveWithShots backend distances -10
         
         match result with
-        | Error msg -> Assert.Contains("positive", msg)
+        | Error err -> Assert.Contains("positive", err.Message)
         | Ok _ -> Assert.True(false, "Should reject negative shots")
 
     [<Fact>]
@@ -61,7 +61,7 @@ module QuantumTspSolverTests =
         let result = solveWithShots backend distances 0
         
         match result with
-        | Error msg -> Assert.Contains("positive", msg)
+        | Error err -> Assert.Contains("positive", err.Message)
         | Ok _ -> Assert.True(false, "Should reject zero shots")
 
     [<Fact>]
@@ -73,9 +73,9 @@ module QuantumTspSolverTests =
         let result = solveWithShots backend distances 100
         
         match result with
-        | Error msg -> 
-            Assert.Contains("qubits", msg)
-            Assert.Contains(backend.Name, msg)
+        | Error err -> 
+            Assert.Contains("qubits", err.Message)
+            Assert.Contains(backend.Name, err.Message)
         | Ok _ -> Assert.True(false, "Should reject problem too large")
 
     // ========================================================================
@@ -96,8 +96,8 @@ module QuantumTspSolverTests =
             Assert.Equal(50, solution.NumShots)
             Assert.True(solution.TourLength > 0.0)
             Assert.True(solution.ElapsedMs >= 0.0)
-        | Error msg ->
-            Assert.True(false, sprintf "Execution failed: %s" msg)
+        | Error err ->
+            Assert.True(false, sprintf "Execution failed: %s" err.Message)
 
     [<Fact>]
     let ``solve should return valid tour`` () =
@@ -119,8 +119,8 @@ module QuantumTspSolverTests =
             Assert.True(citySet.Contains(0))
             Assert.True(citySet.Contains(1))
             Assert.True(citySet.Contains(2))
-        | Error msg ->
-            Assert.True(false, sprintf "Execution failed: %s" msg)
+        | Error err ->
+            Assert.True(false, sprintf "Execution failed: %s" err.Message)
 
     [<Fact>]
     let ``solve should calculate correct tour length`` () =
@@ -141,8 +141,8 @@ module QuantumTspSolverTests =
             
             // Solution's tour length should match manual calculation
             Assert.Equal(totalDistance, solution.TourLength, 2)  // 2 decimal places
-        | Error msg ->
-            Assert.True(false, sprintf "Execution failed: %s" msg)
+        | Error err ->
+            Assert.True(false, sprintf "Execution failed: %s" err.Message)
 
     [<Fact>]
     let ``solve should return top solutions`` () =
@@ -166,8 +166,8 @@ module QuantumTspSolverTests =
             let (bestTour, bestLen, _) = solution.TopSolutions.[0]
             Assert.Equal<int seq>(solution.Tour, bestTour)
             Assert.Equal(solution.TourLength, bestLen)
-        | Error msg ->
-            Assert.True(false, sprintf "Execution failed: %s" msg)
+        | Error err ->
+            Assert.True(false, sprintf "Execution failed: %s" err.Message)
 
     [<Fact>]
     let ``solve should set best energy`` () =
@@ -180,8 +180,8 @@ module QuantumTspSolverTests =
         | Ok solution ->
             // For TSP, best energy should equal tour length
             Assert.Equal(solution.TourLength, solution.BestEnergy)
-        | Error msg ->
-            Assert.True(false, sprintf "Execution failed: %s" msg)
+        | Error err ->
+            Assert.True(false, sprintf "Execution failed: %s" err.Message)
 
     // ========================================================================
     // Scalability Tests
@@ -195,12 +195,12 @@ module QuantumTspSolverTests =
         let result1 = solveWithShots backend distances 10
         match result1 with
         | Ok solution -> Assert.Equal(10, solution.NumShots)
-        | Error msg -> Assert.True(false, sprintf "Execution with 10 shots failed: %s" msg)
+        | Error err -> Assert.True(false, sprintf "Execution with 10 shots failed: %s" err.Message)
         
         let result2 = solveWithShots backend distances 50
         match result2 with
         | Ok solution -> Assert.Equal(50, solution.NumShots)
-        | Error msg -> Assert.True(false, sprintf "Execution with 50 shots failed: %s" msg)
+        | Error err -> Assert.True(false, sprintf "Execution with 50 shots failed: %s" err.Message)
 
     // ========================================================================
     // Default Parameters Test
@@ -216,8 +216,8 @@ module QuantumTspSolverTests =
         | Ok solution ->
             Assert.Equal(1000, solution.NumShots)
             Assert.Equal("Local QAOA Simulator", solution.BackendName)
-        | Error msg ->
-            Assert.True(false, sprintf "Execution failed: %s" msg)
+        | Error err ->
+            Assert.True(false, sprintf "Execution failed: %s" err.Message)
 
     [<Fact>]
     let ``solveWithDefaults should use local backend`` () =
@@ -228,8 +228,8 @@ module QuantumTspSolverTests =
         match result with
         | Ok solution ->
             Assert.Equal("Local QAOA Simulator", solution.BackendName)
-        | Error msg ->
-            Assert.True(false, sprintf "Execution failed: %s" msg)
+        | Error err ->
+            Assert.True(false, sprintf "Execution failed: %s" err.Message)
 
     // ========================================================================
     // Tour Quality Tests (Heuristic)
@@ -249,8 +249,8 @@ module QuantumTspSolverTests =
             // But quantum might not always find optimal, so be lenient
             Assert.True(solution.TourLength < 10.0, 
                 sprintf "Tour length %f seems unreasonably high" solution.TourLength)
-        | Error msg ->
-            Assert.True(false, sprintf "Execution failed: %s" msg)
+        | Error err ->
+            Assert.True(false, sprintf "Execution failed: %s" err.Message)
 
     // ========================================================================
     // Solution Frequency Tests
@@ -273,5 +273,5 @@ module QuantumTspSolverTests =
             // Each frequency should be positive
             for (_, _, freq) in solution.TopSolutions do
                 Assert.True(freq > 0)
-        | Error msg ->
-            Assert.True(false, sprintf "Execution failed: %s" msg)
+        | Error err ->
+            Assert.True(false, sprintf "Execution failed: %s" err.Message)

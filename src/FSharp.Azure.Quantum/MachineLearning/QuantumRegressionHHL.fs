@@ -2,6 +2,7 @@ namespace FSharp.Azure.Quantum.MachineLearning
 
 open System
 open System.Numerics
+open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.Algorithms.HHLTypes
 open FSharp.Azure.Quantum.Algorithms.HHLBackendAdapter
@@ -219,42 +220,42 @@ module QuantumRegressionHHL =
     // ========================================================================
     
     /// Validate regression configuration
-    let private validateConfig (config: RegressionConfig) : Result<unit, string> =
+    let private validateConfig (config: RegressionConfig) : QuantumResult<unit> =
         // Basic input validation
         if config.TrainX.Length = 0 then
-            Error "Training features cannot be empty"
+            Error (QuantumError.Other "Training features cannot be empty")
         elif config.TrainY.Length = 0 then
-            Error "Training targets cannot be empty"
+            Error (QuantumError.Other "Training targets cannot be empty")
         elif config.TrainX.Length <> config.TrainY.Length then
-            Error $"Sample count mismatch: X has {config.TrainX.Length} samples, y has {config.TrainY.Length}"
+            Error (QuantumError.ValidationError ("Input", $"Sample count mismatch: X has {config.TrainX.Length} samples, y has {config.TrainY.Length}"))
         elif config.TrainX |> Array.exists (fun row -> row.Length = 0) then
-            Error "Feature arrays cannot be empty"
+            Error (QuantumError.Other "Feature arrays cannot be empty")
         elif config.TrainX |> Array.map Array.length |> Array.distinct |> Array.length > 1 then
-            Error "All feature arrays must have same length"
+            Error (QuantumError.ValidationError ("Input", "All feature arrays must have same length"))
         
         // HHL algorithm parameter validation
         elif config.EigenvalueQubits < 2 then
-            Error "Must have at least 2 eigenvalue qubits for meaningful eigenvalue estimation"
+            Error (QuantumError.Other "Must have at least 2 eigenvalue qubits for meaningful eigenvalue estimation")
         elif config.EigenvalueQubits > 10 then
-            Error "Too many eigenvalue qubits (max 10) - would require excessive quantum resources"
+            Error (QuantumError.Other "Too many eigenvalue qubits (max 10) - would require excessive quantum resources")
         elif config.MinEigenvalue <= 0.0 then
-            Error "Minimum eigenvalue must be positive"
+            Error (QuantumError.ValidationError ("Input", "Minimum eigenvalue must be positive"))
         elif config.MinEigenvalue > 1.0 then
-            Error "Minimum eigenvalue should be ≤ 1.0 (normalized matrices)"
+            Error (QuantumError.Other "Minimum eigenvalue should be ≤ 1.0 (normalized matrices)")
         elif config.Shots <= 0 then
-            Error "Shots must be positive"
+            Error (QuantumError.ValidationError ("Input", "Shots must be positive"))
         elif config.Shots < 1000 then
-            Error "Shots too low (min 1000) - insufficient sampling for reliable results"
+            Error (QuantumError.Other "Shots too low (min 1000) - insufficient sampling for reliable results")
         
         // Data quality checks
         elif config.TrainX |> Array.exists (fun row -> row |> Array.exists Double.IsNaN) then
-            Error "Training features contain NaN values"
+            Error (QuantumError.Other "Training features contain NaN values")
         elif config.TrainX |> Array.exists (fun row -> row |> Array.exists Double.IsInfinity) then
-            Error "Training features contain infinity values"
+            Error (QuantumError.Other "Training features contain infinity values")
         elif config.TrainY |> Array.exists Double.IsNaN then
-            Error "Training targets contain NaN values"
+            Error (QuantumError.Other "Training targets contain NaN values")
         elif config.TrainY |> Array.exists Double.IsInfinity then
-            Error "Training targets contain infinity values"
+            Error (QuantumError.Other "Training targets contain infinity values")
         
         // Dimension checks for quantum hardware
         else
@@ -270,9 +271,9 @@ module QuantumRegressionHHL =
             let totalQubits = config.EigenvalueQubits + solutionQubits + 1
             
             if totalQubits > 20 then
-                Error $"System too large: {totalQubits} qubits required (max 20 for local simulation). Reduce features or eigenvalue qubits."
+                Error (QuantumError.ValidationError ("Input", $"System too large: {totalQubits} qubits required (max 20 for local simulation). Reduce features or eigenvalue qubits."))
             elif paddedDim > 1024 then
-                Error $"Matrix dimension {paddedDim}×{paddedDim} exceeds maximum (1024×1024)"
+                Error (QuantumError.ValidationError ("Input", $"Matrix dimension {paddedDim}×{paddedDim} exceeds maximum (1024×1024)"))
             else
                 Ok ()
     
@@ -289,7 +290,7 @@ module QuantumRegressionHHL =
     /// 4. Pad to power of 2 dimensions
     /// 5. Solve Aw = b using HHL algorithm
     /// 6. Extract weights and compute metrics
-    let train (config: RegressionConfig) : Result<RegressionResult, string> =
+    let train (config: RegressionConfig) : QuantumResult<RegressionResult> =
         match validateConfig config with
         | Error msg -> Error msg
         | Ok () ->
@@ -336,10 +337,10 @@ module QuantumRegressionHHL =
                 let complexMoment = toComplexVector paddedMoment
                 
                 match createHermitianMatrix complexGram with
-                | Error msg -> Error $"Gram matrix creation failed: {msg}"
+                | Error msg -> Error (QuantumError.ValidationError ("Input", $"Gram matrix creation failed: {msg}"))
                 | Ok hermitianMatrix ->
                     match createQuantumVector complexMoment with
-                    | Error msg -> Error $"Moment vector creation failed: {msg}"
+                    | Error msg -> Error (QuantumError.ValidationError ("Input", $"Moment vector creation failed: {msg}"))
                     | Ok quantumVector ->
                         
                         // Create HHL configuration
@@ -360,7 +361,7 @@ module QuantumRegressionHHL =
                         
                         // Step 6: Execute HHL
                         match executeWithBackend hhlConfig config.Backend config.Shots with
-                        | Error msg -> Error $"HHL execution failed: {msg}"
+                        | Error msg -> Error (QuantumError.ValidationError ("Input", $"HHL execution failed: {msg}"))
                         | Ok measurements ->
                             
                             // Extract solution
@@ -463,7 +464,7 @@ module QuantumRegressionHHL =
                             }
                 
             with ex ->
-                Error $"Quantum regression training failed: {ex.Message}"
+                Error (QuantumError.ValidationError ("Input", $"Quantum regression training failed: {ex.Message}"))
     
     // ========================================================================
     // PREDICTION FUNCTION

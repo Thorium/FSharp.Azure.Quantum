@@ -9,6 +9,7 @@ namespace FSharp.Azure.Quantum.MachineLearning
 /// feature spaces" Nature (2019)
 
 open System
+open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.CircuitBuilder
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.Core.CircuitAbstraction
@@ -32,10 +33,10 @@ module QuantumKernels =
         (featureMap: FeatureMapType)
         (x: float array)
         (y: float array)
-        : Result<Circuit, string> =
+        : QuantumResult<Circuit> =
         
         if x.Length <> y.Length then
-            Error $"Feature vectors must have same length: x={x.Length}, y={y.Length}"
+            Error (QuantumError.ValidationError ("Input", $"Feature vectors must have same length: x={x.Length}, y={y.Length}"))
         else
             // Build forward feature map for x
             let circuitX = 
@@ -85,13 +86,13 @@ module QuantumKernels =
         (backend: IQuantumBackend)
         (circuit: Circuit)
         (shots: int)
-        : Result<float, string> =
+        : QuantumResult<float> =
         
         // Wrap circuit for backend execution (like VQC does)
         let wrappedCircuit = CircuitWrapper(circuit)
         
         match backend.Execute wrappedCircuit shots with
-        | Error e -> Error $"Quantum backend execution failed: {e}"
+        | Error e -> Error (QuantumError.ValidationError ("Input", $"Quantum backend execution failed: {e}"))
         | Ok results ->
             
             // Count measurements where all qubits are |0⟩
@@ -122,12 +123,12 @@ module QuantumKernels =
         (x: float array)
         (y: float array)
         (shots: int)
-        : Result<float, string> =
+        : QuantumResult<float> =
         
         if shots <= 0 then
-            Error "Number of shots must be positive"
+            Error (QuantumError.ValidationError ("Input", "Number of shots must be positive"))
         elif x.Length = 0 then
-            Error "Feature vectors cannot be empty"
+            Error (QuantumError.Other "Feature vectors cannot be empty")
         else
             match buildKernelCircuit featureMap x y with
             | Error e -> Error e
@@ -158,10 +159,10 @@ module QuantumKernels =
         (featureMap: FeatureMapType)
         (data: float array array)
         (shots: int)
-        : Result<float[,], string> =
+        : QuantumResult<float[,]> =
         
         if data.Length = 0 then
-            Error "Dataset cannot be empty"
+            Error (QuantumError.Other "Dataset cannot be empty")
         else
             let n = data.Length
             
@@ -172,7 +173,7 @@ module QuantumKernels =
                     [i .. n - 1]
                     |> List.tryPick (fun j ->
                         match computeKernel backend featureMap data.[i] data.[j] shots with
-                        | Error e -> Some (Error $"Kernel computation failed at ({i},{j}): {e}")
+                        | Error e -> Some (Error (QuantumError.ValidationError ("Input", $"Kernel computation failed at ({i},{j}): {e}")))
                         | Ok _ -> None))
                 |> Option.defaultWith (fun () ->
                     // 🚀 PARALLELIZED: Compute all unique kernel entries in parallel
@@ -225,12 +226,12 @@ module QuantumKernels =
         (trainData: float array array)
         (testData: float array array)
         (shots: int)
-        : Result<float[,], string> =
+        : QuantumResult<float[,]> =
         
         if trainData.Length = 0 then
-            Error "Training dataset cannot be empty"
+            Error (QuantumError.Other "Training dataset cannot be empty")
         elif testData.Length = 0 then
-            Error "Test dataset cannot be empty"
+            Error (QuantumError.Other "Test dataset cannot be empty")
         else
             let nTest = testData.Length
             let nTrain = trainData.Length
@@ -253,7 +254,7 @@ module QuantumKernels =
             
             // Check for errors and build matrix
             match kernelEntries |> Array.tryFind (fun (i, j, result) -> Result.isError result) with
-            | Some (i, j, Error e) -> Error $"Kernel computation failed at test[{i}], train[{j}]: {e}"
+            | Some (i, j, Error e) -> Error (QuantumError.ValidationError ("Input", $"Kernel computation failed at test[{i}], train[{j}]: {e}"))
             | _ ->
                 let kernelMatrix = Array2D.zeroCreate nTest nTrain
                 for (i, j, result) in kernelEntries do
@@ -304,12 +305,12 @@ module QuantumKernels =
     /// Normalized kernel: K_norm[i,j] = K[i,j] / sqrt(K[i,i] * K[j,j])
     ///
     /// This ensures K_norm[i,i] = 1 for all i
-    let normalizeKernelMatrix (matrix: float[,]) : Result<float[,], string> =
+    let normalizeKernelMatrix (matrix: float[,]) : QuantumResult<float[,]> =
         let n = Array2D.length1 matrix
         let m = Array2D.length2 matrix
         
         if n <> m then
-            Error "Kernel matrix must be square for normalization"
+            Error (QuantumError.ValidationError ("Input", "Kernel matrix must be square for normalization"))
         else
             // Check diagonal elements are positive
             let diagonalPositive = 
@@ -317,7 +318,7 @@ module QuantumKernels =
                 |> Array.forall (fun i -> matrix.[i, i] > 0.0)
             
             if not diagonalPositive then
-                Error "Cannot normalize: diagonal elements must be positive"
+                Error (QuantumError.ValidationError ("Input", "Cannot normalize: diagonal elements must be positive"))
             else
                 let normalized = Array2D.zeroCreate n n
                 

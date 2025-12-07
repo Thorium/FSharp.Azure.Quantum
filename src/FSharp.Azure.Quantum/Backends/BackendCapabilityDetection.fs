@@ -21,6 +21,7 @@ module BackendCapabilityDetection =
     
     open FSharp.Azure.Quantum.Core.CircuitAbstraction
     open FSharp.Azure.Quantum.Core.BackendAbstraction
+    open FSharp.Azure.Quantum.Core
     open FSharp.Azure.Quantum.Backends.DWaveBackend
     
     // For LocalBackend
@@ -205,9 +206,9 @@ module BackendCapabilityDetection =
     /// - backends: List of available backends
     /// - circuit: Circuit to execute
     ///
-    /// Returns: Result<IQuantumBackend, string>
+    /// Returns: QuantumResult<IQuantumBackend>
     ///          Ok with best backend, or Error if no suitable backend found
-    let selectBestBackend (backends: IQuantumBackend list) (circuit: ICircuit) : Result<IQuantumBackend, string> =
+    let selectBestBackend (backends: IQuantumBackend list) (circuit: ICircuit) : QuantumResult<IQuantumBackend> =
         let circuitParadigm = detectCircuitParadigm circuit
         
         // Filter backends that can execute this circuit
@@ -215,19 +216,21 @@ module BackendCapabilityDetection =
             backends
             |> List.filter (fun backend -> canExecuteCircuit backend circuit)
         
-        if List.isEmpty compatibleBackends then
-            let paradigmStr = match circuitParadigm with | GateBased -> "gate-based" | Annealing -> "annealing"
-            Error $"No compatible backend found for {paradigmStr} circuit with {circuit.NumQubits} qubits"
-        else
-            // Rank by performance score
-            let bestBackend =
+        // Rank by performance score and select best
+        quantumResult {
+            let! bestBackend =
                 compatibleBackends
                 |> List.map (fun backend -> (backend, getBackendCapability backend))
                 |> List.sortByDescending (fun (_, cap) -> cap.PerformanceScore)
-                |> List.head
-                |> fst
+                |> List.tryHead
+                |> function
+                    | None -> 
+                        let paradigmStr = match circuitParadigm with | GateBased -> "gate-based" | Annealing -> "annealing"
+                        QuantumResult.backendError "Selection" $"No compatible backend found for {paradigmStr} circuit with {circuit.NumQubits} qubits"
+                    | Some (backend, _) -> Ok backend
             
-            Ok bestBackend
+            return bestBackend
+        }
     
     // ============================================================================
     // CONVENIENCE FUNCTIONS
@@ -255,12 +258,12 @@ module BackendCapabilityDetection =
     /// - circuit: Circuit to execute
     /// - numShots: Number of measurement shots
     ///
-    /// Returns: Result<ExecutionResult, string>
+    /// Returns: QuantumResult<ExecutionResult>
     ///
     /// Example:
     ///   let circuit = QaoaCircuitWrapper(qaoaCircuit)
     ///   let result = executeWithAutomaticBackend circuit 1000
-    let executeWithAutomaticBackend (circuit: ICircuit) (numShots: int) : Result<ExecutionResult, string> =
+    let executeWithAutomaticBackend (circuit: ICircuit) (numShots: int) : QuantumResult<ExecutionResult> =
         let backends = createDefaultBackendPool()
         
         match selectBestBackend backends circuit with
@@ -276,8 +279,8 @@ module BackendCapabilityDetection =
     /// - circuit: Circuit to execute
     /// - numShots: Number of measurement shots
     ///
-    /// Returns: Async<Result<ExecutionResult, string>>
-    let executeWithAutomaticBackendAsync (circuit: ICircuit) (numShots: int) : Async<Result<ExecutionResult, string>> =
+    /// Returns: Async<QuantumResult<ExecutionResult>>
+    let executeWithAutomaticBackendAsync (circuit: ICircuit) (numShots: int) : Async<QuantumResult<ExecutionResult>> =
         async {
             let backends = createDefaultBackendPool()
             
@@ -286,7 +289,8 @@ module BackendCapabilityDetection =
             | Ok backend ->
                 // Log backend selection
                 printfn $"Auto-selected backend: {backend.Name}"
-                return! backend.ExecuteAsync circuit numShots
+                let! result = backend.ExecuteAsync circuit numShots
+                return result
         }
     
     // ============================================================================

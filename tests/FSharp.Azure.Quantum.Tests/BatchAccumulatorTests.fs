@@ -21,8 +21,8 @@ module BatchAccumulatorTests =
             Assert.Equal(50, c.MaxBatchSize)
             Assert.Equal(TimeSpan.FromSeconds 10.0, c.Timeout)
             Assert.True(c.Enabled)
-        | Error msg ->
-            Assert.True(false, $"Expected success but got error: {msg}")
+        | Error err ->
+            Assert.True(false, $"Expected success but got error: {err.Message}")
     
     [<Fact>]
     let ``BatchConfig with zero batch size should fail`` () =
@@ -32,7 +32,7 @@ module BatchAccumulatorTests =
         // Assert
         match config with
         | Ok _ -> Assert.True(false, "Expected validation error for zero batch size")
-        | Error msg -> Assert.Contains("MaxBatchSize must be positive", msg)
+        | Error err -> Assert.Contains("must be positive", err.Message)
     
     [<Fact>]
     let ``BatchConfig with negative batch size should fail`` () =
@@ -42,7 +42,7 @@ module BatchAccumulatorTests =
         // Assert
         match config with
         | Ok _ -> Assert.True(false, "Expected validation error for negative batch size")
-        | Error msg -> Assert.Contains("MaxBatchSize must be positive", msg)
+        | Error err -> Assert.Contains("must be positive", err.Message)
     
     [<Fact>]
     let ``BatchConfig with zero timeout should fail`` () =
@@ -52,7 +52,7 @@ module BatchAccumulatorTests =
         // Assert
         match config with
         | Ok _ -> Assert.True(false, "Expected validation error for zero timeout")
-        | Error msg -> Assert.Contains("Timeout must be positive", msg)
+        | Error err -> Assert.Contains("must be positive", err.Message)
     
     [<Fact>]
     let ``BatchConfig with negative timeout should fail`` () =
@@ -62,7 +62,7 @@ module BatchAccumulatorTests =
         // Assert
         match config with
         | Ok _ -> Assert.True(false, "Expected validation error for negative timeout")
-        | Error msg -> Assert.Contains("Timeout must be positive", msg)
+        | Error err -> Assert.Contains("must be positive", err.Message)
     
     [<Fact>]
     let ``BatchConfig default should have sensible values`` () =

@@ -10,6 +10,7 @@ open System
 open FSharp.Azure.Quantum.CircuitBuilder
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.Core.CircuitAbstraction
+open FSharp.Azure.Quantum.Core
 
 module VQC =
     
@@ -79,7 +80,7 @@ module VQC =
         (backend: IQuantumBackend) 
         (circuit: Circuit) 
         (shots: int) 
-        : Result<float, string> =
+        : QuantumResult<float> =
         
         // Wrap circuit for backend execution
         let wrappedCircuit = CircuitWrapper(circuit) :> ICircuit
@@ -102,7 +103,7 @@ module VQC =
             let probability = onesCount / totalShots
             
             Ok probability
-        | Error e -> Error e
+        | Error err -> Error err
     
     /// Build VQC circuit for a single sample
     let private buildVQCCircuit
@@ -110,26 +111,29 @@ module VQC =
         (variationalForm: VariationalForm)
         (features: float array)
         (parameters: float array)
-        : Result<Circuit, string> =
+        : QuantumResult<Circuit> =
         
         let numQubits = features.Length
         
-        // Build feature map circuit
-        match FeatureMap.buildFeatureMap featureMap features with
-        | Error e -> Error $"Feature map error: {e}"
-        | Ok fmCircuit ->
+        quantumResult {
+            // Build feature map circuit
+            let! fmCircuit = 
+                FeatureMap.buildFeatureMap featureMap features
+                |> Result.mapError (fun e -> QuantumError.ValidationError ("Input", $"Feature map error: {e}"))
             
             // Build variational form circuit
-            match VariationalForms.buildVariationalForm variationalForm parameters numQubits with
-            | Error e -> Error $"Variational form error: {e}"
-            | Ok vfCircuit ->
-                
-                // Compose circuits
-                match VariationalForms.composeWithFeatureMap fmCircuit vfCircuit with
-                | Error e -> Error $"Composition error: {e}"
-                | Ok composedCircuit ->
-                    // Backend will automatically measure all qubits
-                    Ok composedCircuit
+            let! vfCircuit = 
+                VariationalForms.buildVariationalForm variationalForm parameters numQubits
+                |> Result.mapError (fun e -> QuantumError.ValidationError ("Input", $"Variational form error: {e}"))
+            
+            // Compose circuits
+            let! composedCircuit = 
+                VariationalForms.composeWithFeatureMap fmCircuit vfCircuit
+                |> Result.mapError (fun e -> QuantumError.ValidationError ("Input", $"Composition error: {e}"))
+            
+            // Backend will automatically measure all qubits
+            return composedCircuit
+        }
     
     // ========================================================================
     // LOSS FUNCTIONS
@@ -154,7 +158,7 @@ module VQC =
         (features: float array array)
         (labels: int array)
         (shots: int)
-        : Result<float, string> =
+        : QuantumResult<float> =
         
         let computeSampleLoss i =
             buildVQCCircuit featureMap variationalForm features.[i] parameters
@@ -195,7 +199,7 @@ module VQC =
         (features: float array array)
         (labels: int array)
         (shots: int)
-        : Result<float array, string> =
+        : QuantumResult<float array> =
         
         let shift = Math.PI / 2.0
         
@@ -237,7 +241,7 @@ module VQC =
         
         // Check if any failed
         match results |> Array.tryFind Result.isError with
-        | Some (Error e) -> Error $"Gradient computation failed: {e}"
+        | Some (Error e) -> Error (QuantumError.ValidationError ("Input", $"Gradient computation failed: {e}"))
         | _ ->
             let gradients = results |> Array.choose (function Ok v -> Some v | _ -> None)
             Ok gradients
@@ -264,13 +268,13 @@ module VQC =
         (trainFeatures: float array array)
         (trainLabels: int array)
         (config: TrainingConfig)
-        : Result<TrainingResult, string> =
+        : QuantumResult<TrainingResult> =
         
         // Validate inputs
         if trainFeatures.Length <> trainLabels.Length then
-            Error "Features and labels must have same length"
+            Error (QuantumError.ValidationError ("Input", "Features and labels must have same length"))
         elif trainFeatures.Length = 0 then
-            Error "Training set cannot be empty"
+            Error (QuantumError.Other "Training set cannot be empty")
         else
             // Initialize optimizer state for Adam
             let initialAdamState = 
@@ -291,13 +295,13 @@ module VQC =
                 printfn ""
             
             // Recursive training loop
-            let rec trainLoop (state: TrainingState) : Result<TrainingState, string> =
+            let rec trainLoop (state: TrainingState) : QuantumResult<TrainingState> =
                 if state.Epoch >= config.MaxEpochs || state.Converged then
                     Ok state
                 else
                     // Compute current loss
                     match computeLoss backend featureMap variationalForm state.Parameters trainFeatures trainLabels config.Shots with
-                    | Error e -> Error $"Loss computation failed at epoch {state.Epoch}: {e}"
+                    | Error e -> Error (QuantumError.ValidationError ("Input", $"Loss computation failed at epoch {state.Epoch}: {e}"))
                     | Ok loss ->
                         let newLossHistory = loss :: state.LossHistory
                         
@@ -324,7 +328,7 @@ module VQC =
                         else
                             // Compute gradients
                             match computeGradient backend featureMap variationalForm state.Parameters trainFeatures trainLabels config.Shots with
-                            | Error e -> Error $"Gradient computation failed at epoch {state.Epoch}: {e}"
+                            | Error e -> Error (QuantumError.ValidationError ("Input", $"Gradient computation failed at epoch {state.Epoch}: {e}"))
                             | Ok gradient ->
                                 
                                 // Update parameters using selected optimizer
@@ -353,10 +357,10 @@ module VQC =
                                                 AdamState = Some newAdamState
                                         }
                                     | Error e ->
-                                        Error $"Adam optimizer failed at epoch {state.Epoch}: {e}"
+                                        Error (QuantumError.ValidationError ("Input", $"Adam optimizer failed at epoch {state.Epoch}: {e}"))
                                 
                                 | Adam _, None ->
-                                    Error "Adam optimizer state not initialized"
+                                    Error (QuantumError.Other "Adam optimizer state not initialized")
             
             // Start training
             let initialState = {
@@ -367,29 +371,31 @@ module VQC =
                 AdamState = initialAdamState
             }
             
-            match trainLoop initialState with
-            | Error e -> Error e
-            | Ok finalState ->
+            quantumResult {
+                let! finalState = trainLoop initialState
+                
                 // Compute final training accuracy
-                match evaluate backend featureMap variationalForm finalState.Parameters trainFeatures trainLabels config.Shots with
-                | Error e -> Error $"Final evaluation failed: {e}"
-                | Ok accuracy ->
-                    
-                    if config.Verbose then
-                        printfn ""
-                        printfn "Training complete!"
-                        printfn "  Epochs: %d" finalState.Epoch
-                        printfn "  Final loss: %.6f" (List.head finalState.LossHistory)
-                        printfn "  Train accuracy: %.2f%%" (accuracy * 100.0)
-                        printfn "  Converged: %b" finalState.Converged
-                    
-                    Ok {
-                        Parameters = finalState.Parameters
-                        LossHistory = List.rev finalState.LossHistory
-                        Epochs = finalState.Epoch
-                        TrainAccuracy = accuracy
-                        Converged = finalState.Converged
-                    }
+                let! accuracy = 
+                    evaluate backend featureMap variationalForm finalState.Parameters trainFeatures trainLabels config.Shots
+                    |> Result.mapError (fun e -> QuantumError.ValidationError ("Input", $"Final evaluation failed: {e.Message}"))
+                
+                if config.Verbose then
+                    printfn ""
+                    printfn "Training complete!"
+                    printfn "  Epochs: %d" finalState.Epoch
+                    // LossHistory should never be empty here (training loop adds losses), but safe access
+                    printfn "  Final loss: %.6f" (List.tryHead finalState.LossHistory |> Option.defaultValue 0.0)
+                    printfn "  Train accuracy: %.2f%%" (accuracy * 100.0)
+                    printfn "  Converged: %b" finalState.Converged
+                
+                return {
+                    Parameters = finalState.Parameters
+                    LossHistory = List.rev finalState.LossHistory
+                    Epochs = finalState.Epoch
+                    TrainAccuracy = accuracy
+                    Converged = finalState.Converged
+                }
+            }
     
     // ========================================================================
     // PREDICTION & EVALUATION
@@ -403,22 +409,19 @@ module VQC =
         (parameters: float array)
         (features: float array)
         (shots: int)
-        : Result<Prediction, string> =
+        : QuantumResult<Prediction> =
         
-        match buildVQCCircuit featureMap variationalForm features parameters with
-        | Error e -> Error e
-        | Ok circuit ->
+        quantumResult {
+            let! circuit = buildVQCCircuit featureMap variationalForm features parameters
+            let! probability = forwardPass backend circuit shots
             
-            match forwardPass backend circuit shots with
-            | Error e -> Error e
-            | Ok probability ->
-                
-                let label = if probability >= 0.5 then 1 else 0
-                
-                Ok {
-                    Label = label
-                    Probability = probability
-                }
+            let label = if probability >= 0.5 then 1 else 0
+            
+            return {
+                Label = label
+                Probability = probability
+            }
+        }
     
     /// Evaluate model accuracy on dataset
     and evaluate
@@ -429,12 +432,12 @@ module VQC =
         (features: float array array)
         (labels: int array)
         (shots: int)
-        : Result<float, string> =
+        : QuantumResult<float> =
         
         if features.Length <> labels.Length then
-            Error "Features and labels must have same length"
+            Error (QuantumError.ValidationError ("Input", "Features and labels must have same length"))
         elif features.Length = 0 then
-            Error "Dataset cannot be empty"
+            Error (QuantumError.Other "Dataset cannot be empty")
         else
             let predictSample i =
                 predict backend featureMap variationalForm parameters features.[i] shots
@@ -499,10 +502,10 @@ module VQC =
         (features: float array array)
         (labels: int array)
         (shots: int)
-        : Result<ConfusionMatrix, string> =
+        : QuantumResult<ConfusionMatrix> =
         
         if features.Length <> labels.Length then
-            Error "Features and labels must have same length"
+            Error (QuantumError.ValidationError ("Input", "Features and labels must have same length"))
         else
             let categorizePrediction i =
                 predict backend featureMap variationalForm parameters features.[i] shots
@@ -595,7 +598,7 @@ module VQC =
         (features: float array)
         (shots: int)
         (valueRange: float * float)
-        : Result<RegressionPrediction, string> =
+        : QuantumResult<RegressionPrediction> =
         
         match buildVQCCircuit featureMap variationalForm features parameters with
         | Error e -> Error e
@@ -619,7 +622,7 @@ module VQC =
         (trainTargets: float array)
         (shots: int)
         (valueRange: float * float)
-        : Result<float, string> =
+        : QuantumResult<float> =
         
         // Compute squared errors for each sample
         let results =
@@ -633,7 +636,7 @@ module VQC =
         
         // Check if any predictions failed
         match results |> Array.tryFind Result.isError with
-        | Some (Error e) -> Error $"Loss computation failed: {e}"
+        | Some (Error e) -> Error (QuantumError.ValidationError ("Input", $"Loss computation failed: {e}"))
         | _ ->
             let squaredErrors = 
                 results 
@@ -651,7 +654,7 @@ module VQC =
         (trainTargets: float array)
         (shots: int)
         (valueRange: float * float)
-        : Result<float array, string> =
+        : QuantumResult<float array> =
         
         let shift = Math.PI / 2.0
         
@@ -671,7 +674,7 @@ module VQC =
             | Ok lossPlus, Ok lossMinus ->
                 Ok ((lossPlus - lossMinus) / 2.0)
             | Error e, _ | _, Error e ->
-                Error $"Gradient computation failed for parameter {i}: {e}"
+                Error (QuantumError.ValidationError ("Input", $"Gradient computation failed for parameter {i}: {e}"))
         
         // Compute gradient for all parameters
         let results = 
@@ -705,13 +708,13 @@ module VQC =
         (trainFeatures: float array array)
         (trainTargets: float array)
         (config: TrainingConfig)
-        : Result<RegressionTrainingResult, string> =
+        : QuantumResult<RegressionTrainingResult> =
         
         // Validate inputs
         if trainFeatures.Length <> trainTargets.Length then
-            Error "Features and targets must have same length"
+            Error (QuantumError.ValidationError ("Input", "Features and targets must have same length"))
         elif trainFeatures.Length = 0 then
-            Error "Training set cannot be empty"
+            Error (QuantumError.Other "Training set cannot be empty")
         else
             // Determine value range from training targets
             let minTarget = trainTargets |> Array.min
@@ -738,13 +741,13 @@ module VQC =
                 printfn ""
             
             // Recursive training loop
-            let rec trainLoop (state: TrainingState) : Result<TrainingState, string> =
+            let rec trainLoop (state: TrainingState) : QuantumResult<TrainingState> =
                 if state.Epoch >= config.MaxEpochs || state.Converged then
                     Ok state
                 else
                     // Compute current loss
                     match computeRegressionLoss backend featureMap variationalForm state.Parameters trainFeatures trainTargets config.Shots valueRange with
-                    | Error e -> Error $"Loss computation failed at epoch {state.Epoch}: {e}"
+                    | Error e -> Error (QuantumError.ValidationError ("Input", $"Loss computation failed at epoch {state.Epoch}: {e}"))
                     | Ok loss ->
                         let newLossHistory = loss :: state.LossHistory
                         
@@ -771,7 +774,7 @@ module VQC =
                         else
                             // Compute gradients
                             match computeRegressionGradient backend featureMap variationalForm state.Parameters trainFeatures trainTargets config.Shots valueRange with
-                            | Error e -> Error $"Gradient computation failed at epoch {state.Epoch}: {e}"
+                            | Error e -> Error (QuantumError.ValidationError ("Input", $"Gradient computation failed at epoch {state.Epoch}: {e}"))
                             | Ok gradient ->
                                 
                                 // Update parameters using selected optimizer
@@ -800,10 +803,10 @@ module VQC =
                                                 AdamState = Some newAdamState
                                         }
                                     | Error e ->
-                                        Error $"Adam optimizer failed at epoch {state.Epoch}: {e}"
+                                        Error (QuantumError.ValidationError ("Input", $"Adam optimizer failed at epoch {state.Epoch}: {e}"))
                                 
                                 | Adam _, None ->
-                                    Error "Adam optimizer state not initialized"
+                                    Error (QuantumError.Other "Adam optimizer state not initialized")
             
             // Start training
             let initialState = {
@@ -889,20 +892,20 @@ module VQC =
         (trainFeatures: float array array)
         (trainLabels: int array)
         (config: TrainingConfig)
-        : Result<MultiClassTrainingResult, string> =
+        : QuantumResult<MultiClassTrainingResult> =
         
         // Validate inputs
         if trainFeatures.Length <> trainLabels.Length then
-            Error "Features and labels must have same length"
+            Error (QuantumError.ValidationError ("Input", "Features and labels must have same length"))
         elif trainFeatures.Length = 0 then
-            Error "Training set cannot be empty"
+            Error (QuantumError.Other "Training set cannot be empty")
         else
             // Get unique class labels
             let classLabels = trainLabels |> Array.distinct |> Array.sort
             let numClasses = classLabels.Length
             
             if numClasses < 2 then
-                Error "Need at least 2 classes for multi-class classification"
+                Error (QuantumError.Other "Need at least 2 classes for multi-class classification")
             elif numClasses = 2 then
                 // Binary classification - just train one classifier
                 match train backend featureMap variationalForm initialParameters trainFeatures trainLabels config with
@@ -935,7 +938,7 @@ module VQC =
                         
                         // Train binary classifier
                         match train backend featureMap variationalForm initialParameters trainFeatures binaryLabels config with
-                        | Error e -> Error $"Classifier for class {classLabel} failed: {e}"
+                        | Error e -> Error (QuantumError.ValidationError ("Input", $"Classifier for class {classLabel} failed: {e}"))
                         | Ok result ->
                             if config.Verbose then
                                 printfn "  Class %d accuracy: %.4f" classLabel result.TrainAccuracy
@@ -990,7 +993,7 @@ module VQC =
         (result: MultiClassTrainingResult)
         (features: float array)
         (shots: int)
-        : Result<MultiClassPrediction, string> =
+        : QuantumResult<MultiClassPrediction> =
         
         // Get scores from all classifiers
         let scoreResults = 
@@ -1003,7 +1006,7 @@ module VQC =
         
         // Check if any prediction failed
         match scoreResults |> Array.tryFind Result.isError with
-        | Some (Error e) -> Error $"Multi-class prediction failed: {e}"
+        | Some (Error e) -> Error (QuantumError.ValidationError ("Input", $"Multi-class prediction failed: {e}"))
         | _ ->
             let scores = scoreResults |> Array.choose (function Ok s -> Some s | _ -> None)
             

@@ -1,6 +1,7 @@
 namespace FSharp.Azure.Quantum.Algorithms
 
 open System
+open FSharp.Azure.Quantum.Core
 
 /// Quantum Arithmetic Circuits Module
 /// 
@@ -102,8 +103,8 @@ module QuantumArithmetic =
         
         // Create QFT circuit fragment using backend adapter
         match qftToCircuit config with
-        | Error msg -> 
-            failwith $"QFT circuit creation failed: {msg}"
+        | Error err -> 
+            failwith $"QFT circuit creation failed: {err.Message}"
         | Ok qftCirc ->
             // Compose circuits - need to adjust qubit indices
             let gates = getGates qftCirc
@@ -127,12 +128,16 @@ module QuantumArithmetic =
                     | RY (q, angle) -> RY (q + startQubit, angle)
                     | RZ (q, angle) -> RZ (q + startQubit, angle)
                     | P (q, angle) -> P (q + startQubit, angle)
+                    | U3 (q, theta, phi, lambda) -> U3 (q + startQubit, theta, phi, lambda)
                     
                     // Two-qubit gates (CRITICAL: CP used by QFT!)
                     | CNOT (c, t) -> CNOT (c + startQubit, t + startQubit)
                     | CZ (c, t) -> CZ (c + startQubit, t + startQubit)
                     | SWAP (q1, q2) -> SWAP (q1 + startQubit, q2 + startQubit)
                     | CP (c, t, angle) -> CP (c + startQubit, t + startQubit, angle)
+                    | CRX (c, t, angle) -> CRX (c + startQubit, t + startQubit, angle)
+                    | CRY (c, t, angle) -> CRY (c + startQubit, t + startQubit, angle)
+                    | CRZ (c, t, angle) -> CRZ (c + startQubit, t + startQubit, angle)
                     
                     // Three-qubit gates
                     | CCX (c1, c2, t) -> CCX (c1 + startQubit, c2 + startQubit, t + startQubit)
@@ -160,8 +165,8 @@ module QuantumArithmetic =
         }
         
         match qftToCircuit config with
-        | Error msg -> 
-            failwith $"Inverse QFT circuit creation failed: {msg}"
+        | Error err -> 
+            failwith $"Inverse QFT circuit creation failed: {err.Message}"
         | Ok qftCirc ->
             let gates = getGates qftCirc
             gates
@@ -183,12 +188,16 @@ module QuantumArithmetic =
                     | RY (q, angle) -> RY (q + startQubit, angle)
                     | RZ (q, angle) -> RZ (q + startQubit, angle)
                     | P (q, angle) -> P (q + startQubit, angle)
+                    | U3 (q, theta, phi, lambda) -> U3 (q + startQubit, theta, phi, lambda)
                     
                     // Two-qubit gates (CRITICAL: CP used by QFT!)
                     | CNOT (c, t) -> CNOT (c + startQubit, t + startQubit)
                     | CZ (c, t) -> CZ (c + startQubit, t + startQubit)
                     | SWAP (q1, q2) -> SWAP (q1 + startQubit, q2 + startQubit)
                     | CP (c, t, angle) -> CP (c + startQubit, t + startQubit, angle)
+                    | CRX (c, t, angle) -> CRX (c + startQubit, t + startQubit, angle)
+                    | CRY (c, t, angle) -> CRY (c + startQubit, t + startQubit, angle)
+                    | CRZ (c, t, angle) -> CRZ (c + startQubit, t + startQubit, angle)
                     
                     // Three-qubit gates
                     | CCX (c1, c2, t) -> CCX (c1 + startQubit, c2 + startQubit, t + startQubit)
@@ -634,22 +643,22 @@ module QuantumArithmetic =
         (targetQubits: int list)
         (baseValue: int)
         (modulus: int)
-        (circuit: Circuit) : Result<Circuit, string> =
+        (circuit: Circuit) : QuantumResult<Circuit> =
         
         try
             // Validate inputs
             if baseValue <= 0 then
-                Error "Base must be positive"
+                Error (QuantumError.ValidationError ("Base", "must be positive"))
             elif baseValue >= modulus then
-                Error $"Base {baseValue} must be less than modulus {modulus}"
+                Error (QuantumError.Other $"Base {baseValue} must be less than modulus {modulus}")
             elif modulus < 2 then
-                Error "Modulus must be at least 2"
+                Error (QuantumError.ValidationError ("Modulus", "must be at least 2"))
             else
                 // Check if base and modulus are coprime
                 let baseGcd = gcd baseValue modulus
                 
                 if baseGcd <> 1 then
-                    Error $"Base {baseValue} and modulus {modulus} must be coprime (GCD = {baseGcd})"
+                    Error (QuantumError.Other $"Base {baseValue} and modulus {modulus} must be coprime (GCD = {baseGcd})")
                 else
                     // Allocate ancilla and temporary qubits for in-place modular multiplication
                     // We need: counting qubits + target qubits + temp qubits (same size as target) + ancilla
@@ -692,4 +701,4 @@ module QuantumArithmetic =
                     
                     Ok finalCircuit
         with
-        | ex -> Error $"Modular exponentiation circuit creation failed: {ex.Message}"
+        | ex -> Error (QuantumError.Other $"Modular exponentiation circuit creation failed: {ex.Message}")

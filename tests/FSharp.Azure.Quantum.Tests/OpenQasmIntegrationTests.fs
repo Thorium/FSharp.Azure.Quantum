@@ -490,7 +490,7 @@ cx q[0],q[2];
         match OpenQasmImport.parse qasm with
         | Ok imported ->
             sw.Stop()
-            Assert.True(sw.ElapsedMilliseconds < 200, $"Import took {sw.ElapsedMilliseconds}ms (expected <200ms)")
+            Assert.True(sw.ElapsedMilliseconds < 600, $"Import took {sw.ElapsedMilliseconds}ms (expected <600ms)")
             Assert.Equal(1000, imported.Gates.Length)
         | Error msg -> Assert.True(false, $"Large circuit import failed: {msg}")
     

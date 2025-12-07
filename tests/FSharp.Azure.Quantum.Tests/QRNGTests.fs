@@ -312,7 +312,7 @@ module QRNGTests =
             | Ok _ ->
                 Assert.True(false, "Should fail with excessive bits")
             | Error msg ->
-                Assert.Contains("too large", msg)
+                Assert.Contains("too large", msg.Message)
         }
         |> Async.RunSynchronously
     
@@ -327,7 +327,7 @@ module QRNGTests =
             | Ok _ ->
                 Assert.True(false, "Should fail with zero bits")
             | Error msg ->
-                Assert.Contains("must be positive", msg)
+                Assert.Contains("must be positive", msg.Message)
         }
         |> Async.RunSynchronously
     

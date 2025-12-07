@@ -29,6 +29,77 @@ Complete reference for **FSharp.Azure.Quantum** quantum optimization APIs.
 
 ---
 
+## Error Handling
+
+**All FSharp.Azure.Quantum APIs use `QuantumResult<T>` with structured `QuantumError` types:**
+
+```fsharp
+// Type alias for clarity
+type QuantumResult<'T> = Result<'T, QuantumError>
+```
+
+### Basic Error Handling
+
+All solver APIs return `QuantumResult<T>` for consistent, type-safe error handling:
+
+```fsharp
+open FSharp.Azure.Quantum
+open FSharp.Azure.Quantum.GraphColoring
+
+match GraphColoring.solve problem 3 None with
+| Ok solution -> 
+    printfn "Success! Colors used: %d" solution.ColorsUsed
+| Error err -> 
+    printfn "Error: %s" err.Message  // Human-readable message
+```
+
+### QuantumError Types
+
+Errors are categorized for precise handling:
+
+```fsharp
+type QuantumError =
+    | ValidationError of field: string * reason: string
+    | OperationError of operation: string * context: string
+    | BackendError of backend: string * reason: string
+    | IOError of operation: string * path: string * reason: string
+    | NotImplemented of feature: string * hint: string option
+    | Other of message: string
+```
+
+### Advanced Error Handling
+
+Pattern match on error types for custom handling:
+
+```fsharp
+match TSP.solve cities None with
+| Ok tour -> processTour tour
+| Error (QuantumError.ValidationError (field, reason)) ->
+    printfn "Invalid %s: %s" field reason
+| Error (QuantumError.BackendError (backend, reason)) ->
+    printfn "Backend %s failed: %s" backend reason
+    // Retry with different backend
+| Error err ->
+    printfn "Unexpected error: %s" err.Message
+```
+
+### Computation Expression (Recommended)
+
+Use the `quantumResult` builder to avoid nested match clauses:
+
+```fsharp
+let processWorkflow input backend = quantumResult {
+    do! validateInput input
+    let! encoded = encodeToQubo input
+    let! result = executeQuantum encoded backend
+    return result
+}
+```
+
+See [QuantumResult Builder Guide](QUANTUMRESULT-BUILDER-GUIDE.md) for complete details.
+
+---
+
 ## Quick Start Patterns
 
 ### Pattern 1: Simple Auto-Solve (Recommended)
@@ -152,8 +223,8 @@ type ColoringSolution = {
 ### Functions
 
 ```text
-val validate : GraphColoringProblem → Result<unit, string>
-val solve : GraphColoringProblem → int → IQuantumBackend option → Result<ColoringSolution, string>
+val validate : GraphColoringProblem → QuantumResult<unit>
+val solve : GraphColoringProblem → int → IQuantumBackend option → QuantumResult<ColoringSolution>
 ```
 
 **Parameters:**
@@ -205,7 +276,7 @@ match GraphColoring.solve registers 4 None with
 val createProblem : string list → (string * string * float) list → MaxCutProblem
 val completeGraph : string list → float → MaxCutProblem
 val cycleGraph : string list → float → MaxCutProblem
-val solve : MaxCutProblem → IQuantumBackend option → Result<Solution, string>
+val solve : MaxCutProblem → IQuantumBackend option → QuantumResult<Solution>
 ```
 
 ### Types
@@ -268,7 +339,7 @@ match MaxCut.solve problem_maxcut None with
 
 ```text
 val createProblem : (string * float * float) list → float → Problem
-val solve : Problem → IQuantumBackend option → Result<Solution, string>
+val solve : Problem → IQuantumBackend option → QuantumResult<Solution>
 ```
 
 **Parameters:**
@@ -347,7 +418,7 @@ match Knapsack.solve problem_knapsack None with
 
 ```text
 val createProblem : (string * float * float) list → TspProblem
-val solve : TspProblem → IQuantumBackend option → Result<Tour, string>
+val solve : TspProblem → IQuantumBackend option → QuantumResult<Tour>
 ```
 
 **Parameters:**
@@ -407,7 +478,7 @@ match TSP.solve problem_tsp None with
 
 ```text
 val createProblem : (string * float * float * float) list → float → PortfolioProblem
-val solve : PortfolioProblem → IQuantumBackend option → Result<PortfolioAllocation, string>
+val solve : PortfolioProblem → IQuantumBackend option → QuantumResult<PortfolioAllocation>
 ```
 
 **Parameters:**
@@ -511,7 +582,7 @@ val SourceNode : string → int → Node
 val SinkNode : string → int → Node
 val IntermediateNode : string → int → Node
 val Route : string → string → float → Route
-val solve : NetworkFlowProblem → IQuantumBackend option → Result<FlowSolution, string>
+val solve : NetworkFlowProblem → IQuantumBackend option → QuantumResult<FlowSolution>
 ```
 
 ### Example
@@ -655,7 +726,7 @@ var problem = PortfolioProblem(assets, budget: 10000.0);
 
 ### Result Type
 
-All solvers return `Result<'T, string>`:
+All solvers return `QuantumResult<'T>`:
 
 ```fsharp
 match solver.solve problem with
@@ -745,8 +816,8 @@ match solve problem with
     printfn "Success probability: %.4f" solution.SuccessProbability
     printfn "Condition number: %A" solution.ConditionNumber
     printfn "Gates used: %d" solution.GateCount
-| Error msg ->
-    printfn "Error: %s" msg
+| Error err ->
+    printfn "Error: %s" err.Message
 ```
 
 ### Advanced Configuration
@@ -802,9 +873,9 @@ type LinearSystemSolution = {
 ### Functions
 
 ```text
-val solve : LinearSystemProblem → Result<LinearSystemSolution, string>
-val solve2x2 : float → float → float → float → float → float → Result<LinearSystemSolution, string>
-val solveDiagonal : float list → float list → Result<LinearSystemSolution, string>
+val solve : LinearSystemProblem → QuantumResult<LinearSystemSolution>
+val solve2x2 : float → float → float → float → float → float → QuantumResult<LinearSystemSolution>
+val solveDiagonal : float list → float list → QuantumResult<LinearSystemSolution>
 ```
 
 ### Example: Engineering Simulation

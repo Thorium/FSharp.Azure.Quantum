@@ -1,6 +1,21 @@
 namespace FSharp.Azure.Quantum.Algorithms
 
 open System
+open FSharp.Azure.Quantum.Core
+
+// ============================================================================
+// RESULT COMPUTATION EXPRESSION (for clean error handling)
+// ============================================================================
+
+[<AutoOpen>]
+module private ResultHelpers =
+    type ResultBuilder() =
+        member _.Bind(x, f) = Result.bind f x
+        member _.Return(x) = Ok x
+        member _.ReturnFrom(x) = x
+        member _.Zero() = Ok ()
+    
+    let result = ResultBuilder()
 
 /// QUBO ↔ Ising conversion for D-Wave quantum annealing.
 ///
@@ -214,8 +229,8 @@ module QuboToIsing =
     /// Parameters:
     /// - spins: Spin configuration to validate
     ///
-    /// Returns: Result<unit, string> - Ok if valid, Error with message if invalid
-    let validateSpins (spins: Map<int, int>) : Result<unit, string> =
+    /// Returns: QuantumResult<unit> - Ok if valid, Error with message if invalid
+    let validateSpins (spins: Map<int, int>) : QuantumResult<unit> =
         let invalidSpins = 
             spins
             |> Map.toSeq
@@ -226,15 +241,15 @@ module QuboToIsing =
             Ok ()
         else
             let invalidQubits = invalidSpins |> List.map fst
-            Error $"Invalid spin values (must be -1 or +1) for qubits: {invalidQubits}"
+            Error (QuantumError.Other $"Invalid spin values (must be -1 or +1) for qubits: {invalidQubits}")
     
     /// Validate that binary values are in {0, 1}
     ///
     /// Parameters:
     /// - binary: Binary configuration to validate
     ///
-    /// Returns: Result<unit, string> - Ok if valid, Error with message if invalid
-    let validateBinary (binary: Map<int, int>) : Result<unit, string> =
+    /// Returns: QuantumResult<unit> - Ok if valid, Error with message if invalid
+    let validateBinary (binary: Map<int, int>) : QuantumResult<unit> =
         let invalidBits = 
             binary
             |> Map.toSeq
@@ -245,7 +260,7 @@ module QuboToIsing =
             Ok ()
         else
             let invalidQubits = invalidBits |> List.map fst
-            Error $"Invalid binary values (must be 0 or 1) for qubits: {invalidQubits}"
+            Error (QuantumError.Other $"Invalid binary values (must be 0 or 1) for qubits: {invalidQubits}")
     
     /// Verify that QUBO→Ising→QUBO conversion preserves optimal solution energy
     ///
@@ -255,7 +270,7 @@ module QuboToIsing =
     /// - qubo: Original QUBO problem
     /// - binary: QUBO solution to test
     ///
-    /// Returns: Result<float, string> - Ok with energy difference (should be ~0.0) or Error
+    /// Returns: QuantumResult<float> - Ok with energy difference (should be ~0.0) or Error
     ///
     /// Example usage:
     ///   let qubo = Map.ofList [((0,1), -5.0); ((0,0), 2.0)]
@@ -264,11 +279,11 @@ module QuboToIsing =
     ///   | Ok diff when abs diff < 1e-10 -> printfn "✅ Conversion correct"
     ///   | Ok diff -> printfn "⚠️ Energy difference: %.10f" diff
     ///   | Error e -> printfn "❌ Error: %s" e
-    let verifyConversion (qubo: Map<(int * int), float>) (binary: Map<int, int>) : Result<float, string> =
-        // Validate binary solution
-        match validateBinary binary with
-        | Error e -> Error e
-        | Ok () ->
+    let verifyConversion (qubo: Map<(int * int), float>) (binary: Map<int, int>) : QuantumResult<float> =
+        result {
+            // Validate binary solution
+            do! validateBinary binary
+            
             // Calculate QUBO energy
             let quboEnergyVal = quboEnergy qubo binary
             
@@ -279,12 +294,12 @@ module QuboToIsing =
             let spins = quboToIsingSolution binary
             
             // Validate spins
-            match validateSpins spins with
-            | Error e -> Error e
-            | Ok () ->
-                // Calculate Ising energy
-                let isingEnergyVal = isingEnergy ising spins
-                
-                // Energy difference (should be ~0.0 for correct conversion)
-                let diff = abs (quboEnergyVal - isingEnergyVal)
-                Ok diff
+            do! validateSpins spins
+            
+            // Calculate Ising energy
+            let isingEnergyVal = isingEnergy ising spins
+            
+            // Energy difference (should be ~0.0 for correct conversion)
+            let diff = abs (quboEnergyVal - isingEnergyVal)
+            return diff
+        }

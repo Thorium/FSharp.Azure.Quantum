@@ -3,6 +3,7 @@ module FSharp.Azure.Quantum.Tests.CostTests
 open System
 open Xunit
 open FSharp.Azure.Quantum.Core.CostEstimation
+open FSharp.Azure.Quantum.Core
 
 [<Fact>]
 let ``estimateCost should return zero cost for simulator targets`` () =
@@ -22,7 +23,7 @@ let ``estimateCost should return zero cost for simulator targets`` () =
         Assert.Equal("USD", estimate.Currency)
         Assert.Equal(target, estimate.Target)
         Assert.Empty(estimate.Warnings)
-    | Error msg -> Assert.True(false, sprintf "Expected success but got error: %s" msg)
+    | Error err -> Assert.True(false, sprintf "Expected success but got error: %s" err.Message)
 
 [<Fact>]
 let ``estimateCost should return non-zero cost for QPU targets`` () =
@@ -41,7 +42,7 @@ let ``estimateCost should return non-zero cost for QPU targets`` () =
         Assert.True(estimate.MaximumCost >= estimate.MinimumCost, "Max cost should be >= min cost")
         Assert.Equal("USD", estimate.Currency)
         Assert.Equal(target, estimate.Target)
-    | Error msg -> Assert.True(false, sprintf "Expected success but got error: %s" msg)
+    | Error err -> Assert.True(false, sprintf "Expected success but got error: %s" err.Message)
 
 [<Fact>]
 let ``estimateCost should increase with shot count`` () =
@@ -75,7 +76,7 @@ let ``estimateCost should return error for invalid shot count`` () =
     // Assert
     match result with
     | Ok _ -> Assert.True(false, "Expected error for zero shots")
-    | Error msg -> Assert.Contains("Shot count must be at least 1", msg)
+    | Error err -> Assert.Contains("Shot count must be at least 1", err.Message)
 
 [<Fact>]
 let ``estimateCost should return error for empty target`` () =
@@ -89,7 +90,7 @@ let ``estimateCost should return error for empty target`` () =
     // Assert
     match result with
     | Ok _ -> Assert.True(false, "Expected error for empty target")
-    | Error msg -> Assert.Contains("Target backend cannot be empty", msg)
+    | Error err -> Assert.Contains("Target backend cannot be empty", err.Message)
 
 [<Fact>]
 let ``estimateCost should add warning for high-cost jobs`` () =
@@ -105,7 +106,7 @@ let ``estimateCost should add warning for high-cost jobs`` () =
     | Ok estimate ->
         Assert.NotEmpty(estimate.Warnings)
         Assert.Contains("$200", estimate.Warnings.[0])
-    | Error msg -> Assert.True(false, sprintf "Expected success but got error: %s" msg)
+    | Error err -> Assert.True(false, sprintf "Expected success but got error: %s" err.Message)
 
 [<Fact>]
 let ``parseCostFromMetadata should return None for null input`` () =

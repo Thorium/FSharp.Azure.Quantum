@@ -82,6 +82,12 @@ module OpenQasmImport =
     /// Match single-qubit gate with one parameter (rotation gates)
     let private rotationPattern = Regex(@"^\s*(\w+)\s*\(\s*([0-9.eE+-]+)\s*\)\s+(\w+)\s*\[\s*(\d+)\s*\]\s*;", RegexOptions.Compiled)
     
+    /// Match single-qubit gate with three parameters (u3 gate)
+    let private u3Pattern = Regex(@"^\s*(\w+)\s*\(\s*([0-9.eE+-]+)\s*,\s*([0-9.eE+-]+)\s*,\s*([0-9.eE+-]+)\s*\)\s+(\w+)\s*\[\s*(\d+)\s*\]\s*;", RegexOptions.Compiled)
+    
+    /// Match single-qubit gate with two parameters (u2 gate)
+    let private u2Pattern = Regex(@"^\s*(\w+)\s*\(\s*([0-9.eE+-]+)\s*,\s*([0-9.eE+-]+)\s*\)\s+(\w+)\s*\[\s*(\d+)\s*\]\s*;", RegexOptions.Compiled)
+    
     /// Match two-qubit gate with one parameter (e.g., CP gate)
     let private twoQubitRotationPattern = Regex(@"^\s*(\w+)\s*\(\s*([0-9.eE+-]+)\s*\)\s+(\w+)\s*\[\s*(\d+)\s*\]\s*,\s*(\w+)\s*\[\s*(\d+)\s*\]\s*;", RegexOptions.Compiled)
     
@@ -139,6 +145,10 @@ module OpenQasmImport =
             | "sdg" -> Ok (SDG qubit)
             | "t" -> Ok (T qubit)
             | "tdg" -> Ok (TDG qubit)
+            | "sx" ->
+                // TODO: Add native SX gate support (√X gate)
+                // Decomposition: SX = RX(π/2)
+                Ok (RX (qubit, Math.PI / 2.0))
             | _ -> Error $"Unknown single-qubit gate: {gateName}"
     
     /// Parse rotation gate (with angle parameter)
@@ -153,6 +163,28 @@ module OpenQasmImport =
             | "p" | "u1" -> Ok (P (qubit, angle))  // p or u1 (legacy) both map to P gate
             | _ -> Error $"Unknown rotation gate: {gateName}"
     
+    /// Parse U3 gate (universal single-qubit gate with three angle parameters)
+    let private parseU3Gate (gateName: string) (theta: float) (phi: float) (lambda: float) (qubit: int) (qubitCount: int) : ParseResult<Gate> =
+        match validateQubitIndex qubit qubitCount with
+        | Error msg -> Error msg
+        | Ok () ->
+            match gateName.ToLowerInvariant() with
+            | "u3" | "u" -> Ok (U3 (qubit, theta, phi, lambda))  // u3 or u (OpenQASM 2.0) both map to U3 gate
+            | _ -> Error $"Unknown three-parameter gate: {gateName}"
+    
+    /// Parse U2 gate (two-parameter gate) - special case of U3
+    /// U2(φ, λ) = U3(π/2, φ, λ)
+    let private parseU2Gate (gateName: string) (phi: float) (lambda: float) (qubit: int) (qubitCount: int) : ParseResult<Gate> =
+        match validateQubitIndex qubit qubitCount with
+        | Error msg -> Error msg
+        | Ok () ->
+            match gateName.ToLowerInvariant() with
+            | "u2" -> 
+                // TODO: Add native U2 gate support (optional - this decomposition is efficient)
+                // Decomposition: U2(φ, λ) = U3(π/2, φ, λ)
+                Ok (U3 (qubit, Math.PI / 2.0, phi, lambda))
+            | _ -> Error $"Unknown two-parameter gate: {gateName}"
+    
     /// Parse two-qubit rotation gate (with angle parameter)
     let private parseTwoQubitRotationGate (gateName: string) (angle: float) (qubit1: int) (qubit2: int) (qubitCount: int) : ParseResult<Gate> =
         match validateQubitIndex qubit1 qubitCount with
@@ -166,6 +198,9 @@ module OpenQasmImport =
                 else
                     match gateName.ToLowerInvariant() with
                     | "cp" | "cu1" -> Ok (CP (qubit1, qubit2, angle))  // cp or cu1 (legacy) both map to CP gate
+                    | "crx" -> Ok (CRX (qubit1, qubit2, angle))  // Controlled-RX gate
+                    | "cry" -> Ok (CRY (qubit1, qubit2, angle))  // Controlled-RY gate
+                    | "crz" -> Ok (CRZ (qubit1, qubit2, angle))  // Controlled-RZ gate
                     | _ -> Error $"Unknown two-qubit rotation gate: {gateName}"
     
     /// Parse two-qubit gate
@@ -288,6 +323,27 @@ module OpenQasmImport =
                     | Ok gate -> Ok { state with Gates = state.Gates @ [gate] }
                     | Error msg -> Error $"Line {state.LineNumber}: {msg}"
             
+            // U3 gate (three parameters) - must check before rotation gate (one parameter)
+            elif u3Pattern.IsMatch(cleanLine) then
+                let m = u3Pattern.Match(cleanLine)
+                let gateName = m.Groups.[1].Value
+                let thetaStr = m.Groups.[2].Value
+                let phiStr = m.Groups.[3].Value
+                let lambdaStr = m.Groups.[4].Value
+                let qubit = Int32.Parse(m.Groups.[6].Value)
+                
+                match state.QubitCount with
+                | None -> Error $"Line {state.LineNumber}: Gate used before qreg declaration"
+                | Some qCount ->
+                    match parseAngle thetaStr, parseAngle phiStr, parseAngle lambdaStr with
+                    | Ok theta, Ok phi, Ok lambda ->
+                        match parseU3Gate gateName theta phi lambda qubit qCount with
+                        | Ok gate -> Ok { state with Gates = state.Gates @ [gate] }
+                        | Error msg -> Error $"Line {state.LineNumber}: {msg}"
+                    | Error msg, _, _ -> Error $"Line {state.LineNumber}: {msg}"
+                    | _, Error msg, _ -> Error $"Line {state.LineNumber}: {msg}"
+                    | _, _, Error msg -> Error $"Line {state.LineNumber}: {msg}"
+            
             // Rotation gate (with parameter)
             elif rotationPattern.IsMatch(cleanLine) then
                 let m = rotationPattern.Match(cleanLine)
@@ -311,12 +367,16 @@ module OpenQasmImport =
                 let gateName = m.Groups.[1].Value
                 let qubit = Int32.Parse(m.Groups.[3].Value)
                 
-                match state.QubitCount with
-                | None -> Error $"Line {state.LineNumber}: Gate used before qreg declaration"
-                | Some qCount ->
-                    match parseSingleQubitGate gateName qubit qCount with
-                    | Ok gate -> Ok { state with Gates = state.Gates @ [gate] }
-                    | Error msg -> Error $"Line {state.LineNumber}: {msg}"
+                // Special case: ID gate (identity/no-op) - just ignore it
+                if gateName.ToLowerInvariant() = "id" then
+                    Ok state  // Skip identity gates (they do nothing)
+                else
+                    match state.QubitCount with
+                    | None -> Error $"Line {state.LineNumber}: Gate used before qreg declaration"
+                    | Some qCount ->
+                        match parseSingleQubitGate gateName qubit qCount with
+                        | Ok gate -> Ok { state with Gates = state.Gates @ [gate] }
+                        | Error msg -> Error $"Line {state.LineNumber}: {msg}"
             
             else
                 // Unknown line format - provide helpful error

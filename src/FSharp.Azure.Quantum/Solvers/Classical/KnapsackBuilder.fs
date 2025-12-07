@@ -238,7 +238,7 @@ module Knapsack =
     /// 
     /// RETURNS:
     ///   Result with Solution (selected items, value, feasibility) or error message
-    let solve (problem: Problem) (backend: BackendAbstraction.IQuantumBackend option) : Result<Solution, string> =
+    let solve (problem: Problem) (backend: BackendAbstraction.IQuantumBackend option) : QuantumResult<Solution> =
         try
             // Use provided backend or create LocalBackend for simulation
             let actualBackend = 
@@ -264,10 +264,10 @@ module Knapsack =
                 InitialParameters = (0.5, 0.5)
             }
             
-            // Call quantum Knapsack solver directly
-            match QuantumKnapsackSolver.solve actualBackend quantumProblem quantumConfig with
-            | Error msg -> Error $"Quantum Knapsack solve failed: {msg}"
-            | Ok quantumResult ->
+            // Call quantum Knapsack solver directly using computation expression
+            quantumResult {
+                let! quantumResult = QuantumKnapsackSolver.solve actualBackend quantumProblem quantumConfig
+                
                 let efficiency = 
                     if quantumResult.TotalWeight > 0.0 then
                         quantumResult.TotalValue / quantumResult.TotalWeight
@@ -284,7 +284,7 @@ module Knapsack =
                     |> List.map (fun qItem -> 
                         { Id = qItem.Id; Weight = qItem.Weight; Value = qItem.Value })
                 
-                Ok {
+                return {
                     SelectedItems = selectedItems
                     TotalWeight = quantumResult.TotalWeight
                     TotalValue = quantumResult.TotalValue
@@ -294,8 +294,9 @@ module Knapsack =
                     BackendName = quantumResult.BackendName
                     IsQuantum = true
                 }
+            }
         with
-        | ex -> Error $"Knapsack solve failed: {ex.Message}"
+        | ex -> Error (QuantumError.OperationError ("Knapsack solve failed: ", $"Failed: {ex.Message}"))
 
     /// Solve Knapsack using classical greedy algorithm (for comparison)
     /// 
@@ -418,7 +419,7 @@ module Knapsack =
         (items: (string * float * float) list) 
         (capacity: float)
         (backend: BackendAbstraction.IQuantumBackend option) 
-        : Result<Solution, string> =
+        : QuantumResult<Solution> =
         
         let problem = createProblem items capacity
         solve problem backend

@@ -33,7 +33,7 @@ module HHLTests =
         let nonHermitian = array2D [[Complex(1.0, 0.0); Complex(1.0, 0.0)]; 
                                      [Complex(2.0, 0.0); Complex(2.0, 0.0)]]
         match createHermitianMatrix nonHermitian with
-        | Error msg -> Assert.Contains("Hermitian", msg)
+        | Error msg -> Assert.Contains("Hermitian", msg.Message)
         | Ok _ -> Assert.Fail("Non-Hermitian matrix should be rejected")
     
     [<Fact>]
@@ -68,7 +68,7 @@ module HHLTests =
         }
         
         match problemResult with
-        | Error msg -> Assert.Fail($"Builder validation failed: {msg}")
+        | Error err -> Assert.Fail($"Builder validation failed: {err.Message}")
         | Ok problem ->
             Assert.Equal(2, problem.Matrix.Dimension)
             Assert.Equal(2, problem.InputVector.Dimension)
@@ -84,7 +84,7 @@ module HHLTests =
         
         let problem = match problemResult with
                       | Ok p -> p
-                      | Error msg -> failwith $"Builder validation failed: {msg}"
+                      | Error err -> failwith $"Builder validation failed: {err.Message}"
         
         Assert.Equal(4, problem.Matrix.Dimension)
         Assert.True(problem.Matrix.IsDiagonal)
@@ -102,7 +102,7 @@ module HHLTests =
         
         let problem = match problemResult with
                       | Ok p -> p
-                      | Error msg -> failwith $"Builder validation failed: {msg}"
+                      | Error err -> failwith $"Builder validation failed: {err.Message}"
         
         Assert.Equal(6, problem.EigenvalueQubits)
         Assert.Equal(0.001, problem.MinEigenvalue)
@@ -138,9 +138,9 @@ module HHLTests =
     let ``solve2x2 solves identity system correctly`` () =
         // System: I*x = [1, 0] → x = [1, 0]
         match solve2x2 1.0 0.0 0.0 1.0 1.0 0.0 with
-        | Error msg -> 
+        | Error err -> 
             // Prototype may not solve all cases - that's OK for now
-            Assert.True(true, $"Identity system: {msg}")
+            Assert.True(true, $"Identity system: {err.Message}")
         | Ok result ->
             // Verify result structure (prototype may have limitations)
             Assert.True(result.Success || result.SuccessProbability >= 0.0, 
@@ -152,8 +152,8 @@ module HHLTests =
         // System: [[2, 0], [0, 1]] * x = [1, 0]
         // Expected: x ≈ [0.5, 0]
         match solve2x2 2.0 0.0 0.0 1.0 1.0 0.0 with
-        | Error msg -> 
-            Assert.True(true, $"Simple diagonal: {msg}")
+        | Error err -> 
+            Assert.True(true, $"Simple diagonal: {err.Message}")
         | Ok result ->
             Assert.True(result.Success)
             Assert.True(result.GateCount > 0, "Should have generated gates")
@@ -162,8 +162,8 @@ module HHLTests =
     let ``solveDiagonal solves diagonal systems`` () =
         // diag(2, 4) * x = [1, 0] → x = [0.5, 0]
         match solveDiagonal [2.0; 4.0] [1.0; 0.0] with
-        | Error msg ->
-            Assert.True(true, $"Diagonal system: {msg}")
+        | Error err ->
+            Assert.True(true, $"Diagonal system: {err.Message}")
         | Ok result ->
             Assert.True(result.Success)
             Assert.NotNull(result)
@@ -178,12 +178,12 @@ module HHLTests =
         
         let problem = match problemResult with
                       | Ok p -> p
-                      | Error msg -> failwith $"Builder validation failed: {msg}"
+                      | Error err -> failwith $"Builder validation failed: {err.Message}"
         
         match solve problem with
-        | Error msg ->
+        | Error err ->
             // Prototype limitations - acceptable
-            Assert.True(true, $"Solver: {msg}")
+            Assert.True(true, $"Solver: {err.Message}")
         | Ok result ->
             Assert.True(result.Success, "Should be marked successful")
             Assert.Contains("Local", result.BackendName)
@@ -203,16 +203,16 @@ module HHLTests =
             }
             
             match problemResult with
-            | Error msg ->
+            | Error err ->
                 // Builder rejected it - good!
-                Assert.Contains("Singular", msg)
-                Assert.True(true, $"Correctly rejected at builder: {msg}")
+                Assert.Contains("Singular", err.Message)
+                Assert.True(true, $"Correctly rejected at builder: {err.Message}")
             | Ok problem ->
                 // Builder accepted it (shouldn't happen now), try to solve
                 match solve problem with
-                | Error msg ->
+                | Error err ->
                     // Solver rejected it - also acceptable
-                    Assert.True(true, $"Correctly rejected by solver: {msg}")
+                    Assert.True(true, $"Correctly rejected by solver: {err.Message}")
                 | Ok result ->
                     // If succeeds, should have very low success probability
                     Assert.True(result.SuccessProbability < 0.1 || not result.Success,
@@ -233,11 +233,11 @@ module HHLTests =
         
         let problem = match problemResult with
                       | Ok p -> p
-                      | Error msg -> failwith $"Builder validation failed: {msg}"
+                      | Error err -> failwith $"Builder validation failed: {err.Message}"
         
         match solve problem with
-        | Error msg ->
-            Assert.True(true, $"Ill-conditioned: {msg}")
+        | Error err ->
+            Assert.True(true, $"Ill-conditioned: {err.Message}")
         | Ok result ->
             match result.ConditionNumber with
             | Some kappa ->
@@ -266,8 +266,8 @@ module HHLTests =
         
         // Validation should fail in builder
         match problemResult with
-        | Error msg ->
-            Assert.True(msg.ToLower().Contains("qubit"), $"Should report qubit validation error, got: {msg}")
+        | Error err ->
+            Assert.True(err.Message.ToLower().Contains("qubit"), $"Should report qubit validation error, got: {err.Message}")
         | Ok _ ->
             Assert.Fail("Builder should reject precision < 2")
     
@@ -295,7 +295,7 @@ module HHLTests =
         
         let problem = match problemResult with
                       | Ok p -> p
-                      | Error msg -> failwith $"Builder validation failed: {msg}"
+                      | Error err -> failwith $"Builder validation failed: {err.Message}"
         
         Assert.Equal(4, problem.Matrix.Dimension)
     
@@ -309,7 +309,7 @@ module HHLTests =
         
         let problem = match problemResult with
                       | Ok p -> p
-                      | Error msg -> failwith $"Builder validation failed: {msg}"
+                      | Error err -> failwith $"Builder validation failed: {err.Message}"
         
         Assert.Equal(8, problem.Matrix.Dimension)
     
@@ -323,7 +323,7 @@ module HHLTests =
         
         let problem = match problemResult with
                       | Ok p -> p
-                      | Error msg -> failwith $"Builder validation failed: {msg}"
+                      | Error err -> failwith $"Builder validation failed: {err.Message}"
         
         Assert.Equal(10, problem.EigenvalueQubits)
     
@@ -341,7 +341,7 @@ module HHLTests =
         
         let problem = match problemResult with
                       | Ok p -> p
-                      | Error msg -> failwith $"Builder validation failed: {msg}"
+                      | Error err -> failwith $"Builder validation failed: {err.Message}"
         
         match problem.InversionMethod with
         | ExactRotation c -> Assert.Equal(1.0, c)
@@ -357,7 +357,7 @@ module HHLTests =
         
         let problem = match problemResult with
                       | Ok p -> p
-                      | Error msg -> failwith $"Builder validation failed: {msg}"
+                      | Error err -> failwith $"Builder validation failed: {err.Message}"
         
         match problem.InversionMethod with
         | LinearApproximation c -> Assert.Equal(0.5, c)
@@ -373,7 +373,7 @@ module HHLTests =
         
         let problem = match problemResult with
                       | Ok p -> p
-                      | Error msg -> failwith $"Builder validation failed: {msg}"
+                      | Error err -> failwith $"Builder validation failed: {err.Message}"
         
         Assert.Equal(0.001, problem.MinEigenvalue)
     
@@ -387,7 +387,7 @@ module HHLTests =
         
         let problem = match problemResult with
                       | Ok p -> p
-                      | Error msg -> failwith $"Builder validation failed: {msg}"
+                      | Error err -> failwith $"Builder validation failed: {err.Message}"
         
         Assert.False(problem.UsePostSelection)
     
@@ -405,7 +405,7 @@ module HHLTests =
         
         let problem = match problemResult with
                       | Ok p -> p
-                      | Error msg -> failwith $"Builder validation failed: {msg}"
+                      | Error err -> failwith $"Builder validation failed: {err.Message}"
         
         match solve problem with
         | Error _ -> Assert.True(true, "Prototype may fail")
@@ -424,7 +424,7 @@ module HHLTests =
         
         let problem = match problemResult with
                       | Ok p -> p
-                      | Error msg -> failwith $"Builder validation failed: {msg}"
+                      | Error err -> failwith $"Builder validation failed: {err.Message}"
         
         match solve problem with
         | Error _ -> Assert.True(true)

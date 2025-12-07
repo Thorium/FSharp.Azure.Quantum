@@ -1,6 +1,7 @@
 namespace FSharp.Azure.Quantum.GroverSearch
 
 open System
+open FSharp.Azure.Quantum.Core
 
 /// Tree Search Module for Grover's Algorithm
 /// 
@@ -178,14 +179,14 @@ module TreeSearch =
         (config: TreeSearchConfig<'T>) 
         (scoreThreshold: float)
         (maxPaths: int option)
-        : Result<CompiledOracle, string> =
+        : QuantumResult<CompiledOracle> =
         
         try
             // Calculate search space
             let numQubits = config.MaxDepth * bitsNeeded config.BranchingFactor
             
             if numQubits > 16 then
-                Error $"Tree search requires {numQubits} qubits (depth={config.MaxDepth}, branching={config.BranchingFactor}). Max supported: 16. Reduce depth or branching factor."
+                Error (QuantumError.Other $"Tree search requires {numQubits} qubits (depth={config.MaxDepth}, branching={config.BranchingFactor}). Max supported: 16. Reduce depth or branching factor.")
             else
                 let searchSpaceSize = 1 <<< numQubits
                 
@@ -217,7 +218,7 @@ module TreeSearch =
                 Oracle.fromPredicate predicate numQubits
         
         with ex ->
-            Error $"Lazy tree search oracle creation failed: {ex.Message}"
+            Error (QuantumError.Other $"Lazy tree search oracle creation failed: {ex.Message}")
     
     /// DEPRECATED: Old oracle with classical enumeration (kept for backward compatibility)
     /// 
@@ -227,17 +228,17 @@ module TreeSearch =
         (rootState: 'T) 
         (config: TreeSearchConfig<'T>) 
         (topPercentile: float) 
-        : Result<CompiledOracle, string> =
+        : QuantumResult<CompiledOracle> =
         
         try
             if topPercentile <= 0.0 || topPercentile > 1.0 then
-                Error $"Top percentile must be in range (0.0, 1.0], got {topPercentile}"
+                Error (QuantumError.Other $"Top percentile must be in range (0.0, 1.0], got {topPercentile}")
             else
                 // WARNING: Classical enumeration - no quantum speedup!
                 let allPaths = enumeratePaths rootState config 0 []
                 
                 if List.isEmpty allPaths then
-                    Error "No paths found in game tree"
+                    Error (QuantumError.OperationError ("Tree search", "no paths found in game tree"))
                 else
                     // Evaluate all paths classically
                     let evaluatedPaths =
@@ -258,12 +259,12 @@ module TreeSearch =
                     let numQubits = config.MaxDepth * bitsNeeded config.BranchingFactor
                     
                     if numQubits > 16 then
-                        Error $"Tree search requires {numQubits} qubits (depth={config.MaxDepth}, branching={config.BranchingFactor}). Max supported: 16. Reduce depth or branching factor."
+                        Error (QuantumError.Other $"Tree search requires {numQubits} qubits (depth={config.MaxDepth}, branching={config.BranchingFactor}). Max supported: 16. Reduce depth or branching factor.")
                     else
                         Oracle.forValues solutions numQubits
         
         with ex ->
-            Error $"Tree search oracle creation failed: {ex.Message}"
+            Error (QuantumError.Other $"Tree search oracle creation failed: {ex.Message}")
     
     /// Helper: Calculate score threshold from top percentile
     /// 
@@ -340,7 +341,7 @@ module TreeSearch =
         (solutionThreshold: float option)
         (successThreshold: float option)
         (maxPaths: int option)
-        : Result<TreeSearchResult, string> =
+        : QuantumResult<TreeSearchResult> =
         
         try
             // Step 1: Calculate score threshold from top percentile
@@ -356,7 +357,7 @@ module TreeSearch =
             
             // Step 2: Create LAZY tree search oracle (no classical enumeration!)
             match createTreeSearchOracleLazy rootState config scoreThreshold maxPaths with
-            | Error msg -> Error msg
+            | Error err -> Error err
             | Ok oracle ->
                 // Step 3: Calculate search space size (respecting maxPaths limit)
                 let fullSearchSpace = 1 <<< oracle.NumQubits
@@ -368,7 +369,7 @@ module TreeSearch =
                 let numSolutions = max 1 (int (topPercentile * float searchSpaceSize))
                 
                 match GroverIteration.optimalIterations searchSpaceSize numSolutions with
-                | Error msg -> Error msg
+                | Error err -> Error err
                 | Ok numIterations ->
                     // Step 4: Determine shots and thresholds (use provided or auto-scale)
                     // Backend-adaptive defaults: work on both LocalBackend and real quantum hardware
@@ -402,35 +403,37 @@ module TreeSearch =
                             | _ -> 0.60  // 60%
                         )
                     
-                    // Step 5: Execute Grover search with LAZY oracle
-                    match BackendAdapter.executeGroverWithBackend oracle backend numIterations actualShots actualSolutionThreshold actualSuccessThreshold with
-                    | Error msg -> Error msg
-                    | Ok searchResult ->
+                    // Step 5: Execute Grover search with LAZY oracle and decode result
+                    quantumResult {
+                        let! searchResult = BackendAdapter.executeGroverWithBackend oracle backend numIterations actualShots actualSolutionThreshold actualSuccessThreshold
+                        
                         // Step 6: Decode best move from result
-                        if List.isEmpty searchResult.Solutions then
-                            Error "No solution found by quantum search"
-                        else
-                            let bestEncoded = List.head searchResult.Solutions
-                            let decodedPath = decodeTreePosition bestEncoded config.BranchingFactor config.MaxDepth
-                            
-                            // Extract first move (root level)
-                            let firstMove = List.tryHead decodedPath |> Option.defaultValue 0
-                            
-                            // Calculate quantum advantage (now meaningful!)
-                            let classicalComplexity = searchSpaceSize
-                            let quantumComplexity = numIterations  // Grover iterations
-                            let quantumAdvantage = quantumComplexity < classicalComplexity
-                            
-                            Ok {
-                                BestMove = firstMove
-                                Score = searchResult.SuccessProbability
-                                NodesExplored = searchSpaceSize
-                                QuantumAdvantage = quantumAdvantage
-                                AllSolutions = searchResult.Solutions
-                            }
+                        let! bestEncoded =
+                            match List.tryHead searchResult.Solutions with
+                            | None -> QuantumResult.operationError "Quantum tree search" "no solution found"
+                            | Some value -> Ok value
+                        
+                        let decodedPath = decodeTreePosition bestEncoded config.BranchingFactor config.MaxDepth
+                        
+                        // Extract first move (root level)
+                        let firstMove = List.tryHead decodedPath |> Option.defaultValue 0
+                        
+                        // Calculate quantum advantage (now meaningful!)
+                        let classicalComplexity = searchSpaceSize
+                        let quantumComplexity = numIterations  // Grover iterations
+                        let quantumAdvantage = quantumComplexity < classicalComplexity
+                        
+                        return {
+                            BestMove = firstMove
+                            Score = searchResult.SuccessProbability
+                            NodesExplored = searchSpaceSize
+                            QuantumAdvantage = quantumAdvantage
+                            AllSolutions = searchResult.Solutions
+                        }
+                    }
         
         with ex ->
-            Error $"Quantum tree search failed: {ex.Message}"
+            Error (QuantumError.Other $"Quantum tree search failed: {ex.Message}")
     
     // ========================================================================
     // CONVENIENCE FUNCTIONS
@@ -441,7 +444,7 @@ module TreeSearch =
         (rootState: 'T)
         (config: TreeSearchConfig<'T>)
         (backend: IQuantumBackend)
-        : Result<TreeSearchResult, string> =
+        : QuantumResult<TreeSearchResult> =
         searchGameTree rootState config backend 0.2 None None None None
     
     /// Estimate qubits needed for tree search
@@ -484,7 +487,7 @@ module TreeSearch =
         
         /// Example: Simple arithmetic game
         /// Choose operations to maximize result
-        let arithmeticGame () : Result<TreeSearchResult, string> =
+        let arithmeticGame () : QuantumResult<TreeSearchResult> =
             let rootState = 1
             
             let config = {
@@ -500,7 +503,7 @@ module TreeSearch =
         
         /// Example: Path finding
         /// Find shortest path in grid
-        let pathFinding () : Result<TreeSearchResult, string> =
+        let pathFinding () : QuantumResult<TreeSearchResult> =
             // Helper type for grid positions
             let encodePos (x: int) (y: int) = x * 10 + y
             let decodePos (encoded: int) = (encoded / 10, encoded % 10)

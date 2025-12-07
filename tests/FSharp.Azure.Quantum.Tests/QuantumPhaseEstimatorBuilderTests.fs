@@ -23,7 +23,7 @@ module QuantumPhaseEstimatorBuilderTests =
         }
         
         match result with
-        | Error msg -> Assert.Contains("at least 1", msg)
+        | Error err -> Assert.Contains("at least 1", err.Message)
         | Ok _ -> Assert.True(false, "Should have rejected precision < 1")
     
     [<Fact>]
@@ -34,7 +34,7 @@ module QuantumPhaseEstimatorBuilderTests =
         }
         
         match result with
-        | Error msg -> Assert.Contains("20 qubits", msg)
+        | Error err -> Assert.Contains("20 qubits", err.Message)
         | Ok _ -> Assert.True(false, "Should have rejected precision > 20")
     
     [<Fact>]
@@ -46,7 +46,7 @@ module QuantumPhaseEstimatorBuilderTests =
         }
         
         match result with
-        | Error msg -> Assert.Contains("at least 1", msg)
+        | Error err -> Assert.Contains("at least 1", err.Message)
         | Ok _ -> Assert.True(false, "Should have rejected targetQubits < 1")
     
     [<Fact>]
@@ -58,7 +58,7 @@ module QuantumPhaseEstimatorBuilderTests =
         }
         
         match result with
-        | Error msg -> Assert.Contains("10 qubits", msg)
+        | Error err -> Assert.Contains("10 qubits", err.Message)
         | Ok _ -> Assert.True(false, "Should have rejected targetQubits > 10")
     
     [<Fact>]
@@ -70,7 +70,7 @@ module QuantumPhaseEstimatorBuilderTests =
         }
         
         match result with
-        | Error msg -> Assert.Contains("25 qubits", msg)
+        | Error err -> Assert.Contains("25 qubits", err.Message)
         | Ok _ -> Assert.True(false, "Should have rejected total > 25 qubits")
     
     [<Fact>]
@@ -85,7 +85,7 @@ module QuantumPhaseEstimatorBuilderTests =
             Assert.Equal(8, problem.Precision)
             Assert.Equal(1, problem.TargetQubits)  // Default
             Assert.True(problem.EigenVector.IsNone)
-        | Error msg -> Assert.True(false, sprintf "Should have succeeded: %s" msg)
+        | Error err -> Assert.True(false, sprintf "Should have succeeded: %s" err.Message)
     
     [<Fact>]
     let ``phaseEstimator builder accepts full configuration`` () =
@@ -99,7 +99,7 @@ module QuantumPhaseEstimatorBuilderTests =
         | Ok problem ->
             Assert.Equal(12, problem.Precision)
             Assert.Equal(2, problem.TargetQubits)
-        | Error msg -> Assert.True(false, sprintf "Should have succeeded: %s" msg)
+        | Error err -> Assert.True(false, sprintf "Should have succeeded: %s" err.Message)
     
     // ========================================================================
     // PHASE ESTIMATION CORRECTNESS TESTS
@@ -113,7 +113,7 @@ module QuantumPhaseEstimatorBuilderTests =
         }
         
         match problem with
-        | Error msg -> Assert.True(false, sprintf "Problem creation failed: %s" msg)
+        | Error err -> Assert.True(false, sprintf "Problem creation failed: %s" err.Message)
         | Ok prob ->
             match estimate prob with
             | Ok result ->
@@ -123,7 +123,7 @@ module QuantumPhaseEstimatorBuilderTests =
                 Assert.True(abs (result.Phase - expectedPhase) < 0.01, 
                            sprintf "Phase %.6f should be close to %.6f (1/8)" result.Phase expectedPhase)
                 Assert.Contains("T Gate", result.Unitary)
-            | Error msg -> Assert.True(false, sprintf "Estimate failed: %s" msg)
+            | Error err -> Assert.True(false, sprintf "Estimate failed: %s" err.Message)
     
     [<Fact>]
     let ``estimate should calculate S gate phase (π/2)`` () =
@@ -133,7 +133,7 @@ module QuantumPhaseEstimatorBuilderTests =
         }
         
         match problem with
-        | Error msg -> Assert.True(false, sprintf "Problem creation failed: %s" msg)
+        | Error err -> Assert.True(false, sprintf "Problem creation failed: %s" err.Message)
         | Ok prob ->
             match estimate prob with
             | Ok result ->
@@ -143,7 +143,7 @@ module QuantumPhaseEstimatorBuilderTests =
                 Assert.True(abs (result.Phase - expectedPhase) < 0.01,
                            sprintf "Phase %.6f should be close to %.6f (1/4)" result.Phase expectedPhase)
                 Assert.Contains("S Gate", result.Unitary)
-            | Error msg -> Assert.True(false, sprintf "Estimate failed: %s" msg)
+            | Error err -> Assert.True(false, sprintf "Estimate failed: %s" err.Message)
     
     [<Fact>]
     let ``estimate should calculate custom phase gate`` () =
@@ -154,7 +154,7 @@ module QuantumPhaseEstimatorBuilderTests =
         }
         
         match problem with
-        | Error msg -> Assert.True(false, sprintf "Problem creation failed: %s" msg)
+        | Error err -> Assert.True(false, sprintf "Problem creation failed: %s" err.Message)
         | Ok prob ->
             match estimate prob with
             | Ok result ->
@@ -164,7 +164,7 @@ module QuantumPhaseEstimatorBuilderTests =
                 Assert.True(abs (result.Phase - expectedPhase) < 0.02,
                            sprintf "Phase %.6f should be close to %.6f (1/6)" result.Phase expectedPhase)
                 Assert.Contains("Phase Gate", result.Unitary)
-            | Error msg -> Assert.True(false, sprintf "Estimate failed: %s" msg)
+            | Error err -> Assert.True(false, sprintf "Estimate failed: %s" err.Message)
     
     [<Fact(Skip = "Known issue, don't affect to this library functionality.")>]
     let ``estimate should calculate rotation gate`` () =
@@ -175,7 +175,7 @@ module QuantumPhaseEstimatorBuilderTests =
         }
         
         match problem with
-        | Error msg -> Assert.True(false, sprintf "Problem creation failed: %s" msg)
+        | Error err -> Assert.True(false, sprintf "Problem creation failed: %s" err.Message)
         | Ok prob ->
             match estimate prob with
             | Ok result ->
@@ -189,7 +189,7 @@ module QuantumPhaseEstimatorBuilderTests =
                 Assert.True(minError < 0.02,
                            sprintf "Phase %.6f should be close to %.6f (15/16) or %.6f (1/16)" result.Phase expectedPhase1 expectedPhase2)
                 Assert.Contains("Rz Gate", result.Unitary)
-            | Error msg -> Assert.True(false, sprintf "Estimate failed: %s" msg)
+            | Error err -> Assert.True(false, sprintf "Estimate failed: %s" err.Message)
     
     // ========================================================================
     // PRECISION TESTS
@@ -229,13 +229,13 @@ module QuantumPhaseEstimatorBuilderTests =
         }
         
         match problem with
-        | Error msg -> Assert.True(false, sprintf "Problem creation failed: %s" msg)
+        | Error err -> Assert.True(false, sprintf "Problem creation failed: %s" err.Message)
         | Ok prob ->
             match estimate prob with
             | Ok result ->
                 Assert.True(result.MeasurementOutcome >= 0)
                 Assert.True(result.MeasurementOutcome < pown 2 8)  // Should be in [0, 2^8)
-            | Error msg -> Assert.True(false, sprintf "Estimate failed: %s" msg)
+            | Error err -> Assert.True(false, sprintf "Estimate failed: %s" err.Message)
     
     // ========================================================================
     // EIGENVALUE TESTS
@@ -249,7 +249,7 @@ module QuantumPhaseEstimatorBuilderTests =
         }
         
         match problem with
-        | Error msg -> Assert.True(false, sprintf "Problem creation failed: %s" msg)
+        | Error err -> Assert.True(false, sprintf "Problem creation failed: %s" err.Message)
         | Ok prob ->
             match estimate prob with
             | Ok result ->
@@ -262,7 +262,7 @@ module QuantumPhaseEstimatorBuilderTests =
                 let actualAngle = result.Eigenvalue.Phase
                 Assert.True(abs (actualAngle - expectedAngle) < 0.2,
                            sprintf "Eigenvalue angle %.6f should be close to %.6f (π/4)" actualAngle expectedAngle)
-            | Error msg -> Assert.True(false, sprintf "Estimate failed: %s" msg)
+            | Error err -> Assert.True(false, sprintf "Estimate failed: %s" err.Message)
     
     // ========================================================================
     // CONVENIENCE HELPER TESTS
@@ -270,39 +270,39 @@ module QuantumPhaseEstimatorBuilderTests =
     
     [<Fact>]
     let ``estimateTGate should create valid problem`` () =
-        let result: Result<PhaseEstimatorProblem, string> = QuantumPhaseEstimator.estimateTGate 8 None
+        let result: Result<PhaseEstimatorProblem, QuantumError> = QuantumPhaseEstimator.estimateTGate 8 None
         match result with
         | Ok problem ->
             Assert.Equal(8, problem.Precision)
             Assert.Equal(1, problem.TargetQubits)
-        | Error msg -> Assert.True(false, sprintf "Should succeed: %s" msg)
+        | Error err -> Assert.True(false, sprintf "Should succeed: %s" err.Message)
     
     [<Fact>]
     let ``estimateSGate should create valid problem`` () =
-        let result: Result<PhaseEstimatorProblem, string> = QuantumPhaseEstimator.estimateSGate 10 None
+        let result: Result<PhaseEstimatorProblem, QuantumError> = QuantumPhaseEstimator.estimateSGate 10 None
         match result with
         | Ok problem ->
             Assert.Equal(10, problem.Precision)
             Assert.Equal(1, problem.TargetQubits)
-        | Error msg -> Assert.True(false, sprintf "Should succeed: %s" msg)
+        | Error err -> Assert.True(false, sprintf "Should succeed: %s" err.Message)
     
     [<Fact>]
     let ``estimatePhaseGate should create valid problem`` () =
-        let result: Result<PhaseEstimatorProblem, string> = QuantumPhaseEstimator.estimatePhaseGate (Math.PI / 4.0) 12 None
+        let result: Result<PhaseEstimatorProblem, QuantumError> = QuantumPhaseEstimator.estimatePhaseGate (Math.PI / 4.0) 12 None
         match result with
         | Ok problem ->
             Assert.Equal(12, problem.Precision)
             Assert.Equal(1, problem.TargetQubits)
-        | Error msg -> Assert.True(false, sprintf "Should succeed: %s" msg)
+        | Error err -> Assert.True(false, sprintf "Should succeed: %s" err.Message)
     
     [<Fact>]
     let ``estimateRotationZ should create valid problem`` () =
-        let result: Result<PhaseEstimatorProblem, string> = QuantumPhaseEstimator.estimateRotationZ (Math.PI / 3.0) 10 None
+        let result: Result<PhaseEstimatorProblem, QuantumError> = QuantumPhaseEstimator.estimateRotationZ (Math.PI / 3.0) 10 None
         match result with
         | Ok problem ->
             Assert.Equal(10, problem.Precision)
             Assert.Equal(1, problem.TargetQubits)
-        | Error msg -> Assert.True(false, sprintf "Should succeed: %s" msg)
+        | Error err -> Assert.True(false, sprintf "Should succeed: %s" err.Message)
     
     [<Fact>]
     let ``estimateResources should return resource estimates`` () =
@@ -320,7 +320,7 @@ module QuantumPhaseEstimatorBuilderTests =
         }
         
         match problem with
-        | Error msg -> Assert.True(false, sprintf "Problem creation failed: %s" msg)
+        | Error err -> Assert.True(false, sprintf "Problem creation failed: %s" err.Message)
         | Ok prob ->
             match estimate prob with
             | Ok result ->
@@ -328,7 +328,7 @@ module QuantumPhaseEstimatorBuilderTests =
                 Assert.Contains("Phase", description)
                 Assert.Contains("Eigenvalue", description)
                 Assert.Contains("T Gate", description)
-            | Error msg -> Assert.True(false, sprintf "Estimate failed: %s" msg)
+            | Error err -> Assert.True(false, sprintf "Estimate failed: %s" err.Message)
     
     // ========================================================================
     // RESULT METADATA TESTS
@@ -343,7 +343,7 @@ module QuantumPhaseEstimatorBuilderTests =
         }
         
         match problem with
-        | Error msg -> Assert.True(false, sprintf "Problem creation failed: %s" msg)
+        | Error err -> Assert.True(false, sprintf "Problem creation failed: %s" err.Message)
         | Ok prob ->
             match estimate prob with
             | Ok result ->
@@ -355,7 +355,7 @@ module QuantumPhaseEstimatorBuilderTests =
                 Assert.True(result.Success)
                 Assert.NotEmpty(result.Message)
                 Assert.NotEmpty(result.Unitary)
-            | Error msg -> Assert.True(false, sprintf "Estimate failed: %s" msg)
+            | Error err -> Assert.True(false, sprintf "Estimate failed: %s" err.Message)
     
     [<Fact>]
     let ``estimate should track gate count`` () =
@@ -365,10 +365,10 @@ module QuantumPhaseEstimatorBuilderTests =
         }
         
         match problem with
-        | Error msg -> Assert.True(false, sprintf "Problem creation failed: %s" msg)
+        | Error err -> Assert.True(false, sprintf "Problem creation failed: %s" err.Message)
         | Ok prob ->
             match estimate prob with
             | Ok result ->
                 // Should have Hadamards, controlled-U, and IQFT gates
                 Assert.True(result.GateCount > 8, sprintf "Gate count %d should be > 8" result.GateCount)
-            | Error msg -> Assert.True(false, sprintf "Estimate failed: %s" msg)
+            | Error err -> Assert.True(false, sprintf "Estimate failed: %s" err.Message)
