@@ -1,4 +1,4 @@
-<svg width="800" height="900" xmlns="http://www.w3.org/2000/svg">
+<svg width="800" height="1060" xmlns="http://www.w3.org/2000/svg">
   <defs>
     <style>
       .layer-box { fill: #f5f5f5; stroke: #333; stroke-width: 2; }
@@ -93,28 +93,39 @@
   <text x="690" y="500" class="text-small">Solver (QAOA)</text>
   
   <!-- Layer 3: Quantum Backends -->
-  <rect x="50" y="620" width="700" height="200" class="layer-box" />
+  <rect x="50" y="620" width="700" height="260" class="layer-box" />
   <text x="400" y="645" class="text-title" text-anchor="middle">Layer 3: Quantum Backends</text>
   <text x="400" y="665" class="text-small" text-anchor="middle">State vector simulation • Cloud quantum hardware • Circuit execution</text>
   
-  <!-- Backends -->
-  <rect x="120" y="690" width="180" height="80" class="backend-box" />
-  <text x="210" y="720" class="text-label" fill="#fff">LocalBackend</text>
-  <text x="210" y="740" class="text-small" fill="#ddd">(≤20 qubits)</text>
-  <text x="210" y="755" class="text-small" fill="#ddd">Simulation</text>
+  <!-- Backends Row 1 -->
+  <rect x="70" y="690" width="150" height="70" class="backend-box" style="fill:#5B9BD5" />
+  <text x="145" y="715" class="text-label" fill="#fff">LocalBackend</text>
+  <text x="145" y="733" class="text-small" fill="#fff">(≤20 qubits)</text>
+  <text x="145" y="748" class="text-small" fill="#fff">Simulation</text>
   
-  <rect x="330" y="690" width="180" height="80" class="backend-box" />
-  <text x="420" y="720" class="text-label" fill="#fff">IonQBackend</text>
-  <text x="420" y="740" class="text-small" fill="#ddd">(Azure Quantum)</text>
-  <text x="420" y="755" class="text-small" fill="#ddd">29+ qubits</text>
+  <rect x="240" y="690" width="150" height="70" class="backend-box" style="fill:#70AD47" />
+  <text x="315" y="715" class="text-label" fill="#fff">IonQBackend</text>
+  <text x="315" y="733" class="text-small" fill="#fff">(Azure Quantum)</text>
+  <text x="315" y="748" class="text-small" fill="#fff">11-29 qubits</text>
   
-  <rect x="540" y="690" width="180" height="80" class="backend-box" />
-  <text x="630" y="720" class="text-label" fill="#fff">RigettiBackend</text>
-  <text x="630" y="740" class="text-small" fill="#ddd">(Azure Quantum)</text>
-  <text x="630" y="755" class="text-small" fill="#ddd">40+ qubits</text>
+  <rect x="410" y="690" width="150" height="70" class="backend-box" style="fill:#ED7D31" />
+  <text x="485" y="715" class="text-label" fill="#fff">RigettiBackend</text>
+  <text x="485" y="733" class="text-small" fill="#fff">(Azure Quantum)</text>
+  <text x="485" y="748" class="text-small" fill="#fff">40-80 qubits</text>
+  
+  <!-- Backends Row 2 -->
+  <rect x="155" y="780" width="150" height="70" class="backend-box" style="fill:#FFC000" />
+  <text x="230" y="805" class="text-label" fill="#000">AtomComputing</text>
+  <text x="230" y="823" class="text-small" fill="#000">(Azure Quantum)</text>
+  <text x="230" y="838" class="text-small" fill="#000">100+ qubits</text>
+  
+  <rect x="325" y="780" width="150" height="70" class="backend-box" style="fill:#A85CC8" />
+  <text x="400" y="805" class="text-label" fill="#fff">Quantinuum</text>
+  <text x="400" y="823" class="text-small" fill="#fff">(Azure Quantum)</text>
+  <text x="400" y="838" class="text-small" fill="#fff">20-32 qubits</text>
   
   <!-- Arrows from Layer 1 to Layer 2 -->
-  <line x1="140" y1="235" x2="150" y2="400" class="arrow" />
+  <line x1="140" y1="170" x2="150" y2="400" class="arrow" />
   <line x1="300" y1="170" x2="330" y2="400" class="arrow" />
   <line x1="460" y1="170" x2="510" y2="400" class="arrow" />
   <line x1="620" y1="170" x2="150" y2="465" class="arrow" />
@@ -123,32 +134,61 @@
   <line x1="480" y1="235" x2="690" y2="465" class="arrow" />
   
   <!-- Arrows from Layer 2 to Layer 3 (solid to LocalBackend) -->
-  <line x1="150" y1="515" x2="210" y2="690" class="arrow" />
-  <line x1="330" y1="515" x2="210" y2="690" class="arrow" />
-  <line x1="510" y1="515" x2="210" y2="690" class="arrow" />
-  <line x1="690" y1="515" x2="210" y2="690" class="arrow" />
+  <line x1="150" y1="515" x2="145" y2="690" class="arrow" />
+  <line x1="330" y1="515" x2="145" y2="690" class="arrow" />
+  <line x1="510" y1="515" x2="145" y2="690" class="arrow" />
+  <line x1="690" y1="515" x2="145" y2="690" class="arrow" />
   
   <!-- Arrows from Layer 2 to Layer 3 (dotted to IonQ) -->
-  <line x1="150" y1="515" x2="420" y2="690" class="arrow-dotted" />
-  <line x1="330" y1="515" x2="420" y2="690" class="arrow-dotted" />
-  <line x1="510" y1="515" x2="420" y2="690" class="arrow-dotted" />
-  <line x1="690" y1="515" x2="420" y2="690" class="arrow-dotted" />
+  <line x1="150" y1="515" x2="315" y2="690" class="arrow-dotted" />
+  <line x1="330" y1="515" x2="315" y2="690" class="arrow-dotted" />
+  <line x1="510" y1="515" x2="315" y2="690" class="arrow-dotted" />
+  <line x1="690" y1="515" x2="315" y2="690" class="arrow-dotted" />
   
   <!-- Arrows from Layer 2 to Layer 3 (dotted to Rigetti) -->
-  <line x1="150" y1="515" x2="630" y2="690" class="arrow-dotted" />
-  <line x1="330" y1="515" x2="630" y2="690" class="arrow-dotted" />
-  <line x1="510" y1="515" x2="630" y2="690" class="arrow-dotted" />
-  <line x1="690" y1="515" x2="630" y2="690" class="arrow-dotted" />
+  <line x1="150" y1="515" x2="485" y2="690" class="arrow-dotted" />
+  <line x1="330" y1="515" x2="485" y2="690" class="arrow-dotted" />
+  <line x1="510" y1="515" x2="485" y2="690" class="arrow-dotted" />
+  <line x1="690" y1="515" x2="485" y2="690" class="arrow-dotted" />
+  
+  <!-- Arrows from Layer 2 to Layer 3 (dotted to Atom Computing) -->
+  <line x1="150" y1="515" x2="230" y2="780" class="arrow-dotted" />
+  <line x1="330" y1="515" x2="230" y2="780" class="arrow-dotted" />
+  <line x1="510" y1="515" x2="230" y2="780" class="arrow-dotted" />
+  <line x1="690" y1="515" x2="230" y2="780" class="arrow-dotted" />
+  
+  <!-- Arrows from Layer 2 to Layer 3 (dotted to Quantinuum) -->
+  <line x1="150" y1="515" x2="400" y2="780" class="arrow-dotted" />
+  <line x1="330" y1="515" x2="400" y2="780" class="arrow-dotted" />
+  <line x1="510" y1="515" x2="400" y2="780" class="arrow-dotted" />
+  <line x1="690" y1="515" x2="400" y2="780" class="arrow-dotted" />
   
   <!-- Legend -->
-  <rect x="50" y="840" width="700" height="50" fill="#fff" stroke="#ccc" stroke-width="1" />
-  <text x="70" y="860" class="text-small" text-anchor="start" font-weight="bold">Legend:</text>
-  <line x1="130" y1="855" x2="170" y2="855" class="arrow" />
-  <text x="180" y="860" class="text-small" text-anchor="start">Default (LocalBackend)</text>
-  <line x1="320" y1="855" x2="360" y2="855" class="arrow-dotted" />
-  <text x="370" y="860" class="text-small" text-anchor="start">Optional (Cloud backends)</text>
-  <rect x="550" y="848" width="30" height="15" class="builder-box" />
-  <text x="590" y="860" class="text-small" text-anchor="start">Builders</text>
-  <rect x="640" y="848" width="30" height="15" class="solver-box" />
-  <text x="680" y="860" class="text-small" text-anchor="start">Solvers</text>
+  <rect x="50" y="900" width="700" height="140" fill="#fff" stroke="#ccc" stroke-width="1" />
+  <text x="70" y="920" class="text-small" text-anchor="start" font-weight="bold">Legend:</text>
+  
+  <!-- Arrow Legend -->
+  <line x1="70" y1="935" x2="110" y2="935" class="arrow" />
+  <text x="120" y="940" class="text-small" text-anchor="start">Default (LocalBackend)</text>
+  <line x1="260" y1="935" x2="300" y2="935" class="arrow-dotted" />
+  <text x="310" y="940" class="text-small" text-anchor="start">Optional (Cloud backends)</text>
+  
+  <!-- Component Legend -->
+  <rect x="70" y="953" width="30" height="15" class="builder-box" />
+  <text x="110" y="965" class="text-small" text-anchor="start">Builders</text>
+  <rect x="180" y="953" width="30" height="15" class="solver-box" />
+  <text x="220" y="965" class="text-small" text-anchor="start">Solvers</text>
+  
+  <!-- Backend Color Legend -->
+  <text x="70" y="990" class="text-small" text-anchor="start" font-weight="bold">Backend Colors:</text>
+  <rect x="70" y="998" width="35" height="15" style="fill:#5B9BD5;stroke:#333;stroke-width:1" />
+  <text x="110" y="1010" class="text-small" text-anchor="start">Local</text>
+  <rect x="155" y="998" width="35" height="15" style="fill:#70AD47;stroke:#333;stroke-width:1" />
+  <text x="195" y="1010" class="text-small" text-anchor="start">IonQ</text>
+  <rect x="245" y="998" width="35" height="15" style="fill:#ED7D31;stroke:#333;stroke-width:1" />
+  <text x="285" y="1010" class="text-small" text-anchor="start">Rigetti</text>
+  <rect x="345" y="998" width="35" height="15" style="fill:#FFC000;stroke:#333;stroke-width:1" />
+  <text x="385" y="1010" class="text-small" text-anchor="start">Atom</text>
+  <rect x="435" y="998" width="35" height="15" style="fill:#A85CC8;stroke:#333;stroke-width:1" />
+  <text x="475" y="1010" class="text-small" text-anchor="start">Quantinuum</text>
 </svg>

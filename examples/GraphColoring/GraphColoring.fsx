@@ -81,8 +81,8 @@ match GraphColoring.solve registerProblem 4 None with
     printfn "   Register Usage:"
     for (register, count) in Map.toList solution.ColorDistribution do
         printfn "     %s: %d variables" register count
-| Error msg ->
-    printfn "❌ Error: %s" msg
+| Error err ->
+    printfn "❌ Error: %s" err.Message
 
 printfn ""
 
@@ -137,8 +137,8 @@ match GraphColoring.solve frequencyProblem 3 None with
     printfn "   Frequency Usage:"
     for (frequency, count) in Map.toList solution.ColorDistribution do
         printfn "     %s: %d towers" frequency count
-| Error msg ->
-    printfn "❌ Error: %s" msg
+| Error err ->
+    printfn "❌ Error: %s" err.Message
 
 printfn ""
 
@@ -193,8 +193,8 @@ match GraphColoring.solve examProblem 3 None with
     printfn "   Time Slot Usage:"
     for (timeSlot, count) in Map.toList solution.ColorDistribution do
         printfn "     %s: %d exams" timeSlot count
-| Error msg ->
-    printfn "❌ Error: %s" msg
+| Error err ->
+    printfn "❌ Error: %s" err.Message
 
 printfn ""
 
@@ -244,8 +244,8 @@ match GraphColoring.solve cycleGraph 3 None with
     printfn "   Color Distribution:"
     for (color, count) in Map.toList solution.ColorDistribution do
         printfn "     %s: %d vertices" color count
-| Error msg ->
-    printfn "❌ Error: %s" msg
+| Error err ->
+    printfn "❌ Error: %s" err.Message
 
 printfn ""
 
@@ -287,8 +287,8 @@ match GraphColoring.solve comparisonGraph 3 None with
     printfn "   Valid: %b | Conflicts: %d" solution.IsValid solution.ConflictCount
     printfn "   Backend: %s" solution.BackendName
     printfn "   Is Quantum: %b" solution.IsQuantum
-| Error msg ->
-    printfn "   ❌ Error: %s" msg
+| Error err ->
+    printfn "   ❌ Error: %s" err.Message
 
 printfn ""
 
@@ -338,8 +338,8 @@ match GraphColoring.solve precoloredProblem 4 None with
     for (var, register) in Map.toList solution.Assignments do
         let marker = if var = "R1" then " (fixed)" else ""
         printfn "     %s → %s%s" var register marker
-| Error msg ->
-    printfn "❌ Error: %s" msg
+| Error err ->
+    printfn "❌ Error: %s" err.Message
 
 printfn ""
 

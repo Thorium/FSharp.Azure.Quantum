@@ -116,7 +116,7 @@ let problem = graphColoring {
 }
 match GraphColoring.solve problem 4 None with  // None = LocalBackend
 | Ok solution -> printfn "Colors Used: %d" solution.ColorsUsed
-| Error msg -> printfn "Error: %s" msg
+| Error err -> printfn "Error: %s" err.Message
 
 // HybridSolver (Optional) - automatic classical fallback for small problems
 match HybridSolver.solveGraphColoring problem 4 None None None with
@@ -124,7 +124,7 @@ match HybridSolver.solveGraphColoring problem 4 None None None with
     printfn "Method: %A" solution.Method  // Shows Classical or Quantum
     printfn "Reasoning: %s" solution.Reasoning
     printfn "Colors Used: %d" solution.Result.ColorsUsed
-| Error msg -> printfn "Error: %s" msg
+| Error err -> printfn "Error: %s" err.Message
 ```
 
 ## Folder Structure
@@ -190,9 +190,9 @@ match GraphColoring.solve problem 3 None with
 | Ok solution -> 
     // Process successful result
     printfn "Colors used: %d" solution.ColorsUsed
-| Error msg -> 
+| Error err -> 
     // Handle error gracefully
-    printfn "Error: %s" msg
+    printfn "Error: %s" err.Message
 ```
 
 ## Extending the Library

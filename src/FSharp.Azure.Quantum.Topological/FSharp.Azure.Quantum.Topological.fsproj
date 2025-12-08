@@ -6,25 +6,14 @@
     <GenerateProgramFile>false</GenerateProgramFile>
 
     <!-- Package Metadata -->
-    <Version>0.2.1</Version>
+    <Version>0.2.9</Version>
     <PackageId>FSharp.Azure.Quantum.Topological</PackageId>
     <Title>FSharp.Azure.Quantum.Topological</Title>
-    <Description>Topological quantum computing plugin for FSharp.Azure.Quantum. Provides anyon theory (Ising/Fibonacci/SU(2)_k), braiding compilation, gate-to-braid conversion, Majorana hardware simulator, noise models, and topological file format (.tqp). Seamlessly integrates with main package algorithms (Grover, QFT, QAOA) via IQuantumBackend interface. Requires FSharp.Azure.Quantum v1.2.7+.</Description>
+    <Description>Topological quantum computing plugin for FSharp.Azure.Quantum. Provides anyon theory (Ising/Fibonacci/SU(2)_k), braiding compilation, gate-to-braid conversion, Majorana hardware simulator, noise models, and topological file format (.tqp). Seamlessly integrates with main package algorithms (Grover, QFT, QAOA) via IQuantumBackend interface. Requires FSharp.Azure.Quantum v1.2.9+.</Description>
     <Summary>F# topological quantum computing plugin with anyon models, braiding compilation, noise models, and seamless integration with FSharp.Azure.Quantum algorithms</Summary>
-    <PackageReleaseNotes>v0.2.1: Enhanced Integration, Noise Models, and Topological File Format
-- NEW: Topological file format (.tqp) - Human-readable circuit specification with parser and validator
-- NEW: Noise models - Depolarizing, dephasing, amplitude damping, topological error modeling
-- NEW: SU(2)_k anyon theories for extended topological computing capabilities
-- NEW: Algorithm extensions for seamless integration with main package (Grover, QFT, QAOA)
-- NEW: Comprehensive examples (Bell states, fusion, backend comparison, format demo)
-- NEW: Developer deep-dive documentation with mathematical foundations
-- IMPROVED: Ising anyon theory (Majorana zero modes) - Enhanced stability
-- IMPROVED: Fibonacci anyon theory - Optimized performance
-- IMPROVED: Modular data with rigorous Pentagon/Hexagon consistency validation
-- IMPROVED: Topological backend adapter with better error handling
-- IMPROVED: Circuit optimization with noise-aware compilation strategies
-- ADDED: Architecture documentation explaining topological quantum computing principles
-- ADDED: Universal quantum computation guide for gate approximation
+    <PackageReleaseNotes>v0.2.9: Documentation Improvements
+- IMPROVED: Updated dependency to FSharp.Azure.Quantum v1.2.9+ for latest documentation enhancements
+- IMPROVED: Architecture documentation consistency with main package
 - Status: 451+ tests passing, ready for Azure Quantum Majorana hardware (when API available)</PackageReleaseNotes>
     
     <!-- Repository Info -->
@@ -48,8 +37,12 @@
 
   <!-- Dependencies -->
   <ItemGroup>
-    <!-- Main package dependency (ProjectReference for development, becomes PackageReference in NuGet) -->
-    <ProjectReference Include="..\FSharp.Azure.Quantum\FSharp.Azure.Quantum.fsproj" />
+    <!-- Use ProjectReference for development and building -->
+    <!-- When packing, this will be converted to PackageReference automatically -->
+    <ProjectReference Include="..\FSharp.Azure.Quantum\FSharp.Azure.Quantum.fsproj">
+      <!-- This ensures the dependency is properly referenced in the .nupkg -->
+      <PrivateAssets>none</PrivateAssets>
+    </ProjectReference>
   </ItemGroup>
 
   <ItemGroup>
@@ -82,6 +75,7 @@
     <Compile Include="TopologicalFormat.fs" />
     <Compile Include="MagicStateDistillation.fs" />
     <Compile Include="NoiseModels.fs" />
+    <Compile Include="Visualization.fs" />
   </ItemGroup>
 
 </Project>

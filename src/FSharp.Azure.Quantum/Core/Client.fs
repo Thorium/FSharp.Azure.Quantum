@@ -126,11 +126,13 @@ module Client =
                         )
 
                         Error(
-                            QuantumError.QuotaExceeded(
-                                sprintf
-                                    "Job cost $%.2f exceeds limit $%.2f"
-                                    (float (estimate.ExpectedCost / 1.0M<USD>))
-                                    (float (limit / 1.0M<USD>))
+                            QuantumError.AzureError(
+                                AzureQuantumError.QuotaExceeded(
+                                    sprintf
+                                        "Job cost $%.2f exceeds limit $%.2f"
+                                        (float (estimate.ExpectedCost / 1.0M<USD>))
+                                        (float (limit / 1.0M<USD>))
+                                )
                             )
                         )
                     | _ ->
@@ -251,7 +253,7 @@ module Client =
                             ex.Message
                         )
 
-                        return Error(QuantumError.UnknownError(0, ex.Message))
+                        return Error(QuantumError.AzureError(AzureQuantumError.UnknownError(0, ex.Message)))
             }
 
         /// Submit a quantum job with retry logic
@@ -326,7 +328,7 @@ module Client =
                         let! errorBody = response.Content.ReadAsStringAsync(ct) |> Async.AwaitTask
                         return Error(Retry.categorizeHttpError response.StatusCode errorBody)
                 with ex ->
-                    return Error(QuantumError.UnknownError(0, ex.Message))
+                    return Error(QuantumError.AzureError(AzureQuantumError.UnknownError(0, ex.Message)))
             }
 
         /// Get job status with retry logic
@@ -371,10 +373,10 @@ module Client =
                             response.StatusCode
                         )
 
-                        return Error(QuantumError.UnknownError(int response.StatusCode, errorBody))
+                        return Error(QuantumError.AzureError(AzureQuantumError.UnknownError(int response.StatusCode, errorBody)))
                 with ex ->
                     this.Log(LogLevel.Error, "Exception cancelling job {JobId}: {Exception}", jobId, ex.Message)
-                    return Error(QuantumError.UnknownError(0, ex.Message))
+                    return Error(QuantumError.AzureError(AzureQuantumError.UnknownError(0, ex.Message)))
             }
 
         /// Get job results after completion
@@ -409,13 +411,13 @@ module Client =
 
                         // Check if job has completed
                         if not (QuantumClient.isTerminalState status) then
-                            return Error(QuantumError.UnknownError(400, "Job has not completed yet"))
+                            return Error(QuantumError.AzureError(AzureQuantumError.UnknownError(400, "Job has not completed yet")))
                         else
                             // Check if job has results
                             let mutable element = Unchecked.defaultof<JsonElement>
 
                             if not (root.TryGetProperty("outputData", &element)) then
-                                return Error(QuantumError.UnknownError(400, "Job does not have output data"))
+                                return Error(QuantumError.AzureError(AzureQuantumError.UnknownError(400, "Job does not have output data")))
                             else
                                 let outputData = element
 
@@ -462,7 +464,7 @@ module Client =
                             response.StatusCode
                         )
 
-                        return Error(QuantumError.UnknownError(int response.StatusCode, errorBody))
+                        return Error(QuantumError.AzureError(AzureQuantumError.UnknownError(int response.StatusCode, errorBody)))
                 with ex ->
                     this.Log(
                         LogLevel.Error,
@@ -471,7 +473,7 @@ module Client =
                         ex.Message
                     )
 
-                    return Error(QuantumError.UnknownError(0, ex.Message))
+                    return Error(QuantumError.AzureError(AzureQuantumError.UnknownError(0, ex.Message)))
             }
 
         /// Check if job is in terminal state
@@ -494,13 +496,13 @@ module Client =
             async {
 
                 if ct.IsCancellationRequested then
-                    return Error(QuantumError.UnknownError(0, "Operation cancelled"))
+                    return Error(QuantumError.OperationError("Job polling", "Operation cancelled"))
                 else
                     // Check timeout
                     let elapsed = (DateTimeOffset.UtcNow - startTime).TotalMilliseconds
 
                     if elapsed > float timeoutMs then
-                        return Error(QuantumError.Timeout(sprintf "Job %s timed out after %dms" jobId timeoutMs))
+                        return Error(QuantumError.AzureError(AzureQuantumError.Timeout(sprintf "Job %s timed out after %dms" jobId timeoutMs)))
                     else
                         // Poll job status
                         this.Log(LogLevel.Debug, "Polling job {JobId} status (delay: {Delay}ms)", jobId, currentDelay)

@@ -45,8 +45,8 @@ match solve backend distances defaultConfig with
     printfn "Tour length: %.2f" solution.TourLength
     printfn "Optimized parameters (γ, β): %A" solution.OptimizedParameters
     printfn "Optimization converged: %b" (solution.OptimizationConverged |> Option.defaultValue false)
-| Error msg ->
-    eprintfn "Simulation failed: %s" msg
+| Error err ->
+    eprintfn "Simulation failed: %s" err.Message
 ```
 
 **Output:**
@@ -116,7 +116,7 @@ let runWithBackend (backend: IQuantumBackend) =
     | Ok solution ->
         printfn "%s: Tour length = %.2f (%.2f ms)" 
             solution.BackendName solution.TourLength solution.ElapsedMs
-    | Error msg -> printfn "Error: %s" msg
+    | Error err -> printfn "Error: %s" err.Message
 
 // Execute on local simulator
 runWithBackend localBackend
@@ -147,8 +147,8 @@ let executeWithBackend (backend: IQuantumBackend) circuit shots =
         | Ok result ->
             printfn "Backend: %s, Shots: %d" result.BackendName result.NumShots
             result.Measurements
-        | Error msg ->
-            eprintfn "Execution failed: %s" msg
+        | Error err ->
+            eprintfn "Execution failed: %s" err.Message
             [||]
 
 // Use local backend
@@ -649,7 +649,7 @@ let testCircuits = generateCircuits numQubits edges
 for circuit in testCircuits do
     match QaoaSimulator.simulate circuit 100 with
     | Ok result -> validateResult result
-    | Error msg -> eprintfn "Test failed: %s" msg
+    | Error err -> eprintfn "Test failed: %s" err.Message
 
 // 2. Optimize parameters locally
 let optimizedParams = 
@@ -693,7 +693,7 @@ module QaoaTests =
         | Ok r ->
             Assert.Greater(r.Counts.Count, 1, "Should have multiple outcomes")
             Assert.AreEqual(1000, r.Shots, "All shots recorded")
-        | Error msg ->
+        | Error err ->
             Assert.Fail($"Simulation failed: {msg}")
     
     [<Test>]
@@ -736,7 +736,7 @@ The simulator provides detailed error messages for common mistakes:
 // ❌ Too many qubits (example - incomplete record syntax)
 // let hugeCircuit = { NumQubits = 15; ... }
 // match QaoaSimulator.simulate hugeCircuit 1000 with
-// | Error msg -> 
+// | Error err -> 
 //     // "Number of qubits (15) must be at most 16"
 //     ()
 
@@ -747,7 +747,7 @@ The simulator provides detailed error messages for common mistakes:
 // ❌ Mismatched parameters (example - incomplete record syntax)
 // let badCircuit = { NumQubits = 4; Parameters = [|0.5|]; Depth = 2; ... }
 // match QaoaSimulator.simulate badCircuit 1000 with
-// | Error msg ->
+// | Error err ->
 //     // "Expected 4 parameters for depth 2, got 1"
 //     ()
 
@@ -758,7 +758,7 @@ The simulator provides detailed error messages for common mistakes:
 //     ...
 // }
 // match QaoaSimulator.simulate invalidCircuit 1000 with
-// | Error msg ->
+// | Error err ->
 //     // "Cost term edge (0,5) references qubit 5, but only 3 qubits available"
 //     ()
 ```

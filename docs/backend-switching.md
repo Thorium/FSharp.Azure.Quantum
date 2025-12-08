@@ -37,13 +37,13 @@ let distances = array2D [
 let localBackend = createLocalBackend()
 match solve localBackend distances defaultConfig with
 | Ok solution -> printfn "Tour: %A, Length: %.2f" solution.Tour solution.TourLength
-| Error msg -> printfn "Error: %s" msg
+| Error err -> printfn "Error: %s" err.Message
 
 // Method 2: Cloud backend (IonQ/Rigetti)
 let cloudBackend = createIonQBackend httpClient workspaceUrl "ionq.simulator"
 match solve cloudBackend distances defaultConfig with
 | Ok solution -> printfn "Tour: %A, Length: %.2f" solution.Tour solution.TourLength
-| Error msg -> printfn "Error: %s" msg
+| Error err -> printfn "Error: %s" err.Message
 ```
 
 **That's it!** Same solver API, different backends - just swap the backend creation.
@@ -79,8 +79,8 @@ match solveTsp distances2 with
 | Ok solution ->
     printfn "Best tour: %A" solution.Tour
     printfn "Tour length: %.2f" solution.TourLength
-| Error msg ->
-    eprintfn "Error: %s" msg
+| Error err ->
+    eprintfn "Error: %s" err.Message
 ```
 
 ### Uniform Result Format
@@ -154,7 +154,7 @@ let config = BackendConfig.fromEnvironment httpClient workspaceUrl
 let backend = BackendConfig.getBackend config
 match solve backend distances defaultConfig with
 | Ok solution -> printfn "Solution: %A" solution
-| Error msg -> printfn "Error: %s" msg
+| Error err -> printfn "Error: %s" err.Message
 ```
 
 Set backend via environment variable:
@@ -198,8 +198,8 @@ match solve backend distances defaultConfig with
 | Ok solution -> 
     printfn "Tour: %A" solution.Tour
     printfn "Length: %.2f" solution.TourLength
-| Error msg -> 
-    eprintfn "Error: %s" msg
+| Error err -> 
+    eprintfn "Error: %s" err.Message
 ```
 
 This API provides:
@@ -256,7 +256,7 @@ let backend = createIonQBackend httpClient workspaceUrl "ionq.simulator"
 // Everything else stays the same!
 match solve backend distances defaultConfig with
 | Ok solution -> printfn "Solution: %A" solution
-| Error msg -> eprintfn "Error: %s" msg
+| Error err -> eprintfn "Error: %s" err.Message
 ```
 
 **Benefits:**

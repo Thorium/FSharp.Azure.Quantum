@@ -87,7 +87,7 @@ module JobLifecycleTests =
         // Assert: Should return InvalidCredentials error
         match result with
         | Ok _ -> Assert.True(false, "Expected InvalidCredentials error")
-        | Error QuantumError.InvalidCredentials -> Assert.True(true)
+        | Error (QuantumError.AzureError(AzureQuantumError.InvalidCredentials)) -> Assert.True(true)
         | Error other -> Assert.True(false, sprintf "Expected InvalidCredentials but got: %A" other)
     
     // ============================================================================
@@ -276,7 +276,7 @@ module JobLifecycleTests =
         | Ok _ -> Assert.True(false, "Expected cancellation error")
         | Error err -> 
             match err with
-            | Types.QuantumError.Cancelled -> Assert.True(true)
+            | QuantumError.OperationError(_, context) when context.Contains("cancelled") -> Assert.True(true)
             | _ -> Assert.True(false, sprintf "Expected Cancelled error but got: %A" err)
     
     [<Fact>]
@@ -308,7 +308,7 @@ module JobLifecycleTests =
         | Ok _ -> Assert.True(false, "Expected timeout error")
         | Error err -> 
             match err with
-            | Types.QuantumError.Cancelled -> Assert.True(true)  // Timeout manifests as cancellation
+            | QuantumError.OperationError(_, context) when context.Contains("cancelled") -> Assert.True(true)  // Timeout manifests as cancellation
             | _ -> Assert.True(false, sprintf "Expected timeout/cancelled but got: %A" err)
     
     // ============================================================================
@@ -356,7 +356,7 @@ module JobLifecycleTests =
         | Ok _ -> Assert.True(false, "Expected error for 404")
         | Error err -> 
             match err with
-            | Types.QuantumError.UnknownError (404, _) -> Assert.True(true)
+            | QuantumError.AzureError(AzureQuantumError.UnknownError (404, _)) -> Assert.True(true)
             | _ -> Assert.True(false, sprintf "Expected 404 error but got: %A" err)
     
     // ============================================================================
@@ -399,5 +399,5 @@ module JobLifecycleTests =
         | Ok _ -> Assert.True(false, "Expected error for 404")
         | Error err -> 
             match err with
-            | Types.QuantumError.UnknownError (404, _) -> Assert.True(true)
+            | QuantumError.AzureError(AzureQuantumError.UnknownError (404, _)) -> Assert.True(true)
             | _ -> Assert.True(false, sprintf "Expected 404 error but got: %A" err)

@@ -33,8 +33,8 @@ match GraphColoring.solve problem 4 None with
     printfn "Colors used: %d" solution.ColorsUsed
     solution.Assignments 
     |> Map.iter (fun node color -> printfn "%s → %s" node color)
-| Error msg -> 
-    printfn "Error: %s" msg
+| Error err -> 
+    printfn "Error: %s" err.Message
 ```
 
 ### C# Fluent API
@@ -138,6 +138,8 @@ Quantum Approximate Optimization Algorithm with:
 - **LocalBackend** - Fast simulation (≤20 qubits, free)
 - **IonQBackend** - Azure Quantum (29+ qubits simulator, 11 qubits QPU)
 - **RigettiBackend** - Azure Quantum (40+ qubits simulator, 80 qubits QPU)
+- **AtomComputingBackend** - Azure Quantum (100+ qubits, neutral atoms, all-to-all connectivity)
+- **QuantinuumBackend** - Azure Quantum (20-32 qubits, 99.9%+ fidelity, trapped-ion)
 - **DWaveBackend** - D-Wave quantum annealer (2000+ qubits, production hardware)
 
 ### 💻 Cross-Language Support
@@ -266,7 +268,7 @@ let backend = BackendAbstraction.createLocalBackend()
 match solveQuantum backend problem with
 | Ok solution ->
     printfn "Makespan: %.2f" solution.Makespan
-| Error msg -> printfn "Error: %s" msg
+| Error err -> printfn "Error: %s" err.Message
 ```
 
 ## 🏗️ Architecture
@@ -367,7 +369,7 @@ match solveQuantum backend problem with
 // Automatic: No backend parameter needed
 match MaxCut.solve problem None with
 | Ok solution -> printfn "Max cut value: %f" solution.CutValue
-| Error msg -> eprintfn "Error: %s" msg
+| Error err -> eprintfn "Error: %s" err.Message
 ```
 
 **Characteristics:**
@@ -379,22 +381,49 @@ match MaxCut.solve problem None with
 ### Azure Quantum (Cloud)
 
 ```fsharp
-// Create cloud backend
-let backend = BackendAbstraction.createIonQBackend(
+// Create cloud backend - IonQ (trapped-ion)
+let backend_ionq = BackendAbstraction.createIonQBackend(
     connectionString = "YOUR_CONNECTION_STRING",
     targetId = "ionq.simulator"  // or "ionq.qpu"
 )
 
+// Rigetti (superconducting)
+let backend_rigetti = BackendAbstraction.createRigettiBackend(
+    connectionString = "YOUR_CONNECTION_STRING",
+    targetId = "rigetti.sim.qvm"  // or "rigetti.qpu.*"
+)
+
+// Atom Computing (neutral atoms, 100+ qubits, all-to-all connectivity)
+let backend_atom = BackendAbstraction.createAtomComputingBackend(
+    connectionString = "YOUR_CONNECTION_STRING",
+    targetId = "atom-computing.sim"  // or "atom-computing.qpu.phoenix"
+)
+
+// Quantinuum (trapped-ion, highest fidelity)
+let backend_quantinuum = BackendAbstraction.createQuantinuumBackend(
+    connectionString = "YOUR_CONNECTION_STRING",
+    targetId = "quantinuum.sim.h1-1sc"  // or "quantinuum.qpu.*"
+)
+
 // Pass to solver
-match MaxCut.solve problem (Some backend) with
+match MaxCut.solve problem (Some backend_atom) with
 | Ok solution -> printfn "Max cut value: %f" solution.CutValue
-| Error msg -> eprintfn "Error: %s" msg
+| Error err -> eprintfn "Error: %s" err.Message
 ```
 
-**Characteristics:**
-- ⚡ Scalable (29+ qubits)
+**Backend Characteristics:**
+
+| Backend | Qubits | Technology | Best For |
+|---------|--------|------------|----------|
+| **IonQ** | 29+ (sim), 11 (QPU) | Trapped-ion | General gate-based algorithms |
+| **Rigetti** | 40+ (sim), 80 (QPU) | Superconducting | Fast gate operations |
+| **Atom Computing** | 100+ (sim/QPU) | Neutral atoms | Large-scale problems, all-to-all connectivity |
+| **Quantinuum** | 20-32 (sim/QPU) | Trapped-ion | High-precision (99.9%+ fidelity) |
+
+**Cost & Performance:**
+- ⚡ Scalable (11-100+ qubits depending on backend)
 - ⚡ Real quantum hardware available
-- 💰 Paid service (~$10-100 per run)
+- 💰 Paid service (~$10-100 per run, varies by provider)
 - ⏱️ Slower (job queue, 10-60 seconds)
 
 ## 🤝 Contributing

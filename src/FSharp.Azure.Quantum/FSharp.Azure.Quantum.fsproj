@@ -6,24 +6,18 @@
     <GenerateProgramFile>false</GenerateProgramFile>
 
     <!-- Package Metadata -->
-    <Version>1.2.7</Version>
+    <Version>1.2.9</Version>
     <PackageId>FSharp.Azure.Quantum</PackageId>
     <Title>FSharp.Azure.Quantum</Title>
     <Description>F# library for Azure Quantum with quantum-first optimization (Graph Coloring, TSP, MaxCut, Knapsack, Network Flow, Portfolio), Azure Quantum backend integration (IonQ, Rigetti, Quantinuum, Atom Computing), extensible circuit validation, local quantum simulation, QAOA with automatic parameter optimization (Nelder-Mead), OpenQASM 2.0 support, error mitigation techniques (ZNE, PEC, REM), Quantum Random Number Generation (QRNG), and educational quantum algorithms (Grover, QFT, Amplitude Amplification) with cloud backend execution. Multi-provider architecture supports IonQ, Rigetti, Quantinuum, Atom Computing, IBM, Amazon Braket, and Google Cirq.</Description>
     <Summary>F# library for Azure Quantum with quantum-first optimization, quantum backends (IonQ, Rigetti, Quantinuum, Atom Computing), QAOA with automatic parameter tuning, QRNG, and educational algorithms with cloud execution</Summary>
-    <PackageReleaseNotes>v1.2.7: Quantinuum and Atom Computing Backends, QRNG, Async Improvements, Enhanced Quantum Chemistry
-- NEW: Quantinuum Backend (H1, H2 series) with dynamic qubit limits and improved gate support (S, T, SDG, TDG)
-- NEW: Atom Computing Phoenix Backend (100+ qubit neutral atom quantum computer) with gate support
-- NEW: Quantum Random Number Generation (QRNG) with true quantum randomness, multi-bit generation, statistical validation
-- NEW: Async execution methods for quantum solvers (ExecuteAsync pattern) and algorithm adapters
-- IMPROVED: Quantum Chemistry - Enhanced fermion mappings (Jordan-Wigner, Bravyi-Kitaev, Parity), molecular Hamiltonians
-- IMPROVED: Backend capability detection for Quantinuum and Atom Computing platforms
-- IMPROVED: Circuit builder with extended gate transpilation for new backends
-- IMPROVED: Model serialization and data preprocessing for ML algorithms
-- IMPROVED: Progress reporting with cancellation support for AutoML workflows
-- IMPROVED: Batch accumulator with better async handling
-- ADDED: Comprehensive hardware selection guide and mathematical foundations documentation
-- ADDED: Examples for QRNG, cancellation/progress monitoring, topological computing
+    <PackageReleaseNotes>v1.2.9: Documentation Improvements and Visual Enhancements
+- IMPROVED: Architecture diagrams (SVG and Mermaid) with enhanced color palette for better readability
+- FIXED: Backend colors now use lighter, high-contrast palette (LocalBackend: Cornflower Blue, IonQ: Fresh Green, Rigetti: Burnt Orange, Atom Computing: Amber Gold, Quantinuum: Amethyst)
+- FIXED: GraphColoring builder arrow routing in SVG architecture diagram
+- IMPROVED: Legend in architecture diagrams with color swatches showing all backend types
+- IMPROVED: Text contrast in architecture diagrams (white text on dark backgrounds, black text on light backgrounds)
+- IMPROVED: WCAG AA compliant color scheme for accessibility and colorblind-friendliness
 - Status: 1400+ tests passing in main package, production-ready</PackageReleaseNotes>
     
     <!-- Repository Info -->
@@ -208,6 +202,12 @@
 
     <!-- Utilities Layer (depends on Classical Builders) -->
     <Compile Include="Utilities\PerformanceBenchmarking.fs" />
+    
+    <!-- Visualization Layer (zero dependencies, pure F#) -->
+    <Compile Include="Visualization\Types.fs" />
+    <Compile Include="Visualization\ASCIIRenderer.fs" />
+    <Compile Include="Visualization\MermaidRenderer.fs" />
+    <Compile Include="Visualization\SolutionExtensions.fs" />
     
     <!-- Quantum Machine Learning (depends on CircuitBuilder, BackendAbstraction) -->
     <Compile Include="MachineLearning\QMLTypes.fs" />

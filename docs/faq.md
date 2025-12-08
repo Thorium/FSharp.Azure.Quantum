@@ -86,14 +86,14 @@ Currently **1.1.0** - suitable for:
 // Direct Quantum API (Recommended for most cases)
 match GraphColoring.solve problem 4 None with  // Uses QAOA on LocalBackend
 | Ok solution -> printfn "Colors used: %d" solution.ColorsUsed
-| Error msg -> eprintfn "Error: %s" msg
+| Error err -> eprintfn "Error: %s" err.Message
 
 // HybridSolver (Optimizes very small problems automatically)
 match HybridSolver.solveGraphColoring problem 4 None None None with
 | Ok solution -> 
     printfn "Method: %A" solution.Method  // Classical or Quantum
     printfn "Reasoning: %s" solution.Reasoning
-| Error msg -> eprintfn "Error: %s" msg
+| Error err -> eprintfn "Error: %s" err.Message
 ```
 
 **Crossover Point:** HybridSolver routes to classical for < 20 variables, quantum for ≥ 20 variables. For most use cases, direct quantum API is simpler and sufficient.
@@ -193,7 +193,7 @@ let config = { TspSolver.defaultConfig with MaxIterations = 50000 }
 ```fsharp
 match HybridSolver.solveTsp distances None None (Some HybridSolver.SolverMethod.Classical) with
 | Ok solution -> printfn "Tour length: %.2f" solution.Result.TourLength
-| Error msg -> printfn "Error: %s" msg
+| Error err -> printfn "Error: %s" err.Message
 ```
 
 3. **Run multiple times with quantum optimization:**
@@ -221,7 +221,7 @@ match HybridSolver.solveTsp distances None None None with
     printfn "Size: %d cities" (distances.GetLength(0))
     printfn "Time: %d ms" sw.ElapsedMilliseconds
     printfn "Method: %A" solution.Method
-| Error msg -> printfn "Error: %s" msg
+| Error err -> printfn "Error: %s" err.Message
 ```
 printfn "Time per iteration: %.2f ms" (float sw.ElapsedMilliseconds / float solution.Iterations)
 ```

@@ -165,8 +165,8 @@ match result with
 | Ok solution ->
     printfn "Makespan: %.1f minutes" solution.Makespan
     exportGanttChart solution "schedule.txt"
-| Error msg ->
-    printfn "Failed: %s" msg
+| Error err ->
+    printfn "Failed: %s" err.Message
 ```
 
 ### C# FluentAPI (from TKT-91 Generic Scheduling Framework)
@@ -570,8 +570,8 @@ match result with
         printfn "\nDeadline Violations:"
         solution.DeadlineViolations |> List.iter (printfn "  - %s")
 
-| Error msg ->
-    printfn "Scheduling failed: %s" msg
+| Error err ->
+    printfn "Scheduling failed: %s" err.Message
 ```
 
 **Validation Checks:**
@@ -610,8 +610,8 @@ match result with
 | Ok solution ->
     exportGanttChart solution "my-schedule.txt"
     printfn "Gantt chart saved!"
-| Error msg ->
-    printfn "Failed: %s" msg
+| Error err ->
+    printfn "Failed: %s" err.Message
 ```
 
 **Example Output File:**
@@ -763,8 +763,8 @@ match result with
         printfn "✅ All deadlines met!"
     else
         printfn "⚠️ Deadline violations: %A" solution.DeadlineViolations
-| Error msg ->
-    printfn "Failed: %s" msg
+| Error err ->
+    printfn "Failed: %s" err.Message
 ```
 
 ---
@@ -982,8 +982,8 @@ match result with
     printfn "Makespan: %.1f minutes" solution.Makespan
     printfn "Expected ROI: ~30 min reduction = $25,000 savings"
     exportGanttChart solution "powerplant-schedule.txt"
-| Error msg ->
-    printfn "Failed: %s" msg
+| Error err ->
+    printfn "Failed: %s" err.Message
 ```
 
 **Expected Result:**

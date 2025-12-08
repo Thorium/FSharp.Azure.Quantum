@@ -86,6 +86,7 @@
     <Compile Include="ModelSerializationTests.fs" />
     <Compile Include="VQCTests.fs" />
     <Compile Include="QuantumRegressionHHLTests.fs" />
+    <Compile Include="VisualizationTests.fs" />
     
     <Compile Include="IntegrationTests.fs" />
   </ItemGroup>

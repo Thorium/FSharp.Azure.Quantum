@@ -56,8 +56,8 @@ match solve problem 3 None with
     // A → Red
     // B → Green
     // C → Blue
-| Error msg ->
-    eprintfn "Coloring failed: %s" msg
+| Error err ->
+    eprintfn "Coloring failed: %s" err.Message
 ```
 
 ---
@@ -81,7 +81,7 @@ let problem = graphColoring {
 
 match solve problem 3 None with
 | Ok solution -> printfn "Solution found with %d colors" solution.ColorsUsed
-| Error msg -> eprintfn "Error: %s" msg
+| Error err -> eprintfn "Error: %s" err.Message
 ```
 
 **Characteristics:**
@@ -358,8 +358,8 @@ match solve problem 8 None with
             (solution.Assignments.["v1"])
     else
         printfn "Spilling required - not enough registers!"
-| Error msg ->
-    eprintfn "Register allocation failed: %s" msg
+| Error err ->
+    eprintfn "Register allocation failed: %s" err.Message
 ```
 
 **ROI:**
@@ -404,8 +404,8 @@ match solve problem 4 None with
         printfn "  %s: %s" tower.Id freq
     
     printfn "\nFrequencies needed: %d" solution.ColorsUsed
-| Error msg ->
-    eprintfn "Frequency allocation failed: %s" msg
+| Error err ->
+    eprintfn "Frequency allocation failed: %s" err.Message
 ```
 
 **ROI:**
@@ -451,7 +451,7 @@ match solve problem 5 None with
         printfn "  %s: %s" exam.Course timeSlot
     
     printfn "\nTime slots needed: %d" solution.ColorsUsed
-| Error msg -> eprintfn "Error: %s" msg
+| Error err -> eprintfn "Error: %s" err.Message
 ```
 
 **ROI:**

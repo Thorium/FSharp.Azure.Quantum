@@ -120,8 +120,8 @@ match GraphColoring.solve problem 3 None with
 | Ok solution -> 
     printfn "Colors used: %d" solution.ColorsUsed
     printfn "Valid: %b" solution.IsValid
-| Error msg -> 
-    printfn "Error: %s" msg
+| Error err -> 
+    printfn "Error: %s" err.Message
 ```
 
 ### Pattern 2: Cloud Backend (Large Problems)
@@ -138,8 +138,8 @@ match GraphColoring.solve problem 3 (Some backend) with
 | Ok solution -> 
     printfn "Colors used: %d" solution.ColorsUsed
     printfn "Valid: %b" solution.IsValid
-| Error msg -> 
-    printfn "Error: %s" msg
+| Error err -> 
+    printfn "Error: %s" err.Message
 ```
 
 ### Pattern 3: Inspect Solution Details
@@ -158,7 +158,7 @@ match GraphColoring.solve problem 3 None with
     |> Map.iter (fun node color ->
         printfn "  %s -> %s" node color
     )
-| Error msg -> printfn "Error: %s" msg
+| Error err -> printfn "Error: %s" err.Message
 ```
 
 ---
@@ -254,8 +254,8 @@ match GraphColoring.solve registers 4 None with
     printfn "Registers needed: %d" solution.ColorsUsed
     solution.Assignments 
     |> Map.iter (fun var reg -> printfn "%s → %s" var reg)
-| Error msg ->
-    printfn "Allocation failed: %s" msg
+| Error err ->
+    printfn "Allocation failed: %s" err.Message
 ```
 
 ---
@@ -319,8 +319,8 @@ match MaxCut.solve problem_maxcut None with
     printfn "Partition 1: %A" solution.PartitionS
     printfn "Partition 2: %A" solution.PartitionT
     printfn "Inter-partition traffic: %.2f" solution.CutValue
-| Error msg ->
-    printfn "Partitioning failed: %s" msg
+| Error err ->
+    printfn "Partitioning failed: %s" err.Message
 ```
 
 ---
@@ -398,8 +398,8 @@ match Knapsack.solve problem_knapsack None with
     solution.SelectedItems 
     |> List.iter (fun item -> 
         printfn "  Load: %s (%.2f kg, $%.2f)" item.Id item.Weight item.Value)
-| Error msg ->
-    printfn "Optimization failed: %s" msg
+| Error err ->
+    printfn "Optimization failed: %s" err.Message
 ```
 
 ---
@@ -458,8 +458,8 @@ match TSP.solve problem_tsp None with
 | Ok tour ->
     printfn "Optimal route: %s" (String.concat " → " tour.Cities)
     printfn "Total distance: %.2f km" tour.TotalDistance
-| Error msg ->
-    printfn "Route optimization failed: %s" msg
+| Error err ->
+    printfn "Route optimization failed: %s" err.Message
 ```
 
 ---
@@ -526,8 +526,8 @@ match Portfolio.solve problem_portfolio None with
     allocation.Allocations 
     |> List.iter (fun (symbol, shares, value) ->
         printfn "  %s: %.2f shares = $%.2f" symbol shares value)
-| Error msg ->
-    printfn "Allocation failed: %s" msg
+| Error err ->
+    printfn "Allocation failed: %s" err.Message
 ```
 
 ---
@@ -616,8 +616,8 @@ match NetworkFlow.solve problem None with
     flow.SelectedRoutes 
     |> List.iter (fun (from, to_, amount) ->
         printfn "  %s → %s: %.2f units" from to_ amount)
-| Error msg ->
-    printfn "Optimization failed: %s" msg
+| Error err ->
+    printfn "Optimization failed: %s" err.Message
 ```
 
 ---
@@ -909,8 +909,8 @@ match solve heatDiffusion with
             printfn "  Point %d: %.4f" idx amp.Magnitude)
     | None ->
         printfn "Use measurement statistics for cloud backends"
-| Error msg ->
-    printfn "Simulation failed: %s" msg
+| Error err ->
+    printfn "Simulation failed: %s" err.Message
 ```
 
 ### Example: Machine Learning (Least Squares)
@@ -936,8 +936,8 @@ match solve leastSquares with
 | Ok solution ->
     printfn "Model weights found!"
     printfn "Success rate: %.2f%%" (solution.SuccessProbability * 100.0)
-| Error msg ->
-    printfn "Training failed: %s" msg
+| Error err ->
+    printfn "Training failed: %s" err.Message
 ```
 
 ### Important Limitations
@@ -999,7 +999,7 @@ match QuantumMaxCutSolver.solve backend problem config with
 // Pattern 1: Match on Result
 match solver.solve problem with
 | Ok solution -> processSuccess solution
-| Error msg -> handleError msg
+| Error err -> handleError msg
 
 // Pattern 2: Result.map
 problem
@@ -1038,8 +1038,8 @@ match MaxCut.solve testProblem None with
 match GraphColoring.validate problem with
 | Ok () -> 
     GraphColoring.solve problem 3 None
-| Error msg -> 
-    Error (sprintf "Invalid problem: %s" msg)
+| Error err -> 
+    Error (sprintf "Invalid problem: %s" err.Message)
 ```
 
 ### 3. Cache Backends

@@ -340,7 +340,7 @@ module QuantumTreeSearch =
                         problem.SolutionThreshold
                         problem.SuccessThreshold
                         problem.MaxPaths with
-                | Error msg -> Error (QuantumError.OperationError ("QuantumTreeSearch", $"Quantum tree search failed: {msg}"))
+                | Error err -> Error (QuantumError.OperationError ("QuantumTreeSearch", $"Quantum tree search failed: {err.Message}"))
                 | Ok treeResult ->
                     
                     let qubitsNeeded = GroverSearch.TreeSearch.estimateQubitsNeeded problem.MaxDepth problem.BranchingFactor

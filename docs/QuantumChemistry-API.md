@@ -51,8 +51,8 @@ match result with
 | Ok solution ->
     printfn "Ground state energy: %.6f Ha" solution.GroundStateEnergy
     printfn "H-H bond length: %.2f Å" solution.BondLengths.["H-H"]
-| Error msg ->
-    printfn "Error: %s" msg
+| Error err ->
+    printfn "Error: %s" err.Message
 
 // Expected output:
 // Ground state energy: -1.137000 Ha
@@ -210,8 +210,8 @@ let! result = solve problem
 match result with
 | Ok solution ->
     printfn "Energy: %.6f Ha" solution.GroundStateEnergy
-| Error msg ->
-    printfn "Failed: %s" msg
+| Error err ->
+    printfn "Failed: %s" err.Message
 ```
 
 ---
@@ -285,7 +285,7 @@ let bondScan = async {
             printfn "%.2f Å: %.6f Ha" distance solution.GroundStateEnergy
             previousParams <- Some solution.OptimalParameters
             results <- (distance, solution.GroundStateEnergy) :: results
-        | Error msg ->
+        | Error err ->
             printfn "Error at %.2f: %s" distance msg
     
     return List.rev results
@@ -338,7 +338,7 @@ for (name, mol) in molecules do
             name 
             solution.GroundStateEnergy 
             mol.Atoms.Length
-    | Error msg ->
+    | Error err ->
         printfn "%s: Error - %s" name msg
 ```
 
@@ -519,9 +519,9 @@ match result with
     // Did not converge
     printfn "⚠ Did not converge after %d iterations" solution.Iterations
     
-| Error msg ->
+| Error err ->
     // Calculation failed
-    printfn "✗ Error: %s" msg
+    printfn "✗ Error: %s" err.Message
 ```
 
 ### Reproducibility

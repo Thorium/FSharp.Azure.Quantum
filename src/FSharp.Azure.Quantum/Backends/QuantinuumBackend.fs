@@ -105,22 +105,22 @@ module QuantinuumBackend =
     let mapQuantinuumError (errorCode: string) (errorMessage: string) : QuantumError =
         match errorCode with
         | "InvalidCircuit" ->
-            QuantumError.InvalidCircuit [ errorMessage ]
+            QuantumError.ValidationError("circuit", errorMessage)
         
         | "TooManyQubits" ->
             // TooManyQubits is a circuit validation error
-            QuantumError.InvalidCircuit [ sprintf "Circuit too large: %s" errorMessage ]
+            QuantumError.ValidationError("circuit", sprintf "Circuit too large: %s" errorMessage)
         
         | "QuotaExceeded" ->
-            QuantumError.QuotaExceeded errorMessage
+            QuantumError.AzureError (AzureQuantumError.QuotaExceeded errorMessage)
         
         | "BackendUnavailable" ->
             // Suggest retry after 5 minutes for maintenance
-            QuantumError.ServiceUnavailable (Some (TimeSpan.FromMinutes(5.0)))
+            QuantumError.AzureError (AzureQuantumError.ServiceUnavailable (Some (TimeSpan.FromMinutes(5.0))))
         
         | _ ->
             // Unknown Quantinuum error
-            QuantumError.UnknownError(0, sprintf "Quantinuum error: %s - %s" errorCode errorMessage)
+            QuantumError.AzureError (AzureQuantumError.UnknownError(0, sprintf "Quantinuum error: %s - %s" errorCode errorMessage))
     
     // ============================================================================
     // CONVENIENCE FUNCTIONS
@@ -173,7 +173,7 @@ module QuantinuumBackend =
                         // Step 4: Get results from blob storage
                         match job.OutputDataUri with
                         | None ->
-                            return Error (QuantumError.UnknownError(500, "Job completed but no output URI available"))
+                            return Error (QuantumError.AzureError (AzureQuantumError.UnknownError(500, "Job completed but no output URI available")))
                         | Some uri ->
                             let! resultData = JobLifecycle.getJobResultAsync httpClient uri
                             match resultData with
@@ -185,15 +185,15 @@ module QuantinuumBackend =
                                     let histogram = parseQuantinuumResult resultJson
                                     return Ok histogram
                                 with
-                                | ex -> return Error (QuantumError.UnknownError(0, sprintf "Failed to parse Quantinuum results: %s" ex.Message))
+                                | ex -> return Error (QuantumError.AzureError (AzureQuantumError.UnknownError(0, sprintf "Failed to parse Quantinuum results: %s" ex.Message)))
                     
                     | JobStatus.Failed (errorCode, errorMessage) ->
                         // Map Quantinuum error to QuantumError
                         return Error (mapQuantinuumError errorCode errorMessage)
                     
                     | JobStatus.Cancelled ->
-                        return Error QuantumError.Cancelled
+                        return Error (QuantumError.OperationError("Job execution", "Operation cancelled"))
                     
                     | _ ->
-                        return Error (QuantumError.UnknownError(0, sprintf "Unexpected job status: %A" job.Status))
+                        return Error (QuantumError.AzureError (AzureQuantumError.UnknownError(0, sprintf "Unexpected job status: %A" job.Status)))
         }

@@ -68,8 +68,8 @@ match Knapsack.solve projectProblem None with
     printfn "  Feasible: %b" solution.IsFeasible
     printfn "  Backend: %s" solution.BackendName
     printfn ""
-| Error msg ->
-    printfn "✗ Quantum solve failed: %s" msg
+| Error err ->
+    printfn "✗ Quantum solve failed: %s" err.Message
     printfn ""
 
 // Compare with classical DP (optimal) - Commented out due to memory issues with large budgets
@@ -141,8 +141,8 @@ match Knapsack.solve cargoProblem None with
     printfn "  Total Value: $%.0f" solution.TotalValue
     printfn "  Utilization: %.1f%%" solution.CapacityUtilization
     printfn "  Average Value Density: $%.0f/kg" solution.Efficiency
-| Error msg ->
-    printfn "✗ Failed: %s" msg
+| Error err ->
+    printfn "✗ Failed: %s" err.Message
 
 printfn ""
 
@@ -185,8 +185,8 @@ match Knapsack.solve sprintProblem None with
     printfn "  Total Priority Points: %.0f" solution.TotalValue
     printfn "  Time Utilization: %.1f%%" solution.CapacityUtilization
     printfn "  Remaining Time: %.0fh" (sprintHours - solution.TotalWeight)
-| Error msg ->
-    printfn "✗ Failed: %s" msg
+| Error err ->
+    printfn "✗ Failed: %s" err.Message
 
 printfn ""
 
@@ -217,8 +217,8 @@ match Knapsack.solve classicProblem None with
     printfn "  Weight: %.0f / %.0f" solution.TotalWeight knapsackCapacity
     printfn "  Value: %.0f" solution.TotalValue
     printfn "  Efficiency: %.2f value/weight" solution.Efficiency
-| Error msg ->
-    printfn "✗ Failed: %s" msg
+| Error err ->
+    printfn "✗ Failed: %s" err.Message
 
 printfn ""
 
@@ -248,8 +248,8 @@ match Knapsack.solve smallProblem None with
     printfn "  Total Weight: %.0f" solution.TotalWeight
     printfn "  Efficiency: %.2f" solution.Efficiency
     printfn "  Feasible: %b" solution.IsFeasible
-| Error msg ->
-    printfn "  ✗ Failed: %s" msg
+| Error err ->
+    printfn "  ✗ Failed: %s" err.Message
 
 printfn ""
 printfn "Example 5: Solution Validation and Metrics"
@@ -326,8 +326,8 @@ match Knapsack.solve randomProblem None with
     printfn "  Utilization: %.1f%%" solution.CapacityUtilization
     printfn "  Efficiency: %.2f value/weight" solution.Efficiency
     printfn "  Feasible: %b" solution.IsFeasible
-| Error msg ->
-    printfn "✗ Failed: %s" msg
+| Error err ->
+    printfn "✗ Failed: %s" err.Message
 
 printfn ""
 

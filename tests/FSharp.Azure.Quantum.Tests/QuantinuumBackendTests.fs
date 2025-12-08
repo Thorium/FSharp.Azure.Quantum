@@ -7,6 +7,7 @@ open System.Text.Json
 open Xunit
 open FSharp.Azure.Quantum.Core.QuantinuumBackend
 open FSharp.Azure.Quantum.Core.Types
+open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum
 
 module QuantinuumBackendTests =
@@ -163,9 +164,9 @@ module QuantinuumBackendTests =
         
         // Assert
         match quantumError with
-        | QuantumError.InvalidCircuit messages ->
-            Assert.Contains(errorMessage, messages)
-        | _ -> Assert.True(false, "Expected InvalidCircuit error")
+        | QuantumError.ValidationError(field, reason) ->
+            Assert.Contains(errorMessage, reason)
+        | _ -> Assert.True(false, "Expected ValidationError")
     
     [<Fact>]
     let ``mapQuantinuumError - TooManyQubits maps to InvalidCircuit`` () =
@@ -178,9 +179,9 @@ module QuantinuumBackendTests =
         
         // Assert
         match quantumError with
-        | QuantumError.InvalidCircuit messages ->
-            Assert.True(messages |> List.exists (fun m -> m.Contains("too large")))
-        | _ -> Assert.True(false, "Expected InvalidCircuit error")
+        | QuantumError.ValidationError(field, reason) ->
+            Assert.Contains("too large", reason)
+        | _ -> Assert.True(false, "Expected ValidationError")
     
     [<Fact>]
     let ``mapQuantinuumError - QuotaExceeded maps to QuantumError QuotaExceeded`` () =
@@ -193,7 +194,7 @@ module QuantinuumBackendTests =
         
         // Assert
         match quantumError with
-        | QuantumError.QuotaExceeded msg ->
+        | QuantumError.AzureError(AzureQuantumError.QuotaExceeded msg) ->
             Assert.Equal("Insufficient HQC credits", msg)
         | _ -> Assert.True(false, "Expected QuotaExceeded error")
     
@@ -208,7 +209,7 @@ module QuantinuumBackendTests =
         
         // Assert
         match quantumError with
-        | QuantumError.ServiceUnavailable retryAfter ->
+        | QuantumError.AzureError(AzureQuantumError.ServiceUnavailable retryAfter) ->
             Assert.True(retryAfter.IsSome)
             Assert.True(retryAfter.Value.TotalMinutes >= 5.0)
         | _ -> Assert.True(false, "Expected ServiceUnavailable error")
@@ -224,7 +225,7 @@ module QuantinuumBackendTests =
         
         // Assert
         match quantumError with
-        | QuantumError.UnknownError (code, msg) ->
+        | QuantumError.AzureError(AzureQuantumError.UnknownError (code, msg)) ->
             Assert.Contains("Quantinuum error", msg)
             Assert.Contains("WeirdError", msg)
         | _ -> Assert.True(false, "Expected UnknownError")

@@ -50,8 +50,8 @@ match buildVariationalForm (RealAmplitudes raDepth1) raParams1 numQubits with
     printfn "  - Ry rotations: %d" ryCount
     printfn "  - CZ gates: %d" czCount
     printfn ""
-| Error e ->
-    printfn "✗ Error: %s" e
+| Error err ->
+    printfn "✗ Error: %s" err.Message
     printfn ""
 
 // ============================================================================
@@ -83,8 +83,8 @@ match buildVariationalForm (RealAmplitudes raDepth2) raParams2 numQubits with
     printfn "  - CZ gates: %d" czCount
     printfn "  More layers = more expressiveness"
     printfn ""
-| Error e ->
-    printfn "✗ Error: %s" e
+| Error err ->
+    printfn "✗ Error: %s" err.Message
     printfn ""
 
 // ============================================================================
@@ -115,8 +115,8 @@ match buildVariationalForm (TwoLocal("Ry", "CZ", tlDepth)) tlParams numQubits wi
     printfn "  - Ry rotations: %d" ryCount
     printfn "  - CZ gates: %d" czCount
     printfn ""
-| Error e ->
-    printfn "✗ Error: %s" e
+| Error err ->
+    printfn "✗ Error: %s" err.Message
     printfn ""
 
 // ============================================================================
@@ -143,8 +143,8 @@ match buildVariationalForm (TwoLocal("Rx", "CNOT", 1)) tlParams2 numQubits with
     printfn "  - Rx rotations: %d" rxCount
     printfn "  - CNOT gates: %d" cnotCount
     printfn ""
-| Error e ->
-    printfn "✗ Error: %s" e
+| Error err ->
+    printfn "✗ Error: %s" err.Message
     printfn ""
 
 // ============================================================================
@@ -178,8 +178,8 @@ match buildVariationalForm (EfficientSU2 su2Depth) su2Params numQubits with
     printfn "  - Rz rotations: %d" rzCount
     printfn "  - CZ gates: %d" czCount
     printfn ""
-| Error e ->
-    printfn "✗ Error: %s" e
+| Error err ->
+    printfn "✗ Error: %s" err.Message
     printfn ""
 
 // ============================================================================
@@ -283,12 +283,12 @@ match FeatureMap.buildFeatureMap featureMap features with
             printfn ""
             printfn "   This is the complete VQC forward pass circuit!"
             printfn ""
-        | Error e ->
-            printfn "   ✗ Composition error: %s" e
-    | Error e ->
-        printfn "   ✗ Variational form error: %s" e
-| Error e ->
-    printfn "   ✗ Feature map error: %s" e
+        | Error err ->
+            printfn "   ✗ Composition error: %s" err.Message
+    | Error err ->
+        printfn "   ✗ Variational form error: %s" err.Message
+| Error err ->
+    printfn "   ✗ Feature map error: %s" err.Message
 
 printfn ""
 

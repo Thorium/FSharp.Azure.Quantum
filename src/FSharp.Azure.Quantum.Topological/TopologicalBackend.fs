@@ -234,45 +234,50 @@ module TopologicalBackend =
                 }
             
             member _.Braid leftIndex state =
-                task {
+                // Extract synchronous logic to avoid FS3511 warning
+                let performBraid() =
                     // Validate index bounds
                     if leftIndex < 0 then
-                        return TopologicalResult.validationError "leftIndex" $"Braid index must be non-negative, got {leftIndex}"
+                        TopologicalResult.validationError "leftIndex" $"Braid index must be non-negative, got {leftIndex}"
                     else
                         // braidSuperposition now returns Result - no try/catch needed
-                        return TopologicalOperations.braidSuperposition leftIndex state
-                }
+                        TopologicalOperations.braidSuperposition leftIndex state
+                
+                // Minimal task wrapper
+                task { return performBraid() }
             
             member _.MeasureFusion leftIndex state =
-                task {
+                // Extract synchronous logic to avoid FS3511 warning
+                let performMeasurement() =
                     // Validate index and state
                     if leftIndex < 0 then
-                        return TopologicalResult.validationError "leftIndex" $"Measurement index must be non-negative, got {leftIndex}"
+                        TopologicalResult.validationError "leftIndex" $"Measurement index must be non-negative, got {leftIndex}"
                     elif state.Terms.IsEmpty then
-                        return TopologicalResult.validationError "state" "Cannot measure empty superposition"
+                        TopologicalResult.validationError "state" "Cannot measure empty superposition"
                     else
                         // For simplicity, take first term of superposition - safe access
                         match List.tryHead state.Terms with
                         | None -> 
-                            return TopologicalResult.validationError "state" "Superposition has no terms (this should have been caught earlier)"
+                            TopologicalResult.validationError "state" "Superposition has no terms (this should have been caught earlier)"
                         | Some (_, firstState) ->
                             // measureFusion now returns Result
                             match TopologicalOperations.measureFusion leftIndex firstState with
-                            | Error err -> return Error err
+                            | Error err -> Error err
                             | Ok outcomes ->
                                 // Safe access to first outcome
                                 match List.tryHead outcomes with
                                 | None -> 
-                                    return TopologicalResult.logicError "operation" "No valid measurement outcomes"
+                                    TopologicalResult.logicError "operation" "No valid measurement outcomes"
                                 | Some (prob, result) ->
-                                    
                                     match result.ClassicalOutcome with
                                     | Some particle ->
                                         let collapsed = TopologicalOperations.pureState result.State
-                                        return Ok (particle, collapsed, prob)
+                                        Ok (particle, collapsed, prob)
                                     | None ->
-                                        return TopologicalResult.computationError "operation" "Measurement did not produce classical outcome"
-                }
+                                        TopologicalResult.computationError "operation" "Measurement did not produce classical outcome"
+                
+                // Minimal task wrapper
+                task { return performMeasurement() }
             
             member this.Execute initialState operations =
                 task {

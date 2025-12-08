@@ -7,6 +7,7 @@ open System.Text.Json
 open Xunit
 open FSharp.Azure.Quantum.Core.IonQBackend
 open FSharp.Azure.Quantum.Core.Types
+open FSharp.Azure.Quantum.Core
 
 module IonQBackendTests =
     
@@ -375,10 +376,10 @@ module IonQBackendTests =
         
         // Assert
         match quantumError with
-        | QuantumError.InvalidCircuit errors ->
-            Assert.Single(errors) |> ignore
-            Assert.Contains("toffoli", errors.[0])
-        | _ -> Assert.True(false, "Expected InvalidCircuit error")
+        | QuantumError.ValidationError(field, reason) ->
+            Assert.Equal("circuit", field)
+            Assert.Contains("toffoli", reason)
+        | _ -> Assert.True(false, "Expected ValidationError for circuit")
     
     [<Fact>]
     let ``mapIonQError - TooManyQubits maps to InvalidCircuit with qubit limit message`` () =
@@ -391,10 +392,10 @@ module IonQBackendTests =
         
         // Assert
         match quantumError with
-        | QuantumError.InvalidCircuit errors ->
-            Assert.Single(errors) |> ignore
-            Assert.Contains("30 qubits", errors.[0])
-        | _ -> Assert.True(false, "Expected InvalidCircuit error")
+        | QuantumError.ValidationError(field, reason) ->
+            Assert.Equal("circuit", field)
+            Assert.Contains("30 qubits", reason)
+        | _ -> Assert.True(false, "Expected ValidationError for circuit")
     
     [<Fact>]
     let ``mapIonQError - QuotaExceeded maps to QuotaExceeded`` () =
@@ -407,7 +408,7 @@ module IonQBackendTests =
         
         // Assert
         match quantumError with
-        | QuantumError.QuotaExceeded quotaType ->
+        | QuantumError.AzureError(AzureQuantumError.QuotaExceeded quotaType) ->
             Assert.Contains("credit", quotaType.ToLowerInvariant())
         | _ -> Assert.True(false, "Expected QuotaExceeded error")
     
@@ -422,9 +423,9 @@ module IonQBackendTests =
         
         // Assert
         match quantumError with
-        | QuantumError.ServiceUnavailable retryAfter ->
+        | QuantumError.AzureError(AzureQuantumError.ServiceUnavailable retryAfter) ->
             Assert.True(retryAfter.IsSome)
-            Assert.True(retryAfter.Value.TotalMinutes >= 1.0) // At least 1 minute retry
+            Assert.Equal(5.0, retryAfter.Value.TotalMinutes)
         | _ -> Assert.True(false, "Expected ServiceUnavailable error")
     
     [<Fact>]
@@ -438,7 +439,7 @@ module IonQBackendTests =
         
         // Assert
         match quantumError with
-        | QuantumError.UnknownError (statusCode, message) ->
+        | QuantumError.AzureError(AzureQuantumError.UnknownError (statusCode, message)) ->
             Assert.Equal(0, statusCode) // Unknown status code
             Assert.Contains("SomethingWeird", message)
         | _ -> Assert.True(false, "Expected UnknownError")

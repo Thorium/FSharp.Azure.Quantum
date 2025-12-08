@@ -38,8 +38,8 @@ match FeatureMap.buildFeatureMap AngleEncoding features with
     printfn "  Gates: %d" (gateCount circuit)
     printfn "  Structure: Ry rotations only (no entanglement)"
     printfn ""
-| Error e ->
-    printfn "✗ Error: %s" e
+| Error err ->
+    printfn "✗ Error: %s" err.Message
     printfn ""
 
 // ============================================================================
@@ -67,8 +67,8 @@ match FeatureMap.buildFeatureMap (ZZFeatureMap 1) features with
     printfn "  - Rz rotations: %d" rzCount
     printfn "  - CNOT gates: %d" cnotCount
     printfn ""
-| Error e ->
-    printfn "✗ Error: %s" e
+| Error err ->
+    printfn "✗ Error: %s" err.Message
     printfn ""
 
 // ============================================================================
@@ -87,8 +87,8 @@ match FeatureMap.buildFeatureMap (ZZFeatureMap 2) features with
     printfn "  Gates: %d" (gateCount circuit)
     printfn "  Depth increases with layers (more expressive)"
     printfn ""
-| Error e ->
-    printfn "✗ Error: %s" e
+| Error err ->
+    printfn "✗ Error: %s" err.Message
     printfn ""
 
 // ============================================================================
@@ -107,8 +107,8 @@ match FeatureMap.buildFeatureMap (PauliFeatureMap(["ZZ"; "XX"], 1)) features wit
     printfn "  Gates: %d" (gateCount circuit)
     printfn "  Pauli strings: ZZ, XX"
     printfn ""
-| Error e ->
-    printfn "✗ Error: %s" e
+| Error err ->
+    printfn "✗ Error: %s" err.Message
     printfn ""
 
 // ============================================================================
@@ -131,8 +131,8 @@ match FeatureMap.buildFeatureMap AmplitudeEncoding features with
     printfn "  Note: Placeholder implementation (H gates only)"
     printfn "        Full Mottonen state prep would be more complex"
     printfn ""
-| Error e ->
-    printfn "✗ Error: %s" e
+| Error err ->
+    printfn "✗ Error: %s" err.Message
     printfn ""
 
 // ============================================================================
@@ -190,8 +190,8 @@ for (desc, feat) in testFeatures do
     match FeatureMap.buildFeatureMap (ZZFeatureMap 1) feat with
     | Ok circuit ->
         printfn "  Qubits: %d, Gates: %d" circuit.QubitCount (gateCount circuit)
-    | Error e ->
-        printfn "  Error: %s" e
+    | Error err ->
+        printfn "  Error: %s" err.Message
     
     printfn ""
 

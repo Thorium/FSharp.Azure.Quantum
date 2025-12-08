@@ -7,6 +7,7 @@ open System.Threading
 open System.Threading.Tasks
 open Xunit
 open FSharp.Azure.Quantum.Core.Types
+open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.Client
 open FSharp.Azure.Quantum.Core.Retry
 
@@ -137,7 +138,7 @@ let ``GetJobStatusAsync should handle 404 error`` () =
         let! result = client.GetJobStatusAsync("nonexistent-job")
 
         match result with
-        | Error(QuantumError.UnknownError(statusCode, _)) -> Assert.Equal(404, statusCode)
+        | Error(QuantumError.AzureError(AzureQuantumError.UnknownError(statusCode, _))) -> Assert.Equal(404, statusCode)
         | _ -> Assert.True(false, "Expected NotFound error")
     }
 
@@ -278,7 +279,7 @@ let ``WaitForCompletionAsync should timeout if job takes too long`` () =
             client.WaitForCompletionAsync("job-timeout", initialDelayMs = 10, maxDelayMs = 50, timeoutMs = 100)
 
         match result with
-        | Error(QuantumError.Timeout _) -> Assert.True(true) // Expected timeout error
+        | Error(QuantumError.AzureError(AzureQuantumError.Timeout _)) -> Assert.True(true) // Expected timeout error
         | _ -> Assert.True(false, "Expected Timeout error")
     }
 
@@ -407,7 +408,7 @@ let ``SubmitJobAsync should fail after max retries exceeded`` () =
         let! result = client.SubmitJobAsync(submission)
 
         match result with
-        | Error(QuantumError.ServiceUnavailable _) ->
+        | Error(QuantumError.AzureError(AzureQuantumError.ServiceUnavailable _)) ->
             // MaxAttempts = 2, so should make 2 total attempts
             Assert.True((attemptCount = 2), sprintf "Expected 2 attempts (MaxAttempts=2), got %d" attemptCount)
         | _ -> Assert.True(false, "Expected ServiceUnavailable error after max attempts")
@@ -462,7 +463,7 @@ let ``SubmitJobAsync should not retry on non-transient errors`` () =
         let! result = client.SubmitJobAsync(submission)
 
         match result with
-        | Error(QuantumError.UnknownError(statusCode, _)) ->
+        | Error(QuantumError.AzureError(AzureQuantumError.UnknownError(statusCode, _))) ->
             Assert.Equal(400, statusCode)
             // Should only make 1 attempt (no retries for non-transient errors)
             Assert.True(

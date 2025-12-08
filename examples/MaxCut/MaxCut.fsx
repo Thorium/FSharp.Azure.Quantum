@@ -72,8 +72,8 @@ match MaxCut.solve circuitProblem None with
         printfn "    %s <-> %s (weight: %.1f)" edge.Source edge.Target edge.Weight
     printfn ""
 
-| Error msg ->
-    printfn "✗ Quantum solve failed: %s" msg
+| Error err ->
+    printfn "✗ Quantum solve failed: %s" err.Message
     printfn ""
 
 // ============================================================================
@@ -168,8 +168,8 @@ match MaxCut.solve networkProblem None with
     printfn "  Weak connections between communities:"
     for edge in solution.CutEdges do
         printfn "    %s <-> %s (strength: %.1f)" edge.Source edge.Target edge.Weight
-| Error msg ->
-    printfn "✗ Failed: %s" msg
+| Error err ->
+    printfn "✗ Failed: %s" err.Message
 
 printfn ""
 
@@ -190,8 +190,8 @@ match MaxCut.solve triangleProblem None with
 | Ok solution ->
     printfn "Triangle graph MaxCut: %.0f" solution.CutValue
     printfn "Partition: %A | %A" solution.PartitionS solution.PartitionT
-| Error msg ->
-    printfn "✗ Failed: %s" msg
+| Error err ->
+    printfn "✗ Failed: %s" err.Message
 
 printfn ""
 
@@ -216,8 +216,8 @@ match MaxCut.solve testProblem None with
     printfn "  Cut edges: %d" optimal.CutEdges.Length
     printfn ""
     printfn "For K3, optimal MaxCut = 2 (any 2 edges can be cut)"
-| Error msg ->
-    printfn "✗ Failed: %s" msg
+| Error err ->
+    printfn "✗ Failed: %s" err.Message
 
 printfn ""
 printfn "======================================"

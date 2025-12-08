@@ -60,8 +60,8 @@ match GraphColoring.solve problem 4 None with  // None = LocalBackend (default)
     printfn "Colors used: %d" solution.ColorsUsed
     solution.Assignments 
     |> Map.iter (fun node color -> printfn "%s → %s" node color)
-| Error msg -> 
-    printfn "Error: %s" msg
+| Error err -> 
+    printfn "Error: %s" err.Message
 ```
 
 **Output:**
@@ -104,7 +104,7 @@ match MaxCut.solve maxCutProblem None with
     printfn "Cut Value: %.2f" solution.CutValue
     printfn "Partition S: %A" solution.PartitionS
     printfn "Partition T: %A" solution.PartitionT
-| Error msg -> printfn "Error: %s" msg
+| Error err -> printfn "Error: %s" err.Message
 ```
 
 ### 2. **HybridSolver** - Optional Optimization for Variable-Sized Problems
@@ -130,7 +130,7 @@ match HybridSolver.solveTsp distances None None None with
     printfn "Tour: %A" solution.Result.Tour
     printfn "Length: %.2f" solution.Result.TourLength
     printfn "Reasoning: %s" solution.Reasoning    // Explains routing decision
-| Error msg -> printfn "Error: %s" msg
+| Error err -> printfn "Error: %s" err.Message
 ```
 
 #### How HybridSolver Decides: Decision Flow
@@ -192,7 +192,7 @@ match Knapsack.solve knapsackProblem None with
     printfn "Total Value: %.2f" solution.TotalValue
     printfn "Total Weight: %.2f" solution.TotalWeight
     solution.SelectedItems |> List.iter (fun item -> printfn "  - %s" item.Id)
-| Error msg -> printfn "Error: %s" msg
+| Error err -> printfn "Error: %s" err.Message
 ```
 
 **When to Use Direct Quantum API vs HybridSolver:**
@@ -262,8 +262,8 @@ let symmetric = array2D [
 match HybridSolver.solveTsp distances None None None with
 | Ok solution -> 
     printfn "Success: %A" solution.Result
-| Error msg -> 
-    eprintfn "Failed: %s" msg
+| Error err -> 
+    eprintfn "Failed: %s" err.Message
 ```
 
 ### ❌ Pitfall 4: Budget Constraints Too Tight
@@ -323,16 +323,16 @@ let solveTspRobust (distances: float[,]) =
             printfn "  Time: %.2f ms" solution.ElapsedMs
             Ok solution
             
-        | Error msg ->
+        | Error err ->
             // Log error and return error (no classical fallback in this example)
-            eprintfn "⚠ HybridSolver failed: %s" msg
+            eprintfn "⚠ HybridSolver failed: %s" err.Message
             Error $"Solver failed: {msg}"
 
 // Usage
 let distancesRobust = array2D [[0.0; 10.0]; [10.0; 0.0]]
 match solveTspRobust distancesRobust with
 | Ok _ -> printfn "Problem solved!"
-| Error msg -> eprintfn "Could not solve: %s" msg
+| Error err -> eprintfn "Could not solve: %s" err.Message
 ```
 
 ### Portfolio Optimization with Validation
@@ -380,7 +380,7 @@ let solvePortfolioSafely assets budget =
                 printfn "  Risk: %.2f" solution.Result.Risk
                 printfn "  Sharpe Ratio: %.2f" solution.Result.SharpeRatio
                 Ok solution
-            | Error msg ->
+            | Error err ->
                 Error $"Solver failed: {msg}"
 
 // Usage with error recovery
@@ -394,9 +394,9 @@ match solvePortfolioSafely assets 10000.0 with
     // Process successful result
     solution.Result.Allocations 
     |> List.iter (fun a -> printfn "  %s: $%.2f" a.Asset.Symbol a.Value)
-| Error msg -> 
+| Error err -> 
     // Handle failure gracefully
-    eprintfn "Portfolio optimization failed: %s" msg
+    eprintfn "Portfolio optimization failed: %s" err.Message
     eprintfn "Try: Increase budget or reduce constraints"
 ```
 
@@ -424,19 +424,19 @@ let solveTspWithLimits distances maxBudget maxTime =
         
     | Error msg when msg.Contains("budget") ->
         // Budget constraint violated
-        eprintfn "✗ Insufficient budget: %s" msg
+        eprintfn "✗ Insufficient budget: %s" err.Message
         eprintfn "  Try increasing budget or forcing classical solver"
         Error msg
         
     | Error msg when msg.Contains("timeout") ->
         // Timeout occurred
-        eprintfn "✗ Solver timeout: %s" msg
+        eprintfn "✗ Solver timeout: %s" err.Message
         eprintfn "  Try increasing timeout or reducing problem size"
         Error msg
         
-    | Error msg ->
+    | Error err ->
         // Other error
-        eprintfn "✗ Solver error: %s" msg
+        eprintfn "✗ Solver error: %s" err.Message
         Error msg
 
 // Usage: Set limits
@@ -467,7 +467,7 @@ match solve backend distances defaultConfig with
     printfn "Optimized parameters (gamma, beta): %A" solution.OptimizedParameters
     printfn "Optimization converged: %b" solution.OptimizationConverged
     printfn "Iterations: %d" solution.OptimizationIterations
-| Error msg -> printfn "Error: %s" msg
+| Error err -> printfn "Error: %s" err.Message
 
 // Option 2: Custom configuration for fine-tuning
 let customConfig = {

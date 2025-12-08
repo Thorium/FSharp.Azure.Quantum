@@ -553,8 +553,8 @@ let problem = graphColoring {
 match GraphColoring.solve problem 3 None with
 | Ok solution -> 
     printfn "Register allocation: %A" solution.Assignments
-| Error msg -> 
-    printfn "Failed: %s" msg
+| Error err -> 
+    printfn "Failed: %s" err.Message
 ```
 
 Both approaches use quantum optimization (QAOA), but the business-focused API:

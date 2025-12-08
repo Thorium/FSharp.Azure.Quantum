@@ -59,31 +59,31 @@ module JobLifecycle =
                 | HttpStatusCode.Created -> 
                     return Ok submission.JobId
                 | HttpStatusCode.Unauthorized -> 
-                    return Error QuantumError.InvalidCredentials
+                    return Error (QuantumError.AzureError AzureQuantumError.InvalidCredentials)
                 | HttpStatusCode.TooManyRequests ->
                     let retryAfter = 
                         if not (isNull response.Headers.RetryAfter) && response.Headers.RetryAfter.Delta.HasValue then
                             response.Headers.RetryAfter.Delta.Value
                         else
                             TimeSpan.FromSeconds(60.0)
-                    return Error (QuantumError.RateLimited retryAfter)
+                    return Error (QuantumError.AzureError (AzureQuantumError.RateLimited retryAfter))
                 | HttpStatusCode.ServiceUnavailable ->
                     let retryAfter = 
                         if not (isNull response.Headers.RetryAfter) && response.Headers.RetryAfter.Delta.HasValue then
                             Some response.Headers.RetryAfter.Delta.Value
                         else
                             Some (TimeSpan.FromSeconds(30.0))
-                    return Error (QuantumError.ServiceUnavailable retryAfter)
+                    return Error (QuantumError.AzureError (AzureQuantumError.ServiceUnavailable retryAfter))
                 | HttpStatusCode.NotFound ->
-                    return Error (QuantumError.BackendNotFound submission.Target)
+                    return Error (QuantumError.BackendError(submission.Target, "Backend not found"))
                 | _ ->
                     let! errorBody = response.Content.ReadAsStringAsync() |> Async.AwaitTask
-                    return Error (QuantumError.UnknownError(int response.StatusCode, errorBody))
+                    return Error (QuantumError.AzureError (AzureQuantumError.UnknownError(int response.StatusCode, errorBody)))
             with
             | :? TaskCanceledException as ex ->
-                return Error (QuantumError.NetworkTimeout 1)
+                return Error (QuantumError.AzureError (AzureQuantumError.NetworkTimeout 1))
             | ex ->
-                return Error (QuantumError.UnknownError(0, ex.Message))
+                return Error (QuantumError.AzureError (AzureQuantumError.UnknownError(0, ex.Message)))
         }
     
     // ============================================================================
@@ -199,10 +199,10 @@ module JobLifecycle =
                     return Ok quantumJob
                     
                 | HttpStatusCode.Unauthorized -> 
-                    return Error QuantumError.InvalidCredentials
+                    return Error (QuantumError.AzureError AzureQuantumError.InvalidCredentials)
                     
                 | HttpStatusCode.NotFound ->
-                    return Error (QuantumError.UnknownError(404, sprintf "Job %s not found" jobId))
+                    return Error (QuantumError.AzureError (AzureQuantumError.UnknownError(404, sprintf "Job %s not found" jobId)))
                     
                 | HttpStatusCode.TooManyRequests ->
                     let retryAfter = 
@@ -210,17 +210,17 @@ module JobLifecycle =
                             response.Headers.RetryAfter.Delta.Value
                         else
                             TimeSpan.FromSeconds(60.0)
-                    return Error (QuantumError.RateLimited retryAfter)
+                    return Error (QuantumError.AzureError (AzureQuantumError.RateLimited retryAfter))
                     
                 | _ ->
                     let! errorBody = response.Content.ReadAsStringAsync() |> Async.AwaitTask
-                    return Error (QuantumError.UnknownError(int response.StatusCode, errorBody))
+                    return Error (QuantumError.AzureError (AzureQuantumError.UnknownError(int response.StatusCode, errorBody)))
                     
             with
             | :? TaskCanceledException ->
-                return Error (QuantumError.NetworkTimeout 1)
+                return Error (QuantumError.AzureError (AzureQuantumError.NetworkTimeout 1))
             | ex ->
-                return Error (QuantumError.UnknownError(0, ex.Message))
+                return Error (QuantumError.AzureError (AzureQuantumError.UnknownError(0, ex.Message)))
         }
     
     /// Poll job until it reaches a terminal state with exponential backoff
@@ -264,12 +264,12 @@ module JobLifecycle =
                 async {
                     // Check cancellation
                     if cancellationToken.IsCancellationRequested then
-                        return Error QuantumError.Cancelled
+                        return Error (QuantumError.OperationError("Job polling", "Operation cancelled"))
                     else
                         // Check timeout
                         let elapsed = DateTimeOffset.UtcNow - startTime
                         if elapsed >= timeout then
-                            return Error QuantumError.Cancelled
+                            return Error (QuantumError.OperationError("Job polling", "Operation cancelled due to timeout"))
                         else
                             // Get current job status
                             let! result = getJobStatusAsync httpClient workspaceUrl jobId
@@ -356,20 +356,20 @@ module JobLifecycle =
                     return Ok jobResult
                     
                 | HttpStatusCode.NotFound ->
-                    return Error (QuantumError.UnknownError(404, sprintf "Result blob not found at %s" blobUri))
+                    return Error (QuantumError.AzureError (AzureQuantumError.UnknownError(404, sprintf "Result blob not found at %s" blobUri)))
                     
                 | HttpStatusCode.Unauthorized ->
-                    return Error QuantumError.InvalidCredentials
+                    return Error (QuantumError.AzureError AzureQuantumError.InvalidCredentials)
                     
                 | _ ->
                     let! errorBody = response.Content.ReadAsStringAsync() |> Async.AwaitTask
-                    return Error (QuantumError.UnknownError(int response.StatusCode, errorBody))
+                    return Error (QuantumError.AzureError (AzureQuantumError.UnknownError(int response.StatusCode, errorBody)))
                     
             with
             | :? TaskCanceledException ->
-                return Error (QuantumError.NetworkTimeout 1)
+                return Error (QuantumError.AzureError (AzureQuantumError.NetworkTimeout 1))
             | ex ->
-                return Error (QuantumError.UnknownError(0, ex.Message))
+                return Error (QuantumError.AzureError (AzureQuantumError.UnknownError(0, ex.Message)))
         }
     
     // ============================================================================
@@ -406,10 +406,10 @@ module JobLifecycle =
                     return Ok ()
                     
                 | HttpStatusCode.NotFound ->
-                    return Error (QuantumError.UnknownError(404, sprintf "Job %s not found" jobId))
+                    return Error (QuantumError.AzureError (AzureQuantumError.UnknownError(404, sprintf "Job %s not found" jobId)))
                     
                 | HttpStatusCode.Unauthorized ->
-                    return Error QuantumError.InvalidCredentials
+                    return Error (QuantumError.AzureError AzureQuantumError.InvalidCredentials)
                     
                 | HttpStatusCode.TooManyRequests ->
                     let retryAfter = 
@@ -417,17 +417,17 @@ module JobLifecycle =
                             response.Headers.RetryAfter.Delta.Value
                         else
                             TimeSpan.FromSeconds(60.0)
-                    return Error (QuantumError.RateLimited retryAfter)
+                    return Error (QuantumError.AzureError (AzureQuantumError.RateLimited retryAfter))
                     
                 | _ ->
                     let! errorBody = response.Content.ReadAsStringAsync() |> Async.AwaitTask
-                    return Error (QuantumError.UnknownError(int response.StatusCode, errorBody))
+                    return Error (QuantumError.AzureError (AzureQuantumError.UnknownError(int response.StatusCode, errorBody)))
                     
             with
             | :? TaskCanceledException ->
-                return Error (QuantumError.NetworkTimeout 1)
+                return Error (QuantumError.AzureError (AzureQuantumError.NetworkTimeout 1))
             | ex ->
-                return Error (QuantumError.UnknownError(0, ex.Message))
+                return Error (QuantumError.AzureError (AzureQuantumError.UnknownError(0, ex.Message)))
         }
     
     // ============================================================================
@@ -469,8 +469,8 @@ module JobLifecycle =
                 | Ok job ->
                     // Step 3: Get results if available
                     match job.OutputDataUri with
-                    | None -> 
-                        return Error (QuantumError.UnknownError(500, "Job completed but no output URI available"))
+                    | None ->
+                        return Error (QuantumError.AzureError (AzureQuantumError.UnknownError(500, "Job completed but no output URI available")))
                     | Some uri ->
                         return! getJobResultAsync httpClient uri
         }
@@ -523,7 +523,7 @@ module JobLifecycle =
         async {
             match job.OutputDataUri with
             | None ->
-                return Error (QuantumError.UnknownError(500, sprintf "Job %s has no output URI" job.JobId))
+                return Error (QuantumError.AzureError (AzureQuantumError.UnknownError(500, sprintf "Job %s has no output URI" job.JobId)))
             | Some uri ->
                 return! getJobResultAsync httpClient uri
         }

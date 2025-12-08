@@ -87,7 +87,7 @@ let problem = graphColoring {
 // Automatically uses LocalBackend for ≤20 qubits
 match GraphColoring.solve problem 2 None with
 | Ok solution -> printfn "Solution: %A" solution
-| Error msg -> printfn "Error: %s" msg
+| Error err -> printfn "Error: %s" err.Message
 ```
 
 **Cost:** Free ✅
@@ -148,8 +148,8 @@ async {
     match result with
     | Ok vqeResult -> 
         printfn "Ground state energy: %.6f Hartree" vqeResult.Energy
-    | Error msg -> 
-        printfn "Error: %s" msg
+    | Error err -> 
+        printfn "Error: %s" err.Message
 }
 |> Async.RunSynchronously
 ```
@@ -217,8 +217,8 @@ match MaxCut.solve problem (Some rigettiBackend) with
 | Ok solution ->
     printfn "Max cut value: %.2f" solution.CutValue
     printfn "Partition S: %A" solution.PartitionS
-| Error msg ->
-    printfn "Error: %s" msg
+| Error err ->
+    printfn "Error: %s" err.Message
 ```
 
 **Cost:** ~$0.10-0.20 per circuit execution (cheaper than IonQ)
@@ -294,8 +294,8 @@ match Tsp.solve problem (Some dwaveBackend) with
 | Ok solution ->
     printfn "Tour length: %.2f" solution.TotalDistance
     printfn "Route: %A" solution.Tour
-| Error msg ->
-    printfn "Error: %s" msg
+| Error err ->
+    printfn "Error: %s" err.Message
 ```
 
 **Cost:** ~$2 per minute of QPU time (cost-effective for large problems)

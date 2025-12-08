@@ -8,6 +8,7 @@ open System.Text.Json
 open Xunit
 open FSharp.Azure.Quantum.Core.RigettiBackend
 open FSharp.Azure.Quantum.Core.Types
+open FSharp.Azure.Quantum.Core
 
 module RigettiBackendTests =
     
@@ -585,10 +586,9 @@ module RigettiBackendTests =
         
         // Assert
         match quantumError with
-        | QuantumError.InvalidCircuit errors -> 
-            Assert.NotEmpty(errors)
-            Assert.Contains("Malformed Quil", errors.[0])
-        | _ -> Assert.True(false, "Expected InvalidCircuit")
+        | QuantumError.ValidationError(field, reason) -> 
+            Assert.Contains("Malformed Quil", reason)
+        | _ -> Assert.True(false, "Expected ValidationError")
     
     [<Fact>]
     let ``mapRigettiError - maps TopologyError to InvalidCircuit`` () =
@@ -601,10 +601,9 @@ module RigettiBackendTests =
         
         // Assert
         match quantumError with
-        | QuantumError.InvalidCircuit errors -> 
-            Assert.NotEmpty(errors)
-            Assert.Contains("connectivity", errors.[0])
-        | _ -> Assert.True(false, "Expected InvalidCircuit")
+        | QuantumError.ValidationError(field, reason) -> 
+            Assert.Contains("connectivity", reason)
+        | _ -> Assert.True(false, "Expected ValidationError")
     
     [<Fact>]
     let ``mapRigettiError - maps TooManyQubits to InvalidCircuit`` () =
@@ -617,10 +616,9 @@ module RigettiBackendTests =
         
         // Assert
         match quantumError with
-        | QuantumError.InvalidCircuit errors -> 
-            Assert.NotEmpty(errors)
-            Assert.Contains("40", errors.[0])
-        | _ -> Assert.True(false, "Expected InvalidCircuit")
+        | QuantumError.ValidationError(field, reason) -> 
+            Assert.Contains("40", reason)
+        | _ -> Assert.True(false, "Expected ValidationError")
     
     [<Fact>]
     let ``mapRigettiError - maps QuotaExceeded to QuotaExceeded`` () =
@@ -633,5 +631,5 @@ module RigettiBackendTests =
         
         // Assert
         match quantumError with
-        | QuantumError.QuotaExceeded _ -> Assert.True(true)
+        | QuantumError.AzureError(AzureQuantumError.QuotaExceeded _) -> Assert.True(true)
         | _ -> Assert.True(false, "Expected QuotaExceeded")

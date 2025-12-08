@@ -217,7 +217,7 @@ let solveWithHybridSolver (locations: Location list) : Result<(Route * Performan
         let (route, perf) = solutionToRoute locations solution
         // Return route, performance, and solver reasoning
         Ok (route, perf, solution.Reasoning)
-    | Error msg -> Error (sprintf "HybridSolver failed: %s" msg)
+    | Error err -> Error (sprintf "HybridSolver failed: %s" err.Message)
 
 /// Calculate naive route (just visit in given order) for baseline
 let calculateNaiveRoute (locations: Location list) : Route =

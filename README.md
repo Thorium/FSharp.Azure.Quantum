@@ -5,51 +5,114 @@
 [![NuGet](https://img.shields.io/nuget/v/FSharp.Azure.Quantum.svg)](https://www.nuget.org/packages/FSharp.Azure.Quantum/)
 [![License](https://img.shields.io/badge/license-Unlicense-blue.svg)](LICENSE)
 
-## ✨ Status: Production Ready
+```mermaid
+flowchart TD
+
+    %% Top layer
+    A[.NET API High-level algorithms familiar to normal developers]
+
+    %% Quantum algorithms
+    B[Quantum Algorithms, 
+       Ph.D stuff]
+
+    %% Backend interfaces
+    C[Backend Interfaces: IQuantumBackend / ITopologicalBackend]
+
+    %% Quantum Gate Backends
+    D[Quantum Gate Backends: 
+        LocalSimulator: Ph.D stuff, 
+        Azure Quantum as a service]
+
+
+    %% Topological Backends
+    E[Topological Backend simulator, 
+       more Ph.D stuff]
+
+    %% Flow
+    A --> B --> C
+    C --> D
+    C --> E
+```
+
+## Table of Contents
+
+- [Status](#status)
+- [Quick Start](#quick-start)
+  - [Installation](#installation)
+  - [F# Computation Expressions](#f-computation-expressions)
+  - [C# Fluent API](#c-fluent-api)
+- [Problem Builders](#problem-builders)
+  - [Graph Coloring](#graph-coloring)
+  - [MaxCut](#maxcut)
+  - [Knapsack (0/1)](#knapsack-01)
+  - [Traveling Salesperson Problem (TSP)](#traveling-salesperson-problem-tsp)
+  - [Portfolio Optimization](#portfolio-optimization)
+  - [Network Flow](#network-flow)
+  - [Task Scheduling](#task-scheduling)
+- [Advanced Quantum Builders](#advanced-quantum-builders)
+  - [Quantum Tree Search Builder](#quantum-tree-search-builder)
+  - [Quantum Constraint Solver Builder](#quantum-constraint-solver-builder)
+  - [Quantum Pattern Matcher Builder](#quantum-pattern-matcher-builder)
+  - [Quantum Arithmetic Builder](#quantum-arithmetic-builder)
+  - [Quantum Period Finder Builder](#quantum-period-finder-builder)
+  - [Quantum Phase Estimator Builder](#quantum-phase-estimator-builder)
+- [Quantum Machine Learning (QML)](#quantum-machine-learning-qml)
+  - [Variational Quantum Classifier (VQC)](#variational-quantum-classifier-vqc)
+  - [Quantum Kernel SVM](#quantum-kernel-svm)
+- [Business Problem Builders](#business-problem-builders)
+  - [AutoML](#automl---automated-machine-learning)
+  - [Anomaly Detection](#anomaly-detection---security--fraud-detection)
+  - [Binary Classification](#binary-classification---fraud-detection)
+  - [Predictive Modeling](#predictive-modeling---customer-churn-prediction)
+  - [Similarity Search](#similarity-search---product-recommendations)
+- [HybridSolver](#hybridsolver---automatic-classicalquantum-routing)
+- [Architecture](#architecture)
+  - [3-Layer Quantum-Only Architecture](#3-layer-quantum-only-architecture)
+  - [D-Wave Quantum Annealer](#d-wave-quantum-annealer)
+  - [Azure Quantum Workspace Management](#azure-quantum-workspace-management)
+- [OpenQASM 2.0 Support](#openqasm-20-support)
+- [Error Mitigation](#error-mitigation)
+  - [Zero-Noise Extrapolation (ZNE)](#1%EF%B8%8F⃣-zero-noise-extrapolation-zne)
+  - [Probabilistic Error Cancellation (PEC)](#2%EF%B8%8F⃣-probabilistic-error-cancellation-pec)
+  - [Readout Error Mitigation (REM)](#3%EF%B8%8F⃣-readout-error-mitigation-rem)
+  - [Automatic Strategy Selection](#4%EF%B8%8F⃣-automatic-strategy-selection)
+- [QAOA Algorithm Internals](#qaoa-algorithm-internals)
+- [Documentation](#documentation)
+- [Problem Size Guidelines](#problem-size-guidelines)
+- [Design Philosophy](#design-philosophy)
+- [Educational Algorithms](#educational-algorithms)
+  - [Grover's Search Algorithm](#grovers-search-algorithm)
+  - [Amplitude Amplification](#amplitude-amplification)
+  - [Quantum Fourier Transform (QFT)](#quantum-fourier-transform-qft)
+- [Topological Quantum Computing](#topological-quantum-computing)
+- [Contributing](#contributing)
+- [License](#license)
+- [Support](#support)
+
+## Status
 
 **Architecture:** Quantum-First Hybrid Library - Quantum algorithms as primary solvers, with intelligent classical fallback for small problems
 
 **Current Version:** Latest (D-Wave Support + Quantum Machine Learning + Business Builders)
 
 **Current Features:**
-- ✅ **Multiple Backends:** LocalBackend (simulation), Azure Quantum (IonQ, Rigetti, Quantinuum), D-Wave quantum annealers (2000+ qubits)
-- ✅ **Topological Quantum Computing:** Anyon braiding simulator (Ising & Fibonacci anyons) - Microsoft Majorana architecture
-- ✅ **Quantum Machine Learning:** VQC, Quantum Kernel SVM, Feature Maps, Variational Forms, AutoML
-- ✅ **Business Problem Builders:** AutoML, Anomaly Detection, Binary Classification, Predictive Modeling, Similarity Search
-- ✅ **OpenQASM 2.0:** Import/export compatibility with IBM Qiskit, Amazon Braket, Google Cirq
-- ✅ **QAOA Implementation:** Quantum Approximate Optimization Algorithm with advanced parameter optimization
-- ✅ **7 Quantum Optimization Builders:** Graph Coloring, MaxCut, Knapsack, TSP, Portfolio, Network Flow, Task Scheduling
-- ✅ **6 Advanced QFT-Based Builders:** Quantum Arithmetic, Cryptographic Analysis (Shor's), Phase Estimation, Tree Search, Constraint Solver, Pattern Matcher
-- ✅ **VQE Implementation:** Variational Quantum Eigensolver for molecular ground state energies (quantum chemistry)
-- ✅ **Error Mitigation:** ZNE (30-50% error reduction), PEC (2-3x accuracy), REM (50-90% readout correction)
-- ✅ **F# Computation Expressions:** Idiomatic, type-safe problem specification with builders
-- ✅ **C# Interop:** Fluent API extensions for C# developers
-- ✅ **Circuit Building:** Low-level quantum circuit construction and optimization possible
+- Multiple Backends: LocalBackend (simulation), Azure Quantum (IonQ, Rigetti, Atom Computing, Quantinuum), D-Wave quantum annealers (2000+ qubits)
+- Topological Quantum Computing: Anyon braiding simulator (Ising & Fibonacci anyons) - Microsoft Majorana architecture
+- Quantum Machine Learning: VQC, Quantum Kernel SVM, Feature Maps, Variational Forms, AutoML
+- Business Problem Builders: AutoML, Anomaly Detection, Binary Classification, Predictive Modeling, Similarity Search
+- OpenQASM 2.0: Import/export compatibility with IBM Qiskit, Amazon Braket, Google Cirq
+- QAOA Implementation: Quantum Approximate Optimization Algorithm with advanced parameter optimization
+- 7 Quantum Optimization Builders: Graph Coloring, MaxCut, Knapsack, TSP, Portfolio, Network Flow, Task Scheduling
+- 6 Advanced QFT-Based Builders: Quantum Arithmetic, Cryptographic Analysis (Shor's), Phase Estimation, Tree Search, Constraint Solver, Pattern Matcher
+- VQE Implementation: Variational Quantum Eigensolver for molecular ground state energies (quantum chemistry)
+- Error Mitigation: ZNE (30-50% error reduction), PEC (2-3x accuracy), REM (50-90% readout correction)
+- F# Computation Expressions: Idiomatic, type-safe problem specification with builders
+- C# Interop: Fluent API extensions for C# developers
+- Circuit Building: Low-level quantum circuit construction and optimization possible
 
 ---
 
-## 📖 Table of Contents
-
-1. [Quick Start](#-quick-start) - **Start here!** Get running in 5 minutes
-2. [Problem Builders](#-problem-builders) - High-level APIs for 7 optimization problems
-3. [Quantum Machine Learning](#-quantum-machine-learning-qml) - VQC, Quantum Kernels, AutoML
-4. [Business Builders](#-business-problem-builders) - AutoML, Anomaly Detection, Fraud Detection, Customer Churn
-5. [Topological Quantum Computing](#-topological-quantum-computing) - Anyon braiding simulator (Microsoft Majorana)
-6. [HybridSolver](#-hybridsolver---automatic-classicalquantum-routing) - Automatic classical/quantum routing
-7. [Architecture](#-architecture) - How the library is organized
-8. [C# Interop](#-c-interop) - Using from C#
-9. [Backend Selection](#-backend-selection) - Local vs Cloud vs D-Wave quantum execution
-10. [OpenQASM 2.0 Support](#-openqasm-20-support) - Import/export quantum circuits
-11. [Error Mitigation](#️-error-mitigation) - Reduce quantum noise by 30-90%
-12. [QAOA Algorithm Internals](#-qaoa-algorithm-internals) - How quantum optimization works
-13. [Documentation](#-documentation) - Complete guides and API reference
-14. [Design Philosophy](#-design-philosophy) - Quantum-only architecture principles
-15. [Educational Algorithms](#-educational-algorithms) - Grover, QFT, Amplitude Amplification (for learning)
-16. [Advanced Quantum Builders](#-advanced-quantum-builders) - Tree Search, Constraint Solver, Pattern Matcher, Arithmetic, Period Finder, Phase Estimator (⚠️ Requires future hardware)
-
----
-
-## 🚀 Quick Start
+## Quick Start
 
 ### Installation
 
@@ -116,11 +179,11 @@ if (result.IsOk) {
 
 ---
 
-## 🎯 Problem Builders
+## Problem Builders
 
-**7 Production-Ready Optimization Builders using QAOA:**
+**Optimization Builders using QAOA:**
 
-### 1. Graph Coloring
+### Graph Coloring
 
 **Use Case:** Register allocation, frequency assignment, exam scheduling
 
@@ -144,7 +207,7 @@ match GraphColoring.solve problem 3 None with
 | Error msg -> printfn "Error: %s" msg
 ```
 
-### 2. MaxCut
+### MaxCut
 
 **Use Case:** Circuit design, community detection, load balancing
 
@@ -167,7 +230,7 @@ match MaxCut.solve problem None with
 | Error msg -> printfn "Error: %s" msg
 ```
 
-### 3. Knapsack (0/1)
+### Knapsack (0/1)
 
 **Use Case:** Resource allocation, portfolio selection, cargo loading
 
@@ -189,7 +252,7 @@ match Knapsack.solve problem None with
 | Error msg -> printfn "Error: %s" msg
 ```
 
-### 4. Traveling Salesperson Problem (TSP)
+### Traveling Salesperson Problem (TSP)
 
 **Use Case:** Route optimization, delivery planning, logistics
 
@@ -210,7 +273,7 @@ match TSP.solve problem None with
 | Error msg -> printfn "Error: %s" msg
 ```
 
-### 5. Portfolio Optimization
+### Portfolio Optimization
 
 **Use Case:** Investment allocation, asset selection, risk management
 
@@ -235,7 +298,7 @@ match Portfolio.solve problem None with
 | Error msg -> printfn "Error: %s" msg
 ```
 
-### 6. Network Flow
+### Network Flow
 
 **Use Case:** Supply chain optimization, logistics, distribution planning
 
@@ -262,7 +325,7 @@ match NetworkFlow.solve problem None with
 | Error msg -> printfn "Error: %s" msg
 ```
 
-### 7. Task Scheduling
+### Task Scheduling
 
 **Use Case:** Manufacturing workflows, project management, resource allocation with dependencies
 
@@ -323,12 +386,12 @@ match solveQuantum backend problem with
 ```
 
 **Features:**
-- ✅ **Dependency Management** - Precedence constraints (task A before task B)
-- ✅ **Resource Constraints** - Limited workers, machines, budget
-- ✅ **Quantum Optimization** - QAOA for resource-constrained scheduling
-- ✅ **Classical Fallback** - Topological sort for dependency-only problems
-- ✅ **Gantt Chart Export** - Visualize schedules
-- ✅ **Business ROI** - Validated $25,000/hour savings in powerplant optimization
+- Dependency Management - Precedence constraints (task A before task B)
+- Resource Constraints - Limited workers, machines, budget
+- Quantum Optimization - QAOA for resource-constrained scheduling
+- Classical Fallback - Topological sort for dependency-only problems
+- Gantt Chart Export - Visualize schedules
+- Business ROI - Validated $25,000/hour savings in powerplant optimization
 
 **API Documentation:** [TaskScheduling-API.md](docs/TaskScheduling-API.md)
 
@@ -338,7 +401,331 @@ match solveQuantum backend problem with
 
 ---
 
-## 🤖 Quantum Machine Learning (QML)
+## Advanced Quantum Builders
+
+**High-level builders for specialized quantum algorithms using computation expression syntax.**
+
+Beyond the optimization and QFT-based builders, the library provides five advanced builders for specialized quantum computing tasks:
+
+### Quantum Tree Search Builder
+
+**Use Case:** Graph traversal, decision trees, game tree exploration
+
+```fsharp
+open FSharp.Azure.Quantum.QuantumTreeSearchBuilder
+
+// Search decision tree with quantum parallelism
+let searchProblem = QuantumTreeSearch.quantumTreeSearch {
+    depth 5                    // Tree depth
+    branchingFactor 3          // Children per node
+    target 42                  // Target node value
+    qubits 10
+}
+
+match search searchProblem with
+| Ok result ->
+    printfn "Found path: %A" result.Path
+    printfn "Depth explored: %d" result.DepthReached
+    printfn "Success probability: %.2f%%" (result.Probability * 100.0)
+| Error msg ->
+    printfn "Error: %s" msg
+```
+
+**Features:**
+- Quantum parallelism for tree exploration
+- Amplitude amplification for target finding
+- F# computation expression: `QuantumTreeSearch.quantumTreeSearch { }`
+- Applications: Game AI, route planning, decision analysis
+
+---
+
+### Quantum Constraint Solver Builder
+
+**Use Case:** SAT solving, constraint satisfaction problems, logic puzzles
+
+```fsharp
+open FSharp.Azure.Quantum.QuantumConstraintSolverBuilder
+
+// Solve boolean satisfiability (SAT) problem
+let satProblem = QuantumConstraintSolver.constraintSolver {
+    variables ["x"; "y"; "z"]
+    clause ["x"; "!y"]         // x OR NOT y
+    clause ["!x"; "z"]         // NOT x OR z
+    clause ["y"; "!z"]         // y OR NOT z
+    qubits 8
+}
+
+match solve satProblem with
+| Ok solution ->
+    printfn "Satisfying assignment:"
+    solution.Assignment 
+    |> Map.iter (fun var value -> printfn "  %s = %b" var value)
+    printfn "Clauses satisfied: %d/%d" solution.SatisfiedClauses solution.TotalClauses
+| Error msg ->
+    printfn "Error: %s" msg
+```
+
+**Features:**
+- Grover-based SAT solving
+- CNF (Conjunctive Normal Form) constraint encoding
+- F# computation expression: `QuantumConstraintSolver.constraintSolver { }`
+- Applications: Circuit verification, scheduling, logic puzzles
+
+---
+
+### Quantum Pattern Matcher Builder
+
+**Use Case:** String matching, DNA sequence alignment, anomaly detection
+
+```fsharp
+open FSharp.Azure.Quantum.QuantumPatternMatcherBuilder
+
+// Find pattern in data stream with quantum speedup
+let matchProblem = QuantumPatternMatcher.patternMatcher {
+    haystack [1; 2; 3; 4; 5; 6; 7; 8]
+    needle [3; 4; 5]
+    tolerance 0                 // Exact match
+    qubits 12
+}
+
+match find matchProblem with
+| Ok result ->
+    printfn "Pattern found at positions: %A" result.Positions
+    printfn "Total matches: %d" result.MatchCount
+    printfn "Search probability: %.2f%%" (result.Probability * 100.0)
+| Error msg ->
+    printfn "Error: %s" msg
+```
+
+**Features:**
+- Quantum search for pattern matching
+- Approximate matching with tolerance
+- F# computation expression: `QuantumPatternMatcher.patternMatcher { }`
+- Applications: Bioinformatics, data mining, signal processing
+
+---
+
+### Quantum Arithmetic Builder
+
+**Use Case:** Cryptographic operations, RSA encryption, modular arithmetic
+
+```fsharp
+open FSharp.Azure.Quantum.QuantumArithmeticBuilder
+
+// Quantum integer addition
+let addProblem = QuantumArithmeticOps.quantumArithmetic {
+    operands 15 27              // 15 + 27
+    operation Add
+    qubits 10
+}
+
+match compute addProblem with
+| Ok result ->
+    printfn "Result: %d" result.Value
+    printfn "Carry: %b" result.Carry
+    printfn "Gates used: %d" result.GateCount
+    printfn "Circuit depth: %d" result.CircuitDepth
+| Error msg ->
+    printfn "Error: %s" msg
+
+// Modular exponentiation for RSA
+let rsaProblem = QuantumArithmeticOps.quantumArithmetic {
+    operands 5 3                // base=5, exponent=3
+    operation ModularExponentiate
+    modulus 33                  // RSA modulus
+    qubits 12
+}
+```
+
+**Features:**
+- Quantum arithmetic operations (Add, Subtract, Multiply, ModularExponentiate)
+- QFT-based carry propagation
+- F# computation expression: `QuantumArithmeticOps.quantumArithmetic { }`
+- Applications: Cryptography, financial calculations, scientific computing
+
+---
+
+### Quantum Period Finder Builder
+
+**Use Case:** Shor's algorithm, cryptanalysis, order finding
+
+```fsharp
+open FSharp.Azure.Quantum.QuantumPeriodFinderBuilder
+
+// Find period of modular function (Shor's algorithm)
+let shorsProblem = QuantumPeriodFinder.periodFinder {
+    number 15                   // Composite to factor
+    base_ 7                     // Coprime base
+    precision 12                // QPE precision bits
+    maxAttempts 10              // Probabilistic retries
+}
+
+match findPeriod shorsProblem with
+| Ok result ->
+    printfn "Period found: %d" result.Period
+    match result.Factors with
+    | Some (p, q) ->
+        printfn "Factors: %d × %d = %d" p q (p * q)
+        printfn "⚠️  RSA modulus factored!"
+    | None ->
+        printfn "Retry with different base (probabilistic)"
+| Error msg ->
+    printfn "Error: %s" msg
+```
+
+**Features:**
+- Quantum Period Finding (QPF) for Shor's algorithm
+- Quantum Phase Estimation (QPE) integration
+- F# computation expression: `QuantumPeriodFinder.periodFinder { }`
+- Applications: Cryptanalysis, number theory, discrete logarithm
+
+---
+
+### Quantum Phase Estimator Builder
+
+**Use Case:** Eigenvalue estimation, quantum chemistry, VQE enhancement
+
+```fsharp
+open FSharp.Azure.Quantum.QuantumPhaseEstimatorBuilder
+open FSharp.Azure.Quantum.Algorithms.QuantumPhaseEstimation
+
+// Estimate eigenphase of unitary operator
+let qpeProblem = QuantumPhaseEstimator.phaseEstimator {
+    unitary (RotationZ (Math.PI / 4.0))  // Operator U
+    eigenstate 0                         // |ψ⟩ = |0⟩
+    precision 16                         // 16-bit phase precision
+    qubits 20
+}
+
+match estimate qpeProblem with
+| Ok result ->
+    printfn "Estimated phase: %.6f" result.Phase
+    printfn "Eigenvalue: e^(2πi × %.6f)" result.Phase
+    printfn "Confidence: %.2f%%" (result.Confidence * 100.0)
+    printfn "Application: Molecular energy = %.4f Hartree" (result.Phase * 2.0 * Math.PI)
+| Error msg ->
+    printfn "Error: %s" msg
+```
+
+**Features:**
+- Quantum Phase Estimation (QPE) with arbitrary precision
+- Inverse QFT for phase readout
+- F# computation expression: `QuantumPhaseEstimator.phaseEstimator { }`
+- Applications: Quantum chemistry (VQE), linear systems, machine learning
+
+---
+
+### Advanced Builder Features
+
+**Common Capabilities:**
+- Computation Expression Syntax - Idiomatic F# DSL for all builders
+- Backend Switching - LocalBackend (simulation) or Cloud (IonQ, Rigetti)
+- Type Safety - F# type system prevents invalid quantum circuits
+- C# Interop - Fluent API extensions for all builders
+- Circuit Export - Export to OpenQASM 2.0 for cross-platform execution
+- Error Handling - Comprehensive validation and error messages
+
+**Current Status:** 
+- Educational/Research Focus - Suitable for algorithm learning and prototyping
+- NISQ Limitations - Toy problems only (< 20 qubits) on current hardware
+- Production-Quality Code - Well-tested, documented, and production-quality implementation
+- Hardware Bottleneck - Waiting for fault-tolerant quantum computers for real-world scale
+
+**Use Cases by Builder:**
+
+| Builder | Primary Application | Quantum Advantage | Hardware Readiness |
+|---------|-------------------|-------------------|-------------------|
+| **Tree Search** | Game AI, Route Planning | O(√N) speedup | 2028+ (requires 50+ qubits) |
+| **Constraint Solver** | SAT, Logic Puzzles | O(√2^n) speedup | 2030+ (requires 100+ qubits) |
+| **Pattern Matcher** | DNA Alignment, Data Mining | O(√N) speedup | 2027+ (requires 30+ qubits) |
+| **Arithmetic** | Cryptography, RSA | Polynomial vs exponential | 2026+ (requires 4096+ qubits for RSA-2048) |
+| **Period Finder** | Shor's Algorithm, Cryptanalysis | Exponential speedup | 2029+ (requires 4096+ qubits) |
+| **Phase Estimator** | Quantum Chemistry, VQE | Polynomial speedup | 2025+ (10-20 qubits sufficient for small molecules) |
+
+**Recommendation:**
+- Use for **learning quantum algorithms** and understanding quantum advantage
+- Use for **prototyping** future quantum applications
+- Use **Phase Estimator for small molecules** on current NISQ hardware
+- For **production optimization**, use the [6 QAOA-based builders](#-problem-builders) instead
+
+---
+
+### C# API for Advanced Builders
+
+All advanced builders have C#-friendly fluent APIs:
+
+```csharp
+using FSharp.Azure.Quantum;
+using static FSharp.Azure.Quantum.CSharpBuilders;
+
+// Tree Search
+var treeSearch = TreeSearch(depth: 5, branchingFactor: 3, target: 42);
+var searchResult = ExecuteTreeSearch(treeSearch);
+
+// Constraint Solver
+var satProblem = ConstraintProblem(
+    variables: new[] { "x", "y", "z" },
+    clauses: new[] { 
+        new[] { "x", "!y" },
+        new[] { "!x", "z" }
+    }
+);
+var satResult = SolveConstraints(satProblem);
+
+// Pattern Matcher
+var pattern = PatternMatch(
+    haystack: new[] { 1, 2, 3, 4, 5, 6, 7, 8 },
+    needle: new[] { 3, 4, 5 },
+    tolerance: 0
+);
+var matchResult = FindPattern(pattern);
+
+// Arithmetic
+var add = ArithmeticAdd(15, 27);
+var addResult = ComputeArithmetic(add);
+
+var rsa = ModularExponentiate(baseValue: 5, exponent: 3, modulus: 33);
+var rsaResult = ComputeArithmetic(rsa);
+
+// Period Finder (Shor's)
+var shors = FactorInteger(15, precision: 12);
+var factorResult = FindPeriod(shors);
+
+// Phase Estimator
+var qpe = EstimateRotationZ(Math.PI / 4.0, precision: 16);
+var phaseResult = EstimatePhase(qpe);
+```
+
+**Current Status:** Educational/research focus - Demonstrates quantum algorithms but hardware insufficient for real-world applications (2024-2025)
+
+---
+
+### Library Scope & Focus
+
+**Primary Focus: QAOA-Based Combinatorial Optimization**
+
+This library is designed for **NISQ-era practical quantum advantage** in optimization:
+- ✅ 6 optimization problem builders (Graph Coloring, MaxCut, TSP, Knapsack, Portfolio, Network Flow)
+- ✅ QAOA implementation with automatic parameter tuning
+- ✅ Error mitigation for noisy hardware (ZNE, PEC, REM)
+- ✅ Production-ready solvers with cloud backend integration
+
+**Secondary Focus: Quantum Algorithm Education & Research**
+
+The `Algorithms/` directory contains foundational quantum algorithms for learning:
+- ✅ Grover's Search (quantum search, O(√N) speedup)
+- ✅ Amplitude Amplification (generalization of Grover)
+- ✅ Quantum Fourier Transform (O(n²) vs O(n·2^n) classical FFT)
+
+**Why F# for Quantum?**
+- Type-safe quantum circuit construction
+- Functional programming matches quantum mathematics
+- Interop with .NET ecosystem (C#, Azure, ML.NET)
+- Higher level abstraction than Python (Qiskit) and Q#
+
+---
+
+## Quantum Machine Learning (QML)
 
 **Apply quantum computing to machine learning problems with variational quantum circuits and quantum kernels.**
 
@@ -430,13 +817,13 @@ match QuantumKernelSVM.train backend featureMap trainData trainLabels config 100
 ```
 
 **QML Features:**
-- ✅ **VQC** - Variational quantum circuits for supervised learning
-- ✅ **Quantum Kernels** - Leverage quantum feature spaces in SVMs
-- ✅ **Feature Maps** - ZZFeatureMap, PauliFeatureMap for encoding classical data
-- ✅ **Variational Forms** - RealAmplitudes, EfficientSU2 ansatz circuits
-- ✅ **Adam Optimizer** - Gradient-based training with momentum
-- ✅ **Model Serialization** - Save/load trained models
-- ✅ **Data Preprocessing** - Normalization, encoding, splits
+- VQC - Variational quantum circuits for supervised learning
+- Quantum Kernels - Leverage quantum feature spaces in SVMs
+- Feature Maps - ZZFeatureMap, PauliFeatureMap for encoding classical data
+- Variational Forms - RealAmplitudes, EfficientSU2 ansatz circuits
+- Adam Optimizer - Gradient-based training with momentum
+- Model Serialization - Save/load trained models
+- Data Preprocessing - Normalization, encoding, splits
 
 **Examples:** 
 - `examples/QML/VQCExample.fsx` - Complete VQC training pipeline
@@ -445,7 +832,7 @@ match QuantumKernelSVM.train backend featureMap trainData trainLabels config 100
 
 ---
 
-## 📊 Business Problem Builders
+## Business Problem Builders
 
 **High-level APIs for common business applications powered by quantum machine learning.**
 
@@ -577,13 +964,13 @@ match SimilaritySearch.findSimilar search targetProduct with
 ```
 
 **Business Builder Features:**
-- ✅ **AutoML** - Automated hyperparameter tuning, model selection, ensemble methods
-- ✅ **Anomaly Detection** - Outlier detection for security, fraud, quality control
-- ✅ **Binary Classification** - Two-class problems (fraud, spam, churn)
-- ✅ **Predictive Modeling** - Time-series forecasting, demand prediction
-- ✅ **Similarity Search** - Recommendations, semantic search, clustering
-- ✅ **Quantum-Enhanced** - Leverages quantum kernels and feature maps
-- ✅ **Production-Ready** - Model serialization, evaluation metrics, validation
+- AutoML - Automated hyperparameter tuning, model selection, ensemble methods
+- Anomaly Detection - Outlier detection for security, fraud, quality control
+- Binary Classification - Two-class problems (fraud, spam, churn)
+- Predictive Modeling - Time-series forecasting, demand prediction
+- Similarity Search - Recommendations, semantic search, clustering
+- Quantum-Enhanced - Leverages quantum kernels and feature maps
+- Ready for Production - Model serialization, evaluation metrics, validation
 
 **Examples:**
 - `examples/AutoML/QuickPrototyping.fsx` - Complete AutoML pipeline
@@ -594,93 +981,16 @@ match SimilaritySearch.findSimilar search targetProduct with
 
 ---
 
-## 🤖 HybridSolver - Automatic Classical/Quantum Routing
-
-## 🌀 Topological Quantum Computing
-
-**NEW:** Simulate topological quantum computers using anyon braiding - the approach behind Microsoft's Majorana quantum computing program.
-
-Unlike gate-based quantum computing (which uses qubits and gates), topological quantum computing encodes information in **anyons** (exotic quasiparticles) and performs operations by **braiding** their worldlines. This provides inherent fault-tolerance through **topological protection**.
-
-### Quick Example: Ising Anyons (Microsoft Majorana)
-
-```fsharp
-open FSharp.Azure.Quantum.Topological
-
-// Create backend for Ising anyons (Microsoft's approach)
-let backend = TopologicalBackend.createSimulator AnyonSpecies.AnyonType.Ising 10
-
-// Create entangled state via braiding
-let! result = topological backend {
-    // Initialize 4 sigma anyons
-    do! TopologicalBuilder.initialize AnyonSpecies.AnyonType.Ising 4
-    
-    // Braiding creates entanglement geometrically
-    do! TopologicalBuilder.braid 0  // Braid anyons 0-1
-    do! TopologicalBuilder.braid 2  // Braid anyons 2-3
-    
-    // Measure fusion outcome
-    let! (outcome, _) = TopologicalBuilder.measure 0
-    return outcome
-}
-
-match result with
-| Ok particle ->
-    printfn "Fusion outcome: %A" particle  // Vacuum or Psi
-| Error err ->
-    printfn "Error: %s" err.Message
-```
-
-### Key Concepts
-
-**Anyons:**
-- Ising anyons: `{1 (vacuum), σ (sigma), ψ (psi)}` - Microsoft's Majorana approach
-- Fibonacci anyons: `{1, τ}` - Theoretical universal braiding
-- Fusion rule for Ising: `σ × σ = 1 + ψ` (creates quantum superposition)
-
-**Operations:**
-- **Braiding**: Exchange anyons (replaces quantum gates)
-- **Fusion**: Measurement (collapses superposition to classical outcome)
-- **F-moves**: Change fusion tree basis (advanced)
-
-**Advantages:**
-- ✅ **Topological protection**: Error rates ~10⁻¹² (vs 10⁻³ for gate-based)
-- ✅ **Passive error correction**: Immunity to local noise
-- ✅ **Scalability**: Potentially 1:1 physical-to-logical qubit ratio
-
-**Comparison: Gate-Based vs Topological**
-
-| Aspect | Gate-Based QC | Topological QC |
-|--------|---------------|----------------|
-| State | Qubit amplitudes | Fusion trees |
-| Operations | H, CNOT, RZ gates | Braid, Measure |
-| Error Correction | Active (surface codes) | Passive (topology) |
-| Hardware | IonQ, Rigetti, IBM | Microsoft Majorana (experimental) |
-
-### Examples
-
-See `examples/TopologicalSimulator/` for complete examples:
-- **BasicFusion.fsx** - Fusion rules and statistics
-- **BellState.fsx** - Creating entanglement via braiding
-- **BackendComparison.fsx** - Ising vs Fibonacci anyons
-
-### Documentation
-
-- **Library README**: `src/FSharp.Azure.Quantum.Topological/README.md`
-- **Examples**: `examples/TopologicalSimulator/README.md`
-- **Format Spec**: `docs/topological-format-spec.md` (import/export)
-
----
-
+## HybridSolver - Automatic Classical/Quantum Routing
 
 **Smart solver that automatically chooses between classical and quantum execution based on problem analysis.**
 
 The HybridSolver provides a unified API that:
-- ✅ Analyzes problem size, structure, and complexity
-- ✅ Estimates quantum advantage potential
-- ✅ Routes to classical solver (fast, free) OR quantum backend (scalable, expensive)
-- ✅ Provides reasoning for solver selection
-- ✅ Optionally compares both methods for validation
+- Analyzes problem size, structure, and complexity
+- Estimates quantum advantage potential
+- Routes to classical solver (fast, free) OR quantum backend (scalable, expensive)
+- Provides reasoning for solver selection
+- Optionally compares both methods for validation
 
 **Decision Framework:**
 - Small problems (< 50 variables) → Classical solver (milliseconds, $0)
@@ -756,12 +1066,12 @@ match solvePortfolio portfolioProblem None None None with
 
 ### Features
 
-- ✅ **Unified API**: Single function call for any problem size
-- ✅ **Smart Routing**: Automatic classical/quantum decision
-- ✅ **Cost Guards**: `MaxCostUSD` prevents runaway quantum costs
-- ✅ **Validation Mode**: `EnableComparison = true` runs both methods
-- ✅ **Transparent Reasoning**: Explains why each method was chosen
-- ✅ **Quantum Advisor**: Provides recommendations on quantum readiness
+- Unified API: Single function call for any problem size
+- Smart Routing: Automatic classical/quantum decision
+- Cost Guards: `MaxCostUSD` prevents runaway quantum costs
+- Validation Mode: `EnableComparison = true` runs both methods
+- Transparent Reasoning: Explains why each method was chosen
+- Quantum Advisor: Provides recommendations on quantum readiness
 
 ### When to Use HybridSolver vs Direct Builders
 
@@ -778,11 +1088,11 @@ match solvePortfolio portfolioProblem None None None with
 - You're integrating with specific QAOA parameter tuning
 
 **Location:** `src/FSharp.Azure.Quantum/Solvers/Hybrid/HybridSolver.fs`  
-**Status:** Production-ready - Recommended for production deployments
+**Status:** Recommended for production deployments
 
 ---
 
-## 🏗️ Architecture
+## Architecture
 
 ### 3-Layer Quantum-Only Architecture
 
@@ -812,6 +1122,7 @@ graph TB
         LOCAL["LocalBackend<br/>(≤20 qubits)"]
         IONQ["IonQBackend<br/>(Azure Quantum)"]
         RIGETTI["RigettiBackend<br/>(Azure Quantum)"]
+        ATOM["AtomComputingBackend<br/>(Azure Quantum, 100+ qubits)"]
         QUANTINUUM["QuantinuumBackend<br/>(Azure Quantum, 99.9%+ fidelity)"]
     end
     
@@ -847,6 +1158,14 @@ graph TB
     QNF -.-> RIGETTI
     QSCHED -.-> RIGETTI
     
+    QGC -.-> ATOM
+    QMC -.-> ATOM
+    QKS -.-> ATOM
+    QTS -.-> ATOM
+    QPO -.-> ATOM
+    QNF -.-> ATOM
+    QSCHED -.-> ATOM
+    
     QGC -.-> QUANTINUUM
     QMC -.-> QUANTINUUM
     QKS -.-> QUANTINUUM
@@ -869,10 +1188,11 @@ graph TB
     style QPO fill:#FFA500
     style QNF fill:#FFA500
     style QSCHED fill:#FFA500
-    style LOCAL fill:#4169E1
-    style IONQ fill:#4169E1
-    style RIGETTI fill:#4169E1
-    style QUANTINUUM fill:#9370DB
+    style LOCAL fill:#5B9BD5
+    style IONQ fill:#70AD47
+    style RIGETTI fill:#ED7D31
+    style ATOM fill:#FFC000
+    style QUANTINUUM fill:#A85CC8
 ```
 
 ### Layer Responsibilities
@@ -882,11 +1202,11 @@ graph TB
 **Purpose:** Business domain APIs with problem-specific validation
 
 **Features:**
-- ✅ F# computation expressions (`graphColoring { }`)
-- ✅ C# fluent APIs (`CSharpBuilders.MaxCutProblem()`)
-- ✅ Type-safe problem specification
-- ✅ Domain-specific validation
-- ✅ Automatic backend creation (defaults to LocalBackend)
+- F# computation expressions (`graphColoring { }`)
+- C# fluent APIs (`CSharpBuilders.MaxCutProblem()`)
+- Type-safe problem specification
+- Domain-specific validation
+- Automatic backend creation (defaults to LocalBackend)
 
 **Example:**
 ```fsharp
@@ -905,11 +1225,11 @@ GraphColoring.solve problem 2 None
 **Purpose:** QAOA implementations for specific problem types
 
 **Features:**
-- ✅ Problem → QUBO encoding
-- ✅ QAOA circuit construction
-- ✅ Variational parameter optimization (Nelder-Mead)
-- ✅ Solution decoding and validation
-- ✅ Backend-agnostic (accepts `IQuantumBackend`)
+- Problem → QUBO encoding
+- QAOA circuit construction
+- Variational parameter optimization (Nelder-Mead)
+- Solution decoding and validation
+- Backend-agnostic (accepts `IQuantumBackend`)
 
 **Example:**
 ```fsharp
@@ -931,6 +1251,7 @@ QuantumGraphColoringSolver.solve
 | **LocalBackend** | ≤20 | Fast (ms) | Free | Development, testing, small problems |
 | **IonQBackend** | 29+ (sim), 11 (QPU) | Moderate (seconds) | Paid | Production, large problems |
 | **RigettiBackend** | 40+ (sim), 80 (QPU) | Moderate (seconds) | Paid | Production, large problems |
+| **AtomComputingBackend** | 100+ (sim/QPU Phoenix) | Moderate (seconds) | Paid | Large-scale problems, all-to-all connectivity |
 | **QuantinuumBackend** | 20-32 (sim), 20-32 (QPU) | Moderate (seconds) | Paid | High-fidelity (99.9%+), trapped-ion |
 
 **Example:**
@@ -960,10 +1281,19 @@ let backend_rigetti = BackendAbstraction.createFromWorkspace workspace "rigetti.
 // Quantinuum Backend (trapped-ion, highest fidelity)
 let backend_quantinuum = BackendAbstraction.createFromWorkspace workspace "quantinuum.sim.h1-1sc"
 
+// Atom Computing Backend (neutral atoms, 100+ qubits, all-to-all connectivity)
+let backend_atom = BackendAbstraction.createFromWorkspace workspace "atom-computing.sim"
+
 // Rigetti Backend (superconducting, fast gates)
 let backend_rigetti = BackendAbstraction.createRigettiBackend(
     connectionString = "YOUR_CONNECTION_STRING",
     targetId = "rigetti.sim.qvm"  // or "rigetti.qpu.*" for hardware
+)
+
+// Atom Computing Backend (neutral atoms, 100+ qubits, all-to-all connectivity)
+let backend_atom = BackendAbstraction.createAtomComputingBackend(
+    connectionString = "YOUR_CONNECTION_STRING",
+    targetId = "atom-computing.sim"  // or "atom-computing.qpu.phoenix" for hardware
 )
 
 // Quantinuum Backend (trapped-ion, highest fidelity)
@@ -991,6 +1321,7 @@ match GraphColoring.solve problem 3 (Some backend_quantinuum) with
 - ✅ **OpenQASM 2.0 format** - Standard quantum circuit language
 - ✅ **Mid-circuit measurement** - Advanced quantum features
 - ⚠️ **Premium pricing** - Higher cost per shot than IonQ/Rigetti
+
 
 ### D-Wave Quantum Annealer
 
@@ -1036,14 +1367,14 @@ match MaxCut.solve problem (Some dwaveBackend) with
 ```
 
 **D-Wave Features:**
-- ✅ **2000-5640 qubits** - Far larger than gate-based quantum computers (Advantage series)
-- ✅ **Implements IQuantumBackend** - Seamless integration with QAOA solvers
-- ✅ **Automatic QUBO extraction** - Converts QAOA circuits to native Ising format
-- ✅ **Quantum annealing** - Different paradigm than gate-based (finds ground states via annealing)
-- ✅ **Mock backend** - Test without credentials using classical simulated annealing
-- ✅ **Real backend** - Production D-Wave Leap Cloud API integration (pure .NET, no Python)
-- ✅ **Production hardware** - Available now (Advantage_system6.1: 5640 qubits)
-- ⚠️ **Specialized** - Best for optimization problems (not universal quantum computing)
+- 2000-5640 qubits - Far larger than gate-based quantum computers (Advantage series)
+- Implements IQuantumBackend - Seamless integration with QAOA solvers
+- Automatic QUBO extraction - Converts QAOA circuits to native Ising format
+- Quantum annealing - Different paradigm than gate-based (finds ground states via annealing)
+- Mock backend - Test without credentials using classical simulated annealing
+- Real backend - Production D-Wave Leap Cloud API integration (pure .NET, no Python)
+- Production hardware - Available now (Advantage_system6.1: 5640 qubits)
+- Specialized - Best for optimization problems (not universal quantum computing)
 
 **Available D-Wave Solvers:**
 - `Advantage_System6_1`: 5640 qubits (Pegasus topology, latest)
@@ -1095,14 +1426,15 @@ let result3 = MaxCut.solve largeProblem (Some dwaveBackend)  // 2000+ qubits
 | **Small** (≤20 variables) | LocalBackend | ≤20 | Milliseconds | Free | Development, testing, prototyping |
 | **Medium** (20-29 variables) | IonQ/Rigetti | 29-80 | Seconds | ~$10-50/run | Gate-based quantum algorithms (QAOA, VQE) |
 | **Medium-High Fidelity** (20-32 variables) | Quantinuum | 20-32 | Seconds | ~$50-100/run | High-precision quantum chemistry, error-sensitive algorithms |
-| **Large** (100+ variables) | D-Wave | 2000+ | Seconds | ~$1-10/run | Optimization problems (MaxCut, TSP, scheduling) |
+| **Large** (30-100+ variables) | Atom Computing | 100+ | Seconds | ~$20-80/run | Large-scale optimization, all-to-all connectivity benefits |
+| **Very Large** (100+ variables) | D-Wave | 2000+ | Seconds | ~$1-10/run | Optimization problems (MaxCut, TSP, scheduling) |
 
 **When to use D-Wave:**
-- ✅ Optimization problems with 50+ variables
-- ✅ QUBO/Ising problems (MaxCut, Knapsack, Graph Coloring)
-- ✅ Production workloads needing large problem sizes
-- ✅ Cost-sensitive applications (D-Wave cheaper per qubit)
-- ❌ NOT for: QFT-based algorithms, Grover's search, quantum chemistry (use gate-based)
+- Optimization problems with 50+ variables
+- QUBO/Ising problems (MaxCut, Knapsack, Graph Coloring)
+- Production workloads needing large problem sizes
+- Cost-sensitive applications (D-Wave cheaper per qubit)
+- NOT for: QFT-based algorithms, Grover's search, quantum chemistry (use gate-based)
 
 ### Azure Quantum Workspace Management
 
@@ -1155,10 +1487,10 @@ async {
 ```
 
 **What you get:**
-- ✅ **Workspace Features:** Quota checking, provider discovery, credential management
-- ✅ **Circuit Conversion:** Automatic provider-specific format conversion (IonQ JSON, Rigetti Quil)
-- ✅ **Proven Backends:** Full HTTP-based job submission, polling, and result parsing
-- ✅ **Resource Safety:** IDisposable pattern for proper cleanup
+- Workspace Features: Quota checking, provider discovery, credential management
+- Circuit Conversion: Automatic provider-specific format conversion (IonQ JSON, Rigetti Quil)
+- Proven Backends: Full HTTP-based job submission, polling, and result parsing
+- Resource Safety: IDisposable pattern for proper cleanup
 
 **Environment-Based Configuration:**
 ```fsharp
@@ -1196,7 +1528,7 @@ match convertCircuitToProviderFormat wrapper "rigetti.sim.qvm" with
 - Workspace management without SDK complexity
 - Automatic gate transpilation for backend compatibility
 - Support for CircuitWrapper and QaoaCircuitWrapper
-- IonQ and Rigetti providers (Quantinuum coming soon)
+- IonQ, Rigetti, Atom Computing, and Quantinuum providers
 
 **Example:** See `examples/AzureQuantumWorkspace/WorkspaceExample.fsx`
 
@@ -1245,13 +1577,13 @@ match backend.Execute wrapper 1000 with
 ```
 
 **SDK Backend Features:**
-- ✅ **Full Job Lifecycle:** Submit → Poll → Retrieve results (all automated)
-- ✅ **Automatic Circuit Conversion:** IonQ JSON / Rigetti Quil format
-- ✅ **Smart Polling:** Exponential backoff (1s → 30s max delay)
-- ✅ **Rich Metadata:** job_id, provider, target, status in results
-- ✅ **Histogram Parsing:** Automatic extraction of measurement distributions
-- ✅ **Resource Safety:** IDisposable workspace for cleanup
-- ✅ **Workspace Integration:** Uses Microsoft.Azure.Quantum SDK internally
+- Full Job Lifecycle: Submit → Poll → Retrieve results (all automated)
+- Automatic Circuit Conversion: IonQ JSON / Rigetti Quil format
+- Smart Polling: Exponential backoff (1s → 30s max delay)
+- Rich Metadata: job_id, provider, target, status in results
+- Histogram Parsing: Automatic extraction of measurement distributions
+- Resource Safety: IDisposable workspace for cleanup
+- Workspace Integration: Uses Microsoft.Azure.Quantum SDK internally
 
 **SDK Backend with Quota Check:**
 ```fsharp
@@ -1300,17 +1632,17 @@ async {
 
 ---
 
-## 🔄 OpenQASM 2.0 Support
+## OpenQASM 2.0 Support
 
 **Import and export quantum circuits to IBM Qiskit, Cirq, and other OpenQASM-compatible platforms.**
 
 ### Why OpenQASM?
 
 OpenQASM (Open Quantum Assembly Language) is the **industry-standard text format** for quantum circuits:
-- ✅ **IBM Qiskit** - Primary format (6.7k GitHub stars)
-- ✅ **Amazon Braket** - Native support
-- ✅ **Google Cirq** - Import/export compatibility
-- ✅ **Interoperability** - Share circuits between platforms
+- IBM Qiskit - Primary format (6.7k GitHub stars)
+- Amazon Braket - Native support
+- Google Cirq - Import/export compatibility
+- Interoperability - Share circuits between platforms
 
 ### Export Circuits to OpenQASM
 
@@ -1475,7 +1807,7 @@ match imported with
 
 ---
 
-## 🛡️ Error Mitigation
+## Error Mitigation
 
 **Reduce quantum noise and improve result accuracy by 30-90% with production-ready error mitigation techniques.**
 
@@ -1503,9 +1835,9 @@ Quantum computers are noisy (NISQ era). Error mitigation improves results **with
 3. Extrapolate to zero noise (λ=0)
 
 **Performance:**
-- ✅ 30-50% error reduction
-- ✅ 3x cost overhead (3 noise scaling levels)
-- ✅ Works on any backend (IonQ, Rigetti, Local)
+- 30-50% error reduction
+- 3x cost overhead (3 noise scaling levels)
+- Works on any backend (IonQ, Rigetti, Local)
 
 **F# Example:**
 ```fsharp
@@ -1559,9 +1891,9 @@ async {
 3. Reweight samples to cancel noise
 
 **Performance:**
-- ✅ 2-3x accuracy improvement
-- ⚠️ 10-100x cost overhead (Monte Carlo sampling)
-- ✅ Powerful for high-accuracy requirements
+- 2-3x accuracy improvement
+- 10-100x cost overhead (Monte Carlo sampling)
+- Powerful for high-accuracy requirements
 
 **F# Example:**
 ```fsharp
@@ -1610,9 +1942,9 @@ async {
 3. **Result** - Corrected histogram with confidence intervals
 
 **Performance:**
-- ✅ 50-90% readout error reduction
-- ✅ ~0x runtime overhead (one-time calibration, then free!)
-- ✅ Works on all backends
+- 50-90% readout error reduction
+- ~0x runtime overhead (one-time calibration, then free!)
+- Works on all backends
 
 **F# Example:**
 ```fsharp
@@ -1781,13 +2113,13 @@ async {
 
 ### Testing & Validation
 
-Error mitigation is **production-ready** with comprehensive testing:
+Error mitigation includes comprehensive testing:
 
-- ✅ **534 test cases** across all modules
-- ✅ **ZNE**: 111 tests (Richardson extrapolation, noise scaling, goodness-of-fit)
-- ✅ **PEC**: 222 tests (quasi-probability, Monte Carlo, integration)
-- ✅ **REM**: 161 tests (calibration, matrix inversion, confidence intervals)
-- ✅ **Strategy**: 40 tests (selection logic, cost estimation, fallbacks)
+- 534 test cases across all modules
+- ZNE: 111 tests (Richardson extrapolation, noise scaling, goodness-of-fit)
+- PEC: 222 tests (quasi-probability, Monte Carlo, integration)
+- REM: 161 tests (calibration, matrix inversion, confidence intervals)
+- Strategy: 40 tests (selection logic, cost estimation, fallbacks)
 
 **See:** `tests/FSharp.Azure.Quantum.Tests/*ErrorMitigation*.fs`
 
@@ -1802,7 +2134,7 @@ Error mitigation is **production-ready** with comprehensive testing:
 
 ---
 
-## 🧪 QAOA Algorithm Internals
+## QAOA Algorithm Internals
 
 ### How Quantum Optimization Works
 
@@ -1851,20 +2183,20 @@ match QuantumGraphColoringSolver.solve backend problem quantumConfig with
 
 ---
 
-## 📚 Documentation
+## Documentation
 
 - **[Quantum Computing Introduction](docs/quantum-computing-introduction.md)** - Comprehensive introduction to quantum computing for F# developers (no quantum background needed)
 - **[Getting Started Guide](docs/getting-started.md)** - Installation and first examples
 - **[C# Usage Guide](CSHARP-QUANTUM-BUILDER-USAGE-GUIDE.md)** - Complete C# interop guide
 - **[API Reference](docs/api-reference.md)** - Complete API documentation
-- **[Computation Expressions Reference](docs/computation-expressions-reference.md)** - ⭐ **NEW** Complete CE reference table with all custom operations (when IntelliSense fails)
+- **[Computation Expressions Reference](docs/computation-expressions-reference.md)** - Complete CE reference table with all custom operations (when IntelliSense fails)
 - **[Architecture Overview](docs/architecture-overview.md)** - Deep dive into library design
 - **[Backend Switching Guide](docs/backend-switching.md)** - Local vs Cloud backends
 - **[FAQ](docs/faq.md)** - Common questions and troubleshooting
 
 ---
 
-## 📊 Problem Size Guidelines
+## Problem Size Guidelines
 
 | Problem Type | Small (LocalBackend) | Medium | Large (Cloud Required) |
 |--------------|---------------------|--------|----------------------|
@@ -1880,17 +2212,17 @@ match QuantumGraphColoringSolver.solve backend problem quantumConfig with
 
 ---
 
-## 🎯 Design Philosophy
+## Design Philosophy
 
 ### Rule 1: Quantum-Only Library
 
 **FSharp.Azure.Quantum is a quantum-first library - NO classical algorithms.**
 
 **Why?**
-- ✅ Clear identity: Purpose-built for quantum optimization
-- ✅ No architectural confusion: Pure quantum algorithm library
-- ✅ Complements classical libraries: Use together with classical solvers when needed
-- ✅ Educational value: Learn quantum algorithms without classical fallbacks
+- Clear identity: Purpose-built for quantum optimization
+- No architectural confusion: Pure quantum algorithm library
+- Complements classical libraries: Use together with classical solvers when needed
+- Educational value: Learn quantum algorithms without classical fallbacks
 
 **What this means:**
 ```fsharp
@@ -1911,13 +2243,9 @@ GraphColoring.solve problem 3 None
 
 ---
 
-## 📚 Educational Algorithms
+## Educational Algorithms
 
-**Note:** The following algorithms are provided for **quantum computing education and research**. They are NOT optimization solvers and should not be used for production optimization tasks. For production optimization, use the [Problem Builders](#-problem-builders) or [HybridSolver](#-hybridsolver---automatic-classicalquantum-routing) above.
-
----
-
-In addition to the production-ready optimization solvers above, the library includes **foundational quantum algorithms** for education and research:
+In addition to the optimization solvers above, the library includes **foundational quantum algorithms** for education and research:
 
 ### Grover's Search Algorithm
 
@@ -1948,10 +2276,10 @@ match Search.searchWithPredicate 3 predicate searchConfig with
 ```
 
 **Features:**
-- ✅ Automatic optimal iteration calculation
-- ✅ Amplitude amplification for multiple solutions
-- ✅ Direct LocalSimulator integration (no IBackend)
-- ✅ Educational/research tool (not production optimizer)
+- Automatic optimal iteration calculation
+- Amplitude amplification for multiple solutions
+- Direct LocalSimulator integration (no IBackend)
+- Educational/research tool (not production optimizer)
 
 **Location:** `src/FSharp.Azure.Quantum/Algorithms/`  
 **Status:** Experimental - Research and education purposes
@@ -2007,18 +2335,18 @@ executeBasisStateAmplification 3 5 oracle 2 backend 1000 // Start from |5⟩
 ```
 
 **Features:**
-- ✅ Custom state preparation (W-states, partial superpositions, arbitrary states)
-- ✅ **Cloud backend execution** (IonQ, Rigetti, LocalBackend)
-- ✅ Automatic reflection operator generation (circuit-based A†)
-- ✅ Grover equivalence verification (shows Grover as special case)
-- ✅ Optimal iteration calculation for arbitrary initial success probability
-- ✅ Measurement-based results (histogram of basis states)
+- Custom state preparation (W-states, partial superpositions, arbitrary states)
+- Cloud backend execution (IonQ, Rigetti, LocalBackend)
+- Automatic reflection operator generation (circuit-based A†)
+- Grover equivalence verification (shows Grover as special case)
+- Optimal iteration calculation for arbitrary initial success probability
+- Measurement-based results (histogram of basis states)
 
 **Backend Limitations:**
-- ⚠️ Backend execution returns **measurement statistics only** (not full amplitudes)
-- ⚠️ Quantum phases are **lost during measurement** (fundamental limitation)
-- ✅ Suitable for algorithms that measure amplification results
-- ✅ For amplitude/phase analysis, use local simulation
+- Backend execution returns measurement statistics only (not full amplitudes)
+- Quantum phases are lost during measurement (fundamental limitation)
+- Suitable for algorithms that measure amplification results
+- For amplitude/phase analysis, use local simulation
 
 **Use Cases:**
 - Quantum walk algorithms with non-uniform initial distributions
@@ -2028,7 +2356,7 @@ executeBasisStateAmplification 3 5 oracle 2 backend 1000 // Start from |5⟩
 
 **Location:** `Algorithms/AmplitudeAmplificationAdapter.fs`
 
-**Status:** Production-ready
+**Status:** Well-tested and documented
 
 ---
 
@@ -2069,19 +2397,19 @@ executeQFTOnState 5 7 backend 1000     // QFT on specific input state |7⟩
 ```
 
 **Features:**
-- ✅ O(n²) gate complexity (exponential speedup over classical)
-- ✅ **Cloud backend execution** (IonQ, Rigetti, LocalBackend)
-- ✅ Controlled phase gates (CP) with correct decomposition
-- ✅ Bit-reversal SWAP gates (optional for QPE)
-- ✅ Inverse QFT (QFT†) for result decoding
-- ✅ Angle validation (prevents NaN/infinity)
-- ✅ Measurement-based results (histogram of basis states)
+- O(n²) gate complexity (exponential speedup over classical)
+- Cloud backend execution (IonQ, Rigetti, LocalBackend)
+- Controlled phase gates (CP) with correct decomposition
+- Bit-reversal SWAP gates (optional for QPE)
+- Inverse QFT (QFT†) for result decoding
+- Angle validation (prevents NaN/infinity)
+- Measurement-based results (histogram of basis states)
 
 **Backend Limitations:**
-- ⚠️ Backend execution returns **measurement statistics only** (not full state vector)
-- ⚠️ Amplitudes and phases are **lost during measurement** (fundamental quantum limitation)
-- ✅ Suitable for algorithms that measure QFT output (Shor's, Phase Estimation)
-- ✅ For amplitude/phase analysis, use local simulation
+- Backend execution returns measurement statistics only (not full state vector)
+- Amplitudes and phases are lost during measurement (fundamental quantum limitation)
+- Suitable for algorithms that measure QFT output (Shor's, Phase Estimation)
+- For amplitude/phase analysis, use local simulation
 
 **Use Cases:**
 - **Shor's Algorithm**: Integer factorization (period finding step)
@@ -2096,7 +2424,7 @@ executeQFTOnState 5 7 backend 1000     // QFT on specific input state |7⟩
 
 **Location:** `Algorithms/QFTBackendAdapter.fs`
 
-**Status:** Production-ready
+**Status:** Well-tested and documented
 
 ---
 
@@ -2106,7 +2434,7 @@ executeQFTOnState 5 7 backend 1000     // QFT on specific input state |7⟩
 
 The library provides three advanced builders that wrap QFT-based quantum algorithms for real-world business scenarios:
 
-#### 1. Quantum Arithmetic Builder
+### Quantum Arithmetic Builder
 
 **Use Case:** Cryptographic operations, RSA encryption, modular arithmetic
 
@@ -2146,7 +2474,7 @@ var result = ExecuteArithmetic(encrypt);
 
 ---
 
-#### 2. Cryptographic Analysis Builder (Shor's Algorithm)
+### Cryptographic Analysis Builder (Shor's Algorithm)
 
 **Use Case:** RSA security assessment, post-quantum cryptography planning
 
@@ -2187,7 +2515,7 @@ var result = ExecutePeriodFinder(problem);
 
 ---
 
-#### 3. Phase Estimation Builder (Quantum Chemistry)
+### Phase Estimation Builder (Quantum Chemistry)
 
 **Use Case:** Drug discovery, molecular simulation, materials science
 
@@ -2225,338 +2553,14 @@ var result = ExecutePhaseEstimator(problem);
 ---
 
 **Phase 2 Builder Features:**
-- ✅ Business-focused APIs hiding quantum complexity
-- ✅ F# computation expressions + C# fluent API
-- ✅ Comprehensive examples with real-world scenarios
-- ✅ Educational value for quantum algorithm learning
-- ⚠️ NISQ limitations: Toy examples only (< 20 qubits)
-- ⚠️ Requires fault-tolerant quantum computers for production use
+- Business-focused APIs hiding quantum complexity
+- F# computation expressions + C# fluent API
+- Comprehensive examples with real-world scenarios
+- Educational value for quantum algorithm learning
+- NISQ limitations: Toy examples only (< 20 qubits)
+- Requires fault-tolerant quantum computers for production use
 
 **Current Status:** Educational/research focus - Demonstrates quantum algorithms but hardware insufficient for real-world applications (2024-2025)
-
----
-
-## 🔬 Advanced Quantum Builders
-
-**High-level builders for specialized quantum algorithms using computation expression syntax.**
-
-Beyond the optimization and QFT-based builders, the library provides five advanced builders for specialized quantum computing tasks:
-
-### 1. Quantum Tree Search Builder
-
-**Use Case:** Graph traversal, decision trees, game tree exploration
-
-```fsharp
-open FSharp.Azure.Quantum.QuantumTreeSearchBuilder
-
-// Search decision tree with quantum parallelism
-let searchProblem = QuantumTreeSearch.quantumTreeSearch {
-    depth 5                    // Tree depth
-    branchingFactor 3          // Children per node
-    target 42                  // Target node value
-    qubits 10
-}
-
-match search searchProblem with
-| Ok result ->
-    printfn "Found path: %A" result.Path
-    printfn "Depth explored: %d" result.DepthReached
-    printfn "Success probability: %.2f%%" (result.Probability * 100.0)
-| Error msg ->
-    printfn "Error: %s" msg
-```
-
-**Features:**
-- ✅ Quantum parallelism for tree exploration
-- ✅ Amplitude amplification for target finding
-- ✅ F# computation expression: `QuantumTreeSearch.quantumTreeSearch { }`
-- ✅ Applications: Game AI, route planning, decision analysis
-
----
-
-### 2. Quantum Constraint Solver Builder
-
-**Use Case:** SAT solving, constraint satisfaction problems, logic puzzles
-
-```fsharp
-open FSharp.Azure.Quantum.QuantumConstraintSolverBuilder
-
-// Solve boolean satisfiability (SAT) problem
-let satProblem = QuantumConstraintSolver.constraintSolver {
-    variables ["x"; "y"; "z"]
-    clause ["x"; "!y"]         // x OR NOT y
-    clause ["!x"; "z"]         // NOT x OR z
-    clause ["y"; "!z"]         // y OR NOT z
-    qubits 8
-}
-
-match solve satProblem with
-| Ok solution ->
-    printfn "Satisfying assignment:"
-    solution.Assignment 
-    |> Map.iter (fun var value -> printfn "  %s = %b" var value)
-    printfn "Clauses satisfied: %d/%d" solution.SatisfiedClauses solution.TotalClauses
-| Error msg ->
-    printfn "Error: %s" msg
-```
-
-**Features:**
-- ✅ Grover-based SAT solving
-- ✅ CNF (Conjunctive Normal Form) constraint encoding
-- ✅ F# computation expression: `QuantumConstraintSolver.constraintSolver { }`
-- ✅ Applications: Circuit verification, scheduling, logic puzzles
-
----
-
-### 3. Quantum Pattern Matcher Builder
-
-**Use Case:** String matching, DNA sequence alignment, anomaly detection
-
-```fsharp
-open FSharp.Azure.Quantum.QuantumPatternMatcherBuilder
-
-// Find pattern in data stream with quantum speedup
-let matchProblem = QuantumPatternMatcher.patternMatcher {
-    haystack [1; 2; 3; 4; 5; 6; 7; 8]
-    needle [3; 4; 5]
-    tolerance 0                 // Exact match
-    qubits 12
-}
-
-match find matchProblem with
-| Ok result ->
-    printfn "Pattern found at positions: %A" result.Positions
-    printfn "Total matches: %d" result.MatchCount
-    printfn "Search probability: %.2f%%" (result.Probability * 100.0)
-| Error msg ->
-    printfn "Error: %s" msg
-```
-
-**Features:**
-- ✅ Quantum search for pattern matching
-- ✅ Approximate matching with tolerance
-- ✅ F# computation expression: `QuantumPatternMatcher.patternMatcher { }`
-- ✅ Applications: Bioinformatics, data mining, signal processing
-
----
-
-### 4. Quantum Arithmetic Builder
-
-**Use Case:** Cryptographic operations, RSA encryption, modular arithmetic
-
-```fsharp
-open FSharp.Azure.Quantum.QuantumArithmeticBuilder
-
-// Quantum integer addition
-let addProblem = QuantumArithmeticOps.quantumArithmetic {
-    operands 15 27              // 15 + 27
-    operation Add
-    qubits 10
-}
-
-match compute addProblem with
-| Ok result ->
-    printfn "Result: %d" result.Value
-    printfn "Carry: %b" result.Carry
-    printfn "Gates used: %d" result.GateCount
-    printfn "Circuit depth: %d" result.CircuitDepth
-| Error msg ->
-    printfn "Error: %s" msg
-
-// Modular exponentiation for RSA
-let rsaProblem = QuantumArithmeticOps.quantumArithmetic {
-    operands 5 3                // base=5, exponent=3
-    operation ModularExponentiate
-    modulus 33                  // RSA modulus
-    qubits 12
-}
-```
-
-**Features:**
-- ✅ Quantum arithmetic operations (Add, Subtract, Multiply, ModularExponentiate)
-- ✅ QFT-based carry propagation
-- ✅ F# computation expression: `QuantumArithmeticOps.quantumArithmetic { }`
-- ✅ Applications: Cryptography, financial calculations, scientific computing
-
----
-
-### 5. Quantum Period Finder Builder
-
-**Use Case:** Shor's algorithm, cryptanalysis, order finding
-
-```fsharp
-open FSharp.Azure.Quantum.QuantumPeriodFinderBuilder
-
-// Find period of modular function (Shor's algorithm)
-let shorsProblem = QuantumPeriodFinder.periodFinder {
-    number 15                   // Composite to factor
-    base_ 7                     // Coprime base
-    precision 12                // QPE precision bits
-    maxAttempts 10              // Probabilistic retries
-}
-
-match findPeriod shorsProblem with
-| Ok result ->
-    printfn "Period found: %d" result.Period
-    match result.Factors with
-    | Some (p, q) ->
-        printfn "Factors: %d × %d = %d" p q (p * q)
-        printfn "⚠️  RSA modulus factored!"
-    | None ->
-        printfn "Retry with different base (probabilistic)"
-| Error msg ->
-    printfn "Error: %s" msg
-```
-
-**Features:**
-- ✅ Quantum Period Finding (QPF) for Shor's algorithm
-- ✅ Quantum Phase Estimation (QPE) integration
-- ✅ F# computation expression: `QuantumPeriodFinder.periodFinder { }`
-- ✅ Applications: Cryptanalysis, number theory, discrete logarithm
-
----
-
-### 6. Quantum Phase Estimator Builder
-
-**Use Case:** Eigenvalue estimation, quantum chemistry, VQE enhancement
-
-```fsharp
-open FSharp.Azure.Quantum.QuantumPhaseEstimatorBuilder
-open FSharp.Azure.Quantum.Algorithms.QuantumPhaseEstimation
-
-// Estimate eigenphase of unitary operator
-let qpeProblem = QuantumPhaseEstimator.phaseEstimator {
-    unitary (RotationZ (Math.PI / 4.0))  // Operator U
-    eigenstate 0                         // |ψ⟩ = |0⟩
-    precision 16                         // 16-bit phase precision
-    qubits 20
-}
-
-match estimate qpeProblem with
-| Ok result ->
-    printfn "Estimated phase: %.6f" result.Phase
-    printfn "Eigenvalue: e^(2πi × %.6f)" result.Phase
-    printfn "Confidence: %.2f%%" (result.Confidence * 100.0)
-    printfn "Application: Molecular energy = %.4f Hartree" (result.Phase * 2.0 * Math.PI)
-| Error msg ->
-    printfn "Error: %s" msg
-```
-
-**Features:**
-- ✅ Quantum Phase Estimation (QPE) with arbitrary precision
-- ✅ Inverse QFT for phase readout
-- ✅ F# computation expression: `QuantumPhaseEstimator.phaseEstimator { }`
-- ✅ Applications: Quantum chemistry (VQE), linear systems, machine learning
-
----
-
-### Advanced Builder Features
-
-**Common Capabilities:**
-- ✅ **Computation Expression Syntax** - Idiomatic F# DSL for all builders
-- ✅ **Backend Switching** - LocalBackend (simulation) or Cloud (IonQ, Rigetti)
-- ✅ **Type Safety** - F# type system prevents invalid quantum circuits
-- ✅ **C# Interop** - Fluent API extensions for all builders
-- ✅ **Circuit Export** - Export to OpenQASM 2.0 for cross-platform execution
-- ✅ **Error Handling** - Comprehensive validation and error messages
-
-**Current Status:** 
-- ⚠️ **Educational/Research Focus** - Suitable for algorithm learning and prototyping
-- ⚠️ **NISQ Limitations** - Toy problems only (< 20 qubits) on current hardware
-- ✅ **Production-Ready Code** - Well-tested, documented, and production-quality implementation
-- ⚠️ **Hardware Bottleneck** - Waiting for fault-tolerant quantum computers for real-world scale
-
-**Use Cases by Builder:**
-
-| Builder | Primary Application | Quantum Advantage | Hardware Readiness |
-|---------|-------------------|-------------------|-------------------|
-| **Tree Search** | Game AI, Route Planning | O(√N) speedup | 2028+ (requires 50+ qubits) |
-| **Constraint Solver** | SAT, Logic Puzzles | O(√2^n) speedup | 2030+ (requires 100+ qubits) |
-| **Pattern Matcher** | DNA Alignment, Data Mining | O(√N) speedup | 2027+ (requires 30+ qubits) |
-| **Arithmetic** | Cryptography, RSA | Polynomial vs exponential | 2026+ (requires 4096+ qubits for RSA-2048) |
-| **Period Finder** | Shor's Algorithm, Cryptanalysis | Exponential speedup | 2029+ (requires 4096+ qubits) |
-| **Phase Estimator** | Quantum Chemistry, VQE | Polynomial speedup | 2025+ (10-20 qubits sufficient for small molecules) |
-
-**Recommendation:**
-- Use for **learning quantum algorithms** and understanding quantum advantage
-- Use for **prototyping** future quantum applications
-- Use **Phase Estimator for small molecules** on current NISQ hardware
-- For **production optimization**, use the [6 QAOA-based builders](#-problem-builders) instead
-
----
-
-### C# API for Advanced Builders
-
-All advanced builders have C#-friendly fluent APIs:
-
-```csharp
-using FSharp.Azure.Quantum;
-using static FSharp.Azure.Quantum.CSharpBuilders;
-
-// Tree Search
-var treeSearch = TreeSearch(depth: 5, branchingFactor: 3, target: 42);
-var searchResult = ExecuteTreeSearch(treeSearch);
-
-// Constraint Solver
-var satProblem = ConstraintProblem(
-    variables: new[] { "x", "y", "z" },
-    clauses: new[] { 
-        new[] { "x", "!y" },
-        new[] { "!x", "z" }
-    }
-);
-var satResult = SolveConstraints(satProblem);
-
-// Pattern Matcher
-var pattern = PatternMatch(
-    haystack: new[] { 1, 2, 3, 4, 5, 6, 7, 8 },
-    needle: new[] { 3, 4, 5 },
-    tolerance: 0
-);
-var matchResult = FindPattern(pattern);
-
-// Arithmetic
-var add = ArithmeticAdd(15, 27);
-var addResult = ComputeArithmetic(add);
-
-var rsa = ModularExponentiate(baseValue: 5, exponent: 3, modulus: 33);
-var rsaResult = ComputeArithmetic(rsa);
-
-// Period Finder (Shor's)
-var shors = FactorInteger(15, precision: 12);
-var factorResult = FindPeriod(shors);
-
-// Phase Estimator
-var qpe = EstimateRotationZ(Math.PI / 4.0, precision: 16);
-var phaseResult = EstimatePhase(qpe);
-```
-
-**Current Status:** Educational/research focus - Demonstrates quantum algorithms but hardware insufficient for real-world applications (2024-2025)
-
----
-
-### Library Scope & Focus
-
-**Primary Focus: QAOA-Based Combinatorial Optimization**
-
-This library is designed for **NISQ-era practical quantum advantage** in optimization:
-- ✅ 6 optimization problem builders (Graph Coloring, MaxCut, TSP, Knapsack, Portfolio, Network Flow)
-- ✅ QAOA implementation with automatic parameter tuning
-- ✅ Error mitigation for noisy hardware (ZNE, PEC, REM)
-- ✅ Production-ready solvers with cloud backend integration
-
-**Secondary Focus: Quantum Algorithm Education & Research**
-
-The `Algorithms/` directory contains foundational quantum algorithms for learning:
-- ✅ Grover's Search (quantum search, O(√N) speedup)
-- ✅ Amplitude Amplification (generalization of Grover)
-- ✅ Quantum Fourier Transform (O(n²) vs O(n·2^n) classical FFT)
-
-**Why F# for Quantum?**
-- Type-safe quantum circuit construction
-- Functional programming matches quantum mathematics
-- Interop with .NET ecosystem (C#, Azure, ML.NET)
-- Higher level abstraction than Python (Qiskit) and Q#
 
 ---
 
@@ -2641,7 +2645,7 @@ The `Algorithms/` directory contains foundational quantum algorithms for learnin
 | UCC Ansatz | ✅ Built-in | ✅ Qiskit Nature | ✅ Q# Chemistry | ✅ OpenFermion | ✅ Built-in |
 | | | | | | |
 | **📚 ECOSYSTEM** | | | | | |
-| Circuit Visualization | ❌ Export to OpenQASM → Qiskit | ✅ Native (matplotlib) | ✅ Q# visualizer | ✅ Native (matplotlib) | ✅ Native (matplotlib) |
+| Circuit Visualization | ❌ Mermaid, or Export to OpenQASM → Qiskit | ✅ Native (matplotlib) | ✅ Q# visualizer | ✅ Native (matplotlib) | ✅ Native (matplotlib) |
 | Documentation Quality | ✅ Comprehensive (MD docs) | ✅ Extensive (tutorials) | ✅ Microsoft Docs | ✅ Google Docs | ✅ AWS Docs |
 | Example Projects | ✅ 30+ working examples | ✅ 100+ tutorials | ⚠️ Limited examples | ✅ 50+ tutorials | ✅ 40+ examples |
 | Community Size | ⚠️ Small (new library) | ✅ Large (6.7k stars) | ⚠️ Medium | ✅ Medium (Google) | ⚠️ Medium |
@@ -2666,7 +2670,83 @@ The `Algorithms/` directory contains foundational quantum algorithms for learnin
 
 ---
 
-## 🤝 Contributing
+## Topological Quantum Computing
+
+**NEW:** Simulate topological quantum computers using anyon braiding - the approach behind Microsoft's Majorana quantum computing program.
+
+Unlike gate-based quantum computing (which uses qubits and gates), topological quantum computing encodes information in **anyons** (exotic quasiparticles) and performs operations by **braiding** their worldlines. This provides inherent fault-tolerance through **topological protection**.
+
+### Quick Example: Ising Anyons (Microsoft Majorana)
+
+```fsharp
+open FSharp.Azure.Quantum.Topological
+
+// Create backend for Ising anyons (Microsoft's approach)
+let backend = TopologicalBackend.createSimulator AnyonSpecies.AnyonType.Ising 10
+
+// Create entangled state via braiding
+let! result = topological backend {
+    // Initialize 4 sigma anyons
+    do! TopologicalBuilder.initialize AnyonSpecies.AnyonType.Ising 4
+    
+    // Braiding creates entanglement geometrically
+    do! TopologicalBuilder.braid 0  // Braid anyons 0-1
+    do! TopologicalBuilder.braid 2  // Braid anyons 2-3
+    
+    // Measure fusion outcome
+    let! (outcome, _) = TopologicalBuilder.measure 0
+    return outcome
+}
+
+match result with
+| Ok particle ->
+    printfn "Fusion outcome: %A" particle  // Vacuum or Psi
+| Error err ->
+    printfn "Error: %s" err.Message
+```
+
+### Key Concepts
+
+**Anyons:**
+- Ising anyons: `{1 (vacuum), σ (sigma), ψ (psi)}` - Microsoft's Majorana approach
+- Fibonacci anyons: `{1, τ}` - Theoretical universal braiding
+- Fusion rule for Ising: `σ × σ = 1 + ψ` (creates quantum superposition)
+
+**Operations:**
+- **Braiding**: Exchange anyons (replaces quantum gates)
+- **Fusion**: Measurement (collapses superposition to classical outcome)
+- **F-moves**: Change fusion tree basis (advanced)
+
+**Advantages:**
+- Topological protection: Error rates ~10⁻¹² (vs 10⁻³ for gate-based)
+- Passive error correction: Immunity to local noise
+- Scalability: Potentially 1:1 physical-to-logical qubit ratio
+
+**Comparison: Gate-Based vs Topological**
+
+| Aspect | Gate-Based QC | Topological QC |
+|--------|---------------|----------------|
+| State | Qubit amplitudes | Fusion trees |
+| Operations | H, CNOT, RZ gates | Braid, Measure |
+| Error Correction | Active (surface codes) | Passive (topology) |
+| Hardware | IonQ, Rigetti, IBM | Microsoft Majorana (experimental) |
+
+### Examples
+
+See `examples/TopologicalSimulator/` for complete examples:
+- **BasicFusion.fsx** - Fusion rules and statistics
+- **BellState.fsx** - Creating entanglement via braiding
+- **BackendComparison.fsx** - Ising vs Fibonacci anyons
+
+### Documentation
+
+- **Library README**: `src/FSharp.Azure.Quantum.Topological/README.md`
+- **Examples**: `examples/TopologicalSimulator/README.md`
+- **Format Spec**: `docs/topological-format-spec.md` (import/export)
+
+---
+
+## Contributing
 
 Contributions welcome! 
 
@@ -2679,13 +2759,13 @@ Contributions welcome!
 
 ---
 
-## 📄 License
+## License
 
 **Unlicense** - Public domain. Use freely for any purpose.
 
 ---
 
-## 📞 Support
+## Support
 
 - **Documentation**: [docs/](docs/)
 - **Issues**: [GitHub Issues](https://github.com/thorium/FSharp.Azure.Quantum/issues)
@@ -2693,4 +2773,4 @@ Contributions welcome!
 
 ---
 
-**Status**: Production Ready - Quantum-only architecture, 6 problem builders, full QAOA implementation
+**Status**: Quantum-only architecture, 6 problem builders, full QAOA implementation

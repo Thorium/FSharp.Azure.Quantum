@@ -35,10 +35,11 @@ module Retry =
     /// Check if QuantumError is transient (retriable)
     let isTransientError =
         function
-        | QuantumError.ServiceUnavailable _
-        | QuantumError.RateLimited _
-        | QuantumError.NetworkTimeout _ -> true
-        | QuantumError.UnknownError(statusCode, _) -> isTransientStatusCode (enum<HttpStatusCode> statusCode)
+        | QuantumError.AzureError (AzureQuantumError.ServiceUnavailable _)
+        | QuantumError.AzureError (AzureQuantumError.RateLimited _)
+        | QuantumError.AzureError (AzureQuantumError.NetworkTimeout _) -> true
+        | QuantumError.AzureError (AzureQuantumError.UnknownError(statusCode, _)) -> 
+            isTransientStatusCode (enum<HttpStatusCode> statusCode)
         | _ -> false
 
     /// Calculate delay with exponential backoff and jitter
@@ -60,31 +61,35 @@ module Retry =
     let categorizeHttpError (statusCode: HttpStatusCode) (responseBody: string) =
         match statusCode with
         | HttpStatusCode.Unauthorized
-        | HttpStatusCode.Forbidden -> QuantumError.InvalidCredentials
+        | HttpStatusCode.Forbidden -> 
+            QuantumError.AzureError AzureQuantumError.InvalidCredentials
 
-        | HttpStatusCode.TooManyRequests -> QuantumError.RateLimited(TimeSpan.FromSeconds(60.0))
+        | HttpStatusCode.TooManyRequests -> 
+            QuantumError.AzureError (AzureQuantumError.RateLimited(TimeSpan.FromSeconds(60.0)))
 
-        | HttpStatusCode.ServiceUnavailable -> QuantumError.ServiceUnavailable(Some(TimeSpan.FromSeconds(30.0)))
+        | HttpStatusCode.ServiceUnavailable -> 
+            QuantumError.AzureError (AzureQuantumError.ServiceUnavailable(Some(TimeSpan.FromSeconds(30.0))))
 
         | HttpStatusCode.RequestTimeout
-        | HttpStatusCode.GatewayTimeout -> QuantumError.NetworkTimeout(0)
+        | HttpStatusCode.GatewayTimeout -> 
+            QuantumError.AzureError (AzureQuantumError.NetworkTimeout(0))
 
         | HttpStatusCode.BadRequest ->
             // Parse error message to detect specific errors
             if responseBody.Contains("InvalidCircuit") || responseBody.Contains("invalid") then
-                QuantumError.InvalidCircuit([ responseBody ])
+                QuantumError.ValidationError("circuit", responseBody)
             elif responseBody.Contains("quota") || responseBody.Contains("Quota") then
-                QuantumError.QuotaExceeded("unknown")
+                QuantumError.AzureError (AzureQuantumError.QuotaExceeded("unknown"))
             else
-                QuantumError.UnknownError(int statusCode, responseBody)
+                QuantumError.AzureError (AzureQuantumError.UnknownError(int statusCode, responseBody))
 
         | HttpStatusCode.NotFound ->
             if responseBody.Contains("backend") || responseBody.Contains("Backend") then
-                QuantumError.BackendNotFound("unknown")
+                QuantumError.BackendError("unknown", "Backend not found")
             else
-                QuantumError.UnknownError(int statusCode, responseBody)
+                QuantumError.AzureError (AzureQuantumError.UnknownError(int statusCode, responseBody))
 
-        | _ -> QuantumError.UnknownError(int statusCode, responseBody)
+        | _ -> QuantumError.AzureError (AzureQuantumError.UnknownError(int statusCode, responseBody))
 
     /// Execute async operation with retry logic (functional, recursive approach)
     let rec private retryLoop<'T>
@@ -96,7 +101,7 @@ module Retry =
         async {
 
             if ct.IsCancellationRequested then
-                return Error(QuantumError.UnknownError(0, "Operation cancelled"))
+                return Error(QuantumError.OperationError("Retry", "Operation cancelled"))
             else
                 // Execute operation
                 let! result = operation ct

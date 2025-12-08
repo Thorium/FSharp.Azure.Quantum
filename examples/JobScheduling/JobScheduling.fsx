@@ -289,5 +289,5 @@ match result with
     printfn "✗ Dependencies only (use classical solver instead)"
     printfn ""
 
-| Error msg ->
-    printfn "❌ Scheduling failed: %s" msg
+| Error err ->
+    printfn "❌ Scheduling failed: %s" err.Message

@@ -1,10 +1,104 @@
 namespace FSharp.Azure.Quantum.Core
 
+open System
+
+// ============================================================================
+// AZURE QUANTUM SPECIFIC ERRORS (most specific, at top of hierarchy)
+// ============================================================================
+
+/// Azure Quantum specific error types
+/// These are backend-specific errors related to Azure Quantum service
+[<RequireQualifiedAccess>]
+type AzureQuantumError =
+    /// Invalid Azure credentials
+    | InvalidCredentials
+    
+    /// Rate limited by Azure service
+    | RateLimited of retryAfter: TimeSpan
+    
+    /// Azure Quantum service temporarily unavailable
+    | ServiceUnavailable of retryAfter: TimeSpan option
+    
+    /// Network timeout during Azure operation
+    | NetworkTimeout of attemptNumber: int
+    
+    /// Backend not found in Azure Quantum workspace
+    | BackendNotFound of backendId: string
+    
+    /// Invalid quantum circuit format for Azure backend
+    | InvalidCircuit of errors: string list
+    
+    /// Azure Quantum quota exceeded
+    | QuotaExceeded of quotaType: string
+    
+    /// Hardware fault on Azure Quantum hardware
+    | HardwareFault of message: string
+    
+    /// Job polling timeout on Azure Quantum
+    | JobTimeout of message: string
+    
+    /// Azure Quantum operation was cancelled
+    | Cancelled
+    
+    /// Timeout during Azure operation
+    | Timeout of message: string
+    
+    /// Unknown/unhandled Azure error with HTTP status code
+    | UnknownError of statusCode: int * message: string
+    
+    /// Get human-readable error message
+    member this.Message =
+        match this with
+        | InvalidCredentials ->
+            "Invalid Azure credentials"
+        
+        | RateLimited retryAfter ->
+            $"Rate limited by Azure. Retry after {retryAfter.TotalSeconds:F0} seconds"
+        
+        | ServiceUnavailable None ->
+            "Azure Quantum service temporarily unavailable"
+        
+        | ServiceUnavailable (Some retryAfter) ->
+            $"Azure Quantum service temporarily unavailable. Retry after {retryAfter.TotalSeconds:F0} seconds"
+        
+        | NetworkTimeout attemptNumber ->
+            $"Network timeout on attempt {attemptNumber}"
+        
+        | BackendNotFound backendId ->
+            $"Backend '{backendId}' not found in workspace"
+        
+        | InvalidCircuit errors ->
+            let errorList = String.concat "; " errors
+            $"Invalid quantum circuit: {errorList}"
+        
+        | QuotaExceeded quotaType ->
+            $"Quota exceeded for '{quotaType}'"
+        
+        | HardwareFault message ->
+            $"Hardware fault: {message}"
+        
+        | JobTimeout message ->
+            $"Job timeout: {message}"
+        
+        | Cancelled ->
+            "Operation was cancelled"
+        
+        | Timeout message ->
+            $"Timeout: {message}"
+        
+        | UnknownError (statusCode, message) ->
+            $"Azure error (HTTP {statusCode}): {message}"
+
+// ============================================================================
+// GENERIC QUANTUM ERRORS (higher level, composable)
+// ============================================================================
+
 /// Errors that can occur in quantum computing operations
 /// 
 /// Design principles:
 /// - High-level categories for easy pattern matching
 /// - Rich context data for debugging and recovery
+/// - Composable with specific error types (AzureQuantumError)
 /// - Pragmatic 'Other' catch-all for edge cases
 /// - NOT exceptions - these are expected business outcomes
 [<RequireQualifiedAccess>]
@@ -52,15 +146,23 @@ type QuantumError =
     // BACKEND ERRORS - Backend/infrastructure issues
     // ========================================================================
     
-    /// Backend execution or communication error
+    /// Backend execution or communication error (generic)
     /// 
     /// Examples:
     /// - Backend unavailable
-    /// - Authentication failed
-    /// - Timeout
-    /// - Network error
-    /// - Backend service error
+    /// - Authentication failed (non-Azure)
+    /// - Timeout (non-Azure)
+    /// - Network error (non-Azure)
+    /// - Backend service error (non-Azure)
     | BackendError of backend: string * reason: string
+    
+    // ========================================================================
+    // AZURE QUANTUM ERRORS - Composition with Azure-specific errors
+    // ========================================================================
+    
+    /// Azure Quantum specific error (delegates to AzureQuantumError)
+    /// This allows pattern matching on either generic or Azure-specific errors
+    | AzureError of AzureQuantumError
     
     // ========================================================================
     // I/O ERRORS - File operations and serialization
@@ -105,6 +207,9 @@ type QuantumError =
         | BackendError (backend, reason) ->
             $"Backend '{backend}' error: {reason}"
         
+        | AzureError azureError ->
+            azureError.Message
+        
         | IOError (operation, path, reason) ->
             $"I/O error during '{operation}' on '{path}': {reason}"
         
@@ -117,6 +222,7 @@ type QuantumError =
         | NotImplemented _ -> "NotImplemented"
         | OperationError _ -> "Operation"
         | BackendError _ -> "Backend"
+        | AzureError _ -> "AzureQuantum"
         | IOError _ -> "IO"
         | Other _ -> "Other"
 
@@ -149,6 +255,10 @@ module QuantumResult =
     /// Create backend error
     let backendError backend reason : QuantumResult<'T> = 
         Error (QuantumError.BackendError (backend, reason))
+    
+    /// Create Azure Quantum error
+    let azureError (azureError: AzureQuantumError) : QuantumResult<'T> =
+        Error (QuantumError.AzureError azureError)
     
     /// Create I/O error
     let ioError operation path reason : QuantumResult<'T> = 

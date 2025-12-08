@@ -193,8 +193,8 @@ async {
     match result with
     | Ok qrng -> 
         printfn "Generated 32 bits with entropy: %.3f" qrng.Entropy
-    | Error msg -> 
-        printfn "Error: %s" msg
+    | Error err -> 
+        printfn "Error: %s" err.Message
 }
 |> Async.RunSynchronously
 ```

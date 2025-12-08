@@ -137,8 +137,8 @@ match result with
     printfn "   • Solution decoded and validated"
     printfn ""
     
-| Error msg ->
-    printfn "❌ Quantum optimization failed: %s" msg
+| Error err ->
+    printfn "❌ Quantum optimization failed: %s" err.Message
     printfn ""
     printfn "Common issues:"
     printfn "  • Problem exceeds LocalSimulator's qubit limit (max ~10 qubits)"

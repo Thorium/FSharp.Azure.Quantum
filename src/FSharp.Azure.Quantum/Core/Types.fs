@@ -137,40 +137,8 @@ module Types =
             ExecutionTime: TimeSpan option
         }
 
-    /// Quantum error types
-    type QuantumError =
-        /// Invalid Azure credentials
-        | InvalidCredentials
-
-        /// Rate limited by Azure
-        | RateLimited of retryAfter: TimeSpan
-
-        /// Service temporarily unavailable
-        | ServiceUnavailable of retryAfter: TimeSpan option
-
-        /// Network timeout
-        | NetworkTimeout of attemptNumber: int
-
-        /// Backend not found
-        | BackendNotFound of backendId: string
-
-        /// Invalid circuit
-        | InvalidCircuit of errors: string list
-
-        /// Quota exceeded
-        | QuotaExceeded of quotaType: string
-
-        /// Hardware fault
-        | HardwareFault of message: string
-
-        /// Job polling timeout
-        | Timeout of message: string
-
-        /// Operation cancelled
-        | Cancelled
-
-        /// Unknown error
-        | UnknownError of statusCode: int * message: string
+    // Note: QuantumError is now defined in QuantumError.fs
+    // Use FSharp.Azure.Quantum.Core.QuantumError and AzureQuantumError
 
     /// Grover circuit metadata for optimization and verification
     /// 
