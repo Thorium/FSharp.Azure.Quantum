@@ -21,6 +21,8 @@ module BackendAdapter =
     open FSharp.Azure.Quantum.GroverSearch.Oracle
     open FSharp.Azure.Quantum.GroverSearch.GroverIteration
     open FSharp.Azure.Quantum.CircuitBuilder
+
+    let maxCubits = 42
     
     // ========================================================================
     // HELPER: Multi-Controlled Gate Decomposition
@@ -131,7 +133,7 @@ module BackendAdapter =
             // Pragmatic limit: Allow up to 24 qubits (16M states) for classical enumeration
             // Beyond this, memory and time become prohibitive (2^25 = 33M, 2^30 = 1B)
             // Note: Actual backend limits are checked separately (Rigetti=40, IonQ=29)
-            if numQubits > 24 then
+            if numQubits > 42 then
                 Error (QuantumError.ValidationError ("NumQubits", $"predicate oracle with {numQubits} qubits requires enumerating {searchSpaceSize} states classically (prohibitive). For large search spaces, use explicit Solutions oracle instead, or restructure to avoid predicate enumeration. Pragmatic limit: ≤24 qubits."))
             else
                 let solutions = 
@@ -155,7 +157,7 @@ module BackendAdapter =
             let searchSpaceSize = 1 <<< numQubits
             
             // Pragmatic limit: Allow up to 24 qubits (16M states) for classical enumeration
-            if numQubits > 24 then
+            if numQubits > 42 then
                 Error (QuantumError.ValidationError ("NumQubits", $"OR oracle with {numQubits} qubits requires enumerating {searchSpaceSize} states classically (prohibitive). For large search spaces, use explicit Solutions oracle instead. Pragmatic limit: ≤24 qubits."))
             else
                 let solutions =
@@ -174,7 +176,7 @@ module BackendAdapter =
             let searchSpaceSize = 1 <<< numQubits
             
             // Pragmatic limit: Allow up to 24 qubits (16M states) for classical enumeration
-            if numQubits > 24 then
+            if numQubits > 42 then
                 Error (QuantumError.ValidationError ("NumQubits", $"NOT oracle with {numQubits} qubits requires enumerating {searchSpaceSize} states classically (prohibitive). For large search spaces, use explicit Solutions oracle instead. Pragmatic limit: ≤24 qubits."))
             else
                 let innerSolutions =

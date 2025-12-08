@@ -378,3 +378,71 @@ module TopologicalOperations =
             |> String.concat "\n"
         
         $"Superposition ({superposition.Terms.Length} terms):\n{terms}\nNormalized: {isNormalized superposition}"
+    
+    // ========================================================================
+    // QUANTUM STATE INTEROP (for UnifiedQuantumState)
+    // ========================================================================
+    
+    /// Create superposition from fusion trees and amplitudes
+    /// 
+    /// Compatibility function for QuantumStateConversion module.
+    /// 
+    /// Parameters:
+    ///   trees - List of fusion trees (basis states)
+    ///   amplitudes - Array of complex amplitudes (one per tree)
+    ///   anyonType - Anyon theory
+    /// 
+    /// Returns:
+    ///   Superposition with trees and amplitudes combined
+    let createSuperposition
+        (trees: FusionTree.Tree list)
+        (amplitudes: Complex[])
+        (anyonType: AnyonSpecies.AnyonType)
+        : Superposition =
+        
+        if trees.Length <> amplitudes.Length then
+            failwith $"Trees count ({trees.Length}) does not match amplitudes count ({amplitudes.Length})"
+        
+        let terms =
+            List.zip (Array.toList amplitudes) (trees |> List.map (fun t -> FusionTree.create t anyonType))
+        
+        { Terms = terms; AnyonType = anyonType }
+    
+    /// Get basis states (trees) from superposition
+    /// 
+    /// Extracts fusion trees, discarding amplitudes.
+    /// Used by QuantumStateConversion.
+    let getBasisStates (superposition: Superposition) : FusionTree.Tree list =
+        superposition.Terms
+        |> List.map (fun (_, state) -> state.Tree)
+    
+    /// Get amplitudes from superposition
+    /// 
+    /// Extracts amplitudes as array.
+    /// Used by QuantumStateConversion.
+    let getAmplitudes (superposition: Superposition) : Complex[] =
+        superposition.Terms
+        |> List.map fst
+        |> Array.ofList
+    
+    /// Compatibility: Get fields matching QuantumState.FusionSuperposition structure
+    /// 
+    /// QuantumStateConversion expects: { BasisStates; Amplitudes; AnyonType }
+    /// TopologicalOperations uses: { Terms; AnyonType }
+    /// 
+    /// This creates a view matching the expected structure.
+    type SuperpositionView = {
+        BasisStates: FusionTree.Tree list
+        Amplitudes: Complex[]
+        AnyonType: AnyonSpecies.AnyonType
+    }
+    
+    let toView (superposition: Superposition) : SuperpositionView =
+        {
+            BasisStates = getBasisStates superposition
+            Amplitudes = getAmplitudes superposition
+            AnyonType = superposition.AnyonType
+        }
+    
+    let fromView (view: SuperpositionView) : Superposition =
+        createSuperposition view.BasisStates view.Amplitudes view.AnyonType

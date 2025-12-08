@@ -1,0 +1,380 @@
+namespace FSharp.Azure.Quantum.Core
+
+open System
+open System.Numerics
+open FSharp.Azure.Quantum.LocalSimulator
+open FSharp.Azure.Quantum.Topological
+
+/// Unified quantum state representation supporting multiple backend types
+/// 
+/// Design rationale:
+/// - Discriminated union enables type-safe pattern matching
+/// - Each case wraps a backend-specific state type
+/// - Extensible: add DensityMatrix, SparseState, etc. in future
+/// - Zero-cost abstraction when compiled (no vtable dispatch)
+/// 
+/// Architecture:
+/// - StateVector: Gate-based quantum computing (2^n amplitudes)
+/// - FusionSuperposition: Topological quantum computing (fusion trees)
+/// - SparseState: Clifford simulation (stabilizer states)
+/// - DensityMatrix: Mixed states, open quantum systems
+/// 
+/// Usage:
+///   let state = QuantumState.StateVector (StateVector.init 3)
+///   match state with
+///   | QuantumState.StateVector sv -> (* gate operations *)
+///   | QuantumState.FusionSuperposition fs -> (* braiding operations *)
+[<RequireQualifiedAccess>]
+type QuantumState =
+    /// Gate-based quantum state (2^n complex amplitudes)
+    /// 
+    /// Representation: |ψ⟩ = Σ αᵢ|i⟩ where αᵢ are complex amplitudes
+    /// 
+    /// Used by:
+    /// - LocalBackend (classical simulation)
+    /// - IonQ, Rigetti (cloud quantum hardware)
+    /// - Azure Quantum Resource Estimator
+    /// 
+    /// Properties:
+    /// - Memory: O(2^n) complex numbers
+    /// - Single-qubit gate: O(2^n) operations
+    /// - Two-qubit gate: O(2^n) operations
+    /// - Exact for arbitrary unitaries
+    /// - Maximum ~20 qubits (1M dimensions = 16MB memory)
+    /// 
+    /// Best for:
+    /// - Small circuits (n ≤ 15 qubits)
+    /// - Arbitrary gate sets
+    /// - Quick prototyping
+    | StateVector of StateVector.StateVector
+    
+    /// Topological quantum state (superposition of fusion trees)
+    /// 
+    /// Representation: |ψ⟩ = Σ αᵢ |fusionTreeᵢ⟩
+    /// 
+    /// Used by:
+    /// - TopologicalBackend (anyonic simulation)
+    /// - Microsoft Majorana hardware (future)
+    /// - Fault-tolerant quantum computing research
+    /// 
+    /// Properties:
+    /// - Memory: O(poly(n)) typically ≪ 2^n
+    /// - T gate: O(1) (single braiding)
+    /// - H gate: O(300-500) braids (Solovay-Kitaev)
+    /// - Exact for Clifford+T gates
+    /// - Can simulate 30+ qubits efficiently
+    /// 
+    /// Anyon types:
+    /// - Ising: Majorana zero modes (σ × σ = 1 ⊕ ψ)
+    /// - Fibonacci: Universal for quantum computation (τ × τ = 1 ⊕ τ)
+    /// 
+    /// Best for:
+    /// - Deep Clifford+T circuits
+    /// - Fault-tolerant simulation
+    /// - Topological quantum computing research
+    | FusionSuperposition of TopologicalOperations.Superposition
+    
+    /// Sparse quantum state (non-zero amplitudes only)
+    /// 
+    /// Representation: Map<basisIndex, amplitude> + metadata
+    /// 
+    /// Used by:
+    /// - Clifford simulation (stabilizer formalism)
+    /// - Sparse Hamiltonian simulation
+    /// 
+    /// Properties:
+    /// - Memory: O(k) where k = number of non-zero amplitudes
+    /// - Clifford gates: Polynomial time (Gottesman-Knill)
+    /// - Non-Clifford gates: May expand to dense representation
+    /// - Exact for stabilizer states
+    /// 
+    /// Best for:
+    /// - Clifford-only circuits (exponential speedup!)
+    /// - Large sparse states
+    /// - Stabilizer simulation
+    /// 
+    /// Note: Not yet implemented - placeholder for future
+    | SparseState of amplitudes: Map<int, Complex> * numQubits: int
+    
+    /// Density matrix (mixed quantum states)
+    /// 
+    /// Representation: ρ = Σ pᵢ |ψᵢ⟩⟨ψᵢ| (2^n × 2^n matrix)
+    /// 
+    /// Used by:
+    /// - Noisy quantum simulation
+    /// - Open quantum systems
+    /// - Decoherence modeling
+    /// 
+    /// Properties:
+    /// - Memory: O(4^n) complex numbers (2^n × 2^n matrix)
+    /// - Gate application: O(4^n) operations
+    /// - Supports mixed states (classical uncertainty)
+    /// - Supports decoherence channels
+    /// 
+    /// Best for:
+    /// - Noisy circuit simulation
+    /// - Quantum error correction studies
+    /// - Realistic hardware modeling
+    /// 
+    /// Note: Not yet implemented - placeholder for future
+    | DensityMatrix of matrix: Complex[,] * numQubits: int
+
+/// Metadata about quantum state representation type
+/// 
+/// Used to determine optimal backend and operations.
+type QuantumStateType =
+    /// Gate-based representation (StateVector)
+    | GateBased
+    
+    /// Topological representation (FusionSuperposition)
+    | TopologicalBraiding
+    
+    /// Sparse representation (SparseState)
+    | Sparse
+    
+    /// Mixed state representation (DensityMatrix)
+    | Mixed
+
+/// Error types for quantum state operations
+type QuantumStateError =
+    /// Conversion between state types failed
+    | ConversionError of source: QuantumStateType * target: QuantumStateType * reason: string
+    
+    /// Unsupported operation for this state type
+    | UnsupportedOperation of operation: string * stateType: QuantumStateType
+    
+    /// Invalid state (e.g., non-normalized, inconsistent dimensions)
+    | InvalidState of reason: string
+    
+    /// Feature not yet implemented
+    | NotImplemented of feature: string
+    
+    member this.Message =
+        match this with
+        | ConversionError (src, tgt, reason) ->
+            $"Cannot convert {src} to {tgt}: {reason}"
+        | UnsupportedOperation (op, stateType) ->
+            $"Operation '{op}' not supported for {stateType} states"
+        | InvalidState reason ->
+            $"Invalid quantum state: {reason}"
+        | NotImplemented feature ->
+            $"Feature not yet implemented: {feature}"
+
+/// Operations on unified quantum states
+module QuantumState =
+    
+    /// Get number of qubits in state
+    /// 
+    /// Returns the number of logical qubits represented by this quantum state.
+    /// 
+    /// Note: For topological states, this is the number of LOGICAL qubits,
+    /// not the number of physical anyons (which is n+1 for Jordan-Wigner encoding).
+    let numQubits (state: QuantumState) : int =
+        match state with
+        | QuantumState.StateVector sv ->
+            StateVector.numQubits sv
+        
+        | QuantumState.FusionSuperposition fs ->
+            // FusionSuperposition stores the logical qubit count
+            fs.BasisStates
+            |> List.tryHead
+            |> Option.map FusionTree.numQubits
+            |> Option.defaultValue 0
+        
+        | QuantumState.SparseState (_, n) ->
+            n
+        
+        | QuantumState.DensityMatrix (_, n) ->
+            n
+    
+    /// Get native representation type
+    /// 
+    /// Returns which type of quantum state representation is being used.
+    let stateType (state: QuantumState) : QuantumStateType =
+        match state with
+        | QuantumState.StateVector _ -> GateBased
+        | QuantumState.FusionSuperposition _ -> TopologicalBraiding
+        | QuantumState.SparseState _ -> Sparse
+        | QuantumState.DensityMatrix _ -> Mixed
+    
+    /// Check if state is pure (vs mixed)
+    /// 
+    /// Pure states: Can be represented as |ψ⟩ (ket vector)
+    /// Mixed states: Require density matrix ρ
+    /// 
+    /// Returns:
+    ///   true if state is pure (StateVector, FusionSuperposition, SparseState)
+    ///   false if state is mixed (DensityMatrix)
+    let isPure (state: QuantumState) : bool =
+        match state with
+        | QuantumState.StateVector _ -> true
+        | QuantumState.FusionSuperposition _ -> true
+        | QuantumState.SparseState _ -> true
+        | QuantumState.DensityMatrix _ -> false
+    
+    /// Get dimension of state space (2^n for n qubits)
+    let dimension (state: QuantumState) : int =
+        let n = numQubits state
+        1 <<< n  // 2^n
+    
+    /// Measure all qubits and get classical bitstrings
+    /// 
+    /// Parameters:
+    ///   state - Quantum state to measure
+    ///   shots - Number of measurement samples
+    /// 
+    /// Returns:
+    ///   Array of bitstrings, each bitstring is int[] where [|b0; b1; ...|]
+    ///   represents measurement outcome with bi ∈ {0, 1}
+    /// 
+    /// Note: Measurement COLLAPSES the quantum state. For multiple measurements,
+    /// this function samples from the probability distribution without collapsing
+    /// (i.e., performs independent measurements on copies of the state).
+    let measure (state: QuantumState) (shots: int) : int[][] =
+        match state with
+        | QuantumState.StateVector sv ->
+            // Use LocalSimulator's measurement
+            StateVector.measure sv shots
+        
+        | QuantumState.FusionSuperposition fs ->
+            // Measure fusion outcomes and convert to computational basis
+            // TODO: Implement TopologicalOperations.measureAll
+            // For now, convert to StateVector and measure
+            failwith "FusionSuperposition measurement not yet implemented - use QuantumStateConversion.fusionToStateVector first"
+        
+        | QuantumState.SparseState _ ->
+            failwith "SparseState not yet implemented"
+        
+        | QuantumState.DensityMatrix _ ->
+            failwith "DensityMatrix not yet implemented"
+    
+    /// Get probability of measuring specific bitstring
+    /// 
+    /// Parameters:
+    ///   bitstring - Target bitstring [|b0; b1; ...; bn-1|]
+    ///   state - Quantum state
+    /// 
+    /// Returns:
+    ///   Probability ∈ [0, 1] of measuring this bitstring
+    /// 
+    /// Example:
+    ///   let bellState = (* create |00⟩ + |11⟩ *)
+    ///   probability [|0;0|] bellState = 0.5
+    ///   probability [|1;1|] bellState = 0.5
+    ///   probability [|0;1|] bellState = 0.0
+    let probability (bitstring: int[]) (state: QuantumState) : float =
+        if bitstring.Length <> numQubits state then
+            failwith $"Bitstring length {bitstring.Length} does not match state qubits {numQubits state}"
+        
+        match state with
+        | QuantumState.StateVector sv ->
+            // Convert bitstring to basis index
+            let index = 
+                bitstring 
+                |> Array.fold (fun acc bit -> (acc <<< 1) + bit) 0
+            
+            let amplitude = StateVector.getAmplitude index sv
+            let prob = Complex.magnitude amplitude
+            prob * prob  // |α|²
+        
+        | QuantumState.FusionSuperposition fs ->
+            // TODO: Implement for fusion superposition
+            failwith "FusionSuperposition probability not yet implemented"
+        
+        | QuantumState.SparseState (amplitudes, n) ->
+            let index = 
+                bitstring 
+                |> Array.fold (fun acc bit -> (acc <<< 1) + bit) 0
+            
+            match Map.tryFind index amplitudes with
+            | Some amplitude ->
+                let prob = Complex.magnitude amplitude
+                prob * prob
+            | None -> 0.0  // Not in sparse representation → amplitude is 0
+        
+        | QuantumState.DensityMatrix (rho, n) ->
+            // Probability = ⟨bitstring|ρ|bitstring⟩ = ρ[i,i]
+            let index = 
+                bitstring 
+                |> Array.fold (fun acc bit -> (acc <<< 1) + bit) 0
+            
+            let diagonalElement = rho.[index, index]
+            Complex.magnitude diagonalElement  // Already real for density matrix diagonal
+    
+    /// Check if state is normalized (‖ψ‖ = 1)
+    /// 
+    /// Returns true if state is properly normalized, false otherwise.
+    /// 
+    /// Tolerance: Accepts ‖ψ‖ within [1 - ε, 1 + ε] where ε = 1e-10
+    let isNormalized (state: QuantumState) : bool =
+        match state with
+        | QuantumState.StateVector sv ->
+            StateVector.isNormalized sv
+        
+        | QuantumState.FusionSuperposition fs ->
+            // Sum of probability amplitudes squared should be 1
+            let totalProb =
+                fs.Amplitudes
+                |> Array.sumBy (fun amp -> 
+                    let magnitude = Complex.magnitude amp
+                    magnitude * magnitude
+                )
+            
+            abs (totalProb - 1.0) < 1e-10
+        
+        | QuantumState.SparseState (amplitudes, _) ->
+            let totalProb =
+                amplitudes
+                |> Map.toSeq
+                |> Seq.sumBy (fun (_, amp) ->
+                    let magnitude = Complex.magnitude amp
+                    magnitude * magnitude
+                )
+            
+            abs (totalProb - 1.0) < 1e-10
+        
+        | QuantumState.DensityMatrix (rho, n) ->
+            // Trace(ρ) should be 1
+            let dim = 1 <<< n
+            let trace =
+                [0 .. dim - 1]
+                |> List.sumBy (fun i -> Complex.magnitude rho.[i, i])
+            
+            abs (trace - 1.0) < 1e-10
+    
+    /// Create string representation of state (for debugging)
+    /// 
+    /// Returns human-readable description of quantum state.
+    /// For large states, truncates output.
+    let toString (state: QuantumState) : string =
+        let n = numQubits state
+        let dim = dimension state
+        
+        match state with
+        | QuantumState.StateVector sv ->
+            if dim <= 8 then
+                // Small state: Show all amplitudes
+                let amplitudeStrs =
+                    [0 .. dim - 1]
+                    |> List.map (fun i ->
+                        let amp = StateVector.getAmplitude i sv
+                        let bitstring = Convert.ToString(i, 2).PadLeft(n, '0')
+                        $"|{bitstring}⟩: {amp.Real:F4} + {amp.Imaginary:F4}i"
+                    )
+                    |> String.concat "\n  "
+                
+                $"StateVector ({n} qubits, {dim} dimensions):\n  {amplitudeStrs}"
+            else
+                // Large state: Just show metadata
+                $"StateVector ({n} qubits, {dim} dimensions, {dim * 16}B memory)"
+        
+        | QuantumState.FusionSuperposition fs ->
+            let numTrees = fs.BasisStates.Length
+            $"FusionSuperposition ({n} qubits, {numTrees} fusion trees, {fs.AnyonType} anyons)"
+        
+        | QuantumState.SparseState (amplitudes, n) ->
+            let numNonZero = Map.count amplitudes
+            $"SparseState ({n} qubits, {numNonZero}/{dim} non-zero amplitudes)"
+        
+        | QuantumState.DensityMatrix (_, n) ->
+            $"DensityMatrix ({n} qubits, {dim}×{dim} matrix, {dim * dim * 16}B memory)"
