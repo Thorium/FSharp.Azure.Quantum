@@ -155,6 +155,47 @@ module GateTranspiler =
             CNOT (control, target)
         ]
     
+    /// Decompose CP (Controlled-Phase) gate into RZ + CNOT gates
+    /// 
+    /// CP(θ) = diag(1, 1, 1, e^(iθ)) - controlled phase rotation
+    /// 
+    /// Decomposition: CP(θ) = RZ(θ/2) · CNOT · RZ(-θ/2) · CNOT · RZ(θ/2)
+    /// 
+    /// Reference: Nielsen & Chuang, Exercise 4.16
+    /// 
+    /// Circuit:
+    ///   c: ─RZ(θ/2)──●──RZ(-θ/2)──●──RZ(θ/2)─
+    ///                │             │
+    ///   t: ─────────┤ X ├─────────┤ X ├───────
+    let private decomposeCP (control: int) (target: int) (angle: float) : Gate list =
+        let halfAngle = angle / 2.0
+        [
+            RZ (control, halfAngle)
+            CNOT (control, target)
+            RZ (control, -halfAngle)
+            CNOT (control, target)
+            RZ (control, halfAngle)
+        ]
+    
+    /// Decompose SWAP gate into 3 CNOTs
+    /// 
+    /// SWAP exchanges the states of two qubits: SWAP|ab⟩ = |ba⟩
+    /// 
+    /// Standard decomposition: SWAP = CNOT(a,b) · CNOT(b,a) · CNOT(a,b)
+    /// 
+    /// Reference: Nielsen & Chuang, Section 4.3
+    /// 
+    /// Circuit:
+    ///   q1: ──●────┤ X ├──●───
+    ///         │       │    │
+    ///   q2: ┤ X ├───●────┤ X ├─
+    let private decomposeSWAP (qubit1: int) (qubit2: int) : Gate list =
+        [
+            CNOT (qubit1, qubit2)
+            CNOT (qubit2, qubit1)
+            CNOT (qubit1, qubit2)
+        ]
+    
     // ========================================================================
     // THREE-QUBIT GATE DECOMPOSITIONS (Toffoli/CCX)
     // ========================================================================
@@ -381,6 +422,7 @@ module GateTranspiler =
     /// Parameters:
     /// - needsPhaseDecomposition: true if backend doesn't support S/T gates
     /// - needsCZDecomposition: true if backend doesn't support CZ
+    /// - needsSWAPDecomposition: true if backend doesn't support SWAP
     /// - needsCCXDecomposition: true if backend doesn't support CCX
     /// - needsControlledRotationDecomposition: true if backend doesn't support CRX/CRY/CRZ
     /// - gate: the gate to transpile
@@ -388,7 +430,8 @@ module GateTranspiler =
     /// Returns: list of gates (original if supported, decomposed if not)
     let private transpileGate 
         (needsPhaseDecomposition: bool)
-        (needsCZDecomposition: bool) 
+        (needsCZDecomposition: bool)
+        (needsSWAPDecomposition: bool)
         (needsCCXDecomposition: bool)
         (needsControlledRotationDecomposition: bool)
         (gate: Gate) : Gate list =
@@ -407,6 +450,13 @@ module GateTranspiler =
         | CRX (c, t, angle) when needsControlledRotationDecomposition -> decomposeCRX c t angle
         | CRY (c, t, angle) when needsControlledRotationDecomposition -> decomposeCRY c t angle
         | CRZ (c, t, angle) when needsControlledRotationDecomposition -> decomposeCRZ c t angle
+        
+        // CP - decompose if needed (for most backends)
+        | CP (c, t, angle) when needsControlledRotationDecomposition -> decomposeCP c t angle
+        
+        // SWAP - decompose if needed (for topological and some backends)
+        // Note: IonQ and Rigetti support SWAP natively, so only decompose when explicitly needed
+        | SWAP (q1, q2) when needsSWAPDecomposition -> decomposeSWAP q1 q2
         
         // CCX - always decompose (no backend supports it natively)
         | CCX (c1, c2, t) when needsCCXDecomposition ->
@@ -444,38 +494,44 @@ module GateTranspiler =
     ///   → No decomposition needed
     let transpileForBackend (backendName: string) (circuit: Circuit) : Circuit =
         // Determine what decompositions are needed based on backend
-        let (needsPhaseDecomp, needsCZDecomp, needsControlledRotationDecomp, needsCCXDecomp) =
+        // Tuple: (needsPhaseDecomp, needsCZDecomp, needsSWAPDecomp, needsCCXDecomp, needsControlledRotationDecomp)
+        let (needsPhaseDecomp, needsCZDecomp, needsSWAPDecomp, needsCCXDecomp, needsControlledRotationDecomp) =
             match backendName.ToLowerInvariant() with
-            // IonQ doesn't support S, T, CZ, or controlled rotations
+            // IonQ: Native SWAP support, but needs S/T, CZ, controlled rotations, CCX decomposed
             | name when name.Contains("ionq") -> 
-                (true, true, true, true)
+                (true, true, false, true, true)  // SWAP is natively supported
             
-            // Rigetti doesn't support S, T, or controlled rotations but has CZ
+            // Rigetti: Native CZ and SWAP, but needs S/T, controlled rotations, CCX decomposed
             | name when name.Contains("rigetti") -> 
-                (true, false, true, true)
+                (true, false, false, true, true)  // CZ and SWAP natively supported
             
-            // Quantinuum H-Series: Native CZ (trapped-ion), S, T supported
-            // Needs controlled rotation and CCX decomposition
+            // Quantinuum H-Series: Native CZ (trapped-ion), S, T, but no SWAP
+            // Needs controlled rotation, SWAP, and CCX decomposition
             | name when name.Contains("quantinuum") -> 
-                (false, false, true, true)
+                (false, false, true, true, true)  // Needs SWAP decomposed
             
             // Atom Computing Phoenix: Native CZ (Rydberg blockade), all-to-all connectivity
-            // Similar to Quantinuum - needs controlled rotation and CCX decomposition
+            // Similar to Quantinuum - needs controlled rotation, SWAP, and CCX decomposition
             | name when name.Contains("atom") || name.Contains("atomcomputing") -> 
-                (false, false, true, true)
+                (false, false, true, true, true)  // Needs SWAP decomposed
             
             // Local simulator supports everything
             | name when name.Contains("local") -> 
-                (false, false, false, false)
+                (false, false, false, false, false)
+            
+            // Topological backend: Needs all gates decomposed to elementary gates
+            // For topological quantum computing (anyonic braiding), only CNOT, H, T, S, RZ supported
+            | name when name.Contains("topological") ->
+                (false, true, true, true, true)  // Keep S/T, decompose CZ, SWAP, CCX, CRX/CRY/CRZ/CP
             
             // Unknown backend - be conservative, decompose everything
             | _ -> 
-                (true, true, true, true)
+                (true, true, true, true, true)
         
         // Transpile all gates in the circuit
         let transpiledGates =
             circuit.Gates
-            |> List.collect (transpileGate needsPhaseDecomp needsCZDecomp needsCCXDecomp needsControlledRotationDecomp)
+            |> List.collect (transpileGate needsPhaseDecomp needsCZDecomp needsSWAPDecomp needsCCXDecomp needsControlledRotationDecomp)
         
         { circuit with Gates = transpiledGates }
     
@@ -493,6 +549,9 @@ module GateTranspiler =
         let needsCZDecomp = 
             not (supportedGates.Contains "CZ")
         
+        let needsSWAPDecomp =
+            not (supportedGates.Contains "SWAP")
+        
         let needsCCXDecomp = 
             not (supportedGates.Contains "CCX")
         
@@ -502,7 +561,7 @@ module GateTranspiler =
         // Transpile all gates
         let transpiledGates =
             circuit.Gates
-            |> List.collect (transpileGate needsPhaseDecomp needsCZDecomp needsCCXDecomp needsControlledRotationDecomp)
+            |> List.collect (transpileGate needsPhaseDecomp needsCZDecomp needsSWAPDecomp needsCCXDecomp needsControlledRotationDecomp)
         
         { circuit with Gates = transpiledGates }
     

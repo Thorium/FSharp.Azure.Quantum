@@ -607,36 +607,38 @@ module GateToBraid =
         
         | CircuitBuilder.Gate.CP (control, target, angle) ->
             // CP(θ) = controlled phase rotation
-            // Currently not supported - would need decomposition in GateTranspiler first
-            // Future: Could add CP decomposition to GateTranspiler.fs
-            TopologicalResult.notImplemented "CP gate compilation" 
-                (Some $"CP({angle}) gate is not yet supported. Consider using equivalent RZ + CNOT decomposition manually, or add CP decomposition to GateTranspiler.")
+            // This is automatically handled by GateTranspiler in compileGateSequence
+            // Should not reach here if transpilation is done correctly
+            Error (TopologicalError.LogicError 
+                ("CP gate compilation", "CP gate should have been transpiled before gate-to-braid compilation. This indicates a bug in the compilation pipeline."))
         
         | CircuitBuilder.Gate.CRX (control, target, angle) ->
             // CRX(θ) = controlled rotation X
-            // Currently not supported - would need decomposition in GateTranspiler first
-            TopologicalResult.notImplemented "CRX gate compilation" 
-                (Some $"CRX({angle}) gate is not yet supported. Add CRX decomposition to GateTranspiler.")
+            // This is automatically handled by GateTranspiler in compileGateSequence
+            // Should not reach here if transpilation is done correctly
+            Error (TopologicalError.LogicError 
+                ("CRX gate compilation", "CRX gate should have been transpiled before gate-to-braid compilation. This indicates a bug in the compilation pipeline."))
         
         | CircuitBuilder.Gate.CRY (control, target, angle) ->
             // CRY(θ) = controlled rotation Y
-            // Currently not supported - would need decomposition in GateTranspiler first
-            TopologicalResult.notImplemented "CRY gate compilation" 
-                (Some $"CRY({angle}) gate is not yet supported. Add CRY decomposition to GateTranspiler.")
+            // This is automatically handled by GateTranspiler in compileGateSequence
+            // Should not reach here if transpilation is done correctly
+            Error (TopologicalError.LogicError 
+                ("CRY gate compilation", "CRY gate should have been transpiled before gate-to-braid compilation. This indicates a bug in the compilation pipeline."))
         
         | CircuitBuilder.Gate.CRZ (control, target, angle) ->
             // CRZ(θ) = controlled rotation Z
-            // Currently not supported - would need decomposition in GateTranspiler first
-            TopologicalResult.notImplemented "CRZ gate compilation" 
-                (Some $"CRZ({angle}) gate is not yet supported. Add CRZ decomposition to GateTranspiler.")
+            // This is automatically handled by GateTranspiler in compileGateSequence
+            // Should not reach here if transpilation is done correctly
+            Error (TopologicalError.LogicError 
+                ("CRZ gate compilation", "CRZ gate should have been transpiled before gate-to-braid compilation. This indicates a bug in the compilation pipeline."))
         
         | CircuitBuilder.Gate.SWAP (qubit1, qubit2) ->
             // SWAP = CNOT(q1,q2) · CNOT(q2,q1) · CNOT(q1,q2)
-            // SWAP is natively supported by some backends (IonQ, Rigetti)
-            // For topological compilation, we currently require explicit CNOT decomposition
-            // Future: Could add SWAP decomposition to GateTranspiler.fs
-            TopologicalResult.notImplemented "SWAP gate compilation" 
-                (Some "SWAP gate is not yet decomposed for topological compilation. Use 3 explicit CNOTs: CNOT(q1,q2), CNOT(q2,q1), CNOT(q1,q2).")
+            // This is automatically handled by GateTranspiler in compileGateSequence
+            // Should not reach here if transpilation is done correctly
+            Error (TopologicalError.LogicError 
+                ("SWAP gate compilation", "SWAP gate should have been transpiled before gate-to-braid compilation. This indicates a bug in the compilation pipeline."))
         
         | CircuitBuilder.Gate.CCX (control1, control2, target) ->
             // Toffoli requires 6 CNOTs + T gates (Barenco decomposition)

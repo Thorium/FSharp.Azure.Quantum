@@ -268,3 +268,136 @@ module QPETests =
             let numQubits = numQubits result.FinalState
             let expectedQubits = result.Config.CountingQubits + result.Config.TargetQubits
             Assert.Equal(expectedQubits, numQubits)
+
+    // ========================================================================
+    // QPE UNIFIED TESTS (using QPEUnified module)
+    // ========================================================================
+
+open FSharp.Azure.Quantum.Algorithms.QPEUnified
+open FSharp.Azure.Quantum.Core.UnifiedBackendAbstraction
+open FSharp.Azure.Quantum.Backends.LocalBackend
+open FSharp.Azure.Quantum.Core
+
+module QPEUnifiedTests =
+    
+    /// Create LocalBackend for unified testing
+    let private createUnifiedBackend() : IUnifiedQuantumBackend =
+        LocalBackend() :> IUnifiedQuantumBackend
+    
+    [<Fact>]
+    let ``QPEUnified estimates T gate phase correctly (4 qubits)`` () =
+        // T gate: e^(iπ/4) = e^(2πi·1/8)
+        // Expected phase: φ = 1/8 = 0.125
+        let backend = createUnifiedBackend()
+        
+        match estimateTGatePhase 4 backend with
+        | Error err -> Assert.Fail($"QPEUnified execution failed: {err}")
+        | Ok result ->
+            // With 4 qubits, we get 4 bits of precision
+            // φ = 1/8 = 0.0010 in binary → measurement should be 2
+            let expectedPhase = 1.0 / 8.0  // 0.125
+            
+            // Allow measurement error due to quantum noise
+            let error = abs (result.EstimatedPhase - expectedPhase)
+            Assert.True(error < 0.15, $"Expected phase ~{expectedPhase}, got {result.EstimatedPhase}")
+            Assert.Equal(4, result.Precision)
+            Assert.True(result.GateCount > 0, "Should report gate count")
+    
+    [<Fact>]
+    let ``QPEUnified estimates S gate phase correctly (4 qubits)`` () =
+        // S gate: e^(iπ/2) = e^(2πi·1/4)
+        // Expected phase: φ = 1/4 = 0.25
+        let backend = createUnifiedBackend()
+        
+        match estimateSGatePhase 4 backend with
+        | Error err -> Assert.Fail($"QPEUnified execution failed: {err}")
+        | Ok result ->
+            // With 4 qubits: φ = 1/4 = 0.0100 in binary → measurement should be 4
+            let expectedPhase = 1.0 / 4.0  // 0.25
+            
+            let error = abs (result.EstimatedPhase - expectedPhase)
+            Assert.True(error < 0.15, $"Expected phase ~{expectedPhase}, got {result.EstimatedPhase}")
+            Assert.Equal(4, result.Precision)
+            Assert.True(result.GateCount > 0, "Should report gate count")
+    
+    [<Fact>]
+    let ``QPEUnified estimates general phase gate correctly`` () =
+        // Phase gate with θ = π/2 → φ = 1/4 = 0.25
+        let backend = createUnifiedBackend()
+        let theta = Math.PI / 2.0
+        
+        match estimatePhaseGate theta 4 backend with
+        | Error err -> Assert.Fail($"QPEUnified execution failed: {err}")
+        | Ok result ->
+            let expectedPhase = theta / (2.0 * Math.PI)  // φ = θ/(2π)
+            
+            let error = abs (result.EstimatedPhase - expectedPhase)
+            Assert.True(error < 0.15, $"Expected phase ~{expectedPhase}, got {result.EstimatedPhase}")
+            Assert.Equal(4, result.Precision)
+    
+    [<Fact>]
+    let ``QPEUnified with higher precision gives more accurate T gate results`` () =
+        let backend = createUnifiedBackend()
+        
+        // Test with 6 qubits for higher precision
+        match estimateTGatePhase 6 backend with
+        | Error err -> Assert.Fail($"QPEUnified high precision failed: {err}")
+        | Ok result ->
+            let expectedPhase = 1.0 / 8.0  // T gate phase
+            
+            // With 6 qubits, we should get better accuracy
+            let error = abs (result.EstimatedPhase - expectedPhase)
+            Assert.True(error < 0.1, $"Expected improved accuracy with 6 qubits, error: {error}")
+            Assert.Equal(6, result.Precision)
+    
+    [<Fact>]
+    let ``QPEUnified validates input parameters correctly`` () =
+        let backend = createUnifiedBackend()
+        
+        // Test invalid counting qubits
+        let invalidConfig = {
+            CountingQubits = 0  // Invalid
+            TargetQubits = 1
+            UnitaryOperator = TGate
+            EigenVector = None
+        }
+        
+        match execute invalidConfig backend with
+        | Ok _ -> Assert.Fail("Should have failed with invalid CountingQubits")
+        | Error (QuantumError.ValidationError (fieldName, _)) -> 
+            Assert.Equal("CountingQubits", fieldName)
+        | Error _ -> Assert.Fail("Should have returned ValidationError")
+    
+    [<Fact>]
+    let ``QPEUnified measurement outcome matches expected binary representation`` () =
+        let backend = createUnifiedBackend()
+        
+        match estimateTGatePhase 4 backend with
+        | Error err -> Assert.Fail($"QPEUnified execution failed: {err}")
+        | Ok result ->
+            // T gate phase: φ = 1/8 = 0.125
+            // In 4-bit binary: 1/8 = 2/16 = 0010₂ → measurement should be 2
+            // Allow some measurement variation
+            let expectedMeasurement = 2  // 0010₂ for φ = 1/8
+            let tolerance = 2  // Allow ±2 for quantum noise
+            
+            Assert.True(
+                abs (result.MeasurementOutcome - expectedMeasurement) <= tolerance,
+                $"Expected measurement ~{expectedMeasurement}, got {result.MeasurementOutcome}"
+            )
+    
+    [<Fact>]
+    let ``QPEUnified final state is properly normalized`` () =
+        let backend = createUnifiedBackend()
+        
+        match estimateTGatePhase 4 backend with
+        | Error err -> Assert.Fail($"QPEUnified execution failed: {err}")
+        | Ok result ->
+            // Verify final quantum state is normalized
+            // (This test depends on having access to state vector norms)
+            Assert.NotNull(result.FinalState)
+            
+            // Check configuration is preserved
+            Assert.Equal(4, result.Config.CountingQubits)
+            Assert.Equal(1, result.Config.TargetQubits)
+            Assert.Equal(TGate, result.Config.UnitaryOperator)

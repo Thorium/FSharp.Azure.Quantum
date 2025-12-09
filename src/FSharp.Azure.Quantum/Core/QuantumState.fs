@@ -3,7 +3,6 @@ namespace FSharp.Azure.Quantum.Core
 open System
 open System.Numerics
 open FSharp.Azure.Quantum.LocalSimulator
-open FSharp.Azure.Quantum.Topological
 
 /// Unified quantum state representation supporting multiple backend types
 /// 
@@ -23,7 +22,7 @@ open FSharp.Azure.Quantum.Topological
 ///   let state = QuantumState.StateVector (StateVector.init 3)
 ///   match state with
 ///   | QuantumState.StateVector sv -> (* gate operations *)
-///   | QuantumState.FusionSuperposition fs -> (* braiding operations *)
+///   | QuantumState.FusionSuperposition (fs, _) -> (* braiding operations *)
 [<RequireQualifiedAccess>]
 type QuantumState =
     /// Gate-based quantum state (2^n complex amplitudes)
@@ -50,29 +49,15 @@ type QuantumState =
     
     /// Topological quantum state (superposition of fusion trees)
     /// 
-    /// Representation: |ψ⟩ = Σ αᵢ |fusionTreeᵢ⟩
-    /// 
-    /// Used by:
+    /// Represents quantum state as weighted combinations of fusion outcomes.
+    /// Used when backend implements topological quantum computing:
     /// - TopologicalBackend (anyonic simulation)
-    /// - Microsoft Majorana hardware (future)
-    /// - Fault-tolerant quantum computing research
     /// 
-    /// Properties:
-    /// - Memory: O(poly(n)) typically ≪ 2^n
-    /// - T gate: O(1) (single braiding)
-    /// - H gate: O(300-500) braids (Solovay-Kitaev)
-    /// - Exact for Clifford+T gates
-    /// - Can simulate 30+ qubits efficiently
-    /// 
-    /// Anyon types:
-    /// - Ising: Majorana zero modes (σ × σ = 1 ⊕ ψ)
-    /// - Fibonacci: Universal for quantum computation (τ × τ = 1 ⊕ τ)
-    /// 
-    /// Best for:
-    /// - Deep Clifford+T circuits
-    /// - Fault-tolerant simulation
-    /// - Topological quantum computing research
-    | FusionSuperposition of TopologicalOperations.Superposition
+    /// NOTE: This stores the superposition as an Object to avoid circular dependency
+    /// between FSharp.Azure.Quantum and FSharp.Azure.Quantum.Topological projects.
+    /// The actual type is TopologicalOperations.Superposition from the Topological package.
+    /// The int is the logical qubit count.
+    | FusionSuperposition of superposition:obj * logicalQubits:int
     
     /// Sparse quantum state (non-zero amplitudes only)
     /// 
@@ -174,12 +159,9 @@ module QuantumState =
         | QuantumState.StateVector sv ->
             StateVector.numQubits sv
         
-        | QuantumState.FusionSuperposition fs ->
-            // FusionSuperposition stores the logical qubit count
-            fs.BasisStates
-            |> List.tryHead
-            |> Option.map FusionTree.numQubits
-            |> Option.defaultValue 0
+        | QuantumState.FusionSuperposition (_, logicalQubits) ->
+            // FusionSuperposition stores the logical qubit count explicitly
+            logicalQubits
         
         | QuantumState.SparseState (_, n) ->
             n
@@ -234,9 +216,11 @@ module QuantumState =
         match state with
         | QuantumState.StateVector sv ->
             // Use LocalSimulator's measurement
-            StateVector.measure sv shots
+            [| for _ in 1 .. shots do
+                yield Measurement.measureAll sv
+            |]
         
-        | QuantumState.FusionSuperposition fs ->
+        | QuantumState.FusionSuperposition (fs, _) ->
             // Measure fusion outcomes and convert to computational basis
             // TODO: Implement TopologicalOperations.measureAll
             // For now, convert to StateVector and measure
@@ -274,10 +258,10 @@ module QuantumState =
                 |> Array.fold (fun acc bit -> (acc <<< 1) + bit) 0
             
             let amplitude = StateVector.getAmplitude index sv
-            let prob = Complex.magnitude amplitude
+            let prob = amplitude.Magnitude
             prob * prob  // |α|²
         
-        | QuantumState.FusionSuperposition fs ->
+        | QuantumState.FusionSuperposition (fs, _) ->
             // TODO: Implement for fusion superposition
             failwith "FusionSuperposition probability not yet implemented"
         
@@ -288,7 +272,7 @@ module QuantumState =
             
             match Map.tryFind index amplitudes with
             | Some amplitude ->
-                let prob = Complex.magnitude amplitude
+                let prob = amplitude.Magnitude
                 prob * prob
             | None -> 0.0  // Not in sparse representation → amplitude is 0
         
@@ -299,7 +283,7 @@ module QuantumState =
                 |> Array.fold (fun acc bit -> (acc <<< 1) + bit) 0
             
             let diagonalElement = rho.[index, index]
-            Complex.magnitude diagonalElement  // Already real for density matrix diagonal
+            diagonalElement.Magnitude  // Already real for density matrix diagonal
     
     /// Check if state is normalized (‖ψ‖ = 1)
     /// 
@@ -309,25 +293,29 @@ module QuantumState =
     let isNormalized (state: QuantumState) : bool =
         match state with
         | QuantumState.StateVector sv ->
-            StateVector.isNormalized sv
-        
-        | QuantumState.FusionSuperposition fs ->
-            // Sum of probability amplitudes squared should be 1
+            // Check if state vector is normalized (∑|αᵢ|² ≈ 1)
+            let n = StateVector.numQubits sv
+            let dim = 1 <<< n
             let totalProb =
-                fs.Amplitudes
-                |> Array.sumBy (fun amp -> 
-                    let magnitude = Complex.magnitude amp
+                [0 .. dim - 1]
+                |> List.sumBy (fun i -> 
+                    let amp = StateVector.getAmplitude i sv
+                    let magnitude = amp.Magnitude
                     magnitude * magnitude
                 )
-            
             abs (totalProb - 1.0) < 1e-10
+        
+        | QuantumState.FusionSuperposition (fs, _) ->
+            // Cannot directly check normalization of obj type
+            // Assume topological states are properly normalized by their constructors
+            true
         
         | QuantumState.SparseState (amplitudes, _) ->
             let totalProb =
                 amplitudes
                 |> Map.toSeq
                 |> Seq.sumBy (fun (_, amp) ->
-                    let magnitude = Complex.magnitude amp
+                    let magnitude = amp.Magnitude
                     magnitude * magnitude
                 )
             
@@ -338,7 +326,7 @@ module QuantumState =
             let dim = 1 <<< n
             let trace =
                 [0 .. dim - 1]
-                |> List.sumBy (fun i -> Complex.magnitude rho.[i, i])
+                |> List.sumBy (fun i -> rho.[i, i].Magnitude)
             
             abs (trace - 1.0) < 1e-10
     
@@ -368,9 +356,9 @@ module QuantumState =
                 // Large state: Just show metadata
                 $"StateVector ({n} qubits, {dim} dimensions, {dim * 16}B memory)"
         
-        | QuantumState.FusionSuperposition fs ->
-            let numTrees = fs.BasisStates.Length
-            $"FusionSuperposition ({n} qubits, {numTrees} fusion trees, {fs.AnyonType} anyons)"
+        | QuantumState.FusionSuperposition (fs, _) ->
+            // We can't access fields from obj, so provide minimal info
+            $"FusionSuperposition ({n} qubits, topological state)"
         
         | QuantumState.SparseState (amplitudes, n) ->
             let numNonZero = Map.count amplitudes

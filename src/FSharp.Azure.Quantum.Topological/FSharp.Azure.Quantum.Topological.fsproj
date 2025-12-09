@@ -69,6 +69,7 @@
     <Compile Include="ToricCode.fs" />
     <Compile Include="EntanglementEntropy.fs" />
     <Compile Include="TopologicalBackend.fs" />
+    <Compile Include="TopologicalUnifiedBackend.fs" />
     <Compile Include="Integration\TopologicalBackendAdapter.fs" />
     <Compile Include="AlgorithmExtensions.fs" />
     <Compile Include="TopologicalBuilder.fs" />

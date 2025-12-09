@@ -240,7 +240,7 @@ module HHLTypes =
             // Check for singular matrix (zero or near-zero eigenvalues)
             let minEigAbs = eigenvalues |> Array.map abs |> Array.min
             if minEigAbs < 1e-10 then
-                Error (QuantumError.Other $"Singular matrix detected: eigenvalue near zero ({minEigAbs:E}). HHL requires invertible matrices.")
+                Error (QuantumError.ValidationError ("eigenvalues", $"matrix is singular - eigenvalue near zero ({minEigAbs:E})"))
             else
                 let elements = Array.init (n * n) (fun idx ->
                     let i = idx / n

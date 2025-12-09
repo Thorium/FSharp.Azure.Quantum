@@ -88,6 +88,12 @@
     <Compile Include="QuantumRegressionHHLTests.fs" />
     <Compile Include="VisualizationTests.fs" />
     
+    <!-- Unified Backend Architecture Tests -->
+    <Compile Include="UnifiedBackendTests.fs" />
+    <Compile Include="GroverUnifiedTests.fs" />
+    <Compile Include="ShorsUnifiedTests.fs" />
+    <Compile Include="HHLUnifiedTests.fs" />
+    
     <Compile Include="IntegrationTests.fs" />
   </ItemGroup>
 
@@ -100,6 +106,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\FSharp.Azure.Quantum\FSharp.Azure.Quantum.fsproj" />
+    <ProjectReference Include="..\..\src\FSharp.Azure.Quantum.Topological\FSharp.Azure.Quantum.Topological.fsproj" />
   </ItemGroup>
 
 </Project>

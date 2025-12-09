@@ -1,6 +1,7 @@
 namespace FSharp.Azure.Quantum.Core
 
 open System.Threading
+open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Core.CircuitAbstraction
 
 /// Unified quantum backend interface supporting both gate-based and state-based execution
@@ -53,11 +54,12 @@ module UnifiedBackendAbstraction =
         /// F-move operation (basis change in fusion tree)
         /// 
         /// Parameters:
-        ///   direction - Forward or backward F-move
+        ///   direction - Forward or backward F-move (as obj to avoid circular dependency)
         ///   depth - Depth in fusion tree
         /// 
         /// Only applicable to topological backends.
-        | FMove of direction: Topological.TopologicalOperations.FMoveDirection * depth: int
+        /// Direction type is FSharp.Azure.Quantum.Topological.TopologicalOperations.FMoveDirection
+        | FMove of direction: obj * depth: int
         
         /// Sequence of operations (batch execution)
         /// 
@@ -280,12 +282,8 @@ module UnifiedBackendAbstraction =
                 backend.ApplyOperation operation state
             else
                 // Convert to backend's native type
-                match QuantumStateConversion.convert nativeType state with
-                | Ok converted ->
-                    backend.ApplyOperation operation converted
-                
-                | Error convErr ->
-                    Error (QuantumError.ExecutionError ("StateConversion", convErr.Message))
+                let converted = QuantumStateConversion.convert nativeType state
+                backend.ApplyOperation operation converted
         
         /// Apply sequence of operations efficiently
         /// 
@@ -312,21 +310,17 @@ module UnifiedBackendAbstraction =
                 let nativeType = backend.NativeStateType
                 let stateType = QuantumState.stateType initialState
                 
-                let result =
+                let convertedState =
                     if stateType <> nativeType then
                         QuantumStateConversion.convert nativeType initialState
-                        |> Result.mapError (fun err -> QuantumError.ExecutionError ("StateConversion", err.Message))
                     else
-                        Ok initialState
+                        initialState
                 
                 // Apply operations sequentially (fold with short-circuit on error)
-                result
-                |> Result.bind (fun startState ->
-                    operations
-                    |> List.fold (fun stateResult op ->
-                        stateResult |> Result.bind (fun s -> backend.ApplyOperation op s)
-                    ) (Ok startState)
-                )
+                operations
+                |> List.fold (fun stateResult op ->
+                    stateResult |> Result.bind (fun s -> backend.ApplyOperation op s)
+                ) (Ok convertedState)
         
         /// Measure state and return classical outcomes
         /// 

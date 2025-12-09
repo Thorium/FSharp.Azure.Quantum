@@ -201,3 +201,34 @@ module Measurement =
         let expectedSquared = computeExpectedValue (fun i -> (classicalFunction i) ** 2.0) state
         let variance = expectedSquared - expectedValue ** 2.0
         sqrt variance
+    
+    // ============================================================================
+    // 5. CONVENIENCE WRAPPERS (Compatible with existing code)
+    // ============================================================================
+    
+    /// Measure all qubits in computational basis (convenience wrapper)
+    /// 
+    /// Returns array of bits [b₀, b₁, ..., bₙ₋₁] where bᵢ ∈ {0,1}
+    /// Uses system RNG for random number generation
+    let measureAll (state: StateVector.StateVector) : int[] =
+        let rng = Random()
+        let basisIndex = measureComputationalBasis rng state
+        let numQubits = StateVector.numQubits state
+        
+        // Convert basis index to bit array
+        [| 0 .. numQubits - 1 |]
+        |> Array.map (fun qubitIdx -> (basisIndex >>> qubitIdx) &&& 1)
+    
+    /// Measure single qubit (convenience wrapper)
+    /// 
+    /// Returns 0 or 1
+    /// Uses system RNG for random number generation
+    let measure (qubitIdx: int) (state: StateVector.StateVector) : int =
+        let rng = Random()
+        measureSingleQubit rng qubitIdx state
+    
+    /// Collapse state after measurement (convenience wrapper)
+    /// 
+    /// Alias for collapseAfterMeasurement
+    let collapse (qubitIdx: int) (outcome: int) (state: StateVector.StateVector) : StateVector.StateVector =
+        collapseAfterMeasurement qubitIdx outcome state

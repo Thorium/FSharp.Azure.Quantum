@@ -6,16 +6,28 @@ open System.Numerics
 
 /// Quantum Fourier Transform (QFT) Module
 /// 
-/// Implements the quantum analog of the discrete Fourier transform.
-/// QFT is a fundamental building block for many quantum algorithms including:
-/// - Shor's factoring algorithm
-/// - Quantum phase estimation
-/// - Period finding algorithms
+/// ⚠️ DEPRECATED: This module uses LocalSimulator directly and is NOT backend-agnostic.
 /// 
-/// The QFT transforms computational basis states into frequency basis:
-/// |j⟩ → (1/√N) Σₖ e^(2πijk/N) |k⟩
+/// **Use QFTUnified instead** for RULE1-compliant, backend-agnostic QFT implementation.
+/// QFTUnified supports all backends (LocalBackend, TopologicalBackend, cloud providers).
 /// 
-/// Time Complexity: O(n²) quantum gates vs O(n·2^n) for classical FFT
+/// This module will be removed in a future major version.
+/// 
+/// Migration:
+/// ```fsharp
+/// // OLD (deprecated):
+/// open FSharp.Azure.Quantum.Algorithms.QuantumFourierTransform
+/// let config = { NumQubits = 3; ApplySwaps = true; Inverse = false }
+/// match execute config state with ...
+/// 
+/// // NEW (recommended):
+/// open FSharp.Azure.Quantum.Algorithms.QFTUnified
+/// open FSharp.Azure.Quantum.Backends.LocalBackend
+/// let backend = LocalBackend() :> IUnifiedQuantumBackend
+/// let config = { NumQubits = 3; ApplySwaps = true; Inverse = false }
+/// match execute 3 backend config with ...
+/// ```
+[<Obsolete("Use FSharp.Azure.Quantum.Algorithms.QFTUnified for backend-agnostic QFT implementation. This module will be removed in a future version.")>]
 module QuantumFourierTransform =
     
     open FSharp.Azure.Quantum.LocalSimulator

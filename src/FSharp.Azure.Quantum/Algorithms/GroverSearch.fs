@@ -5,13 +5,29 @@ open FSharp.Azure.Quantum.Core
 
 /// Grover Search API Module
 /// 
-/// High-level API for Grover's quantum search algorithm.
-/// Provides convenient functions for searching with single/multiple solutions,
-/// predicates, and automatic optimal iteration calculation.
+/// ⚠️ DEPRECATED: This module uses circuit-based IQuantumBackend.
 /// 
-/// This is the main user-facing API for Grover search.
+/// **Use GroverUnified instead** for RULE1-compliant, state-based Grover implementation.
+/// GroverUnified supports IUnifiedQuantumBackend (LocalBackend, TopologicalBackend).
+/// 
+/// This module will be removed in a future major version.
+/// 
+/// Migration:
+/// ```fsharp
+/// // OLD (deprecated):
+/// open FSharp.Azure.Quantum.GroverSearch.Search
+/// match search backend predicate numQubits with ...
+/// 
+/// // NEW (recommended):
+/// open FSharp.Azure.Quantum.Algorithms.GroverUnified
+/// open FSharp.Azure.Quantum.Backends.LocalBackend
+/// let backend = LocalBackend() :> IUnifiedQuantumBackend
+/// let oracle = Oracle.fromPredicate predicate
+/// match search numQubits oracle backend with ...
+/// ```
 /// 
 /// ALL GROVER SEARCH API CODE IN SINGLE FILE
+[<Obsolete("Use FSharp.Azure.Quantum.Algorithms.GroverUnified for state-based Grover implementation. This module will be removed in a future version.")>]
 module Search =
     
     open FSharp.Azure.Quantum.LocalSimulator

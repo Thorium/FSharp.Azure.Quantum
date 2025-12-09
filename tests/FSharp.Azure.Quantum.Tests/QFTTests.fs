@@ -5,8 +5,15 @@ open FSharp.Azure.Quantum.Algorithms.QuantumFourierTransform
 open FSharp.Azure.Quantum.Algorithms.QFTBackendAdapter
 open FSharp.Azure.Quantum.LocalSimulator.StateVector
 open FSharp.Azure.Quantum.Core.BackendAbstraction
+open FSharp.Azure.Quantum.Core.UnifiedBackendAbstraction
 open FSharp.Azure.Quantum.CircuitBuilder
 open System
+
+/// Module aliases to avoid name conflicts
+module QFTOld = FSharp.Azure.Quantum.Algorithms.QuantumFourierTransform
+module QFTAdapter = FSharp.Azure.Quantum.Algorithms.QFTBackendAdapter
+module QFTUnified = FSharp.Azure.Quantum.Algorithms.QFTUnified
+module LocalBackend = FSharp.Azure.Quantum.Backends.LocalBackend
 
 /// Tests for Quantum Fourier Transform (QFT) and Backend Adapter
 module QFTTests =
@@ -202,3 +209,91 @@ module QFTTests =
                 let magnitude = sqrt(amp.Real * amp.Real + amp.Imaginary * amp.Imaginary)
                 Assert.True(abs(magnitude - expectedMag) < 1e-10, 
                     $"State |{i}⟩ should have magnitude {expectedMag}, got {magnitude}")
+    
+    // ========================================================================
+    // UNIFIED BACKEND TESTS (NEW FUNCTIONS)
+    // ========================================================================
+    
+    [<Fact>]
+    let ``QFTUnified verifyUnitarity confirms QFT is unitary`` () =
+        let backend = LocalBackend.LocalBackend() :> IUnifiedQuantumBackend
+        let config = QFTUnified.defaultConfig
+        
+        match QFTUnified.verifyUnitarity 3 backend config with
+        | Error err -> Assert.Fail($"verifyUnitarity failed: {err}")
+        | Ok isUnitary ->
+            Assert.True(isUnitary, "QFT should be unitary transformation")
+    
+    [<Fact>]
+    let ``QFTUnified transformBasisState creates correct superposition`` () =
+        let backend = LocalBackend.LocalBackend() :> IUnifiedQuantumBackend
+        let numQubits = 3
+        let basisIndex = 5  // |101⟩
+        let config = QFTUnified.defaultConfig
+        
+        match QFTUnified.transformBasisState numQubits basisIndex backend config with
+        | Error err -> Assert.Fail($"transformBasisState failed: {err}")
+        | Ok result ->
+            // Should have successfully transformed |5⟩
+            Assert.True(result.GateCount > 0, "Should have applied gates")
+            Assert.Equal(numQubits, FSharp.Azure.Quantum.Core.QuantumState.numQubits result.FinalState)
+    
+    [<Fact>]
+    let ``QFTUnified transformBasisState rejects invalid basis index`` () =
+        let backend = LocalBackend.LocalBackend() :> IUnifiedQuantumBackend
+        let numQubits = 3
+        let invalidIndex = 10  // Out of range for 3 qubits (max = 7)
+        let config = QFTUnified.defaultConfig
+        
+        match QFTUnified.transformBasisState numQubits invalidIndex backend config with
+        | Ok _ -> Assert.Fail("Should reject out-of-range basis index")
+        | Error (FSharp.Azure.Quantum.Core.QuantumError.ValidationError _) -> 
+            Assert.True(true, "Correctly rejected invalid index")
+        | Error err -> Assert.Fail($"Wrong error type: {err}")
+    
+    [<Fact>]
+    let ``QFTUnified encodeAndTransform is equivalent to transformBasisState`` () =
+        let backend = LocalBackend.LocalBackend() :> IUnifiedQuantumBackend
+        let numQubits = 3
+        let value = 4
+        let config = QFTUnified.defaultConfig
+        
+        match QFTUnified.encodeAndTransform numQubits value backend config with
+        | Error err -> Assert.Fail($"encodeAndTransform failed: {err}")
+        | Ok result ->
+            // Should produce same result as transformBasisState
+            Assert.True(result.GateCount > 0, "Should have applied gates")
+            Assert.Equal(numQubits, FSharp.Azure.Quantum.Core.QuantumState.numQubits result.FinalState)
+    
+    [<Fact>]
+    let ``QFTUnified transformBasisState with all basis states`` () =
+        let backend = LocalBackend.LocalBackend() :> IUnifiedQuantumBackend
+        let numQubits = 2
+        let config = QFTUnified.defaultConfig
+        
+        // Test all basis states for 2 qubits (0, 1, 2, 3)
+        for basisIndex in 0 .. (1 <<< numQubits) - 1 do
+            match QFTUnified.transformBasisState numQubits basisIndex backend config with
+            | Error err -> Assert.Fail($"transformBasisState failed for |{basisIndex}⟩: {err}")
+            | Ok result ->
+                Assert.True(result.GateCount > 0, $"Should have applied gates for |{basisIndex}⟩")
+    
+    [<Fact>]
+    let ``QFTUnified verifyUnitarity works with inverse config`` () =
+        let backend = LocalBackend.LocalBackend() :> IUnifiedQuantumBackend
+        let config = { QFTUnified.defaultConfig with Inverse = true }
+        
+        match QFTUnified.verifyUnitarity 3 backend config with
+        | Error err -> Assert.Fail($"verifyUnitarity with inverse failed: {err}")
+        | Ok isUnitary ->
+            Assert.True(isUnitary, "Inverse QFT should also be unitary")
+    
+    [<Fact>]
+    let ``QFTUnified verifyUnitarity works without swaps`` () =
+        let backend = LocalBackend.LocalBackend() :> IUnifiedQuantumBackend
+        let config = { QFTUnified.defaultConfig with ApplySwaps = false }
+        
+        match QFTUnified.verifyUnitarity 3 backend config with
+        | Error err -> Assert.Fail($"verifyUnitarity without swaps failed: {err}")
+        | Ok isUnitary ->
+            Assert.True(isUnitary, "QFT without swaps should still be unitary")

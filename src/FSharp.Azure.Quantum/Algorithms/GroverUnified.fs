@@ -1,6 +1,7 @@
 namespace FSharp.Azure.Quantum.GroverSearch
 
 open System
+open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.UnifiedBackendAbstraction
 
@@ -45,6 +46,9 @@ module GroverUnified =
         
         /// Minimum shot count threshold for solution extraction (0.0 - 1.0)
         SolutionThreshold: float
+        
+        /// Random seed for reproducible results (None = non-deterministic)
+        RandomSeed: int option
     }
     
     /// Search result with found solutions and statistics
@@ -75,6 +79,7 @@ module GroverUnified =
         Shots = 1000
         SuccessThreshold = 0.5
         SolutionThreshold = 0.07  // 7% of shots
+        RandomSeed = None  // Non-deterministic by default
     }
     
     // ========================================================================
@@ -108,6 +113,28 @@ module GroverUnified =
     // GROVER ITERATION PRIMITIVES (State-Based)
     // ========================================================================
     
+    /// Decompose MCZ gate into basic gates for topological backend compatibility
+    /// 
+    /// MCZ gates need decomposition before braiding compilation.
+    /// Uses GateTranspiler for standard Toffoli decomposition.
+    /// Recursively transpiles until only basic gates remain (no MCZ, CCX).
+    let private decomposeMCZGate (controls: int list) (target: int) (numQubits: int) : CircuitBuilder.Gate list =
+        // Use GateTranspiler to get standard decomposition
+        // IMPORTANT: Use numQubits from the actual state, not just max(target,controls)+1
+        // This ensures decomposed gates don't reference non-existent auxiliary qubits
+        let circuit = CircuitBuilder.empty numQubits
+        let mczGate = CircuitBuilder.MCZ (controls, target)
+        let circuitWithMCZ = CircuitBuilder.addGate mczGate circuit
+        
+        // Transpile MCZ to basic gates - may produce CCX gates
+        let transpiled1 = GateTranspiler.transpileForBackend "topological" circuitWithMCZ
+        
+        // Transpile again to decompose any CCX gates produced by first transpilation
+        // (MCZ decomposes to CCX, which then decomposes to CNOTs + T gates)
+        let transpiled2 = GateTranspiler.transpileForBackend "topological" transpiled1
+        
+        transpiled2.Gates
+    
     /// Apply Hadamard transform to all qubits (superposition creation)
     let private applyHadamardTransform 
         (backend: IUnifiedQuantumBackend) 
@@ -128,17 +155,17 @@ module GroverUnified =
     /// 
     /// Oracle flips the phase of target states: |target⟩ → -|target⟩
     /// Implemented via controlled phase flip operations
-    let private applyOracle
+    let rec private applyOracle
         (backend: IUnifiedQuantumBackend)
-        (oracle: CompiledOracle)
+        (oracle: Oracle.CompiledOracle)
         (state: QuantumState)
         : Result<QuantumState, QuantumError> =
         
         // Oracle is implemented as a sequence of gates that mark the target
         // For each target value, we apply phase flip when qubits match
         
-        match oracle.Targets with
-        | SingleTarget target ->
+        match oracle.Spec with
+        | Oracle.OracleSpec.SingleTarget target ->
             // Mark single target value
             // Convert target to binary and apply controlled-Z pattern
             let numQubits = oracle.NumQubits
@@ -153,9 +180,12 @@ module GroverUnified =
                             yield QuantumOperation.Gate (CircuitBuilder.X q)
                     
                     // Step 2: Multi-controlled Z (phase flip when all qubits are |1⟩)
-                    // Decompose to CZ gates for simplicity
-                    for q in 0 .. numQubits - 2 do
-                        yield QuantumOperation.Gate (CircuitBuilder.CZ (q, numQubits - 1))
+                    // Decompose MCZ to basic gates for topological backend compatibility
+                    let controls = [0 .. numQubits - 2]
+                    let targetQubit = numQubits - 1
+                    let decomposedMCZ = decomposeMCZGate controls targetQubit numQubits
+                    
+                    yield! decomposedMCZ |> List.map QuantumOperation.Gate
                     
                     // Step 3: Undo X gates
                     for q in 0 .. numQubits - 1 do
@@ -166,26 +196,93 @@ module GroverUnified =
             
             UnifiedBackend.applySequence backend oracleOps state
         
-        | MultipleTargets targets ->
-            // Mark multiple targets by applying phase flip for each
+        | Oracle.OracleSpec.Solutions solutionList ->
+            // Mark multiple solution indices by applying phase flip for each
             let applyTargetOracle targetValue currentState =
                 // Recursively build oracle for each target
-                let singleTargetOracle = { 
-                    oracle with 
-                    Targets = SingleTarget targetValue 
-                }
+                let singleTargetOracle = { oracle with Spec = Oracle.OracleSpec.SingleTarget targetValue }
                 applyOracle backend singleTargetOracle currentState
             
             // Fold over targets, short-circuiting on error
-            targets
+            solutionList
             |> List.fold (fun stateResult target ->
                 stateResult |> Result.bind (applyTargetOracle target)
             ) (Ok state)
         
-        | PredicateTargets _ ->
-            // For predicate-based oracles, we'd need to evaluate predicate
-            // and convert to MultipleTargets (not implemented in this version)
-            Error (QuantumError.ExecutionError ("GroverUnified", "Predicate-based oracles not yet supported in unified backend"))
+        | Oracle.OracleSpec.Predicate pred ->
+            // Enumerate solutions classically (same strategy as old GroverSearch)
+            // Pragmatic limit: Up to 42 qubits (as in BackendAdapter.fs)
+            let numQubits = oracle.NumQubits
+            let searchSpaceSize = 1 <<< numQubits
+            
+            // Check pragmatic limit (prevents excessive enumeration)
+            if numQubits > 42 then
+                Error (QuantumError.ValidationError ("NumQubits", 
+                    $"predicate oracle with {numQubits} qubits requires enumerating {searchSpaceSize} states classically (prohibitive). " +
+                    "For large search spaces, use explicit Solutions oracle instead. Pragmatic limit: ≤42 qubits."))
+            else
+                // Enumerate all values and filter by predicate
+                let solutions = 
+                    [0 .. searchSpaceSize - 1]
+                    |> List.filter pred
+                
+                if List.isEmpty solutions then
+                    Error (QuantumError.ValidationError ("Predicate", "matches no solutions"))
+                else
+                    // Convert to Solutions oracle and apply recursively
+                    let solutionsOracle = { oracle with Spec = Oracle.OracleSpec.Solutions solutions }
+                    applyOracle backend solutionsOracle state
+        
+        | Oracle.OracleSpec.And (spec1, spec2) ->
+            // Apply both oracles sequentially (marks states satisfying both conditions)
+            let oracle1 = { oracle with Spec = spec1 }
+            let oracle2 = { oracle with Spec = spec2 }
+            
+            state
+            |> applyOracle backend oracle1
+            |> Result.bind (applyOracle backend oracle2)
+        
+        | Oracle.OracleSpec.Or (spec1, spec2) ->
+            // Enumerate solutions for both specs and combine
+            let numQubits = oracle.NumQubits
+            let searchSpaceSize = 1 <<< numQubits
+            
+            if numQubits > 42 then
+                Error (QuantumError.ValidationError ("NumQubits",
+                    $"OR oracle with {numQubits} qubits requires enumerating {searchSpaceSize} states classically (prohibitive). " +
+                    "Pragmatic limit: ≤42 qubits."))
+            else
+                let solutions =
+                    [0 .. searchSpaceSize - 1]
+                    |> List.filter (fun i -> 
+                        Oracle.isSolution spec1 i || Oracle.isSolution spec2 i
+                    )
+                
+                if List.isEmpty solutions then
+                    Error (QuantumError.ValidationError ("OR oracle", "has no solutions"))
+                else
+                    let solutionsOracle = { oracle with Spec = Oracle.OracleSpec.Solutions solutions }
+                    applyOracle backend solutionsOracle state
+        
+        | Oracle.OracleSpec.Not spec ->
+            // Negate oracle: mark all states NOT marked by inner oracle
+            let numQubits = oracle.NumQubits
+            let searchSpaceSize = 1 <<< numQubits
+            
+            if numQubits > 42 then
+                Error (QuantumError.ValidationError ("NumQubits",
+                    $"NOT oracle with {numQubits} qubits requires enumerating {searchSpaceSize} states classically (prohibitive). " +
+                    "Pragmatic limit: ≤42 qubits."))
+            else
+                let solutions =
+                    [0 .. searchSpaceSize - 1]
+                    |> List.filter (fun i -> not (Oracle.isSolution spec i))
+                
+                if List.isEmpty solutions then
+                    Error (QuantumError.ValidationError ("NOT oracle", "has no solutions"))
+                else
+                    let solutionsOracle = { oracle with Spec = Oracle.OracleSpec.Solutions solutions }
+                    applyOracle backend solutionsOracle state
     
     /// Apply diffusion operator (inversion about average)
     /// 
@@ -215,9 +312,13 @@ module GroverUnified =
                 for q in 0 .. numQubits - 1 do
                     yield QuantumOperation.Gate (CircuitBuilder.X q)
                 
-                // Step 3: Multi-controlled Z (simplified with CZ chain)
-                for q in 0 .. numQubits - 2 do
-                    yield QuantumOperation.Gate (CircuitBuilder.CZ (q, numQubits - 1))
+                // Step 3: Multi-controlled Z (phase flip when all qubits are |1⟩)
+                // Decompose MCZ to basic gates for topological backend compatibility
+                let controls = [0 .. numQubits - 2]
+                let targetQubit = numQubits - 1
+                let decomposedMCZ = decomposeMCZGate controls targetQubit numQubits
+                
+                yield! decomposedMCZ |> List.map QuantumOperation.Gate
                 
                 // Step 4: X^⊗n (undo flip)
                 for q in 0 .. numQubits - 1 do
@@ -233,7 +334,7 @@ module GroverUnified =
     /// Single Grover iteration: Oracle + Diffusion
     let private applyGroverIteration
         (backend: IUnifiedQuantumBackend)
-        (oracle: CompiledOracle)
+        (oracle: Oracle.CompiledOracle)
         (state: QuantumState)
         : Result<QuantumState, QuantumError> =
         
@@ -298,7 +399,7 @@ module GroverUnified =
     /// Returns:
     ///   Result with found solutions or error
     let search
-        (oracle: CompiledOracle)
+        (oracle: Oracle.CompiledOracle)
         (backend: IUnifiedQuantumBackend)
         (config: GroverConfig)
         : Result<GroverResult, QuantumError> =
@@ -310,12 +411,13 @@ module GroverUnified =
             match config.Iterations with
             | Some k -> k
             | None ->
-                // Auto-calculate based on number of targets
+                // Auto-calculate based on number of solutions
                 let numSolutions =
-                    match oracle.Targets with
-                    | SingleTarget _ -> 1
-                    | MultipleTargets targets -> targets.Length
-                    | PredicateTargets _ -> 1  // Conservative estimate
+                    match oracle.Spec with
+                    | Oracle.OracleSpec.SingleTarget _ -> 1
+                    | Oracle.OracleSpec.Solutions solutionList -> solutionList.Length
+                    | Oracle.OracleSpec.Predicate _ -> 1  // Conservative estimate
+                    | _ -> 1  // Conservative estimate for combinators
                 
                 calculateOptimalIterations oracle.NumQubits numSolutions
         
@@ -435,6 +537,158 @@ module GroverUnified =
             let! oracle = Oracle.odd numQubits
             return! search oracle backend config
         }
+    
+    /// Search for values in a range [min, max]
+    /// 
+    /// Example:
+    ///   let! result = searchInRange 10 20 5 backend defaultConfig
+    ///   // Searches for values between 10 and 20 in 5-qubit space (0-31)
+    let searchInRange
+        (minValue: int)
+        (maxValue: int)
+        (numQubits: int)
+        (backend: IUnifiedQuantumBackend)
+        (config: GroverConfig)
+        : Result<GroverResult, QuantumError> =
+        
+        result {
+            let predicate x = x >= minValue && x <= maxValue
+            let! oracle = Oracle.fromPredicate predicate numQubits
+            return! search oracle backend config
+        }
+    
+    /// Search for values divisible by a given number
+    /// 
+    /// Example:
+    ///   let! result = searchDivisibleBy 3 4 backend defaultConfig
+    ///   // Searches for numbers divisible by 3 in 4-qubit space (0-15)
+    ///   // Would find: 0, 3, 6, 9, 12, 15
+    let searchDivisibleBy
+        (divisor: int)
+        (numQubits: int)
+        (backend: IUnifiedQuantumBackend)
+        (config: GroverConfig)
+        : Result<GroverResult, QuantumError> =
+        
+        if divisor <= 0 then
+            Error (QuantumError.ValidationError ("Divisor", "must be positive"))
+        else
+            result {
+                let predicate x = x % divisor = 0
+                let! oracle = Oracle.fromPredicate predicate numQubits
+                return! search oracle backend config
+            }
+    
+    // ========================================================================
+    // ADVANCED SEARCH - Multi-round search
+    // ========================================================================
+    
+    /// <summary>
+    /// Multi-round search with retry logic and result aggregation.
+    /// </summary>
+    /// <remarks>
+    /// Executes Grover search multiple times independently and aggregates results.
+    /// This is useful when:
+    /// <list type="bullet">
+    /// <item>Dealing with noisy backends (averaging improves reliability)</item>
+    /// <item>Number of solutions is unknown (multiple rounds increase coverage)</item>
+    /// <item>Need higher confidence in results (statistical aggregation)</item>
+    /// <item>Building production systems requiring fault tolerance</item>
+    /// </list>
+    /// 
+    /// The function gracefully handles partial failures - if some rounds fail but at least
+    /// one succeeds, it returns aggregated results from successful rounds only. It only
+    /// returns an error if ALL rounds fail.
+    /// 
+    /// Result aggregation:
+    /// <list type="bullet">
+    /// <item><c>Solutions</c>: Distinct union of all found solutions (sorted)</item>
+    /// <item><c>SuccessProbability</c>: Average across all successful rounds</item>
+    /// <item><c>Iterations</c>: Average iterations per round</item>
+    /// <item><c>Measurements</c>: Sum of all measurement distributions</item>
+    /// <item><c>ExecutionTimeMs</c>: Total time across all rounds</item>
+    /// </list>
+    /// </remarks>
+    /// <param name="oracle">Compiled oracle marking target states</param>
+    /// <param name="backend">Quantum backend (gate-based or topological)</param>
+    /// <param name="config">Algorithm configuration (shots, thresholds, iterations, seed)</param>
+    /// <param name="rounds">Number of independent search rounds to execute (must be positive)</param>
+    /// <returns>
+    /// <c>Ok GroverResult</c> with aggregated results from successful rounds, or
+    /// <c>Error QuantumError</c> if validation fails or all rounds fail.
+    /// </returns>
+    /// <example>
+    /// <code>
+    /// // Search for values 5 and 7 with 5 independent rounds
+    /// let! oracle = Oracle.forValues [5; 7] 4
+    /// let! result = searchMultiRound oracle backend defaultConfig 5
+    /// 
+    /// // Result contains:
+    /// // - Solutions: [5; 7] (distinct union from all rounds)
+    /// // - SuccessProbability: averaged across 5 rounds
+    /// // - Measurements: sum of 5000 total measurements (1000 shots × 5 rounds)
+    /// </code>
+    /// </example>
+    let searchMultiRound
+        (oracle: Oracle.CompiledOracle)
+        (backend: IUnifiedQuantumBackend)
+        (config: GroverConfig)
+        (rounds: int)
+        : Result<GroverResult, QuantumError> =
+        
+        if rounds < 1 then
+            Error (QuantumError.ValidationError ("Rounds", "number of rounds must be positive"))
+        else
+            try
+                // Execute search multiple times
+                let results =
+                    [1 .. rounds]
+                    |> List.choose (fun _ ->
+                        match search oracle backend config with
+                        | Ok res -> Some res
+                        | Error _ -> None
+                    )
+                
+                if List.isEmpty results then
+                    Error (QuantumError.OperationError ("Grover search rounds", "all search rounds failed"))
+                else
+                    // Aggregate results
+                    let allSolutions =
+                        results
+                        |> List.collect (fun r -> r.Solutions)
+                        |> List.distinct
+                        |> List.sort
+                    
+                    let avgSuccessProb =
+                        results
+                        |> List.averageBy (fun r -> r.SuccessProbability)
+                    
+                    let avgIterations =
+                        results
+                        |> List.averageBy (fun r -> float r.Iterations)
+                        |> int
+                    
+                    let totalTime =
+                        results
+                        |> List.sumBy (fun r -> r.ExecutionTimeMs)
+                    
+                    // Aggregate measurement counts
+                    let aggregatedMeasurements =
+                        results
+                        |> List.collect (fun r -> r.Measurements |> Map.toList)
+                        |> List.groupBy fst
+                        |> List.map (fun (key, values) -> (key, values |> List.sumBy snd))
+                        |> Map.ofList
+                    
+                    Ok {
+                        Solutions = allSolutions
+                        SuccessProbability = avgSuccessProb
+                        Iterations = avgIterations
+                        Measurements = aggregatedMeasurements
+                        ExecutionTimeMs = totalTime
+                    }
+            with
+            | ex -> Error (QuantumError.OperationError ("Multi-round search", $"failed: {ex.Message}"))
     
     // ========================================================================
     // PRETTY PRINTING

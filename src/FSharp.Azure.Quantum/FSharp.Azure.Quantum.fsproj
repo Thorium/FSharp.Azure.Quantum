@@ -54,6 +54,7 @@
     <Compile Include="Core\Validation.fs" />
     <Compile Include="Core\Types.fs" />
     <Compile Include="Core\Progress.fs" />
+    <Compile Include="Core\ResultBuilder.fs" />
     
     <!-- QUBO Helpers - Shared patterns for optimization solvers -->
     <Compile Include="Qubo.fs" />
@@ -63,6 +64,10 @@
     <Compile Include="LocalSimulator\Gates.fs" />
     <Compile Include="LocalSimulator\Measurement.fs" />
     <Compile Include="LocalSimulator\QaoaSimulator.fs" />
+    
+    <!-- Unified Backend Architecture - Core State Types (depends on LocalSimulator) -->
+    <Compile Include="Core\QuantumState.fs" />
+    <Compile Include="Core\QuantumStateConversion.fs" />
 
     <!-- Quantum Algorithms (depends on LocalSimulator) -->
     <Compile Include="Algorithms\GroverOracle.fs" />
@@ -123,6 +128,19 @@
     <Compile Include="Backends\BackendAbstraction.fs" />
     <Compile Include="Core\QaoaOptimizer.fs" />
     <Compile Include="Core\QaoaParameterOptimizer.fs" />
+    
+    <!-- Unified Backend Architecture - Interface (depends on BackendAbstraction, QuantumState) -->
+    <Compile Include="Core\UnifiedBackendAbstraction.fs" />
+    
+    <!-- Local Backend (depends on CircuitBuilder, CircuitAbstraction, BackendAbstraction, UnifiedBackendAbstraction) -->
+    <Compile Include="Backends\LocalBackend.fs" />
+    
+    <!-- Unified Backend Algorithms (depends on CircuitBuilder, UnifiedBackendAbstraction, LocalBackend) -->
+    <Compile Include="Algorithms\GroverUnified.fs" />
+    <Compile Include="Algorithms\QFTUnified.fs" />
+    <Compile Include="Algorithms\QPEUnified.fs" />
+    <Compile Include="Algorithms\ShorsUnified.fs" />
+    <Compile Include="Algorithms\HHLUnified.fs" />
 
     <!-- QAOA Algorithm (depends on QaoaCircuit, CircuitAbstraction, QaoaOptimizer) -->
     <Compile Include="Algorithms\QRNG.fs" />

@@ -1,6 +1,7 @@
 namespace FSharp.Azure.Quantum.Algorithms
 
 open System
+open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.UnifiedBackendAbstraction
 
@@ -118,7 +119,7 @@ module QFTUnified =
                 |> List.map (fun k ->
                     let power = k - targetQubit + 1
                     let angle = calculatePhaseAngle power inverse
-                    QuantumOperation.Gate (CircuitBuilder.CPhase (k, targetQubit, angle))
+                    QuantumOperation.Gate (CircuitBuilder.CP (k, targetQubit, angle))
                 )
             
             // Apply all controlled phases
@@ -350,6 +351,184 @@ module QFTUnified =
             
             return allZeros
         }
+    
+    /// <summary>
+    /// Verify that QFT preserves state norm (unitarity check)
+    /// </summary>
+    /// <remarks>
+    /// QFT is a unitary transformation, meaning it preserves quantum state properties.
+    /// This function verifies unitarity by applying QFT followed by inverse QFT
+    /// and checking that the result matches the original state.
+    /// 
+    /// The test uses measurement statistics: if QFT is unitary, then
+    /// QFT(QFT†(|ψ⟩)) = |ψ⟩, so measurements should return to original distribution.
+    /// 
+    /// This is useful for:
+    /// - Testing backend correctness
+    /// - Debugging QFT implementations
+    /// - Validating numerical stability
+    /// </remarks>
+    /// <param name="numQubits">Number of qubits to test</param>
+    /// <param name="backend">Quantum backend to use</param>
+    /// <param name="config">QFT configuration</param>
+    /// <returns>
+    /// <c>Ok true</c> if unitarity is preserved (round-trip successful), 
+    /// <c>Ok false</c> if unitarity is violated,
+    /// <c>Error</c> if execution fails
+    /// </returns>
+    /// <example>
+    /// <code>
+    /// let backend = LocalBackend.LocalBackend() :> IUnifiedQuantumBackend
+    /// match verifyUnitarity 3 backend defaultConfig with
+    /// | Ok true -> printfn "QFT is unitary ✓"
+    /// | Ok false -> printfn "QFT unitarity violated!"
+    /// | Error err -> printfn "Error: %A" err
+    /// </code>
+    /// </example>
+    let verifyUnitarity
+        (numQubits: int)
+        (backend: IUnifiedQuantumBackend)
+        (config: QFTConfig)
+        : Result<bool, QuantumError> =
+        
+        result {
+            // Start with initialized state |0⟩^⊗n
+            let! initialState = backend.InitializeState numQubits
+            
+            // Verify state is normalized
+            if not (QuantumState.isNormalized initialState) then
+                return false
+            else
+                // Apply QFT
+                let! qftResult = executeOnState initialState backend config
+                
+                // Verify QFT output is normalized (unitary preserves norm)
+                if not (QuantumState.isNormalized qftResult.FinalState) then
+                    return false
+                else
+                    // Apply inverse QFT
+                    let inverseConfig = { config with Inverse = not config.Inverse }
+                    let! inverseResult = executeOnState qftResult.FinalState backend inverseConfig
+                    
+                    // Verify inverse QFT output is normalized
+                    if not (QuantumState.isNormalized inverseResult.FinalState) then
+                        return false
+                    else
+                        // Check if we're back to |0⟩^⊗n by measuring
+                        let measurements = UnifiedBackend.measureState inverseResult.FinalState 100
+                        let allZeros = 
+                            measurements 
+                            |> Array.forall (fun bits -> Array.forall ((=) 0) bits)
+                        
+                        return allZeros
+        }
+    
+    // ========================================================================
+    // APPLICATIONS - Example use cases
+    // ========================================================================
+    
+    /// <summary>
+    /// Apply QFT to computational basis state |j⟩
+    /// </summary>
+    /// <remarks>
+    /// Creates a computational basis state |j⟩ and applies QFT, resulting in:
+    /// 
+    /// QFT|j⟩ = (1/√N) Σₖ e^(2πijk/N) |k⟩
+    /// 
+    /// This creates an equal superposition with specific phase relationships
+    /// determined by the basis index j.
+    /// 
+    /// Applications:
+    /// - Quantum phase estimation initialization
+    /// - Period finding algorithms
+    /// - Testing QFT behavior on known states
+    /// </remarks>
+    /// <param name="numQubits">Number of qubits</param>
+    /// <param name="basisIndex">Index of basis state (0 to 2^n - 1)</param>
+    /// <param name="backend">Quantum backend to use</param>
+    /// <param name="config">QFT configuration</param>
+    /// <returns>QFT result containing transformed state</returns>
+    /// <example>
+    /// <code>
+    /// // Transform |5⟩ in 3-qubit space
+    /// let backend = LocalBackend.LocalBackend() :> IUnifiedQuantumBackend
+    /// match transformBasisState 3 5 backend defaultConfig with
+    /// | Ok result -> printfn "Transformed |5⟩: %s" (formatResult result)
+    /// | Error err -> printfn "Error: %A" err
+    /// </code>
+    /// </example>
+    let transformBasisState
+        (numQubits: int)
+        (basisIndex: int)
+        (backend: IUnifiedQuantumBackend)
+        (config: QFTConfig)
+        : Result<QFTResult, QuantumError> =
+        
+        let maxIndex = (1 <<< numQubits) - 1
+        if basisIndex < 0 || basisIndex > maxIndex then
+            Error (QuantumError.ValidationError ("BasisIndex", $"must be between 0 and {maxIndex} for {numQubits} qubits"))
+        else
+            result {
+                // Initialize to |0⟩^⊗n
+                let! initialState = backend.InitializeState numQubits
+                
+                // Apply X gates to set state to |basisIndex⟩
+                // Convert basisIndex to binary and flip corresponding qubits
+                let! basisState =
+                    [0 .. numQubits - 1]
+                    |> List.fold (fun stateResult qubitIdx ->
+                        result {
+                            let! currentState = stateResult
+                            let bitValue = (basisIndex >>> qubitIdx) &&& 1
+                            
+                            if bitValue = 1 then
+                                // Apply X gate to flip this qubit to |1⟩
+                                return! backend.ApplyOperation 
+                                    (QuantumOperation.Gate (CircuitBuilder.X qubitIdx)) 
+                                    currentState
+                            else
+                                return currentState
+                        }
+                    ) (Ok initialState)
+                
+                // Apply QFT to the basis state
+                return! executeOnState basisState backend config
+            }
+    
+    /// <summary>
+    /// Encode integer into quantum state and apply QFT
+    /// </summary>
+    /// <remarks>
+    /// This is a convenience function equivalent to `transformBasisState`.
+    /// It's commonly used as the first step in quantum algorithms like Shor's factoring.
+    /// 
+    /// The integer value is encoded as a computational basis state |value⟩,
+    /// then QFT is applied to create a superposition with phase encoding.
+    /// </remarks>
+    /// <param name="numQubits">Number of qubits</param>
+    /// <param name="value">Integer value to encode (0 to 2^n - 1)</param>
+    /// <param name="backend">Quantum backend to use</param>
+    /// <param name="config">QFT configuration</param>
+    /// <returns>QFT result containing transformed state</returns>
+    /// <example>
+    /// <code>
+    /// // Encode value 7 and transform in 4-qubit space
+    /// let backend = LocalBackend.LocalBackend() :> IUnifiedQuantumBackend
+    /// match encodeAndTransform 4 7 backend defaultConfig with
+    /// | Ok result -> 
+    ///     printfn "Encoded and transformed value 7"
+    ///     printfn "%s" (formatResult result)
+    /// | Error err -> printfn "Error: %A" err
+    /// </code>
+    /// </example>
+    let encodeAndTransform
+        (numQubits: int)
+        (value: int)
+        (backend: IUnifiedQuantumBackend)
+        (config: QFTConfig)
+        : Result<QFTResult, QuantumError> =
+        
+        transformBasisState numQubits value backend config
     
     // ========================================================================
     // PRETTY PRINTING

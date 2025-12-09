@@ -22,6 +22,7 @@ open System.Numerics
 /// 4. Measure to extract phase estimate
 /// 
 /// Precision: n counting qubits → φ estimated to n bits of accuracy
+[<Obsolete("Use FSharp.Azure.Quantum.Algorithms.QPEUnified for state-based QPE implementation with IUnifiedQuantumBackend support. This module will be removed in a future version.")>]
 module QuantumPhaseEstimation =
     
     open FSharp.Azure.Quantum.LocalSimulator
