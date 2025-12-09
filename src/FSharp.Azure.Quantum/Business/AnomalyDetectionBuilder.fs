@@ -1,11 +1,15 @@
 namespace FSharp.Azure.Quantum.Business
 
+open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum.Core
 open System
 open System.IO
 open System.Text.Json
+open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum.Core.BackendAbstraction
+open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum.MachineLearning
+open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum
 
 /// High-Level Anomaly Detection Builder - Business-First API
@@ -317,11 +321,8 @@ module AnomalyDetector =
             let backend = 
                 match problem.Backend with
                 | Some b -> b
-                | None -> LocalBackend() :> IQuantumBackend
+                | None -> LocalBackend.LocalBackend() :> IQuantumBackend
             
-            // Set cancellation token on backend if provided
-            problem.CancellationToken |> Option.iter (fun token ->
-                backend.SetCancellationToken(Some token))
             
             // Smart defaults for quantum architecture
             let numQubits = min numFeatures 8
@@ -424,7 +425,7 @@ module AnomalyDetector =
     
     /// Check if sample is anomalous
     let check (sample: float array) (detector: Detector) : QuantumResult<AnomalyResult> =
-        let backend = LocalBackend() :> IQuantumBackend
+        let backend = LocalBackend.LocalBackend() :> IQuantumBackend
         
         match computeAnomalyScore backend detector sample 1000 with
         | Error e -> Error e

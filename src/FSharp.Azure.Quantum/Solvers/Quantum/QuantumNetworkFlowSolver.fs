@@ -2,6 +2,7 @@ namespace FSharp.Azure.Quantum.Quantum
 
 open System
 open FSharp.Azure.Quantum
+open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.GraphOptimization
 
@@ -360,10 +361,8 @@ module QuantumNetworkFlowSolver =
         
         if numEdges = 0 then
             return Error (QuantumError.ValidationError ("numEdges", "Network flow problem has no edges"))
-        elif requiredQubits > backend.MaxQubits then
-            return Error (QuantumError.ValidationError ("qubitCount",
-                sprintf "Problem requires %d qubits but backend '%s' supports max %d qubits" 
-                    requiredQubits backend.Name backend.MaxQubits))
+        // Note: Backend validation removed (MaxQubits/Name properties no longer in interface)
+        // Backends will return errors if qubit count exceeded
         elif config.NumShots <= 0 then
             return Error (QuantumError.ValidationError ("numShots", "Number of shots must be positive"))
         else
@@ -388,15 +387,18 @@ module QuantumNetworkFlowSolver =
                         CircuitAbstraction.QaoaCircuitWrapper(qaoaCircuit) 
                         :> CircuitAbstraction.ICircuit
                     
-                    let! execResult = backend.ExecuteAsync circuitWrapper config.NumShots
+                    // Execute circuit to get quantum state, then measure
+                    let stateResult = backend.ExecuteToState circuitWrapper
                     
-                    match execResult with
+                    match stateResult with
                     | Error err -> return Error err
-                    | Ok execResult ->
+                    | Ok quantumState ->
+                        // Measure the state to get classical bit strings
+                        let measurements = QuantumState.measure quantumState config.NumShots
                         
                         // Step 5: Decode measurements to network flow solutions
                         let flowResults =
-                            execResult.Measurements
+                            measurements
                             |> Array.choose (decodeSolution problem)
                         
                         if flowResults.Length = 0 then
@@ -411,7 +413,7 @@ module QuantumNetworkFlowSolver =
                             
                             return Ok {
                                 bestSolution with
-                                    BackendName = backend.Name
+                                    BackendName = "QuantumBackend"  // Backend name no longer available in interface
                                     NumShots = config.NumShots
                                     ElapsedMs = elapsedMs
                             }

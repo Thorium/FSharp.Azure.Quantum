@@ -1,10 +1,15 @@
 namespace FSharp.Azure.Quantum.Business
 
+open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum.Core
 open System
+open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum.Core.BackendAbstraction
+open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum.MachineLearning
+open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum.MachineLearning.QuantumRegressionHHL
+open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum
 
 /// High-Level Predictive Model Builder - Business-First API
@@ -456,13 +461,10 @@ module PredictiveModel =
         | Ok () ->
             
             let startTime = DateTime.UtcNow
-            let backend = problem.Backend |> Option.defaultValue (LocalBackend() :> IQuantumBackend)
+            let backend = problem.Backend |> Option.defaultValue (LocalBackend.LocalBackend() :> IQuantumBackend)
             let numFeatures = problem.TrainFeatures.[0].Length
             let numSamples = problem.TrainFeatures.Length
             
-            // Set cancellation token on backend if provided
-            problem.CancellationToken |> Option.iter (fun token ->
-                backend.SetCancellationToken(Some token))
             
             if problem.Verbose then
                 printfn "🚀 Training Predictive Model..."
@@ -929,7 +931,7 @@ module PredictiveModel =
         (shots: int option)
         : QuantumResult<RegressionPrediction> =
         
-        let actualBackend = backend |> Option.defaultWith (fun () -> LocalBackend() :> IQuantumBackend)
+        let actualBackend = backend |> Option.defaultWith (fun () -> LocalBackend.LocalBackend() :> IQuantumBackend)
         let actualShots = shots |> Option.defaultValue 1000
         
         match model.Metadata.ProblemType with
@@ -1000,7 +1002,7 @@ module PredictiveModel =
         (shots: int option)
         : QuantumResult<CategoryPrediction> =
         
-        let actualBackend = backend |> Option.defaultWith (fun () -> LocalBackend() :> IQuantumBackend)
+        let actualBackend = backend |> Option.defaultWith (fun () -> LocalBackend.LocalBackend() :> IQuantumBackend)
         let actualShots = shots |> Option.defaultValue 1000
         
         match model.Metadata.ProblemType with

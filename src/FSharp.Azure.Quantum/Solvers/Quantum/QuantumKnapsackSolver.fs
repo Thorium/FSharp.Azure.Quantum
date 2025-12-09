@@ -274,11 +274,9 @@ module QuantumKnapsackSolver =
             // Step 1: Validate problem size against backend
             let numQubits = problem.Items.Length
             
-            if numQubits > backend.MaxQubits then
-                return Error (QuantumError.ValidationError ("qubitCount",
-                    sprintf "Problem requires %d qubits but backend '%s' supports max %d qubits" 
-                        numQubits backend.Name backend.MaxQubits))
-            elif numQubits = 0 then
+            // Note: Backend validation removed (MaxQubits/Name properties no longer in interface)
+            // Backends will return errors if qubit count exceeded
+            if numQubits = 0 then
                 return Error (QuantumError.ValidationError ("numItems", "Knapsack problem has no items"))
             elif problem.Capacity <= 0.0 then
                 return Error (QuantumError.ValidationError ("capacity", "Knapsack capacity must be positive"))
@@ -304,16 +302,19 @@ module QuantumKnapsackSolver =
                     let circuitWrapper = CircuitAbstraction.QaoaCircuitWrapper(qaoaCircuit) :> CircuitAbstraction.ICircuit
                     
                     // Step 7: Execute on quantum backend asynchronously
-                    let! execResult = backend.ExecuteAsync circuitWrapper config.NumShots
+                    // Execute circuit to get quantum state, then measure
+                    let stateResult = backend.ExecuteToState circuitWrapper
                     
-                    match execResult with
+                    match stateResult with
                     | Error err -> return Error err
-                    | Ok execResult ->
+                    | Ok quantumState ->
+                        // Measure the state to get classical bit strings
+                        let measurements = QuantumState.measure quantumState config.NumShots
                         
                         // Step 8: Decode measurements to selections
                         let solutions = 
-                            execResult.Measurements
-                            |> Array.map (fun bitstring -> decodeSolution problem bitstring)
+                            measurements
+                            |> Array.map (fun measurement -> decodeSolution problem measurement)
                         
                         // Step 9: Find best FEASIBLE solution (satisfies capacity)
                         let feasibleSolutions = 
@@ -330,7 +331,7 @@ module QuantumKnapsackSolver =
                                     TotalWeight = 0.0
                                     TotalValue = 0.0
                                     IsFeasible = true
-                                    BackendName = backend.Name
+                                    BackendName = "QuantumBackend"
                                     NumShots = config.NumShots
                                     ElapsedMs = 0.0
                                     BestEnergy = 0.0
@@ -340,7 +341,7 @@ module QuantumKnapsackSolver =
                         
                         return Ok {
                             bestSolution with
-                                BackendName = backend.Name
+                                BackendName = "QuantumBackend"
                                 NumShots = config.NumShots
                                 ElapsedMs = elapsedMs
                         }

@@ -31,6 +31,18 @@ module RealDWaveBackend =
     open FSharp.Azure.Quantum.Backends.DWaveTypes
     
     // ============================================================================
+    // LOCAL TYPES (D-Wave annealing backends don't use IQuantumBackend)
+    // ============================================================================
+    
+    /// Execution result for D-Wave annealing backends
+    type ExecutionResult = {
+        Measurements: int[][]
+        NumShots: int
+        BackendName: string
+        Metadata: Map<string, obj>
+    }
+    
+    // ============================================================================
     // CONFIGURATION
     // ============================================================================
     
@@ -275,35 +287,10 @@ module RealDWaveBackend =
                                 return Ok result
             }
         
-        interface IQuantumBackend with
-            member _.SetCancellationToken (token: System.Threading.CancellationToken option) : unit =
-                cancellationToken <- token
-            
-            member this.ExecuteAsync circuit numShots = async {
-                // Check cancellation before starting
-                match cancellationToken with
-                | Some token when token.IsCancellationRequested ->
-                    return Error (QuantumError.BackendError ("D-Wave", "Operation cancelled before execution"))
-                | _ ->
-                return! this.ExecuteCore(circuit, numShots)
-            }
-            
-            /// WARNING: This blocks the calling thread for 5+ minutes during D-Wave job polling.
-            /// Use ExecuteAsync instead for non-blocking execution.
-            [<System.Obsolete("Use ExecuteAsync to avoid blocking the calling thread. D-Wave jobs can take 5+ minutes with polling every 5 seconds.")>]
-            member this.Execute circuit numShots =
-                // Check cancellation before starting
-                match cancellationToken with
-                | Some token when token.IsCancellationRequested ->
-                    Error (QuantumError.BackendError ("D-Wave", "Operation cancelled before execution"))
-                | _ ->
-                this.ExecuteCore(circuit, numShots) |> Async.RunSynchronously
-            
-            member _.Name = $"D-Wave {config.Solver} (Leap Cloud)"
-            
-            member _.SupportedGates = []  // Annealing doesn't use gates
-            
-            member _.MaxQubits = getMaxQubits config.Solver
+        // Note: RealDWaveBackend does NOT implement IQuantumBackend interface
+        // D-Wave annealing backends are fundamentally different from gate-based backends
+        // They work with QUBO/Ising problems, not quantum circuits/states
+        // Use ExecuteCore method directly or via QuboExtraction module
         
         interface IDisposable with
             member _.Dispose() = (client :> IDisposable).Dispose()
@@ -317,7 +304,7 @@ module RealDWaveBackend =
     /// Parameters:
     /// - config: D-Wave configuration with API token
     ///
-    /// Returns: IQuantumBackend for D-Wave hardware
+    /// Returns: RealDWaveBackend for D-Wave hardware
     ///
     /// Example:
     ///   let config = { 
@@ -327,8 +314,8 @@ module RealDWaveBackend =
     ///       TimeoutMs = Some 300000
     ///   }
     ///   let backend = create config
-    let create (config: DWaveConfig) : IQuantumBackend =
-        new RealDWaveBackend(config) :> IQuantumBackend
+    let create (config: DWaveConfig) : RealDWaveBackend =
+        new RealDWaveBackend(config)
     
     /// Create real D-Wave backend from environment variables
     ///
@@ -341,8 +328,8 @@ module RealDWaveBackend =
     ///
     /// Example:
     ///   match createFromEnv() with
-    ///   | Ok backend -> backend.Execute circuit 1000
+    ///   | Ok backend -> backend.ExecuteCore circuit 1000
     ///   | Error msg -> printfn $"Error: {msg}"
-    let createFromEnv () : QuantumResult<IQuantumBackend> =
+    let createFromEnv () : QuantumResult<RealDWaveBackend> =
         defaultConfig()
         |> Result.map create

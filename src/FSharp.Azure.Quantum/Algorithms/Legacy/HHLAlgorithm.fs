@@ -27,7 +27,7 @@ open System.Numerics
 /// - s = sparsity (max non-zero entries per row)
 /// - κ = condition number (λ_max / λ_min)
 /// - ε = precision
-[<Obsolete("HHLAlgorithm is for educational purposes only and not production-ready. For diagonal matrices with backend-agnostic implementation, use HHLUnified with IUnifiedQuantumBackend. This module will be updated in a future version.")>]
+[<Obsolete("HHLAlgorithm is for educational purposes only and not production-ready. For diagonal matrices with backend-agnostic implementation, use HHL with IQuantumBackend. This module will be updated in a future version.")>]
 module HHLAlgorithm =
     
     open FSharp.Azure.Quantum.LocalSimulator

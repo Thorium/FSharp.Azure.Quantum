@@ -9,6 +9,7 @@ namespace FSharp.Azure.Quantum.MachineLearning
 /// feature spaces" Nature (2019)
 
 open System
+open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.CircuitBuilder
 open FSharp.Azure.Quantum.Core.BackendAbstraction
@@ -91,13 +92,16 @@ module QuantumKernels =
         // Wrap circuit for backend execution (like VQC does)
         let wrappedCircuit = CircuitWrapper(circuit)
         
-        match backend.Execute wrappedCircuit shots with
+        match backend.ExecuteToState wrappedCircuit with
         | Error e -> Error (QuantumError.ValidationError ("Input", $"Quantum backend execution failed: {e}"))
-        | Ok results ->
+        | Ok state ->
+            
+            // Perform measurements on quantum state
+            let measurements = QuantumState.measure state shots
             
             // Count measurements where all qubits are |0⟩
             let allZeroCount = 
-                results.Measurements
+                measurements
                 |> Array.filter (fun measurement ->
                     measurement |> Array.forall ((=) 0)
                 )

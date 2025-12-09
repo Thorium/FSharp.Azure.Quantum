@@ -14,13 +14,13 @@ open FSharp.Azure.Quantum.Core.CircuitAbstraction
 /// 
 /// Architecture:
 /// - Level 1: IQuantumBackend (measurements only) - existing 85% of users
-/// - Level 2: IUnifiedQuantumBackend (state access) - new advanced users
+/// - Level 2: IQuantumBackend (state access) - new advanced users
 /// 
 /// Migration path:
 /// - Existing backends: Optionally implement new methods
 /// - Existing algorithms: Continue using IQuantumBackend
-/// - New algorithms: Can use IUnifiedQuantumBackend for more control
-module UnifiedBackendAbstraction =
+/// - New algorithms: Can use IQuantumBackend for more control
+module BackendAbstraction =
     
     /// Quantum operation types (gates or braiding operations)
     /// 
@@ -77,12 +77,10 @@ module UnifiedBackendAbstraction =
     /// - NativeStateType: Query backend's preferred representation
     /// 
     /// Usage:
-    ///   let backend = LocalBackend() :> IUnifiedQuantumBackend
+    ///   let backend = LocalBackend() :> IQuantumBackend
     ///   let! state = backend.ExecuteToState circuit
     ///   let! evolved = backend.ApplyOperation (Gate H(0)) state
-    type IUnifiedQuantumBackend =
-        inherit BackendAbstraction.IQuantumBackend
-        
+    type IQuantumBackend =
         /// Execute circuit and return quantum state (not just measurements)
         /// 
         /// This is the key method enabling algorithm implementations that work
@@ -240,8 +238,8 @@ module UnifiedBackendAbstraction =
     /// Helper functions for working with unified backends
     module UnifiedBackend =
         
-        /// Create backend capabilities from IUnifiedQuantumBackend
-        let getCapabilities (backend: IUnifiedQuantumBackend) : BackendCapabilities =
+        /// Create backend capabilities from IQuantumBackend
+        let getCapabilities (backend: IQuantumBackend) : BackendCapabilities =
             {
                 MaxQubits = None  // Query from backend if available
                 NativeStateType = backend.NativeStateType
@@ -251,7 +249,7 @@ module UnifiedBackendAbstraction =
                 SupportsMidCircuitMeasurement = false  // Conservative default
                 SupportsReset = false  // Conservative default
                 NoiseLevel = Some 0.0  // Assume noiseless unless specified
-                IsSimulator = backend.Name.Contains("Simulator")
+                IsSimulator = true  // Conservative default - assume simulator
             }
         
         /// Execute operation with automatic state conversion if needed
@@ -268,7 +266,7 @@ module UnifiedBackendAbstraction =
         /// Returns:
         ///   Evolved state (possibly converted to backend's native type)
         let applyWithConversion 
-            (backend: IUnifiedQuantumBackend) 
+            (backend: IQuantumBackend) 
             (operation: QuantumOperation) 
             (state: QuantumState)
             (willReuse: bool)
@@ -298,7 +296,7 @@ module UnifiedBackendAbstraction =
         /// Returns:
         ///   Final quantum state after all operations
         let applySequence
-            (backend: IUnifiedQuantumBackend)
+            (backend: IQuantumBackend)
             (operations: QuantumOperation list)
             (initialState: QuantumState)
             : Result<QuantumState, QuantumError> =
@@ -334,32 +332,3 @@ module UnifiedBackendAbstraction =
         ///   Array of bitstrings (measurement outcomes)
         let measureState (state: QuantumState) (shots: int) : int[][] =
             QuantumState.measure state shots
-        
-        /// Execute circuit and measure (convenience method)
-        /// 
-        /// Combines ExecuteToState + measure.
-        /// Equivalent to IQuantumBackend.Execute but goes through unified interface.
-        /// 
-        /// Parameters:
-        ///   backend - Unified quantum backend
-        ///   circuit - Circuit to execute
-        ///   shots - Number of measurement samples
-        /// 
-        /// Returns:
-        ///   ExecutionResult with measurements
-        let executeAndMeasure
-            (backend: IUnifiedQuantumBackend)
-            (circuit: ICircuit)
-            (shots: int)
-            : Result<BackendAbstraction.ExecutionResult, QuantumError> =
-            
-            backend.ExecuteToState circuit
-            |> Result.map (fun state ->
-                let measurements = measureState state shots
-                {
-                    BackendAbstraction.ExecutionResult.Measurements = measurements
-                    BackendAbstraction.ExecutionResult.NumShots = shots
-                    BackendAbstraction.ExecutionResult.BackendName = backend.Name
-                    BackendAbstraction.ExecutionResult.Metadata = Map.empty
-                }
-            )

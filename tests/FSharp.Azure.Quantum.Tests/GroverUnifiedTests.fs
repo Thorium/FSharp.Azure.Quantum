@@ -3,7 +3,7 @@ namespace FSharp.Azure.Quantum.Tests
 open Xunit
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Core
-open FSharp.Azure.Quantum.Core.UnifiedBackendAbstraction
+open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.GroverSearch
 open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum.Topological
@@ -15,34 +15,34 @@ open FSharp.Azure.Quantum.Topological
 /// - Correct search results across backends
 /// - Performance characteristics
 /// - Error handling
-module GroverUnifiedTests =
+module GroverTests =
     
     // ========================================================================
     // Test Helpers
     // ========================================================================
     
     /// Create local backend for testing
-    let createLocalBackend () : IUnifiedQuantumBackend =
-        LocalBackend.LocalBackend() :> IUnifiedQuantumBackend
+    let createLocalBackend () : IQuantumBackend =
+        LocalBackend.LocalBackend() :> IQuantumBackend
     
     /// Create topological backend for testing
-    let createTopologicalBackend () : IUnifiedQuantumBackend =
+    let createTopologicalBackend () : IQuantumBackend =
         TopologicalUnifiedBackendFactory.createIsing 20
     
     /// Test configuration with enough shots for reliable results
     let testConfig = {
-        GroverUnified.defaultConfig with
+        Grover.defaultConfig with
             Shots = 1000  // Enough shots for reliable statistics in 3-4 qubit spaces
             SolutionThreshold = 0.08  // 8% threshold (lower = more solutions captured)
             RandomSeed = Some 42  // Deterministic for test reproducibility
     }
     
     /// Verify solution is found in results
-    let assertSolutionFound (expected: int) (result: GroverUnified.GroverResult) =
+    let assertSolutionFound (expected: int) (result: Grover.GroverResult) =
         Assert.Contains(expected, result.Solutions)
     
     /// Verify multiple solutions are found
-    let assertSolutionsFound (expected: int list) (result: GroverUnified.GroverResult) =
+    let assertSolutionsFound (expected: int list) (result: Grover.GroverResult) =
         for expectedValue in expected do
             Assert.Contains(expectedValue, result.Solutions)
     
@@ -55,7 +55,7 @@ module GroverUnifiedTests =
         let backend = createLocalBackend ()
         
         // Search for value 5 in 3-qubit space (0-7)
-        match GroverUnified.searchSingle 5 3 backend testConfig with
+        match Grover.searchSingle 5 3 backend testConfig with
         | Ok result ->
             assertSolutionFound 5 result
             Assert.True(result.Iterations > 0, "Should perform at least one iteration")
@@ -67,7 +67,7 @@ module GroverUnifiedTests =
     let ``Grover finds value 0 (edge case)`` () =
         let backend = createLocalBackend ()
         
-        match GroverUnified.searchSingle 0 2 backend testConfig with
+        match Grover.searchSingle 0 2 backend testConfig with
         | Ok result ->
             assertSolutionFound 0 result
         | Error err ->
@@ -78,7 +78,7 @@ module GroverUnifiedTests =
         let backend = createLocalBackend ()
         
         // Search for 7 in 3-qubit space (max value)
-        match GroverUnified.searchSingle 7 3 backend testConfig with
+        match Grover.searchSingle 7 3 backend testConfig with
         | Ok result ->
             assertSolutionFound 7 result
         | Error err ->
@@ -90,7 +90,7 @@ module GroverUnifiedTests =
         
         // Search for multiple values
         let targets = [2; 5; 7]
-        match GroverUnified.searchMultiple targets 3 backend testConfig with
+        match Grover.searchMultiple targets 3 backend testConfig with
         | Ok result ->
             // At least one target should be found
             let foundAny = targets |> List.exists (fun t -> List.contains t result.Solutions)
@@ -102,7 +102,7 @@ module GroverUnifiedTests =
     let ``Grover searchEven finds even numbers`` () =
         let backend = createLocalBackend ()
         
-        match GroverUnified.searchEven 3 backend testConfig with
+        match Grover.searchEven 3 backend testConfig with
         | Ok result ->
             // Should find at least one even number (0, 2, 4, 6)
             let isEven x = x % 2 = 0
@@ -115,7 +115,7 @@ module GroverUnifiedTests =
     let ``Grover searchOdd finds odd numbers`` () =
         let backend = createLocalBackend ()
         
-        match GroverUnified.searchOdd 3 backend testConfig with
+        match Grover.searchOdd 3 backend testConfig with
         | Ok result ->
             // Should find at least one odd number (1, 3, 5, 7)
             let isOdd x = x % 2 = 1
@@ -132,7 +132,7 @@ module GroverUnifiedTests =
         // Fewer solutions means Grover is more effective
         let isGreaterThan5 x = x > 5
         
-        match GroverUnified.searchWhere isGreaterThan5 3 backend testConfig with
+        match Grover.searchWhere isGreaterThan5 3 backend testConfig with
         | Ok result ->
             // Should find at least one number > 5 (6 or 7)
             let foundMatch = result.Solutions |> List.exists isGreaterThan5
@@ -152,7 +152,7 @@ module GroverUnifiedTests =
         let numQubits = 3
         
         // LocalBackend should support gate-based algorithms
-        match GroverUnified.searchSingle target numQubits localBackend testConfig with
+        match Grover.searchSingle target numQubits localBackend testConfig with
         | Ok result ->
             assertSolutionFound target result
             Assert.True(result.Iterations > 0, "Should perform iterations")
@@ -168,7 +168,7 @@ module GroverUnifiedTests =
         // 
         // NOTE: Using 2 qubits to avoid MCZ decomposition issues (MCZ needs auxiliary qubits)
         // 2-qubit Grover uses CZ (not MCZ), which compiles cleanly to braiding
-        match GroverUnified.searchSingle 1 2 topBackend testConfig with
+        match Grover.searchSingle 1 2 topBackend testConfig with
         | Ok result ->
             // Should successfully find the target (or at least not fail with compilation error)
             assertSolutionFound 1 result
@@ -183,14 +183,14 @@ module GroverUnifiedTests =
     let ``Calculate optimal iterations for single target`` () =
         // For single target in 3-qubit space (N=8, M=1)
         // Optimal k ≈ (π/4) * √(8/1) ≈ 2.22 → 2 iterations
-        let iterations = GroverUnified.calculateOptimalIterations 3 1
+        let iterations = Grover.calculateOptimalIterations 3 1
         Assert.InRange(iterations, 1, 3)
     
     [<Fact>]
     let ``Calculate optimal iterations for multiple targets`` () =
         // For 2 targets in 3-qubit space (N=8, M=2)
         // Optimal k ≈ (π/4) * √(8/2) = π/4 * 2 ≈ 1.57 → 2 iterations
-        let iterations = GroverUnified.calculateOptimalIterations 3 2
+        let iterations = Grover.calculateOptimalIterations 3 2
         Assert.InRange(iterations, 1, 2)
     
     [<Fact>]
@@ -198,7 +198,7 @@ module GroverUnifiedTests =
         let backend = createLocalBackend ()
         let configAutoIterations = { testConfig with Iterations = None }
         
-        match GroverUnified.searchSingle 5 3 backend configAutoIterations with
+        match Grover.searchSingle 5 3 backend configAutoIterations with
         | Ok result ->
             // Should auto-calculate iterations (for single target in 8-element space)
             Assert.True(result.Iterations > 0, "Should perform at least one iteration")
@@ -211,7 +211,7 @@ module GroverUnifiedTests =
         let backend = createLocalBackend ()
         let configExplicit = { testConfig with Iterations = Some 5 }
         
-        match GroverUnified.searchSingle 5 3 backend configExplicit with
+        match Grover.searchSingle 5 3 backend configExplicit with
         | Ok result ->
             Assert.Equal(5, result.Iterations)
         | Error err ->
@@ -225,7 +225,7 @@ module GroverUnifiedTests =
     let ``Grover result includes measurement distribution`` () =
         let backend = createLocalBackend ()
         
-        match GroverUnified.searchSingle 5 3 backend testConfig with
+        match Grover.searchSingle 5 3 backend testConfig with
         | Ok result ->
             Assert.NotEmpty(result.Measurements)
             
@@ -239,7 +239,7 @@ module GroverUnifiedTests =
     let ``Success probability reflects solution quality`` () =
         let backend = createLocalBackend ()
         
-        match GroverUnified.searchSingle 5 3 backend testConfig with
+        match Grover.searchSingle 5 3 backend testConfig with
         | Ok result ->
             // Success probability should be reasonable (> 0% for correct algorithm)
             Assert.True(result.SuccessProbability > 0.0, "Success probability should be > 0")
@@ -251,7 +251,7 @@ module GroverUnifiedTests =
     let ``Execution time is measured`` () =
         let backend = createLocalBackend ()
         
-        match GroverUnified.searchSingle 5 3 backend testConfig with
+        match Grover.searchSingle 5 3 backend testConfig with
         | Ok result ->
             Assert.True(result.ExecutionTimeMs > 0.0, "Execution time should be > 0")
         | Error err ->
@@ -266,7 +266,7 @@ module GroverUnifiedTests =
         let backend = createLocalBackend ()
         
         // Target 10 is out of range for 3 qubits (valid range: 0-7)
-        match GroverUnified.searchSingle 10 3 backend testConfig with
+        match Grover.searchSingle 10 3 backend testConfig with
         | Ok _ ->
             Assert.True(false, "Should reject out-of-range target")
         | Error (QuantumError.ValidationError _) ->
@@ -278,7 +278,7 @@ module GroverUnifiedTests =
     let ``Search rejects negative target`` () =
         let backend = createLocalBackend ()
         
-        match GroverUnified.searchSingle -1 3 backend testConfig with
+        match Grover.searchSingle -1 3 backend testConfig with
         | Ok _ ->
             Assert.True(false, "Should reject negative target")
         | Error (QuantumError.ValidationError _) ->
@@ -290,7 +290,7 @@ module GroverUnifiedTests =
     let ``Search rejects empty target list`` () =
         let backend = createLocalBackend ()
         
-        match GroverUnified.searchMultiple [] 3 backend testConfig with
+        match Grover.searchMultiple [] 3 backend testConfig with
         | Ok _ ->
             Assert.True(false, "Should reject empty target list")
         | Error (QuantumError.ValidationError _) ->
@@ -304,7 +304,7 @@ module GroverUnifiedTests =
     
     [<Fact>]
     let ``Format result produces readable output`` () =
-        let result : GroverUnified.GroverResult = {
+        let result : Grover.GroverResult = {
             Solutions = [5]
             Iterations = 2
             Measurements = Map.ofList [(5, 80); (3, 20)]
@@ -312,7 +312,7 @@ module GroverUnifiedTests =
             ExecutionTimeMs = 15.5
         }
         
-        let formatted = GroverUnified.formatResult result
+        let formatted = Grover.formatResult result
         
         Assert.Contains("Found solutions: 5", formatted)
         Assert.Contains("Iterations: 2", formatted)
@@ -321,7 +321,7 @@ module GroverUnifiedTests =
     
     [<Fact>]
     let ``Format result handles no solutions gracefully`` () =
-        let result : GroverUnified.GroverResult = {
+        let result : Grover.GroverResult = {
             Solutions = []
             Iterations = 1
             Measurements = Map.ofList [(0, 50); (1, 50)]
@@ -329,7 +329,7 @@ module GroverUnifiedTests =
             ExecutionTimeMs = 10.0
         }
         
-        let formatted = GroverUnified.formatResult result
+        let formatted = Grover.formatResult result
         
         Assert.Contains("No solutions found", formatted)
     
@@ -344,7 +344,7 @@ module GroverUnifiedTests =
         // Complete workflow test
         let target = 5
         let numQubits = 3
-        let config : GroverUnified.GroverConfig = {
+        let config : Grover.GroverConfig = {
             Iterations = Some 2  // Explicit iterations
             Shots = 200
             SuccessThreshold = 0.5
@@ -352,7 +352,7 @@ module GroverUnifiedTests =
             RandomSeed = Some 42
         }
         
-        match GroverUnified.searchSingle target numQubits backend config with
+        match Grover.searchSingle target numQubits backend config with
         | Ok result ->
             // Verify all components
             assertSolutionFound target result
@@ -379,7 +379,7 @@ module GroverUnifiedTests =
                 RandomSeed = Some 123  // Different seed for variety
         }
         
-        match GroverUnified.searchSingle 10 4 backend largerConfig with
+        match Grover.searchSingle 10 4 backend largerConfig with
         | Ok result ->
             assertSolutionFound 10 result
             // Should use more iterations for larger space
@@ -408,7 +408,7 @@ module GroverUnifiedTests =
         match Oracle.forValues [target] numQubits with
         | Error err -> Assert.True(false, $"Oracle creation failed: {err}")
         | Ok oracle ->
-            match GroverUnified.searchMultiRound oracle backend config rounds with
+            match Grover.searchMultiRound oracle backend config rounds with
             | Ok result ->
                 // Verify solution found
                 assertSolutionFound target result
@@ -440,7 +440,7 @@ module GroverUnifiedTests =
         match Oracle.forValues solutions numQubits with
         | Error err -> Assert.True(false, $"Oracle creation failed: {err}")
         | Ok oracle ->
-            match GroverUnified.searchMultiRound oracle backend config rounds with
+            match Grover.searchMultiRound oracle backend config rounds with
             | Ok result ->
                 // Should find all solutions across rounds
                 Assert.True(result.Solutions.Length > 0, "Should find at least one solution")
@@ -466,13 +466,13 @@ module GroverUnifiedTests =
         | Error err -> Assert.True(false, $"Oracle creation failed: {err}")
         | Ok oracle ->
             // Test with zero rounds
-            match GroverUnified.searchMultiRound oracle backend testConfig 0 with
+            match Grover.searchMultiRound oracle backend testConfig 0 with
             | Ok _ -> Assert.True(false, "Should reject zero rounds")
             | Error (QuantumError.ValidationError _) -> ()  // Expected
             | Error err -> Assert.True(false, $"Wrong error type: {err}")
             
             // Test with negative rounds
-            match GroverUnified.searchMultiRound oracle backend testConfig -1 with
+            match Grover.searchMultiRound oracle backend testConfig -1 with
             | Ok _ -> Assert.True(false, "Should reject negative rounds")
             | Error (QuantumError.ValidationError _) -> ()  // Expected
             | Error err -> Assert.True(false, $"Wrong error type: {err}")
@@ -496,7 +496,7 @@ module GroverUnifiedTests =
         match Oracle.forValues [target] numQubits with
         | Error err -> Assert.True(false, $"Oracle creation failed: {err}")
         | Ok oracle ->
-            match GroverUnified.searchMultiRound oracle backend config rounds with
+            match Grover.searchMultiRound oracle backend config rounds with
             | Ok result ->
                 // Even with variance, should find the solution in aggregated results
                 Assert.Contains(target, result.Solutions)
@@ -527,11 +527,11 @@ module GroverUnifiedTests =
         | Error err -> Assert.True(false, $"Oracle creation failed: {err}")
         | Ok oracle ->
             // Regular search
-            match GroverUnified.search oracle backend config with
+            match Grover.search oracle backend config with
             | Error err -> Assert.True(false, $"Regular search failed: {err}")
             | Ok regularResult ->
                 // Multi-round with 1 round (should be identical)
-                match GroverUnified.searchMultiRound oracle backend config 1 with
+                match Grover.searchMultiRound oracle backend config 1 with
                 | Ok multiResult ->
                     // Results should be very similar (same seed, same algorithm)
                     Assert.Equal<int list>(regularResult.Solutions, multiResult.Solutions)

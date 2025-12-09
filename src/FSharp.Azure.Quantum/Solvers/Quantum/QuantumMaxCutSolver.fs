@@ -2,6 +2,7 @@ namespace FSharp.Azure.Quantum.Quantum
 
 open System
 open FSharp.Azure.Quantum
+open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.GraphOptimization
 
@@ -273,11 +274,9 @@ module QuantumMaxCutSolver =
             // Step 1: Validate problem size against backend
             let numQubits = problem.Vertices.Length
             
-            if numQubits > backend.MaxQubits then
-                return Error (QuantumError.ValidationError ("qubitCount",
-                    sprintf "Problem requires %d qubits but backend '%s' supports max %d qubits" 
-                        numQubits backend.Name backend.MaxQubits))
-            elif numQubits = 0 then
+            // Note: Backend validation removed (MaxQubits/Name properties no longer in interface)
+            // Backends will return errors if qubit count exceeded
+            if numQubits = 0 then
                 return Error (QuantumError.ValidationError ("numVertices", "MaxCut problem has no vertices"))
             elif problem.Edges.Length = 0 then
                 return Error (QuantumError.ValidationError ("numEdges", "MaxCut problem has no edges"))
@@ -303,16 +302,19 @@ module QuantumMaxCutSolver =
                     let circuitWrapper = CircuitAbstraction.QaoaCircuitWrapper(qaoaCircuit) :> CircuitAbstraction.ICircuit
                     
                     // Step 7: Execute on quantum backend asynchronously
-                    let! execResult = backend.ExecuteAsync circuitWrapper config.NumShots
+                    // Execute circuit to get quantum state, then measure
+                    let stateResult = backend.ExecuteToState circuitWrapper
                     
-                    match execResult with
+                    match stateResult with
                     | Error err -> return Error err
-                    | Ok execResult ->
+                    | Ok quantumState ->
+                        // Measure the state to get classical bit strings
+                        let measurements = QuantumState.measure quantumState config.NumShots
                         
                         // Step 7: Decode measurements to partitions
                         let solutions = 
-                            execResult.Measurements
-                            |> Array.map (fun bitstring -> decodeSolution problem bitstring)
+                            measurements
+                            |> Array.map (fun measurement -> decodeSolution problem measurement)
                         
                         // Step 8: Find best solution (maximum cut value)
                         let bestSolution = 
@@ -323,7 +325,7 @@ module QuantumMaxCutSolver =
                         
                         return Ok {
                             bestSolution with
-                                BackendName = backend.Name
+                                BackendName = "QuantumBackend"  // Backend name no longer available in interface
                                 NumShots = config.NumShots
                                 ElapsedMs = elapsedMs
                         }

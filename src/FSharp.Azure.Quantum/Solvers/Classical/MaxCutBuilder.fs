@@ -1,7 +1,10 @@
 namespace FSharp.Azure.Quantum
 
+open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum.Quantum
+open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum.Core
+open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum.GraphOptimization
 
 /// High-level MaxCut Domain Builder - Quantum-First API
@@ -238,7 +241,7 @@ module MaxCut =
             // Use provided backend or create LocalBackend for simulation
             let actualBackend = 
                 backend 
-                |> Option.defaultValue (BackendAbstraction.createLocalBackend())
+                |> Option.defaultValue (LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend)
             
             // Convert to quantum solver format
             let quantumProblem : QuantumMaxCutSolver.MaxCutProblem = {

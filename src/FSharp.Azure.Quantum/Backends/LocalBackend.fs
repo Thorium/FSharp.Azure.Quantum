@@ -7,7 +7,7 @@ open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.Core.CircuitAbstraction
-open FSharp.Azure.Quantum.Core.UnifiedBackendAbstraction
+open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.LocalSimulator
 
 /// Local quantum simulator backend implementing unified quantum backend interface
@@ -17,7 +17,7 @@ open FSharp.Azure.Quantum.LocalSimulator
 /// - Native StateVector representation (no conversion needed)
 /// - Supports all standard gates (H, X, Y, Z, RX, RY, RZ, CNOT, CZ, etc.)
 /// - Efficient for circuits up to 30 qubits (practical limit ~20 qubits depending on available memory)
-/// - Implements both IQuantumBackend and IUnifiedQuantumBackend
+/// - Implements both IQuantumBackend and IQuantumBackend
 /// 
 /// Usage:
 ///   let backend = LocalBackend()
@@ -120,68 +120,10 @@ module LocalBackend =
             |]
         
         // ====================================================================
-        // IQuantumBackend Implementation (Backward Compatibility)
+        // IQuantumBackend Implementation
         // ====================================================================
         
         interface IQuantumBackend with
-            member _.SetCancellationToken (token: CancellationToken option) =
-                cancellationToken <- token
-            
-            member this.ExecuteAsync (circuit: ICircuit) (numShots: int) : Async<Result<ExecutionResult, QuantumError>> =
-                async {
-                    let numQubits = circuit.NumQubits
-                    
-                    // Pattern match on CircuitWrapper to extract gates safely
-                    match box circuit with
-                    | :? CircuitAbstraction.CircuitWrapper as wrapper ->
-                        match executeCircuit wrapper.Circuit numQubits with
-                        | Error err -> return Error err
-                        | Ok finalState ->
-                            let measurements = sampleMeasurements finalState numShots
-                            
-                            return Ok {
-                                Measurements = measurements
-                                NumShots = numShots
-                                BackendName = "Local Simulator"
-                                Metadata = Map.empty
-                            }
-                    | _ ->
-                        return Error (QuantumError.OperationError ("LocalBackend", $"Circuit type {circuit.GetType().Name} not supported - wrap with CircuitWrapper"))
-                }
-            
-            member this.Execute (circuit: ICircuit) (numShots: int) : Result<ExecutionResult, QuantumError> =
-                (this :> IQuantumBackend).ExecuteAsync circuit numShots
-                |> Async.RunSynchronously
-            
-            member _.Name = "Local Simulator"
-            
-            member _.MaxQubits = 30  // Reasonable limit for local simulation
-            
-            member _.SupportedGates = 
-                [
-                    // Pauli gates
-                    "H"; "X"; "Y"; "Z"
-                    // Phase gates
-                    "S"; "SDG"; "T"; "TDG"; "P"
-                    // Rotation gates
-                    "RX"; "RY"; "RZ"
-                    // Universal gates
-                    "U3"
-                    // Two-qubit gates
-                    "CNOT"; "CZ"; "SWAP"
-                    // Controlled gates
-                    "CP"; "CRX"; "CRY"; "CRZ"
-                    // Three-qubit gates
-                    "CCX"
-                    // Multi-qubit gates
-                    "MCZ"
-                ]
-        
-        // ====================================================================
-        // IUnifiedQuantumBackend Implementation (New Interface)
-        // ====================================================================
-        
-        interface IUnifiedQuantumBackend with
             member this.ExecuteToState (circuit: CircuitAbstraction.ICircuit) : Result<QuantumState, QuantumError> =
                 let numQubits = circuit.NumQubits
                 
@@ -227,7 +169,7 @@ module LocalBackend =
                                     match stateResult with
                                     | Error err -> Error err
                                     | Ok currentState ->
-                                        (self :> IUnifiedQuantumBackend).ApplyOperation op currentState
+                                        (self :> IQuantumBackend).ApplyOperation op currentState
                                 ) (Ok state)
                             result
                         
@@ -250,7 +192,7 @@ module LocalBackend =
                     let converted = QuantumStateConversion.convert QuantumStateType.GateBased state
                     match converted with
                     | QuantumState.StateVector sv ->
-                        (self :> IUnifiedQuantumBackend).ApplyOperation operation (QuantumState.StateVector sv)
+                        (self :> IQuantumBackend).ApplyOperation operation (QuantumState.StateVector sv)
                     | _ ->
                         Error (QuantumError.OperationError ("LocalBackend", "State conversion failed unexpectedly"))
             
@@ -275,8 +217,8 @@ module LocalBackendFactory =
     /// Create a new local simulator backend
     let create () : LocalBackend.LocalBackend = LocalBackend.LocalBackend()
     
-    /// Create and cast to IUnifiedQuantumBackend
-    let createUnified () : IUnifiedQuantumBackend = create () :> IUnifiedQuantumBackend
+    /// Create and cast to IQuantumBackend
+    let createUnified () : IQuantumBackend = create () :> IQuantumBackend
     
     /// Create and cast to IQuantumBackend (for backward compatibility)
     let createStandard () : IQuantumBackend = create () :> IQuantumBackend

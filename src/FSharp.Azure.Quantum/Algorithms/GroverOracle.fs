@@ -6,36 +6,23 @@ open FSharp.Azure.Quantum.Core
 
 /// Oracle Module for Grover's Search Algorithm
 /// 
-/// ⚠️ DEPRECATED: This module uses LocalSimulator directly.
-/// 
-/// **Use GroverUnified.Oracle instead** for RULE1-compliant oracle implementation.
-/// GroverUnified provides backend-agnostic oracle support with IUnifiedQuantumBackend.
-/// 
-/// This module will be removed in a future major version.
-/// 
-/// Migration:
-/// ```fsharp
-/// // OLD (deprecated):
-/// open FSharp.Azure.Quantum.GroverSearch.Oracle
-/// let oracle = fromPredicate (fun x -> x = 5)
-/// 
-/// // NEW (recommended):
-/// open FSharp.Azure.Quantum.Algorithms.GroverUnified
-/// let oracle = Oracle.fromPredicate (fun x -> x = 5)
-/// ```
-/// 
 /// An oracle is a quantum operation that marks solution states by flipping their phase.
 /// This module provides backend-agnostic oracle specifications that work with both
 /// local simulation and Azure Quantum backends.
 /// 
 /// Design Philosophy:
 /// - Pure functions (no mutable state)
-/// - Backend-agnostic (works with Local, IonQ, Rigetti)
+/// - Backend-agnostic (works with Local, IonQ, Rigetti, Topological)
 /// - Idiomatic F# (modules, not classes)
-/// - Follows existing codebase patterns
+/// - Shared infrastructure for all Grover implementations
+/// 
+/// Usage:
+/// ```fsharp
+/// open FSharp.Azure.Quantum.GroverSearch.Oracle
+/// let oracle = fromPredicate (fun x -> x = 5) 3
+/// ```
 /// 
 /// ALL GROVER ORACLE CODE IN SINGLE FILE
-[<Obsolete("Use FSharp.Azure.Quantum.Algorithms.GroverUnified.Oracle for state-based oracle implementation. This module will be removed in a future version.")>]
 module Oracle =
     
     open FSharp.Azure.Quantum.LocalSimulator

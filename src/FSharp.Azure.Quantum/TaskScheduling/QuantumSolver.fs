@@ -1,6 +1,7 @@
 namespace FSharp.Azure.Quantum.TaskScheduling
 
 open FSharp.Azure.Quantum
+open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum.Core
 open Types
 
@@ -23,7 +24,7 @@ module QuantumSolver =
     /// - Need optimal allocation under constraints
     /// 
     /// Example:
-    ///   let backend = BackendAbstraction.createLocalBackend()
+    ///   let backend = LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
     ///   let! result = solveQuantum backend problem
     let solveAsync 
         (backend: BackendAbstraction.IQuantumBackend)
@@ -66,12 +67,14 @@ module QuantumSolver =
                 CircuitAbstraction.QaoaCircuitWrapper(qaoaCircuit) 
                 :> CircuitAbstraction.ICircuit
             
-            // Execute on quantum backend
+            // Execute on quantum backend to get state
             let numShots = 1000
-            let! execResult = backend.ExecuteAsync circuitWrapper numShots
-            match execResult with
+            match backend.ExecuteToState circuitWrapper with
             | Error err -> return Error err
-            | Ok execResult ->
+            | Ok state ->
+            
+            // Perform measurements on quantum state
+            let measurements = QuantumState.measure state numShots
             
             // Decode measurements to find best schedule
             // Reuse variable mapping function
@@ -79,7 +82,7 @@ module QuantumSolver =
             
             // Decode each measurement and find best feasible solution
             let solutions =
-                execResult.Measurements
+                measurements
                 |> Array.choose (fun bitstring ->
                     let taskStarts = QuboEncoding.decodeBitstring bitstring reverseMapping
                     

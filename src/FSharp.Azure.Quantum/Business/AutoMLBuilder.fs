@@ -1,9 +1,13 @@
 namespace FSharp.Azure.Quantum.Business
 
+open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum.Core
 open System
+open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum.Core.BackendAbstraction
+open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum.MachineLearning
+open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum
 
 /// Automated Machine Learning Builder - Zero-Config ML
@@ -489,12 +493,8 @@ module AutoML =
         |> Result.bind (fun () ->
             
             let startTime = DateTime.UtcNow
-            let backend = problem.Backend |> Option.defaultValue (LocalBackend() :> IQuantumBackend)
+            let backend = problem.Backend |> Option.defaultValue (LocalBackend.LocalBackend() :> IQuantumBackend)
             let reporter = problem.ProgressReporter
-            
-            // Set cancellation token on backend if provided
-            problem.CancellationToken |> Option.iter (fun token ->
-                backend.SetCancellationToken(Some token))
             
             // Report initial phase
             reporter |> Option.iter (fun r ->

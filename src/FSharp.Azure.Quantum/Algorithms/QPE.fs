@@ -3,12 +3,12 @@ namespace FSharp.Azure.Quantum.Algorithms
 open System
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Core
-open FSharp.Azure.Quantum.Core.UnifiedBackendAbstraction
+open FSharp.Azure.Quantum.Core.BackendAbstraction
 open System.Numerics
 
 /// Quantum Phase Estimation (QPE) - Unified Backend Implementation
 /// 
-/// State-based implementation using IUnifiedQuantumBackend.
+/// State-based implementation using IQuantumBackend.
 /// Estimates the phase (eigenvalue) of a unitary operator U with respect to an eigenvector |ψ⟩.
 /// Given U|ψ⟩ = e^(2πiφ)|ψ⟩, QPE estimates φ to n bits of precision.
 /// 
@@ -21,26 +21,26 @@ open System.Numerics
 /// Algorithm Overview:
 /// 1. Prepare counting qubits in superposition (Hadamard gates)
 /// 2. Apply controlled-U gates with increasing powers (U^(2^0), U^(2^1), ...)
-/// 3. Apply inverse QFT to counting register (uses QFTUnified)
+/// 3. Apply inverse QFT to counting register (uses QFT)
 /// 4. Measure to extract phase estimate
 /// 
 /// Precision: n counting qubits → φ estimated to n bits of accuracy
 /// 
 /// Example:
 /// ```fsharp
-/// open FSharp.Azure.Quantum.Algorithms.QPEUnified
+/// open FSharp.Azure.Quantum.Algorithms.QPE
 /// open FSharp.Azure.Quantum.Backends.LocalBackend
 /// 
-/// let backend = LocalBackend() :> IUnifiedQuantumBackend
+/// let backend = LocalBackend() :> IQuantumBackend
 /// 
 /// // Estimate T gate phase: e^(iπ/4) = e^(2πi·1/8) → φ = 1/8
 /// match estimateTGatePhase 4 backend with
 /// | Ok result -> printfn "Estimated phase: %f (expected ~0.125)" result.EstimatedPhase
 /// | Error err -> printfn "Error: %A" err
 /// ```
-module QPEUnified =
+module QPE =
     
-    open FSharp.Azure.Quantum.Algorithms.QFTUnified
+    open FSharp.Azure.Quantum.Algorithms.QFT
     
     // ========================================================================
     // TYPES - QPE configuration and results
@@ -125,7 +125,7 @@ module QPEUnified =
         (targetQubit: int)
         (unitary: UnitaryOperator)
         (power: int)
-        (backend: IUnifiedQuantumBackend)
+        (backend: IQuantumBackend)
         (state: QuantumState) : Result<QuantumState, QuantumError> =
         
         let totalApplications = 1 <<< power  // 2^power
@@ -177,7 +177,7 @@ module QPEUnified =
     /// 2. Initialize target qubits to eigenvector |ψ⟩
     /// 3. For each counting qubit j (from 0 to n-1):
     ///    - Apply controlled-U^(2^j) with control=counting[j], target=|ψ⟩
-    /// 4. Apply inverse QFT to counting register (uses QFTUnified)
+    /// 4. Apply inverse QFT to counting register (uses QFT)
     /// 5. Measure counting register to extract phase
     /// 
     /// Phase Encoding:
@@ -196,12 +196,12 @@ module QPEUnified =
     ///     UnitaryOperator = TGate
     ///     EigenVector = None
     /// }
-    /// let backend = LocalBackend() :> IUnifiedQuantumBackend
+    /// let backend = LocalBackend() :> IQuantumBackend
     /// match execute config backend with
     /// | Ok result -> printfn "Phase: %f" result.EstimatedPhase  // ~0.125 (1/8)
     /// | Error err -> printfn "Error: %A" err
     /// ```
-    let execute (config: QPEConfig) (backend: IUnifiedQuantumBackend) : Result<QPEResult, QuantumError> =
+    let execute (config: QPEConfig) (backend: IQuantumBackend) : Result<QPEResult, QuantumError> =
         result {
             // Validation
             if config.CountingQubits <= 0 then
@@ -333,14 +333,14 @@ module QPEUnified =
     /// 
     /// Example:
     /// ```fsharp
-    /// let backend = LocalBackend() :> IUnifiedQuantumBackend
+    /// let backend = LocalBackend() :> IQuantumBackend
     /// match estimateTGatePhase 4 backend with
     /// | Ok result -> 
     ///     printfn "Estimated phase: %f" result.EstimatedPhase  // ~0.125
     ///     printfn "Binary: %B" result.MeasurementOutcome        // ~2 (0010 in 4 bits)
     /// | Error err -> printfn "Error: %A" err
     /// ```
-    let estimateTGatePhase (countingQubits: int) (backend: IUnifiedQuantumBackend) : Result<QPEResult, QuantumError> =
+    let estimateTGatePhase (countingQubits: int) (backend: IQuantumBackend) : Result<QPEResult, QuantumError> =
         let config = {
             CountingQubits = countingQubits
             TargetQubits = 1
@@ -359,14 +359,14 @@ module QPEUnified =
     /// 
     /// Example:
     /// ```fsharp
-    /// let backend = LocalBackend() :> IUnifiedQuantumBackend
+    /// let backend = LocalBackend() :> IQuantumBackend
     /// match estimateSGatePhase 4 backend with
     /// | Ok result -> 
     ///     printfn "Estimated phase: %f" result.EstimatedPhase  // ~0.25
     ///     printfn "Binary: %B" result.MeasurementOutcome        // ~4 (0100 in 4 bits)
     /// | Error err -> printfn "Error: %A" err
     /// ```
-    let estimateSGatePhase (countingQubits: int) (backend: IUnifiedQuantumBackend) : Result<QPEResult, QuantumError> =
+    let estimateSGatePhase (countingQubits: int) (backend: IQuantumBackend) : Result<QPEResult, QuantumError> =
         let config = {
             CountingQubits = countingQubits
             TargetQubits = 1
@@ -383,7 +383,7 @@ module QPEUnified =
     /// 
     /// Example:
     /// ```fsharp
-    /// let backend = LocalBackend() :> IUnifiedQuantumBackend
+    /// let backend = LocalBackend() :> IQuantumBackend
     /// // For θ = π, we get φ = 1/2
     /// match estimatePhaseGate Math.PI 4 backend with
     /// | Ok result -> 
@@ -391,7 +391,7 @@ module QPEUnified =
     ///     printfn "Binary: %B" result.MeasurementOutcome        // ~8 (1000 in 4 bits)
     /// | Error err -> printfn "Error: %A" err
     /// ```
-    let estimatePhaseGate (theta: float) (countingQubits: int) (backend: IUnifiedQuantumBackend) : Result<QPEResult, QuantumError> =
+    let estimatePhaseGate (theta: float) (countingQubits: int) (backend: IQuantumBackend) : Result<QPEResult, QuantumError> =
         let config = {
             CountingQubits = countingQubits
             TargetQubits = 1

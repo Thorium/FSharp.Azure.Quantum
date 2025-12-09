@@ -1,11 +1,11 @@
 namespace FSharp.Azure.Quantum.Tests
 
 open Xunit
-open FSharp.Azure.Quantum.Algorithms.ShorsUnified
+open FSharp.Azure.Quantum.Algorithms.Shor
 open FSharp.Azure.Quantum.Algorithms.ShorsTypes
 open FSharp.Azure.Quantum.Backends.LocalBackend
 open FSharp.Azure.Quantum.Core
-open FSharp.Azure.Quantum.Core.UnifiedBackendAbstraction
+open FSharp.Azure.Quantum.Core.BackendAbstraction
 
 /// Tests for Shor's Algorithm Unified Implementation
 /// 
@@ -14,9 +14,9 @@ open FSharp.Azure.Quantum.Core.UnifiedBackendAbstraction
 /// - Input validation
 /// - NotImplemented error handling
 /// - Configuration validation
-module ShorsUnifiedTests =
+module ShorTests =
     
-    let createBackend() = LocalBackend() :> IUnifiedQuantumBackend
+    let createBackend() = LocalBackend() :> IQuantumBackend
     
     // ========================================================================
     // CLASSICAL PRE-CHECK TESTS
@@ -259,20 +259,20 @@ module ShorsUnifiedTests =
     // ========================================================================
     
     [<Fact>]
-    let ``ShorsUnified accepts IUnifiedQuantumBackend`` () =
-        // This test validates that ShorsUnified follows RULE1
+    let ``Shor accepts IQuantumBackend`` () =
+        // This test validates that Shor follows RULE1
         let backend = createBackend()
         
-        // Should compile and accept IUnifiedQuantumBackend
+        // Should compile and accept IQuantumBackend
         let result = factor 15 backend
         
         // We don't care about the result, just that it compiles and runs
         Assert.True(true)
     
     [<Fact>]
-    let ``ShorsUnified works with LocalBackend`` () =
+    let ``Shor works with LocalBackend`` () =
         // Validate that LocalBackend is compatible
-        let backend = LocalBackend() :> IUnifiedQuantumBackend
+        let backend = LocalBackend() :> IQuantumBackend
         
         let config = {
             NumberToFactor = 15
@@ -396,7 +396,7 @@ module ShorsUnifiedTests =
             Assert.InRange(result.Period, 1, 15)
     
     [<Fact>]
-    let ``ShorsUnified demonstrates QPE for period finding`` () =
+    let ``Shor demonstrates QPE for period finding`` () =
         let backend = createBackend()
         
         // Test that QPE is being used (even if classically assisted)

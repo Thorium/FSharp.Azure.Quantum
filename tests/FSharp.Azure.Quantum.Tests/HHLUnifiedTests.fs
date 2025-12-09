@@ -2,11 +2,11 @@ namespace FSharp.Azure.Quantum.Tests
 
 open Xunit
 open System.Numerics
-open FSharp.Azure.Quantum.Algorithms.HHLUnified
+open FSharp.Azure.Quantum.Algorithms.HHL
 open FSharp.Azure.Quantum.Algorithms.HHLTypes
 open FSharp.Azure.Quantum.Backends.LocalBackend
 open FSharp.Azure.Quantum.Core
-open FSharp.Azure.Quantum.Core.UnifiedBackendAbstraction
+open FSharp.Azure.Quantum.Core.BackendAbstraction
 
 /// Tests for HHL Algorithm Unified Implementation
 /// 
@@ -17,9 +17,9 @@ open FSharp.Azure.Quantum.Core.UnifiedBackendAbstraction
 /// - Convenience functions for 2×2 and 4×4 systems
 /// - Identity matrix validation
 /// - Error handling
-module HHLUnifiedTests =
+module HHLTests =
     
-    let createBackend() = LocalBackend() :> IUnifiedQuantumBackend
+    let createBackend() = LocalBackend() :> IQuantumBackend
     
     // Tolerance for floating point comparison
     let epsilon = 1e-6

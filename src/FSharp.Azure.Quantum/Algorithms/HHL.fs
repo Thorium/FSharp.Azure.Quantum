@@ -4,14 +4,14 @@ open System
 open System.Numerics
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Core
-open FSharp.Azure.Quantum.Core.UnifiedBackendAbstraction
+open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.LocalSimulator
-open FSharp.Azure.Quantum.Algorithms.QPEUnified
+open FSharp.Azure.Quantum.Algorithms.QPE
 
 /// HHL Algorithm - Unified Backend Implementation
 /// 
 /// Harrow-Hassidim-Lloyd algorithm for solving linear systems Ax = b.
-/// State-based implementation using IUnifiedQuantumBackend.
+/// State-based implementation using IQuantumBackend.
 /// 
 /// Algorithm Overview:
 /// Given a Hermitian matrix A and vector |b⟩, finds solution |x⟩ where A|x⟩ = |b⟩.
@@ -42,10 +42,10 @@ open FSharp.Azure.Quantum.Algorithms.QPEUnified
 /// 
 /// Example:
 /// ```fsharp
-/// open FSharp.Azure.Quantum.Algorithms.HHLUnified
+/// open FSharp.Azure.Quantum.Algorithms.HHL
 /// open FSharp.Azure.Quantum.Backends.LocalBackend
 /// 
-/// let backend = LocalBackend() :> IUnifiedQuantumBackend
+/// let backend = LocalBackend() :> IQuantumBackend
 /// 
 /// // Solve: [[2,0],[0,3]] * x = [1,1]
 /// // Expected: x ≈ [0.5, 0.333...]
@@ -55,10 +55,10 @@ open FSharp.Azure.Quantum.Algorithms.QPEUnified
 ///     printfn "Solution found!"
 /// | Error err -> printfn "Error: %A" err
 /// ```
-module HHLUnified =
+module HHL =
     
     open FSharp.Azure.Quantum.Algorithms.HHLTypes
-    open FSharp.Azure.Quantum.Algorithms.QPEUnified
+    open FSharp.Azure.Quantum.Algorithms.QPE
     
     // ========================================================================
     // STATE PREPARATION - Encode input vector |b⟩
@@ -79,7 +79,7 @@ module HHLUnified =
     /// </remarks>
     let private prepareInputState 
         (inputVector: QuantumVector) 
-        (backend: IUnifiedQuantumBackend) : Result<QuantumState, QuantumError> =
+        (backend: IQuantumBackend) : Result<QuantumState, QuantumError> =
         
         // Create quantum state from complex amplitudes
         let amplitudes = inputVector.Components
@@ -100,7 +100,7 @@ module HHLUnified =
     /// <returns>Unitary operator for QPE</returns>
     let private createDiagonalUnitary 
         (matrix: HermitianMatrix) 
-        (time: float) : QPEUnified.UnitaryOperator =
+        (time: float) : QPE.UnitaryOperator =
         
         if not matrix.IsDiagonal then
             failwith "Only diagonal matrices supported in educational implementation"
@@ -118,7 +118,7 @@ module HHLUnified =
         // We'll use a phase gate with angle = λ₀ * t for the first eigenvalue
         // For simplicity in educational version, use the first eigenvalue
         let firstEigenvalue = eigenvalues[0]
-        QPEUnified.PhaseGate (firstEigenvalue * time)
+        QPE.PhaseGate (firstEigenvalue * time)
     
     // ========================================================================
     // EIGENVALUE INVERSION - Apply controlled rotations ∝ 1/λ
@@ -146,7 +146,7 @@ module HHLUnified =
         (eigenvalue: float)
         (ancillaQubit: int)
         (minEigenvalue: float)
-        (backend: IUnifiedQuantumBackend)
+        (backend: IQuantumBackend)
         (state: QuantumState) : Result<QuantumState, QuantumError> =
         
         // Early validation - avoid division by zero
@@ -340,13 +340,13 @@ module HHLUnified =
     /// </example>
     let execute 
         (config: HHLConfig) 
-        (backend: IUnifiedQuantumBackend) : Result<HHLResult, QuantumError> =
+        (backend: IQuantumBackend) : Result<HHLResult, QuantumError> =
         
         // ========== VALIDATION ==========
         
         // Check matrix is diagonal (educational implementation)
         if not config.Matrix.IsDiagonal then
-            Error (QuantumError.ValidationError ("Matrix", "Only diagonal matrices supported in HHLUnified (use HHLBackendAdapter for general matrices)"))
+            Error (QuantumError.ValidationError ("Matrix", "Only diagonal matrices supported in HHL (use HHLBackendAdapter for general matrices)"))
         elif config.Matrix.Dimension <> config.InputVector.Dimension then
             Error (QuantumError.ValidationError ("Dimensions", $"Matrix ({config.Matrix.Dimension}) and vector ({config.InputVector.Dimension}) dimensions must match"))
         else
@@ -370,7 +370,7 @@ module HHLUnified =
                     
                     // ========== EIGENVALUE ESTIMATION (QPE) ==========
                     
-                    // NOTE: Full QPE integration requires custom eigenvector support in QPEUnified
+                    // NOTE: Full QPE integration requires custom eigenvector support in QPE
                     // For now, we use the known diagonal eigenvalues directly
                     // This is acceptable since for diagonal matrices, the eigenvalues are explicit
                     
@@ -498,7 +498,7 @@ module HHLUnified =
     let solve2x2Diagonal
         (eigenvalues: float * float)
         (inputVector: Complex * Complex)
-        (backend: IUnifiedQuantumBackend) : Result<HHLResult, QuantumError> =
+        (backend: IQuantumBackend) : Result<HHLResult, QuantumError> =
         
         result {
             let (lambda1, lambda2) = eigenvalues
@@ -529,7 +529,7 @@ module HHLUnified =
     let solve4x4Diagonal
         (eigenvalues: float[])
         (inputVector: Complex[])
-        (backend: IUnifiedQuantumBackend) : Result<HHLResult, QuantumError> =
+        (backend: IQuantumBackend) : Result<HHLResult, QuantumError> =
         
         // Early validation
         if eigenvalues.Length <> 4 then
@@ -554,7 +554,7 @@ module HHLUnified =
     /// <returns>HHL result or error</returns>
     let solveIdentity
         (inputVector: Complex[])
-        (backend: IUnifiedQuantumBackend) : Result<HHLResult, QuantumError> =
+        (backend: IQuantumBackend) : Result<HHLResult, QuantumError> =
         
         // Early validation
         let n = inputVector.Length

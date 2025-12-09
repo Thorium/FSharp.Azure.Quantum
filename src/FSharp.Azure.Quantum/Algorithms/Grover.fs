@@ -3,12 +3,12 @@ namespace FSharp.Azure.Quantum.GroverSearch
 open System
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Core
-open FSharp.Azure.Quantum.Core.UnifiedBackendAbstraction
+open FSharp.Azure.Quantum.Core.BackendAbstraction
 
 /// Grover's Search Algorithm - Unified Backend Edition
 /// 
 /// This module provides a backend-agnostic implementation of Grover's quantum search algorithm
-/// using the unified backend interface (IUnifiedQuantumBackend).
+/// using the unified backend interface (IQuantumBackend).
 /// 
 /// Key features:
 /// - Works seamlessly with gate-based and topological backends
@@ -23,9 +23,9 @@ open FSharp.Azure.Quantum.Core.UnifiedBackendAbstraction
 /// - Automatic backend-specific optimizations
 /// 
 /// Usage:
-///   let backend = LocalBackend.LocalBackend() :> IUnifiedQuantumBackend
+///   let backend = LocalBackend.LocalBackend() :> IQuantumBackend
 ///   let! result = Grover.searchSingle 5 3 backend defaultConfig
-module GroverUnified =
+module Grover =
     
     open FSharp.Azure.Quantum.GroverSearch.Oracle
     
@@ -137,7 +137,7 @@ module GroverUnified =
     
     /// Apply Hadamard transform to all qubits (superposition creation)
     let private applyHadamardTransform 
-        (backend: IUnifiedQuantumBackend) 
+        (backend: IQuantumBackend) 
         (state: QuantumState) 
         : Result<QuantumState, QuantumError> =
         
@@ -156,7 +156,7 @@ module GroverUnified =
     /// Oracle flips the phase of target states: |target⟩ → -|target⟩
     /// Implemented via controlled phase flip operations
     let rec private applyOracle
-        (backend: IUnifiedQuantumBackend)
+        (backend: IQuantumBackend)
         (oracle: Oracle.CompiledOracle)
         (state: QuantumState)
         : Result<QuantumState, QuantumError> =
@@ -296,7 +296,7 @@ module GroverUnified =
     /// 4. Apply X^⊗n (undo)
     /// 5. Apply H^⊗n
     let private applyDiffusion
-        (backend: IUnifiedQuantumBackend)
+        (backend: IQuantumBackend)
         (state: QuantumState)
         : Result<QuantumState, QuantumError> =
         
@@ -333,7 +333,7 @@ module GroverUnified =
     
     /// Single Grover iteration: Oracle + Diffusion
     let private applyGroverIteration
-        (backend: IUnifiedQuantumBackend)
+        (backend: IQuantumBackend)
         (oracle: Oracle.CompiledOracle)
         (state: QuantumState)
         : Result<QuantumState, QuantumError> =
@@ -400,7 +400,7 @@ module GroverUnified =
     ///   Result with found solutions or error
     let search
         (oracle: Oracle.CompiledOracle)
-        (backend: IUnifiedQuantumBackend)
+        (backend: IQuantumBackend)
         (config: GroverConfig)
         : Result<GroverResult, QuantumError> =
         
@@ -469,7 +469,7 @@ module GroverUnified =
     let searchSingle
         (target: int)
         (numQubits: int)
-        (backend: IUnifiedQuantumBackend)
+        (backend: IQuantumBackend)
         (config: GroverConfig)
         : Result<GroverResult, QuantumError> =
         
@@ -485,7 +485,7 @@ module GroverUnified =
     let searchMultiple
         (targets: int list)
         (numQubits: int)
-        (backend: IUnifiedQuantumBackend)
+        (backend: IQuantumBackend)
         (config: GroverConfig)
         : Result<GroverResult, QuantumError> =
         
@@ -505,7 +505,7 @@ module GroverUnified =
     let searchWhere
         (predicate: int -> bool)
         (numQubits: int)
-        (backend: IUnifiedQuantumBackend)
+        (backend: IQuantumBackend)
         (config: GroverConfig)
         : Result<GroverResult, QuantumError> =
         
@@ -517,7 +517,7 @@ module GroverUnified =
     /// Search for even numbers
     let searchEven
         (numQubits: int)
-        (backend: IUnifiedQuantumBackend)
+        (backend: IQuantumBackend)
         (config: GroverConfig)
         : Result<GroverResult, QuantumError> =
         
@@ -529,7 +529,7 @@ module GroverUnified =
     /// Search for odd numbers
     let searchOdd
         (numQubits: int)
-        (backend: IUnifiedQuantumBackend)
+        (backend: IQuantumBackend)
         (config: GroverConfig)
         : Result<GroverResult, QuantumError> =
         
@@ -547,7 +547,7 @@ module GroverUnified =
         (minValue: int)
         (maxValue: int)
         (numQubits: int)
-        (backend: IUnifiedQuantumBackend)
+        (backend: IQuantumBackend)
         (config: GroverConfig)
         : Result<GroverResult, QuantumError> =
         
@@ -566,7 +566,7 @@ module GroverUnified =
     let searchDivisibleBy
         (divisor: int)
         (numQubits: int)
-        (backend: IUnifiedQuantumBackend)
+        (backend: IQuantumBackend)
         (config: GroverConfig)
         : Result<GroverResult, QuantumError> =
         
@@ -631,7 +631,7 @@ module GroverUnified =
     /// </example>
     let searchMultiRound
         (oracle: Oracle.CompiledOracle)
-        (backend: IUnifiedQuantumBackend)
+        (backend: IQuantumBackend)
         (config: GroverConfig)
         (rounds: int)
         : Result<GroverResult, QuantumError> =

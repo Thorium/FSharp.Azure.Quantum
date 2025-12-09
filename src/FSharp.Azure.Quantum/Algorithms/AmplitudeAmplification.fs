@@ -20,7 +20,7 @@ open System.Numerics
 module AmplitudeAmplification =
     
     open FSharp.Azure.Quantum.LocalSimulator
-    open FSharp.Azure.Quantum.GroverSearch.Oracle
+    open Oracle
     
     // ========================================================================
     // TYPES - Amplitude amplification configuration

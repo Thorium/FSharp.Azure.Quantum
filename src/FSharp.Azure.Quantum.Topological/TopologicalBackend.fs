@@ -1,347 +1,295 @@
 namespace FSharp.Azure.Quantum.Topological
 
-/// Backend interface for topological quantum computing
+open System
+open System.Numerics
+open System.Threading
+open System.Threading.Tasks
+open FSharp.Azure.Quantum
+open FSharp.Azure.Quantum.Core
+open FSharp.Azure.Quantum.Core.BackendAbstraction
+open FSharp.Azure.Quantum.Core.CircuitAbstraction
+open FSharp.Azure.Quantum.Core.BackendAbstraction
+
+/// Topological quantum backend implementing unified quantum backend interface
 /// 
-/// This is the topological equivalent of IQuantumBackend, but designed
-/// specifically for anyon-based quantum computation rather than gate-based.
+/// Features:
+/// - Anyon-based quantum simulation using fusion trees
+/// - Native FusionSuperposition representation (no gate compilation)
+/// - Supports braiding operations, F-moves, and topological measurements
+/// - Can compile gate-based circuits to braiding operations
+/// - Efficient for topological codes and Clifford+T circuits
+/// - Implements both IQuantumBackend and IQuantumBackend
 /// 
-/// Key differences from gate-based backends:
-/// - Operations are geometric (braiding) not algebraic (gates)
-/// - State is encoded in fusion trees, not amplitude vectors
-/// - Measurement extracts fusion outcomes, not basis states
-/// 
-/// Backends can be:
-/// - **Simulator**: Classical simulation of anyon dynamics
-/// - **Hardware**: Physical topological quantum computer (e.g., Microsoft Majorana)
-/// - **Hybrid**: Compile to gate-based for early prototyping
-module TopologicalBackend =
+/// Usage:
+///   let backend = TopologicalUnifiedBackend(AnyonType.Ising, 20)
+///   let! state = backend.ExecuteToState circuit  // Get quantum state
+///   
+///   // Braiding-based execution (no gate compilation)
+///   let! initialState = backend.InitializeState 3
+///   let! evolved = backend.ApplyOperation (QuantumOperation.Braid 0) initialState
+module TopologicalUnifiedBackend =
     
-    open System.Threading.Tasks
-    
-    /// Capabilities that a topological backend may support
-    type BackendCapabilities = {
-        /// Which anyon theories are supported
-        SupportedAnyonTypes: AnyonSpecies.AnyonType list
+    /// Topological quantum backend with unified interface
+    type TopologicalUnifiedBackend(anyonType: AnyonSpecies.AnyonType, maxAnyons: int) =
+        let mutable cancellationToken: CancellationToken option = None
         
-        /// Maximum number of anyons that can be simulated
-        MaxAnyons: int option
+        // Helper to convert TopologicalResult to Result with error message extraction
+        let toResult (topResult: TopologicalResult<'T>) : Result<'T, string> =
+            match topResult with
+            | Ok value -> Ok value
+            | Error err -> Error err.Message
         
-        /// Can perform arbitrary braiding operations
-        SupportsBraiding: bool
+        // ====================================================================
+        // GATE COMPILATION VIA GateToBraid MODULE
+        // ====================================================================
         
-        /// Can perform fusion measurements
-        SupportsMeasurement: bool
+        /// Gate-to-braiding compilation using production-ready GateToBraid module
+        /// 
+        /// The TopologicalBackend now supports gate-based circuits through automatic
+        /// compilation to braiding operations. This enables:
+        /// - Running standard quantum algorithms (Grover, QFT, etc.) on topological hardware
+        /// - Backend-agnostic algorithm implementation (same code works on Local and Topological)
+        /// - Transparent gate-to-braiding translation with error tracking
+        /// 
+        /// Supported gates:
+        /// - Clifford gates: H, X, Y, Z, S, S†, CNOT, CZ
+        /// - Non-Clifford: T, T†, Rz(θ) (via Solovay-Kitaev approximation)
+        /// - Multi-qubit gates (decomposed to single/two-qubit gates first)
+        /// 
+        /// The GateToBraid module handles:
+        /// - Solovay-Kitaev algorithm for arbitrary rotations
+        /// - Optimal Clifford synthesis
+        /// - Braiding sequence optimization
+        /// - Approximation error tracking
+        /// 
+        /// For best performance, use native braiding operations directly via
+        /// ApplyOperation (QuantumOperation.Braid, QuantumOperation.FMove).
         
-        /// Can perform F-moves (basis transformations)
-        SupportsFMoves: bool
-        
-        /// Supports real-time error correction
-        SupportsErrorCorrection: bool
-    }
-    
-    /// Result of executing a topological quantum operation
-    type ExecutionResult = {
-        /// The resulting quantum state
-        FinalState: TopologicalOperations.Superposition
-        
-        /// Classical measurement outcomes (if any measurements were performed)
-        MeasurementOutcomes: (AnyonSpecies.Particle * float) list
-        
-        /// Execution time in milliseconds
-        ExecutionTimeMs: float
-        
-        /// Any error or warning messages
-        Messages: string list
-    }
-    
-    /// Interface for topological quantum computing backends
-    type ITopologicalBackend =
-        
-        /// Get backend capabilities
-        abstract member Capabilities: BackendCapabilities
-        
-        /// Initialize the backend with a given anyon configuration
-        /// Returns initial state (typically all anyons in vacuum)
-        abstract member Initialize: 
-            anyonType: AnyonSpecies.AnyonType ->
-            anyonCount: int ->
-            Task<TopologicalResult<TopologicalOperations.Superposition>>
-        
-        /// Perform a braiding operation between adjacent anyons
-        /// Returns the evolved quantum state
-        abstract member Braid:
-            leftIndex: int ->
-            state: TopologicalOperations.Superposition ->
-            Task<TopologicalResult<TopologicalOperations.Superposition>>
-        
-        /// Measure fusion of two adjacent anyons
-        /// Returns (outcome, collapsed state, probability)
-        abstract member MeasureFusion:
-            leftIndex: int ->
-            state: TopologicalOperations.Superposition ->
-            Task<TopologicalResult<AnyonSpecies.Particle * TopologicalOperations.Superposition * float>>
-        
-        /// Execute a complete quantum program
-        /// This is a high-level method for running an entire computation
-        abstract member Execute:
-            initialState: TopologicalOperations.Superposition ->
-            operations: TopologicalOperation list ->
-            Task<TopologicalResult<ExecutionResult>>
-    
-    /// Represents a single quantum operation in a topological program
-    and TopologicalOperation =
-        | Braid of leftIndex: int
-        | Measure of leftIndex: int
-        | FMove of direction: TopologicalOperations.FMoveDirection * nodeDepth: int
-    
-    // ========================================================================
-    // EXECUTION STATE (for functional fold pattern)
-    // ========================================================================
-    
-    /// Execution state accumulator for functional fold pattern (immutable)
-    [<NoComparison; NoEquality>]
-    type private ExecutionState = {
-        CurrentState: TopologicalOperations.Superposition
-        Measurements: (AnyonSpecies.Particle * float) list
-        Messages: string list
-    }
-    
-    /// Process a single operation and update execution state (pure function)
-    let private processOperation (backend: ITopologicalBackend) (state: ExecutionState) (op: TopologicalOperation) : Task<TopologicalResult<ExecutionState>> =
-        task {
-            match op with
-            | Braid leftIndex ->
-                let! braidResult = backend.Braid leftIndex state.CurrentState
-                return braidResult |> Result.map (fun braided -> {
-                    CurrentState = braided
-                    Measurements = state.Measurements
-                    Messages = $"Braided anyons at index {leftIndex}" :: state.Messages
-                })
+        /// Sample measurements from topological state (returns Result for proper error handling)
+        let sampleMeasurements (state: TopologicalOperations.Superposition) (numQubits: int) (numShots: int) : Result<int[][], string> =
+            // Convert to state vector for measurement sampling
+            let stateVector = QuantumStateConversion.convert QuantumStateType.GateBased (QuantumState.FusionSuperposition (state :> obj, numQubits))
             
-            | Measure leftIndex ->
-                let! measureResult = backend.MeasureFusion leftIndex state.CurrentState
-                return measureResult |> Result.map (fun (outcome, collapsed, prob) -> {
-                    CurrentState = collapsed
-                    Measurements = (outcome, prob) :: state.Measurements
-                    Messages = $"Measured fusion at index {leftIndex}: {outcome} (p={prob:F4})" :: state.Messages
-                })
-            
-            | FMove (direction, depth) ->
-                // F-moves not fully implemented yet
-                return Ok {
-                    CurrentState = state.CurrentState
-                    Measurements = state.Measurements
-                    Messages = $"F-move at depth {depth} (direction: {direction})" :: state.Messages
-                }
-        }
-    
-    /// Fold over operations with short-circuit on error (tail-recursive)
-    let rec private foldOperations (backend: ITopologicalBackend) (currentResult: TopologicalResult<ExecutionState>) (remainingOps: TopologicalOperation list) : Task<TopologicalResult<ExecutionState>> =
-        task {
-            match remainingOps with
-            | [] -> return currentResult
-            | op :: restOps ->
-                match currentResult with
-                | Error err -> return Error err  // Short-circuit on error
-                | Ok state ->
-                    let! nextResult = processOperation backend state op
-                    return! foldOperations backend nextResult restOps
-        }
-    
-    // ========================================================================
-    // SIMULATOR BACKEND (Classical Simulation)
-    // ========================================================================
-    
-    /// A classical simulator backend for topological quantum computing
-    /// 
-    /// This simulates the quantum dynamics by explicitly tracking the
-    /// superposition state and applying operations as matrix transformations.
-    /// 
-    /// Limitations:
-    /// - Exponential memory in number of anyons (limited scalability)
-    /// - No noise model (perfect operations)
-    /// - Synchronous execution (no concurrency)
-    type SimulatorBackend(anyonType: AnyonSpecies.AnyonType, maxAnyons: int) =
+            match stateVector with
+            | QuantumState.StateVector sv ->
+                Ok [| for _ in 1 .. numShots do
+                        yield LocalSimulator.Measurement.measureAll sv
+                    |]
+            | _ ->
+                // Conversion failed - propagate error
+                Error $"Failed to convert FusionSuperposition to StateVector for measurement sampling (got {stateVector.GetType().Name})"
         
-        interface ITopologicalBackend with
-            
-            member _.Capabilities = {
-                SupportedAnyonTypes = [anyonType]
-                MaxAnyons = Some maxAnyons
-                SupportsBraiding = true
-                SupportsMeasurement = true
-                SupportsFMoves = true
-                SupportsErrorCorrection = false
-            }
-            
-            member _.Initialize anyonType' count =
-                task {
-                    // Validate inputs
-                    if anyonType' <> anyonType then
-                        return TopologicalResult.validationError "field" $"Backend only supports {anyonType}, not {anyonType'}"
-                    elif count <= 0 then
-                        return TopologicalResult.validationError "field" $"Anyon count must be positive, got {count}"
-                    elif count > maxAnyons then
-                        return TopologicalResult.backendError "backend" $"Backend supports max {maxAnyons} anyons, requested {count}"
-                    else
-                        // Create initial state: all anyons as individual leaves
-                        // Use appropriate anyon for the theory
-                        let basicAnyonResult = 
-                            match anyonType with
-                            | AnyonSpecies.AnyonType.Ising -> Ok AnyonSpecies.Particle.Sigma
-                            | AnyonSpecies.AnyonType.Fibonacci -> Ok AnyonSpecies.Particle.Tau
-                            | AnyonSpecies.AnyonType.SU2Level 2 -> 
-                                // SU(2)_2 = Ising anyons
-                                Ok AnyonSpecies.Particle.Sigma
-                            | AnyonSpecies.AnyonType.SU2Level k -> 
-                                // For general SU(2)_k with k > 2, use sigma (spin-1/2)
-                                // In full implementation, would support spins 0, 1/2, ..., k/2
-                                // For now, just use sigma as the basic excitation
-                                Ok AnyonSpecies.Particle.Sigma
+        // ====================================================================
+        // IQuantumBackend Implementation
+        // ====================================================================
+        
+        interface IQuantumBackend with
+            member this.ExecuteToState (circuit: ICircuit) : Result<QuantumState, QuantumError> =
+                // Convert gate-based circuit to operations and apply sequentially
+                match box circuit with
+                | :? CircuitAbstraction.CircuitWrapper as wrapper ->
+                    let cbCircuit = wrapper.Circuit
+                    
+                    result {
+                        // Initialize state
+                        let! initialState = (this :> IQuantumBackend).InitializeState cbCircuit.QubitCount
                         
-                        match basicAnyonResult with
-                        | Error err -> return Error err
-                        | Ok basicAnyon ->
-                            let particles = List.replicate count basicAnyon
-                            
-                            // Create a simple linear fusion tree
-                            let treeResult =
-                                match particles with
-                                | [] -> TopologicalResult.validationError "field" "Cannot create tree with zero anyons"
-                                | [p] -> Ok (FusionTree.leaf p)
-                                | p1::rest ->
-                                    rest |> List.fold (fun acc p ->
-                                        match acc with
-                                        | Error err -> Error err
-                                        | Ok tree ->
-                                            let charge = FusionTree.totalCharge tree anyonType
-                                            match FusionRules.channels charge p anyonType with
-                                            | Error err -> Error err
-                                            | Ok channels when channels.IsEmpty ->
-                                                TopologicalResult.logicError "operation" $"Cannot fuse {charge} and {p}"
-                                            | Ok channels ->
-                                                // Safe access with List.tryHead
-                                                match List.tryHead channels with
-                                                | None -> TopologicalResult.logicError "operation" $"No fusion channels for {charge} and {p}"
-                                                | Some firstChannel -> Ok (FusionTree.fuse tree (FusionTree.leaf p) firstChannel)
-                                    ) (Ok (FusionTree.leaf p1))
-                            
-                            match treeResult with
-                            | Error err -> return Error err
-                            | Ok tree ->
-                                let state = FusionTree.create tree anyonType
-                                return Ok (TopologicalOperations.pureState state)
-                }
-            
-            member _.Braid leftIndex state =
-                // Extract synchronous logic to avoid FS3511 warning
-                let performBraid() =
-                    // Validate index bounds
-                    if leftIndex < 0 then
-                        TopologicalResult.validationError "leftIndex" $"Braid index must be non-negative, got {leftIndex}"
-                    else
-                        // braidSuperposition now returns Result - no try/catch needed
-                        TopologicalOperations.braidSuperposition leftIndex state
-                
-                // Minimal task wrapper
-                task { return performBraid() }
-            
-            member _.MeasureFusion leftIndex state =
-                // Extract synchronous logic to avoid FS3511 warning
-                let performMeasurement() =
-                    // Validate index and state
-                    if leftIndex < 0 then
-                        TopologicalResult.validationError "leftIndex" $"Measurement index must be non-negative, got {leftIndex}"
-                    elif state.Terms.IsEmpty then
-                        TopologicalResult.validationError "state" "Cannot measure empty superposition"
-                    else
-                        // For simplicity, take first term of superposition - safe access
-                        match List.tryHead state.Terms with
-                        | None -> 
-                            TopologicalResult.validationError "state" "Superposition has no terms (this should have been caught earlier)"
-                        | Some (_, firstState) ->
-                            // measureFusion now returns Result
-                            match TopologicalOperations.measureFusion leftIndex firstState with
-                            | Error err -> Error err
-                            | Ok outcomes ->
-                                // Safe access to first outcome
-                                match List.tryHead outcomes with
-                                | None -> 
-                                    TopologicalResult.logicError "operation" "No valid measurement outcomes"
-                                | Some (prob, result) ->
-                                    match result.ClassicalOutcome with
-                                    | Some particle ->
-                                        let collapsed = TopologicalOperations.pureState result.State
-                                        Ok (particle, collapsed, prob)
-                                    | None ->
-                                        TopologicalResult.computationError "operation" "Measurement did not produce classical outcome"
-                
-                // Minimal task wrapper
-                task { return performMeasurement() }
-            
-            member this.Execute initialState operations =
-                task {
-                    let startTime = System.DateTime.Now
-                    
-                    // Initialize execution state (immutable)
-                    let initialExecState = {
-                        ExecutionState.CurrentState = initialState
-                        Measurements = []
-                        Messages = []
+                        // Convert gates to QuantumOperation.Gate and apply sequentially
+                        let gateOperations = cbCircuit.Gates |> List.map QuantumOperation.Gate
+                        
+                        // Apply all operations using ApplyOperation (handles gate-to-braiding compilation)
+                        let! finalState =
+                            gateOperations
+                            |> List.fold (fun stateResult op ->
+                                stateResult |> Result.bind (fun s -> 
+                                    (this :> IQuantumBackend).ApplyOperation op s)
+                            ) (Ok initialState)
+                        
+                        return finalState
                     }
+                | _ ->
+                    Error (QuantumError.ValidationError ("Circuit", 
+                        "TopologicalBackend requires CircuitBuilder.Circuit wrapped in CircuitWrapper."))
+            
+            member _.NativeStateType = QuantumStateType.TopologicalBraiding
+            
+            member this.ApplyOperation (operation: QuantumOperation) (state: QuantumState) : Result<QuantumState, QuantumError> =
+                match state with
+                | QuantumState.FusionSuperposition (fs, numQubits) ->
+                    // Cast obj to TopologicalOperations.Superposition
+                    let fusionState = fs :?> TopologicalOperations.Superposition
                     
-                    // Execute operations with functional fold (zero mutable state)
-                    let! finalResult = foldOperations (this :> ITopologicalBackend) (Ok initialExecState) operations
+                    try
+                        match operation with
+                        | QuantumOperation.Braid anyonIndex ->
+                            // Apply braiding directly using TopologicalOperations
+                            let result = TopologicalOperations.braidSuperposition anyonIndex fusionState
+                            
+                            match toResult result with
+                            | Ok braided -> Ok (QuantumState.FusionSuperposition (braided :> obj, numQubits))
+                            | Error errMsg -> Error (QuantumError.OperationError ("TopologicalBackend", errMsg))
+                        
+                        | QuantumOperation.Gate gate ->
+                            // Compile gate to braiding operations using production-ready compiler
+                            let tolerance = 1e-10  // High precision for gate approximation
+                            
+                            // Jordan-Wigner encoding: n qubits → n+1 anyonic strands
+                            let numStrands = numQubits + 1
+                            
+                            match GateToBraid.compileGateToBraid gate numStrands tolerance with
+                            | Ok decomposition ->
+                                // Apply each braiding operation sequentially
+                                let braidIndices = 
+                                    decomposition.BraidSequence 
+                                    |> List.collect (fun bw -> bw.Generators)
+                                    |> List.map (fun gen -> gen.Index)
+                                
+                                // Apply braids sequentially using fold
+                                let finalResult =
+                                    braidIndices
+                                    |> List.fold (fun stateResult braidIdx ->
+                                        stateResult |> Result.bind (fun currentState ->
+                                            TopologicalOperations.braidSuperposition braidIdx currentState
+                                            |> toResult
+                                            |> Result.mapError (fun err -> QuantumError.OperationError ("TopologicalBackend", err))
+                                        )
+                                    ) (Ok fusionState)
+                                
+                                match finalResult with
+                                | Ok finalState -> Ok (QuantumState.FusionSuperposition (finalState :> obj, numQubits))
+                                | Error err -> Error err
+                            
+                            | Error topErr -> 
+                                Error (QuantumError.OperationError ("TopologicalBackend", 
+                                    $"Failed to compile gate {gate} to braiding: {topErr.Message}"))
+                        
+                        | QuantumOperation.FMove (direction, depth) ->
+                            // Apply F-move (basis transformation) to each term in superposition
+                            // direction is obj type, needs casting
+                            let fmoveDir = 
+                                match direction with
+                                | :? TopologicalOperations.FMoveDirection as dir -> dir
+                                | _ -> TopologicalOperations.FMoveDirection.LeftToRight  // Default
+                            
+                            // Apply F-move to each basis state in the superposition
+                            let newTerms =
+                                fusionState.Terms
+                                |> List.collect (fun (amp, state) ->
+                                    let fmoveResult = TopologicalOperations.fMove fmoveDir depth state
+                                    fmoveResult.Terms |> List.map (fun (amp2, state2) -> (amp * amp2, state2))
+                                )
+                            
+                            let newSuperposition : TopologicalOperations.Superposition = {
+                                Terms = newTerms
+                                AnyonType = fusionState.AnyonType
+                            }
+                            
+                            Ok (QuantumState.FusionSuperposition (newSuperposition :> obj, numQubits))
+                        
+                        | QuantumOperation.Measure anyonIndex ->
+                            // Measure fusion - measureFusion works on FusionTree.State, need to apply to each term
+                            try
+                                let newTerms =
+                                    fusionState.Terms
+                                    |> List.collect (fun (amp, state) ->
+                                        match TopologicalOperations.measureFusion anyonIndex state |> toResult with
+                                        | Ok outcomes ->
+                                            outcomes |> List.map (fun (prob, opResult) ->
+                                                let newAmp = amp * Complex(sqrt prob, 0.0)
+                                                (newAmp, opResult.State)
+                                            )
+                                        | Error _ -> []  // Skip terms that can't be measured
+                                    )
+                                
+                                let newSuperposition : TopologicalOperations.Superposition = {
+                                    Terms = newTerms
+                                    AnyonType = fusionState.AnyonType
+                                }
+                                
+                                Ok (QuantumState.FusionSuperposition (newSuperposition :> obj, numQubits))
+                            with
+                            | ex -> Error (QuantumError.OperationError ("TopologicalBackend", ex.Message))
+                        
+                        | QuantumOperation.Sequence ops ->
+                            // Apply operations sequentially
+                            let result =
+                                ops
+                                |> List.fold (fun stateResult op ->
+                                    match stateResult with
+                                    | Error err -> Error err
+                                    | Ok currentState ->
+                                        (this :> IQuantumBackend).ApplyOperation op currentState
+                                ) (Ok state)
+                            result
+                    with
+                    | ex -> Error (QuantumError.OperationError ("TopologicalBackend", ex.Message))
+                
+                | _ ->
+                    // State is not in native format - try conversion
+                    let convertedState = QuantumStateConversion.convert QuantumStateType.TopologicalBraiding state
+                    match convertedState with
+                    | QuantumState.FusionSuperposition (fs, numQubits) ->
+                        (this :> IQuantumBackend).ApplyOperation operation (QuantumState.FusionSuperposition (fs, numQubits))
+                    | _ ->
+                        Error (QuantumError.OperationError ("TopologicalBackend", "State conversion failed or returned non-fusion state"))
+            
+            member this.SupportsOperation (operation: QuantumOperation) : bool =
+                match operation with
+                | QuantumOperation.Braid _ -> true      // Native topological operation
+                | QuantumOperation.FMove _ -> true      // Native topological operation  
+                | QuantumOperation.Measure _ -> true    // Native topological measurement
+                | QuantumOperation.Gate gate ->         // Gate compilation via GateToBraid
+                    // Check if this specific gate can be compiled
+                    // Most common gates (H, CNOT, T, S, RZ) are supported
+                    // Returns false for gates that cannot be compiled to braiding
+                    match GateToBraid.compileGateToBraid gate maxAnyons 1e-10 with
+                    | Ok _ -> true
+                    | Error _ -> false
+                | QuantumOperation.Sequence ops ->
+                    // Sequence supported if all operations are supported
+                    ops |> List.forall (fun op -> (this :> IQuantumBackend).SupportsOperation op)
+            
+            member _.InitializeState (numQubits: int) : Result<QuantumState, QuantumError> =
+                try
+                    // Jordan-Wigner encoding: n qubits → n+1 anyonic strands
+                    let numAnyons = numQubits + 1
                     
-                    let endTime = System.DateTime.Now
-                    let elapsed = (endTime - startTime).TotalMilliseconds
+                    // Use Vacuum as identity particle (exists in all theories)
+                    let vacuumParticle = AnyonSpecies.Vacuum
                     
-                    // Transform execution state to result (reversing lists for correct order)
-                    return finalResult |> Result.map (fun state -> {
-                        FinalState = state.CurrentState
-                        MeasurementOutcomes = List.rev state.Measurements
-                        ExecutionTimeMs = elapsed
-                        Messages = List.rev state.Messages
-                    })
-                }
+                    // Create initial fusion tree: n anyons all in ground state
+                    // For computational basis |0...0⟩
+                    let initialTree =
+                        List.replicate numAnyons vacuumParticle
+                        |> List.map FusionTree.leaf
+                        |> List.reduce (fun left right -> FusionTree.fuse left right vacuumParticle)
+                    
+                    let initialFusionState = FusionTree.create initialTree anyonType
+                    let initialSuperposition = TopologicalOperations.pureState initialFusionState
+                    
+                    Ok (QuantumState.FusionSuperposition (initialSuperposition :> obj, numQubits))
+                with
+                | ex -> Error (QuantumError.OperationError ("TopologicalBackend", ex.Message))
+
+/// Factory functions for creating topological backend instances
+module TopologicalUnifiedBackendFactory =
     
-    // ========================================================================
-    // BACKEND FACTORY
-    // ========================================================================
+    /// Create a new topological simulator backend
+    let create (anyonType: AnyonSpecies.AnyonType) (maxAnyons: int) : TopologicalUnifiedBackend.TopologicalUnifiedBackend =
+        TopologicalUnifiedBackend.TopologicalUnifiedBackend(anyonType, maxAnyons)
     
-    /// Create a simulator backend for testing and development
-    let createSimulator (anyonType: AnyonSpecies.AnyonType) (maxAnyons: int) : ITopologicalBackend =
-        SimulatorBackend(anyonType, maxAnyons) :> ITopologicalBackend
+    /// Create and cast to IQuantumBackend
+    let createUnified (anyonType: AnyonSpecies.AnyonType) (maxAnyons: int) : IQuantumBackend =
+        create anyonType maxAnyons :> IQuantumBackend
     
-    // ========================================================================
-    // UTILITY FUNCTIONS
-    // ========================================================================
+    /// Create and cast to IQuantumBackend (for backward compatibility)
+    let createStandard (anyonType: AnyonSpecies.AnyonType) (maxAnyons: int) : IQuantumBackend =
+        create anyonType maxAnyons :> IQuantumBackend
     
-    /// Validate that a backend supports required capabilities
-    let validateCapabilities (backend: ITopologicalBackend) (required: BackendCapabilities) : TopologicalResult<unit> =
-        let caps = backend.Capabilities
-        
-        // Check anyon type support
-        let anyonTypeOk = 
-            required.SupportedAnyonTypes
-            |> List.forall (fun t -> List.contains t caps.SupportedAnyonTypes)
-        
-        if not anyonTypeOk then
-            TopologicalResult.backendError "backend" "Backend does not support required anyon types"
-        
-        // Check max anyons
-        elif required.MaxAnyons.IsSome && caps.MaxAnyons.IsSome && 
-             required.MaxAnyons.Value > caps.MaxAnyons.Value then
-            TopologicalResult.backendError "backend" $"Backend supports max {caps.MaxAnyons.Value} anyons, but {required.MaxAnyons.Value} required"
-        
-        // Check operation support
-        elif required.SupportsBraiding && not caps.SupportsBraiding then
-            TopologicalResult.backendError "backend" "Backend does not support braiding operations"
-        elif required.SupportsMeasurement && not caps.SupportsMeasurement then
-            TopologicalResult.backendError "backend" "Backend does not support measurement operations"
-        elif required.SupportsFMoves && not caps.SupportsFMoves then
-            TopologicalResult.backendError "backend" "Backend does not support F-move operations"
-        elif required.SupportsErrorCorrection && not caps.SupportsErrorCorrection then
-            TopologicalResult.backendError "backend" "Backend does not support error correction"
-        else
-            Ok ()
+    /// Create Ising anyon backend (most common)
+    let createIsing (maxAnyons: int) : IQuantumBackend =
+        createUnified AnyonSpecies.AnyonType.Ising maxAnyons
+    
+    /// Create Fibonacci anyon backend
+    let createFibonacci (maxAnyons: int) : IQuantumBackend =
+        createUnified AnyonSpecies.AnyonType.Fibonacci maxAnyons

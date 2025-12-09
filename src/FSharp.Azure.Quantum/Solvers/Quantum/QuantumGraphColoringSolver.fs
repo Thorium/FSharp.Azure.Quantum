@@ -2,6 +2,7 @@ namespace FSharp.Azure.Quantum.Quantum
 
 open System
 open FSharp.Azure.Quantum
+open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.GraphOptimization
 
@@ -38,7 +39,7 @@ open FSharp.Azure.Quantum.GraphOptimization
 ///   Minimize: Number of colors used (chromatic number)
 ///
 /// Example:
-///   let backend = BackendAbstraction.createLocalBackend()
+///   let backend = LocalBackend.LocalBackend() :> IQuantumBackend
 ///   let config = { NumShots = 1000; NumColors = 3; InitialParameters = (0.5, 0.5) }
 ///   match QuantumGraphColoringSolver.solve backend problem config with
 ///   | Ok solution -> printfn "Used %d colors" solution.ColorsUsed
@@ -332,7 +333,7 @@ module QuantumGraphColoringSolver =
     /// Returns: Async<Result<GraphColoringSolution, QuantumError>> - Async computation with result or error
     /// 
     /// Example:
-    ///   let backend = BackendAbstraction.createLocalBackend()
+    ///   let backend = LocalBackend.LocalBackend() :> IQuantumBackend
     ///   let problem = { Vertices = ["A"; "B"; "C"]; Edges = [...]; NumColors = 3; FixedColors = Map.empty }
     ///   let config = defaultConfig 3
     ///   async {
@@ -349,14 +350,10 @@ module QuantumGraphColoringSolver =
         let startTime = DateTime.Now
         
         try
-            // Step 1: Validate problem size against backend
+            // Step 1: Validate problem inputs
             let numQubits = problem.Vertices.Length * config.NumColors
             
-            if numQubits > backend.MaxQubits then
-                return Error (QuantumError.ValidationError ("qubitCount",
-                    sprintf "Problem requires %d qubits but backend '%s' supports max %d qubits" 
-                        numQubits backend.Name backend.MaxQubits))
-            elif problem.Vertices.Length = 0 then
+            if problem.Vertices.Length = 0 then
                 return Error (QuantumError.ValidationError ("numVertices", "Graph coloring problem has no vertices"))
             elif config.NumColors < 1 then
                 return Error (QuantumError.ValidationError ("numColors", "Graph coloring problem must have at least 1 color"))
@@ -383,19 +380,20 @@ module QuantumGraphColoringSolver =
                     // Step 6: Wrap QAOA circuit for backend execution
                     let circuitWrapper = CircuitAbstraction.QaoaCircuitWrapper(qaoaCircuit) :> CircuitAbstraction.ICircuit
                     
-                    // Step 7: Execute on quantum backend asynchronously
-                    let! execResult = backend.ExecuteAsync circuitWrapper config.NumShots
-                    
-                    match execResult with
+                    // Step 7: Execute on quantum backend to get state
+                    match backend.ExecuteToState circuitWrapper with
                     | Error err -> return Error err
-                    | Ok execResult ->
+                    | Ok state ->
                         
-                        // Step 8: Decode measurements to color assignments
+                        // Step 8: Perform measurements on quantum state
+                        let measurements = QuantumState.measure state config.NumShots
+                        
+                        // Step 9: Decode measurements to color assignments
                         let solutions = 
-                            execResult.Measurements
+                            measurements
                             |> Array.map (fun bitstring -> decodeSolution problem bitstring reverseMap)
                         
-                        // Step 9: Find best valid solution (prioritize valid, then minimize colors)
+                        // Step 10: Find best valid solution (prioritize valid, then minimize colors)
                         let bestSolution = 
                             solutions
                             |> Array.sortBy (fun sol -> 
@@ -410,7 +408,7 @@ module QuantumGraphColoringSolver =
                         
                         return Ok {
                             bestSolution with
-                                BackendName = backend.Name
+                                BackendName = "QuantumBackend"
                                 NumShots = config.NumShots
                                 ElapsedMs = elapsedMs
                         }
@@ -432,7 +430,7 @@ module QuantumGraphColoringSolver =
     /// Returns: Ok with best coloring found, or Error with QuantumError
     /// 
     /// Example:
-    ///   let backend = BackendAbstraction.createLocalBackend()
+    ///   let backend = LocalBackend.LocalBackend() :> IQuantumBackend
     ///   let problem = { Vertices = ["A"; "B"; "C"]; Edges = [...]; NumColors = 3; FixedColors = Map.empty }
     ///   let config = defaultConfig 3
     ///   match solve backend problem config with

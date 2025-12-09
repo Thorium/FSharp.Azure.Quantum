@@ -1,11 +1,15 @@
 namespace FSharp.Azure.Quantum.Business
 
+open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum.Core
 open System
 open System.IO
 open System.Text.Json
+open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum.Core.BackendAbstraction
+open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum.MachineLearning
+open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum
 
 /// High-Level Similarity Search Builder - Business-First API
@@ -243,11 +247,8 @@ module SimilaritySearch =
                     let backend = 
                         match problem.Backend with
                         | Some b -> b
-                        | None -> LocalBackend() :> IQuantumBackend
+                        | None -> LocalBackend.LocalBackend() :> IQuantumBackend
                     
-                    // Set cancellation token on backend if provided
-                    problem.CancellationToken |> Option.iter (fun token ->
-                        backend.SetCancellationToken(Some token))
                     
                     let numQubits = min numFeatures 8
                     let featureMap = FeatureMapType.ZZFeatureMap 2

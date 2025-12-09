@@ -1,9 +1,13 @@
 namespace FSharp.Azure.Quantum.Business
 
+open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum.Core
 open System
+open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum.Core.BackendAbstraction
+open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum.MachineLearning
+open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum
 
 /// High-Level Binary Classification Builder - Business-First API
@@ -320,11 +324,8 @@ module BinaryClassifier =
             let backend = 
                 match problem.Backend with
                 | Some b -> b
-                | None -> LocalBackend() :> IQuantumBackend  // Default to local simulation
+                | None -> LocalBackend.LocalBackend() :> IQuantumBackend  // Default to local simulation
             
-            // Set cancellation token on backend if provided
-            problem.CancellationToken |> Option.iter (fun token ->
-                backend.SetCancellationToken(Some token))
             
             match problem.Architecture with
             | Quantum -> trainQuantum backend problem.TrainFeatures problem.TrainLabels problem
@@ -339,7 +340,7 @@ module BinaryClassifier =
     let predict (sample: float array) (classifier: Classifier) : QuantumResult<Prediction> =
         match classifier.Model with
         | VQCModel (result, featureMap, varForm, numQubits) ->
-            let backend = LocalBackend() :> IQuantumBackend
+            let backend = LocalBackend.LocalBackend() :> IQuantumBackend
             match VQC.predict backend featureMap varForm result.Parameters sample 1000 with
             | Error e -> Error e
             | Ok vqcPred ->
@@ -351,7 +352,7 @@ module BinaryClassifier =
                 }
         
         | SVMModel (model, storedNumQubits) ->
-            let backend = LocalBackend() :> IQuantumBackend
+            let backend = LocalBackend.LocalBackend() :> IQuantumBackend
             let featureMap = FeatureMapType.ZZFeatureMap 2
             match QuantumKernelSVM.predict backend model sample 1000 with
             | Error e -> Error e

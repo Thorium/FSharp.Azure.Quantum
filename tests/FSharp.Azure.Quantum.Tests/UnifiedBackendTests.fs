@@ -6,7 +6,7 @@ open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.Core.CircuitAbstraction
-open FSharp.Azure.Quantum.Core.UnifiedBackendAbstraction
+open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum.Topological
 open FSharp.Azure.Quantum.LocalSimulator
@@ -47,18 +47,18 @@ module UnifiedBackendTests =
     // ========================================================================
     
     [<Fact>]
-    let ``LocalBackend implements IUnifiedQuantumBackend`` () =
+    let ``LocalBackend implements IQuantumBackend`` () =
         let backend = LocalBackend.LocalBackend()
-        Assert.IsAssignableFrom<IUnifiedQuantumBackend>(backend) |> ignore
+        Assert.IsAssignableFrom<IQuantumBackend>(backend) |> ignore
     
     [<Fact>]
     let ``LocalBackend returns GateBased as native state type`` () =
-        let backend = LocalBackend.LocalBackend() :> IUnifiedQuantumBackend
+        let backend = LocalBackend.LocalBackend() :> IQuantumBackend
         Assert.Equal(QuantumStateType.GateBased, backend.NativeStateType)
     
     [<Fact>]
     let ``LocalBackend ExecuteToState returns StateVector`` () =
-        let backend = LocalBackend.LocalBackend() :> IUnifiedQuantumBackend
+        let backend = LocalBackend.LocalBackend() :> IQuantumBackend
         let circuit = createBellCircuit () |> wrapCircuit
         
         match backend.ExecuteToState circuit with
@@ -71,7 +71,7 @@ module UnifiedBackendTests =
     
     [<Fact>]
     let ``LocalBackend InitializeState creates |0⟩^⊗n`` () =
-        let backend = LocalBackend.LocalBackend() :> IUnifiedQuantumBackend
+        let backend = LocalBackend.LocalBackend() :> IQuantumBackend
         
         match backend.InitializeState 3 with
         | Ok (QuantumState.StateVector sv) ->
@@ -92,7 +92,7 @@ module UnifiedBackendTests =
     
     [<Fact>]
     let ``LocalBackend ApplyOperation applies gate correctly`` () =
-        let backend = LocalBackend.LocalBackend() :> IUnifiedQuantumBackend
+        let backend = LocalBackend.LocalBackend() :> IQuantumBackend
         
         match backend.InitializeState 1 with
         | Ok initialState ->
@@ -115,7 +115,7 @@ module UnifiedBackendTests =
     
     [<Fact>]
     let ``LocalBackend rejects braiding operations`` () =
-        let backend = LocalBackend.LocalBackend() :> IUnifiedQuantumBackend
+        let backend = LocalBackend.LocalBackend() :> IQuantumBackend
         
         // Braiding should not be supported by gate-based backend
         Assert.False(backend.SupportsOperation (QuantumOperation.Braid 0))
@@ -138,19 +138,19 @@ module UnifiedBackendTests =
     // ========================================================================
     
     [<Fact>]
-    let ``TopologicalBackend implements IUnifiedQuantumBackend`` () =
+    let ``TopologicalBackend implements IQuantumBackend`` () =
         let backend = TopologicalUnifiedBackend.TopologicalUnifiedBackend(AnyonSpecies.AnyonType.Ising, 20)
-        Assert.IsAssignableFrom<IUnifiedQuantumBackend>(backend) |> ignore
+        Assert.IsAssignableFrom<IQuantumBackend>(backend) |> ignore
     
     [<Fact>]
     let ``TopologicalBackend returns TopologicalBraiding as native state type`` () =
-        let backend = TopologicalUnifiedBackend.TopologicalUnifiedBackend(AnyonSpecies.AnyonType.Ising, 20) :> IUnifiedQuantumBackend
+        let backend = TopologicalUnifiedBackend.TopologicalUnifiedBackend(AnyonSpecies.AnyonType.Ising, 20) :> IQuantumBackend
         Assert.Equal(QuantumStateType.TopologicalBraiding, backend.NativeStateType)
     
 
     [<Fact>]
     let ``TopologicalBackend InitializeState creates topological |0⟩^⊗n`` () =
-        let backend = TopologicalUnifiedBackend.TopologicalUnifiedBackend(AnyonSpecies.AnyonType.Ising, 20) :> IUnifiedQuantumBackend
+        let backend = TopologicalUnifiedBackend.TopologicalUnifiedBackend(AnyonSpecies.AnyonType.Ising, 20) :> IQuantumBackend
         
         match backend.InitializeState 3 with
         | Ok (QuantumState.FusionSuperposition (fs, numQubits)) ->
@@ -164,7 +164,7 @@ module UnifiedBackendTests =
     
     [<Fact>]
     let ``TopologicalBackend ApplyOperation applies braid correctly`` () =
-        let backend = TopologicalUnifiedBackend.TopologicalUnifiedBackend(AnyonSpecies.AnyonType.Ising, 20) :> IUnifiedQuantumBackend
+        let backend = TopologicalUnifiedBackend.TopologicalUnifiedBackend(AnyonSpecies.AnyonType.Ising, 20) :> IQuantumBackend
         
         match backend.InitializeState 2 with
         | Ok initialState ->
@@ -182,14 +182,14 @@ module UnifiedBackendTests =
     
     [<Fact>]
     let ``TopologicalBackend supports braiding operations`` () =
-        let backend = TopologicalUnifiedBackend.TopologicalUnifiedBackend(AnyonSpecies.AnyonType.Ising, 20) :> IUnifiedQuantumBackend
+        let backend = TopologicalUnifiedBackend.TopologicalUnifiedBackend(AnyonSpecies.AnyonType.Ising, 20) :> IQuantumBackend
         
         // Braiding should be supported by topological backend
         Assert.True(backend.SupportsOperation (QuantumOperation.Braid 0))
     
     [<Fact>]
     let ``TopologicalBackend supports gate operations via compilation`` () =
-        let backend = TopologicalUnifiedBackend.TopologicalUnifiedBackend(AnyonSpecies.AnyonType.Ising, 20) :> IUnifiedQuantumBackend
+        let backend = TopologicalUnifiedBackend.TopologicalUnifiedBackend(AnyonSpecies.AnyonType.Ising, 20) :> IQuantumBackend
         
         // Gate operations ARE supported via gate-to-braid compilation
         Assert.True(backend.SupportsOperation (QuantumOperation.Gate (CircuitBuilder.H 0)))
@@ -287,7 +287,7 @@ module UnifiedBackendTests =
     
     [<Fact>]
     let ``Execute circuit on LocalBackend and convert to topological`` () =
-        let localBackend = LocalBackend.LocalBackend() :> IUnifiedQuantumBackend
+        let localBackend = LocalBackend.LocalBackend() :> IQuantumBackend
         let circuit = createBellCircuit () |> wrapCircuit
         
         match localBackend.ExecuteToState circuit with
@@ -310,7 +310,7 @@ module UnifiedBackendTests =
     
     [<Fact>]
     let ``Execute circuit on TopologicalBackend compiles gates to braids`` () =
-        let topBackend = TopologicalUnifiedBackend.TopologicalUnifiedBackend(AnyonSpecies.AnyonType.Ising, 20) :> IUnifiedQuantumBackend
+        let topBackend = TopologicalUnifiedBackend.TopologicalUnifiedBackend(AnyonSpecies.AnyonType.Ising, 20) :> IQuantumBackend
         let circuit = createBellCircuit () |> wrapCircuit
         
         // Gate-based circuits are now supported via automatic gate-to-braid compilation
@@ -327,8 +327,8 @@ module UnifiedBackendTests =
     
     [<Fact>]
     let ``Switching backends mid-computation via state conversion`` () =
-        let localBackend = LocalBackend.LocalBackend() :> IUnifiedQuantumBackend
-        let topBackend = TopologicalUnifiedBackend.TopologicalUnifiedBackend(AnyonSpecies.AnyonType.Ising, 20) :> IUnifiedQuantumBackend
+        let localBackend = LocalBackend.LocalBackend() :> IQuantumBackend
+        let topBackend = TopologicalUnifiedBackend.TopologicalUnifiedBackend(AnyonSpecies.AnyonType.Ising, 20) :> IQuantumBackend
         
         // Start on local backend
         match localBackend.InitializeState 2 with
@@ -365,7 +365,7 @@ module UnifiedBackendTests =
     
     [<Fact>]
     let ``UnifiedBackend applyWithConversion avoids unnecessary conversion`` () =
-        let backend = LocalBackend.LocalBackend() :> IUnifiedQuantumBackend
+        let backend = LocalBackend.LocalBackend() :> IQuantumBackend
         
         // State already in native format
         match backend.InitializeState 2 with
@@ -383,7 +383,7 @@ module UnifiedBackendTests =
     
     [<Fact>]
     let ``UnifiedBackend applySequence optimizes batch execution`` () =
-        let backend = LocalBackend.LocalBackend() :> IUnifiedQuantumBackend
+        let backend = LocalBackend.LocalBackend() :> IQuantumBackend
         
         match backend.InitializeState 2 with
         | Ok initialState ->
@@ -409,7 +409,7 @@ module UnifiedBackendTests =
     
     [<Fact>]
     let ``Measure Bell state gives correlated outcomes`` () =
-        let backend = LocalBackend.LocalBackend() :> IUnifiedQuantumBackend
+        let backend = LocalBackend.LocalBackend() :> IQuantumBackend
         let circuit = createBellCircuit () |> wrapCircuit
         
         match backend.ExecuteToState circuit with

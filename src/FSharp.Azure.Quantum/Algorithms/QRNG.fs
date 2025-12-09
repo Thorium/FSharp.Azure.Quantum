@@ -198,7 +198,7 @@ module QRNG =
     /// specifically need hardware-generated randomness for cryptographic purposes.
     let generateWithBackend 
         (numBits: int) 
-        (backend: BackendAbstraction.IQuantumBackend) 
+        (backend: IQuantumBackend) 
         : Async<QuantumResult<QRNGResult>> =
         
         async {
@@ -218,23 +218,20 @@ module QRNG =
                             CircuitBuilder.addGate 
                                 (CircuitBuilder.Gate.H qubitIdx) c) circuit
                     
-                    // Measure all qubits
-                    let finalCircuit =
-                        [0 .. numBits - 1]
-                        |> List.fold (fun c qubitIdx ->
-                            CircuitBuilder.addMeasurement qubitIdx c) circuitWithH
-                    
-                    // Execute on backend
-                    let wrappedCircuit = CircuitAbstraction.CircuitWrapper(finalCircuit) :> ICircuit
-                    let! executionResult = backend.ExecuteAsync wrappedCircuit 1
+                    // Execute on backend (no explicit measurement needed - we'll measure the state)
+                    let wrappedCircuit = CircuitAbstraction.CircuitWrapper(circuitWithH) :> ICircuit
+                    let executionResult = backend.ExecuteToState wrappedCircuit
                     
                     match executionResult with
-                    | Ok result ->
+                    | Ok state ->
+                        // Measure state once to get random bits
+                        let measurements = QuantumState.measure state 1
+                        
                         // Extract measurement results from the first shot
                         let bits = 
-                            match result.Measurements with
+                            match measurements with
                             | [||] -> Array.zeroCreate<bool> numBits
-                            | measurements -> 
+                            | _ -> 
                                 measurements.[0] 
                                 |> Array.map (fun bitValue -> bitValue = 1)
                         

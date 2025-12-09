@@ -1,5 +1,6 @@
 namespace FSharp.Azure.Quantum
 
+open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum.Classical
 open FSharp.Azure.Quantum.Quantum
 open FSharp.Azure.Quantum.Core
@@ -120,7 +121,7 @@ module TSP =
             // Use provided backend or create LocalBackend for simulation
             let actualBackend = 
                 backend 
-                |> Option.defaultValue (BackendAbstraction.createLocalBackend())
+                |> Option.defaultValue (LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend)
             
             // Create quantum TSP solver configuration
             let quantumConfig : QuantumTspSolver.QuantumTspConfig = {

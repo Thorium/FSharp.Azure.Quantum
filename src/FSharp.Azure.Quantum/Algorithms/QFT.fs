@@ -3,12 +3,12 @@ namespace FSharp.Azure.Quantum.Algorithms
 open System
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Core
-open FSharp.Azure.Quantum.Core.UnifiedBackendAbstraction
+open FSharp.Azure.Quantum.Core.BackendAbstraction
 
 /// Quantum Fourier Transform (QFT) - Unified Backend Edition
 /// 
 /// This module provides a backend-agnostic implementation of the Quantum Fourier Transform
-/// using the unified backend interface (IUnifiedQuantumBackend).
+/// using the unified backend interface (IQuantumBackend).
 /// 
 /// The QFT transforms computational basis states into frequency basis:
 /// |j⟩ → (1/√N) Σₖ e^(2πijk/N) |k⟩
@@ -27,9 +27,9 @@ open FSharp.Azure.Quantum.Core.UnifiedBackendAbstraction
 /// - Quantum signal processing
 /// 
 /// Usage:
-///   let backend = LocalBackend.LocalBackend() :> IUnifiedQuantumBackend
+///   let backend = LocalBackend.LocalBackend() :> IQuantumBackend
 ///   let! result = QFT.execute 3 backend defaultConfig
-module QFTUnified =
+module QFT =
     
     // ========================================================================
     // TYPES
@@ -98,7 +98,7 @@ module QFTUnified =
     /// 
     /// Phase angles: CPhase(2π/2^k) where k = distance between qubits
     let private applyQFTStep
-        (backend: IUnifiedQuantumBackend)
+        (backend: IQuantumBackend)
         (targetQubit: int)
         (numQubits: int)
         (inverse: bool)
@@ -137,7 +137,7 @@ module QFTUnified =
     /// qubit 1 ↔ qubit (n-2)
     /// etc.
     let private applyBitReversalSwaps
-        (backend: IUnifiedQuantumBackend)
+        (backend: IQuantumBackend)
         (numQubits: int)
         (state: QuantumState)
         : Result<QuantumState * int, QuantumError> =
@@ -178,7 +178,7 @@ module QFTUnified =
     ///   Result with transformed state or error
     let execute
         (numQubits: int)
-        (backend: IUnifiedQuantumBackend)
+        (backend: IQuantumBackend)
         (config: QFTConfig)
         : Result<QFTResult, QuantumError> =
         
@@ -227,7 +227,7 @@ module QFTUnified =
     /// Useful for multi-stage algorithms
     let executeOnState
         (state: QuantumState)
-        (backend: IUnifiedQuantumBackend)
+        (backend: IQuantumBackend)
         (config: QFTConfig)
         : Result<QFTResult, QuantumError> =
         
@@ -276,7 +276,7 @@ module QFTUnified =
     /// back to computational basis
     let executeInverse
         (numQubits: int)
-        (backend: IUnifiedQuantumBackend)
+        (backend: IQuantumBackend)
         (shots: int)
         : Result<QFTResult, QuantumError> =
         
@@ -292,7 +292,7 @@ module QFTUnified =
     /// Some algorithms (like QPE) don't require bit-reversal, saving gates
     let executeNoSwaps
         (numQubits: int)
-        (backend: IUnifiedQuantumBackend)
+        (backend: IQuantumBackend)
         (shots: int)
         : Result<QFTResult, QuantumError> =
         
@@ -328,7 +328,7 @@ module QFTUnified =
     /// Applies QFT followed by inverse QFT and checks if result ≈ original state
     let verifyRoundTrip
         (numQubits: int)
-        (backend: IUnifiedQuantumBackend)
+        (backend: IQuantumBackend)
         : Result<bool, QuantumError> =
         
         result {
@@ -378,7 +378,7 @@ module QFTUnified =
     /// </returns>
     /// <example>
     /// <code>
-    /// let backend = LocalBackend.LocalBackend() :> IUnifiedQuantumBackend
+    /// let backend = LocalBackend.LocalBackend() :> IQuantumBackend
     /// match verifyUnitarity 3 backend defaultConfig with
     /// | Ok true -> printfn "QFT is unitary ✓"
     /// | Ok false -> printfn "QFT unitarity violated!"
@@ -387,7 +387,7 @@ module QFTUnified =
     /// </example>
     let verifyUnitarity
         (numQubits: int)
-        (backend: IUnifiedQuantumBackend)
+        (backend: IQuantumBackend)
         (config: QFTConfig)
         : Result<bool, QuantumError> =
         
@@ -451,7 +451,7 @@ module QFTUnified =
     /// <example>
     /// <code>
     /// // Transform |5⟩ in 3-qubit space
-    /// let backend = LocalBackend.LocalBackend() :> IUnifiedQuantumBackend
+    /// let backend = LocalBackend.LocalBackend() :> IQuantumBackend
     /// match transformBasisState 3 5 backend defaultConfig with
     /// | Ok result -> printfn "Transformed |5⟩: %s" (formatResult result)
     /// | Error err -> printfn "Error: %A" err
@@ -460,7 +460,7 @@ module QFTUnified =
     let transformBasisState
         (numQubits: int)
         (basisIndex: int)
-        (backend: IUnifiedQuantumBackend)
+        (backend: IQuantumBackend)
         (config: QFTConfig)
         : Result<QFTResult, QuantumError> =
         
@@ -513,7 +513,7 @@ module QFTUnified =
     /// <example>
     /// <code>
     /// // Encode value 7 and transform in 4-qubit space
-    /// let backend = LocalBackend.LocalBackend() :> IUnifiedQuantumBackend
+    /// let backend = LocalBackend.LocalBackend() :> IQuantumBackend
     /// match encodeAndTransform 4 7 backend defaultConfig with
     /// | Ok result -> 
     ///     printfn "Encoded and transformed value 7"
@@ -524,7 +524,7 @@ module QFTUnified =
     let encodeAndTransform
         (numQubits: int)
         (value: int)
-        (backend: IUnifiedQuantumBackend)
+        (backend: IQuantumBackend)
         (config: QFTConfig)
         : Result<QFTResult, QuantumError> =
         

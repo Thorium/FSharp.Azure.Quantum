@@ -11,6 +11,7 @@
 
   <ItemGroup>
     <Compile Include="StateVectorTests.fs" />
+    <Compile Include="QuantumStateTests.fs" />
     <Compile Include="GatesTests.fs" />
     <!-- GraphOptimizationTests.fs removed - uses solveClassical (classical algorithm) -->
     <!-- ConstraintSatisfactionTests.fs removed - tests deleted classical CSP solver -->

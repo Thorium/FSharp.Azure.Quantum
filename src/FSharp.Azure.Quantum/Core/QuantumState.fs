@@ -103,6 +103,47 @@ type QuantumState =
     /// 
     /// Note: Not yet implemented - placeholder for future
     | DensityMatrix of matrix: Complex[,] * numQubits: int
+    
+    /// Ising model state (quantum annealing / D-Wave)
+    /// 
+    /// Representation: Collection of spin samples s ∈ {-1, +1}^n with energies
+    /// 
+    /// Used by:
+    /// - D-Wave quantum annealers (Advantage, 2000Q)
+    /// - Quantum annealing simulation
+    /// - Optimization problems (QUBO, MaxCut, TSP, etc.)
+    /// 
+    /// Properties:
+    /// - NOT a gate-based quantum state (different computational model!)
+    /// - Represents SAMPLES from quantum annealing process
+    /// - Each sample is a classical configuration + energy + metadata
+    /// - No quantum superposition (collapsed to classical samples)
+    /// 
+    /// Architecture:
+    /// - IsingProblem: Problem specification (h, J coefficients)
+    /// - DWaveSolution list: Samples from annealing runs
+    /// - Each solution: spins, energy, occurrences, chain breaks
+    /// 
+    /// Best for:
+    /// - Combinatorial optimization (TSP, MaxCut, scheduling)
+    /// - Problems naturally expressed as QUBO/Ising
+    /// - Large problem sizes (5000+ variables on Advantage)
+    /// 
+    /// NOT suitable for:
+    /// - Gate-based quantum algorithms (Shor, Grover, QFT)
+    /// - Quantum state tomography
+    /// - Quantum simulation requiring superposition
+    /// 
+    /// Example:
+    ///   // From D-Wave annealing result
+    ///   let isingState = QuantumState.IsingSamples (isingProblem, dwaveSolutions)
+    ///   
+    ///   // Get best solution
+    ///   match isingState with
+    ///   | QuantumState.IsingSamples (problem, solutions) ->
+    ///       let best = solutions |> List.minBy (fun s -> s.Energy)
+    ///       printfn "Best energy: %f" best.Energy
+    | IsingSamples of problem: obj * solutions: obj  // Using obj to avoid circular dependency with DWaveTypes
 
 /// Metadata about quantum state representation type
 /// 
@@ -119,6 +160,9 @@ type QuantumStateType =
     
     /// Mixed state representation (DensityMatrix)
     | Mixed
+    
+    /// Quantum annealing representation (IsingSamples)
+    | Annealing
 
 /// Error types for quantum state operations
 type QuantumStateError =
@@ -148,12 +192,20 @@ type QuantumStateError =
 /// Operations on unified quantum states
 module QuantumState =
     
-    /// Get number of qubits in state
+    /// Convert obj containing F# list or IList to a uniform sequence
+    let private objToSeq (obj: obj) : obj seq =
+        match obj with
+        | :? System.Collections.IEnumerable as enumerable ->
+            enumerable |> Seq.cast<obj>
+        | _ -> Seq.empty
+    
+    /// Get number of qubits/variables in state
     /// 
-    /// Returns the number of logical qubits represented by this quantum state.
+    /// Returns the number of logical qubits (gate-based) or variables (annealing) represented by this quantum state.
     /// 
     /// Note: For topological states, this is the number of LOGICAL qubits,
     /// not the number of physical anyons (which is n+1 for Jordan-Wigner encoding).
+    /// For Ising states, this is the number of spin variables.
     let numQubits (state: QuantumState) : int =
         match state with
         | QuantumState.StateVector sv ->
@@ -168,6 +220,21 @@ module QuantumState =
         
         | QuantumState.DensityMatrix (_, n) ->
             n
+        
+        | QuantumState.IsingSamples (problem, _) ->
+            // Extract numQubits from IsingProblem (stored as obj to avoid circular dependency)
+            // Uses reflection to access LinearCoeffs and QuadraticCoeffs maps
+            let problemType = problem.GetType()
+            let linearCoeffs = problemType.GetProperty("LinearCoeffs").GetValue(problem) :?> Map<int, float>
+            let quadraticCoeffs = problemType.GetProperty("QuadraticCoeffs").GetValue(problem) :?> Map<(int * int), float>
+            
+            let allIndices = seq {
+                yield! linearCoeffs |> Map.keys
+                yield! quadraticCoeffs |> Map.keys |> Seq.collect (fun (i, j) -> [i; j])
+            }
+            
+            if Seq.isEmpty allIndices then 0
+            else Seq.max allIndices + 1
     
     /// Get native representation type
     /// 
@@ -178,6 +245,7 @@ module QuantumState =
         | QuantumState.FusionSuperposition _ -> TopologicalBraiding
         | QuantumState.SparseState _ -> Sparse
         | QuantumState.DensityMatrix _ -> Mixed
+        | QuantumState.IsingSamples _ -> Annealing
     
     /// Check if state is pure (vs mixed)
     /// 
@@ -193,6 +261,7 @@ module QuantumState =
         | QuantumState.FusionSuperposition _ -> true
         | QuantumState.SparseState _ -> true
         | QuantumState.DensityMatrix _ -> false
+        | QuantumState.IsingSamples _ -> false  // Annealing samples are classical (collapsed)
     
     /// Get dimension of state space (2^n for n qubits)
     let dimension (state: QuantumState) : int =
@@ -231,6 +300,36 @@ module QuantumState =
         
         | QuantumState.DensityMatrix _ ->
             failwith "DensityMatrix not yet implemented"
+        
+        | QuantumState.IsingSamples (problem, solutions) ->
+            // Sample from D-Wave annealing solutions using reflection
+            let solutionsSeq = objToSeq solutions
+            let n = numQubits state
+            let rng = System.Random()
+            
+            let spinToBit = function -1 -> 0 | _ -> 1
+            
+            let spinsTobitstring (spins: Map<int, int>) =
+                Array.init n (fun i -> spins |> Map.tryFind i |> Option.map spinToBit |> Option.defaultValue 0)
+            
+            if Seq.isEmpty solutionsSeq then
+                Array.replicate shots (Array.zeroCreate n)
+            else
+                // Build weighted sample pool based on NumOccurrences
+                let samplePool =
+                    solutionsSeq
+                    |> Seq.collect (fun sol ->
+                        let solType = sol.GetType()
+                        let spins = solType.GetProperty("Spins").GetValue(sol) :?> Map<int, int>
+                        let occurrences = solType.GetProperty("NumOccurrences").GetValue(sol) :?> int
+                        Seq.replicate occurrences spins
+                    )
+                    |> Array.ofSeq
+                
+                // Sample with replacement from solution pool
+                Array.init shots (fun _ -> 
+                    samplePool.[rng.Next(samplePool.Length)] |> spinsTobitstring
+                )
     
     /// Get probability of measuring specific bitstring
     /// 
@@ -284,6 +383,36 @@ module QuantumState =
             
             let diagonalElement = rho.[index, index]
             diagonalElement.Magnitude  // Already real for density matrix diagonal
+        
+        | QuantumState.IsingSamples (problem, solutions) ->
+            // For annealing samples, compute empirical probability from solution occurrences
+            // This is NOT a quantum probability - these are classical samples
+            let solutionsSeq = objToSeq solutions
+            
+            if Seq.isEmpty solutionsSeq then
+                0.0
+            else
+                let spinToBit = function -1 -> 0 | _ -> 1
+                let spinsToBitstring spins i =
+                    Map.tryFind i spins |> Option.map spinToBit |> Option.defaultValue 0
+                
+                let (totalOcc, matchingOcc) =
+                    solutionsSeq
+                    |> Seq.fold (fun (total, matching) sol ->
+                        let solType = sol.GetType()
+                        let spins = solType.GetProperty("Spins").GetValue(sol) :?> Map<int, int>
+                        let occ = solType.GetProperty("NumOccurrences").GetValue(sol) :?> int
+                        
+                        // Check if this solution matches the bitstring
+                        let matches = 
+                            bitstring
+                            |> Array.mapi (fun i bit -> spinsToBitstring spins i = bit)
+                            |> Array.forall id
+                        
+                        (total + occ, if matches then matching + occ else matching)
+                    ) (0, 0)
+                
+                float matchingOcc / float totalOcc
     
     /// Check if state is normalized (‖ψ‖ = 1)
     /// 
@@ -329,6 +458,11 @@ module QuantumState =
                 |> List.sumBy (fun i -> rho.[i, i].Magnitude)
             
             abs (trace - 1.0) < 1e-10
+        
+        | QuantumState.IsingSamples (_, solutions) ->
+            // Annealing samples are always "normalized" (they are classical samples)
+            // No quantum superposition to normalize
+            true
     
     /// Create string representation of state (for debugging)
     /// 
@@ -366,3 +500,24 @@ module QuantumState =
         
         | QuantumState.DensityMatrix (_, n) ->
             $"DensityMatrix ({n} qubits, {dim}×{dim} matrix, {dim * dim * 16}B memory)"
+        
+        | QuantumState.IsingSamples (_, solutions) ->
+            // Show D-Wave annealing results summary
+            let solutionsSeq = objToSeq solutions
+            
+            if Seq.isEmpty solutionsSeq then
+                $"IsingSamples ({n} variables, no solutions)"
+            else
+                let solutionsList = Seq.toList solutionsSeq
+                let numSolutions = List.length solutionsList
+                
+                let (totalSamples, bestEnergy) =
+                    solutionsList
+                    |> List.fold (fun (total, best) sol ->
+                        let solType = sol.GetType()
+                        let occ = solType.GetProperty("NumOccurrences").GetValue(sol) :?> int
+                        let energy = solType.GetProperty("Energy").GetValue(sol) :?> float
+                        (total + occ, min best energy)
+                    ) (0, System.Double.MaxValue)
+                
+                $"IsingSamples ({n} variables, {numSolutions} unique solutions, {totalSamples} samples, best energy: {bestEnergy:F4})"

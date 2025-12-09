@@ -4,11 +4,11 @@ open System
 open System.Numerics
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Core
-open FSharp.Azure.Quantum.Core.UnifiedBackendAbstraction
+open FSharp.Azure.Quantum.Core.BackendAbstraction
 
 /// Shor's Algorithm - Unified Backend Implementation
 /// 
-/// State-based implementation using IUnifiedQuantumBackend.
+/// State-based implementation using IQuantumBackend.
 /// Optimized for educational purposes and local simulation.
 /// 
 /// For cloud hardware execution, use ShorsBackendAdapter instead.
@@ -34,10 +34,10 @@ open FSharp.Azure.Quantum.Core.UnifiedBackendAbstraction
 /// 
 /// Example:
 /// ```fsharp
-/// open FSharp.Azure.Quantum.Algorithms.ShorsUnified
+/// open FSharp.Azure.Quantum.Algorithms.Shor
 /// open FSharp.Azure.Quantum.Backends.LocalBackend
 /// 
-/// let backend = LocalBackend() :> IUnifiedQuantumBackend
+/// let backend = LocalBackend() :> IQuantumBackend
 /// 
 /// // Factor 15 (classic example)
 /// match factor15 backend with
@@ -47,10 +47,10 @@ open FSharp.Azure.Quantum.Core.UnifiedBackendAbstraction
 ///     | None -> printfn "Could not find factors"
 /// | Error err -> printfn "Error: %A" err
 /// ```
-module ShorsUnified =
+module Shor =
     
     open FSharp.Azure.Quantum.Algorithms.ShorsTypes
-    open FSharp.Azure.Quantum.Algorithms.QPEUnified
+    open FSharp.Azure.Quantum.Algorithms.QPE
     
     // ========================================================================
     // CLASSICAL NUMBER THEORY HELPERS
@@ -217,12 +217,12 @@ module ShorsUnified =
         (targetQubits: int list)
         (a: int)
         (n: int)
-        (backend: IUnifiedQuantumBackend)
+        (backend: IQuantumBackend)
         (state: QuantumState) : Result<QuantumState, QuantumError> =
         
         // TODO: Implement full modular multiplication circuit
         // For now, return error indicating feature not implemented
-        Error (QuantumError.NotImplemented ("Modular multiplication for ShorsUnified", Some "Use ShorsBackendAdapter for factoring larger numbers"))
+        Error (QuantumError.NotImplemented ("Modular multiplication for Shor", Some "Use ShorsBackendAdapter for factoring larger numbers"))
     
     /// <summary>
     /// Controlled modular exponentiation: C-U^k|x⟩ = |a^k x mod N⟩ if control=1, else |x⟩.
@@ -242,7 +242,7 @@ module ShorsUnified =
         (a: int)
         (k: int)
         (n: int)
-        (backend: IUnifiedQuantumBackend)
+        (backend: IQuantumBackend)
         (state: QuantumState) : Result<QuantumState, QuantumError> =
         
         // Compute a^k mod n classically
@@ -276,7 +276,7 @@ module ShorsUnified =
         (a: int)
         (n: int)
         (precisionQubits: int)
-        (backend: IUnifiedQuantumBackend) : Result<PeriodFindingResult, QuantumError> =
+        (backend: IQuantumBackend) : Result<PeriodFindingResult, QuantumError> =
         
         // Validate inputs
         if a <= 0 || a >= n then
@@ -313,11 +313,11 @@ module ShorsUnified =
                     let qpeConfig = {
                         CountingQubits = precisionQubits
                         TargetQubits = 1
-                        UnitaryOperator = QPEUnified.PhaseGate (2.0 * Math.PI * phaseEstimate)
+                        UnitaryOperator = QPE.PhaseGate (2.0 * Math.PI * phaseEstimate)
                         EigenVector = None
                     }
                     
-                    let! qpeResult = QPEUnified.execute qpeConfig backend
+                    let! qpeResult = QPE.execute qpeConfig backend
                     
                     // Extract period from QPE result using continued fraction
                     match continuedFractionConvergent qpeResult.EstimatedPhase n with
@@ -380,7 +380,7 @@ module ShorsUnified =
     /// </example>
     let execute
         (config: ShorsConfig)
-        (backend: IUnifiedQuantumBackend) : Result<ShorsResult, QuantumError> =
+        (backend: IQuantumBackend) : Result<ShorsResult, QuantumError> =
         
         let n = config.NumberToFactor
         
@@ -514,7 +514,7 @@ module ShorsUnified =
     /// </example>
     let factor
         (n: int)
-        (backend: IUnifiedQuantumBackend) : Result<ShorsResult, QuantumError> =
+        (backend: IQuantumBackend) : Result<ShorsResult, QuantumError> =
         
         // Calculate recommended precision: 2 * log₂(N) + 3
         let precisionQubits = 2 * int (Math.Log(float n, 2.0)) + 3
@@ -546,7 +546,7 @@ module ShorsUnified =
     /// </code>
     /// </example>
     let factor15
-        (backend: IUnifiedQuantumBackend) : Result<ShorsResult, QuantumError> =
+        (backend: IQuantumBackend) : Result<ShorsResult, QuantumError> =
         
         let config = {
             NumberToFactor = 15
@@ -565,7 +565,7 @@ module ShorsUnified =
     /// <param name="backend">Quantum backend</param>
     /// <returns>Factorization result or error</returns>
     let factor21
-        (backend: IUnifiedQuantumBackend) : Result<ShorsResult, QuantumError> =
+        (backend: IQuantumBackend) : Result<ShorsResult, QuantumError> =
         
         let config = {
             NumberToFactor = 21

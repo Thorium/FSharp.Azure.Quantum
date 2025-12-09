@@ -23,6 +23,18 @@ module DWaveBackend =
     open FSharp.Azure.Quantum.Algorithms.QuboExtraction
     
     // ============================================================================
+    // LOCAL TYPES (D-Wave annealing backends don't use IQuantumBackend)
+    // ============================================================================
+    
+    /// Execution result for D-Wave annealing backends
+    type ExecutionResult = {
+        Measurements: int[][]
+        NumShots: int
+        BackendName: string
+        Metadata: Map<string, obj>
+    }
+    
+    // ============================================================================
     // MOCK D-WAVE SIMULATOR (FOR TESTING)
     // ============================================================================
     
@@ -194,32 +206,10 @@ module DWaveBackend =
                                 Metadata = metadata
                             }
         
-        interface IQuantumBackend with
-            member _.SetCancellationToken (token: System.Threading.CancellationToken option) : unit =
-                cancellationToken <- token
-            
-            member this.ExecuteAsync circuit numShots = async {
-                // Check cancellation before starting
-                match cancellationToken with
-                | Some token when token.IsCancellationRequested ->
-                    return Error (QuantumError.BackendError ("D-Wave Mock", "Operation cancelled before execution"))
-                | _ ->
-                return this.ExecuteCore circuit numShots
-            }
-            
-            member this.Execute circuit numShots =
-                // Check cancellation before starting
-                match cancellationToken with
-                | Some token when token.IsCancellationRequested ->
-                    Error (QuantumError.BackendError ("D-Wave Mock", "Operation cancelled before execution"))
-                | _ ->
-                this.ExecuteCore circuit numShots
-            
-            member _.Name = $"Mock D-Wave {solverName}"
-            
-            member _.SupportedGates = []  // Annealing doesn't use gates
-            
-            member _.MaxQubits = maxQubits
+        // Note: DWaveBackend does NOT implement IQuantumBackend interface
+        // D-Wave annealing backends are fundamentally different from gate-based backends
+        // They work with QUBO/Ising problems, not quantum circuits/states
+        // Use ExecuteCore method directly or via QuboExtraction module
     
     // ============================================================================
     // HELPER FUNCTIONS FOR BACKEND CREATION
@@ -231,13 +221,13 @@ module DWaveBackend =
     /// - solver: D-Wave solver type (determines qubit count)
     /// - seed: Optional random seed for reproducible results
     ///
-    /// Returns: IQuantumBackend implementation
+    /// Returns: MockDWaveBackend instance
     ///
     /// Example:
     ///   let backend = createMockDWaveBackend Advantage_System6_1 (Some 42)
-    ///   let result = backend.Execute(circuit, 1000)
-    let createMockDWaveBackend (solver: DWaveSolver) (seed: int option) : IQuantumBackend =
-        MockDWaveBackend(solver, ?seed = seed) :> IQuantumBackend
+    ///   let result = backend.ExecuteCore(circuit, 1000)
+    let createMockDWaveBackend (solver: DWaveSolver) (seed: int option) : MockDWaveBackend =
+        MockDWaveBackend(solver, ?seed = seed)
     
     /// Create mock D-Wave backend with default parameters
     ///
@@ -245,5 +235,5 @@ module DWaveBackend =
     ///
     /// Example:
     ///   let backend = createDefaultMockBackend()
-    let createDefaultMockBackend () : IQuantumBackend =
+    let createDefaultMockBackend () : MockDWaveBackend =
         createMockDWaveBackend Advantage_System6_1 None

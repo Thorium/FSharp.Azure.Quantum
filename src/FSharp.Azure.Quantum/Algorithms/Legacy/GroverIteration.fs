@@ -7,8 +7,8 @@ open FSharp.Azure.Quantum.Core
 /// 
 /// ⚠️ DEPRECATED: This is a low-level module that uses LocalSimulator directly.
 /// 
-/// **Use GroverUnified instead** for RULE1-compliant implementation.
-/// GroverUnified provides complete Grover functionality with state-based operations.
+/// **Use Grover instead** for RULE1-compliant implementation.
+/// Grover provides complete Grover functionality with state-based operations.
 /// 
 /// This module will be removed in a future major version.
 /// 
@@ -24,7 +24,7 @@ open FSharp.Azure.Quantum.Core
 /// Optimal iterations: k = π/4 * √(N/M) where N = search space, M = solutions
 /// 
 /// ALL GROVER ITERATION CODE IN SINGLE FILE
-[<Obsolete("Use FSharp.Azure.Quantum.Algorithms.GroverUnified for state-based Grover implementation. This module will be removed in a future version.")>]
+[<Obsolete("Use FSharp.Azure.Quantum.Algorithms.Grover for state-based Grover implementation. This module will be removed in a future version.")>]
 module GroverIteration =
     
     open FSharp.Azure.Quantum.LocalSimulator

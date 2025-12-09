@@ -14,7 +14,7 @@ open System.Numerics
 /// Once r is found, factors can be extracted classically using gcd operations.
 /// 
 /// This is the quantum algorithm that breaks RSA encryption in polynomial time.
-[<Obsolete("Use FSharp.Azure.Quantum.Algorithms.ShorsUnified for state-based Shor's implementation with full quantum period-finding. ShorsUnified successfully factors numbers like 15, 21, 35 using QPEUnified. This module will be removed in a future version.")>]
+[<Obsolete("Use FSharp.Azure.Quantum.Algorithms.Shor for state-based Shor's implementation with full quantum period-finding. Shor successfully factors numbers like 15, 21, 35 using QPE. This module will be removed in a future version.")>]
 module ShorsAlgorithm =
     
     open FSharp.Azure.Quantum.Algorithms.ShorsTypes

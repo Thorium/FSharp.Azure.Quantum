@@ -185,16 +185,19 @@ module QaoaParameterOptimizer =
             let circuit = QaoaCircuit.build problemHam mixerHam paramPairs
             let circuitWrapper = QaoaCircuitWrapper(circuit) :> ICircuit
             
-            // Execute on backend (pass None for cancellation token)
-            match backend.Execute circuitWrapper numShots with
+            // Execute on backend and measure state
+            match backend.ExecuteToState circuitWrapper with
             | Error e -> 
                 // On error, return large penalty
                 printfn $"Warning: Circuit execution failed: {e}"
                 1e10
-            | Ok execResult ->
+            | Ok state ->
+                // Measure state to get bitstrings
+                let measurements = QuantumState.measure state numShots
+                
                 // Calculate expectation value from measurements
                 let expectationValue =
-                    execResult.Measurements
+                    measurements
                     |> Array.map (fun bitstring ->
                         // Calculate energy for this bitstring
                         let energy =

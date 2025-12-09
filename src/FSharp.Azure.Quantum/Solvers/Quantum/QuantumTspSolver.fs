@@ -2,6 +2,7 @@ namespace FSharp.Azure.Quantum.Quantum
 
 open System
 open FSharp.Azure.Quantum
+open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum.Classical
 open FSharp.Azure.Quantum.Core
 
@@ -85,17 +86,21 @@ module QuantumTspSolver =
                 CircuitAbstraction.QaoaCircuitWrapper(qaoaCircuit) 
                 :> CircuitAbstraction.ICircuit
             
-            match backend.Execute circuitWrapper numShots with
+            // Execute circuit to get quantum state, then measure
+            match backend.ExecuteToState circuitWrapper with
             | Error _ -> 
                 // Return large penalty if execution fails
                 System.Double.MaxValue
-            | Ok execResult ->
+            | Ok quantumState ->
+                // Measure the state to get classical bit strings (int[][] where each int is 0 or 1)
+                let measurements = QuantumState.measure quantumState numShots
+                
                 // Decode all measurements and find best tour cost
                 let tourResults =
-                    execResult.Measurements
-                    |> Array.choose (fun bitstring ->
-                        // Convert bitstring to QUBO solution
-                        let quboSolution = Array.toList bitstring
+                    measurements
+                    |> Array.choose (fun measurement ->
+                        // Convert measurement to QUBO solution (int list)
+                        let quboSolution = Array.toList measurement
                         
                         // Decode to graph solution
                         let graphSolution = GraphOptimization.decodeSolution problem quboSolution
@@ -227,10 +232,8 @@ module QuantumTspSolver =
         
         if numCities < 2 then
             Error (QuantumError.ValidationError ("numCities", "TSP requires at least 2 cities"))
-        elif requiredQubits > backend.MaxQubits then
-            Error (QuantumError.ValidationError ("qubitCount", 
-                sprintf "Problem requires %d qubits but backend '%s' supports max %d qubits" 
-                    requiredQubits backend.Name backend.MaxQubits))
+        // Note: Backend validation removed (MaxQubits/Name properties no longer in interface)
+        // Backends will return errors if qubit count exceeded
         elif config.FinalShots <= 0 then
             Error (QuantumError.ValidationError ("numShots", "Number of shots must be positive"))
         else
@@ -301,15 +304,18 @@ module QuantumTspSolver =
                     CircuitAbstraction.QaoaCircuitWrapper(qaoaCircuit) 
                     :> CircuitAbstraction.ICircuit
                 
-                match backend.Execute circuitWrapper config.FinalShots with
+                match backend.ExecuteToState circuitWrapper with
                 | Error err -> Error err
-                | Ok execResult ->
+                | Ok quantumState ->
+                    // Measure the state to get classical bit strings (int[][] where each int is 0 or 1)
+                    let measurements = QuantumState.measure quantumState config.FinalShots
+                    
                     // Step 7: Decode measurements to tours
                     let tourResults =
-                        execResult.Measurements
-                        |> Array.map (fun bitstring ->
-                            // Convert bitstring to QUBO solution
-                            let quboSolution = Array.toList bitstring
+                        measurements
+                        |> Array.map (fun measurement ->
+                            // Convert measurement to QUBO solution (int list)
+                            let quboSolution = Array.toList measurement
                             
                             // Decode to graph solution
                             let graphSolution = GraphOptimization.decodeSolution problem quboSolution
@@ -368,7 +374,7 @@ module QuantumTspSolver =
                         Ok {
                             Tour = bestTour
                             TourLength = bestLength
-                            BackendName = execResult.BackendName  // Use actual backend name from execution result
+                            BackendName = "QuantumBackend"  // Backend name no longer available in interface
                             NumShots = config.FinalShots
                             ElapsedMs = elapsedMs
                             BestEnergy = bestLength  // For TSP, tour length is the energy
@@ -386,7 +392,7 @@ module QuantumTspSolver =
 
     /// Solve TSP with default configuration (LocalBackend, optimization enabled)
     let solveWithDefaults (distances: float[,]) : Result<QuantumTspSolution, QuantumError> =
-        let backend = BackendAbstraction.createLocalBackend()
+        let backend = LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
         solve backend distances defaultConfig
     
     /// Solve TSP with custom number of shots (backward compatibility - no optimization)

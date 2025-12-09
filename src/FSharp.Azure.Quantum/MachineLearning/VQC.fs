@@ -7,6 +7,7 @@ namespace FSharp.Azure.Quantum.MachineLearning
 /// Supports both SGD and Adam optimizers.
 
 open System
+open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum.CircuitBuilder
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.Core.CircuitAbstraction
@@ -85,12 +86,11 @@ module VQC =
         // Wrap circuit for backend execution
         let wrappedCircuit = CircuitWrapper(circuit) :> ICircuit
         
-        // Execute circuit
-        match backend.Execute wrappedCircuit shots with
-        | Ok result ->
-            // Get measurement results (int[][])
-            // Each int[] is one shot: [qubit0, qubit1, ...]
-            let measurements = result.Measurements
+        // Execute circuit to get state
+        match backend.ExecuteToState wrappedCircuit with
+        | Ok state ->
+            // Perform measurements on quantum state
+            let measurements = QuantumState.measure state shots
             
             // Count |1⟩ measurements on first qubit
             let onesCount = 

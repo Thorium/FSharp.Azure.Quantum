@@ -1,6 +1,8 @@
 namespace FSharp.Azure.Quantum
 
+open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum.Quantum
+open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum.Core
 
 /// High-level Knapsack Domain Builder - Quantum-First API
@@ -243,7 +245,7 @@ module Knapsack =
             // Use provided backend or create LocalBackend for simulation
             let actualBackend = 
                 backend 
-                |> Option.defaultValue (BackendAbstraction.createLocalBackend())
+                |> Option.defaultValue (LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend)
             
             // Convert to quantum solver format
             let quantumProblem : QuantumKnapsackSolver.KnapsackProblem = {

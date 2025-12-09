@@ -71,14 +71,14 @@
 
     <!-- Quantum Algorithms (depends on LocalSimulator) -->
     <Compile Include="Algorithms\GroverOracle.fs" />
-    <Compile Include="Algorithms\GroverIteration.fs" />
+    <Compile Include="Algorithms\Legacy\GroverIteration.fs" />
     <Compile Include="Algorithms\AmplitudeAmplification.fs" />
-    <Compile Include="Algorithms\QuantumFourierTransform.fs" />
-    <Compile Include="Algorithms\QuantumPhaseEstimation.fs" />
-    <Compile Include="Algorithms\HHLTypes.fs" />
-    <Compile Include="Algorithms\HHLAlgorithm.fs" />
+    <Compile Include="Algorithms\Legacy\QuantumFourierTransform.fs" />
+    <Compile Include="Algorithms\Legacy\QuantumPhaseEstimation.fs" />
+
+    <!-- <Compile Include="Algorithms\Legacy\HHLAlgorithm.fs" /> --> <!-- Legacy: Missing HHLTypes dependencies -->
     <Compile Include="Algorithms\ShorsTypes.fs" />
-    <Compile Include="Algorithms\ShorsAlgorithm.fs" />
+    <Compile Include="Algorithms\Legacy\ShorsAlgorithm.fs" />
 
     <!-- Core Infrastructure (depends on Types, LocalSimulator) -->
     <Compile Include="Core\CostEstimation.fs" />
@@ -125,22 +125,20 @@
     <!-- QAOA Infrastructure (depends on CircuitBuilder, LocalSimulator) -->
     <Compile Include="Core\QaoaCircuit.fs" />
     <Compile Include="Core\CircuitAbstraction.fs" />
-    <Compile Include="Backends\BackendAbstraction.fs" />
+    <Compile Include="Core\BackendAbstraction.fs" />
     <Compile Include="Core\QaoaOptimizer.fs" />
     <Compile Include="Core\QaoaParameterOptimizer.fs" />
-    
-    <!-- Unified Backend Architecture - Interface (depends on BackendAbstraction, QuantumState) -->
-    <Compile Include="Core\UnifiedBackendAbstraction.fs" />
     
     <!-- Local Backend (depends on CircuitBuilder, CircuitAbstraction, BackendAbstraction, UnifiedBackendAbstraction) -->
     <Compile Include="Backends\LocalBackend.fs" />
     
     <!-- Unified Backend Algorithms (depends on CircuitBuilder, UnifiedBackendAbstraction, LocalBackend) -->
-    <Compile Include="Algorithms\GroverUnified.fs" />
-    <Compile Include="Algorithms\QFTUnified.fs" />
-    <Compile Include="Algorithms\QPEUnified.fs" />
-    <Compile Include="Algorithms\ShorsUnified.fs" />
-    <Compile Include="Algorithms\HHLUnified.fs" />
+    <Compile Include="Algorithms\Grover.fs" />
+    <Compile Include="Algorithms\QFT.fs" />
+    <Compile Include="Algorithms\QPE.fs" />
+    <Compile Include="Algorithms\Shor.fs" />
+    <Compile Include="Algorithms\HHLTypes.fs" />
+    <Compile Include="Algorithms\HHL.fs" />
 
     <!-- QAOA Algorithm (depends on QaoaCircuit, CircuitAbstraction, QaoaOptimizer) -->
     <Compile Include="Algorithms\QRNG.fs" />
@@ -150,55 +148,55 @@
     <!-- D-Wave Backend (depends on QuboExtraction, QuboToIsing, DWaveTypes, BackendAbstraction) -->
     <Compile Include="Backends\DWaveBackend.fs" />
     <Compile Include="Backends\RealDWaveBackend.fs" />
-    <Compile Include="Backends\BackendCapabilityDetection.fs" />
+    <!-- <Compile Include="Backends\Legacy\BackendCapabilityDetection.fs" /> --> <!-- Legacy: Moved to Legacy/ -->
     
-    <!-- Grover Backend Extension (depends on BackendAbstraction, GroverIteration) -->
-    <Compile Include="Algorithms\GroverBackendAdapter.fs" />
-    <Compile Include="Algorithms\GroverTreeSearch.fs" />
-    <Compile Include="Algorithms\GroverSearch.fs" />
+    <!-- Grover Backend Extension - Legacy adapters removed -->
+    <!-- <Compile Include="Algorithms\GroverBackendAdapter.fs" /> --> <!-- Removed: adapter pattern eliminated -->
+    <!-- <Compile Include="Algorithms\GroverTreeSearch.fs" /> --> <!-- Moved to Legacy/ -->
+    <!-- <Compile Include="Algorithms\Legacy\GroverSearch.fs" /> --> <!-- Legacy -->
     
-    <!-- QFT Backend Extension (depends on BackendAbstraction, QuantumFourierTransform) -->
-    <Compile Include="Algorithms\QFTBackendAdapter.fs" />
+    <!-- QFT Backend Extension - Legacy adapters removed -->
+    <!-- <Compile Include="Algorithms\QFTBackendAdapter.fs" /> --> <!-- Removed: adapter pattern eliminated -->
     
     <!-- Advanced Quantum Algorithms -->
     <Compile Include="Algorithms\TrotterSuzuki.fs" />
     <Compile Include="Algorithms\MottonenStatePreparation.fs" />
     
-    <!-- Quantum Arithmetic Circuits (depends on QFTBackendAdapter, CircuitBuilder) -->
-    <Compile Include="Algorithms\QuantumArithmetic.fs" />
+    <!-- Quantum Arithmetic Circuits - Moved to Legacy -->
+    <!-- <Compile Include="Algorithms\Legacy\QuantumArithmetic.fs" /> --> <!-- Legacy: depends on removed adapters -->
     
-    <!-- QPE Backend Extension (depends on BackendAbstraction, QuantumPhaseEstimation, QFTBackendAdapter) -->
-    <Compile Include="Algorithms\QPEBackendAdapter.fs" />
+    <!-- QPE Backend Extension - Legacy adapters removed -->
+    <!-- <Compile Include="Algorithms\QPEBackendAdapter.fs" /> --> <!-- Removed: adapter pattern eliminated -->
     
-    <!-- HHL Backend Extension (depends on BackendAbstraction, HHLAlgorithm, QPEBackendAdapter) -->
-    <Compile Include="Algorithms\HHLBackendAdapter.fs" />
+    <!-- HHL Backend Extension - Legacy adapters removed -->
+    <!-- <Compile Include="Algorithms\HHLBackendAdapter.fs" /> --> <!-- Removed: adapter pattern eliminated -->
     
-    <!-- Shor's Backend Extension (depends on BackendAbstraction, ShorsAlgorithm, QPEBackendAdapter) -->
-    <Compile Include="Algorithms\ShorsBackendAdapter.fs" />
+    <!-- Shor's Backend Extension - Legacy adapters removed -->
+    <!-- <Compile Include="Algorithms\ShorsBackendAdapter.fs" /> --> <!-- Removed: adapter pattern eliminated -->
     
-    <!-- Amplitude Amplification Backend Extension (depends on BackendAbstraction, AmplitudeAmplification) -->
-    <Compile Include="Algorithms\AmplitudeAmplificationAdapter.fs" />
+    <!-- Amplitude Amplification Backend Extension - Legacy adapter removed -->
+    <!-- <Compile Include="Algorithms\AmplitudeAmplificationAdapter.fs" /> --> <!-- Removed: adapter pattern eliminated -->
 
-    <!-- Quantum Solvers (depends on Backends, QAOA) -->
-    <Compile Include="Solvers\Quantum\QuantumTspSolver.fs" />
-    <Compile Include="Solvers\Quantum\QuantumNetworkFlowSolver.fs" />
-    <Compile Include="Solvers\Quantum\QuantumPortfolioSolver.fs" />
-    <Compile Include="Solvers\Quantum\QuantumMaxCutSolver.fs" />
-    <Compile Include="Solvers\Quantum\QuantumKnapsackSolver.fs" />
-    <Compile Include="Solvers\Quantum\QuantumGraphColoringSolver.fs" />
-    <Compile Include="Solvers\Quantum\QuantumTreeSearchBuilder.fs" />
-    <Compile Include="Solvers\Quantum\QuantumConstraintSolverBuilder.fs" />
-    <Compile Include="Solvers\Quantum\QuantumPatternMatcherBuilder.fs" />
-    <Compile Include="Solvers\Quantum\QuantumArithmeticBuilder.fs" />
-    <Compile Include="Solvers\Quantum\QuantumPeriodFinderBuilder.fs" />
-    <Compile Include="Solvers\Quantum\QuantumPhaseEstimatorBuilder.fs" />
-    <Compile Include="Solvers\Quantum\QuantumLinearSystemSolverBuilder.fs" />
-    <Compile Include="Solvers\Quantum\QuantumChemistry.fs" />
+    <!-- Quantum Solvers - Need conversion to ExecuteToState API -->
+    <Compile Include="Solvers\Quantum\QuantumTspSolver.fs" /> <!-- ✅ Converted to ExecuteToState -->
+    <Compile Include="Solvers\Quantum\QuantumNetworkFlowSolver.fs" /> <!-- ✅ Converted to ExecuteToState -->
+    <Compile Include="Solvers\Quantum\QuantumPortfolioSolver.fs" /> <!-- ✅ Converted to ExecuteToState -->
+    <Compile Include="Solvers\Quantum\QuantumMaxCutSolver.fs" /> <!-- ✅ Converted to ExecuteToState -->
+    <Compile Include="Solvers\Quantum\QuantumKnapsackSolver.fs" /> <!-- ✅ Converted to ExecuteToState -->
+    <Compile Include="Solvers\Quantum\QuantumGraphColoringSolver.fs" /> <!-- ✅ Converted to ExecuteToState -->
+    <!-- <Compile Include="Solvers\Quantum\QuantumTreeSearchBuilder.fs" /> --> <!-- TODO: Convert to ExecuteToState -->
+    <!-- <Compile Include="Solvers\Quantum\QuantumConstraintSolverBuilder.fs" /> --> <!-- TODO: Convert to ExecuteToState -->
+    <!-- <Compile Include="Solvers\Quantum\QuantumPatternMatcherBuilder.fs" /> --> <!-- TODO: Convert to ExecuteToState -->
+    <!-- <Compile Include="Solvers\Quantum\QuantumArithmeticBuilder.fs" /> --> <!-- TODO: Fix createLocalBackend usage -->
+    <!-- <Compile Include="Solvers\Quantum\QuantumPeriodFinderBuilder.fs" /> --> <!-- TODO: Depends on removed ShorsBackendAdapter -->
+    <!-- <Compile Include="Solvers\Quantum\QuantumPhaseEstimatorBuilder.fs" /> --> <!-- TODO: Fix LocalBackend usage -->
+    <!-- <Compile Include="Solvers\Quantum\QuantumLinearSystemSolverBuilder.fs" /> --> <!-- TODO: Depends on removed HHLBackendAdapter -->
+    <!-- <Compile Include="Solvers\Quantum\QuantumChemistry.fs" /> --> <!-- TODO: Depends on removed QPEBackendAdapter -->
 
-    <!-- Hybrid Solvers - Orchestrate classical + quantum (depends on Quantum Solvers) -->
+    <!-- Hybrid Solvers - Temporarily disabled due to quantum solver dependencies -->
     <Compile Include="Solvers\Hybrid\ProblemAnalysis.fs" />
     <Compile Include="Solvers\Hybrid\QuantumAdvisor.fs" />
-    <Compile Include="Solvers\Hybrid\HybridSolver.fs" />
+    <!-- <Compile Include="Solvers\Hybrid\HybridSolver.fs" /> --> <!-- TODO: Depends on excluded quantum solvers -->
 
     <!-- Task Scheduling - Domain-specific API for scheduling problems -->
     <Compile Include="TaskScheduling\Types.fs" />
@@ -206,51 +204,51 @@
     <Compile Include="TaskScheduling\Builders.fs" />
     <Compile Include="TaskScheduling\ClassicalSolver.fs" />
     <Compile Include="TaskScheduling\QuboEncoding.fs" />
-    <Compile Include="TaskScheduling\QuantumSolver.fs" />
+    <Compile Include="TaskScheduling\QuantumSolver.fs" /> <!-- TODO: Convert to ExecuteToState -->
     <Compile Include="TaskScheduling\Export.fs" />
-    <Compile Include="TaskScheduling\TaskScheduling.fs" />
+    <Compile Include="TaskScheduling\TaskScheduling.fs" /> <!-- TODO: Depends on excluded QuantumSolver -->
 
-    <!-- Classical Builders - User-facing APIs (depends on HybridSolver) -->
-    <Compile Include="Solvers\Classical\TspBuilder.fs" />
-    <Compile Include="Solvers\Classical\PortfolioBuilder.fs" />
-    <Compile Include="Solvers\Classical\NetworkFlowBuilder.fs" />
-    <Compile Include="Solvers\Classical\MaxCutBuilder.fs" />
-    <Compile Include="Solvers\Classical\KnapsackBuilder.fs" />
-    <Compile Include="Solvers\Classical\GraphColoringBuilder.fs" />
+    <!-- Classical Builders - Temporarily disabled due to quantum solver dependencies -->
+    <Compile Include="Solvers\Classical\TspBuilder.fs" /> <!-- TODO: Depends on excluded QuantumTspSolver -->
+    <Compile Include="Solvers\Classical\PortfolioBuilder.fs" /> <!-- TODO: Depends on excluded QuantumPortfolioSolver -->
+    <Compile Include="Solvers\Classical\NetworkFlowBuilder.fs" /> <!-- TODO: Depends on excluded quantum solvers -->
+    <Compile Include="Solvers\Classical\MaxCutBuilder.fs" /> <!-- TODO: Depends on excluded quantum solvers -->
+    <Compile Include="Solvers\Classical\KnapsackBuilder.fs" /> <!-- TODO: Depends on excluded QuantumKnapsackSolver -->
+    <Compile Include="Solvers\Classical\GraphColoringBuilder.fs" /> <!-- TODO: Fix ColoringSolution.BestEnergy usage -->
 
     <!-- Utilities Layer (depends on Classical Builders) -->
-    <Compile Include="Utilities\PerformanceBenchmarking.fs" />
+    <!-- <Compile Include="Utilities\PerformanceBenchmarking.fs" /> --> <!-- TODO: Depends on excluded TSP/Portfolio builders -->
     
     <!-- Visualization Layer (zero dependencies, pure F#) -->
     <Compile Include="Visualization\Types.fs" />
     <Compile Include="Visualization\ASCIIRenderer.fs" />
     <Compile Include="Visualization\MermaidRenderer.fs" />
-    <Compile Include="Visualization\SolutionExtensions.fs" />
+    <!-- <Compile Include="Visualization\SolutionExtensions.fs" /> --> <!-- TODO: Depends on excluded GraphColoring -->
     
     <!-- Quantum Machine Learning (depends on CircuitBuilder, BackendAbstraction) -->
     <Compile Include="MachineLearning\QMLTypes.fs" />
     <Compile Include="MachineLearning\FeatureMap.fs" />
     <Compile Include="MachineLearning\VariationalForm.fs" />
     <Compile Include="MachineLearning\AdamOptimizer.fs" />
-    <Compile Include="MachineLearning\QuantumKernel.fs" />
-    <Compile Include="MachineLearning\QuantumKernelSVM.fs" />
-    <Compile Include="MachineLearning\VQC.fs" />
-    <Compile Include="MachineLearning\MultiClassSVM.fs" />
-    <Compile Include="MachineLearning\SVMModelSerialization.fs" />
+    <Compile Include="MachineLearning\QuantumKernel.fs" /> <!-- TODO: Convert to ExecuteToState -->
+    <Compile Include="MachineLearning\QuantumKernelSVM.fs" /> <!-- TODO: Depends on QuantumKernel -->
+    <Compile Include="MachineLearning\VQC.fs" /> <!-- TODO: Convert to ExecuteToState -->
+    <Compile Include="MachineLearning\MultiClassSVM.fs" /> <!-- TODO: May depend on QuantumKernelSVM -->
+    <Compile Include="MachineLearning\SVMModelSerialization.fs" /> <!-- TODO: Depends on QuantumKernelSVM, MultiClassSVM -->
     <Compile Include="MachineLearning\DataPreprocessing.fs" />
-    <Compile Include="MachineLearning\ModelSerialization.fs" />
-    <Compile Include="MachineLearning\QuantumRegressionHHL.fs" />
-    <Compile Include="MachineLearning\HHLModelSerialization.fs" />
+    <Compile Include="MachineLearning\ModelSerialization.fs" /> <!-- TODO: Depends on VQC, QuantumKernelSVM -->
+    <!-- <Compile Include="MachineLearning\QuantumRegressionHHL.fs" /> --> <!-- TODO: Depends on removed HHL functions -->
+    <!-- <Compile Include="MachineLearning\HHLModelSerialization.fs" /> --> <!-- TODO: Depends on QuantumRegressionHHL -->
     
-    <!-- Business-First ML Builders (depends on MachineLearning) -->
-    <Compile Include="Business\BinaryClassificationBuilder.fs" />
-    <Compile Include="Business\AnomalyDetectionBuilder.fs" />
-    <Compile Include="Business\SimilaritySearchBuilder.fs" />
-    <Compile Include="Business\PredictiveModelBuilder.fs" />
-    <Compile Include="Business\AutoMLBuilder.fs" />
+    <!-- Business-First ML Builders - Temporarily disabled -->
+    <Compile Include="Business\BinaryClassificationBuilder.fs" /> <!-- TODO: Fix LocalBackend usage -->
+    <Compile Include="Business\AnomalyDetectionBuilder.fs" /> <!-- TODO: Fix LocalBackend usage -->
+    <Compile Include="Business\SimilaritySearchBuilder.fs" /> <!-- TODO: Fix LocalBackend usage -->
+    <!-- <Compile Include="Business\PredictiveModelBuilder.fs" /> --> <!-- TODO: Fix LocalBackend usage -->
+    <!-- <Compile Include="Business\AutoMLBuilder.fs" /> --> <!-- Depends on PredictiveModelBuilder -->
     
-    <!-- C# Interop Extensions (must come after ALL builders) -->
-    <Compile Include="Builders\BuildersCSharpExtensions.fs" />
+    <!-- C# Interop Extensions - Temporarily disabled due to builder dependencies -->
+    <!-- <Compile Include="Builders\BuildersCSharpExtensions.fs" /> --> <!-- TODO: Depends on excluded builders -->
   </ItemGroup>
 
   <ItemGroup>

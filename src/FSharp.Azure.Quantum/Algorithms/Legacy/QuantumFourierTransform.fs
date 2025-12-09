@@ -8,8 +8,8 @@ open System.Numerics
 /// 
 /// ⚠️ DEPRECATED: This module uses LocalSimulator directly and is NOT backend-agnostic.
 /// 
-/// **Use QFTUnified instead** for RULE1-compliant, backend-agnostic QFT implementation.
-/// QFTUnified supports all backends (LocalBackend, TopologicalBackend, cloud providers).
+/// **Use QFT instead** for RULE1-compliant, backend-agnostic QFT implementation.
+/// QFT supports all backends (LocalBackend, TopologicalBackend, cloud providers).
 /// 
 /// This module will be removed in a future major version.
 /// 
@@ -21,13 +21,13 @@ open System.Numerics
 /// match execute config state with ...
 /// 
 /// // NEW (recommended):
-/// open FSharp.Azure.Quantum.Algorithms.QFTUnified
+/// open FSharp.Azure.Quantum.Algorithms.QFT
 /// open FSharp.Azure.Quantum.Backends.LocalBackend
-/// let backend = LocalBackend() :> IUnifiedQuantumBackend
+/// let backend = LocalBackend() :> IQuantumBackend
 /// let config = { NumQubits = 3; ApplySwaps = true; Inverse = false }
 /// match execute 3 backend config with ...
 /// ```
-[<Obsolete("Use FSharp.Azure.Quantum.Algorithms.QFTUnified for backend-agnostic QFT implementation. This module will be removed in a future version.")>]
+[<Obsolete("Use FSharp.Azure.Quantum.Algorithms.QFT for backend-agnostic QFT implementation. This module will be removed in a future version.")>]
 module QuantumFourierTransform =
     
     open FSharp.Azure.Quantum.LocalSimulator
