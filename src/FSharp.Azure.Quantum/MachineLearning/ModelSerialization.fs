@@ -431,9 +431,8 @@ module ModelSerialization =
         (filePath: string)
         : QuantumResult<unit> =
         
-        match loadVQCModel filePath with
-        | Error e -> Error e
-        | Ok model ->
+        loadVQCModel filePath
+        |> Result.map (fun model ->
             printfn "=== VQC Model Information ==="
             printfn "File: %s" filePath
             printfn "Saved at: %s" model.SavedAt
@@ -445,8 +444,7 @@ module ModelSerialization =
             match model.Note with
             | Some note -> printfn "Note: %s" note
             | None -> ()
-            printfn "============================"
-            Ok ()
+            printfn "============================")
     
     // ========================================================================
     // BATCH OPERATIONS
@@ -469,28 +467,16 @@ module ModelSerialization =
             models
             |> Array.mapi (fun i (parameters, finalLoss, note) ->
                 let fileName = $"{baseFileName}_{i + 1}.json"
-                match saveVQCModelAsync fileName parameters finalLoss numQubits featureMapType featureMapDepth variationalFormType variationalFormDepth note |> Async.RunSynchronously with
-                | Ok () -> Ok fileName
-                | Error e -> Error e)
+                saveVQCModelAsync fileName parameters finalLoss numQubits featureMapType featureMapDepth variationalFormType variationalFormDepth note 
+                |> Async.RunSynchronously
+                |> Result.map (fun () -> fileName))
         
-        // Check for any errors
-        let firstError =
-            results
-            |> Array.tryPick (fun result ->
-                match result with
-                | Error e -> Some e
-                | Ok _ -> None)
+        // Check for any errors and collect all successful file names
+        let firstError = results |> Array.tryPick (function Error e -> Some e | Ok _ -> None)
         
         match firstError with
         | Some error -> Error error
-        | None ->
-            let fileNames =
-                results
-                |> Array.map (fun result ->
-                    match result with
-                    | Ok fileName -> fileName
-                    | Error _ -> failwith "Unreachable")
-            Ok fileNames
+        | None -> Ok (results |> Array.choose (function Ok fileName -> Some fileName | Error _ -> None))
     
     /// Load multiple models from directory
     ///
@@ -638,18 +624,16 @@ module ModelSerialization =
         : QuantumResult<QuantumKernelSVM.SVMModel> =
         
         // Parse feature map
-        match parseFeatureMapType serialized.FeatureMapType serialized.FeatureMapDepth with
-        | Error e -> Error e
-        | Ok featureMap ->
-            let svmModel : QuantumKernelSVM.SVMModel = {
+        parseFeatureMapType serialized.FeatureMapType serialized.FeatureMapDepth
+        |> Result.map (fun featureMap ->
+            {
                 SupportVectorIndices = serialized.SupportVectorIndices
                 Alphas = serialized.Alphas
                 Bias = serialized.Bias
                 TrainData = serialized.TrainData
                 TrainLabels = serialized.TrainLabels
                 FeatureMap = featureMap
-            }
-            Ok svmModel
+            })
     
     // ========================================================================
     // TRANSFER LEARNING UTILITIES
@@ -663,17 +647,15 @@ module ModelSerialization =
         (model2Path: string)
         : QuantumResult<bool> =
         
-        match loadVQCModel model1Path, loadVQCModel model2Path with
-        | Error e, _ -> Error e
-        | _, Error e -> Error e
-        | Ok m1, Ok m2 ->
-            let compatible =
+        loadVQCModel model1Path
+        |> Result.bind (fun m1 ->
+            loadVQCModel model2Path
+            |> Result.map (fun m2 ->
                 m1.NumQubits = m2.NumQubits &&
                 m1.FeatureMapType = m2.FeatureMapType &&
                 m1.FeatureMapDepth = m2.FeatureMapDepth &&
                 m1.VariationalFormType = m2.VariationalFormType &&
-                m1.VariationalFormDepth = m2.VariationalFormDepth
-            Ok compatible
+                m1.VariationalFormDepth = m2.VariationalFormDepth))
     
     /// Extract feature extractor (frozen layers) from pre-trained model
     ///
@@ -687,12 +669,11 @@ module ModelSerialization =
         if extractLayers > numLayers then
             Error (QuantumError.ValidationError ("Input", $"extractLayers ({extractLayers}) cannot exceed numLayers ({numLayers})"))
         else
-            match loadVQCParameters modelPath with
-            | Error e -> Error e
-            | Ok parameters ->
+            loadVQCParameters modelPath
+            |> Result.bind (fun parameters ->
                 let paramsPerLayer = parameters.Length / numLayers
                 if parameters.Length % numLayers <> 0 then
                     Error (QuantumError.ValidationError ("Input", $"Parameters ({parameters.Length}) not evenly divisible by layers ({numLayers})"))
                 else
                     let extractedParams = parameters.[0 .. (extractLayers * paramsPerLayer - 1)]
-                    Ok extractedParams
+                    Ok extractedParams)

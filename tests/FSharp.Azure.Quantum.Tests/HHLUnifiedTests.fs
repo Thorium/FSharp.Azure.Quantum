@@ -17,7 +17,7 @@ open FSharp.Azure.Quantum.Core.BackendAbstraction
 /// - Convenience functions for 2×2 and 4×4 systems
 /// - Identity matrix validation
 /// - Error handling
-module HHLTests =
+module HHLUnifiedTests =
     
     let createBackend() = LocalBackend() :> IQuantumBackend
     

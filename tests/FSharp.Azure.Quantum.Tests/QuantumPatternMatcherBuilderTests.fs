@@ -4,6 +4,8 @@ open System
 open Xunit
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Core
+open FSharp.Azure.Quantum.Core.BackendAbstraction
+open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum.GroverSearch
 
 /// Unit tests for QuantumPatternMatcherBuilder
@@ -159,7 +161,7 @@ module QuantumPatternMatcherBuilderTests =
     [<Fact>]
     let ``patternMatcher builder should accept custom backend`` () =
         // Arrange
-        let myBackend = BackendAbstraction.createLocalBackend()
+        let myBackend = LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
         
         // Act
         let problem = QuantumPatternMatcher.patternMatcher {
@@ -297,7 +299,7 @@ module QuantumPatternMatcherBuilderTests =
     [<Fact>]
     let ``QuantumPatternMatcher.solve should use custom backend when provided`` () =
         // Arrange
-        let myBackend = BackendAbstraction.createLocalBackend()
+        let myBackend = LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
         let problem = QuantumPatternMatcher.patternMatcher {
             searchSpace sampleConfigs
             matchPattern highPerformancePattern

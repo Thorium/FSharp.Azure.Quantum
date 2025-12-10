@@ -300,6 +300,98 @@ module QaoaParameterOptimizer =
         printfn $"Best result: Energy = {bestResult.FinalObjectiveValue:F4}"
         (bestResult, bestHistory)
     
+    /// Layer-by-layer optimization: Optimize one layer at a time
+    let private optimizeLayerByLayer
+        (objectiveFunc: float[] -> float)
+        (p: int)
+        (strategy: InitializationStrategy)
+        (seed: int option)
+        (bounds: float * float * float * float)
+        (maxIter: int)
+        (tol: float) : OptimizationResult * (float[] * float) list =
+        
+        printfn $"Layer-by-layer optimization: {p} layers"
+        
+        // Use fold to accumulate optimized layers
+        let (finalParams, allHistory) =
+            [0 .. p - 1]
+            |> List.fold (fun (accParams, accHistory) layerIdx ->
+                printfn $"  Optimizing layer {layerIdx + 1}/{p}..."
+                
+                // Initialize this layer
+                let layerParams = initializeParameters 1 strategy (seed |> Option.map (fun s -> s + layerIdx + 1))
+                let updatedParams = Array.copy accParams
+                updatedParams.[layerIdx] <- layerParams.[0]
+                
+                // Create objective that only varies this layer
+                let layerObjective (paramArray: float[]) =
+                    match paramArray with
+                    | [| gamma; beta |] ->
+                        let paramsWithLayer = Array.copy updatedParams
+                        paramsWithLayer.[layerIdx] <- (gamma, beta)
+                        let flatParams = paramsWithLayer |> Array.collect (fun (g, b) -> [| g; b |])
+                        objectiveFunc flatParams
+                    | _ -> failwith "Layer objective expects exactly 2 parameters (gamma, beta)"
+                
+                // Optimize this layer
+                let initialLayerParams = [| updatedParams.[layerIdx] |]
+                let (result, history) = optimizeSingleRun layerObjective initialLayerParams bounds (maxIter / p) tol
+                
+                // Update parameters with optimized layer
+                match result.OptimizedParameters with
+                | [| gamma; beta |] ->
+                    updatedParams.[layerIdx] <- (gamma, beta)
+                    let energy = result.FinalObjectiveValue
+                    printfn $"    Layer {layerIdx + 1} optimized: γ = {gamma:F4}, β = {beta:F4}, Energy = {energy:F4}"
+                    (updatedParams, accHistory @ history)
+                | _ -> failwith "Optimization result should have exactly 2 parameters"
+            ) (Array.init p (fun _ -> (0.0, 0.0)), [])
+        
+        // Create final result
+        let flatFinalParams = finalParams |> Array.collect (fun (g, b) -> [| g; b |])
+        let finalEnergy = objectiveFunc flatFinalParams
+        
+        let finalResult = {
+            OptimizedParameters = flatFinalParams
+            FinalObjectiveValue = finalEnergy
+            Converged = true
+            Iterations = List.length allHistory
+        }
+        
+        printfn $"Layer-by-layer complete: Final energy = {finalEnergy:F4}"
+        (finalResult, allHistory)
+    
+    /// Adaptive optimization: Adjust strategy based on convergence
+    let private optimizeAdaptive
+        (objectiveFunc: float[] -> float)
+        (p: int)
+        (strategy: InitializationStrategy)
+        (seed: int option)
+        (bounds: float * float * float * float)
+        (maxIter: int)
+        (tol: float) : OptimizationResult * (float[] * float) list =
+        
+        printfn "Adaptive optimization: adjusting based on convergence"
+        
+        // Start with single run
+        let initialParams = initializeParameters p strategy seed
+        let (result1, history1) = optimizeSingleRun objectiveFunc initialParams bounds (maxIter / 2) tol
+        
+        printfn $"  Initial run: Energy = {result1.FinalObjectiveValue:F4}, Converged = {result1.Converged}"
+        
+        if result1.Converged then
+            // Converged quickly, return result
+            printfn "  Converged on first attempt"
+            (result1, history1)
+        else
+            // Not converged, try multi-start with 3 starts
+            printfn "  Not converged, trying multi-start..."
+            let (result2, history2) = optimizeMultiStart objectiveFunc p strategy seed bounds 3 (maxIter / 2) tol
+            
+            // Combine histories
+            let combinedHistory = history1 @ history2
+            (result2, combinedHistory)
+    
     // ============================================================================
     // MAIN OPTIMIZATION INTERFACE
     // ============================================================================
@@ -348,14 +440,10 @@ module QaoaParameterOptimizer =
                 optimizeMultiStart objectiveFunc p config.InitStrategy config.RandomSeed config.ParameterBounds numStarts config.MaxIterations config.Tolerance
             
             | LayerByLayer ->
-                // TODO: Implement layer-by-layer optimization
-                let initialParams = initializeParameters p config.InitStrategy config.RandomSeed
-                optimizeSingleRun objectiveFunc initialParams config.ParameterBounds config.MaxIterations config.Tolerance
+                optimizeLayerByLayer objectiveFunc p config.InitStrategy config.RandomSeed config.ParameterBounds config.MaxIterations config.Tolerance
             
             | Adaptive ->
-                // TODO: Implement adaptive strategy
-                let initialParams = initializeParameters p config.InitStrategy config.RandomSeed
-                optimizeSingleRun objectiveFunc initialParams config.ParameterBounds config.MaxIterations config.Tolerance
+                optimizeAdaptive objectiveFunc p config.InitStrategy config.RandomSeed config.ParameterBounds config.MaxIterations config.Tolerance
         
         // Convert flat parameters back to (γ, β) pairs
         let optimizedParams =

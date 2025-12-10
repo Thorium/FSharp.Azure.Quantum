@@ -2,10 +2,10 @@ namespace FSharp.Azure.Quantum
 
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Algorithms
-open FSharp.Azure.Quantum.Algorithms.QuantumPhaseEstimation
-open FSharp.Azure.Quantum.Algorithms.QPEBackendAdapter
+open FSharp.Azure.Quantum.Algorithms.QPE
 open FSharp.Azure.Quantum.Algorithms.TrotterSuzuki
 open FSharp.Azure.Quantum.LocalSimulator
+open FSharp.Azure.Quantum.Backends
 
 /// High-level Quantum Phase Estimator Builder - QPE for Eigenvalue Extraction
 /// 
@@ -259,34 +259,33 @@ module QuantumPhaseEstimator =
             | Ok () ->
                 
                 // Convert to QPEConfig
+                // Convert eigenstate from StateVector.StateVector to QuantumState if provided
+                let eigenVector = 
+                    problem.EigenVector 
+                    |> Option.map QuantumState.fromStateVector
+                
                 let config = {
                     CountingQubits = problem.Precision
                     TargetQubits = problem.TargetQubits
                     UnitaryOperator = problem.Unitary
-                    EigenVector = problem.EigenVector
+                    EigenVector = eigenVector
                 }
                 
                 // Get backend (default to LocalBackend)
                 let backend = 
                     problem.Backend 
-                    |> Option.defaultValue (BackendAbstraction.LocalBackend() :> BackendAbstraction.IQuantumBackend)
+                    |> Option.defaultValue (LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend)
                 
-                // Execute QPE on backend
-                let shots = 1000  // Default shots for measurement statistics
-                
-                match executeWithBackend config backend shots with
-                | Error msg -> Error (QuantumError.OperationError("Phase estimation execution", msg))
-                | Ok histogram ->
+                // Execute QPE using new unified API
+                match QPE.execute config backend with
+                | Error err -> Error err
+                | Ok result ->
                     
-                    // Extract phase from histogram
-                    let phase = extractPhaseFromHistogram histogram problem.Precision
+                    // Extract phase from result
+                    let phase = result.EstimatedPhase
                     
-                    // Get most likely measurement outcome
-                    let measurementOutcome = 
-                        histogram
-                        |> Map.toSeq
-                        |> Seq.maxBy snd
-                        |> fst
+                    // Get measurement outcome from result
+                    let measurementOutcome = result.MeasurementOutcome
                     
                     // Calculate eigenvalue λ = e^(2πiφ)
                     let angle = 2.0 * System.Math.PI * phase
@@ -299,34 +298,22 @@ module QuantumPhaseEstimator =
                         | SGate -> "S Gate (phase gate)"
                         | PhaseGate theta -> sprintf "Phase Gate (θ=%.4f)" theta
                         | RotationZ theta -> sprintf "Rz Gate (θ=%.4f)" theta
-                        | CustomUnitary _ -> "Custom Unitary"
-                        | HamiltonianEvolution (hamiltonianObj, t, steps) -> 
-                            // hamiltonian is stored as obj; cast to get term count
-                            let h = hamiltonianObj :?> PauliHamiltonian
-                            sprintf "Hamiltonian Evolution (t=%.4f, %d Trotter steps, %d Pauli terms)" 
-                                t steps h.Terms.Length
                     
-                    // Estimate gate count (histogram doesn't provide this)
-                    let estimatedGateCount = 
-                        problem.Precision + 
-                        (problem.Precision * problem.Precision) +  // Controlled-U gates
-                        (problem.Precision * (problem.Precision + 1) / 2)  // IQFT gates
-                    
-                    // Build result
-                    let result = {
+                    // Build result from QPE result
+                    let builderResult = {
                         Phase = phase
                         Eigenvalue = eigenvalue
                         MeasurementOutcome = measurementOutcome
                         Precision = problem.Precision
                         TargetQubits = problem.TargetQubits
                         TotalQubits = problem.Precision + problem.TargetQubits
-                        GateCount = estimatedGateCount
+                        GateCount = result.GateCount
                         Unitary = unitaryName
                         Success = true
                         Message = sprintf "Phase estimation successful: φ ≈ %.6f (eigenvalue λ = e^(2πi×%.6f))" phase phase
                     }
                     
-                    Ok result
+                    Ok builderResult
         
         with
         | ex -> Error (QuantumError.OperationError("Phase estimation", ex.Message))

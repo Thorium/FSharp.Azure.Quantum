@@ -421,8 +421,9 @@ module FMatrix =
                         if valid then 
                             Ok { data with IsValidated = true }
                         else 
-                            // PROGRAMMING BUG: built-in Ising theory data violates pentagon equation
-                            failwith "PROGRAMMING BUG: Pentagon equation violated for built-in Ising theory! ModularData is corrupted."
+                            // Built-in Ising theory data is corrupt - this should never happen
+                            Error (TopologicalError.Other
+                                "Pentagon equation violated for built-in Ising theory! ModularData is corrupted.")
                     )
                 | _ ->
                     Ok { data with IsValidated = true }

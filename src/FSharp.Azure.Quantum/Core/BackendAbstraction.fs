@@ -186,6 +186,16 @@ module BackendAbstraction =
         ///       (* fall back to gates *)
         abstract member SupportsOperation: QuantumOperation -> bool
         
+        /// Backend name (for logging and diagnostics)
+        /// 
+        /// Returns:
+        ///   Human-readable name of the backend (e.g. "Local Simulator", "IonQ", "Rigetti")
+        /// 
+        /// Example:
+        ///   let backend = LocalBackend()
+        ///   printfn "Using backend: %s" backend.Name
+        abstract member Name: string
+        
         /// Initialize quantum state without running a circuit
         /// 
         /// Creates initial state |0⟩^⊗n in backend's native representation.

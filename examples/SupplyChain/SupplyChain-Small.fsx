@@ -13,6 +13,7 @@ open System
 open FSharp.Azure.Quantum.Quantum
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.GraphOptimization
+open FSharp.Azure.Quantum.Backends.LocalBackend
 
 printfn "╔══════════════════════════════════════════════════════════════════════════════╗"
 printfn "║       SUPPLY CHAIN OPTIMIZATION (SMALL TEST)                                 ║"
@@ -46,7 +47,7 @@ printfn ""
 printfn "Running quantum network flow optimization..."
 let startTime = DateTime.UtcNow
 
-let backend = BackendAbstraction.createLocalBackend()
+let backend = LocalBackend() :> FSharp.Azure.Quantum.Core.BackendAbstraction.IQuantumBackend
 let solutionResult = QuantumNetworkFlowSolver.solveWithShots backend flowProblem 1000
 
 let elapsed = DateTime.UtcNow - startTime
@@ -54,8 +55,8 @@ printfn "Completed in %d ms" (int elapsed.TotalMilliseconds)
 printfn ""
 
 match solutionResult with
-| Error msg ->
-    printfn "❌ Solution failed: %s" msg
+| Error err ->
+    printfn "❌ Solution failed: %s" err.Message
 | Ok solution ->
     printfn "✅ SOLUTION FOUND:"
     printfn "────────────────────────────────────────────────────────────────────────────────"

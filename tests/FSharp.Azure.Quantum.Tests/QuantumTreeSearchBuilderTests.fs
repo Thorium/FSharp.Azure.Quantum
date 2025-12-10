@@ -4,6 +4,8 @@ open System
 open Xunit
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Core
+open FSharp.Azure.Quantum.Core.BackendAbstraction
+open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum.GroverSearch
 
 /// Unit tests for QuantumTreeSearchBuilder
@@ -177,7 +179,7 @@ module QuantumTreeSearchBuilderTests =
     [<Fact>]
     let ``quantumTreeSearch builder should accept custom backend`` () =
         // Arrange
-        let myBackend = BackendAbstraction.createLocalBackend()
+        let myBackend = LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
         
         // Act
         let problem = QuantumTreeSearch.quantumTreeSearch {
@@ -348,7 +350,7 @@ module QuantumTreeSearchBuilderTests =
     [<Fact>]
     let ``QuantumTreeSearch.solve should use custom backend when provided`` () =
         // Arrange
-        let myBackend = BackendAbstraction.createLocalBackend()
+        let myBackend = LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
         let problem = QuantumTreeSearch.quantumTreeSearch {
             initialState 1
             evaluateWith simpleEval

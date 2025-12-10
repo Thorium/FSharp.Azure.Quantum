@@ -123,6 +123,10 @@ module HHLTypes =
     
     /// Result of HHL algorithm execution
     type HHLResult = {
+        /// Solution vector (x in Ax = b)
+        /// Extracted from quantum state amplitudes
+        Solution: Complex[]
+        
         /// Success probability (probability of ancilla = |1⟩)
         /// Higher for well-conditioned matrices
         SuccessProbability: float

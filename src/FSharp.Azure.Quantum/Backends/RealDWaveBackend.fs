@@ -218,7 +218,6 @@ module RealDWaveBackend =
     
     /// Real D-Wave backend using Leap Cloud API
     type RealDWaveBackend(config: DWaveConfig) =
-        let mutable cancellationToken : System.Threading.CancellationToken option = None
         
         let client = new DWaveClient(config)
         

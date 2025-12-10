@@ -183,8 +183,11 @@ module ASCIIRenderer =
             | CircuitBuilder.CCX (ctrl1, ctrl2, targ) ->
                 let box = gateBox "X"
                 let qubits = [ctrl1; ctrl2; targ] |> List.sort
-                let minQ = List.head qubits
-                let maxQ = List.last qubits
+                // Safe: qubits list has exactly 3 elements
+                let (minQ, maxQ) = 
+                    match qubits with
+                    | minQ :: _ :: maxQ :: [] -> (minQ, maxQ)
+                    | _ -> failwith "Internal error: CCX should have exactly 3 qubits"
                 
                 wires'
                 |> List.mapi (fun i wire ->
@@ -206,8 +209,12 @@ module ASCIIRenderer =
             | CircuitBuilder.MCZ (ctrls, targ) ->
                 let box = gateBox "Z"
                 let allQubits = targ :: ctrls |> List.sort
-                let minQ = List.head allQubits
-                let maxQ = List.last allQubits
+                // Safe: Extract min and max with pattern matching
+                let (minQ, maxQ) = 
+                    match allQubits with
+                    | [] -> failwith "Internal error: MCZ should have at least 1 qubit"
+                    | [single] -> (single, single)
+                    | minQ :: rest -> (minQ, List.last rest)  // rest is non-empty
                 
                 wires'
                 |> List.mapi (fun i wire ->

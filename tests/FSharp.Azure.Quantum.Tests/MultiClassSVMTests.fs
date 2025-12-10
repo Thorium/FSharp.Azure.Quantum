@@ -1,12 +1,12 @@
 module FSharp.Azure.Quantum.Tests.MultiClassSVMTests
 
 open Xunit
-open FSharp.Azure.Quantum.LocalSimulator
+open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum.MachineLearning
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 
 /// Helper: Create local backend
-let private backend = LocalBackend() :> IQuantumBackend
+let private backend = LocalBackend.LocalBackend() :> IQuantumBackend
 
 /// Helper: Create simple 3-class dataset
 let createThreeClassDataset () =

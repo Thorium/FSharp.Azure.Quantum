@@ -1,5 +1,33 @@
 namespace FSharp.Azure.Quantum.Tests
 
+(*
+    LEGACY MODULE - COMMENTED OUT
+
+    This test module tests the BackendCapabilityDetection module which is in the Legacy folder.
+    BackendCapabilityDetection depends on the old IQuantumBackend interface with properties:
+    - Name
+    - MaxQubits
+    - SupportedGates
+    - Execute
+
+    The new IQuantumBackend interface uses a state-based approach with:
+    - ExecuteToState
+    - ApplyOperation
+    - InitializeState
+    - SupportsOperation
+
+    Rather than migrating these tests, we're commenting them out since the capability detection
+    feature itself is being deprecated. The new architecture doesn't require automatic backend
+    selection based on circuit paradigm - users explicitly choose their backend.
+
+    Original tests covered:
+    - Circuit paradigm detection (gate-based vs annealing)
+    - Backend capability checking
+    - Automatic backend selection
+    - Backend recommendations
+*)
+
+(*
 open Xunit
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.QaoaCircuit
@@ -9,13 +37,6 @@ open FSharp.Azure.Quantum.Backends.DWaveBackend
 open FSharp.Azure.Quantum.Backends.DWaveTypes
 open FSharp.Azure.Quantum.Backends.BackendCapabilityDetection
 
-/// Unit tests for BackendCapabilityDetection
-///
-/// Tests cover:
-/// - Circuit paradigm detection (gate-based vs annealing)
-/// - Backend capability checking
-/// - Automatic backend selection
-/// - Backend recommendations
 module BackendCapabilityDetectionTests =
     
     // ============================================================================
@@ -295,3 +316,4 @@ module BackendCapabilityDetectionTests =
         
         Assert.True(hasGateBased, "Should have gate-based backend")
         Assert.True(hasAnnealing, "Should have annealing backend")
+*)

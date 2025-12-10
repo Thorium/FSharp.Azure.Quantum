@@ -20,6 +20,7 @@ open FSharp.Azure.Quantum.Classical
 open FSharp.Azure.Quantum.Classical.PortfolioSolver
 open FSharp.Azure.Quantum.Quantum
 open FSharp.Azure.Quantum.Core
+open FSharp.Azure.Quantum.Backends.LocalBackend
 
 // ==============================================================================
 // SMALL PORTFOLIO CONFIGURATION (3 Assets)
@@ -63,7 +64,7 @@ assets |> List.iter (fun a ->
 printfn ""
 
 // Create backend
-let backend = BackendAbstraction.createLocalBackend()
+let backend = LocalBackend() :> FSharp.Azure.Quantum.Core.BackendAbstraction.IQuantumBackend
 
 printfn "Backend: LocalSimulator (emulator)"
 printfn ""

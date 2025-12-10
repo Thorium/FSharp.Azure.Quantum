@@ -4,6 +4,8 @@ open System
 open Xunit
 open FSharp.Azure.Quantum.Algorithms.QRNG
 open FSharp.Azure.Quantum.Core
+open FSharp.Azure.Quantum.Core.BackendAbstraction
+open FSharp.Azure.Quantum.Backends
 
 /// Tests for Quantum Random Number Generator (QRNG)
 module QRNGTests =
@@ -288,7 +290,7 @@ module QRNGTests =
     [<Fact>]
     let ``generateWithBackend works with LocalBackend`` () =
         async {
-            let backend = BackendAbstraction.createLocalBackend()
+            let backend = LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
             
             let! result = generateWithBackend 10 backend
             
@@ -304,7 +306,7 @@ module QRNGTests =
     [<Fact>]
     let ``generateWithBackend fails with excessive bits`` () =
         async {
-            let backend = BackendAbstraction.createLocalBackend()
+            let backend = LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
             
             let! result = generateWithBackend 2000 backend
             
@@ -319,7 +321,7 @@ module QRNGTests =
     [<Fact>]
     let ``generateWithBackend fails with zero bits`` () =
         async {
-            let backend = BackendAbstraction.createLocalBackend()
+            let backend = LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
             
             let! result = generateWithBackend 0 backend
             

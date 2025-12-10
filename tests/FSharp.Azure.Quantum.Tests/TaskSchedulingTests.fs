@@ -3,6 +3,8 @@ namespace FSharp.Azure.Quantum.Tests
 open Xunit
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.TaskScheduling
+open FSharp.Azure.Quantum.Core
+open FSharp.Azure.Quantum.Backends
 
 module TaskSchedulingTests =
     
@@ -283,7 +285,7 @@ module TaskSchedulingTests =
         }
         
         // Act - Use quantum solver
-        let backend = FSharp.Azure.Quantum.Core.BackendAbstraction.LocalBackend() :> FSharp.Azure.Quantum.Core.BackendAbstraction.IQuantumBackend
+        let backend = LocalBackend.LocalBackend() :> Core.BackendAbstraction.IQuantumBackend
         let result = solveQuantum backend problem |> Async.RunSynchronously
         
         // Assert - Quantum solver should execute successfully

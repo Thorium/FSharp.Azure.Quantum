@@ -4,6 +4,8 @@ open System
 open Xunit
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Core
+open FSharp.Azure.Quantum.Core.BackendAbstraction
+open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum.GroverSearch
 
 /// Unit tests for QuantumConstraintSolverBuilder
@@ -146,7 +148,7 @@ module QuantumConstraintSolverBuilderTests =
     [<Fact>]
     let ``constraintSolver builder should accept custom backend`` () =
         // Arrange
-        let myBackend = BackendAbstraction.createLocalBackend()
+        let myBackend = LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
         
         // Act
         let problem = QuantumConstraintSolver.constraintSolver {
@@ -262,7 +264,7 @@ module QuantumConstraintSolverBuilderTests =
     [<Fact>]
     let ``QuantumConstraintSolver.solve should use custom backend when provided`` () =
         // Arrange
-        let myBackend = BackendAbstraction.createLocalBackend()
+        let myBackend = LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
         let problem = QuantumConstraintSolver.constraintSolver {
             searchSpace 8
             domain [1..4]

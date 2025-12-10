@@ -4,6 +4,8 @@ open Xunit
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Classical
 open FSharp.Azure.Quantum.Core
+open FSharp.Azure.Quantum.Core.BackendAbstraction
+open FSharp.Azure.Quantum.Backends
 
 module TspBuilderTests =
 
@@ -143,7 +145,7 @@ module TspBuilderTests =
         ]
         let problem = TSP.createProblem cities
         // Use LocalBackend explicitly (though None would also work)
-        let backend = Some (BackendAbstraction.createLocalBackend())
+        let backend = Some (LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend)
         
         // Act
         let result = TSP.solve problem backend

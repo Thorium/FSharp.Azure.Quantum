@@ -31,7 +31,6 @@ module LocalBackend =
     
     /// Local simulator backend
     type LocalBackend() =
-        let mutable cancellationToken: CancellationToken option = None
         
         // ====================================================================
         // HELPER: Gate Execution on StateVector
@@ -124,6 +123,8 @@ module LocalBackend =
         // ====================================================================
         
         interface IQuantumBackend with
+            member _.Name = "Local Simulator"
+            
             member this.ExecuteToState (circuit: CircuitAbstraction.ICircuit) : Result<QuantumState, QuantumError> =
                 let numQubits = circuit.NumQubits
                 
@@ -146,9 +147,27 @@ module LocalBackend =
                     | ex ->
                         Error (QuantumError.OperationError ("LocalBackend", ex.Message))
                 
+                | :? CircuitAbstraction.QaoaCircuitWrapper as qaoaWrapper ->
+                    // Convert QaoaCircuit to CircuitBuilder.Circuit and execute
+                    let qaoaCircuit = qaoaWrapper.QaoaCircuit
+                    let cbCircuit = CircuitAbstraction.CircuitAdapter.qaoaCircuitToCircuit qaoaCircuit
+                    try
+                        let initialState = StateVector.init numQubits
+                        let finalState =
+                            cbCircuit.Gates
+                            |> List.fold (fun state gate ->
+                                applyGate gate state
+                            ) initialState
+                        Ok (QuantumState.StateVector finalState)
+                    with
+                    | :? System.OperationCanceledException ->
+                        Error (QuantumError.OperationError ("LocalBackend", "Execution was cancelled"))
+                    | ex ->
+                        Error (QuantumError.OperationError ("LocalBackend", ex.Message))
+                
                 | _ ->
                     // For unknown circuit types, cannot execute directly
-                    Error (QuantumError.OperationError ("LocalBackend", $"Circuit type {circuit.GetType().Name} not supported by LocalBackend.ExecuteToState - wrap with CircuitWrapper"))
+                    Error (QuantumError.OperationError ("LocalBackend", $"Circuit type {circuit.GetType().Name} not supported by LocalBackend.ExecuteToState - wrap with CircuitWrapper or QaoaCircuitWrapper"))
             
             member _.NativeStateType = QuantumStateType.GateBased
             

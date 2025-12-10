@@ -3,7 +3,7 @@
 /// This example demonstrates:
 /// 1. Building a MaxCut problem (graph partitioning)
 /// 2. Encoding as QAOA circuit
-/// 3. Automatic backend selection (D-Wave for annealing)
+/// 3. Creating a D-Wave annealing backend
 /// 4. Execution and result interpretation
 ///
 /// Run with: dotnet fsi examples/DWaveMaxCutExample.fsx
@@ -15,7 +15,6 @@ open FSharp.Azure.Quantum.Core.QaoaCircuit
 open FSharp.Azure.Quantum.Core.CircuitAbstraction
 open FSharp.Azure.Quantum.Backends.DWaveBackend
 open FSharp.Azure.Quantum.Backends.DWaveTypes
-open FSharp.Azure.Quantum.Backends.BackendCapabilityDetection
 
 printfn "╔══════════════════════════════════════════════════════════╗"
 printfn "║  MaxCut Example with D-Wave Annealing Backend           ║"
@@ -103,40 +102,35 @@ printfn $"QAOA depth: p={qaoaParameters.Length}"
 printfn ""
 
 // ============================================================================
-// STEP 3: Automatic Backend Selection
+// STEP 3: Create D-Wave Backend
 // ============================================================================
 
-printfn "🤖 Step 3: Automatic Backend Selection"
-printfn "────────────────────────────────────────"
+printfn "🤖 Step 3: Create D-Wave Backend"
+printfn "──────────────────────────────────"
 
-// Show backend recommendations
-printBackendRecommendations circuit
+// Create mock D-Wave backend for testing (no API credentials needed)
+// For production, use real D-Wave backend with Azure Quantum workspace
+let backend = MockDWaveBackend(Advantage_System6_1, 42)
+printfn $"✅ Created: Mock D-Wave Advantage_System6.1"
+printfn $"   Max Qubits: {getMaxQubits Advantage_System6_1}"
+printfn $"   Solver: {getSolverName Advantage_System6_1}"
+printfn ""
 
-// Automatically select best backend
-let backends = createDefaultBackendPool()
-match selectBestBackend backends circuit with
-| Error e -> 
-    printfn $"❌ Error: {e}"
+// ============================================================================
+// STEP 4: Execute on D-Wave Backend
+// ============================================================================
+
+printfn "⚡ Step 4: Execute on Backend"
+printfn "────────────────────────────"
+
+let numShots = 1000
+printfn $"Executing {numShots} shots..."
+
+match backend.Execute circuit numShots with
+| Error e ->
+    printfn $"❌ Execution error: {e}"
     exit 1
-| Ok backend ->
-    printfn $"✅ Selected: {backend.Name}"
-    printfn ""
-    
-    // ============================================================================
-    // STEP 4: Execute on D-Wave Backend
-    // ============================================================================
-    
-    printfn "⚡ Step 4: Execute on Backend"
-    printfn "────────────────────────────"
-    
-    let numShots = 1000
-    printfn $"Executing {numShots} shots..."
-    
-    match backend.Execute circuit numShots with
-    | Error e ->
-        printfn $"❌ Execution error: {e}"
-        exit 1
-    | Ok execResult ->
+| Ok execResult ->
         printfn $"✅ Execution complete: {execResult.NumShots} shots"
         printfn $"   Backend: {execResult.BackendName}"
         printfn ""

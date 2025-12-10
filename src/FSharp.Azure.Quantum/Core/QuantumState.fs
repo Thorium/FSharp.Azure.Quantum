@@ -236,6 +236,20 @@ module QuantumState =
             if Seq.isEmpty allIndices then 0
             else Seq.max allIndices + 1
     
+    /// Convert StateVector.StateVector to QuantumState
+    /// 
+    /// Creates a QuantumState from a LocalSimulator StateVector.
+    /// This is useful for bridging between the LocalSimulator types
+    /// and the unified backend abstraction.
+    /// 
+    /// Example:
+    /// ```fsharp
+    /// let stateVec = StateVector.init 3
+    /// let quantumState = QuantumState.fromStateVector stateVec
+    /// ```
+    let fromStateVector (sv: StateVector.StateVector) : QuantumState =
+        QuantumState.StateVector sv
+    
     /// Get native representation type
     /// 
     /// Returns which type of quantum state representation is being used.
@@ -291,9 +305,8 @@ module QuantumState =
         
         | QuantumState.FusionSuperposition (fs, _) ->
             // Measure fusion outcomes and convert to computational basis
-            // TODO: Implement TopologicalOperations.measureAll
-            // For now, convert to StateVector and measure
-            failwith "FusionSuperposition measurement not yet implemented - use QuantumStateConversion.fusionToStateVector first"
+            // Implementation delegated to TopologicalBackend module to avoid circular dependency
+            failwith "FusionSuperposition measurement not yet implemented - use QuantumStateConversion.convert to StateVector first, or call TopologicalBackend.sampleMeasurements directly"
         
         | QuantumState.SparseState _ ->
             failwith "SparseState not yet implemented"
@@ -361,8 +374,9 @@ module QuantumState =
             prob * prob  // |α|²
         
         | QuantumState.FusionSuperposition (fs, _) ->
-            // TODO: Implement for fusion superposition
-            failwith "FusionSuperposition probability not yet implemented"
+            // Probability calculation for fusion superposition
+            // Implementation delegated to TopologicalBackend module to avoid circular dependency
+            failwith "FusionSuperposition probability not yet implemented - use QuantumStateConversion.convert to StateVector first"
         
         | QuantumState.SparseState (amplitudes, n) ->
             let index = 

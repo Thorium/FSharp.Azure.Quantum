@@ -1,0 +1,275 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <GenerateProgramFile>false</GenerateProgramFile>
+
+    <!-- Package Metadata -->
+    <Version>1.2.9</Version>
+    <PackageId>FSharp.Azure.Quantum</PackageId>
+    <Title>FSharp.Azure.Quantum</Title>
+    <Description>F# library for Azure Quantum with quantum-first optimization (Graph Coloring, TSP, MaxCut, Knapsack, Network Flow, Portfolio), Azure Quantum backend integration (IonQ, Rigetti, Quantinuum, Atom Computing), extensible circuit validation, local quantum simulation, QAOA with automatic parameter optimization (Nelder-Mead), OpenQASM 2.0 support, error mitigation techniques (ZNE, PEC, REM), Quantum Random Number Generation (QRNG), and educational quantum algorithms (Grover, QFT, Amplitude Amplification) with cloud backend execution. Multi-provider architecture supports IonQ, Rigetti, Quantinuum, Atom Computing, IBM, Amazon Braket, and Google Cirq.</Description>
+    <Summary>F# library for Azure Quantum with quantum-first optimization, quantum backends (IonQ, Rigetti, Quantinuum, Atom Computing), QAOA with automatic parameter tuning, QRNG, and educational algorithms with cloud execution</Summary>
+    <PackageReleaseNotes>v1.2.9: Documentation Improvements and Visual Enhancements
+- IMPROVED: Architecture diagrams (SVG and Mermaid) with enhanced color palette for better readability
+- FIXED: Backend colors now use lighter, high-contrast palette (LocalBackend: Cornflower Blue, IonQ: Fresh Green, Rigetti: Burnt Orange, Atom Computing: Amber Gold, Quantinuum: Amethyst)
+- FIXED: GraphColoring builder arrow routing in SVG architecture diagram
+- IMPROVED: Legend in architecture diagrams with color swatches showing all backend types
+- IMPROVED: Text contrast in architecture diagrams (white text on dark backgrounds, black text on light backgrounds)
+- IMPROVED: WCAG AA compliant color scheme for accessibility and colorblind-friendliness
+- Status: 1400+ tests passing in main package, production-ready</PackageReleaseNotes>
+    
+    <!-- Repository Info -->
+    <RepositoryUrl>https://github.com/thorium/FSharp.Azure.Quantum</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageProjectUrl>https://github.com/thorium/FSharp.Azure.Quantum</PackageProjectUrl>
+
+    <!-- Author & License -->
+    <Authors>Tuomas Hietanen</Authors>
+    <PackageTags>F#;FSharp;Quantum;Azure;Computing;Optimization;TSP;Portfolio;QAOA;Circuit</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageLicenseExpression>Unlicense</PackageLicenseExpression>
+    <Copyright>Unlicense - Public Domain</Copyright>
+    
+    <!-- Symbols -->
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <IncludeSymbols>true</IncludeSymbols>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Test Visibility: Allow tests to call internal functions -->
+    <InternalsVisibleTo Include="FSharp.Azure.Quantum.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\..\README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Core Layer - Foundation Types -->
+    <Compile Include="Core\QuantumError.fs" />
+    <Compile Include="Core\Validation.fs" />
+    <Compile Include="Core\Types.fs" />
+    <Compile Include="Core\Progress.fs" />
+    <Compile Include="Core\ResultBuilder.fs" />
+    
+    <!-- QUBO Helpers - Shared patterns for optimization solvers -->
+    <Compile Include="Qubo.fs" />
+
+    <!-- Local Simulator Layer (depends on Types) -->
+    <Compile Include="LocalSimulator\StateVector.fs" />
+    <Compile Include="LocalSimulator\Gates.fs" />
+    <Compile Include="LocalSimulator\Measurement.fs" />
+    <Compile Include="LocalSimulator\QaoaSimulator.fs" />
+    
+    <!-- Unified Backend Architecture - Core State Types (depends on LocalSimulator) -->
+    <Compile Include="Core\QuantumState.fs" />
+    <Compile Include="Core\QuantumStateConversion.fs" />
+
+    <!-- Quantum Algorithms (depends on LocalSimulator) -->
+    <Compile Include="Algorithms\GroverOracle.fs" />
+    <Compile Include="Algorithms\GroverIteration.fs" />
+    <Compile Include="Algorithms\AmplitudeAmplification.fs" />
+    <Compile Include="Algorithms\QuantumFourierTransform.fs" />
+    <Compile Include="Algorithms\QuantumPhaseEstimation.fs" />
+    <Compile Include="Algorithms\HHLTypes.fs" />
+    <Compile Include="Algorithms\HHLAlgorithm.fs" />
+    <Compile Include="Algorithms\ShorsTypes.fs" />
+    <Compile Include="Algorithms\ShorsAlgorithm.fs" />
+
+    <!-- Core Infrastructure (depends on Types, LocalSimulator) -->
+    <Compile Include="Core\CostEstimation.fs" />
+    <Compile Include="Core\CircuitValidator.fs" />
+    <Compile Include="Core\Authentication.fs" />
+    <Compile Include="Core\Retry.fs" />
+    <Compile Include="Core\RateLimiting.fs" />
+    <Compile Include="Core\Observability.fs" />
+    <Compile Include="Core\Batching.fs" />
+    <Compile Include="Core\JobLifecycle.fs" />
+
+    <!-- Backends Layer (depends on Core Infrastructure) -->
+    <Compile Include="Backends\DWaveTypes.fs" />
+    <Compile Include="Backends\IonQBackend.fs" />
+    <Compile Include="Backends\RigettiBackend.fs" />
+    <Compile Include="Backends\QuantinuumBackend.fs" />
+    <Compile Include="Backends\AtomComputingBackend.fs" />
+    <Compile Include="Backends\AzureQuantumWorkspace.fs" />
+    <Compile Include="Core\Client.fs" />
+    
+    <!-- D-Wave Integration (depends on DWaveTypes) -->
+    <Compile Include="Algorithms\QuboToIsing.fs" />
+
+    <!-- Classical Solvers - Pure CPU algorithms, no quantum backend (depends on Types) -->
+    <Compile Include="Solvers\Classical\TspTypes.fs" />
+    <Compile Include="Solvers\Classical\TspSolver.fs" />
+    <Compile Include="Solvers\Classical\PortfolioTypes.fs" />
+    <Compile Include="Solvers\Classical\PortfolioSolver.fs" />
+
+    <!-- Builders Layer (depends on Types, LocalSimulator) -->
+    <Compile Include="Builders\CircuitBuilder.fs" />
+    <Compile Include="Builders\GateTranspiler.fs" />
+    <Compile Include="Builders\OpenQasmExport.fs" />
+    <Compile Include="Builders\OpenQasmImport.fs" />
+    <Compile Include="Builders\QuboEncoding.fs" />
+    <Compile Include="Builders\GraphOptimization.fs" />
+
+    <!-- Error Mitigation Layer (depends on Builders) -->
+    <Compile Include="ErrorMitigation\ZeroNoiseExtrapolation.fs" />
+    <Compile Include="ErrorMitigation\ProbabilisticErrorCancellation.fs" />
+    <Compile Include="ErrorMitigation\ReadoutErrorMitigation.fs" />
+    <Compile Include="ErrorMitigation\ErrorMitigationStrategy.fs" />
+
+    <!-- QAOA Infrastructure (depends on CircuitBuilder, LocalSimulator) -->
+    <Compile Include="Core\QaoaCircuit.fs" />
+    <Compile Include="Core\CircuitAbstraction.fs" />
+    <Compile Include="Backends\BackendAbstraction.fs" />
+    <Compile Include="Core\QaoaOptimizer.fs" />
+    <Compile Include="Core\QaoaParameterOptimizer.fs" />
+    
+    <!-- Unified Backend Architecture - Interface (depends on BackendAbstraction, QuantumState) -->
+    <Compile Include="Core\UnifiedBackendAbstraction.fs" />
+    
+    <!-- Local Backend (depends on CircuitBuilder, CircuitAbstraction, BackendAbstraction, UnifiedBackendAbstraction) -->
+    <Compile Include="Backends\LocalBackend.fs" />
+    
+    <!-- Unified Backend Algorithms (depends on CircuitBuilder, UnifiedBackendAbstraction, LocalBackend) -->
+    <Compile Include="Algorithms\GroverUnified.fs" />
+    <Compile Include="Algorithms\QFTUnified.fs" />
+    <Compile Include="Algorithms\QPEUnified.fs" />
+    <Compile Include="Algorithms\ShorsUnified.fs" />
+    <Compile Include="Algorithms\HHLUnified.fs" />
+
+    <!-- QAOA Algorithm (depends on QaoaCircuit, CircuitAbstraction, QaoaOptimizer) -->
+    <Compile Include="Algorithms\QRNG.fs" />
+    <!-- D-Wave QUBO Extraction (depends on QaoaCircuit, CircuitAbstraction) -->
+    <Compile Include="Algorithms\QuboExtraction.fs" />
+    
+    <!-- D-Wave Backend (depends on QuboExtraction, QuboToIsing, DWaveTypes, BackendAbstraction) -->
+    <Compile Include="Backends\DWaveBackend.fs" />
+    <Compile Include="Backends\RealDWaveBackend.fs" />
+    <Compile Include="Backends\BackendCapabilityDetection.fs" />
+    
+    <!-- Grover Backend Extension (depends on BackendAbstraction, GroverIteration) -->
+    <Compile Include="Algorithms\GroverBackendAdapter.fs" />
+    <Compile Include="Algorithms\GroverTreeSearch.fs" />
+    <Compile Include="Algorithms\GroverSearch.fs" />
+    
+    <!-- QFT Backend Extension (depends on BackendAbstraction, QuantumFourierTransform) -->
+    <Compile Include="Algorithms\QFTBackendAdapter.fs" />
+    
+    <!-- Advanced Quantum Algorithms -->
+    <Compile Include="Algorithms\TrotterSuzuki.fs" />
+    <Compile Include="Algorithms\MottonenStatePreparation.fs" />
+    
+    <!-- Quantum Arithmetic Circuits (depends on QFTBackendAdapter, CircuitBuilder) -->
+    <Compile Include="Algorithms\QuantumArithmetic.fs" />
+    
+    <!-- QPE Backend Extension (depends on BackendAbstraction, QuantumPhaseEstimation, QFTBackendAdapter) -->
+    <Compile Include="Algorithms\QPEBackendAdapter.fs" />
+    
+    <!-- HHL Backend Extension (depends on BackendAbstraction, HHLAlgorithm, QPEBackendAdapter) -->
+    <Compile Include="Algorithms\HHLBackendAdapter.fs" />
+    
+    <!-- Shor's Backend Extension (depends on BackendAbstraction, ShorsAlgorithm, QPEBackendAdapter) -->
+    <Compile Include="Algorithms\ShorsBackendAdapter.fs" />
+    
+    <!-- Amplitude Amplification Backend Extension (depends on BackendAbstraction, AmplitudeAmplification) -->
+    <Compile Include="Algorithms\AmplitudeAmplificationAdapter.fs" />
+
+    <!-- Quantum Solvers (depends on Backends, QAOA) -->
+    <Compile Include="Solvers\Quantum\QuantumTspSolver.fs" />
+    <Compile Include="Solvers\Quantum\QuantumNetworkFlowSolver.fs" />
+    <Compile Include="Solvers\Quantum\QuantumPortfolioSolver.fs" />
+    <Compile Include="Solvers\Quantum\QuantumMaxCutSolver.fs" />
+    <Compile Include="Solvers\Quantum\QuantumKnapsackSolver.fs" />
+    <Compile Include="Solvers\Quantum\QuantumGraphColoringSolver.fs" />
+    <Compile Include="Solvers\Quantum\QuantumTreeSearchBuilder.fs" />
+    <Compile Include="Solvers\Quantum\QuantumConstraintSolverBuilder.fs" />
+    <Compile Include="Solvers\Quantum\QuantumPatternMatcherBuilder.fs" />
+    <Compile Include="Solvers\Quantum\QuantumArithmeticBuilder.fs" />
+    <Compile Include="Solvers\Quantum\QuantumPeriodFinderBuilder.fs" />
+    <Compile Include="Solvers\Quantum\QuantumPhaseEstimatorBuilder.fs" />
+    <Compile Include="Solvers\Quantum\QuantumLinearSystemSolverBuilder.fs" />
+    <Compile Include="Solvers\Quantum\QuantumChemistry.fs" />
+
+    <!-- Hybrid Solvers - Orchestrate classical + quantum (depends on Quantum Solvers) -->
+    <Compile Include="Solvers\Hybrid\ProblemAnalysis.fs" />
+    <Compile Include="Solvers\Hybrid\QuantumAdvisor.fs" />
+    <Compile Include="Solvers\Hybrid\HybridSolver.fs" />
+
+    <!-- Task Scheduling - Domain-specific API for scheduling problems -->
+    <Compile Include="TaskScheduling\Types.fs" />
+    <Compile Include="TaskScheduling\Validation.fs" />
+    <Compile Include="TaskScheduling\Builders.fs" />
+    <Compile Include="TaskScheduling\ClassicalSolver.fs" />
+    <Compile Include="TaskScheduling\QuboEncoding.fs" />
+    <Compile Include="TaskScheduling\QuantumSolver.fs" />
+    <Compile Include="TaskScheduling\Export.fs" />
+    <Compile Include="TaskScheduling\TaskScheduling.fs" />
+
+    <!-- Classical Builders - User-facing APIs (depends on HybridSolver) -->
+    <Compile Include="Solvers\Classical\TspBuilder.fs" />
+    <Compile Include="Solvers\Classical\PortfolioBuilder.fs" />
+    <Compile Include="Solvers\Classical\NetworkFlowBuilder.fs" />
+    <Compile Include="Solvers\Classical\MaxCutBuilder.fs" />
+    <Compile Include="Solvers\Classical\KnapsackBuilder.fs" />
+    <Compile Include="Solvers\Classical\GraphColoringBuilder.fs" />
+
+    <!-- Utilities Layer (depends on Classical Builders) -->
+    <Compile Include="Utilities\PerformanceBenchmarking.fs" />
+    
+    <!-- Visualization Layer (zero dependencies, pure F#) -->
+    <Compile Include="Visualization\Types.fs" />
+    <Compile Include="Visualization\ASCIIRenderer.fs" />
+    <Compile Include="Visualization\MermaidRenderer.fs" />
+    <Compile Include="Visualization\SolutionExtensions.fs" />
+    
+    <!-- Quantum Machine Learning (depends on CircuitBuilder, BackendAbstraction) -->
+    <Compile Include="MachineLearning\QMLTypes.fs" />
+    <Compile Include="MachineLearning\FeatureMap.fs" />
+    <Compile Include="MachineLearning\VariationalForm.fs" />
+    <Compile Include="MachineLearning\AdamOptimizer.fs" />
+    <Compile Include="MachineLearning\QuantumKernel.fs" />
+    <Compile Include="MachineLearning\QuantumKernelSVM.fs" />
+    <Compile Include="MachineLearning\VQC.fs" />
+    <Compile Include="MachineLearning\MultiClassSVM.fs" />
+    <Compile Include="MachineLearning\SVMModelSerialization.fs" />
+    <Compile Include="MachineLearning\DataPreprocessing.fs" />
+    <Compile Include="MachineLearning\ModelSerialization.fs" />
+    <Compile Include="MachineLearning\QuantumRegressionHHL.fs" />
+    <Compile Include="MachineLearning\HHLModelSerialization.fs" />
+    
+    <!-- Business-First ML Builders (depends on MachineLearning) -->
+    <Compile Include="Business\BinaryClassificationBuilder.fs" />
+    <Compile Include="Business\AnomalyDetectionBuilder.fs" />
+    <Compile Include="Business\SimilaritySearchBuilder.fs" />
+    <Compile Include="Business\PredictiveModelBuilder.fs" />
+    <Compile Include="Business\AutoMLBuilder.fs" />
+    
+    <!-- C# Interop Extensions (must come after ALL builders) -->
+    <Compile Include="Builders\BuildersCSharpExtensions.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- C# Business Builder Wrappers (included as content for NuGet package) -->
+    <None Include="Business\CSharp\*.cs" Pack="true" PackagePath="contentFiles\cs\any\FSharp.Azure.Quantum.Business.CSharp" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Azure.Identity" Version="1.13.1" />
+    <PackageReference Include="MathNet.Numerics" Version="5.0.0" />
+    <PackageReference Include="MathNet.Numerics.FSharp" Version="5.0.0" />
+    <PackageReference Include="Microsoft.Azure.Quantum.Client" Version="0.28.302812" />
+    <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.0" />
+    <PackageReference Include="Serilog" Version="4.3.0" />
+    <PackageReference Include="Serilog.Sinks.Console" Version="6.1.1" />
+    <PackageReference Include="Serilog.Sinks.File" Version="7.0.0" />
+    <PackageReference Include="OpenTelemetry" Version="1.14.0" />
+    <PackageReference Include="OpenTelemetry.Exporter.Console" Version="1.14.0" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.Http" Version="1.14.0" />
+  </ItemGroup>
+
+</Project>

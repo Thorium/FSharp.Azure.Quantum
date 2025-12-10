@@ -2,11 +2,11 @@ namespace FSharp.Azure.Quantum
 
 open System.Numerics
 open FSharp.Azure.Quantum.Core
+open FSharp.Azure.Quantum.Core.BackendAbstraction
+open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum.Algorithms
 open FSharp.Azure.Quantum.Algorithms.HHLTypes
-open FSharp.Azure.Quantum.Algorithms.HHLAlgorithm
-open FSharp.Azure.Quantum.Algorithms.HHLBackendAdapter
-open FSharp.Azure.Quantum.Core.BackendAbstraction
+open FSharp.Azure.Quantum.Algorithms.HHL
 
 /// High-level Quantum Linear System Solver Builder - HHL Algorithm
 /// 
@@ -336,10 +336,10 @@ module QuantumLinearSystemSolver =
     /// <param name="problem">Linear system problem specification</param>
     /// <returns>Solution with success probability and amplitudes</returns>
     let solve (problem: LinearSystemProblem): Result<LinearSystemSolution, QuantumError> =
-        // Validate problem
-        match validate problem with
-        | Error err -> Error err
-        | Ok () ->
+        result {
+            // Validate problem
+            do! validate problem
+            
             // Determine solution qubits
             let solutionQubits = 
                 let rec log2 n = if n <= 1 then 0 else 1 + log2 (n / 2)
@@ -361,48 +361,49 @@ module QuantumLinearSystemSolver =
             let backend = 
                 match problem.Backend with
                 | Some b -> b
-                | None -> BackendAbstraction.createLocalBackend()
+                | None -> LocalBackend.LocalBackend() :> IQuantumBackend
             
-            let backendName = backend.Name
-            let isQuantum = backendName.Contains("IonQ") || backendName.Contains("Rigetti")
+            let backendName = 
+                match problem.Backend with
+                | Some b -> b.GetType().Name
+                | None -> "LocalSimulator"
             
-            // Cloud backend - use backend adapter
-            let shots = defaultArg problem.Shots 2048
+            // Execute HHL algorithm with backend
+            let! hhlResult = execute config backend
             
-            // Get gate count from circuit before execution
-            let gateCount = 
-                match HHLBackendAdapter.hhlToCircuit config with
-                | Error _ -> 0  // Fallback to 0 if circuit creation fails
-                | Ok circuit -> circuit.Gates.Length
-                
-            match HHLBackendAdapter.executeWithBackend config backend shots with
-            | Error msg -> Error (QuantumError.OperationError ("HHL algorithm execution", msg))
-            | Ok measurements ->
-                // Extract solution statistics
-                let solution = 
-                    HHLBackendAdapter.extractSolutionFromMeasurements
-                        measurements
-                        config.EigenvalueQubits
-                        config.SolutionQubits
-                        (config.EigenvalueQubits + config.SolutionQubits)
-                    
-                let successRate = 
-                    HHLBackendAdapter.calculateSuccessRate
-                        measurements
-                        (config.EigenvalueQubits + config.SolutionQubits)
-                    
-                Ok {
-                    SuccessProbability = successRate
-                    EstimatedEigenvalues = [||]  // Not available from measurements
-                    ConditionNumber = None
-                    GateCount = gateCount  // ✅ Now tracked from circuit
-                    PostSelectionSuccess = successRate > 0.0
-                    SolutionAmplitudes = None  // Use measurement statistics instead
-                    BackendName = backendName
-                    IsQuantum = isQuantum
-                    Success = true
-                    Message = $"HHL executed on {backendName} with {shots} shots, success rate: {successRate:F4}"
-                }
+            // Calculate condition number from estimated eigenvalues
+            let conditionNumber =
+                if hhlResult.EstimatedEigenvalues.Length > 0 then
+                    let nonZero = hhlResult.EstimatedEigenvalues |> Array.filter (fun x -> abs x > 1e-10)
+                    if nonZero.Length > 0 then
+                        let maxEig = nonZero |> Array.max
+                        let minEig = nonZero |> Array.min
+                        Some (maxEig / minEig)
+                    else
+                        None
+                else
+                    None
+            
+            let isQuantum = backendName.Contains("IonQ") || backendName.Contains("Rigetti") || backendName.Contains("Quantinuum")
+            
+            // Map HHL result to LinearSystemSolution
+            return {
+                SuccessProbability = hhlResult.SuccessProbability
+                EstimatedEigenvalues = hhlResult.EstimatedEigenvalues
+                ConditionNumber = conditionNumber
+                GateCount = hhlResult.GateCount
+                PostSelectionSuccess = hhlResult.PostSelectionSuccess
+                SolutionAmplitudes = hhlResult.SolutionAmplitudes
+                BackendName = backendName
+                IsQuantum = isQuantum
+                Success = hhlResult.PostSelectionSuccess
+                Message = 
+                    if hhlResult.PostSelectionSuccess then
+                        "HHL algorithm succeeded"
+                    else
+                        "HHL algorithm completed but post-selection was not successful"
+            }
+        }
     
     // ============================================================================
     // CONVENIENCE FUNCTIONS

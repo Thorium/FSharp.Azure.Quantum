@@ -83,12 +83,13 @@ module VQC =
         (shots: int) 
         : QuantumResult<float> =
         
-        // Wrap circuit for backend execution
-        let wrappedCircuit = CircuitWrapper(circuit) :> ICircuit
-        
-        // Execute circuit to get state
-        match backend.ExecuteToState wrappedCircuit with
-        | Ok state ->
+        quantumResult {
+            // Wrap circuit for backend execution
+            let wrappedCircuit = CircuitWrapper(circuit) :> ICircuit
+            
+            // Execute circuit to get state
+            let! state = backend.ExecuteToState wrappedCircuit
+            
             // Perform measurements on quantum state
             let measurements = QuantumState.measure state shots
             
@@ -102,8 +103,8 @@ module VQC =
             let totalShots = float shots
             let probability = onesCount / totalShots
             
-            Ok probability
-        | Error err -> Error err
+            return probability
+        }
     
     /// Build VQC circuit for a single sample
     let private buildVQCCircuit
@@ -299,10 +300,12 @@ module VQC =
                 if state.Epoch >= config.MaxEpochs || state.Converged then
                     Ok state
                 else
-                    // Compute current loss
-                    match computeLoss backend featureMap variationalForm state.Parameters trainFeatures trainLabels config.Shots with
-                    | Error e -> Error (QuantumError.ValidationError ("Input", $"Loss computation failed at epoch {state.Epoch}: {e}"))
-                    | Ok loss ->
+                    quantumResult {
+                        // Compute current loss
+                        let! loss = 
+                            computeLoss backend featureMap variationalForm state.Parameters trainFeatures trainLabels config.Shots
+                            |> Result.mapError (fun e -> QuantumError.ValidationError ("Input", $"Loss computation failed at epoch {state.Epoch}: {e}"))
+                        
                         let newLossHistory = loss :: state.LossHistory
                         
                         if config.Verbose then
@@ -324,43 +327,44 @@ module VQC =
                                 false
                         
                         if converged then
-                            trainLoop { state with LossHistory = newLossHistory; Converged = true }
+                            return! trainLoop { state with LossHistory = newLossHistory; Converged = true }
                         else
                             // Compute gradients
-                            match computeGradient backend featureMap variationalForm state.Parameters trainFeatures trainLabels config.Shots with
-                            | Error e -> Error (QuantumError.ValidationError ("Input", $"Gradient computation failed at epoch {state.Epoch}: {e}"))
-                            | Ok gradient ->
+                            let! gradient = 
+                                computeGradient backend featureMap variationalForm state.Parameters trainFeatures trainLabels config.Shots
+                                |> Result.mapError (fun e -> QuantumError.ValidationError ("Input", $"Gradient computation failed at epoch {state.Epoch}: {e}"))
+                            
+                            // Update parameters using selected optimizer
+                            match config.Optimizer, state.AdamState with
+                            | SGD, _ ->
+                                // Simple gradient descent
+                                let newParams = 
+                                    Array.map2 (fun p g -> p - config.LearningRate * g) state.Parameters gradient
                                 
-                                // Update parameters using selected optimizer
-                                match config.Optimizer, state.AdamState with
-                                | SGD, _ ->
-                                    // Simple gradient descent
-                                    let newParams = 
-                                        Array.map2 (fun p g -> p - config.LearningRate * g) state.Parameters gradient
-                                    
-                                    trainLoop { 
-                                        state with 
-                                            Parameters = newParams
-                                            LossHistory = newLossHistory
-                                            Epoch = state.Epoch + 1 
-                                    }
+                                return! trainLoop { 
+                                    state with 
+                                        Parameters = newParams
+                                        LossHistory = newLossHistory
+                                        Epoch = state.Epoch + 1 
+                                }
+                            
+                            | Adam adamConfig, Some adamState ->
+                                // Adam optimizer
+                                let! (newParams, newAdamState) = 
+                                    AdamOptimizer.update adamConfig adamState state.Parameters gradient
+                                    |> Result.mapError (fun e -> QuantumError.ValidationError ("Input", $"Adam optimizer failed at epoch {state.Epoch}: {e}"))
                                 
-                                | Adam adamConfig, Some adamState ->
-                                    // Adam optimizer
-                                    match AdamOptimizer.update adamConfig adamState state.Parameters gradient with
-                                    | Ok (newParams, newAdamState) ->
-                                        trainLoop {
-                                            state with
-                                                Parameters = newParams
-                                                LossHistory = newLossHistory
-                                                Epoch = state.Epoch + 1
-                                                AdamState = Some newAdamState
-                                        }
-                                    | Error e ->
-                                        Error (QuantumError.ValidationError ("Input", $"Adam optimizer failed at epoch {state.Epoch}: {e}"))
-                                
-                                | Adam _, None ->
-                                    Error (QuantumError.Other "Adam optimizer state not initialized")
+                                return! trainLoop {
+                                    state with
+                                        Parameters = newParams
+                                        LossHistory = newLossHistory
+                                        Epoch = state.Epoch + 1
+                                        AdamState = Some newAdamState
+                                }
+                            
+                            | Adam _, None ->
+                                return! Error (QuantumError.Other "Adam optimizer state not initialized")
+                    }
             
             // Start training
             let initialState = {

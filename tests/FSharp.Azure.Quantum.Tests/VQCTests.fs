@@ -8,6 +8,7 @@ open FSharp.Azure.Quantum.MachineLearning.VariationalForms
 open FSharp.Azure.Quantum.CircuitBuilder
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.Core.CircuitAbstraction
+open FSharp.Azure.Quantum.Backends
 
 /// Unit tests for Variational Quantum Classifier (VQC)
 ///
@@ -24,7 +25,7 @@ module VQCTests =
     // ========================================================================
     
     let createTestBackend () : IQuantumBackend =
-        LocalBackend() :> IQuantumBackend
+        LocalBackend.LocalBackend() :> IQuantumBackend
     
     // ========================================================================
     // HELPER FUNCTIONS
@@ -457,7 +458,7 @@ module VQCTests =
     
     [<Fact>]
     let ``train with Adam optimizer - should complete successfully`` () =
-        let backend = LocalBackend() :> IQuantumBackend
+        let backend = LocalBackend.LocalBackend() :> IQuantumBackend
         let featureMap = AngleEncoding
         let variationalForm = RealAmplitudes 1
         let (features, labels) = createSimpleDataset ()
@@ -482,7 +483,7 @@ module VQCTests =
     
     [<Fact>]
     let ``train with SGD vs Adam - both should converge`` () =
-        let backend = LocalBackend() :> IQuantumBackend
+        let backend = LocalBackend.LocalBackend() :> IQuantumBackend
         let featureMap = AngleEncoding
         let variationalForm = RealAmplitudes 1
         let (features, labels) = createSimpleDataset ()

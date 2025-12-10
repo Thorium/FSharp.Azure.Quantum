@@ -296,13 +296,27 @@ module FusionRules =
         let n = allParticles.Length
         
         // Build fusion tensor (fail fast on programming bugs with validated particles)
-        Ok (Array3D.init n n n (fun i j k ->
-            let a = allParticles.[i]
-            let b = allParticles.[j]
-            let c = allParticles.[k]
-            match multiplicity a b c anyonType with
-            | Ok m -> m
-            | Error err -> 
-                // PROGRAMMING BUG: allParticles() validated these particles
-                failwith $"PROGRAMMING BUG: multiplicity() failed for validated particles a={a}, b={b}, c={c}: {err.Message}"
-        ))
+        // Compute all multiplicities first to handle potential errors
+        let multiplicities =
+            [| for i in 0 .. n-1 do
+                for j in 0 .. n-1 do
+                    for k in 0 .. n-1 do
+                        let a = allParticles.[i]
+                        let b = allParticles.[j]
+                        let c = allParticles.[k]
+                        match multiplicity a b c anyonType with
+                        | Ok m -> Ok (i, j, k, m)
+                        | Error err -> Error err
+            |]
+        
+        // Check if any errors occurred
+        match multiplicities |> Array.tryPick (function Error e -> Some e | Ok _ -> None) with
+        | Some err -> Error err
+        | None ->
+            // All succeeded - build the 3D array
+            let tensor = Array3D.create n n n 0
+            multiplicities |> Array.iter (function 
+                | Ok (i, j, k, m) -> tensor.[i, j, k] <- m
+                | Error _ -> ()  // Already handled above
+            )
+            Ok tensor

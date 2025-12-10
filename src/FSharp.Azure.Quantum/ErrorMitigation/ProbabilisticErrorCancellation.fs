@@ -350,30 +350,30 @@ module ProbabilisticErrorCancellation =
                 
                     let correctedExpectation = sumCorrected / float config.Samples
                     
-                    // Step 4: Get uncorrected baseline (execute original noisy circuit)
+                    // Step 4: Get uncorrected baseline and compute result
                     let! uncorrectedResult = executor circuit
                     
-                    match uncorrectedResult with
-                    | Ok uncorrectedExpectation ->
-                        // Calculate error reduction
-                        let errorReduction = 
-                            if uncorrectedExpectation <> 0.0 then
-                                abs ((correctedExpectation - uncorrectedExpectation) / uncorrectedExpectation)
-                            else
-                                0.0
-                        
-                        // Calculate overhead (samples + 1 baseline execution)
-                        let overhead = float config.Samples
-                        
-                        return Ok {
-                            CorrectedExpectation = correctedExpectation
-                            UncorrectedExpectation = uncorrectedExpectation
-                            ErrorReduction = errorReduction
-                            SamplesUsed = config.Samples
-                            Overhead = overhead
-                        }
-                    | Error err ->
-                        return Error (sprintf "Baseline execution failed: %s" err)
+                    return
+                        uncorrectedResult
+                        |> Result.map (fun uncorrectedExpectation ->
+                            // Calculate error reduction
+                            let errorReduction = 
+                                if uncorrectedExpectation <> 0.0 then
+                                    abs ((correctedExpectation - uncorrectedExpectation) / uncorrectedExpectation)
+                                else
+                                    0.0
+                            
+                            // Calculate overhead (samples + 1 baseline execution)
+                            let overhead = float config.Samples
+                            
+                            {
+                                CorrectedExpectation = correctedExpectation
+                                UncorrectedExpectation = uncorrectedExpectation
+                                ErrorReduction = errorReduction
+                                SamplesUsed = config.Samples
+                                Overhead = overhead
+                            })
+                        |> Result.mapError (sprintf "Baseline execution failed: %s")
             with
             | ex -> return Error (sprintf "PEC pipeline error: %s" ex.Message)
         }

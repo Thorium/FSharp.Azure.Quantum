@@ -220,9 +220,17 @@ module Shor =
         (backend: IQuantumBackend)
         (state: QuantumState) : Result<QuantumState, QuantumError> =
         
-        // TODO: Implement full modular multiplication circuit
-        // For now, return error indicating feature not implemented
-        Error (QuantumError.NotImplemented ("Modular multiplication for Shor", Some "Use ShorsBackendAdapter for factoring larger numbers"))
+        // NOTE: Full modular multiplication circuit is not implemented in this educational version.
+        // Rationale: Implementing efficient modular multiplication requires advanced quantum circuit
+        // techniques (e.g., carry-save adders, modular reduction) that are beyond the scope of this
+        // educational implementation. For factoring larger numbers, use classical pre-processing or
+        // specialized quantum hardware with optimized modular arithmetic implementations.
+        //
+        // Recommended alternatives:
+        // 1. Use factor15() for the classic N=15 example (pre-computed period)
+        // 2. For larger numbers, implement classical modular exponentiation
+        // 3. For production use, await hardware with native modular arithmetic support
+        Error (QuantumError.NotImplemented ("Modular multiplication circuit", Some "This educational implementation is limited to small examples like factor15(). For larger factorizations, specialized quantum hardware with optimized modular arithmetic is required."))
     
     /// <summary>
     /// Controlled modular exponentiation: C-U^k|x⟩ = |a^k x mod N⟩ if control=1, else |x⟩.
@@ -384,10 +392,23 @@ module Shor =
         
         let n = config.NumberToFactor
         
+        // ========== CONFIGURATION VALIDATION ==========
+        
+        // Validate number range FIRST (before precision qubits check)
+        // This ensures N > 1000 error takes precedence over derived precision errors
+        if n > 1000 then
+            Error (QuantumError.ValidationError ("NumberToFactor", "must be ≤ 1000 for local simulation"))
+        
+        // Validate precision qubits
+        elif config.PrecisionQubits <= 0 then
+            Error (QuantumError.ValidationError ("PrecisionQubits", "must be positive"))
+        elif config.PrecisionQubits > 20 then
+            Error (QuantumError.ValidationError ("PrecisionQubits", "must be ≤ 20 for local simulation"))
+        
         // ========== CLASSICAL PRE-CHECKS ==========
         
         // Check if N < 4 (too small) - MUST CHECK FIRST before even/prime checks
-        if n < 4 then
+        elif n < 4 then
             let result = {
                 Number = n
                 Factors = None

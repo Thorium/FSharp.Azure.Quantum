@@ -155,17 +155,16 @@ module SVMModelSerialization =
                     let serializable = JsonSerializer.Deserialize<SerializableSVMModel>(json)
                     
                     return
-                        match serializableToFeatureMap serializable.FeatureMap with
-                        | Error e -> Error e
-                        | Ok featureMap ->
-                            Ok {
+                        serializableToFeatureMap serializable.FeatureMap
+                        |> Result.map (fun featureMap ->
+                            {
                                 SupportVectorIndices = serializable.SupportVectorIndices
                                 Alphas = serializable.Alphas
                                 Bias = serializable.Bias
                                 TrainData = serializable.TrainData
                                 TrainLabels = serializable.TrainLabels
                                 FeatureMap = featureMap
-                            }
+                            })
             with ex ->
                 return Error (QuantumError.ValidationError ("Input", $"Failed to load SVM model: {ex.Message}"))
         }
@@ -276,9 +275,8 @@ module SVMModelSerialization =
                     let binaryModelsResult =
                         serializable.BinaryModels
                         |> Array.map (fun bm ->
-                            match serializableToFeatureMap bm.FeatureMap with
-                            | Error e -> Error e
-                            | Ok featureMap ->
+                            serializableToFeatureMap bm.FeatureMap
+                            |> Result.map (fun featureMap ->
                                 let svmModel : QuantumKernelSVM.SVMModel = {
                                     SupportVectorIndices = bm.SupportVectorIndices
                                     Alphas = bm.Alphas
@@ -287,24 +285,21 @@ module SVMModelSerialization =
                                     TrainLabels = bm.TrainLabels
                                     FeatureMap = featureMap
                                 }
-                                Ok svmModel)
+                                svmModel))
                         |> Array.fold (fun state item ->
-                            match state, item with
-                            | Ok models, Ok model -> Ok (Array.append models [| model |])
-                            | Error e, _ -> Error e
-                            | _, Error e -> Error e
+                            Result.bind (fun models ->
+                                Result.map (fun model -> Array.append models [| model |]) item
+                            ) state
                         ) (Ok [||])
                 
                     return
-                        match binaryModelsResult with
-                        | Error e -> Error e
-                        | Ok binaryModels ->
-                            let multiClassModel : MultiClassSVM.MultiClassModel = {
+                        binaryModelsResult
+                        |> Result.map (fun binaryModels ->
+                            {
                                 BinaryModels = binaryModels
                                 ClassLabels = serializable.ClassLabels
                                 NumClasses = serializable.NumClasses
-                            }
-                            Ok multiClassModel
+                            })
             with ex ->
                 return Error (QuantumError.ValidationError ("Input", $"Failed to load multi-class SVM model: {ex.Message}"))
         }

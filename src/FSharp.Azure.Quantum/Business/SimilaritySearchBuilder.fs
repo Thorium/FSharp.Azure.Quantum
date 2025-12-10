@@ -226,9 +226,8 @@ module SimilaritySearch =
     
     /// Build similarity search index
     let build (problem: SearchProblem<'T>) : QuantumResult<SearchIndex<'T>> =
-        match validate problem with
-        | Error e -> Error e
-        | Ok () ->
+        validate problem
+        |> Result.bind (fun () ->
             
             let startTime = DateTime.UtcNow
             let numFeatures = snd problem.Items.[0] |> Array.length
@@ -286,7 +285,7 @@ module SimilaritySearch =
                 }
             }
             
-            Ok index
+            Ok index)
     
     // ========================================================================
     // SIMILARITY SEARCH

@@ -3,6 +3,7 @@ namespace FSharp.Azure.Quantum.Topological.Tests
 open Xunit
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.GroverSearch
+open FSharp.Azure.Quantum.Algorithms
 open FSharp.Azure.Quantum.Topological
 
 /// Tests for AlgorithmExtensions - Topological backend integration
@@ -23,7 +24,7 @@ module AlgorithmExtensionsTests =
         | Error err ->
             Assert.True(false, $"Oracle creation failed: {err}")
         | Ok oracle ->
-            let config = { Search.defaultConfig with Shots = 10; MaxIterations = Some 1 }
+            let config = { Grover.defaultConfig with Shots = 10; Iterations = Some 1 }
             
             // Act: Call searchWithTopology (integration test - may fail on unsupported gates)
             let result = AlgorithmExtensions.searchWithTopology oracle topoBackend config
@@ -44,7 +45,7 @@ module AlgorithmExtensionsTests =
     let ``AlgorithmExtensions - Empty target list rejected`` () =
         // Arrange: Create backend
         let topoBackend = TopologicalBackend.createSimulator AnyonSpecies.AnyonType.Ising 8
-        let config = Search.defaultConfig
+        let config = Grover.defaultConfig
         
         // Act: Try to search with empty target list
         let result = AlgorithmExtensions.searchMultipleWithTopology [] 4 topoBackend config
@@ -64,7 +65,7 @@ module AlgorithmExtensionsTests =
         // NOTE: This test is now obsolete - AlgorithmExtensions only supports Ising
         // Kept for backwards compatibility - will always use Ising adapter internally
         let topoBackend = TopologicalBackend.createSimulator AnyonSpecies.AnyonType.Fibonacci 8
-        let config = { Search.defaultConfig with Shots = 10; MaxIterations = Some 1 }
+        let config = { Grover.defaultConfig with Shots = 10; Iterations = Some 1 }
         
         // Act: Try to use Fibonacci anyons (will use Ising adapter anyway)
         let result = AlgorithmExtensions.searchSingleWithTopology 1 2 topoBackend config
@@ -81,7 +82,7 @@ module AlgorithmExtensionsTests =
     let ``AlgorithmExtensions - Adapter respects qubit count limits`` () =
         // Arrange: Create backend with strict qubit limit
         let topoBackend = TopologicalBackend.createSimulator AnyonSpecies.AnyonType.Ising 5  // Max 4 qubits (5 anyons)
-        let config = { Search.defaultConfig with Shots = 10 }
+        let config = { Grover.defaultConfig with Shots = 10 }
         
         // Act: Try to create circuit requiring 6 anyons (5 qubits)
         let result = AlgorithmExtensions.searchSingleWithTopology 1 5 topoBackend config
@@ -100,14 +101,14 @@ module AlgorithmExtensionsTests =
         // No execution - just type checking
         
         let topoBackend = TopologicalBackend.createSimulator AnyonSpecies.AnyonType.Ising 8
-        let config = Search.defaultConfig
+        let config = Grover.defaultConfig
         
         // Verify function signatures exist (compile-time test)
         // NOTE: Signatures updated - anyonType parameter removed (now implicit Ising)
-        let _ = AlgorithmExtensions.searchWithTopology : Oracle.CompiledOracle -> TopologicalBackend.ITopologicalBackend -> Search.SearchConfig -> QuantumResult<Search.SearchResult>
-        let _ = AlgorithmExtensions.searchSingleWithTopology : int -> int -> TopologicalBackend.ITopologicalBackend -> Search.SearchConfig -> QuantumResult<Search.SearchResult>
-        let _ = AlgorithmExtensions.searchMultipleWithTopology : int list -> int -> TopologicalBackend.ITopologicalBackend -> Search.SearchConfig -> QuantumResult<Search.SearchResult>
-        let _ = AlgorithmExtensions.searchWithPredicateTopology : (int -> bool) -> int -> TopologicalBackend.ITopologicalBackend -> Search.SearchConfig -> QuantumResult<Search.SearchResult>
+        let _ = AlgorithmExtensions.searchWithTopology : Oracle.CompiledOracle -> TopologicalBackend.ITopologicalBackend -> Grover.GroverConfig -> QuantumResult<Grover.GroverResult>
+        let _ = AlgorithmExtensions.searchSingleWithTopology : int -> int -> TopologicalBackend.ITopologicalBackend -> Grover.GroverConfig -> QuantumResult<Grover.GroverResult>
+        let _ = AlgorithmExtensions.searchMultipleWithTopology : int list -> int -> TopologicalBackend.ITopologicalBackend -> Grover.GroverConfig -> QuantumResult<Grover.GroverResult>
+        let _ = AlgorithmExtensions.searchWithPredicateTopology : (int -> bool) -> int -> TopologicalBackend.ITopologicalBackend -> Grover.GroverConfig -> QuantumResult<Grover.GroverResult>
         
         Assert.True(true, "All function signatures correct")
 

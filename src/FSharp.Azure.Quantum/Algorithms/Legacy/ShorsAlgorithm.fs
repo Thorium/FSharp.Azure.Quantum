@@ -20,7 +20,7 @@ module ShorsAlgorithm =
     open FSharp.Azure.Quantum.Algorithms.ShorsTypes
     
     open FSharp.Azure.Quantum.LocalSimulator
-    open FSharp.Azure.Quantum.Algorithms.QuantumPhaseEstimation
+    // Note: QPE not used in this legacy module (only classical helpers remain)
     
     // ========================================================================
     // CLASSICAL NUMBER THEORY HELPERS
@@ -64,25 +64,23 @@ module ShorsAlgorithm =
     // QUANTUM PERIOD-FINDING (CLASSICAL HELPERS ONLY)
     // ========================================================================
     
-    /// Modular multiplication operator: U|y⟩ = |ay mod N⟩
-    /// This is the unitary for which we find the period
-    type private ModularMultiplicationUnitary = {
-        Base: int      // a
-        Modulus: int   // N
-    }
+    // ========================================================================
+    // LEGACY CODE (UNUSED) - Moved to unified Algorithms.Shor module
+    // ========================================================================
     
-    /// Create unitary operator for modular exponentiation
-    /// U|x⟩ = |a^x mod N⟩
-    let private createModularExpUnitary a n : UnitaryOperator =
-        // For educational implementation, we use phase estimation on a^x
-        // In practice, this would be a complex quantum circuit implementing
-        // modular arithmetic. For simulation, we approximate with phase gates.
-        
-        // The period r is encoded as phase: U^r = I → e^(2πi·0) = 1
-        // So we need U such that U^r|ψ⟩ = e^(2πi·s/r)|ψ⟩ for eigenvalue s/r
-        
-        // Simplified: use custom phase that encodes period information
-        CustomUnitary (fun state -> state)  // Placeholder for full implementation
+    // /// Modular multiplication operator: U|y⟩ = |ay mod N⟩
+    // /// This is the unitary for which we find the period
+    // type private ModularMultiplicationUnitary = {
+    //     Base: int      // a
+    //     Modulus: int   // N
+    // }
+    
+    // /// Create unitary operator for modular exponentiation (UNUSED)
+    // /// U|x⟩ = |a^x mod N⟩
+    // /// NOTE: This function is unused - Shor's implementation moved to unified Algorithms.Shor module
+    // let private createModularExpUnitary a n : QuantumPhaseEstimation.UnitaryOperator =
+    //     // Placeholder - never actually called
+    //     QuantumPhaseEstimation.CustomUnitary (fun state -> state)
     
     /// Extract period from phase estimate and histogram
     /// This is called by ShorsBackendAdapter after executing the quantum circuit

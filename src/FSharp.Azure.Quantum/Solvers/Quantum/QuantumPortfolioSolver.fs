@@ -135,8 +135,6 @@ module QuantumPortfolioSolver =
             if numAssets = 0 then
                 Error (QuantumError.ValidationError ("numAssets", "Portfolio problem has no assets"))
             else
-                let mutable quboTerms = []
-                
                 // Penalty weight for constraint violations
                 let penaltyWeight = 
                     let maxReturn = problem.Assets |> List.map (fun a -> abs a.ExpectedReturn) |> List.max
@@ -147,16 +145,22 @@ module QuantumPortfolioSolver =
                 // Convert to minimization: Minimize -(Return - RiskAversion * Risk^2)
                 // ========================================================================
                 
-                for i in 0 .. numAssets - 1 do
-                    let asset = problem.Assets.[i]
-                    
-                    // Linear term: -return_i (negative because we're minimizing)
-                    let returnCoeff = -asset.ExpectedReturn
-                    quboTerms <- ((i, i), returnCoeff) :: quboTerms
-                    
-                    // Quadratic term: +risk_aversion * risk_i^2 (penalty for risk)
-                    let riskCoeff = problem.RiskAversion * asset.Risk * asset.Risk
-                    quboTerms <- ((i, i), riskCoeff) :: quboTerms
+                // Functional accumulation: collect objective terms
+                let objectiveTerms =
+                    [0 .. numAssets - 1]
+                    |> List.collect (fun i ->
+                        let asset = problem.Assets.[i]
+                        
+                        // Linear term: -return_i (negative because we're minimizing)
+                        let returnCoeff = -asset.ExpectedReturn
+                        let returnTerm = ((i, i), returnCoeff)
+                        
+                        // Quadratic term: +risk_aversion * risk_i^2 (penalty for risk)
+                        let riskCoeff = problem.RiskAversion * asset.Risk * asset.Risk
+                        let riskTerm = ((i, i), riskCoeff)
+                        
+                        [returnTerm; riskTerm]
+                    )
                 
                 // ========================================================================
                 // CONSTRAINT 1: Budget Constraint
@@ -197,8 +201,6 @@ module QuantumPortfolioSolver =
                         diagonalTerms @ offDiagonalTerms
                     )
                 
-                quboTerms <- budgetConstraintTerms @ quboTerms
-                
                 // ========================================================================
                 // CONSTRAINT 2: Diversification (soft constraint)
                 // Encourage selecting multiple assets (not just one)
@@ -212,15 +214,19 @@ module QuantumPortfolioSolver =
                         ((i, i), diversificationBonus)
                     )
                 
-                quboTerms <- diversificationTerms @ quboTerms
+                // ========================================================================
+                // Build QUBO Matrix: Combine all terms functionally
+                // ========================================================================
                 
-                // ========================================================================
-                // Build QUBO Matrix
-                // ========================================================================
+                // Functional aggregation: no mutable state
+                let allTerms = 
+                    objectiveTerms 
+                    @ budgetConstraintTerms 
+                    @ diversificationTerms
                 
                 // Aggregate terms with same indices (add coefficients)
                 let aggregatedTerms =
-                    quboTerms
+                    allTerms
                     |> List.groupBy fst
                     |> List.map (fun (key, terms) ->
                         let totalCoeff = terms |> List.sumBy snd
@@ -440,7 +446,7 @@ module QuantumPortfolioSolver =
                             
                             return Ok {
                                 bestSolution with
-                                    BackendName = "QuantumBackend"  // Backend name no longer available in interface
+                                    BackendName = backend.Name
                                     NumShots = config.NumShots
                                     ElapsedMs = elapsedMs
                             }

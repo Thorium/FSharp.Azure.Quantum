@@ -134,10 +134,10 @@ module QuantumKernels =
         elif x.Length = 0 then
             Error (QuantumError.Other "Feature vectors cannot be empty")
         else
-            match buildKernelCircuit featureMap x y with
-            | Error e -> Error e
-            | Ok circuit ->
-                measureKernelCircuit backend circuit shots
+            result {
+                let! circuit = buildKernelCircuit featureMap x y
+                return! measureKernelCircuit backend circuit shots
+            }
     
     // ========================================================================
     // KERNEL MATRIX COMPUTATION
@@ -256,10 +256,12 @@ module QuantumKernels =
                 |> Async.Parallel
                 |> Async.RunSynchronously
             
-            // Check for errors and build matrix
+            // Check for errors first
             match kernelEntries |> Array.tryFind (fun (i, j, result) -> Result.isError result) with
-            | Some (i, j, Error e) -> Error (QuantumError.ValidationError ("Input", $"Kernel computation failed at test[{i}], train[{j}]: {e}"))
+            | Some (i, j, Error e) -> 
+                Error (QuantumError.ValidationError ("Input", $"Kernel computation failed at test[{i}], train[{j}]: {e}"))
             | _ ->
+                // Build matrix from successful results
                 let kernelMatrix = Array2D.zeroCreate nTest nTrain
                 for (i, j, result) in kernelEntries do
                     match result with

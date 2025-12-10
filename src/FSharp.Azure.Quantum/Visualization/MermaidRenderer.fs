@@ -94,19 +94,27 @@ module MermaidRenderer =
                 // Multi-qubit gates
                 | CircuitBuilder.CCX (ctrl1, ctrl2, targ) ->
                     let qubits = [ctrl1; ctrl2; targ] |> List.sort
-                    let minQ = List.head qubits
-                    let maxQ = List.last qubits
-                    [ $"    Note over q{minQ},q{maxQ}: Toffoli (CCX)"
-                      $"    q{ctrl1}->>q{targ}: Control 1"
-                      $"    q{ctrl2}->>q{targ}: Control 2"
-                      $"    q{targ}->>q{targ}: X" ]
+                    // Safe: qubits list has exactly 3 elements
+                    match qubits with
+                    | minQ :: _ :: maxQ :: [] ->
+                        [ $"    Note over q{minQ},q{maxQ}: Toffoli (CCX)"
+                          $"    q{ctrl1}->>q{targ}: Control 1"
+                          $"    q{ctrl2}->>q{targ}: Control 2"
+                          $"    q{targ}->>q{targ}: X" ]
+                    | _ -> failwith "Internal error: CCX should have exactly 3 qubits"
                 | CircuitBuilder.MCZ (ctrls, targ) ->
                     let allQubits = targ :: ctrls |> List.sort
-                    let minQ = List.head allQubits
-                    let maxQ = List.last allQubits
-                    [ $"    Note over q{minQ},q{maxQ}: Multi-Controlled Z"
-                      yield! ctrls |> List.map (fun c -> $"    q{c}->>q{targ}: Control")
-                      $"    q{targ}->>q{targ}: Z" ]
+                    // Safe: Extract min and max with pattern matching
+                    match allQubits with
+                    | [] -> failwith "Internal error: MCZ should have at least 1 qubit"
+                    | [single] ->
+                        [ $"    Note over q{single}: Multi-Controlled Z"
+                          $"    q{single}->>q{single}: Z" ]
+                    | minQ :: rest ->
+                        let maxQ = List.last rest  // rest is non-empty (at least 1 element)
+                        [ $"    Note over q{minQ},q{maxQ}: Multi-Controlled Z"
+                          yield! ctrls |> List.map (fun c -> $"    q{c}->>q{targ}: Control")
+                          $"    q{targ}->>q{targ}: Z" ]
             
             | Barrier qubits ->
                 let qubitList = qubits |> List.map (fun q -> $"q{q}") |> String.concat ","
@@ -122,7 +130,12 @@ module MermaidRenderer =
             |> String.concat "\n"
     
     /// Mermaid flowchart for quantum circuit (data flow view)
-    /// TODO: Update to support all CircuitBuilder.Gate types
+    /// 
+    /// Supports all CircuitBuilder.Gate types including:
+    /// - Single-qubit gates: X, Y, Z, H, S, T, RX, RY, RZ, P, U3
+    /// - Two-qubit gates: CNOT, CZ, CP, CRX, CRY, CRZ, SWAP
+    /// - Multi-qubit gates: CCX (Toffoli), MCZ (multi-controlled Z)
+    /// - Measurement operations
     module Flowchart =
         
         type private NodeId = NodeId of int
@@ -157,7 +170,7 @@ module MermaidRenderer =
             | CircuitBuilder.CRY (_, _, a) -> $"CRY({a:F2})"
             | CircuitBuilder.CRZ (_, _, a) -> $"CRZ({a:F2})"
             | CircuitBuilder.SWAP _ -> "SWAP"
-            | CircuitBuilder.CCX _ -> "CCX"
+            | CircuitBuilder.CCX _ -> "CCX/Toffoli"
             | CircuitBuilder.MCZ _ -> "MCZ"
             | CircuitBuilder.Measure _ -> "Measure"
         
@@ -220,6 +233,108 @@ module MermaidRenderer =
                     
                     (nextId nextTargId, newStates, lines @ newLines)
                 
+                | CircuitBuilder.SWAP (q1, q2) ->
+                    let gateId = currentId
+                    let nextQ1Id = nextId gateId
+                    let nextQ2Id = nextId nextQ1Id
+                    
+                    let (NodeId prevQ1Id) = qubitStates.[q1]
+                    let (NodeId prevQ2Id) = qubitStates.[q2]
+                    let (NodeId gId) = gateId
+                    let (NodeId n1Id) = nextQ1Id
+                    let (NodeId n2Id) = nextQ2Id
+                    
+                    let newLines =
+                        [ $"    n{gId}[SWAP]"
+                          $"    n{prevQ1Id} --> n{gId}"
+                          $"    n{prevQ2Id} --> n{gId}"
+                          $"    n{gId} --> n{n1Id}"
+                          $"    n{gId} --> n{n2Id}" ]
+                    
+                    let newStates = 
+                        qubitStates 
+                        |> List.mapi (fun i s -> 
+                            if i = q1 then nextQ1Id
+                            elif i = q2 then nextQ2Id
+                            else s)
+                    
+                    (nextId nextQ2Id, newStates, lines @ newLines)
+                
+                | CircuitBuilder.CCX (ctrl1, ctrl2, targ) ->
+                    let ctrl1NodeId = currentId
+                    let ctrl2NodeId = nextId ctrl1NodeId
+                    let gateId = nextId ctrl2NodeId
+                    let nextCtrl1Id = nextId gateId
+                    let nextCtrl2Id = nextId nextCtrl1Id
+                    let nextTargId = nextId nextCtrl2Id
+                    
+                    let (NodeId prevCtrl1Id) = qubitStates.[ctrl1]
+                    let (NodeId prevCtrl2Id) = qubitStates.[ctrl2]
+                    let (NodeId prevTargId) = qubitStates.[targ]
+                    let (NodeId c1Id) = ctrl1NodeId
+                    let (NodeId c2Id) = ctrl2NodeId
+                    let (NodeId gId) = gateId
+                    let (NodeId nc1Id) = nextCtrl1Id
+                    let (NodeId nc2Id) = nextCtrl2Id
+                    let (NodeId ntId) = nextTargId
+                    
+                    let newLines =
+                        [ $"    n{c1Id}{{●}}"
+                          $"    n{c2Id}{{●}}"
+                          $"    n{gId}[CCX/Toffoli]"
+                          $"    n{prevCtrl1Id} --> n{c1Id}"
+                          $"    n{prevCtrl2Id} --> n{c2Id}"
+                          $"    n{c1Id} -.->|ctrl1| n{gId}"
+                          $"    n{c2Id} -.->|ctrl2| n{gId}"
+                          $"    n{prevTargId} --> n{gId}"
+                          $"    n{c1Id} --> n{nc1Id}"
+                          $"    n{c2Id} --> n{nc2Id}"
+                          $"    n{gId} --> n{ntId}" ]
+                    
+                    let newStates = 
+                        qubitStates 
+                        |> List.mapi (fun i s -> 
+                            if i = ctrl1 then nextCtrl1Id
+                            elif i = ctrl2 then nextCtrl2Id
+                            elif i = targ then nextTargId
+                            else s)
+                    
+                    (nextId nextTargId, newStates, lines @ newLines)
+                
+                | CircuitBuilder.MCZ (controls, target) ->
+                    // Multi-controlled Z: Simplified rendering (just show gate node)
+                    let gateId = currentId
+                    let nextGateId = nextId gateId
+                    
+                    let (NodeId gId) = gateId
+                    let (NodeId ngId) = nextGateId
+                    
+                    // Input lines from all qubits involved
+                    let inputLines =
+                        (controls @ [target])
+                        |> List.map (fun qubit ->
+                            let (NodeId prevId) = qubitStates.[qubit]
+                            $"    n{prevId} --> n{gId}"
+                        )
+                    
+                    let ctrlCount = controls.Length
+                    let gateLabel = if ctrlCount = 1 then "CZ" elif ctrlCount = 2 then "CCZ" else $"C{ctrlCount}Z"
+                    
+                    let newLines =
+                        [ $"    n{gId}[{gateLabel}]" ]
+                        @ inputLines
+                        @ [ $"    n{gId} --> n{ngId}" ]
+                    
+                    // All qubits get new state after gate
+                    let mczQubits = Set.ofList (controls @ [target])
+                    let newStates = 
+                        qubitStates 
+                        |> List.mapi (fun i s -> 
+                            if Set.contains i mczQubits then nextGateId
+                            else s)
+                    
+                    (nextId nextGateId, newStates, lines @ newLines)
+                
                 | CircuitBuilder.Measure qubit ->
                     let mId = currentId
                     let (NodeId prevId) = qubitStates.[qubit]
@@ -230,10 +345,6 @@ module MermaidRenderer =
                           $"    n{prevId} --> n{mIdVal}" ]
                     
                     (nextId mId, qubitStates, lines @ newLines)
-                
-                | _ ->
-                    // Skip gates not yet fully implemented (SWAP, CCX, MCZ)
-                    (currentId, qubitStates, lines)
             
             | Barrier _ ->
                 // Skip barriers in flowchart (doesn't affect data flow)

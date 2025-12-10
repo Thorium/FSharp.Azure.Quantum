@@ -2,8 +2,10 @@ namespace FSharp.Azure.Quantum
 
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.BackendAbstraction
+open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum.Algorithms
 open FSharp.Azure.Quantum.Algorithms.ShorsTypes
+open FSharp.Azure.Quantum.Algorithms.Shor
 
 /// High-level Quantum Period Finder Builder - Shor's Algorithm Period Finding
 /// 
@@ -242,7 +244,7 @@ module QuantumPeriodFinder =
     /// Executes:
     ///   1. Validate problem configuration
     ///   2. Create ShorsConfig from problem
-    ///   3. Execute Shor's algorithm via ShorsAlgorithm.execute
+    ///   3. Execute Shor's algorithm via Shor.execute
     ///   4. Map result to PeriodFinderResult
     /// 
     /// Example:
@@ -254,67 +256,58 @@ module QuantumPeriodFinder =
     ///   | Ok result -> printfn "Period: %d, Factors: %A" result.Period result.Factors
     ///   | Error err -> printfn "Error: %s" err.Message
     let solve (problem: PeriodFinderProblem) : Result<PeriodFinderResult, QuantumError> =
-        try
+        result {
             // Validate problem first
-            match validate problem with
-            | Error err -> Error err
-            | Ok () ->
-                
-                // Convert to ShorsConfig
-                let config = {
-                    NumberToFactor = problem.Number
-                    RandomBase = problem.Base
-                    PrecisionQubits = problem.Precision
-                    MaxAttempts = problem.MaxAttempts
-                }
-                
-                // Get backend (required by Rule 1)
-                let actualBackend = 
-                    match problem.Backend with
-                    | Some backend -> backend
-                    | None -> BackendAbstraction.LocalBackend() :> IQuantumBackend
-                
-                // Determine shots (default: 1000)
-                let shots = 1000
-                
-                // Execute Shor's algorithm with backend
-                match ShorsBackendAdapter.executeShorsWithBackend config actualBackend shots with
-                | Error err -> Error err
-                | Ok shorsResult ->
-                    
-                    // Determine backend name
-                    let backendName = 
-                        match problem.Backend with
-                        | Some backend -> backend.GetType().Name
-                        | None -> "LocalSimulator"
-                    
-                    // Calculate qubits used (precision + log₂(N))
-                    let qubitsUsed = 
-                        problem.Precision + int (ceil (log (float problem.Number) / log 2.0))
-                    
-                    // Extract period and phase from PeriodResult
-                    let (period, baseUsed, phaseEst, attempts) =
-                        match shorsResult.PeriodResult with
-                        | Some pr -> (pr.Period, pr.Base, pr.PhaseEstimate, pr.Attempts)
-                        | None -> 
-                            // Failed to find period - use defaults
-                            (0, problem.Base |> Option.defaultValue 2, 0.0, problem.MaxAttempts)
-                    
-                    Ok {
-                        Number = problem.Number
-                        Period = period
-                        Base = baseUsed
-                        Factors = shorsResult.Factors
-                        PhaseEstimate = phaseEst
-                        QubitsUsed = qubitsUsed
-                        Attempts = attempts
-                        Success = shorsResult.Success
-                        BackendName = backendName
-                        Message = shorsResult.Message
-                    }
-        
-        with
-        | ex -> Error (QuantumError.OperationError("Period finding", ex.Message))
+            do! validate problem
+            
+            // Convert to ShorsConfig
+            let config = {
+                NumberToFactor = problem.Number
+                RandomBase = problem.Base
+                PrecisionQubits = problem.Precision
+                MaxAttempts = problem.MaxAttempts
+            }
+            
+            // Get backend (required by Rule 1)
+            let actualBackend = 
+                match problem.Backend with
+                | Some backend -> backend
+                | None -> LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
+            
+            // Execute Shor's algorithm with backend
+            let! shorsResult = execute config actualBackend
+            
+            // Determine backend name
+            let backendName = 
+                match problem.Backend with
+                | Some backend -> backend.GetType().Name
+                | None -> "LocalSimulator"
+            
+            // Calculate qubits used (precision + log₂(N))
+            let qubitsUsed = 
+                problem.Precision + int (ceil (log (float problem.Number) / log 2.0))
+            
+            // Extract period and phase from PeriodResult
+            let (period, baseUsed, phaseEst, attempts) =
+                match shorsResult.PeriodResult with
+                | Some pr -> (pr.Period, pr.Base, pr.PhaseEstimate, pr.Attempts)
+                | None -> 
+                    // Failed to find period - use defaults
+                    (0, problem.Base |> Option.defaultValue 2, 0.0, problem.MaxAttempts)
+            
+            return {
+                Number = problem.Number
+                Period = period
+                Base = baseUsed
+                Factors = shorsResult.Factors
+                PhaseEstimate = phaseEst
+                QubitsUsed = qubitsUsed
+                Attempts = attempts
+                Success = shorsResult.Success
+                BackendName = backendName
+                Message = shorsResult.Message
+            }
+        }
     
     // ============================================================================
     // CONVENIENCE HELPERS

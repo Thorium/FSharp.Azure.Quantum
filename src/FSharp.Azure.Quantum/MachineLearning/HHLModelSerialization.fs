@@ -153,9 +153,8 @@ module HHLModelSerialization =
         (filePath: string)
         : QuantumResult<unit> =
         
-        match loadHHLModel filePath with
-        | Error e -> Error e
-        | Ok model ->
+        loadHHLModel filePath
+        |> Result.map (fun model ->
             printfn "=== HHL Regression Model Information ==="
             printfn "File: %s" filePath
             printfn "Saved at: %s" model.SavedAt
@@ -171,5 +170,4 @@ module HHLModelSerialization =
             match model.Note with
             | Some note -> printfn "Note: %s" note
             | None -> ()
-            printfn "========================================"
-            Ok ()
+            printfn "========================================")

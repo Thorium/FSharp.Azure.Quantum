@@ -30,6 +30,7 @@ open System
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.QuantumTreeSearch
 open FSharp.Azure.Quantum.Core.BackendAbstraction
+open FSharp.Azure.Quantum.Backends.LocalBackend
 
 // ============================================================================
 // BACKEND CONFIGURATION

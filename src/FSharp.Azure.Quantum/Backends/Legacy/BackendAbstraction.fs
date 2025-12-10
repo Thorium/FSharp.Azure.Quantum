@@ -885,12 +885,14 @@ module BackendAbstraction =
     /// and provider discovery.
     type AzureQuantumSdkBackendWrapper(workspace: FSharp.Azure.Quantum.Backends.AzureQuantumWorkspace.QuantumWorkspace, targetId: string) =
         let mutable cancellationToken : System.Threading.CancellationToken option = None
+        let lockObj = obj()  // Thread-safety for cancellation token
         
         /// Poll for job completion with exponential backoff and cancellation support
         let rec pollForCompletion (job: Microsoft.Azure.Quantum.CloudJob) (maxAttempts: int) (currentAttempt: int) (delayMs: int) : Async<QuantumResult<unit>> =
             async {
-                // Check cancellation
-                match cancellationToken with
+                // Check cancellation (thread-safe read)
+                let ct = lock lockObj (fun () -> cancellationToken)
+                match ct with
                 | Some token when token.IsCancellationRequested ->
                     return Error (QuantumError.Other "Job polling cancelled by user")
                 | _ ->
@@ -971,8 +973,9 @@ module BackendAbstraction =
         member private _.ExecuteAsyncCore (circuit: ICircuit) (numShots: int) : Async<Result<ExecutionResult, QuantumError>> =
             async {
                 try
-                    // Check cancellation before starting
-                    match cancellationToken with
+                    // Check cancellation before starting (thread-safe read)
+                    let ct = lock lockObj (fun () -> cancellationToken)
+                    match ct with
                     | Some token when token.IsCancellationRequested ->
                         return Error (QuantumError.OperationError("Circuit execution", "Operation cancelled before execution"))
                     | _ ->
@@ -1078,7 +1081,7 @@ module BackendAbstraction =
         
         interface IQuantumBackend with
             member _.SetCancellationToken (token: System.Threading.CancellationToken option) : unit =
-                cancellationToken <- token
+                lock lockObj (fun () -> cancellationToken <- token)  // Thread-safe write
             
             member this.ExecuteAsync (circuit: ICircuit) (numShots: int) : Async<Result<ExecutionResult, QuantumError>> =
                 this.ExecuteAsyncCore circuit numShots

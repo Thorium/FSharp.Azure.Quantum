@@ -140,8 +140,6 @@ module QuantumNetworkFlowSolver =
             if numVars = 0 then
                 Error (QuantumError.ValidationError ("numEdges", "Network flow problem has no edges"))
             else
-                let mutable quboTerms = []
-                
                 // Penalty weight for constraint violations using Lucas Rule
                 let penaltyWeight = 
                     let maxCost = problem.Edges |> List.map (fun e -> e.Weight) |> List.max
@@ -152,12 +150,13 @@ module QuantumNetworkFlowSolver =
                 // OBJECTIVE: Minimize total transport cost
                 // ========================================================================
                 
-                // Linear terms: cost_e * x_e → diagonal Q[i,i] = cost_e
-                for edge in problem.Edges do
-                    match Map.tryFind (edge.Source, edge.Target) edgeIndexMap with
-                    | Some edgeIdx ->
-                        quboTerms <- ((edgeIdx, edgeIdx), edge.Weight) :: quboTerms
-                    | None -> ()
+                // Functional accumulation: Linear terms: cost_e * x_e → diagonal Q[i,i] = cost_e
+                let objectiveTerms =
+                    problem.Edges
+                    |> List.choose (fun edge ->
+                        Map.tryFind (edge.Source, edge.Target) edgeIndexMap
+                        |> Option.map (fun edgeIdx -> ((edgeIdx, edgeIdx), edge.Weight))
+                    )
                 
                 // ========================================================================
                 // CONSTRAINT 1: Flow Conservation (intermediate nodes)
@@ -165,41 +164,46 @@ module QuantumNetworkFlowSolver =
                 // Penalty: (Σ x_in - Σ x_out)^2
                 // ========================================================================
                 
-                for node in problem.IntermediateNodes do
-                    // Find incoming edges
-                    let incomingEdges = 
-                        problem.Edges 
-                        |> List.filter (fun e -> e.Target = node)
-                        |> List.choose (fun e -> Map.tryFind (e.Source, e.Target) edgeIndexMap)
-                    
-                    // Find outgoing edges
-                    let outgoingEdges = 
-                        problem.Edges 
-                        |> List.filter (fun e -> e.Source = node)
-                        |> List.choose (fun e -> Map.tryFind (e.Source, e.Target) edgeIndexMap)
-                    
-                    // Add penalty terms for (inflow - outflow)^2
-                    // Expansion: (Σ x_in)^2 - 2*(Σ x_in)*(Σ x_out) + (Σ x_out)^2
-                    
-                    // (Σ x_in)^2 terms
-                    for i in incomingEdges do
-                        for j in incomingEdges do
-                            let coeff = if i = j then penaltyWeight else 2.0 * penaltyWeight
-                            let (vi, vj) = if i <= j then (i, j) else (j, i)
-                            quboTerms <- ((vi, vj), coeff) :: quboTerms
-                    
-                    // -2*(Σ x_in)*(Σ x_out) terms
-                    for i in incomingEdges do
-                        for j in outgoingEdges do
-                            let (vi, vj) = if i <= j then (i, j) else (j, i)
-                            quboTerms <- ((vi, vj), -2.0 * penaltyWeight) :: quboTerms
-                    
-                    // (Σ x_out)^2 terms
-                    for i in outgoingEdges do
-                        for j in outgoingEdges do
-                            let coeff = if i = j then penaltyWeight else 2.0 * penaltyWeight
-                            let (vi, vj) = if i <= j then (i, j) else (j, i)
-                            quboTerms <- ((vi, vj), coeff) :: quboTerms
+                let flowConservationTerms =
+                    problem.IntermediateNodes
+                    |> List.collect (fun node ->
+                        // Find incoming edges
+                        let incomingEdges = 
+                            problem.Edges 
+                            |> List.filter (fun e -> e.Target = node)
+                            |> List.choose (fun e -> Map.tryFind (e.Source, e.Target) edgeIndexMap)
+                        
+                        // Find outgoing edges
+                        let outgoingEdges = 
+                            problem.Edges 
+                            |> List.filter (fun e -> e.Source = node)
+                            |> List.choose (fun e -> Map.tryFind (e.Source, e.Target) edgeIndexMap)
+                        
+                        // Functional collection: penalty terms for (inflow - outflow)^2
+                        // Expansion: (Σ x_in)^2 - 2*(Σ x_in)*(Σ x_out) + (Σ x_out)^2
+                        
+                        let incomingSquared =
+                            [ for i in incomingEdges do
+                                for j in incomingEdges do
+                                    let coeff = if i = j then penaltyWeight else 2.0 * penaltyWeight
+                                    let (vi, vj) = if i <= j then (i, j) else (j, i)
+                                    ((vi, vj), coeff) ]
+                        
+                        let crossTerms =
+                            [ for i in incomingEdges do
+                                for j in outgoingEdges do
+                                    let (vi, vj) = if i <= j then (i, j) else (j, i)
+                                    ((vi, vj), -2.0 * penaltyWeight) ]
+                        
+                        let outgoingSquared =
+                            [ for i in outgoingEdges do
+                                for j in outgoingEdges do
+                                    let coeff = if i = j then penaltyWeight else 2.0 * penaltyWeight
+                                    let (vi, vj) = if i <= j then (i, j) else (j, i)
+                                    ((vi, vj), coeff) ]
+                        
+                        incomingSquared @ crossTerms @ outgoingSquared
+                    )
                 
                 // ========================================================================
                 // CONSTRAINT 2: Demand Satisfaction (sink nodes)
@@ -207,27 +211,33 @@ module QuantumNetworkFlowSolver =
                 // Simplified: Just ensure at least one incoming edge is selected
                 // ========================================================================
                 
-                for sink in problem.Sinks do
-                    let demand = Map.tryFind sink problem.Demands |> Option.defaultValue 1
-                    
-                    // Find incoming edges to this sink
-                    let incomingEdges = 
-                        problem.Edges 
-                        |> List.filter (fun e -> e.Target = sink)
-                        |> List.choose (fun e -> Map.tryFind (e.Source, e.Target) edgeIndexMap)
-                    
-                    // Penalty if no incoming edges selected: (1 - Σ x_in)^2
-                    // For simplicity, encourage at least one edge with negative bias
-                    for i in incomingEdges do
-                        quboTerms <- ((i, i), -0.5 * penaltyWeight) :: quboTerms
+                let sinkDemandTerms =
+                    problem.Sinks
+                    |> List.collect (fun sink ->
+                        let demand = Map.tryFind sink problem.Demands |> Option.defaultValue 1
+                        
+                        // Find incoming edges to this sink
+                        let incomingEdges = 
+                            problem.Edges 
+                            |> List.filter (fun e -> e.Target = sink)
+                            |> List.choose (fun e -> Map.tryFind (e.Source, e.Target) edgeIndexMap)
+                        
+                        // Penalty if no incoming edges selected: (1 - Σ x_in)^2
+                        // For simplicity, encourage at least one edge with negative bias
+                        incomingEdges
+                        |> List.map (fun i -> ((i, i), -0.5 * penaltyWeight))
+                    )
                 
                 // ========================================================================
                 // Build QUBO Matrix
                 // ========================================================================
                 
+                // Combine all terms functionally
+                let allQuboTerms = objectiveTerms @ flowConservationTerms @ sinkDemandTerms
+                
                 // Aggregate terms with same indices (add coefficients)
                 let aggregatedTerms =
-                    quboTerms
+                    allQuboTerms
                     |> List.groupBy fst
                     |> List.map (fun (key, terms) ->
                         let totalCoeff = terms |> List.sumBy snd

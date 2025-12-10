@@ -238,13 +238,11 @@ module AnomalyDetector =
     let saveDetector (detector: Detector) (path: string) : QuantumResult<unit> =
         try
             // First save the SVM model to get serializable format
-            match ModelSerialization.saveSVMModel path detector.Model detector.NumQubits detector.Metadata.Note with
-            | Error e -> Error e
-            | Ok () ->
+            ModelSerialization.saveSVMModel path detector.Model detector.NumQubits detector.Metadata.Note
+            |> Result.bind (fun () ->
                 // Load it back to get SerializableSVMModel
-                match ModelSerialization.loadSVMModel path with
-                | Error e -> Error e
-                | Ok svmSerialized ->
+                ModelSerialization.loadSVMModel path
+                |> Result.map (fun svmSerialized ->
                     // Wrap with detector-specific metadata
                     let detectorData = {
                         SVMModel = svmSerialized
@@ -262,8 +260,7 @@ module AnomalyDetector =
                     
                     let options = JsonSerializerOptions(WriteIndented = true)
                     let json = JsonSerializer.Serialize(detectorData, options)
-                    File.WriteAllText(path, json)
-                    Ok ()
+                    File.WriteAllText(path, json)))
         with ex ->
             Error (QuantumError.ValidationError ("Input", $"Failed to save detector: {ex.Message}"))
     
@@ -277,9 +274,8 @@ module AnomalyDetector =
                 let detectorData = JsonSerializer.Deserialize<SerializableDetector>(json)
                 
                 // Reconstruct SVM model
-                match ModelSerialization.reconstructSVMModel detectorData.SVMModel with
-                | Error e -> Error e
-                | Ok svmModel ->
+                ModelSerialization.reconstructSVMModel detectorData.SVMModel
+                |> Result.map (fun svmModel ->
                     let sensitivity =
                         match detectorData.Sensitivity with
                         | "Low" -> Low
@@ -288,7 +284,7 @@ module AnomalyDetector =
                         | "VeryHigh" -> VeryHigh
                         | _ -> Medium
                     
-                    Ok {
+                    {
                         Model = svmModel
                         Metadata = {
                             Sensitivity = sensitivity
@@ -301,7 +297,7 @@ module AnomalyDetector =
                         FeatureMap = svmModel.FeatureMap
                         NumQubits = detectorData.SVMModel.NumQubits
                         Threshold = detectorData.Threshold
-                    }
+                    })
         with ex ->
             Error (QuantumError.ValidationError ("Input", $"Failed to load detector: {ex.Message}"))
     
@@ -311,9 +307,8 @@ module AnomalyDetector =
     
     /// Train anomaly detector using one-class quantum kernel SVM
     let train (problem: DetectionProblem) : QuantumResult<Detector> =
-        match validate problem with
-        | Error e -> Error e
-        | Ok () ->
+        validate problem
+        |> Result.bind (fun () ->
             
             let startTime = DateTime.UtcNow
             let numFeatures = problem.NormalData.[0].Length
@@ -349,9 +344,9 @@ module AnomalyDetector =
                 printfn "  Features: %d" numFeatures
                 printfn "  Sensitivity: %A (nu=%.3f)" problem.Sensitivity nu
             
-            match QuantumKernelSVM.train backend featureMap problem.NormalData labels svmConfig problem.Shots with
-            | Error e -> Error (QuantumError.ValidationError ("Input", $"Training failed: {e}"))
-            | Ok model ->
+            QuantumKernelSVM.train backend featureMap problem.NormalData labels svmConfig problem.Shots
+            |> Result.mapError (fun e -> QuantumError.ValidationError ("Input", $"Training failed: {e}"))
+            |> Result.map (fun model ->
                 
                 let endTime = DateTime.UtcNow
                 
@@ -376,18 +371,18 @@ module AnomalyDetector =
                 // Save if requested
                 match problem.SavePath with
                 | None -> 
-                    Ok detector
+                    ()
                 | Some path ->
                     match saveDetector detector path with
                     | Ok () ->
                         if problem.Verbose then
                             printfn "✅ Detector saved to: %s" path
-                        Ok detector
                     | Error msg ->
                         if problem.Verbose then
                             printfn "⚠️  Warning: Failed to save detector: %s" msg.Message
                         // Don't fail the entire training just because save failed
-                        Ok detector
+                
+                detector))
     
     // ========================================================================
     // DETECTION
@@ -403,9 +398,8 @@ module AnomalyDetector =
         
         // Use SVM decision value as anomaly score
         // Positive = normal, Negative = anomaly
-        match QuantumKernelSVM.predict backend detector.Model sample shots with
-        | Error e -> Error e
-        | Ok prediction ->
+        QuantumKernelSVM.predict backend detector.Model sample shots
+        |> Result.map (fun prediction ->
             
             // For one-class SVM:
             // prediction.Label = 1 means "normal" (inside boundary)
@@ -421,24 +415,23 @@ module AnomalyDetector =
                     // Anomaly - high anomaly score
                     1.0 / (1.0 + exp(-abs(prediction.DecisionValue)))
             
-            Ok score
+            score)
     
     /// Check if sample is anomalous
     let check (sample: float array) (detector: Detector) : QuantumResult<AnomalyResult> =
         let backend = LocalBackend.LocalBackend() :> IQuantumBackend
         
-        match computeAnomalyScore backend detector sample 1000 with
-        | Error e -> Error e
-        | Ok score ->
+        computeAnomalyScore backend detector sample 1000
+        |> Result.map (fun score ->
             
             let isAnomaly = score > detector.Threshold
             
-            Ok {
+            {
                 IsAnomaly = isAnomaly
                 IsNormal = not isAnomaly
                 AnomalyScore = score
                 Confidence = abs (score - detector.Threshold) / (1.0 - detector.Threshold)
-            }
+            })
     
     /// Check multiple samples
     let checkBatch 

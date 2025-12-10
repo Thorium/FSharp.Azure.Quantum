@@ -32,8 +32,7 @@ open FSharp.Azure.Quantum.Core
 module QuantumArithmetic =
     
     open FSharp.Azure.Quantum.CircuitBuilder
-    open FSharp.Azure.Quantum.Algorithms.QuantumFourierTransform
-    open FSharp.Azure.Quantum.Algorithms.QFTBackendAdapter
+    // Note: Uses local QFTConfig type definition (compatible with legacy QuantumFourierTransform)
     
     // ========================================================================
     // UTILITY FUNCTIONS
@@ -83,6 +82,59 @@ module QuantumArithmetic =
     let private intToBinary (n: int) (width: int) : int list =
         [0 .. width - 1]
         |> List.map (fun i -> (n >>> i) &&& 1)
+    
+    // ========================================================================
+    // QUANTUM FOURIER TRANSFORM CIRCUIT BUILDER
+    // ========================================================================
+    
+    /// Local QFT configuration type (legacy compatibility)
+    type private QFTConfig = {
+        NumQubits: int
+        ApplySwaps: bool
+        Inverse: bool
+    }
+    
+    /// Build QFT circuit from config
+    /// Returns Result<Circuit, QuantumError> for consistency with algorithm APIs
+    let private qftToCircuit (config: QFTConfig) : Result<Circuit, QuantumError> =
+        // Build QFT circuit manually
+        let n = config.NumQubits
+        let mutable circuit = empty n
+        
+        // Forward QFT
+        if not config.Inverse then
+            // For each qubit
+            for i in 0 .. n - 1 do
+                // Apply Hadamard
+                circuit <- addGate (H i) circuit
+                
+                // Apply controlled rotations
+                for j in (i + 1) .. (n - 1) do
+                    let k = j - i
+                    let angle = Math.PI / (2.0 ** float k)
+                    circuit <- addGate (CP (j, i, angle)) circuit
+            
+            // Bit-reversal SWAPs
+            if config.ApplySwaps then
+                for i in 0 .. (n / 2 - 1) do
+                    circuit <- addGate (SWAP (i, n - 1 - i)) circuit
+        else
+            // Inverse QFT (reverse order)
+            // Bit-reversal SWAPs
+            if config.ApplySwaps then
+                for i in (n / 2 - 1) .. -1 .. 0 do
+                    circuit <- addGate (SWAP (i, n - 1 - i)) circuit
+            
+            // Reverse controlled rotations and Hadamards
+            for i in (n - 1) .. -1 .. 0 do
+                for j in (n - 1) .. -1 .. (i + 1) do
+                    let k = j - i
+                    let angle = -Math.PI / (2.0 ** float k)  // Negative angle for inverse
+                    circuit <- addGate (CP (j, i, angle)) circuit
+                
+                circuit <- addGate (H i) circuit
+        
+        Ok circuit
     
     // ========================================================================
     // QUANTUM FOURIER TRANSFORM ADDER (Draper)

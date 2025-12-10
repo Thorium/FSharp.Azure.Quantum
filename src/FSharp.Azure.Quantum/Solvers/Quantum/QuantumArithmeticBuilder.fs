@@ -268,7 +268,7 @@ module QuantumArithmeticOps =
                 // Use provided backend or create LocalBackend for simulation
                 let actualBackend = 
                     operation.Backend 
-                    |> Option.defaultValue (BackendAbstraction.createLocalBackend())
+                    |> Option.defaultValue (Backends.LocalBackend.LocalBackend() :> Core.BackendAbstraction.IQuantumBackend)
                 
                 // ========================================================================
                 // ⚠️ MVP IMPLEMENTATION - CLASSICAL SIMULATION

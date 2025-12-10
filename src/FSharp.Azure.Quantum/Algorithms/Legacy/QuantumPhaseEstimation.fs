@@ -26,7 +26,7 @@ open System.Numerics
 module QuantumPhaseEstimation =
     
     open FSharp.Azure.Quantum.LocalSimulator
-    open FSharp.Azure.Quantum.Algorithms.QuantumFourierTransform
+    // Note: QFT not used in this legacy implementation (builds inverse QFT manually)
     
     // ========================================================================
     // TYPES - QPE configuration and results

@@ -379,6 +379,55 @@ module TopologicalOperations =
         
         $"Superposition ({superposition.Terms.Length} terms):\n{terms}\nNormalized: {isNormalized superposition}"
     
+    /// Measure all anyons in a superposition and return computational basis outcomes
+    /// 
+    /// This collapses the quantum superposition by sampling from the probability
+    /// distribution of amplitudes. Each measurement produces a classical bitstring.
+    /// 
+    /// Parameters:
+    ///   superposition - Quantum superposition of fusion tree states
+    ///   shots - Number of measurement samples to take
+    /// 
+    /// Returns:
+    ///   Array of bitstrings (int[][]), each representing one measurement outcome
+    /// 
+    /// Algorithm:
+    ///   1. Calculate probabilities from amplitudes: P_i = |α_i|²
+    ///   2. Sample from probability distribution (shots times)
+    ///   3. Convert sampled fusion tree to computational basis bitstring
+    let measureAll (superposition: Superposition) (shots: int) : int[][] =
+        // Normalize superposition to ensure valid probability distribution
+        let normalized = normalize superposition
+        
+        // Calculate cumulative probability distribution for sampling
+        let probabilities = 
+            normalized.Terms
+            |> List.map (fun (amp, _) -> probability amp)
+        
+        let cumulativeProbs = 
+            probabilities
+            |> List.scan (+) 0.0
+            |> List.tail  // Remove initial 0.0
+        
+        // Random number generator for sampling
+        let rng = System.Random()
+        
+        // Sample function: Given a random value [0,1), return the corresponding term index
+        let sample (r: float) : int =
+            cumulativeProbs
+            |> List.findIndex (fun cumProb -> r <= cumProb)
+        
+        // Perform measurements
+        [| for _ in 1 .. shots do
+            let r = rng.NextDouble()
+            let termIndex = sample r
+            let (_, state) = normalized.Terms.[termIndex]
+            
+            // Convert fusion tree to computational basis bitstring
+            let bits = FusionTree.toComputationalBasis state.Tree
+            yield List.toArray bits
+        |]
+    
     // ========================================================================
     // QUANTUM STATE INTEROP (for UnifiedQuantumState)
     // ========================================================================

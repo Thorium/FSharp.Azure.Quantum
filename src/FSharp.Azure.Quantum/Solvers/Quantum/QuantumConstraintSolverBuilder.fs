@@ -1,6 +1,8 @@
 namespace FSharp.Azure.Quantum
 
 open FSharp.Azure.Quantum.Core
+open FSharp.Azure.Quantum.Algorithms
+open FSharp.Azure.Quantum.Backends
 
 /// High-level Quantum Constraint Solver Builder - Quantum-First API
 /// 
@@ -251,7 +253,7 @@ module QuantumConstraintSolver =
                 // Use provided backend or create LocalBackend for simulation
                 let actualBackend = 
                     problem.Backend 
-                    |> Option.defaultValue (BackendAbstraction.createLocalBackend())
+                    |> Option.defaultValue (Backends.LocalBackend.LocalBackend() :> Core.BackendAbstraction.IQuantumBackend)
                 
                 // Calculate qubits needed
                 let qubitsNeeded = int (ceil (log (float problem.SearchSpaceSize) / log 2.0))
@@ -279,69 +281,57 @@ module QuantumConstraintSolver =
                         problem.Constraints
                         |> List.forall (fun constraintFunc -> constraintFunc assignment)
                 
-                // Create oracle for Grover search
-                let oracleResult = GroverSearch.Oracle.fromPredicate combinedPredicate qubitsNeeded
-                match oracleResult with
-                | Error msg -> Error (QuantumError.OperationError ("OracleCreation", $"Failed to create oracle: {msg}"))
-                | Ok oracle ->
+                // Create oracle for Grover search using new API
+                result {
+                    let! oracle = GroverSearch.Oracle.fromPredicate combinedPredicate qubitsNeeded
                     
-                    // Calculate optimal iterations
-                    let numSolutions = 1  // Assume we want to find one solution
-                    let iterationsResult = GroverSearch.GroverIteration.optimalIterations problem.SearchSpaceSize numSolutions
-                    match iterationsResult with
-                    | Error msg -> Error (QuantumError.OperationError ("IterationCalculation", $"Failed to calculate iterations: {msg}"))
-                    | Ok calculatedIters ->
+                    // Create Grover config with optional iterations
+                    let groverConfig = {
+                        GroverSearch.Grover.defaultConfig with
+                            Iterations = problem.MaxIterations
+                            Shots = problem.Shots
+                            SolutionThreshold = 0.05  // 5% for LocalBackend reliability
+                    }
+                    
+                    // Execute Grover search using new unified API
+                    let! searchResult = GroverSearch.Grover.search oracle actualBackend groverConfig
+                    
+                    match searchResult.Solutions with
+                    | [] -> return! Error (QuantumError.OperationError ("GroverSearch", "No solution found by quantum search"))
+                    | bestSolution :: _ ->
                         
-                        let iterations = 
-                            match problem.MaxIterations with
-                            | Some maxIters -> min calculatedIters maxIters
-                            | None -> calculatedIters
+                        // Decode solution to assignment
+                        // Use the same decoding logic as in combinedPredicate
+                        let domainSize = List.length problem.Domain
+                        let assignment = 
+                            [0 .. problem.SearchSpaceSize - 1]
+                            |> List.map (fun varIdx ->
+                                // Calculate which domain value this variable should have
+                                let quotient = bestSolution / (pown domainSize varIdx)
+                                let domainIdx = quotient % domainSize
+                                (varIdx, problem.Domain.[domainIdx])
+                            )
+                            |> Map.ofList
                         
-                        // Execute Grover search
-                        // Use lower thresholds for LocalBackend (produces uniform noise)
-                        // 5% solution threshold works reliably with LocalBackend
-                        let solutionThreshold = 0.05  // 5% (down from 10%)
-                        let successThreshold = 0.10   // 10% (down from 50%)
-                        match GroverSearch.BackendAdapter.executeGroverWithBackend oracle actualBackend iterations problem.Shots solutionThreshold successThreshold with
-                        | Error msg -> Error (QuantumError.OperationError ("GroverSearch", $"Grover search failed: {msg}"))
-                        | Ok searchResult ->
-                            
-                            if List.isEmpty searchResult.Solutions then
-                                Error (QuantumError.OperationError ("GroverSearch", "No solution found by quantum search"))
-                            else
-                                let bestSolution = List.head searchResult.Solutions
-                                
-                                // Decode solution to assignment
-                                // Use the same decoding logic as in combinedPredicate
-                                let domainSize = List.length problem.Domain
-                                let assignment = 
-                                    [0 .. problem.SearchSpaceSize - 1]
-                                    |> List.map (fun varIdx ->
-                                        // Calculate which domain value this variable should have
-                                        let quotient = bestSolution / (pown domainSize varIdx)
-                                        let domainIdx = quotient % domainSize
-                                        (varIdx, problem.Domain.[domainIdx])
-                                    )
-                                    |> Map.ofList
-                                
-                                // Verify all constraints
-                                let allSatisfied = 
-                                    problem.Constraints
-                                    |> List.forall (fun constraintFunc -> constraintFunc assignment)
-                                
-                                let backendName = 
-                                    match problem.Backend with
-                                    | Some backend -> backend.GetType().Name
-                                    | None -> "LocalBackend (Simulation)"
-                                
-                                Ok {
-                                    Assignment = assignment
-                                    SuccessProbability = searchResult.SuccessProbability
-                                    AllConstraintsSatisfied = allSatisfied
-                                    BackendName = backendName
-                                    QubitsRequired = qubitsNeeded
-                                    IterationsUsed = iterations
-                                }
+                        // Verify all constraints
+                        let allSatisfied = 
+                            problem.Constraints
+                            |> List.forall (fun constraintFunc -> constraintFunc assignment)
+                        
+                        let backendName = 
+                            match problem.Backend with
+                            | Some backend -> backend.GetType().Name
+                            | None -> "LocalBackend (Simulation)"
+                        
+                        return {
+                            Assignment = assignment
+                            SuccessProbability = searchResult.SuccessProbability
+                            AllConstraintsSatisfied = allSatisfied
+                            BackendName = backendName
+                            QubitsRequired = qubitsNeeded
+                            IterationsUsed = searchResult.Iterations
+                        }
+                }
         with
         | ex -> Error (QuantumError.OperationError ("ConstraintSolver", $"Constraint solver failed: {ex.Message}"))
     

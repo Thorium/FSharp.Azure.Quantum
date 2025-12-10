@@ -324,19 +324,16 @@ module QuantumKernelSVM =
                 if config.Verbose then
                     printfn "Computing quantum kernel matrix..."
                 
-                // Compute kernel matrix
-                match QuantumKernels.computeKernelMatrix backend featureMap trainData shots with
-                | Error e -> Error (QuantumError.ValidationError ("Input", $"Kernel matrix computation failed: {e}"))
-                | Ok kernelMatrix ->
-                    
+                // Compute kernel matrix and train SVM
+                QuantumKernels.computeKernelMatrix backend featureMap trainData shots
+                |> Result.mapError (fun e -> QuantumError.ValidationError ("Input", $"Kernel matrix computation failed: {e}"))
+                |> Result.bind (fun kernelMatrix ->
                     if config.Verbose then
                         printfn "Training SVM with SMO algorithm..."
                     
                     // Train SVM using SMO
-                    match trainSMO kernelMatrix trainLabels config with
-                    | Error e -> Error e
-                    | Ok (alphas, bias) ->
-                        
+                    trainSMO kernelMatrix trainLabels config
+                    |> Result.map (fun (alphas, bias) ->
                         // Extract support vectors (alpha > threshold)
                         let supportVectorIndices =
                             alphas
@@ -348,14 +345,14 @@ module QuantumKernelSVM =
                             supportVectorIndices
                             |> Array.map (fun i -> alphas.[i])
                         
-                        Ok {
+                        {
                             SupportVectorIndices = supportVectorIndices
                             Alphas = supportVectorAlphas
                             Bias = bias
                             TrainData = trainData
                             TrainLabels = trainLabels
                             FeatureMap = featureMap
-                        }
+                        }))
     
     // ========================================================================
     // PREDICTION

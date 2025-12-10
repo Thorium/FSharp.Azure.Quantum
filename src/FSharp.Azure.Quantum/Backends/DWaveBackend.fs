@@ -146,13 +146,30 @@ module DWaveBackend =
     ///   let backend = MockDWaveBackend(Advantage_System6_1, seed = Some 42)
     ///   let result = backend.Execute(qaoaCircuit, 1000)
     type MockDWaveBackend(solver: DWaveSolver, ?seed: int) =
-        let mutable cancellationToken : System.Threading.CancellationToken option = None
         
         let solverName = getSolverName solver
         let maxQubits = getMaxQubits solver
         
-        /// Core execution logic (shared by Execute and ExecuteAsync)
-        member private _.ExecuteCore (circuit: ICircuit) (numShots: int) : Result<ExecutionResult, QuantumError> =
+        /// Backend name
+        member _.Name = $"Mock D-Wave {solverName}"
+        
+        /// Maximum number of qubits supported by this solver
+        member _.MaxQubits = maxQubits
+        
+        /// Solver type
+        member _.Solver = solver
+        
+        /// Execute a QAOA circuit using D-Wave annealing backend
+        ///
+        /// Parameters:
+        /// - circuit: QAOA circuit wrapped in QaoaCircuitWrapper
+        /// - numShots: Number of annealing runs
+        ///
+        /// Returns: Result<ExecutionResult, QuantumError>
+        ///
+        /// Note: This is the PUBLIC API for D-Wave backend execution.
+        /// D-Wave backends do NOT implement IQuantumBackend (annealing ≠ gate-based).
+        member _.Execute (circuit: ICircuit) (numShots: int) : Result<ExecutionResult, QuantumError> =
             // Step 0: Validate numShots parameter
             if numShots <= 0 then
                 Error (QuantumError.ValidationError ("numShots", $"must be > 0, got {numShots}"))
@@ -206,10 +223,49 @@ module DWaveBackend =
                                 Metadata = metadata
                             }
         
-        // Note: DWaveBackend does NOT implement IQuantumBackend interface
-        // D-Wave annealing backends are fundamentally different from gate-based backends
-        // They work with QUBO/Ising problems, not quantum circuits/states
-        // Use ExecuteCore method directly or via QuboExtraction module
+        // ====================================================================
+        // IQuantumBackend interface implementation
+        // ====================================================================
+        
+        interface BackendAbstraction.IQuantumBackend with
+            member _.Name = "D-Wave (Mock)"
+            
+            /// Execute circuit and return quantum state (annealing samples)
+            member this.ExecuteToState (circuit: ICircuit) : Result<QuantumState, QuantumError> =
+                // Execute to get measurements
+                match this.Execute circuit 1 with
+                | Error e -> Error e
+                | Ok execResult ->
+                    // Extract Ising problem and solutions
+                    match extractFromICircuit circuit with
+                    | Error e -> Error (QuantumError.ValidationError ("QUBO extraction", e))
+                    | Ok qubo ->
+                        let ising = quboToIsing qubo
+                        let solutions = MockSimulatedAnnealing.solve ising 1 seed
+                        
+                        // Return as IsingSamples state
+                        Ok (QuantumState.IsingSamples (box ising, box solutions))
+            
+            /// Get backend's native state type (Annealing)
+            member _.NativeStateType = QuantumStateType.Annealing
+            
+            /// Initialize quantum state (annealing backends start from classical input)
+            member _.InitializeState (numQubits: int) : Result<QuantumState, QuantumError> =
+                // Create empty Ising problem
+                let emptyIsing : IsingProblem = { 
+                    LinearCoeffs = Map.empty
+                    QuadraticCoeffs = Map.empty
+                    Offset = 0.0 
+                }
+                Ok (QuantumState.IsingSamples (box emptyIsing, box []))
+            
+            /// Apply operation to state (not supported for annealing)
+            member _.ApplyOperation (operation: BackendAbstraction.QuantumOperation) (state: QuantumState) : Result<QuantumState, QuantumError> =
+                Error (QuantumError.OperationError ("ApplyOperation", "D-Wave annealing backend only supports full circuit execution"))
+            
+            /// Check if operation is supported (only QAOA circuits)
+            member _.SupportsOperation (operation: BackendAbstraction.QuantumOperation) : bool =
+                false  // Annealing backends don't support incremental operations
     
     // ============================================================================
     // HELPER FUNCTIONS FOR BACKEND CREATION

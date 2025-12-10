@@ -27,6 +27,7 @@
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.QuantumConstraintSolver
 open FSharp.Azure.Quantum.Core.BackendAbstraction
+open FSharp.Azure.Quantum.Backends.LocalBackend
 
 // ============================================================================
 // BACKEND CONFIGURATION

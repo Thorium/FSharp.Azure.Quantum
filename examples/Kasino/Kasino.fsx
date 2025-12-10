@@ -152,8 +152,8 @@ let findOptimalCapture (handCard: Card) (tableCards: Card list) (strategy: strin
         printfn ""
         Some captureResult
 
-    | Error msg ->
-        printfn "❌ Solver error: %s" msg
+    | Error err ->
+        printfn "❌ Solver error: %s" err.Message
         printfn ""
         None
 

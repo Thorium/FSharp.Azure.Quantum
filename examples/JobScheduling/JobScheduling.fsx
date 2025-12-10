@@ -31,6 +31,7 @@
 open System
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.TaskScheduling  // For types
+open FSharp.Azure.Quantum.Backends.LocalBackend
 
 // ==============================================================================
 // DOMAIN MODEL - Job Scheduling Types
@@ -121,9 +122,7 @@ printfn "      For large problems (100+ tasks), use Azure Quantum with IonQ/Quan
 printfn ""
 
 // Initialize quantum backend
-let backend = 
-    FSharp.Azure.Quantum.Core.BackendAbstraction.LocalBackend() 
-    :> FSharp.Azure.Quantum.Core.BackendAbstraction.IQuantumBackend
+let backend = LocalBackend() :> FSharp.Azure.Quantum.Core.BackendAbstraction.IQuantumBackend
 
 printfn "Running quantum optimization (QUBO encoding + QAOA)..."
 printfn "- Encoding scheduling problem as QUBO matrix"

@@ -228,9 +228,9 @@ module BinaryClassifier =
         let numParams = AnsatzHelpers.parameterCount variationalForm numQubits
         let initialParams = Array.init numParams (fun _ -> Random().NextDouble() * 2.0 * Math.PI)
         
-        match VQC.train backend featureMap variationalForm initialParams features labels trainConfig with
-        | Error e -> Error (QuantumError.ValidationError ("Input", $"VQC training failed: {e}"))
-        | Ok result ->
+        VQC.train backend featureMap variationalForm initialParams features labels trainConfig
+        |> Result.mapError (fun e -> QuantumError.ValidationError ("Input", $"VQC training failed: {e}"))
+        |> Result.map (fun result ->
             
             let endTime = DateTime.UtcNow
             
@@ -261,7 +261,7 @@ module BinaryClassifier =
                 | Error e -> printfn "Warning: Failed to save model: %s" e.Message
                 | Ok () -> ()
             
-            Ok classifier
+            classifier)
     
     /// Train hybrid quantum-classical classifier
     let private trainHybrid
@@ -285,9 +285,9 @@ module BinaryClassifier =
             Verbose = config.Verbose
         }
         
-        match QuantumKernelSVM.train backend featureMap features labels svmConfig config.Shots with
-        | Error e -> Error (QuantumError.ValidationError ("Input", $"Hybrid training failed: {e}"))
-        | Ok model ->
+        QuantumKernelSVM.train backend featureMap features labels svmConfig config.Shots
+        |> Result.mapError (fun e -> QuantumError.ValidationError ("Input", $"Hybrid training failed: {e}"))
+        |> Result.map (fun model ->
             
             let endTime = DateTime.UtcNow
             
@@ -300,7 +300,7 @@ module BinaryClassifier =
             let correct = Array.zip predictions labels |> Array.filter (fun (p, l) -> p = l) |> Array.length
             let accuracy = float correct / float labels.Length
             
-            let classifier = {
+            {
                 Model = SVMModel (model, numQubits)
                 Metadata = {
                     Architecture = Hybrid
@@ -311,15 +311,12 @@ module BinaryClassifier =
                     CreatedAt = startTime
                     Note = config.Note
                 }
-            }
-            
-            Ok classifier
+            })
     
     /// Train classifier based on architecture choice
     let train (problem: ClassificationProblem) : QuantumResult<Classifier> =
-        match validate problem with
-        | Error e -> Error e
-        | Ok () ->
+        validate problem
+        |> Result.bind (fun () ->
             
             let backend = 
                 match problem.Backend with
@@ -330,7 +327,7 @@ module BinaryClassifier =
             match problem.Architecture with
             | Quantum -> trainQuantum backend problem.TrainFeatures problem.TrainLabels problem
             | Hybrid -> trainHybrid backend problem.TrainFeatures problem.TrainLabels problem
-            | Classical -> Error (QuantumError.NotImplemented ("Classical architecture", None))
+            | Classical -> Error (QuantumError.NotImplemented ("Classical architecture", None)))
     
     // ========================================================================
     // PREDICTION
@@ -341,30 +338,28 @@ module BinaryClassifier =
         match classifier.Model with
         | VQCModel (result, featureMap, varForm, numQubits) ->
             let backend = LocalBackend.LocalBackend() :> IQuantumBackend
-            match VQC.predict backend featureMap varForm result.Parameters sample 1000 with
-            | Error e -> Error e
-            | Ok vqcPred ->
-                Ok {
+            VQC.predict backend featureMap varForm result.Parameters sample 1000
+            |> Result.map (fun vqcPred ->
+                {
                     Label = vqcPred.Label
                     Confidence = vqcPred.Probability
                     IsPositive = vqcPred.Label = 1
                     IsNegative = vqcPred.Label = 0
-                }
+                })
         
         | SVMModel (model, storedNumQubits) ->
             let backend = LocalBackend.LocalBackend() :> IQuantumBackend
             let featureMap = FeatureMapType.ZZFeatureMap 2
-            match QuantumKernelSVM.predict backend model sample 1000 with
-            | Error e -> Error e
-            | Ok prediction ->
+            QuantumKernelSVM.predict backend model sample 1000
+            |> Result.map (fun prediction ->
                 // Convert decision value to confidence (sigmoid-like transformation)
                 let confidence = 1.0 / (1.0 + exp(-abs(prediction.DecisionValue)))
-                Ok {
+                {
                     Label = prediction.Label
                     Confidence = confidence
                     IsPositive = prediction.Label = 1
                     IsNegative = prediction.Label = 0
-                }
+                })
         
         | ClassicalModel _ ->
             Error (QuantumError.Other "Classical model prediction not implemented")
@@ -440,13 +435,12 @@ module BinaryClassifier =
             // Check if it's an SVM model (has SupportVectorIndices field)
             if json.Contains("\"SupportVectorIndices\"") then
                 // Load as SVM
-                match ModelSerialization.loadSVMModel path with
-                | Error e -> Error (QuantumError.ValidationError ("Input", $"Failed to load SVM model: {e}"))
-                | Ok serialized ->
-                    match ModelSerialization.reconstructSVMModel serialized with
-                    | Error e -> Error e
-                    | Ok svmModel ->
-                        Ok {
+                ModelSerialization.loadSVMModel path
+                |> Result.mapError (fun e -> QuantumError.ValidationError ("Input", $"Failed to load SVM model: {e}"))
+                |> Result.bind (fun serialized ->
+                    ModelSerialization.reconstructSVMModel serialized
+                    |> Result.map (fun svmModel ->
+                        {
                             Model = SVMModel (svmModel, serialized.NumQubits)
                             Metadata = {
                                 Architecture = Hybrid
@@ -457,12 +451,11 @@ module BinaryClassifier =
                                 CreatedAt = DateTime.UtcNow
                                 Note = serialized.Note
                             }
-                        }
+                        }))
             else
                 // Load as VQC model
-                match ModelSerialization.loadForTransferLearning path with
-                | Error e -> Error e
-                | Ok (parameters, (numQubits, fmType, fmDepth, vfType, vfDepth)) ->
+                ModelSerialization.loadForTransferLearning path
+                |> Result.map (fun (parameters, (numQubits, fmType, fmDepth, vfType, vfDepth)) ->
                     // Reconstruct VQC model
                     let featureMap = 
                         match fmType with
@@ -482,7 +475,7 @@ module BinaryClassifier =
                         Converged = true
                     }
                     
-                    Ok {
+                    {
                         Model = VQCModel (result, featureMap, varForm, numQubits)
                         Metadata = {
                             Architecture = Quantum
@@ -493,7 +486,7 @@ module BinaryClassifier =
                             CreatedAt = DateTime.UtcNow
                             Note = None
                         }
-                    }
+                    })
         with ex ->
             Error (QuantumError.ValidationError ("Input", $"Failed to load model: {ex.Message}"))
     

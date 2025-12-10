@@ -260,11 +260,10 @@ module ZeroNoiseExtrapolation =
                             
                             // Extract expectation value
                             return 
-                                match executionResult with
-                                | Ok expectation -> 
+                                executionResult
+                                |> Result.map (fun expectation ->
                                     let noiseLevel = getNoiseLevel noiseScaling
-                                    Ok (noiseLevel, expectation)
-                                | Error err -> Error err
+                                    (noiseLevel, expectation))
                         })
                     |> Async.Parallel
                 

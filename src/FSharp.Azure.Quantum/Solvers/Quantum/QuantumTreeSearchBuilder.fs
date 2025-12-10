@@ -320,7 +320,7 @@ module QuantumTreeSearch =
                 // Use provided backend or create LocalBackend for simulation
                 let actualBackend = 
                     problem.Backend 
-                    |> Option.defaultValue (BackendAbstraction.createLocalBackend())
+                    |> Option.defaultValue (Backends.LocalBackend.LocalBackend() :> Core.BackendAbstraction.IQuantumBackend)
                 
                 // Create TreeSearchConfig for the underlying algorithm
                 let config : GroverSearch.TreeSearch.TreeSearchConfig<'T> = {

@@ -79,11 +79,56 @@ module TopologicalUnifiedBackend =
                 // Conversion failed - propagate error
                 Error $"Failed to convert FusionSuperposition to StateVector for measurement sampling (got {stateVector.GetType().Name})"
         
+        /// Measure all qubits in FusionSuperposition state
+        /// 
+        /// Directly samples from topological superposition without conversion to StateVector.
+        /// Uses TopologicalOperations.measureAll for native topological measurement.
+        /// 
+        /// Parameters:
+        ///   state - QuantumState in FusionSuperposition form
+        ///   shots - Number of measurement samples
+        /// 
+        /// Returns:
+        ///   Array of bitstrings (int[][])
+        let measureFusionState (state: QuantumState) (shots: int) : int[][] =
+            match state with
+            | QuantumState.FusionSuperposition (fs, _) ->
+                let superposition = fs :?> TopologicalOperations.Superposition
+                TopologicalOperations.measureAll superposition shots
+            | _ ->
+                failwith $"Expected FusionSuperposition, got {state.GetType().Name}"
+        
+        /// Calculate probability of measuring specific bitstring in FusionSuperposition state
+        /// 
+        /// Parameters:
+        ///   bitstring - Target bitstring [|b0; b1; ...; bn-1|]
+        ///   state - QuantumState in FusionSuperposition form
+        /// 
+        /// Returns:
+        ///   Probability ∈ [0, 1]
+        let probabilityFusionState (bitstring: int[]) (state: QuantumState) : float =
+            match state with
+            | QuantumState.FusionSuperposition (fs, _) ->
+                let superposition = fs :?> TopologicalOperations.Superposition
+                let normalized = TopologicalOperations.normalize superposition
+                
+                // Find all terms matching target bitstring and sum their probabilities
+                normalized.Terms
+                |> List.filter (fun (_, fusionState) ->
+                    let bits = FusionTree.toComputationalBasis fusionState.Tree |> List.toArray
+                    bits = bitstring
+                )
+                |> List.sumBy (fun (amp, _) -> TopologicalOperations.probability amp)
+            | _ ->
+                failwith $"Expected FusionSuperposition, got {state.GetType().Name}"
+        
         // ====================================================================
         // IQuantumBackend Implementation
         // ====================================================================
         
         interface IQuantumBackend with
+            member _.Name = sprintf "Topological (%A)" anyonType
+            
             member this.ExecuteToState (circuit: ICircuit) : Result<QuantumState, QuantumError> =
                 // Convert gate-based circuit to operations and apply sequentially
                 match box circuit with

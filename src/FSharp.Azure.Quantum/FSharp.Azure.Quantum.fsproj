@@ -134,11 +134,15 @@
     
     <!-- Unified Backend Algorithms (depends on CircuitBuilder, UnifiedBackendAbstraction, LocalBackend) -->
     <Compile Include="Algorithms\Grover.fs" />
+    <Compile Include="Algorithms\TreeSearch.fs" /> <!-- ✅ Unified TreeSearch using Grover.search -->
     <Compile Include="Algorithms\QFT.fs" />
     <Compile Include="Algorithms\QPE.fs" />
     <Compile Include="Algorithms\Shor.fs" />
     <Compile Include="Algorithms\HHLTypes.fs" />
     <Compile Include="Algorithms\HHL.fs" />
+    
+    <!-- Unified Quantum Arithmetic (state-based, works with IQuantumBackend) -->
+    <Compile Include="Algorithms\QuantumArithmetic.fs" /> <!-- ✅ FIXED: Uses existing QFT module instead of recursive inline implementation -->
 
     <!-- QAOA Algorithm (depends on QaoaCircuit, CircuitAbstraction, QaoaOptimizer) -->
     <Compile Include="Algorithms\QRNG.fs" />
@@ -163,7 +167,7 @@
     <Compile Include="Algorithms\MottonenStatePreparation.fs" />
     
     <!-- Quantum Arithmetic Circuits - Moved to Legacy -->
-    <!-- <Compile Include="Algorithms\Legacy\QuantumArithmetic.fs" /> --> <!-- Legacy: depends on removed adapters -->
+    <Compile Include="Algorithms\Legacy\QuantumArithmetic.fs" /> <!-- ✅ Fixed: qftToCircuit inline, no adapter needed -->
     
     <!-- QPE Backend Extension - Legacy adapters removed -->
     <!-- <Compile Include="Algorithms\QPEBackendAdapter.fs" /> --> <!-- Removed: adapter pattern eliminated -->
@@ -184,13 +188,13 @@
     <Compile Include="Solvers\Quantum\QuantumMaxCutSolver.fs" /> <!-- ✅ Converted to ExecuteToState -->
     <Compile Include="Solvers\Quantum\QuantumKnapsackSolver.fs" /> <!-- ✅ Converted to ExecuteToState -->
     <Compile Include="Solvers\Quantum\QuantumGraphColoringSolver.fs" /> <!-- ✅ Converted to ExecuteToState -->
-    <!-- <Compile Include="Solvers\Quantum\QuantumTreeSearchBuilder.fs" /> --> <!-- TODO: Convert to ExecuteToState -->
-    <!-- <Compile Include="Solvers\Quantum\QuantumConstraintSolverBuilder.fs" /> --> <!-- TODO: Convert to ExecuteToState -->
-    <!-- <Compile Include="Solvers\Quantum\QuantumPatternMatcherBuilder.fs" /> --> <!-- TODO: Convert to ExecuteToState -->
-    <!-- <Compile Include="Solvers\Quantum\QuantumArithmeticBuilder.fs" /> --> <!-- TODO: Fix createLocalBackend usage -->
-    <!-- <Compile Include="Solvers\Quantum\QuantumPeriodFinderBuilder.fs" /> --> <!-- TODO: Depends on removed ShorsBackendAdapter -->
-    <!-- <Compile Include="Solvers\Quantum\QuantumPhaseEstimatorBuilder.fs" /> --> <!-- TODO: Fix LocalBackend usage -->
-    <!-- <Compile Include="Solvers\Quantum\QuantumLinearSystemSolverBuilder.fs" /> --> <!-- TODO: Depends on removed HHLBackendAdapter -->
+    <Compile Include="Solvers\Quantum\QuantumArithmeticBuilder.fs" /> <!-- ✅ Fixed createLocalBackend usage -->
+    <Compile Include="Solvers\Quantum\QuantumConstraintSolverBuilder.fs" /> <!-- ✅ Rewritten for new Grover.Oracle API -->
+    <Compile Include="Solvers\Quantum\QuantumPatternMatcherBuilder.fs" /> <!-- ✅ Rewritten for new Grover.Oracle API -->
+    <Compile Include="Solvers\Quantum\QuantumTreeSearchBuilder.fs" /> <!-- ✅ Uses new unified TreeSearch module -->
+    <Compile Include="Solvers\Quantum\QuantumPeriodFinderBuilder.fs" /> <!-- ✅ Rewritten for new Shor.execute API -->
+    <Compile Include="Solvers\Quantum\QuantumPhaseEstimatorBuilder.fs" /> <!-- ✅ Rewritten for new QPE API -->
+    <Compile Include="Solvers\Quantum\QuantumLinearSystemSolverBuilder.fs" /> <!-- ✅ Rewritten for new HHL.execute API -->
     <!-- <Compile Include="Solvers\Quantum\QuantumChemistry.fs" /> --> <!-- TODO: Depends on removed QPEBackendAdapter -->
 
     <!-- Hybrid Solvers - Temporarily disabled due to quantum solver dependencies -->
@@ -223,6 +227,7 @@
     <Compile Include="Visualization\Types.fs" />
     <Compile Include="Visualization\ASCIIRenderer.fs" />
     <Compile Include="Visualization\MermaidRenderer.fs" />
+    <Compile Include="Visualization\CircuitExtensions.fs" />
     <!-- <Compile Include="Visualization\SolutionExtensions.fs" /> --> <!-- TODO: Depends on excluded GraphColoring -->
     
     <!-- Quantum Machine Learning (depends on CircuitBuilder, BackendAbstraction) -->
@@ -241,9 +246,9 @@
     <!-- <Compile Include="MachineLearning\HHLModelSerialization.fs" /> --> <!-- TODO: Depends on QuantumRegressionHHL -->
     
     <!-- Business-First ML Builders - Temporarily disabled -->
-    <Compile Include="Business\BinaryClassificationBuilder.fs" /> <!-- TODO: Fix LocalBackend usage -->
-    <Compile Include="Business\AnomalyDetectionBuilder.fs" /> <!-- TODO: Fix LocalBackend usage -->
-    <Compile Include="Business\SimilaritySearchBuilder.fs" /> <!-- TODO: Fix LocalBackend usage -->
+    <Compile Include="Business\BinaryClassificationBuilder.fs" /> <!-- ✅ LocalBackend usage correct -->
+    <Compile Include="Business\AnomalyDetectionBuilder.fs" /> <!-- ✅ LocalBackend usage correct -->
+    <Compile Include="Business\SimilaritySearchBuilder.fs" /> <!-- ✅ LocalBackend usage correct -->
     <!-- <Compile Include="Business\PredictiveModelBuilder.fs" /> --> <!-- TODO: Fix LocalBackend usage -->
     <!-- <Compile Include="Business\AutoMLBuilder.fs" /> --> <!-- Depends on PredictiveModelBuilder -->
     

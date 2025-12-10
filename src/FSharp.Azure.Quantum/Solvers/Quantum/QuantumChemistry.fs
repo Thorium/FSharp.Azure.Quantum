@@ -214,46 +214,48 @@ module MolecularInput =
                     if lines.Length < 3 then
                         return Error (QuantumError.ValidationError("XYZFile", "XYZ file must have at least 3 lines (count, title, and atoms)"))
                     else
-                        // Parse atom count
-                        match System.Int32.TryParse(lines[0].Trim()) with
-                        | false, _ -> return Error (QuantumError.ValidationError("XYZFile", "First line must be atom count"))
-                        | true, atomCount ->
-                        
-                        if atomCount < 1 then
-                            return Error (QuantumError.ValidationError("AtomCount", "Atom count must be positive"))
-                        elif lines.Length < 2 + atomCount then
-                            return Error (QuantumError.ValidationError("XYZFile", $"File has {lines.Length} lines but needs {2 + atomCount} for {atomCount} atoms"))
-                        else
-                            let name = lines[1].Trim()
-                            
-                            // Parse atoms
-                            let atomsResult =
-                                lines[2 .. 1 + atomCount]
-                                |> Array.mapi (fun i line ->
-                                    let parts = line.Split([| ' '; '\t' |], System.StringSplitOptions.RemoveEmptyEntries)
-                                    if parts.Length < 4 then
-                                        Error (QuantumError.ValidationError("XYZLine", $"Line {i + 3}: Expected 'Element X Y Z', got '{line}'"))
+                        // Parse atom count and build molecule using result CE
+                        return!
+                            result {
+                                let! atomCount =
+                                    match System.Int32.TryParse(lines[0].Trim()) with
+                                    | false, _ -> Error (QuantumError.ValidationError("XYZFile", "First line must be atom count"))
+                                    | true, count -> Ok count
+                                
+                                do! if atomCount < 1 then
+                                        Error (QuantumError.ValidationError("AtomCount", "Atom count must be positive"))
+                                    elif lines.Length < 2 + atomCount then
+                                        Error (QuantumError.ValidationError("XYZFile", $"File has {lines.Length} lines but needs {2 + atomCount} for {atomCount} atoms"))
                                     else
-                                        let element = parts[0].Trim()
-                                        match System.Double.TryParse(parts[1]), 
-                                              System.Double.TryParse(parts[2]), 
-                                              System.Double.TryParse(parts[3]) with
-                                        | (true, x), (true, y), (true, z) ->
-                                            Ok { Element = element; Position = (x, y, z) }
-                                        | _ ->
-                                            Error (QuantumError.ValidationError("XYZLine", $"Line {i + 3}: Could not parse coordinates from '{line}'"))
-                                )
-                                |> Array.fold (fun acc result ->
-                                    match acc, result with
-                                    | Error e, _ -> Error e
-                                    | _, Error e -> Error e
-                                    | Ok atoms, Ok atom -> Ok (atom :: atoms)
-                                ) (Ok [])
-                                |> Result.map List.rev
-                            
-                            match atomsResult with
-                            | Error e -> return Error e
-                            | Ok atoms ->
+                                        Ok ()
+                                
+                                let name = lines[1].Trim()
+                                
+                                // Parse atoms
+                                let! atoms =
+                                    lines[2 .. 1 + atomCount]
+                                    |> Array.mapi (fun i line ->
+                                        let parts = line.Split([| ' '; '\t' |], System.StringSplitOptions.RemoveEmptyEntries)
+                                        if parts.Length < 4 then
+                                            Error (QuantumError.ValidationError("XYZLine", $"Line {i + 3}: Expected 'Element X Y Z', got '{line}'"))
+                                        else
+                                            let element = parts[0].Trim()
+                                            match System.Double.TryParse(parts[1]), 
+                                                  System.Double.TryParse(parts[2]), 
+                                                  System.Double.TryParse(parts[3]) with
+                                            | (true, x), (true, y), (true, z) ->
+                                                Ok { Element = element; Position = (x, y, z) }
+                                            | _ ->
+                                                Error (QuantumError.ValidationError("XYZLine", $"Line {i + 3}: Could not parse coordinates from '{line}'"))
+                                    )
+                                    |> Array.fold (fun acc result ->
+                                        match acc, result with
+                                        | Error e, _ -> Error e
+                                        | _, Error e -> Error e
+                                        | Ok atoms, Ok atom -> Ok (atom :: atoms)
+                                    ) (Ok [])
+                                    |> Result.map List.rev
+                                
                                 // Infer bonds from distances (simple heuristic)
                                 let bonds =
                                     [
@@ -266,13 +268,14 @@ module MolecularInput =
                                                     yield { Atom1 = i; Atom2 = j; BondOrder = 1.0 }
                                     ]
                                 
-                                return Ok {
+                                return {
                                     Name = if System.String.IsNullOrWhiteSpace name then "Molecule" else name
                                     Atoms = atoms
                                     Bonds = bonds
                                     Charge = 0  // Assume neutral
                                     Multiplicity = 1  // Assume singlet
                                 }
+                            }
             with
             | ex -> return Error (QuantumError.OperationError("XYZParsing", $"Failed to parse XYZ file: {ex.Message}"))
         }
@@ -862,81 +865,84 @@ module MolecularHamiltonian =
     /// 
     /// Then applies fermion-to-qubit mapping (Jordan-Wigner or Bravyi-Kitaev)
     let rec buildWithMapping (molecule: Molecule) (mapping: MappingMethod) : Result<QaoaCircuit.ProblemHamiltonian, QuantumError> =
-        // Validate molecule
-        match Molecule.validate molecule with
-        | Error err -> Error err
-        | Ok _ ->
-        
-        if molecule.Atoms.IsEmpty then
-            Error (QuantumError.ValidationError("Molecule", "Invalid molecule: no atoms"))
-        elif Molecule.countElectrons molecule <= 0 then
-            Error (QuantumError.ValidationError("Molecule", "Invalid molecule: non-positive electron count"))
-        else
-            match mapping with
-            | Empirical ->
-                // Delegate to original empirical build
-                build molecule
+        result {
+            // Validate molecule
+            do! Molecule.validate molecule
             
-            | JordanWigner | BravyiKitaev ->
-                // Build fermionic Hamiltonian from molecular structure
-                // For now, use simplified molecular orbital approximation
-                let numOrbitals = molecule.Atoms.Length * 2  // Minimal basis: 2 orbitals per atom
-                
-                if numOrbitals > 20 then
-                    Error (QuantumError.ValidationError("MoleculeSize", $"Molecule too large: {numOrbitals} orbitals (max 20)"))
+            do! if molecule.Atoms.IsEmpty then
+                    Error (QuantumError.ValidationError("Molecule", "Invalid molecule: no atoms"))
+                elif Molecule.countElectrons molecule <= 0 then
+                    Error (QuantumError.ValidationError("Molecule", "Invalid molecule: non-positive electron count"))
                 else
-                    // Build simplified fermionic Hamiltonian
-                    // NOTE: In production, this would use Hartree-Fock integrals from PySCF/Psi4
-                    let fermionTerms =
-                        [
-                            // One-electron terms: hᵢⱼ a†ᵢ aⱼ
-                            for i in 0 .. numOrbitals - 1 do
-                                for j in 0 .. numOrbitals - 1 do
-                                    // Simplified one-electron integral (kinetic + nuclear attraction)
-                                    let hij = if i = j then -1.0 else -0.1
-                                    yield {
-                                        FermionMapping.Coefficient = System.Numerics.Complex(hij, 0.0)
-                                        FermionMapping.Operators = [
-                                            { FermionMapping.OrbitalIndex = i; FermionMapping.OperatorType = FermionMapping.Creation }
-                                            { FermionMapping.OrbitalIndex = j; FermionMapping.OperatorType = FermionMapping.Annihilation }
-                                        ]
-                                    }
-                            
-                            // Two-electron terms: gᵢⱼₖₗ a†ᵢ a†ⱼ aₖ aₗ
-                            // Simplified to nearest-neighbor interactions for performance
-                            for i in 0 .. numOrbitals - 2 do
-                                for j in i + 1 .. numOrbitals - 1 do
-                                    // Simplified two-electron integral (electron repulsion)
-                                    let gijij = 0.5
-                                    yield {
-                                        FermionMapping.Coefficient = System.Numerics.Complex(0.5 * gijij, 0.0)  // Factor of 0.5 for double counting
-                                        FermionMapping.Operators = [
-                                            { FermionMapping.OrbitalIndex = i; FermionMapping.OperatorType = FermionMapping.Creation }
-                                            { FermionMapping.OrbitalIndex = j; FermionMapping.OperatorType = FermionMapping.Creation }
-                                            { FermionMapping.OrbitalIndex = j; FermionMapping.OperatorType = FermionMapping.Annihilation }
-                                            { FermionMapping.OrbitalIndex = i; FermionMapping.OperatorType = FermionMapping.Annihilation }
-                                        ]
-                                    }
-                        ]
+                    Ok ()
+            
+            return!
+                match mapping with
+                | Empirical ->
+                    // Delegate to original empirical build
+                    build molecule
+                
+                | JordanWigner | BravyiKitaev ->
+                    // Build fermionic Hamiltonian from molecular structure
+                    // For now, use simplified molecular orbital approximation
+                    let numOrbitals = molecule.Atoms.Length * 2  // Minimal basis: 2 orbitals per atom
                     
-                    let fermionHamiltonian = {
-                        FermionMapping.NumOrbitals = numOrbitals
-                        FermionMapping.Terms = fermionTerms
-                    }
-                    
-                    // Apply fermion-to-qubit mapping
-                    let qubitHamiltonian =
-                        match mapping with
-                        | JordanWigner ->
-                            FermionMapping.JordanWigner.transform fermionHamiltonian
-                        | BravyiKitaev ->
-                            FermionMapping.BravyiKitaev.transform fermionHamiltonian
-                        | _ ->
-                            // Shouldn't reach here
-                            FermionMapping.JordanWigner.transform fermionHamiltonian
-                    
-                    // Convert to library format
-                    Ok (FermionMapping.toQaoaHamiltonian qubitHamiltonian)
+                    if numOrbitals > 20 then
+                        Error (QuantumError.ValidationError("MoleculeSize", $"Molecule too large: {numOrbitals} orbitals (max 20)"))
+                    else
+                        // Build simplified fermionic Hamiltonian
+                        // NOTE: In production, this would use Hartree-Fock integrals from PySCF/Psi4
+                        let fermionTerms =
+                            [
+                                // One-electron terms: hᵢⱼ a†ᵢ aⱼ
+                                for i in 0 .. numOrbitals - 1 do
+                                    for j in 0 .. numOrbitals - 1 do
+                                        // Simplified one-electron integral (kinetic + nuclear attraction)
+                                        let hij = if i = j then -1.0 else -0.1
+                                        yield {
+                                            FermionMapping.Coefficient = System.Numerics.Complex(hij, 0.0)
+                                            FermionMapping.Operators = [
+                                                { FermionMapping.OrbitalIndex = i; FermionMapping.OperatorType = FermionMapping.Creation }
+                                                { FermionMapping.OrbitalIndex = j; FermionMapping.OperatorType = FermionMapping.Annihilation }
+                                            ]
+                                        }
+                                
+                                // Two-electron terms: gᵢⱼₖₗ a†ᵢ a†ⱼ aₖ aₗ
+                                // Simplified to nearest-neighbor interactions for performance
+                                for i in 0 .. numOrbitals - 2 do
+                                    for j in i + 1 .. numOrbitals - 1 do
+                                        // Simplified two-electron integral (electron repulsion)
+                                        let gijij = 0.5
+                                        yield {
+                                            FermionMapping.Coefficient = System.Numerics.Complex(0.5 * gijij, 0.0)  // Factor of 0.5 for double counting
+                                            FermionMapping.Operators = [
+                                                { FermionMapping.OrbitalIndex = i; FermionMapping.OperatorType = FermionMapping.Creation }
+                                                { FermionMapping.OrbitalIndex = j; FermionMapping.OperatorType = FermionMapping.Creation }
+                                                { FermionMapping.OrbitalIndex = j; FermionMapping.OperatorType = FermionMapping.Annihilation }
+                                                { FermionMapping.OrbitalIndex = i; FermionMapping.OperatorType = FermionMapping.Annihilation }
+                                            ]
+                                        }
+                            ]
+                        
+                        let fermionHamiltonian = {
+                            FermionMapping.NumOrbitals = numOrbitals
+                            FermionMapping.Terms = fermionTerms
+                        }
+                        
+                        // Apply fermion-to-qubit mapping
+                        let qubitHamiltonian =
+                            match mapping with
+                            | JordanWigner ->
+                                FermionMapping.JordanWigner.transform fermionHamiltonian
+                            | BravyiKitaev ->
+                                FermionMapping.BravyiKitaev.transform fermionHamiltonian
+                            | _ ->
+                                // Shouldn't reach here
+                                FermionMapping.JordanWigner.transform fermionHamiltonian
+                        
+                        // Convert to library format
+                        Ok (FermionMapping.toQaoaHamiltonian qubitHamiltonian)
+        }
     
     /// Build molecular Hamiltonian from molecule structure
     /// Returns ProblemHamiltonian with Pauli Z and ZZ terms
@@ -947,16 +953,17 @@ module MolecularHamiltonian =
     /// 
     /// For research-grade calculations, use buildWithMapping with JordanWigner or BravyiKitaev
     and build (molecule: Molecule) : Result<QaoaCircuit.ProblemHamiltonian, QuantumError> =
-        // Validate molecule
-        match Molecule.validate molecule with
-        | Error err -> Error err
-        | Ok _ ->
+        result {
+            // Validate molecule
+            do! Molecule.validate molecule
             
-        if molecule.Atoms.IsEmpty then
-            Error (QuantumError.ValidationError("Molecule", "Invalid molecule: no atoms"))
-        elif Molecule.countElectrons molecule <= 0 then
-            Error (QuantumError.ValidationError("Molecule", "Invalid molecule: non-positive electron count"))
-        else
+            do! if molecule.Atoms.IsEmpty then
+                    Error (QuantumError.ValidationError("Molecule", "Invalid molecule: no atoms"))
+                elif Molecule.countElectrons molecule <= 0 then
+                    Error (QuantumError.ValidationError("Molecule", "Invalid molecule: non-positive electron count"))
+                else
+                    Ok ()
+            
             // Empirical Hamiltonian parameters for known molecules
             // NOTE: These are POSITIVE - we negate the expectation value in measurement
             let (numQubits, oneElectronCoeff, twoElectronCoeff) =
@@ -974,33 +981,36 @@ module MolecularHamiltonian =
                     let nq = molecule.Atoms.Length * 2
                     (nq, 1.0, 0.5)
             
-            if numQubits > 10 then
-                Error (QuantumError.ValidationError("MoleculeSize", $"Molecule too large: {numQubits} qubits required (max 10)"))
-            else
-                let terms = ResizeArray<QaoaCircuit.HamiltonianTerm>()
-                
-                // One-electron terms (Z operators)
-                for i in 0 .. numQubits - 1 do
-                    terms.Add {
-                        Coefficient = oneElectronCoeff
-                        QubitsIndices = [| i |]
-                        PauliOperators = [| QaoaCircuit.PauliZ |]
-                    }
-                
-                // Two-electron terms (ZZ operators)
-                for i in 0 .. numQubits - 2 do
-                    for j in i + 1 .. numQubits - 1 do
-                        terms.Add {
-                            Coefficient = twoElectronCoeff
-                            QubitsIndices = [| i; j |]
-                            PauliOperators = [| QaoaCircuit.PauliZ
-                                                QaoaCircuit.PauliZ |]
-                        }
-                
-                Ok {
-                    NumQubits = numQubits
-                    Terms = terms.ToArray()
+            do! if numQubits > 10 then
+                    Error (QuantumError.ValidationError("MoleculeSize", $"Molecule too large: {numQubits} qubits required (max 10)"))
+                else
+                    Ok ()
+            
+            let terms = ResizeArray<QaoaCircuit.HamiltonianTerm>()
+            
+            // One-electron terms (Z operators)
+            for i in 0 .. numQubits - 1 do
+                terms.Add {
+                    Coefficient = oneElectronCoeff
+                    QubitsIndices = [| i |]
+                    PauliOperators = [| QaoaCircuit.PauliZ |]
                 }
+            
+            // Two-electron terms (ZZ operators)
+            for i in 0 .. numQubits - 2 do
+                for j in i + 1 .. numQubits - 1 do
+                    terms.Add {
+                        Coefficient = twoElectronCoeff
+                        QubitsIndices = [| i; j |]
+                        PauliOperators = [| QaoaCircuit.PauliZ
+                                            QaoaCircuit.PauliZ |]
+                    }
+            
+            return {
+                NumQubits = numQubits
+                Terms = terms.ToArray()
+            }
+        }
 
 /// Classical DFT fallback - provides empirical energy values
 module ClassicalDFT =
@@ -1786,6 +1796,37 @@ module QuantumChemistryBuilder =
         |> List.concat
         |> Map.ofList
     
+    /// <summary>Compute dipole moment magnitude from molecule geometry.</summary>
+    /// <remarks>
+    /// Computes classical nuclear contribution to dipole moment.
+    /// Formula: μ = |Σᵢ Zᵢ * rᵢ| where Zᵢ is nuclear charge, rᵢ is position.
+    /// Returns magnitude in Debye (1 Debye ≈ 0.2082 e·Å).
+    /// Note: This is a simplified calculation that only considers nuclear charges.
+    /// A full quantum calculation would require the electronic density from VQE.
+    /// </remarks>
+    let private computeDipoleMoment (molecule: Molecule) : float option =
+        // Compute center of charge (nuclear contribution)
+        let (totalCharge, dipoleX, dipoleY, dipoleZ) =
+            molecule.Atoms
+            |> List.fold (fun (charge, dx, dy, dz) atom ->
+                match AtomicNumbers.fromSymbol atom.Element with
+                | Some Z ->
+                    let (x, y, z) = atom.Position
+                    let zFloat = float Z
+                    (charge + zFloat, dx + zFloat * x, dy + zFloat * y, dz + zFloat * z)
+                | None -> (charge, dx, dy, dz)
+            ) (0.0, 0.0, 0.0, 0.0)
+        
+        if totalCharge = 0.0 then
+            None  // Cannot compute dipole for neutral fragments without electronic density
+        else
+            // Compute dipole magnitude in atomic units (e·Å)
+            let dipoleMagnitude = sqrt (dipoleX * dipoleX + dipoleY * dipoleY + dipoleZ * dipoleZ)
+            
+            // Convert to Debye (1 Debye = 0.2082 e·Å)
+            let dipoleInDebye = dipoleMagnitude / 0.2082
+            Some dipoleInDebye
+    
     /// <summary>
     /// Solve quantum chemistry problem using VQE framework.
     /// Transforms domain problem to VQE execution, runs calculation, and returns chemistry-specific result.
@@ -1820,7 +1861,7 @@ module QuantumChemistryBuilder =
                         Iterations = vqe.Iterations
                         Convergence = vqe.Converged
                         BondLengths = computeBondLengths molecule
-                        DipoleMoment = None  // TODO: Compute dipole moment if needed
+                        DipoleMoment = computeDipoleMoment molecule
                     }
                 | Error err ->
                     Error err

@@ -76,12 +76,13 @@ module ModularData =
             //             | 1   -√2    1  |
             let sqrt2 = sqrt 2.0
             let s = Array2D.init 3 3 (fun i j ->
+                // Array2D.init guarantees i,j are in bounds [0..2] for 3x3 matrix
                 let value = 
                     match i, j with
                     | 0, 0 -> 1.0      | 0, 1 -> sqrt2  | 0, 2 -> 1.0
                     | 1, 0 -> sqrt2    | 1, 1 -> 0.0    | 1, 2 -> -sqrt2
                     | 2, 0 -> 1.0      | 2, 1 -> -sqrt2 | 2, 2 -> 1.0
-                    | _ -> failwith $"PROGRAMMING BUG: Invalid S-matrix index ({i},{j}) for 3x3 Ising matrix"
+                    | _ -> invalidOp $"Array2D.init contract violated: index ({i},{j}) out of bounds for 3x3 matrix"
                 Complex(value / 2.0, 0.0))
             Ok s
         
@@ -94,11 +95,12 @@ module ModularData =
             let phi = (1.0 + sqrt 5.0) / 2.0  // Golden ratio
             let norm = sqrt (2.0 + phi)
             let s = Array2D.init 2 2 (fun i j ->
+                // Array2D.init guarantees i,j are in bounds [0..1] for 2x2 matrix
                 let value = 
                     match i, j with
                     | 0, 0 -> 1.0  | 0, 1 -> phi
                     | 1, 0 -> phi  | 1, 1 -> -1.0
-                    | _ -> failwith $"PROGRAMMING BUG: Invalid S-matrix index ({i},{j}) for 2x2 Fibonacci matrix"
+                    | _ -> invalidOp $"Array2D.init contract violated: index ({i},{j}) out of bounds for 2x2 matrix"
                 Complex(value / norm, 0.0))
             Ok s
         
@@ -125,7 +127,7 @@ module ModularData =
                 let spinValue = function
                     | AnyonSpecies.Particle.SpinJ (j_doubled, _) -> float j_doubled / 2.0
                     | AnyonSpecies.Particle.Vacuum -> 0.0
-                    | _ -> failwith "PROGRAMMING BUG: Unsupported particle type for SU(2)_k S-matrix"
+                    | other -> invalidOp $"SU(2)_k S-matrix: particle {other} is not valid for SU(2) theory (expected Vacuum or SpinJ)"
                 
                 // Get list of j values
                 let jValues =
@@ -175,11 +177,12 @@ module ModularData =
             
             let t = Array2D.init 3 3 (fun i j ->
                 if i = j then
+                    // Array2D.init guarantees i is in bounds [0..2] for 3x3 matrix
                     match i with
                     | 0 -> theta h1
                     | 1 -> theta hSigma
                     | 2 -> theta hPsi
-                    | _ -> failwith $"PROGRAMMING BUG: Invalid T-matrix index {i} for 3x3 Ising matrix"
+                    | _ -> invalidOp $"Array2D.init contract violated: index {i} out of bounds for 3x3 matrix"
                 else Complex.Zero)
             Ok t
         
@@ -196,10 +199,11 @@ module ModularData =
             
             let t = Array2D.init 2 2 (fun i j ->
                 if i = j then
+                    // Array2D.init guarantees i is in bounds [0..1] for 2x2 matrix
                     match i with
                     | 0 -> theta h1
                     | 1 -> theta hTau
-                    | _ -> failwith $"PROGRAMMING BUG: Invalid T-matrix index {i} for 2x2 Fibonacci matrix"
+                    | _ -> invalidOp $"Array2D.init contract violated: index {i} out of bounds for 2x2 matrix"
                 else Complex.Zero)
             Ok t
         
@@ -223,7 +227,7 @@ module ModularData =
                 let spinValue = function
                     | AnyonSpecies.Particle.SpinJ (j_doubled, _) -> float j_doubled / 2.0
                     | AnyonSpecies.Particle.Vacuum -> 0.0
-                    | _ -> failwith "PROGRAMMING BUG: Unsupported particle type for SU(2)_k T-matrix"
+                    | other -> invalidOp $"SU(2)_k T-matrix: particle {other} is not valid for SU(2) theory (expected Vacuum or SpinJ)"
                 
                 // Compute topological spin (conformal weight) for each particle
                 let topologicalSpins =

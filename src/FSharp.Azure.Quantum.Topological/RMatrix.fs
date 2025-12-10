@@ -220,7 +220,7 @@ module RMatrix =
         let spinValue = function
             | AnyonSpecies.Particle.SpinJ (j_doubled, _) -> float j_doubled / 2.0
             | AnyonSpecies.Particle.Vacuum -> 0.0
-            | _ -> failwith "PROGRAMMING BUG: Unsupported particle type for SU(2)_k R-matrix computation"
+            | other -> invalidOp $"SU(2)_k R-matrix: particle {other} is not valid for SU(2) theory (expected Vacuum or SpinJ)"
         
         // Generate all R-symbols for valid fusion channels
         let rSymbols =

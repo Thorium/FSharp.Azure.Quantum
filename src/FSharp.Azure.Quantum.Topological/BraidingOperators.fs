@@ -141,22 +141,23 @@ module BraidingOperators =
         let n = fusionChannels.Length
         
         // Create diagonal matrix with R-matrix elements
-        // Pre-compute all R-matrix elements as array (fail fast on programming bugs)
-        let rElements = 
+        // Pre-compute all R-matrix elements (propagate errors properly)
+        let rElementResults = 
             fusionChannels 
             |> List.map (fun channel ->
-                match element a b channel anyonType with
-                | Ok elem -> elem
-                | Error err -> 
-                    // PROGRAMMING BUG: validated particles should not fail
-                    failwith $"PROGRAMMING BUG: element() failed for validated particles a={a}, b={b}, channel={channel}: {err.Message}"
+                element a b channel anyonType
             )
-            |> List.toArray
         
-        // Build diagonal matrix from pre-computed elements
-        Ok (Array2D.init n n (fun i j ->
-            if i = j then rElements.[i] else Complex.Zero
-        ))
+        // Check if any errors occurred
+        match rElementResults |> List.tryPick (function Error e -> Some e | Ok _ -> None) with
+        | Some err -> Error err
+        | None ->
+            let rElements = rElementResults |> List.choose (function Ok elem -> Some elem | Error _ -> None) |> List.toArray
+            
+            // Build diagonal matrix from pre-computed elements
+            Ok (Array2D.init n n (fun i j ->
+                if i = j then rElements.[i] else Complex.Zero
+            ))
     
     // ============================================================================
     // F-MATRIX (FUSION BASIS TRANSFORMATION)
@@ -345,11 +346,23 @@ module BraidingOperators =
         let validEArray = List.toArray validE
         let validFArray = List.toArray validF
         
-        // Build F-matrix by computing each element (fail fast on programming bugs)
-        Ok (Array2D.init nE nF (fun i j ->
-            match matrixElement a b c d validEArray.[i] validFArray.[j] anyonType with
-            | Ok elem -> elem
-            | Error err -> 
-                // PROGRAMMING BUG: validated particles should not fail
-                failwith $"PROGRAMMING BUG: matrixElement() failed for validated particles a={a}, b={b}, c={c}, d={d}, e={validEArray.[i]}, f={validFArray.[j]}: {err.Message}"
-        ))
+        // Build F-matrix by computing each element (propagate errors properly)
+        let matrixElementResults =
+            [| for i in 0 .. nE-1 do
+                for j in 0 .. nF-1 do
+                    match matrixElement a b c d validEArray.[i] validFArray.[j] anyonType with
+                    | Ok elem -> Ok (i, j, elem)
+                    | Error err -> Error err
+            |]
+        
+        // Check if any errors occurred
+        match matrixElementResults |> Array.tryPick (function Error e -> Some e | Ok _ -> None) with
+        | Some err -> Error err
+        | None ->
+            // All succeeded - build the 2D array
+            let matrix = Array2D.create nE nF Complex.Zero
+            matrixElementResults |> Array.iter (function 
+                | Ok (i, j, elem) -> matrix.[i, j] <- elem
+                | Error _ -> ()  // Already handled above
+            )
+            Ok matrix

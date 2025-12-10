@@ -162,24 +162,33 @@ module FusionTree =
                 )
             
             // For each split, count trees that fuse to totalCharge via intermediate channels
-            let totalDim =
+            let intermediateResults =
                 splits
-                |> List.sumBy (fun (leftParticles, rightParticles) ->
+                |> List.collect (fun (leftParticles, rightParticles) ->
                     // Try all possible intermediate fusion channels
                     allParticles
-                    |> List.sumBy (fun intermediate ->
+                    |> List.map (fun intermediate ->
                         match fusionSpaceDimension leftParticles intermediate anyonType,
                               fusionSpaceDimension rightParticles intermediate anyonType,
                               FusionRules.multiplicity intermediate intermediate totalCharge anyonType with
                         | Ok leftDim, Ok rightDim, Ok finalMultiplicity ->
                             // Total dimension is product of possibilities
-                            leftDim * rightDim * finalMultiplicity
-                        | Error err, _, _ | _, Error err, _ | _, _, Error err ->
-                            // PROGRAMMING BUG: recursive call or multiplicity failed on valid particles
-                            failwith $"PROGRAMMING BUG: fusionSpaceDimension/multiplicity failed for validated particles: {err.Message}"
+                            Ok (leftDim * rightDim * finalMultiplicity)
+                        | Error err, _, _ -> Error err
+                        | _, Error err, _ -> Error err
+                        | _, _, Error err -> Error err
                     )
                 )
-            Ok totalDim
+            
+            // Aggregate results: stop on first error or sum all dimensions
+            match intermediateResults |> List.choose (function Ok dim -> Some dim | Error _ -> None) with
+            | dims when dims.Length = intermediateResults.Length -> 
+                Ok (List.sum dims)  // All succeeded
+            | _ -> 
+                // Find first error
+                match intermediateResults |> List.tryPick (function Error e -> Some e | Ok _ -> None) with
+                | Some err -> Error err
+                | None -> Error (TopologicalError.Other "Unexpected state in fusionSpaceDimension")
     
     // ========================================================================
     // TREE ENUMERATION
@@ -230,14 +239,19 @@ module FusionTree =
                             // Combine all left and right trees
                             [ for leftTree in leftTrees do
                               for rightTree in rightTrees do
-                                Fusion (leftTree, rightTree, totalCharge) ]
+                                Ok (Fusion (leftTree, rightTree, totalCharge)) ]
                         | Ok _, Ok _, Ok false -> []
-                        | Error err, _, _ | _, Error err, _ | _, _, Error err ->
-                            // PROGRAMMING BUG: recursive allTrees or isPossible failed on valid particles
-                            failwith $"PROGRAMMING BUG: allTrees/isPossible failed for validated particles: {err.Message}"
+                        | Error err, _, _ -> [Error err]
+                        | _, Error err, _ -> [Error err]
+                        | _, _, Error err -> [Error err]
                     )
                 )
-            Ok allResults
+            
+            // Check if any errors occurred
+            match allResults |> List.tryPick (function Error e -> Some e | Ok _ -> None) with
+            | Some err -> Error err
+            | None -> 
+                Ok (allResults |> List.choose (function Ok tree -> Some tree | Error _ -> None))
     
     // ========================================================================
     // TREE EQUALITY

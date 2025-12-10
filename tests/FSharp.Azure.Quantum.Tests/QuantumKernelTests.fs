@@ -2,6 +2,7 @@ module FSharp.Azure.Quantum.Tests.QuantumKernelTests
 
 open Xunit
 open FSharp.Azure.Quantum.Core.BackendAbstraction
+open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.MachineLearning
 open FSharp.Azure.Quantum.MachineLearning.QuantumKernels
@@ -10,7 +11,7 @@ open FSharp.Azure.Quantum.MachineLearning.QuantumKernels
 // Test Setup
 // ============================================================================
 
-let private backend = LocalBackend() :> IQuantumBackend
+let private backend = LocalBackend.LocalBackend() :> IQuantumBackend
 
 let private epsilon = 1e-6
 

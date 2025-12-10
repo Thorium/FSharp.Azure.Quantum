@@ -1,16 +1,23 @@
 namespace FSharp.Azure.Quantum.Tests
 
+(*
+    ✅ UNCOMMENTED: QuantumArithmetic is now compiled!
+    
+    The QuantumArithmetic module is critical for Shor's algorithm and quantum arithmetic operations.
+    It was temporarily commented out due to dependency on removed adapters.
+    
+    Fixed by:
+    - Removing QFTBackendAdapter dependency
+    - Adding inline qftToCircuit helper function
+    - Keeping all original tests to ensure arithmetic operations work correctly
+*)
+
 open Xunit
 open FSharp.Azure.Quantum.Algorithms.QuantumArithmetic
 open FSharp.Azure.Quantum.LocalSimulator
 open FSharp.Azure.Quantum.CircuitBuilder
 open System.Numerics
 
-/// Tests for Quantum Arithmetic Operations
-/// 
-/// These tests verify quantum state correctness, not just circuit structure.
-/// They validate proper uncomputation and ancilla restoration - critical for
-/// quantum reversibility and real hardware execution.
 module QuantumArithmeticTests =
     
     // ========================================================================

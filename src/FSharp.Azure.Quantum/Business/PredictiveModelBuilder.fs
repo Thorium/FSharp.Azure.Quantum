@@ -454,6 +454,16 @@ module PredictiveModel =
     // TRAINING - Core business logic
     // ========================================================================
     
+    /// Helper: Save model if save path provided, with optional verbose output
+    let private saveModelIfRequested (savePath: string option) (verbose: bool) (model: Model) =
+        match savePath with
+        | Some path ->
+            match save path model with
+            | Ok () -> if verbose then printfn $"✓ Model saved to: {path}"
+            | Error e -> if verbose then printfn $"⚠️ Failed to save model: {e}"
+        | None -> ()
+        model
+    
     /// Train a predictive model
     let train (problem: PredictionProblem) : QuantumResult<Model> =
         match validateProblem problem with
@@ -517,15 +527,7 @@ module PredictiveModel =
                             }
                         }
                         
-                        // Save model if requested
-                        match problem.SavePath with
-                        | Some path ->
-                            match save path model with
-                            | Ok () -> if problem.Verbose then printfn $"✓ Model saved to: {path}"
-                            | Error e -> if problem.Verbose then printfn $"⚠️ Failed to save model: {e}"
-                        | None -> ()
-                        
-                        Ok model
+                        Ok (saveModelIfRequested problem.SavePath problem.Verbose model)
                     
                     | _ ->
                         // HHL failed or poor fit → Try VQC (can handle non-linear)
@@ -550,9 +552,9 @@ module PredictiveModel =
                             Optimizer = VQC.SGD
                         }
                         
-                        match VQC.trainRegression backend featureMap varForm initParams problem.TrainFeatures problem.TrainTargets vqcConfig with
-                        | Error e -> Error (QuantumError.ValidationError ("Input", $"Both HHL and VQC regression failed: {e}"))
-                        | Ok vqcResult ->
+                        VQC.trainRegression backend featureMap varForm initParams problem.TrainFeatures problem.TrainTargets vqcConfig
+                        |> Result.mapError (fun e -> QuantumError.ValidationError ("Input", $"Both HHL and VQC regression failed: {e}"))
+                        |> Result.map (fun vqcResult ->
                             if problem.Verbose then
                                 printfn "✓ VQC training complete!"
                                 printfn "  R² Score: %.4f (non-linear regression)" vqcResult.TrainRSquared
@@ -571,15 +573,7 @@ module PredictiveModel =
                                 }
                             }
                             
-                            // Save model if requested
-                            match problem.SavePath with
-                            | Some path ->
-                                match save path model with
-                                | Ok () -> if problem.Verbose then printfn $"✓ Model saved to: {path}"
-                                | Error e -> if problem.Verbose then printfn $"⚠️ Failed to save model: {e}"
-                            | None -> ()
-                            
-                            Ok model
+                            saveModelIfRequested problem.SavePath problem.Verbose model)
                 
                 // =================================================================
                 // HYBRID REGRESSION (HHL with fallback capability)
@@ -602,8 +596,8 @@ module PredictiveModel =
                     if problem.Verbose then
                         printfn "Training Hybrid Regression (HHL-based)..."
                     
-                    match train hhlConfig with
-                    | Ok hhlResult ->
+                    train hhlConfig
+                    |> Result.map (fun hhlResult ->
                         if problem.Verbose then
                             printfn "✓ Hybrid HHL training succeeded!"
                             printfn "  R² Score: %.4f" hhlResult.RSquared
@@ -622,16 +616,8 @@ module PredictiveModel =
                             }
                         }
                         
-                        // Save model if requested
-                        match problem.SavePath with
-                        | Some path ->
-                            match save path model with
-                            | Ok () -> if problem.Verbose then printfn $"✓ Model saved to: {path}"
-                            | Error e -> if problem.Verbose then printfn $"⚠️ Failed to save model: {e}"
-                        | None -> ()
-                        
-                        Ok model
-                    | Error e ->
+                        saveModelIfRequested problem.SavePath problem.Verbose model)
+                    |> Result.orElseWith (fun e ->
                         // Fallback to classical regression if HHL fails
                         if problem.Verbose then
                             printfn "⚠ HHL failed (%s), falling back to classical..." e.Message
@@ -690,15 +676,7 @@ module PredictiveModel =
                             }
                         }
                         
-                        // Save model if requested
-                        match problem.SavePath with
-                        | Some path ->
-                            match save path model with
-                            | Ok () -> if problem.Verbose then printfn $"✓ Model saved to: {path}"
-                            | Error e -> if problem.Verbose then printfn $"⚠️ Failed to save model: {e}"
-                        | None -> ()
-                        
-                        Ok model
+                        Ok (saveModelIfRequested problem.SavePath problem.Verbose model))
                 
                 // =================================================================
                 // QUANTUM MULTI-CLASS (VQC One-vs-Rest)
@@ -727,9 +705,9 @@ module PredictiveModel =
                         Optimizer = VQC.SGD
                     }
                     
-                    match VQC.trainMultiClass backend featureMap varForm initParams problem.TrainFeatures labels vqcConfig with
-                    | Error e -> Error (QuantumError.ValidationError ("Input", $"VQC multi-class training failed: {e}"))
-                    | Ok multiClassResult ->
+                    VQC.trainMultiClass backend featureMap varForm initParams problem.TrainFeatures labels vqcConfig
+                    |> Result.mapError (fun e -> QuantumError.ValidationError ("Input", $"VQC multi-class training failed: {e}"))
+                    |> Result.map (fun multiClassResult ->
                         if problem.Verbose then
                             printfn "✓ VQC multi-class training complete!"
                             printfn "  Accuracy: %.4f" multiClassResult.TrainAccuracy
@@ -748,15 +726,7 @@ module PredictiveModel =
                             }
                         }
                         
-                        // Save model if requested
-                        match problem.SavePath with
-                        | Some path ->
-                            match save path model with
-                            | Ok () -> if problem.Verbose then printfn $"✓ Model saved to: {path}"
-                            | Error e -> if problem.Verbose then printfn $"⚠️ Failed to save model: {e}"
-                        | None -> ()
-                        
-                        Ok model
+                        saveModelIfRequested problem.SavePath problem.Verbose model)
                 
                 // =================================================================
                 // HYBRID MULTI-CLASS (Quantum Kernel SVM)
@@ -773,9 +743,9 @@ module PredictiveModel =
                         Verbose = problem.Verbose
                     }
                     
-                    match MultiClassSVM.train backend featureMap problem.TrainFeatures labels svmConfig problem.Shots with
-                    | Error e -> Error (QuantumError.ValidationError ("Input", $"Hybrid multi-class training failed: {e}"))
-                    | Ok multiClassModel ->
+                    MultiClassSVM.train backend featureMap problem.TrainFeatures labels svmConfig problem.Shots
+                    |> Result.mapError (fun e -> QuantumError.ValidationError ("Input", $"Hybrid multi-class training failed: {e}"))
+                    |> Result.map (fun multiClassModel ->
                         
                         let mutable correctCount = 0
                         for i in 0 .. problem.TrainFeatures.Length - 1 do
@@ -801,15 +771,7 @@ module PredictiveModel =
                             }
                         }
                         
-                        // Save model if requested
-                        match problem.SavePath with
-                        | Some path ->
-                            match save path model with
-                            | Ok () -> if problem.Verbose then printfn $"✓ Model saved to: {path}"
-                            | Error e -> if problem.Verbose then printfn $"⚠️ Failed to save model: {e}"
-                        | None -> ()
-                        
-                        Ok model
+                        saveModelIfRequested problem.SavePath problem.Verbose model)
                 
                 // =================================================================
                 // CLASSICAL REGRESSION (Baseline)
@@ -848,15 +810,7 @@ module PredictiveModel =
                         }
                     }
                     
-                    // Save model if requested
-                    match problem.SavePath with
-                    | Some path ->
-                        match save path model with
-                        | Ok () -> if problem.Verbose then printfn $"✓ Model saved to: {path}"
-                        | Error e -> if problem.Verbose then printfn $"⚠️ Failed to save model: {e}"
-                    | None -> ()
-                    
-                    Ok model
+                    Ok (saveModelIfRequested problem.SavePath problem.Verbose model)
                 
                 // =================================================================
                 // CLASSICAL MULTI-CLASS (Baseline)
@@ -900,15 +854,7 @@ module PredictiveModel =
                         }
                     }
                     
-                    // Save model if requested
-                    match problem.SavePath with
-                    | Some path ->
-                        match save path model with
-                        | Ok () -> if problem.Verbose then printfn $"✓ Model saved to: {path}"
-                        | Error e -> if problem.Verbose then printfn $"⚠️ Failed to save model: {e}"
-                    | None -> ()
-                    
-                    Ok model
+                    Ok (saveModelIfRequested problem.SavePath problem.Verbose model)
                 
             with ex ->
                 Error (QuantumError.ValidationError ("Input", $"Training failed: {ex.Message}"))

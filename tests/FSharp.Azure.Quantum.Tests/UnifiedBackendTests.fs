@@ -121,17 +121,19 @@ module UnifiedBackendTests =
         Assert.False(backend.SupportsOperation (QuantumOperation.Braid 0))
     
     [<Fact>]
-    let ``LocalBackend backward compatibility with IQuantumBackend`` () =
+    let ``LocalBackend unified state-based execution with IQuantumBackend`` () =
         let backend = LocalBackend.LocalBackend() :> IQuantumBackend
         let circuit = createBellCircuit () |> wrapCircuit
         
-        match backend.Execute circuit 100 with
-        | Ok result ->
-            Assert.Equal(100, result.NumShots)
-            Assert.Equal("Local Simulator", result.BackendName)
-            Assert.Equal(100, result.Measurements.Length)
+        match backend.ExecuteToState circuit with
+        | Ok state ->
+            // Verify we got a valid quantum state
+            let measurements = QuantumState.measure state 100
+            Assert.Equal(100, measurements.Length)
+            // Each measurement should be a bit array
+            Assert.True(measurements |> Array.forall (fun m -> m.Length > 0))
         | Error err ->
-            Assert.True(false, $"Execution failed: {err}")
+            Assert.True(false, $"Execution failed: {err.Message}")
     
     // ========================================================================
     // TopologicalBackend Tests (Topological Backend)
