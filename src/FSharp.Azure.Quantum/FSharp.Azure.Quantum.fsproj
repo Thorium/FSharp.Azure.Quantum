@@ -11,13 +11,17 @@
     <Title>FSharp.Azure.Quantum</Title>
     <Description>F# library for Azure Quantum with quantum-first optimization (Graph Coloring, TSP, MaxCut, Knapsack, Network Flow, Portfolio), Azure Quantum backend integration (IonQ, Rigetti, Quantinuum, Atom Computing), extensible circuit validation, local quantum simulation, QAOA with automatic parameter optimization (Nelder-Mead), OpenQASM 2.0 support, error mitigation techniques (ZNE, PEC, REM), Quantum Random Number Generation (QRNG), and educational quantum algorithms (Grover, QFT, Amplitude Amplification) with cloud backend execution. Multi-provider architecture supports IonQ, Rigetti, Quantinuum, Atom Computing, IBM, Amazon Braket, and Google Cirq.</Description>
     <Summary>F# library for Azure Quantum with quantum-first optimization, quantum backends (IonQ, Rigetti, Quantinuum, Atom Computing), QAOA with automatic parameter tuning, QRNG, and educational algorithms with cloud execution</Summary>
-    <PackageReleaseNotes>v1.2.9: Documentation Improvements and Visual Enhancements
-- IMPROVED: Architecture diagrams (SVG and Mermaid) with enhanced color palette for better readability
-- FIXED: Backend colors now use lighter, high-contrast palette (LocalBackend: Cornflower Blue, IonQ: Fresh Green, Rigetti: Burnt Orange, Atom Computing: Amber Gold, Quantinuum: Amethyst)
-- FIXED: GraphColoring builder arrow routing in SVG architecture diagram
-- IMPROVED: Legend in architecture diagrams with color swatches showing all backend types
-- IMPROVED: Text contrast in architecture diagrams (white text on dark backgrounds, black text on light backgrounds)
-- IMPROVED: WCAG AA compliant color scheme for accessibility and colorblind-friendliness
+    <PackageReleaseNotes>v1.3.1: Unified Backend Architecture and Major Algorithm Improvements
+- NEW: Unified IQuantumBackend interface - all quantum algorithms now work seamlessly across all backends
+- NEW: Atom Computing Phoenix backend with 100+ qubit support and comprehensive gate set
+- NEW: Quantinuum backend with dynamic qubit limits and improved documentation
+- REFACTOR: Grover, QFT, QPE, Shor's, HHL algorithms migrated to unified backend API (removed old adapters)
+- REFACTOR: Quantum arithmetic operations now use state-based architecture for better composability
+- IMPROVED: QRNG API with comprehensive documentation and examples
+- IMPROVED: Visualization system with ASCII and Mermaid renderers for circuits and solutions
+- IMPROVED: Enhanced quantum chemistry support with fermion mapping tests
+- FIXED: Circuit transpilation improvements for multi-backend compatibility
+- IMPROVED: Backend capability detection and validation
 - Status: 1400+ tests passing in main package, production-ready</PackageReleaseNotes>
     
     <!-- Repository Info -->

@@ -4,6 +4,23 @@ open System
 open System.Numerics
 open FSharp.Azure.Quantum.LocalSimulator
 
+/// Interface for topological quantum state representations
+/// 
+/// This interface allows the Topological package to provide measurement
+/// and probability calculation without creating circular dependencies.
+type ITopologicalSuperposition =
+    /// Get the number of logical qubits
+    abstract member LogicalQubits : int
+    
+    /// Measure all qubits and return bitstrings
+    abstract member MeasureAll : shots:int -> int[][]
+    
+    /// Calculate probability of measuring a specific bitstring
+    abstract member Probability : bitstring:int[] -> float
+    
+    /// Check if superposition is normalized
+    abstract member IsNormalized : bool
+
 /// Unified quantum state representation supporting multiple backend types
 /// 
 /// Design rationale:
@@ -22,7 +39,7 @@ open FSharp.Azure.Quantum.LocalSimulator
 ///   let state = QuantumState.StateVector (StateVector.init 3)
 ///   match state with
 ///   | QuantumState.StateVector sv -> (* gate operations *)
-///   | QuantumState.FusionSuperposition (fs, _) -> (* braiding operations *)
+///   | QuantumState.FusionSuperposition fs -> (* braiding operations *)
 [<RequireQualifiedAccess>]
 type QuantumState =
     /// Gate-based quantum state (2^n complex amplitudes)
@@ -53,11 +70,10 @@ type QuantumState =
     /// Used when backend implements topological quantum computing:
     /// - TopologicalBackend (anyonic simulation)
     /// 
-    /// NOTE: This stores the superposition as an Object to avoid circular dependency
-    /// between FSharp.Azure.Quantum and FSharp.Azure.Quantum.Topological projects.
+    /// The superposition implements ITopologicalSuperposition interface,
+    /// which provides measurement and probability calculation methods.
     /// The actual type is TopologicalOperations.Superposition from the Topological package.
-    /// The int is the logical qubit count.
-    | FusionSuperposition of superposition:obj * logicalQubits:int
+    | FusionSuperposition of superposition:ITopologicalSuperposition
     
     /// Sparse quantum state (non-zero amplitudes only)
     /// 
@@ -148,6 +164,7 @@ type QuantumState =
 /// Metadata about quantum state representation type
 /// 
 /// Used to determine optimal backend and operations.
+[<Struct>]
 type QuantumStateType =
     /// Gate-based representation (StateVector)
     | GateBased
@@ -196,8 +213,34 @@ module QuantumState =
     let private objToSeq (obj: obj) : obj seq =
         match obj with
         | :? System.Collections.IEnumerable as enumerable ->
-            enumerable |> Seq.cast<obj>
+            Seq.cast<obj> enumerable
         | _ -> Seq.empty
+    
+    /// Convert bitstring to basis index
+    let private bitstringToIndex (bitstring: int[]) : int =
+        Array.fold (fun acc bit -> (acc <<< 1) + bit) 0 bitstring
+    
+    /// Convert basis index to bitstring representation
+    let private indexToBitstring (n: int) (index: int) : int[] =
+        let bitstring = Array.zeroCreate n
+        let mutable idx = index
+        for i in n - 1 .. -1 .. 0 do
+            bitstring.[i] <- idx &&& 1
+            idx <- idx >>> 1
+        bitstring
+    
+    /// Sample index from probability distribution using cumulative sampling
+    let private sampleFromDistribution (rng: Random) (probabilities: (int * float)[]) (totalProb: float) : int =
+        let r = rng.NextDouble() * totalProb
+        let mutable cumulative = 0.0
+        let mutable selectedIdx = 0
+        
+        for (idx, prob) in probabilities do
+            cumulative <- cumulative + prob
+            if cumulative >= r && selectedIdx = 0 then
+                selectedIdx <- idx
+        
+        selectedIdx
     
     /// Get number of qubits/variables in state
     /// 
@@ -211,9 +254,9 @@ module QuantumState =
         | QuantumState.StateVector sv ->
             StateVector.numQubits sv
         
-        | QuantumState.FusionSuperposition (_, logicalQubits) ->
-            // FusionSuperposition stores the logical qubit count explicitly
-            logicalQubits
+        | QuantumState.FusionSuperposition superposition ->
+            // FusionSuperposition provides logical qubit count via interface
+            superposition.LogicalQubits
         
         | QuantumState.SparseState (_, n) ->
             n
@@ -228,13 +271,16 @@ module QuantumState =
             let linearCoeffs = problemType.GetProperty("LinearCoeffs").GetValue(problem) :?> Map<int, float>
             let quadraticCoeffs = problemType.GetProperty("QuadraticCoeffs").GetValue(problem) :?> Map<(int * int), float>
             
-            let allIndices = seq {
-                yield! linearCoeffs |> Map.keys
-                yield! quadraticCoeffs |> Map.keys |> Seq.collect (fun (i, j) -> [i; j])
-            }
+            let allIndices = 
+                seq {
+                    yield! Map.keys linearCoeffs
+                    yield! Map.keys quadraticCoeffs |> Seq.collect (fun (i, j) -> [i; j])
+                }
             
-            if Seq.isEmpty allIndices then 0
-            else Seq.max allIndices + 1
+            if Seq.isEmpty allIndices then 
+                0
+            else 
+                Seq.max allIndices + 1
     
     /// Convert StateVector.StateVector to QuantumState
     /// 
@@ -299,20 +345,48 @@ module QuantumState =
         match state with
         | QuantumState.StateVector sv ->
             // Use LocalSimulator's measurement
-            [| for _ in 1 .. shots do
-                yield Measurement.measureAll sv
-            |]
+            Array.init shots (fun _ -> Measurement.measureAll sv)
         
-        | QuantumState.FusionSuperposition (fs, _) ->
+        | QuantumState.FusionSuperposition superposition ->
             // Measure fusion outcomes and convert to computational basis
-            // Implementation delegated to TopologicalBackend module to avoid circular dependency
-            failwith "FusionSuperposition measurement not yet implemented - use QuantumStateConversion.convert to StateVector first, or call TopologicalBackend.sampleMeasurements directly"
+            // Delegate to the superposition's MeasureAll method (interface call)
+            superposition.MeasureAll shots
         
-        | QuantumState.SparseState _ ->
-            failwith "SparseState not yet implemented"
+        | QuantumState.SparseState (amplitudes, n) ->
+            // Implement measurement for SparseState by sampling from probability distribution
+            let rng = Random()
+            
+            let probabilities =
+                amplitudes
+                |> Map.toArray
+                |> Array.map (fun (idx, amp) -> 
+                    let prob = amp.Magnitude
+                    idx, prob * prob)
+                |> Array.sortBy fst
+            
+            let totalProb = Array.sumBy snd probabilities
+            
+            let sampleOnce () =
+                let selectedIdx = sampleFromDistribution rng probabilities totalProb
+                indexToBitstring n selectedIdx
+            
+            Array.init shots (fun _ -> sampleOnce ())
         
-        | QuantumState.DensityMatrix _ ->
-            failwith "DensityMatrix not yet implemented"
+        | QuantumState.DensityMatrix (rho, n) ->
+            // Implement measurement for DensityMatrix by sampling from diagonal
+            let rng = Random()
+            let dim = 1 <<< n
+            
+            let probabilities =
+                Array.init dim (fun i -> i, rho.[i, i].Real)  // Diagonal elements are real and represent probabilities
+            
+            let totalProb = Array.sumBy snd probabilities
+            
+            let sampleOnce () =
+                let selectedIdx = sampleFromDistribution rng probabilities totalProb
+                indexToBitstring n selectedIdx
+            
+            Array.init shots (fun _ -> sampleOnce ())
         
         | QuantumState.IsingSamples (problem, solutions) ->
             // Sample from D-Wave annealing solutions using reflection
@@ -320,10 +394,16 @@ module QuantumState =
             let n = numQubits state
             let rng = System.Random()
             
-            let spinToBit = function -1 -> 0 | _ -> 1
+            let spinToBit = function 
+                | -1 -> 0 
+                | _ -> 1
             
-            let spinsTobitstring (spins: Map<int, int>) =
-                Array.init n (fun i -> spins |> Map.tryFind i |> Option.map spinToBit |> Option.defaultValue 0)
+            let spinsToBitstring (spins: Map<int, int>) =
+                Array.init n (fun i -> 
+                    spins 
+                    |> Map.tryFind i 
+                    |> Option.map spinToBit 
+                    |> Option.defaultValue 0)
             
             if Seq.isEmpty solutionsSeq then
                 Array.replicate shots (Array.zeroCreate n)
@@ -341,8 +421,7 @@ module QuantumState =
                 
                 // Sample with replacement from solution pool
                 Array.init shots (fun _ -> 
-                    samplePool.[rng.Next(samplePool.Length)] |> spinsTobitstring
-                )
+                    samplePool.[rng.Next(samplePool.Length)] |> spinsToBitstring)
     
     /// Get probability of measuring specific bitstring
     /// 
@@ -359,44 +438,34 @@ module QuantumState =
     ///   probability [|1;1|] bellState = 0.5
     ///   probability [|0;1|] bellState = 0.0
     let probability (bitstring: int[]) (state: QuantumState) : float =
-        if bitstring.Length <> numQubits state then
-            failwith $"Bitstring length {bitstring.Length} does not match state qubits {numQubits state}"
+        let n = numQubits state
+        if bitstring.Length <> n then
+            invalidArg (nameof bitstring) $"Bitstring length {bitstring.Length} does not match state qubits {n}"
+        
+        let index = bitstringToIndex bitstring
         
         match state with
         | QuantumState.StateVector sv ->
-            // Convert bitstring to basis index
-            let index = 
-                bitstring 
-                |> Array.fold (fun acc bit -> (acc <<< 1) + bit) 0
-            
             let amplitude = StateVector.getAmplitude index sv
             let prob = amplitude.Magnitude
             prob * prob  // |α|²
         
-        | QuantumState.FusionSuperposition (fs, _) ->
+        | QuantumState.FusionSuperposition superposition ->
             // Probability calculation for fusion superposition
-            // Implementation delegated to TopologicalBackend module to avoid circular dependency
-            failwith "FusionSuperposition probability not yet implemented - use QuantumStateConversion.convert to StateVector first"
+            // Delegate to the superposition's Probability method (interface call)
+            superposition.Probability bitstring
         
-        | QuantumState.SparseState (amplitudes, n) ->
-            let index = 
-                bitstring 
-                |> Array.fold (fun acc bit -> (acc <<< 1) + bit) 0
-            
-            match Map.tryFind index amplitudes with
-            | Some amplitude ->
+        | QuantumState.SparseState (amplitudes, _) ->
+            amplitudes
+            |> Map.tryFind index
+            |> Option.map (fun amplitude -> 
                 let prob = amplitude.Magnitude
-                prob * prob
-            | None -> 0.0  // Not in sparse representation → amplitude is 0
+                prob * prob)
+            |> Option.defaultValue 0.0  // Not in sparse representation → amplitude is 0
         
-        | QuantumState.DensityMatrix (rho, n) ->
+        | QuantumState.DensityMatrix (rho, _) ->
             // Probability = ⟨bitstring|ρ|bitstring⟩ = ρ[i,i]
-            let index = 
-                bitstring 
-                |> Array.fold (fun acc bit -> (acc <<< 1) + bit) 0
-            
-            let diagonalElement = rho.[index, index]
-            diagonalElement.Magnitude  // Already real for density matrix diagonal
+            rho.[index, index].Magnitude  // Already real for density matrix diagonal
         
         | QuantumState.IsingSamples (problem, solutions) ->
             // For annealing samples, compute empirical probability from solution occurrences
@@ -406,11 +475,17 @@ module QuantumState =
             if Seq.isEmpty solutionsSeq then
                 0.0
             else
-                let spinToBit = function -1 -> 0 | _ -> 1
-                let spinsToBitstring spins i =
-                    Map.tryFind i spins |> Option.map spinToBit |> Option.defaultValue 0
+                let spinToBit = function 
+                    | -1 -> 0 
+                    | _ -> 1
                 
-                let (totalOcc, matchingOcc) =
+                let spinsToBitstring spins i =
+                    spins 
+                    |> Map.tryFind i 
+                    |> Option.map spinToBit 
+                    |> Option.defaultValue 0
+                
+                let totalOcc, matchingOcc =
                     solutionsSeq
                     |> Seq.fold (fun (total, matching) sol ->
                         let solType = sol.GetType()
@@ -423,7 +498,7 @@ module QuantumState =
                             |> Array.mapi (fun i bit -> spinsToBitstring spins i = bit)
                             |> Array.forall id
                         
-                        (total + occ, if matches then matching + occ else matching)
+                        total + occ, (if matches then matching + occ else matching)
                     ) (0, 0)
                 
                 float matchingOcc / float totalOcc
@@ -444,14 +519,12 @@ module QuantumState =
                 |> List.sumBy (fun i -> 
                     let amp = StateVector.getAmplitude i sv
                     let magnitude = amp.Magnitude
-                    magnitude * magnitude
-                )
+                    magnitude * magnitude)
             abs (totalProb - 1.0) < 1e-10
         
-        | QuantumState.FusionSuperposition (fs, _) ->
-            // Cannot directly check normalization of obj type
-            // Assume topological states are properly normalized by their constructors
-            true
+        | QuantumState.FusionSuperposition superposition ->
+            // Delegate to the superposition's IsNormalized property (interface call)
+            superposition.IsNormalized
         
         | QuantumState.SparseState (amplitudes, _) ->
             let totalProb =
@@ -459,9 +532,7 @@ module QuantumState =
                 |> Map.toSeq
                 |> Seq.sumBy (fun (_, amp) ->
                     let magnitude = amp.Magnitude
-                    magnitude * magnitude
-                )
-            
+                    magnitude * magnitude)
             abs (totalProb - 1.0) < 1e-10
         
         | QuantumState.DensityMatrix (rho, n) ->
@@ -504,15 +575,15 @@ module QuantumState =
                 // Large state: Just show metadata
                 $"StateVector ({n} qubits, {dim} dimensions, {dim * 16}B memory)"
         
-        | QuantumState.FusionSuperposition (fs, _) ->
+        | QuantumState.FusionSuperposition _ ->
             // We can't access fields from obj, so provide minimal info
             $"FusionSuperposition ({n} qubits, topological state)"
         
-        | QuantumState.SparseState (amplitudes, n) ->
+        | QuantumState.SparseState (amplitudes, _) ->
             let numNonZero = Map.count amplitudes
             $"SparseState ({n} qubits, {numNonZero}/{dim} non-zero amplitudes)"
         
-        | QuantumState.DensityMatrix (_, n) ->
+        | QuantumState.DensityMatrix _ ->
             $"DensityMatrix ({n} qubits, {dim}×{dim} matrix, {dim * dim * 16}B memory)"
         
         | QuantumState.IsingSamples (_, solutions) ->
@@ -525,13 +596,13 @@ module QuantumState =
                 let solutionsList = Seq.toList solutionsSeq
                 let numSolutions = List.length solutionsList
                 
-                let (totalSamples, bestEnergy) =
+                let totalSamples, bestEnergy =
                     solutionsList
                     |> List.fold (fun (total, best) sol ->
                         let solType = sol.GetType()
                         let occ = solType.GetProperty("NumOccurrences").GetValue(sol) :?> int
                         let energy = solType.GetProperty("Energy").GetValue(sol) :?> float
-                        (total + occ, min best energy)
-                    ) (0, System.Double.MaxValue)
+                        total + occ, min best energy
+                    ) (0, Double.MaxValue)
                 
                 $"IsingSamples ({n} variables, {numSolutions} unique solutions, {totalSamples} samples, best energy: {bestEnergy:F4})"

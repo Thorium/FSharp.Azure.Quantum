@@ -1,5 +1,7 @@
 namespace FSharp.Azure.Quantum.Topological
 
+open FSharp.Azure.Quantum.Core
+
 /// Quantum operations on topological qubits
 /// 
 /// This module implements the fundamental quantum gates for topological quantum computing:
@@ -428,6 +430,36 @@ module TopologicalOperations =
             yield List.toArray bits
         |]
     
+    /// Calculate probability of measuring a specific bitstring
+    /// 
+    /// Sums the probabilities (|amplitude|²) of all superposition terms
+    /// that correspond to the given bitstring when measured.
+    /// 
+    /// Parameters:
+    ///   bitstring - Target measurement outcome [|b0; b1; ...|]
+    ///   superposition - Quantum superposition state
+    /// 
+    /// Returns:
+    ///   Probability ∈ [0, 1] of measuring this bitstring
+    let probabilityOfBitstring (bitstring: int[]) (superposition: Superposition) : float =
+        // Normalize superposition to ensure valid probability distribution
+        let normalized = normalize superposition
+        
+        // Sum probabilities of all terms that match the target bitstring
+        normalized.Terms
+        |> List.sumBy (fun (amp, state) ->
+            // Convert fusion tree to computational basis
+            let bits = FusionTree.toComputationalBasis state.Tree
+            let bitsArray = List.toArray bits
+            
+            // Check if this term matches the target bitstring
+            if bitsArray.Length = bitstring.Length && 
+               Array.forall2 (=) bitsArray bitstring then
+                // Add this term's probability
+                probability amp
+            else
+                0.0)
+    
     // ========================================================================
     // QUANTUM STATE INTEROP (for UnifiedQuantumState)
     // ========================================================================
@@ -495,3 +527,47 @@ module TopologicalOperations =
     
     let fromView (view: SuperpositionView) : Superposition =
         createSuperposition view.BasisStates view.Amplitudes view.AnyonType
+    
+    // ========================================================================
+    // INTERFACE WRAPPER (for cross-package compatibility)
+    // ========================================================================
+    
+    /// Wrapper type that holds a Superposition and implements ITopologicalSuperposition
+    /// 
+    /// This allows the Core package to work with topological superpositions
+    /// without creating a circular dependency, while still allowing the
+    /// Topological package to access the underlying Superposition for operations.
+    type SuperpositionWrapper(superposition: Superposition) =
+        member _.Superposition = superposition
+        
+        interface ITopologicalSuperposition with
+            member _.LogicalQubits =
+                // Calculate logical qubit count from fusion tree structure
+                match superposition.Terms with
+                | [] -> 0
+                | (_, state) :: _ -> 
+                    // Count leaves in the fusion tree (each pair of anyons = 1 qubit)
+                    let leaves = FusionTree.leaves state.Tree
+                    // Jordan-Wigner encoding: n qubits requires n+1 anyons
+                    max 0 (leaves.Length - 1)
+            
+            member _.MeasureAll shots =
+                measureAll superposition shots
+            
+            member _.Probability bitstring =
+                probabilityOfBitstring bitstring superposition
+            
+            member _.IsNormalized =
+                isNormalized superposition
+    
+    /// Wrap a Superposition in an ITopologicalSuperposition interface
+    let toInterface (superposition: Superposition) : ITopologicalSuperposition =
+        SuperpositionWrapper(superposition) :> ITopologicalSuperposition
+    
+    /// Extract the underlying Superposition from an ITopologicalSuperposition
+    /// 
+    /// Returns None if the interface is not a SuperpositionWrapper.
+    let fromInterface (itf: ITopologicalSuperposition) : Superposition option =
+        match itf with
+        | :? SuperpositionWrapper as wrapper -> Some wrapper.Superposition
+        | _ -> None

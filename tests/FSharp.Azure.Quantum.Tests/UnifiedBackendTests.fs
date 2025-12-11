@@ -155,9 +155,9 @@ module UnifiedBackendTests =
         let backend = TopologicalUnifiedBackend.TopologicalUnifiedBackend(AnyonSpecies.AnyonType.Ising, 20) :> IQuantumBackend
         
         match backend.InitializeState 3 with
-        | Ok (QuantumState.FusionSuperposition (fs, numQubits)) ->
+        | Ok (QuantumState.FusionSuperposition fs) ->
             // fs is obj type, cast to TopologicalOperations.Superposition
-            let fusion = fs :?> TopologicalOperations.Superposition
+            let fusion = TopologicalOperations.fromInterface fs |> Option.get
             Assert.NotEmpty(fusion.Terms)
         | Ok _ ->
             Assert.True(false, "Expected FusionSuperposition")
@@ -172,8 +172,8 @@ module UnifiedBackendTests =
         | Ok initialState ->
             // Apply braiding operation
             match backend.ApplyOperation (QuantumOperation.Braid 0) initialState with
-            | Ok (QuantumState.FusionSuperposition (fs, numQubits)) ->
-                let fusion = fs :?> TopologicalOperations.Superposition
+            | Ok (QuantumState.FusionSuperposition fs) ->
+                let fusion = TopologicalOperations.fromInterface fs |> Option.get
                 Assert.NotEmpty(fusion.Terms)
             | Ok _ ->
                 Assert.True(false, "Expected FusionSuperposition")
@@ -225,9 +225,9 @@ module UnifiedBackendTests =
         | QuantumState.StateVector _ ->
             // Expected: conversion returns original state unchanged
             Assert.True(true, "Conversion correctly returns unchanged state")
-        | QuantumState.FusionSuperposition (fs, numQubits) ->
+        | QuantumState.FusionSuperposition fs ->
             // If topological package implements conversion, this would work
-            let fusion = fs :?> TopologicalOperations.Superposition
+            let fusion = TopologicalOperations.fromInterface fs |> Option.get
             Assert.NotEmpty(fusion.Terms)
         | _ ->
             Assert.True(false, "Unexpected state type")
@@ -301,9 +301,9 @@ module UnifiedBackendTests =
             | QuantumState.StateVector _ ->
                 // Expected: state unchanged
                 Assert.True(true, "Conversion correctly returns unchanged state")
-            | QuantumState.FusionSuperposition (fs, numQubits) ->
+            | QuantumState.FusionSuperposition fs ->
                 // If topological package implements conversion, this would work
-                let fusion = fs :?> TopologicalOperations.Superposition
+                let fusion = TopologicalOperations.fromInterface fs |> Option.get
                 Assert.NotEmpty(fusion.Terms)
             | _ ->
                 Assert.True(false, "Unexpected state type")
@@ -353,8 +353,8 @@ module UnifiedBackendTests =
                 | Ok topState ->
                     // Apply braiding operation on topological backend
                     match topBackend.ApplyOperation (QuantumOperation.Braid 0) topState with
-                    | Ok (QuantumState.FusionSuperposition (fs, numQubits)) ->
-                        let fusion = fs :?> TopologicalOperations.Superposition
+                    | Ok (QuantumState.FusionSuperposition fs) ->
+                        let fusion = TopologicalOperations.fromInterface fs |> Option.get
                         Assert.NotEmpty(fusion.Terms)
                     | Ok _ ->
                         Assert.True(false, "Expected FusionSuperposition")

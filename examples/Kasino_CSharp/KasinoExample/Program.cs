@@ -24,7 +24,7 @@ namespace KasinoExample
     ///
     /// Example: Hand Ace (14) + Table [Ace(1), King(13)]
     /// - Valid combination: 1 + 13 = 14 → Capture both Ace and King
-    /// - Invalid: Cannot capture table Ace alone (1 ≠ 14)
+    /// - Invalid: Cannot capture table Ace alone (1 ≠ 14).
     /// </summary>
     internal sealed class Program
     {
@@ -235,7 +235,7 @@ namespace KasinoExample
         /// <summary>
         /// Example 4: Real Kasino Capture Logic (All Valid Combinations).
         /// Demonstrates the NEW findAllValidCombinations function that captures
-        /// ALL cards involved in ANY valid combination - the true Kasino game rule!
+        /// ALL cards involved in ANY valid combination - the true Kasino game rule.
         /// </summary>
         private static void Example4_RealKasinoCapture()
         {
@@ -271,7 +271,7 @@ namespace KasinoExample
                 var (combinations, allCapturedItems, combinationCount) = Knapsack.findAllValidCombinations(problem);
 
                 Console.WriteLine($"   🔍 Found {combinationCount} valid combination(s):");
-                
+
                 int combNum = 1;
                 foreach (var combination in combinations)
                 {
@@ -287,12 +287,12 @@ namespace KasinoExample
                 var totalCaptured = allCapturedItems.Sum(item => item.Value);
                 Console.WriteLine($"      Captured: [{capturedValues}]");
                 Console.WriteLine($"      Total: {totalCaptured} points ({allCapturedItems.Count()} cards)");
-                
+
                 // Show remaining cards
                 var capturedIds = allCapturedItems.Select(item => item.Id).ToHashSet();
                 var remainingCards = tableCards.Where(card => !capturedIds.Contains(card.Item1)).ToList();
-                
-                if (remainingCards.Any())
+
+                if (remainingCards.Count != 0)
                 {
                     var remainingValues = string.Join(", ", remainingCards.Select(card => card.Item2));
                     Console.WriteLine($"      Remaining: [{remainingValues}] ({remainingCards.Count} cards left on table)");

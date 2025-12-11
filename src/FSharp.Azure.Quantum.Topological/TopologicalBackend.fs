@@ -68,7 +68,8 @@ module TopologicalUnifiedBackend =
         /// Sample measurements from topological state (returns Result for proper error handling)
         let sampleMeasurements (state: TopologicalOperations.Superposition) (numQubits: int) (numShots: int) : Result<int[][], string> =
             // Convert to state vector for measurement sampling
-            let stateVector = QuantumStateConversion.convert QuantumStateType.GateBased (QuantumState.FusionSuperposition (state :> obj, numQubits))
+            let stateInterface = TopologicalOperations.toInterface state
+            let stateVector = QuantumStateConversion.convert QuantumStateType.GateBased (QuantumState.FusionSuperposition stateInterface)
             
             match stateVector with
             | QuantumState.StateVector sv ->
@@ -92,9 +93,9 @@ module TopologicalUnifiedBackend =
         ///   Array of bitstrings (int[][])
         let measureFusionState (state: QuantumState) (shots: int) : int[][] =
             match state with
-            | QuantumState.FusionSuperposition (fs, _) ->
-                let superposition = fs :?> TopologicalOperations.Superposition
-                TopologicalOperations.measureAll superposition shots
+            | QuantumState.FusionSuperposition fs ->
+                // Use interface method directly (no cast needed)
+                fs.MeasureAll shots
             | _ ->
                 failwith $"Expected FusionSuperposition, got {state.GetType().Name}"
         
@@ -108,156 +109,129 @@ module TopologicalUnifiedBackend =
         ///   Probability ∈ [0, 1]
         let probabilityFusionState (bitstring: int[]) (state: QuantumState) : float =
             match state with
-            | QuantumState.FusionSuperposition (fs, _) ->
-                let superposition = fs :?> TopologicalOperations.Superposition
-                let normalized = TopologicalOperations.normalize superposition
-                
-                // Find all terms matching target bitstring and sum their probabilities
-                normalized.Terms
-                |> List.filter (fun (_, fusionState) ->
-                    let bits = FusionTree.toComputationalBasis fusionState.Tree |> List.toArray
-                    bits = bitstring
-                )
-                |> List.sumBy (fun (amp, _) -> TopologicalOperations.probability amp)
+            | QuantumState.FusionSuperposition fs ->
+                // Use interface method directly (no cast needed)
+                fs.Probability bitstring
             | _ ->
                 failwith $"Expected FusionSuperposition, got {state.GetType().Name}"
+        
+        // ====================================================================
+        // Helper Functions for Operation Application
+        // ====================================================================
+        
+        /// Apply braiding operation to fusion superposition
+        member private this.ApplyBraid (anyonIndex: int) (fusionState: TopologicalOperations.Superposition) : Result<QuantumState, QuantumError> =
+            let result = TopologicalOperations.braidSuperposition anyonIndex fusionState
+            match toResult result with
+            | Ok braided -> Ok (QuantumState.FusionSuperposition (TopologicalOperations.toInterface braided))
+            | Error errMsg -> Error (QuantumError.OperationError ("TopologicalBackend", errMsg))
+        
+        /// Apply gate operation by compiling to braiding sequence
+        member private this.ApplyGate (gate: CircuitBuilder.Gate) (fusionState: TopologicalOperations.Superposition) (numQubits: int) : Result<QuantumState, QuantumError> =
+            let tolerance = 1e-10
+            let numStrands = numQubits + 1
+            
+            match GateToBraid.compileGateToBraid gate numStrands tolerance with
+            | Ok decomposition ->
+                let braidIndices = 
+                    decomposition.BraidSequence 
+                    |> List.collect (fun bw -> bw.Generators)
+                    |> List.map (fun gen -> gen.Index)
+                
+                let finalResult =
+                    braidIndices
+                    |> List.fold (fun stateResult braidIdx ->
+                        stateResult |> Result.bind (fun currentState ->
+                            TopologicalOperations.braidSuperposition braidIdx currentState
+                            |> toResult
+                            |> Result.mapError (fun err -> QuantumError.OperationError ("TopologicalBackend", err))
+                        )
+                    ) (Ok fusionState)
+                
+                match finalResult with
+                | Ok finalState -> Ok (QuantumState.FusionSuperposition (TopologicalOperations.toInterface finalState))
+                | Error err -> Error err
+            
+            | Error topErr -> 
+                Error (QuantumError.OperationError ("TopologicalBackend", 
+                    $"Failed to compile gate {gate} to braiding: {topErr.Message}"))
+        
+        /// Apply F-move operation
+        member private this.ApplyFMove (direction: obj) (depth: int) (fusionState: TopologicalOperations.Superposition) : Result<QuantumState, QuantumError> =
+            let fmoveDir = 
+                match direction with
+                | :? TopologicalOperations.FMoveDirection as dir -> dir
+                | _ -> TopologicalOperations.FMoveDirection.LeftToRight
+            
+            let newTerms =
+                fusionState.Terms
+                |> List.collect (fun (amp, state) ->
+                    let fmoveResult = TopologicalOperations.fMove fmoveDir depth state
+                    fmoveResult.Terms |> List.map (fun (amp2, state2) -> (amp * amp2, state2))
+                )
+            
+            let newSuperposition : TopologicalOperations.Superposition = {
+                Terms = newTerms
+                AnyonType = fusionState.AnyonType
+            }
+            
+            Ok (QuantumState.FusionSuperposition (TopologicalOperations.toInterface newSuperposition))
+        
+        /// Apply measurement operation
+        member private this.ApplyMeasure (anyonIndex: int) (fusionState: TopologicalOperations.Superposition) : Result<QuantumState, QuantumError> =
+            try
+                let newTerms =
+                    fusionState.Terms
+                    |> List.collect (fun (amp, state) ->
+                        match TopologicalOperations.measureFusion anyonIndex state |> toResult with
+                        | Ok outcomes ->
+                            outcomes |> List.map (fun (prob, opResult) ->
+                                let newAmp = amp * Complex(sqrt prob, 0.0)
+                                (newAmp, opResult.State)
+                            )
+                        | Error _ -> []
+                    )
+                
+                let newSuperposition : TopologicalOperations.Superposition = {
+                    Terms = newTerms
+                    AnyonType = fusionState.AnyonType
+                }
+                
+                Ok (QuantumState.FusionSuperposition (TopologicalOperations.toInterface newSuperposition))
+            with
+            | ex -> Error (QuantumError.OperationError ("TopologicalBackend", ex.Message))
         
         // ====================================================================
         // IQuantumBackend Implementation
         // ====================================================================
         
         interface IQuantumBackend with
-            member _.Name = sprintf "Topological (%A)" anyonType
-            
-            member this.ExecuteToState (circuit: ICircuit) : Result<QuantumState, QuantumError> =
-                // Convert gate-based circuit to operations and apply sequentially
-                match box circuit with
-                | :? CircuitAbstraction.CircuitWrapper as wrapper ->
-                    let cbCircuit = wrapper.Circuit
-                    
-                    result {
-                        // Initialize state
-                        let! initialState = (this :> IQuantumBackend).InitializeState cbCircuit.QubitCount
-                        
-                        // Convert gates to QuantumOperation.Gate and apply sequentially
-                        let gateOperations = cbCircuit.Gates |> List.map QuantumOperation.Gate
-                        
-                        // Apply all operations using ApplyOperation (handles gate-to-braiding compilation)
-                        let! finalState =
-                            gateOperations
-                            |> List.fold (fun stateResult op ->
-                                stateResult |> Result.bind (fun s -> 
-                                    (this :> IQuantumBackend).ApplyOperation op s)
-                            ) (Ok initialState)
-                        
-                        return finalState
-                    }
-                | _ ->
-                    Error (QuantumError.ValidationError ("Circuit", 
-                        "TopologicalBackend requires CircuitBuilder.Circuit wrapped in CircuitWrapper."))
-            
-            member _.NativeStateType = QuantumStateType.TopologicalBraiding
             
             member this.ApplyOperation (operation: QuantumOperation) (state: QuantumState) : Result<QuantumState, QuantumError> =
                 match state with
-                | QuantumState.FusionSuperposition (fs, numQubits) ->
-                    // Cast obj to TopologicalOperations.Superposition
-                    let fusionState = fs :?> TopologicalOperations.Superposition
-                    
-                    try
-                        match operation with
-                        | QuantumOperation.Braid anyonIndex ->
-                            // Apply braiding directly using TopologicalOperations
-                            let result = TopologicalOperations.braidSuperposition anyonIndex fusionState
-                            
-                            match toResult result with
-                            | Ok braided -> Ok (QuantumState.FusionSuperposition (braided :> obj, numQubits))
-                            | Error errMsg -> Error (QuantumError.OperationError ("TopologicalBackend", errMsg))
+                | QuantumState.FusionSuperposition fs ->
+                    // Extract underlying Superposition from interface
+                    match TopologicalOperations.fromInterface fs with
+                    | None -> 
+                        Error (QuantumError.ValidationError("state", "FusionSuperposition does not contain a valid Superposition"))
+                    | Some fusionState ->
+                        let numQubits = fs.LogicalQubits
                         
-                        | QuantumOperation.Gate gate ->
-                            // Compile gate to braiding operations using production-ready compiler
-                            let tolerance = 1e-10  // High precision for gate approximation
+                        try
+                            match operation with
+                            | QuantumOperation.Braid anyonIndex ->
+                                this.ApplyBraid anyonIndex fusionState
                             
-                            // Jordan-Wigner encoding: n qubits → n+1 anyonic strands
-                            let numStrands = numQubits + 1
+                            | QuantumOperation.Gate gate ->
+                                this.ApplyGate gate fusionState numQubits
                             
-                            match GateToBraid.compileGateToBraid gate numStrands tolerance with
-                            | Ok decomposition ->
-                                // Apply each braiding operation sequentially
-                                let braidIndices = 
-                                    decomposition.BraidSequence 
-                                    |> List.collect (fun bw -> bw.Generators)
-                                    |> List.map (fun gen -> gen.Index)
-                                
-                                // Apply braids sequentially using fold
-                                let finalResult =
-                                    braidIndices
-                                    |> List.fold (fun stateResult braidIdx ->
-                                        stateResult |> Result.bind (fun currentState ->
-                                            TopologicalOperations.braidSuperposition braidIdx currentState
-                                            |> toResult
-                                            |> Result.mapError (fun err -> QuantumError.OperationError ("TopologicalBackend", err))
-                                        )
-                                    ) (Ok fusionState)
-                                
-                                match finalResult with
-                                | Ok finalState -> Ok (QuantumState.FusionSuperposition (finalState :> obj, numQubits))
-                                | Error err -> Error err
+                            | QuantumOperation.FMove (direction, depth) ->
+                                this.ApplyFMove direction depth fusionState
                             
-                            | Error topErr -> 
-                                Error (QuantumError.OperationError ("TopologicalBackend", 
-                                    $"Failed to compile gate {gate} to braiding: {topErr.Message}"))
-                        
-                        | QuantumOperation.FMove (direction, depth) ->
-                            // Apply F-move (basis transformation) to each term in superposition
-                            // direction is obj type, needs casting
-                            let fmoveDir = 
-                                match direction with
-                                | :? TopologicalOperations.FMoveDirection as dir -> dir
-                                | _ -> TopologicalOperations.FMoveDirection.LeftToRight  // Default
+                            | QuantumOperation.Measure anyonIndex ->
+                                this.ApplyMeasure anyonIndex fusionState
                             
-                            // Apply F-move to each basis state in the superposition
-                            let newTerms =
-                                fusionState.Terms
-                                |> List.collect (fun (amp, state) ->
-                                    let fmoveResult = TopologicalOperations.fMove fmoveDir depth state
-                                    fmoveResult.Terms |> List.map (fun (amp2, state2) -> (amp * amp2, state2))
-                                )
-                            
-                            let newSuperposition : TopologicalOperations.Superposition = {
-                                Terms = newTerms
-                                AnyonType = fusionState.AnyonType
-                            }
-                            
-                            Ok (QuantumState.FusionSuperposition (newSuperposition :> obj, numQubits))
-                        
-                        | QuantumOperation.Measure anyonIndex ->
-                            // Measure fusion - measureFusion works on FusionTree.State, need to apply to each term
-                            try
-                                let newTerms =
-                                    fusionState.Terms
-                                    |> List.collect (fun (amp, state) ->
-                                        match TopologicalOperations.measureFusion anyonIndex state |> toResult with
-                                        | Ok outcomes ->
-                                            outcomes |> List.map (fun (prob, opResult) ->
-                                                let newAmp = amp * Complex(sqrt prob, 0.0)
-                                                (newAmp, opResult.State)
-                                            )
-                                        | Error _ -> []  // Skip terms that can't be measured
-                                    )
-                                
-                                let newSuperposition : TopologicalOperations.Superposition = {
-                                    Terms = newTerms
-                                    AnyonType = fusionState.AnyonType
-                                }
-                                
-                                Ok (QuantumState.FusionSuperposition (newSuperposition :> obj, numQubits))
-                            with
-                            | ex -> Error (QuantumError.OperationError ("TopologicalBackend", ex.Message))
-                        
-                        | QuantumOperation.Sequence ops ->
-                            // Apply operations sequentially
-                            let result =
+                            | QuantumOperation.Sequence ops ->
                                 ops
                                 |> List.fold (fun stateResult op ->
                                     match stateResult with
@@ -265,16 +239,15 @@ module TopologicalUnifiedBackend =
                                     | Ok currentState ->
                                         (this :> IQuantumBackend).ApplyOperation op currentState
                                 ) (Ok state)
-                            result
-                    with
-                    | ex -> Error (QuantumError.OperationError ("TopologicalBackend", ex.Message))
+                        with
+                        | ex -> Error (QuantumError.OperationError ("TopologicalBackend", ex.Message))
                 
                 | _ ->
                     // State is not in native format - try conversion
                     let convertedState = QuantumStateConversion.convert QuantumStateType.TopologicalBraiding state
                     match convertedState with
-                    | QuantumState.FusionSuperposition (fs, numQubits) ->
-                        (this :> IQuantumBackend).ApplyOperation operation (QuantumState.FusionSuperposition (fs, numQubits))
+                    | QuantumState.FusionSuperposition fs ->
+                        (this :> IQuantumBackend).ApplyOperation operation (QuantumState.FusionSuperposition fs)
                     | _ ->
                         Error (QuantumError.OperationError ("TopologicalBackend", "State conversion failed or returned non-fusion state"))
             
@@ -294,6 +267,34 @@ module TopologicalUnifiedBackend =
                     // Sequence supported if all operations are supported
                     ops |> List.forall (fun op -> (this :> IQuantumBackend).SupportsOperation op)
             
+            member _.Name = "Topological Quantum Backend"
+            
+            member _.NativeStateType = QuantumStateType.TopologicalBraiding
+            
+            member this.ExecuteToState (circuit: ICircuit) : Result<QuantumState, QuantumError> =
+                // Initialize state
+                let initialResult = (this :> IQuantumBackend).InitializeState circuit.NumQubits
+                
+                match initialResult with
+                | Error err -> Error err
+                | Ok initialState ->
+                    // Extract gates from circuit wrapper
+                    let operations =
+                        match circuit with
+                        | :? CircuitWrapper as wrapper -> 
+                            wrapper.Circuit.Gates |> List.map QuantumOperation.Gate
+                        | _ -> 
+                            []  // Empty circuit if not a CircuitWrapper
+                    
+                    // Apply each operation in sequence
+                    operations
+                    |> List.fold (fun stateResult operation ->
+                        match stateResult with
+                        | Error err -> Error err
+                        | Ok currentState ->
+                            (this :> IQuantumBackend).ApplyOperation operation currentState
+                    ) (Ok initialState)
+            
             member _.InitializeState (numQubits: int) : Result<QuantumState, QuantumError> =
                 try
                     // Jordan-Wigner encoding: n qubits → n+1 anyonic strands
@@ -312,7 +313,7 @@ module TopologicalUnifiedBackend =
                     let initialFusionState = FusionTree.create initialTree anyonType
                     let initialSuperposition = TopologicalOperations.pureState initialFusionState
                     
-                    Ok (QuantumState.FusionSuperposition (initialSuperposition :> obj, numQubits))
+                    Ok (QuantumState.FusionSuperposition (TopologicalOperations.toInterface initialSuperposition))
                 with
                 | ex -> Error (QuantumError.OperationError ("TopologicalBackend", ex.Message))
 

@@ -250,21 +250,24 @@ type CSharpBuilders private () =
         let itemList = items |> Array.map (fun struct(id, w, v) -> (id, w, v)) |> Array.toList
         Knapsack.createProblem itemList capacity
     
-    /// <summary>Find all valid combinations that sum exactly to capacity (Kasino game logic).</summary>
+    /// <summary>Find all valid combinations that sum exactly to capacity.</summary>
     /// <param name="problem">Knapsack problem</param>
     /// <returns>Tuple of (all combinations, union of all items, combination count)</returns>
+    /// <remarks>Useful for subset sum enumeration, exact constraint satisfaction, and combinatorial analysis.</remarks>
     static member FindAllValidCombinations(problem: Knapsack.Problem) =
         Knapsack.findAllValidCombinations problem
     
-    /// <summary>Find all exact combinations (Kasino capture logic).</summary>
+    /// <summary>Find all exact combinations that sum to capacity.</summary>
     /// <param name="problem">Knapsack problem</param>
     /// <returns>List of all valid combinations</returns>
+    /// <remarks>Returns all subsets where sum of weights equals capacity exactly.</remarks>
     static member FindAllExactCombinations(problem: Knapsack.Problem) =
         Knapsack.findAllExactCombinations problem
     
-    /// <summary>Find all captured items (union of all combinations).</summary>
+    /// <summary>Find union of all items across all exact combinations.</summary>
     /// <param name="problem">Knapsack problem</param>
     /// <returns>List of all items that appear in at least one valid combination</returns>
+    /// <remarks>Returns distinct items that participate in any exact-sum solution.</remarks>
     static member FindAllCapturedItems(problem: Knapsack.Problem) =
         Knapsack.findAllCapturedItems problem
     
