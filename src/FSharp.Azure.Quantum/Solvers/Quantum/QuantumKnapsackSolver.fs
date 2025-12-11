@@ -331,7 +331,7 @@ module QuantumKnapsackSolver =
                                     TotalWeight = 0.0
                                     TotalValue = 0.0
                                     IsFeasible = true
-                                    BackendName = "QuantumBackend"
+                                    BackendName = backend.Name
                                     NumShots = config.NumShots
                                     ElapsedMs = 0.0
                                     BestEnergy = 0.0
@@ -341,7 +341,7 @@ module QuantumKnapsackSolver =
                         
                         return Ok {
                             bestSolution with
-                                BackendName = "QuantumBackend"
+                                BackendName = backend.Name
                                 NumShots = config.NumShots
                                 ElapsedMs = elapsedMs
                         }

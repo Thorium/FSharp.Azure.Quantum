@@ -250,6 +250,24 @@ type CSharpBuilders private () =
         let itemList = items |> Array.map (fun struct(id, w, v) -> (id, w, v)) |> Array.toList
         Knapsack.createProblem itemList capacity
     
+    /// <summary>Find all valid combinations that sum exactly to capacity (Kasino game logic).</summary>
+    /// <param name="problem">Knapsack problem</param>
+    /// <returns>Tuple of (all combinations, union of all items, combination count)</returns>
+    static member FindAllValidCombinations(problem: Knapsack.Problem) =
+        Knapsack.findAllValidCombinations problem
+    
+    /// <summary>Find all exact combinations (Kasino capture logic).</summary>
+    /// <param name="problem">Knapsack problem</param>
+    /// <returns>List of all valid combinations</returns>
+    static member FindAllExactCombinations(problem: Knapsack.Problem) =
+        Knapsack.findAllExactCombinations problem
+    
+    /// <summary>Find all captured items (union of all combinations).</summary>
+    /// <param name="problem">Knapsack problem</param>
+    /// <returns>List of all items that appear in at least one valid combination</returns>
+    static member FindAllCapturedItems(problem: Knapsack.Problem) =
+        Knapsack.findAllCapturedItems problem
+    
     // ============================================================================
     // TSP BUILDER EXTENSIONS
     // ============================================================================
@@ -629,14 +647,18 @@ module QuantumBackendCSharpExtensions =
     /// }
     /// </code>
     /// </example>
+    /// <summary>
+    /// Execute circuit and get quantum state (C# Task wrapper for ExecuteToState).
+    /// </summary>
+    /// <param name="backend">The quantum backend</param>
+    /// <param name="circuit">The circuit to execute</param>
+    /// <returns>Task with Result containing quantum state or error</returns>
     [<Extension>]
-    let ExecuteAsyncTask 
+    let ExecuteToStateTask 
         (backend: IQuantumBackend) 
-        (circuit: ICircuit) 
-        (numShots: int) : Task<Result<ExecutionResult, string>> =
+        (circuit: ICircuit) : Task<Result<QuantumState, QuantumError>> =
         async {
-            let! result = backend.ExecuteAsync circuit numShots
-            return result |> QuantumResult.toStringResult
+            return backend.ExecuteToState circuit
         } |> Async.StartAsTask
     
     /// <summary>
@@ -649,22 +671,14 @@ module QuantumBackendCSharpExtensions =
         backend.Name
     
     /// <summary>
-    /// Get maximum qubits supported by backend (C# property helper).
+    /// Check if backend supports a specific operation (C# helper).
     /// </summary>
     /// <param name="backend">The quantum backend</param>
-    /// <returns>Maximum number of qubits</returns>
+    /// <param name="operation">The operation to check</param>
+    /// <returns>True if supported, false otherwise</returns>
     [<Extension>]
-    let GetMaxQubits (backend: IQuantumBackend) : int =
-        backend.MaxQubits
-    
-    /// <summary>
-    /// Get supported gate types (C# array helper).
-    /// </summary>
-    /// <param name="backend">The quantum backend</param>
-    /// <returns>Array of supported gate names</returns>
-    [<Extension>]
-    let GetSupportedGates (backend: IQuantumBackend) : string[] =
-        backend.SupportedGates |> List.toArray
+    let CheckSupportsOperation (backend: IQuantumBackend) (operation: QuantumOperation) : bool =
+        backend.SupportsOperation operation
 
 // ============================================================================
 // MODEL SERIALIZATION EXTENSIONS - Task-based Async for C#

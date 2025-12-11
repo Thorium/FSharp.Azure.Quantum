@@ -696,7 +696,7 @@ var qpe = EstimateRotationZ(Math.PI / 4.0, precision: 16);
 var phaseResult = EstimatePhase(qpe);
 ```
 
-**Current Status:** Educational/research focus - Demonstrates quantum algorithms but hardware insufficient for real-world applications (2024-2025)
+**Current Status:** Educational/research focus - Demonstrates quantum algorithms but hardware insufficient for real-world applications (as of 2025)
 
 ---
 
@@ -1436,6 +1436,115 @@ let result3 = MaxCut.solve largeProblem (Some dwaveBackend)  // 2000+ qubits
 - Cost-sensitive applications (D-Wave cheaper per qubit)
 - NOT for: QFT-based algorithms, Grover's search, quantum chemistry (use gate-based)
 
+### Unified Backend Architecture
+
+All quantum backends implement the **`IQuantumBackend`** interface, providing a consistent API for quantum circuit execution regardless of the underlying hardware or simulation technology.
+
+**Core Interface** (`src/FSharp.Azure.Quantum/Core/BackendAbstraction.fs`):
+
+```fsharp
+type IQuantumBackend =
+    /// Execute circuit and return quantum state (not just measurements)
+    abstract member ExecuteToState: ICircuit -> Result<QuantumState, QuantumError>
+    
+    /// Apply single operation to existing state
+    abstract member ApplyOperation: QuantumOperation -> QuantumState -> Result<QuantumState, QuantumError>
+    
+    /// Check if backend supports a specific operation
+    abstract member SupportsOperation: QuantumOperation -> bool
+    
+    /// Initialize quantum state for n qubits
+    abstract member InitializeState: int -> Result<QuantumState, QuantumError>
+    
+    /// Backend's native state representation
+    abstract member NativeStateType: QuantumStateType
+    
+    /// Backend identifier
+    abstract member Name: string
+```
+
+**State Types:**
+- `StateVector` - Full complex amplitude representation (LocalBackend, most gate-based)
+- `TopologicalBraiding` - Anyon braiding representation (TopologicalBackend)
+- `Sparse` - Sparse matrix representation (for large systems)
+- `Mixed` - Density matrix representation (noisy simulations)
+
+**Key Benefits:**
+
+1. **State-Based Execution**: Get quantum states for inspection and manipulation, not just shot-based measurements
+   ```fsharp
+   let! state = backend.ExecuteToState circuit
+   let amplitudes = state.GetAmplitudes()  // Inspect quantum state directly
+   ```
+
+2. **Backend-Agnostic Code**: Write algorithms once, run on any backend
+   ```fsharp
+   // Works with LocalBackend, IonQBackend, DWaveBackend, etc.
+   let runQFT (backend: IQuantumBackend) n =
+       result {
+           let circuit = CircuitBuilder.create n |> QFT.apply
+           let! state = backend.ExecuteToState circuit
+           return state
+       }
+   ```
+
+3. **Multi-Stage Algorithms**: Chain operations across multiple backends
+   ```fsharp
+   // QFT → QPE → Measurement on different backends
+   let! qftState = localBackend.ExecuteToState qftCircuit
+   let! qpeState = cloudBackend.ApplyOperation qpeOperation qftState
+   let! final = cloudBackend.ApplyOperation measurement qpeState
+   ```
+
+4. **Capability Checking**: Verify backend support before execution
+   ```fsharp
+   if backend.SupportsOperation (Gate (Toffoli (0, 1, 2))) then
+       // Use native Toffoli
+   else
+       // Fall back to decomposed version
+   ```
+
+**Example - Backend Switching:**
+
+```fsharp
+open FSharp.Azure.Quantum
+open FSharp.Azure.Quantum.Core.BackendAbstraction
+
+// Step 1: Develop locally
+let localBackend = createLocalBackend()
+let circuit = CircuitBuilder.create 3
+              |> addGate (H 0)
+              |> addGate (CNOT (0,1))
+              |> addGate (CNOT (1,2))
+
+match localBackend.ExecuteToState circuit with
+| Ok state -> 
+    printfn "Local test passed: %d amplitudes" (state.GetAmplitudes().Length)
+| Error e -> 
+    printfn "Error: %A" e
+
+// Step 2: Same code on cloud backend (no changes needed!)
+let workspace = AzureQuantumWorkspace.createDefault "sub-id" "rg" "workspace" "eastus"
+let cloudBackend = createFromWorkspace workspace "ionq.simulator"
+
+match cloudBackend.ExecuteToState circuit with  // Identical call!
+| Ok state -> 
+    printfn "Cloud execution passed: Backend=%s" cloudBackend.Name
+| Error e -> 
+    printfn "Error: %A" e
+```
+
+**All Backends Implement IQuantumBackend:**
+- ✅ **LocalBackend** - Local state-vector simulation
+- ✅ **IonQBackend** - IonQ gate-based quantum computers
+- ✅ **RigettiBackend** - Rigetti superconducting QPUs
+- ✅ **QuantinuumBackend** - Quantinuum trapped-ion systems
+- ✅ **AtomComputingBackend** - Atom Computing neutral atom QPUs
+- ✅ **DWaveBackend** - D-Wave quantum annealer (converts QAOA to QUBO)
+- ✅ **TopologicalBackend** - Topological quantum simulation
+
+This unified interface enables seamless integration of the library's high-level solvers (QAOA, QFT, Grover) with any supported quantum hardware or simulator.
+
 ### Azure Quantum Workspace Management
 
 **Production-ready hybrid approach: Workspace quota management + proven HTTP backends**
@@ -2115,11 +2224,14 @@ async {
 
 Error mitigation includes comprehensive testing:
 
-- 534 test cases across all modules
-- ZNE: 111 tests (Richardson extrapolation, noise scaling, goodness-of-fit)
-- PEC: 222 tests (quasi-probability, Monte Carlo, integration)
-- REM: 161 tests (calibration, matrix inversion, confidence intervals)
-- Strategy: 40 tests (selection logic, cost estimation, fallbacks)
+- **1804 total test cases** (1353 main + 451 topological)
+  - Error Mitigation: 534 tests
+    - ZNE: 111 tests (Richardson extrapolation, noise scaling, goodness-of-fit)
+    - PEC: 222 tests (quasi-probability, Monte Carlo, integration)
+    - REM: 161 tests (calibration, matrix inversion, confidence intervals)
+    - Strategy: 40 tests (selection logic, cost estimation, fallbacks)
+  - Topological: 451 tests (anyon systems, braiding, fusion)
+  - Core & Algorithms: 819 tests (circuits, gates, QAOA, QFT, Grover, etc.)
 
 **See:** `tests/FSharp.Azure.Quantum.Tests/*ErrorMitigation*.fs`
 
@@ -2560,7 +2672,7 @@ var result = ExecutePhaseEstimator(problem);
 - NISQ limitations: Toy examples only (< 20 qubits)
 - Requires fault-tolerant quantum computers for production use
 
-**Current Status:** Educational/research focus - Demonstrates quantum algorithms but hardware insufficient for real-world applications (2024-2025)
+**Current Status:** Educational/research focus - Demonstrates quantum algorithms but hardware insufficient for real-world applications (as of 2025)
 
 ---
 

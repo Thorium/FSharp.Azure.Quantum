@@ -78,7 +78,8 @@ internal sealed class Program
         }
         else
         {
-            Console.WriteLine($"❌ Optimization failed: {result.ErrorValue}");
+            var error = result.ErrorValue;
+            Console.WriteLine($"❌ Optimization failed: {error.Message}");
             Environment.Exit(1);
         }
     }
@@ -136,7 +137,7 @@ internal sealed class Program
     /// <summary>
     /// Optimize portfolio allocation using HybridSolver.
     /// </summary>
-    private static Microsoft.FSharp.Core.FSharpResult<HybridSolver.Solution<PortfolioSolver.PortfolioSolution>, string>
+    private static Microsoft.FSharp.Core.FSharpResult<HybridSolver.Solution<PortfolioSolver.PortfolioSolution>, FSharp.Azure.Quantum.Core.QuantumError>
         OptimizePortfolio(PortfolioTypes.Asset[] assets, double budget)
     {
         // Define constraints

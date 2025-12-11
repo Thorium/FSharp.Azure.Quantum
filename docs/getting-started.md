@@ -449,7 +449,7 @@ FSharp.Azure.Quantum provides **automatic QAOA parameter optimization** - a vari
 
 ```fsharp
 open FSharp.Azure.Quantum.Quantum.QuantumTspSolver
-open FSharp.Azure.Quantum.Core.BackendAbstraction
+open FSharp.Azure.Quantum.Backends
 
 // Create distance matrix for 3-city TSP
 let distances = array2D [
@@ -459,7 +459,7 @@ let distances = array2D [
 ]
 
 // Option 1: Use default configuration (optimization enabled)
-let backend = createLocalBackend()
+let backend = LocalBackendFactory.createUnified()
 match solve backend distances defaultConfig with
 | Ok solution ->
     printfn "Best tour: %A" solution.Tour

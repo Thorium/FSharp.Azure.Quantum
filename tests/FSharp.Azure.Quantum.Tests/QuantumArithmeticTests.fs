@@ -13,6 +13,7 @@ namespace FSharp.Azure.Quantum.Tests
 *)
 
 open Xunit
+open FSharp.Azure.Quantum.Algorithms
 open FSharp.Azure.Quantum.Algorithms.QuantumArithmetic
 open FSharp.Azure.Quantum.LocalSimulator
 open FSharp.Azure.Quantum.CircuitBuilder

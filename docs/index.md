@@ -264,7 +264,7 @@ let problem = scheduling {
 }
 
 // Solve with quantum backend for resource constraints
-let backend = BackendAbstraction.createLocalBackend()
+let backend = LocalBackendFactory.createUnified()
 match solveQuantum backend problem with
 | Ok solution ->
     printfn "Makespan: %.2f" solution.Makespan
@@ -382,25 +382,29 @@ match MaxCut.solve problem None with
 
 ```fsharp
 // Create cloud backend - IonQ (trapped-ion)
-let backend_ionq = BackendAbstraction.createIonQBackend(
+let backend_ionq = // Cloud backend requires Azure Quantum workspace configuration
+// createIonQBackend(
     connectionString = "YOUR_CONNECTION_STRING",
     targetId = "ionq.simulator"  // or "ionq.qpu"
 )
 
 // Rigetti (superconducting)
-let backend_rigetti = BackendAbstraction.createRigettiBackend(
+let backend_rigetti = // Cloud backend requires Azure Quantum workspace configuration
+// createRigettiBackend(
     connectionString = "YOUR_CONNECTION_STRING",
     targetId = "rigetti.sim.qvm"  // or "rigetti.qpu.*"
 )
 
 // Atom Computing (neutral atoms, 100+ qubits, all-to-all connectivity)
-let backend_atom = BackendAbstraction.createAtomComputingBackend(
+let backend_atom = // Cloud backend requires Azure Quantum workspace
+// createAtomComputingBackend(
     connectionString = "YOUR_CONNECTION_STRING",
     targetId = "atom-computing.sim"  // or "atom-computing.qpu.phoenix"
 )
 
 // Quantinuum (trapped-ion, highest fidelity)
-let backend_quantinuum = BackendAbstraction.createQuantinuumBackend(
+let backend_quantinuum = // Cloud backend requires Azure Quantum workspace
+// createQuantinuumBackend(
     connectionString = "YOUR_CONNECTION_STRING",
     targetId = "quantinuum.sim.h1-1sc"  // or "quantinuum.qpu.*"
 )

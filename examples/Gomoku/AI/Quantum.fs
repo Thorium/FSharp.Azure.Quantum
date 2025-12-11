@@ -74,16 +74,16 @@ module LocalQuantum =
                 let numQubits = calculateQubits n
                 
                 // Configure Grover search
-                let config : Search.SearchConfig = {
-                    MaxIterations = Some 100  // Safety limit
+                let config : Grover.GroverConfig = {
+                    Iterations = None         // Auto-calculate optimal iterations
+                    Shots = 50                // Measurement shots
                     SuccessThreshold = 0.3    // Accept 30% success probability
-                    OptimizeIterations = true  // Let Grover calculate optimal iterations
-                    Shots = 50                 // Measurement shots
-                    RandomSeed = None          // Quantum randomness
+                    SolutionThreshold = 0.07  // 7% of shots to consider a solution
+                    RandomSeed = None         // Quantum randomness
                 }
                 
                 // Execute Grover's algorithm using FSharp.Azure.Quantum
-                match Search.searchWhere predicate numQubits backend config with
+                match Grover.searchWhere predicate numQubits backend config with
                 | Ok result when not result.Solutions.IsEmpty ->
                     // Grover found solutions - pick the best scoring one
                     let validSolutions = 

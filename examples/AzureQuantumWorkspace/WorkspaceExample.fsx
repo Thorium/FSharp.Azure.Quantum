@@ -122,9 +122,9 @@ match createFromEnvironment() with
 | Ok ws ->
     printfn "✅ Workspace loaded from environment"
     printfn "   Workspace: %s" ws.Config.WorkspaceName
-| Error msg ->
+| Error err ->
     printfn "⚠️  Environment variables not set"
-    printfn "   %s" msg
+    printfn "   %s" err.Message
 
 printfn ""
 printfn "========================================="

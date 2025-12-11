@@ -685,7 +685,8 @@ let problem1 = periodFinder {
 }
 
 // Explicit backend
-let ionqBackend = BackendAbstraction.createIonQBackend(...)
+let ionqBackend = // Cloud backend requires Azure Quantum workspace
+// createIonQBackend(...)
 let problem2 = periodFinder {
     number 15
     precision 12

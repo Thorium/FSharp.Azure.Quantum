@@ -427,6 +427,187 @@ module Knapsack =
         solve problem backend
 
     // ============================================================================
+    // EXACT SUM ENUMERATION - FIND ALL VALID COMBINATIONS
+    // ============================================================================
+
+    /// Find ALL valid combinations that sum exactly to capacity
+    /// 
+    /// USE CASES:
+    /// - Subset sum enumeration: Find all solutions, not just one optimal
+    /// - Exact constraint satisfaction: Problems requiring exact match (not ≤)
+    /// - Combinatorial analysis: Count valid combinations
+    /// - Games and puzzles: Card games, resource allocation with exact constraints
+    /// 
+    /// ALGORITHM:
+    /// Recursive backtracking to explore all possible subsets.
+    /// Time complexity: O(2^n) - exponential, suitable for small n (typically < 20 items)
+    /// 
+    /// Example: Items=[2,5,3,4], Capacity=7
+    /// - Combination 1: [2,5] sum=7
+    /// - Combination 2: [3,4] sum=7
+    /// - Returns: [[2,5], [3,4]]
+    /// 
+    /// PARAMETERS:
+    ///   problem - Knapsack problem
+    /// 
+    /// RETURNS:
+    ///   List of all valid combinations (each combination is a list of items that sum exactly to capacity)
+    /// 
+    /// EXAMPLE:
+    ///   let problem = Knapsack.createProblem [("A", 2.0, 2.0); ("B", 5.0, 5.0); ("C", 3.0, 3.0); ("D", 4.0, 4.0)] 7.0
+    ///   let combinations = Knapsack.findAllExactCombinations problem
+    ///   // Returns: [[A,B], [C,D]] - both combinations that sum exactly to 7
+    let findAllExactCombinations (problem: Problem) : Item list list =
+        let rec findCombinations (items: Item list) (target: float) (current: Item list) : Item list list =
+            let currentSum = current |> List.sumBy (fun item -> item.Weight)
+            
+            // Tolerance for floating-point comparison
+            let epsilon = 0.0001
+            
+            if abs(currentSum - target) < epsilon then
+                // Found exact match!
+                [current]
+            elif currentSum > target || List.isEmpty items then
+                // Exceeded target or no more items
+                []
+            else
+                // Try including first item OR excluding it
+                let first = List.head items
+                let rest = List.tail items
+                
+                let withFirst = findCombinations rest target (first :: current)
+                let withoutFirst = findCombinations rest target current
+                
+                withFirst @ withoutFirst
+        
+        findCombinations problem.Items problem.Capacity []
+
+    /// Find all items that appear in at least one valid combination (union of all combinations)
+    /// 
+    /// USE CASES:
+    /// - Resource pooling: Identify all resources used across any valid solution
+    /// - Game logic: Determine which items participate in any winning combination
+    /// - Impact analysis: Find all items involved in feasible solutions
+    /// - Set covering: Items that contribute to any exact-sum solution
+    /// 
+    /// ALGORITHM:
+    /// 1. Find all exact combinations using findAllExactCombinations
+    /// 2. Flatten all combinations into a single list
+    /// 3. Remove duplicates to get unique items (union operation)
+    /// 
+    /// Example: Items=[2,5,3,4], Capacity=7
+    /// - Valid combinations: [[2,5], [3,4]]
+    /// - Union: [2,5,3,4] - All items that appear in any combination
+    /// 
+    /// PARAMETERS:
+    ///   problem - Knapsack problem
+    /// 
+    /// RETURNS:
+    ///   List of all items that appear in at least one valid combination
+    /// 
+    /// EXAMPLE:
+    ///   let unionItems = Knapsack.findAllCapturedItems problem
+    ///   // For capacity=7, items=[2,5,3,4]: Returns all 4 items (appear in some combination)
+    let findAllCapturedItems (problem: Problem) : Item list =
+        let allCombinations = findAllExactCombinations problem
+        
+        allCombinations
+        |> List.concat
+        |> List.distinctBy (fun item -> item.Id)
+
+    /// Find all valid combinations that sum exactly to capacity, with detailed results
+    /// 
+    /// CONVENIENCE FUNCTION:
+    /// Combines findAllExactCombinations and findAllCapturedItems into one call.
+    /// Useful when you need both individual combinations and their union.
+    /// 
+    /// USE CASES:
+    /// - Reporting: Show all solutions and summary statistics
+    /// - Analysis: Compare individual solutions vs combined coverage
+    /// - Game logic: Present choices and final outcome
+    /// 
+    /// PARAMETERS:
+    ///   problem - Knapsack problem
+    /// 
+    /// RETURNS:
+    ///   Tuple of (all combinations, union of all items, combination count)
+    /// 
+    /// EXAMPLE:
+    ///   let (combinations, unionItems, count) = Knapsack.findAllValidCombinations problem
+    ///   printfn "Found %d valid combinations" count
+    ///   printfn "Total unique items across all solutions: %d" (List.length unionItems)
+    let findAllValidCombinations (problem: Problem) : (Item list list * Item list * int) =
+        let combinations = findAllExactCombinations problem
+        let allItems = findAllCapturedItems problem
+        let count = List.length combinations
+        
+        (combinations, allItems, count)
+
+    // ============================================================================
+    // ENHANCED SOLVE WITH MODE SELECTION
+    // ============================================================================
+
+    /// Solve Knapsack with optional mode: find one optimal solution OR all exact combinations
+    /// 
+    /// MODE SELECTION:
+    /// - findAll=false (default): Standard knapsack - finds ONE optimal subset maximizing value ≤ capacity
+    /// - findAll=true: Exact enumeration - returns union of ALL items from all exact-sum combinations
+    /// 
+    /// USE CASES FOR findAll=true:
+    /// - Card games requiring exact matches (e.g., Kasino, Rummy)
+    /// - Resource allocation where all feasible solutions contribute
+    /// - Constraint satisfaction with exact sum requirement
+    /// - Combinatorial analysis needing complete solution coverage
+    /// 
+    /// PARAMETERS:
+    ///   problem - Knapsack problem with items and capacity
+    ///   backend - Optional quantum backend (defaults to LocalBackend if None)
+    ///   findAll - If true, finds ALL exact combinations; if false, finds one optimal solution
+    /// 
+    /// RETURNS:
+    ///   If findAll=true: Solution with ALL items from all valid exact-sum combinations
+    ///   If findAll=false: Solution with ONE optimal subset (standard knapsack)
+    /// 
+    /// EXAMPLE (Find all mode):
+    ///   let solution = Knapsack.solveWithMode problem None true
+    ///   // Returns union of all items that appear in any exact-sum combination
+    /// 
+    /// EXAMPLE (Standard mode):
+    ///   let solution = Knapsack.solveWithMode problem None false
+    ///   // Returns ONE optimal subset maximizing value
+    let solveWithMode (problem: Problem) (backend: BackendAbstraction.IQuantumBackend option) (findAll: bool) : QuantumResult<Solution> =
+        if findAll then
+            // FIND ALL MODE: Return union of all items from all exact-sum combinations
+            try
+                let allCapturedItems = findAllCapturedItems problem
+                let totalWeight = allCapturedItems |> List.sumBy (fun item -> item.Weight)
+                let totalValue = allCapturedItems |> List.sumBy (fun item -> item.Value)
+                
+                let efficiency = 
+                    if totalWeight > 0.0 then totalValue / totalWeight else 0.0
+                
+                let capacityUtilization = 
+                    if problem.Capacity > 0.0 then (totalWeight / problem.Capacity) * 100.0 else 0.0
+                
+                let isFeasible = totalWeight <= problem.Capacity
+                
+                Ok {
+                    SelectedItems = allCapturedItems
+                    TotalWeight = totalWeight
+                    TotalValue = totalValue
+                    IsFeasible = isFeasible
+                    Efficiency = efficiency
+                    CapacityUtilization = capacityUtilization
+                    BackendName = "Exact Enumeration (All Combinations)"
+                    IsQuantum = false
+                }
+            with
+            | ex -> Error (QuantumError.OperationError ("Find all mode failed: ", $"Failed: {ex.Message}"))
+        else
+            // STANDARD MODE: Find one optimal solution
+            solve problem backend
+
+    // ============================================================================
     // VALIDATION AND UTILITIES
     // ============================================================================
 

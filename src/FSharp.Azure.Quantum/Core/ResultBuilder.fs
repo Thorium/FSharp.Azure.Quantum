@@ -142,6 +142,12 @@ module Result =
         | Ok _ -> true
         | Error _ -> false
     
+    /// Return the result if Ok, otherwise compute an alternative Result
+    let orElseWith (getAlternative: 'E -> Result<'T, 'F>) (result: Result<'T, 'E>) : Result<'T, 'F> =
+        match result with
+        | Ok x -> Ok x
+        | Error e -> getAlternative e
+    
     /// Check if result is Error
     let isError (result: Result<'T, 'E>) : bool =
         match result with

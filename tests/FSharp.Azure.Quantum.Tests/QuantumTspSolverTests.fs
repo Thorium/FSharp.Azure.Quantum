@@ -105,7 +105,7 @@ module QuantumTspSolverTests =
         match result with
         | Ok solution ->
             Assert.Equal(3, solution.Tour.Length)
-            Assert.Equal("Local QAOA Simulator", solution.BackendName)
+            Assert.Equal("Local Simulator", solution.BackendName)
             Assert.Equal(50, solution.NumShots)
             Assert.True(solution.TourLength > 0.0)
             Assert.True(solution.ElapsedMs >= 0.0)
@@ -228,7 +228,7 @@ module QuantumTspSolverTests =
         match result with
         | Ok solution ->
             Assert.Equal(1000, solution.NumShots)
-            Assert.Equal("Local QAOA Simulator", solution.BackendName)
+            Assert.Equal("Local Simulator", solution.BackendName)
         | Error err ->
             Assert.True(false, sprintf "Execution failed: %s" err.Message)
 
@@ -240,7 +240,7 @@ module QuantumTspSolverTests =
         
         match result with
         | Ok solution ->
-            Assert.Equal("Local QAOA Simulator", solution.BackendName)
+            Assert.Equal("Local Simulator", solution.BackendName)
         | Error err ->
             Assert.True(false, sprintf "Execution failed: %s" err.Message)
 

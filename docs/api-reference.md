@@ -128,7 +128,8 @@ match GraphColoring.solve problem 3 None with
 
 ```fsharp
 // Create Azure Quantum backend
-let backend = BackendAbstraction.createIonQBackend(
+let backend = // Cloud backend - requires Azure Quantum workspace
+// BackendAbstraction.createIonQBackend(
     connectionString = "YOUR_CONNECTION_STRING",
     targetId = "ionq.simulator"
 )
@@ -635,7 +636,7 @@ match NetworkFlow.solve problem None with
 - ✅ Perfect for development/testing
 
 ```fsharp
-let backend = BackendAbstraction.createLocalBackend()
+let backend = LocalBackendFactory.createUnified()
 
 // Use with any solver
 match GraphColoring.solve problem 3 (Some backend) with
@@ -651,7 +652,8 @@ match GraphColoring.solve problem 3 (Some backend) with
 - ⏱️ Job queue (10-60 seconds)
 
 ```fsharp
-let backend = BackendAbstraction.createIonQBackend(
+let backend = // Cloud backend - requires Azure Quantum workspace
+// BackendAbstraction.createIonQBackend(
     connectionString = "Endpoint=https://...",
     targetId = "ionq.simulator"  // or "ionq.qpu"
 )
@@ -664,7 +666,8 @@ match GraphColoring.solve problem 3 (Some backend) with
 ### RigettiBackend (Azure Quantum)
 
 ```fsharp
-let backend = BackendAbstraction.createRigettiBackend(
+let backend = // Cloud backend - requires Azure Quantum workspace
+// BackendAbstraction.createRigettiBackend(
     connectionString = "Endpoint=https://...",
     targetId = "rigetti.sim.qvm"  // or QPU target
 )
@@ -986,7 +989,7 @@ let config : QuantumMaxCutSolver.QuantumMaxCutConfig = {
 }
 
 // Use with quantum solver directly
-let backend = BackendAbstraction.createLocalBackend()
+let backend = LocalBackendFactory.createUnified()
 match QuantumMaxCutSolver.solve backend problem config with
 | Ok result -> 
     let (gamma, beta) = result.OptimizedParameters
@@ -1046,7 +1049,7 @@ match GraphColoring.validate problem with
 
 ```fsharp
 // Create once, reuse many times
-let backend = BackendAbstraction.createLocalBackend()
+let backend = LocalBackendFactory.createUnified()
 
 problems 
 |> List.map (fun p -> GraphColoring.solve p 3 (Some backend))

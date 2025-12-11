@@ -87,8 +87,8 @@ let result1 = binaryClassification {
 }
 
 match result1 with
-| Error msg ->
-    printfn "❌ Training failed: %s" msg
+| Error err ->
+    printfn "❌ Training failed: %s" err.Message
 
 | Ok classifier ->
     printfn "✅ Training complete!"
@@ -100,8 +100,8 @@ match result1 with
     let newTransaction = [| 600.0; 14.5; 7.0; 80.0; 12.0 |]  // Suspicious!
     
     match BinaryClassifier.predict newTransaction classifier with
-    | Error msg ->
-        printfn "❌ Prediction failed: %s" msg
+    | Error err ->
+        printfn "❌ Prediction failed: %s" err.Message
     
     | Ok prediction ->
         printfn "New Transaction Analysis:"
@@ -140,8 +140,8 @@ let result2 = binaryClassification {
 }
 
 match result2 with
-| Error msg ->
-    printfn "❌ Training failed: %s" msg
+| Error err ->
+    printfn "❌ Training failed: %s" err.Message
 
 | Ok classifier ->
     printfn "✅ Model trained and saved to 'fraud_detector.model'\n"
@@ -162,8 +162,8 @@ match result2 with
         | Ok pred ->
             let status = if pred.IsPositive then "🚨 FRAUD" else "✅ OK"
             printfn "Transaction #%d: %s (%.0f%% confidence)" (i+1) status (pred.Confidence * 100.0)
-        | Error msg ->
-            printfn "Transaction #%d: ⚠️  Error: %s" (i+1) msg
+        | Error err ->
+            printfn "Transaction #%d: ⚠️  Error: %s" (i+1) err.Message
     )
 
 // ============================================================================
@@ -180,8 +180,8 @@ match result2 with
     let (testX, testY) = generateSampleData()
     
     match BinaryClassifier.evaluate testX testY classifier with
-    | Error msg ->
-        printfn "❌ Evaluation failed: %s" msg
+    | Error err ->
+        printfn "❌ Evaluation failed: %s" err.Message
     
     | Ok metrics ->
         printfn "Model Performance Metrics:"
@@ -206,8 +206,8 @@ printfn "\n=== Example 4: Load and Use Saved Model ===\n"
 
 // In a production service, load the pre-trained model
 match BinaryClassifier.load "fraud_detector.model" with
-| Error msg ->
-    printfn "❌ Failed to load model: %s" msg
+| Error err ->
+    printfn "❌ Failed to load model: %s" err.Message
 
 | Ok loadedClassifier ->
     printfn "✅ Model loaded successfully\n"
@@ -226,8 +226,8 @@ match BinaryClassifier.load "fraud_detector.model" with
              elif prediction.IsPositive && prediction.Confidence > 0.5 then "REVIEW"
              else "ALLOW")
     
-    | Error msg ->
-        printfn "❌ Prediction failed: %s" msg
+    | Error err ->
+        printfn "❌ Prediction failed: %s" err.Message
 
 // ============================================================================
 // BUSINESS INTEGRATION PATTERNS

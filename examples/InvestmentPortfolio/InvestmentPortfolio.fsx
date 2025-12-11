@@ -173,7 +173,7 @@ let optimizePortfolio (stocks: Stock list) (budget: float) : Result<PortfolioAna
         
         Ok (analysis, solution.Reasoning)
     
-    | Error msg -> Error (sprintf "HybridSolver failed: %s" msg)
+    | Error err -> Error (sprintf "HybridSolver failed: %s" err.Message)
 
 // ==============================================================================
 // REPORTING - Pure functions for output
@@ -359,6 +359,6 @@ match result with
     printfn "   based on problem size and structure. For 8 assets → classical optimizer."
     printfn "   For larger portfolios (50+ assets), quantum advantage may emerge."
 
-| Error msg ->
-    printfn "❌ Optimization failed: %s" msg
+| Error errMsg ->
+    printfn "❌ Optimization failed: %s" errMsg
     exit 1

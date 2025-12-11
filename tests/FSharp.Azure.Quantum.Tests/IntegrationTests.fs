@@ -52,7 +52,7 @@ module IntegrationTests =
         | Ok solution ->
             Assert.Equal(3, solution.Tour.Length)
             Assert.True(solution.TourLength > 0.0)
-            Assert.Equal("Local QAOA Simulator", solution.BackendName)
+            Assert.Equal("Local Simulator", solution.BackendName)
             Assert.Equal(1000, solution.NumShots)
             
             // Verify all cities visited

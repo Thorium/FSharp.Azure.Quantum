@@ -67,17 +67,19 @@ let variationalForm = RealAmplitudes 2  // depth = 2
 printResult "Variational Form" "RealAmplitudes (depth=2)"
 
 // Training configuration
-let config = {
+let config : VQC.TrainingConfig = {
     LearningRate = 0.1
     MaxEpochs = 50
-    Tolerance = 0.001
+    ConvergenceThreshold = 0.001
     Shots = 1000
+    Verbose = false
+    Optimizer = VQC.Adam { LearningRate = 0.1; Beta1 = 0.9; Beta2 = 0.999; Epsilon = 1e-8 }
 }
 
 printfn ""
 printResult "Learning Rate" (fmt config.LearningRate)
 printResult "Max Epochs" (string config.MaxEpochs)
-printResult "Convergence Tolerance" (fmt config.Tolerance)
+printResult "Convergence Tolerance" (fmt config.ConvergenceThreshold)
 printResult "Shots per Circuit" (string config.Shots)
 
 // ============================================================================
@@ -138,14 +140,16 @@ printResult "Test samples" (string testData.Length)
 printSection "3. Training: Quantum Circuit Optimization"
 
 printfn "Training VQC with parameter shift rule..."
-printfn "(This executes ~%d quantum circuits per epoch)" 
-    (trainData.Length + (VariationalForms.parameterCount variationalForm trainData.[0].Length))
 
-let trainResult = VQC.train backend featureMap variationalForm config trainData trainLabels
+// Initialize parameters (small random values)
+let numQubits = trainData.[0].Length
+let initialParams = Array.init (numQubits * 2) (fun _ -> 0.1)  // Simplified initialization
+
+let trainResult = VQC.train backend featureMap variationalForm initialParams trainData trainLabels config
 
 match trainResult with
 | Error err ->
-    printfn "❌ Training failed: %s" err
+    printfn "❌ Training failed: %s" err.Message
     
 | Ok result ->
     printfn "✅ Training completed successfully"
@@ -153,15 +157,9 @@ match trainResult with
     
     // Training metrics
     printResult "Final Parameters" (fmtArray result.Parameters)
-    printResult "Training Accuracy" (fmt result.FinalAccuracy)
-    printResult "Epochs Run" (string result.LossHistory.Length)
-    
-    match result.ConvergedAtEpoch with
-    | Some epoch -> 
-        printResult "Converged at Epoch" (string epoch)
-        printResult "Early Stopping" "✓ Yes"
-    | None -> 
-        printResult "Converged" "✗ No (reached max epochs)"
+    printResult "Training Accuracy" (fmt result.TrainAccuracy)
+    printResult "Epochs Run" (string result.Epochs)
+    printResult "Converged" (if result.Converged then "✓ Yes" else "✗ No (reached max epochs)")
     
     printfn ""
     printfn "Loss History (first 10 epochs):"
@@ -186,7 +184,7 @@ match trainResult with
     
     testData
     |> Array.iteri (fun i sample ->
-        let predResult = VQC.predict backend featureMap variationalForm result.Parameters sample
+        let predResult = VQC.predict backend featureMap variationalForm result.Parameters sample config.Shots
         match predResult with
         | Ok pred ->
             let correct = if pred.Label = testLabels.[i] then "✓" else "✗"
@@ -196,7 +194,7 @@ match trainResult with
             printfn "  Correct:    %s" correct
             printfn ""
         | Error err ->
-            printfn "Sample %d: Prediction failed - %s" (i+1) err
+            printfn "Sample %d: Prediction failed - %s" (i+1) err.Message
     )
     
     // ============================================================================
@@ -209,15 +207,12 @@ match trainResult with
     printfn "Training Set Evaluation:"
     printfn ""
     
-    let trainEval = VQC.evaluate backend featureMap variationalForm result.Parameters trainData trainLabels
+    let trainEval = VQC.evaluate backend featureMap variationalForm result.Parameters trainData trainLabels config.Shots
     match trainEval with
-    | Ok metrics ->
-        printResult "Accuracy" (sprintf "%s (%.1f%%)" (fmt metrics.Accuracy) (metrics.Accuracy * 100.0))
-        printResult "Precision" (fmt metrics.Precision)
-        printResult "Recall" (fmt metrics.Recall)
-        printResult "F1 Score" (fmt metrics.F1Score)
+    | Ok accuracy ->
+        printResult "Accuracy" (sprintf "%s (%.1f%%)" (fmt accuracy) (accuracy * 100.0))
     | Error err ->
-        printfn "❌ Evaluation failed: %s" err
+        printfn "❌ Evaluation failed: %s" err.Message
     
     printfn ""
     
@@ -225,15 +220,12 @@ match trainResult with
     printfn "Test Set Evaluation:"
     printfn ""
     
-    let testEval = VQC.evaluate backend featureMap variationalForm result.Parameters testData testLabels
+    let testEval = VQC.evaluate backend featureMap variationalForm result.Parameters testData testLabels config.Shots
     match testEval with
-    | Ok metrics ->
-        printResult "Accuracy" (sprintf "%s (%.1f%%)" (fmt metrics.Accuracy) (metrics.Accuracy * 100.0))
-        printResult "Precision" (fmt metrics.Precision)
-        printResult "Recall" (fmt metrics.Recall)
-        printResult "F1 Score" (fmt metrics.F1Score)
+    | Ok accuracy ->
+        printResult "Accuracy" (sprintf "%s (%.1f%%)" (fmt accuracy) (accuracy * 100.0))
     | Error err ->
-        printfn "❌ Evaluation failed: %s" err
+        printfn "❌ Evaluation failed: %s" err.Message
     
     // ============================================================================
     // 6. Confusion Matrix: Detailed Classification Analysis
@@ -241,7 +233,7 @@ match trainResult with
     
     printSection "6. Confusion Matrix: Detailed Analysis"
     
-    let confMatrix = VQC.confusionMatrix backend featureMap variationalForm result.Parameters testData testLabels
+    let confMatrix = VQC.confusionMatrix backend featureMap variationalForm result.Parameters testData testLabels config.Shots
     
     match confMatrix with
     | Ok cm ->
@@ -258,20 +250,11 @@ match trainResult with
         printResult "False Negatives (FN)" (string cm.FalseNegatives)
         printfn ""
         
-        // Derived metrics
+        // Derived metrics using VQC helper functions
+        let precision = VQC.precision cm
+        let recall = VQC.recall cm
+        let f1 = VQC.f1Score cm
         let accuracy = float (cm.TruePositives + cm.TrueNegatives) / float testData.Length
-        let precision = 
-            if cm.TruePositives + cm.FalsePositives = 0 
-            then 1.0
-            else float cm.TruePositives / float (cm.TruePositives + cm.FalsePositives)
-        let recall = 
-            if cm.TruePositives + cm.FalseNegatives = 0
-            then 1.0
-            else float cm.TruePositives / float (cm.TruePositives + cm.FalseNegatives)
-        let f1 = 
-            if precision + recall = 0.0
-            then 0.0
-            else 2.0 * precision * recall / (precision + recall)
         
         printfn "Derived Metrics:"
         printResult "  Accuracy" (sprintf "%s (%.1f%%)" (fmt accuracy) (accuracy * 100.0))
@@ -280,7 +263,7 @@ match trainResult with
         printResult "  F1 Score" (fmt f1)
         
     | Error err ->
-        printfn "❌ Confusion matrix failed: %s" err
+        printfn "❌ Confusion matrix failed: %s" err.Message
 
 // ============================================================================
 // 7. Quantum Circuit Analysis
@@ -288,45 +271,40 @@ match trainResult with
 
 printSection "7. Quantum Circuit Analysis"
 
-let numQubits = trainData.[0].Length
-let numParams = VariationalForms.parameterCount variationalForm numQubits
+let numParams = AnsatzHelpers.parameterCount variationalForm numQubits
 
 printResult "Number of Qubits" (string numQubits)
 printResult "Number of Parameters" (string numParams)
 
-// Estimate circuit complexity
-let featureMapCircuit = FeatureMaps.angleEncoding trainData.[0]
-match featureMapCircuit with
-| Ok fmCircuit ->
-    printResult "Feature Map Gates" (string fmCircuit.Gates.Length)
+// Estimate circuit complexity  
+let featureMapCircuit = FeatureMap.angleEncoding trainData.[0]
+printResult "Feature Map Gates" (string featureMapCircuit.Gates.Length)
+
+let ansatzCircuit = VariationalForms.buildVariationalForm variationalForm (Array.create numParams 0.0) numQubits
+match ansatzCircuit with
+| Ok aCircuit ->
+    printResult "Variational Form Gates" (string aCircuit.Gates.Length)
+    printResult "Total Circuit Gates" (string (featureMapCircuit.Gates.Length + aCircuit.Gates.Length))
     
-    let ansatzCircuit = VariationalForms.createCircuit variationalForm numQubits (Array.create numParams 0.0)
-    match ansatzCircuit with
-    | Ok aCircuit ->
-        printResult "Variational Form Gates" (string aCircuit.Gates.Length)
-        printResult "Total Circuit Gates" (string (fmCircuit.Gates.Length + aCircuit.Gates.Length))
-        
-        // Gradient computation cost
-        let gradientsPerEpoch = numParams * 2  // Parameter shift rule requires 2 evaluations per parameter
-        let circuitsPerSample = 1  // Forward pass
-        let totalCircuitsPerEpoch = trainData.Length * circuitsPerSample + gradientsPerEpoch * trainData.Length
-        
-        printfn ""
-        printfn "Training Complexity:"
-        printResult "  Circuits per Sample" (string circuitsPerSample)
-        printResult "  Gradient Evals per Param" "2 (parameter shift rule)"
-        printResult "  Total Circuits per Epoch" (string totalCircuitsPerEpoch)
-        
-        match trainResult with
-        | Ok result ->
-            let totalCircuits = totalCircuitsPerEpoch * result.LossHistory.Length
-            printResult "  Total Circuits (Training)" (string totalCircuits)
-        | _ -> ()
-        
-    | Error err ->
-        printfn "Error creating variational form: %s" err
+    // Gradient computation cost
+    let gradientsPerEpoch = numParams * 2  // Parameter shift rule requires 2 evaluations per parameter
+    let circuitsPerSample = 1  // Forward pass
+    let totalCircuitsPerEpoch = trainData.Length * circuitsPerSample + gradientsPerEpoch * trainData.Length
+    
+    printfn ""
+    printfn "Training Complexity:"
+    printResult "  Circuits per Sample" (string circuitsPerSample)
+    printResult "  Gradient Evals per Param" "2 (parameter shift rule)"
+    printResult "  Total Circuits per Epoch" (string totalCircuitsPerEpoch)
+    
+    match trainResult with
+    | Ok result ->
+        let totalCircuits = totalCircuitsPerEpoch * result.Epochs
+        printResult "  Total Circuits (Training)" (string totalCircuits)
+    | _ -> ()
+    
 | Error err ->
-    printfn "Error creating feature map: %s" err
+    printfn "Error creating variational form: %s" err.Message
 
 // ============================================================================
 // 8. Summary and Recommendations

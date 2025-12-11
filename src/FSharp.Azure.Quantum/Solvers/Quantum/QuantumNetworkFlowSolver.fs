@@ -423,7 +423,7 @@ module QuantumNetworkFlowSolver =
                             
                             return Ok {
                                 bestSolution with
-                                    BackendName = "QuantumBackend"  // Backend name no longer available in interface
+                                    BackendName = backend.Name
                                     NumShots = config.NumShots
                                     ElapsedMs = elapsedMs
                             }

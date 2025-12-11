@@ -307,7 +307,7 @@ module HybridSolver =
         | Some Quantum ->
             // Execute quantum TSP solver
             let quantumConfig = QuantumTspSolver.defaultConfig
-            let backend = BackendAbstraction.createLocalBackend()
+            let backend = Backends.LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
             
             match QuantumTspSolver.solve backend distances quantumConfig with
             | Error err -> Error (QuantumError.OperationError ("Quantum TSP solver", QuantumResult.toString err))
@@ -381,7 +381,7 @@ module HybridSolver =
         | Some Quantum ->
             // Execute quantum portfolio solver
             let quantumConfig = QuantumPortfolioSolver.defaultConfig
-            let backend = BackendAbstraction.createLocalBackend()
+            let backend = Backends.LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
             
             match QuantumPortfolioSolver.solve backend assets constraints quantumConfig with
             | Error err -> Error (QuantumError.OperationError ("Quantum portfolio solver", QuantumResult.toString err))
@@ -453,7 +453,7 @@ module HybridSolver =
         | Some Quantum ->
             // Execute quantum MaxCut solver
             let quantumConfig = QuantumMaxCutSolver.defaultConfig
-            let backend = BackendAbstraction.createLocalBackend()
+            let backend = Backends.LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
             
             match QuantumMaxCutSolver.solve backend problem quantumConfig with
             | Error err -> Error (QuantumError.OperationError ("Quantum MaxCut solver", QuantumResult.toString err))
@@ -515,7 +515,7 @@ module HybridSolver =
         | Some Quantum ->
             // Execute quantum Knapsack solver
             let quantumConfig = QuantumKnapsackSolver.defaultConfig
-            let backend = BackendAbstraction.createLocalBackend()
+            let backend = Backends.LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
             
             match QuantumKnapsackSolver.solve backend problem quantumConfig with
             | Error err -> Error (QuantumError.OperationError ("Quantum Knapsack solver", QuantumResult.toString err))
@@ -579,7 +579,7 @@ module HybridSolver =
         | Some Quantum ->
             // Execute quantum Graph Coloring solver
             let quantumConfig = QuantumGraphColoringSolver.defaultConfig numColors
-            let backend = BackendAbstraction.createLocalBackend()
+            let backend = Backends.LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
             
             match QuantumGraphColoringSolver.solve backend problem quantumConfig with
             | Error err -> Error (QuantumError.OperationError ("Quantum Graph Coloring solver", QuantumResult.toString err))

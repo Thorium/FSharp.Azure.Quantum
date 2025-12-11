@@ -4,6 +4,7 @@ open FSharp.Azure.Quantum.Examples.Gomoku
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum
+open FSharp.Azure.Quantum.GroverSearch
 
 /// Quantum Tree Search AI for Gomoku using Grover's algorithm
 /// 
@@ -145,9 +146,10 @@ module QuantumTreeSearch =
                 // Estimate qubits needed
                 let estimatedBranching = min (List.length validMoves) 15  // Cap at 15
                 let qubitsNeeded = GroverSearch.TreeSearch.estimateQubitsNeeded searchDepth estimatedBranching
+                let maxQubits = 20  // LocalBackend practical limit
                 
-                if qubitsNeeded > backend.MaxQubits then
-                    Error (QuantumError.ValidationError ("Qubits", $"Tree search requires {qubitsNeeded} qubits but backend '{backend.Name}' supports max {backend.MaxQubits}. Reduce search depth."))
+                if qubitsNeeded > maxQubits then
+                    Error (QuantumError.ValidationError ("Qubits", $"Tree search requires {qubitsNeeded} qubits but backend supports max {maxQubits}. Reduce search depth."))
                 else
                     // **RECOMMENDED APPROACH**: Use QuantumTreeSearch builder
                     // Note: We build the problem step by step due to F# computation expression limitations
@@ -231,13 +233,13 @@ module QuantumTreeSearch =
         
         let optimalIter =
             let numSolutions = searchSpace / 5  // Assume top 20%
-            match FSharp.Azure.Quantum.GroverSearch.GroverIteration.optimalIterations searchSpace numSolutions with
-            | Ok k -> Some k
-            | Error _ -> None
+            let optimalIters = Grover.calculateOptimalIterations qubits numSolutions
+            Some optimalIters
         
+        let maxQubits = 20  // LocalBackend practical limit
         let (feasible, reason) =
-            if qubits > backend.MaxQubits then
-                (false, Some $"Requires {qubits} qubits but backend supports max {backend.MaxQubits}")
+            if qubits > maxQubits then
+                (false, Some $"Requires {qubits} qubits but backend supports max {maxQubits}")
             elif qubits > 16 then
                 (false, Some $"Requires {qubits} qubits (oracle enumeration too expensive)")
             elif searchSpace > 100000 then
@@ -264,7 +266,7 @@ module QuantumTreeSearch =
         /// Example: Play Gomoku move using local quantum simulator with builder API
         let playWithLocalBackend () =
             let board = Board.init 15 15
-            let backend = createLocalBackend()
+            let backend = FSharp.Azure.Quantum.Backends.LocalBackendFactory.createUnified()
             
             // **RECOMMENDED**: Use the forGameAI helper for clean, declarative code
             let problem = QuantumTreeSearch.forGameAI 

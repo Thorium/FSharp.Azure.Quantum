@@ -24,7 +24,7 @@ FSharp.Azure.Quantum includes a lightweight, pure F# quantum simulator that supp
 
 ```fsharp
 open FSharp.Azure.Quantum.Quantum.QuantumTspSolver
-open FSharp.Azure.Quantum.Core.BackendAbstraction
+open FSharp.Azure.Quantum.Backends
 
 // Create distance matrix for a simple 3-city TSP
 let distances = array2D [
@@ -34,7 +34,7 @@ let distances = array2D [
 ]
 
 // Create local backend (supports up to 20 qubits)
-let backend = createLocalBackend()
+let backend = LocalBackendFactory.createUnified()
 
 // Solve with default configuration (QAOA with parameter optimization)
 match solve backend distances defaultConfig with
@@ -84,19 +84,14 @@ The `BackendAbstraction` module provides a **single consistent API** for local s
 ### Creating Backends
 
 ```fsharp
-open FSharp.Azure.Quantum.Core.BackendAbstraction
+open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum.Quantum.QuantumTspSolver
 
 // Option 1: Local backend (no configuration needed)
-let localBackend = createLocalBackend()
+let localBackend = LocalBackendFactory.createUnified()
 
-// Option 2: IonQ backend (requires Azure Quantum workspace)
-let httpClient = new System.Net.Http.HttpClient()
-let workspaceUrl = "https://management.azure.com/subscriptions/.../Workspaces/..."
-let ionqBackend = createIonQBackend httpClient workspaceUrl "ionq.simulator"
-
-// Option 3: Rigetti backend
-let rigettiBackend = createRigettiBackend httpClient workspaceUrl "rigetti.sim.qvm"
+// Note: Cloud backends (IonQ, Rigetti) require Azure Quantum workspace configuration
+// and are created using workspace-specific factory methods (see Azure Quantum documentation)
 ```
 
 ### Backend Switching
@@ -152,12 +147,12 @@ let executeWithBackend (backend: IQuantumBackend) circuit shots =
             [||]
 
 // Use local backend
-let localBackend2 = createLocalBackend()
+let localBackend2 = LocalBackendFactory.createUnified()
 let measurements_demo = executeWithBackend localBackend2 circuit 1000
 
 // Easy to swap for testing or different backends
-let testBackend = createMockBackend()  // Your test implementation
-let testMeasurements = runWithBackend testBackend circuit 100
+// let testBackend = MyTestBackend() :> IQuantumBackend  // Your test implementation
+// let testMeasurements = executeWithBackend testBackend circuit 100
 ```
 
 ### Execution Result Format

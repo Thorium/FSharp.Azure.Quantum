@@ -1,14 +1,13 @@
 // Topological Quantum Computing Visualization Example
 // Demonstrates visualization of fusion trees and quantum superpositions
 
-#r "nuget: FSharp.Azure.Quantum"
-#load "../src/FSharp.Azure.Quantum.Topological/TopologicalError.fs"
-#load "../src/FSharp.Azure.Quantum.Topological/AnyonSpecies.fs"
-#load "../src/FSharp.Azure.Quantum.Topological/FusionRules.fs"
-#load "../src/FSharp.Azure.Quantum.Topological/BraidingOperators.fs"
-#load "../src/FSharp.Azure.Quantum.Topological/FusionTree.fs"
-#load "../src/FSharp.Azure.Quantum.Topological/TopologicalOperations.fs"
-#load "../src/FSharp.Azure.Quantum.Topological/Visualization.fs"
+// Reference local build (use this for development/testing)
+#r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
+#r "../../src/FSharp.Azure.Quantum.Topological/bin/Debug/net10.0/FSharp.Azure.Quantum.Topological.dll"
+
+// Or use published NuGet package (uncomment when package is published):
+// #r "nuget: FSharp.Azure.Quantum"
+// #r "nuget: FSharp.Azure.Quantum.Topological"
 
 open FSharp.Azure.Quantum.Topological
 open System.Numerics

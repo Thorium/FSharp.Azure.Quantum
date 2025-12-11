@@ -34,6 +34,7 @@ open System
 open FSharp.Azure.Quantum.Quantum
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.GraphOptimization
+open FSharp.Azure.Quantum.Backends.LocalBackend
 
 // ==============================================================================
 // DOMAIN MODEL - Supply Chain Types
@@ -197,7 +198,7 @@ printfn "Running quantum network flow optimization..."
 let startTime = DateTime.UtcNow
 
 // Create backend (use LocalSimulator for development)
-let backend = BackendAbstraction.createLocalBackend()
+let backend = LocalBackend() :> BackendAbstraction.IQuantumBackend
 
 // Solve using quantum network flow solver
 let solutionResult = QuantumNetworkFlowSolver.solveWithShots backend flowProblem 1000
@@ -216,8 +217,8 @@ printfn "╚══════════════════════�
 printfn ""
 
 match solutionResult with
-| Error msg ->
-    printfn "❌ Solution failed: %s" msg
+| Error err ->
+    printfn "❌ Solution failed: %s" err.Message
     printfn ""
 | Ok solution ->
     let selectedRoutes = solution.SelectedEdges

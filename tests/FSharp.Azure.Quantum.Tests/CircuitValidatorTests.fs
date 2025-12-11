@@ -40,7 +40,7 @@ let ``Backend constraint should define local simulator with 16 qubits`` () =
     
     // Assert
     Assert.Equal(16, constraints.MaxQubits)
-    Assert.Equal("Local QAOA Simulator", constraints.Name)
+    Assert.Equal("Local Simulator", constraints.Name)
     Assert.True(constraints.HasAllToAllConnectivity)
     Assert.Contains("RZZ", constraints.SupportedGates)
     Assert.Equal(None, constraints.MaxCircuitDepth)  // No depth limit

@@ -6,7 +6,7 @@
     <GenerateProgramFile>false</GenerateProgramFile>
 
     <!-- Package Metadata -->
-    <Version>0.2.9</Version>
+    <Version>0.3.1</Version>
     <PackageId>FSharp.Azure.Quantum.Topological</PackageId>
     <Title>FSharp.Azure.Quantum.Topological</Title>
     <Description>Topological quantum computing plugin for FSharp.Azure.Quantum. Provides anyon theory (Ising/Fibonacci/SU(2)_k), braiding compilation, gate-to-braid conversion, Majorana hardware simulator, noise models, and topological file format (.tqp). Seamlessly integrates with main package algorithms (Grover, QFT, QAOA) via IQuantumBackend interface. Requires FSharp.Azure.Quantum v1.2.9+.</Description>

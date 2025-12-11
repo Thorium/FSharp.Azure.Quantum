@@ -129,12 +129,12 @@ module CircuitValidator =
                 ConnectedPairs = Set.ofList rigettiConnectivity
             }
         
-        /// Local QAOA Simulator constraints (1-16 qubits, all gates supported)
+        /// Local Simulator constraints (1-16 qubits, all gates supported)
         /// This is the local state vector simulator with exponential memory requirements
         /// Supports full OpenQASM 2.0 gate set including S, SDG, T, TDG, CZ, CCX
         let localSimulator () : BackendConstraints =
             {
-                Name = "Local QAOA Simulator"
+                Name = "Local Simulator"
                 MaxQubits = 16  // Limited by 2^n state vector memory (~1 MB for 16 qubits)
                 SupportedGates = Set.ofList ["X"; "Y"; "Z"; "H"; "S"; "SDG"; "T"; "TDG"; "Rx"; "Ry"; "Rz"; "RZZ"; "CNOT"; "CZ"; "SWAP"; "CCX"]
                 MaxCircuitDepth = None  // No practical depth limit for local execution

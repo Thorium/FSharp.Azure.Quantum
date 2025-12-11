@@ -24,7 +24,7 @@ The library provides a unified backend abstraction that works with both local si
 
 ```fsharp
 open FSharp.Azure.Quantum.Quantum.QuantumTspSolver
-open FSharp.Azure.Quantum.Core.BackendAbstraction
+open FSharp.Azure.Quantum.Backends
 
 // Define TSP problem (3 cities)
 let distances = array2D [
@@ -34,16 +34,13 @@ let distances = array2D [
 ]
 
 // Method 1: Local simulator backend (up to 20 qubits)
-let localBackend = createLocalBackend()
+let localBackend = LocalBackendFactory.createUnified()
 match solve localBackend distances defaultConfig with
 | Ok solution -> printfn "Tour: %A, Length: %.2f" solution.Tour solution.TourLength
 | Error err -> printfn "Error: %s" err.Message
 
-// Method 2: Cloud backend (IonQ/Rigetti)
-let cloudBackend = createIonQBackend httpClient workspaceUrl "ionq.simulator"
-match solve cloudBackend distances defaultConfig with
-| Ok solution -> printfn "Tour: %A, Length: %.2f" solution.Tour solution.TourLength
-| Error err -> printfn "Error: %s" err.Message
+// Note: Cloud backends (IonQ/Rigetti) require Azure Quantum workspace configuration
+// and are created using workspace-specific factory methods (see Azure Quantum documentation)
 ```
 
 **That's it!** Same solver API, different backends - just swap the backend creation.
@@ -54,16 +51,15 @@ match solve cloudBackend distances defaultConfig with
 
 ```fsharp
 open FSharp.Azure.Quantum.Quantum.QuantumTspSolver
-open FSharp.Azure.Quantum.Core.BackendAbstraction
+open FSharp.Azure.Quantum.Backends
 
 /// Solve TSP problem with different backends
 let solveTsp distances =
     // Define TSP problem (distance matrix already defined)
     
     // CHANGE THIS ONE LINE TO SWITCH BACKENDS:
-    let backend = createLocalBackend()                 // ← Local simulation
-    // let backend = createIonQBackend httpClient workspaceUrl "ionq.simulator"  // ← IonQ simulator
-    // let backend = createIonQBackend httpClient workspaceUrl "ionq.qpu.aria-1" // ← Real quantum hardware
+    let backend = LocalBackendFactory.createUnified()  // ← Local simulation
+    // Note: Cloud backends require Azure Quantum workspace configuration
     
     // Same solver API for all backends
     solve backend distances defaultConfig
@@ -123,34 +119,27 @@ This means:
 For production applications, use configuration to control backend selection:
 
 ```fsharp
-open FSharp.Azure.Quantum.Core.BackendAbstraction
+open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum.Quantum.QuantumTspSolver
 
 module BackendConfig =
     
     type Config =
         | Local
-        | IonQSimulator of httpClient: System.Net.Http.HttpClient * workspaceUrl: string
-        | IonQHardware of httpClient: System.Net.Http.HttpClient * workspaceUrl: string
+        // Note: Cloud backends require workspace-specific configuration
     
     let getBackend (config: Config) =
         match config with
         | Local -> 
-            createLocalBackend()
-        | IonQSimulator (httpClient, workspaceUrl) -> 
-            createIonQBackend httpClient workspaceUrl "ionq.simulator"
-        | IonQHardware (httpClient, workspaceUrl) ->
-            createIonQBackend httpClient workspaceUrl "ionq.qpu.aria-1"
+            LocalBackendFactory.createUnified()
     
     // Load config from environment
-    let fromEnvironment httpClient workspaceUrl =
+    let fromEnvironment () =
         match System.Environment.GetEnvironmentVariable("QUANTUM_BACKEND") with
-        | "ionq" -> IonQSimulator (httpClient, workspaceUrl)
-        | "ionq-hardware" -> IonQHardware (httpClient, workspaceUrl)
         | _ -> Local  // Default: local simulator
 
 // Usage
-let config = BackendConfig.fromEnvironment httpClient workspaceUrl
+let config = BackendConfig.fromEnvironment ()
 let backend = BackendConfig.getBackend config
 match solve backend distances defaultConfig with
 | Ok solution -> printfn "Solution: %A" solution
@@ -160,40 +149,22 @@ match solve backend distances defaultConfig with
 Set backend via environment variable:
 
 ```bash
-# Local execution
+# Local execution (default)
 export QUANTUM_BACKEND=local
 dotnet run
 
-# IonQ simulator
-export QUANTUM_BACKEND=ionq
-dotnet run
-
-# IonQ hardware
-export QUANTUM_BACKEND=ionq-hardware
-dotnet run
-
-# Default (local)
-dotnet run
-```
-            Assert.Fail($"Solver failed: {msg}")
-
-module Production =
-    let runProductionWorkload() =
-        // Use Azure in production (when available)
-        let backend = selectBackend 15  // Too large for local
-        let result = solveMaxCut backend largeEdges 15
-        // Process result
+# Cloud backends require Azure Quantum workspace configuration
 ```
 
-## Future: Unified High-Level API
+## Unified High-Level API
 
-**Current API ** - Already provides unified solving:
+**Current API** - Already provides unified solving:
 
 ```fsharp
 open FSharp.Azure.Quantum.Quantum.QuantumTspSolver
-open FSharp.Azure.Quantum.Core.BackendAbstraction
+open FSharp.Azure.Quantum.Backends
 
-let backend = createLocalBackend()  // or createIonQBackend, createRigettiBackend
+let backend = LocalBackendFactory.createUnified()  // Local simulation
 match solve backend distances defaultConfig with
 | Ok solution -> 
     printfn "Tour: %A" solution.Tour
@@ -203,7 +174,7 @@ match solve backend distances defaultConfig with
 ```
 
 This API provides:
-- ✅ Automatic backend selection (local vs. cloud)
+- ✅ Unified backend abstraction (local and cloud)
 - ✅ Unified result format
 - ✅ Error handling with Result type
 - ✅ Easy backend switching (one-line change)
@@ -238,20 +209,17 @@ This API provides:
 
 ## Summary
 
-**Current Implementation :**
+**Current Implementation:**
 - ✅ **Local simulation**: Fully functional (≤20 qubits, ~4 cities for TSP)
-- ✅ **Cloud integration**: IonQ and Rigetti backends supported
 - ✅ **Unified API**: Same `solve` function for all backends
+- ⚠️ **Cloud integration**: Requires Azure Quantum workspace configuration
 
 **Key Achievement:**
 Backend switching is a **one-line code change** - no refactoring needed!
 
 ```fsharp
-// Change this:
-let backend = createLocalBackend()
-
-// To this:
-let backend = createIonQBackend httpClient workspaceUrl "ionq.simulator"
+// Local simulation:
+let backend = LocalBackendFactory.createUnified()
 
 // Everything else stays the same!
 match solve backend distances defaultConfig with

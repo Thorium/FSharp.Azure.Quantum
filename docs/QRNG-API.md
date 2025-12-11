@@ -182,11 +182,11 @@ Generates random bits using a **real quantum hardware backend** (IonQ, Rigetti, 
 
 **Example:**
 ```fsharp
-open FSharp.Azure.Quantum.Core.BackendAbstraction
+open FSharp.Azure.Quantum.Backends
 
 async {
     // Use local simulator (free, fast)
-    let backend = createLocalBackend()
+    let backend = LocalBackendFactory.createUnified()
     
     let! result = QRNG.generateWithBackend 32 backend
     

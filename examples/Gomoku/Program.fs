@@ -38,7 +38,7 @@ module Program =
                     if debug then
                         ConsoleRenderer.displayAIThinking "Local Quantum (Grover's Search)" 0 None
                     // Create local backend for quantum simulation
-                    let backend = FSharp.Azure.Quantum.Core.BackendAbstraction.createLocalBackend()
+                    let backend = FSharp.Azure.Quantum.Backends.LocalBackendFactory.createUnified()
                     let (move, iterations) = LocalQuantum.selectBestMove board backend None
                     if debug then
                         ConsoleRenderer.displayInfo $"Grover iterations: {iterations}"

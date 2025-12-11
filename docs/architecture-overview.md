@@ -180,7 +180,7 @@ let problem = graphColoring {
 **Backend Abstraction**: Unified interface for all quantum execution environments
 ```fsharp
 let solve (backend: IQuantumBackend option) problem =
-    let actualBackend = backend |> Option.defaultValue (createLocalBackend())
+    let actualBackend = backend |> Option.defaultValue (LocalBackendFactory.createUnified())
     actualBackend.Execute circuit shots
 ```
 

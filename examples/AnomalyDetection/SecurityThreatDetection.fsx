@@ -87,8 +87,8 @@ let result1 = anomalyDetection {
 }
 
 match result1 with
-| Error msg ->
-    printfn "❌ Training failed: %s" msg
+| Error err ->
+    printfn "❌ Training failed: %s" err.Message
 
 | Ok detector ->
     printfn "✅ Detector trained!"
@@ -121,8 +121,8 @@ match result1 with
                      else "FLAG FOR INVESTIGATION")
             printfn ""
         
-        | Error msg ->
-            printfn "❌ %s: Check failed - %s\n" threatNames.[i] msg
+        | Error err ->
+            printfn "❌ %s: Check failed - %s\n" threatNames.[i] err.Message
     )
 
 // ============================================================================
@@ -144,10 +144,10 @@ let testSensitivity sens sensName =
             printfn "  Detected %d anomalies (%.1f%%)" 
                 batch.AnomaliesDetected (batch.AnomalyRate * 100.0)
             printfn ""
-        | Error msg ->
-            printfn "  ❌ Batch check failed: %s\n" msg
-    | Error msg ->
-        printfn "  ❌ Training failed: %s\n" msg
+        | Error err ->
+            printfn "  ❌ Batch check failed: %s\n" err.Message
+    | Error err ->
+        printfn "  ❌ Training failed: %s\n" err.Message
 
 testSensitivity Low "LOW"
 testSensitivity Medium "MEDIUM"
@@ -174,8 +174,8 @@ let productionDetector = anomalyDetection {
 }
 
 match productionDetector with
-| Error msg ->
-    printfn "❌ Production detector failed: %s" msg
+| Error err ->
+    printfn "❌ Production detector failed: %s" err.Message
 
 | Ok detector ->
     printfn "\n✅ Production detector ready\n"
@@ -214,8 +214,8 @@ match productionDetector with
             
             printfn ""
         
-        | Error msg ->
-            printfn "  ⚠️  Monitoring error: %s\n" msg
+        | Error err ->
+            printfn "  ⚠️  Monitoring error: %s\n" err.Message
     )
 
 // ============================================================================
@@ -247,8 +247,8 @@ match productionDetector with
         printfn "  - Much higher connection rate than normal (Feature_3)"
         printfn "  - Pattern consistent with network reconnaissance"
     
-    | Error msg ->
-        printfn "❌ Explanation failed: %s" msg
+    | Error err ->
+        printfn "❌ Explanation failed: %s" err.Message
 
 | Error _ -> ()
 
@@ -294,8 +294,8 @@ match productionDetector with
         printfn "\n✅ Report complete - %d sessions flagged for investigation" 
             batch.AnomaliesDetected
     
-    | Error msg ->
-        printfn "❌ Batch analysis failed: %s" msg
+    | Error err ->
+        printfn "❌ Batch analysis failed: %s" err.Message
 
 | Error _ -> ()
 

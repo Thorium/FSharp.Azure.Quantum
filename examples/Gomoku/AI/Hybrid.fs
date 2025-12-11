@@ -89,7 +89,7 @@ module LocalHybrid =
                 let classicalTime = startTime.Elapsed.TotalMilliseconds
                 
                 // Create local backend for quantum simulation
-                let backend = FSharp.Azure.Quantum.Core.BackendAbstraction.createLocalBackend()
+                let backend = FSharp.Azure.Quantum.Backends.LocalBackendFactory.createUnified()
                 
                 let quantumStart = System.Diagnostics.Stopwatch.StartNew()
                 let (move, iterations) = LocalQuantum.selectBestMove board backend (Some candidates)

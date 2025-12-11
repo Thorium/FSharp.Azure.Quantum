@@ -10,7 +10,7 @@
 open System
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.QuantumPhaseEstimator
-open FSharp.Azure.Quantum.Algorithms.QuantumPhaseEstimation  // For TGate, SGate, etc.
+open FSharp.Azure.Quantum.Algorithms.QPE  // For TGate, SGate, RotationZ, PhaseGate types
 
 printfn "=== Molecular Energy Calculation with Quantum Phase Estimation ==="
 printfn ""
@@ -174,10 +174,10 @@ match materialProblem with
         printfn "  QPE (Quantum):        Seconds to minutes (exponential speedup)"
         printfn "  Scalability:          Handles systems with 100+ atoms (classical: ~50 atoms)"
     
-    | Error msg ->
-        printfn "❌ Error: %s" msg
-| Error msg ->
-    printfn "❌ Problem setup error: %s" msg
+    | Error err ->
+        printfn "❌ Error: %s" err.Message
+| Error err ->
+    printfn "❌ Problem setup error: %s" err.Message
 
 printfn ""
 printfn "=== Key Takeaways ==="

@@ -93,8 +93,8 @@ let indexResult = similaritySearch {
 }
 
 match indexResult with
-| Error msg ->
-    printfn "❌ Indexing failed: %s" msg
+| Error err ->
+    printfn "❌ Indexing failed: %s" err.Message
 
 | Ok index ->
     printfn "✅ Index built successfully\n"
@@ -117,8 +117,8 @@ match indexResult with
         
         printfn "Search completed in: %A" results.SearchTime
     
-    | Error msg ->
-        printfn "❌ Search failed: %s" msg
+    | Error err ->
+        printfn "❌ Search failed: %s" err.Message
 
 // ============================================================================
 // EXAMPLE 2: Cross-Sell Recommendations
@@ -145,8 +145,8 @@ match indexResult with
             printfn ""
         )
     
-    | Error msg ->
-        printfn "❌ Search failed: %s" msg
+    | Error err ->
+        printfn "❌ Search failed: %s" err.Message
 
 | Error _ -> ()
 
@@ -191,11 +191,11 @@ match dupIndexResult with
             
             printfn "Data Quality Action: Merge duplicate listings to improve catalog"
     
-    | Error msg ->
-        printfn "❌ Duplicate detection failed: %s" msg
+    | Error err ->
+        printfn "❌ Duplicate detection failed: %s" err.Message
 
-| Error msg ->
-    printfn "❌ Indexing failed: %s" msg
+| Error err ->
+    printfn "❌ Indexing failed: %s" err.Message
 
 // ============================================================================
 // EXAMPLE 4: Automatic Product Clustering
@@ -222,8 +222,8 @@ match indexResult with
             printfn ""
         )
     
-    | Error msg ->
-        printfn "❌ Clustering failed: %s" msg
+    | Error err ->
+        printfn "❌ Clustering failed: %s" err.Message
 
 | Error _ -> ()
 
@@ -271,12 +271,12 @@ match similaritySearch {
             printfn "Response (200 OK): [%s]" response
             printfn ""
         
-        | Error msg ->
-            printfn "Response (500 Error): %s\n" msg
+        | Error err ->
+            printfn "Response (500 Error): %s\n" err.Message
     )
 
-| Error msg ->
-    printfn "❌ Engine initialization failed: %s" msg
+| Error err ->
+    printfn "❌ Engine initialization failed: %s" err.Message
 
 // ============================================================================
 // INTEGRATION PATTERNS

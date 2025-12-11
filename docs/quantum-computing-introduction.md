@@ -511,7 +511,7 @@ match validate bellStateCircuit with
     printfn "Errors: %A" result.Errors
 
 // Execute on local simulator
-let backend = BackendAbstraction.createLocalBackend()
+let backend = LocalBackendFactory.createUnified()
 let shots = 1000
 
 // Circuit executes and returns measurement counts

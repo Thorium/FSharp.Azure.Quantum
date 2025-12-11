@@ -408,7 +408,7 @@ module QuantumGraphColoringSolver =
                         
                         return Ok {
                             bestSolution with
-                                BackendName = "QuantumBackend"
+                                BackendName = backend.Name
                                 NumShots = config.NumShots
                                 ElapsedMs = elapsedMs
                         }

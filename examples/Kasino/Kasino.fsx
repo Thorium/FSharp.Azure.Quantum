@@ -35,15 +35,21 @@ open FSharp.Azure.Quantum
 
 /// Card rank in Kasino game
 type Rank =
-    | Ace        // Value: 1 or 14 (player choice)
+    | Ace        // Value: 1 (table) or 14 (hand)
     | Number of int  // 2-10
     | Jack       // 11
     | Queen      // 12
     | King       // 13
 
-/// Kasino card with rank and value
+/// Card location in Kasino game
+type CardLocation =
+    | Hand       // Ace = 14 when in hand
+    | Table      // Ace = 1 when on table
+
+/// Kasino card with rank, value, and location
 type Card = {
     Rank: Rank
+    Location: CardLocation
     Value: float
     DisplayName: string
 }

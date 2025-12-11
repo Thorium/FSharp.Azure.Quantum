@@ -5,7 +5,7 @@ open System.Numerics
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.Algorithms.HHLTypes
-open FSharp.Azure.Quantum.Algorithms.HHLBackendAdapter
+open FSharp.Azure.Quantum.Algorithms
 
 /// Quantum Linear Regression via HHL Algorithm Module
 /// 
@@ -359,34 +359,20 @@ module QuantumRegressionHHL =
                             printfn $"   Solving via HHL algorithm..."
                             printfn $"   Total qubits: {config.EigenvalueQubits + hhlConfig.SolutionQubits + 1}"
                         
-                        // Step 6: Execute HHL
-                        match executeWithBackend hhlConfig config.Backend config.Shots with
-                        | Error msg -> Error (QuantumError.ValidationError ("Input", $"HHL execution failed: {msg}"))
-                        | Ok measurements ->
-                            
-                            // Extract solution
-                            // ⚠️ IMPORTANT: extractSolutionFromMeasurements returns Map<int, float>
-                            // where float values are PROBABILITIES (measurement counts / total shots)
-                            // NOT amplitudes! 
-                            //
-                            // For HHL: |ψ⟩ = Σᵢ αᵢ|i⟩ where solution xᵢ = αᵢ
-                            // Measurement gives P(i) = |αᵢ|² 
-                            // Therefore: xᵢ ≈ ±√P(i)
-                            //
-                            // The sign is lost in measurement, but for regression we can
-                            // use the sign from the classical moment vector as a guide.
-                            let solution = extractSolutionFromMeasurements
-                                            measurements
-                                            hhlConfig.EigenvalueQubits
-                                            hhlConfig.SolutionQubits
-                                            (hhlConfig.EigenvalueQubits + hhlConfig.SolutionQubits)
-                            
-                            let successRate = calculateSuccessRate 
-                                                measurements
-                                                (hhlConfig.EigenvalueQubits + hhlConfig.SolutionQubits)
+                        // Execute HHL with new unified API
+                        match HHL.execute hhlConfig config.Backend with
+                        | Error err -> Error err
+                        | Ok hhlResult ->
                             
                             if config.Verbose then
-                                printfn $"   HHL success rate: {successRate:F4}"
+                                printfn $"   HHL success probability: {hhlResult.SuccessProbability:F4}"
+                            
+                            // Extract solution probabilities from HHL result
+                            // HHL.execute returns Solution as Complex[], convert to probability map
+                            let solution = 
+                                hhlResult.Solution
+                                |> Array.mapi (fun i amp -> (i, amp.Magnitude * amp.Magnitude))
+                                |> Map.ofArray
                             
                             // Convert solution probabilities to weights
                             // ⚠️ HHL MEASUREMENT INTERPRETATION:
@@ -456,7 +442,7 @@ module QuantumRegressionHHL =
                                 Weights = weights
                                 RSquared = rSquared
                                 MSE = mse
-                                SuccessProbability = successRate
+                                SuccessProbability = hhlResult.SuccessProbability
                                 NumFeatures = nFeatures
                                 NumSamples = nSamples
                                 HasIntercept = config.FitIntercept

@@ -470,9 +470,11 @@ module QuantumPatternMatcherBuilderTests =
         // Assert
         match result with
         | Error err ->
-            // Should get error about predicate or no matches
+            // Should get error about predicate, search failure, or no matches
             Assert.True(
-                err.Message.Contains("Grover search failed") || err.Message.Contains("No matching patterns found"),
+                err.Message.Contains("Grover search failed") || 
+                err.Message.Contains("No matching patterns found") ||
+                err.Message.Contains("matches no solutions"),
                 $"Expected error about search failure or no matches, got: {err.Message}"
             )
         | Ok solution ->
