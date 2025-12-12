@@ -145,6 +145,9 @@
 
     <!-- QAOA Algorithm (depends on QaoaCircuit, CircuitAbstraction, QaoaOptimizer) -->
     <Compile Include="Algorithms\QRNG.fs" />
+    <!-- Statistical distributions for quantum algorithms (option pricing, ML, etc.) -->
+    <Compile Include="Algorithms\StatisticalDistributions.fs" />
+    <Compile Include="Algorithms\QuantumMonteCarlo.fs" />
     <!-- D-Wave QUBO Extraction (depends on QaoaCircuit, CircuitAbstraction) -->
     <Compile Include="Algorithms\QuboExtraction.fs" />
     
@@ -194,6 +197,9 @@
     <Compile Include="Solvers\Classical\MaxCutBuilder.fs" />
     <Compile Include="Solvers\Classical\KnapsackBuilder.fs" />
     <Compile Include="Solvers\Classical\GraphColoringBuilder.fs" />
+    
+    <!-- Financial Derivatives - Quantum Monte Carlo for Option Pricing -->
+    <Compile Include="OptionPricingBuilder.fs" />
 
     <!-- Utilities Layer (depends on Classical Builders) -->
     <Compile Include="Utilities\PerformanceBenchmarking.fs" />

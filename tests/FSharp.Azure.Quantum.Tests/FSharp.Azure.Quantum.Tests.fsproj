@@ -97,6 +97,10 @@
     <Compile Include="ShorsUnifiedTests.fs" />
     <Compile Include="HHLUnifiedTests.fs" />
     
+    <!-- Quantum Finance Tests -->
+    <Compile Include="StatisticalDistributionsTests.fs" />
+    <Compile Include="OptionPricingTests.fs" />
+    
     <Compile Include="IntegrationTests.fs" />
   </ItemGroup>
 

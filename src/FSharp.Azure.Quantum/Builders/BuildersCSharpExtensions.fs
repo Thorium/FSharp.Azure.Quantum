@@ -293,6 +293,62 @@ type CSharpBuilders private () =
         Portfolio.createProblem assetList budget
     
     // ============================================================================
+    // OPTION PRICING BUILDER EXTENSIONS - Quantum Monte Carlo
+    // ============================================================================
+    
+    /// <summary>Price European call option using quantum Monte Carlo (C# helper).</summary>
+    /// <param name="spotPrice">Current price of underlying asset</param>
+    /// <param name="strikePrice">Strike price of the option</param>
+    /// <param name="riskFreeRate">Risk-free interest rate (annualized)</param>
+    /// <param name="volatility">Volatility of underlying asset (annualized)</param>
+    /// <param name="timeToExpiry">Time to expiry in years</param>
+    /// <param name="backend">Quantum backend (REQUIRED - RULE1 compliance)</param>
+    /// <returns>Async task with option price result</returns>
+    /// <remarks>
+    /// **RULE1 COMPLIANCE**: Backend is REQUIRED (not optional).
+    /// 
+    /// Uses Quantum Monte Carlo for quadratic speedup over classical Monte Carlo.
+    /// Classical MC: O(1/ε²) samples, Quantum MC: O(1/ε) queries → 100x speedup!
+    /// </remarks>
+    static member PriceEuropeanCall(spotPrice: float, strikePrice: float, riskFreeRate: float, volatility: float, timeToExpiry: float, backend: IQuantumBackend) =
+        OptionPricing.priceEuropeanCall spotPrice strikePrice riskFreeRate volatility timeToExpiry backend
+    
+    /// <summary>Price European put option using quantum Monte Carlo (C# helper).</summary>
+    /// <param name="spotPrice">Current price of underlying asset</param>
+    /// <param name="strikePrice">Strike price of the option</param>
+    /// <param name="riskFreeRate">Risk-free interest rate (annualized)</param>
+    /// <param name="volatility">Volatility of underlying asset (annualized)</param>
+    /// <param name="timeToExpiry">Time to expiry in years</param>
+    /// <param name="backend">Quantum backend (REQUIRED - RULE1 compliance)</param>
+    /// <returns>Async task with option price result</returns>
+    static member PriceEuropeanPut(spotPrice: float, strikePrice: float, riskFreeRate: float, volatility: float, timeToExpiry: float, backend: IQuantumBackend) =
+        OptionPricing.priceEuropeanPut spotPrice strikePrice riskFreeRate volatility timeToExpiry backend
+    
+    /// <summary>Price Asian call option using quantum Monte Carlo (C# helper).</summary>
+    /// <param name="spotPrice">Current price of underlying asset</param>
+    /// <param name="strikePrice">Strike price of the option</param>
+    /// <param name="riskFreeRate">Risk-free interest rate (annualized)</param>
+    /// <param name="volatility">Volatility of underlying asset (annualized)</param>
+    /// <param name="timeToExpiry">Time to expiry in years</param>
+    /// <param name="timeSteps">Number of time steps for averaging</param>
+    /// <param name="backend">Quantum backend (REQUIRED - RULE1 compliance)</param>
+    /// <returns>Async task with option price result</returns>
+    static member PriceAsianCall(spotPrice: float, strikePrice: float, riskFreeRate: float, volatility: float, timeToExpiry: float, timeSteps: int, backend: IQuantumBackend) =
+        OptionPricing.priceAsianCall spotPrice strikePrice riskFreeRate volatility timeToExpiry timeSteps backend
+    
+    /// <summary>Price Asian put option using quantum Monte Carlo (C# helper).</summary>
+    /// <param name="spotPrice">Current price of underlying asset</param>
+    /// <param name="strikePrice">Strike price of the option</param>
+    /// <param name="riskFreeRate">Risk-free interest rate (annualized)</param>
+    /// <param name="volatility">Volatility of underlying asset (annualized)</param>
+    /// <param name="timeToExpiry">Time to expiry in years</param>
+    /// <param name="timeSteps">Number of time steps for averaging</param>
+    /// <param name="backend">Quantum backend (REQUIRED - RULE1 compliance)</param>
+    /// <returns>Async task with option price result</returns>
+    static member PriceAsianPut(spotPrice: float, strikePrice: float, riskFreeRate: float, volatility: float, timeToExpiry: float, timeSteps: int, backend: IQuantumBackend) =
+        OptionPricing.priceAsianPut spotPrice strikePrice riskFreeRate volatility timeToExpiry timeSteps backend
+    
+    // ============================================================================
     // QUANTUM TREE SEARCH BUILDER EXTENSIONS
     // ============================================================================
     
@@ -813,4 +869,135 @@ module SVMModelSerializationCSharpExtensions =
             let! result = SVMModelSerialization.loadMultiClassSVMModelAsync filePath
             return Result.mapError (fun (e: QuantumError) -> e.Message) result
         }
+        |> Async.StartAsTask
+
+// ============================================================================
+// OPTION PRICING EXTENSIONS - Task-based Async for C#
+// ============================================================================
+
+/// <summary>
+/// C# extensions for OptionPricing to enable Task-based async/await.
+/// </summary>
+/// <remarks>
+/// These extensions convert F# Async to C# Task for idiomatic async/await usage.
+/// 
+/// Example usage (C#):
+/// <code>
+/// using FSharp.Azure.Quantum;
+/// using static FSharp.Azure.Quantum.CSharpBuilders;
+/// 
+/// // Simple: Use default LocalBackend (quantum simulation)
+/// var result = await OptionPricingExtensions.PriceEuropeanCallTask(100.0, 105.0, 0.05, 0.2, 1.0, null);
+/// 
+/// if (result.IsOk())
+/// {
+///     var price = result.GetOkValue();
+///     Console.WriteLine($"Option Price: ${price.Price:F2}");
+///     Console.WriteLine($"Confidence Interval: ±${price.ConfidenceInterval:F2}");
+///     Console.WriteLine($"Quantum Speedup: {price.Speedup:F1}x");
+///     Console.WriteLine($"Qubits Used: {price.QubitsUsed}");
+/// }
+/// 
+/// // Advanced: Use IonQ cloud backend
+/// var ionqBackend = BackendAbstraction.CreateIonQBackend(...);
+/// var cloudResult = await OptionPricingExtensions.PriceEuropeanCallTask(100.0, 105.0, 0.05, 0.2, 1.0, ionqBackend);
+/// </code>
+/// </remarks>
+[<Extension>]
+module OptionPricingExtensions =
+    
+    /// <summary>
+    /// Price European put option asynchronously using C# Task (enables async/await).
+    /// </summary>
+    /// <param name="spotPrice">Current price of underlying asset (S₀)</param>
+    /// <param name="strikePrice">Strike price of the option (K)</param>
+    /// <param name="riskFreeRate">Risk-free interest rate (annualized, r)</param>
+    /// <param name="volatility">Volatility of underlying asset (annualized, σ)</param>
+    /// <param name="timeToExpiry">Time to expiry in years (T)</param>
+    /// <param name="backend">Quantum backend (REQUIRED - RULE1 compliance)</param>
+    /// <returns>Task with option price result or error</returns>
+    /// <remarks>
+    /// **RULE1 COMPLIANCE**: Backend parameter is REQUIRED (not optional).
+    /// 
+    /// Payoff: max(K - S_T, 0)
+    /// 
+    /// Uses Quantum Monte Carlo for quadratic speedup over classical methods.
+    /// </remarks>
+    [<Extension>]
+    let PriceEuropeanPutTask
+        (spotPrice: float)
+        (strikePrice: float)
+        (riskFreeRate: float)
+        (volatility: float)
+        (timeToExpiry: float)
+        (backend: IQuantumBackend)
+        : Task<QuantumResult<OptionPricing.OptionPrice>> =
+        
+        OptionPricing.priceEuropeanPut spotPrice strikePrice riskFreeRate volatility timeToExpiry backend
+        |> Async.StartAsTask
+    
+    /// <summary>
+    /// Price Asian call option asynchronously using C# Task (enables async/await).
+    /// </summary>
+    /// <param name="spotPrice">Current price of underlying asset (S₀)</param>
+    /// <param name="strikePrice">Strike price of the option (K)</param>
+    /// <param name="riskFreeRate">Risk-free interest rate (annualized, r)</param>
+    /// <param name="volatility">Volatility of underlying asset (annualized, σ)</param>
+    /// <param name="timeToExpiry">Time to expiry in years (T)</param>
+    /// <param name="timeSteps">Number of time steps for path averaging</param>
+    /// <param name="backend">Quantum backend (REQUIRED - RULE1 compliance)</param>
+    /// <returns>Task with option price result or error</returns>
+    /// <remarks>
+    /// **RULE1 COMPLIANCE**: Backend parameter is REQUIRED (not optional).
+    /// 
+    /// Payoff: max(Avg(S_t) - K, 0)
+    /// 
+    /// Asian options average the price over time, reducing volatility exposure.
+    /// Uses Quantum Monte Carlo for quadratic speedup.
+    /// </remarks>
+    [<Extension>]
+    let PriceAsianCallTask
+        (spotPrice: float)
+        (strikePrice: float)
+        (riskFreeRate: float)
+        (volatility: float)
+        (timeToExpiry: float)
+        (timeSteps: int)
+        (backend: IQuantumBackend)
+        : Task<QuantumResult<OptionPricing.OptionPrice>> =
+        
+        OptionPricing.priceAsianCall spotPrice strikePrice riskFreeRate volatility timeToExpiry timeSteps backend
+        |> Async.StartAsTask
+    
+    /// <summary>
+    /// Price Asian put option asynchronously using C# Task (enables async/await).
+    /// </summary>
+    /// <param name="spotPrice">Current price of underlying asset (S₀)</param>
+    /// <param name="strikePrice">Strike price of the option (K)</param>
+    /// <param name="riskFreeRate">Risk-free interest rate (annualized, r)</param>
+    /// <param name="volatility">Volatility of underlying asset (annualized, σ)</param>
+    /// <param name="timeToExpiry">Time to expiry in years (T)</param>
+    /// <param name="timeSteps">Number of time steps for path averaging</param>
+    /// <param name="backend">Quantum backend (REQUIRED - RULE1 compliance)</param>
+    /// <returns>Task with option price result or error</returns>
+    /// <remarks>
+    /// **RULE1 COMPLIANCE**: Backend parameter is REQUIRED (not optional).
+    /// 
+    /// Payoff: max(K - Avg(S_t), 0)
+    /// 
+    /// Asian options average the price over time, reducing volatility exposure.
+    /// Uses Quantum Monte Carlo for quadratic speedup.
+    /// </remarks>
+    [<Extension>]
+    let PriceAsianPutTask
+        (spotPrice: float)
+        (strikePrice: float)
+        (riskFreeRate: float)
+        (volatility: float)
+        (timeToExpiry: float)
+        (timeSteps: int)
+        ([<Optional; DefaultParameterValue(null:obj)>] backend: IQuantumBackend)
+        : Task<QuantumResult<OptionPricing.OptionPrice>> =
+        
+        OptionPricing.priceAsianPut spotPrice strikePrice riskFreeRate volatility timeToExpiry timeSteps backend
         |> Async.StartAsTask
