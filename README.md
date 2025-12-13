@@ -60,6 +60,8 @@ flowchart TD
   - [Variational Quantum Classifier (VQC)](#variational-quantum-classifier-vqc)
   - [Quantum Kernel SVM](#quantum-kernel-svm)
 - [Business Problem Builders](#business-problem-builders)
+  - [Social Network Analyzer](#social-network-analyzer---community-detection--fraud-rings)
+  - [Constraint Scheduler](#constraint-scheduler---workforce--resource-allocation)
   - [AutoML](#automl---automated-machine-learning)
   - [Anomaly Detection](#anomaly-detection---security--fraud-detection)
   - [Binary Classification](#binary-classification---fraud-detection)
@@ -99,7 +101,7 @@ flowchart TD
 - Multiple Backends: LocalBackend (simulation), Azure Quantum (IonQ, Rigetti, Atom Computing, Quantinuum), D-Wave quantum annealers (2000+ qubits)
 - Topological Quantum Computing: Anyon braiding simulator (Ising & Fibonacci anyons) - Microsoft Majorana architecture
 - Quantum Machine Learning: VQC, Quantum Kernel SVM, Feature Maps, Variational Forms, AutoML
-- Business Problem Builders: AutoML, Anomaly Detection, Binary Classification, Predictive Modeling, Similarity Search
+- Business Problem Builders: Social Network Analysis, Constraint Scheduling, AutoML, Anomaly Detection, Binary Classification, Predictive Modeling, Similarity Search
 - OpenQASM 2.0: Import/export compatibility with IBM Qiskit, Amazon Braket, Google Cirq
 - QAOA Implementation: Quantum Approximate Optimization Algorithm with advanced parameter optimization
 - 7 Quantum Optimization Builders: Graph Coloring, MaxCut, Knapsack, TSP, Portfolio, Network Flow, Task Scheduling
@@ -834,7 +836,174 @@ match QuantumKernelSVM.train backend featureMap trainData trainLabels config 100
 
 ## Business Problem Builders
 
-**High-level APIs for common business applications powered by quantum machine learning.**
+**High-level APIs for common business applications powered by quantum algorithms (Grover's search) and quantum machine learning.**
+
+### Social Network Analyzer - Community Detection & Fraud Rings
+
+**Use Grover's algorithm to find tight-knit communities (cliques) in social networks for marketing, fraud detection, and team analysis.**
+
+```fsharp
+open FSharp.Azure.Quantum.Business
+open FSharp.Azure.Quantum.Backends.LocalBackend
+
+// Define social network
+let network = SocialNetworkAnalyzer.socialNetwork {
+    // Add people
+    people ["Alice"; "Bob"; "Carol"; "Dave"; "Eve"; "Frank"]
+    
+    // Define connections (friendships, transactions, communications)
+    connections [
+        ("Alice", "Bob")
+        ("Bob", "Carol")
+        ("Carol", "Alice")     // Triangle: potential community
+        
+        ("Dave", "Eve")
+        ("Eve", "Frank")
+        ("Frank", "Dave")      // Another triangle
+        
+        ("Carol", "Dave")      // Bridge between communities
+    ]
+    
+    // Find communities of at least 3 people
+    findCommunities 3
+    
+    // Use quantum acceleration (optional)
+    backend (LocalBackend() :> IQuantumBackend)
+    shots 1000
+}
+
+match network with
+| Ok result ->
+    printfn "Communities found: %d" result.Communities.Length
+    
+    for comm in result.Communities do
+        printfn "Community: %A" comm.Members
+        printfn "  Strength: %.0f%% connected" (comm.Strength * 100.0)
+        printfn "  Internal connections: %d" comm.InternalConnections
+| Error err -> printfn "Error: %A" err
+```
+
+**Business Use Cases:**
+- **Marketing**: Identify influencer groups for targeted campaigns
+- **Fraud Detection**: Detect fraud rings through circular transaction patterns
+- **HR Analytics**: Analyze team collaboration and communication networks
+- **Healthcare**: Track disease outbreak clusters and contact tracing
+- **Security**: Find coordinated bot networks or insider threat groups
+
+**Quantum Advantage:**
+- Classical clique finding: O(2^n) exponential time complexity
+- Grover's algorithm: O(√(2^n)) quadratic speedup
+- Most beneficial for networks with 20+ people
+- Real-time fraud detection at scale
+
+**Features:**
+- F# computation expression: `socialNetwork { }`
+- Quantum backend support (LocalBackend, IonQ, Rigetti)
+- Configurable shots for measurement accuracy
+- Classical fallback for small networks
+- Community strength metrics (connectivity percentage)
+
+**Example:** `examples/SocialNetworkAnalyzer_Example.fsx`
+
+---
+
+### Constraint Scheduler - Workforce & Resource Allocation
+
+**Use quantum optimization (Max-SAT and Weighted Graph Coloring) to solve scheduling problems with hard and soft constraints.**
+
+```fsharp
+open FSharp.Azure.Quantum.Business
+open FSharp.Azure.Quantum.Backends.LocalBackend
+
+// Workforce scheduling with constraints
+let schedule = ConstraintScheduler.constraintScheduler {
+    // Define shifts to cover
+    task "Morning"
+    task "Afternoon"
+    task "Evening"
+    task "Night"
+    
+    // Available workers with hourly rates
+    resource "Alice" 25.0   // Senior: $25/hour
+    resource "Bob" 15.0     // Junior: $15/hour
+    resource "Carol" 20.0   // Mid-level: $20/hour
+    resource "Dave" 15.0    // Junior: $15/hour
+    
+    // Hard constraints (MUST be satisfied)
+    conflict "Morning" "Afternoon"     // Can't work consecutive shifts
+    conflict "Afternoon" "Evening"
+    conflict "Evening" "Night"
+    
+    // Soft constraints (preferences with weights)
+    prefer "Morning" "Alice" 10.0      // Alice prefers morning
+    prefer "Afternoon" "Carol" 8.0     // Carol prefers afternoon
+    prefer "Night" "Dave" 9.0          // Dave prefers night
+    
+    // Optimization goal
+    optimizeFor ConstraintScheduler.MinimizeCost
+    maxBudget 100.0
+    
+    // Use quantum optimization (optional)
+    backend (LocalBackend() :> IQuantumBackend)
+    shots 1500
+}
+
+match schedule with
+| Ok result ->
+    match result.BestSchedule with
+    | Some sched ->
+        printfn "Optimal Shift Assignments:"
+        for assignment in sched.Assignments do
+            printfn "  %s → %s ($%.2f/hour)" 
+                assignment.Task 
+                assignment.Resource 
+                assignment.Cost
+        
+        printfn "\nTotal Cost: $%.2f" sched.TotalCost
+        printfn "Constraints Satisfied: %d / %d hard, %d / %d soft" 
+            sched.HardConstraintsSatisfied 
+            sched.TotalHardConstraints
+            sched.SoftConstraintsSatisfied 
+            sched.TotalSoftConstraints
+        printfn "Feasible: %b" sched.IsFeasible
+    | None ->
+        printfn "No feasible schedule found"
+| Error err -> printfn "Error: %A" err
+```
+
+**Business Use Cases:**
+- **Workforce Management**: Employee shift scheduling with availability constraints
+- **Cloud Computing**: VM allocation to minimize costs while meeting SLAs
+- **Manufacturing**: Production task assignment with equipment constraints
+- **Logistics**: Delivery route optimization with time windows
+- **Project Management**: Task assignment with dependencies and deadlines
+
+**Quantum Advantage:**
+- Classical constraint solving: NP-hard (exponential time)
+- Quantum optimization: Quadratic speedup with Grover search
+- Most beneficial for 10+ tasks with complex constraints
+
+**Optimization Goals:**
+- `MinimizeCost`: Uses Weighted Graph Coloring oracle
+- `MaximizeSatisfaction`: Uses Max-SAT oracle for constraint satisfaction
+- `Balanced`: Combines both cost and satisfaction criteria
+
+**Constraint Types:**
+- **Hard Constraints** (must satisfy): `conflict`, `require`, `precedence`
+- **Soft Constraints** (preferences): `prefer` with configurable weights
+- **Budget Constraints**: `maxBudget` for cost optimization
+
+**Features:**
+- F# computation expression: `constraintScheduler { }`
+- Dual oracle support (Max-SAT and Weighted Graph Coloring)
+- Quantum backend support (LocalBackend, IonQ, Rigetti)
+- Configurable shots for accuracy vs. speed tradeoff
+- Classical fallback for small problems
+- Detailed constraint satisfaction metrics
+
+**Example:** `examples/ConstraintScheduler_Example.fsx`
+
+---
 
 ### AutoML - Automated Machine Learning
 
@@ -964,15 +1133,19 @@ match SimilaritySearch.findSimilar search targetProduct with
 ```
 
 **Business Builder Features:**
+- Social Network Analyzer - Community detection, fraud rings, influencer identification (Grover's algorithm)
+- Constraint Scheduler - Workforce scheduling, resource allocation with constraints (Max-SAT & Graph Coloring)
 - AutoML - Automated hyperparameter tuning, model selection, ensemble methods
 - Anomaly Detection - Outlier detection for security, fraud, quality control
 - Binary Classification - Two-class problems (fraud, spam, churn)
 - Predictive Modeling - Time-series forecasting, demand prediction
 - Similarity Search - Recommendations, semantic search, clustering
-- Quantum-Enhanced - Leverages quantum kernels and feature maps
+- Quantum-Enhanced - Leverages Grover's search, quantum kernels, and feature maps
 - Ready for Production - Model serialization, evaluation metrics, validation
 
 **Examples:**
+- `examples/SocialNetworkAnalyzer_Example.fsx` - Community detection and fraud ring identification
+- `examples/ConstraintScheduler_Example.fsx` - Workforce and resource scheduling
 - `examples/AutoML/QuickPrototyping.fsx` - Complete AutoML pipeline
 - `examples/AnomalyDetection/SecurityThreatDetection.fsx` - Network security monitoring
 - `examples/BinaryClassification/FraudDetection.fsx` - Transaction fraud detection

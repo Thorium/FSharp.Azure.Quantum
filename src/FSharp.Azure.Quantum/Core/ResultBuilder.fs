@@ -177,3 +177,52 @@ module Result =
         items
         |> List.map f
         |> sequence
+    
+    /// Sequence an array of Results into a Result of array
+    /// 
+    /// Efficiently converts Result<'T, 'E>[] to Result<'T[], 'E>
+    /// Returns first error encountered, or Ok with all values.
+    /// 
+    /// Performance: O(n) time, O(n) space (pre-allocated array)
+    /// 
+    /// Example:
+    ///   let results = [| Ok 1; Ok 2; Ok 3 |]
+    ///   sequenceArray results  // Ok [| 1; 2; 3 |]
+    ///   
+    ///   let withError = [| Ok 1; Error "oops"; Ok 3 |]
+    ///   sequenceArray withError  // Error "oops"
+    let sequenceArray (results: Result<'T, 'E> array) : Result<'T array, 'E> =
+        let mutable error = None
+        let arr = Array.zeroCreate results.Length
+        let mutable i = 0
+        
+        // Scan array until error found or all processed
+        while i < results.Length && error.IsNone do
+            match results.[i] with
+            | Ok x -> arr.[i] <- x
+            | Error e -> error <- Some e
+            i <- i + 1
+        
+        match error with
+        | Some e -> Error e
+        | None -> Ok arr
+    
+    /// Traverse an array with a function returning Results
+    /// 
+    /// Maps array elements with a Result-returning function, then sequences.
+    /// More efficient than Array.map + sequenceArray (single allocation).
+    /// 
+    /// Performance: O(n) time, O(n) space
+    /// 
+    /// Example:
+    ///   let parseInts = traverseArray Int32.TryParse [| "1"; "2"; "3" |]
+    ///   
+    ///   let processQubits backend qubits =
+    ///       qubits
+    ///       |> traverseArray (fun qubit ->
+    ///           backend.ApplyOperation (Gate (H qubit)) initialState
+    ///       )
+    let traverseArray (f: 'T -> Result<'U, 'E>) (items: 'T array) : Result<'U array, 'E> =
+        items
+        |> Array.map f
+        |> sequenceArray

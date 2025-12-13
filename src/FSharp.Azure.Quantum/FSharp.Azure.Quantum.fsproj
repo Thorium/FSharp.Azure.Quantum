@@ -235,6 +235,10 @@
     <Compile Include="Business\PredictiveModelBuilder.fs" />
     <Compile Include="Business\AutoMLBuilder.fs" />
     
+    <!-- Business-First Quantum Solvers -->
+    <Compile Include="Business\SocialNetworkAnalyzer.fs" />
+    <Compile Include="Business\ConstraintScheduler.fs" />
+    
     <!-- C# Interop Extensions -->
     <Compile Include="Builders\BuildersCSharpExtensions.fs" />
   </ItemGroup>
