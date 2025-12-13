@@ -43,6 +43,9 @@ module VQC =
         
         /// Optimizer to use (SGD or Adam)
         Optimizer: Optimizer
+        
+        /// Progress reporter for long-running training
+        ProgressReporter: Progress.IProgressReporter option
     }
     
     /// Training result
@@ -295,6 +298,11 @@ module VQC =
                 printfn "  Max epochs: %d" config.MaxEpochs
                 printfn ""
             
+            // Report progress: Training started
+            config.ProgressReporter
+            |> Option.iter (fun reporter ->
+                reporter.Report(Progress.PhaseChanged("VQC Training", Some $"Starting with {config.MaxEpochs} max epochs...")))
+            
             // Recursive training loop
             let rec trainLoop (state: TrainingState) : QuantumResult<TrainingState> =
                 if state.Epoch >= config.MaxEpochs || state.Converged then
@@ -307,6 +315,11 @@ module VQC =
                             |> Result.mapError (fun e -> QuantumError.ValidationError ("Input", $"Loss computation failed at epoch {state.Epoch}: {e}"))
                         
                         let newLossHistory = loss :: state.LossHistory
+                        
+                        // Report progress
+                        config.ProgressReporter
+                        |> Option.iter (fun reporter ->
+                            reporter.Report(Progress.IterationUpdate(state.Epoch, config.MaxEpochs, Some loss)))
                         
                         if config.Verbose then
                             printfn "Epoch %3d: Loss = %.6f" state.Epoch loss
@@ -468,6 +481,7 @@ module VQC =
         Shots = 1024
         Verbose = true
         Optimizer = SGD
+        ProgressReporter = None
     }
     
     /// Create training configuration with Adam optimizer
@@ -477,6 +491,7 @@ module VQC =
         ConvergenceThreshold = 1e-4
         Shots = 1024
         Verbose = true
+        ProgressReporter = None
         Optimizer = Adam AdamOptimizer.defaultConfig
     }
     

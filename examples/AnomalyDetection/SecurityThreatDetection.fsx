@@ -35,7 +35,7 @@ let generateNormalTraffic () =
     //  geographic_distance, time_of_day, protocol_type]
     
     // Normal traffic patterns during business hours
-    [| for i in 1..100 ->
+    [| for i in 1..30 ->
         [| 
             random.NextDouble() * 1000.0 + 500.0    // Normal data transfer
             random.NextDouble() * 2000.0 + 1000.0   // Normal responses

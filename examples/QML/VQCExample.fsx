@@ -69,7 +69,7 @@ printResult "Variational Form" "RealAmplitudes (depth=2)"
 // Training configuration
 let config : VQC.TrainingConfig = {
     LearningRate = 0.1
-    MaxEpochs = 50
+    MaxEpochs = 5
     ConvergenceThreshold = 0.001
     Shots = 1000
     Verbose = false

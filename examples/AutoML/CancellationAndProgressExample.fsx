@@ -32,7 +32,7 @@ let generateSampleData () =
     
     // Features: [tenure_months, monthly_spend, support_calls, usage_frequency, satisfaction]
     let features = [|
-        for i in 1..100 ->
+        for i in 1..30 ->
             [| 
                 random.NextDouble() * 36.0              // Tenure: 0-36 months
                 50.0 + random.NextDouble() * 150.0      // Spend: $50-$200
@@ -44,7 +44,7 @@ let generateSampleData () =
     
     // Labels: Will customer churn? (1 = yes, 0 = no)
     let labels = [|
-        for i in 0..99 ->
+        for i in 0..29 ->
             if features.[i].[1] < 100.0 && features.[i].[4] < 5.0 && features.[i].[2] > 5.0 then
                 1.0
             else
@@ -64,12 +64,12 @@ printfn "Dataset: %d samples, %d features\n" sampleFeatures.Length sampleFeature
 printfn "=== Example 1: Built-in Console Progress Reporter ===\n"
 
 // Use the built-in console progress reporter
-let consoleReporter = createConsoleReporter(verbose = true)
+let consoleReporter = createConsoleReporter (Some true) None
 
 let result1 = autoML {
     trainWith sampleFeatures sampleLabels
     
-    maxTrials 10
+    maxTrials 1
     tryArchitectures [Quantum; Hybrid]
     
     // Add console progress reporter
@@ -83,10 +83,10 @@ match result1 with
     printfn "\n✅ Search Complete!"
     printfn "Best Model: %s" automlResult.BestModelType
     printfn "Score: %.2f%%" (automlResult.Score * 100.0)
-| Error msg ->
-    printfn "\n❌ Search Failed: %s" msg
+| Error err ->
+    printfn "\n❌ Search Failed: %A" err
 
-printfn "\n" + String.replicate 80 "="
+printfn "\n%s" (String.replicate 80 "=")
 
 // ============================================================================
 // EXAMPLE 2: Event-Based Progress with Cancellation
@@ -135,7 +135,7 @@ eventReporter.ProgressChanged.Add(fun event ->
 let result2 = autoML {
     trainWith sampleFeatures sampleLabels
     
-    maxTrials 20
+    maxTrials 1
     tryArchitectures [Quantum; Hybrid]
     
     // Add event-based progress reporter
@@ -153,10 +153,10 @@ match result2 with
     printfn "Best Model: %s" automlResult.BestModelType
     printfn "Score: %.2f%%" (automlResult.Score * 100.0)
     printfn "Trials completed: %d/%d" automlResult.SuccessfulTrials (automlResult.SuccessfulTrials + automlResult.FailedTrials)
-| Error msg ->
-    printfn "\n❌ Search Failed: %s" msg
+| Error err ->
+    printfn "\n❌ Search Failed: %A" err
 
-printfn "\n" + String.replicate 80 "="
+printfn "\n%s" (String.replicate 80 "=")
 
 // ============================================================================
 // EXAMPLE 3: Timeout-Based Cancellation
@@ -168,14 +168,14 @@ printfn "\n=== Example 3: Automatic Timeout Cancellation ===\n"
 let ctsTimeout = new CancellationTokenSource()
 ctsTimeout.CancelAfter(TimeSpan.FromSeconds(30.0))
 
-let timeoutReporter = createConsoleReporter(verbose = true, cancellationToken = ctsTimeout.Token)
+let timeoutReporter = createConsoleReporter (Some true) (Some ctsTimeout.Token)
 
 printfn "Starting search with 30-second timeout...\n"
 
 let result3 = autoML {
     trainWith sampleFeatures sampleLabels
     
-    maxTrials 50  // Many trials, will likely timeout
+    maxTrials 1  // Many trials, will likely timeout
     tryArchitectures [Quantum; Hybrid]
     
     progressReporter timeoutReporter
@@ -190,13 +190,14 @@ match result3 with
     printfn "Best Model: %s" automlResult.BestModelType
     printfn "Score: %.2f%%" (automlResult.Score * 100.0)
     printfn "Completed trials: %d" (automlResult.SuccessfulTrials + automlResult.FailedTrials)
-| Error msg ->
-    if msg.Contains("cancelled") then
+| Error err ->
+    let errMsg = sprintf "%A" err
+    if errMsg.Contains("cancelled") then
         printfn "\n⏱️  Search timeout - returning best result found so far"
     else
-        printfn "\n❌ Search Failed: %s" msg
+        printfn "\n❌ Search Failed: %A" err
 
-printfn "\n" + String.replicate 80 "="
+printfn "\n%s" (String.replicate 80 "=")
 
 // ============================================================================
 // EXAMPLE 4: Custom Progress Handler for UI Integration
@@ -246,7 +247,7 @@ let customReporter = {
 let result4 = autoML {
     trainWith sampleFeatures sampleLabels
     
-    maxTrials 15
+    maxTrials 1
     tryArchitectures [Hybrid]
     
     progressReporter customReporter
@@ -260,10 +261,10 @@ match result4 with
     printfn "\n✅ Search Complete!"
     printfn "Final UI State: %.0f%% - %s" finalPercent finalMsg
     printfn "Best Model: %s (%.2f%%)" automlResult.BestModelType (automlResult.Score * 100.0)
-| Error msg ->
-    printfn "\n❌ Search Failed: %s" msg
+| Error err ->
+    printfn "\n❌ Search Failed: %A" err
 
-printfn "\n" + String.replicate 80 "="
+printfn "\n%s" (String.replicate 80 "=")
 
 // ============================================================================
 // EXAMPLE 5: Production Pattern with Multiple Reporters
@@ -272,7 +273,7 @@ printfn "\n" + String.replicate 80 "="
 printfn "\n=== Example 5: Production Pattern - Console + Custom Logging ===\n"
 
 // Production-ready pattern: log to both console and custom logger
-let consoleLog = createConsoleReporter(verbose = true)
+let consoleLog = createConsoleReporter (Some true) None
 
 let loggingReporter = {
     new IProgressReporter with
@@ -296,7 +297,7 @@ let multiReporter = createAggregatingReporter [consoleLog; loggingReporter]
 let result5 = autoML {
     trainWith sampleFeatures sampleLabels
     
-    maxTrials 12
+    maxTrials 1
     tryArchitectures [Quantum; Hybrid]
     
     progressReporter multiReporter
@@ -310,8 +311,8 @@ match result5 with
     printfn "Best Model: %s" automlResult.BestModelType
     printfn "Score: %.2f%%" (automlResult.Score * 100.0)
     printfn "Logs written for all %d trials" automlResult.AllTrials.Length
-| Error msg ->
-    printfn "\n❌ Search Failed: %s" msg
+| Error err ->
+    printfn "\n❌ Search Failed: %A" err
 
 // ============================================================================
 // SUMMARY

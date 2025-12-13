@@ -73,6 +73,8 @@ module QuantumConstraintSolver =
         MaxIterations: int option
         /// Number of measurement shots
         Shots: int
+        /// Progress reporter for long-running operations
+        ProgressReporter: Progress.IProgressReporter option
     }
     
     /// <summary>
@@ -135,6 +137,7 @@ module QuantumConstraintSolver =
                 Backend = None
                 MaxIterations = None
                 Shots = 1000
+                ProgressReporter = None
             }
         
         member _.Delay(f: unit -> ConstraintProblem<'T>) : unit -> ConstraintProblem<'T> = f
@@ -154,6 +157,7 @@ module QuantumConstraintSolver =
                 Backend = None
                 MaxIterations = None
                 Shots = 0
+                ProgressReporter = None
             }
             
             sequence
@@ -166,6 +170,7 @@ module QuantumConstraintSolver =
                     Backend = match itemProblem.Backend with Some b -> Some b | None -> acc.Backend
                     MaxIterations = match itemProblem.MaxIterations with Some i -> Some i | None -> acc.MaxIterations
                     Shots = if itemProblem.Shots > 0 then itemProblem.Shots else acc.Shots
+                    ProgressReporter = match itemProblem.ProgressReporter with Some r -> Some r | None -> acc.ProgressReporter
                 }) zero
         
         member _.Combine(problem1: ConstraintProblem<'T>, problem2: ConstraintProblem<'T>) : ConstraintProblem<'T> =
@@ -177,6 +182,7 @@ module QuantumConstraintSolver =
                 Backend = match problem2.Backend with Some b -> Some b | None -> problem1.Backend
                 MaxIterations = match problem2.MaxIterations with Some i -> Some i | None -> problem1.MaxIterations
                 Shots = if problem2.Shots > 0 then problem2.Shots else problem1.Shots
+                ProgressReporter = match problem2.ProgressReporter with Some r -> Some r | None -> problem1.ProgressReporter
             }
         
         member _.Zero() : ConstraintProblem<'T> =
@@ -187,6 +193,7 @@ module QuantumConstraintSolver =
                 Backend = None
                 MaxIterations = None
                 Shots = 0
+                ProgressReporter = None
             }
         
         [<CustomOperation("searchSpace")>]
@@ -212,6 +219,10 @@ module QuantumConstraintSolver =
         [<CustomOperation("shots")>]
         member _.Shots(problem: ConstraintProblem<'T>, count: int) : ConstraintProblem<'T> =
             { problem with Shots = count }
+        
+        [<CustomOperation("onProgress")>]
+        member _.OnProgress(problem: ConstraintProblem<'T>, reporter: Progress.IProgressReporter) : ConstraintProblem<'T> =
+            { problem with ProgressReporter = Some reporter }
     
     /// Global instance of constraintSolver builder
     let constraintSolver<'T> = QuantumConstraintSolverBuilder<'T>()
@@ -281,9 +292,19 @@ module QuantumConstraintSolver =
                         problem.Constraints
                         |> List.forall (fun constraintFunc -> constraintFunc assignment)
                 
+                // Report progress: Starting search
+                problem.ProgressReporter 
+                |> Option.iter (fun reporter -> 
+                    reporter.Report(Progress.PhaseChanged("Constraint Solving", Some "Building quantum oracle...")))
+                
                 // Create oracle for Grover search using new API
                 result {
                     let! oracle = GroverSearch.Oracle.fromPredicate combinedPredicate qubitsNeeded
+                    
+                    // Report progress: Oracle created
+                    problem.ProgressReporter 
+                    |> Option.iter (fun reporter -> 
+                        reporter.Report(Progress.PhaseChanged("Quantum Search", Some $"Searching {problem.SearchSpaceSize} states with {qubitsNeeded} qubits...")))
                     
                     // Create Grover config with optional iterations
                     let groverConfig = {
@@ -295,6 +316,11 @@ module QuantumConstraintSolver =
                     
                     // Execute Grover search using new unified API
                     let! searchResult = GroverSearch.Grover.search oracle actualBackend groverConfig
+                    
+                    // Report progress: Search complete
+                    problem.ProgressReporter 
+                    |> Option.iter (fun reporter -> 
+                        reporter.Report(Progress.PhaseChanged("Solution Found", Some $"Verified with {searchResult.SuccessProbability:P1} probability")))
                     
                     match searchResult.Solutions with
                     | [] -> return! Error (QuantumError.OperationError ("GroverSearch", "No solution found by quantum search"))
@@ -348,6 +374,7 @@ module QuantumConstraintSolver =
             Backend = None
             MaxIterations = None
             Shots = 1000
+            ProgressReporter = None
         }
     
     /// Helper for Sudoku-style problems (grid-based with row/column constraints)
@@ -359,6 +386,7 @@ module QuantumConstraintSolver =
             Backend = None
             MaxIterations = None
             Shots = 1000
+            ProgressReporter = None
         }
     
     /// Helper for scheduling problems (jobs assigned to time slots)
@@ -370,6 +398,7 @@ module QuantumConstraintSolver =
             Backend = None
             MaxIterations = None
             Shots = 1000
+            ProgressReporter = None
         }
     
     /// Helper for N-Queens style problems
@@ -381,6 +410,7 @@ module QuantumConstraintSolver =
             Backend = None
             MaxIterations = None
             Shots = 1000
+            ProgressReporter = None
         }
     
     /// Estimate resource requirements without executing

@@ -333,12 +333,16 @@ module QuantumNetworkFlowSolver =
         
         /// Initial QAOA parameters (gamma, beta)
         InitialParameters: float * float
+        
+        /// Optional progress reporter for QAOA iterations
+        ProgressReporter: Progress.IProgressReporter option
     }
     
     /// Default configuration
     let defaultConfig = {
         NumShots = 1000
         InitialParameters = (0.5, 0.5)
+        ProgressReporter = None
     }
 
     /// Solve network flow problem using quantum backend via QAOA (async version)
@@ -377,12 +381,21 @@ module QuantumNetworkFlowSolver =
             return Error (QuantumError.ValidationError ("numShots", "Number of shots must be positive"))
         else
             try
+                // Report start
+                config.ProgressReporter
+                |> Option.iter (fun r -> 
+                    r.Report(Progress.PhaseChanged("Network Flow QAOA", Some $"Encoding {numEdges} edges to QUBO...")))
+                
                 // Step 1: Encode network flow as QUBO
                 match toQubo problem with
                 | Error msg -> return Error msg
                 | Ok quboMatrix ->
                     
                     // Step 2: Generate QAOA circuit components from QUBO
+                    config.ProgressReporter
+                    |> Option.iter (fun r -> 
+                        r.Report(Progress.PhaseChanged("Network Flow QAOA", Some "Building QAOA circuit...")))
+                    
                     let quboArray = quboMapToArray quboMatrix
                     let problemHam = QaoaCircuit.ProblemHamiltonian.fromQubo quboArray
                     let mixerHam = QaoaCircuit.MixerHamiltonian.create problemHam.NumQubits
@@ -393,6 +406,10 @@ module QuantumNetworkFlowSolver =
                     let qaoaCircuit = QaoaCircuit.QaoaCircuit.build problemHam mixerHam parameters
                     
                     // Step 4: Execute on backend asynchronously
+                    config.ProgressReporter
+                    |> Option.iter (fun r -> 
+                        r.Report(Progress.PhaseChanged("Network Flow QAOA", Some $"Executing on {backend.Name}...")))
+                    
                     let circuitWrapper = 
                         CircuitAbstraction.QaoaCircuitWrapper(qaoaCircuit) 
                         :> CircuitAbstraction.ICircuit
@@ -404,9 +421,17 @@ module QuantumNetworkFlowSolver =
                     | Error err -> return Error err
                     | Ok quantumState ->
                         // Measure the state to get classical bit strings
+                        config.ProgressReporter
+                        |> Option.iter (fun r -> 
+                            r.Report(Progress.PhaseChanged("Network Flow QAOA", Some $"Sampling {config.NumShots} measurements...")))
+                        
                         let measurements = QuantumState.measure quantumState config.NumShots
                         
                         // Step 5: Decode measurements to network flow solutions
+                        config.ProgressReporter
+                        |> Option.iter (fun r -> 
+                            r.Report(Progress.PhaseChanged("Network Flow QAOA", Some "Decoding solutions...")))
+                        
                         let flowResults =
                             measurements
                             |> Array.choose (decodeSolution problem)
@@ -420,6 +445,11 @@ module QuantumNetworkFlowSolver =
                                 |> Array.minBy (fun sol -> sol.TotalCost)
                             
                             let elapsedMs = (DateTime.UtcNow - startTime).TotalMilliseconds
+                            
+                            // Report completion
+                            config.ProgressReporter
+                            |> Option.iter (fun r -> 
+                                r.Report(Progress.PhaseChanged("Network Flow Complete", Some $"Found solution with cost {bestSolution.TotalCost:F2}")))
                             
                             return Ok {
                                 bestSolution with

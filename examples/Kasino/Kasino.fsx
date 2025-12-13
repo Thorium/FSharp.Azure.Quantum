@@ -89,6 +89,7 @@ let rankName = function
 let card rank =
     {
         Rank = rank
+        Location = Table
         Value = rankValue rank
         DisplayName = rankName rank
     }
@@ -159,7 +160,7 @@ let findOptimalCapture (handCard: Card) (tableCards: Card list) (strategy: strin
         Some captureResult
 
     | Error err ->
-        printfn "❌ Solver error: %s" err.Message
+        printfn "❌ Solver error: %A" err.Message
         printfn ""
         None
 

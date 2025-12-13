@@ -17,8 +17,8 @@ let h2 = Molecule.createH2 0.74
 let hamiltonianResult = MolecularHamiltonian.build h2
 
 match hamiltonianResult with
-| Error msg ->
-    printfn "✗ Hamiltonian construction failed: %s" msg
+| Error err ->
+    printfn "✗ Hamiltonian construction failed: %A" err
     
 | Ok hamiltonian ->
     printfn "✓ Molecular Hamiltonian constructed"

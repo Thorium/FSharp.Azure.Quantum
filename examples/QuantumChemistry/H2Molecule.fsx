@@ -37,9 +37,11 @@ printfn ""
 
 // Configure VQE solver
 open FSharp.Azure.Quantum.Core
+open FSharp.Azure.Quantum.Core.BackendAbstraction
+open FSharp.Azure.Quantum.Backends.LocalBackend
 let config = {
     Method = GroundStateMethod.VQE
-    Backend = Some (BackendAbstraction.createLocalBackend())
+    Backend = Some (LocalBackend() :> IQuantumBackend)
     MaxIterations = 100
     Tolerance = 1e-6
     InitialParameters = None
@@ -63,7 +65,7 @@ match result with
     printfn "  In electron volts: %.6f eV" eV
     
 | Error err ->
-    printfn "✗ Calculation failed: %s" err.Message
+    printfn "✗ Calculation failed: %A" err.Message
 
 printfn ""
 printfn "=== Comparison: VQE vs Classical DFT ==="
@@ -76,7 +78,7 @@ match resultDFT with
 | Ok vqeResultDFT ->
     printfn "Classical DFT: %.6f Hartree" vqeResultDFT.Energy
 | Error err ->
-    printfn "Classical DFT failed: %s" err.Message
+    printfn "Classical DFT failed: %A" err.Message
 
 printfn ""
 printfn "=== Automatic Method Selection ==="
@@ -90,4 +92,4 @@ match resultAuto with
     printfn "Automatic method: %.6f Hartree" vqeResultAuto.Energy
     printfn "(System chose best method based on molecule size)"
 | Error err ->
-    printfn "Automatic method failed: %s" err.Message
+    printfn "Automatic method failed: %A" err.Message

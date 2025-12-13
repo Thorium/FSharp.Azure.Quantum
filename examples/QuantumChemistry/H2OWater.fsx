@@ -6,6 +6,8 @@
 
 
 open FSharp.Azure.Quantum.QuantumChemistry
+open FSharp.Azure.Quantum.Core.BackendAbstraction
+open FSharp.Azure.Quantum.Backends.LocalBackend
 
 // Create H2O molecule at equilibrium geometry
 let h2o = Molecule.createH2O()
@@ -35,6 +37,7 @@ printfn ""
 // Configure solver (use automatic method selection)
 let config = {
     Method = GroundStateMethod.Automatic  // Will choose best method
+    Backend = Some (LocalBackend() :> IQuantumBackend)
     MaxIterations = 200
     Tolerance = 1e-6
     InitialParameters = None
@@ -59,8 +62,8 @@ match result with
     printfn "  Negative energy indicates a bound, stable molecule"
     printfn "  Magnitude shows strength of electronic binding"
     
-| Error msg ->
-    printfn "✗ Calculation failed: %s" msg
+| Error err ->
+    printfn "✗ Calculation failed: %A" err
 
 printfn ""
 printfn "=== Why Water is Important ==="

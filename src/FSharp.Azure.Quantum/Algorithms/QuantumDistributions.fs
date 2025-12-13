@@ -292,7 +292,8 @@ module QuantumDistributions =
     let sampleManyWithBackend 
         (dist: Distribution) 
         (count: int)
-        (backend: IQuantumBackend) 
+        (backend: IQuantumBackend)
+        (progressReporter: Progress.IProgressReporter option)
         : Async<QuantumResult<SampleResult[]>> =
         
         async {
@@ -305,12 +306,23 @@ module QuantumDistributions =
                 | Error msg ->
                     return Error (QuantumError.ValidationError ("Distribution", msg))
                 | Ok () ->
+                    // Report start
+                    progressReporter 
+                    |> Option.iter (fun r -> 
+                        r.Report(Progress.PhaseChanged("Quantum Sampling", Some $"Generating {count} quantum samples...")))
+                    
                     // Generate samples sequentially
                     let rec generateSamples (remaining: int) (acc: SampleResult list) =
                         async {
                             if remaining = 0 then
                                 return Ok (acc |> List.rev |> Array.ofList)
                             else
+                                // Report progress
+                                let currentSample = count - remaining + 1
+                                progressReporter 
+                                |> Option.iter (fun r -> 
+                                    r.Report(Progress.IterationUpdate(currentSample, count, None)))
+                                
                                 let! sampleResult = sampleWithBackend dist backend
                                 match sampleResult with
                                 | Error err ->
@@ -319,7 +331,17 @@ module QuantumDistributions =
                                     return! generateSamples (remaining - 1) (sample :: acc)
                         }
                     
-                    return! generateSamples count []
+                    let! result = generateSamples count []
+                    
+                    // Report completion
+                    match result with
+                    | Ok samples ->
+                        progressReporter 
+                        |> Option.iter (fun r -> 
+                            r.Report(Progress.PhaseChanged("Sampling Complete", Some $"Generated {samples.Length} quantum samples")))
+                    | Error _ -> ()
+                    
+                    return result
         }
     
     // ========================================================================

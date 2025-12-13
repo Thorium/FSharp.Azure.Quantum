@@ -843,6 +843,9 @@ type SolverConfig = {
     /// Quantum backend for execution (RULE1)
     /// None = use LocalBackend by default
     Backend: FSharp.Azure.Quantum.Core.BackendAbstraction.IQuantumBackend option
+    
+    /// Optional progress reporter for VQE iterations
+    ProgressReporter: Progress.IProgressReporter option
 }
 
 /// Molecular Hamiltonian in second quantization
@@ -1110,7 +1113,8 @@ module VQE =
         (hamiltonian: QaoaCircuit.ProblemHamiltonian)
         (initialParameters: float[])
         (maxIterations: int)
-        (tolerance: float) 
+        (tolerance: float)
+        (progressReporter: Progress.IProgressReporter option)
         : VQEResult =
         
         let rec loop iteration currentParameters prevEnergy =
@@ -1131,6 +1135,11 @@ module VQE =
                     |> buildAnsatz hamiltonian.NumQubits currentParameters
                 
                 let energy = measureExpectation hamiltonian state
+                
+                // Report progress
+                progressReporter
+                |> Option.iter (fun r -> 
+                    r.Report(Progress.IterationUpdate(iteration, maxIterations, Some energy)))
                 
                 if abs(energy - prevEnergy) < tolerance then
                     {
@@ -1197,8 +1206,13 @@ module VQE =
                         Array.init numParameters (fun _ -> rng.NextDouble() * 2.0 * Math.PI)
                 
                 try
+                    // Report VQE start
+                    config.ProgressReporter
+                    |> Option.iter (fun r -> 
+                        r.Report(Progress.PhaseChanged("VQE Optimization", Some $"Optimizing {numQubits}-qubit system...")))
+                    
                     let vqeResult = 
-                        optimizeParameters hamiltonian initialParameters config.MaxIterations config.Tolerance
+                        optimizeParameters hamiltonian initialParameters config.MaxIterations config.Tolerance config.ProgressReporter
                     
                     // Add nuclear repulsion
                     let nuclearRepulsion =
@@ -1850,6 +1864,7 @@ module QuantumChemistryBuilder =
                 Tolerance = optimizer.Tolerance
                 InitialParameters = problem.InitialParameters
                 Backend = None  // Use default LocalBackend
+                ProgressReporter = None
             }
             
             // Execute VQE (uses existing VQE module - TKT-95 framework)

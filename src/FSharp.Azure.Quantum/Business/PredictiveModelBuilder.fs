@@ -550,6 +550,7 @@ module PredictiveModel =
                             Shots = problem.Shots
                             Verbose = problem.Verbose
                             Optimizer = VQC.SGD
+                            ProgressReporter = problem.ProgressReporter
                         }
                         
                         VQC.trainRegression backend featureMap varForm initParams problem.TrainFeatures problem.TrainTargets vqcConfig
@@ -703,6 +704,7 @@ module PredictiveModel =
                         Shots = problem.Shots
                         Verbose = problem.Verbose
                         Optimizer = VQC.SGD
+                        ProgressReporter = problem.ProgressReporter
                     }
                     
                     VQC.trainMultiClass backend featureMap varForm initParams problem.TrainFeatures labels vqcConfig

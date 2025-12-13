@@ -84,6 +84,8 @@ module QuantumTreeSearch =
         /// Maximum Grover iterations for amplitude amplification (None = auto-calculate optimal iterations)
         /// Higher iterations = stronger amplification but risk of over-rotation
         MaxIterations: int option
+        /// Optional progress reporter for search iterations
+        ProgressReporter: Progress.IProgressReporter option
     }
     
     /// <summary>
@@ -154,6 +156,7 @@ module QuantumTreeSearch =
                 SuccessThreshold = None  // Auto-scale: 50% (Local) or 60% (Cloud) - increased after bug fixes
                 MaxPaths = None  // Auto-recommend based on tree size
                 MaxIterations = None  // Auto-calculate optimal Grover iterations
+                ProgressReporter = None
             }
         
         member _.Delay(f: unit -> TreeSearchProblem<'T>) : unit -> TreeSearchProblem<'T> = f
@@ -180,6 +183,7 @@ module QuantumTreeSearch =
                 SuccessThreshold = None
                 MaxPaths = None
                 MaxIterations = None
+                ProgressReporter = None
             }
             
             sequence
@@ -280,6 +284,12 @@ module QuantumTreeSearch =
         [<CustomOperation("maxIterations")>]
         member _.MaxIterations(problem: TreeSearchProblem<'T>, iterations: int) : TreeSearchProblem<'T> =
             { problem with MaxIterations = Some iterations }
+        
+        /// <summary>Set progress reporter for search iterations.</summary>
+        /// <param name="reporter">Progress reporter</param>
+        [<CustomOperation("onProgress")>]
+        member _.OnProgress(problem: TreeSearchProblem<'T>, reporter: Progress.IProgressReporter) : TreeSearchProblem<'T> =
+            { problem with ProgressReporter = Some reporter }
     
     /// Global instance of quantumTreeSearch builder
     let quantumTreeSearch<'T> = QuantumTreeSearchBuilder<'T>()
@@ -322,6 +332,12 @@ module QuantumTreeSearch =
                     problem.Backend 
                     |> Option.defaultValue (Backends.LocalBackend.LocalBackend() :> Core.BackendAbstraction.IQuantumBackend)
                 
+                // Report search start
+                problem.ProgressReporter
+                |> Option.iter (fun r -> 
+                    let searchSpace = GroverSearch.TreeSearch.estimateSearchSpaceSize problem.MaxDepth problem.BranchingFactor
+                    r.Report(Progress.PhaseChanged("Quantum Tree Search", Some $"Searching {searchSpace} paths (depth={problem.MaxDepth})...")))
+                
                 // Create TreeSearchConfig for the underlying algorithm
                 let config : GroverSearch.TreeSearch.TreeSearchConfig<'T> = {
                     MaxDepth = problem.MaxDepth
@@ -342,6 +358,11 @@ module QuantumTreeSearch =
                         problem.MaxPaths with
                 | Error err -> Error (QuantumError.OperationError ("QuantumTreeSearch", $"Quantum tree search failed: {err.Message}"))
                 | Ok treeResult ->
+                    
+                    // Report completion
+                    problem.ProgressReporter
+                    |> Option.iter (fun r -> 
+                        r.Report(Progress.PhaseChanged("Search Complete", Some $"Found best move with score {treeResult.Score:F3}")))
                     
                     let qubitsNeeded = GroverSearch.TreeSearch.estimateQubitsNeeded problem.MaxDepth problem.BranchingFactor
                     let backendName = 
@@ -380,6 +401,7 @@ module QuantumTreeSearch =
             SuccessThreshold = None  // Auto-scale
             MaxPaths = None  // Auto-recommend
             MaxIterations = None  // Auto-calculate optimal iterations
+            ProgressReporter = None
         }
     
     /// Estimate resource requirements without executing
@@ -461,6 +483,7 @@ Qubits Required: %d%s"""
             SuccessThreshold = None  // Auto-scale
             MaxPaths = GroverSearch.TreeSearch.recommendMaxPaths depth branching
             MaxIterations = None  // Auto-calculate optimal iterations
+            ProgressReporter = None
         }
     
     /// Create a tree search for decision problems (multi-step optimization)
@@ -484,4 +507,5 @@ Qubits Required: %d%s"""
             SuccessThreshold = None  // Auto-scale
             MaxPaths = GroverSearch.TreeSearch.recommendMaxPaths steps optionsPerStep
             MaxIterations = None  // Auto-calculate optimal iterations
+            ProgressReporter = None
         }

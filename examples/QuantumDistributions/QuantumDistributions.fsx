@@ -78,7 +78,7 @@ let generateAndAnalyze () =
     
     let dist = Normal (mean = 50.0, stddev = 10.0)
     
-    match sampleMany dist 1000 with
+    match sampleMany dist 100 with
     | Ok samples ->
         let stats = computeStatistics samples
         
@@ -249,7 +249,7 @@ let customTransformExample () =
     printfn "Custom Distribution: Square(U)"
     printfn "  Transforms uniform U~(0,1) to U²\n"
     
-    match sampleMany dist 1000 with
+    match sampleMany dist 100 with
     | Ok samples ->
         let stats = computeStatistics samples
         
@@ -351,7 +351,7 @@ let monteCarloIntegration () =
     
     let dist = Uniform (min = 0.0, max = 1.0)
     
-    match sampleMany dist 2000 with  // 1000 (x,y) pairs
+    match sampleMany dist 100 with  // 1000 (x,y) pairs
     | Ok samples ->
         let points = samples |> Array.chunkBySize 2
         

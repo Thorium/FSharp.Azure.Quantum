@@ -38,7 +38,7 @@ let generateSampleData () =
     
     // Features: [tenure_months, monthly_spend, support_calls, usage_frequency, satisfaction]
     let features = [|
-        for i in 1..100 ->
+        for i in 1..30 ->
             [| 
                 random.NextDouble() * 36.0              // Tenure: 0-36 months
                 50.0 + random.NextDouble() * 150.0      // Spend: $50-$200
@@ -50,7 +50,7 @@ let generateSampleData () =
     
     // Labels: Will customer churn? (1 = yes, 0 = no)
     let labels = [|
-        for i in 0..99 ->
+        for i in 0..29 ->
             // Simple rule: churn if low spend + low satisfaction + high support calls
             if features.[i].[1] < 100.0 && features.[i].[4] < 5.0 && features.[i].[2] > 5.0 then
                 1.0
@@ -73,8 +73,8 @@ let result1 = autoML {
 }
 
 match result1 with
-| Error msg ->
-    printfn "❌ AutoML failed: %s" msg
+| Error err ->
+    printfn "❌ AutoML failed: %A" err
 
 | Ok automlResult ->
     printfn "✅ AutoML Search Complete!\n"
@@ -109,7 +109,7 @@ match result1 with
         printfn "  Prediction: %s" (if pred.IsPositive then "CHURN" else "STAY")
         printfn "  Confidence: %.1f%%" (pred.Confidence * 100.0)
     | Ok _ -> printfn "Unexpected prediction type"
-    | Error e -> printfn "Prediction failed: %s" e
+    | Error err -> printfn "Prediction failed: %A" err
     
     match AutoML.predict testSample2 automlResult with
     | Ok (AutoML.BinaryPrediction pred) ->
@@ -117,7 +117,7 @@ match result1 with
         printfn "  Prediction: %s" (if pred.IsPositive then "CHURN ⚠️" else "STAY")
         printfn "  Confidence: %.1f%%" (pred.Confidence * 100.0)
     | Ok _ -> printfn "Unexpected prediction type"
-    | Error e -> printfn "Prediction failed: %s" e
+    | Error err -> printfn "Prediction failed: %A" err
     
     printfn ""
 
@@ -132,7 +132,7 @@ let generateMultiClassData () =
     let random = Random(42)
     
     let features = [|
-        for i in 1..80 ->
+        for i in 1..24 ->
             let spend = 50.0 + random.NextDouble() * 450.0
             let tenure = random.NextDouble() * 48.0
             let usage = random.NextDouble() * 40.0
@@ -141,7 +141,7 @@ let generateMultiClassData () =
     |]
     
     let labels = [|
-        for i in 0..79 ->
+        for i in 0..23 ->
             // Segment based on spend + tenure
             let spend = features.[i].[0]
             let tenure = features.[i].[1]
@@ -173,7 +173,7 @@ let result2 = autoML {
     tryArchitectures [Quantum; Hybrid]
     
     // Search budget
-    maxTrials 15                         // Limit to 15 trials for speed
+    maxTrials 1                         // Limit to 15 trials for speed
     maxTimeMinutes 10                    // Stop after 10 minutes
     
     // Validation
@@ -187,8 +187,8 @@ let result2 = autoML {
 }
 
 match result2 with
-| Error msg ->
-    printfn "❌ AutoML failed: %s" msg
+| Error err ->
+    printfn "❌ AutoML failed: %A" err
 
 | Ok automlResult ->
     printfn "\n✅ Multi-Class AutoML Complete!\n"
@@ -234,7 +234,7 @@ match result2 with
         printfn "  Predicted Segment: %s (confidence: %.1f%%)" segment (pred.Confidence * 100.0)
         printfn "  Probabilities: %A" pred.Probabilities
     | Ok _ -> printfn "Unexpected prediction type"
-    | Error e -> printfn "Prediction failed: %s" e
+    | Error err -> printfn "Prediction failed: %A" err
     
     printfn ""
     
@@ -249,7 +249,7 @@ match result2 with
         printfn "Test Customer 2:"
         printfn "  Predicted Segment: %s (confidence: %.1f%%)" segment (pred.Confidence * 100.0)
     | Ok _ -> printfn "Unexpected prediction type"
-    | Error e -> printfn "Prediction failed: %s" e
+    | Error err -> printfn "Prediction failed: %A" err
 
 // ============================================================================
 // EXAMPLE 3: Regression Problem - Revenue Prediction
@@ -261,7 +261,7 @@ let generateRegressionData () =
     let random = Random(42)
     
     let features = [|
-        for i in 1..70 ->
+        for i in 1..21 ->
             let spend = 50.0 + random.NextDouble() * 200.0
             let usage = random.NextDouble() * 30.0
             let tenure = random.NextDouble() * 36.0
@@ -271,7 +271,7 @@ let generateRegressionData () =
     
     // Target: Annual revenue (based on features with some noise)
     let targets = [|
-        for i in 0..69 ->
+        for i in 0..20 ->
             let baseRevenue = features.[i].[0] * 12.0                    // Monthly spend × 12
             let usageBonus = features.[i].[1] * 20.0                     // Usage contribution
             let tenureBonus = features.[i].[2] * 15.0                    // Loyalty value
@@ -299,13 +299,13 @@ let result3 = autoML {
     // Test quantum architectures only (Rule 1: Quantum-only library)
     tryArchitectures [Hybrid; Quantum]
     
-    maxTrials 12
+    maxTrials 1
     verbose true
 }
 
 match result3 with
-| Error msg ->
-    printfn "❌ AutoML failed: %s" msg
+| Error err ->
+    printfn "❌ AutoML failed: %A" err
 
 | Ok automlResult ->
     printfn "\n✅ Regression AutoML Complete!\n"
@@ -325,7 +325,7 @@ match result3 with
         printfn "  Predicted Annual Revenue: $%.2f" pred.Value
         printfn "  💡 Action: VIP treatment, account manager"
     | Ok _ -> printfn "Unexpected prediction type"
-    | Error e -> printfn "Prediction failed: %s" e
+    | Error err -> printfn "Prediction failed: %A" err
     
     printfn ""
     
@@ -335,7 +335,7 @@ match result3 with
         printfn "  Predicted Annual Revenue: $%.2f" pred.Value
         printfn "  💡 Action: Upsell opportunities, engagement campaigns"
     | Ok _ -> printfn "Unexpected prediction type"
-    | Error e -> printfn "Prediction failed: %s" e
+    | Error err -> printfn "Prediction failed: %A" err
 
 // ============================================================================
 // EXAMPLE 4: Compare All Approaches - Full Analysis
@@ -356,14 +356,14 @@ let result4 = autoML {
     tryArchitectures [Quantum; Hybrid]
     
     // Large search
-    maxTrials 30
+    maxTrials 1
     
     verbose false  // Quiet mode
 }
 
 match result4 with
-| Error msg ->
-    printfn "❌ AutoML failed: %s" msg
+| Error err ->
+    printfn "❌ AutoML failed: %A" err
 
 | Ok automlResult ->
     printfn "✅ Full Search Complete!\n"
@@ -448,7 +448,7 @@ let productionAutoMLWorkflow (features: float array array) (labels: float array)
         
         // Production settings (Quantum-only library)
         tryArchitectures [Hybrid; Quantum]
-        maxTrials 15
+        maxTrials 1
         maxTimeMinutes 5
         validationSplit 0.2
         
@@ -457,8 +457,8 @@ let productionAutoMLWorkflow (features: float array array) (labels: float array)
     }
     
     match result with
-    | Error msg ->
-        printfn "❌ AutoML failed: %s" msg
+    | Error err ->
+        printfn "❌ AutoML failed: %A" err
         None
     
     | Ok automlResult ->

@@ -222,6 +222,7 @@ module BinaryClassifier =
                 Beta2 = 0.999
                 Epsilon = 1e-8
             }
+            VQC.ProgressReporter = config.ProgressReporter
         }
         
         // Train VQC (initialize parameters randomly)
