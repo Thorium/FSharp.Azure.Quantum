@@ -2,7 +2,7 @@ namespace FSharp.Azure.Quantum.MachineLearning
 
 open FSharp.Azure.Quantum.Core
 
-/// Types for Quantum Machine Learning (QML)
+/// Types for Quantum Machine Learning (QML).
 ///
 /// This module provides core types for quantum machine learning:
 /// - Feature maps: Encode classical data into quantum states

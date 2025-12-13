@@ -2,7 +2,7 @@ namespace FSharp.Azure.Quantum.MachineLearning
 
 open FSharp.Azure.Quantum.Core
 
-/// Feature Map Implementation for QML
+/// Feature Map Implementation for QML.
 ///
 /// Encodes classical feature vectors into quantum states using various strategies:
 /// - ZZ Feature Map: Standard for NISQ devices

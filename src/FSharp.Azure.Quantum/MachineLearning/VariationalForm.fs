@@ -2,7 +2,7 @@ namespace FSharp.Azure.Quantum.MachineLearning
 
 open FSharp.Azure.Quantum.Core
 
-/// Variational Form (Ansatz) Implementation for QML
+/// Variational Form (Ansatz) Implementation for QML.
 ///
 /// Parameterized quantum circuits for variational algorithms:
 /// - RealAmplitudes: Hardware-efficient with Ry rotations

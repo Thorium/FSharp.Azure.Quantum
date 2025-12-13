@@ -1,3 +1,9 @@
+namespace FSharp.Azure.Quantum
+
+open System
+open System.IO
+open System.Text.RegularExpressions
+
 /// TKT-97: OpenQASM 2.0 Import Module
 /// 
 /// Parse OpenQASM 2.0 circuits into F# Circuit types.
@@ -22,11 +28,6 @@
 /// | Ok circuit -> printfn "Loaded %d-qubit circuit" circuit.QubitCount
 /// | Error msg -> printfn "Parse error: %s" msg
 /// ```
-namespace FSharp.Azure.Quantum
-
-open System
-open System.IO
-open System.Text.RegularExpressions
 
 /// <summary>
 /// OpenQASM 2.0 import module for parsing quantum circuits.

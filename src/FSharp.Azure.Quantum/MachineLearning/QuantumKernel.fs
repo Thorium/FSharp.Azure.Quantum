@@ -1,6 +1,6 @@
 namespace FSharp.Azure.Quantum.MachineLearning
 
-/// Quantum Kernel Methods for Machine Learning
+/// Quantum Kernel Methods for Machine Learning.
 ///
 /// Implements quantum kernel computation K(x,y) = |⟨φ(x)|φ(y)⟩|²
 /// where φ is a quantum feature map.

@@ -1,6 +1,6 @@
 namespace FSharp.Azure.Quantum.MachineLearning
 
-/// Variational Quantum Classifier (VQC)
+/// Variational Quantum Classifier (VQC).
 ///
 /// Binary classification using quantum circuits with parameterized gates.
 /// Implements training loop with parameter shift rule for gradient computation.

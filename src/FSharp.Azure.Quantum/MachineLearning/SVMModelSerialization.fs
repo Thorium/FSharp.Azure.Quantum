@@ -2,7 +2,7 @@ namespace FSharp.Azure.Quantum.MachineLearning
 
 open FSharp.Azure.Quantum.Core
 
-/// SVM Model Serialization
+/// SVM Model Serialization.
 ///
 /// Provides save/load functionality for trained SVM models (binary and multi-class).
 /// Stores model parameters and data as JSON for easy inspection and portability.

@@ -1,3 +1,9 @@
+namespace FSharp.Azure.Quantum
+
+open System
+open System.IO
+open System.Text
+
 /// TKT-97: OpenQASM 2.0 Export Module
 /// 
 /// Export quantum circuits to OpenQASM 2.0 format for IBM Qiskit compatibility.
@@ -19,11 +25,6 @@
 /// let qasmCode = OpenQasm.export circuit
 /// OpenQasm.exportToFile circuit "bell_state.qasm"
 /// ```
-namespace FSharp.Azure.Quantum
-
-open System
-open System.IO
-open System.Text
 
 /// <summary>
 /// OpenQASM 2.0 export module for IBM Qiskit compatibility.

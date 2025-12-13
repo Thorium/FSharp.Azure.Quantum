@@ -1,7 +1,8 @@
 namespace FSharp.Azure.Quantum.Algorithms
 
-/// QUBO extraction from QAOA circuits for D-Wave backend.
 open FSharp.Azure.Quantum.Core
+
+/// QUBO extraction from QAOA circuits for D-Wave backend.
 ///
 /// This module provides utilities to extract QUBO matrices from QAOA circuits
 /// for execution on quantum annealing hardware (D-Wave).

@@ -1,3 +1,7 @@
+namespace FSharp.Azure.Quantum
+
+open System
+
 /// TKT-90: Generic Graph Optimization Framework
 /// 
 /// Provides a unified, extensible framework for solving graph optimization problems
@@ -24,9 +28,6 @@
 /// let qubo = toQubo problem
 /// let solution = decodeSolution problem [1; 0; 0; 0; 1; 0]
 /// ```
-namespace FSharp.Azure.Quantum
-
-open System
 
 /// <summary>
 /// Generic Graph Optimization Framework.

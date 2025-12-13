@@ -3,8 +3,8 @@ namespace FSharp.Azure.Quantum.QuantumChemistry
 open System
 open FSharp.Azure.Quantum.Core
 
-/// Quantum Chemistry - Molecule Representation and Ground State Energy Estimation
-/// Implements VQE (Variational Quantum Eigensolver) for molecular ground state energies
+/// Quantum Chemistry - Molecule Representation and Ground State Energy Estimation.
+/// Implements VQE (Variational Quantum Eigensolver) for molecular ground state energies.
 
 // ============================================================================
 // UNITS OF MEASURE

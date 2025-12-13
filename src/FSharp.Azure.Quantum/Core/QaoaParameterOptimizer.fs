@@ -265,20 +265,20 @@ module QaoaParameterOptimizer =
         let iterationCount = ref 0
         let trackedObjective (parameters: float[]) =
             let value = objectiveFunc parameters
-            historyRef := (Array.copy parameters, value) :: !historyRef
+            historyRef.Value <- (Array.copy parameters, value) :: historyRef.Value
             
             // Report progress
-            iterationCount := !iterationCount + 1
+            iterationCount.Value <- iterationCount.Value + 1
             progressReporter
             |> Option.iter (fun r -> 
-                r.Report(Progress.IterationUpdate(!iterationCount, maxIter, Some value)))
+                r.Report(Progress.IterationUpdate(iterationCount.Value, maxIter, Some value)))
             
             value
         
         // Run optimization
         let result = Optimizer.minimizeWithBounds trackedObjective flatParams lowerBounds upperBounds
         
-        (result, List.rev !historyRef)
+        (result, List.rev historyRef.Value)
     
     /// Multi-start optimization
     let private optimizeMultiStart

@@ -1,6 +1,6 @@
 namespace FSharp.Azure.Quantum.MachineLearning
 
-/// Quantum Kernel Support Vector Machine (SVM)
+/// Quantum Kernel Support Vector Machine (SVM).
 ///
 /// Implements binary classification using quantum kernels.
 /// Uses simplified dual formulation suitable for small datasets.

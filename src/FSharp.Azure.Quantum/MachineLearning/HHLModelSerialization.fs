@@ -2,7 +2,7 @@ namespace FSharp.Azure.Quantum.MachineLearning
 
 open FSharp.Azure.Quantum.Core
 
-/// HHL Model Serialization
+/// HHL Model Serialization.
 ///
 /// Provides save/load functionality for trained HHL regression models.
 /// Stores weights and metadata as JSON for easy inspection and portability.

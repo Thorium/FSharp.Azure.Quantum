@@ -1,6 +1,6 @@
 namespace FSharp.Azure.Quantum.MachineLearning
 
-/// Multi-class Classification using One-vs-Rest (OvR) strategy with Quantum Kernel SVM
+/// Multi-class Classification using One-vs-Rest (OvR) strategy with Quantum Kernel SVM.
 ///
 /// Extends binary quantum kernel SVM to handle multi-class problems
 /// by training K binary classifiers (one per class).

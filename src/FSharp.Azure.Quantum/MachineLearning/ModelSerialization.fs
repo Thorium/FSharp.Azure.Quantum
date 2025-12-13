@@ -2,7 +2,7 @@ namespace FSharp.Azure.Quantum.MachineLearning
 
 open FSharp.Azure.Quantum.Core
 
-/// Simple Model Serialization for VQC Models
+/// Simple Model Serialization for VQC Models.
 ///
 /// Provides basic save/load functionality for trained VQC models.
 /// Stores parameters as JSON for easy inspection and portability.
