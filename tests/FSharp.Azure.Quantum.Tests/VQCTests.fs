@@ -51,6 +51,7 @@ module VQCTests =
         Shots = 100
         Verbose = false
         Optimizer = VQC.SGD
+        ProgressReporter = None
     }
     
     // ========================================================================

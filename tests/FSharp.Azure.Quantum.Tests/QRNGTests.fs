@@ -647,7 +647,7 @@ module QuantumDistributionsTests =
             let dist = Uniform (0.0, 1.0)
             let count = 10
             
-            let! result = sampleManyWithBackend dist count backend
+            let! result = sampleManyWithBackend dist count backend None
             
             match result with
             | Ok samples ->
@@ -666,7 +666,7 @@ module QuantumDistributionsTests =
             let backend = LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
             let dist = StandardNormal
             
-            let! result = sampleManyWithBackend dist 20000 backend
+            let! result = sampleManyWithBackend dist 20000 backend None
             
             match result with
             | Ok _ -> Assert.True(false, "Should fail with excessive count")
@@ -680,7 +680,7 @@ module QuantumDistributionsTests =
             let backend = LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
             let dist = StandardNormal
             
-            let! result = sampleManyWithBackend dist 0 backend
+            let! result = sampleManyWithBackend dist 0 backend None
             
             match result with
             | Ok _ -> Assert.True(false, "Should fail with zero count")

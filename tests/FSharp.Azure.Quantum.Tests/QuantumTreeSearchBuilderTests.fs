@@ -483,6 +483,7 @@ module QuantumTreeSearchBuilderTests =
             SolutionThreshold = None
             SuccessThreshold = None
             MaxPaths = None
+            ProgressReporter = None
             MaxIterations = None
         }
         

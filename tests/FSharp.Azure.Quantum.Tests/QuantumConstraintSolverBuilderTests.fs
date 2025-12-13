@@ -385,6 +385,7 @@ module QuantumConstraintSolverBuilderTests =
             Backend = None
             MaxIterations = None
             Shots = 1000
+            ProgressReporter = None
         }
         
         // Act
