@@ -143,10 +143,12 @@
     <!-- ✅ Migration Complete: All modular arithmetic functions implemented (Dec 11, 2024) -->
     <Compile Include="Algorithms\QuantumArithmetic.fs" />
 
-    <!-- QAOA Algorithm (depends on QaoaCircuit, CircuitAbstraction, QaoaOptimizer) -->
-    <Compile Include="Algorithms\QRNG.fs" />
     <!-- Statistical distributions for quantum algorithms (option pricing, ML, etc.) -->
     <Compile Include="Algorithms\StatisticalDistributions.fs" />
+    <!-- QAOA Algorithm (depends on QaoaCircuit, CircuitAbstraction, QaoaOptimizer) -->
+    <Compile Include="Algorithms\QRNG.fs" />
+    <!-- Quantum-enhanced statistical distributions (depends on QRNG, StatisticalDistributions) -->
+    <Compile Include="Algorithms\QuantumDistributions.fs" />
     <Compile Include="Algorithms\QuantumMonteCarlo.fs" />
     <!-- D-Wave QUBO Extraction (depends on QaoaCircuit, CircuitAbstraction) -->
     <Compile Include="Algorithms\QuboExtraction.fs" />

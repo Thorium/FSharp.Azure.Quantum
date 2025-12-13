@@ -363,3 +363,4 @@ module QRNG =
         let samples = [1..1000] |> List.map (fun _ -> generateFloat())
         let average = samples |> List.average
         printfn "Monte Carlo: Generated 1000 samples, average = %.4f (expect ~0.5)" average
+

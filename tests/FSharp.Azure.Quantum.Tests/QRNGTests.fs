@@ -371,3 +371,505 @@ module QRNGTests =
             Assert.Equal(uint64 result.AsBytes.[0], intValue)
         | None ->
             Assert.True(false, "AsInteger should be Some for 8 bits")
+
+/// Tests for Quantum-Enhanced Statistical Distributions
+module QuantumDistributionsTests =
+    
+    open FSharp.Azure.Quantum.Algorithms.QuantumDistributions
+    
+    // ========================================================================
+    // DISTRIBUTION VALIDATION TESTS
+    // ========================================================================
+    
+    [<Fact>]
+    let ``Normal distribution requires positive stddev`` () =
+        let dist = Normal (0.0, -1.0)
+        let result = sample dist
+        
+        match result with
+        | Ok _ -> Assert.True(false, "Should fail with negative stddev")
+        | Error msg -> Assert.Contains("stddev must be positive", msg)
+    
+    [<Fact>]
+    let ``Normal distribution requires finite parameters`` () =
+        let dist1 = Normal (Double.NaN, 1.0)
+        let result1 = sample dist1
+        
+        match result1 with
+        | Ok _ -> Assert.True(false, "Should fail with NaN mean")
+        | Error msg -> Assert.Contains("mean must be finite", msg)
+        
+        let dist2 = Normal (0.0, Double.PositiveInfinity)
+        let result2 = sample dist2
+        
+        match result2 with
+        | Ok _ -> Assert.True(false, "Should fail with infinite stddev")
+        | Error msg -> Assert.Contains("stddev must be finite", msg)
+    
+    [<Fact>]
+    let ``LogNormal distribution requires positive sigma`` () =
+        let dist = LogNormal (0.0, -0.5)
+        let result = sample dist
+        
+        match result with
+        | Ok _ -> Assert.True(false, "Should fail with negative sigma")
+        | Error msg -> Assert.Contains("sigma must be positive", msg)
+    
+    [<Fact>]
+    let ``Exponential distribution requires positive lambda`` () =
+        let dist = Exponential (-1.0)
+        let result = sample dist
+        
+        match result with
+        | Ok _ -> Assert.True(false, "Should fail with negative lambda")
+        | Error msg -> Assert.Contains("lambda must be positive", msg)
+    
+    [<Fact>]
+    let ``Uniform distribution requires min less than max`` () =
+        let dist = Uniform (10.0, 5.0)
+        let result = sample dist
+        
+        match result with
+        | Ok _ -> Assert.True(false, "Should fail with min >= max")
+        | Error msg -> Assert.Contains("min must be < max", msg)
+    
+    [<Fact>]
+    let ``Custom distribution requires non-empty name`` () =
+        let dist = Custom ("", fun x -> x)
+        let result = sample dist
+        
+        match result with
+        | Ok _ -> Assert.True(false, "Should fail with empty name")
+        | Error msg -> Assert.Contains("name cannot be empty", msg)
+    
+    // ========================================================================
+    // SAMPLING TESTS (Pure Simulation)
+    // ========================================================================
+    
+    [<Fact>]
+    let ``sample StandardNormal produces reasonable values`` () =
+        // Generate 1000 samples
+        let results = [1..1000] |> List.choose (fun _ ->
+            match sample StandardNormal with
+            | Ok r -> Some r.Value
+            | Error _ -> None)
+        
+        Assert.Equal(1000, results.Length)
+        
+        // Mean should be ~0.0 (allow ±0.3 for statistical variation)
+        let mean = results |> List.average
+        Assert.True(abs mean < 0.3, $"Mean {mean} outside ±0.3")
+        
+        // StdDev should be ~1.0 (allow 0.8-1.2 for statistical variation)
+        let variance = results |> List.map (fun x -> (x - mean) ** 2.0) |> List.average
+        let stddev = sqrt variance
+        Assert.True(stddev > 0.8 && stddev < 1.2, $"StdDev {stddev} outside [0.8, 1.2]")
+    
+    [<Fact>]
+    let ``sample Normal with custom mean and stddev`` () =
+        let dist = Normal (10.0, 2.0)
+        
+        let results = [1..1000] |> List.choose (fun _ ->
+            match sample dist with
+            | Ok r -> Some r.Value
+            | Error _ -> None)
+        
+        Assert.Equal(1000, results.Length)
+        
+        // Mean should be ~10.0 (allow ±0.5)
+        let mean = results |> List.average
+        Assert.True(abs (mean - 10.0) < 0.5, $"Mean {mean} not near 10.0")
+        
+        // StdDev should be ~2.0 (allow 1.6-2.4)
+        let variance = results |> List.map (fun x -> (x - mean) ** 2.0) |> List.average
+        let stddev = sqrt variance
+        Assert.True(stddev > 1.6 && stddev < 2.4, $"StdDev {stddev} outside [1.6, 2.4]")
+    
+    [<Fact>]
+    let ``sample LogNormal produces positive values`` () =
+        let dist = LogNormal (0.0, 1.0)
+        
+        let results = [1..1000] |> List.choose (fun _ ->
+            match sample dist with
+            | Ok r -> Some r.Value
+            | Error _ -> None)
+        
+        Assert.Equal(1000, results.Length)
+        
+        // All values must be positive
+        results |> List.iter (fun x -> Assert.True(x > 0.0, $"Value {x} not positive"))
+        
+        // Mean should be ~exp(0 + 1²/2) = exp(0.5) ≈ 1.649
+        let mean = results |> List.average
+        Assert.True(mean > 1.2 && mean < 2.2, $"Mean {mean} outside [1.2, 2.2]")
+    
+    [<Fact>]
+    let ``sample Exponential produces positive values with correct mean`` () =
+        let lambda = 2.0
+        let dist = Exponential lambda
+        
+        let results = [1..1000] |> List.choose (fun _ ->
+            match sample dist with
+            | Ok r -> Some r.Value
+            | Error _ -> None)
+        
+        Assert.Equal(1000, results.Length)
+        
+        // All values must be positive
+        results |> List.iter (fun x -> Assert.True(x > 0.0))
+        
+        // Mean should be ~1/λ = 0.5 (allow 0.4-0.6)
+        let mean = results |> List.average
+        Assert.True(mean > 0.4 && mean < 0.6, $"Mean {mean} outside [0.4, 0.6]")
+    
+    [<Fact>]
+    let ``sample Uniform produces values in range`` () =
+        let minVal = 5.0
+        let maxVal = 15.0
+        let dist = Uniform (minVal, maxVal)
+        
+        let results = [1..1000] |> List.choose (fun _ ->
+            match sample dist with
+            | Ok r -> Some r.Value
+            | Error _ -> None)
+        
+        Assert.Equal(1000, results.Length)
+        
+        // All values must be in [min, max]
+        results |> List.iter (fun x ->
+            Assert.True(x >= minVal, $"Value {x} < {minVal}")
+            Assert.True(x <= maxVal, $"Value {x} > {maxVal}"))
+        
+        // Mean should be ~(min+max)/2 = 10.0 (allow 9.5-10.5)
+        let mean = results |> List.average
+        Assert.True(mean > 9.5 && mean < 10.5, $"Mean {mean} outside [9.5, 10.5]")
+    
+    [<Fact>]
+    let ``sample Custom distribution with square transform`` () =
+        // Transform: x² (maps uniform [0,1] to [0,1])
+        let dist = Custom ("Square", fun u -> u ** 2.0)
+        
+        let result = sample dist
+        
+        match result with
+        | Ok r ->
+            Assert.True(r.Value >= 0.0 && r.Value <= 1.0)
+            Assert.Equal(53, r.QuantumBitsUsed)
+        | Error msg ->
+            Assert.True(false, $"Should succeed: {msg}")
+    
+    // ========================================================================
+    // SAMPLE MANY TESTS
+    // ========================================================================
+    
+    [<Fact>]
+    let ``sampleMany generates correct number of samples`` () =
+        let dist = StandardNormal
+        let count = 100
+        
+        let result = sampleMany dist count
+        
+        match result with
+        | Ok samples ->
+            Assert.Equal(count, samples.Length)
+            samples |> Array.iter (fun s ->
+                Assert.Equal(53, s.QuantumBitsUsed))
+        | Error msg ->
+            Assert.True(false, $"Should succeed: {msg}")
+    
+    [<Fact>]
+    let ``sampleMany fails with zero count`` () =
+        let dist = StandardNormal
+        let result = sampleMany dist 0
+        
+        match result with
+        | Ok _ -> Assert.True(false, "Should fail with zero count")
+        | Error msg -> Assert.Contains("must be positive", msg)
+    
+    [<Fact>]
+    let ``sampleMany fails with excessive count`` () =
+        let dist = StandardNormal
+        let result = sampleMany dist 2000000
+        
+        match result with
+        | Ok _ -> Assert.True(false, "Should fail with excessive count")
+        | Error msg -> Assert.Contains("too large", msg)
+    
+    [<Fact>]
+    let ``sampleMany propagates validation errors`` () =
+        let dist = Normal (0.0, -1.0)  // Invalid stddev
+        let result = sampleMany dist 10
+        
+        match result with
+        | Ok _ -> Assert.True(false, "Should fail with invalid distribution")
+        | Error msg -> Assert.Contains("stddev must be positive", msg)
+    
+    // ========================================================================
+    // BACKEND INTEGRATION TESTS (RULE1 Compliant)
+    // ========================================================================
+    
+    [<Fact>]
+    let ``sampleWithBackend works with LocalBackend`` () =
+        async {
+            let backend = LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
+            let dist = StandardNormal
+            
+            let! result = sampleWithBackend dist backend
+            
+            match result with
+            | Ok sample ->
+                Assert.Equal(10, sample.QuantumBitsUsed)
+                // Value should be reasonable for N(0,1) - allow wide range
+                Assert.True(sample.Value > -10.0 && sample.Value < 10.0)
+            | Error msg ->
+                Assert.True(false, $"Should succeed with LocalBackend: {msg}")
+        }
+        |> Async.RunSynchronously
+    
+    [<Fact>]
+    let ``sampleWithBackend validates distribution parameters`` () =
+        async {
+            let backend = LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
+            let dist = Normal (0.0, -1.0)  // Invalid stddev
+            
+            let! result = sampleWithBackend dist backend
+            
+            match result with
+            | Ok _ -> Assert.True(false, "Should fail with invalid distribution")
+            | Error err -> Assert.Contains("stddev must be positive", err.Message)
+        }
+        |> Async.RunSynchronously
+    
+    [<Fact>]
+    let ``sampleManyWithBackend generates correct number of samples`` () =
+        async {
+            let backend = LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
+            let dist = Uniform (0.0, 1.0)
+            let count = 10
+            
+            let! result = sampleManyWithBackend dist count backend
+            
+            match result with
+            | Ok samples ->
+                Assert.Equal(count, samples.Length)
+                samples |> Array.iter (fun s ->
+                    Assert.True(s.Value >= 0.0 && s.Value <= 1.0)
+                    Assert.Equal(10, s.QuantumBitsUsed))
+            | Error msg ->
+                Assert.True(false, $"Should succeed: {msg}")
+        }
+        |> Async.RunSynchronously
+    
+    [<Fact>]
+    let ``sampleManyWithBackend fails with excessive count`` () =
+        async {
+            let backend = LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
+            let dist = StandardNormal
+            
+            let! result = sampleManyWithBackend dist 20000 backend
+            
+            match result with
+            | Ok _ -> Assert.True(false, "Should fail with excessive count")
+            | Error err -> Assert.Contains("too large", err.Message)
+        }
+        |> Async.RunSynchronously
+    
+    [<Fact>]
+    let ``sampleManyWithBackend fails with zero count`` () =
+        async {
+            let backend = LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
+            let dist = StandardNormal
+            
+            let! result = sampleManyWithBackend dist 0 backend
+            
+            match result with
+            | Ok _ -> Assert.True(false, "Should fail with zero count")
+            | Error err -> Assert.Contains("must be positive", err.Message)
+        }
+        |> Async.RunSynchronously
+    
+    // ========================================================================
+    // STATISTICAL UTILITIES TESTS
+    // ========================================================================
+    
+    [<Fact>]
+    let ``computeStatistics calculates correct mean and stddev`` () =
+        let dist = Normal (5.0, 2.0)
+        
+        match sampleMany dist 1000 with
+        | Ok samples ->
+            let stats = computeStatistics samples
+            
+            Assert.Equal(1000, stats.Count)
+            
+            // Mean should be ~5.0 (allow ±0.5)
+            Assert.True(abs (stats.Mean - 5.0) < 0.5, $"Mean {stats.Mean} not near 5.0")
+            
+            // StdDev should be ~2.0 (allow 1.6-2.4)
+            Assert.True(stats.StdDev > 1.6 && stats.StdDev < 2.4, $"StdDev {stats.StdDev} outside [1.6, 2.4]")
+            
+            // Min/Max should be reasonable
+            Assert.True(stats.Min < stats.Mean)
+            Assert.True(stats.Max > stats.Mean)
+        
+        | Error msg ->
+            Assert.True(false, $"Should succeed: {msg}")
+    
+    [<Fact>]
+    let ``computeStatistics handles uniform distribution`` () =
+        let dist = Uniform (0.0, 10.0)
+        
+        match sampleMany dist 1000 with
+        | Ok samples ->
+            let stats = computeStatistics samples
+            
+            // Min should be ~0.0, Max should be ~10.0
+            Assert.True(stats.Min >= 0.0 && stats.Min < 1.0)
+            Assert.True(stats.Max > 9.0 && stats.Max <= 10.0)
+            
+            // Mean should be ~5.0 (allow ±1.0)
+            Assert.True(abs (stats.Mean - 5.0) < 1.0)
+        
+        | Error msg ->
+            Assert.True(false, $"Should succeed: {msg}")
+    
+    // ========================================================================
+    // DISTRIBUTION HELPER TESTS
+    // ========================================================================
+    
+    [<Fact>]
+    let ``distributionName formats correctly`` () =
+        Assert.Equal("StandardNormal(μ=0, σ=1)", distributionName StandardNormal)
+        Assert.Contains("Normal(μ=5.00, σ=2.00)", distributionName (Normal (5.0, 2.0)))
+        Assert.Contains("LogNormal(μ=0.00, σ=1.00)", distributionName (LogNormal (0.0, 1.0)))
+        Assert.Contains("Exponential(λ=2.00)", distributionName (Exponential 2.0))
+        Assert.Contains("Uniform(0.00, 10.00)", distributionName (Uniform (0.0, 10.0)))
+        Assert.Contains("Custom(MyTransform)", distributionName (Custom ("MyTransform", fun x -> x)))
+    
+    [<Fact>]
+    let ``expectedMean returns correct values`` () =
+        match expectedMean StandardNormal with
+        | Some mean -> Assert.Equal(0.0, mean)
+        | None -> Assert.True(false, "Should return Some for StandardNormal")
+        
+        match expectedMean (Normal (5.0, 2.0)) with
+        | Some mean -> Assert.Equal(5.0, mean)
+        | None -> Assert.True(false, "Should return Some for Normal")
+        
+        match expectedMean (Exponential 2.0) with
+        | Some mean -> Assert.Equal(0.5, mean)
+        | None -> Assert.True(false, "Should return Some for Exponential")
+        
+        match expectedMean (Uniform (0.0, 10.0)) with
+        | Some mean -> Assert.Equal(5.0, mean)
+        | None -> Assert.True(false, "Should return Some for Uniform")
+        
+        match expectedMean (Custom ("test", fun x -> x)) with
+        | Some _ -> Assert.True(false, "Should return None for Custom")
+        | None -> Assert.True(true)
+    
+    [<Fact>]
+    let ``expectedStdDev returns correct values`` () =
+        match expectedStdDev StandardNormal with
+        | Some stddev -> Assert.Equal(1.0, stddev)
+        | None -> Assert.True(false, "Should return Some for StandardNormal")
+        
+        match expectedStdDev (Normal (5.0, 2.0)) with
+        | Some stddev -> Assert.Equal(2.0, stddev)
+        | None -> Assert.True(false, "Should return Some for Normal")
+        
+        match expectedStdDev (Exponential 2.0) with
+        | Some stddev -> Assert.Equal(0.5, stddev)
+        | None -> Assert.True(false, "Should return Some for Exponential")
+        
+        match expectedStdDev (Custom ("test", fun x -> x)) with
+        | Some _ -> Assert.True(false, "Should return None for Custom")
+        | None -> Assert.True(true)
+    
+    // ========================================================================
+    // EDGE CASE TESTS (Regression tests for fixes)
+    // ========================================================================
+    
+    [<Fact>]
+    let ``computeStatistics fails gracefully on empty array`` () =
+        let emptyArray : SampleResult[] = [||]
+        
+        let ex = Assert.Throws<Exception>(fun () -> computeStatistics emptyArray |> ignore)
+        Assert.Contains("empty sample array", ex.Message)
+    
+    [<Fact>]
+    let ``sample handles edge case probabilities without crashing`` () =
+        // This tests that clamping works - previously would produce ±∞ or NaN
+        let dist = StandardNormal
+        
+        // Generate many samples to statistically hit edge cases
+        let results = [1..1000] |> List.choose (fun _ ->
+            match sample dist with
+            | Ok r -> Some r.Value
+            | Error _ -> None)
+        
+        // All values should be finite (no ±∞ or NaN)
+        results |> List.iter (fun x ->
+            Assert.False(Double.IsInfinity(x), $"Value {x} is infinite")
+            Assert.False(Double.IsNaN(x), $"Value {x} is NaN"))
+    
+    [<Fact>]
+    let ``sample Exponential never returns infinity`` () =
+        let dist = Exponential 1.0
+        
+        // Generate many samples
+        let results = [1..1000] |> List.choose (fun _ ->
+            match sample dist with
+            | Ok r -> Some r.Value
+            | Error _ -> None)
+        
+        // All values should be finite and positive
+        results |> List.iter (fun x ->
+            Assert.True(x > 0.0, "Exponential values must be positive")
+            Assert.False(Double.IsInfinity(x), $"Value {x} is infinite")
+            Assert.False(Double.IsNaN(x), $"Value {x} is NaN"))
+    
+    [<Fact>]
+    let ``sample Uniform stays within bounds`` () =
+        let minVal = 5.0
+        let maxVal = 15.0
+        let dist = Uniform (minVal, maxVal)
+        
+        // Generate many samples
+        let results = [1..1000] |> List.choose (fun _ ->
+            match sample dist with
+            | Ok r -> Some r.Value
+            | Error _ -> None)
+        
+        // All values should be strictly within [min, max]
+        results |> List.iter (fun x ->
+            Assert.True(x >= minVal, $"Value {x} < min {minVal}")
+            Assert.True(x <= maxVal, $"Value {x} > max {maxVal}"))
+    
+    [<Fact>]
+    let ``sample Custom validates result`` () =
+        // Custom transform that returns NaN
+        let distNaN = Custom ("NaN", fun _ -> Double.NaN)
+        
+        let resultNaN = sample distNaN
+        match resultNaN with
+        | Ok _ -> Assert.True(false, "Should fail with NaN transform")
+        | Error msg -> Assert.Contains("NaN", msg)
+        
+        // Custom transform that returns Infinity
+        let distInf = Custom ("Inf", fun _ -> Double.PositiveInfinity)
+        
+        let resultInf = sample distInf
+        match resultInf with
+        | Ok _ -> Assert.True(false, "Should fail with Infinity transform")
+        | Error msg -> Assert.Contains("Infinity", msg)
+    
+    [<Fact>]
+    let ``sample Custom handles exceptions`` () =
+        // Custom transform that throws
+        let distThrow = Custom ("Throw", fun _ -> failwith "Intentional error")
+        
+        let result = sample distThrow
+        match result with
+        | Ok _ -> Assert.True(false, "Should fail with throwing transform")
+        | Error msg -> Assert.Contains("Custom transform failed", msg)
