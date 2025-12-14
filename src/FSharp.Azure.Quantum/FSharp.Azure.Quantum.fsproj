@@ -129,6 +129,10 @@
     <Compile Include="Backends\LocalBackend.fs" />
     
     <!-- Unified Backend Algorithms (depends on CircuitBuilder, UnifiedBackendAbstraction, LocalBackend) -->
+    <Compile Include="Algorithms\BellStates.fs" />
+    <Compile Include="Algorithms\DeutschJozsa.fs" />
+    <Compile Include="Algorithms\QuantumKeyDistribution.fs" />
+    <Compile Include="Algorithms\QuantumTeleportation.fs" />
     <Compile Include="Algorithms\Grover.fs" />
     <Compile Include="Algorithms\TreeSearch.fs" />
     <Compile Include="Algorithms\QFT.fs" />

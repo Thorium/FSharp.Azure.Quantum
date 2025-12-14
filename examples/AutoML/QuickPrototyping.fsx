@@ -411,26 +411,34 @@ match result4 with
     
     // Architecture comparison
     let successfulTrials = automlResult.AllTrials |> Array.filter (fun t -> t.Success)
+    let quantumTrials = successfulTrials |> Array.filter (fun t -> t.Architecture = AutoML.Quantum)
+    let hybridTrials = successfulTrials |> Array.filter (fun t -> t.Architecture = AutoML.Hybrid)
+    
     let quantumAvg = 
-        successfulTrials 
-        |> Array.filter (fun t -> t.Architecture = AutoML.Quantum) 
-        |> Array.averageBy (fun t -> t.Score)
+        if quantumTrials.Length > 0 then
+            quantumTrials |> Array.averageBy (fun t -> t.Score)
+        else 0.0
     let hybridAvg = 
-        successfulTrials 
-        |> Array.filter (fun t -> t.Architecture = AutoML.Hybrid) 
-        |> Array.averageBy (fun t -> t.Score)
+        if hybridTrials.Length > 0 then
+            hybridTrials |> Array.averageBy (fun t -> t.Score)
+        else 0.0
     
-    printfn "Average Performance by Architecture:"
-    printfn "  Quantum: %.2f%%" (quantumAvg * 100.0)
-    printfn "  Hybrid: %.2f%%" (hybridAvg * 100.0)
-    printfn ""
-    
-    let bestArch = 
-        [("Quantum", quantumAvg); ("Hybrid", hybridAvg)]
-        |> List.maxBy snd
-        |> fst
-    
-    printfn "💡 Recommendation: %s architecture performs best on this data" bestArch
+    if quantumTrials.Length > 0 || hybridTrials.Length > 0 then
+        printfn "Average Performance by Architecture:"
+        if quantumTrials.Length > 0 then
+            printfn "  Quantum: %.2f%%" (quantumAvg * 100.0)
+        if hybridTrials.Length > 0 then
+            printfn "  Hybrid: %.2f%%" (hybridAvg * 100.0)
+        printfn ""
+        
+        let bestArch = 
+            [("Quantum", quantumAvg); ("Hybrid", hybridAvg)]
+            |> List.filter (fun (_, score) -> score > 0.0)
+            |> fun list -> if list.IsEmpty then ("N/A", 0.0) else List.maxBy snd list
+            |> fst
+        
+        if bestArch <> "N/A" then
+            printfn "💡 Recommendation: %s architecture performs best on this data" bestArch
 
 // ============================================================================
 // EXAMPLE 5: Production Integration

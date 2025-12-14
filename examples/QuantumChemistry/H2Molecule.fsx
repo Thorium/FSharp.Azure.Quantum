@@ -45,6 +45,7 @@ let config = {
     MaxIterations = 100
     Tolerance = 1e-6
     InitialParameters = None
+    ProgressReporter = None
 }
 
 // Estimate ground state energy
