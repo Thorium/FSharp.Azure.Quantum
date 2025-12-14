@@ -4,7 +4,7 @@
 
 This directory contains 60+ examples demonstrating the FSharp.Azure.Quantum library, organized from **business-focused** (Level 1) to **research/educational** (Level 4).
 
-## 📊 Example Categorization
+## Example Categorization
 
 Examples are categorized into **4 levels** based on business utility and technical complexity:
 
@@ -15,7 +15,7 @@ Examples are categorized into **4 levels** based on business utility and technic
 
 ---
 
-## 🎯 Level 1: Business-Ready Solutions
+## Level 1: Business-Ready Solutions
 
 **For:** Business analysts, product managers, enterprise developers  
 **Goal:** Solve real-world problems without quantum knowledge  
@@ -24,7 +24,7 @@ Examples are categorized into **4 levels** based on business utility and technic
 ### Machine Learning & AI
 
 #### Fraud Detection & Security
-- **[BinaryClassification/FraudDetection.fsx](BinaryClassification/FraudDetection.fsx)** ⭐ START HERE  
+- **[BinaryClassification/FraudDetection.fsx](BinaryClassification/FraudDetection.fsx)** START HERE  
   Detect fraudulent transactions using quantum ML  
   **Use Case:** Banking, e-commerce, insurance fraud detection  
   **ROI:** Reduce fraud losses by 20-40%, improve detection accuracy  
@@ -47,7 +47,7 @@ Examples are categorized into **4 levels** based on business utility and technic
   **ROI:** Increase cross-sell/upsell by 25%, improve user engagement
 
 #### AutoML
-- **[AutoML/QuickPrototyping.fsx](AutoML/QuickPrototyping.fsx)** ⭐ EASIEST START  
+- **[AutoML/QuickPrototyping.fsx](AutoML/QuickPrototyping.fsx)** EASIEST START  
   Zero-config machine learning - just provide data  
   **Use Case:** Rapid prototyping, non-ML experts  
   **ROI:** 10x faster model development, no ML expertise needed
@@ -59,7 +59,7 @@ Examples are categorized into **4 levels** based on business utility and technic
 ### Workforce & Operations
 
 #### Scheduling & Resource Allocation
-- **[ConstraintScheduler_Example.fsx](ConstraintScheduler_Example.fsx)** ⭐ RECOMMENDED  
+- **[ConstraintScheduler_Example.fsx](ConstraintScheduler_Example.fsx)** RECOMMENDED  
   Schedule employees/resources with hard and soft constraints  
   **Use Case:** Workforce management, cloud VM allocation, manufacturing  
   **ROI:** $25,000/hour savings (validated in powerplant optimization)
@@ -91,7 +91,7 @@ Examples are categorized into **4 levels** based on business utility and technic
 
 ---
 
-## 💼 Level 2: Practical Optimization Problems
+## Level 2: Practical Optimization Problems
 
 **For:** Developers, data scientists, operations research professionals  
 **Goal:** Solve combinatorial optimization with quantum acceleration  
@@ -100,7 +100,7 @@ Examples are categorized into **4 levels** based on business utility and technic
 ### Classic NP-Hard Problems
 
 #### Graph Problems
-- **[GraphColoring/GraphColoring.fsx](GraphColoring/GraphColoring.fsx)** ⭐ WELL-DOCUMENTED  
+- **[GraphColoring/GraphColoring.fsx](GraphColoring/GraphColoring.fsx)** WELL-DOCUMENTED  
   Register allocation, frequency assignment, exam scheduling  
   **Use Case:** Compiler optimization, wireless networks, university timetabling  
   **Algorithm:** QAOA (Quantum Approximate Optimization Algorithm)
@@ -155,7 +155,7 @@ Examples are categorized into **4 levels** based on business utility and technic
 
 ---
 
-## 🔬 Level 3: Advanced Quantum Algorithms
+## Level 3: Advanced Quantum Algorithms
 
 **For:** Quantum algorithm researchers, PhD students, quantum enthusiasts  
 **Goal:** Explore advanced quantum computing techniques  
@@ -222,7 +222,7 @@ Examples are categorized into **4 levels** based on business utility and technic
   HHL with Rigetti backend extensions
 
 ### Quantum Communication & Security
-- **[BB84_Complete_Pipeline_Example.fsx](BB84_Complete_Pipeline_Example.fsx)** ⭐  
+- **[BB84_Complete_Pipeline_Example.fsx](BB84_Complete_Pipeline_Example.fsx)** 
   Complete BB84 quantum key distribution protocol  
   **Use Case:** Secure communication, quantum cryptography
 
@@ -266,7 +266,7 @@ Examples are categorized into **4 levels** based on business utility and technic
 
 ---
 
-## 🧪 Level 4: Research & Educational (Quantum Physics)
+## Level 4: Research & Educational (Quantum Physics)
 
 **For:** Quantum physics students, topological quantum computing researchers  
 **Goal:** Understand fundamental quantum mechanics and exotic quantum models  
@@ -316,7 +316,7 @@ Examples are categorized into **4 levels** based on business utility and technic
 
 ---
 
-## 🚀 Quick Start Guides
+## Quick Start Guides
 
 ### For Business Users (Start Here!)
 
@@ -379,110 +379,7 @@ dotnet fsi ToricCodeExample.fsx
 
 ---
 
-## 📋 Example Coverage by Feature
-
-### Business Problem Builders (7/7) ✅
-- ✅ Social Network Analyzer
-- ✅ Constraint Scheduler
-- ✅ AutoML
-- ✅ Anomaly Detection
-- ✅ Binary Classification
-- ✅ Predictive Modeling
-- ✅ Similarity Search
-
-### QAOA Optimization (7/7) ✅
-- ✅ Graph Coloring
-- ✅ MaxCut
-- ✅ Knapsack
-- ✅ TSP (via DeliveryRouting)
-- ✅ Portfolio Optimization
-- ✅ Network Flow (via SupplyChain)
-- ✅ Task Scheduling (via JobScheduling)
-
-### Advanced Quantum (6/6) ✅
-- ✅ Tree Search
-- ✅ Constraint Solver (SAT)
-- ✅ Pattern Matcher
-- ✅ Quantum Arithmetic
-- ✅ Period Finder (Shor's)
-- ✅ Phase Estimator (QPE)
-
-### Quantum ML (3/3) ✅
-- ✅ VQC (Variational Quantum Classifier)
-- ✅ Feature Maps
-- ✅ Variational Forms
-
-### Infrastructure (2/2) ✅
-- ✅ Azure Quantum Workspace
-- ✅ D-Wave Backend
-
-### Topological (5/5) ✅
-- ✅ Toric Code
-- ✅ Modular Data
-- ✅ Anyon Braiding
-- ✅ Topological Backend
-- ✅ Visualization
-
----
-
-## 🎯 Identified Gaps & Missing Examples
-
-### Level 1 (Business) - Missing Examples
-❌ **Network Flow Standalone Example**  
-   - Current: Only in SupplyChain  
-   - Needed: Dedicated NetworkFlow example with clear business use case
-
-❌ **TSP Standalone Example (Business Focus)**  
-   - Current: Only DeliveryRouting (which is good!)  
-   - Suggested: Add "TravelingSalesperson.fsx" with multiple use cases
-
-### Level 2 (Practical) - Missing Examples
-❌ **Hybrid Solver Comparison Example**  
-   - Show HybridSolver auto-routing (classical vs quantum)  
-   - Demonstrate cost guards and comparison mode
-
-❌ **Multi-Backend Comparison**  
-   - Compare LocalBackend vs IonQ vs D-Wave on same problem  
-   - Show when to use which backend
-
-### Level 3 (Advanced) - Missing Examples
-❌ **Error Mitigation Examples**  
-   - ZNE (Zero-Noise Extrapolation)  
-   - PEC (Probabilistic Error Cancellation)  
-   - REM (Readout Error Mitigation)
-
-❌ **Quantum Kernel SVM Example**  
-   - Separate from VQC  
-   - Show kernel matrix computation
-
-❌ **Multi-Class Classification Example**  
-   - Extend binary classification to multi-class
-
-### Level 4 (Research) - Adequate Coverage ✅
-- Well-covered with topological, chemistry, and educational examples
-
----
-
-## 📊 README Files Per Example
-
-### Excellent READMEs (Comprehensive Documentation)
-- ✅ GraphColoring/README.md (388 lines - exemplary!)
-- ✅ AnomalyDetection/README.md (367 lines)
-- ✅ BinaryClassification/README.md (249 lines)
-
-### Good READMEs
-- ✅ Most directories have README.md
-
-### Missing READMEs
-❌ Need README.md:
-- TreeSearch/ (has README.md but check completeness)
-- SupplyChain/
-- SimilaritySearch/
-- PhaseEstimation/
-
----
-
-## 🔧 Running Examples
+## Running Examples
 
 ### Prerequisites
 ```bash
@@ -506,25 +403,6 @@ dotnet fsi FraudDetection.fsx
 ```bash
 # From examples/ directory
 dotnet fsi test-all-examples.fsx
-```
-
----
-
-## 📚 Documentation Structure
-
-Each example directory should have:
-1. **README.md** - Problem description, use cases, API reference
-2. **Example.fsx** - Runnable F# script
-3. **output/** (optional) - Expected output files
-
-**Exemplary Structure** (GraphColoring):
-```
-GraphColoring/
-├── README.md                           # 388 lines of docs!
-├── GraphColoring.fsx                   # Main example
-├── GraphColoring-Visualization.fsx     # Visualization
-├── ProblemAndSolutionVisualization.fsx # Mermaid diagrams
-└── QuboVisualization.fsx               # QUBO encoding
 ```
 
 ---
@@ -557,58 +435,8 @@ GraphColoring/
 
 ---
 
-## 🤝 Contributing Examples
-
-**Guidelines for new examples:**
-1. **Level 1 examples must:**
-   - Hide quantum details
-   - Solve real business problems
-   - Include ROI/impact estimates
-   - Provide production integration patterns
-
-2. **All examples must:**
-   - Run without errors
-   - Include README.md with:
-     - Problem description
-     - Use cases
-     - Expected output
-     - API reference
-   - Follow existing naming conventions
-   - Include comments explaining key steps
-
-3. **README.md template:**
-   ```markdown
-   # [Problem Name] Examples
-   
-   **One-sentence description**
-   
-   ## 🎯 What is [Problem]?
-   ## 🚀 Quick Start
-   ## 📚 Examples
-   ## 🔧 Configuration Options
-   ## 🏢 Production Integration
-   ## 📖 Data Format
-   ## 🎓 Best Practices
-   ## 📚 Learn More
-   ```
-
----
-
-## 📄 License
+## License
 
 All examples are part of FSharp.Azure.Quantum library.  
 **License:** Unlicense (Public Domain)
 
----
-
-## 📞 Support & Community
-
-- **Issues:** [GitHub Issues](https://github.com/fsprojects/FSharp.Azure.Quantum/issues)
-- **Documentation:** [Official Docs](https://fsprojects.github.io/FSharp.Azure.Quantum/)
-- **Examples:** This directory (60+ examples!)
-
----
-
-**Last Updated:** December 2025  
-**Total Examples:** 64 (.fsx files)  
-**Coverage:** Business (7), Optimization (7), Advanced (6), ML (3), Research (20+)
