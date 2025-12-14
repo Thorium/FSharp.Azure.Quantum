@@ -82,7 +82,7 @@ flowchart TD
 - [Documentation](#documentation)
 - [Problem Size Guidelines](#problem-size-guidelines)
 - [Design Philosophy](#design-philosophy)
-- [Educational Algorithms](#educational-algorithms)
+- [Quantum Algorithms](#educational-algorithms)
   - [Grover's Search Algorithm](#grovers-search-algorithm)
   - [Amplitude Amplification](#amplitude-amplification)
   - [Quantum Fourier Transform (QFT)](#quantum-fourier-transform-qft)
@@ -2528,7 +2528,7 @@ GraphColoring.solve problem 3 None
 
 ---
 
-## Educational Algorithms
+## Quantum Algorithms
 
 In addition to the optimization solvers above, the library includes **foundational quantum algorithms** for education and research:
 
