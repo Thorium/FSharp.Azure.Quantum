@@ -1,18 +1,47 @@
+(**
+# Anomaly Detection: Security Threat Detection
+
+One-class quantum machine learning for detecting unusual patterns.
+
+## Overview
+
+This example demonstrates using quantum anomaly detection to identify
+suspicious network traffic patterns. Train on normal behavior only - 
+the system automatically identifies anything unusual.
+
+### Business Problem
+
+Identify security threats from network traffic:
+- Unauthorized access attempts
+- Data exfiltration
+- DDoS attacks
+- Malware activity
+
+### Approach
+
+Train on normal network traffic only. The quantum detector learns what "normal" 
+looks like, then flags anything unusual. No need for labeled attack data!
+
+### Key Features
+
+- One-class classification (normal examples only)
+- Sensitivity level tuning
+- Real-time threat monitoring
+- Explainability (why is it anomalous?)
+- Production integration patterns
+
+### Common Use Cases
+
+- Security: Detect intrusions, unauthorized access, suspicious network traffic
+- Fraud Detection: Spot unusual transaction patterns
+- Quality Control: Find defective products in manufacturing
+- System Monitoring: Detect performance issues, failures
+- Network Security: Identify DDoS attacks, port scanning, data exfiltration
+- IoT/Sensors: Detect equipment failures, sensor malfunctions
+*)
+
 /// Anomaly Detection Example: Security Threat Detection
-/// 
-/// This example demonstrates how to use the AnomalyDetectionBuilder
-/// to detect unusual network activity and security threats.
-///
-/// BUSINESS PROBLEM:
-/// Identify suspicious network traffic patterns that could indicate:
-/// - Unauthorized access attempts
-/// - Data exfiltration
-/// - DDoS attacks
-/// - Malware activity
-/// 
-/// APPROACH:
-/// Train on normal network traffic only. The system learns what "normal" looks like,
-/// then flags anything unusual. No need for labeled attack data!
+/// Implementation using quantum one-class classification
 
 //#r "nuget: FSharp.Azure.Quantum"
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
