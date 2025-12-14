@@ -74,6 +74,7 @@ let config : VQC.TrainingConfig = {
     Shots = 1000
     Verbose = false
     Optimizer = VQC.Adam { LearningRate = 0.1; Beta1 = 0.9; Beta2 = 0.999; Epsilon = 1e-8 }
+    ProgressReporter = None
 }
 
 printfn ""

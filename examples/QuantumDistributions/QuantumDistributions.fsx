@@ -324,7 +324,7 @@ async {
     let dist = StandardNormal
     
     printfn "Generating 5 samples via LocalBackend..."
-    let! result = sampleManyWithBackend dist 5 backend
+    let! result = sampleManyWithBackend dist 5 backend None
     
     match result with
     | Ok samples ->

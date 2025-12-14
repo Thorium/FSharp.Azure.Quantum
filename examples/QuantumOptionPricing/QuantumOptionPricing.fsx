@@ -24,6 +24,7 @@
 open System
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Backends
+open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 
 printfn "╔═══════════════════════════════════════════════════════════════╗"
@@ -204,8 +205,8 @@ printfn ""
 
 // Try invalid parameters to demonstrate validation
 let invalidParams = [
-    (-100.0, 105.0, "Negative spot price")
-    (100.0, -105.0, "Negative strike price")
+    (-100.0, 105.0, "Negative spot price", 0.0)
+    (100.0, -105.0, "Negative strike price", 0.0)
     (100.0, 105.0, "Zero volatility", 0.0)
 ]
 
