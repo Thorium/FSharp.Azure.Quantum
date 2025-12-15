@@ -220,7 +220,7 @@ let! purified = MagicStateDistillation.distill15to1 random [magicState; ...]
 
 ## 🤝 Contributing
 
-Found an issue or want to contribute? See the main repository [CONTRIBUTING.md](../../CONTRIBUTING.md) for guidelines.
+Found an issue or want to contribute? Please open an issue or submit a pull request on GitHub.
 
 ### Documentation Improvements
 
@@ -242,9 +242,9 @@ This documentation and the FSharp.Azure.Quantum.Topological library are licensed
 
 ## 📞 Contact & Support
 
-- **Issues:** [GitHub Issues](https://github.com/yourrepo/FSharp.Azure.Quantum/issues)
-- **Discussions:** [GitHub Discussions](https://github.com/yourrepo/FSharp.Azure.Quantum/discussions)
-- **Discord:** [Community Server](https://discord.gg/your-server)
+- **Issues:** [GitHub Issues](https://github.com/Thorium/FSharp.Azure.Quantum/issues)
+- **Discussions:** [GitHub Discussions](https://github.com/Thorium/FSharp.Azure.Quantum/discussions)
+- **Repository:** [FSharp.Azure.Quantum](https://github.com/Thorium/FSharp.Azure.Quantum)
 
 ---
 
