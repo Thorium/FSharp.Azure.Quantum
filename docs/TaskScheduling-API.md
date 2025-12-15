@@ -1350,6 +1350,16 @@ The TaskScheduling builders produce `SchedulingProblem<'TTask, 'TResource>` type
 
 ---
 
+## See Also
+
+- [Getting Started Guide](getting-started) - Installation and first steps
+- [API Reference](api-reference) - Complete API documentation
+- [Graph Coloring API](GraphColoring-API) - Similar computation expression pattern
+- [Computation Expressions Reference](computation-expressions-reference) - All custom operations
+- [Working Examples](https://github.com/Thorium/FSharp.Azure.Quantum/tree/main/examples/JobScheduling) - Task scheduling examples on GitHub
+
+---
+
 ## Support & Feedback
 
 - **GitHub**: [Thorium/FSharp.Azure.Quantum](https://github.com/Thorium/FSharp.Azure.Quantum)

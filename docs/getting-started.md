@@ -14,22 +14,24 @@ Welcome to **FSharp.Azure.Quantum** - an F# library for quantum optimization usi
 ### Via NuGet Package Manager
 
 ```bash
-dotnet add package FSharp.Azure.Quantum --version 1.1.0
+dotnet add package FSharp.Azure.Quantum
 ```
 
 ### Via Package Manager Console
 
 ```powershell
-Install-Package FSharp.Azure.Quantum -Version 1.1.0
+Install-Package FSharp.Azure.Quantum
 ```
 
 ### Via .fsproj File
 
 ```xml
 <ItemGroup>
-  <PackageReference Include="FSharp.Azure.Quantum" Version="1.1.0" />
+  <PackageReference Include="FSharp.Azure.Quantum" />
 </ItemGroup>
 ```
+
+> **Note:** Omitting the version will install the latest stable version. To specify a particular version, add `--version X.Y.Z` (CLI) or `Version="X.Y.Z"` (XML).
 
 ## Prerequisites
 
@@ -510,16 +512,11 @@ let resultNoOpt = solveWithShots backend distances 1000
 - **Quality improvement:** Problem-dependent, typically 5-20% better tour quality
 
 For more details, see:
-- **[Quantum TSP Example](examples/quantum-tsp-example.md)** - Complete QAOA walkthrough
 - **[Local Simulation Guide](local-simulation.md)** - Quantum simulation without Azure
 
 ## Next Steps
 
 - **[API Reference](api-reference.md)** - Complete API documentation
-- **[TSP Example](examples/tsp-example.md)** - Detailed TSP solving walkthrough
-- **[Portfolio Example](examples/portfolio-example.md)** - Portfolio optimization guide
-- **[Hybrid Solver Guide](examples/hybrid-solver.md)** - Advanced hybrid solver usage
-- **[Quantum vs Classical](guides/quantum-vs-classical.md)** - Decision framework
 - **[FAQ](faq.md)** - Frequently asked questions
 
 ## Need Help?
@@ -551,4 +548,4 @@ let workspace = {
 
 ---
 
-**Ready to optimize!** 🚀 Continue with the [TSP Example](examples/tsp-example.md) for a detailed walkthrough.
+**Ready to optimize!** Continue with the [API Reference](api-reference.md) for detailed documentation.

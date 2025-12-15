@@ -794,9 +794,7 @@ var problem2 = baseBuilder
 
 ## Related Documentation
 
-- [Generic Graph Optimization (TKT-90)](./GraphOptimization-API.md) - Low-level graph framework
 - [Task Scheduling (TKT-81)](./TaskScheduling-API.md) - Similar computation expression pattern
-- [AI Development Guide](../development/AI-DEVELOPMENT-GUIDE.md) - TDD methodology
 
 ---
 

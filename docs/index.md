@@ -299,7 +299,12 @@ match solveQuantum backend problem with
 
 ### 🔬 Advanced Topics
 - [QUBO Encoding Strategies](qubo-encoding-strategies) - Problem-to-QUBO transformations for QAOA
-- [Quantum Machine Learning Guide](qml-guide) - VQC, Quantum Kernels, Feature Maps (coming soon)
+- [Computation Expression Composition](computation-expression-composition) - Advanced CE patterns for loops and composition
+- [Topological Quantum Computing](topological/) - Fault-tolerant quantum computing with anyons and braiding
+- [Quantum Machine Learning](quantum-machine-learning) - VQC, Quantum Kernels, Feature Maps
+- [Business Problem Builders](business-problem-builders) - AutoML, Fraud Detection, Anomaly Detection, Predictive Modeling
+- [Error Mitigation](error-mitigation) - ZNE, PEC, REM strategies for NISQ hardware
+- [Advanced Quantum Builders](advanced-quantum-builders) - Tree Search, Constraint Solver, Pattern Matcher, Shor's Algorithm, Phase Estimation
 - [D-Wave Integration Guide](dwave-integration) - Using D-Wave quantum annealers (coming soon)
 - [FAQ](faq) - Frequently asked questions and troubleshooting
 

@@ -721,7 +721,7 @@ var assets = new[] {
 var problem = PortfolioProblem(assets, budget: 10000.0);
 ```
 
-**See:** [C# Usage Guide](../CSHARP-QUANTUM-BUILDER-USAGE-GUIDE.md) for complete examples
+**See:** C# interoperability examples above for complete usage
 
 ---
 
