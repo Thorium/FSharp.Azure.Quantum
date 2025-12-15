@@ -2,17 +2,17 @@
 
 > **Topological quantum computing** encodes quantum information in global topological properties of anyon worldlines, providing natural protection against local errors. This approach offers a promising path to fault-tolerant quantum computation.
 
-## 📚 Documentation Overview
+## Documentation Overview
 
 This directory contains comprehensive documentation for the **FSharp.Azure.Quantum.Topological** library, an idiomatic F# implementation of topological quantum computing concepts.
 
 ---
 
-## 🚀 Getting Started
+## Getting Started
 
 **New to topological quantum computing?** Start here:
 
-1. **[Architecture Guide](./architecture.md)** ⭐ *Start here!*  
+1. **[Architecture Guide](./architecture.md)** - Start here!  
    Understand the library's layered architecture, from mathematical foundations to high-level algorithms.
    
 2. **[Developer Deep Dive](./developer-deep-dive.md)**  
@@ -23,7 +23,7 @@ This directory contains comprehensive documentation for the **FSharp.Azure.Quant
 
 ---
 
-## 📖 Documentation Files
+## Documentation Files
 
 ### [architecture.md](./architecture.md)
 **Purpose:** Library architecture and design principles  
@@ -86,7 +86,7 @@ This directory contains comprehensive documentation for the **FSharp.Azure.Quant
 
 ---
 
-## 🎯 Quick Navigation
+## Quick Navigation
 
 ### By Learning Path
 
@@ -126,7 +126,7 @@ This directory contains comprehensive documentation for the **FSharp.Azure.Quant
 
 ---
 
-## 🔧 API Quick Reference
+## API Quick Reference
 
 ### Core Modules
 
@@ -151,7 +151,6 @@ MagicStateDistillation // T-gate implementation via magic states
 
 // Integration
 GateToBraid       // Convert gate-based circuits to braids
-AlgorithmExtensions // Run algorithms with topological backends
 ```
 
 ### Common Operations
@@ -176,9 +175,9 @@ let! purified = MagicStateDistillation.distill15to1 random [magicState; ...]
 
 ---
 
-## 📊 Library Features
+## Library Features
 
-### Implemented ✅
+### Implemented
 
 - **Ising Anyons** (Majorana zero modes)
 - **Fibonacci Anyons** (SU(2) level k=3)
@@ -189,7 +188,7 @@ let! purified = MagicStateDistillation.distill15to1 random [magicState; ...]
 - **Gate-to-Braid Compilation** (21 gate types)
 - **Backend Abstraction** (simulator, hardware-ready)
 
-### Planned 🚧
+### Planned (Future Development)
 
 - **Fibonacci-specific algorithms** (Jones polynomial, link invariants)
 - **Advanced error correction** (surface codes on anyonic systems)
@@ -198,11 +197,11 @@ let! purified = MagicStateDistillation.distill15to1 random [magicState; ...]
 
 ---
 
-## 🔗 External Resources
+## External Resources
 
 ### Books
 - **Steven Simon - "Topological Quantum"** (2023)  
-  *The* textbook for topological quantum computing. Chapters 1-7 cover foundations.
+  Comprehensive textbook for topological quantum computing. Chapters 1-7 cover foundations.
 
 ### Papers
 - **Bravyi & Kitaev (2005)** - "Universal quantum computation with ideal Clifford gates and noisy ancillas"  
@@ -218,7 +217,7 @@ let! purified = MagicStateDistillation.distill15to1 random [magicState; ...]
 
 ---
 
-## 🤝 Contributing
+## Contributing
 
 Found an issue or want to contribute? Please open an issue or submit a pull request on GitHub.
 
@@ -234,13 +233,13 @@ Please open an issue or submit a PR!
 
 ---
 
-## 📄 License
+## License
 
 This documentation and the FSharp.Azure.Quantum.Topological library are licensed under [MIT License](../../LICENSE).
 
 ---
 
-## 📞 Contact & Support
+## Contact & Support
 
 - **Issues:** [GitHub Issues](https://github.com/Thorium/FSharp.Azure.Quantum/issues)
 - **Discussions:** [GitHub Discussions](https://github.com/Thorium/FSharp.Azure.Quantum/discussions)
@@ -249,5 +248,5 @@ This documentation and the FSharp.Azure.Quantum.Topological library are licensed
 ---
 
 **Last Updated:** December 2025  
-**Library Version:** 1.0.0  
+**Library Version:** 0.3.2  
 **F# Version:** 8.0+

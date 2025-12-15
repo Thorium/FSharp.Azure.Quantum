@@ -16,13 +16,13 @@ The FSharp.Azure.Quantum.Topological library follows a **strictly layered archit
 ┌─────────────────────────────────────────────────────────┐
 │  Layer 5: Builders (Computation Expressions)            │
 │  User-friendly DSL for composing quantum programs       │
-│  Files: (Future) Builders/TopologicalBuilder.fs         │
+│  Files: TopologicalBuilder.fs                           │
 └─────────────────────────────────────────────────────────┘
                            ▼
 ┌─────────────────────────────────────────────────────────┐
 │  Layer 4: Algorithms                                     │
-│  Topological-specific algorithms (Kauffman, etc.)       │
-│  Files: (Future) Algorithms/TopologicalAlgorithms.fs    │
+│  Topological-specific algorithms                        │
+│  Files: MagicStateDistillation.fs, (Future) Kauffman    │
 └─────────────────────────────────────────────────────────┘
                            ▼
 ┌─────────────────────────────────────────────────────────┐
