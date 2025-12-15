@@ -506,6 +506,7 @@ See complete, runnable examples in the `examples/QML/` directory:
 
 ## See Also
 
+- [Business Problem Builders](business-problem-builders) - High-level APIs using QML (AutoML, Fraud Detection)
 - [Getting Started Guide](getting-started) - Installation and setup
 - [API Reference](api-reference) - Complete API documentation
 - [Local Simulation](local-simulation) - LocalBackend for QML development

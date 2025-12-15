@@ -221,4 +221,5 @@ match GraphColoring.solve problem 3 None with
 - [Getting Started](getting-started.md)
 - [Local Simulation](local-simulation.md)
 - [Backend Switching](backend-switching.md)
+- [Error Mitigation](error-mitigation.md) - ZNE, PEC, REM strategies for NISQ hardware
 - [API Reference](api-reference.md)

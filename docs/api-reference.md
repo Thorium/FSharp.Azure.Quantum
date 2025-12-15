@@ -1063,6 +1063,10 @@ problems
 - [Getting Started Guide](getting-started) - Installation and setup
 - [Architecture Overview](architecture-overview) - Library design
 - [QUBO Encoding Strategies](qubo-encoding-strategies) - Problem transformations
+- [Quantum Machine Learning](quantum-machine-learning) - VQC, Quantum Kernels, Feature Maps
+- [Business Problem Builders](business-problem-builders) - AutoML, Fraud Detection, Anomaly Detection
+- [Error Mitigation](error-mitigation) - ZNE, PEC, REM strategies for NISQ hardware
+- [Advanced Quantum Builders](advanced-quantum-builders) - Tree Search, Constraint Solver, Shor's Algorithm
 - [FAQ](faq) - Common questions
 
 ---
