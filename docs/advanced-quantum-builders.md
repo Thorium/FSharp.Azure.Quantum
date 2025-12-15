@@ -1293,3 +1293,7 @@ let problem = phaseEstimator {
 ---
 
 **Next Steps**: Explore [working examples](../examples/) to see these builders in action, or jump to [Quantum Machine Learning](quantum-machine-learning.md) for practical ML applications.
+
+---
+
+**Last Updated**: December 2025
