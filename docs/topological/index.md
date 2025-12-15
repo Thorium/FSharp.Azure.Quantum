@@ -175,6 +175,85 @@ let! purified = MagicStateDistillation.distill15to1 random [magicState; ...]
 
 ---
 
+## Complete Module Reference
+
+The topological library consists of 26 modules organized in 6 architectural layers. Below is the complete reference with brief descriptions.
+
+### Layer 1: Mathematical Foundation (Core Anyonic Theory)
+
+**Purpose:** Pure mathematical constructs defining topological quantum computation - fusion rules, braiding matrices, modular data.
+
+| Module | Description |
+|--------|-------------|
+| `AnyonSpecies.fs` | Anyon particle types, quantum dimensions, and anyon theories (Ising, Fibonacci) |
+| `FusionRules.fs` | Fusion algebra rules (e.g., σ×σ = 1+ψ for Ising anyons) |
+| `BraidingOperators.fs` | R-matrices (braiding phase) and F-matrices (basis transformations) |
+| `FMatrix.fs` | F-matrix calculations and caching for efficient fusion tree manipulations |
+| `RMatrix.fs` | R-matrix calculations for braiding operations |
+| `ModularData.fs` | Modular tensor category data (S-matrix, T-matrix, topological central charge) |
+| `BraidGroup.fs` | Braid group representations and generators |
+| `BraidingConsistency.fs` | Pentagon and hexagon consistency equations for F and R matrices |
+| `EntanglementEntropy.fs` | Topological entanglement entropy calculations |
+
+### Layer 2: Backends (Execution Abstractions)
+
+**Purpose:** Backend interfaces for executing topological operations - simulators and hardware integration points.
+
+| Module | Description |
+|--------|-------------|
+| `TopologicalBackend.fs` | `ITopologicalBackend` interface and simulator implementation |
+| `Legacy\TopologicalBackend.fs` | Backward-compatible old backend interface (deprecated) |
+
+### Layer 3: State Representation & Operations
+
+**Purpose:** High-level operations on quantum states encoded as fusion trees.
+
+| Module | Description |
+|--------|-------------|
+| `FusionTree.fs` | Quantum state representation as fusion trees of anyons |
+| `TopologicalOperations.fs` | High-level operations: braiding, fusion measurement, superposition |
+
+### Layer 4: Algorithms & Error Handling
+
+**Purpose:** Quantum algorithms and error correction protocols built on topological primitives.
+
+| Module | Description |
+|--------|-------------|
+| `MagicStateDistillation.fs` | T-gate synthesis via 15-to-1 distillation (Bravyi-Kitaev 2005) |
+| `ToricCode.fs` | Topological error correction using toric code |
+| `ErrorPropagation.fs` | Error propagation analysis through topological circuits |
+
+### Layer 5: Compilation & Optimization
+
+**Purpose:** Converting between gate-based and topological representations, circuit optimization.
+
+| Module | Description |
+|--------|-------------|
+| `GateToBraid.fs` | Convert gate-based circuits to braid sequences (21 gate types) |
+| `BraidToGate.fs` | Convert braid sequences back to gate operations |
+| `SolovayKitaev.fs` | Gate approximation algorithm for efficient decomposition |
+| `CircuitOptimization.fs` | Circuit optimization and simplification strategies |
+
+### Layer 6: Builders, Formats & Utilities
+
+**Purpose:** Developer-friendly APIs, file formats, and supporting utilities.
+
+| Module | Description |
+|--------|-------------|
+| `TopologicalBuilder.fs` | F# computation expressions for building topological circuits |
+| `TopologicalFormat.fs` | `.tqp` file format for serializing topological programs |
+| `NoiseModels.fs` | Noise simulation for realistic error modeling |
+| `Visualization.fs` | State visualization and debugging utilities |
+| `TopologicalError.fs` | Error types and exception handling |
+
+### Commented Out / Future Development
+
+| Module | Status | Reason |
+|--------|--------|--------|
+| `AlgorithmExtensions.fs` | Commented out | Requires refactoring - references removed adapter modules |
+
+---
+
 ## Library Features
 
 ### Implemented
