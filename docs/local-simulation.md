@@ -761,9 +761,7 @@ The simulator provides detailed error messages for common mistakes:
 ## Next Steps
 
 - **[API Reference](api-reference.md)** - Complete API documentation
-- **[QAOA Algorithm Guide](examples/qaoa-example.md)** - Deep dive into QAOA
-- **[MaxCut Example](examples/maxcut-example.md)** - Complete MaxCut tutorial
-- **[Testing Guide](testing-guide.md)** - Writing tests with the simulator
+- **[Getting Started Guide](getting-started.md)** - Installation and first steps
 
 ## FAQ
 

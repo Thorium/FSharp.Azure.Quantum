@@ -96,7 +96,7 @@ let processWorkflow input backend = quantumResult {
 }
 ```
 
-See [QuantumResult Builder Guide](QUANTUMRESULT-BUILDER-GUIDE.md) for complete details.
+See [QuantumResult Builder Guide](quantumresult-builder-guide.md) for complete details.
 
 ---
 

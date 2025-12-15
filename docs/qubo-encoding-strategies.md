@@ -462,5 +462,5 @@ let prod_qubo = ProblemTransformer.encodeTspEdgeBased production_distances penal
 ## See Also
 
 - [API Reference](api-reference.md)
-- [TSP Example](examples/tsp-example.md)
+- [API Reference](api-reference.md)
 - [Getting Started Guide](getting-started.md)

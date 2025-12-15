@@ -237,7 +237,7 @@ match solve backend distances defaultConfig with
 ## Next Steps
 
 - **[Local Simulation Guide](local-simulation.md)** - Complete local simulator documentation
-- **[Quantum TSP Example](examples/quantum-tsp-example.md)** - QAOA parameter optimization guide
+- **[Getting Started Guide](getting-started.md)** - Installation and first steps with backends
 - **[API Reference](api-reference.md)** - Full API documentation
 
 ---
