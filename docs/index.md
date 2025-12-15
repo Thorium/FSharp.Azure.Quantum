@@ -288,7 +288,7 @@ match solveQuantum backend problem with
 ### 🚀 Getting Started
 - [Getting Started Guide](getting-started) - Installation, first steps, and basic examples
 - [Quantum Computing Introduction](quantum-computing-introduction) - Comprehensive introduction to quantum computing for F# developers (no quantum background needed)
-- [C# Usage Guide](../CSHARP-QUANTUM-BUILDER-USAGE-GUIDE.md) - Complete C# interop examples with fluent API
+- [API Reference](api-reference) - Includes C# interop examples with fluent API
 
 ### 📖 Core Concepts
 - [API Reference](api-reference) - Complete API documentation for all modules
@@ -337,11 +337,6 @@ match solveQuantum backend problem with
 - [**Gomoku**](https://github.com/Thorium/FSharp.Azure.Quantum/tree/main/examples/Gomoku) - Quantum vs Classical AI game (with Hybrid mode)
 - [**Kasino**](https://github.com/Thorium/FSharp.Azure.Quantum/tree/main/examples/Kasino) - Quantum gambling game demonstrating superposition (F#)
 - [**Kasino_CSharp**](https://github.com/Thorium/FSharp.Azure.Quantum/tree/main/examples/Kasino_CSharp) - Quantum gambling game (C# version)
-
-#### Example Navigation Guides
-- [TSP Example Guide](examples/tsp-example) - Route optimization overview and quickstart
-- [Quantum TSP Guide](examples/quantum-tsp-example) - QAOA parameter optimization deep dive
-- [Subset Selection Guide](examples/subset-selection-example) - Knapsack and portfolio patterns
 
 ## 🎯 When to Use This Library
 
