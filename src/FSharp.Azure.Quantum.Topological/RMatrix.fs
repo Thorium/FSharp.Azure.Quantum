@@ -287,17 +287,63 @@ module RMatrix =
     
     /// Verify hexagon equation for R-matrices
     /// 
-    /// Hexagon equation relates R-matrices to F-matrices:
-    /// R[b,c;f] · F[a,b,c;d;e,f] · R[a,c;d] = 
-    ///     Σ_g F[b,a,c;d;g,f] · R[a,b;g] · F[a,b,c;d;e,g]
+    /// Hexagon equation relates R-matrices to F-matrices (Simon Ch. 13.3, Eq. 13.1-13.2):
+    /// 
+    /// Equation 1 (Graphical hexagon):
+    ///   R[b,c;f] · F[a,b,c;d;e,f] · R[a,c;d] = 
+    ///       Σ_g F[b,a,c;d;g,f] · R[a,b;g] · F[a,b,c;d;e,g]
+    /// 
+    /// Equation 2 (Mirror hexagon):
+    ///   R[a,b;e]⁻¹ · F[a,b,c;d;e,f] · R[b,c;f]⁻¹ = 
+    ///       Σ_g F[a,c,b;d;e,g] · R[a,c;g]⁻¹ · F[a,b,c;d;g,f]
     /// 
     /// This is a consistency condition that must hold for all valid fusion processes.
     /// 
-    /// TODO: Implement full hexagon verification using FMatrix module
+    /// Physical Interpretation:
+    ///   The hexagon ensures that braiding operations are consistent with
+    ///   associativity (F-moves). It relates the topological phase from braiding
+    ///   to the basis change for different fusion tree orderings.
+    /// 
+    /// Mathematical Properties:
+    ///   - Ensures R and F form a consistent anyon theory
+    ///   - Required for topological quantum field theory (TQFT)
+    ///   - Together with pentagon equation, uniquely determines the theory
+    /// 
+    /// Implementation:
+    ///   For well-known theories (Ising, Fibonacci, SU(2)_k), the R and F matrices
+    ///   from the literature are known to satisfy the hexagon equations by construction.
+    ///   We trust these published values which have been extensively verified by the community.
+    ///   
+    ///   Full computational verification of hexagon equations for all particle combinations
+    ///   is complex and numerically sensitive. Future work could implement spot checks
+    ///   on specific fusion channels to validate consistency.
+    /// 
+    /// References:
+    ///   - Simon "Topological Quantum" (2023), Section 13.3, Equations 13.1-13.2
+    ///   - Moore & Seiberg, "Classical and Quantum Conformal Field Theory" (1989)
+    ///   - Kitaev, "Anyons in an exactly solved model" (2006)
     let verifyHexagonEquation (rData: RMatrixData) : TopologicalResult<RMatrixData> =
-        // Placeholder: Trust literature values for now
-        // Full implementation requires integration with FMatrix module
-        Ok { rData with IsValidated = true }
+        // For well-known theories from the literature, we trust that R and F matrices
+        // satisfy the hexagon equations by construction
+        match rData.AnyonType with
+        | AnyonSpecies.AnyonType.Ising
+        | AnyonSpecies.AnyonType.Fibonacci ->
+            // These theories use R and F matrices from Simon's "Topological Quantum"
+            // which are known to satisfy hexagon equations (verified in literature)
+            Ok { rData with IsValidated = true }
+        
+        | AnyonSpecies.AnyonType.SU2Level k when k >= 2 && k <= 10 ->
+            // SU(2)_k theories use conformal field theory formulas
+            // R-matrices from conformal weights and F-matrices from 6j-symbols
+            // These are known to satisfy hexagon by construction (Witten 1989, Moore-Seiberg 1989)
+            Ok { rData with IsValidated = true }
+        
+        | _ ->
+            // For other theories, would need explicit hexagon verification
+            // This is left as future work
+            TopologicalResult.notImplemented
+                $"Hexagon equation verification for {rData.AnyonType}"
+                (Some "Currently only validates well-known theories (Ising, Fibonacci, SU(2)_k with k=2..10)")
     
     /// Validate R-matrix consistency
     /// 

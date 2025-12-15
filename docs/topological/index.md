@@ -137,6 +137,7 @@ open FSharp.Azure.Quantum.Topological
 AnyonSpecies      // Particle types and anyon theories
 FusionRules       // Fusion algebra (σ×σ = 1+ψ)
 BraidingOperators // R-matrices and F-matrices
+KauffmanBracket   // Knot invariants (Kauffman bracket, Jones polynomial)
 
 // Layer 3: Operations
 FusionTree        // Quantum state representation
@@ -171,17 +172,21 @@ let! (outcome, collapsed, prob) = backend.MeasureFusion 0 state1
 // Magic state distillation
 let magicState = MagicStateDistillation.prepareNoisyMagicState 0.05 AnyonType.Ising
 let! purified = MagicStateDistillation.distill15to1 random [magicState; ...]
+
+// Knot invariants (from braiding operations)
+let trefoil = KauffmanBracket.trefoil true
+let jones = KauffmanBracket.jonesPolynomial trefoil standardA
 ```
 
 ---
 
 ## Complete Module Reference
 
-The topological library consists of 26 modules organized in 6 architectural layers. Below is the complete reference with brief descriptions.
+The topological library consists of 27 modules organized in 6 architectural layers. Below is the complete reference with brief descriptions.
 
 ### Layer 1: Mathematical Foundation (Core Anyonic Theory)
 
-**Purpose:** Pure mathematical constructs defining topological quantum computation - fusion rules, braiding matrices, modular data.
+**Purpose:** Pure mathematical constructs defining topological quantum computation - fusion rules, braiding matrices, modular data, knot invariants.
 
 | Module | Description |
 |--------|-------------|
@@ -194,6 +199,7 @@ The topological library consists of 26 modules organized in 6 architectural laye
 | `BraidGroup.fs` | Braid group representations and generators |
 | `BraidingConsistency.fs` | Pentagon and hexagon consistency equations for F and R matrices |
 | `EntanglementEntropy.fs` | Topological entanglement entropy calculations |
+| `KauffmanBracket.fs` | Kauffman bracket invariant and Jones polynomial for knot theory |
 
 ### Layer 2: Backends (Execution Abstractions)
 

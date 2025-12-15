@@ -16,6 +16,8 @@
     <Compile Include="RMatrixTests.fs" />
     <Compile Include="BraidingConsistencyTests.fs" />
     <Compile Include="BraidGroupTests.fs" />
+    <Compile Include="KauffmanBracketTests.fs" />
+    <Compile Include="KauffmanBracketV3Tests.fs" />
     <Compile Include="BraidToGateTests.fs" />
     <Compile Include="SolovayKitaevTests.fs" />
     <Compile Include="GateToBraidCorrectionTests.fs" />

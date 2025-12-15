@@ -63,6 +63,8 @@
     <Compile Include="RMatrix.fs" />
     <Compile Include="BraidingConsistency.fs" />
     <Compile Include="BraidGroup.fs" />
+    <Compile Include="KauffmanBracket.fs" />
+    <Compile Include="KnotConstructors.fs" />
     <Compile Include="BraidToGate.fs" />
     <Compile Include="SolovayKitaev.fs" />
     <Compile Include="CircuitOptimization.fs" />
