@@ -55,88 +55,408 @@ module TopologicalOperations =
         { Terms = states |> List.map (fun s -> (amplitude, s))
           AnyonType = anyonType }
     
+    /// Combine identical basis states by summing amplitudes.
+    ///
+    /// This is required for interference to work correctly (|ψ⟩ + |ψ⟩ = 2|ψ⟩).
+    let combineLikeTerms (superposition: Superposition) : Superposition =
+        let merged =
+            superposition.Terms
+            |> List.mapi (fun idx (amp, state) -> (idx, amp, state))
+            |> List.fold (fun (acc: Map<string, int * Complex * FusionTree.State>) (idx, amp, state) ->
+                let key = FusionTree.toString state.Tree
+                match acc |> Map.tryFind key with
+                | None -> acc |> Map.add key (idx, amp, state)
+                | Some (firstIdx, existingAmp, existingState) ->
+                    acc |> Map.add key (firstIdx, existingAmp + amp, existingState)
+            ) Map.empty
+            |> Map.toList
+            |> List.map (fun (_, (idx, amp, state)) -> (idx, (amp, state)))
+            |> List.sortBy fst
+            |> List.map snd
+
+        // Avoid dropping all terms for an all-zero state.
+        let eps = 1e-14
+        let nonZero = merged |> List.filter (fun (amp, _) -> Complex.Abs amp > eps)
+        let finalTerms = if nonZero.IsEmpty then merged else nonZero
+
+        { superposition with Terms = finalTerms }
+
     /// Normalize a superposition (ensure sum of |amplitude|² = 1)
     let normalize (superposition: Superposition) : Superposition =
-        let normSquared = 
-            superposition.Terms
-            |> List.sumBy (fun (amp, _) -> (Complex.Abs(amp)) ** 2.0)
-        
+        let combined = combineLikeTerms superposition
+
+        let normSquared =
+            combined.Terms
+            |> List.sumBy (fun (amp, _) -> (Complex.Abs amp) ** 2.0)
+
         let norm = sqrt normSquared
-        
+
         if norm = 0.0 then
-            superposition // Already zero
+            combined
         else
-            let normalized = 
-                superposition.Terms
+            let normalized =
+                combined.Terms
                 |> List.map (fun (amp, state) -> (amp / Complex(norm, 0.0), state))
-            { superposition with Terms = normalized }
+            { combined with Terms = normalized }
     
+    // ========================================================================
+    // BASIS TRANSFORMATIONS (F-MOVES)
+    // ========================================================================
+    
+    /// Apply F-matrix transformation to change fusion tree associativity
+    /// 
+    /// F-move: ((a × b) × c) ↔ (a × (b × c))
+    /// 
+    /// This changes the tree structure but represents the same quantum state
+    /// in a different basis. The F-matrix gives the change-of-basis coefficients.
+    type FMoveDirection =
+        | LeftToRight  // ((a × b) × c) → (a × (b × c))
+        | RightToLeft  // (a × (b × c)) → ((a × b) × c)
+
+    type private Branch =
+        | L
+        | R
+
+    let rec private collectNodesAtDepth (targetDepth: int) (tree: FusionTree.Tree) : (Branch list * FusionTree.Tree) list =
+        let rec loop (currentDepth: int) (path: Branch list) (node: FusionTree.Tree) acc =
+            let nextAcc =
+                if currentDepth = targetDepth then
+                    (path, node) :: acc
+                else
+                    acc
+
+            match node with
+            | FusionTree.Leaf _ -> nextAcc
+            | FusionTree.Fusion (left, right, _) ->
+                let acc1 = loop (currentDepth + 1) (path @ [ L ]) left nextAcc
+                loop (currentDepth + 1) (path @ [ R ]) right acc1
+
+        loop 0 [] tree [] |> List.rev
+
+    let rec private replaceAtPath (path: Branch list) (replacement: FusionTree.Tree) (tree: FusionTree.Tree) : FusionTree.Tree =
+        match path, tree with
+        | [], _ -> replacement
+        | _, FusionTree.Leaf _ -> tree
+        | branch :: rest, FusionTree.Fusion (left, right, channel) ->
+            match branch with
+            | L -> FusionTree.Fusion (replaceAtPath rest replacement left, right, channel)
+            | R -> FusionTree.Fusion (left, replaceAtPath rest replacement right, channel)
+
+    let private swapOrder (direction: FMoveDirection) =
+        match direction with
+        | LeftToRight -> RightToLeft
+        | RightToLeft -> LeftToRight
+
+    let private applyLocalFMove (direction: FMoveDirection) (anyonType: AnyonSpecies.AnyonType) (subtree: FusionTree.Tree) : TopologicalResult<(Complex * FusionTree.Tree) list> =
+        topologicalResult {
+            match subtree with
+            // Left-associated: ((a×b→e)×c→d)
+            | FusionTree.Fusion (FusionTree.Fusion (aTree, bTree, e), cTree, d) when direction = LeftToRight ->
+                match aTree, bTree, cTree with
+                | FusionTree.Leaf a, FusionTree.Leaf b, FusionTree.Leaf c ->
+                    let! fMatrix = BraidingOperators.fusionBasisChange a b c d anyonType
+                    let! possibleF = FusionRules.channels b c anyonType
+                    let validF =
+                        possibleF
+                        |> List.choose (fun f ->
+                            match FusionRules.isPossible a f d anyonType with
+                            | Ok true -> Some f
+                            | _ -> None)
+
+                    // fMatrix rows correspond to e-channels for (a×b)×c; columns correspond to f-channels for a×(b×c)
+                    let! possibleE = FusionRules.channels a b anyonType
+                    let validE =
+                        possibleE
+                        |> List.choose (fun e2 ->
+                            match FusionRules.isPossible e2 c d anyonType with
+                            | Ok true -> Some e2
+                            | _ -> None)
+
+                    match validE |> List.tryFindIndex ((=) e) with
+                    | None ->
+                        return [ (Complex.One, subtree) ]
+                    | Some rowIndex ->
+                        let terms =
+                            validF
+                            |> List.mapi (fun colIndex f ->
+                                let coeff = fMatrix.[rowIndex, colIndex]
+                                let newSubtree =
+                                    FusionTree.Fusion (FusionTree.Leaf a, FusionTree.Fusion (FusionTree.Leaf b, FusionTree.Leaf c, f), d)
+                                (coeff, newSubtree)
+                            )
+                            |> List.filter (fun (amp, _) -> Complex.Abs amp > 1e-14)
+
+                        return terms
+                | _ ->
+                    return [ (Complex.One, subtree) ]
+
+            // Right-associated: (a×(b×c→f)→d)
+            | FusionTree.Fusion (aTree, FusionTree.Fusion (bTree, cTree, f), d) when direction = RightToLeft ->
+                match aTree, bTree, cTree with
+                | FusionTree.Leaf a, FusionTree.Leaf b, FusionTree.Leaf c ->
+                    // Inverse basis change is conjugate transpose since F is unitary.
+                    let! fMatrix = BraidingOperators.fusionBasisChange a b c d anyonType
+                    let! possibleE = FusionRules.channels a b anyonType
+                    let validE =
+                        possibleE
+                        |> List.choose (fun e ->
+                            match FusionRules.isPossible e c d anyonType with
+                            | Ok true -> Some e
+                            | _ -> None)
+
+                    // Determine column of current f in validF ordering.
+                    let! possibleF = FusionRules.channels b c anyonType
+                    let validF =
+                        possibleF
+                        |> List.choose (fun f2 ->
+                            match FusionRules.isPossible a f2 d anyonType with
+                            | Ok true -> Some f2
+                            | _ -> None)
+
+                    let colIndexOpt = validF |> List.tryFindIndex ((=) f)
+                    match colIndexOpt with
+                    | None -> return [ (Complex.One, subtree) ]
+                    | Some colIndex ->
+                        let terms =
+                            validE
+                            |> List.mapi (fun rowIndex e ->
+                                let coeff = Complex.Conjugate fMatrix.[rowIndex, colIndex]
+                                let newSubtree =
+                                    FusionTree.Fusion (FusionTree.Fusion (FusionTree.Leaf a, FusionTree.Leaf b, e), FusionTree.Leaf c, d)
+                                (coeff, newSubtree)
+                            )
+                            |> List.filter (fun (amp, _) -> Complex.Abs amp > 1e-14)
+
+                        return terms
+                | _ ->
+                    return [ (Complex.One, subtree) ]
+
+            | _ ->
+                return [ (Complex.One, subtree) ]
+        }
+
+    /// Apply an F-move at a specific node depth in the tree.
+    ///
+    /// This walks all nodes at `nodeDepth` and applies a local associativity change.
+    /// If the requested node doesn’t match a 3-leaf associator pattern, it acts as identity.
+    let fMove
+        (direction: FMoveDirection)
+        (nodeDepth: int)
+        (state: FusionTree.State)
+        : Superposition =
+
+        let targets = collectNodesAtDepth nodeDepth state.Tree
+
+        // If nothing matches (e.g. depth too large), keep identity.
+        if targets.IsEmpty then
+            pureState state
+        else
+            targets
+            |> List.fold (fun (superpos: Superposition) (path, subtree) ->
+                let expanded =
+                    superpos.Terms
+                    |> List.collect (fun (amp, st) ->
+                        // Important: use the corresponding subtree from the current state (not the initial capture)
+                        let currentSubtree =
+                            let rec getAtPath p t =
+                                match p, t with
+                                | [], _ -> t
+                                | _, FusionTree.Leaf _ -> t
+                                | L :: rest, FusionTree.Fusion (l, _, _) -> getAtPath rest l
+                                | R :: rest, FusionTree.Fusion (_, r, _) -> getAtPath rest r
+                            getAtPath path st.Tree
+
+                        match applyLocalFMove direction st.AnyonType currentSubtree with
+                        | Error _ -> [ (amp, st) ]
+                        | Ok localTerms ->
+                            localTerms
+                            |> List.map (fun (localAmp, newSub) ->
+                                let newTree = replaceAtPath path newSub st.Tree
+                                (amp * localAmp, { st with Tree = newTree })
+                            )
+                    )
+
+                { superpos with Terms = expanded }
+            ) (pureState state)
+            |> combineLikeTerms
+            |> normalize
+
     // ========================================================================
     // BRAIDING OPERATIONS
     // ========================================================================
     
-    /// Braid two anyons at specific positions in the fusion tree
-    /// 
-    /// This is the fundamental gate operation in topological quantum computing.
-    /// Braiding accumulates a phase determined by the R-matrix.
-    /// 
-    /// Note: This is a simplified implementation. Full braiding requires
-    /// tracking anyon world-lines and applying appropriate F-moves.
-    let braidAdjacentAnyons 
-        (leftIndex: int) 
-        (state: FusionTree.State) 
-        : TopologicalResult<OperationResult> =
-        
-        // Get the anyons being braided
+    let rec private tryFindFusedLeafPairChannel (targetLeftIndex: int) (tree: FusionTree.Tree) : AnyonSpecies.Particle option =
+        let rec loop (idx: int) (node: FusionTree.Tree) : int * AnyonSpecies.Particle option =
+            match node with
+            | FusionTree.Leaf _ -> (idx + 1, None)
+            | FusionTree.Fusion (FusionTree.Leaf _, FusionTree.Leaf _, channel) ->
+                // This node represents a fused pair of adjacent leaves at position idx
+                if idx = targetLeftIndex then
+                    (idx + 2, Some channel)
+                else
+                    (idx + 2, None)
+            | FusionTree.Fusion (left, right, _) ->
+                let (nextIdx, foundLeft) = loop idx left
+                match foundLeft with
+                | Some _ -> (nextIdx + FusionTree.size right, foundLeft)
+                | None ->
+                    loop nextIdx right
+
+        loop 0 tree |> snd
+
+    let private conjugateIfInverse (isClockwise: bool) (phase: Complex) : Complex =
+        if isClockwise then phase else Complex.Conjugate phase
+
+    /// Braid two adjacent anyons.
+    ///
+    /// Unlike the earlier placeholder implementation, braiding can now produce a superposition
+    /// (via F–R–F⁻¹ on σσσ triples) instead of only a global phase.
+    let braidAdjacentAnyonsDirected
+        (leftIndex: int)
+        (isClockwise: bool)
+        (state: FusionTree.State)
+        : TopologicalResult<Superposition> =
+
         let anyons = FusionTree.leaves state.Tree
-        
-        // Validation
+
         if leftIndex < 0 || leftIndex >= anyons.Length - 1 then
             TopologicalResult.validationError "leftIndex" $"Invalid braid index {leftIndex} for {anyons.Length} anyons"
         else
-            let anyon1 = anyons.[leftIndex]
-            let anyon2 = anyons.[leftIndex + 1]
-            
-            // Get all possible fusion outcomes for this pair - use Result workflow
             topologicalResult {
-                let! outcomes = FusionRules.fuse anyon1 anyon2 state.AnyonType
-                
-                if outcomes.IsEmpty then
-                    return! TopologicalResult.logicError "fusion" $"No fusion channels for {anyon1} and {anyon2}"
-                else
-                    // For simplicity, assume they fuse to the first possible channel
-                    // Safe indexing: outcomes guaranteed non-empty by previous check
-                    match List.tryHead outcomes with
-                    | None -> 
-                        return! TopologicalResult.logicError "fusion" "Internal error: outcomes empty after non-empty check"
-                    | Some firstOutcome ->
-                        let channel = firstOutcome.Result
-                        
-                        // Get the braiding phase from R-matrix
+                // Special-case: explicit 3-anyon basis (required for nontrivial mixing)
+                let braidWithinTriple
+                    (treeLeftAssoc: FusionTree.Tree)
+                    (a: AnyonSpecies.Particle)
+                    (b: AnyonSpecies.Particle)
+                    (c: AnyonSpecies.Particle)
+                    (e: AnyonSpecies.Particle)
+                    (d: AnyonSpecies.Particle)
+                    =
+                    topologicalResult {
+                        // 1) Change basis so (b,c) fuse first
+                        let! fTerms = applyLocalFMove LeftToRight state.AnyonType treeLeftAssoc
+
+                        // 2) Apply R on the (b,c) fusion channel f
+                        let braidedInRightBasis =
+                            fTerms
+                            |> List.choose (fun (fAmp, rightAssocSubtree) ->
+                                match rightAssocSubtree with
+                                | FusionTree.Fusion (_, FusionTree.Fusion (_, _, f), _) ->
+                                    match BraidingOperators.element b c f state.AnyonType with
+                                    | Ok rPhase -> Some (fAmp * conjugateIfInverse isClockwise rPhase, rightAssocSubtree)
+                                    | Error _ -> None
+                                | _ -> None)
+
+                        // 3) Change basis back (inverse F)
+                        let! backTerms =
+                            braidedInRightBasis
+                            |> List.fold (fun accResult (amp, rightAssocTree) ->
+                                topologicalResult {
+                                    let! acc = accResult
+                                    let! invTerms = applyLocalFMove RightToLeft state.AnyonType rightAssocTree
+                                    let expanded = invTerms |> List.map (fun (invAmp, leftAssocTree2) -> (amp * invAmp, leftAssocTree2))
+                                    return expanded @ acc
+                                }
+                            ) (Ok [])
+
+                        return backTerms
+                    }
+
+                match state.Tree with
+                // ((a×b→e)×c→d)
+                | FusionTree.Fusion (FusionTree.Fusion (FusionTree.Leaf a, FusionTree.Leaf b, e), FusionTree.Leaf c, d) when leftIndex = 0 ->
+                    let! phase = BraidingOperators.element a b e state.AnyonType
+                    return normalize { Terms = [ (conjugateIfInverse isClockwise phase, state) ]; AnyonType = state.AnyonType }
+
+                | FusionTree.Fusion (FusionTree.Fusion (FusionTree.Leaf a, FusionTree.Leaf b, e), FusionTree.Leaf c, d) when leftIndex = 1 ->
+                    let! mixed = braidWithinTriple state.Tree a b c e d
+                    let mixedStates = mixed |> List.map (fun (amp, t) -> (amp, FusionTree.create t state.AnyonType))
+                    return normalize { Terms = mixedStates; AnyonType = state.AnyonType }
+
+                // (a×(b×c→f)→d)
+                | FusionTree.Fusion (FusionTree.Leaf a, FusionTree.Fusion (FusionTree.Leaf b, FusionTree.Leaf c, f), d) when leftIndex = 1 ->
+                    let! phase = BraidingOperators.element b c f state.AnyonType
+                    return normalize { Terms = [ (conjugateIfInverse isClockwise phase, state) ]; AnyonType = state.AnyonType }
+
+                | FusionTree.Fusion (FusionTree.Leaf a, FusionTree.Fusion (FusionTree.Leaf b, FusionTree.Leaf c, f), d) when leftIndex = 0 ->
+                    // Convert to left-associated basis, braid (a,b) via R, then convert back
+                    let! leftTerms = applyLocalFMove RightToLeft state.AnyonType state.Tree
+                    let braidedLeft =
+                        leftTerms
+                        |> List.choose (fun (amp, leftAssocTree) ->
+                            match leftAssocTree with
+                            | FusionTree.Fusion (FusionTree.Fusion (FusionTree.Leaf a2, FusionTree.Leaf b2, e), FusionTree.Leaf c2, d2) ->
+                                match BraidingOperators.element a2 b2 e state.AnyonType with
+                                | Ok rPhase -> Some (amp * conjugateIfInverse isClockwise rPhase, leftAssocTree)
+                                | Error _ -> None
+                            | _ -> None)
+
+                    let! backTerms =
+                        braidedLeft
+                        |> List.fold (fun accResult (amp, leftAssocTree) ->
+                            topologicalResult {
+                                let! acc = accResult
+                                let! invTerms = applyLocalFMove LeftToRight state.AnyonType leftAssocTree
+                                let expanded = invTerms |> List.map (fun (invAmp, rightAssocTree) -> (amp * invAmp, rightAssocTree))
+                                return expanded @ acc
+                            }
+                        ) (Ok [])
+
+                    let mixedStates = backTerms |> List.map (fun (amp, t) -> (amp, FusionTree.create t state.AnyonType))
+                    return normalize { Terms = mixedStates; AnyonType = state.AnyonType }
+
+                | _ ->
+                    // If the adjacent pair is explicitly fused in this basis, use the stored channel.
+                    match tryFindFusedLeafPairChannel leftIndex state.Tree with
+                    | Some channel ->
+                        let anyon1 = anyons.[leftIndex]
+                        let anyon2 = anyons.[leftIndex + 1]
                         let! phase = BraidingOperators.element anyon1 anyon2 channel state.AnyonType
-                        
-                        // Return the same state with accumulated phase
-                        return { State = state
-                                 Amplitude = phase
-                                 ClassicalOutcome = None }
+                        return normalize { Terms = [ (conjugateIfInverse isClockwise phase, state) ]; AnyonType = state.AnyonType }
+                    | None ->
+                        // Fallback: use first allowed fusion channel (phase-only).
+                        let anyon1 = anyons.[leftIndex]
+                        let anyon2 = anyons.[leftIndex + 1]
+                        let! outcomes = FusionRules.fuse anyon1 anyon2 state.AnyonType
+
+                        match outcomes |> List.tryHead with
+                        | None ->
+                            return! TopologicalResult.logicError "fusion" $"No fusion channels for {anyon1} and {anyon2}"
+                        | Some firstOutcome ->
+                            let! phase = BraidingOperators.element anyon1 anyon2 firstOutcome.Result state.AnyonType
+                            return normalize { Terms = [ (conjugateIfInverse isClockwise phase, state) ]; AnyonType = state.AnyonType }
             }
+
+    let braidAdjacentAnyons (leftIndex: int) (state: FusionTree.State) : TopologicalResult<Superposition> =
+        braidAdjacentAnyonsDirected leftIndex true state
     
     /// Apply a braiding operation to a superposition
-    let braidSuperposition 
-        (leftIndex: int) 
-        (superposition: Superposition) 
+    let braidSuperpositionDirected
+        (leftIndex: int)
+        (isClockwise: bool)
+        (superposition: Superposition)
         : TopologicalResult<Superposition> =
-        
-        // Use Result workflow to propagate errors
+
         superposition.Terms
         |> List.fold (fun termsResult (amp, state) ->
             topologicalResult {
                 let! terms = termsResult
-                let! result = braidAdjacentAnyons leftIndex state
-                return (amp * result.Amplitude, result.State) :: terms
+                let! braided = braidAdjacentAnyonsDirected leftIndex isClockwise state
+
+                let expanded =
+                    braided.Terms
+                    |> List.map (fun (braidAmp, braidedState) -> (amp * braidAmp, braidedState))
+
+                return expanded @ terms
             }
         ) (Ok [])
-        |> Result.map (fun terms -> { superposition with Terms = List.rev terms })
+        |> Result.map (fun terms ->
+            { superposition with Terms = List.rev terms }
+            |> combineLikeTerms
+            |> normalize)
+
+    let braidSuperposition (leftIndex: int) (superposition: Superposition) : TopologicalResult<Superposition> =
+        braidSuperpositionDirected leftIndex true superposition
     
     // ========================================================================
     // MEASUREMENT OPERATIONS
@@ -230,61 +550,6 @@ module TopologicalOperations =
                     
                     return List.rev results
             }
-    
-    // ========================================================================
-    // BASIS TRANSFORMATIONS (F-MOVES)
-    // ========================================================================
-    
-    /// Apply F-matrix transformation to change fusion tree associativity
-    /// 
-    /// F-move: ((a × b) × c) ↔ (a × (b × c))
-    /// 
-    /// This changes the tree structure but represents the same quantum state
-    /// in a different basis. The F-matrix gives the change-of-basis coefficients.
-    type FMoveDirection =
-        | LeftToRight  // ((a × b) × c) → (a × (b × c))
-        | RightToLeft  // (a × (b × c)) → ((a × b) × c)
-    
-    /// Apply an F-move at a specific node in the tree
-    /// 
-    /// This is essential for bringing anyons into position for braiding.
-    /// Returns a superposition of trees in the new basis.
-    ///
-    /// F-move transforms: ((a × b) × c) ↔ (a × (b × c))
-    let fMove
-        (direction: FMoveDirection)
-        (nodeDepth: int)
-        (state: FusionTree.State)
-        : Superposition =
-        
-        // Get the leaves (anyons) from the tree
-        let anyons = FusionTree.leaves state.Tree
-        
-        // F-move requires at least 3 anyons
-        if anyons.Length < 3 then
-            pureState state  // Identity - can't F-move
-        else
-            // For simplified implementation:
-            // Apply F-matrix transformation symbolically
-            // In reality, we'd need to:
-            // 1. Identify the fusion vertex to transform
-            // 2. Extract (a, b, c) triple and intermediate charges
-            // 3. Calculate F-matrix elements
-            // 4. Create superposition of new basis states
-            
-            match direction with
-            | LeftToRight ->
-                // Transform ((a × b) × c) → (a × (b × c))
-                // For now, return identity (F-matrix is close to identity for small systems)
-                pureState state
-            | RightToLeft ->
-                // Transform (a × (b × c)) → ((a × b) × c)
-                // Inverse of LeftToRight
-                pureState state
-            
-            // Note: Full implementation would compute F-matrix coefficients
-            // and return actual superposition. For the simulator to be useful,
-            // we keep it as identity transformation (valid but simplified).
     
     // ========================================================================
     // COMPOSITE GATES
@@ -542,14 +807,9 @@ module TopologicalOperations =
         
         interface ITopologicalSuperposition with
             member _.LogicalQubits =
-                // Calculate logical qubit count from fusion tree structure
                 match superposition.Terms with
                 | [] -> 0
-                | (_, state) :: _ -> 
-                    // Count leaves in the fusion tree (each pair of anyons = 1 qubit)
-                    let leaves = FusionTree.leaves state.Tree
-                    // Jordan-Wigner encoding: n qubits requires n+1 anyons
-                    max 0 (leaves.Length - 1)
+                | (_, state) :: _ -> FusionTree.numQubits state.Tree
             
             member _.MeasureAll shots =
                 measureAll superposition shots

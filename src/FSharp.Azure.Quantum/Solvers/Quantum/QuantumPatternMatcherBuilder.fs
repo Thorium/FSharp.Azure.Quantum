@@ -311,45 +311,52 @@ module QuantumPatternMatcher =
                     let! searchResult = GroverSearch.Grover.search oracle actualBackend groverConfig
                     
                     match searchResult.Solutions with
-                    | [] -> return! Error (QuantumError.OperationError ("GroverSearch", "No matching patterns found by quantum search"))
+                    | [] ->
+                        return! Error (QuantumError.OperationError ("GroverSearch", "No matching patterns found by quantum search"))
                     | solutions ->
-                        // Take top N solutions
-                        let topIndices = solutions |> List.take (min problem.TopN (List.length solutions))
-                        
-                        // Convert indices to actual items (if we have the search space)
-                        let matches =
-                            match searchSpaceItems with
-                            | Some items ->
-                                topIndices
-                                |> List.choose (fun idx -> 
-                                    if idx >= 0 && idx < List.length items then
-                                        Some (List.item idx items)
-                                    else
-                                        None
-                                )
-                            | None ->
-                                // Return indices as 'T (when using searchSpaceSize, 'T should be int)
-                                topIndices 
-                                |> List.choose (fun idx ->
-                                    try
-                                        Some (box idx :?> 'T)
-                                    with
-                                    | :? System.InvalidCastException -> None
-                                )
-                        
-                        let backendName = 
-                            match problem.Backend with
-                            | Some backend -> backend.GetType().Name
-                            | None -> "LocalBackend (Simulation)"
-                        
-                        return {
-                            Matches = matches
-                            SuccessProbability = searchResult.SuccessProbability
-                            BackendName = backendName
-                            QubitsRequired = qubitsNeeded
-                            IterationsUsed = searchResult.Iterations
-                            SearchSpaceSize = searchSpaceSize
-                        }
+                        // Grover returns candidate indices; always verify classically.
+                        // This protects against false positives due to finite-shot sampling.
+                        let verifiedIndices = solutions |> List.filter oraclePredicate
+
+                        match verifiedIndices with
+                        | [] ->
+                            return! Error (QuantumError.OperationError ("GroverSearch", "No matching patterns found by quantum search"))
+                        | _ ->
+                            // Take top N verified solutions
+                            let topIndices = verifiedIndices |> List.take (min problem.TopN (List.length verifiedIndices))
+
+                            // Convert indices to actual items (if we have the search space)
+                            let matches =
+                                match searchSpaceItems with
+                                | Some items ->
+                                    topIndices
+                                    |> List.choose (fun idx ->
+                                        if idx >= 0 && idx < List.length items then
+                                            Some (List.item idx items)
+                                        else
+                                            None)
+                                | None ->
+                                    // Return indices as 'T (when using searchSpaceSize, 'T should be int)
+                                    topIndices
+                                    |> List.choose (fun idx ->
+                                        try
+                                            Some (box idx :?> 'T)
+                                        with
+                                        | :? System.InvalidCastException -> None)
+
+                            let backendName =
+                                match problem.Backend with
+                                | Some backend -> backend.GetType().Name
+                                | None -> "LocalBackend (Simulation)"
+
+                            return {
+                                Matches = matches
+                                SuccessProbability = searchResult.SuccessProbability
+                                BackendName = backendName
+                                QubitsRequired = qubitsNeeded
+                                IterationsUsed = searchResult.Iterations
+                                SearchSpaceSize = searchSpaceSize
+                            }
                 }
         with
         | ex -> Error (QuantumError.OperationError ("PatternMatcher", $"Pattern matcher failed: {ex.Message}"))

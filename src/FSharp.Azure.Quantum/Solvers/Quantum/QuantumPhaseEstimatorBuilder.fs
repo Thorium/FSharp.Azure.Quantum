@@ -83,6 +83,10 @@ module QuantumPhaseEstimator =
         /// None = use |0⟩ (works for diagonal gates)
         EigenVector: StateVector.StateVector option
         
+        /// Whether to apply the final bit-reversal SWAPs in QPE.
+        /// If false, results are post-processed classically (default).
+        ApplySwaps: bool
+        
         /// Quantum backend to use (None = LocalBackend)
         Backend: BackendAbstraction.IQuantumBackend option
         
@@ -171,6 +175,7 @@ module QuantumPhaseEstimator =
             Precision = 8                // 8 bits precision (1/256 resolution)
             TargetQubits = 1             // Single target qubit
             EigenVector = None           // Use |0⟩ eigenstate
+            ApplySwaps = false           // Default: post-process bit order classically
             Backend = None               // Use LocalBackend by default
             Shots = None                 // Auto-scale based on backend
         }
@@ -202,6 +207,12 @@ module QuantumPhaseEstimator =
         member _.Eigenstate(problem: PhaseEstimatorProblem, vec: StateVector.StateVector) : PhaseEstimatorProblem =
             { problem with EigenVector = Some vec }
         
+        /// <summary>Set whether to apply final bit-reversal SWAPs.</summary>
+        /// <param name="enabled">If true, applies explicit SWAPs; otherwise post-processes classically.</param>
+        [<CustomOperation("applySwaps")>]
+        member _.ApplySwaps(problem: PhaseEstimatorProblem, enabled: bool) : PhaseEstimatorProblem =
+            { problem with ApplySwaps = enabled }
+
         /// <summary>Set quantum backend.</summary>
         /// <param name="b">Quantum backend instance</param>
         [<CustomOperation("backend")>]
@@ -276,8 +287,8 @@ module QuantumPhaseEstimator =
                     problem.Backend 
                     |> Option.defaultValue (LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend)
                 
-                // Execute QPE using new unified API
-                match QPE.execute config backend with
+                // Execute QPE using unified API
+                match QPE.executeWith config backend problem.ApplySwaps with
                 | Error err -> Error err
                 | Ok result ->
                     

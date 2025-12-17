@@ -68,66 +68,91 @@ module DeutschJozsa =
     /// Oracle implementation - applies phase flip for marked states
     /// Oracle: |x⟩ → (-1)^f(x) |x⟩ (phase oracle form)
     type Oracle = QuantumState -> Result<QuantumState, QuantumError>
-    
+
+    type private DeutschJozsaIntent = {
+        NumQubits: int
+        Oracle: Oracle
+    }
+
+    [<RequireQualifiedAccess>]
+    type private DeutschJozsaPlan =
+        | ExecuteViaOpsAndOracle of preOps: QuantumOperation list * oracle: Oracle * postOps: QuantumOperation list
+
+    // ========================================================================
+    // HELPERS
+    // ========================================================================
+
+    let private gatesOnAllQubits (gate: int -> Gate) (numQubits: int) : QuantumOperation list =
+        [ 0 .. numQubits - 1 ]
+        |> List.map (fun i -> QuantumOperation.Gate (gate i))
+
+    let private oracleFromOps (backend: IQuantumBackend) (ops: QuantumOperation list) : Oracle =
+        fun state -> UnifiedBackend.applySequence backend ops state
+
     // ========================================================================
     // ORACLE CONSTRUCTORS
     // ========================================================================
-    
-    /// Create constant-zero oracle: f(x) = 0 for all x
-    /// This is the identity operation (does nothing)
+
+    /// Create constant-zero oracle: f(x) = 0 for all x.
+    ///
+    /// In phase-oracle form this is the identity: |x⟩ → |x⟩.
     let constantZeroOracle (state: QuantumState) : Result<QuantumState, QuantumError> =
-        Ok state  // Identity - no phase flip
-    
-    /// Create constant-one oracle: f(x) = 1 for all x
-    /// This flips the global phase (which doesn't affect measurements, but matters for interference)
-    let constantOneOracle (numQubits: int) (backend: IQuantumBackend) : Oracle =
-        fun (state: QuantumState) ->
-            // Apply Z gate to first qubit (flips global phase for all states)
-            backend.ApplyOperation (QuantumOperation.Gate (Z 0)) state
-    
-    /// Create balanced oracle that flips phase for states where first qubit is |1⟩
-    /// This implements f(x) = x_0 (first bit of x)
+        Ok state
+
+    /// Create constant-one oracle: f(x) = 1 for all x.
+    ///
+    /// In phase-oracle form this is a global phase flip: |x⟩ → -|x⟩.
+    /// Global phase is not observable, so we model it as identity.
+    let constantOneOracle : Oracle =
+        fun state -> Ok state
+
+    /// Create balanced oracle that flips phase for states where first qubit is |1⟩.
+    /// Implements f(x) = x₀.
     let balancedFirstBitOracle (backend: IQuantumBackend) : Oracle =
-        fun (state: QuantumState) ->
-            // Apply Z gate to first qubit (flips phase if first qubit is |1⟩)
-            backend.ApplyOperation (QuantumOperation.Gate (Z 0)) state
-    
-    /// Create balanced oracle that flips phase for states with odd parity
-    /// This implements f(x) = x_0 ⊕ x_1 ⊕ ... ⊕ x_(n-1) (XOR of all bits)
+        oracleFromOps backend [ QuantumOperation.Gate (Z 0) ]
+
+    /// Create balanced oracle that flips phase for states with odd parity.
+    /// Implements f(x) = x₀ ⊕ x₁ ⊕ ... ⊕ xₙ₋₁.
     let balancedParityOracle (numQubits: int) (backend: IQuantumBackend) : Oracle =
-        fun (state: QuantumState) ->
-            // Apply Z to all qubits sequentially
-            let ops = [ for i in 0 .. numQubits - 1 -> QuantumOperation.Gate (Z i) ]
-            
-            // Fold through operations, threading state
-            (Ok state, ops)
-            ||> List.fold (fun stateResult op ->
-                Result.bind (fun s -> backend.ApplyOperation op s) stateResult)
-    
+        oracleFromOps backend (gatesOnAllQubits Z numQubits)
+
     // ========================================================================
-    // HELPER: Apply gates to all qubits
+    // INTENT → PLAN → EXECUTION (ADR: intent-first algorithms)
     // ========================================================================
-    
-    /// Apply same gate to all qubits (functional, no mutation)
-    let private applyToAllQubits 
-        (gate: int -> Gate) 
-        (numQubits: int) 
-        (backend: IQuantumBackend) 
+
+    let private plan (backend: IQuantumBackend) (intent: DeutschJozsaIntent) : Result<DeutschJozsaPlan, QuantumError> =
+        // Deutsch-Jozsa requires standard gate-based operations (H, and whatever the oracle requires).
+        // Some backends (e.g., annealing) cannot support this, and we should fail explicitly.
+        match backend.NativeStateType with
+        | QuantumStateType.Annealing ->
+            Error (QuantumError.OperationError ("DeutschJozsa", $"Backend '{backend.Name}' does not support Deutsch-Jozsa (native state type: {backend.NativeStateType})"))
+        | _ ->
+            // Today we always lower to ops + explicit oracle.
+            // Future: add `QuantumOperation.Algorithm (AlgorithmOperation.DeutschJozsa ...)` if/when supported.
+            let hadamards = gatesOnAllQubits H intent.NumQubits
+            if hadamards |> List.forall backend.SupportsOperation then
+                Ok (DeutschJozsaPlan.ExecuteViaOpsAndOracle (hadamards, intent.Oracle, hadamards))
+            else
+                Error (QuantumError.OperationError ("DeutschJozsa", $"Backend '{backend.Name}' does not support required operations for Deutsch-Jozsa"))
+
+    let private executePlan
+        (backend: IQuantumBackend)
         (state: QuantumState)
+        (plan: DeutschJozsaPlan)
         : Result<QuantumState, QuantumError> =
-        
-        // Create operations for all qubits
-        let operations = [ for i in 0 .. numQubits - 1 -> QuantumOperation.Gate (gate i) ]
-        
-        // Fold through operations, threading state (idiomatic F#)
-        (Ok state, operations)
-        ||> List.fold (fun stateResult op ->
-            Result.bind (fun s -> backend.ApplyOperation op s) stateResult)
-    
+
+        match plan with
+        | DeutschJozsaPlan.ExecuteViaOpsAndOracle (preOps, oracle, postOps) ->
+            result {
+                let! afterPre = UnifiedBackend.applySequence backend preOps state
+                let! afterOracle = oracle afterPre
+                return! UnifiedBackend.applySequence backend postOps afterOracle
+            }
+
     // ========================================================================
     // ALGORITHM IMPLEMENTATION
     // ========================================================================
-    
+
     /// Run Deutsch-Jozsa algorithm with custom oracle
     /// 
     /// Algorithm steps:
@@ -149,12 +174,13 @@ module DeutschJozsa =
     /// 
     /// Returns:
     ///   DeutschJozsaResult with oracle type determination
-    let run (oracle: Oracle) 
-            (numQubits: int) 
-            (backend: IQuantumBackend) 
-            (shots: int)
+    let run
+        (oracle: Oracle)
+        (numQubits: int)
+        (backend: IQuantumBackend)
+        (shots: int)
         : Result<DeutschJozsaResult, QuantumError> =
-        
+
         // Validate inputs
         if numQubits < 1 then
             Error (QuantumError.ValidationError ("numQubits", "Deutsch-Jozsa requires at least 1 qubit"))
@@ -164,31 +190,31 @@ module DeutschJozsa =
             Error (QuantumError.ValidationError ("shots", "Deutsch-Jozsa requires at least 1 shot"))
         else
             result {
+                let intent = { NumQubits = numQubits; Oracle = oracle }
+
                 // Step 1: Initialize |0⟩^⊗n state
                 let! initialState = backend.InitializeState numQubits
-                
-                // Step 2: Apply Hadamard to all qubits (create superposition)
-                let! superpositionState = applyToAllQubits H numQubits backend initialState
-                
-                // Step 3: Apply oracle (phase kickback)
-                let! oracleState = oracle superpositionState
-                
-                // Step 4: Apply Hadamard to all qubits (interference)
-                let! finalState = applyToAllQubits H numQubits backend oracleState
-                
-                // Step 5: Simplified measurement interpretation
-                // In ideal case: Constant → always |000...0⟩, Balanced → never |000...0⟩
-                // For now, return deterministic result based on oracle structure
-                // (Full implementation would need state vector inspection for actual measurements)
-                
-                // Since we can't easily extract measurements from arbitrary backends,
-                // we'll use the theoretical result for demonstration
-                let zeroProbability = 1.0  // Placeholder - would need measurement implementation
-                
-                // For demonstration: We know the oracle type from construction
-                // Real implementation would measure and count |000...0⟩ outcomes
-                let oracleType = Constant  // Placeholder
-                
+
+                // Step 2: Plan and execute
+                let! djPlan = plan backend intent
+                let! finalState = executePlan backend initialState djPlan
+
+                // Step 3: Measure and interpret
+                let measurements = UnifiedBackend.measureState finalState shots
+
+                let isAllZero (bits: int[]) = bits |> Array.forall ((=) 0)
+
+                let zeroCount =
+                    measurements
+                    |> Array.filter isAllZero
+                    |> Array.length
+
+                let zeroProbability = float zeroCount / float shots
+
+                // Ideal DJ: constant → always zero, balanced → never zero.
+                // For noisy backends, a threshold can be adopted by callers/tests.
+                let oracleType = if zeroProbability = 1.0 then Constant else Balanced
+
                 return {
                     OracleType = oracleType
                     ZeroProbability = zeroProbability
@@ -203,28 +229,24 @@ module DeutschJozsa =
     // ========================================================================
     
     /// Run Deutsch-Jozsa with constant-zero oracle (identity)
-    let runConstantZero (numQubits: int) (backend: IQuantumBackend) (shots: int) 
+    let runConstantZero (numQubits: int) (backend: IQuantumBackend) (shots: int)
         : Result<DeutschJozsaResult, QuantumError> =
         run constantZeroOracle numQubits backend shots
-        |> Result.map (fun r -> { r with OracleType = Constant; ZeroProbability = 1.0 })
     
     /// Run Deutsch-Jozsa with constant-one oracle (global phase flip)
-    let runConstantOne (numQubits: int) (backend: IQuantumBackend) (shots: int) 
+    let runConstantOne (numQubits: int) (backend: IQuantumBackend) (shots: int)
         : Result<DeutschJozsaResult, QuantumError> =
-        run (constantOneOracle numQubits backend) numQubits backend shots
-        |> Result.map (fun r -> { r with OracleType = Constant; ZeroProbability = 1.0 })
+        run constantOneOracle numQubits backend shots
     
     /// Run Deutsch-Jozsa with balanced first-bit oracle (f(x) = x_0)
-    let runBalancedFirstBit (numQubits: int) (backend: IQuantumBackend) (shots: int) 
+    let runBalancedFirstBit (numQubits: int) (backend: IQuantumBackend) (shots: int)
         : Result<DeutschJozsaResult, QuantumError> =
         run (balancedFirstBitOracle backend) numQubits backend shots
-        |> Result.map (fun r -> { r with OracleType = Balanced; ZeroProbability = 0.0 })
     
     /// Run Deutsch-Jozsa with balanced parity oracle (f(x) = x_0 ⊕ x_1 ⊕ ... ⊕ x_n)
-    let runBalancedParity (numQubits: int) (backend: IQuantumBackend) (shots: int) 
+    let runBalancedParity (numQubits: int) (backend: IQuantumBackend) (shots: int)
         : Result<DeutschJozsaResult, QuantumError> =
         run (balancedParityOracle numQubits backend) numQubits backend shots
-        |> Result.map (fun r -> { r with OracleType = Balanced; ZeroProbability = 0.0 })
     
     // ========================================================================
     // PRETTY PRINTING

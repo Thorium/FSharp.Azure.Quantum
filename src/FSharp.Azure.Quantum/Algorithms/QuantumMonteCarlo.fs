@@ -29,7 +29,7 @@ open FSharp.Azure.Quantum.LocalSimulator
 /// Rebentrost et al., "Quantum computational finance: Monte Carlo pricing of financial derivatives"
 /// Phys. Rev. A 98, 022321 (2018) - https://arxiv.org/abs/1805.00109
 module QuantumMonteCarlo =
-    
+
     // ========================================================================
     // TYPES
     // ========================================================================
@@ -142,6 +142,46 @@ module QuantumMonteCarlo =
         
         // Compose: first apply oracle, then diffusion
         oracle |> CircuitBuilder.compose diffusion
+
+    // ========================================================================
+    // INTENT → PLAN → EXECUTE (ADR: Intent-First)
+    // ========================================================================
+
+    type private QmcIntent = { Config: QMCConfig }
+
+    [<RequireQualifiedAccess>]
+    type private QmcPlan =
+        | ExecuteViaCircuit
+
+    let private supportsCircuit (backend: IQuantumBackend) (circuit: CircuitBuilder.Circuit) : bool =
+        circuit.Gates
+        |> List.forall (fun gate -> backend.SupportsOperation (QuantumOperation.Gate gate))
+
+    let private plan (backend: IQuantumBackend) (intent: QmcIntent) : Result<QmcPlan, QuantumError> =
+        // Quantum Monte Carlo relies on gate operations; explicit refusal for annealing backends.
+        match backend.NativeStateType with
+        | QuantumStateType.Annealing ->
+            Error (QuantumError.OperationError ("QuantumMonteCarlo", $"Backend '{backend.Name}' does not support quantum Monte Carlo (native state type: {backend.NativeStateType})"))
+        | _ ->
+            // Ensure all gates in the user-provided circuits are supported.
+            if supportsCircuit backend intent.Config.StatePreparation && supportsCircuit backend intent.Config.Oracle then
+                Ok QmcPlan.ExecuteViaCircuit
+            else
+                Error (QuantumError.OperationError ("QuantumMonteCarlo", $"Backend '{backend.Name}' does not support all required circuit operations"))
+
+    let private executePlan (backend: IQuantumBackend) (intent: QmcIntent) (plan: QmcPlan) : Result<QuantumState, QuantumError> =
+        match plan with
+        | QmcPlan.ExecuteViaCircuit ->
+            let config = intent.Config
+
+            let groverOp = buildGroverOperator config.Oracle
+
+            let circuit =
+                [1 .. config.GroverIterations]
+                |> List.fold (fun c _ -> c |> CircuitBuilder.compose groverOp) config.StatePreparation
+
+            let wrapper = CircuitAbstraction.CircuitWrapper(circuit) :> CircuitAbstraction.ICircuit
+            backend.ExecuteToState wrapper
     
     // ========================================================================
     // PUBLIC - Quantum Monte Carlo (RULE1: backend required)
@@ -180,82 +220,65 @@ module QuantumMonteCarlo =
                     return! Error (QuantumError.ValidationError ("Oracle", "Qubit count mismatch"))
                 else
                     
-                    // Build Grover operator
-                    let groverOp = buildGroverOperator config.Oracle
-                    
-                    // Build full circuit: StatePrep → Grover^k
-                    // Note: We don't add measurements before ExecuteToState
-                    // ExecuteToState returns the quantum state directly
-                    let circuit =
-                        [1 .. config.GroverIterations]
-                        |> List.fold (fun c _ -> c |> CircuitBuilder.compose groverOp) config.StatePreparation
-                    
-                    // Execute on quantum backend (✅ RULE1 compliant)
-                    let wrapper = CircuitAbstraction.CircuitWrapper(circuit) :> CircuitAbstraction.ICircuit
-                    let executionResult = backend.ExecuteToState wrapper
-                    
-                    match executionResult with
-                    | Error err ->
-                        return! Error err
-                    
-                    | Ok finalState ->
-                        // Extract success probability from quantum state
-                        // We want probability of |0...0⟩ (all qubits measured as 0)
-                        let successProb = 
-                            match finalState with
-                            | QuantumState.StateVector sv ->
-                                // Basis state |0...0⟩ corresponds to index 0
-                                StateVector.probability 0 sv
-                            
-                            | QuantumState.FusionSuperposition topo ->
-                                // Topological state - measure |0...0⟩
-                                let zeroState = Array.create config.NumQubits 0
-                                topo.Probability zeroState
-                            
-                            | _ ->
-                                // Other state types not supported yet
-                                failwith "QuantumMonteCarlo only supports StateVector and FusionSuperposition backends"
-                        
-                        // Estimate original amplitude from Grover-amplified result
-                        // Grover amplifies a → sin²((2k+1)θ) where sin²(θ) = a, k = iterations
-                        let amplifiedAngle = asin (sqrt successProb)
-                        let k = float config.GroverIterations
-                        let theta = amplifiedAngle / (2.0 * k + 1.0)
-                        let originalAmplitude = (sin theta) ** 2.0
-                        
-                        // Calculate standard error (theoretical bound)
-                        // Quantum amplitude estimation achieves O(1/M) error with M queries
-                        let stdError = 
-                            if config.GroverIterations > 0 then
-                                1.0 / float config.GroverIterations
-                            else
-                                1.0 / sqrt (float config.Shots)
-                        
-                        // Classical equivalent samples for same accuracy
-                        let classicalSamples = 
-                            if config.GroverIterations > 0 then
-                                config.GroverIterations * config.GroverIterations
-                            else
-                                config.Shots
-                        
-                        // Total quantum queries
-                        let quantumQueries = config.GroverIterations * config.Shots
-                        
-                        // Speedup factor
-                        let speedup = 
-                            if quantumQueries > 0 then
-                                float classicalSamples / float quantumQueries
-                            else
-                                1.0
-                        
-                        return {
-                            ExpectationValue = originalAmplitude
-                            StandardError = stdError
-                            SuccessProbability = successProb
-                            QuantumQueries = quantumQueries
-                            ClassicalEquivalent = classicalSamples
-                            SpeedupFactor = speedup
-                        }
+                    let intent = { Config = config }
+
+                    // Plan + execute via explicit strategy (ADR intent-first)
+                    let! finalState =
+                        match plan backend intent with
+                        | Error err -> Error err
+                        | Ok chosenPlan -> executePlan backend intent chosenPlan
+
+                    // Extract success probability from quantum state
+                    // We want probability of |0...0⟩ (all qubits measured as 0)
+                    let zeroState = Array.create config.NumQubits 0
+
+                    let! successProb =
+                        try
+                            Ok (QuantumState.probability zeroState finalState)
+                        with ex ->
+                            // Convert invalidArg / unexpected state failures into a clear QuantumError.
+                            Error (QuantumError.OperationError ("QuantumMonteCarlo", $"Unsupported state representation: {ex.Message}"))
+
+                    // Estimate original amplitude from Grover-amplified result
+                    // Grover amplifies a → sin²((2k+1)θ) where sin²(θ) = a, k = iterations
+                    let amplifiedAngle = asin (sqrt successProb)
+                    let k = float config.GroverIterations
+                    let theta = amplifiedAngle / (2.0 * k + 1.0)
+                    let originalAmplitude = (sin theta) ** 2.0
+
+                    // Calculate standard error (theoretical bound)
+                    // Quantum amplitude estimation achieves O(1/M) error with M queries
+                    let stdError = 
+                        if config.GroverIterations > 0 then
+                            1.0 / float config.GroverIterations
+                        else
+                            1.0 / sqrt (float config.Shots)
+
+                    // Classical equivalent samples for same accuracy
+                    let classicalSamples = 
+                        if config.GroverIterations > 0 then
+                            config.GroverIterations * config.GroverIterations
+                        else
+                            config.Shots
+
+                    // Total quantum queries
+                    let quantumQueries = config.GroverIterations * config.Shots
+
+                    // Speedup factor
+                    let speedup = 
+                        if quantumQueries > 0 then
+                            float classicalSamples / float quantumQueries
+                        else
+                            1.0
+
+                    return {
+                        ExpectationValue = originalAmplitude
+                        StandardError = stdError
+                        SuccessProbability = successProb
+                        QuantumQueries = quantumQueries
+                        ClassicalEquivalent = classicalSamples
+                        SpeedupFactor = speedup
+                    }
             }
         }
     

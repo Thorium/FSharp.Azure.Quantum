@@ -1,6 +1,7 @@
 namespace FSharp.Azure.Quantum.GroverSearch
 
 open System
+open System.Diagnostics
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.BackendAbstraction
@@ -28,6 +29,8 @@ open FSharp.Azure.Quantum.Core.BackendAbstraction
 module Grover =
     
     open FSharp.Azure.Quantum.GroverSearch.Oracle
+
+
     
     // ========================================================================
     // TYPES
@@ -388,7 +391,115 @@ module Grover =
     // ========================================================================
     // MAIN GROVER SEARCH ALGORITHM
     // ========================================================================
-    
+
+    type private Exactness =
+        | Exact
+
+    type private GroverIntentOps = {
+        Prepare: QuantumOperation
+        Oracle: QuantumOperation
+        Diffusion: QuantumOperation
+    }
+
+    type private GroverPlan =
+        | ExecuteViaAlgorithmIntents of GroverIntentOps
+        | ExecuteViaOps
+
+    let private createIntentOps (oracle: Oracle.CompiledOracle) : GroverIntentOps =
+        {
+            Prepare = QuantumOperation.Algorithm (AlgorithmOperation.GroverPrepare oracle.NumQubits)
+            Oracle =
+                QuantumOperation.Algorithm (
+                    AlgorithmOperation.GroverOraclePhaseFlip {
+                        NumQubits = oracle.NumQubits
+                        IsMarked = Oracle.isSolution oracle.Spec
+                    })
+            Diffusion = QuantumOperation.Algorithm (AlgorithmOperation.GroverDiffusion oracle.NumQubits)
+        }
+
+    let private plan
+        (backend: IQuantumBackend)
+        (oracle: Oracle.CompiledOracle)
+        (_exactness: Exactness)
+        : Result<GroverPlan, QuantumError> =
+
+        // Prefer native algorithm intents when available.
+        // Otherwise fall back to an explicit gate lowering path.
+        match backend.NativeStateType with
+        | QuantumStateType.Annealing ->
+            Error (QuantumError.OperationError ("Grover", $"Backend '{backend.Name}' does not support Grover search (native state type: {backend.NativeStateType})"))
+        | _ ->
+            let ops = createIntentOps oracle
+
+            if backend.SupportsOperation ops.Prepare
+               && backend.SupportsOperation ops.Oracle
+               && backend.SupportsOperation ops.Diffusion then
+                Ok (ExecuteViaAlgorithmIntents ops)
+            else
+                // Validate that this backend can execute the lowered gate path.
+                // For 2 qubits, diffusion doesn't need an MCZ decomposition (just CZ).
+                // For >2 qubits, we need whatever decomposition `GateTranspiler` emits.
+                let numQubits = oracle.NumQubits
+
+                let loweredSampleOps =
+                    if numQubits <= 1 then
+                        []
+                    elif numQubits = 2 then
+                        [
+                            QuantumOperation.Gate (CircuitBuilder.H 0)
+                            QuantumOperation.Gate (CircuitBuilder.X 0)
+                            QuantumOperation.Gate (CircuitBuilder.CZ (0, 1))
+                            QuantumOperation.Gate (CircuitBuilder.X 0)
+                            QuantumOperation.Gate (CircuitBuilder.H 0)
+                        ]
+                    else
+                        // Use the same decomposition strategy as the real algorithm.
+                        let controls = [ 0 .. numQubits - 2 ]
+                        let targetQubit = numQubits - 1
+                        let decomposedMCZ = decomposeMCZGate controls targetQubit numQubits
+                        decomposedMCZ |> List.map QuantumOperation.Gate
+
+                if loweredSampleOps |> List.forall backend.SupportsOperation then
+                    Ok ExecuteViaOps
+                else
+                    Error (QuantumError.OperationError ("Grover", $"Backend '{backend.Name}' does not support required operations for Grover search"))
+
+    let private repeatM (count: int) (step: 'state -> Result<'state, QuantumError>) (initial: 'state) =
+        let rec loop remaining state =
+            if remaining <= 0 then
+                Ok state
+            else
+                state |> step |> Result.bind (loop (remaining - 1))
+
+        loop count initial
+
+    let private executePlan
+        (backend: IQuantumBackend)
+        (oracle: Oracle.CompiledOracle)
+        (iterationCount: int)
+        (plan: GroverPlan)
+        : Result<QuantumState, QuantumError> =
+        result {
+            let! state0 = backend.InitializeState oracle.NumQubits
+
+            match plan with
+            | ExecuteViaAlgorithmIntents ops ->
+                let! prepared = backend.ApplyOperation ops.Prepare state0
+
+                let step s =
+                    s
+                    |> backend.ApplyOperation ops.Oracle
+                    |> Result.bind (backend.ApplyOperation ops.Diffusion)
+
+                return! repeatM iterationCount step prepared
+
+            | ExecuteViaOps ->
+                let! prepared = applyHadamardTransform backend state0
+                let step s = applyGroverIteration backend oracle s
+
+                return! repeatM iterationCount step prepared
+        }
+
     /// Execute Grover search algorithm with unified backend
     /// 
     /// Parameters:
@@ -403,9 +514,9 @@ module Grover =
         (backend: IQuantumBackend)
         (config: GroverConfig)
         : Result<GroverResult, QuantumError> =
-        
-        let startTime = DateTime.Now
-        
+
+        let stopwatch = Stopwatch.StartNew()
+
         // Determine iteration count (auto-calculate if not specified)
         let iterationCount =
             match config.Iterations with
@@ -416,37 +527,31 @@ module Grover =
                     match oracle.Spec with
                     | Oracle.OracleSpec.SingleTarget _ -> 1
                     | Oracle.OracleSpec.Solutions solutionList -> solutionList.Length
-                    | Oracle.OracleSpec.Predicate _ -> 1  // Conservative estimate
-                    | _ -> 1  // Conservative estimate for combinators
-                
+                    | Oracle.OracleSpec.Predicate _ -> 1 // Conservative estimate
+                    | _ -> 1 // Conservative estimate for combinators
+
                 calculateOptimalIterations oracle.NumQubits numSolutions
-        
-        // Step 1: Initialize quantum state |0⟩^⊗n
+
+        // Plan explicitly, then execute.
+        let preparedAndIteratedState =
+            plan backend oracle Exact
+            |> Result.bind (fun groverPlan -> executePlan backend oracle iterationCount groverPlan)
+
         result {
-            let! initialState = backend.InitializeState oracle.NumQubits
-            
-            // Step 2: Create uniform superposition H^⊗n|0⟩
-            let! superpositionState = applyHadamardTransform backend initialState
-            
-            // Step 3: Apply Grover iterations (Oracle + Diffusion)^k
-            let! finalState =
-                [1 .. iterationCount]
-                |> List.fold (fun stateResult _ ->
-                    stateResult |> Result.bind (applyGroverIteration backend oracle)
-                ) (Ok superpositionState)
-            
+            let! finalState = preparedAndIteratedState
+
             // Step 4: Measure final state
             let measurements = UnifiedBackend.measureState finalState config.Shots
-            
+
             // Step 5: Extract solutions from measurements
             let distribution = extractDistribution measurements
             let solutions = extractSolutions distribution config.Shots config.SolutionThreshold
             let successProb = calculateSuccessProbability distribution config.Shots
-            
+
             // Calculate execution time
-            let endTime = DateTime.Now
-            let elapsedMs = (endTime - startTime).TotalMilliseconds
-            
+            stopwatch.Stop()
+            let elapsedMs = stopwatch.Elapsed.TotalMilliseconds
+
             // Return result
             return {
                 Solutions = solutions

@@ -25,6 +25,42 @@ open FSharp.Azure.Quantum
 module QRNG =
     
     // ========================================================================
+    // INTENT → PLAN → EXECUTE (ADR: Intent-First)
+    // ========================================================================
+
+    type private QrngIntent = { NumBits: int }
+
+    [<RequireQualifiedAccess>]
+    type private QrngPlan =
+        | ExecuteViaCircuit
+
+    let private plan (backend: IQuantumBackend) (intent: QrngIntent) : Result<QrngPlan, QuantumError> =
+        // QRNG currently needs the ability to execute a gate-based H-superposition circuit.
+        // Some backends (e.g., annealing) cannot support this, and we should fail explicitly.
+        match backend.NativeStateType with
+        | QuantumStateType.Annealing ->
+            Error (QuantumError.OperationError ("QRNG", $"Backend '{backend.Name}' does not support QRNG (native state type: {backend.NativeStateType})"))
+        | _ ->
+            let needs = QuantumOperation.Gate (CircuitBuilder.H 0)
+            if backend.SupportsOperation needs then
+                Ok QrngPlan.ExecuteViaCircuit
+            else
+                Error (QuantumError.OperationError ("QRNG", $"Backend '{backend.Name}' does not support required operations for QRNG"))
+
+    let private executePlan (backend: IQuantumBackend) (intent: QrngIntent) (plan: QrngPlan) : Result<QuantumState, QuantumError> =
+        match plan with
+        | QrngPlan.ExecuteViaCircuit ->
+            let circuit = CircuitBuilder.empty intent.NumBits
+
+            let circuitWithH =
+                [0 .. intent.NumBits - 1]
+                |> List.fold (fun c qubitIdx ->
+                    CircuitBuilder.addGate (CircuitBuilder.Gate.H qubitIdx) c) circuit
+
+            let wrappedCircuit = CircuitAbstraction.CircuitWrapper(circuitWithH) :> ICircuit
+            backend.ExecuteToState wrappedCircuit
+    
+    // ========================================================================
     // TYPES
     // ========================================================================
     
@@ -208,73 +244,59 @@ module QRNG =
                 return Error (QuantumError.ValidationError ("NumBits", "too large for single backend execution (max 1000)"))
             else
                 try
-                    // Build quantum circuit for QRNG
-                    let circuit = CircuitBuilder.empty numBits
-                    
-                    // Apply Hadamard to all qubits
-                    let circuitWithH =
-                        [0 .. numBits - 1]
-                        |> List.fold (fun c qubitIdx ->
-                            CircuitBuilder.addGate 
-                                (CircuitBuilder.Gate.H qubitIdx) c) circuit
-                    
-                    // Execute on backend (no explicit measurement needed - we'll measure the state)
-                    let wrappedCircuit = CircuitAbstraction.CircuitWrapper(circuitWithH) :> ICircuit
-                    let executionResult = backend.ExecuteToState wrappedCircuit
-                    
-                    match executionResult with
-                    | Ok state ->
-                        // Measure state once to get random bits
-                        let measurements = QuantumState.measure state 1
-                        
-                        // Extract measurement results from the first shot
-                        let bits = 
-                            match measurements with
-                            | [||] -> Array.zeroCreate<bool> numBits
-                            | _ -> 
-                                measurements.[0] 
-                                |> Array.map (fun bitValue -> bitValue = 1)
-                        
-                        // Convert to bytes
-                        let numBytes = (numBits + 7) / 8
-                        let bytes = Array.zeroCreate<byte> numBytes
-                        for i in 0 .. numBits - 1 do
-                            if bits[i] then
-                                let byteIdx = i / 8
-                                let bitIdx = i % 8
-                                bytes[byteIdx] <- bytes[byteIdx] ||| (1uy <<< bitIdx)
-                        
-                        // Convert to integer if possible
-                        let asInteger =
-                            if numBits <= 64 then
-                                let mutable value = 0UL
-                                for i in 0 .. numBits - 1 do
-                                    if bits[i] then
-                                        value <- value ||| (1UL <<< i)
-                                Some value
-                            else
-                                None
-                        
-                        // Calculate entropy
-                        let count0 = bits |> Array.filter (not) |> Array.length
-                        let count1 = bits |> Array.filter id |> Array.length
-                        let p0 = float count0 / float numBits
-                        let p1 = float count1 / float numBits
-                        
-                        let entropy =
-                            if p0 = 0.0 || p1 = 0.0 then 0.0
-                            else -p0 * Math.Log2(p0) - p1 * Math.Log2(p1)
-                        
-                        return Ok {
-                            Bits = bits
-                            AsInteger = asInteger
-                            AsBytes = bytes
-                            Entropy = entropy
-                        }
-                    
+                    let intent = { NumBits = numBits }
+
+                    match plan backend intent with
                     | Error err ->
                         return Error err
-                
+                    | Ok chosenPlan ->
+                        match executePlan backend intent chosenPlan with
+                        | Error err ->
+                            return Error err
+                        | Ok state ->
+                            // Measure state once to get random bits
+                            let measurements = QuantumState.measure state 1
+
+                            let bits =
+                                match measurements with
+                                | [||] -> Array.zeroCreate<bool> numBits
+                                | _ -> measurements.[0] |> Array.map (fun bitValue -> bitValue = 1)
+
+                            // Shared conversion logic matches `generateBits` behavior (little-endian per byte)
+                            let numBytes = (numBits + 7) / 8
+
+                            let bytes =
+                                Array.init numBytes (fun byteIdx ->
+                                    [0 .. 7]
+                                    |> List.fold (fun acc bitIdx ->
+                                        let i = byteIdx * 8 + bitIdx
+                                        if i < numBits && bits.[i] then acc ||| (1uy <<< bitIdx) else acc) 0uy)
+
+                            let asInteger =
+                                if numBits <= 64 then
+                                    bits
+                                    |> Array.indexed
+                                    |> Array.filter snd
+                                    |> Array.fold (fun acc (i, _) -> acc ||| (1UL <<< i)) 0UL
+                                    |> Some
+                                else
+                                    None
+
+                            let count0 = bits |> Array.filter (not) |> Array.length
+                            let count1 = numBits - count0
+                            let p0 = float count0 / float numBits
+                            let p1 = float count1 / float numBits
+
+                            let entropy =
+                                if p0 = 0.0 || p1 = 0.0 then 0.0
+                                else -p0 * Math.Log2(p0) - p1 * Math.Log2(p1)
+
+                            return Ok {
+                                Bits = bits
+                                AsInteger = asInteger
+                                AsBytes = bytes
+                                Entropy = entropy
+                            }
                 with ex ->
                     return Error (QuantumError.BackendError ("QRNG", $"backend execution failed: {ex.Message}"))
         }

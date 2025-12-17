@@ -108,63 +108,169 @@ module QPE =
     }
     
     // ========================================================================
+    // INTENT  PLAN  EXECUTION (ADR: intent-first algorithms)
+    // ========================================================================
+
+    [<RequireQualifiedAccess>]
+    type QpePlan =
+        | ExecuteViaIntent of QuantumOperation
+        | ExecuteViaOps of QuantumOperation list
+
+    // ========================================================================
     // CONTROLLED UNITARY OPERATIONS
     // ========================================================================
     
-    /// Apply controlled-U^(2^power) gate via backend
-    /// 
-    /// For phase gates (T, S, PhaseGate), we apply the gate multiple times:
-    /// - U^(2^0) = U (apply once)
-    /// - U^(2^1) = U² (apply twice)
-    /// - U^(2^k) = U^(2^k) (apply 2^k times)
-    /// 
-    /// This works because phase gates commute with themselves and compose additively:
-    /// e^(iθ₁) · e^(iθ₂) = e^(i(θ₁+θ₂))
-    let private applyControlledUnitaryPower
-        (controlQubit: int)
-        (targetQubit: int)
-        (unitary: UnitaryOperator)
-        (power: int)
-        (backend: IQuantumBackend)
-        (state: QuantumState) : Result<QuantumState, QuantumError> =
-        
-        let totalApplications = 1 <<< power  // 2^power
-        
-        // Get the gate to apply based on unitary type
-        result {
-            let gateOperation = 
-                match unitary with
+    /// Convert algorithm-level unitary to intent unitary.
+    let private toIntentUnitary (u: UnitaryOperator) : QpeUnitary =
+        match u with
+        | UnitaryOperator.PhaseGate theta -> QpeUnitary.PhaseGate theta
+        | UnitaryOperator.TGate -> QpeUnitary.TGate
+        | UnitaryOperator.SGate -> QpeUnitary.SGate
+        | UnitaryOperator.RotationZ theta -> QpeUnitary.RotationZ theta
+
+    /// QPE does not require bit-reversal SWAPs; we can post-process classically.
+    let private defaultApplyBitReversalSwaps = false
+
+    /// Build a QPE intent operation.
+    let private qpeIntentOp (applyBitReversalSwaps: bool) (config: QPEConfig) : QuantumOperation =
+        QuantumOperation.Algorithm (AlgorithmOperation.QPE {
+            CountingQubits = config.CountingQubits
+            TargetQubits = config.TargetQubits
+            Unitary = toIntentUnitary config.UnitaryOperator
+            PrepareTargetOne =
+                match config.EigenVector with
+                | Some _ -> false
+                | None ->
+                    match config.UnitaryOperator with
+                    | TGate | SGate | PhaseGate _ | RotationZ _ when config.TargetQubits = 1 -> true
+                    | _ -> false
+            ApplySwaps = applyBitReversalSwaps
+        })
+
+    let private estimateGateCount (applyBitReversalSwaps: bool) (config: QPEConfig) : int =
+        // Mirrors the lowered strategy (H prep + eigen prep + controlled unitaries + inverse QFT + swaps).
+        //
+        // Note: we model each controlled-U^(2^j) as a single controlled phase/rotation gate
+        // with a scaled angle (not as 2^j repeated applications), so it counts as 1 per j.
+        let eigenPrep = if config.EigenVector.IsSome then 0 else (if config.TargetQubits = 1 then 1 else 0)
+        let controlled = config.CountingQubits
+        let inverseQft =
+            // Same as QFT: n Hadamards + n(n-1)/2 controlled phases.
+            config.CountingQubits + (config.CountingQubits * (config.CountingQubits - 1) / 2)
+        let swaps = if applyBitReversalSwaps then config.CountingQubits / 2 else 0
+        config.CountingQubits + eigenPrep + controlled + inverseQft + swaps
+
+    let private buildLoweringOps (applyBitReversalSwaps: bool) (config: QPEConfig) : QuantumOperation list =
+        // Step 2: Apply Hadamard to counting qubits: |+⟩^⊗n
+        let hadamardOps =
+            [0 .. config.CountingQubits - 1]
+            |> List.map (fun i -> QuantumOperation.Gate (CircuitBuilder.H i))
+
+        // Step 3: Prepare target qubits in eigenvector
+        // For phase gates, eigenvector is |1⟩
+        let eigenPrepOps =
+            match config.EigenVector with
+            | Some _ -> []
+            | None ->
+                match config.UnitaryOperator with
+                | TGate | SGate | PhaseGate _ | RotationZ _ when config.TargetQubits = 1 ->
+                    let targetQubit = config.CountingQubits
+                    [ QuantumOperation.Gate (CircuitBuilder.X targetQubit) ]
+                | _ -> []
+
+        // Step 4: Apply controlled-U^(2^j) for each counting qubit j
+        let controlledOps =
+            [0 .. config.CountingQubits - 1]
+            |> List.map (fun j ->
+                let applications = 1 <<< j
+
+                match config.UnitaryOperator with
                 | PhaseGate theta ->
-                    // Phase gate: U|1⟩ = e^(iθ)|1⟩
-                    // After 2^k applications: e^(i·2^k·θ)
-                    // CP(θ) applies phase e^(iθ) to |11⟩ state - matches old QPE exactly
-                    let totalTheta = float totalApplications * theta
-                    QuantumOperation.Gate (CircuitBuilder.CP (controlQubit, targetQubit, totalTheta))
-                
+                    let totalTheta = float applications * theta
+                    QuantumOperation.Gate (CircuitBuilder.CP (j, config.CountingQubits, totalTheta))
                 | TGate ->
-                    // T gate: T|1⟩ = e^(iπ/4)|1⟩
-                    // After 2^k applications: e^(i·2^k·π/4)
-                    // CP(θ) applies phase e^(iθ) to |11⟩ state
-                    let totalTheta = float totalApplications * Math.PI / 4.0
-                    QuantumOperation.Gate (CircuitBuilder.CP (controlQubit, targetQubit, totalTheta))
-                
+                    let totalTheta = float applications * Math.PI / 4.0
+                    QuantumOperation.Gate (CircuitBuilder.CP (j, config.CountingQubits, totalTheta))
                 | SGate ->
-                    // S gate: S|1⟩ = e^(iπ/2)|1⟩
-                    // After 2^k applications: e^(i·2^k·π/2)
-                    // CP(θ) applies phase e^(iθ) to |11⟩ state
-                    let totalTheta = float totalApplications * Math.PI / 2.0
-                    QuantumOperation.Gate (CircuitBuilder.CP (controlQubit, targetQubit, totalTheta))
-                
+                    let totalTheta = float applications * Math.PI / 2.0
+                    QuantumOperation.Gate (CircuitBuilder.CP (j, config.CountingQubits, totalTheta))
                 | RotationZ theta ->
-                    // Rz(θ) = [[e^(-iθ/2), 0], [0, e^(iθ/2)]]
-                    // After 2^k applications: Rz(2^k · θ)
-                    let totalTheta = float totalApplications * theta
-                    QuantumOperation.Gate (CircuitBuilder.CRZ (controlQubit, targetQubit, totalTheta))
-            
-            // Apply controlled gate operation
-            let! newState = backend.ApplyOperation gateOperation state
-            return newState
+                    let totalTheta = float applications * theta
+                    QuantumOperation.Gate (CircuitBuilder.CRZ (j, config.CountingQubits, totalTheta)))
+
+        // Step 5: Apply inverse QFT to counting register manually
+        // CRITICAL: Inverse QFT processes qubits in REVERSE order (n-1 down to 0)
+        // For each qubit: controlled phases FIRST, then Hadamard LAST
+        let inverseQftOps =
+            [(config.CountingQubits - 1) .. -1 .. 0]
+            |> List.collect (fun targetQubit ->
+                let controlledPhaseOps =
+                    [targetQubit + 1 .. config.CountingQubits - 1]
+                    |> List.map (fun k ->
+                        let power = k - targetQubit + 1
+                        let angle = -2.0 * Math.PI / float (1 <<< power)
+                        QuantumOperation.Gate (CircuitBuilder.CP (k, targetQubit, angle)))
+
+                let hadamardOp = QuantumOperation.Gate (CircuitBuilder.H targetQubit)
+                controlledPhaseOps @ [ hadamardOp ])
+
+        // Apply bit-reversal swaps to counting qubits (optional)
+        let swapOps =
+            if applyBitReversalSwaps then
+                [0 .. config.CountingQubits / 2 - 1]
+                |> List.map (fun i ->
+                    let j = config.CountingQubits - 1 - i
+                    QuantumOperation.Gate (CircuitBuilder.SWAP (i, j)))
+            else
+                []
+
+        hadamardOps @ eigenPrepOps @ controlledOps @ inverseQftOps @ swapOps
+
+    let private plan (backend: IQuantumBackend) (applyBitReversalSwaps: bool) (config: QPEConfig) : Result<QpePlan, QuantumError> =
+        // QPE requires gate-based operations (or explicit native intent support).
+        // Some backends (e.g., annealing) cannot support this, and we should fail explicitly.
+        match backend.NativeStateType with
+        | QuantumStateType.Annealing ->
+            Error (QuantumError.OperationError ("QPE", $"Backend '{backend.Name}' does not support QPE (native state type: {backend.NativeStateType})"))
+        | _ ->
+            let op = qpeIntentOp applyBitReversalSwaps config
+
+            if backend.SupportsOperation op then
+                Ok (QpePlan.ExecuteViaIntent op)
+            else
+                let lowerOps = buildLoweringOps applyBitReversalSwaps config
+                if lowerOps |> List.forall backend.SupportsOperation then
+                    Ok (QpePlan.ExecuteViaOps lowerOps)
+                else
+                    Error (QuantumError.OperationError ("QPE", $"Backend '{backend.Name}' does not support required operations for QPE"))
+
+    let private executePlan
+        (backend: IQuantumBackend)
+        (state: QuantumState)
+        (plan: QpePlan)
+        : Result<QuantumState, QuantumError> =
+
+        match plan with
+        | QpePlan.ExecuteViaIntent op ->
+            backend.ApplyOperation op state
+        | QpePlan.ExecuteViaOps ops ->
+            UnifiedBackend.applySequence backend ops state
+
+    let private executePlanned
+        (backend: IQuantumBackend)
+        (applyBitReversalSwaps: bool)
+        (config: QPEConfig)
+        (initialState: QuantumState)
+        : Result<QuantumState * int, QuantumError> =
+
+        result {
+            let! qpePlan = plan backend applyBitReversalSwaps config
+            let! preparedState = executePlan backend initialState qpePlan
+            return (preparedState, estimateGateCount applyBitReversalSwaps config)
         }
+
+
+
     
     // ========================================================================
     // QUANTUM PHASE ESTIMATION ALGORITHM
@@ -201,7 +307,7 @@ module QPE =
     /// | Ok result -> printfn "Phase: %f" result.EstimatedPhase  // ~0.125 (1/8)
     /// | Error err -> printfn "Error: %A" err
     /// ```
-    let execute (config: QPEConfig) (backend: IQuantumBackend) : Result<QPEResult, QuantumError> =
+    let executeWith (config: QPEConfig) (backend: IQuantumBackend) (applyBitReversalSwaps: bool) : Result<QPEResult, QuantumError> =
         result {
             // Validation
             if config.CountingQubits <= 0 then
@@ -210,114 +316,54 @@ module QPE =
                 return! Error (QuantumError.ValidationError ("TargetQubits", "must be positive"))
             elif config.CountingQubits > 16 then
                 return! Error (QuantumError.ValidationError ("CountingQubits", "more than 16 is not practical for local simulation"))
+            elif config.EigenVector.IsSome then
+                return! Error (QuantumError.ValidationError ("EigenVector", "custom eigenvector not yet supported"))
             else
                 let totalQubits = config.CountingQubits + config.TargetQubits
-                
-                // Step 1: Initialize state |0⟩^⊗(n+m)
+
+                // Step 1: Initialize state |0⟩^(⊗(n+m))
                 let! initialState = backend.InitializeState totalQubits
-                
-                // Step 2: Apply Hadamard to counting qubits → |+⟩^⊗n
-                let hadamardOps = 
-                    [0 .. config.CountingQubits - 1]
-                    |> List.map (fun i -> QuantumOperation.Gate (CircuitBuilder.H i))
-                
-                let! stateAfterHadamards = UnifiedBackend.applySequence backend hadamardOps initialState
-                let mutable gateCount = config.CountingQubits  // H gates applied
-                
-                // Step 3: Prepare target qubits in eigenvector
-                // For phase gates, eigenvector is |1⟩
-                let! (stateAfterEigenPrep, eigenPrepGates) = 
-                    match config.EigenVector with
-                    | Some eigenVec ->
-                        // Use provided eigenvector (NOT IMPLEMENTED - requires state preparation)
-                        Error (QuantumError.ValidationError ("EigenVector", "custom eigenvector not yet supported"))
-                    | None ->
-                        // For phase gates (T, S, PhaseGate), eigenvector is |1⟩
-                        // Apply X gate to target qubit to prepare |1⟩
-                        match config.UnitaryOperator with
-                        | TGate | SGate | PhaseGate _ | RotationZ _ when config.TargetQubits = 1 ->
-                            let targetQubit = config.CountingQubits  // First target qubit after counting qubits
-                            backend.ApplyOperation 
-                                (QuantumOperation.Gate (CircuitBuilder.X targetQubit)) 
-                                stateAfterHadamards
-                            |> Result.map (fun newState -> (newState, 1))  // 1 X gate
-                        | _ -> 
-                            Ok (stateAfterHadamards, 0)  // No additional gates
-                
-                gateCount <- gateCount + eigenPrepGates
-                
-                // Step 4: Apply controlled-U^(2^j) for each counting qubit j
-                let! (stateAfterControlled, controlledGates) = 
-                    [0 .. config.CountingQubits - 1]
-                    |> List.fold (fun stateResult j ->
-                        result {
-                            let! (currentState, accGates) = stateResult
-                            let targetQubit = config.CountingQubits  // First target qubit
-                            let! newState = applyControlledUnitaryPower j targetQubit config.UnitaryOperator j backend currentState
-                            return (newState, accGates + (1 <<< j))  // Accumulate 2^j gate applications
-                        }
-                    ) (Ok (stateAfterEigenPrep, 0))
-                
-                gateCount <- gateCount + controlledGates
-                
-                // Step 5: Apply inverse QFT to counting register manually
-                // CRITICAL: Inverse QFT processes qubits in REVERSE order (n-1 down to 0)
-                // For each qubit: controlled phases FIRST, then Hadamard LAST
-                let qftOperations = 
-                    [(config.CountingQubits - 1) .. -1 .. 0]
-                    |> List.collect (fun targetQubit ->
-                        // Controlled phase rotations FIRST (with negated angles for inverse)
-                        let controlledPhaseOps =
-                            [targetQubit + 1 .. config.CountingQubits - 1]
-                            |> List.map (fun k ->
-                                let power = k - targetQubit + 1
-                                let angle = -2.0 * Math.PI / float (1 <<< power)  // Negative for inverse
-                                QuantumOperation.Gate (CircuitBuilder.CP (k, targetQubit, angle))
-                            )
-                        
-                        // Hadamard LAST
-                        let hadamardOp = QuantumOperation.Gate (CircuitBuilder.H targetQubit)
-                        
-                        controlledPhaseOps @ [hadamardOp]  // Phases first, then H
-                    )
-                
-                let! stateAfterQFT = UnifiedBackend.applySequence backend qftOperations stateAfterControlled
-                let qftGateCount = List.length qftOperations
-                
-                // Apply bit-reversal swaps to counting qubits
-                let swapOperations =
-                    [0 .. config.CountingQubits / 2 - 1]
-                    |> List.map (fun i ->
-                        let j = config.CountingQubits - 1 - i
-                        QuantumOperation.Gate (CircuitBuilder.SWAP (i, j))
-                    )
-                
-                let! stateAfterSwaps = UnifiedBackend.applySequence backend swapOperations stateAfterQFT
-                let swapGateCount = List.length swapOperations
-                
-                gateCount <- gateCount + qftGateCount + swapGateCount
-                
-                // Step 6: Measure final state (all qubits)
-                let measurements = UnifiedBackend.measureState stateAfterSwaps 1000
-                
-                // Extract phase from measurement outcome of counting qubits
-                let measurementOutcome = 
-                    measurements.[0]  // Take first measurement
-                    |> Array.take config.CountingQubits  // Extract counting register bits
+
+                // Step 2: Build intent, plan execution strategy, execute plan.
+                let! (preparedState, gateCount) =
+                    executePlanned backend applyBitReversalSwaps config initialState
+
+                // Step 3: Measure final state (all qubits)
+                let measurements = UnifiedBackend.measureState preparedState 1000
+
+                // Extract phase from measurement outcome of counting qubits.
+                //
+                // When we omit the final bit-reversal SWAPs, the measured register is in bit-reversed
+                // order; compensate classically before converting to an integer.
+                let measuredCountingBits =
+                    measurements.[0]
+                    |> Array.take config.CountingQubits
+
+                let canonicalCountingBits =
+                    if applyBitReversalSwaps then
+                        measuredCountingBits
+                    else
+                        Array.rev measuredCountingBits
+
+                let measurementOutcome =
+                    canonicalCountingBits
                     |> Array.indexed
                     |> Array.fold (fun acc (i, bit) -> acc + (bit <<< i)) 0
-                
+
                 let estimatedPhase = float measurementOutcome / float (1 <<< config.CountingQubits)
-                
+
                 return {
                     EstimatedPhase = estimatedPhase
                     MeasurementOutcome = measurementOutcome
                     Precision = config.CountingQubits
-                    FinalState = stateAfterSwaps
+                    FinalState = preparedState
                     GateCount = gateCount
                     Config = config
                 }
         }
+
+    let execute (config: QPEConfig) (backend: IQuantumBackend) : Result<QPEResult, QuantumError> =
+        executeWith config backend defaultApplyBitReversalSwaps
     
     // ========================================================================
     // CONVENIENCE FUNCTIONS
@@ -335,19 +381,22 @@ module QPE =
     /// ```fsharp
     /// let backend = LocalBackend() :> IQuantumBackend
     /// match estimateTGatePhase 4 backend with
-    /// | Ok result -> 
+    /// | Ok result ->
     ///     printfn "Estimated phase: %f" result.EstimatedPhase  // ~0.125
     ///     printfn "Binary: %B" result.MeasurementOutcome        // ~2 (0010 in 4 bits)
     /// | Error err -> printfn "Error: %A" err
     /// ```
-    let estimateTGatePhase (countingQubits: int) (backend: IQuantumBackend) : Result<QPEResult, QuantumError> =
+    let estimateTGatePhaseWith (countingQubits: int) (backend: IQuantumBackend) (applyBitReversalSwaps: bool) : Result<QPEResult, QuantumError> =
         let config = {
             CountingQubits = countingQubits
             TargetQubits = 1
             UnitaryOperator = TGate
             EigenVector = None
         }
-        execute config backend
+        executeWith config backend applyBitReversalSwaps
+
+    let estimateTGatePhase (countingQubits: int) (backend: IQuantumBackend) : Result<QPEResult, QuantumError> =
+        estimateTGatePhaseWith countingQubits backend defaultApplyBitReversalSwaps
     
     /// Estimate phase of S gate
     /// 
@@ -361,19 +410,22 @@ module QPE =
     /// ```fsharp
     /// let backend = LocalBackend() :> IQuantumBackend
     /// match estimateSGatePhase 4 backend with
-    /// | Ok result -> 
+    /// | Ok result ->
     ///     printfn "Estimated phase: %f" result.EstimatedPhase  // ~0.25
     ///     printfn "Binary: %B" result.MeasurementOutcome        // ~4 (0100 in 4 bits)
     /// | Error err -> printfn "Error: %A" err
     /// ```
-    let estimateSGatePhase (countingQubits: int) (backend: IQuantumBackend) : Result<QPEResult, QuantumError> =
+    let estimateSGatePhaseWith (countingQubits: int) (backend: IQuantumBackend) (applyBitReversalSwaps: bool) : Result<QPEResult, QuantumError> =
         let config = {
             CountingQubits = countingQubits
             TargetQubits = 1
             UnitaryOperator = SGate
             EigenVector = None
         }
-        execute config backend
+        executeWith config backend applyBitReversalSwaps
+
+    let estimateSGatePhase (countingQubits: int) (backend: IQuantumBackend) : Result<QPEResult, QuantumError> =
+        estimateSGatePhaseWith countingQubits backend defaultApplyBitReversalSwaps
     
     /// Estimate phase of general phase gate U = e^(iθ)
     /// 
@@ -386,16 +438,20 @@ module QPE =
     /// let backend = LocalBackend() :> IQuantumBackend
     /// // For θ = π, we get φ = 1/2
     /// match estimatePhaseGate Math.PI 4 backend with
-    /// | Ok result -> 
+    /// | Ok result ->
     ///     printfn "Estimated phase: %f" result.EstimatedPhase  // ~0.5
     ///     printfn "Binary: %B" result.MeasurementOutcome        // ~8 (1000 in 4 bits)
     /// | Error err -> printfn "Error: %A" err
     /// ```
-    let estimatePhaseGate (theta: float) (countingQubits: int) (backend: IQuantumBackend) : Result<QPEResult, QuantumError> =
+    let estimatePhaseGateWith (theta: float) (countingQubits: int) (backend: IQuantumBackend) (applyBitReversalSwaps: bool) : Result<QPEResult, QuantumError> =
         let config = {
             CountingQubits = countingQubits
             TargetQubits = 1
             UnitaryOperator = PhaseGate theta
             EigenVector = None
         }
-        execute config backend
+        executeWith config backend applyBitReversalSwaps
+
+    let estimatePhaseGate (theta: float) (countingQubits: int) (backend: IQuantumBackend) : Result<QPEResult, QuantumError> =
+        estimatePhaseGateWith theta countingQubits backend defaultApplyBitReversalSwaps
+

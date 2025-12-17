@@ -3,6 +3,8 @@ namespace FSharp.Azure.Quantum.Algorithms
 open System
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.BackendAbstraction
+open FSharp.Azure.Quantum.Core.CircuitAbstraction
+open FSharp.Azure.Quantum
 
 /// Quantum-Enhanced Statistical Distributions
 /// 
@@ -170,16 +172,20 @@ module QuantumDistributions =
             min maxVal (max minVal result)
         
         | Custom (_, transform) ->
-            // Apply custom transform with error handling
+            // Apply custom transform with error handling.
+            // Note: this function is used by both pure sampling (exception-caught)
+            // and backend sampling (mapped to QuantumError.OperationError).
             try
                 let result = transform uClamped
+
                 if Double.IsNaN(result) then
-                    failwith "Custom transform produced NaN"
+                    raise (ArgumentException("Custom transform produced NaN"))
                 elif Double.IsInfinity(result) then
-                    failwith "Custom transform produced Infinity"
-                result
+                    raise (ArgumentException("Custom transform produced Infinity"))
+                else
+                    result
             with ex ->
-                failwith $"Custom transform failed: {ex.Message}"
+                raise (Exception($"Custom transform failed: {ex.Message}", ex))
     
     // ========================================================================
     // SAMPLING (No Backend - Pure Simulation)
@@ -230,6 +236,73 @@ module QuantumDistributions =
                 |> Result.map (List.rev >> Array.ofList)
     
     // ========================================================================
+    // INTENT → PLAN → EXECUTE (ADR: Intent-First)
+    // ========================================================================
+
+    type private SampleIntent = {
+        Distribution: Distribution
+        NumQubits: int
+    }
+
+    [<RequireQualifiedAccess>]
+    type private SamplePlan =
+        | GenerateUniformViaQrng
+
+    let private plan (backend: IQuantumBackend) (intent: SampleIntent) : Result<SamplePlan, QuantumError> =
+        match validateDistribution intent.Distribution with
+        | Error msg -> Error (QuantumError.ValidationError ("Distribution", msg))
+        | Ok () ->
+            if intent.NumQubits <= 0 then
+                Error (QuantumError.ValidationError ("NumQubits", "must be positive"))
+            elif intent.NumQubits > 20 then
+                Error (QuantumError.ValidationError ("NumQubits", "too large for backend execution (max 20)"))
+            else
+                // QuantumDistributions uses QRNG as its entropy source.
+                // If the backend cannot run QRNG, distribution sampling cannot proceed.
+                match backend.NativeStateType with
+                | QuantumStateType.Annealing ->
+                    Error (QuantumError.OperationError ("QuantumDistributions", $"Backend '{backend.Name}' does not support distribution sampling (native state type: {backend.NativeStateType})"))
+                | _ ->
+                    let needs = QuantumOperation.Gate (CircuitBuilder.H 0)
+
+                    if backend.SupportsOperation needs then
+                        Ok SamplePlan.GenerateUniformViaQrng
+                    else
+                        Error (QuantumError.OperationError ("QuantumDistributions", $"Backend '{backend.Name}' does not support required operations for distribution sampling"))
+
+    let private executePlan
+        (backend: IQuantumBackend)
+        (intent: SampleIntent)
+        (plan: SamplePlan)
+        : Async<QuantumResult<SampleResult>> =
+        async {
+            match plan with
+            | SamplePlan.GenerateUniformViaQrng ->
+                let! qrngResult = QRNG.generateWithBackend intent.NumQubits backend
+
+                match qrngResult with
+                | Error err ->
+                    return Error err
+                | Ok qrng ->
+                    match qrng.AsInteger with
+                    | None ->
+                        return Error (QuantumError.BackendError ("QuantumDistributions", "Failed to generate uniform random"))
+                    | Some bits ->
+                        let u = float bits / float (1UL <<< intent.NumQubits)
+
+                        try
+                            let value = transformUniform intent.Distribution u
+
+                            return Ok {
+                                Value = value
+                                Distribution = intent.Distribution
+                                QuantumBitsUsed = intent.NumQubits
+                            }
+                        with ex ->
+                            return Error (QuantumError.OperationError ("QuantumDistributions", ex.Message))
+        }
+
+    // ========================================================================
     // BACKEND INTEGRATION (RULE1 Compliant)
     // ========================================================================
     
@@ -252,35 +325,16 @@ module QuantumDistributions =
         : Async<QuantumResult<SampleResult>> =
         
         async {
-            match validateDistribution dist with
-            | Error msg ->
-                return Error (QuantumError.ValidationError ("Distribution", msg))
-            | Ok () ->
-                // Generate quantum uniform random using backend
-                // Use 10 qubits (2^10 = 1,024 precision levels) for good balance
-                // between precision and performance. LocalBackend supports up to 20 qubits.
-                let numQubits = 10
-                let! qrngResult = QRNG.generateWithBackend numQubits backend
-                
-                match qrngResult with
-                | Error err ->
-                    return Error err
-                | Ok (qrng: QRNG.QRNGResult) ->
-                    // Extract uniform random value
-                    match qrng.AsInteger with
-                    | None ->
-                        return Error (QuantumError.BackendError ("QuantumDistributions", "Failed to generate uniform random"))
-                    | Some bits ->
-                        let u = float bits / float (1UL <<< numQubits)
-                        
-                        // Transform to target distribution
-                        let value = transformUniform dist u
-                        
-                        return Ok {
-                            Value = value
-                            Distribution = dist
-                            QuantumBitsUsed = numQubits
-                        }
+            let intent = {
+                Distribution = dist
+                NumQubits = 10
+            }
+
+            match plan backend intent with
+            | Error err ->
+                return Error err
+            | Ok chosenPlan ->
+                return! executePlan backend intent chosenPlan
         }
     
     /// Sample multiple values from distribution using quantum backend
@@ -302,15 +356,20 @@ module QuantumDistributions =
             elif count > 10000 then
                 return Error (QuantumError.ValidationError ("Count", "too large for backend execution (max 10,000)"))
             else
-                match validateDistribution dist with
-                | Error msg ->
-                    return Error (QuantumError.ValidationError ("Distribution", msg))
-                | Ok () ->
+                let intent = {
+                    Distribution = dist
+                    NumQubits = 10
+                }
+
+                match plan backend intent with
+                | Error err ->
+                    return Error err
+                | Ok chosenPlan ->
                     // Report start
-                    progressReporter 
-                    |> Option.iter (fun r -> 
+                    progressReporter
+                    |> Option.iter (fun r ->
                         r.Report(Progress.PhaseChanged("Quantum Sampling", Some $"Generating {count} quantum samples...")))
-                    
+
                     // Generate samples sequentially
                     let rec generateSamples (remaining: int) (acc: SampleResult list) =
                         async {
@@ -319,28 +378,29 @@ module QuantumDistributions =
                             else
                                 // Report progress
                                 let currentSample = count - remaining + 1
-                                progressReporter 
-                                |> Option.iter (fun r -> 
+                                progressReporter
+                                |> Option.iter (fun r ->
                                     r.Report(Progress.IterationUpdate(currentSample, count, None)))
-                                
-                                let! sampleResult = sampleWithBackend dist backend
+
+                                let! sampleResult = executePlan backend intent chosenPlan
+
                                 match sampleResult with
-                                | Error err ->
-                                    return Error err
+                                | Error execErr ->
+                                    return Error execErr
                                 | Ok sample ->
                                     return! generateSamples (remaining - 1) (sample :: acc)
                         }
-                    
+
                     let! result = generateSamples count []
-                    
+
                     // Report completion
                     match result with
                     | Ok samples ->
-                        progressReporter 
-                        |> Option.iter (fun r -> 
+                        progressReporter
+                        |> Option.iter (fun r ->
                             r.Report(Progress.PhaseChanged("Sampling Complete", Some $"Generated {samples.Length} quantum samples")))
                     | Error _ -> ()
-                    
+
                     return result
         }
     

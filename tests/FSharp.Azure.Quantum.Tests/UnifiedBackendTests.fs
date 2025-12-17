@@ -156,9 +156,13 @@ module UnifiedBackendTests =
         
         match backend.InitializeState 3 with
         | Ok (QuantumState.FusionSuperposition fs) ->
-            // fs is obj type, cast to TopologicalOperations.Superposition
             let fusion = TopologicalOperations.fromInterface fs |> Option.get
             Assert.NotEmpty(fusion.Terms)
+            Assert.Equal(3, fs.LogicalQubits)
+
+            // Measurement produces exactly n bits (parity σ-pair bit is internal)
+            let samples = fs.MeasureAll 5
+            Assert.All(samples, fun bits -> Assert.Equal(3, bits.Length))
         | Ok _ ->
             Assert.True(false, "Expected FusionSuperposition")
         | Error err ->

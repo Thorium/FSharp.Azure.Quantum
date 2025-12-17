@@ -261,7 +261,11 @@ module DWaveBackend =
             
             /// Apply operation to state (not supported for annealing)
             member _.ApplyOperation (operation: BackendAbstraction.QuantumOperation) (state: QuantumState) : Result<QuantumState, QuantumError> =
-                Error (QuantumError.OperationError ("ApplyOperation", "D-Wave annealing backend only supports full circuit execution"))
+                match operation with
+                | BackendAbstraction.QuantumOperation.Extension ext ->
+                    Error (QuantumError.OperationError ("ApplyOperation", $"Extension operation '{ext.Id}' is not supported by annealing backends"))
+                | _ ->
+                    Error (QuantumError.OperationError ("ApplyOperation", "D-Wave annealing backend only supports full circuit execution"))
             
             /// Check if operation is supported (only QAOA circuits)
             member _.SupportsOperation (operation: BackendAbstraction.QuantumOperation) : bool =

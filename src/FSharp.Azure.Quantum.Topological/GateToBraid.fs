@@ -303,43 +303,27 @@ module GateToBraid =
     
     /// Create entangling braid between two qubits for CZ gate implementation.
     /// 
-    /// **Anyonic Strand Encoding:**
-    /// - Qubit 0: strands 0-1
-    /// - Qubit 1: strands 2-3
-    /// - Qubit i: strands 2i, 2i+1
-    /// 
-    /// **Entangling Braid Pattern:**
-    /// To create CZ interaction, we braid strands from both qubits:
-    ///   - If control < target: braid(2*control+1) with braid(2*target)
-    ///   - If control > target: braid(2*target+1) with braid(2*control)
-    /// 
-    /// This creates the necessary topological charge exchange for CZ gate.
+    /// **Note on Indexing**
+    /// Our braid generators are indexed by *qubit* (not "2 strands per qubit").
+    /// The backend uses `n = numQubits + 1` strands, so valid generator indices are
+    /// `0..numQubits-1`.
+    ///
+    /// For non-adjacent qubits we synthesize a long-range interaction by
+    /// composing adjacent generators along the qubit interval.
     let createEntanglingBraid (controlQubit: int) (targetQubit: int) (numQubits: int) : Result<BraidGroup.BraidWord, TopologicalError> =
-        // Determine which strands to braid
-        let controlStrand = 2 * controlQubit + 1
-        let targetStrand = 2 * targetQubit
-        
-        // Create braiding generators between the appropriate strands
-        // For adjacent qubits, this is a single braid
-        // For distant qubits, we need a sequence of braids to "move" the interaction
-        
-        if abs(controlQubit - targetQubit) = 1 then
-            // Adjacent qubits: direct braiding
-            let strandIndex = min controlStrand targetStrand
-            let gen : BraidGroup.BraidGenerator = { Index = strandIndex; IsClockwise = true }
-            BraidGroup.fromGenerators (numQubits + 1) [gen]
+        if abs (controlQubit - targetQubit) = 1 then
+            // Adjacent qubits: single generator
+            let gen : BraidGroup.BraidGenerator = { Index = min controlQubit targetQubit; IsClockwise = true }
+            BraidGroup.fromGenerators (numQubits + 1) [ gen ]
         else
-            // Non-adjacent qubits: need to use swap gates or long-range braiding
-            // For now, we compose multiple braids to create the interaction
+            // Non-adjacent qubits: chain adjacent generators across the interval
             let minQubit = min controlQubit targetQubit
             let maxQubit = max controlQubit targetQubit
-            
-            // Generate braid sequence to connect distant qubits
-            let braidGens : BraidGroup.BraidGenerator list = 
-                [minQubit .. maxQubit - 1]
-                |> List.map (fun q -> 
-                    { Index = 2 * q + 1; IsClockwise = true })
-            
+
+            let braidGens : BraidGroup.BraidGenerator list =
+                [ minQubit .. maxQubit - 1 ]
+                |> List.map (fun q -> { Index = q; IsClockwise = true })
+
             BraidGroup.fromGenerators (numQubits + 1) braidGens
     
     /// Decompose Controlled-Z (CZ) gate into braiding sequence.

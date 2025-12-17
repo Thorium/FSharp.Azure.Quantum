@@ -1,6 +1,7 @@
 namespace FSharp.Azure.Quantum.Algorithms
 
 open System
+open System.Diagnostics
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.BackendAbstraction
@@ -73,6 +74,22 @@ module QFT =
         Inverse = false
         Shots = 1000
     }
+
+    // ========================================================================
+    // GATE COUNT ESTIMATION
+    // ========================================================================
+
+    /// Calculate total gate count for QFT
+    /// 
+    /// Formula:
+    /// - QFT steps: n Hadamards + Σᵢ (n-i-1) controlled phases = n + n(n-1)/2
+    /// - Bit reversal: ⌊n/2⌋ SWAPs
+    /// 
+    /// Total with swaps: n + n(n-1)/2 + ⌊n/2⌋ ≈ n²/2 + 3n/2
+    let estimateGateCount (numQubits: int) (applySwaps: bool) : int =
+        let qftGates = numQubits + (numQubits * (numQubits - 1) / 2)
+        let swapGates = if applySwaps then numQubits / 2 else 0
+        qftGates + swapGates
     
     // ========================================================================
     // HELPER: Phase Angle Calculation
@@ -87,74 +104,100 @@ module QFT =
         if inverse then -angle else angle
     
     // ========================================================================
-    // QFT PRIMITIVES (State-Based Operations)
+    // INTENT → PLAN → EXECUTION (ADR: intent-first algorithms)
     // ========================================================================
-    
-    /// Apply QFT step to single qubit
-    /// 
-    /// QFT step consists of:
-    /// 1. Hadamard gate on target qubit
-    /// 2. Controlled phase rotations from all higher-indexed qubits
-    /// 
-    /// Phase angles: CPhase(2π/2^k) where k = distance between qubits
-    let private applyQFTStep
-        (backend: IQuantumBackend)
-        (targetQubit: int)
+
+    [<RequireQualifiedAccess>]
+    type QftPlan =
+        | ExecuteViaIntent of QuantumOperation
+        | ExecuteViaOps of QuantumOperation list
+
+    /// Build an intent-first operation for QFT.
+    let private qftIntentOp (numQubits: int) (config: QFTConfig) : QuantumOperation =
+        QuantumOperation.Algorithm (AlgorithmOperation.QFT {
+            NumQubits = numQubits
+            Inverse = config.Inverse
+            ApplySwaps = config.ApplySwaps
+        })
+
+    /// Create a gate-sequence lowering for QFT.
+    ///
+    /// Note: gate sequences are a *strategy*, not the canonical definition of QFT.
+    let private buildLoweringOps
         (numQubits: int)
-        (inverse: bool)
-        (state: QuantumState)
-        : Result<QuantumState * int, QuantumError> =
-        
-        result {
-            // Step 1: Apply Hadamard to target qubit
-            let! stateAfterH = 
-                backend.ApplyOperation 
-                    (QuantumOperation.Gate (CircuitBuilder.H targetQubit)) 
-                    state
-            
-            // Step 2: Apply controlled phase rotations
-            // For each qubit k > targetQubit, apply CPhase(2π/2^(k-targetQubit+1))
-            let controlledPhaseOps =
+        (config: QFTConfig)
+        : QuantumOperation list =
+
+        let applyQftStepOps targetQubit =
+            let hOp = QuantumOperation.Gate (CircuitBuilder.H targetQubit)
+            let phases =
                 [targetQubit + 1 .. numQubits - 1]
                 |> List.map (fun k ->
                     let power = k - targetQubit + 1
-                    let angle = calculatePhaseAngle power inverse
-                    QuantumOperation.Gate (CircuitBuilder.CP (k, targetQubit, angle))
-                )
-            
-            // Apply all controlled phases
-            let! finalState = 
-                UnifiedBackend.applySequence backend controlledPhaseOps stateAfterH
-            
-            // Return state and gate count (1 H + n controlled phases)
-            return (finalState, 1 + List.length controlledPhaseOps)
-        }
-    
-    /// Apply bit-reversal SWAP gates
-    /// 
-    /// QFT outputs qubits in reverse order:
-    /// qubit 0 ↔ qubit (n-1)
-    /// qubit 1 ↔ qubit (n-2)
-    /// etc.
-    let private applyBitReversalSwaps
+                    let angle = calculatePhaseAngle power config.Inverse
+                    QuantumOperation.Gate (CircuitBuilder.CP (k, targetQubit, angle)))
+            hOp :: phases
+
+        let qftSequence =
+            [0 .. numQubits - 1]
+            |> List.collect applyQftStepOps
+
+        let swapSequence =
+            if config.ApplySwaps then
+                [0 .. numQubits / 2 - 1]
+                |> List.map (fun i ->
+                    let j = numQubits - 1 - i
+                    QuantumOperation.Gate (CircuitBuilder.SWAP (i, j)))
+            else
+                []
+
+        qftSequence @ swapSequence
+
+    let private plan (backend: IQuantumBackend) (numQubits: int) (config: QFTConfig) : Result<QftPlan, QuantumError> =
+        // QFT requires a gate-based backend (or explicit native algorithm op support).
+        // Some backends (e.g., annealing) cannot support this, and we should fail explicitly.
+        match backend.NativeStateType with
+        | QuantumStateType.Annealing ->
+            Error (QuantumError.OperationError ("QFT", $"Backend '{backend.Name}' does not support QFT (native state type: {backend.NativeStateType})"))
+        | _ ->
+            let op = qftIntentOp numQubits config
+
+            if backend.SupportsOperation op then
+                Ok (QftPlan.ExecuteViaIntent op)
+            else
+                // Provide a valid lowering plan when the backend doesn't claim native support.
+                // This is not a *silent* fallback: the chosen plan is explicit and inspectable.
+                let lowerOps = buildLoweringOps numQubits config
+                if lowerOps |> List.forall backend.SupportsOperation then
+                    Ok (QftPlan.ExecuteViaOps lowerOps)
+                else
+                    Error (QuantumError.OperationError ("QFT", $"Backend '{backend.Name}' does not support required operations for QFT"))
+
+    let private executePlan
+        (backend: IQuantumBackend)
+        (state: QuantumState)
+        (plan: QftPlan)
+        : Result<QuantumState, QuantumError> =
+
+        match plan with
+        | QftPlan.ExecuteViaIntent op ->
+            backend.ApplyOperation op state
+        | QftPlan.ExecuteViaOps ops ->
+            UnifiedBackend.applySequence backend ops state
+
+    let private executePlanned
         (backend: IQuantumBackend)
         (numQubits: int)
+        (config: QFTConfig)
         (state: QuantumState)
         : Result<QuantumState * int, QuantumError> =
-        
-        // Create SWAP operations for bit reversal
-        let swapOps =
-            [0 .. numQubits / 2 - 1]
-            |> List.map (fun i ->
-                let j = numQubits - 1 - i
-                QuantumOperation.Gate (CircuitBuilder.SWAP (i, j))
-            )
-        
+
         result {
-            let! finalState = UnifiedBackend.applySequence backend swapOps state
-            return (finalState, List.length swapOps)
+            let! qftPlan = plan backend numQubits config
+            let! evolved = executePlan backend state qftPlan
+            return (evolved, estimateGateCount numQubits config.ApplySwaps)
         }
-    
+
     // ========================================================================
     // MAIN QFT ALGORITHM
     // ========================================================================
@@ -182,40 +225,23 @@ module QFT =
         (config: QFTConfig)
         : Result<QFTResult, QuantumError> =
         
-        let startTime = DateTime.Now
+        let stopwatch = Stopwatch.StartNew()
         
         result {
             // Step 1: Initialize state to |0⟩^⊗n
             let! initialState = backend.InitializeState numQubits
             
-            // Step 2: Apply QFT steps to each qubit
-            // Use fold to thread state and accumulate gate count
-            let! (stateAfterQFT, qftGates) =
-                [0 .. numQubits - 1]
-                |> List.fold (fun resultAcc targetQubit ->
-                    result {
-                        let! (currentState, accGates) = resultAcc
-                        let! (newState, stepGates) = 
-                            applyQFTStep backend targetQubit numQubits config.Inverse currentState
-                        return (newState, accGates + stepGates)
-                    }
-                ) (Ok (initialState, 0))
-            
-            // Step 3: Apply bit-reversal SWAPs (if enabled)
-            let! (finalState, swapGates) =
-                if config.ApplySwaps then
-                    applyBitReversalSwaps backend numQubits stateAfterQFT
-                else
-                    Ok (stateAfterQFT, 0)
+            // Step 2: Build intent, plan execution strategy, execute plan.
+            let! (finalState, gateCount) =
+                executePlanned backend numQubits config initialState
             
             // Calculate execution time
-            let endTime = DateTime.Now
-            let elapsedMs = (endTime - startTime).TotalMilliseconds
+            let elapsedMs = stopwatch.Elapsed.TotalMilliseconds
             
             // Return result
             return {
                 FinalState = finalState
-                GateCount = qftGates + swapGates
+                GateCount = gateCount
                 Config = config
                 ExecutionTimeMs = elapsedMs
             }
@@ -231,36 +257,19 @@ module QFT =
         (config: QFTConfig)
         : Result<QFTResult, QuantumError> =
         
-        let startTime = DateTime.Now
+        let stopwatch = Stopwatch.StartNew()
         let numQubits = QuantumState.numQubits state
         
         result {
-            // Apply QFT steps to each qubit
-            let! (stateAfterQFT, qftGates) =
-                [0 .. numQubits - 1]
-                |> List.fold (fun resultAcc targetQubit ->
-                    result {
-                        let! (currentState, accGates) = resultAcc
-                        let! (newState, stepGates) = 
-                            applyQFTStep backend targetQubit numQubits config.Inverse currentState
-                        return (newState, accGates + stepGates)
-                    }
-                ) (Ok (state, 0))
-            
-            // Apply bit-reversal SWAPs (if enabled)
-            let! (finalState, swapGates) =
-                if config.ApplySwaps then
-                    applyBitReversalSwaps backend numQubits stateAfterQFT
-                else
-                    Ok (stateAfterQFT, 0)
+            let! (finalState, gateCount) =
+                executePlanned backend numQubits config state
             
             // Calculate execution time
-            let endTime = DateTime.Now
-            let elapsedMs = (endTime - startTime).TotalMilliseconds
+            let elapsedMs = stopwatch.Elapsed.TotalMilliseconds
             
             return {
                 FinalState = finalState
-                GateCount = qftGates + swapGates
+                GateCount = gateCount
                 Config = config
                 ExecutionTimeMs = elapsedMs
             }
@@ -303,21 +312,7 @@ module QFT =
         }
         execute numQubits backend noSwapConfig
     
-    // ========================================================================
-    // GATE COUNT ESTIMATION
-    // ========================================================================
-    
-    /// Calculate total gate count for QFT
-    /// 
-    /// Formula:
-    /// - QFT steps: n Hadamards + Σᵢ (n-i-1) controlled phases = n + n(n-1)/2
-    /// - Bit reversal: ⌊n/2⌋ SWAPs
-    /// 
-    /// Total with swaps: n + n(n-1)/2 + ⌊n/2⌋ ≈ n²/2 + 3n/2
-    let estimateGateCount (numQubits: int) (applySwaps: bool) : int =
-        let qftGates = numQubits + (numQubits * (numQubits - 1) / 2)
-        let swapGates = if applySwaps then numQubits / 2 else 0
-        qftGates + swapGates
+    // (gate count estimation moved earlier)
     
     // ========================================================================
     // VERIFICATION HELPERS
@@ -474,22 +469,16 @@ module QFT =
                 
                 // Apply X gates to set state to |basisIndex⟩
                 // Convert basisIndex to binary and flip corresponding qubits
-                let! basisState =
+                let xOps =
                     [0 .. numQubits - 1]
-                    |> List.fold (fun stateResult qubitIdx ->
-                        result {
-                            let! currentState = stateResult
-                            let bitValue = (basisIndex >>> qubitIdx) &&& 1
-                            
-                            if bitValue = 1 then
-                                // Apply X gate to flip this qubit to |1⟩
-                                return! backend.ApplyOperation 
-                                    (QuantumOperation.Gate (CircuitBuilder.X qubitIdx)) 
-                                    currentState
-                            else
-                                return currentState
-                        }
-                    ) (Ok initialState)
+                    |> List.choose (fun qubitIdx ->
+                        let bitValue = (basisIndex >>> qubitIdx) &&& 1
+                        if bitValue = 1 then
+                            Some (QuantumOperation.Gate (CircuitBuilder.X qubitIdx))
+                        else
+                            None)
+
+                let! basisState = UnifiedBackend.applySequence backend xOps initialState
                 
                 // Apply QFT to the basis state
                 return! executeOnState basisState backend config

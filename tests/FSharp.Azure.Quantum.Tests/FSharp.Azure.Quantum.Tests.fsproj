@@ -25,6 +25,9 @@
     <!-- See AmplitudeAmplificationTests.fs.bak for original tests -->
     <Compile Include="QFTTests.fs" />
     <Compile Include="QPETests.fs" />
+    <Compile Include="DeutschJozsaTests.fs" />
+    <Compile Include="BellStatesTests.fs" />
+    <Compile Include="QuantumTeleportationTests.fs" />
     <Compile Include="HHLTests.fs" />
     <Compile Include="ShorsTests.fs" />
     <Compile Include="QuantumArithmeticTests.fs" />

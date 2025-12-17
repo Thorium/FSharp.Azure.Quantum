@@ -290,20 +290,28 @@ module FusionTree =
     
     /// Get number of logical qubits encoded in fusion tree
     /// 
-    /// For Jordan-Wigner encoding:
-    /// - n qubits → n+1 sigma anyons
-    /// - Size of tree = n+1, numQubits = n
+    /// Encoding notes:
+    /// - **Ising (σ anyons)**: uses 2*(n+1) sigma anyons:
+    ///     - n pairs encode n logical qubits (each pair fuses to 1/ψ)
+    ///     - 1 extra parity pair enforces total charge vacuum
+    /// - Other anyon types keep legacy heuristics.
     let numQubits (tree: Tree) : int =
         let anyonCount = size tree
-        // Jordan-Wigner: n qubits = n+1 anyons
-        max 0 (anyonCount - 1)
+        let leavesList = leaves tree
+
+        // Ising σ-pair encoding: 2*(n+1) σ anyons
+        let isAllSigma = leavesList |> List.forall ((=) AnyonSpecies.Particle.Sigma)
+        if isAllSigma && anyonCount >= 4 && anyonCount % 2 = 0 then
+            max 0 ((anyonCount / 2) - 1)
+        else
+            // Legacy fallback
+            max 0 (anyonCount - 1)
     
     /// Convert computational basis bitstring to fusion tree
     /// 
-    /// Jordan-Wigner encoding for Ising anyons:
-    /// - Bit 0 → σ₀ × σ₁ fuses to: 1 (vacuum) or ψ (fermion)
-    /// - Bit 1 → σ₂ × σ₃ fuses to: 1 or ψ
-    /// - etc.
+    /// σ-pair encoding for Ising anyons:
+    /// - Qubit i is encoded in a pair (σ × σ → 1 or ψ)
+    /// - An extra σ-pair is appended to enforce overall vacuum (fermion parity constraint)
     /// 
     /// Parameters:
     ///   bits - List of bits [b₀, b₁, ..., bₙ₋₁] where bᵢ ∈ {0, 1}
@@ -318,30 +326,44 @@ module FusionTree =
     let fromComputationalBasis (bits: int list) (anyonType: AnyonSpecies.AnyonType) : Tree =
         match anyonType with
         | AnyonSpecies.AnyonType.Ising ->
-            // Each bit determines fusion outcome
+            // Each bit determines fusion outcome for its σ-pair:
             // 0 → σ × σ → 1 (vacuum)
             // 1 → σ × σ → ψ (fermion)
-            let pairTrees =
+            let qubitPairs =
                 bits
                 |> List.map (fun bit ->
-                    let channel = 
+                    let channel =
                         if bit = 0 then AnyonSpecies.Particle.Vacuum
                         else AnyonSpecies.Particle.Psi
-                    
-                    Fusion (Leaf AnyonSpecies.Particle.Sigma, 
-                           Leaf AnyonSpecies.Particle.Sigma, 
-                           channel)
+
+                    Fusion (
+                        Leaf AnyonSpecies.Particle.Sigma,
+                        Leaf AnyonSpecies.Particle.Sigma,
+                        channel
+                    )
                 )
-            
-            // Fuse all pairs left-to-right
+
+            // Extra parity pair to enforce total vacuum (overall fermion parity constraint)
+            let parityChannel =
+                let ones = bits |> List.sum
+                if ones % 2 = 0 then AnyonSpecies.Particle.Vacuum else AnyonSpecies.Particle.Psi
+
+            let parityPair =
+                Fusion (
+                    Leaf AnyonSpecies.Particle.Sigma,
+                    Leaf AnyonSpecies.Particle.Sigma,
+                    parityChannel
+                )
+
+            let pairTrees = qubitPairs @ [parityPair]
+
+            // Fuse all pairs left-to-right with vacuum total charge accumulator
             match pairTrees with
             | [] -> Leaf AnyonSpecies.Particle.Vacuum
             | [single] -> single
             | first :: rest ->
                 rest
-                |> List.fold (fun acc tree ->
-                    Fusion (acc, tree, AnyonSpecies.Particle.Vacuum)
-                ) first
+                |> List.fold (fun acc tree -> Fusion (acc, tree, AnyonSpecies.Particle.Vacuum)) first
         
         | AnyonSpecies.AnyonType.Fibonacci ->
             // Similar encoding for Fibonacci anyons
@@ -385,29 +407,46 @@ module FusionTree =
     /// Note: Assumes tree was created via fromComputationalBasis.
     /// For general fusion trees (superpositions), this extracts one
     /// component of the decomposition.
-    let rec toComputationalBasis (tree: Tree) : int list =
-        match tree with
-        | Leaf AnyonSpecies.Particle.Vacuum -> []
-        | Leaf _ -> [0]  // Single anyon → 0 bit
-        
-        | Fusion (Leaf AnyonSpecies.Particle.Sigma, 
-                  Leaf AnyonSpecies.Particle.Sigma, 
-                  channel) ->
-            // Single qubit encoding
-            match channel with
-            | AnyonSpecies.Particle.Vacuum -> [0]
-            | AnyonSpecies.Particle.Psi -> [1]
-            | _ -> [0]  // Default
-        
-        | Fusion (Leaf AnyonSpecies.Particle.Tau,
-                  Leaf AnyonSpecies.Particle.Tau,
-                  channel) ->
-            // Fibonacci encoding
-            match channel with
-            | AnyonSpecies.Particle.Vacuum -> [0]
-            | AnyonSpecies.Particle.Tau -> [1]
-            | _ -> [0]
-        
-        | Fusion (left, right, _) ->
-            // Recursive: Decode left and right subtrees
-            toComputationalBasis left @ toComputationalBasis right
+    let toComputationalBasis (tree: Tree) : int list =
+        let rec toComputationalBasisRaw (treeRaw: Tree) : int list =
+            match treeRaw with
+            | Leaf AnyonSpecies.Particle.Vacuum -> []
+            | Leaf _ -> [0]  // Single anyon → 0 bit
+
+            | Fusion (Leaf AnyonSpecies.Particle.Sigma,
+                      Leaf AnyonSpecies.Particle.Sigma,
+                      channel) ->
+                // Single σ-pair encodes one bit
+                match channel with
+                | AnyonSpecies.Particle.Vacuum -> [0]
+                | AnyonSpecies.Particle.Psi -> [1]
+                | _ -> [0]
+
+            | Fusion (Leaf AnyonSpecies.Particle.Tau,
+                      Leaf AnyonSpecies.Particle.Tau,
+                      channel) ->
+                // Fibonacci encoding
+                match channel with
+                | AnyonSpecies.Particle.Vacuum -> [0]
+                | AnyonSpecies.Particle.Tau -> [1]
+                | _ -> [0]
+
+            | Fusion (left, right, _) ->
+                // Recursive: Decode left and right subtrees
+                toComputationalBasisRaw left @ toComputationalBasisRaw right
+
+        let rawBits = toComputationalBasisRaw tree
+
+        // If the tree came from Ising σ-pair encoding, the last bit is an internal parity pair.
+        // This function is documented as decoding trees created via fromComputationalBasis,
+        // so this heuristic is acceptable.
+        let leafParticles = leaves tree
+        let sigmaCount = leafParticles |> List.filter ((=) AnyonSpecies.Particle.Sigma) |> List.length
+        let isAllSigma = leafParticles |> List.forall ((=) AnyonSpecies.Particle.Sigma)
+        let isSigmaPairEncoding =
+            isAllSigma && sigmaCount >= 4 && sigmaCount % 2 = 0 && rawBits.Length = sigmaCount / 2
+
+        if isSigmaPairEncoding && rawBits.Length > 0 then
+            rawBits |> List.take (rawBits.Length - 1)
+        else
+            rawBits

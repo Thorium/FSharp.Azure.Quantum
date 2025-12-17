@@ -215,29 +215,23 @@ module BraidingOperators =
                         else Complex.Zero
                     
                     // σσσ case - the interesting one!
+                    //
+                    // In the Ising theory, σ×σ×σ always fuses to σ, and the non-trivial
+                    // basis change is:
+                    //   F^{σσσ}_σ = (1/√2) * [[1, 1], [1, -1]]
+                    // in the {1, ψ} intermediate-channel basis.
                     | AnyonSpecies.Particle.Sigma, AnyonSpecies.Particle.Sigma, AnyonSpecies.Particle.Sigma, finalResult, intermediate1, intermediate2 ->
                         match finalResult, intermediate1, intermediate2 with
-                        // F^{σσσ}_1 matrix
-                        | AnyonSpecies.Particle.Vacuum, AnyonSpecies.Particle.Vacuum, AnyonSpecies.Particle.Vacuum -> 
+                        | AnyonSpecies.Particle.Sigma, AnyonSpecies.Particle.Vacuum, AnyonSpecies.Particle.Vacuum ->
                             Complex(0.5 * sqrt 2.0, 0.0)
-                        | AnyonSpecies.Particle.Vacuum, AnyonSpecies.Particle.Vacuum, AnyonSpecies.Particle.Psi -> 
+                        | AnyonSpecies.Particle.Sigma, AnyonSpecies.Particle.Vacuum, AnyonSpecies.Particle.Psi ->
                             Complex(0.5 * sqrt 2.0, 0.0)
-                        | AnyonSpecies.Particle.Vacuum, AnyonSpecies.Particle.Psi, AnyonSpecies.Particle.Vacuum -> 
+                        | AnyonSpecies.Particle.Sigma, AnyonSpecies.Particle.Psi, AnyonSpecies.Particle.Vacuum ->
                             Complex(0.5 * sqrt 2.0, 0.0)
-                        | AnyonSpecies.Particle.Vacuum, AnyonSpecies.Particle.Psi, AnyonSpecies.Particle.Psi -> 
+                        | AnyonSpecies.Particle.Sigma, AnyonSpecies.Particle.Psi, AnyonSpecies.Particle.Psi ->
                             Complex(-0.5 * sqrt 2.0, 0.0)
-                        
-                        // F^{σσσ}_ψ matrix
-                        | AnyonSpecies.Particle.Psi, AnyonSpecies.Particle.Vacuum, AnyonSpecies.Particle.Vacuum -> 
-                            Complex(0.5 * sqrt 2.0, 0.0)
-                        | AnyonSpecies.Particle.Psi, AnyonSpecies.Particle.Vacuum, AnyonSpecies.Particle.Psi -> 
-                            Complex(-0.5 * sqrt 2.0, 0.0)
-                        | AnyonSpecies.Particle.Psi, AnyonSpecies.Particle.Psi, AnyonSpecies.Particle.Vacuum -> 
-                            Complex(0.5 * sqrt 2.0, 0.0)
-                        | AnyonSpecies.Particle.Psi, AnyonSpecies.Particle.Psi, AnyonSpecies.Particle.Psi -> 
-                            Complex(0.5 * sqrt 2.0, 0.0)
-                        
-                        | _ -> Complex.Zero
+                        | _ ->
+                            Complex.Zero
                     
                     // Other simple cases
                     | _ ->

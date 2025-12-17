@@ -85,6 +85,7 @@ module QuantumPhaseEstimatorBuilderTests =
             Assert.Equal(8, problem.Precision)
             Assert.Equal(1, problem.TargetQubits)  // Default
             Assert.True(problem.EigenVector.IsNone)
+            Assert.False(problem.ApplySwaps)       // Default
         | Error err -> Assert.True(false, sprintf "Should have succeeded: %s" err.Message)
     
     [<Fact>]
@@ -93,12 +94,14 @@ module QuantumPhaseEstimatorBuilderTests =
             unitary (PhaseGate (Math.PI / 4.0))
             precision 12
             targetQubits 2
+            applySwaps true
         }
         
         match result with
         | Ok problem ->
             Assert.Equal(12, problem.Precision)
             Assert.Equal(2, problem.TargetQubits)
+            Assert.True(problem.ApplySwaps)
         | Error err -> Assert.True(false, sprintf "Should have succeeded: %s" err.Message)
     
     // ========================================================================

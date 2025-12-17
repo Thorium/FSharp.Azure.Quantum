@@ -176,9 +176,169 @@ module LocalBackend =
                 | QuantumState.StateVector sv ->
                     try
                         match operation with
-                        | QuantumOperation.Gate gate ->
+                        | QuantumOperation.Algorithm (AlgorithmOperation.QFT intent) ->
+                            // Execute QFT intent by lowering to gates locally.
+                            let qftOps =
+                                let numQubits = intent.NumQubits
+                                let inverse = intent.Inverse
+
+                                let applyQftStepOps targetQubit =
+                                    let hOp = QuantumOperation.Gate (CircuitBuilder.H targetQubit)
+                                    let phases =
+                                        [targetQubit + 1 .. numQubits - 1]
+                                        |> List.map (fun k ->
+                                            let power = k - targetQubit + 1
+                                            let angle = 2.0 * Math.PI / float (1 <<< power)
+                                            let angle = if inverse then -angle else angle
+                                            QuantumOperation.Gate (CircuitBuilder.CP (k, targetQubit, angle)))
+                                    hOp :: phases
+
+                                let qftSequence =
+                                    [0 .. numQubits - 1]
+                                    |> List.collect applyQftStepOps
+
+                                let swapSequence =
+                                    if intent.ApplySwaps then
+                                        [0 .. numQubits / 2 - 1]
+                                        |> List.map (fun i ->
+                                            let j = numQubits - 1 - i
+                                            QuantumOperation.Gate (CircuitBuilder.SWAP (i, j)))
+                                    else
+                                        []
+
+                                qftSequence @ swapSequence
+
+                            (self :> IQuantumBackend).ApplyOperation (QuantumOperation.Sequence qftOps) state
+
+                        | QuantumOperation.Algorithm (AlgorithmOperation.GroverPrepare numQubits) ->
+                            // Uniform superposition is Hadamard on all qubits.
+                            let ops =
+                                [0 .. numQubits - 1]
+                                |> List.map (fun q -> QuantumOperation.Gate (CircuitBuilder.H q))
+                            (self :> IQuantumBackend).ApplyOperation (QuantumOperation.Sequence ops) state
+
+                        | QuantumOperation.Algorithm (AlgorithmOperation.GroverOraclePhaseFlip intent) ->
+                            // Apply oracle via direct state-vector phase flips.
+                            match state with
+                            | QuantumState.StateVector sv ->
+                                let dim = 1 <<< intent.NumQubits
+                                let amps =
+                                    [| 0 .. dim - 1 |]
+                                    |> Array.map (fun i ->
+                                        let amp = StateVector.getAmplitude i sv
+                                        if intent.IsMarked i then -amp else amp)
+                                let newSv = StateVector.create amps
+                                Ok (QuantumState.StateVector newSv)
+                            | _ ->
+                                Error (QuantumError.OperationError ("LocalBackend", "Expected StateVector for Grover oracle"))
+
+                        | QuantumOperation.Algorithm (AlgorithmOperation.GroverDiffusion numQubits) ->
+                             // Diffusion is inversion about the mean amplitude.
+                             match state with
+                             | QuantumState.StateVector sv ->
+                                 let dim = 1 <<< numQubits
+                                 let sumAmp =
+                                     [| 0 .. dim - 1 |]
+                                     |> Array.fold (fun acc i -> acc + StateVector.getAmplitude i sv) System.Numerics.Complex.Zero
+                                 let meanAmp = sumAmp / System.Numerics.Complex(float dim, 0.0)
+                                 let amps =
+                                     [| 0 .. dim - 1 |]
+                                     |> Array.map (fun i ->
+                                         let a = StateVector.getAmplitude i sv
+                                         (meanAmp * System.Numerics.Complex(2.0, 0.0)) - a)
+                                 let newSv = StateVector.create amps
+                                 Ok (QuantumState.StateVector newSv)
+                             | _ ->
+                                 Error (QuantumError.OperationError ("LocalBackend", "Expected StateVector for Grover diffusion"))
+ 
+                          | QuantumOperation.Algorithm (AlgorithmOperation.QPE intent) ->
+                              // Execute QPE intent by lowering to gates locally.
+                              //
+                              // Note: `intent.ApplySwaps` controls whether the final bit-reversal SWAPs
+                              // are applied. QPE can also omit swaps and undo bit order classically.
+                             if intent.CountingQubits <= 0 then
+                                 Error (QuantumError.ValidationError ("CountingQubits", "must be positive"))
+                             elif intent.TargetQubits <> 1 then
+                                 Error (QuantumError.ValidationError ("TargetQubits", "only TargetQubits = 1 is supported by QPE intent"))
+                             else
+                                 let totalQubits = intent.CountingQubits + intent.TargetQubits
+                                 let targetQubit = intent.CountingQubits
+
+                                 let hadamardOps =
+                                     [0 .. intent.CountingQubits - 1]
+                                     |> List.map (fun q -> QuantumOperation.Gate (CircuitBuilder.H q))
+
+                                 let eigenPrepOps =
+                                     if intent.PrepareTargetOne then
+                                         [ QuantumOperation.Gate (CircuitBuilder.X targetQubit) ]
+                                     else
+                                         []
+
+                                 let controlledOps =
+                                     [0 .. intent.CountingQubits - 1]
+                                     |> List.map (fun j ->
+                                         let applications = 1 <<< j
+
+                                         match intent.Unitary with
+                                         | QpeUnitary.PhaseGate theta ->
+                                             let totalTheta = float applications * theta
+                                             QuantumOperation.Gate (CircuitBuilder.CP (j, targetQubit, totalTheta))
+                                         | QpeUnitary.TGate ->
+                                             let totalTheta = float applications * Math.PI / 4.0
+                                             QuantumOperation.Gate (CircuitBuilder.CP (j, targetQubit, totalTheta))
+                                         | QpeUnitary.SGate ->
+                                             let totalTheta = float applications * Math.PI / 2.0
+                                             QuantumOperation.Gate (CircuitBuilder.CP (j, targetQubit, totalTheta))
+                                         | QpeUnitary.RotationZ theta ->
+                                             let totalTheta = float applications * theta
+                                             QuantumOperation.Gate (CircuitBuilder.CRZ (j, targetQubit, totalTheta)))
+
+                                 // Inverse QFT on counting register.
+                                 // Important: inverse processes from n-1 down to 0, phases first then H.
+                                 let inverseQftOps =
+                                     [(intent.CountingQubits - 1) .. -1 .. 0]
+                                     |> List.collect (fun tq ->
+                                         let phases =
+                                             [tq + 1 .. intent.CountingQubits - 1]
+                                             |> List.map (fun k ->
+                                                 let power = k - tq + 1
+                                                 let angle = -2.0 * Math.PI / float (1 <<< power)
+                                                 QuantumOperation.Gate (CircuitBuilder.CP (k, tq, angle)))
+                                         let h = QuantumOperation.Gate (CircuitBuilder.H tq)
+                                         phases @ [ h ])
+
+                                 let swapOps =
+                                     if intent.ApplySwaps then
+                                         [0 .. intent.CountingQubits / 2 - 1]
+                                         |> List.map (fun i ->
+                                             let j = intent.CountingQubits - 1 - i
+                                             QuantumOperation.Gate (CircuitBuilder.SWAP (i, j)))
+                                     else
+                                         []
+
+                                 let ops = hadamardOps @ eigenPrepOps @ controlledOps @ inverseQftOps @ swapOps
+                                 if QuantumState.numQubits state <> totalQubits then
+                                     Error (QuantumError.ValidationError ("state", $"Expected {totalQubits} qubits for QPE intent, got {QuantumState.numQubits state}"))
+                                 else
+                                     (self :> IQuantumBackend).ApplyOperation (QuantumOperation.Sequence ops) state
+ 
+                         | QuantumOperation.Gate gate ->
+
                             let evolved = applyGate gate sv
                             Ok (QuantumState.StateVector evolved)
+
+                        | QuantumOperation.Extension ext ->
+                            match ext with
+                            | :? IApplyToStateVectorExtension as svExt ->
+                                let newSv = svExt.ApplyToStateVector sv
+                                Ok (QuantumState.StateVector newSv)
+                            | :? ILowerToOperationsExtension as lowerable ->
+                                let ops =
+                                    lowerable.LowerToGates()
+                                    |> List.map QuantumOperation.Gate
+                                (self :> IQuantumBackend).ApplyOperation (QuantumOperation.Sequence ops) state
+                            | _ ->
+                                Error (QuantumError.OperationError ("LocalBackend", $"Extension operation '{ext.Id}' is not supported"))
                         
                         | QuantumOperation.Sequence ops ->
                             // Apply operations sequentially
@@ -217,11 +377,22 @@ module LocalBackend =
             
             member _.SupportsOperation (operation: QuantumOperation) : bool =
                 match operation with
+                | QuantumOperation.Algorithm (AlgorithmOperation.QFT _) -> true
+                | QuantumOperation.Algorithm (AlgorithmOperation.QPE _) -> true
+                | QuantumOperation.Algorithm (AlgorithmOperation.GroverPrepare _) -> true
+                | QuantumOperation.Algorithm (AlgorithmOperation.GroverOraclePhaseFlip _) -> true
+                | QuantumOperation.Algorithm (AlgorithmOperation.GroverDiffusion _) -> true
                 | QuantumOperation.Gate _ -> true
                 | QuantumOperation.Sequence _ -> true
                 | QuantumOperation.Measure _ -> true
+                | QuantumOperation.Extension ext ->
+                    match ext with
+                    | :? IApplyToStateVectorExtension -> true
+                    | :? ILowerToOperationsExtension -> true
+                    | _ -> false
                 | QuantumOperation.Braid _ -> false  // No braiding in gate-based backend
                 | QuantumOperation.FMove _ -> false  // No F-moves in gate-based backend
+
             
             member _.InitializeState (numQubits: int) : Result<QuantumState, QuantumError> =
                 try

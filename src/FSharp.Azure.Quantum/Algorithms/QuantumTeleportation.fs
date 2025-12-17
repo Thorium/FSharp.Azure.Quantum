@@ -1,10 +1,12 @@
 namespace FSharp.Azure.Quantum.Algorithms
 
 open System
+open System.Numerics
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.CircuitBuilder
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.BackendAbstraction
+open FSharp.Azure.Quantum.LocalSimulator
 
 /// Quantum Teleportation Protocol
 /// 
@@ -144,6 +146,182 @@ module QuantumTeleportation =
                 let! afterX = backend.ApplyOperation (QuantumOperation.Gate (X bobQubitIndex)) afterZ
                 return afterX
             }
+
+    // ========================================================================
+    // INTENT → PLAN → EXECUTION (ADR: intent-first algorithms)
+    // ========================================================================
+
+    type private TeleportationIntent = {
+        AliceInputQubit: int
+        AliceBellQubit: int
+        BobBellQubit: int
+    }
+
+    [<RequireQualifiedAccess>]
+    type private TeleportationPlan =
+        | ExecuteViaOps of bellOps: QuantumOperation list * aliceOps: QuantumOperation list * correctionOps: QuantumOperation list
+
+    let private buildBellOps (intent: TeleportationIntent) : QuantumOperation list =
+        [
+            QuantumOperation.Gate (H intent.AliceBellQubit)
+            QuantumOperation.Gate (CNOT (intent.AliceBellQubit, intent.BobBellQubit))
+        ]
+
+    let private buildAliceOps (intent: TeleportationIntent) : QuantumOperation list =
+        [
+            QuantumOperation.Gate (CNOT (intent.AliceInputQubit, intent.AliceBellQubit))
+            QuantumOperation.Gate (H intent.AliceInputQubit)
+        ]
+
+    /// Deferred-measurement implementation of the classical corrections.
+    ///
+    /// This is unitary-equivalent to:
+    /// - measure Alice bits (q0, q1)
+    /// - apply X if Bit1=1, Z if Bit0=1
+    let private buildCorrectionOps (intent: TeleportationIntent) : QuantumOperation list =
+        [
+            // X correction controlled by Alice's bell qubit (q1)
+            QuantumOperation.Gate (CNOT (intent.AliceBellQubit, intent.BobBellQubit))
+            // Z correction controlled by Alice's input qubit (q0)
+            QuantumOperation.Gate (CZ (intent.AliceInputQubit, intent.BobBellQubit))
+        ]
+
+    let private plan (backend: IQuantumBackend) (intent: TeleportationIntent) : Result<TeleportationPlan, QuantumError> =
+        // Teleportation requires standard gate-based operations (H, CNOT, CZ) and state-vector inspection for fidelity.
+        // Some backends (e.g., annealing) cannot support this, and we should fail explicitly.
+        match backend.NativeStateType with
+        | QuantumStateType.Annealing ->
+            Error (QuantumError.OperationError ("QuantumTeleportation", $"Backend '{backend.Name}' does not support quantum teleportation (native state type: {backend.NativeStateType})"))
+        | _ ->
+            // Today we always lower to gates.
+            // Future: add `QuantumOperation.Algorithm (AlgorithmOperation.Teleportation ...)` if/when supported.
+            let bellOps = buildBellOps intent
+            let aliceOps = buildAliceOps intent
+            let correctionOps = buildCorrectionOps intent
+
+            let requiredOps = bellOps @ aliceOps @ correctionOps
+
+            if requiredOps |> List.forall backend.SupportsOperation then
+                Ok (TeleportationPlan.ExecuteViaOps (bellOps, aliceOps, correctionOps))
+            else
+                Error (QuantumError.OperationError ("QuantumTeleportation", $"Backend '{backend.Name}' does not support required operations for quantum teleportation"))
+
+    let private executePlan
+        (backend: IQuantumBackend)
+        (state: QuantumState)
+        (plan: TeleportationPlan)
+        : Result<QuantumState * QuantumState, QuantumError> =
+
+        // Returns: (afterAliceOps, correctedState)
+        match plan with
+        | TeleportationPlan.ExecuteViaOps (bellOps, aliceOps, correctionOps) ->
+            result {
+                let! afterBell = UnifiedBackend.applySequence backend bellOps state
+                let! afterAlice = UnifiedBackend.applySequence backend aliceOps afterBell
+                let! corrected = UnifiedBackend.applySequence backend correctionOps afterAlice
+                return (afterAlice, corrected)
+            }
+
+    // ========================================================================
+    // STATE INSPECTION HELPERS (Gate-based / simulator only)
+    // ========================================================================
+
+    let private tryAsStateVector (state: QuantumState) : Result<StateVector.StateVector, QuantumError> =
+        match state with
+        | QuantumState.StateVector sv -> Ok sv
+        | _ ->
+            Error (QuantumError.OperationError ("QuantumTeleportation", "State inspection requires a gate-based StateVector"))
+
+    let private normalizeVec (v0: Complex) (v1: Complex) : Complex * Complex =
+        let normSquared = v0.Magnitude * v0.Magnitude + v1.Magnitude * v1.Magnitude
+        if normSquared < 1e-16 then
+            (Complex.Zero, Complex.Zero)
+        else
+            let invNorm = 1.0 / sqrt normSquared
+            (v0 * invNorm, v1 * invNorm)
+
+    /// Extract Alice's input qubit pure state amplitudes α|0⟩+β|1⟩ from a 3-qubit state.
+    ///
+    /// Requires the other qubits to be |00⟩ (as in our prepared input states).
+    let private extractInputQubitState (inputState: QuantumState) : Result<Complex * Complex, QuantumError> =
+        result {
+            let! sv = tryAsStateVector inputState
+
+            // Our convention: basisIndex bits are little-endian by qubit index.
+            // |q0 q1 q2⟩ = |b0 b1 b2⟩ corresponds to basisIndex = b0 + 2*b1 + 4*b2
+            let alpha = StateVector.getAmplitude 0 sv      // |000⟩
+            let beta = StateVector.getAmplitude 1 sv       // |100⟩ (q0=1)
+
+            let (aN, bN) = normalizeVec alpha beta
+            return (aN, bN)
+        }
+
+    /// Reduced density matrix of a single qubit (2x2) from 3-qubit pure state.
+    ///
+    /// ρ_b = Tr_{others}(|ψ⟩⟨ψ|). Returns (ρ00, ρ01, ρ10, ρ11).
+    let private reducedDensityMatrixSingleQubit
+        (targetQubit: int)
+        (state: QuantumState)
+        : Result<Complex * Complex * Complex * Complex, QuantumError> =
+
+        // Keep this function free of the `result {}` computation expression
+        // because our ResultBuilder does not implement `For`.
+        match tryAsStateVector state with
+        | Error err -> Error err
+        | Ok sv ->
+            let n = StateVector.numQubits sv
+
+            if n <> 3 then
+                Error (QuantumError.ValidationError ("state", $"Expected 3 qubits, got {n}"))
+            elif targetQubit < 0 || targetQubit >= n then
+                Error (QuantumError.ValidationError ("targetQubit", $"Index out of range: {targetQubit}"))
+            else
+                let dim = 1 <<< n
+
+                let mutable rho00 = Complex.Zero
+                let mutable rho01 = Complex.Zero
+                let mutable rho10 = Complex.Zero
+                let mutable rho11 = Complex.Zero
+
+                // sum over all basis indices i,j with same "other" bits; only target bit differs.
+                for i in 0 .. dim - 1 do
+                    let iBit = (i >>> targetQubit) &&& 1
+                    let iOther = i &&& (~~~(1 <<< targetQubit))
+                    let ampI = StateVector.getAmplitude i sv
+
+                    for j in 0 .. dim - 1 do
+                        let jBit = (j >>> targetQubit) &&& 1
+                        let jOther = j &&& (~~~(1 <<< targetQubit))
+
+                        if iOther = jOther then
+                            let ampJ = StateVector.getAmplitude j sv
+                            let term = ampI * Complex.Conjugate ampJ
+
+                            match (iBit, jBit) with
+                            | 0, 0 -> rho00 <- rho00 + term
+                            | 0, 1 -> rho01 <- rho01 + term
+                            | 1, 0 -> rho10 <- rho10 + term
+                            | 1, 1 -> rho11 <- rho11 + term
+                            | _ -> ()
+
+                Ok (rho00, rho01, rho10, rho11)
+
+    /// Fidelity F(|ψ⟩, ρ) = ⟨ψ|ρ|ψ⟩ between a pure 1-qubit state and a 1-qubit density matrix.
+    let private pureStateDensityFidelity
+        (alpha: Complex, beta: Complex)
+        (rho00: Complex, rho01: Complex, rho10: Complex, rho11: Complex)
+        : float =
+
+        // ⟨ψ|ρ|ψ⟩ = [α* β*] [ρ00 ρ01; ρ10 ρ11] [α; β]
+        let aConj = Complex.Conjugate alpha
+        let bConj = Complex.Conjugate beta
+
+        let v0 = rho00 * alpha + rho01 * beta
+        let v1 = rho10 * alpha + rho11 * beta
+        let result = aConj * v0 + bConj * v1
+
+        // Numerical rounding can introduce tiny imaginary component
+        max 0.0 (min 1.0 result.Real)
     
     /// Format teleportation result for display
     let formatResult (result: TeleportationResult) : string =
@@ -208,91 +386,49 @@ module QuantumTeleportation =
         : Result<TeleportationResult, QuantumError> =
         
         result {
-            // Qubit assignments
-            let aliceInputQubit = 0
-            let aliceBellQubit = 1
-            let bobBellQubit = 2
-            
-            // Step 1: Validate input state has exactly 3 qubits
+            let intent = {
+                AliceInputQubit = 0
+                AliceBellQubit = 1
+                BobBellQubit = 2
+            }
+
+            // Validate input state has exactly 3 qubits
             let numQubits = QuantumState.numQubits inputState
-            
-            do! if numQubits <> 3 then
+
+            do!
+                if numQubits <> 3 then
                     Error (QuantumError.ValidationError ("inputState", $"requires exactly 3 qubits, got {numQubits}"))
                 else
                     Ok ()
-            
-            // Step 2: Create Bell pair between Alice (q1) and Bob (q2)
-            // Create |Φ⁺⟩ = (|00⟩ + |11⟩) / √2 on qubits 1 and 2
-            let! stateWithBell = 
-                result {
-                    // Apply H to qubit 1 (Alice's Bell qubit)
-                    let! afterH = backend.ApplyOperation (QuantumOperation.Gate (H aliceBellQubit)) inputState
-                    // Apply CNOT(1,2) to entangle Alice's and Bob's Bell qubits
-                    let! entangled = backend.ApplyOperation 
-                                        (QuantumOperation.Gate (CNOT (aliceBellQubit, bobBellQubit))) 
-                                        afterH
-                    return entangled
-                }
-            
-            // Step 3: Alice entangles her input qubit with her Bell qubit
-            // This creates a 3-qubit entangled state
-            let! afterAliceCNOT = backend.ApplyOperation 
-                                    (QuantumOperation.Gate (CNOT (aliceInputQubit, aliceBellQubit))) 
-                                    stateWithBell
-            
-            let! afterAliceH = backend.ApplyOperation 
-                                (QuantumOperation.Gate (H aliceInputQubit)) 
-                                afterAliceCNOT
-            
-            // Step 4: Alice measures her two qubits
-            // Extract actual measurement results from quantum state
-            let measurements = QuantumState.measure afterAliceH 1  // 1 shot
-            let measurementBits = measurements.[0]  // First (and only) measurement
-            
-            let bit0 = measurementBits.[aliceInputQubit]
-            let bit1 = measurementBits.[aliceBellQubit]
-            
+
+            // Plan and execute
+            let! teleportPlan = plan backend intent
+            let! (afterAliceOps, correctedState) = executePlan backend inputState teleportPlan
+
+            // Alice's classical bits (for reporting)
+            //
+            // We intentionally sample from the post-H state without collapsing it.
+            // The teleportation *unitary* can be implemented with deferred measurement:
+            // the same correction effect is achieved by controlled operations.
+            let bits = QuantumState.measure afterAliceOps 1 |> Array.head
+
             let aliceMeasurement = {
-                Bit0 = bit0
-                Bit1 = bit1
+                Bit0 = bits.[intent.AliceInputQubit]
+                Bit1 = bits.[intent.AliceBellQubit]
             }
-            
-            // Step 5: Apply measurement collapse to state
-            // After measurement, qubits 0 and 1 are in classical state |bit0,bit1⟩
-            // We need to apply the measurement operators to collapse the state
-            let! stateAfterMeasurement = 
-                result {
-                    // Apply X gates if bits were measured as 1 (to set them to |1⟩)
-                    let! state1 = 
-                        if bit0 = 1 then
-                            backend.ApplyOperation (QuantumOperation.Gate (X aliceInputQubit)) afterAliceH
-                        else
-                            Ok afterAliceH
-                    
-                    let! state2 = 
-                        if bit1 = 1 then
-                            backend.ApplyOperation (QuantumOperation.Gate (X aliceBellQubit)) state1
-                        else
-                            Ok state1
-                    
-                    return state2
-                }
-            
-            // Step 6: Determine Bob's correction based on Alice's measurement
+
+            // Determine Bob's correction (based on sampled bits)
             let correction = getCorrection aliceMeasurement
-            
-            // Step 7: Bob applies correction to his qubit
-            let! bobFinalState = applyCorrection correction bobBellQubit stateAfterMeasurement backend
-            
-            // Step 8: Calculate fidelity (for simulator, should be ~1.0)
-            // For now, return theoretical fidelity
-            // TODO: Implement actual fidelity calculation by comparing input and output states
-            let fidelity = 1.0
-            
+
+            // Calculate fidelity (simulator-capable backends)
+            let! (alpha, beta) = extractInputQubitState inputState
+            let! (rho00, rho01, rho10, rho11) = reducedDensityMatrixSingleQubit intent.BobBellQubit correctedState
+            let fidelity = pureStateDensityFidelity (alpha, beta) (rho00, rho01, rho10, rho11)
+
             return {
                 AliceMeasurement = aliceMeasurement
                 BobCorrection = correction
-                BobState = bobFinalState
+                BobState = correctedState
                 NumQubits = 3
                 BackendName = backend.NativeStateType.ToString()
                 Fidelity = fidelity
@@ -410,12 +546,16 @@ module QuantumTeleportation =
     let verifyFidelity 
         (inputState: QuantumState) 
         (outputState: QuantumState) 
-        (backend: IQuantumBackend) 
+        (_backend: IQuantumBackend) 
         : Result<float, QuantumError> =
         
-        // For theoretical implementation, assume perfect fidelity
-        // In real implementation, would compute overlap: |⟨ψ_in|ψ_out⟩|²
-        Ok 1.0
+        result {
+            // We treat `inputState` as having the input qubit on q0.
+            // We compare it against Bob's reduced 1-qubit state on q2 from `outputState`.
+            let! (alpha, beta) = extractInputQubitState inputState
+            let! (rho00, rho01, rho10, rho11) = reducedDensityMatrixSingleQubit 2 outputState
+            return pureStateDensityFidelity (alpha, beta) (rho00, rho01, rho10, rho11)
+        }
     
     // ========================================================================
     // STATISTICS & ANALYSIS

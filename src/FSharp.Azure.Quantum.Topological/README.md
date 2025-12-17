@@ -185,7 +185,7 @@ sequenceDiagram
     Backend-->>Builder: Ok(state)
     
     Builder->>Backend: Braid(0)
-    Backend->>Operations: braidAdjacentAnyons(0, state)
+    Backend->>Operations: braidAdjacentAnyons(0, state)  // returns Superposition
     Operations->>Fusion: get fusion channels
     Fusion-->>Operations: [Vacuum, Psi]
     Operations-->>Backend: Ok(braidedState)

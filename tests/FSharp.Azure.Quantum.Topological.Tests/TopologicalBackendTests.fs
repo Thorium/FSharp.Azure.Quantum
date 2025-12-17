@@ -1,15 +1,107 @@
 namespace FSharp.Azure.Quantum.Topological.Tests
 
 open Xunit
+open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Topological
 open System.Threading.Tasks
+open FSharp.Azure.Quantum.Core.BackendAbstraction
+open FSharp.Azure.Quantum.Core
+open FSharp.Azure.Quantum.Core.CircuitAbstraction
 
 module TopologicalBackendTests =
+
+    type private LoweringProbeExtension() =
+        let mutable wasLowered = false
+
+        member _.WasLowered = wasLowered
+
+        interface ILowerToOperationsExtension with
+            member _.Id = "tests.topological.lowering-probe"
+            member _.LowerToGates () =
+                wasLowered <- true
+                [ CircuitBuilder.X 0 ]
+
+    type private UnsupportedExtension() =
+        interface IQuantumOperationExtension with
+            member _.Id = "tests.topological.unsupported"
     
     // ========================================================================
     // CAPABILITY VALIDATION
     // ========================================================================
     
+    [<Fact>]
+    let ``Unified Topological backend should support lowering extension operations`` () =
+        let backend = TopologicalUnifiedBackend.TopologicalUnifiedBackend(AnyonSpecies.AnyonType.Ising, 10) :> IQuantumBackend
+        let ext = LoweringProbeExtension() :> IQuantumOperationExtension
+        Assert.True(backend.SupportsOperation (QuantumOperation.Extension ext))
+
+    [<Fact>]
+    let ``Unified Topological backend should not support unknown extension operations`` () =
+        let backend = TopologicalUnifiedBackend.TopologicalUnifiedBackend(AnyonSpecies.AnyonType.Ising, 10) :> IQuantumBackend
+        let ext = UnsupportedExtension() :> IQuantumOperationExtension
+        Assert.False(backend.SupportsOperation (QuantumOperation.Extension ext))
+
+    [<Fact>]
+    let ``Unified Topological backend should apply lowering extension by executing lowered gates`` () =
+        let backend = TopologicalUnifiedBackend.TopologicalUnifiedBackend(AnyonSpecies.AnyonType.Ising, 10) :> IQuantumBackend
+ 
+        match backend.InitializeState 2 with
+        | Error err ->
+            Assert.True(false, sprintf "InitializeState failed: %A" err)
+        | Ok initialState ->
+            let probe = LoweringProbeExtension()
+            let op = QuantumOperation.Extension (probe :> IQuantumOperationExtension)
+ 
+            match backend.ApplyOperation op initialState with
+            | Error err ->
+                Assert.True(false, sprintf "ApplyOperation (extension) failed: %A" err)
+            | Ok (QuantumState.FusionSuperposition fs) ->
+                Assert.True(probe.WasLowered, "Expected LowerToGates() to be invoked")
+                Assert.True(fs.IsNormalized, "Expected resulting topological state to be normalized")
+            | Ok _ ->
+                Assert.True(false, "Expected FusionSuperposition output")
+
+    [<Fact>]
+    let ``Unified Topological backend should support QPE intent operation`` () =
+        // Note: CP/CRZ transpilation may require additional anyon resources.
+        let backend = TopologicalUnifiedBackend.TopologicalUnifiedBackend(AnyonSpecies.AnyonType.Ising, 40) :> IQuantumBackend
+        let intent =
+            {
+                CountingQubits = 3
+                TargetQubits = 1
+                Unitary = QpeUnitary.TGate
+                PrepareTargetOne = true
+                ApplySwaps = false
+            }
+
+        Assert.True(backend.SupportsOperation (QuantumOperation.Algorithm (AlgorithmOperation.QPE intent)))
+
+    [<Fact>]
+    let ``Unified Topological backend should apply QPE intent and return FusionSuperposition`` () =
+        // Note: CP/CRZ transpilation may require additional anyon resources.
+        let backend = TopologicalUnifiedBackend.TopologicalUnifiedBackend(AnyonSpecies.AnyonType.Ising, 40) :> IQuantumBackend
+        let intent =
+            {
+                CountingQubits = 3
+                TargetQubits = 1
+                Unitary = QpeUnitary.TGate
+                PrepareTargetOne = true
+                ApplySwaps = false
+            }
+
+        match backend.InitializeState 4 with
+        | Error err ->
+            Assert.True(false, sprintf "InitializeState failed: %A" err)
+        | Ok initialState ->
+            match backend.ApplyOperation (QuantumOperation.Algorithm (AlgorithmOperation.QPE intent)) initialState with
+            | Error err ->
+                Assert.True(false, sprintf "ApplyOperation (QPE intent) failed: %A" err)
+            | Ok (QuantumState.FusionSuperposition fs) ->
+                Assert.True(fs.IsNormalized, "Expected resulting topological state to be normalized")
+            | Ok _ ->
+                Assert.True(false, "Expected FusionSuperposition output")
+
+
     [<Fact>]
     let ``Simulator backend advertises correct capabilities for Ising anyons`` () =
         let backend = TopologicalBackend.createSimulator AnyonSpecies.AnyonType.Ising 10
@@ -179,18 +271,16 @@ module TopologicalBackendTests =
     
     [<Fact>]
     let ``Four sigma anyons initialize to valid fusion state`` () = task {
-        // Business-meaningful: 4 anyons create space for 2 qubits
+        // Business-meaningful: 4 σ anyons have a 2D fusion space.
+        // (This test is for the legacy simulator Initialize, not the unified backend encoding.)
         let backend = TopologicalBackend.createSimulator AnyonSpecies.AnyonType.Ising 10
         
         let! stateResult = backend.Initialize AnyonSpecies.AnyonType.Ising 4
         
         match stateResult with
         | Ok state ->
-            // Check we have a valid state
             Assert.Single(state.Terms) |> ignore
             let (_, fusionState) = state.Terms.[0]
-            
-            // Should be Ising theory
             Assert.Equal(AnyonSpecies.AnyonType.Ising, fusionState.AnyonType)
         | Error err ->
             Assert.Fail($"Expected Ok but got Error: {err.Message}")

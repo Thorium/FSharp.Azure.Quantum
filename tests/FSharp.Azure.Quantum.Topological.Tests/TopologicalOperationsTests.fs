@@ -153,16 +153,19 @@ module TopologicalOperationsTests =
         // Braid the two sigma anyons (indices 0 and 1)
         match TopologicalOperations.braidAdjacentAnyons 0 state with
         | Error err -> Assert.Fail($"Braiding should succeed: {err.Message}")
-        | Ok result ->
+        | Ok braided ->
             // Should accumulate a phase (from R-matrix)
-            Assert.NotEqual(Complex.Zero, result.Amplitude)
+            Assert.NotEmpty(braided.Terms)
+            
+            // Single basis state in this simple 2-anyon case
+            Assert.Equal(1, braided.Terms.Length)
+            
+            let (amp, _) = braided.Terms.[0]
+            Assert.NotEqual(Complex.Zero, amp)
             
             // Should have unit magnitude (unitary operation)
-            let magnitude = Complex.Abs(result.Amplitude)
+            let magnitude = Complex.Abs amp
             Assert.Equal(1.0, magnitude, 10)
-            
-            // No classical outcome (braiding is reversible)
-            Assert.True(result.ClassicalOutcome.IsNone)
     
     [<Fact>]
     let ``Braiding is a unitary operation (preserves norm)`` () =
@@ -195,7 +198,7 @@ module TopologicalOperationsTests =
         // Index 1 would try to braid indices 1-2, but we only have 2 anyons
         match TopologicalOperations.braidAdjacentAnyons 1 state with
         | Ok _ -> Assert.Fail("Should have returned validation error")
-        | Error (TopologicalError.ValidationError (field, reason)) ->
+        | Error (TopologicalError.ValidationError (_, reason)) ->
             Assert.Contains("Invalid braid index", reason)
         | Error err -> Assert.Fail($"Expected ValidationError but got {err.Category}")
         
@@ -366,26 +369,67 @@ module TopologicalOperationsTests =
         // After normalization, should be normalized
         let normalized = TopologicalOperations.normalize superposition
         Assert.True(TopologicalOperations.isNormalized normalized)
-    
+
     // ========================================================================
     // F-MOVE OPERATIONS (BASIC)
     // ========================================================================
-    
+
     [<Fact>]
-    let ``F-move returns superposition of basis states`` () =
+    let ``F-move returns normalized superposition`` () =
         // F-moves are basis transformations
-        // Currently returns identity (TODO: full implementation)
-        
+        // For meaningful systems, they can produce a superposition.
+
+        // Use σσσ→σ associator where F is non-trivial.
         let sigma = FusionTree.leaf AnyonSpecies.Particle.Sigma
-        let pair1 = FusionTree.fuse sigma sigma AnyonSpecies.Particle.Vacuum
-        let pair2 = FusionTree.fuse sigma sigma AnyonSpecies.Particle.Vacuum
-        let fourSigmas = FusionTree.fuse pair1 pair2 AnyonSpecies.Particle.Vacuum
-        let state = FusionTree.create fourSigmas AnyonSpecies.AnyonType.Ising
-        
-        let result = TopologicalOperations.fMove TopologicalOperations.LeftToRight 0 state
-        
-        // Should return a superposition
+
+        // ((σ×σ→1)×σ→σ)
+        let leftAssoc =
+            FusionTree.fuse
+                (FusionTree.fuse sigma sigma AnyonSpecies.Particle.Vacuum)
+                sigma
+                AnyonSpecies.Particle.Sigma
+
+        let state = FusionTree.create leftAssoc AnyonSpecies.AnyonType.Ising
+        let result = TopologicalOperations.fMove TopologicalOperations.FMoveDirection.LeftToRight 0 state
+
         Assert.NotEmpty(result.Terms)
-        
-        // Should be normalized
         Assert.True(TopologicalOperations.isNormalized result)
+
+    // ========================================================================
+    // BRAIDING + F-MOVE (INTERFERENCE)
+    // ========================================================================
+
+    [<Fact>]
+    let ``Braiding in a 3-anyon system mixes basis amplitudes`` () =
+        // In the σσσ→σ fusion space, braiding the right pair requires an F-move,
+        // so it should generally create a superposition in the left-associated basis.
+
+        let sigma = FusionTree.leaf AnyonSpecies.Particle.Sigma
+
+        // Start in a basis state with a fixed intermediate channel e=1
+        let initialTree =
+            FusionTree.fuse
+                (FusionTree.fuse sigma sigma AnyonSpecies.Particle.Vacuum)
+                sigma
+                AnyonSpecies.Particle.Sigma
+
+        let state = FusionTree.create initialTree AnyonSpecies.AnyonType.Ising
+
+        // Braid b and c (indices 1 and 2)
+        match TopologicalOperations.braidAdjacentAnyons 1 state with
+        | Error err -> Assert.Fail($"Braiding should succeed: {err.Message}")
+        | Ok braided ->
+            // Should create more than one term (mixing)
+            Assert.True(braided.Terms.Length >= 2)
+
+            // Still normalized/unitary
+            Assert.True(TopologicalOperations.isNormalized braided)
+
+            // There should be at least two distinct trees involved
+            let distinctTrees =
+                braided.Terms
+                |> List.map (fun (_, s) -> FusionTree.toString s.Tree)
+                |> List.distinct
+
+            Assert.True(distinctTrees.Length >= 2)
+

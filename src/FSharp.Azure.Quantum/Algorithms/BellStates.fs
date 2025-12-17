@@ -38,7 +38,7 @@ module BellStates =
     // ========================================================================
     // TYPES
     // ========================================================================
-    
+
     /// Four Bell states (EPR pairs) - maximally entangled basis
     /// 
     /// Bell basis forms an orthonormal basis for 2-qubit Hilbert space:
@@ -62,6 +62,55 @@ module BellStates =
         /// |Ψ⁻⟩ = (|01⟩ - |10⟩) / √2
         /// Created by: H(0), CNOT(0,1), X(1), Z(0)
         | PsiMinus
+
+    type private BellIntent =
+        | Prepare of BellState
+        | MeasureBellBasis
+
+    [<RequireQualifiedAccess>]
+    type private BellPlan =
+        | ExecuteViaOps of ops: QuantumOperation list
+
+    // ========================================================================
+    // INTENT → PLAN → EXECUTION (ADR: intent-first algorithms)
+    // ========================================================================
+
+    let private preparationOps (bellState: BellState) : QuantumOperation list =
+        let baseOps = [ QuantumOperation.Gate (H 0); QuantumOperation.Gate (CNOT (0, 1)) ]
+        match bellState with
+        | PhiPlus -> baseOps
+        | PhiMinus -> baseOps @ [ QuantumOperation.Gate (Z 0) ]
+        | PsiPlus -> baseOps @ [ QuantumOperation.Gate (X 1) ]
+        | PsiMinus -> baseOps @ [ QuantumOperation.Gate (X 1); QuantumOperation.Gate (Z 0) ]
+
+    let private bellMeasurementOps : QuantumOperation list =
+        [ QuantumOperation.Gate (CNOT (0, 1)); QuantumOperation.Gate (H 0) ]
+
+    let private plan (backend: IQuantumBackend) (intent: BellIntent) : Result<BellPlan, QuantumError> =
+        // Bell states require standard gate-based operations (H, CNOT, X, Z).
+        // Some backends (e.g., annealing) cannot support this, so fail explicitly.
+        match backend.NativeStateType with
+        | QuantumStateType.Annealing ->
+            Error (QuantumError.OperationError ("BellStates", $"Backend '{backend.Name}' does not support Bell state algorithms (native state type: {backend.NativeStateType})"))
+        | _ ->
+            let ops =
+                match intent with
+                | Prepare bellState -> preparationOps bellState
+                | MeasureBellBasis -> bellMeasurementOps
+
+            if ops |> List.forall backend.SupportsOperation then
+                Ok (BellPlan.ExecuteViaOps ops)
+            else
+                Error (QuantumError.OperationError ("BellStates", $"Backend '{backend.Name}' does not support required operations for Bell states"))
+
+    let private executePlan
+        (backend: IQuantumBackend)
+        (state: QuantumState)
+        (plan: BellPlan)
+        : Result<QuantumState, QuantumError> =
+
+        match plan with
+        | BellPlan.ExecuteViaOps ops -> UnifiedBackend.applySequence backend ops state
     
     /// Result of Bell state measurement
     type BellMeasurement = {
@@ -113,15 +162,12 @@ module BellStates =
     ///   BellStateResult with quantum state
     let createPhiPlus (backend: IQuantumBackend) : Result<BellStateResult, QuantumError> =
         result {
-            // Initialize |00⟩ state
             let! initialState = backend.InitializeState 2
-            
-            // Apply Hadamard to qubit 0: |00⟩ → (|00⟩ + |10⟩) / √2
-            let! afterH = backend.ApplyOperation (QuantumOperation.Gate (H 0)) initialState
-            
-            // Apply CNOT(0,1): (|00⟩ + |10⟩) / √2 → (|00⟩ + |11⟩) / √2
-            let! finalState = backend.ApplyOperation (QuantumOperation.Gate (CNOT (0, 1))) afterH
-            
+
+            let intent = Prepare PhiPlus
+            let! preparedPlan = plan backend intent
+            let! finalState = executePlan backend initialState preparedPlan
+
             return {
                 State = PhiPlus
                 QuantumState = finalState
@@ -144,12 +190,12 @@ module BellStates =
     ///   BellStateResult with quantum state
     let createPhiMinus (backend: IQuantumBackend) : Result<BellStateResult, QuantumError> =
         result {
-            // Create |Φ⁺⟩ first
-            let! phiPlus = createPhiPlus backend
-            
-            // Apply Z gate to qubit 0 to flip phase: |Φ⁺⟩ → |Φ⁻⟩
-            let! finalState = backend.ApplyOperation (QuantumOperation.Gate (Z 0)) phiPlus.QuantumState
-            
+            let! initialState = backend.InitializeState 2
+
+            let intent = Prepare PhiMinus
+            let! preparedPlan = plan backend intent
+            let! finalState = executePlan backend initialState preparedPlan
+
             return {
                 State = PhiMinus
                 QuantumState = finalState
@@ -172,12 +218,12 @@ module BellStates =
     ///   BellStateResult with quantum state
     let createPsiPlus (backend: IQuantumBackend) : Result<BellStateResult, QuantumError> =
         result {
-            // Create |Φ⁺⟩ first
-            let! phiPlus = createPhiPlus backend
-            
-            // Apply X gate to qubit 1 to flip: |Φ⁺⟩ → |Ψ⁺⟩
-            let! finalState = backend.ApplyOperation (QuantumOperation.Gate (X 1)) phiPlus.QuantumState
-            
+            let! initialState = backend.InitializeState 2
+
+            let intent = Prepare PsiPlus
+            let! preparedPlan = plan backend intent
+            let! finalState = executePlan backend initialState preparedPlan
+
             return {
                 State = PsiPlus
                 QuantumState = finalState
@@ -200,12 +246,12 @@ module BellStates =
     ///   BellStateResult with quantum state
     let createPsiMinus (backend: IQuantumBackend) : Result<BellStateResult, QuantumError> =
         result {
-            // Create |Ψ⁺⟩ first
-            let! psiPlus = createPsiPlus backend
-            
-            // Apply Z gate to qubit 0 to flip phase: |Ψ⁺⟩ → |Ψ⁻⟩
-            let! finalState = backend.ApplyOperation (QuantumOperation.Gate (Z 0)) psiPlus.QuantumState
-            
+            let! initialState = backend.InitializeState 2
+
+            let intent = Prepare PsiMinus
+            let! preparedPlan = plan backend intent
+            let! finalState = executePlan backend initialState preparedPlan
+
             return {
                 State = PsiMinus
                 QuantumState = finalState
@@ -256,35 +302,32 @@ module BellStates =
     /// 
     /// Returns:
     ///   Measured Bell state
-    let measureBellBasis (state: QuantumState) (backend: IQuantumBackend) 
+    let measureBellBasis (state: QuantumState) (backend: IQuantumBackend)
         : Result<BellMeasurement, QuantumError> =
+
         result {
-            // Step 1: Reverse Bell state creation (CNOT, then H)
-            let! afterCNOT = backend.ApplyOperation (QuantumOperation.Gate (CNOT (0, 1))) state
-            let! afterH = backend.ApplyOperation (QuantumOperation.Gate (H 0)) afterCNOT
-            
-            // Step 2: Measure both qubits in computational basis
-            let! measured0 = backend.ApplyOperation (QuantumOperation.Measure 0) afterH
-            let! measured1 = backend.ApplyOperation (QuantumOperation.Measure 1) measured0
-            
-            // Step 3: Extract measurement results (simplified - needs state inspection)
-            // For now, return most likely outcome
-            let bit0 = 0  // Placeholder
-            let bit1 = 0  // Placeholder
-            
-            // Map measurement outcomes to Bell states
+            // Reverse Bell preparation circuit to map Bell basis -> computational basis.
+            let! measurementPlan = plan backend MeasureBellBasis
+            let! rotatedState = executePlan backend state measurementPlan
+
+            // Sample a single measurement outcome from the rotated state.
+            let bits = UnifiedBackend.measureState rotatedState 1 |> Array.head
+            let bit0, bit1 = bits.[0], bits.[1]
+
             let bellState =
                 match (bit0, bit1) with
                 | (0, 0) -> PhiPlus
                 | (0, 1) -> PsiPlus
                 | (1, 0) -> PhiMinus
                 | (1, 1) -> PsiMinus
-                | _ -> PhiPlus  // Shouldn't happen
-            
+                | _ -> PhiPlus
+
+            let probability = QuantumState.probability bits rotatedState
+
             return {
                 State = bellState
                 Bits = (bit0, bit1)
-                Probability = 1.0  // Placeholder
+                Probability = probability
             }
         }
     
@@ -307,22 +350,21 @@ module BellStates =
     /// 
     /// Returns:
     ///   Correlation coefficient (-1 to 1, where ±1 indicates perfect entanglement)
-    let verifyEntanglement (bellState: BellStateResult) (backend: IQuantumBackend) (shots: int) 
+    let verifyEntanglement (bellState: BellStateResult) (_backend: IQuantumBackend) (shots: int)
         : Result<float, QuantumError> =
         if shots < 1 then
             Error (QuantumError.ValidationError ("shots", "At least 1 shot required"))
         else
-            // Simplified version: Return expected correlation for now
-            // Full implementation would require actual measurements and state inspection
-            // which needs access to state vector amplitudes
-            let expectedCorrelation =
-                match bellState.State with
-                | PhiPlus -> 1.0   // Perfect positive correlation for |00⟩+|11⟩
-                | PhiMinus -> 1.0  // Perfect positive correlation for |00⟩-|11⟩
-                | PsiPlus -> 1.0   // Perfect correlation for |01⟩+|10⟩
-                | PsiMinus -> 1.0  // Perfect correlation for |01⟩-|10⟩
-            
-            Ok expectedCorrelation
+            // We can sample from the state distribution without mutating it.
+            let measurements = UnifiedBackend.measureState bellState.QuantumState shots
+
+            let correlationValues =
+                measurements
+                |> Array.map (fun bits ->
+                    // Same bits => +1, different => -1
+                    if bits.[0] = bits.[1] then 1.0 else -1.0)
+
+            Ok (Array.average correlationValues)
     
     // ========================================================================
     // PRETTY PRINTING

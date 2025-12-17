@@ -2,6 +2,7 @@ namespace FSharp.Azure.Quantum.Core
 
 open System.Threading
 open FSharp.Azure.Quantum
+open FSharp.Azure.Quantum.LocalSimulator
 open FSharp.Azure.Quantum.Core.CircuitAbstraction
 
 /// Unified quantum backend interface supporting both gate-based and state-based execution
@@ -22,47 +23,172 @@ open FSharp.Azure.Quantum.Core.CircuitAbstraction
 /// - New algorithms: Can use IQuantumBackend for more control
 module BackendAbstraction =
     
-    /// Quantum operation types (gates or braiding operations)
-    /// 
+    /// Algorithm-level intent for backends that are not gate-native.
+    ///
+    /// This is a DU-first way to express *meaning* without forcing a gate circuit
+    /// as the canonical representation.
+    type QftIntent = {
+        /// Number of logical qubits the QFT applies to.
+        NumQubits: int
+
+        /// Whether to compute inverse QFT (QFT†).
+        Inverse: bool
+
+        /// Whether to apply bit-reversal swaps.
+        ///
+        /// `true` corresponds to the standard mathematical QFT.
+        /// `false` returns the bit-reversed output ordering (useful for some algorithms).
+        ApplySwaps: bool
+    }
+
+    type GroverIntent = {
+        /// Number of logical qubits in the search space.
+        NumQubits: int
+
+        /// A function that decides whether a basis index is marked.
+        ///
+        /// This keeps the intent backend-agnostic while allowing backends to apply
+        /// the oracle phase flip using their native state model.
+        IsMarked: int -> bool
+    }
+
+    /// Minimal unitary family supported by QPE intent.
+    ///
+    /// This intentionally covers the common "single-qubit phase" cases used throughout
+    /// the codebase (T, S, and phase/rotation gates). More general unitaries can be
+    /// added later without forcing the algorithm implementation to be gate-native.
+    [<RequireQualifiedAccess>]
+    type QpeUnitary =
+        /// U|1⟩ = e^(iθ)|1⟩ (implemented via CP in the controlled case).
+        | PhaseGate of theta: float
+
+        /// T gate (π/8 gate): phase θ = π/4.
+        | TGate
+
+        /// S gate (√Z): phase θ = π/2.
+        | SGate
+
+        /// Rz(θ) = [[e^(-iθ/2), 0], [0, e^(iθ/2)]].
+        ///
+        /// Controlled variant uses CRZ.
+        | RotationZ of theta: float
+
+    type QpeIntent = {
+        /// Number of counting (precision) qubits.
+        CountingQubits: int
+
+        /// Number of target qubits.
+        ///
+        /// Current intent implementation supports only `TargetQubits = 1`.
+        TargetQubits: int
+
+        /// Unitary whose phase is estimated.
+        Unitary: QpeUnitary
+
+        /// If true, prepares the target in |1⟩ via X on the first target qubit.
+        PrepareTargetOne: bool
+
+        /// Whether to apply bit-reversal swaps after inverse QFT.
+        ///
+        /// QPE does not fundamentally require these swaps: omitting them yields a bit-reversed
+        /// counting register that can be classically un-reversed during post-processing.
+        ApplySwaps: bool
+    }
+
+    [<RequireQualifiedAccess>]
+    type AlgorithmOperation =
+        /// Quantum Fourier Transform intent.
+        | QFT of QftIntent
+
+        /// Quantum Phase Estimation intent.
+        ///
+        /// Transforms `|0⟩^(CountingQubits+TargetQubits)` to the standard QPE state,
+        /// ready for measurement on the counting register.
+        | QPE of QpeIntent
+
+        /// Prepare the uniform superposition |s⟩.
+        | GroverPrepare of numQubits: int
+
+        /// Apply the oracle phase flip to marked states.
+        | GroverOraclePhaseFlip of GroverIntent
+
+        /// Apply Grover diffusion (inversion about mean).
+        | GroverDiffusion of numQubits: int
+
+    /// Extension point for operations not represented in the core DU.
+    ///
+    /// Why this exists:
+    /// - The `QuantumOperation` DU is intentionally *closed* for core primitives.
+    /// - Some apps/libraries need to add new operation kinds without editing this repo.
+    ///
+    /// Backends may choose to support extensions by pattern-matching `QuantumOperation.Extension`.
+    type IQuantumOperationExtension =
+        /// Stable identifier for capability checks and diagnostics.
+        abstract member Id: string
+
+    /// Optional contract: extension can lower itself to core operations.
+    ///
+    /// This is the most portable mechanism: any backend that supports the resulting
+    /// operations can execute the extension.
+    type ILowerToOperationsExtension =
+        inherit IQuantumOperationExtension
+        abstract member LowerToGates: unit -> CircuitBuilder.Gate list
+
+    /// Optional contract: extension can apply directly to a gate-based StateVector.
+    ///
+    /// This targets the local simulator fast-path without requiring the backend
+    /// to know about the extension type.
+    type IApplyToStateVectorExtension =
+        inherit IQuantumOperationExtension
+        abstract member ApplyToStateVector: LocalSimulator.StateVector.StateVector -> LocalSimulator.StateVector.StateVector
+
+    /// Quantum operation types (gates, braids, algorithm intent, and extensions)
+    ///
     /// Represents operations that can be applied to quantum states.
     /// Backend implementation determines how operation is executed.
     [<RequireQualifiedAccess>]
     type QuantumOperation =
+        /// Algorithm-level intent (preferred when available).
+        | Algorithm of AlgorithmOperation
+
+        /// Open-world extension operation.
+        | Extension of IQuantumOperationExtension
+
         /// Gate-based operation (standard quantum gates)
-        /// 
+        ///
         /// Applied by gate-based backends directly.
-        /// Topological backends compile to braiding operations.
+        /// Some non-gate backends may choose to compile gates to their native model.
         | Gate of CircuitBuilder.Gate
         
         /// Braiding operation (topological quantum computing)
-        /// 
+        ///
         /// Parameters:
         ///   anyonIndex - Index of left anyon in pair to braid
-        /// 
+        ///
         /// Applied by topological backends directly.
         /// Gate-based backends cannot execute (return error).
         | Braid of anyonIndex: int
         
         /// Measurement operation
-        /// 
+        ///
         /// Parameters:
         ///   qubitIndex - Index of qubit to measure
-        /// 
+        ///
         /// Returns measurement outcome and collapsed state.
         | Measure of qubitIndex: int
         
         /// F-move operation (basis change in fusion tree)
-        /// 
+        ///
         /// Parameters:
         ///   direction - Forward or backward F-move (as obj to avoid circular dependency)
         ///   depth - Depth in fusion tree
-        /// 
+        ///
         /// Only applicable to topological backends.
         /// Direction type is FSharp.Azure.Quantum.Topological.TopologicalOperations.FMoveDirection
         | FMove of direction: obj * depth: int
         
         /// Sequence of operations (batch execution)
-        /// 
+        ///
         /// More efficient than individual operations (reduces overhead).
         | Sequence of QuantumOperation list
     
