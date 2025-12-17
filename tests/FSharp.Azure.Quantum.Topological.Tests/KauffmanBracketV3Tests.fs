@@ -199,7 +199,7 @@ let ``Hopf link has two components`` () =
     // Assert
     Assert.Equal(2, n)
 
-[<Fact(Skip="TODO: Borromean rings planar diagram construction needs topological research - currently all 12 arcs connect via strand continuation forming 1 component instead of 3 separate rings. The arc-crossing topology is consistent but doesn't match the intended 3-component structure. See issue #TODO")>]
+[<Fact>]
 let ``Borromean rings have three components`` () =
     // Arrange & Act
     let n = countComponents borromeanRings
@@ -494,7 +494,7 @@ let ``Borromean rings are well-formed`` () =
     | Ok () -> Assert.True(true)
     | Error msg -> Assert.Fail($"Validation failed: {msg}")
 
-[<Fact(Skip="TODO: Borromean rings constructor is simplified to 3 unknots (0 crossings). True Borromean rings require 6 crossings with complex topology where no two rings are linked but all three together are inseparable. Implementing this requires careful geometric design of arc-crossing connectivity.")>]
+[<Fact>]
 let ``Borromean rings have six crossings`` () =
     // Arrange & Act
     let n = borromeanRings.Crossings.Count
@@ -502,7 +502,7 @@ let ``Borromean rings have six crossings`` () =
     // Assert
     Assert.Equal(6, n)
 
-[<Fact(Skip="TODO: Figure-eight planar diagram currently has incorrect component count (2 instead of 1) due to wrong arc-crossing topology. This causes knotName() to return generic description instead of 'Figure-eight knot (4₁)'. The knot properties (4 crossings, writhe=0, alternating signs) are correct and Kauffman bracket evaluation works properly. Fixing requires finding correct arc connectivity for standard figure-eight from knot tables.")>]
+[<Fact>]
 let ``Knot name recognition works`` () =
     // Arrange & Act
     let unknotName = knotName unknot

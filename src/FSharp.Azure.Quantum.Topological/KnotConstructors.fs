@@ -146,38 +146,29 @@ module KnotConstructors =
     ///   - 4 crossings with alternating signs
     ///   - Writhe = 0 (two positive, two negative)
     ///   - Identical to its mirror image (achiral)
-    /// 
-    /// KNOWN ISSUE: The current planar diagram construction has incorrect arc-crossing topology.
-    /// It creates 2 separate components instead of 1 continuous strand. However, the Kauffman
-    /// bracket evaluation still produces mathematically correct results for this knot type.
-    /// The writhe (0), crossing count (4), and alternating pattern (+,-,+,-) are all correct.
-    /// TODO: Fix arc connectivity to form single component. Requires careful topological analysis
-    /// of standard figure-eight knot diagrams from knot tables (e.g., KnotInfo, Rolfsen).
     /// </summary>
     let figureEight : PlanarDiagram =
-        // Figure-eight knot (4₁): Attempted Rolfsen construction
+        // Figure-eight knot (4₁): Correct alternating construction
         // 4 crossings alternating (+,-,+,-), 8 arcs, writhe=0
-        // WARNING: Currently creates 2 components instead of 1 (topology incorrect)
         
         let crossings = 
             Map.ofList [
-                (0, createCrossing 0 Positive 3 0 7 1)   // NW=3, NE=0, SW=7, SE=1
-                (1, createCrossing 1 Negative 0 4 1 2)   // NW=0, NE=4, SW=1, SE=2
-                (2, createCrossing 2 Positive 4 5 2 6)   // NW=4, NE=5, SW=2, SE=6
-                (3, createCrossing 3 Negative 5 3 6 7)   // NW=5, NE=3, SW=6, SE=7
+                (0, createCrossing 0 Positive 1 3 4 0)   // NW=1, NE=3, SW=4, SE=0
+                (1, createCrossing 1 Negative 7 5 4 0)   // NW=7, NE=5, SW=4, SE=0
+                (2, createCrossing 2 Positive 3 5 6 2)   // NW=3, NE=5, SW=6, SE=2
+                (3, createCrossing 3 Negative 1 6 7 2)   // NW=1, NE=6, SW=7, SE=2
             ]
         
         let arcs =
             Map.ofList [
-                // 8 arcs derived from crossing topology (verified consistent)
-                (0, createArc 0 0 NE 1 NW)   // C0-NE → C1-NW
-                (1, createArc 1 0 SE 1 SW)   // C0-SE → C1-SW
-                (2, createArc 2 1 SE 2 SW)   // C1-SE → C2-SW
-                (3, createArc 3 0 NW 3 NE)   // C0-NW → C3-NE
-                (4, createArc 4 1 NE 2 NW)   // C1-NE → C2-NW
-                (5, createArc 5 2 NE 3 NW)   // C2-NE → C3-NW
-                (6, createArc 6 2 SE 3 SW)   // C2-SE → C3-SW
-                (7, createArc 7 0 SW 3 SE)   // C0-SW → C3-SE
+                (0, createArc 0 0 SE 1 SE)   // C0-SE → C1-SE
+                (1, createArc 1 3 NW 0 NW)   // C3-NW → C0-NW
+                (2, createArc 2 2 SE 3 SE)   // C2-SE → C3-SE
+                (3, createArc 3 0 NE 2 NW)   // C0-NE → C2-NW
+                (4, createArc 4 1 SW 0 SW)   // C1-SW → C0-SW
+                (5, createArc 5 2 NE 1 NE)   // C2-NE → C1-NE
+                (6, createArc 6 3 NE 2 SW)   // C3-NE → C2-SW
+                (7, createArc 7 1 NW 3 SW)   // C1-NW → C3-SW
             ]
         
         { Crossings = crossings; Arcs = arcs }
@@ -234,28 +225,47 @@ module KnotConstructors =
     /// A 3-component link where no two components are linked,
     /// but removing any one component allows the other two to separate.
     /// 
-    /// This is a famous example in topology showing "global" linking.
-    /// 
     /// Structure: 6 crossings, 3 components
-    /// Each component passes through 4 crossings (interweaving with the other two)
+    /// Constructed as an alternating link (L6a4) with 6 positive crossings.
     /// </summary>
     let borromeanRings : PlanarDiagram =
-        // Simplified: 3 separate unknots (no crossings between them)
-        // TODO: Implement proper Borromean rings with correct interlinked topology
-        // Current limitation: Building truly separate 3-component structures with
-        // proper crossing topology is complex and requires careful geometric design
+        // Borromean rings (L6a4): Standard alternating construction
+        // 6 crossings, 12 arcs
+        // Components: T (Top), R (Right), L (Left)
+        // Arcs 0-3: T, Arcs 4-7: R, Arcs 8-11: L
         
-        {
-            Crossings = Map.empty
-            Arcs = Map.ofList [
-                // Component 1: unknot
-                (0, createClosedArc 0)
-                // Component 2: unknot  
-                (1, createClosedArc 1)
-                // Component 3: unknot
-                (2, createClosedArc 2)
+        let crossings = 
+            Map.ofList [
+                (0, createCrossing 0 Positive 4 0 3 5)   // NW=4, NE=0, SW=3, SE=5
+                (1, createCrossing 1 Positive 0 4 7 1)   // NW=0, NE=4, SW=7, SE=1
+                (2, createCrossing 2 Positive 8 2 1 9)   // NW=8, NE=2, SW=1, SE=9
+                (3, createCrossing 3 Positive 2 8 11 3)  // NW=2, NE=8, SW=11, SE=3
+                (4, createCrossing 4 Positive 10 6 5 11) // NW=10, NE=6, SW=5, SE=11
+                (5, createCrossing 5 Positive 6 10 9 7)  // NW=6, NE=10, SW=9, SE=7
             ]
-        }
+        
+        let arcs =
+            Map.ofList [
+                // Component T (Top)
+                (0, createArc 0 0 NE 1 NW)   // C0-NE → C1-NW
+                (1, createArc 1 1 SE 2 SW)   // C1-SE → C2-SW
+                (2, createArc 2 2 NE 3 NW)   // C2-NE → C3-NW
+                (3, createArc 3 3 SE 0 SW)   // C3-SE → C0-SW
+                
+                // Component R (Right)
+                (4, createArc 4 1 NE 0 NW)   // C1-NE → C0-NW
+                (5, createArc 5 0 SE 4 SW)   // C0-SE → C4-SW
+                (6, createArc 6 4 NE 5 NW)   // C4-NE → C5-NW
+                (7, createArc 7 5 SE 1 SW)   // C5-SE → C1-SW
+                
+                // Component L (Left)
+                (8, createArc 8 3 NE 2 NW)   // C3-NE → C2-NW
+                (9, createArc 9 2 SE 5 SW)   // C2-SE → C5-SW
+                (10, createArc 10 5 NE 4 NW) // C5-NE → C4-NW
+                (11, createArc 11 4 SE 3 SW) // C4-SE → C3-SW
+            ]
+        
+        { Crossings = crossings; Arcs = arcs }
     
     /// <summary>
     /// Create a torus knot T(p,q).
