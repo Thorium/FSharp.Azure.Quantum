@@ -5,7 +5,7 @@ open Xunit
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.QuantumPhaseEstimator
-open FSharp.Azure.Quantum.Algorithms.QuantumPhaseEstimation  // For UnitaryOperator types
+open FSharp.Azure.Quantum.Algorithms.QPE  // For UnitaryOperator types
 
 /// Unit tests for QuantumPhaseEstimatorBuilder
 /// Tests QPE for eigenvalue extraction and phase estimation
@@ -86,6 +86,7 @@ module QuantumPhaseEstimatorBuilderTests =
             Assert.Equal(1, problem.TargetQubits)  // Default
             Assert.True(problem.EigenVector.IsNone)
             Assert.False(problem.ApplySwaps)       // Default
+            Assert.Equal(Exact, problem.Exactness)
         | Error err -> Assert.True(false, sprintf "Should have succeeded: %s" err.Message)
     
     [<Fact>]
@@ -102,6 +103,35 @@ module QuantumPhaseEstimatorBuilderTests =
             Assert.Equal(12, problem.Precision)
             Assert.Equal(2, problem.TargetQubits)
             Assert.True(problem.ApplySwaps)
+            Assert.Equal(Exact, problem.Exactness)
+        | Error err -> Assert.True(false, sprintf "Should have succeeded: %s" err.Message)
+
+    [<Fact>]
+    let ``phaseEstimator builder supports swaps alias`` () =
+        let result = phaseEstimator {
+            unitary (PhaseGate (Math.PI / 4.0))
+            precision 12
+            targetQubits 2
+            swaps true
+        }
+
+        match result with
+        | Ok problem -> Assert.True(problem.ApplySwaps)
+        | Error err -> Assert.True(false, sprintf "Should have succeeded: %s" err.Message)
+
+    [<Fact>]
+    let ``phaseEstimator builder supports exactness operation`` () =
+        let result = phaseEstimator {
+            unitary TGate
+            precision 8
+            exactness (Approximate 0.001)
+        }
+
+        match result with
+        | Ok problem ->
+            match problem.Exactness with
+            | Approximate epsilon -> Assert.Equal(0.001, epsilon, 3)
+            | Exact -> Assert.True(false, "Should have preserved Approximate exactness")
         | Error err -> Assert.True(false, sprintf "Should have succeeded: %s" err.Message)
     
     // ========================================================================

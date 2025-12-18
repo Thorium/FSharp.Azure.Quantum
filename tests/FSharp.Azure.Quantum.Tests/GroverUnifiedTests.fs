@@ -45,6 +45,67 @@ module GroverTests =
     let assertSolutionsFound (expected: int list) (result: Grover.GroverResult) =
         for expectedValue in expected do
             Assert.Contains(expectedValue, result.Solutions)
+
+    type private NoGroverIntentBackend(inner: IQuantumBackend) =
+        interface IQuantumBackend with
+            member _.ExecuteToState circuit = inner.ExecuteToState circuit
+            member _.NativeStateType = inner.NativeStateType
+            member _.ApplyOperation operation state = inner.ApplyOperation operation state
+
+            member _.SupportsOperation operation =
+                match operation with
+                | QuantumOperation.Algorithm (AlgorithmOperation.GroverPrepare _)
+                | QuantumOperation.Algorithm (AlgorithmOperation.GroverOraclePhaseFlip _)
+                | QuantumOperation.Algorithm (AlgorithmOperation.GroverDiffusion _) -> false
+                | _ -> inner.SupportsOperation operation
+
+            member _.Name = inner.Name + " (no-grover-intent)"
+            member _.InitializeState numQubits = inner.InitializeState numQubits
+
+    [<Fact>]
+    let ``Grover planner prefers algorithm intents when supported`` () =
+        let backend = createLocalBackend ()
+
+        match Oracle.forValue 5 3 with
+        | Error err -> Assert.True(false, $"Oracle compilation failed: {err}")
+        | Ok oracle ->
+            let intent: Grover.GroverSearchIntent =
+                {
+                    Oracle = oracle
+                    Iterations = 1
+                    Exactness = Grover.Exact
+                }
+
+            match Grover.plan backend intent with
+            | Ok (Grover.ExecuteNatively _) -> Assert.True(true)
+            | Ok _ -> Assert.True(false, "Expected ExecuteNatively plan")
+            | Error err -> Assert.True(false, $"Planning failed: {err}")
+
+    [<Fact>]
+    let ``Grover planner produces explicit lowered ops when intent ops unsupported`` () =
+        let backend = createLocalBackend () |> NoGroverIntentBackend :> IQuantumBackend
+
+        match Oracle.forValue 5 3 with
+        | Error err -> Assert.True(false, $"Oracle compilation failed: {err}")
+        | Ok oracle ->
+            let intent: Grover.GroverSearchIntent =
+                {
+                    Oracle = oracle
+                    Iterations = 1
+                    Exactness = Grover.Exact
+                }
+
+            match Grover.plan backend intent with
+            | Ok (Grover.ExecuteViaOps (prepareOps, iterationOps, iterations, exactness)) ->
+                Assert.Equal(1, iterations)
+                Assert.Equal(Grover.Exact, exactness)
+                Assert.NotEmpty prepareOps
+                Assert.NotEmpty iterationOps
+
+                let allOps = prepareOps @ iterationOps
+                Assert.True(allOps |> List.forall backend.SupportsOperation)
+            | Ok _ -> Assert.True(false, "Expected ExecuteViaOps plan")
+            | Error err -> Assert.True(false, $"Planning failed: {err}")
     
     // ========================================================================
     // Basic Grover Search Tests (LocalBackend)

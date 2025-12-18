@@ -137,9 +137,149 @@ module Shor =
             let error = abs (phi - float num / float denom)
             (num, denom, error))
         |> List.minBy (fun (_, _, error) -> error)
-        |> fun (num, denom, _) -> 
+        |> fun (num, denom, _) ->
             if denom > 0 then Some (num, denom) else None
-    
+
+    // ========================================================================
+    // INTENT -> PLAN -> EXECUTION (ADR: intent-first algorithms)
+    // ========================================================================
+
+
+    /// Canonical intent for Shor period finding.
+    ///
+    /// Note: this unified implementation is currently classically-assisted.
+    /// The quantum portion is a QPE demonstration and is planned explicitly.
+    type ShorPeriodFindingIntent = {
+        Base: int
+        Modulus: int
+        PrecisionQubits: int
+        Exactness: QPE.Exactness
+    }
+
+    [<RequireQualifiedAccess>]
+    type ShorPeriodFindingPlan =
+        /// Educational implementation:
+        /// - computes the true period classically
+        /// - runs planned QPE to demonstrate phase estimation
+        | ExecuteClassicalWithQpeDemo of baseNum: int * modulus: int * classicalPeriod: int * qpeIntent: QPE.QpeExecutionIntent * qpePlan: QPE.QpePlan
+
+    let private findPeriodClassically (a: int) (n: int) (maxPeriod: int) : int option =
+        [1 .. maxPeriod]
+        |> List.tryFind (fun r -> modPow a r n = 1)
+
+    let planPeriodFinding (backend: IQuantumBackend) (intent: ShorPeriodFindingIntent) : Result<ShorPeriodFindingPlan, QuantumError> =
+        let a = intent.Base
+        let n = intent.Modulus
+        let precisionQubits = intent.PrecisionQubits
+
+        // Validate inputs (kept consistent with the existing public API).
+        if a <= 0 || a >= n then
+            Error (QuantumError.ValidationError ("a", $"must be in range (0, {n})"))
+        elif gcd a n <> 1 then
+            Error (QuantumError.ValidationError ("a", $"{a} is not coprime to {n} (gcd={gcd a n})"))
+        elif precisionQubits <= 0 || precisionQubits > 16 then
+            Error (QuantumError.ValidationError ("precisionQubits", "must be in range [1, 16] for local simulation"))
+        else
+            match findPeriodClassically a n (2 * n) with
+            | None ->
+                Error (QuantumError.OperationError ("Period finding", $"Could not find period for a={a}, N={n}"))
+            | Some period ->
+                // Demonstrate QPE with phase = s / r (deterministic s=1).
+                let s = 1
+                let phaseEstimate = float s / float period
+
+                let qpeConfig: QPE.QPEConfig =
+                    {
+                        CountingQubits = precisionQubits
+                        TargetQubits = 1
+                        UnitaryOperator = QPE.UnitaryOperator.PhaseGate (2.0 * Math.PI * phaseEstimate)
+                        EigenVector = None
+                    }
+
+                let qpeIntent: QPE.QpeExecutionIntent =
+                    {
+                        ApplyBitReversalSwaps = false
+                        Config = qpeConfig
+                        Exactness = intent.Exactness
+                    }
+
+                QPE.plan backend qpeIntent
+                |> Result.map (fun qpePlan -> ShorPeriodFindingPlan.ExecuteClassicalWithQpeDemo (a, n, period, qpeIntent, qpePlan))
+
+    let private executeQpePlan
+        (backend: IQuantumBackend)
+        (state: QuantumState)
+        (plan: QPE.QpePlan)
+        : Result<QuantumState, QuantumError> =
+
+        match plan with
+        | QPE.QpePlan.ExecuteNatively (coreIntent, _) ->
+            backend.ApplyOperation (QuantumOperation.Algorithm (AlgorithmOperation.QPE coreIntent)) state
+        | QPE.QpePlan.ExecuteViaOps (ops, _) ->
+            UnifiedBackend.applySequence backend ops state
+
+    let private estimatePhaseFromPlan
+        (backend: IQuantumBackend)
+        (qpeIntent: QPE.QpeExecutionIntent)
+        (qpePlan: QPE.QpePlan)
+        : Result<float, QuantumError> =
+
+        result {
+            let totalQubits = qpeIntent.Config.CountingQubits + qpeIntent.Config.TargetQubits
+            let! initialState = backend.InitializeState totalQubits
+            let! preparedState = executeQpePlan backend initialState qpePlan
+
+            // Match QPE's measurement strategy for consistency.
+            let measurements = UnifiedBackend.measureState preparedState 1000
+
+            let measuredCountingBits =
+                measurements.[0]
+                |> Array.take qpeIntent.Config.CountingQubits
+
+            let canonicalCountingBits =
+                if qpeIntent.ApplyBitReversalSwaps then
+                    measuredCountingBits
+                else
+                    Array.rev measuredCountingBits
+
+            let measurementOutcome =
+                canonicalCountingBits
+                |> Array.indexed
+                |> Array.fold (fun acc (i, bit) -> acc + (bit <<< i)) 0
+
+            return float measurementOutcome / float (1 <<< qpeIntent.Config.CountingQubits)
+        }
+
+    let private executePeriodFindingPlan
+        (backend: IQuantumBackend)
+        (plan: ShorPeriodFindingPlan)
+        : Result<PeriodFindingResult, QuantumError> =
+
+        match plan with
+        | ShorPeriodFindingPlan.ExecuteClassicalWithQpeDemo (baseNum, modulus, classicalPeriod, qpeIntent, qpePlan) ->
+            result {
+                let expectedPhase = 1.0 / float classicalPeriod
+                let! estimatedPhase = estimatePhaseFromPlan backend qpeIntent qpePlan
+
+                // Extract period from the estimated phase.
+                // If QPE result doesn't validate, fall back to the classically-found period.
+                match continuedFractionConvergent estimatedPhase modulus with
+                | Some (_, r) when r > 0 && r < modulus && modPow baseNum r modulus = 1 ->
+                    return {
+                        Period = r
+                        Base = baseNum
+                        PhaseEstimate = estimatedPhase
+                        Attempts = 1
+                    }
+                | _ ->
+                    return {
+                        Period = classicalPeriod
+                        Base = baseNum
+                        PhaseEstimate = expectedPhase
+                        Attempts = 1
+                    }
+            }
+
     // ========================================================================
     // FACTOR EXTRACTION FROM PERIOD (CLASSICAL)
     // ========================================================================
@@ -280,76 +420,163 @@ module Shor =
     /// For small N, this uses a classical period-finding fallback with QPE demonstration.
     /// A full quantum implementation requires complex modular arithmetic circuits.
     /// </remarks>
+    let findPeriodWith
+        (a: int)
+        (n: int)
+        (precisionQubits: int)
+        (exactness: QPE.Exactness)
+        (backend: IQuantumBackend)
+        : Result<PeriodFindingResult, QuantumError> =
+
+        let intent: ShorPeriodFindingIntent =
+            {
+                Base = a
+                Modulus = n
+                PrecisionQubits = precisionQubits
+                Exactness = exactness
+            }
+
+        planPeriodFinding backend intent
+        |> Result.bind (executePeriodFindingPlan backend)
+
     let findPeriod
         (a: int)
         (n: int)
         (precisionQubits: int)
         (backend: IQuantumBackend) : Result<PeriodFindingResult, QuantumError> =
-        
-        // Validate inputs
-        if a <= 0 || a >= n then
-            Error (QuantumError.ValidationError ("a", $"must be in range (0, {n})"))
-        elif gcd a n <> 1 then
-            Error (QuantumError.ValidationError ("a", $"{a} is not coprime to {n} (gcd={gcd a n})"))
-        elif precisionQubits <= 0 || precisionQubits > 16 then
-            Error (QuantumError.ValidationError ("precisionQubits", "must be in range [1, 16] for local simulation"))
-        else
-            // ========== CLASSICAL PERIOD FINDING (EDUCATIONAL FALLBACK) ==========
-            // For educational purposes, find period classically
-            // This demonstrates the algorithm flow without full quantum circuits
-            
-            let findPeriodClassically (a: int) (n: int) (maxPeriod: int) : int option =
-                [1 .. maxPeriod]
-                |> List.tryFind (fun r -> modPow a r n = 1)
-            
-            match findPeriodClassically a n (2 * n) with
-            | None ->
-                Error (QuantumError.OperationError ("Period finding", $"Could not find period for a={a}, N={n}"))
-            
-            | Some period ->
-                // ========== QPE DEMONSTRATION ==========
-                // Demonstrate QPE with phase = s/r where s is random in [0, r-1]
-                // In real Shor's, different |eigenstate⟩ correspond to different s values
-                
-                result {
-                    // For deterministic behavior in tests, use s=1
-                    let s = 1
-                    let phaseEstimate = float s / float period
-                    
-                    // Use QPE to "estimate" this phase (educational demonstration)
-                    // In full implementation, this would be the quantum modular exponentiation unitary
-                    let qpeConfig = {
-                        CountingQubits = precisionQubits
-                        TargetQubits = 1
-                        UnitaryOperator = QPE.PhaseGate (2.0 * Math.PI * phaseEstimate)
-                        EigenVector = None
-                    }
-                    
-                    let! qpeResult = QPE.execute qpeConfig backend
-                    
-                    // Extract period from QPE result using continued fraction
-                    match continuedFractionConvergent qpeResult.EstimatedPhase n with
-                    | Some (_, r) when r > 0 && r < n && modPow a r n = 1 ->
-                        // Verify period is correct
-                        let periodResult = {
-                            Period = r
-                            Base = a
-                            PhaseEstimate = qpeResult.EstimatedPhase
-                            Attempts = 1
-                        }
-                        return periodResult
-                    
-                    | _ ->
-                        // Fallback: use classically found period
-                        let periodResult = {
-                            Period = period
-                            Base = a
-                            PhaseEstimate = phaseEstimate
-                            Attempts = 1
-                        }
-                        return periodResult
-                }
+
+        findPeriodWith a n precisionQubits QPE.Exactness.Exact backend
     
+    // ========================================================================
+    // INTENT -> PLAN -> EXECUTION (ADR: Shor factoring)
+    // ========================================================================
+
+    /// Canonical, algorithm-level intent for Shor factorization.
+    ///
+    /// This unified implementation is currently classically-assisted for period finding.
+    type ShorExecutionIntent = {
+        Config: ShorsConfig
+        Exactness: QPE.Exactness
+    }
+
+    [<RequireQualifiedAccess>]
+    type ShorPlan =
+        /// Entire algorithm result is known classically (or from validation).
+        | ReturnResult of ShorsResult
+
+        /// Execute the quantum/classical hybrid path:
+        /// - run period-finding plan (classical + QPE demo)
+        /// - attempt factor extraction (with retries)
+        | ExecuteQuantum of baseNum: int * modulus: int * periodPlan: ShorPeriodFindingPlan * maxAttempts: int * config: ShorsConfig
+
+    let private mkResult
+        (n: int)
+        (factors: (int * int) option)
+        (period: PeriodFindingResult option)
+        (success: bool)
+        (message: string)
+        (config: ShorsConfig)
+        : ShorsResult =
+        {
+            Number = n
+            Factors = factors
+            PeriodResult = period
+            Success = success
+            Message = message
+            Config = config
+        }
+
+    let private chooseRandomBase (n: int) (provided: int option) : int =
+        match provided with
+        | Some a when a > 1 && a < n && gcd a n = 1 -> a
+        | Some _ ->
+            // Invalid provided base, fall back to default.
+            // For N=15: use 7, for N=21: use 2, otherwise use 2.
+            if n = 15 then 7
+            elif n = 21 then 2
+            else 2
+        | None ->
+            // No base provided, use defaults.
+            if n = 15 then 7
+            elif n = 21 then 2
+            else 2
+
+    /// Plan Shor execution strategy.
+    ///
+    /// Notes:
+    /// - Validation failures return Error.
+    /// - Trivial outcomes return ReturnResult.
+    /// - Otherwise, returns a plan that delegates period finding through the ADR pipeline.
+    let plan (backend: IQuantumBackend) (intent: ShorExecutionIntent) : Result<ShorPlan, QuantumError> =
+        let config = intent.Config
+        let n = config.NumberToFactor
+
+        // ========== CONFIGURATION VALIDATION ==========
+        // Validate number range FIRST (before precision qubits check)
+        // This ensures N > 1000 error takes precedence over derived precision errors.
+        if n > 1000 then
+            Error (QuantumError.ValidationError ("NumberToFactor", "must be ≤ 1000 for local simulation"))
+        elif config.PrecisionQubits <= 0 then
+            Error (QuantumError.ValidationError ("PrecisionQubits", "must be positive"))
+        elif config.PrecisionQubits > 20 then
+            Error (QuantumError.ValidationError ("PrecisionQubits", "must be ≤ 20 for local simulation"))
+
+        // ========== CLASSICAL PRE-CHECKS ==========
+        // Check if N < 4 (too small) - MUST CHECK FIRST before even/prime checks.
+        elif n < 4 then
+            Ok (ShorPlan.ReturnResult (mkResult n None None false "Number too small (must be ≥ 4)" config))
+        // Check if N is even (trivial case).
+        elif isEven n then
+            Ok (ShorPlan.ReturnResult (mkResult n (Some (2, n / 2)) None true "Number is even (trivial factor 2)" config))
+        // Check if N is prime (no factors).
+        elif isPrime n then
+            Ok (ShorPlan.ReturnResult (mkResult n None None false "Number is prime (no non-trivial factors)" config))
+        else
+            // ========== QUANTUM PERIOD-FINDING (HYBRID) ==========
+            let a = chooseRandomBase n config.RandomBase
+            let gcdResult = gcd a n
+
+            if gcdResult <> 1 then
+                Ok (ShorPlan.ReturnResult (mkResult n (Some (gcdResult, n / gcdResult)) None true $"Lucky! gcd({a}, {n}) = {gcdResult} (non-trivial factor)" config))
+            else
+                let periodIntent: ShorPeriodFindingIntent =
+                    {
+                        Base = a
+                        Modulus = n
+                        PrecisionQubits = config.PrecisionQubits
+                        Exactness = intent.Exactness
+                    }
+
+                planPeriodFinding backend periodIntent
+                |> Result.map (fun periodPlan -> ShorPlan.ExecuteQuantum (a, n, periodPlan, config.MaxAttempts, config))
+
+    let private executePlan (backend: IQuantumBackend) (plan: ShorPlan) : Result<ShorsResult, QuantumError> =
+        match plan with
+        | ShorPlan.ReturnResult result -> Ok result
+        | ShorPlan.ExecuteQuantum (baseNum, modulus, periodPlan, maxAttempts, config) ->
+            let rec tryFindFactors attempt : Result<ShorsResult, QuantumError> =
+                result {
+                    if attempt > maxAttempts then
+                        return mkResult modulus None None false $"Failed to find factors after {maxAttempts} attempts" config
+                    else
+                        let! periodResult = executePeriodFindingPlan backend periodPlan
+
+                        match extractFactorsFromPeriod baseNum periodResult.Period modulus with
+                        | Some (p, q) ->
+                            return
+                                mkResult
+                                    modulus
+                                    (Some (p, q))
+                                    (Some periodResult)
+                                    true
+                                    $"Factors found using period r={periodResult.Period}"
+                                    config
+                        | None ->
+                            return! tryFindFactors (attempt + 1)
+                }
+
+            tryFindFactors 1
+
     // ========================================================================
     // MAIN SHOR'S ALGORITHM EXECUTION
     // ========================================================================
@@ -386,135 +613,26 @@ module Shor =
     /// | Error err -> printfn "Error: %A" err
     /// </code>
     /// </example>
+    let executeWith
+        (config: ShorsConfig)
+        (exactness: QPE.Exactness)
+        (backend: IQuantumBackend)
+        : Result<ShorsResult, QuantumError> =
+
+        let intent: ShorExecutionIntent =
+            {
+                Config = config
+                Exactness = exactness
+            }
+
+        plan backend intent
+        |> Result.bind (executePlan backend)
+
     let execute
         (config: ShorsConfig)
         (backend: IQuantumBackend) : Result<ShorsResult, QuantumError> =
-        
-        let n = config.NumberToFactor
-        
-        // ========== CONFIGURATION VALIDATION ==========
-        
-        // Validate number range FIRST (before precision qubits check)
-        // This ensures N > 1000 error takes precedence over derived precision errors
-        if n > 1000 then
-            Error (QuantumError.ValidationError ("NumberToFactor", "must be ≤ 1000 for local simulation"))
-        
-        // Validate precision qubits
-        elif config.PrecisionQubits <= 0 then
-            Error (QuantumError.ValidationError ("PrecisionQubits", "must be positive"))
-        elif config.PrecisionQubits > 20 then
-            Error (QuantumError.ValidationError ("PrecisionQubits", "must be ≤ 20 for local simulation"))
-        
-        // ========== CLASSICAL PRE-CHECKS ==========
-        
-        // Check if N < 4 (too small) - MUST CHECK FIRST before even/prime checks
-        elif n < 4 then
-            let result = {
-                Number = n
-                Factors = None
-                PeriodResult = None
-                Success = false
-                Message = "Number too small (must be ≥ 4)"
-                Config = config
-            }
-            Ok result
-        
-        // Check if N is even (trivial case)
-        elif isEven n then
-            let result = {
-                Number = n
-                Factors = Some (2, n / 2)
-                PeriodResult = None
-                Success = true
-                Message = "Number is even (trivial factor 2)"
-                Config = config
-            }
-            Ok result
-        
-        // Check if N is prime (no factors)
-        elif isPrime n then
-            let result = {
-                Number = n
-                Factors = None
-                PeriodResult = None
-                Success = false
-                Message = "Number is prime (no non-trivial factors)"
-                Config = config
-            }
-            Ok result
-        
-        else
-            // ========== QUANTUM PERIOD-FINDING ==========
-            
-            // Choose random base a (or use provided RandomBase)
-            let chooseRandomBase (n: int) (provided: int option) : int =
-                match provided with
-                | Some a when a > 1 && a < n && gcd a n = 1 -> a
-                | Some a ->
-                    // Invalid provided base, fall back to default
-                    // For N=15: use 7, for N=21: use 2, otherwise use 2
-                    if n = 15 then 7
-                    elif n = 21 then 2
-                    else 2
-                | None ->
-                    // No base provided, use defaults
-                    if n = 15 then 7
-                    elif n = 21 then 2
-                    else 2
-            
-            let a = chooseRandomBase n config.RandomBase
-            
-            // Verify gcd(a, N) = 1
-            let gcdResult = gcd a n
-            if gcdResult <> 1 then
-                // Lucky case: gcd gives us a factor directly!
-                let result = {
-                    Number = n
-                    Factors = Some (gcdResult, n / gcdResult)
-                    PeriodResult = None
-                    Success = true
-                    Message = $"Lucky! gcd({a}, {n}) = {gcdResult} (non-trivial factor)"
-                    Config = config
-                }
-                Ok result
-            else
-                // Attempt period finding with retries
-                let rec tryFindPeriod attempt maxAttempts =
-                    result {
-                        if attempt > maxAttempts then
-                            let result = {
-                                Number = n
-                                Factors = None
-                                PeriodResult = None
-                                Success = false
-                                Message = $"Failed to find factors after {maxAttempts} attempts"
-                                Config = config
-                            }
-                            return result
-                        else
-                            // Find period using quantum subroutine
-                            let! periodResult = findPeriod a n config.PrecisionQubits backend
-                            
-                            // Try to extract factors from period
-                            match extractFactorsFromPeriod a periodResult.Period n with
-                            | Some (p, q) ->
-                                // Success!
-                                let result = {
-                                    Number = n
-                                    Factors = Some (p, q)
-                                    PeriodResult = Some periodResult
-                                    Success = true
-                                    Message = $"Factors found using period r={periodResult.Period}"
-                                    Config = config
-                                }
-                                return result
-                            
-                            | None ->
-                                // Period didn't yield factors, retry
-                                return! tryFindPeriod (attempt + 1) maxAttempts
-                    }
-                
-                tryFindPeriod 1 config.MaxAttempts
+
+        executeWith config QPE.Exactness.Exact backend
     
     // ========================================================================
     // CONVENIENCE FUNCTIONS
@@ -547,7 +665,7 @@ module Shor =
             MaxAttempts = 3
         }
         
-        execute config backend
+        executeWith config QPE.Exactness.Exact backend
     
     /// <summary>
     /// Factor 15 using Shor's algorithm.
@@ -576,7 +694,7 @@ module Shor =
             MaxAttempts = 3
         }
         
-        execute config backend
+        executeWith config QPE.Exactness.Exact backend
     
     /// <summary>
     /// Factor 21 using Shor's algorithm.
@@ -595,4 +713,4 @@ module Shor =
             MaxAttempts = 3
         }
         
-        execute config backend
+        executeWith config QPE.Exactness.Exact backend

@@ -108,13 +108,28 @@ module QPE =
     }
     
     // ========================================================================
-    // INTENT  PLAN  EXECUTION (ADR: intent-first algorithms)
+    // INTENT → PLAN → EXECUTION (ADR: intent-first algorithms)
     // ========================================================================
+
+    /// Execution exactness contract for QPE.
+    type Exactness =
+        | Exact
+        | Approximate of epsilon: float
+
+    /// Canonical, algorithm-level intent for QPE execution.
+    type QpeExecutionIntent = {
+        ApplyBitReversalSwaps: bool
+        Config: QPEConfig
+        Exactness: Exactness
+    }
 
     [<RequireQualifiedAccess>]
     type QpePlan =
-        | ExecuteViaIntent of QuantumOperation
-        | ExecuteViaOps of QuantumOperation list
+        /// Execute the semantic QPE intent natively, if supported by backend.
+        | ExecuteNatively of intent: QpeIntent * exactness: Exactness
+
+        /// Execute via explicit lowering to operations, if supported.
+        | ExecuteViaOps of ops: QuantumOperation list * exactness: Exactness
 
     // ========================================================================
     // CONTROLLED UNITARY OPERATIONS
@@ -131,21 +146,21 @@ module QPE =
     /// QPE does not require bit-reversal SWAPs; we can post-process classically.
     let private defaultApplyBitReversalSwaps = false
 
-    /// Build a QPE intent operation.
-    let private qpeIntentOp (applyBitReversalSwaps: bool) (config: QPEConfig) : QuantumOperation =
-        QuantumOperation.Algorithm (AlgorithmOperation.QPE {
-            CountingQubits = config.CountingQubits
-            TargetQubits = config.TargetQubits
-            Unitary = toIntentUnitary config.UnitaryOperator
+    /// Build an intent-first representation for QPE.
+    let private toCoreIntent (intent: QpeExecutionIntent) : QpeIntent =
+        {
+            CountingQubits = intent.Config.CountingQubits
+            TargetQubits = intent.Config.TargetQubits
+            Unitary = toIntentUnitary intent.Config.UnitaryOperator
             PrepareTargetOne =
-                match config.EigenVector with
+                match intent.Config.EigenVector with
                 | Some _ -> false
                 | None ->
-                    match config.UnitaryOperator with
-                    | TGate | SGate | PhaseGate _ | RotationZ _ when config.TargetQubits = 1 -> true
+                    match intent.Config.UnitaryOperator with
+                    | TGate | SGate | PhaseGate _ | RotationZ _ when intent.Config.TargetQubits = 1 -> true
                     | _ -> false
-            ApplySwaps = applyBitReversalSwaps
-        })
+            ApplySwaps = intent.ApplyBitReversalSwaps
+        }
 
     let private estimateGateCount (applyBitReversalSwaps: bool) (config: QPEConfig) : int =
         // Mirrors the lowered strategy (H prep + eigen prep + controlled unitaries + inverse QFT + swaps).
@@ -160,7 +175,14 @@ module QPE =
         let swaps = if applyBitReversalSwaps then config.CountingQubits / 2 else 0
         config.CountingQubits + eigenPrep + controlled + inverseQft + swaps
 
-    let private buildLoweringOps (applyBitReversalSwaps: bool) (config: QPEConfig) : QuantumOperation list =
+    let private buildLoweringOps (intent: QpeExecutionIntent) : QuantumOperation list =
+        let config = intent.Config
+
+        let shouldIncludeControlledPhase (angle: float) =
+            match intent.Exactness with
+            | Exact -> true
+            | Approximate epsilon -> abs angle >= epsilon
+
         // Step 2: Apply Hadamard to counting qubits: |+⟩^⊗n
         let hadamardOps =
             [0 .. config.CountingQubits - 1]
@@ -206,17 +228,20 @@ module QPE =
             |> List.collect (fun targetQubit ->
                 let controlledPhaseOps =
                     [targetQubit + 1 .. config.CountingQubits - 1]
-                    |> List.map (fun k ->
+                    |> List.choose (fun k ->
                         let power = k - targetQubit + 1
                         let angle = -2.0 * Math.PI / float (1 <<< power)
-                        QuantumOperation.Gate (CircuitBuilder.CP (k, targetQubit, angle)))
+                        if shouldIncludeControlledPhase angle then
+                            Some (QuantumOperation.Gate (CircuitBuilder.CP (k, targetQubit, angle)))
+                        else
+                            None)
 
                 let hadamardOp = QuantumOperation.Gate (CircuitBuilder.H targetQubit)
                 controlledPhaseOps @ [ hadamardOp ])
 
         // Apply bit-reversal swaps to counting qubits (optional)
         let swapOps =
-            if applyBitReversalSwaps then
+            if intent.ApplyBitReversalSwaps then
                 [0 .. config.CountingQubits / 2 - 1]
                 |> List.map (fun i ->
                     let j = config.CountingQubits - 1 - i
@@ -226,23 +251,33 @@ module QPE =
 
         hadamardOps @ eigenPrepOps @ controlledOps @ inverseQftOps @ swapOps
 
-    let private plan (backend: IQuantumBackend) (applyBitReversalSwaps: bool) (config: QPEConfig) : Result<QpePlan, QuantumError> =
+    let plan (backend: IQuantumBackend) (intent: QpeExecutionIntent) : Result<QpePlan, QuantumError> =
         // QPE requires gate-based operations (or explicit native intent support).
         // Some backends (e.g., annealing) cannot support this, and we should fail explicitly.
         match backend.NativeStateType with
         | QuantumStateType.Annealing ->
             Error (QuantumError.OperationError ("QPE", $"Backend '{backend.Name}' does not support QPE (native state type: {backend.NativeStateType})"))
         | _ ->
-            let op = qpeIntentOp applyBitReversalSwaps config
-
-            if backend.SupportsOperation op then
-                Ok (QpePlan.ExecuteViaIntent op)
+            if intent.Config.CountingQubits <= 0 then
+                Error (QuantumError.ValidationError ("CountingQubits", "must be positive"))
+            elif intent.Config.TargetQubits <= 0 then
+                Error (QuantumError.ValidationError ("TargetQubits", "must be positive"))
             else
-                let lowerOps = buildLoweringOps applyBitReversalSwaps config
-                if lowerOps |> List.forall backend.SupportsOperation then
-                    Ok (QpePlan.ExecuteViaOps lowerOps)
-                else
-                    Error (QuantumError.OperationError ("QPE", $"Backend '{backend.Name}' does not support required operations for QPE"))
+                match intent.Exactness with
+                | Approximate epsilon when epsilon <= 0.0 ->
+                    Error (QuantumError.ValidationError ("Exactness", "epsilon must be positive"))
+                | _ ->
+                    let coreIntent = toCoreIntent intent
+                    let nativeOp = QuantumOperation.Algorithm (AlgorithmOperation.QPE coreIntent)
+
+                    if backend.SupportsOperation nativeOp then
+                        Ok (QpePlan.ExecuteNatively (coreIntent, intent.Exactness))
+                    else
+                        let lowerOps = buildLoweringOps intent
+                        if lowerOps |> List.forall backend.SupportsOperation then
+                            Ok (QpePlan.ExecuteViaOps (lowerOps, intent.Exactness))
+                        else
+                            Error (QuantumError.OperationError ("QPE", $"Backend '{backend.Name}' does not support required operations for QPE"))
 
     let private executePlan
         (backend: IQuantumBackend)
@@ -251,22 +286,28 @@ module QPE =
         : Result<QuantumState, QuantumError> =
 
         match plan with
-        | QpePlan.ExecuteViaIntent op ->
+        | QpePlan.ExecuteNatively (intent, _) ->
+            let op = QuantumOperation.Algorithm (AlgorithmOperation.QPE intent)
             backend.ApplyOperation op state
-        | QpePlan.ExecuteViaOps ops ->
+        | QpePlan.ExecuteViaOps (ops, _) ->
             UnifiedBackend.applySequence backend ops state
 
     let private executePlanned
         (backend: IQuantumBackend)
-        (applyBitReversalSwaps: bool)
-        (config: QPEConfig)
+        (intent: QpeExecutionIntent)
         (initialState: QuantumState)
         : Result<QuantumState * int, QuantumError> =
 
         result {
-            let! qpePlan = plan backend applyBitReversalSwaps config
+            let! qpePlan = plan backend intent
             let! preparedState = executePlan backend initialState qpePlan
-            return (preparedState, estimateGateCount applyBitReversalSwaps config)
+
+            let gateCount =
+                match qpePlan with
+                | QpePlan.ExecuteNatively _ -> estimateGateCount intent.ApplyBitReversalSwaps intent.Config
+                | QpePlan.ExecuteViaOps (ops, _) -> ops.Length
+
+            return (preparedState, gateCount)
         }
 
 
@@ -307,7 +348,12 @@ module QPE =
     /// | Ok result -> printfn "Phase: %f" result.EstimatedPhase  // ~0.125 (1/8)
     /// | Error err -> printfn "Error: %A" err
     /// ```
-    let executeWith (config: QPEConfig) (backend: IQuantumBackend) (applyBitReversalSwaps: bool) : Result<QPEResult, QuantumError> =
+    let executeWithExactness
+        (config: QPEConfig)
+        (backend: IQuantumBackend)
+        (applyBitReversalSwaps: bool)
+        (exactness: Exactness)
+        : Result<QPEResult, QuantumError> =
         result {
             // Validation
             if config.CountingQubits <= 0 then
@@ -325,8 +371,15 @@ module QPE =
                 let! initialState = backend.InitializeState totalQubits
 
                 // Step 2: Build intent, plan execution strategy, execute plan.
+                let executionIntent: QpeExecutionIntent =
+                    {
+                        ApplyBitReversalSwaps = applyBitReversalSwaps
+                        Config = config
+                        Exactness = exactness
+                    }
+
                 let! (preparedState, gateCount) =
-                    executePlanned backend applyBitReversalSwaps config initialState
+                    executePlanned backend executionIntent initialState
 
                 // Step 3: Measure final state (all qubits)
                 let measurements = UnifiedBackend.measureState preparedState 1000
@@ -361,6 +414,9 @@ module QPE =
                     Config = config
                 }
         }
+
+    let executeWith (config: QPEConfig) (backend: IQuantumBackend) (applyBitReversalSwaps: bool) : Result<QPEResult, QuantumError> =
+        executeWithExactness config backend applyBitReversalSwaps Exact
 
     let execute (config: QPEConfig) (backend: IQuantumBackend) : Result<QPEResult, QuantumError> =
         executeWith config backend defaultApplyBitReversalSwaps

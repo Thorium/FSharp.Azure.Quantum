@@ -24,6 +24,7 @@
     <!-- AmplitudeAmplificationTests.fs temporarily disabled - needs rewriting for backend adapter approach -->
     <!-- See AmplitudeAmplificationTests.fs.bak for original tests -->
     <Compile Include="QFTTests.fs" />
+    <Compile Include="ArithmeticStateBasedTests.fs" />
     <Compile Include="QPETests.fs" />
     <Compile Include="DeutschJozsaTests.fs" />
     <Compile Include="BellStatesTests.fs" />
@@ -79,7 +80,8 @@
     <Compile Include="QuantumPatternMatcherBuilderTests.fs" />
     <Compile Include="QuantumArithmeticBuilderTests.fs" />
     <Compile Include="QuantumPeriodFinderBuilderTests.fs" />
-    <!-- <Compile Include="QuantumPhaseEstimatorBuilderTests.fs" /> --> <!-- TODO: Uses deprecated QPE module - needs migration to Algorithms.QPE -->
+    <Compile Include="QuantumPhaseEstimatorBuilderTests.fs" />
+    <Compile Include="CSharpBuildersExactnessTests.fs" />
     <Compile Include="TaskSchedulingTests.fs" />
     <!-- SchedulingTests.fs removed - tests deleted classical scheduler -->
     <!-- SubsetSelectionTests.fs removed - tests deleted classical DP/greedy solver -->
@@ -93,6 +95,7 @@
     <Compile Include="VQCTests.fs" />
     <!-- <Compile Include="QuantumRegressionHHLTests.fs" /> --> <!-- TODO: Depends on QuantumRegressionHHL.fs (commented out) -->
     <Compile Include="VisualizationTests.fs" />
+    <Compile Include="QuantumKeyDistributionTests.fs" />
     
     <!-- Unified Backend Architecture Tests -->
     <Compile Include="UnifiedBackendTests.fs" />

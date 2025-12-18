@@ -347,50 +347,6 @@ module QuantumKeyDistribution =
             Efficiency = efficiency
         }
     
-    /// Check for eavesdropping by comparing subset of sifted key
-    /// 
-    /// Alice and Bob randomly sample ~10-20% of sifted key and compare publicly.
-    /// High error rate (>11% QBER) indicates eavesdropping.
-    /// 
-    /// Error sources:
-    /// - Quantum channel noise: ~1-5% (acceptable)
-    /// - Eavesdropping (intercept-resend): ~25% (unacceptable)
-    /// 
-    /// Parameters:
-    ///   siftedKey - Sifted key from basis reconciliation
-    ///   sampleSize - Number of bits to compare (typically 10-20% of sifted key)
-    ///   threshold - QBER threshold for eavesdropping detection (typically 0.11)
-    ///   rng - Random number generator for sampling
-    /// 
-    /// Returns:
-    ///   EavesdropCheck result with error rate and detection status
-    let checkEavesdropping (siftedKey: SiftedKey) (sampleSize: int) (threshold: float) (rng: Random) : EavesdropCheck =
-        // Ensure sample size doesn't exceed sifted key length
-        let actualSampleSize = min sampleSize siftedKey.Length
-        
-        // Randomly sample indices
-        let allIndices = [| 0 .. siftedKey.Length - 1 |]
-        let shuffled = allIndices |> Array.sortBy (fun _ -> rng.Next())
-        let sampleIndices = shuffled |> Array.take actualSampleSize
-        
-        // Count mismatches in sample
-        let errors =
-            sampleIndices
-            |> Array.filter (fun i -> siftedKey.AliceBits.[i] <> siftedKey.BobBits.[i])
-            |> Array.length
-        
-        let errorRate = if actualSampleSize > 0 then float errors / float actualSampleSize else 0.0
-        let eavesdropDetected = errorRate > threshold
-        
-        {
-            SampleSize = actualSampleSize
-            Errors = errors
-            ErrorRate = errorRate
-            EavesdropDetected = eavesdropDetected
-            Threshold = threshold
-            SampleIndices = sampleIndices
-        }
-    
     /// Extract final key after eavesdropping check
     /// 
     /// Remove sampled bits from sifted key to produce final secure key.
@@ -411,9 +367,220 @@ module QuantumKeyDistribution =
         |> Array.map snd
     
     // ========================================================================
-    // FULL BB84 PROTOCOL
+    // FULL BB84 PROTOCOL (Intent → Plan → Execute)
     // ========================================================================
-    
+
+    /// Eve action for a specific qubit transmission.
+    [<RequireQualifiedAccess>]
+    type EveAction =
+        | None
+        | InterceptResend of basis: Basis
+
+    /// Canonical (deterministic) BB84 intent.
+    ///
+    /// All randomness (bases, bits, Eve choices, sample indices) is captured here.
+    type Bb84Intent = {
+        /// Requested final key length (approximate; protocol may yield fewer bits).
+        KeyLength: int
+
+        /// Number of qubits sent over the quantum channel.
+        InitialQubits: int
+
+        /// Alice's random bits and bases.
+        Alice: AliceState
+
+        /// Bob's random measurement bases.
+        BobBases: Basis[]
+
+        /// Eve actions per qubit (may be `None`).
+        EveActions: EveAction[]
+
+        /// Indices into the sifted key used for the eavesdrop check sample.
+        ///
+        /// These indices are in the sifted-key index space (0..siftedLength-1).
+        SampleIndices: int[]
+
+        /// Fraction of sifted key used for eavesdrop check.
+        SampleRatio: float
+
+        /// QBER threshold for eavesdropping detection.
+        QberThreshold: float
+    }
+
+    [<RequireQualifiedAccess>]
+    type Bb84Attack =
+        | None
+        | InterceptResend
+        | Beamsplitter of probability: float
+
+    [<RequireQualifiedAccess>]
+    type Bb84Plan =
+        | ExecuteViaOps of requiredOps: QuantumOperation list
+
+    let private requiredOps : QuantumOperation list =
+        [ QuantumOperation.Gate (X 0)
+          QuantumOperation.Gate (H 0) ]
+
+    let private planBb84 (backend: IQuantumBackend) : Result<Bb84Plan, QuantumError> =
+        match backend.NativeStateType with
+        | QuantumStateType.Annealing ->
+            Error (QuantumError.OperationError ("BB84", $"Backend '{backend.Name}' does not support BB84 (native state type: {backend.NativeStateType})"))
+        | _ ->
+            if requiredOps |> List.forall backend.SupportsOperation then
+                Ok (Bb84Plan.ExecuteViaOps requiredOps)
+            else
+                Error (QuantumError.OperationError ("BB84", $"Backend '{backend.Name}' does not support required operations for BB84"))
+
+    let private chooseRandomBasis (rng: Random) : Basis =
+        if rng.Next(2) = 0 then Rectilinear else Diagonal
+
+    let private buildSampleIndices (siftedLength: int) (sampleRatio: float) (rng: Random) : int[] =
+        let sampleSize = int (float siftedLength * sampleRatio)
+        let allIndices = [| 0 .. siftedLength - 1 |]
+        let shuffled = allIndices |> Array.sortBy (fun _ -> rng.Next())
+        shuffled |> Array.take (min sampleSize siftedLength)
+
+    let private buildBb84Intent
+        (keyLength: int)
+        (sampleRatio: float)
+        (qberThreshold: float)
+        (attack: Bb84Attack)
+        (seed: int option)
+        : Bb84Intent =
+
+        let rng =
+            match seed with
+            | Some s -> Random(s)
+            | None -> Random()
+
+        // Scale up initial qubits to account for sifting (~50%) and sampling
+        let initialQubits = int (float keyLength / (0.5 * (1.0 - sampleRatio))) + 10
+
+        // Alice + Bob randomness
+        let alice = createAliceState initialQubits rng
+        let bobBases = createBobBases initialQubits rng
+
+        let eveActions =
+            match attack with
+            | Bb84Attack.None -> Array.create initialQubits EveAction.None
+            | Bb84Attack.InterceptResend ->
+                Array.init initialQubits (fun _ -> EveAction.InterceptResend (chooseRandomBasis rng))
+            | Bb84Attack.Beamsplitter p ->
+                Array.init initialQubits (fun _ ->
+                    if rng.NextDouble() < p then
+                        EveAction.InterceptResend (chooseRandomBasis rng)
+                    else
+                        EveAction.None)
+
+        // Sample indices are chosen from the sifted-key index space.
+        // Sifted length depends only on basis agreement (not on measurements).
+        let predictedSiftedLength =
+            Array.indexed alice.Bases
+            |> Array.filter (fun (i, aliceBasis) -> aliceBasis = bobBases.[i])
+            |> Array.length
+
+        let sampleIndices =
+            if predictedSiftedLength <= 0 then
+                Array.empty
+            else
+                buildSampleIndices predictedSiftedLength sampleRatio rng
+
+        {
+            KeyLength = keyLength
+            InitialQubits = initialQubits
+            Alice = alice
+            BobBases = bobBases
+            EveActions = eveActions
+            SampleIndices = sampleIndices
+            SampleRatio = sampleRatio
+            QberThreshold = qberThreshold
+        }
+
+    let private checkEavesdroppingWithSample
+        (siftedKey: SiftedKey)
+        (sampleIndices: int[])
+        (threshold: float)
+        : EavesdropCheck =
+
+        let sampleIndices =
+            sampleIndices
+            |> Array.filter (fun i -> i >= 0 && i < siftedKey.Length)
+
+        let errors =
+            sampleIndices
+            |> Array.filter (fun i -> siftedKey.AliceBits.[i] <> siftedKey.BobBits.[i])
+            |> Array.length
+
+        let sampleSize = sampleIndices.Length
+        let errorRate = if sampleSize > 0 then float errors / float sampleSize else 0.0
+
+        {
+            SampleSize = sampleSize
+            Errors = errors
+            ErrorRate = errorRate
+            EavesdropDetected = errorRate > threshold
+            Threshold = threshold
+            SampleIndices = sampleIndices
+        }
+
+    let private executeBb84Planned
+        (backend: IQuantumBackend)
+        (_plan: Bb84Plan)
+        (intent: Bb84Intent)
+        : Result<BB84Result, QuantumError> =
+
+        result {
+            let! bobResults =
+                [| 0 .. intent.InitialQubits - 1 |]
+                |> Result.traverseArray (fun i ->
+                    result {
+                        let! aliceQubit = prepareQubit intent.Alice.Bits.[i] intent.Alice.Bases.[i] backend
+
+                        let! qubitForBob =
+                            match intent.EveActions.[i] with
+                            | EveAction.None -> Ok aliceQubit
+                            | EveAction.InterceptResend eveBasis ->
+                                result {
+                                    let! eveMeasurement = measureQubit aliceQubit eveBasis backend
+                                    return! prepareQubit eveMeasurement eveBasis backend
+                                }
+
+                        return! measureQubit qubitForBob intent.BobBases.[i] backend
+                    })
+
+            let bobMeasurement = {
+                Bases = intent.BobBases
+                Results = bobResults
+                NumQubits = intent.InitialQubits
+            }
+
+            let siftedKey = siftKey intent.Alice bobMeasurement
+
+            do!
+                if siftedKey.Length < 10 then
+                    Error (QuantumError.ValidationError ("siftedKey", "Insufficient sifted key length for eavesdrop check (minimum 10 bits required)"))
+                else
+                    Ok ()
+
+            let eavesdropCheck = checkEavesdroppingWithSample siftedKey intent.SampleIndices intent.QberThreshold
+            let finalKey = extractFinalKey siftedKey eavesdropCheck.SampleIndices
+
+            let finalKeyLength = finalKey.Length
+            let overallEfficiency = float finalKeyLength / float intent.InitialQubits
+            let success = not eavesdropCheck.EavesdropDetected && finalKeyLength > 0
+
+            return {
+                InitialKeyLength = intent.InitialQubits
+                SiftedKey = siftedKey
+                EavesdropCheck = eavesdropCheck
+                FinalKey = finalKey
+                FinalKeyLength = finalKeyLength
+                OverallEfficiency = overallEfficiency
+                Success = success
+                BackendName = backend.NativeStateType.ToString()
+            }
+        }
+
     /// Run complete BB84 protocol (simulation)
     /// 
     /// This simulates the full BB84 protocol:
@@ -435,76 +602,17 @@ module QuantumKeyDistribution =
     /// 
     /// Returns:
     ///   BB84Result with final key and protocol statistics
-    let runBB84 
-        (keyLength: int) 
-        (backend: IQuantumBackend) 
-        (sampleRatio: float) 
+    let runBB84
+        (keyLength: int)
+        (backend: IQuantumBackend)
+        (sampleRatio: float)
         (qberThreshold: float)
         (seed: int option) : Result<BB84Result, QuantumError> =
-        
+
         result {
-            // Create RNG (use seed if provided)
-            let rng =
-                match seed with
-                | Some s -> Random(s)
-                | None -> Random()
-            
-            // Scale up initial qubits to account for sifting (~50%) and sampling
-            let initialQubits = int (float keyLength / (0.5 * (1.0 - sampleRatio))) + 10
-            
-            // Step 1: Alice prepares random qubits
-            let aliceState = createAliceState initialQubits rng
-            
-            // Step 2: Alice encodes and sends qubits (simulated)
-            // In real QKD, qubits are sent over quantum channel
-            // Here we prepare each qubit and immediately measure it
-            let bobBases = createBobBases initialQubits rng
-            let! bobResults =
-                [| 0 .. initialQubits - 1 |]
-                |> Result.traverseArray (fun i ->
-                    result {
-                        let! preparedState = prepareQubit aliceState.Bits.[i] aliceState.Bases.[i] backend
-                        let! measured = measureQubit preparedState bobBases.[i] backend
-                        return measured
-                    }
-                )
-            
-            let bobMeasurement = {
-                Bases = bobBases
-                Results = bobResults
-                NumQubits = initialQubits
-            }
-            
-            // Step 3: Basis reconciliation (sifting)
-            let siftedKey = siftKey aliceState bobMeasurement
-            
-            // Ensure we have enough bits after sifting
-            do! if siftedKey.Length < 10 then
-                    Error (QuantumError.ValidationError ("siftedKey", "Insufficient sifted key length for eavesdrop check (minimum 10 bits required)"))
-                else
-                    Ok ()
-            
-            // Step 4: Eavesdropping check
-            let sampleSize = int (float siftedKey.Length * sampleRatio)
-            let eavesdropCheck = checkEavesdropping siftedKey sampleSize qberThreshold rng
-            
-            // Step 5: Extract final key (remove sampled bits that were publicly revealed)
-            let finalKey = extractFinalKey siftedKey eavesdropCheck.SampleIndices
-            
-            let finalKeyLength = finalKey.Length
-            let overallEfficiency = float finalKeyLength / float initialQubits
-            let success = not eavesdropCheck.EavesdropDetected && finalKeyLength > 0
-            
-            return {
-                InitialKeyLength = initialQubits
-                SiftedKey = siftedKey
-                EavesdropCheck = eavesdropCheck
-                FinalKey = finalKey
-                FinalKeyLength = finalKeyLength
-                OverallEfficiency = overallEfficiency
-                Success = success
-                BackendName = backend.NativeStateType.ToString()
-            }
+            let intent = buildBb84Intent keyLength sampleRatio qberThreshold Bb84Attack.None seed
+            let! bb84Plan = planBb84 backend
+            return! executeBb84Planned backend bb84Plan intent
         }
     
     /// Run BB84 protocol with default parameters
@@ -523,133 +631,23 @@ module QuantumKeyDistribution =
         runBB84 keyLength backend 0.15 0.11 None
     
     // ========================================================================
-    // EVE SIMULATION (Intercept-Resend Attack)
+    // EVE SIMULATION (Intent-based)
     // ========================================================================
-    
-    /// Simulate eavesdropper (Eve) using intercept-resend attack
-    /// 
-    /// Eve's attack strategy:
-    /// 1. Intercept qubit from Alice
-    /// 2. Measure in random basis (50% chance of wrong basis)
-    /// 3. Prepare new qubit with measured result
-    /// 4. Send to Bob
-    /// 
-    /// Detection: Eve's measurement in wrong basis disturbs the state,
-    /// causing ~25% error rate (50% wrong basis × 50% error when wrong).
-    /// 
-    /// Parameters:
-    ///   state - Quantum state intercepted from Alice
-    ///   aliceBasis - Alice's encoding basis (Eve doesn't know this!)
-    ///   backend - Quantum backend to execute on
-    ///   rng - Random number generator
-    /// 
-    /// Returns:
-    ///   New quantum state prepared by Eve
-    let eveInterceptResend 
-        (state: QuantumState) 
-        (aliceBasis: Basis) 
-        (backend: IQuantumBackend) 
-        (rng: Random) : Result<QuantumState, QuantumError> =
-        
-        result {
-            // Eve chooses random basis (doesn't know Alice's basis!)
-            let eveBasis = if rng.Next(2) = 0 then Rectilinear else Diagonal
-            
-            // Eve measures in her chosen basis
-            let! eveMeasurement = measureQubit state eveBasis backend
-            
-            // Eve prepares new qubit with her measurement result
-            // (She doesn't know if she measured correctly!)
-            let! newState = prepareQubit eveMeasurement eveBasis backend
-            
-            return newState
-        }
-    
     /// Run BB84 with eavesdropper (Eve)
     /// 
     /// Simulates BB84 protocol with Eve performing intercept-resend attack.
     /// This should result in ~25% error rate and eavesdropping detection.
-    /// 
-    /// Parameters:
-    ///   keyLength - Desired final key length
-    ///   backend - Quantum backend to execute on
-    ///   sampleRatio - Fraction of sifted key for eavesdrop check
-    ///   qberThreshold - QBER threshold for detection
-    ///   seed - Random seed (optional)
-    /// 
-    /// Returns:
-    ///   BB84Result (should show eavesdropping detected)
     let runBB84WithEve
         (keyLength: int)
         (backend: IQuantumBackend)
         (sampleRatio: float)
         (qberThreshold: float)
         (seed: int option) : Result<BB84Result, QuantumError> =
-        
+
         result {
-            let rng =
-                match seed with
-                | Some s -> Random(s)
-                | None -> Random()
-            
-            let initialQubits = int (float keyLength / (0.5 * (1.0 - sampleRatio))) + 10
-            
-            // Alice prepares qubits
-            let aliceState = createAliceState initialQubits rng
-            
-            // Bob chooses bases
-            let bobBases = createBobBases initialQubits rng
-            
-            // Alice encodes, Eve intercepts and resends, Bob measures
-            let! bobResults =
-                [| 0 .. initialQubits - 1 |]
-                |> Result.traverseArray (fun i ->
-                    result {
-                        // Alice prepares qubit
-                        let! aliceQubit = prepareQubit aliceState.Bits.[i] aliceState.Bases.[i] backend
-                        
-                        // Eve intercepts and resends
-                        let! eveQubit = eveInterceptResend aliceQubit aliceState.Bases.[i] backend rng
-                        
-                        // Bob measures
-                        let! measured = measureQubit eveQubit bobBases.[i] backend
-                        return measured
-                    }
-                )
-            
-            let bobMeasurement = {
-                Bases = bobBases
-                Results = bobResults
-                NumQubits = initialQubits
-            }
-            
-            // Classical post-processing (same as normal BB84)
-            let siftedKey = siftKey aliceState bobMeasurement
-            
-            do! if siftedKey.Length < 10 then
-                    Error (QuantumError.ValidationError ("siftedKey", "Insufficient sifted key length (minimum 10 bits required)"))
-                else
-                    Ok ()
-            
-            let sampleSize = int (float siftedKey.Length * sampleRatio)
-            let eavesdropCheck = checkEavesdropping siftedKey sampleSize qberThreshold rng
-            
-            let finalKey = extractFinalKey siftedKey eavesdropCheck.SampleIndices
-            
-            let finalKeyLength = finalKey.Length
-            let overallEfficiency = float finalKeyLength / float initialQubits
-            let success = not eavesdropCheck.EavesdropDetected && finalKeyLength > 0
-            
-            return {
-                InitialKeyLength = initialQubits
-                SiftedKey = siftedKey
-                EavesdropCheck = eavesdropCheck
-                FinalKey = finalKey
-                FinalKeyLength = finalKeyLength
-                OverallEfficiency = overallEfficiency
-                Success = success
-                BackendName = backend.NativeStateType.ToString()
-            }
+            let intent = buildBb84Intent keyLength sampleRatio qberThreshold Bb84Attack.InterceptResend seed
+            let! bb84Plan = planBb84 backend
+            return! executeBb84Planned backend bb84Plan intent
         }
     
     /// Run BB84 with Eve using default parameters
@@ -774,53 +772,11 @@ module QuantumKeyDistribution =
                 DetectionProbability = 0.0  // Undetectable in principle
             }
     
-    /// Simulate beamsplitter attack
-    /// 
-    /// Eve intercepts fraction p of qubits, lets others pass through.
-    /// For intercepted qubits, performs intercept-resend.
-    /// 
-    /// **Trade-off**: Lower p → less information, lower QBER, harder to detect
-    /// 
-    /// Parameters:
-    ///   state - Quantum state from Alice
-    ///   aliceBasis - Alice's basis (Eve doesn't know)
-    ///   probability - Probability of interception (0.0 to 1.0)
-    ///   backend - Quantum backend
-    ///   rng - Random number generator
-    /// 
-    /// Returns:
-    ///   State sent to Bob (original or intercepted)
-    let eveBeamsplitter
-        (state: QuantumState)
-        (aliceBasis: Basis)
-        (probability: float)
-        (backend: IQuantumBackend)
-        (rng: Random) : Result<QuantumState, QuantumError> =
-        
-        // Eve decides whether to intercept this qubit
-        if rng.NextDouble() < probability then
-            // Intercept and resend
-            eveInterceptResend state aliceBasis backend rng
-        else
-            // Let it pass through undisturbed
-            Ok state
-    
     /// Run BB84 with beamsplitter attack
     /// 
     /// Eve intercepts only a fraction of qubits, trading off information for stealth.
     /// 
     /// **Example**: p=0.5 → QBER=12.5%, I(A:E)=0.25 bits
-    /// 
-    /// Parameters:
-    ///   keyLength - Desired final key length
-    ///   backend - Quantum backend
-    ///   probability - Interception probability (0.0 to 1.0)
-    ///   sampleRatio - Fraction for eavesdrop check
-    ///   qberThreshold - QBER detection threshold
-    ///   seed - Random seed
-    /// 
-    /// Returns:
-    ///   BB84Result with beamsplitter attack statistics
     let runBB84WithBeamsplitter
         (keyLength: int)
         (backend: IQuantumBackend)
@@ -828,71 +784,13 @@ module QuantumKeyDistribution =
         (sampleRatio: float)
         (qberThreshold: float)
         (seed: int option) : Result<BB84Result, QuantumError> =
-        
+
         result {
-            let rng =
-                match seed with
-                | Some s -> Random(s)
-                | None -> Random()
-            
-            let initialQubits = int (float keyLength / (0.5 * (1.0 - sampleRatio))) + 10
-            
-            // Alice prepares qubits
-            let aliceState = createAliceState initialQubits rng
-            
-            // Bob chooses bases
-            let bobBases = createBobBases initialQubits rng
-            
-            // Alice encodes, Eve selectively intercepts, Bob measures
-            let! bobResults =
-                [| 0 .. initialQubits - 1 |]
-                |> Result.traverseArray (fun i ->
-                    result {
-                        // Alice prepares qubit
-                        let! aliceQubit = prepareQubit aliceState.Bits.[i] aliceState.Bases.[i] backend
-                        
-                        // Eve beamsplitter attack
-                        let! eveQubit = eveBeamsplitter aliceQubit aliceState.Bases.[i] probability backend rng
-                        
-                        // Bob measures
-                        let! measured = measureQubit eveQubit bobBases.[i] backend
-                        return measured
-                    }
-                )
-            
-            let bobMeasurement = {
-                Bases = bobBases
-                Results = bobResults
-                NumQubits = initialQubits
-            }
-            
-            // Classical post-processing
-            let siftedKey = siftKey aliceState bobMeasurement
-            
-            do! if siftedKey.Length < 10 then
-                    Error (QuantumError.ValidationError ("siftedKey", "Insufficient sifted key length (minimum 10 bits required)"))
-                else
-                    Ok ()
-            
-            let sampleSize = int (float siftedKey.Length * sampleRatio)
-            let eavesdropCheck = checkEavesdropping siftedKey sampleSize qberThreshold rng
-            
-            let finalKey = extractFinalKey siftedKey eavesdropCheck.SampleIndices
-            
-            let finalKeyLength = finalKey.Length
-            let overallEfficiency = float finalKeyLength / float initialQubits
-            let success = not eavesdropCheck.EavesdropDetected && finalKeyLength > 0
-            
-            return {
-                InitialKeyLength = initialQubits
-                SiftedKey = siftedKey
-                EavesdropCheck = eavesdropCheck
-                FinalKey = finalKey
-                FinalKeyLength = finalKeyLength
-                OverallEfficiency = overallEfficiency
-                Success = success
-                BackendName = backend.NativeStateType.ToString()
-            }
+            let intent =
+                buildBb84Intent keyLength sampleRatio qberThreshold (Bb84Attack.Beamsplitter probability) seed
+
+            let! bb84Plan = planBb84 backend
+            return! executeBb84Planned backend bb84Plan intent
         }
     
     /// Format Eve's information analysis

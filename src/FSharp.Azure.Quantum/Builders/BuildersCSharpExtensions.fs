@@ -565,7 +565,20 @@ type CSharpBuilders private () =
     /// <returns>Result with computed value or error message</returns>
     static member ExecuteArithmetic(operation: QuantumArithmeticOps.ArithmeticOperation) =
         QuantumArithmeticOps.execute operation
-    
+
+    // ==========================================================================
+    // QPE EXACTNESS HELPERS (C#-friendly discriminated union factories)
+    // ==========================================================================
+
+    /// <summary>Create QPE exactness = Exact (C# helper).</summary>
+    static member QpeExactnessExact() : Algorithms.QPE.Exactness =
+        Algorithms.QPE.Exactness.Exact
+
+    /// <summary>Create QPE exactness = Approximate(epsilon) (C# helper).</summary>
+    /// <param name="epsilon">Phase/gate cutoff threshold</param>
+    static member QpeExactnessApproximate(epsilon: float) : Algorithms.QPE.Exactness =
+        Algorithms.QPE.Exactness.Approximate epsilon
+
     // ============================================================================
     // QUANTUM PERIOD FINDER BUILDER EXTENSIONS (Phase 2: Shor's Algorithm)
     // ============================================================================
@@ -577,6 +590,11 @@ type CSharpBuilders private () =
     static member FactorInteger(number: int, ?precision: int) =
         let p = defaultArg precision 8
         QuantumPeriodFinder.factorInteger number p
+
+    /// <summary>Factor an integer using Shor's algorithm with explicit exactness (C# helper).</summary>
+    static member FactorInteger(number: int, precision: int, exactness: Algorithms.QPE.Exactness) =
+        QuantumPeriodFinder.factorInteger number precision
+        |> Result.map (fun problem -> { problem with Exactness = exactness })
     
     /// <summary>Factor an integer using a specific base value (C# helper).</summary>
     /// <param name="number">Integer to factor</param>
@@ -586,18 +604,32 @@ type CSharpBuilders private () =
     static member FactorIntegerWithBase(number: int, baseValue: int, ?precision: int) =
         let p = defaultArg precision 8
         QuantumPeriodFinder.factorIntegerWithBase number baseValue p
+
+    /// <summary>Factor an integer with base and explicit exactness (C# helper).</summary>
+    static member FactorIntegerWithBase(number: int, baseValue: int, precision: int, exactness: Algorithms.QPE.Exactness) =
+        QuantumPeriodFinder.factorIntegerWithBase number baseValue precision
+        |> Result.map (fun problem -> { problem with Exactness = exactness })
     
     /// <summary>Break RSA encryption by factoring the modulus N (C# helper).</summary>
     /// <param name="rsaModulus">RSA modulus N = p * q</param>
     /// <returns>Period finder problem to solve</returns>
     static member BreakRSA(rsaModulus: int) =
         QuantumPeriodFinder.breakRSA rsaModulus
+
+    /// <summary>Break RSA encryption with explicit exactness (C# helper).</summary>
+    static member BreakRSA(rsaModulus: int, exactness: Algorithms.QPE.Exactness) =
+        QuantumPeriodFinder.breakRSA rsaModulus
+        |> Result.map (fun problem -> { problem with Exactness = exactness })
     
     /// <summary>Execute period finder problem to find factors (C# helper).</summary>
     /// <param name="problem">Period finder problem</param>
     /// <returns>Result with factors or error message</returns>
     static member ExecutePeriodFinder(problem: QuantumPeriodFinder.PeriodFinderProblem) =
         QuantumPeriodFinder.solve problem
+
+    /// <summary>Execute period finder problem but override its exactness (C# helper).</summary>
+    static member ExecutePeriodFinder(problem: QuantumPeriodFinder.PeriodFinderProblem, exactness: Algorithms.QPE.Exactness) =
+        QuantumPeriodFinder.solve { problem with Exactness = exactness }
     
     // ============================================================================
     // QUANTUM PHASE ESTIMATOR BUILDER EXTENSIONS (Phase 2: QPE)
@@ -608,14 +640,24 @@ type CSharpBuilders private () =
     /// <returns>Phase estimator problem to solve</returns>
     static member EstimateTGate(?precision: int) =
         let p = defaultArg precision 8
-        QuantumPhaseEstimator.estimateTGate p
+        QuantumPhaseEstimator.estimateTGate p None
+
+    /// <summary>Estimate eigenphase of T gate with explicit exactness (C# helper).</summary>
+    static member EstimateTGate(precision: int, exactness: Algorithms.QPE.Exactness) =
+        QuantumPhaseEstimator.estimateTGate precision None
+        |> Result.map (fun problem -> { problem with Exactness = exactness })
     
     /// <summary>Estimate eigenphase of S gate (e^(iπ/2)) using QPE (C# helper).</summary>
     /// <param name="precision">Number of precision qubits (optional, defaults to 8)</param>
     /// <returns>Phase estimator problem to solve</returns>
     static member EstimateSGate(?precision: int) =
         let p = defaultArg precision 8
-        QuantumPhaseEstimator.estimateSGate p
+        QuantumPhaseEstimator.estimateSGate p None
+
+    /// <summary>Estimate eigenphase of S gate with explicit exactness (C# helper).</summary>
+    static member EstimateSGate(precision: int, exactness: Algorithms.QPE.Exactness) =
+        QuantumPhaseEstimator.estimateSGate precision None
+        |> Result.map (fun problem -> { problem with Exactness = exactness })
     
     /// <summary>Estimate eigenphase of Phase gate P(θ) = e^(iθ) using QPE (C# helper).</summary>
     /// <param name="theta">Phase angle in radians</param>
@@ -623,7 +665,12 @@ type CSharpBuilders private () =
     /// <returns>Phase estimator problem to solve</returns>
     static member EstimatePhaseGate(theta: float, ?precision: int) =
         let p = defaultArg precision 8
-        QuantumPhaseEstimator.estimatePhaseGate theta p
+        QuantumPhaseEstimator.estimatePhaseGate theta p None
+
+    /// <summary>Estimate eigenphase of Phase gate with explicit exactness (C# helper).</summary>
+    static member EstimatePhaseGate(theta: float, precision: int, exactness: Algorithms.QPE.Exactness) =
+        QuantumPhaseEstimator.estimatePhaseGate theta precision None
+        |> Result.map (fun problem -> { problem with Exactness = exactness })
     
     /// <summary>Estimate eigenphase of Rotation-Z gate Rz(θ) = e^(-iθ/2)|0⟩ + e^(iθ/2)|1⟩ (C# helper).</summary>
     /// <param name="theta">Rotation angle in radians</param>
@@ -631,13 +678,22 @@ type CSharpBuilders private () =
     /// <returns>Phase estimator problem to solve</returns>
     static member EstimateRotationZ(theta: float, ?precision: int) =
         let p = defaultArg precision 8
-        QuantumPhaseEstimator.estimateRotationZ theta p
+        QuantumPhaseEstimator.estimateRotationZ theta p None
+
+    /// <summary>Estimate eigenphase of Rotation-Z gate with explicit exactness (C# helper).</summary>
+    static member EstimateRotationZ(theta: float, precision: int, exactness: Algorithms.QPE.Exactness) =
+        QuantumPhaseEstimator.estimateRotationZ theta precision None
+        |> Result.map (fun problem -> { problem with Exactness = exactness })
     
     /// <summary>Execute phase estimator problem to find eigenvalue (C# helper).</summary>
     /// <param name="problem">Phase estimator problem</param>
     /// <returns>Result with phase and eigenvalue or error message</returns>
     static member ExecutePhaseEstimator(problem: QuantumPhaseEstimator.PhaseEstimatorProblem) =
         QuantumPhaseEstimator.estimate problem
+
+    /// <summary>Execute phase estimator problem but override its exactness (C# helper).</summary>
+    static member ExecutePhaseEstimator(problem: QuantumPhaseEstimator.PhaseEstimatorProblem, exactness: Algorithms.QPE.Exactness) =
+        QuantumPhaseEstimator.estimate { problem with Exactness = exactness }
 
 // ============================================================================
 // QUANTUM BACKEND EXTENSIONS - Task-based Async for C#

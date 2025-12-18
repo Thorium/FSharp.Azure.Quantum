@@ -26,8 +26,21 @@ open FSharp.Azure.Quantum.Backends
 /// - System tuning (database configs, compiler flags, etc.)
 /// - A/B testing at scale
 /// 
+/// HOW THIS USES GROVER:
+/// This builder is a thin domain wrapper around `FSharp.Azure.Quantum.GroverSearch`.
+/// Under the hood we:
+/// - Build a Grover oracle that marks candidate indices as solutions.
+/// - Run Grover search on the chosen backend.
+/// - Post-filter returned candidates using the same predicate (to avoid false positives
+///   from finite-shot sampling).
+/// 
+/// IMPORTANT MODEL:
+/// - Grover searches `0 .. (2^n - 1)`.
+/// - If you use `searchSpace items`, index `i` corresponds to `items.[i]`.
+/// - If you use `searchSpaceSize size` (or `searchSpace size`), the predicate is evaluated on indices, so `'T` should be `int`.
+/// 
 /// EXAMPLE USAGE:
-///   // Simple: Find configurations meeting performance criteria
+///   // 1) Search over actual items
 ///   let problem = patternMatcher {
 ///       searchSpace allConfigurations
 ///       matchPattern (fun config ->
@@ -35,24 +48,26 @@ open FSharp.Azure.Quantum.Backends
 ///           perf.Throughput > 1000.0 && perf.Latency < 50.0
 ///       )
 ///       findTop 10
+///       shots 2000
 ///   }
-///   
-///   // Advanced: ML hyperparameter search
+/// 
+///   // 2) Search over an implicit index space (no list allocation)
 ///   let problem = patternMatcher {
-///       searchSpace 256  // 256 hyperparameter combinations
-///       matchPattern (fun idx ->
-///           let params = decodeHyperparameters idx
-///           let accuracy = trainModel params  // Expensive!
+///       searchSpaceSize 256
+///       matchPattern (fun (idx: int) ->
+///           let parameters = decodeHyperparameters idx
+///           let accuracy = trainModel parameters  // Expensive!
 ///           accuracy > 0.95
 ///       )
 ///       findTop 5
+///       maxIterations 10
 ///       backend azureQuantum
 ///   }
-///   
+/// 
 ///   // Solve the problem
 ///   match QuantumPatternMatcher.solve problem with
 ///   | Ok solution -> printfn "Matches: %A" solution.Matches
-///   | Error msg -> printfn "Error: %s" msg
+///   | Error err -> printfn "Error: %s" err.Message
 module QuantumPatternMatcher =
     
     // ============================================================================
@@ -197,8 +212,25 @@ module QuantumPatternMatcher =
             }
         
         [<CustomOperation("searchSpace")>]
-        member _.SearchSpaceItems(problem: PatternProblem<'T>, items: 'T list) : PatternProblem<'T> =
-            { problem with SearchSpace = Choice1Of2 items }
+        member _.SearchSpace(problem: PatternProblem<'T>, space: obj) : PatternProblem<'T> =
+            match space with
+            | :? int as size ->
+                { problem with SearchSpace = Choice2Of2 size }
+
+            | :? System.Collections.IEnumerable as enumerable ->
+                // The empty list literal `[]` can get inferred as `obj list` when this operation
+                // takes `obj`, so treat any IEnumerable as a candidate list and try casting items.
+                // If the enumerable is empty, the cast is vacuously valid and validation will
+                // produce a helpful "empty search space" error.
+                try
+                    let items = enumerable |> Seq.cast<'T> |> List.ofSeq
+                    { problem with SearchSpace = Choice1Of2 items }
+                with
+                | :? System.InvalidCastException ->
+                    failwith "searchSpace expects either 'T list (items) or int (size)"
+
+            | _ ->
+                failwith "searchSpace expects either 'T list (items) or int (size)"
         
         [<CustomOperation("searchSpaceSize")>]
         member _.SearchSpaceSize(problem: PatternProblem<'T>, size: int) : PatternProblem<'T> =

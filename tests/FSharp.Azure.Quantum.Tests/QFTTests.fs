@@ -15,6 +15,59 @@ module QFT = FSharp.Azure.Quantum.Algorithms.QFT
 module QFTTests =
     
     // ========================================================================
+    // QFT PLANNER TESTS
+    // ========================================================================
+
+    type private NoQftIntentBackend(inner: IQuantumBackend) =
+        interface IQuantumBackend with
+            member _.ExecuteToState circuit = inner.ExecuteToState circuit
+            member _.NativeStateType = inner.NativeStateType
+            member _.ApplyOperation operation state = inner.ApplyOperation operation state
+
+            member _.SupportsOperation operation =
+                match operation with
+                | QuantumOperation.Algorithm (AlgorithmOperation.QFT _) -> false
+                | _ -> inner.SupportsOperation operation
+
+            member _.Name = inner.Name + " (no-qft-intent)"
+            member _.InitializeState numQubits = inner.InitializeState numQubits
+
+    [<Fact>]
+    let ``QFT planner prefers algorithm intent when supported`` () =
+        let backend = LocalBackend.LocalBackend() :> IQuantumBackend
+
+        let intent: QFT.QftExecutionIntent =
+            {
+                NumQubits = 3
+                Config = QFT.defaultConfig
+                Exactness = QFT.Exact
+            }
+
+        match QFT.plan backend intent with
+        | Ok (QFT.QftPlan.ExecuteNatively _) -> Assert.True(true)
+        | Ok _ -> Assert.Fail("Expected ExecuteNatively plan")
+        | Error err -> Assert.Fail($"Planning failed: {err}")
+
+    [<Fact>]
+    let ``QFT planner produces explicit lowered ops when intent op unsupported`` () =
+        let backend = LocalBackend.LocalBackend() |> NoQftIntentBackend :> IQuantumBackend
+
+        let intent: QFT.QftExecutionIntent =
+            {
+                NumQubits = 3
+                Config = QFT.defaultConfig
+                Exactness = QFT.Exact
+            }
+
+        match QFT.plan backend intent with
+        | Ok (QFT.QftPlan.ExecuteViaOps (ops, exactness)) ->
+            Assert.Equal(QFT.Exact, exactness)
+            Assert.NotEmpty ops
+            Assert.True(ops |> List.forall backend.SupportsOperation)
+        | Ok _ -> Assert.Fail("Expected ExecuteViaOps plan")
+        | Error err -> Assert.Fail($"Planning failed: {err}")
+    
+    // ========================================================================
     // QFT UNIFIED BACKEND TESTS
     // ========================================================================
     

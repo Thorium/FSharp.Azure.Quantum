@@ -112,50 +112,139 @@ module Arithmetic =
     // QFT-BASED ADDITION (Draper Method)
     // ========================================================================
     
-    /// Apply QFT to quantum register using existing QFT module
-    /// 
-    /// NOTE: This implementation leverages the unified QFT module instead of
-    /// building QFT inline. This avoids recursive complexity and reuses tested code.
-    /// 
-    /// Parameters:
-    ///   - qubits: List of qubit indices (LSB first) - MUST be contiguous [0..n-1]
-    ///   - state: Current quantum state
-    ///   - backend: Backend to execute operations
-    /// 
-    /// Returns: State with QFT applied to specified qubits
-    let private applyQFT 
-        (qubits: int list) 
-        (state: QuantumState) 
-        (backend: IQuantumBackend) : Result<QuantumState, QuantumError> =
-        
-        // Use existing unified QFT module to avoid recursive complexity
-        let config = {
-            QFT.ApplySwaps = true
-            QFT.Inverse = false
-            QFT.Shots = 1  // Not used for state-based execution
-        }
-        
+    // ------------------------------------------------------------------------
+    // QFT on an arbitrary register
+    // ------------------------------------------------------------------------
+
+    let private validateRegisterQubits
+        (registerQubits: int list)
+        (state: QuantumState)
+        : Result<int, QuantumError> =
+
+        let stateQubits = QuantumState.numQubits state
+
+        if registerQubits.IsEmpty then
+            Error (QuantumError.ValidationError ("registerQubits", "Register qubits cannot be empty"))
+        elif registerQubits |> List.exists (fun q -> q < 0 || q >= stateQubits) then
+            Error (QuantumError.ValidationError ("registerQubits", $"All register qubits must be in range [0, {stateQubits - 1}]"))
+        elif registerQubits |> List.distinct |> List.length <> registerQubits.Length then
+            Error (QuantumError.ValidationError ("registerQubits", "Register qubits must be distinct"))
+        else
+            Ok registerQubits.Length
+
+    let internal buildQftGateOps
+        (registerQubits: int list)
+        (inverse: bool)
+        (applySwaps: bool)
+        : QuantumOperation list =
+
+        // Convention:
+        // - `registerQubits` is LSB-first.
+        // - This lowering matches the canonical QFT implementation in `Algorithms/QFT.fs`:
+        //   for each target qubit j, apply H(j) then controlled phases from k > j onto j.
+        // - `applySwaps` controls the standard bit-reversal swaps.
+        let numQubits = registerQubits.Length
+
+        let swapSequence =
+            if applySwaps then
+                [ 0 .. numQubits / 2 - 1 ]
+                |> List.map (fun i ->
+                    let j = numQubits - 1 - i
+                    QuantumOperation.Gate (CB.SWAP (registerQubits.[i], registerQubits.[j])))
+            else
+                []
+
+        let phaseAngle (power: int) (inverse: bool) : float =
+            // Matches QFT.fs: θ = ± 2π / 2^power
+            let angle = 2.0 * Math.PI / float (1 <<< power)
+            if inverse then -angle else angle
+
+        let qftForwardSequence =
+            [ 0 .. numQubits - 1 ]
+            |> List.collect (fun targetPos ->
+                let targetQubit = registerQubits.[targetPos]
+                let hOp = QuantumOperation.Gate (CB.H targetQubit)
+
+                // Controlled phases from k > targetPos onto the target.
+                let phases =
+                    [ targetPos + 1 .. numQubits - 1 ]
+                    |> List.map (fun controlPos ->
+                        let controlQubit = registerQubits.[controlPos]
+                        let power = controlPos - targetPos + 1
+                        let angle = phaseAngle power false
+                        QuantumOperation.Gate (CB.CP (controlQubit, targetQubit, angle)))
+
+                hOp :: phases)
+
+        let qftInverseSequence =
+            [ numQubits - 1 .. -1 .. 0 ]
+            |> List.collect (fun targetPos ->
+                let targetQubit = registerQubits.[targetPos]
+
+                let phases =
+                    [ numQubits - 1 .. -1 .. targetPos + 1 ]
+                    |> List.map (fun controlPos ->
+                        let controlQubit = registerQubits.[controlPos]
+                        let power = controlPos - targetPos + 1
+                        let angle = phaseAngle power true
+                        QuantumOperation.Gate (CB.CP (controlQubit, targetQubit, angle)))
+
+                let hOp = QuantumOperation.Gate (CB.H targetQubit)
+                phases @ [ hOp ])
+
+        if inverse then
+            swapSequence @ qftInverseSequence
+        else
+            qftForwardSequence @ swapSequence
+
+    /// Apply QFT to the given register qubits.
+    let private applyQFT
+        (registerQubits: int list)
+        (state: QuantumState)
+        (backend: IQuantumBackend)
+        : Result<QuantumState, QuantumError> =
+
         result {
-            let! qftResult = QFT.executeOnState state backend config
-            return qftResult.FinalState
+            let! _ = validateRegisterQubits registerQubits state
+
+            match backend.NativeStateType with
+            | QuantumStateType.Annealing ->
+                return! Error (QuantumError.OperationError ("QFT", $"Backend '{backend.Name}' does not support gate-based QFT (native state type: {backend.NativeStateType})"))
+            | _ ->
+                // QFT.fs uses an MSB-first convention; our arithmetic register is LSB-first.
+                // Reverse the order and omit swaps so the resulting Fourier bits land on the
+                // original `registerQubits` ordering.
+                let qftQubits = List.rev registerQubits
+                let ops = buildQftGateOps qftQubits false false
+
+                if ops |> List.forall backend.SupportsOperation then
+                    return! UnifiedBackend.applySequence backend ops state
+                else
+                    return! Error (QuantumError.OperationError ("QFT", $"Backend '{backend.Name}' does not support required operations for QFT"))
         }
-    
-    /// Apply inverse QFT to quantum register
-    let private applyInverseQFT 
-        (qubits: int list) 
-        (state: QuantumState) 
-        (backend: IQuantumBackend) : Result<QuantumState, QuantumError> =
-        
-        // Use existing unified QFT module with Inverse = true
-        let config = {
-            QFT.ApplySwaps = true
-            QFT.Inverse = true  // Inverse QFT
-            QFT.Shots = 1
-        }
-        
+
+    /// Apply inverse QFT to the given register qubits.
+    let private applyInverseQFT
+        (registerQubits: int list)
+        (state: QuantumState)
+        (backend: IQuantumBackend)
+        : Result<QuantumState, QuantumError> =
+
         result {
-            let! qftResult = QFT.executeOnState state backend config
-            return qftResult.FinalState
+            let! _ = validateRegisterQubits registerQubits state
+
+            match backend.NativeStateType with
+            | QuantumStateType.Annealing ->
+                return! Error (QuantumError.OperationError ("QFT", $"Backend '{backend.Name}' does not support gate-based QFT (native state type: {backend.NativeStateType})"))
+            | _ ->
+                // Must use the same qubit ordering strategy as `applyQFT`.
+                let qftQubits = List.rev registerQubits
+                let ops = buildQftGateOps qftQubits true false
+
+                if ops |> List.forall backend.SupportsOperation then
+                    return! UnifiedBackend.applySequence backend ops state
+                else
+                    return! Error (QuantumError.OperationError ("QFT", $"Backend '{backend.Name}' does not support required operations for QFT"))
         }
     
     // ========================================================================
@@ -198,41 +287,41 @@ module Arithmetic =
         if constant < 0 || constant > maxValue then
             Error (QuantumError.ValidationError ("constant", $"Value {constant} must be in range [0, {maxValue}] for {numQubits}-qubit register"))
         else
-            let constantBits = intToBinary constant numQubits
-            
             result {
                 // Step 1: Apply QFT
                 let! qftState = applyQFT registerQubits state backend
                 
-                // Step 2: Apply phase rotations for each bit of the constant
-                let rec applyPhaseRotations (currentState: QuantumState) (j: int) (opCount: int) : Result<QuantumState * int, QuantumError> =
-                    if j >= numQubits then
+                // Step 2: Apply Draper phase rotations in the Fourier basis.
+                //
+                // Convention notes:
+                // - We apply QFT with swaps (`applySwaps=true`), matching the circuit-based compatibility implementation.
+                // - After the QFT+swaps, Fourier qubit m (0 = least-significant Fourier bit) lives on `registerQubits.[m]`.
+                //
+                // For Fourier qubit m, the required phase rotation is:
+                //   θ_m = 2π * (constant mod 2^(m+1)) / 2^(m+1)
+                let rec applyPhaseRotations (currentState: QuantumState) (m: int) (opCount: int) : Result<QuantumState * int, QuantumError> =
+                    if m >= numQubits then
                         Ok (currentState, opCount)
                     else
                         result {
-                            let targetQubit = registerQubits.[j]
-                            
-                            // For this qubit, apply phases from all constant bits k <= j
-                            let rec applyBitPhases (s: QuantumState) (k: int) (ops: int) : Result<QuantumState * int, QuantumError> =
-                                if k > j then
-                                    Ok (s, ops)
-                                else
-                                    if constantBits.[k] = 1 then
-                                        result {
-                                            // Apply phase: 2π * 2^k / 2^(j+1)
-                                            let angle = 2.0 * Math.PI * (float (1 <<< k)) / (float (1 <<< (j + 1)))
-                                            let! nextState = backend.ApplyOperation 
-                                                                (QuantumOperation.Gate (CB.P (targetQubit, angle))) 
-                                                                s
-                                            return! applyBitPhases nextState (k + 1) (ops + 1)
-                                        }
-                                    else
-                                        applyBitPhases s (k + 1) ops
-                            
-                            let! (nextState, newOpCount) = applyBitPhases currentState 0 opCount
-                            return! applyPhaseRotations nextState (j + 1) newOpCount
+                            // We apply QFT with `qftQubits = List.rev registerQubits` and `applySwaps=false`.
+                            // This results in Fourier bit m (0 = least-significant Fourier bit) living on `registerQubits.[m]`.
+                            let targetQubit = registerQubits.[m]
+
+                            // Draper phase schedule (LSB-first Fourier bits):
+                            //   θ_m = 2π * (constant mod 2^(m+1)) / 2^(m+1)
+                            let denom = 1 <<< (m + 1)
+                            let reduced = constant &&& (denom - 1)
+
+                            if reduced = 0 then
+                                return! applyPhaseRotations currentState (m + 1) opCount
+                            else
+                                let angle = 2.0 * Math.PI * float reduced / float denom
+                                let! nextState =
+                                    backend.ApplyOperation (QuantumOperation.Gate (CB.P (targetQubit, angle))) currentState
+                                return! applyPhaseRotations nextState (m + 1) (opCount + 1)
                         }
-                
+
                 let! (stateWithPhases, opCount) = applyPhaseRotations qftState 0 0
                 
                 // Step 3: Apply inverse QFT
@@ -301,41 +390,34 @@ module Arithmetic =
         if constant < 0 || constant > maxValue then
             Error (QuantumError.ValidationError ("constant", $"Value {constant} must be in range [0, {maxValue}] for {numQubits}-qubit register"))
         else
-            let constantBits = intToBinary constant numQubits
-            
             result {
                 // Step 1: Apply QFT
                 let! qftState = applyQFT registerQubits state backend
                 
-                // Step 2: Apply controlled phase rotations for each bit of the constant
-                let rec applyControlledPhaseRotations (currentState: QuantumState) (j: int) (opCount: int) : Result<QuantumState * int, QuantumError> =
-                    if j >= numQubits then
+                // Step 2: Apply controlled Draper phase rotations.
+                //
+                // Same swapped-QFT convention as in addConstant.
+                let rec applyControlledPhaseRotations (currentState: QuantumState) (m: int) (opCount: int) : Result<QuantumState * int, QuantumError> =
+                    if m >= numQubits then
                         Ok (currentState, opCount)
                     else
                         result {
-                            let targetQubit = registerQubits.[j]
-                            
-                            // For this qubit, apply controlled phases from all constant bits k <= j
-                            let rec applyBitPhases (s: QuantumState) (k: int) (ops: int) : Result<QuantumState * int, QuantumError> =
-                                if k > j then
-                                    Ok (s, ops)
-                                else
-                                    if constantBits.[k] = 1 then
-                                        result {
-                                            // Apply controlled phase: CP gate from control qubit to target
-                                            let angle = 2.0 * Math.PI * (float (1 <<< k)) / (float (1 <<< (j + 1)))
-                                            let! nextState = backend.ApplyOperation 
-                                                                (QuantumOperation.Gate (CB.CP (controlQubit, targetQubit, angle))) 
-                                                                s
-                                            return! applyBitPhases nextState (k + 1) (ops + 1)
-                                        }
-                                    else
-                                        applyBitPhases s (k + 1) ops
-                            
-                            let! (nextState, newOpCount) = applyBitPhases currentState 0 opCount
-                            return! applyControlledPhaseRotations nextState (j + 1) newOpCount
+                            // Same qubit ordering as in addConstant.
+                            let targetQubit = registerQubits.[m]
+
+                            // Same θ_m as in addConstant.
+                            let denom = 1 <<< (m + 1)
+                            let reduced = constant &&& (denom - 1)
+
+                            if reduced = 0 then
+                                return! applyControlledPhaseRotations currentState (m + 1) opCount
+                            else
+                                let angle = 2.0 * Math.PI * float reduced / float denom
+                                let! nextState =
+                                    backend.ApplyOperation (QuantumOperation.Gate (CB.CP (controlQubit, targetQubit, angle))) currentState
+                                return! applyControlledPhaseRotations nextState (m + 1) (opCount + 1)
                         }
-                
+
                 let! (stateWithPhases, opCount) = applyControlledPhaseRotations qftState 0 0
                 
                 // Step 3: Apply inverse QFT

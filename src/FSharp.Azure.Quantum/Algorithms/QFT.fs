@@ -107,18 +107,33 @@ module QFT =
     // INTENT → PLAN → EXECUTION (ADR: intent-first algorithms)
     // ========================================================================
 
+    /// Execution exactness contract for QFT.
+    type Exactness =
+        | Exact
+        | Approximate of epsilon: float
+
+    /// Canonical, algorithm-level intent for QFT execution.
+    type QftExecutionIntent = {
+        NumQubits: int
+        Config: QFTConfig
+        Exactness: Exactness
+    }
+
     [<RequireQualifiedAccess>]
     type QftPlan =
-        | ExecuteViaIntent of QuantumOperation
-        | ExecuteViaOps of QuantumOperation list
+        /// Execute the semantic QFT intent natively, if supported by backend.
+        | ExecuteNatively of intent: QftIntent * exactness: Exactness
 
-    /// Build an intent-first operation for QFT.
-    let private qftIntentOp (numQubits: int) (config: QFTConfig) : QuantumOperation =
-        QuantumOperation.Algorithm (AlgorithmOperation.QFT {
-            NumQubits = numQubits
-            Inverse = config.Inverse
-            ApplySwaps = config.ApplySwaps
-        })
+        /// Execute via explicit lowering to operations, if supported.
+        | ExecuteViaOps of ops: QuantumOperation list * exactness: Exactness
+
+    /// Build an intent-first representation for QFT.
+    let private toCoreIntent (intent: QftExecutionIntent) : QftIntent =
+        {
+            NumQubits = intent.NumQubits
+            Inverse = intent.Config.Inverse
+            ApplySwaps = intent.Config.ApplySwaps
+        }
 
     /// Create a gate-sequence lowering for QFT.
     ///
@@ -126,21 +141,13 @@ module QFT =
     let private buildLoweringOps
         (numQubits: int)
         (config: QFTConfig)
+        (exactness: Exactness)
         : QuantumOperation list =
 
-        let applyQftStepOps targetQubit =
-            let hOp = QuantumOperation.Gate (CircuitBuilder.H targetQubit)
-            let phases =
-                [targetQubit + 1 .. numQubits - 1]
-                |> List.map (fun k ->
-                    let power = k - targetQubit + 1
-                    let angle = calculatePhaseAngle power config.Inverse
-                    QuantumOperation.Gate (CircuitBuilder.CP (k, targetQubit, angle)))
-            hOp :: phases
-
-        let qftSequence =
-            [0 .. numQubits - 1]
-            |> List.collect applyQftStepOps
+        let shouldIncludeControlledPhase (angle: float) =
+            match exactness with
+            | Exact -> true
+            | Approximate epsilon -> abs angle >= epsilon
 
         let swapSequence =
             if config.ApplySwaps then
@@ -151,27 +158,70 @@ module QFT =
             else
                 []
 
-        qftSequence @ swapSequence
+        let qftForwardSequence =
+            let applyQftStepOps targetQubit =
+                let hOp = QuantumOperation.Gate (CircuitBuilder.H targetQubit)
+                let phases =
+                    [targetQubit + 1 .. numQubits - 1]
+                    |> List.choose (fun k ->
+                        let power = k - targetQubit + 1
+                        let angle = calculatePhaseAngle power false
+                        if shouldIncludeControlledPhase angle then
+                            Some (QuantumOperation.Gate (CircuitBuilder.CP (k, targetQubit, angle)))
+                        else
+                            None)
+                hOp :: phases
 
-    let private plan (backend: IQuantumBackend) (numQubits: int) (config: QFTConfig) : Result<QftPlan, QuantumError> =
+            [0 .. numQubits - 1]
+            |> List.collect applyQftStepOps
+
+        let qftInverseSequence =
+            [numQubits - 1 .. -1 .. 0]
+            |> List.collect (fun targetQubit ->
+                let phases =
+                    [numQubits - 1 .. -1 .. targetQubit + 1]
+                    |> List.choose (fun k ->
+                        let power = k - targetQubit + 1
+                        let angle = calculatePhaseAngle power true
+                        if shouldIncludeControlledPhase angle then
+                            Some (QuantumOperation.Gate (CircuitBuilder.CP (k, targetQubit, angle)))
+                        else
+                            None)
+                let hOp = QuantumOperation.Gate (CircuitBuilder.H targetQubit)
+                phases @ [hOp])
+
+        if config.Inverse then
+            swapSequence @ qftInverseSequence
+        else
+            qftForwardSequence @ swapSequence
+
+    let plan (backend: IQuantumBackend) (intent: QftExecutionIntent) : Result<QftPlan, QuantumError> =
         // QFT requires a gate-based backend (or explicit native algorithm op support).
         // Some backends (e.g., annealing) cannot support this, and we should fail explicitly.
         match backend.NativeStateType with
         | QuantumStateType.Annealing ->
             Error (QuantumError.OperationError ("QFT", $"Backend '{backend.Name}' does not support QFT (native state type: {backend.NativeStateType})"))
         | _ ->
-            let op = qftIntentOp numQubits config
-
-            if backend.SupportsOperation op then
-                Ok (QftPlan.ExecuteViaIntent op)
+            if intent.NumQubits <= 0 then
+                Error (QuantumError.ValidationError ("NumQubits", "must be positive"))
             else
-                // Provide a valid lowering plan when the backend doesn't claim native support.
-                // This is not a *silent* fallback: the chosen plan is explicit and inspectable.
-                let lowerOps = buildLoweringOps numQubits config
-                if lowerOps |> List.forall backend.SupportsOperation then
-                    Ok (QftPlan.ExecuteViaOps lowerOps)
-                else
-                    Error (QuantumError.OperationError ("QFT", $"Backend '{backend.Name}' does not support required operations for QFT"))
+                match intent.Exactness with
+                | Approximate epsilon when epsilon <= 0.0 ->
+                    Error (QuantumError.ValidationError ("Exactness", "epsilon must be positive"))
+                | _ ->
+                    let coreIntent = toCoreIntent intent
+                    let nativeOp = QuantumOperation.Algorithm (AlgorithmOperation.QFT coreIntent)
+
+                    if backend.SupportsOperation nativeOp then
+                        Ok (QftPlan.ExecuteNatively (coreIntent, intent.Exactness))
+                    else
+                        // Provide a valid lowering plan when the backend doesn't claim native support.
+                        // This is not a *silent* fallback: the chosen plan is explicit and inspectable.
+                        let lowerOps = buildLoweringOps intent.NumQubits intent.Config intent.Exactness
+                        if lowerOps |> List.forall backend.SupportsOperation then
+                            Ok (QftPlan.ExecuteViaOps (lowerOps, intent.Exactness))
+                        else
+                            Error (QuantumError.OperationError ("QFT", $"Backend '{backend.Name}' does not support required operations for QFT"))
 
     let private executePlan
         (backend: IQuantumBackend)
@@ -180,22 +230,28 @@ module QFT =
         : Result<QuantumState, QuantumError> =
 
         match plan with
-        | QftPlan.ExecuteViaIntent op ->
+        | QftPlan.ExecuteNatively (intent, _) ->
+            let op = QuantumOperation.Algorithm (AlgorithmOperation.QFT intent)
             backend.ApplyOperation op state
-        | QftPlan.ExecuteViaOps ops ->
+        | QftPlan.ExecuteViaOps (ops, _) ->
             UnifiedBackend.applySequence backend ops state
 
     let private executePlanned
         (backend: IQuantumBackend)
-        (numQubits: int)
-        (config: QFTConfig)
+        (intent: QftExecutionIntent)
         (state: QuantumState)
         : Result<QuantumState * int, QuantumError> =
 
         result {
-            let! qftPlan = plan backend numQubits config
+            let! qftPlan = plan backend intent
             let! evolved = executePlan backend state qftPlan
-            return (evolved, estimateGateCount numQubits config.ApplySwaps)
+
+            let gateCount =
+                match qftPlan with
+                | QftPlan.ExecuteNatively _ -> estimateGateCount intent.NumQubits intent.Config.ApplySwaps
+                | QftPlan.ExecuteViaOps (ops, _) -> ops.Length
+
+            return (evolved, gateCount)
         }
 
     // ========================================================================
@@ -232,8 +288,15 @@ module QFT =
             let! initialState = backend.InitializeState numQubits
             
             // Step 2: Build intent, plan execution strategy, execute plan.
+            let executionIntent: QftExecutionIntent =
+                {
+                    NumQubits = numQubits
+                    Config = config
+                    Exactness = Exact
+                }
+
             let! (finalState, gateCount) =
-                executePlanned backend numQubits config initialState
+                executePlanned backend executionIntent initialState
             
             // Calculate execution time
             let elapsedMs = stopwatch.Elapsed.TotalMilliseconds
@@ -261,8 +324,15 @@ module QFT =
         let numQubits = QuantumState.numQubits state
         
         result {
+            let executionIntent: QftExecutionIntent =
+                {
+                    NumQubits = numQubits
+                    Config = config
+                    Exactness = Exact
+                }
+
             let! (finalState, gateCount) =
-                executePlanned backend numQubits config state
+                executePlanned backend executionIntent state
             
             // Calculate execution time
             let elapsedMs = stopwatch.Elapsed.TotalMilliseconds

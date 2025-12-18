@@ -206,6 +206,20 @@ module BackendAbstractionTests =
         Assert.True(backend.SupportsOperation (QuantumOperation.Algorithm (AlgorithmOperation.QPE intent)))
 
     [<Fact>]
+    let ``LocalBackend should support HHL intent operation`` () =
+        let backend = LocalBackend.LocalBackend() :> IQuantumBackend
+        let intent =
+            {
+                EigenvalueQubits = 2
+                SolutionQubits = 1
+                DiagonalEigenvalues = [| 2.0; 3.0 |]
+                InversionMethod = HhlEigenvalueInversionMethod.ExactRotation 1.0
+                MinEigenvalue = 1e-6
+            }
+
+        Assert.True(backend.SupportsOperation (QuantumOperation.Algorithm (AlgorithmOperation.HHL intent)))
+
+    [<Fact>]
     let ``LocalBackend should apply QPE intent and return StateVector`` () =
         let backend = LocalBackend.LocalBackend() :> IQuantumBackend
         let intent =

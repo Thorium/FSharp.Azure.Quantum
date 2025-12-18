@@ -77,6 +77,20 @@ module TopologicalBackendTests =
         Assert.True(backend.SupportsOperation (QuantumOperation.Algorithm (AlgorithmOperation.QPE intent)))
 
     [<Fact>]
+    let ``Unified Topological backend should support HHL intent operation`` () =
+        let backend = TopologicalUnifiedBackend.TopologicalUnifiedBackend(AnyonSpecies.AnyonType.Ising, 40) :> IQuantumBackend
+        let intent =
+            {
+                EigenvalueQubits = 2
+                SolutionQubits = 1
+                DiagonalEigenvalues = [| 2.0; 3.0 |]
+                InversionMethod = HhlEigenvalueInversionMethod.ExactRotation 1.0
+                MinEigenvalue = 1e-6
+            }
+
+        Assert.True(backend.SupportsOperation (QuantumOperation.Algorithm (AlgorithmOperation.HHL intent)))
+
+    [<Fact>]
     let ``Unified Topological backend should apply QPE intent and return FusionSuperposition`` () =
         // Note: CP/CRZ transpilation may require additional anyon resources.
         let backend = TopologicalUnifiedBackend.TopologicalUnifiedBackend(AnyonSpecies.AnyonType.Ising, 40) :> IQuantumBackend

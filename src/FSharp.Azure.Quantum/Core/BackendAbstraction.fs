@@ -76,18 +76,18 @@ module BackendAbstraction =
     type QpeIntent = {
         /// Number of counting (precision) qubits.
         CountingQubits: int
-
+ 
         /// Number of target qubits.
         ///
         /// Current intent implementation supports only `TargetQubits = 1`.
         TargetQubits: int
-
+ 
         /// Unitary whose phase is estimated.
         Unitary: QpeUnitary
-
+ 
         /// If true, prepares the target in |1⟩ via X on the first target qubit.
         PrepareTargetOne: bool
-
+ 
         /// Whether to apply bit-reversal swaps after inverse QFT.
         ///
         /// QPE does not fundamentally require these swaps: omitting them yields a bit-reversed
@@ -95,25 +95,60 @@ module BackendAbstraction =
         ApplySwaps: bool
     }
 
+    /// Inversion method family for HHL intent.
+    ///
+    /// Mirrors `Algorithms.HHLTypes.EigenvalueInversionMethod`, but lives in Core to avoid
+    /// algorithm-layer dependencies in the backend abstraction.
+    type HhlEigenvalueInversionMethod =
+        | ExactRotation of normalizationConstant: float
+        | LinearApproximation of normalizationConstant: float
+        | PiecewiseLinear of segments: (float * float * float)[]
+
+    /// HHL intent (educational diagonal-matrix variant).
+    ///
+    /// Important: this intent currently assumes the matrix is diagonal and provided via its
+    /// diagonal eigenvalues. The input |b⟩ is expected to already be encoded in the *solution*
+    /// register of the provided quantum state.
+    type HhlIntent = {
+        /// Number of qubits used for eigenvalue estimation (reserved for future full QPE).
+        EigenvalueQubits: int
+
+        /// Number of logical qubits for the solution register.
+        SolutionQubits: int
+
+        /// Diagonal eigenvalues of A (length must match the solution space dimension).
+        DiagonalEigenvalues: float[]
+
+        /// Eigenvalue inversion method.
+        InversionMethod: HhlEigenvalueInversionMethod
+
+        /// Minimum eigenvalue threshold for numerical stability.
+        MinEigenvalue: float
+    }
+ 
     [<RequireQualifiedAccess>]
     type AlgorithmOperation =
         /// Quantum Fourier Transform intent.
         | QFT of QftIntent
-
+ 
         /// Quantum Phase Estimation intent.
         ///
         /// Transforms `|0⟩^(CountingQubits+TargetQubits)` to the standard QPE state,
         /// ready for measurement on the counting register.
         | QPE of QpeIntent
 
+        /// HHL (Harrow-Hassidim-Lloyd) intent.
+        | HHL of HhlIntent
+ 
         /// Prepare the uniform superposition |s⟩.
         | GroverPrepare of numQubits: int
-
+ 
         /// Apply the oracle phase flip to marked states.
         | GroverOraclePhaseFlip of GroverIntent
-
+ 
         /// Apply Grover diffusion (inversion about mean).
         | GroverDiffusion of numQubits: int
+
 
     /// Extension point for operations not represented in the core DU.
     ///

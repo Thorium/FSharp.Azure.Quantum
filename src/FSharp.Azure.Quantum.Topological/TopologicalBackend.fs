@@ -370,74 +370,109 @@ module TopologicalUnifiedBackend =
                                  let diffused = applyDiffusionOnTerms numQubits fusionState
                                  Ok (QuantumState.FusionSuperposition (TopologicalOperations.toInterface diffused))
 
-                            | QuantumOperation.Algorithm (AlgorithmOperation.QPE intent) ->
-                                // Execute QPE intent by lowering to gate operations.
-                                //
-                                // Note: `intent.ApplySwaps` controls whether the final bit-reversal SWAPs
-                                // are applied. QPE can omit swaps and undo bit order classically.
-                                if intent.CountingQubits <= 0 then
-                                    Error (QuantumError.ValidationError ("CountingQubits", "must be positive"))
-                                elif intent.TargetQubits <> 1 then
-                                    Error (QuantumError.ValidationError ("TargetQubits", "only TargetQubits = 1 is supported by QPE intent"))
-                                elif QuantumState.numQubits state <> (intent.CountingQubits + intent.TargetQubits) then
-                                    Error (QuantumError.ValidationError ("state", "state qubit count does not match QPE intent"))
-                                else
-                                    let targetQubit = intent.CountingQubits
+                             | QuantumOperation.Algorithm (AlgorithmOperation.QPE intent) ->
+                                 // Execute QPE intent by lowering to gate operations.
+                                 //
+                                 // Note: `intent.ApplySwaps` controls whether the final bit-reversal SWAPs
+                                 // are applied. QPE can omit swaps and undo bit order classically.
+                                 if intent.CountingQubits <= 0 then
+                                     Error (QuantumError.ValidationError ("CountingQubits", "must be positive"))
+                                 elif intent.TargetQubits <> 1 then
+                                     Error (QuantumError.ValidationError ("TargetQubits", "only TargetQubits = 1 is supported by QPE intent"))
+                                 elif QuantumState.numQubits state <> (intent.CountingQubits + intent.TargetQubits) then
+                                     Error (QuantumError.ValidationError ("state", "state qubit count does not match QPE intent"))
+                                 else
+                                     let targetQubit = intent.CountingQubits
+ 
+                                     let hadamardOps =
+                                         [0 .. intent.CountingQubits - 1]
+                                         |> List.map (fun q -> QuantumOperation.Gate (CircuitBuilder.H q))
+ 
+                                     let eigenPrepOps =
+                                         if intent.PrepareTargetOne then
+                                             [ QuantumOperation.Gate (CircuitBuilder.X targetQubit) ]
+                                         else
+                                             []
+ 
+                                     let controlledOps =
+                                         [0 .. intent.CountingQubits - 1]
+                                         |> List.map (fun j ->
+                                             let applications = 1 <<< j
+ 
+                                             match intent.Unitary with
+                                             | QpeUnitary.PhaseGate theta ->
+                                                 let totalTheta = float applications * theta
+                                                 QuantumOperation.Gate (CircuitBuilder.CP (j, targetQubit, totalTheta))
+                                             | QpeUnitary.TGate ->
+                                                 let totalTheta = float applications * Math.PI / 4.0
+                                                 QuantumOperation.Gate (CircuitBuilder.CP (j, targetQubit, totalTheta))
+                                             | QpeUnitary.SGate ->
+                                                 let totalTheta = float applications * Math.PI / 2.0
+                                                 QuantumOperation.Gate (CircuitBuilder.CP (j, targetQubit, totalTheta))
+                                             | QpeUnitary.RotationZ theta ->
+                                                 let totalTheta = float applications * theta
+                                                 QuantumOperation.Gate (CircuitBuilder.CRZ (j, targetQubit, totalTheta)))
+ 
+                                     let inverseQftOps =
+                                         [(intent.CountingQubits - 1) .. -1 .. 0]
+                                         |> List.collect (fun tq ->
+                                             let phases =
+                                                 [tq + 1 .. intent.CountingQubits - 1]
+                                                 |> List.map (fun k ->
+                                                     let power = k - tq + 1
+                                                     let angle = -2.0 * Math.PI / float (1 <<< power)
+                                                     QuantumOperation.Gate (CircuitBuilder.CP (k, tq, angle)))
+                                             let h = QuantumOperation.Gate (CircuitBuilder.H tq)
+                                             phases @ [ h ])
+ 
+                                     let swapOps =
+                                         if intent.ApplySwaps then
+                                             [0 .. intent.CountingQubits / 2 - 1]
+                                             |> List.map (fun i ->
+                                                 let j = intent.CountingQubits - 1 - i
+                                                 QuantumOperation.Gate (CircuitBuilder.SWAP (i, j)))
+                                         else
+                                             []
+ 
+                                     let ops = hadamardOps @ eigenPrepOps @ controlledOps @ inverseQftOps @ swapOps
+                                     (this :> IQuantumBackend).ApplyOperation (QuantumOperation.Sequence ops) state
 
-                                    let hadamardOps =
-                                        [0 .. intent.CountingQubits - 1]
-                                        |> List.map (fun q -> QuantumOperation.Gate (CircuitBuilder.H q))
+                             | QuantumOperation.Algorithm (AlgorithmOperation.HHL intent) ->
+                                 // Educational HHL intent: diagonal-only, encoded as a single ancilla rotation.
+                                 let totalQubits = intent.EigenvalueQubits + intent.SolutionQubits + 1
+                                 if QuantumState.numQubits state <> totalQubits then
+                                     Error (QuantumError.ValidationError ("state", $"Expected {totalQubits} qubits for HHL intent, got {QuantumState.numQubits state}"))
+                                 elif intent.DiagonalEigenvalues.Length <> (1 <<< intent.SolutionQubits) then
+                                     Error (QuantumError.ValidationError ("DiagonalEigenvalues", $"Expected {1 <<< intent.SolutionQubits} eigenvalues for HHL intent, got {intent.DiagonalEigenvalues.Length}"))
+                                 else
+                                     let eigenvalue = intent.DiagonalEigenvalues[0]
+                                     if abs eigenvalue < intent.MinEigenvalue then
+                                         Error (QuantumError.ValidationError ("eigenvalue", $"too small: {eigenvalue}"))
+                                     else
+                                         let clampToUnit x =
+                                             if x > 1.0 then 1.0
+                                             elif x < -1.0 then -1.0
+                                             else x
 
-                                    let eigenPrepOps =
-                                        if intent.PrepareTargetOne then
-                                            [ QuantumOperation.Gate (CircuitBuilder.X targetQubit) ]
-                                        else
-                                            []
+                                         let invLambda =
+                                             match intent.InversionMethod with
+                                             | HhlEigenvalueInversionMethod.ExactRotation c
+                                             | HhlEigenvalueInversionMethod.LinearApproximation c -> c / eigenvalue
+                                             | HhlEigenvalueInversionMethod.PiecewiseLinear segments ->
+                                                 let absLambda = abs eigenvalue
+                                                 let constant =
+                                                     segments
+                                                     |> Array.tryFind (fun (minL, maxL, _) -> absLambda >= minL && absLambda < maxL)
+                                                     |> Option.map (fun (_, _, c) -> c)
+                                                     |> Option.defaultValue 1.0
+                                                 constant / eigenvalue
 
-                                    let controlledOps =
-                                        [0 .. intent.CountingQubits - 1]
-                                        |> List.map (fun j ->
-                                            let applications = 1 <<< j
+                                         let theta = 2.0 * Math.Asin(clampToUnit invLambda)
+                                         let ancillaQubit = intent.EigenvalueQubits + intent.SolutionQubits
+                                         (this :> IQuantumBackend).ApplyOperation (QuantumOperation.Gate (CircuitBuilder.RY (ancillaQubit, theta))) state
+                              
+                              | QuantumOperation.Braid anyonIndex ->
 
-                                            match intent.Unitary with
-                                            | QpeUnitary.PhaseGate theta ->
-                                                let totalTheta = float applications * theta
-                                                QuantumOperation.Gate (CircuitBuilder.CP (j, targetQubit, totalTheta))
-                                            | QpeUnitary.TGate ->
-                                                let totalTheta = float applications * Math.PI / 4.0
-                                                QuantumOperation.Gate (CircuitBuilder.CP (j, targetQubit, totalTheta))
-                                            | QpeUnitary.SGate ->
-                                                let totalTheta = float applications * Math.PI / 2.0
-                                                QuantumOperation.Gate (CircuitBuilder.CP (j, targetQubit, totalTheta))
-                                            | QpeUnitary.RotationZ theta ->
-                                                let totalTheta = float applications * theta
-                                                QuantumOperation.Gate (CircuitBuilder.CRZ (j, targetQubit, totalTheta)))
-
-                                    let inverseQftOps =
-                                        [(intent.CountingQubits - 1) .. -1 .. 0]
-                                        |> List.collect (fun tq ->
-                                            let phases =
-                                                [tq + 1 .. intent.CountingQubits - 1]
-                                                |> List.map (fun k ->
-                                                    let power = k - tq + 1
-                                                    let angle = -2.0 * Math.PI / float (1 <<< power)
-                                                    QuantumOperation.Gate (CircuitBuilder.CP (k, tq, angle)))
-                                            let h = QuantumOperation.Gate (CircuitBuilder.H tq)
-                                            phases @ [ h ])
-
-                                    let swapOps =
-                                        if intent.ApplySwaps then
-                                            [0 .. intent.CountingQubits / 2 - 1]
-                                            |> List.map (fun i ->
-                                                let j = intent.CountingQubits - 1 - i
-                                                QuantumOperation.Gate (CircuitBuilder.SWAP (i, j)))
-                                        else
-                                            []
-
-                                    let ops = hadamardOps @ eigenPrepOps @ controlledOps @ inverseQftOps @ swapOps
-                                    (this :> IQuantumBackend).ApplyOperation (QuantumOperation.Sequence ops) state
-                             
-                             | QuantumOperation.Braid anyonIndex ->
 
                                 this.ApplyBraid anyonIndex fusionState
                             
@@ -484,11 +519,13 @@ module TopologicalUnifiedBackend =
                 match operation with
                 | QuantumOperation.Algorithm (AlgorithmOperation.QFT _) -> true
                 | QuantumOperation.Algorithm (AlgorithmOperation.QPE _) -> true
+                | QuantumOperation.Algorithm (AlgorithmOperation.HHL _) -> true
                 | QuantumOperation.Algorithm (AlgorithmOperation.GroverPrepare _)
                 | QuantumOperation.Algorithm (AlgorithmOperation.GroverOraclePhaseFlip _)
                 | QuantumOperation.Algorithm (AlgorithmOperation.GroverDiffusion _) -> true
+
                 | QuantumOperation.Braid _ -> true      // Native topological operation
-                | QuantumOperation.FMove _ -> true      // Native topological operation  
+                | QuantumOperation.FMove _ -> true      // Native topological operation
                 | QuantumOperation.Measure _ -> true    // Native topological measurement
                 | QuantumOperation.Extension ext ->
                     match ext with

@@ -86,6 +86,9 @@ module QuantumPhaseEstimator =
         /// Whether to apply the final bit-reversal SWAPs in QPE.
         /// If false, results are post-processed classically (default).
         ApplySwaps: bool
+
+        /// QPE exactness contract (Exact by default).
+        Exactness: Exactness
         
         /// Quantum backend to use (None = LocalBackend)
         Backend: BackendAbstraction.IQuantumBackend option
@@ -176,6 +179,7 @@ module QuantumPhaseEstimator =
             TargetQubits = 1             // Single target qubit
             EigenVector = None           // Use |0⟩ eigenstate
             ApplySwaps = false           // Default: post-process bit order classically
+            Exactness = Exact            // Default: execute exact QPE
             Backend = None               // Use LocalBackend by default
             Shots = None                 // Auto-scale based on backend
         }
@@ -209,9 +213,29 @@ module QuantumPhaseEstimator =
         
         /// <summary>Set whether to apply final bit-reversal SWAPs.</summary>
         /// <param name="enabled">If true, applies explicit SWAPs; otherwise post-processes classically.</param>
+        /// <remarks>
+        /// This corresponds to `QFTConfig.ApplySwaps` and controls whether QPE performs the final
+        /// bit-reversal SWAP network physically, or leaves the result in bit-reversed order and
+        /// fixes it in classical post-processing.
+        /// </remarks>
         [<CustomOperation("applySwaps")>]
         member _.ApplySwaps(problem: PhaseEstimatorProblem, enabled: bool) : PhaseEstimatorProblem =
             { problem with ApplySwaps = enabled }
+
+        /// <summary>Alias for <c>applySwaps</c>.</summary>
+        [<CustomOperation("swaps")>]
+        member _.Swaps(problem: PhaseEstimatorProblem, enabled: bool) : PhaseEstimatorProblem =
+            { problem with ApplySwaps = enabled }
+
+        /// <summary>
+        /// Set QPE exactness contract.
+        /// Use <c>Exact</c> for full-fidelity simulation, or <c>Approximate epsilon</c>
+        /// to allow trimming very small controlled-phase rotations during lowering.
+        /// </summary>
+        [<CustomOperation("exactness")>]
+        member _.Exactness(problem: PhaseEstimatorProblem, exactness: Exactness) : PhaseEstimatorProblem =
+            { problem with Exactness = exactness }
+
 
         /// <summary>Set quantum backend.</summary>
         /// <param name="b">Quantum backend instance</param>
@@ -288,7 +312,7 @@ module QuantumPhaseEstimator =
                     |> Option.defaultValue (LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend)
                 
                 // Execute QPE using unified API
-                match QPE.executeWith config backend problem.ApplySwaps with
+                match QPE.executeWithExactness config backend problem.ApplySwaps problem.Exactness with
                 | Error err -> Error err
                 | Ok result ->
                     

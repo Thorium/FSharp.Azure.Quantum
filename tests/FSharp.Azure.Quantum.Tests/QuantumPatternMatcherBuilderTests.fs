@@ -186,6 +186,20 @@ module QuantumPatternMatcherBuilderTests =
         match problem.SearchSpace with
         | Choice2Of2 size -> Assert.Equal(256, size)
         | Choice1Of2 _ -> Assert.Fail("Expected size")
+
+    [<Fact>]
+    let ``patternMatcher builder supports searchSpace size alias`` () =
+        // Arrange & Act
+        let problem = QuantumPatternMatcher.patternMatcher {
+            searchSpace 256
+            matchPattern evenNumberPattern
+            findTop 10
+        }
+
+        // Assert
+        match problem.SearchSpace with
+        | Choice2Of2 size -> Assert.Equal(256, size)
+        | Choice1Of2 _ -> Assert.Fail("Expected size")
     
     [<Fact>]
     let ``patternMatcher builder should accept maxIterations`` () =

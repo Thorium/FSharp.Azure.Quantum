@@ -16,7 +16,96 @@ open FSharp.Azure.Quantum.Core.BackendAbstraction
 /// - Configuration validation
 module ShorTests =
     
+    module QPE = FSharp.Azure.Quantum.Algorithms.QPE
+
     let createBackend() = LocalBackend() :> IQuantumBackend
+
+    // ========================================================================
+    // PLANNER TESTS (ADR: intent -> plan -> execute)
+    // ========================================================================
+
+    type private NoQpeIntentBackend(inner: IQuantumBackend) =
+        interface IQuantumBackend with
+            member _.ExecuteToState circuit = inner.ExecuteToState circuit
+            member _.NativeStateType = inner.NativeStateType
+            member _.ApplyOperation operation state = inner.ApplyOperation operation state
+
+            member _.SupportsOperation operation =
+                match operation with
+                | QuantumOperation.Algorithm (AlgorithmOperation.QPE _) -> false
+                | _ -> inner.SupportsOperation operation
+
+            member _.Name = inner.Name + " (no-qpe-intent)"
+            member _.InitializeState numQubits = inner.InitializeState numQubits
+
+    [<Fact>]
+    let ``Shor period-finding planner prefers native QPE intent when supported`` () =
+        let backend = createBackend()
+
+        let intent: ShorPeriodFindingIntent =
+            {
+                Base = 7
+                Modulus = 15
+                PrecisionQubits = 3
+                Exactness = QPE.Exact
+            }
+
+        match planPeriodFinding backend intent with
+        | Ok (ShorPeriodFindingPlan.ExecuteClassicalWithQpeDemo (_, _, _, _, qpePlan)) ->
+            match qpePlan with
+            | QPE.QpePlan.ExecuteNatively (_, exactness) ->
+                Assert.Equal(QPE.Exact, exactness)
+            | _ -> Assert.Fail("Expected QPE ExecuteNatively plan")
+        | Error err ->
+            Assert.Fail($"Planning failed: {err}")
+
+    [<Fact>]
+    let ``Shor period-finding planner lowers QPE when intent op unsupported`` () =
+        let backend = createBackend() |> NoQpeIntentBackend :> IQuantumBackend
+
+        let intent: ShorPeriodFindingIntent =
+            {
+                Base = 7
+                Modulus = 15
+                PrecisionQubits = 3
+                Exactness = QPE.Exact
+            }
+
+        match planPeriodFinding backend intent with
+        | Ok (ShorPeriodFindingPlan.ExecuteClassicalWithQpeDemo (_, _, _, _, qpePlan)) ->
+            match qpePlan with
+            | QPE.QpePlan.ExecuteViaOps (ops, exactness) ->
+                Assert.Equal(QPE.Exact, exactness)
+                Assert.NotEmpty ops
+                Assert.True(ops |> List.forall backend.SupportsOperation)
+            | _ ->
+                Assert.Fail("Expected QPE ExecuteViaOps plan")
+        | Error err ->
+            Assert.Fail($"Planning failed: {err}")
+
+    [<Fact>]
+    let ``Shor period-finding planner preserves approximate exactness`` () =
+        let backend = createBackend() |> NoQpeIntentBackend :> IQuantumBackend
+
+        let approximate = QPE.Approximate 0.001
+
+        let intent: ShorPeriodFindingIntent =
+            {
+                Base = 7
+                Modulus = 15
+                PrecisionQubits = 3
+                Exactness = approximate
+            }
+
+        match planPeriodFinding backend intent with
+        | Ok (ShorPeriodFindingPlan.ExecuteClassicalWithQpeDemo (_, _, _, _, qpePlan)) ->
+            match qpePlan with
+            | QPE.QpePlan.ExecuteViaOps (_, exactness) ->
+                Assert.Equal(approximate, exactness)
+            | _ ->
+                Assert.Fail("Expected QPE ExecuteViaOps plan")
+        | Error err ->
+            Assert.Fail($"Planning failed: {err}")
     
     // ========================================================================
     // CLASSICAL PRE-CHECK TESTS

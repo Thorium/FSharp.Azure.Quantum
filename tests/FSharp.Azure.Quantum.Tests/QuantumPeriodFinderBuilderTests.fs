@@ -105,6 +105,7 @@ module QuantumPeriodFinderBuilderTests =
         | Ok problem ->
             Assert.Equal(15, problem.Number)
             Assert.Equal(8, problem.Precision)
+            Assert.Equal(FSharp.Azure.Quantum.Algorithms.QPE.Exactness.Exact, problem.Exactness)
             Assert.Equal(10, problem.MaxAttempts)  // Default
             Assert.True(problem.Base.IsNone)  // Auto-select
         | Error err -> Assert.True(false, $"Should have succeeded: {err.Message}")
@@ -123,9 +124,25 @@ module QuantumPeriodFinderBuilderTests =
             Assert.Equal(21, problem.Number)
             Assert.Equal(Some 5, problem.Base)
             Assert.Equal(12, problem.Precision)
+            Assert.Equal(FSharp.Azure.Quantum.Algorithms.QPE.Exactness.Exact, problem.Exactness)
             Assert.Equal(20, problem.MaxAttempts)
         | Error err -> Assert.True(false, $"Should have succeeded: {err.Message}")
     
+    [<Fact>]
+    let ``periodFinder builder supports exactness operation`` () =
+        let result = periodFinder {
+            number 15
+            precision 8
+            exactness (FSharp.Azure.Quantum.Algorithms.QPE.Exactness.Approximate 0.001)
+        }
+
+        match result with
+        | Ok problem ->
+            match problem.Exactness with
+            | FSharp.Azure.Quantum.Algorithms.QPE.Exactness.Approximate epsilon -> Assert.Equal(0.001, epsilon, 3)
+            | _ -> Assert.True(false, "Should have preserved Approximate exactness")
+        | Error err -> Assert.True(false, $"Should have succeeded: {err.Message}")
+
     // ========================================================================
     // FACTORIZATION CORRECTNESS TESTS
     // ========================================================================

@@ -6,7 +6,6 @@ open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.LocalSimulator
-open FSharp.Azure.Quantum.Algorithms.QPE
 
 /// HHL Algorithm - Unified Backend Implementation
 /// 
@@ -58,8 +57,72 @@ open FSharp.Azure.Quantum.Algorithms.QPE
 module HHL =
     
     open FSharp.Azure.Quantum.Algorithms.HHLTypes
-    open FSharp.Azure.Quantum.Algorithms.QPE
     
+    // ========================================================================
+    // INTENT → PLAN → EXECUTION (ADR: intent-first algorithms)
+    // ========================================================================
+
+    [<RequireQualifiedAccess>]
+    type Exactness =
+        | Exact
+        | Approximate of epsilon: float
+
+    type HhlExecutionIntent = {
+        Matrix: HermitianMatrix
+        InputVector: QuantumVector
+        EigenvalueQubits: int
+        SolutionQubits: int
+        InversionMethod: EigenvalueInversionMethod
+        MinEigenvalue: float
+        UsePostSelection: bool
+        QpePrecision: int
+        Exactness: Exactness
+    }
+
+    [<RequireQualifiedAccess>]
+    type HhlPlan =
+        /// Execute the semantic HHL intent natively, if supported by backend.
+        | ExecuteNatively of intent: BackendAbstraction.HhlIntent * exactness: Exactness
+
+        /// Execute via explicit lowering to operations, if supported.
+        | ExecuteViaOps of ops: QuantumOperation list * exactness: Exactness
+
+    let private toExecutionIntent (config: HHLConfig) : HhlExecutionIntent =
+        {
+            Matrix = config.Matrix
+            InputVector = config.InputVector
+            EigenvalueQubits = config.EigenvalueQubits
+            SolutionQubits = config.SolutionQubits
+            InversionMethod = config.InversionMethod
+            MinEigenvalue = config.MinEigenvalue
+            UsePostSelection = config.UsePostSelection
+            QpePrecision = config.QPEPrecision
+            Exactness = Exactness.Exact
+        }
+
+    let private toCoreIntent (intent: HhlExecutionIntent) : BackendAbstraction.HhlIntent =
+        // Current educational implementation supports diagonal matrices only.
+        let diagonalEigenvalues =
+            if intent.Matrix.IsDiagonal then
+                let dim = intent.Matrix.Dimension
+                [| for i in 0 .. dim - 1 -> intent.Matrix.Elements[i * dim + i].Real |]
+            else
+                [||]
+
+        let inversionMethod =
+            match intent.InversionMethod with
+            | EigenvalueInversionMethod.ExactRotation c -> HhlEigenvalueInversionMethod.ExactRotation c
+            | EigenvalueInversionMethod.LinearApproximation c -> HhlEigenvalueInversionMethod.LinearApproximation c
+            | EigenvalueInversionMethod.PiecewiseLinear segments -> HhlEigenvalueInversionMethod.PiecewiseLinear segments
+
+        {
+            EigenvalueQubits = intent.EigenvalueQubits
+            SolutionQubits = intent.SolutionQubits
+            DiagonalEigenvalues = diagonalEigenvalues
+            InversionMethod = inversionMethod
+            MinEigenvalue = intent.MinEigenvalue
+        }
+
     // ========================================================================
     // STATE PREPARATION - Encode input vector |b⟩
     // ========================================================================
@@ -108,84 +171,8 @@ module HHL =
         Ok (QuantumState.StateVector stateVector)
     
     // ========================================================================
-    // HAMILTONIAN SIMULATION - Convert matrix A to unitary
+    // POST-SELECTION - Filter successful measurements
     // ========================================================================
-    
-    /// <summary>
-    /// Create unitary operator U = e^(iAt) for diagonal Hermitian matrix A.
-    /// For diagonal matrix, U|j⟩ = e^(iλⱼt)|j⟩ where λⱼ are eigenvalues.
-    /// </summary>
-    /// <param name="matrix">Diagonal Hermitian matrix</param>
-    /// <param name="time">Evolution time parameter</param>
-    /// <returns>Unitary operator for QPE</returns>
-    let private createDiagonalUnitary 
-        (matrix: HermitianMatrix) 
-        (time: float) : QPE.UnitaryOperator =
-        
-        if not matrix.IsDiagonal then
-            failwith "Only diagonal matrices supported in educational implementation"
-        
-        // Extract diagonal eigenvalues
-        let eigenvalues = 
-            [| 0 .. matrix.Dimension - 1 |]
-            |> Array.map (fun i -> 
-                let idx = i * matrix.Dimension + i
-                matrix.Elements[idx].Real  // Hermitian diagonal elements are real
-            )
-        
-        // For diagonal matrix with eigenvalues λᵢ, the unitary is:
-        // U|j⟩ = e^(iλⱼt)|j⟩
-        // We'll use a phase gate with angle = λ₀ * t for the first eigenvalue
-        // For simplicity in educational version, use the first eigenvalue
-        let firstEigenvalue = eigenvalues[0]
-        QPE.PhaseGate (firstEigenvalue * time)
-    
-    // ========================================================================
-    // EIGENVALUE INVERSION - Apply controlled rotations ∝ 1/λ
-    // ========================================================================
-    
-    /// <summary>
-    /// Apply controlled rotation for eigenvalue inversion.
-    /// Given eigenvalue λ encoded in counting register, apply rotation ∝ 1/λ.
-    /// </summary>
-    /// <param name="eigenvalue">Estimated eigenvalue from QPE</param>
-    /// <param name="ancillaQubit">Ancilla qubit index</param>
-    /// <param name="minEigenvalue">Minimum eigenvalue threshold</param>
-    /// <param name="backend">Quantum backend</param>
-    /// <param name="state">Current quantum state</param>
-    /// <returns>State after eigenvalue inversion or error</returns>
-    /// <remarks>
-    /// Applies controlled R_y(θ) where sin(θ/2) = C/λ
-    /// C is normalization constant ensuring valid rotation angle.
-    /// 
-    /// For educational implementation, we use a simplified approach:
-    /// - Extract eigenvalues from diagonal matrix
-    /// - Apply rotation based on 1/λ
-    /// </remarks>
-    let private applyEigenvalueInversion
-        (eigenvalue: float)
-        (ancillaQubit: int)
-        (minEigenvalue: float)
-        (backend: IQuantumBackend)
-        (state: QuantumState) : Result<QuantumState, QuantumError> =
-        
-        // Early validation - avoid division by zero
-        if abs eigenvalue < minEigenvalue then
-            Error (QuantumError.ValidationError ("eigenvalue", $"too small: {eigenvalue}"))
-        else
-            result {
-                // Compute rotation angle: sin(θ/2) = C/λ
-                // For simplicity, use C = 1 and θ = 2 * arcsin(1/λ)
-                let invLambda = 1.0 / eigenvalue
-                let theta = 2.0 * Math.Asin(min invLambda 1.0)
-                
-                // Apply controlled R_y rotation
-                // In educational version, we apply Y rotation to ancilla
-                let operation = QuantumOperation.Gate (CircuitBuilder.RY (ancillaQubit, theta))
-                let! newState = backend.ApplyOperation operation state
-            
-            return newState
-        }
     
     // ========================================================================
     // POST-SELECTION - Filter successful measurements
@@ -348,7 +335,137 @@ module HHL =
     // ========================================================================
     // HHL MAIN ALGORITHM
     // ========================================================================
-    
+
+    let private validateIntent (intent: HhlExecutionIntent) : Result<float[] * float * float, QuantumError> =
+        if not intent.Matrix.IsDiagonal then
+            Error (QuantumError.ValidationError ("Matrix", "Only diagonal matrices supported in HHL (use HHLBackendAdapter for general matrices)"))
+        elif intent.Matrix.Dimension <> intent.InputVector.Dimension then
+            Error (QuantumError.ValidationError ("Dimensions", $"Matrix ({intent.Matrix.Dimension}) and vector ({intent.InputVector.Dimension}) dimensions must match"))
+        else
+            let eigenvalues =
+                [| 0 .. intent.Matrix.Dimension - 1 |]
+                |> Array.map (fun i ->
+                    let idx = i * intent.Matrix.Dimension + i
+                    intent.Matrix.Elements[idx].Real
+                )
+
+            let absEigenvalues = eigenvalues |> Array.map abs
+            let minEig = absEigenvalues |> Array.min
+            let maxEig = absEigenvalues |> Array.max
+
+            if minEig < intent.MinEigenvalue then
+                Error (QuantumError.ValidationError ("Matrix", $"Near-singular matrix (min eigenvalue = {minEig})"))
+            else
+                let conditionNumber = if minEig > 0.0 then maxEig / minEig else Double.PositiveInfinity
+                Ok (eigenvalues, minEig, conditionNumber)
+
+    let private clampToUnit (x: float) : float =
+        if x > 1.0 then 1.0
+        elif x < -1.0 then -1.0
+        else x
+
+    let private inversionRotationAngle (method: EigenvalueInversionMethod) (eigenvalue: float) (minEigenvalue: float) : Result<float, QuantumError> =
+        if abs eigenvalue < minEigenvalue then
+            Error (QuantumError.ValidationError ("eigenvalue", $"too small: {eigenvalue}"))
+        else
+            match method with
+            | EigenvalueInversionMethod.ExactRotation normalizationConstant
+            | EigenvalueInversionMethod.LinearApproximation normalizationConstant ->
+                let invLambda = normalizationConstant / eigenvalue
+                Ok (2.0 * Math.Asin(clampToUnit invLambda))
+            | EigenvalueInversionMethod.PiecewiseLinear segments ->
+                let absLambda = abs eigenvalue
+                let constant =
+                    segments
+                    |> Array.tryFind (fun (minL, maxL, _) -> absLambda >= minL && absLambda < maxL)
+                    |> Option.map (fun (_, _, c) -> c)
+                    |> Option.defaultValue 1.0
+                let invLambda = constant / eigenvalue
+                Ok (2.0 * Math.Asin(clampToUnit invLambda))
+
+    /// Build an intent-first operation for HHL.
+    let private hhlIntentOp (intent: HhlExecutionIntent) (diagonalEigenvalues: float[]) : QuantumOperation =
+        let inversionMethod =
+            match intent.InversionMethod with
+            | EigenvalueInversionMethod.ExactRotation c -> HhlEigenvalueInversionMethod.ExactRotation c
+            | EigenvalueInversionMethod.LinearApproximation c -> HhlEigenvalueInversionMethod.LinearApproximation c
+            | EigenvalueInversionMethod.PiecewiseLinear segments -> HhlEigenvalueInversionMethod.PiecewiseLinear segments
+
+        QuantumOperation.Algorithm (AlgorithmOperation.HHL {
+            EigenvalueQubits = intent.EigenvalueQubits
+            SolutionQubits = intent.SolutionQubits
+            DiagonalEigenvalues = diagonalEigenvalues
+            InversionMethod = inversionMethod
+            MinEigenvalue = intent.MinEigenvalue
+        })
+
+    let private buildLoweringOps
+        (intent: HhlExecutionIntent)
+        (diagonalEigenvalues: float[])
+        : Result<QuantumOperation list * int * int, QuantumError> =
+
+        // NOTE: This educational implementation does not yet perform full QPE.
+        // We keep the intent/planning separation, and model the current implementation as:
+        // - amplitude-encoded input state prepared directly (not via operations)
+        // - a single ancilla rotation based on one representative eigenvalue
+        // - optional post-selection in classical post-processing
+
+        let ancillaQubit = intent.EigenvalueQubits + intent.SolutionQubits
+        let estimatedEigenvalue = diagonalEigenvalues[0]
+
+        result {
+            let! theta = inversionRotationAngle intent.InversionMethod estimatedEigenvalue intent.MinEigenvalue
+            let ops = [ QuantumOperation.Gate (CircuitBuilder.RY (ancillaQubit, theta)) ]
+            let gateCountEstimate =
+                // Keep the previous estimate structure for stability.
+                let qpeGates = intent.EigenvalueQubits * intent.EigenvalueQubits
+                let inversionGates = intent.EigenvalueQubits
+                let inverseQpeGates = qpeGates
+                qpeGates + inversionGates + inverseQpeGates + 10
+
+            return (ops, gateCountEstimate, ancillaQubit)
+        }
+
+    let plan (backend: IQuantumBackend) (intent: HhlExecutionIntent) : Result<HhlPlan * float[] * int * float, QuantumError> =
+        result {
+            match backend.NativeStateType with
+            | QuantumStateType.Annealing ->
+                return! Error (QuantumError.OperationError ("HHL", $"Backend '{backend.Name}' does not support HHL (native state type: {backend.NativeStateType})"))
+            | _ ->
+                match intent.Exactness with
+                | Exactness.Approximate epsilon when epsilon <= 0.0 ->
+                    return! Error (QuantumError.ValidationError ("Exactness", "epsilon must be positive"))
+                | _ ->
+                    let! (eigenvalues, _minEig, conditionNumber) = validateIntent intent
+                    let ancillaQubit = intent.EigenvalueQubits + intent.SolutionQubits
+
+                    let op = hhlIntentOp intent eigenvalues
+                    // Current educational strategy is not full HHL, but the *rotation* we apply is effectively exact.
+                    // Keep exactness in the plan so call sites can reason about it.
+                    let exactness = intent.Exactness
+
+                    if backend.SupportsOperation op then
+                        return (HhlPlan.ExecuteNatively (toCoreIntent intent, exactness), eigenvalues, ancillaQubit, conditionNumber)
+                    else
+                        let! (ops, _gateCount, _ancillaQubit) = buildLoweringOps intent eigenvalues
+                        if ops |> List.forall backend.SupportsOperation then
+                            return (HhlPlan.ExecuteViaOps (ops, exactness), eigenvalues, ancillaQubit, conditionNumber)
+                        else
+                            return! Error (QuantumError.OperationError ("HHL", $"Backend '{backend.Name}' does not support required operations for HHL"))
+        }
+
+    let private executePlan
+        (backend: IQuantumBackend)
+        (state: QuantumState)
+        (plan: HhlPlan)
+        : Result<QuantumState, QuantumError> =
+
+        match plan with
+        | HhlPlan.ExecuteNatively (intent, _) ->
+            backend.ApplyOperation (QuantumOperation.Algorithm (AlgorithmOperation.HHL intent)) state
+        | HhlPlan.ExecuteViaOps (ops, _) ->
+            UnifiedBackend.applySequence backend ops state
+
     /// <summary>
     /// Execute HHL algorithm to solve Ax = b.
     /// </summary>
@@ -356,182 +473,61 @@ module HHL =
     /// <param name="backend">Quantum backend</param>
     /// <returns>HHL result with solution information or error</returns>
     /// <remarks>
-    /// Algorithm phases:
-    /// 1. Validate inputs (matrix Hermitian, dimensions match)
-    /// 2. Prepare input state |b⟩
-    /// 3. Apply QPE to extract eigenvalues
-    /// 4. Apply eigenvalue inversion (controlled rotations)
-    /// 5. Apply inverse QPE (uncompute)
-    /// 6. Measure and extract solution
-    /// 
     /// Current implementation supports diagonal matrices only.
-    /// Success probability depends on condition number κ = λ_max/λ_min.
     /// </remarks>
-    /// <example>
-    /// <code>
-    /// let matrix = createDiagonalMatrix [|2.0; 3.0|]
-    /// let vector = createQuantumVector [|Complex(1.0, 0.0); Complex(1.0, 0.0)|]
-    /// 
-    /// match matrix, vector with
-    /// | Ok m, Ok v ->
-    ///     let config = defaultConfig m v
-    ///     match execute config backend with
-    ///     | Ok result -> printfn "Success: %f" result.SuccessProbability
-    ///     | Error err -> printfn "Error: %A" err
-    /// | _ -> printfn "Validation failed"
-    /// </code>
-    /// </example>
-    let execute 
-        (config: HHLConfig) 
-        (backend: IQuantumBackend) : Result<HHLResult, QuantumError> =
-        
-        // ========== VALIDATION ==========
-        
-        // Check matrix is diagonal (educational implementation)
-        if not config.Matrix.IsDiagonal then
-            Error (QuantumError.ValidationError ("Matrix", "Only diagonal matrices supported in HHL (use HHLBackendAdapter for general matrices)"))
-        elif config.Matrix.Dimension <> config.InputVector.Dimension then
-            Error (QuantumError.ValidationError ("Dimensions", $"Matrix ({config.Matrix.Dimension}) and vector ({config.InputVector.Dimension}) dimensions must match"))
-        else
-            // Check matrix is invertible (no zero eigenvalues)
-            let eigenvalues = 
-                [| 0 .. config.Matrix.Dimension - 1 |]
-                |> Array.map (fun i -> 
-                    let idx = i * config.Matrix.Dimension + i
-                    config.Matrix.Elements[idx].Real
-                )
-            
-            let absEigenvalues = eigenvalues |> Array.map abs
-            let minEig = absEigenvalues |> Array.min
-            let maxEig = absEigenvalues |> Array.max
-            let conditionNumber = if minEig > 0.0 then maxEig / minEig else Double.PositiveInfinity
-            
-            if minEig < config.MinEigenvalue then
-                Error (QuantumError.ValidationError ("Matrix", $"Near-singular matrix (min eigenvalue = {minEig})"))
-            else
-                result {
-                    // ========== STATE PREPARATION ==========
-                    
-                    // Calculate total qubits: eigenvalue register + solution register + ancilla
-                    let totalQubits = config.EigenvalueQubits + config.SolutionQubits + 1
-                    
-                    let! inputState = prepareInputState config.InputVector totalQubits backend
-                    
-                    // ========== EIGENVALUE ESTIMATION (QPE) ==========
-                    
-                    // NOTE: Full QPE integration requires custom eigenvector support in QPE
-                    // For now, we use the known diagonal eigenvalues directly
-                    // This is acceptable since for diagonal matrices, the eigenvalues are explicit
-                    
-                    // Create unitary operator U = e^(iAt) for matrix A (for future use)
-                    let matrixUnitary = createDiagonalUnitary config.Matrix 1.0  // time t = 1
-                    
-                    // For diagonal matrices, we can directly use the eigenvalues
-                    // In a full implementation with custom eigenvector support:
-                    //   1. Configure QPE with input state as eigenvector
-                    //   2. Execute QPE to extract phase
-                    //   3. Convert phase to eigenvalue
-                    
-                    // Use diagonal eigenvalues directly (valid for diagonal matrices)
-                    let estimatedEigenvalue = eigenvalues[0]  // Use first eigenvalue for now
-                    
-                    // State after QPE would be a superposition over eigenvalue register
-                    // For now, use the input state directly
-                    let stateAfterQPE = inputState
-                    
-                    // ========== EIGENVALUE INVERSION ==========
-                    
-                    // Apply controlled rotation based on 1/λ
-                    // Ancilla qubit will be at position after counting qubits + solution qubits
-                    let ancillaQubit = config.EigenvalueQubits + config.SolutionQubits
-                    
-                    let! invertedState = applyEigenvalueInversion 
-                                            estimatedEigenvalue 
-                                            ancillaQubit 
-                                            config.MinEigenvalue 
-                                            backend 
-                                            stateAfterQPE
-                    
-                    // ========== POST-SELECTION (OPTIONAL) ==========
-                    
-                    // Calculate success probability before post-selection
-                    // Pass condition number to get realistic estimate for poorly-conditioned matrices
-                    let successProb = calculateSuccessProbability ancillaQubit invertedState (Some conditionNumber)
-                    
-                    // Apply post-selection if enabled
-                    let! finalState, postSelectionSuccess = 
-                        if config.UsePostSelection then
-                            match postSelectAncilla ancillaQubit invertedState with
-                            | Ok selected -> Ok (selected, true)
-                            | Error _ -> 
-                                // Post-selection failed - continue without it
-                                Ok (invertedState, false)
-                        else
-                            Ok (invertedState, true)
-                    
-                    // ========== INVERSE QPE (UNCOMPUTE) ==========
-                    
-                    // In full implementation, this would apply inverse QPE
-                    // For educational version, we skip this step
-                    // The eigenvalue register would be disentangled here
-                    let stateAfterInverseQPE = finalState
-                    
-                    // ========== SOLUTION EXTRACTION ==========
-                    
-                    // Extract eigenvalues from quantum state
-                    let extractedEigenvalues = extractEigenvalues config.EigenvalueQubits stateAfterInverseQPE
-                    
-                    // Use diagonal eigenvalues if extraction failed
-                    let finalEigenvalues = 
-                        if extractedEigenvalues.Length > 0 then
-                            extractedEigenvalues
-                        else
-                            eigenvalues
-                    
-                    // Extract solution amplitudes
-                    let solutionAmps = extractSolutionAmplitudes stateAfterInverseQPE
-                    
-                    // Convert solution amplitudes to classical vector
-                    let solution = 
-                        match solutionAmps with
-                        | Some amplitudes ->
-                            // Extract amplitudes in order by basis state index
-                            let dimension = config.Matrix.Dimension
-                            Array.init dimension (fun i ->
-                                amplitudes.TryFind i |> Option.defaultValue Complex.Zero
-                            )
-                        | None ->
-                            // If no amplitudes available, return zero vector
-                            Array.create config.Matrix.Dimension Complex.Zero
-                    
-                    // Calculate condition number for metadata
-                    let conditionNumber = 
-                        match config.Matrix.ConditionNumber with
-                        | Some kappa -> kappa
-                        | None -> 
-                            let maxEig = eigenvalues |> Array.max
-                            maxEig / minEig
-                    
-                    // Calculate gate count estimate
-                    let qpeGates = config.EigenvalueQubits * config.EigenvalueQubits
-                    let inversionGates = config.EigenvalueQubits
-                    let inverseQPEGates = qpeGates
-                    let totalGates = qpeGates + inversionGates + inverseQPEGates + 10  // +10 for state prep
-                    
-                    // Build result
-                    let hhlResult = {
-                        Solution = solution
-                        SuccessProbability = successProb
-                        EstimatedEigenvalues = finalEigenvalues
-                        GateCount = totalGates
-                        PostSelectionSuccess = postSelectionSuccess
-                        Config = config
-                        Fidelity = None  // Would require classical solution for comparison
-                        SolutionAmplitudes = solutionAmps
-                    }
-                    
-                    return hhlResult
-                }
+    let execute
+        (config: HHLConfig)
+        (backend: IQuantumBackend)
+        : Result<HHLResult, QuantumError> =
+
+        result {
+            let intent = toExecutionIntent config
+            let totalQubits = intent.EigenvalueQubits + intent.SolutionQubits + 1
+
+            let! (plan, diagonalEigenvalues, ancillaQubit, conditionNumber) = plan backend intent
+            let! inputState = prepareInputState intent.InputVector totalQubits backend
+            let! invertedState = executePlan backend inputState plan
+
+            let successProb = calculateSuccessProbability ancillaQubit invertedState (Some conditionNumber)
+
+            let! finalState, postSelectionSuccess =
+                if intent.UsePostSelection then
+                    match postSelectAncilla ancillaQubit invertedState with
+                    | Ok selected -> Ok (selected, true)
+                    | Error _ -> Ok (invertedState, false)
+                else
+                    Ok (invertedState, true)
+
+            let extractedEigenvalues = extractEigenvalues intent.EigenvalueQubits finalState
+            let finalEigenvalues = if extractedEigenvalues.Length > 0 then extractedEigenvalues else diagonalEigenvalues
+
+            let solutionAmps = extractSolutionAmplitudes finalState
+            let solution =
+                match solutionAmps with
+                | Some amplitudes ->
+                    let dimension = intent.Matrix.Dimension
+                    Array.init dimension (fun i -> amplitudes.TryFind i |> Option.defaultValue Complex.Zero)
+                | None ->
+                    Array.create intent.Matrix.Dimension Complex.Zero
+
+            let gateCount =
+                // Mirror the original estimate (independent of chosen plan).
+                let qpeGates = intent.EigenvalueQubits * intent.EigenvalueQubits
+                let inversionGates = intent.EigenvalueQubits
+                let inverseQpeGates = qpeGates
+                qpeGates + inversionGates + inverseQpeGates + 10
+
+            return {
+                Solution = solution
+                SuccessProbability = successProb
+                EstimatedEigenvalues = finalEigenvalues
+                GateCount = gateCount
+                PostSelectionSuccess = postSelectionSuccess
+                Config = config
+                Fidelity = None
+                SolutionAmplitudes = solutionAmps
+            }
+        }
     
     // ========================================================================
     // CONVENIENCE FUNCTIONS

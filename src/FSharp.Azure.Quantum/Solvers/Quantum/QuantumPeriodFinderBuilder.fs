@@ -77,6 +77,9 @@ module QuantumPeriodFinder =
         /// QPE precision qubits (recommended: 2*log₂(N) + 3)
         /// Higher precision = better success rate but more qubits
         Precision: int
+
+        /// QPE exactness contract (Exact by default).
+        Exactness: QPE.Exactness
         
         /// Maximum attempts to find valid period
         /// Algorithm may fail and retry with different base
@@ -181,6 +184,7 @@ module QuantumPeriodFinder =
             Number = 15              // Default to classic example N=15
             Base = None              // Auto-select random base
             Precision = 8            // Reasonable default precision
+            Exactness = QPE.Exactness.Exact
             MaxAttempts = 10         // Standard retry count
             Backend = None           // Use local simulator
             Shots = None             // Auto-scale based on backend
@@ -203,6 +207,12 @@ module QuantumPeriodFinder =
         [<CustomOperation("precision")>]
         member _.Precision(problem: PeriodFinderProblem, p: int) : PeriodFinderProblem =
             { problem with Precision = p }
+
+        /// Set QPE exactness contract
+        [<CustomOperation("exactness")>]
+        member _.Exactness(problem: PeriodFinderProblem, exactness: QPE.Exactness) : PeriodFinderProblem =
+            { problem with Exactness = exactness }
+
         
         /// Set maximum attempts
         [<CustomOperation("maxAttempts")>]
@@ -275,7 +285,7 @@ module QuantumPeriodFinder =
                 | None -> LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
             
             // Execute Shor's algorithm with backend
-            let! shorsResult = execute config actualBackend
+            let! shorsResult = executeWith config problem.Exactness actualBackend
             
             // Determine backend name
             let backendName = 

@@ -2,11 +2,12 @@ namespace FSharp.Azure.Quantum.Tests
 
 open Xunit
 open System.Numerics
-open FSharp.Azure.Quantum.Algorithms.HHL
 open FSharp.Azure.Quantum.Algorithms.HHLTypes
 open FSharp.Azure.Quantum.Backends.LocalBackend
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.BackendAbstraction
+
+module HHL = FSharp.Azure.Quantum.Algorithms.HHL
 
 /// Tests for HHL Algorithm Unified Implementation
 /// 
@@ -20,6 +21,89 @@ open FSharp.Azure.Quantum.Core.BackendAbstraction
 module HHLUnifiedTests =
     
     let createBackend() = LocalBackend() :> IQuantumBackend
+    
+    // ========================================================================
+    // HHL PLANNER TESTS
+    // ========================================================================
+    
+    type private NoHhlIntentBackend(inner: IQuantumBackend) =
+        interface IQuantumBackend with
+            member _.ExecuteToState circuit = inner.ExecuteToState circuit
+            member _.NativeStateType = inner.NativeStateType
+            member _.ApplyOperation operation state = inner.ApplyOperation operation state
+
+            member _.SupportsOperation operation =
+                match operation with
+                | QuantumOperation.Algorithm (AlgorithmOperation.HHL _) -> false
+                | _ -> inner.SupportsOperation operation
+
+            member _.Name = inner.Name + " (no-hhl-intent)"
+            member _.InitializeState numQubits = inner.InitializeState numQubits
+
+    [<Fact>]
+    let ``HHL planner prefers algorithm intent when supported`` () =
+        let backend = LocalBackend() :> IQuantumBackend
+
+        let eigenvalues = [| 1.0; 2.0 |]
+        let inputVector = [| Complex(1.0, 0.0); Complex.Zero |]
+
+        match createDiagonalMatrix eigenvalues, createQuantumVector inputVector with
+        | Error err, _ -> Assert.Fail($"Matrix creation failed: {err}")
+        | _, Error err -> Assert.Fail($"Vector creation failed: {err}")
+        | Ok matrix, Ok vector ->
+            let config = defaultConfig matrix vector
+
+            let intent: HHL.HhlExecutionIntent =
+                {
+                    Matrix = config.Matrix
+                    InputVector = config.InputVector
+                    EigenvalueQubits = config.EigenvalueQubits
+                    SolutionQubits = config.SolutionQubits
+                    InversionMethod = config.InversionMethod
+                    MinEigenvalue = config.MinEigenvalue
+                    UsePostSelection = config.UsePostSelection
+                    QpePrecision = config.QPEPrecision
+                    Exactness = HHL.Exactness.Exact
+                }
+
+            match HHL.plan backend intent with
+            | Ok (HHL.HhlPlan.ExecuteNatively _, _, _, _) -> Assert.True(true)
+            | Ok _ -> Assert.Fail("Expected ExecuteNatively plan")
+            | Error err -> Assert.Fail($"Planning failed: {err}")
+
+    [<Fact>]
+    let ``HHL planner produces explicit lowered ops when intent op unsupported`` () =
+        let backend = (LocalBackend() :> IQuantumBackend) |> NoHhlIntentBackend :> IQuantumBackend
+
+        let eigenvalues = [| 1.0; 2.0 |]
+        let inputVector = [| Complex(1.0, 0.0); Complex.Zero |]
+
+        match createDiagonalMatrix eigenvalues, createQuantumVector inputVector with
+        | Error err, _ -> Assert.Fail($"Matrix creation failed: {err}")
+        | _, Error err -> Assert.Fail($"Vector creation failed: {err}")
+        | Ok matrix, Ok vector ->
+            let config = defaultConfig matrix vector
+
+            let intent: HHL.HhlExecutionIntent =
+                {
+                    Matrix = config.Matrix
+                    InputVector = config.InputVector
+                    EigenvalueQubits = config.EigenvalueQubits
+                    SolutionQubits = config.SolutionQubits
+                    InversionMethod = config.InversionMethod
+                    MinEigenvalue = config.MinEigenvalue
+                    UsePostSelection = config.UsePostSelection
+                    QpePrecision = config.QPEPrecision
+                    Exactness = HHL.Exactness.Exact
+                }
+
+            match HHL.plan backend intent with
+            | Ok (HHL.HhlPlan.ExecuteViaOps (ops, exactness), _, _, _) ->
+                Assert.Equal(HHL.Exactness.Exact, exactness)
+                Assert.NotEmpty ops
+                Assert.True(ops |> List.forall backend.SupportsOperation)
+            | Ok _ -> Assert.Fail("Expected ExecuteViaOps plan")
+            | Error err -> Assert.Fail($"Planning failed: {err}")
     
     // Tolerance for floating point comparison
     let epsilon = 1e-6
@@ -139,7 +223,7 @@ module HHLUnifiedTests =
         // Note: Full quantum execution not implemented yet
         // We're just testing that the function accepts valid input
         // and returns appropriate result type
-        match solve2x2Diagonal eigenvalues inputVector backend with
+        match HHL.solve2x2Diagonal eigenvalues inputVector backend with
         | Ok result -> 
             // Success! Validate result structure
             Assert.NotNull(result.Config)
@@ -159,7 +243,7 @@ module HHLUnifiedTests =
         let eigenvalues = (0.0, 2.0)  // First eigenvalue is zero (singular!)
         let inputVector = (Complex(1.0, 0.0), Complex.Zero)
         
-        match solve2x2Diagonal eigenvalues inputVector backend with
+        match HHL.solve2x2Diagonal eigenvalues inputVector backend with
         | Ok _ -> Assert.Fail("Should reject singular matrix")
         | Error (QuantumError.ValidationError _) -> ()
         | Error err -> Assert.Fail($"Wrong error type: {err}")
@@ -170,7 +254,7 @@ module HHLUnifiedTests =
         let eigenvalues = (1.0, 2.0)
         let inputVector = (Complex.Zero, Complex.Zero)  // Zero vector!
         
-        match solve2x2Diagonal eigenvalues inputVector backend with
+        match HHL.solve2x2Diagonal eigenvalues inputVector backend with
         | Ok _ -> Assert.Fail("Should reject zero input vector")
         | Error (QuantumError.ValidationError _) -> ()
         | Error err -> Assert.Fail($"Wrong error type: {err}")
@@ -187,7 +271,7 @@ module HHLUnifiedTests =
         let badEigenvalues = [| 1.0; 2.0 |]  // Should be 4
         let goodInputVector = [| Complex(1.0, 0.0); Complex.Zero; Complex.Zero; Complex.Zero |]
         
-        match solve4x4Diagonal badEigenvalues goodInputVector backend with
+        match HHL.solve4x4Diagonal badEigenvalues goodInputVector backend with
         | Ok _ -> Assert.Fail("Should reject eigenvalues array with length ≠ 4")
         | Error (QuantumError.ValidationError _) -> ()
         | Error err -> Assert.Fail($"Wrong error type: {err}")
@@ -196,7 +280,7 @@ module HHLUnifiedTests =
         let goodEigenvalues = [| 1.0; 2.0; 3.0; 4.0 |]
         let badInputVector = [| Complex(1.0, 0.0); Complex.Zero |]  // Should be 4
         
-        match solve4x4Diagonal goodEigenvalues badInputVector backend with
+        match HHL.solve4x4Diagonal goodEigenvalues badInputVector backend with
         | Ok _ -> Assert.Fail("Should reject input vector with length ≠ 4")
         | Error (QuantumError.ValidationError _) -> ()
         | Error err -> Assert.Fail($"Wrong error type: {err}")
@@ -207,7 +291,7 @@ module HHLUnifiedTests =
         let eigenvalues = [| 1.0; 2.0; 3.0; 4.0 |]
         let inputVector = [| Complex(1.0, 0.0); Complex.Zero; Complex.Zero; Complex.Zero |]
         
-        match solve4x4Diagonal eigenvalues inputVector backend with
+        match HHL.solve4x4Diagonal eigenvalues inputVector backend with
         | Ok result -> 
             Assert.NotNull(result.Config)
             Assert.Equal(4, result.Config.Matrix.Dimension)
@@ -230,7 +314,7 @@ module HHLUnifiedTests =
         
         // Valid: 2 components (power of 2)
         let validVector = [| Complex(1.0, 0.0); Complex.Zero |]
-        match solveIdentity validVector backend with
+        match HHL.solveIdentity validVector backend with
         | Ok _ -> ()
         | Error (QuantumError.NotImplemented _) -> ()  // Acceptable
         | Error (QuantumError.OperationError _) -> ()  // Acceptable - implementation incomplete
@@ -238,7 +322,7 @@ module HHLUnifiedTests =
         
         // Invalid: 3 components (not power of 2)
         let invalidVector = [| Complex(1.0, 0.0); Complex.Zero; Complex.Zero |]
-        match solveIdentity invalidVector backend with
+        match HHL.solveIdentity invalidVector backend with
         | Ok _ -> Assert.Fail("Should reject non-power-of-2 dimension")
         | Error (QuantumError.ValidationError _) -> ()
         | Error err -> Assert.Fail($"Wrong error type: {err}")
@@ -248,7 +332,7 @@ module HHLUnifiedTests =
         let backend = createBackend()
         let inputVector = [| Complex(1.0, 0.0); Complex(2.0, 0.0); Complex.Zero; Complex.Zero |]
         
-        match solveIdentity inputVector backend with
+        match HHL.solveIdentity inputVector backend with
         | Ok result -> 
             // Identity matrix: all eigenvalues = 1.0
             Assert.NotNull(result.Config)
@@ -303,7 +387,7 @@ module HHLUnifiedTests =
         // ValidationError for invalid input (singular matrix)
         let zeroEigenvalues = (0.0, 1.0)
         let validInput = (Complex(1.0, 0.0), Complex.Zero)
-        match solve2x2Diagonal zeroEigenvalues validInput backend with
+        match HHL.solve2x2Diagonal zeroEigenvalues validInput backend with
         | Error (QuantumError.ValidationError (name, msg)) ->
             Assert.Contains("eigenvalue", name.ToLower())
             Assert.Contains("singular", msg.ToLower())
@@ -313,7 +397,7 @@ module HHLUnifiedTests =
         // ValidationError for zero vector
         let validEigenvalues = (1.0, 2.0)
         let zeroInput = (Complex.Zero, Complex.Zero)
-        match solve2x2Diagonal validEigenvalues zeroInput backend with
+        match HHL.solve2x2Diagonal validEigenvalues zeroInput backend with
         | Error (QuantumError.ValidationError _) -> ()
         | Error err -> Assert.Fail($"Wrong error type for zero vector: {err}")
         | Ok _ -> Assert.Fail("Should return error for zero vector")
@@ -335,7 +419,7 @@ module HHLUnifiedTests =
                     InputVector = vector
                     EigenvalueQubits = 4
                     SolutionQubits = 1  // log2(2) = 1
-                    InversionMethod = ExactRotation 1.0
+                    InversionMethod = EigenvalueInversionMethod.ExactRotation 1.0
                     MinEigenvalue = 0.1
                     UsePostSelection = true
                     QPEPrecision = 4
@@ -344,7 +428,7 @@ module HHLUnifiedTests =
                 // Configuration created, but dimensions don't match!
                 // This should be caught during execution
                 let backend = createBackend()
-                match execute config backend with
+                match HHL.execute config backend with
                 | Ok _ -> Assert.Fail("Should detect dimension mismatch")
                 | Error (QuantumError.ValidationError _) -> ()
                 | Error (QuantumError.NotImplemented _) -> ()  // Acceptable
@@ -373,13 +457,13 @@ module HHLUnifiedTests =
                     InputVector = vector
                     EigenvalueQubits = 4
                     SolutionQubits = 1
-                    InversionMethod = ExactRotation 1.0
+                    InversionMethod = EigenvalueInversionMethod.ExactRotation 1.0
                     MinEigenvalue = 0.1
                     UsePostSelection = true  // Enable post-selection
                     QPEPrecision = 4
                 }
                 
-                match execute config backend with
+                match HHL.execute config backend with
                 | Ok result -> 
                     // Post-selection may succeed or fail - both are acceptable
                     Assert.True(result.Config.UsePostSelection)
@@ -395,7 +479,7 @@ module HHLUnifiedTests =
         let eigenvalues = (1.0, 2.0)
         let inputVector = (Complex(1.0, 0.0), Complex(0.5, 0.0))
         
-        match solve2x2Diagonal eigenvalues inputVector backend with
+        match HHL.solve2x2Diagonal eigenvalues inputVector backend with
         | Ok result -> 
             // Solution amplitudes may or may not be extracted depending on implementation status
             match result.SolutionAmplitudes with
@@ -420,7 +504,7 @@ module HHLUnifiedTests =
         let eigenvalues = (2.0, 4.0)
         let inputVector = (Complex(1.0, 0.0), Complex.Zero)
         
-        match solve2x2Diagonal eigenvalues inputVector backend with
+        match HHL.solve2x2Diagonal eigenvalues inputVector backend with
         | Ok result -> 
             Assert.NotEmpty(result.EstimatedEigenvalues)
             // Should contain the input eigenvalues (for diagonal matrices)
@@ -436,7 +520,7 @@ module HHLUnifiedTests =
         let eigenvalues = (1.0, 10.0)  // High condition number (κ=10)
         let inputVector = (Complex(1.0, 0.0), Complex.Zero)
         
-        match solve2x2Diagonal eigenvalues inputVector backend with
+        match HHL.solve2x2Diagonal eigenvalues inputVector backend with
         | Ok result -> 
             // Success probability should be between 0 and 1
             Assert.True(result.SuccessProbability >= 0.0 && result.SuccessProbability <= 1.0)
@@ -454,7 +538,7 @@ module HHLUnifiedTests =
         let eigenvalues = (1.0, 2.0)
         let inputVector = (Complex(1.0, 0.0), Complex.Zero)
         
-        match solve2x2Diagonal eigenvalues inputVector backend with
+        match HHL.solve2x2Diagonal eigenvalues inputVector backend with
         | Ok result -> 
             // Gate count should be positive
             Assert.True(result.GateCount > 0, $"Gate count should be positive, got {result.GateCount}")

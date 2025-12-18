@@ -2349,8 +2349,10 @@ module QPE =
                     Algorithms.QPE.EigenVector = None
                 }
                 
-                // Execute QPE with new unified API
-                match Algorithms.QPE.execute qpeConfig backend with
+                // Execute QPE with new unified API.
+                // We default to Exact to preserve existing behavior, but this call site now
+                // participates in the exactness-aware execution path.
+                match Algorithms.QPE.executeWithExactness qpeConfig backend false Algorithms.QPE.Exactness.Exact with
                 | Error err -> return Error err
                 | Ok qpeResult ->
                     // Convert phase to energy estimate

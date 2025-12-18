@@ -10,6 +10,109 @@ open System
 module QPE = FSharp.Azure.Quantum.Algorithms.QPE
 
 module QPETests =
+
+    // ========================================================================
+    // QPE PLANNER TESTS
+    // ========================================================================
+
+    type private NoQpeIntentBackend(inner: IQuantumBackend) =
+        interface IQuantumBackend with
+            member _.ExecuteToState circuit = inner.ExecuteToState circuit
+            member _.NativeStateType = inner.NativeStateType
+            member _.ApplyOperation operation state = inner.ApplyOperation operation state
+
+            member _.SupportsOperation operation =
+                match operation with
+                | QuantumOperation.Algorithm (AlgorithmOperation.QPE _) -> false
+                | _ -> inner.SupportsOperation operation
+
+            member _.Name = inner.Name + " (no-qpe-intent)"
+            member _.InitializeState numQubits = inner.InitializeState numQubits
+
+    [<Fact>]
+    let ``QPE planner prefers algorithm intent when supported`` () =
+        let backend = LocalBackend.LocalBackend() :> IQuantumBackend
+
+        let config: QPE.QPEConfig =
+            {
+                CountingQubits = 3
+                TargetQubits = 1
+                UnitaryOperator = QPE.UnitaryOperator.TGate
+                EigenVector = None
+            }
+
+        let intent: QPE.QpeExecutionIntent =
+            {
+                ApplyBitReversalSwaps = false
+                Config = config
+                Exactness = QPE.Exact
+            }
+
+        match QPE.plan backend intent with
+        | Ok (QPE.QpePlan.ExecuteNatively _) -> Assert.True(true)
+        | Ok _ -> Assert.Fail("Expected ExecuteNatively plan")
+        | Error err -> Assert.Fail($"Planning failed: {err}")
+
+    [<Fact>]
+    let ``QPE planner produces explicit lowered ops when intent op unsupported`` () =
+        let backend = LocalBackend.LocalBackend() |> NoQpeIntentBackend :> IQuantumBackend
+
+        let config: QPE.QPEConfig =
+            {
+                CountingQubits = 3
+                TargetQubits = 1
+                UnitaryOperator = QPE.UnitaryOperator.TGate
+                EigenVector = None
+            }
+
+        let intent: QPE.QpeExecutionIntent =
+            {
+                ApplyBitReversalSwaps = false
+                Config = config
+                Exactness = QPE.Exact
+            }
+
+        match QPE.plan backend intent with
+        | Ok (QPE.QpePlan.ExecuteViaOps (ops, exactness)) ->
+            Assert.Equal(QPE.Exact, exactness)
+            Assert.NotEmpty ops
+            Assert.True(ops |> List.forall backend.SupportsOperation)
+        | Ok _ -> Assert.Fail("Expected ExecuteViaOps plan")
+        | Error err -> Assert.Fail($"Planning failed: {err}")
+
+    [<Fact>]
+    let ``QPE planner uses Exactness to trim small controlled phases when lowering`` () =
+        let backend = LocalBackend.LocalBackend() |> NoQpeIntentBackend :> IQuantumBackend
+
+        // Use more counting qubits so inverse-QFT includes very small rotations.
+        let config: QPE.QPEConfig =
+            {
+                CountingQubits = 8
+                TargetQubits = 1
+                UnitaryOperator = QPE.UnitaryOperator.TGate
+                EigenVector = None
+            }
+
+        let exactIntent: QPE.QpeExecutionIntent =
+            {
+                ApplyBitReversalSwaps = false
+                Config = config
+                Exactness = QPE.Exact
+            }
+
+        let approxIntent: QPE.QpeExecutionIntent =
+            {
+                ApplyBitReversalSwaps = false
+                Config = config
+                Exactness = QPE.Approximate 0.2
+            }
+
+        match QPE.plan backend exactIntent, QPE.plan backend approxIntent with
+        | Error err, _ -> Assert.Fail($"Exact planning failed: {err}")
+        | _, Error err -> Assert.Fail($"Approx planning failed: {err}")
+        | Ok (QPE.QpePlan.ExecuteViaOps (exactOps, _)), Ok (QPE.QpePlan.ExecuteViaOps (approxOps, _)) ->
+            Assert.True(approxOps.Length < exactOps.Length, "Approximate exactness should produce fewer lowered ops")
+        | Ok _, Ok _ -> Assert.Fail("Expected ExecuteViaOps plans")
     
     // ========================================================================
     // QPE UNIFIED BACKEND TESTS

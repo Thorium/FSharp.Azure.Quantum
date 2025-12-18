@@ -389,23 +389,39 @@ module Grover =
             float maxCount / float totalShots
     
     // ========================================================================
-    // MAIN GROVER SEARCH ALGORITHM
+    // MAIN GROVER SEARCH ALGORITHM (ADR: intent → plan → executePlan)
     // ========================================================================
 
-    type private Exactness =
+    /// Execution exactness contract for a planned Grover run.
+    type Exactness =
         | Exact
+        | Approximate of epsilon: float
 
-    type private GroverIntentOps = {
+    /// Canonical, algorithm-level intent for Grover search.
+    type GroverSearchIntent = {
+        Oracle: Oracle.CompiledOracle
+        Iterations: int
+        Exactness: Exactness
+    }
+
+    type GroverAlgorithmOps = {
         Prepare: QuantumOperation
         Oracle: QuantumOperation
         Diffusion: QuantumOperation
     }
 
-    type private GroverPlan =
-        | ExecuteViaAlgorithmIntents of GroverIntentOps
-        | ExecuteViaOps
+    /// Planned strategy for executing Grover on a specific backend.
+    type GroverPlan =
+        /// Execute Grover using semantic algorithm intents, if supported by the backend.
+        | ExecuteNatively of ops: GroverAlgorithmOps * iterations: int * exactness: Exactness
 
-    let private createIntentOps (oracle: Oracle.CompiledOracle) : GroverIntentOps =
+        /// Execute Grover by explicitly lowering to a supported `QuantumOperation` set.
+        ///
+        /// This path is explicit and does not silently fall back: if required operations are not
+        /// supported by the backend, planning fails.
+        | ExecuteViaOps of prepareOps: QuantumOperation list * iterationOps: QuantumOperation list * iterations: int * exactness: Exactness
+
+    let private createAlgorithmOps (oracle: Oracle.CompiledOracle) : GroverAlgorithmOps =
         {
             Prepare = QuantumOperation.Algorithm (AlgorithmOperation.GroverPrepare oracle.NumQubits)
             Oracle =
@@ -417,52 +433,120 @@ module Grover =
             Diffusion = QuantumOperation.Algorithm (AlgorithmOperation.GroverDiffusion oracle.NumQubits)
         }
 
-    let private plan
+    let private lowerPrepareOps (numQubits: int) : QuantumOperation list =
+        [ 0 .. numQubits - 1 ]
+        |> List.map (fun q -> QuantumOperation.Gate (CircuitBuilder.H q))
+
+    let private lowerSingleTargetOracleOps (target: int) (numQubits: int) : QuantumOperation list =
+        [
+            // Step 1: X gates where target bit is 0
+            for q in 0 .. numQubits - 1 do
+                let bitValue = (target >>> q) &&& 1
+                if bitValue = 0 then
+                    yield QuantumOperation.Gate (CircuitBuilder.X q)
+
+            // Step 2: Multi-controlled Z (phase flip when all qubits are |1⟩)
+            let controls = [ 0 .. numQubits - 2 ]
+            let targetQubit = numQubits - 1
+            let decomposedMCZ = decomposeMCZGate controls targetQubit numQubits
+            yield! decomposedMCZ |> List.map QuantumOperation.Gate
+
+            // Step 3: Undo X gates
+            for q in 0 .. numQubits - 1 do
+                let bitValue = (target >>> q) &&& 1
+                if bitValue = 0 then
+                    yield QuantumOperation.Gate (CircuitBuilder.X q)
+        ]
+
+    let private enumerateSolutions (oracle: Oracle.CompiledOracle) : Result<int list, QuantumError> =
+        let numQubits = oracle.NumQubits
+        let searchSpaceSize = 1 <<< numQubits
+
+        let solutions =
+            [ 0 .. searchSpaceSize - 1 ]
+            |> List.filter (Oracle.isSolution oracle.Spec)
+
+        if List.isEmpty solutions then
+            Error (QuantumError.ValidationError ("Oracle", "matches no solutions"))
+        else
+            Ok solutions
+
+    let private lowerOracleOps (oracle: Oracle.CompiledOracle) : Result<QuantumOperation list, QuantumError> =
+        result {
+            let! solutions =
+                match oracle.Spec with
+                | Oracle.OracleSpec.SingleTarget t -> Ok [ t ]
+                | Oracle.OracleSpec.Solutions targets ->
+                    if List.isEmpty targets then
+                        Error (QuantumError.ValidationError ("Solutions", "list cannot be empty"))
+                    else
+                        Ok targets
+                | _ -> enumerateSolutions oracle
+
+            // Lower to an explicit sequence that phase-flips each marked basis index.
+            return solutions |> List.collect (fun t -> lowerSingleTargetOracleOps t oracle.NumQubits)
+        }
+
+    let private lowerDiffusionOps (numQubits: int) : QuantumOperation list =
+        [
+            // Step 1: H^⊗n
+            for q in 0 .. numQubits - 1 do
+                yield QuantumOperation.Gate (CircuitBuilder.H q)
+
+            // Step 2: X^⊗n (flip to |111...1⟩)
+            for q in 0 .. numQubits - 1 do
+                yield QuantumOperation.Gate (CircuitBuilder.X q)
+
+            // Step 3: Multi-controlled Z (phase flip when all qubits are |1⟩)
+            let controls = [ 0 .. numQubits - 2 ]
+            let targetQubit = numQubits - 1
+            let decomposedMCZ = decomposeMCZGate controls targetQubit numQubits
+            yield! decomposedMCZ |> List.map QuantumOperation.Gate
+
+            // Step 4: X^⊗n (undo flip)
+            for q in 0 .. numQubits - 1 do
+                yield QuantumOperation.Gate (CircuitBuilder.X q)
+
+            // Step 5: H^⊗n
+            for q in 0 .. numQubits - 1 do
+                yield QuantumOperation.Gate (CircuitBuilder.H q)
+        ]
+
+    /// Plan Grover execution on the given backend.
+    let plan
         (backend: IQuantumBackend)
-        (oracle: Oracle.CompiledOracle)
-        (_exactness: Exactness)
+        (intent: GroverSearchIntent)
         : Result<GroverPlan, QuantumError> =
 
-        // Prefer native algorithm intents when available.
-        // Otherwise fall back to an explicit gate lowering path.
+        // Prefer semantic algorithm intents when available; otherwise lower explicitly.
         match backend.NativeStateType with
         | QuantumStateType.Annealing ->
             Error (QuantumError.OperationError ("Grover", $"Backend '{backend.Name}' does not support Grover search (native state type: {backend.NativeStateType})"))
         | _ ->
-            let ops = createIntentOps oracle
+            let ops = createAlgorithmOps intent.Oracle
 
             if backend.SupportsOperation ops.Prepare
                && backend.SupportsOperation ops.Oracle
                && backend.SupportsOperation ops.Diffusion then
-                Ok (ExecuteViaAlgorithmIntents ops)
+                Ok (ExecuteNatively (ops, intent.Iterations, intent.Exactness))
             else
-                // Validate that this backend can execute the lowered gate path.
-                // For 2 qubits, diffusion doesn't need an MCZ decomposition (just CZ).
-                // For >2 qubits, we need whatever decomposition `GateTranspiler` emits.
-                let numQubits = oracle.NumQubits
+                result {
+                    let prepareOps = lowerPrepareOps intent.Oracle.NumQubits
+                    let! oracleOps = lowerOracleOps intent.Oracle
+                    let diffusionOps = lowerDiffusionOps intent.Oracle.NumQubits
 
-                let loweredSampleOps =
-                    if numQubits <= 1 then
-                        []
-                    elif numQubits = 2 then
-                        [
-                            QuantumOperation.Gate (CircuitBuilder.H 0)
-                            QuantumOperation.Gate (CircuitBuilder.X 0)
-                            QuantumOperation.Gate (CircuitBuilder.CZ (0, 1))
-                            QuantumOperation.Gate (CircuitBuilder.X 0)
-                            QuantumOperation.Gate (CircuitBuilder.H 0)
-                        ]
+                    let iterationOps = oracleOps @ diffusionOps
+
+                    let required = prepareOps @ iterationOps
+
+                    if required |> List.forall backend.SupportsOperation then
+                        return ExecuteViaOps (prepareOps, iterationOps, intent.Iterations, intent.Exactness)
                     else
-                        // Use the same decomposition strategy as the real algorithm.
-                        let controls = [ 0 .. numQubits - 2 ]
-                        let targetQubit = numQubits - 1
-                        let decomposedMCZ = decomposeMCZGate controls targetQubit numQubits
-                        decomposedMCZ |> List.map QuantumOperation.Gate
-
-                if loweredSampleOps |> List.forall backend.SupportsOperation then
-                    Ok ExecuteViaOps
-                else
-                    Error (QuantumError.OperationError ("Grover", $"Backend '{backend.Name}' does not support required operations for Grover search"))
+                        return!
+                            Error (QuantumError.OperationError (
+                                "Grover",
+                                $"Backend '{backend.Name}' does not support required operations for Grover search"))
+                }
 
     let private repeatM (count: int) (step: 'state -> Result<'state, QuantumError>) (initial: 'state) =
         let rec loop remaining state =
@@ -476,14 +560,13 @@ module Grover =
     let private executePlan
         (backend: IQuantumBackend)
         (oracle: Oracle.CompiledOracle)
-        (iterationCount: int)
         (plan: GroverPlan)
         : Result<QuantumState, QuantumError> =
         result {
             let! state0 = backend.InitializeState oracle.NumQubits
 
             match plan with
-            | ExecuteViaAlgorithmIntents ops ->
+            | ExecuteNatively (ops, iterations, _exactness) ->
                 let! prepared = backend.ApplyOperation ops.Prepare state0
 
                 let step s =
@@ -491,13 +574,14 @@ module Grover =
                     |> backend.ApplyOperation ops.Oracle
                     |> Result.bind (backend.ApplyOperation ops.Diffusion)
 
-                return! repeatM iterationCount step prepared
+                return! repeatM iterations step prepared
 
-            | ExecuteViaOps ->
-                let! prepared = applyHadamardTransform backend state0
-                let step s = applyGroverIteration backend oracle s
+            | ExecuteViaOps (prepareOps, iterationOps, iterations, _exactness) ->
+                let! prepared = backend.ApplyOperation (QuantumOperation.Sequence prepareOps) state0
 
-                return! repeatM iterationCount step prepared
+                let step s = backend.ApplyOperation (QuantumOperation.Sequence iterationOps) s
+
+                return! repeatM iterations step prepared
         }
 
     /// Execute Grover search algorithm with unified backend
@@ -532,10 +616,17 @@ module Grover =
 
                 calculateOptimalIterations oracle.NumQubits numSolutions
 
-        // Plan explicitly, then execute.
+        // Build intent → plan → execute (ADR).
         let preparedAndIteratedState =
-            plan backend oracle Exact
-            |> Result.bind (fun groverPlan -> executePlan backend oracle iterationCount groverPlan)
+            let intent =
+                {
+                    Oracle = oracle
+                    Iterations = iterationCount
+                    Exactness = Exact
+                }
+
+            plan backend intent
+            |> Result.bind (executePlan backend oracle)
 
         result {
             let! finalState = preparedAndIteratedState
@@ -544,9 +635,19 @@ module Grover =
             let measurements = UnifiedBackend.measureState finalState config.Shots
 
             // Step 5: Extract solutions from measurements
+            //
+            // Important: Grover measurements are probabilistic; finite shots may yield "false positives"
+            // above the solution threshold. Filter candidates classically via the oracle predicate.
             let distribution = extractDistribution measurements
-            let solutions = extractSolutions distribution config.Shots config.SolutionThreshold
-            let successProb = calculateSuccessProbability distribution config.Shots
+            let candidateSolutions = extractSolutions distribution config.Shots config.SolutionThreshold
+            let solutions = candidateSolutions |> List.filter (Oracle.isSolution oracle.Spec)
+
+            let successProb =
+                solutions
+                |> List.choose (fun s -> distribution |> Map.tryFind s)
+                |> function
+                    | [] -> 0.0
+                    | counts -> float (List.max counts) / float config.Shots
 
             // Calculate execution time
             stopwatch.Stop()
