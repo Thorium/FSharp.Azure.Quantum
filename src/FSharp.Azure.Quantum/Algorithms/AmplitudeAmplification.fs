@@ -19,6 +19,9 @@ open System.Numerics
 /// This enables quantum speedups for problems beyond simple search.
 module AmplitudeAmplification =
     
+    open FSharp.Azure.Quantum
+    open FSharp.Azure.Quantum.Core
+    open FSharp.Azure.Quantum.Core.BackendAbstraction
     open FSharp.Azure.Quantum.LocalSimulator
     open Oracle
     
@@ -151,13 +154,277 @@ module AmplitudeAmplification =
         afterReflection
     
     // ========================================================================
-    // NOTE: For amplitude amplification execution, use AmplitudeAmplificationAdapter module
-    // which provides backend-compatible execution with circuit-based state preparation.
-    // 
-    // The legacy StateVector-based execute() function has been removed in favor of
-    // backend abstraction. See AmplitudeAmplificationAdapter.fs for backend execution.
+    // NOTE: This file contains both:
+    // - the original StateVector-first building blocks (for educational purposes)
+    // - `AmplitudeAmplification.Unified`, which provides intent→plan→execute against `IQuantumBackend`
+    //
+    // The old "Adapter" module references were removed; the unified-backend implementation now lives
+    // in this file as `AmplitudeAmplification.Unified`.
     // ========================================================================
-    
+
+    // ========================================================================
+    // UNIFIED BACKEND - Intent → Plan → Execute (ADR: intent-first algorithms)
+    // ========================================================================
+
+    module Unified =
+
+        /// Execution exactness contract for amplitude amplification.
+        type Exactness =
+            | Exact
+            | Approximate of epsilon: float
+
+        /// A state preparation described as a gate circuit `A`.
+        ///
+        /// Using circuits makes `A†` well-defined via `CircuitBuilder.reverse`.
+        type StatePreparationCircuit = CircuitBuilder.Circuit
+
+        /// Canonical amplitude amplification intent.
+        ///
+        /// Applies `A` to prepare an initial superposition, then repeats:
+        /// `Q = S_ψ · O` where `S_ψ = 2|ψ⟩⟨ψ| - I` and `|ψ⟩ = A|0...0⟩`.
+        type AmplitudeAmplificationIntent = {
+            NumQubits: int
+            StatePreparation: StatePreparationCircuit
+            Oracle: Oracle.CompiledOracle
+            Iterations: int
+            Exactness: Exactness
+        }
+
+        [<RequireQualifiedAccess>]
+        type AmplitudeAmplificationPlan =
+            /// Execute the prepared-state reflection using semantic Grover intent ops.
+            ///
+            /// This is only valid when `StatePreparation` is the uniform superposition `H^⊗n`.
+            | ExecuteViaGroverIntents of prepOps: QuantumOperation list * oracleOp: QuantumOperation * diffusionOp: QuantumOperation * iterations: int * exactness: Exactness
+
+            /// Execute via explicit lowering to supported gate operations.
+            | ExecuteViaOps of prepOps: QuantumOperation list * iterationOps: QuantumOperation list * iterations: int * exactness: Exactness
+
+        let private validateIntent (intent: AmplitudeAmplificationIntent) : Result<AmplitudeAmplificationIntent, QuantumError> =
+            if intent.NumQubits <= 0 then
+                Error (QuantumError.ValidationError ("NumQubits", "must be positive"))
+            elif intent.Iterations < 0 then
+                Error (QuantumError.ValidationError ("Iterations", "must be non-negative"))
+            elif intent.Oracle.NumQubits <> intent.NumQubits then
+                Error (QuantumError.ValidationError ("Oracle.NumQubits", $"must equal NumQubits ({intent.NumQubits}), got {intent.Oracle.NumQubits}"))
+            elif intent.StatePreparation.QubitCount <> intent.NumQubits then
+                Error (QuantumError.ValidationError ("StatePreparation.QubitCount", $"must equal NumQubits ({intent.NumQubits}), got {intent.StatePreparation.QubitCount}"))
+            else
+                match intent.Exactness with
+                | Approximate epsilon when epsilon <= 0.0 ->
+                    Error (QuantumError.ValidationError ("Exactness", "epsilon must be positive"))
+                | _ -> Ok intent
+
+        let private decomposeMCZGate (controls: int list) (target: int) (numQubits: int) : CircuitBuilder.Gate list =
+            // Keep decomposition consistent with Grover unified implementation.
+            let circuit = CircuitBuilder.empty numQubits
+            let mczGate = CircuitBuilder.MCZ (controls, target)
+            let circuitWithMCZ = CircuitBuilder.addGate mczGate circuit
+
+            let transpiled1 = GateTranspiler.transpileForBackend "topological" circuitWithMCZ
+            let transpiled2 = GateTranspiler.transpileForBackend "topological" transpiled1
+            transpiled2.Gates
+
+        let private lowerPreparedStateReflection (numQubits: int) : QuantumOperation list =
+            // S0 (reflection about |0..0⟩) implemented as:
+            // X^⊗n · (MCZ on |11..1⟩) · X^⊗n
+            [
+                for q in 0 .. numQubits - 1 do
+                    yield QuantumOperation.Gate (CircuitBuilder.X q)
+
+                let controls = [ 0 .. numQubits - 2 ]
+                let targetQubit = numQubits - 1
+                let decomposed = decomposeMCZGate controls targetQubit numQubits
+                yield! decomposed |> List.map QuantumOperation.Gate
+
+                for q in 0 .. numQubits - 1 do
+                    yield QuantumOperation.Gate (CircuitBuilder.X q)
+            ]
+
+        let private enumerateSolutions (oracle: Oracle.CompiledOracle) : Result<int list, QuantumError> =
+            let numQubits = oracle.NumQubits
+            let searchSpaceSize = 1 <<< numQubits
+
+            let solutions =
+                [ 0 .. searchSpaceSize - 1 ]
+                |> List.filter (Oracle.isSolution oracle.Spec)
+
+            if List.isEmpty solutions then
+                Error (QuantumError.ValidationError ("Oracle", "matches no solutions"))
+            else
+                Ok solutions
+
+        let private lowerSingleTargetOracleOps (target: int) (numQubits: int) : QuantumOperation list =
+            [
+                // Step 1: X gates where target bit is 0
+                for q in 0 .. numQubits - 1 do
+                    let bitValue = (target >>> q) &&& 1
+                    if bitValue = 0 then
+                        yield QuantumOperation.Gate (CircuitBuilder.X q)
+
+                // Step 2: Multi-controlled Z (phase flip when all qubits are |1⟩)
+                let controls = [ 0 .. numQubits - 2 ]
+                let targetQubit = numQubits - 1
+                let decomposedMCZ = decomposeMCZGate controls targetQubit numQubits
+                yield! decomposedMCZ |> List.map QuantumOperation.Gate
+
+                // Step 3: Undo X gates
+                for q in 0 .. numQubits - 1 do
+                    let bitValue = (target >>> q) &&& 1
+                    if bitValue = 0 then
+                        yield QuantumOperation.Gate (CircuitBuilder.X q)
+            ]
+
+        let private lowerOracleOps (oracle: Oracle.CompiledOracle) : Result<QuantumOperation list, QuantumError> =
+            result {
+                let! solutions =
+                    match oracle.Spec with
+                    | Oracle.OracleSpec.SingleTarget t -> Ok [ t ]
+                    | Oracle.OracleSpec.Solutions targets ->
+                        if List.isEmpty targets then
+                            Error (QuantumError.ValidationError ("Solutions", "list cannot be empty"))
+                        else
+                            Ok targets
+                    | _ -> enumerateSolutions oracle
+
+                // Lower to an explicit sequence that phase-flips each marked basis index.
+                return solutions |> List.collect (fun t -> lowerSingleTargetOracleOps t oracle.NumQubits)
+            }
+
+        let private lowerUniformSuperpositionPrepOps (numQubits: int) : QuantumOperation list =
+
+            [ 0 .. numQubits - 1 ]
+            |> List.map (fun q -> QuantumOperation.Gate (CircuitBuilder.H q))
+
+        let private isUniformSuperpositionCircuit (prep: CircuitBuilder.Circuit) : bool =
+            // Heuristic: equal qubit count and exactly one H gate per qubit and nothing else.
+            if prep.Gates.Length <> prep.QubitCount then
+                false
+            else
+                let expectedSet = [ 0 .. prep.QubitCount - 1 ] |> List.map CircuitBuilder.H |> Set.ofList
+                Set.ofList prep.Gates = expectedSet
+
+        let private buildLoweredOps
+            (intent: AmplitudeAmplificationIntent)
+            : Result<QuantumOperation list * QuantumOperation list, QuantumError> =
+
+            // Normalize prep circuit into a sequence of gate operations.
+            let prepOps = intent.StatePreparation.Gates |> List.map QuantumOperation.Gate
+
+            let reflectionOps =
+                // Reflection about prepared state: A · S0 · A†
+                let inversePrep = CircuitBuilder.reverse intent.StatePreparation
+                prepOps
+                @ lowerPreparedStateReflection intent.NumQubits
+                @ (inversePrep.Gates |> List.map QuantumOperation.Gate)
+
+            result {
+                let! oracleOps = lowerOracleOps intent.Oracle
+                return (prepOps, (oracleOps @ reflectionOps))
+            }
+
+
+        let plan
+            (backend: IQuantumBackend)
+            (intent: AmplitudeAmplificationIntent)
+            : Result<AmplitudeAmplificationPlan, QuantumError> =
+
+            result {
+                let! intent = validateIntent intent
+
+                // Annealing backends cannot support amplitude amplification.
+                let! () =
+                    match backend.NativeStateType with
+                    | QuantumStateType.Annealing ->
+                        Error (
+                            QuantumError.OperationError (
+                                "AmplitudeAmplification",
+                                $"Backend '{backend.Name}' does not support amplitude amplification (native state type: {backend.NativeStateType})"
+                            )
+                        )
+                    | _ ->
+                        Ok ()
+
+                // If state prep is uniform superposition and backend supports Grover intents,
+                // we can reuse the native Grover operations as the special case.
+                let groverPlan =
+                    if isUniformSuperpositionCircuit intent.StatePreparation then
+                        let prepare = QuantumOperation.Algorithm (AlgorithmOperation.GroverPrepare intent.NumQubits)
+                        let oracle =
+                            QuantumOperation.Algorithm (
+                                AlgorithmOperation.GroverOraclePhaseFlip {
+                                    NumQubits = intent.NumQubits
+                                    IsMarked = Oracle.isSolution intent.Oracle.Spec
+                                }
+                            )
+                        let diffusion = QuantumOperation.Algorithm (AlgorithmOperation.GroverDiffusion intent.NumQubits)
+
+                        if backend.SupportsOperation prepare && backend.SupportsOperation oracle && backend.SupportsOperation diffusion then
+                            let prepOps = lowerUniformSuperpositionPrepOps intent.NumQubits
+                            Some (AmplitudeAmplificationPlan.ExecuteViaGroverIntents (prepOps, oracle, diffusion, intent.Iterations, intent.Exactness))
+                        else
+                            None
+                    else
+                        None
+
+                match groverPlan with
+                | Some plan ->
+                    return plan
+                | None ->
+                    // Generic lowering path.
+                    let! (prepOps, iterationOps) = buildLoweredOps intent
+
+                    if (prepOps @ iterationOps) |> List.forall backend.SupportsOperation then
+                        return AmplitudeAmplificationPlan.ExecuteViaOps (prepOps, iterationOps, intent.Iterations, intent.Exactness)
+                    else
+                        return!
+                            Error (
+                                QuantumError.OperationError (
+                                    "AmplitudeAmplification",
+                                    $"Backend '{backend.Name}' does not support required operations for amplitude amplification"
+                                )
+                            )
+            }
+
+
+        let private executePlan
+            (backend: IQuantumBackend)
+            (state: QuantumState)
+            (plan: AmplitudeAmplificationPlan)
+            : Result<QuantumState, QuantumError> =
+
+            match plan with
+            | AmplitudeAmplificationPlan.ExecuteViaGroverIntents (prepOps, oracleOp, diffusionOp, iterations, _) ->
+                result {
+                    let! prepared = UnifiedBackend.applySequence backend prepOps state
+                    let! stateAfterIterations =
+                        [ 1 .. iterations ]
+                        |> List.fold (fun s _ -> s |> Result.bind (backend.ApplyOperation oracleOp) |> Result.bind (backend.ApplyOperation diffusionOp)) (Ok prepared)
+                    return stateAfterIterations
+                }
+
+            | AmplitudeAmplificationPlan.ExecuteViaOps (prepOps, iterationOps, iterations, _) ->
+                result {
+                    let! prepared = UnifiedBackend.applySequence backend prepOps state
+                    let applyIteration current = UnifiedBackend.applySequence backend iterationOps current
+                    let! finalState =
+                        [ 1 .. iterations ]
+                        |> List.fold (fun s _ -> s |> Result.bind applyIteration) (Ok prepared)
+                    return finalState
+                }
+
+        /// Execute amplitude amplification starting from |0...0⟩.
+        let execute
+            (backend: IQuantumBackend)
+            (intent: AmplitudeAmplificationIntent)
+            : Result<QuantumState, QuantumError> =
+
+            result {
+                let! plan = plan backend intent
+                let! initial = backend.InitializeState intent.NumQubits
+                return! executePlan backend initial plan
+            }
+
     // ========================================================================
     // GROVER AS SPECIAL CASE - Show equivalence
     // ========================================================================
@@ -189,13 +456,9 @@ module AmplitudeAmplification =
     // ========================================================================
     // NOTE: Legacy convenience functions removed
     // ========================================================================
-    // 
-    // executeGroverViaAmplification() and executeWithCustomPreparation() have been removed.
-    // Use AmplitudeAmplificationAdapter module for backend-compatible execution.
-    // 
-    // See: AmplitudeAmplificationAdapter.executeWithBackend()
-    //      AmplitudeAmplificationAdapter.uniformSuperpositionCircuit()
-    //      AmplitudeAmplificationAdapter.partialSuperpositionCircuit()
+    //
+    // `executeGroverViaAmplification()` and `executeWithCustomPreparation()` were removed.
+    // Use `AmplitudeAmplification.Unified.execute` for backend-compatible execution.
     
     /// Calculate optimal iterations for amplitude amplification
     /// 
@@ -267,7 +530,7 @@ module AmplitudeAmplification =
     
     // NOTE: verifyGroverEquivalence() has been removed because:
     // - executeGroverViaAmplification() was deleted (legacy LocalSimulator dependency)
-    // - AmplitudeAmplification now requires backend-based approach via AmplitudeAmplificationAdapter
-    // - To verify equivalence, use GroverBackendAdapter and AmplitudeAmplificationAdapter with same backend
+    // - Amplitude amplification now uses unified-backend execution
+    // - To compare, use `Grover` and `AmplitudeAmplification.Unified` with the same backend
 
 

@@ -73,8 +73,8 @@
 
     <!-- Quantum Algorithms (depends on LocalSimulator) -->
     <Compile Include="Algorithms\GroverOracle.fs" />
-    <Compile Include="Algorithms\AmplitudeAmplification.fs" />
     <Compile Include="Algorithms\ShorsTypes.fs" />
+
 
     <!-- Core Infrastructure (depends on Types, LocalSimulator) -->
     <Compile Include="Core\CostEstimation.fs" />
@@ -124,9 +124,13 @@
     <Compile Include="Core\BackendAbstraction.fs" />
     <Compile Include="Core\QaoaOptimizer.fs" />
     <Compile Include="Core\QaoaParameterOptimizer.fs" />
+
+    <!-- Unified backend-aware educational amplitude amplification (depends on BackendAbstraction + Builders) -->
+    <Compile Include="Algorithms\AmplitudeAmplification.fs" />
     
     <!-- Local Backend (depends on CircuitBuilder, CircuitAbstraction, BackendAbstraction, UnifiedBackendAbstraction) -->
     <Compile Include="Backends\LocalBackend.fs" />
+
     
     <!-- Unified Backend Algorithms (depends on CircuitBuilder, UnifiedBackendAbstraction, LocalBackend) -->
     <Compile Include="Algorithms\BellStates.fs" />

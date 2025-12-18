@@ -100,7 +100,9 @@
     <!-- Unified Backend Architecture Tests -->
     <Compile Include="UnifiedBackendTests.fs" />
     <Compile Include="GroverUnifiedTests.fs" />
+    <Compile Include="AmplitudeAmplificationUnifiedTests.fs" />
     <Compile Include="ShorsUnifiedTests.fs" />
+
     <Compile Include="HHLUnifiedTests.fs" />
     
     <!-- Quantum Finance Tests -->
