@@ -135,6 +135,16 @@ Quantum Approximate Optimization Algorithm with:
 
 ### 🖥️ Multiple Execution Backends
 
+## 🧭 Intent-First Algorithms (Why Some Algorithms Behave Differently Per Backend)
+
+Some algorithms in this library are implemented as **intent → plan → execute** rather than as a fixed “gate circuit”. This allows the same algorithm to run correctly on:
+
+- gate-native backends (state-vector simulation, common providers), and
+- non-gate-native backends (e.g., topological / Majorana-style models).
+
+This is mostly transparent to users: you call the same API, but the backend may choose a different execution strategy. See `docs/adr-intent-first-algorithms.md`.
+
+
 - **LocalBackend** - Fast simulation (≤20 qubits, free)
 - **IonQBackend** - Azure Quantum (29+ qubits simulator, 11 qubits QPU)
 - **RigettiBackend** - Azure Quantum (40+ qubits simulator, 80 qubits QPU)

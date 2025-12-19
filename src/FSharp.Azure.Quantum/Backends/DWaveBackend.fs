@@ -23,9 +23,26 @@ module DWaveBackend =
     open FSharp.Azure.Quantum.Algorithms.QuboExtraction
     
     // ============================================================================
-    // LOCAL TYPES (D-Wave annealing backends don't use IQuantumBackend)
+    // ANNEALING INTENT (EXTENSION OPERATION)
     // ============================================================================
-    
+
+    /// First-class annealing intent for backends like D-Wave.
+    ///
+    /// This is intentionally modeled as a `QuantumOperation.Extension` rather than a core DU case,
+    /// because the payload is D-Wave-specific (`IsingProblem`) and we want to keep Core free of
+    /// provider-specific types.
+    type AnnealIsingOperation(problem: IsingProblem, numReads: int, ?seed: int) =
+        member _.Problem = problem
+        member _.NumReads = numReads
+        member _.Seed = seed
+
+        interface IQuantumOperationExtension with
+            member _.Id = "dwave.anneal.ising"
+
+    // ============================================================================
+    // LOCAL TYPES (D-Wave backend types)
+    // ============================================================================
+
     /// Execution result for D-Wave annealing backends
     type ExecutionResult = {
         Measurements: int[][]
@@ -259,17 +276,46 @@ module DWaveBackend =
                 }
                 Ok (QuantumState.IsingSamples (box emptyIsing, box []))
             
-            /// Apply operation to state (not supported for annealing)
-            member _.ApplyOperation (operation: BackendAbstraction.QuantumOperation) (state: QuantumState) : Result<QuantumState, QuantumError> =
+            /// Apply operation to state.
+            ///
+            /// Annealing backends do not support incremental gate/braid evolution, but they do support
+            /// *sampling* an Ising/QUBO problem as an explicit intent (`AnnealIsingOperation`).
+            member this.ApplyOperation (operation: BackendAbstraction.QuantumOperation) (state: QuantumState) : Result<QuantumState, QuantumError> =
                 match operation with
+                | BackendAbstraction.QuantumOperation.Sequence ops ->
+                    ops
+                    |> List.fold (fun stateResult op ->
+                        match stateResult with
+                        | Error err -> Error err
+                        | Ok currentState ->
+                            (this :> BackendAbstraction.IQuantumBackend).ApplyOperation op currentState
+                    ) (Ok state)
+
+                | BackendAbstraction.QuantumOperation.Extension (:? AnnealIsingOperation as annealOp) ->
+                    if annealOp.NumReads <= 0 then
+                        Error (QuantumError.ValidationError ("numReads", $"must be > 0, got {annealOp.NumReads}"))
+                    else
+                        match state with
+                        | QuantumState.IsingSamples _ ->
+                            let runSeed = annealOp.Seed |> Option.orElse seed
+                            let solutions = MockSimulatedAnnealing.solve annealOp.Problem annealOp.NumReads runSeed
+                            Ok (QuantumState.IsingSamples (box annealOp.Problem, box solutions))
+                        | _ ->
+                            Error (QuantumError.OperationError ("ApplyOperation", $"AnnealIsingOperation requires Annealing state, got {QuantumState.stateType state}"))
+
                 | BackendAbstraction.QuantumOperation.Extension ext ->
-                    Error (QuantumError.OperationError ("ApplyOperation", $"Extension operation '{ext.Id}' is not supported by annealing backends"))
+                    Error (QuantumError.OperationError ("ApplyOperation", $"Extension operation '{ext.Id}' is not supported by D-Wave backend"))
+
                 | _ ->
-                    Error (QuantumError.OperationError ("ApplyOperation", "D-Wave annealing backend only supports full circuit execution"))
+                    Error (QuantumError.OperationError ("ApplyOperation", "D-Wave annealing backend only supports annealing intent operations"))
             
-            /// Check if operation is supported (only QAOA circuits)
-            member _.SupportsOperation (operation: BackendAbstraction.QuantumOperation) : bool =
-                false  // Annealing backends don't support incremental operations
+            /// Check if operation is supported.
+            member this.SupportsOperation (operation: BackendAbstraction.QuantumOperation) : bool =
+                match operation with
+                | BackendAbstraction.QuantumOperation.Extension (:? AnnealIsingOperation) -> true
+                | BackendAbstraction.QuantumOperation.Sequence ops ->
+                    ops |> List.forall (fun op -> (this :> BackendAbstraction.IQuantumBackend).SupportsOperation op)
+                | _ -> false
     
     // ============================================================================
     // HELPER FUNCTIONS FOR BACKEND CREATION

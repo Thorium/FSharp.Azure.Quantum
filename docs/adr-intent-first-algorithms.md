@@ -1,22 +1,40 @@
-# ADR: Intent-First Algorithms (DU-Based), Not Gate-Lingua-Franca
+# ADR: Intent-First Algorithms (Intent/Plan/Execute), Not Gate-Lingua-Franca
 
-**Status**: Accepted (proposed)
+**Status**: Accepted
 
 **Date**: 2025-12-17
+
+## What This Means For Library Users
+
+If you are just *using* FSharp.Azure.Quantum (F# or C#), this ADR is mainly about **making algorithms run correctly across very different backends** (state-vector simulators, Azure Quantum providers, and future topological/Majorana-style backends).
+
+Practical impact:
+
+- **Same public API, more portability**: You keep calling the same algorithm entry points (`Grover`, `AmplitudeAmplification`, `QFT`, etc.). Internally, the library plans execution based on backend capabilities.
+- **Backend-dependent execution strategy**: The same algorithm may run via different strategies, for example:
+  - a backend-native semantic primitive (preferred), or
+  - an explicit lowering into supported operations (gates/braids), when valid.
+- **Clearer failures instead of silent mismatches**: If a backend cannot execute the required intent and there is no valid lowering, the library should return a clear error rather than silently running an incorrect “gate-shaped” approximation.
+- **Performance may change** (usually improve) depending on backend: intent-first execution can avoid unnecessary gate decompositions on backends that are not gate-native.
+
+If you need to reason about backend support, use the existing capability probes (`IQuantumBackend.SupportsOperation`, `NativeStateType`), and prefer algorithm APIs that expose explicit configuration for exactness/approximation where available.
+
+---
 
 ## Context
 
 This repository already provides a unified execution surface via `IQuantumBackend` (`ExecuteToState`, `ApplyOperation`, `InitializeState`, `NativeStateType`, `SupportsOperation`). This enables writing algorithms once and running them on multiple backends.
 
-However, several “generic” algorithms and solvers still encode algorithm intent primarily as **gate sequences** (`QuantumOperation.Gate ...`). In practice, this makes the **gate model the lingua franca**, and forces non-gate-native backends (e.g., topological/anyonic systems) to translate gates into their native model.
+However, several “generic” algorithms and solvers still encode algorithm intent primarily as **gate sequences** (`QuantumOperation.Gate ...`). In practice, this makes the **gate model the lingua franca**, and forces non-gate-native backends to translate gates into their native model.
 
 This is risky because:
 
 - Some backends are not naturally gate-native. Their correct semantics are better expressed as native operations or state transformations.
+- Some backends (notably **annealers** like D-Wave / Azure Quantum Optimization) are not even *unitary-circuit* machines; they are best expressed as **sampling** problems (QUBO/Ising) rather than gate sequences.
 - Compilation paths (e.g., Gate → Braid) are not always exact, especially around basis changes / superposition semantics.
 - Algorithms like Grover, QFT, and Shor are better defined by **semantic primitives** (prepare, oracle, diffusion, QFT, modular arithmetic, phase estimation) than by any particular gate decomposition.
 
-We expect Microsoft’s future **Majorana** platform to be a topological quantum computer. A robust unified model must allow running generic algorithms without requiring “gate-first” translation as the definition of correctness.
+We expect Microsoft’s future **Majorana** platform to be a topological quantum computer, and Azure Quantum includes **annealing** providers. A robust unified model must allow running workloads across these paradigms without requiring “gate-first” translation as the definition of correctness.
 
 ## Decision
 
@@ -106,6 +124,7 @@ Lowering outputs must target existing `QuantumOperation` where possible:
 
 - Gate-based lowering: `QuantumOperation.Gate ...`
 - Topological lowering: `QuantumOperation.Braid ...` / `QuantumOperation.FMove ...`
+- Annealing lowering: prefer **semantic intent** (typically `QuantumOperation.Extension ...`) instead of pretending a QUBO/Ising sampler is a gate backend
 - Mixed: `QuantumOperation.Sequence ...` when beneficial
 
 ## When Interfaces Are Acceptable
@@ -134,22 +153,39 @@ Tests should be written to reflect this:
 - “Exactness-required” tests should reject approximate plans.
 - Probabilistic/hardware-like tests should allow thresholds/tolerances.
 
-## Migration Plan
+## Current Status (Implemented In Repo)
 
-1. **Grover**
-   - Keep the previously introduced native path (but evolve toward DU-first intent planning over time).
+The intent-first pattern described here is already implemented in several core algorithms.
 
-2. **QFT (next)**
-   - Refactor QFT to build an intent DU and choose between:
-     - native execution (topological / Majorana)
-     - explicit lowering to operations (`QuantumOperation` list) as a strategy
+- **Grover** (`src/FSharp.Azure.Quantum/Algorithms/Grover.fs`)
+  - Implements explicit **intent  plan  execute** (`GroverSearchIntent`, `GroverPlan`).
+  - Chooses between native semantic ops (`QuantumOperation.Algorithm (Grover*)`) and explicit lowering.
 
-3. **Shor**
-   - Split into intent components:
-     - `ModularArithmeticIntent`
-     - `PhaseEstimationIntent`
-     - `QftIntent`
-   - Allow each component to be planned independently per backend.
+- **Amplitude Amplification** (`src/FSharp.Azure.Quantum/Algorithms/AmplitudeAmplification.fs`)
+  - Implements explicit intent/plan/execute (`AmplitudeAmplificationIntent`, `AmplitudeAmplificationPlan`).
+  - Can reuse Grover semantic ops where applicable, otherwise lowers to `QuantumOperation` sequences.
+
+- **QFT** (`src/FSharp.Azure.Quantum/Algorithms/QFT.fs`)
+  - Implements explicit intent/plan/execute (`QftExecutionIntent`, `QftPlan`).
+  - Plans native execution via `AlgorithmOperation.QFT` when supported; otherwise uses explicit gate-sequence lowering.
+
+- **QPE** (`src/FSharp.Azure.Quantum/Algorithms/QPE.fs`)
+  - Implements explicit intent/plan/execute (`QpeExecutionIntent`, `QpePlan`).
+  - Plans native execution via `AlgorithmOperation.QPE` when supported; otherwise lowers to supported operations.
+
+- **Shor** (`src/FSharp.Azure.Quantum/Algorithms/Shor.fs`)
+  - Uses planning as part of period finding and factorization.
+  - Delegates to QPE planning so exactness/constraints are made explicit in the selected plan.
+
+- **Annealing intent as an extension operation** (`src/FSharp.Azure.Quantum/Backends/DWaveBackend.fs`)
+  - Demonstrates how non-unitary backends can expose **semantic intents** via `QuantumOperation.Extension` (e.g., sampling an Ising problem) without pretending to be a gate backend.
+
+## Follow-Ups (Optional Improvements)
+
+- **Standardize plan visibility**: expose planned strategy in public results where it helps diagnostics.
+- **Unify exactness vocabulary**: keep `Exact` vs `Approximate epsilon` consistent across algorithm modules.
+- **Consider generic annealing intents**: model a provider-agnostic "sample Ising/QUBO" intent, with provider-specific payloads behind extensions or adapters.
+- **Native plugin points**: add narrow intent-specific interfaces only where open-world provider extensibility is required (e.g., external Majorana provider package).
 
 ## Consequences
 

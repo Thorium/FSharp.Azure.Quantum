@@ -49,6 +49,7 @@
     <Compile Include="QuboToIsingTests.fs" />
     <Compile Include="QuboExtractionTests.fs" />
     <Compile Include="DWaveBackendTests.fs" />
+    <Compile Include="DWaveAnnealingIntentTests.fs" />
     <Compile Include="BackendCapabilityDetectionTests.fs" />
     <Compile Include="QuantumTspSolverTests.fs" />
     <Compile Include="QuboEncodingTests.fs" />

@@ -218,10 +218,10 @@ let result2 = predictiveModel {
     // Advanced configuration
     architecture Quantum
     learningRate 0.01
-    maxEpochs 150
-    convergenceThreshold 0.0005
+    maxEpochs 60
+    convergenceThreshold 0.005
     
-    verbose true
+    verbose false
     
     saveModelTo "churn_predictor.model"
     note "Customer churn prediction model - Q2 2024"

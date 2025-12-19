@@ -1267,6 +1267,18 @@ match solvePortfolio portfolioProblem None None None with
 
 ## Architecture
 
+### Intent-First Algorithms (Backend-Aware Planning)
+
+Some algorithms (notably Grover-family building blocks such as **Amplitude Amplification**) are implemented as **intent → plan → execute** rather than as a single canonical gate circuit.
+
+- On gate-native backends, this may lower to standard gate operations.
+- On non-gate-native backends (e.g., topological models), the same intent can be executed with native semantic operations.
+- If a backend can’t support an algorithm’s intent and there is no valid lowering, the library should fail explicitly rather than silently producing an incorrect result.
+
+This is primarily a portability/correctness feature; most users won’t need to change code. Details: `docs/adr-intent-first-algorithms.md`.
+
+
+
 ### 3-Layer Quantum-Only Architecture
 
 ```mermaid
