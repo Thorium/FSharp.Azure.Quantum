@@ -142,6 +142,7 @@
     <Compile Include="Algorithms\QFT.fs" />
     <Compile Include="Algorithms\QPE.fs" />
     <Compile Include="Algorithms\Shor.fs" />
+    <Compile Include="Algorithms\TrotterSuzuki.fs" />
     <Compile Include="Algorithms\HHLTypes.fs" />
     <Compile Include="Algorithms\HHL.fs" />
     
@@ -164,7 +165,6 @@
     <Compile Include="Backends\RealDWaveBackend.fs" />
     
     <!-- Advanced Quantum Algorithms -->
-    <Compile Include="Algorithms\TrotterSuzuki.fs" />
     <Compile Include="Algorithms\MottonenStatePreparation.fs" />
     
     <!-- Quantum Solvers - Need conversion to ExecuteToState API -->

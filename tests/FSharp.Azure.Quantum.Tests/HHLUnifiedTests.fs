@@ -4,6 +4,7 @@ open Xunit
 open System.Numerics
 open FSharp.Azure.Quantum.Algorithms.HHLTypes
 open FSharp.Azure.Quantum.Backends.LocalBackend
+open FSharp.Azure.Quantum.CircuitBuilder
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 
@@ -11,7 +12,10 @@ module HHL = FSharp.Azure.Quantum.Algorithms.HHL
 
 /// Tests for HHL Algorithm Unified Implementation
 /// 
-/// Note: Educational implementation focuses on diagonal matrices only.
+/// Note: HHL supports diagonal matrices and general Hermitian matrices.
+/// - Diagonal matrices may use the native intent op on some backends.
+/// - General matrices are lowered into explicit gates.
+///
 /// Tests cover:
 /// - Type creation and validation
 /// - State preparation
@@ -38,6 +42,26 @@ module HHLUnifiedTests =
                 | _ -> inner.SupportsOperation operation
 
             member _.Name = inner.Name + " (no-hhl-intent)"
+            member _.InitializeState numQubits = inner.InitializeState numQubits
+
+    /// Backend wrapper that simulates a gate-based Rigetti constraint set.
+    ///
+    /// Purpose: verify HHL lowering + planning transpilation produces Rigetti-native gates.
+    type private RigettiGateOnlyBackend(inner: IQuantumBackend) =
+        interface IQuantumBackend with
+            member _.ExecuteToState circuit = inner.ExecuteToState circuit
+            member _.NativeStateType = inner.NativeStateType
+            member _.ApplyOperation operation state = inner.ApplyOperation operation state
+
+            member _.SupportsOperation operation =
+                match operation with
+                | QuantumOperation.Algorithm _ -> false
+                | QuantumOperation.Gate gate ->
+                    match gate with
+                    | X _ | Y _ | Z _ | H _ | RX _ | RY _ | RZ _ | CNOT _ | CZ _ | SWAP _ -> true
+                    | S _ | SDG _ | T _ | TDG _ | P _ | CP _ | CRX _ | CRY _ | CRZ _ | MCZ _ | CCX _ | Measure _ | U3 _ -> false
+
+            member _.Name = "rigetti.sim.qvm (gate-only)"
             member _.InitializeState numQubits = inner.InitializeState numQubits
 
     [<Fact>]
@@ -104,7 +128,105 @@ module HHLUnifiedTests =
                 Assert.True(ops |> List.forall backend.SupportsOperation)
             | Ok _ -> Assert.Fail("Expected ExecuteViaOps plan")
             | Error err -> Assert.Fail($"Planning failed: {err}")
-    
+
+    [<Fact>]
+    let ``HHL planner lowers full general-matrix path to gates only`` () =
+        let backend = (LocalBackend() :> IQuantumBackend) |> NoHhlIntentBackend :> IQuantumBackend
+ 
+        // Simple 2x2 Hermitian but non-diagonal matrix.
+        // [[1, 0.5],
+        //  [0.5, 1]]
+        let hermitian =
+            array2D
+                [
+                    [ Complex(1.0, 0.0); Complex(0.5, 0.0) ]
+                    [ Complex(0.5, 0.0); Complex(1.0, 0.0) ]
+                ]
+ 
+        let inputVector = [| Complex(1.0, 0.0); Complex.Zero |]
+ 
+        match createHermitianMatrix hermitian, createQuantumVector inputVector with
+        | Error err, _ -> Assert.Fail($"Matrix creation failed: {err}")
+        | _, Error err -> Assert.Fail($"Vector creation failed: {err}")
+        | Ok matrix, Ok vector ->
+            let config =
+                {
+                    defaultConfig matrix vector with
+                        // keep tiny for test runtime
+                        EigenvalueQubits = 2
+                        QPEPrecision = 2
+                }
+ 
+            let intent: HHL.HhlExecutionIntent =
+                {
+                    Matrix = config.Matrix
+                    InputVector = config.InputVector
+                    EigenvalueQubits = config.EigenvalueQubits
+                    SolutionQubits = config.SolutionQubits
+                    InversionMethod = config.InversionMethod
+                    MinEigenvalue = config.MinEigenvalue
+                    UsePostSelection = config.UsePostSelection
+                    QpePrecision = config.QPEPrecision
+                    Exactness = HHL.Exactness.Exact
+                }
+ 
+            match HHL.plan backend intent with
+            | Ok (HHL.HhlPlan.ExecuteViaOps (ops, _), _, _, _) ->
+                Assert.NotEmpty ops
+                Assert.True(ops |> List.forall backend.SupportsOperation)
+                Assert.True(ops |> List.forall (function QuantumOperation.Gate _ -> true | _ -> false))
+            | Ok (HHL.HhlPlan.ExecuteNatively _, _, _, _) ->
+                Assert.Fail("Expected general-matrix to lower to ops")
+            | Error err -> Assert.Fail($"Planning failed: {err}")
+
+    [<Fact>]
+    let ``HHL planner transpiles general-matrix lowering to Rigetti gate set`` () =
+        let backend = (LocalBackend() :> IQuantumBackend) |> RigettiGateOnlyBackend :> IQuantumBackend
+ 
+        // Simple 2x2 Hermitian but non-diagonal matrix.
+        let hermitian =
+            array2D
+                [
+                    [ Complex(1.0, 0.0); Complex(0.5, 0.0) ]
+                    [ Complex(0.5, 0.0); Complex(1.0, 0.0) ]
+                ]
+ 
+        let inputVector = [| Complex(1.0, 0.0); Complex.Zero |]
+ 
+        match createHermitianMatrix hermitian, createQuantumVector inputVector with
+        | Error err, _ -> Assert.Fail($"Matrix creation failed: {err}")
+        | _, Error err -> Assert.Fail($"Vector creation failed: {err}")
+        | Ok matrix, Ok vector ->
+            let config =
+                {
+                    defaultConfig matrix vector with
+                        // keep tiny for test runtime
+                        EigenvalueQubits = 2
+                        QPEPrecision = 2
+                }
+ 
+            let intent: HHL.HhlExecutionIntent =
+                {
+                    Matrix = config.Matrix
+                    InputVector = config.InputVector
+                    EigenvalueQubits = config.EigenvalueQubits
+                    SolutionQubits = config.SolutionQubits
+                    InversionMethod = config.InversionMethod
+                    MinEigenvalue = config.MinEigenvalue
+                    UsePostSelection = config.UsePostSelection
+                    QpePrecision = config.QPEPrecision
+                    Exactness = HHL.Exactness.Exact
+                }
+ 
+            match HHL.plan backend intent with
+            | Ok (HHL.HhlPlan.ExecuteViaOps (ops, _), _, _, _) ->
+                Assert.NotEmpty ops
+                Assert.True(ops |> List.forall (function QuantumOperation.Gate _ -> true | _ -> false))
+                Assert.True(ops |> List.forall backend.SupportsOperation)
+            | Ok (HHL.HhlPlan.ExecuteNatively _, _, _, _) ->
+                Assert.Fail("Expected Rigetti to use explicit lowering")
+            | Error err -> Assert.Fail($"Planning failed: {err}")
+
     // Tolerance for floating point comparison
     let epsilon = 1e-6
     

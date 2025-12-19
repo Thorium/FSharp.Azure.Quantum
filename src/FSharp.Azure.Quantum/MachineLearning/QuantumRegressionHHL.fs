@@ -355,66 +355,10 @@ module QuantumRegressionHHL =
                             QPEPrecision = config.EigenvalueQubits
                         }
                         
-                        // NOTE: HHL.execute in HHL.fs enforces IsDiagonal check.
-                        // But QuantumRegressionHHL pads general matrices to power-of-2 which might not be diagonal.
-                        //
-                        // The real fix is to implement HHLBackendAdapter usage here for general matrices, 
-                        // but for now we'll allow this only if the matrix *is* diagonal or if we mock it.
-                        //
-                        // However, the test matrices are typically dense (e.g. X^T X).
-                        // The HHL.fs implementation currently only supports diagonal matrices.
-                        //
-                        // Workaround: We must adapt to the educational HHL implementation limitations.
-                        // If the matrix is not diagonal, we can't use the current HHL.execute.
-                        //
-                        // BUT: The tests failed because they use dense matrices with HHL.fs which rejects them.
-                        //
-                        // Since this is "Educational Implementation", let's be honest: 
-                        // we can only solve diagonal systems with the current HHL.fs.
-                        // But wait - the tests *expect* it to work for regression (dense Gram matrix).
-                        //
-                        // Ah, the previous implementation likely didn't enforce IsDiagonal check so strictly 
-                        // or had a different path.
-                        //
-                        // Let's modify HHL.fs to allow non-diagonal matrices if we are just *simulating* 
-                        // the logic (intent-based), OR we need to accept that HHL.fs is strictly diagonal.
-                        //
-                        // Actually, looking at HHL.fs, it has a strict check:
-                        // if not intent.Matrix.IsDiagonal then Error ...
-                        //
-                        // To fix the regression tests (which rely on HHL working for regression),
-                        // we need to bypass this check in HHL.fs for now OR use a mock diagonal approximation.
-                        //
-                        // Given we are in "blue" agent mode fixing tests:
-                        // The best fix is to relax HHL.fs validation to allow simulation of non-diagonal matrices 
-                        // if the backend is a simulator (intent-based), OR update HHL.fs to handle general matrices
-                        // via Trotterization (which is complex).
-                        //
-                        // Alternative: Update QuantumRegressionHHL to assume diagonal approximation of X^T X?
-                        // That would kill accuracy.
-                        //
-                        // Let's relax HHL.fs validation for now to unblock tests, assuming the "Educational" 
-                        // intent is to allow running the flow even if the math assumes diagonal for the simple circuit.
-                        //
-                        // Wait, if HHL.fs *only* uses diagonal eigenvalues for inversion, it will produce wrong results 
-                        // for dense matrices. 
-                        //
-                        // Let's check HHL.fs `toCoreIntent` - it extracts diagonal elements only.
-                        // So it *is* treating it as diagonal.
-                        //
-                        // If `QuantumRegressionHHL` feeds a dense matrix, and `HHL` treats it as diagonal, 
-                        // the result is wrong.
-                        //
-                        // The test failures show "ValidationError: Only diagonal matrices supported".
-                        // This suggests HHL.fs was recently updated to enforce this.
-                        //
-                        // To fix this properly without rewriting HHL, we should probably mock the check 
-                        // or accept that we can only run regression on orthogonal features (diagonal Gram matrix).
-                        //
-                        // BUT the tests use correlated features (non-diagonal Gram matrix).
-                        //
-                        // Let's disable the strict check in HHL.fs and add a warning, 
-                        // acknowledging it's an approximation.
+                        // Execute HHL with unified API.
+                        // The HHL planner will choose a backend-appropriate strategy:
+                        // - diagonal shortcut for diagonal matrices
+                        // - explicit gate-level lowering + backend transpilation for general Hermitian matrices
                         
                         if config.Verbose then
                             printfn $"   Solving via HHL algorithm..."
@@ -424,49 +368,17 @@ module QuantumRegressionHHL =
                         match HHL.execute hhlConfig config.Backend with
                         | Error err -> Error err
                         | Ok hhlResult ->
-                            
                             if config.Verbose then
                                 printfn $"   HHL success probability: {hhlResult.SuccessProbability:F4}"
-                            
-                            // Extract solution probabilities from HHL result
-                            // HHL.execute returns Solution as Complex[], convert to probability map
-                            let solution = 
+
+                            // HHL.execute returns the solution-register amplitudes directly (simulator path).
+                            // These are proportional to the regression weights, up to an unknown global scale.
+                            let weightsUnnormalized =
                                 hhlResult.Solution
-                                |> Array.mapi (fun i amp -> (i, amp.Magnitude * amp.Magnitude))
-                                |> Map.ofArray
-                            
-                            // Convert solution probabilities to weights
-                            // ⚠️ HHL MEASUREMENT INTERPRETATION:
-                            // 
-                            // HHL outputs quantum state: |x⟩ = (1/||x||) Σᵢ xᵢ|i⟩  (normalized)
-                            // where xᵢ are the solution coefficients to Aw = b
-                            //
-                            // Measuring in computational basis gives: P(i) = |xᵢ/||x|||²
-                            // Therefore: |xᵢ| ∝ √P(i)
-                            //
-                            // Sign recovery: Use moment vector (X^T y) signs as guidance
-                            // Scale recovery: Fit scale factor to minimize training error
-                            
-                            let weightsUnnormalized = 
-                                Array.init paddedDim (fun i ->
-                                    match Map.tryFind i solution with
-                                    | Some prob when prob > 1e-10 -> 
-                                        // Extract relative amplitude
-                                        let amplitude = sqrt prob
-                                        
-                                        // Sign recovery from moment vector
-                                        let signGuide = 
-                                            if i < momentVector.Length then
-                                                if momentVector.[i] < 0.0 then -1.0 else 1.0
-                                            else
-                                                1.0
-                                        
-                                        amplitude * signGuide
-                                    | _ -> 0.0
-                                )
-                            
+                                |> Array.map (fun amp -> amp.Real)
+
                             let weightsUnscaled = weightsUnnormalized |> Array.take actualFeatures
-                            
+
                             // Find optimal scale factor by minimizing training error
                             // We have: y = X * (scale * w_quantum)
                             // Minimize: ||y - X * scale * w||²

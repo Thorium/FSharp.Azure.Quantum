@@ -36,8 +36,8 @@ open FSharp.Azure.Quantum.LocalSimulator
 /// - ε = precision
 /// 
 /// Educational Implementation:
-/// This version focuses on diagonal matrices for clarity.
-/// For general matrices and cloud execution, use HHLBackendAdapter.
+/// - Diagonal matrices: simple path and (optionally) native intent on some backends.
+/// - General Hermitian matrices: explicit gate lowering + backend gate transpilation.
 /// 
 /// Example:
 /// ```fsharp
@@ -101,10 +101,9 @@ module HHL =
         }
 
     let private toCoreIntent (intent: HhlExecutionIntent) : BackendAbstraction.HhlIntent =
-        // EDUCATIONAL IMPLEMENTATION NOTE:
-        // This implementation currently treats all matrices as diagonal (extracting only diagonal elements).
-        // A full production implementation would handle general matrices via a Hamiltonian Simulation Strategy (Trotterization)
-        // rather than this simplified Diagonal Strategy.
+        // NOTE:
+        // The native `AlgorithmOperation.HHL` intent payload uses diagonal eigenvalues.
+        // For general Hermitian matrices, this module executes via explicit gate lowering instead.
         
         let diagonalEigenvalues =
             let dim = intent.Matrix.Dimension
@@ -142,34 +141,44 @@ module HHL =
     /// Vector must have dimension = 2^n for some n.
     /// </remarks>
     let private prepareInputState 
-        (inputVector: QuantumVector)
-        (totalQubits: int)
-        (backend: IQuantumBackend) : Result<QuantumState, QuantumError> =
-        
-        // Calculate number of qubits for input vector
-        let vectorDim = inputVector.Components.Length
-        let solutionQubits = int (ceil (log (float vectorDim) / log 2.0))
-        
-        // Create full state with all qubits (eigenvalue register + solution register + ancilla)
-        let fullDimension = 1 <<< totalQubits
-        let amplitudes = Array.create fullDimension Complex.Zero
-        
-        // Place input vector amplitudes in the solution register part of the state
-        // Solution register is at the end (rightmost qubits)
-        for i in 0 .. vectorDim - 1 do
-            amplitudes[i] <- inputVector.Components[i]
-        
-        // Normalize
-        let norm = sqrt (amplitudes |> Array.sumBy (fun a -> (a * Complex.Conjugate(a)).Real))
-        let normalizedAmplitudes = 
-            if norm > 1e-10 then
-                amplitudes |> Array.map (fun a -> a / norm)
-            else
-                amplitudes
-        
-        let stateVector = StateVector.create normalizedAmplitudes
-        
-        Ok (QuantumState.StateVector stateVector)
+         (inputVector: QuantumVector)
+         (totalQubits: int)
+         (backend: IQuantumBackend) : Result<QuantumState, QuantumError> =
+         
+         // Calculate number of qubits for input vector
+         let vectorDim = inputVector.Components.Length
+         let solutionQubits = int (Math.Log(float vectorDim, 2.0))
+         if (1 <<< solutionQubits) <> vectorDim then
+             Error (QuantumError.ValidationError ("InputVector", $"dimension must be power of 2, got {vectorDim}"))
+         else
+             let eigenvalueQubits = totalQubits - solutionQubits - 1
+             if eigenvalueQubits < 0 then
+                 Error (QuantumError.ValidationError ("totalQubits", $"totalQubits too small for vector dimension: {totalQubits}"))
+             else
+                 // Create full state with all qubits (eigenvalue register + solution register + ancilla)
+                 let fullDimension = 1 <<< totalQubits
+                 let amplitudes = Array.create fullDimension Complex.Zero
+
+                 // Expected qubit layout (little-endian basis index):
+                 //   [0 .. eigenvalueQubits-1] = eigenvalue register (LSBs)
+                 //   [eigenvalueQubits .. eigenvalueQubits+solutionQubits-1] = solution register
+                 //   [eigenvalueQubits+solutionQubits] = ancilla
+                 //
+                 // Place |b⟩ into the solution register while keeping eigenvalue=0 and ancilla=0.
+                 for i in 0 .. vectorDim - 1 do
+                     let basisIndex = i <<< eigenvalueQubits
+                     amplitudes[basisIndex] <- inputVector.Components[i]
+
+                 // Normalize (inputVector is already normalized, but keep this robust)
+                 let norm = sqrt (amplitudes |> Array.sumBy (fun a -> (a * Complex.Conjugate(a)).Real))
+                 let normalizedAmplitudes = 
+                     if norm > 1e-10 then
+                         amplitudes |> Array.map (fun a -> a / norm)
+                     else
+                         amplitudes
+
+                 let stateVector = StateVector.create normalizedAmplitudes
+                 Ok (QuantumState.StateVector stateVector)
     
     // ========================================================================
     // POST-SELECTION - Filter successful measurements
@@ -315,53 +324,66 @@ module HHL =
     
     /// <summary>
     /// Extract solution amplitudes from final quantum state.
+    /// 
+    /// Interprets the solution as amplitudes on the solution register when:
+    /// - eigenvalue register is |0...0⟩ (after uncomputation)
+    /// - ancilla is |1⟩ (successful HHL branch)
     /// </summary>
-    /// <param name="state">Final quantum state after HHL</param>
-    /// <returns>Map of basis index to amplitude for non-zero entries</returns>
-    let private extractSolutionAmplitudes (state: QuantumState) : Map<int, Complex> option =
-        match state with
-        | QuantumState.StateVector stateVec ->
-            let dimension = StateVector.dimension stateVec
-            
-            let amplitudes =
-                [0 .. dimension - 1]
-                |> List.map (fun i -> (i, StateVector.getAmplitude i stateVec))
-                |> List.filter (fun (_, amp) -> amp.Magnitude > 1e-10)
-                |> Map.ofList
-            
-            if Map.isEmpty amplitudes then None else Some amplitudes
-        
-        | _ -> None  // Unknown for other representations
+    let private extractSolutionAmplitudes
+         (eigenvalueQubits: int)
+         (solutionQubits: int)
+         (ancillaQubit: int)
+         (state: QuantumState)
+         : Map<int, Complex> option =
+         match state with
+         | QuantumState.StateVector stateVec ->
+             let solutionDim = 1 <<< solutionQubits
+             let ancillaMask = 1 <<< ancillaQubit
+             let amplitudes =
+                 [0 .. solutionDim - 1]
+                 |> List.choose (fun i ->
+                     let basisIndex = (i <<< eigenvalueQubits) ||| ancillaMask
+                     let amp = StateVector.getAmplitude basisIndex stateVec
+                     if amp.Magnitude > 1e-10 then Some (i, amp) else None)
+                 |> Map.ofList
+
+             if Map.isEmpty amplitudes then None else Some amplitudes
+         | _ -> None
     
     // ========================================================================
     // HHL MAIN ALGORITHM
     // ========================================================================
 
-    let private validateIntent (intent: HhlExecutionIntent) : Result<float[] * float * float, QuantumError> =
-        // RELAXED CHECK: Warn instead of error for non-diagonal matrices to allow QuantumRegressionHHL tests to pass.
-        // In a real implementation, we would require HHLBackendAdapter for general matrices.
-        // if not intent.Matrix.IsDiagonal then
-        //    Error (QuantumError.ValidationError ("Matrix", "Only diagonal matrices supported in HHL (use HHLBackendAdapter for general matrices)"))
+    let private validateIntent (intent: HhlExecutionIntent) : Result<float[] * float * float * float, QuantumError> =
         if intent.Matrix.Dimension <> intent.InputVector.Dimension then
             Error (QuantumError.ValidationError ("Dimensions", $"Matrix ({intent.Matrix.Dimension}) and vector ({intent.InputVector.Dimension}) dimensions must match"))
         else
-            // For non-diagonal matrices, this is an APPROXIMATION (using only diagonal elements).
-            let eigenvalues =
-                [| 0 .. intent.Matrix.Dimension - 1 |]
-                |> Array.map (fun i ->
-                    let idx = i * intent.Matrix.Dimension + i
-                    intent.Matrix.Elements[idx].Real
-                )
+            // If we have a diagonal matrix, prefer exact eigenvalues for normalization checks.
+            let diagonalEigenvalues =
+                if intent.Matrix.IsDiagonal then
+                    let dim = intent.Matrix.Dimension
+                    Array.init dim (fun i -> intent.Matrix.Elements[i * dim + i].Real)
+                else
+                    [||]
 
-            let absEigenvalues = eigenvalues |> Array.map abs
-            let minEig = absEigenvalues |> Array.min
-            let maxEig = absEigenvalues |> Array.max
+            // Avoid classical eigen-decomposition on the execution/planning path.
+            // For validation we only need bounds for min/max eigenvalues.
+            let (minEig, maxEig) =
+                if intent.Matrix.IsDiagonal then
+                    let absEigenvalues = diagonalEigenvalues |> Array.map abs
+                    (Array.min absEigenvalues, Array.max absEigenvalues)
+                else
+                    let maxEig = abs (HHLTypes.estimateMaxEigenvalue intent.Matrix 100 1e-6)
+                    let minEig = abs (HHLTypes.estimateMinEigenvalue intent.Matrix 100 1e-6)
+                    (minEig, maxEig)
 
             if minEig < intent.MinEigenvalue then
                 Error (QuantumError.ValidationError ("Matrix", $"Near-singular matrix (min eigenvalue = {minEig})"))
             else
-                let conditionNumber = if minEig > 0.0 then maxEig / minEig else Double.PositiveInfinity
-                Ok (eigenvalues, minEig, conditionNumber)
+                let conditionNumber =
+                    if minEig > 0.0 then maxEig / minEig else Double.PositiveInfinity
+
+                Ok (diagonalEigenvalues, minEig, conditionNumber, maxEig)
 
     let private clampToUnit (x: float) : float =
         if x > 1.0 then 1.0
@@ -405,58 +427,280 @@ module HHL =
 
     let private buildLoweringOps
         (intent: HhlExecutionIntent)
-        (diagonalEigenvalues: float[])
+        (spectrumEigenvalues: float[])
+        (maxEig: float)
         : Result<QuantumOperation list * int * int, QuantumError> =
 
-        // NOTE: This educational implementation does not yet perform full QPE.
-        // We keep the intent/planning separation, and model the current implementation as:
-        // - amplitude-encoded input state prepared directly (not via operations)
-        // - a single ancilla rotation based on one representative eigenvalue
-        // - optional post-selection in classical post-processing
+         let ancillaQubit = intent.EigenvalueQubits + intent.SolutionQubits
 
-        let ancillaQubit = intent.EigenvalueQubits + intent.SolutionQubits
-        let estimatedEigenvalue = diagonalEigenvalues[0]
+         if intent.Matrix.IsDiagonal then
+             // Diagonal path: single ancilla rotation (simplified baseline).
+             let estimatedEigenvalue = spectrumEigenvalues[0]
 
-        result {
-            let! theta = inversionRotationAngle intent.InversionMethod estimatedEigenvalue intent.MinEigenvalue
-            let ops = [ QuantumOperation.Gate (CircuitBuilder.RY (ancillaQubit, theta)) ]
-            let gateCountEstimate =
-                // Keep the previous estimate structure for stability.
-                let qpeGates = intent.EigenvalueQubits * intent.EigenvalueQubits
-                let inversionGates = intent.EigenvalueQubits
-                let inverseQpeGates = qpeGates
-                qpeGates + inversionGates + inverseQpeGates + 10
+             result {
+                 let! theta = inversionRotationAngle intent.InversionMethod estimatedEigenvalue intent.MinEigenvalue
+                 let ops = [ QuantumOperation.Gate (CircuitBuilder.RY (ancillaQubit, theta)) ]
+                 let gateCountEstimate =
+                     // Keep the previous estimate structure for stability.
+                     let qpeGates = intent.EigenvalueQubits * intent.EigenvalueQubits
+                     let inversionGates = intent.EigenvalueQubits
+                     let inverseQpeGates = qpeGates
+                     qpeGates + inversionGates + inverseQpeGates + 10
 
-            return (ops, gateCountEstimate, ancillaQubit)
-        }
+                 return (ops, gateCountEstimate, ancillaQubit)
+             }
+         else
+             result {
+                 // General-matrix path: perform QPE using controlled exp(-iAt), then apply an
+                 // ancilla rotation multiplexed by the eigenvalue register.
+                 //
+                 // Constraint: use gate-only Hamiltonian simulation (Trotter-Suzuki), not local-only
+                 // unitary synthesis of exp(-iAt).
+
+                 // Choose a phase scaling constant C so that phi = lambda / C lies in [0, 1).
+                 // Using 2*maxEig keeps phases away from the wrap-around at 1.0.
+                 let phaseScale = 2.0 * maxEig
+
+                 // We want U = exp(2π i * (A / phaseScale)) so that positive eigenvalues encode positive phases.
+                 // Our evolution primitive synthesizes exp(-i A t), so choose negative time: t0 = -2π / phaseScale.
+                 let baseTime = -2.0 * Math.PI / phaseScale
+
+                 let eigenQubits = [ 0 .. intent.EigenvalueQubits - 1 ]
+                 let eigenQubitArray = eigenQubits |> List.toArray
+                 let solutionQubits = [ intent.EigenvalueQubits .. intent.EigenvalueQubits + intent.SolutionQubits - 1 ]
+
+                 let hadamards = eigenQubits |> List.map (fun q -> QuantumOperation.Gate (CircuitBuilder.H q))
+
+                 let totalQubits = intent.EigenvalueQubits + intent.SolutionQubits + 1
+
+                 let toMatrix2D (matrix: HermitianMatrix) : Complex[,] =
+                     let dim = matrix.Dimension
+                     Array2D.init dim dim (fun i j -> matrix.Elements[i * dim + j])
+
+                 let matrix2D = toMatrix2D intent.Matrix
+
+                 let! pauliHamiltonian = TrotterSuzuki.decomposeMatrixToPauli matrix2D
+
+                 let trotterSteps = max 10 (2 * intent.QpePrecision)
+                 let trotterOrder = 2
+
+                 let buildControlledEvolutionOps (controlQubit: int) (time: float) : QuantumOperation list =
+                     let config : TrotterSuzuki.TrotterConfig = { NumSteps = trotterSteps; Time = time; Order = trotterOrder }
+                     let evolved =
+                         TrotterSuzuki.synthesizeControlledHamiltonianEvolution
+                             controlQubit
+                             pauliHamiltonian
+                             config
+                             (solutionQubits |> List.toArray)
+                             (CircuitBuilder.empty totalQubits)
+
+                     evolved.Gates |> List.map QuantumOperation.Gate
+
+                 let controlledEvolutions =
+                     eigenQubits
+                     |> List.collect (fun j ->
+                         let time = baseTime * float (1 <<< j)
+                         buildControlledEvolutionOps j time)
+
+                 let calculatePhaseAngle (k: int) (inverse: bool) : float =
+                     let angle = 2.0 * Math.PI / float (1 <<< k)
+                     if inverse then -angle else angle
+
+                 let buildQftLoweringOps (numQubits: int) (inverse: bool) : QuantumOperation list =
+                     if inverse then
+                         [numQubits - 1 .. -1 .. 0]
+                         |> List.collect (fun targetQubit ->
+                             let phases =
+                                 [numQubits - 1 .. -1 .. targetQubit + 1]
+                                 |> List.map (fun k ->
+                                     let power = k - targetQubit + 1
+                                     let angle = calculatePhaseAngle power true
+                                     QuantumOperation.Gate (CircuitBuilder.CP (k, targetQubit, angle)))
+
+                             let hOp = QuantumOperation.Gate (CircuitBuilder.H targetQubit)
+                             phases @ [hOp])
+                     else
+                         [0 .. numQubits - 1]
+                         |> List.collect (fun targetQubit ->
+                             let hOp = QuantumOperation.Gate (CircuitBuilder.H targetQubit)
+                             let phases =
+                                 [targetQubit + 1 .. numQubits - 1]
+                                 |> List.map (fun k ->
+                                     let power = k - targetQubit + 1
+                                     let angle = calculatePhaseAngle power false
+                                     QuantumOperation.Gate (CircuitBuilder.CP (k, targetQubit, angle)))
+
+                             hOp :: phases)
+
+                 let inverseQft = buildQftLoweringOps intent.EigenvalueQubits true
+
+                 // Gate-only multiplexed/uniformly controlled RY.
+                 // For each eigen-register basis state |k⟩, apply RY(angles[k]) to ancilla.
+                 //
+                 // When ApplySwaps=false, the inverse QFT leaves the eigen register in bit-reversed order.
+                 // Compensate by bit-reversing k before mapping it to an estimated eigenvalue.
+                 let eigenRegisterSize = 1 <<< intent.EigenvalueQubits
+
+                 let bitReverse (value: int) : int =
+                     let rec loop bitsRemaining v rev =
+                         if bitsRemaining = 0 then
+                             rev
+                         else
+                             loop (bitsRemaining - 1) (v >>> 1) ((rev <<< 1) ||| (v &&& 1))
+
+                     loop intent.EigenvalueQubits value 0
+
+                 let angles =
+                     Array.init eigenRegisterSize (fun k ->
+                         if k = 0 then
+                             0.0
+                         else
+                             let canonicalK = bitReverse k
+                             let lambdaEst = (float canonicalK / float eigenRegisterSize) * phaseScale
+
+                             // Avoid saturation: ensure the normalization constant is <= estimated eigenvalue.
+                             let safeMethod =
+                                 match intent.InversionMethod with
+                                 | EigenvalueInversionMethod.ExactRotation c -> EigenvalueInversionMethod.ExactRotation (min c lambdaEst)
+                                 | EigenvalueInversionMethod.LinearApproximation c -> EigenvalueInversionMethod.LinearApproximation (min c lambdaEst)
+                                 | EigenvalueInversionMethod.PiecewiseLinear _ -> intent.InversionMethod
+
+                             match inversionRotationAngle safeMethod lambdaEst intent.MinEigenvalue with
+                             | Ok theta -> theta
+                             | Error _ -> 0.0)
+
+                 let multiControlledXGates (controls: int list) (target: int) : CircuitBuilder.Gate list =
+                     match controls with
+                     | [] -> [ CircuitBuilder.X target ]
+                     | _ ->
+                         // Multi-controlled X can be expressed as H·MCZ·H.
+                         [ CircuitBuilder.H target
+                           CircuitBuilder.MCZ (controls, target)
+                           CircuitBuilder.H target ]
+
+                 let multiControlledRyGates (controls: int list) (target: int) (theta: float) : CircuitBuilder.Gate list =
+                     if abs theta < 1e-12 then
+                         []
+                     elif controls.IsEmpty then
+                         [ CircuitBuilder.RY (target, theta) ]
+                     else
+                         // Generalize the CRY decomposition by replacing CNOT with MCX.
+                         let mcx = multiControlledXGates controls target
+                         [ CircuitBuilder.RY (target, theta / 2.0) ]
+                         @ mcx
+                         @ [ CircuitBuilder.RY (target, -theta / 2.0) ]
+                         @ mcx
+
+                 let multiplexedRyGates =
+                     [ 0 .. eigenRegisterSize - 1 ]
+                     |> List.collect (fun k ->
+                         let theta = angles[k]
+                         if abs theta < 1e-12 then
+                             []
+                         else
+                             // Flip controls where k has 0 bits so that k maps to all-ones.
+                             let xFlips =
+                                 [ 0 .. intent.EigenvalueQubits - 1 ]
+                                 |> List.choose (fun bitIdx ->
+                                     if ((k >>> bitIdx) &&& 1) = 0 then
+                                         Some (CircuitBuilder.X eigenQubitArray[bitIdx])
+                                     else
+                                         None)
+
+                             xFlips
+                             @ multiControlledRyGates eigenQubits ancillaQubit theta
+                             @ xFlips)
+
+                 let multiplexedRy = multiplexedRyGates |> List.map QuantumOperation.Gate
+
+                 let forwardQft = buildQftLoweringOps intent.EigenvalueQubits false
+
+                 let controlledUncompute =
+                     eigenQubits
+                     |> List.collect (fun j ->
+                         let time = -baseTime * float (1 <<< j)
+                         buildControlledEvolutionOps j time)
+
+                 let hadamardsUncompute = eigenQubits |> List.map (fun q -> QuantumOperation.Gate (CircuitBuilder.H q))
+
+                 // Gate count estimate: rough but monotonic.
+                 let gateCountEstimate =
+                     let qpeOps = hadamards.Length + controlledEvolutions.Length + inverseQft.Length
+                     let invOps = multiplexedRy.Length
+                     let uncomputeOps = forwardQft.Length + controlledUncompute.Length + hadamardsUncompute.Length
+                     qpeOps + invOps + uncomputeOps + 10
+
+                 let ops =
+                     hadamards
+                     @ controlledEvolutions
+                     @ inverseQft
+                     @ multiplexedRy
+                     @ forwardQft
+                     @ controlledUncompute
+                     @ hadamardsUncompute
+
+                 return (ops, gateCountEstimate, ancillaQubit)
+             }
+
 
     let plan (backend: IQuantumBackend) (intent: HhlExecutionIntent) : Result<HhlPlan * float[] * int * float, QuantumError> =
         result {
-            match backend.NativeStateType with
-            | QuantumStateType.Annealing ->
-                return! Error (QuantumError.OperationError ("HHL", $"Backend '{backend.Name}' does not support HHL (native state type: {backend.NativeStateType})"))
-            | _ ->
-                match intent.Exactness with
-                | Exactness.Approximate epsilon when epsilon <= 0.0 ->
-                    return! Error (QuantumError.ValidationError ("Exactness", "epsilon must be positive"))
-                | _ ->
-                    let! (eigenvalues, _minEig, conditionNumber) = validateIntent intent
-                    let ancillaQubit = intent.EigenvalueQubits + intent.SolutionQubits
+             match backend.NativeStateType with
+             | QuantumStateType.Annealing ->
+                 return! Error (QuantumError.OperationError ("HHL", $"Backend '{backend.Name}' does not support HHL (native state type: {backend.NativeStateType})"))
+             | _ ->
+                 match intent.Exactness with
+                 | Exactness.Approximate epsilon when epsilon <= 0.0 ->
+                     return! Error (QuantumError.ValidationError ("Exactness", "epsilon must be positive"))
+                 | _ ->
+                     let! (spectrumEigenvalues, _minEig, conditionNumber, maxEig) = validateIntent intent
+                     let ancillaQubit = intent.EigenvalueQubits + intent.SolutionQubits
 
-                    let op = hhlIntentOp intent eigenvalues
-                    // Current educational strategy is not full HHL, but the *rotation* we apply is effectively exact.
-                    // Keep exactness in the plan so call sites can reason about it.
-                    let exactness = intent.Exactness
+                     let op = hhlIntentOp intent spectrumEigenvalues
+                     let exactness = intent.Exactness
 
-                    if backend.SupportsOperation op then
-                        return (HhlPlan.ExecuteNatively (toCoreIntent intent, exactness), eigenvalues, ancillaQubit, conditionNumber)
-                    else
-                        let! (ops, _gateCount, _ancillaQubit) = buildLoweringOps intent eigenvalues
-                        if ops |> List.forall backend.SupportsOperation then
-                            return (HhlPlan.ExecuteViaOps (ops, exactness), eigenvalues, ancillaQubit, conditionNumber)
-                        else
-                            return! Error (QuantumError.OperationError ("HHL", $"Backend '{backend.Name}' does not support required operations for HHL"))
-        }
+                     // Only use the native intent implementation for diagonal matrices.
+                     if intent.Matrix.IsDiagonal && backend.SupportsOperation op then
+                         return (HhlPlan.ExecuteNatively (toCoreIntent intent, exactness), spectrumEigenvalues, ancillaQubit, conditionNumber)
+                      else
+                          let! (ops, _gateCount, _ancillaQubit) = buildLoweringOps intent spectrumEigenvalues maxEig
+
+                          // Backends (Rigetti/IonQ/etc.) require transpilation into their supported gate sets.
+                          // `UnifiedBackend.applySequence` does not transpile, so we must do it during planning.
+                          let transpiledOps =
+                              let gateOps =
+                                  ops
+                                  |> List.choose (function
+                                      | QuantumOperation.Gate gate -> Some gate
+                                      | _ -> None)
+
+                              if gateOps.Length = ops.Length then
+                                   let totalQubits = intent.EigenvalueQubits + intent.SolutionQubits + 1
+                                   let circuit : CircuitBuilder.Circuit = { QubitCount = totalQubits; Gates = gateOps }
+
+                                   // Some decompositions (e.g., MCZ -> CCX -> {RZ,CNOT,...}) require multiple passes.
+                                   // Iterate to a fixpoint (bounded) to ensure we emit only backend-native gates.
+                                   let rec transpileToFixpoint remaining (current: CircuitBuilder.Circuit) =
+                                       if remaining <= 0 then
+                                           current
+                                       else
+                                           let next = GateTranspiler.transpileForBackend backend.Name current
+                                           if next.Gates = current.Gates then
+                                               next
+                                           else
+                                               transpileToFixpoint (remaining - 1) next
+
+                                   let transpiled = transpileToFixpoint 5 circuit
+                                   transpiled.Gates |> List.map QuantumOperation.Gate
+                              else
+                                  // Non-gate operations should never appear in lowering, but keep this safe.
+                                  ops
+
+                          if transpiledOps |> List.forall backend.SupportsOperation then
+                              return (HhlPlan.ExecuteViaOps (transpiledOps, exactness), spectrumEigenvalues, ancillaQubit, conditionNumber)
+                          else
+                              return! Error (QuantumError.OperationError ("HHL", $"Backend '{backend.Name}' does not support required operations for HHL"))
+         }
 
     let private executePlan
         (backend: IQuantumBackend)
@@ -477,7 +721,10 @@ module HHL =
     /// <param name="backend">Quantum backend</param>
     /// <returns>HHL result with solution information or error</returns>
     /// <remarks>
-    /// Current implementation supports diagonal matrices only.
+    /// Supports two execution strategies:
+    /// - Diagonal matrices: may execute via native `AlgorithmOperation.HHL` intent on backends that support it.
+    /// - General Hermitian matrices: executes via explicit gate lowering (QPE + Trotter-Suzuki simulation + multiplexed rotation),
+    ///   then backend-specific gate transpilation during planning.
     /// </remarks>
     let execute
         (config: HHLConfig)
@@ -505,14 +752,17 @@ module HHL =
             let extractedEigenvalues = extractEigenvalues intent.EigenvalueQubits finalState
             let finalEigenvalues = if extractedEigenvalues.Length > 0 then extractedEigenvalues else diagonalEigenvalues
 
-            let solutionAmps = extractSolutionAmplitudes finalState
+            let solutionAmps = extractSolutionAmplitudes intent.EigenvalueQubits intent.SolutionQubits ancillaQubit finalState
             let solution =
-                match solutionAmps with
-                | Some amplitudes ->
-                    let dimension = intent.Matrix.Dimension
-                    Array.init dimension (fun i -> amplitudes.TryFind i |> Option.defaultValue Complex.Zero)
-                | None ->
-                    Array.create intent.Matrix.Dimension Complex.Zero
+                 match finalState with
+                 | QuantumState.StateVector stateVec ->
+                     let solutionDim = 1 <<< intent.SolutionQubits
+                     let ancillaMask = 1 <<< ancillaQubit
+                     Array.init solutionDim (fun i ->
+                         let basisIndex = (i <<< intent.EigenvalueQubits) ||| ancillaMask
+                         StateVector.getAmplitude basisIndex stateVec)
+                 | _ ->
+                     Array.create intent.Matrix.Dimension Complex.Zero
 
             let gateCount =
                 // Mirror the original estimate (independent of chosen plan).

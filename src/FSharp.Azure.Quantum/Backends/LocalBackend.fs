@@ -225,7 +225,7 @@ module LocalBackend =
                              (self :> IQuantumBackend).ApplyOperation (QuantumOperation.Sequence qftOps) state
 
                          | QuantumOperation.Algorithm (AlgorithmOperation.HHL intent) ->
-                             // Educational HHL intent: diagonal-only, encoded as a single ancilla rotation.
+                              // HHL intent: diagonal-only (native intent payload is diagonal eigenvalues), encoded as a single ancilla rotation.
                              //
                              // Expected qubit layout:
                              //   [0 .. EigenvalueQubits-1] = eigenvalue register (reserved)

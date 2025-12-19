@@ -437,8 +437,8 @@ module TopologicalUnifiedBackend =
                                      let ops = hadamardOps @ eigenPrepOps @ controlledOps @ inverseQftOps @ swapOps
                                      (this :> IQuantumBackend).ApplyOperation (QuantumOperation.Sequence ops) state
 
-                             | QuantumOperation.Algorithm (AlgorithmOperation.HHL intent) ->
-                                 // Educational HHL intent: diagonal-only, encoded as a single ancilla rotation.
+                              | QuantumOperation.Algorithm (AlgorithmOperation.HHL intent) ->
+                                  // HHL intent: diagonal-only (native intent payload is diagonal eigenvalues), encoded as a single ancilla rotation.
                                  let totalQubits = intent.EigenvalueQubits + intent.SolutionQubits + 1
                                  if QuantumState.numQubits state <> totalQubits then
                                      Error (QuantumError.ValidationError ("state", $"Expected {totalQubits} qubits for HHL intent, got {QuantumState.numQubits state}"))

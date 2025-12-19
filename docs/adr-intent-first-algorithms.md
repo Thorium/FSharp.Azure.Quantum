@@ -182,7 +182,7 @@ The intent-first pattern described here is already implemented in several core a
 
 - **HHL / Quantum Regression** (`src/FSharp.Azure.Quantum/Algorithms/HHL.fs`)
   - Implements explicit intent/plan/execute (`HhlExecutionIntent`, `HhlPlan`).
-  - Educational implementation note: currently approximates general matrices via diagonal strategy for regression tests, pending full Trotterization support.
+  - General Hermitian matrices are supported via explicit gate-level lowering (controlled Trotter-Suzuki Hamiltonian evolution) and backend-aware gate transpilation during planning.
 
 ## Follow-Ups (Optional Improvements)
 

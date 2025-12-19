@@ -283,7 +283,7 @@ module HHLTypes =
     /// Converges to dominant eigenvalue (largest magnitude).
     /// For Hermitian matrices, all eigenvalues are real.
     /// </remarks>
-    let private estimateMaxEigenvalue 
+    let estimateMaxEigenvalue 
         (matrix: HermitianMatrix) 
         (maxIterations: int) 
         (tolerance: float) : float =
@@ -354,7 +354,7 @@ module HHLTypes =
     /// For production: This uses Gaussian elimination for matrix inversion.
     /// For very large matrices, use iterative solvers (Conjugate Gradient, GMRES).
     /// </remarks>
-    let private estimateMinEigenvalue 
+    let estimateMinEigenvalue 
         (matrix: HermitianMatrix) 
         (maxIterations: int) 
         (tolerance: float) : float =

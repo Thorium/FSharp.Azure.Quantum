@@ -943,20 +943,45 @@ match solve leastSquares with
     printfn "Training failed: %s" err.Message
 ```
 
+For a higher-level regression workflow (training config, intercept fitting, and metrics), see `FSharp.Azure.Quantum.MachineLearning.QuantumRegressionHHL` and `examples/MachineLearning/QuantumRegressionHHLExample.fsx`.
+
+```fsharp
+open FSharp.Azure.Quantum.MachineLearning
+
+let config : QuantumRegressionHHL.RegressionConfig = {
+    TrainX = [| [| 1.0 |]; [| 2.0 |]; [| 3.0 |] |]
+    TrainY = [| 3.0; 5.0; 7.0 |]
+    EigenvalueQubits = 4
+    MinEigenvalue = 0.01
+    Backend = backend
+    Shots = 2000
+    FitIntercept = true
+    Verbose = false
+}
+
+match QuantumRegressionHHL.train config with
+| Ok result -> printfn "Weights: %A" result.Weights
+| Error err -> printfn "Training failed: %s" err.Message
+```
+
 ### Important Limitations
 
-⚠️ **Matrix Requirements:**
+**Implementation Notes (This Library):**
+- Diagonal matrices use a simpler, more accurate shortcut.
+- General Hermitian matrices are lowered into an explicit gate sequence using controlled Trotter-Suzuki Hamiltonian evolution; when targeting gate-based hardware backends, the planned circuit is transpiled to the backend gate set during planning.
+
+**Matrix Requirements:**
 - Must be **Hermitian** (A = A†) - real symmetric matrices qualify
 - Non-Hermitian can be embedded: [[0, A], [A†, 0]]
 - Dimension must be power of 2 (2×2, 4×4, 8×8, 16×16)
 
-⚠️ **Solution Format:**
+**Solution Format:**
 - Output is **quantum state |x⟩**, not classical vector
 - Local simulation: get amplitude distribution
 - Cloud backend: get measurement statistics (probabilities)
 - Full state tomography needed for exact amplitudes (exponential cost!)
 
-⚠️ **Performance Considerations:**
+**Performance Considerations:**
 - **Best for**: Large (N > 1000), sparse, well-conditioned systems
 - **Condition number κ**: Lower is better (κ < 100 recommended)
 - **Success probability**: ∝ 1/κ² (ill-conditioned = low success rate)

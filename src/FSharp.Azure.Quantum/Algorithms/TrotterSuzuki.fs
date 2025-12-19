@@ -314,6 +314,91 @@ module TrotterSuzuki =
                 | 'Z' -> c  // No change needed
                 | _ -> c
             ) circ4
+
+    /// Synthesize a controlled version of `e^(-iPt)`.
+    /// 
+    /// This keeps the basis changes and CNOT ladder unconditional, and only
+    /// controls the final Z-rotation. This is correct because when the control is |0⟩,
+    /// the controlled rotation is identity and the ladder uncomputes itself.
+    let synthesizeControlledPauliEvolution
+        (controlQubit: int)
+        (pauliString: PauliString)
+        (time: float)
+        (qubits: int[])
+        (circuit: Circuit)
+        : Circuit =
+        
+        if qubits.Length <> pauliString.Operators.Length then
+            failwith "Qubit count mismatch"
+
+        let nonIdentityIndices =
+            pauliString.Operators
+            |> Array.mapi (fun i op -> (i, op))
+            |> Array.filter (fun (_, op) -> op <> 'I')
+
+        if nonIdentityIndices.Length = 0 then
+            circuit
+        elif nonIdentityIndices.Length = 1 then
+            let (idx, op) = nonIdentityIndices[0]
+            let qubit = qubits[idx]
+            let angle = 2.0 * pauliString.Coefficient.Real * time
+
+            match op with
+            | 'Z' -> circuit |> addGate (CRZ(controlQubit, qubit, angle))
+            | 'X' ->
+                circuit
+                |> addGate (H qubit)
+                |> addGate (CRZ(controlQubit, qubit, angle))
+                |> addGate (H qubit)
+            | 'Y' ->
+                circuit
+                |> addGate (SDG qubit)
+                |> addGate (H qubit)
+                |> addGate (CRZ(controlQubit, qubit, angle))
+                |> addGate (H qubit)
+                |> addGate (S qubit)
+            | _ -> circuit
+        else
+            let circ1 =
+                nonIdentityIndices
+                |> Array.fold (fun circ (idx, op) ->
+                    let qubit = qubits[idx]
+                    match op with
+                    | 'X' -> circ |> addGate (H qubit)
+                    | 'Y' -> circ |> addGate (SDG qubit) |> addGate (H qubit)
+                    | 'Z' -> circ
+                    | _ -> circ
+                ) circuit
+
+            let targetQubit = qubits[fst nonIdentityIndices[nonIdentityIndices.Length - 1]]
+
+            let circ2 =
+                [| 0 .. nonIdentityIndices.Length - 2 |]
+                |> Array.fold (fun circ i ->
+                    let control = qubits[fst nonIdentityIndices[i]]
+                    circ |> addGate (CNOT(control, targetQubit))
+                ) circ1
+
+            let angle = 2.0 * pauliString.Coefficient.Real * time
+            let circ3 = circ2 |> addGate (CRZ(controlQubit, targetQubit, angle))
+
+            let circ4 =
+                [ nonIdentityIndices.Length - 2 .. -1 .. 0 ]
+                |> List.fold (fun c i ->
+                    let control = qubits[fst nonIdentityIndices[i]]
+                    c |> addGate (CNOT(control, targetQubit))
+                ) circ3
+
+            [ nonIdentityIndices.Length - 1 .. -1 .. 0 ]
+            |> List.fold (fun c i ->
+                let (idx, op) = nonIdentityIndices[i]
+                let qubit = qubits[idx]
+                match op with
+                | 'X' -> c |> addGate (H qubit)
+                | 'Y' -> c |> addGate (H qubit) |> addGate (S qubit)
+                | 'Z' -> c
+                | _ -> c
+            ) circ4
     
     // ========================================================================
     // TROTTER-SUZUKI DECOMPOSITION
@@ -329,6 +414,19 @@ module TrotterSuzuki =
         hamiltonian.Terms
         |> List.fold (fun circ term ->
             synthesizePauliEvolution term deltaT qubits circ
+        ) circuit
+
+    let private applyFirstOrderControlledTrotterStep
+        (controlQubit: int)
+        (hamiltonian: PauliHamiltonian)
+        (deltaT: float)
+        (qubits: int[])
+        (circuit: Circuit)
+        : Circuit =
+        
+        hamiltonian.Terms
+        |> List.fold (fun circ term ->
+            synthesizeControlledPauliEvolution controlQubit term deltaT qubits circ
         ) circuit
     
     /// Apply 2nd order Trotter step: S₂(Δt) = S₁(Δt/2) S₁†(Δt/2)
@@ -349,6 +447,23 @@ module TrotterSuzuki =
         let reversedHamiltonian = { hamiltonian with Terms = reversedTerms }
         
         applyFirstOrderTrotterStep reversedHamiltonian halfDeltaT qubits circ1
+
+    let private applySecondOrderControlledTrotterStep
+        (controlQubit: int)
+        (hamiltonian: PauliHamiltonian)
+        (deltaT: float)
+        (qubits: int[])
+        (circuit: Circuit)
+        : Circuit =
+        
+        let halfDeltaT = deltaT / 2.0
+
+        let circ1 = applyFirstOrderControlledTrotterStep controlQubit hamiltonian halfDeltaT qubits circuit
+
+        let reversedTerms = List.rev hamiltonian.Terms
+        let reversedHamiltonian = { hamiltonian with Terms = reversedTerms }
+
+        applyFirstOrderControlledTrotterStep controlQubit reversedHamiltonian halfDeltaT qubits circ1
     
     /// Synthesize circuit for Hamiltonian time evolution: U(t) = e^(-iHt)
     /// using Trotter-Suzuki decomposition
@@ -370,6 +485,31 @@ module TrotterSuzuki =
                 applySecondOrderTrotterStep hamiltonian deltaT qubits circ
             else
                 applyFirstOrderTrotterStep hamiltonian deltaT qubits circ
+        ) circuit
+
+    /// Controlled time evolution: |c⟩|ψ⟩ ↦ |c⟩ (e^(-iH·t))^c |ψ⟩.
+    ///
+    /// Uses the same Trotterization as `synthesizeHamiltonianEvolution`, but replaces
+    /// each Pauli evolution with a controlled version.
+    let synthesizeControlledHamiltonianEvolution
+        (controlQubit: int)
+        (hamiltonian: PauliHamiltonian)
+        (config: TrotterConfig)
+        (qubits: int[])
+        (circuit: Circuit)
+        : Circuit =
+        
+        if qubits.Length <> hamiltonian.NumQubits then
+            failwith $"Qubit count mismatch: expected {hamiltonian.NumQubits}, got {qubits.Length}"
+
+        let deltaT = config.Time / float config.NumSteps
+
+        [ 1 .. config.NumSteps ]
+        |> List.fold (fun circ _ ->
+            if config.Order = 2 then
+                applySecondOrderControlledTrotterStep controlQubit hamiltonian deltaT qubits circ
+            else
+                applyFirstOrderControlledTrotterStep controlQubit hamiltonian deltaT qubits circ
         ) circuit
     
     // ========================================================================

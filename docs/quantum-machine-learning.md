@@ -16,6 +16,7 @@ Quantum Machine Learning (QML) leverages quantum computing to enhance classical 
 - **Feature Maps** - Encode classical data into quantum states
 - **Variational Forms** - Parameterized ansatz circuits for training
 - **Optimizers** - Adam, SGD for quantum circuit parameter training
+- **Quantum Regression (HHL)** - Solve least-squares via quantum linear systems
 
 ## Key Concepts
 
