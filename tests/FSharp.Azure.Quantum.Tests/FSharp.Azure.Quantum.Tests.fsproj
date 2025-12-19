@@ -36,6 +36,7 @@
     <Compile Include="MeasurementTests.fs" />
     <Compile Include="TypesTests.fs" />
     <Compile Include="AuthenticationTests.fs" />
+    <Compile Include="ConstraintSchedulerTests.fs" />
     <Compile Include="CostTests.fs" />
     <Compile Include="CostEstimationTests.fs" />
     <Compile Include="QuantumClientTests.fs" />
@@ -74,8 +75,8 @@
     <Compile Include="ErrorMitigationStrategyTests.fs" />
     <Compile Include="PerformanceBenchmarkingTests.fs" />
     <Compile Include="QRNGTests.fs" />
-    <!-- <Compile Include="FermionMappingTests.fs" /> --> <!-- TODO: Depends on QuantumChemistry.fs (commented out) -->
-    <!-- <Compile Include="QuantumChemistryTests.fs" /> --> <!-- TODO: Depends on QuantumChemistry.fs (commented out) -->
+    <Compile Include="FermionMappingTests.fs" />
+    <Compile Include="QuantumChemistryTests.fs" />
     <Compile Include="QuantumTreeSearchBuilderTests.fs" />
     <Compile Include="QuantumConstraintSolverBuilderTests.fs" />
     <Compile Include="QuantumPatternMatcherBuilderTests.fs" />
@@ -94,7 +95,7 @@
     <Compile Include="DataPreprocessingTests.fs" />
     <Compile Include="ModelSerializationTests.fs" />
     <Compile Include="VQCTests.fs" />
-    <!-- <Compile Include="QuantumRegressionHHLTests.fs" /> --> <!-- TODO: Depends on QuantumRegressionHHL.fs (commented out) -->
+    <Compile Include="QuantumRegressionHHLTests.fs" />
     <Compile Include="VisualizationTests.fs" />
     <Compile Include="QuantumKeyDistributionTests.fs" />
     

@@ -4,6 +4,7 @@ open Xunit
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.MachineLearning
 open FSharp.Azure.Quantum.Business.PredictiveModel
+open FSharp.Azure.Quantum.Backends
 
 /// Tests for Quantum Linear Regression via HHL Algorithm
 module QuantumRegressionHHLTests =
@@ -14,6 +15,8 @@ module QuantumRegressionHHLTests =
     // ========================================================================
     // CONFIGURATION VALIDATION TESTS
     // ========================================================================
+    let private createLocalBackend () : IQuantumBackend =
+        LocalBackend.LocalBackend() :> IQuantumBackend
     
     [<Fact>]
     let ``Train rejects empty training features`` () =

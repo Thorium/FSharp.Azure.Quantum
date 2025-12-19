@@ -17,6 +17,7 @@
     <Compile Include="BraidingConsistencyTests.fs" />
     <Compile Include="BraidGroupTests.fs" />
     <Compile Include="KauffmanBracketTests.fs" />
+    <Compile Include="KnotConstructorsTests.fs" />
     <Compile Include="KauffmanBracketV3Tests.fs" />
     <Compile Include="BraidToGateTests.fs" />
     <Compile Include="SolovayKitaevTests.fs" />
@@ -28,7 +29,7 @@
     <Compile Include="MagicStateDistillationTests.fs" />
     <Compile Include="EntanglementEntropyTests.fs" />
     <!-- <Compile Include="TopologicalBackendAdapterTests.fs" /> --> <!-- TODO: TopologicalBackendAdapter implementation missing -->
-    <!-- <Compile Include="AlgorithmExtensionsTests.fs" /> --> <!-- TODO: AlgorithmExtensions.fs commented out in main project (references removed TopologicalBackendAdapter) -->
+    <Compile Include="AlgorithmExtensionsTests.fs" />
   </ItemGroup>
 
   <ItemGroup>

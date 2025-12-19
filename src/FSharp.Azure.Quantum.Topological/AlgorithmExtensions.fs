@@ -16,8 +16,10 @@ namespace FSharp.Azure.Quantum.Topological
 module AlgorithmExtensions =
     
     open FSharp.Azure.Quantum.Core
+    open FSharp.Azure.Quantum.Core.BackendAbstraction
+    open FSharp.Azure.Quantum.Algorithms
     open FSharp.Azure.Quantum.GroverSearch
-    open FSharp.Azure.Quantum.Topological.Integration
+    open FSharp.Azure.Quantum.GroverSearch.Oracle
 
     // ============================================================================
     // GROVER SEARCH with Topological Backend
@@ -38,23 +40,21 @@ module AlgorithmExtensions =
     /// 
     /// Example:
     ///   let oracle = Oracle.forValue 42 8
-    ///   let backend = TopologicalBackend.createSimulator AnyonType.Ising 16
+    ///   let backend = TopologicalUnifiedBackendFactory.createIsing 16
     ///   let config = { SearchConfig.Default with Shots = 1000 }
-    ///   let result = GroverSearch.searchWithTopology oracle backend config
+    ///   let result = Grover.searchWithTopology oracle backend config
     /// 
     /// Note: Only Ising anyons are currently supported for gate compilation.
     /// Use searchWithTopologyFibonacci for Fibonacci anyons (when implemented).
     let searchWithTopology
         (oracle: Oracle.CompiledOracle)
-        (topoBackend: TopologicalBackend.ITopologicalBackend)
-        (config: Search.SearchConfig)
-        : QuantumResult<Search.SearchResult> =
-        
-        // Wrap topological backend with Ising adapter (Gates → Braids)
-        let adapter = TopologicalBackendAdapter.createIsingAdapter topoBackend
+        (topoBackend: IQuantumBackend)
+        (config: Grover.GroverConfig)
+        : Result<Grover.GroverResult, QuantumError> =
         
         // Delegate to standard search API (zero code duplication)
-        Search.search oracle adapter config
+        // TopologicalUnifiedBackend implements IQuantumBackend and handles gate-to-braid compilation internally
+        Grover.search oracle topoBackend config
     
     /// Search for single value with Ising anyon topological backend
     /// 
@@ -62,14 +62,14 @@ module AlgorithmExtensions =
     /// Uses Ising anyons (Majorana zero modes).
     /// 
     /// Example:
-    ///   let backend = TopologicalBackend.createSimulator AnyonType.Ising 16
-    ///   let result = GroverSearch.searchSingleWithTopology 42 8 backend config
+    ///   let backend = TopologicalUnifiedBackendFactory.createIsing 16
+    ///   let result = Grover.searchSingleWithTopology 42 8 backend config
     let searchSingleWithTopology
         (target: int)
         (numQubits: int)
-        (topoBackend: TopologicalBackend.ITopologicalBackend)
-        (config: Search.SearchConfig)
-        : QuantumResult<Search.SearchResult> =
+        (topoBackend: IQuantumBackend)
+        (config: Grover.GroverConfig)
+        : Result<Grover.GroverResult, QuantumError> =
         
         match Oracle.forValue target numQubits with
         | Ok oracle -> searchWithTopology oracle topoBackend config
@@ -81,14 +81,14 @@ module AlgorithmExtensions =
     /// Uses Ising anyons (Majorana zero modes).
     /// 
     /// Example:
-    ///   let backend = TopologicalBackend.createSimulator AnyonType.Ising 16
-    ///   let result = GroverSearch.searchMultipleWithTopology [1;42;99] 8 backend config
+    ///   let backend = TopologicalUnifiedBackendFactory.createIsing 16
+    ///   let result = Grover.searchMultipleWithTopology [1;42;99] 8 backend config
     let searchMultipleWithTopology
         (targets: int list)
         (numQubits: int)
-        (topoBackend: TopologicalBackend.ITopologicalBackend)
-        (config: Search.SearchConfig)
-        : QuantumResult<Search.SearchResult> =
+        (topoBackend: IQuantumBackend)
+        (config: Grover.GroverConfig)
+        : Result<Grover.GroverResult, QuantumError> =
         
         if List.isEmpty targets then
             Error (QuantumError.ValidationError ("Targets", "list cannot be empty"))
@@ -103,15 +103,15 @@ module AlgorithmExtensions =
     /// Uses Ising anyons (Majorana zero modes).
     /// 
     /// Example:
-    ///   let backend = TopologicalBackend.createSimulator AnyonType.Ising 16
+    ///   let backend = TopologicalUnifiedBackendFactory.createIsing 16
     ///   let isPrime n = (* primality test *)
-    ///   let result = GroverSearch.searchWithPredicateTopology isPrime 8 backend config
+    ///   let result = Grover.searchWithPredicateTopology isPrime 8 backend config
     let searchWithPredicateTopology
         (predicate: int -> bool)
         (numQubits: int)
-        (topoBackend: TopologicalBackend.ITopologicalBackend)
-        (config: Search.SearchConfig)
-        : QuantumResult<Search.SearchResult> =
+        (topoBackend: IQuantumBackend)
+        (config: Grover.GroverConfig)
+        : Result<Grover.GroverResult, QuantumError> =
         
         match Oracle.fromPredicate predicate numQubits with
         | Ok oracle -> searchWithTopology oracle topoBackend config
@@ -121,28 +121,90 @@ module AlgorithmExtensions =
     // QFT with Topological Backend
     // ============================================================================
     
-    // NOTE: QFT implementation pending - placeholder for future extension
-    // 
-    // Planned signature:
-    //   val qftWithTopology : numQubits:int -> topoBackend:ITopologicalBackend -> QuantumResult<...>
+    /// Execute QFT with topological backend
+    ///
+    /// Uses topological braiding for QFT if supported, or compiles gates to braids.
+    ///
+    /// Parameters:
+    ///   numQubits - Number of qubits to transform
+    ///   topoBackend - Topological backend (Ising or Fibonacci)
+    ///   config - QFT configuration (swaps, inverse, shots)
+    let qftWithTopology
+        (numQubits: int)
+        (topoBackend: IQuantumBackend)
+        (config: QFT.QFTConfig)
+        : Result<QFT.QFTResult, QuantumError> =
+        
+        QFT.execute numQubits topoBackend config
+
+    /// Execute Inverse QFT with topological backend
+    ///
+    /// Convenience function for inverse QFT (QFT†).
+    let qftInverseWithTopology
+        (numQubits: int)
+        (topoBackend: IQuantumBackend)
+        (shots: int)
+        : Result<QFT.QFTResult, QuantumError> =
+        
+        QFT.executeInverse numQubits topoBackend shots
     
     // ============================================================================
     // SHOR'S ALGORITHM with Topological Backend  
     // ============================================================================
     
-    // NOTE: Shor implementation pending - placeholder for future extension
-    //
-    // Planned signature:
-    //   val factorWithTopology : number:int -> topoBackend:ITopologicalBackend -> QuantumResult<...>
+    /// Factor integer using Shor's algorithm on topological backend
+    ///
+    /// Parameters:
+    ///   number - Integer to factor (e.g., 15)
+    ///   topoBackend - Topological backend
+    ///   config - Optional configuration override
+    let factorWithTopology
+        (number: int)
+        (topoBackend: IQuantumBackend)
+        (config: ShorsTypes.ShorsConfig option)
+        : Result<ShorsTypes.ShorsResult, QuantumError> =
+        
+        match config with
+        | Some cfg -> Shor.execute cfg topoBackend
+        | None -> Shor.factor number topoBackend
+
+    /// Factor 15 using topological backend (Demonstration)
+    ///
+    /// Optimized parameters for factoring 15 = 3 x 5.
+    let factor15WithTopology
+        (topoBackend: IQuantumBackend)
+        : Result<ShorsTypes.ShorsResult, QuantumError> =
+        
+        Shor.factor15 topoBackend
 
     // ============================================================================
     // HHL ALGORITHM with Topological Backend
     // ============================================================================
     
-    // NOTE: HHL implementation pending - placeholder for future extension
-    //
-    // Planned signature:
-    //   val solveLinearSystemTopology : matrix:Matrix -> topoBackend:ITopologicalBackend -> QuantumResult<...>
+    /// Solve linear system Ax = b using HHL on topological backend
+    ///
+    /// Parameters:
+    ///   matrix - Hermitian matrix A
+    ///   vector - Input vector b
+    ///   topoBackend - Topological backend
+    ///   config - Optional configuration override
+    let solveLinearSystemTopology
+        (matrix: HHLTypes.HermitianMatrix)
+        (vector: HHLTypes.QuantumVector)
+        (topoBackend: IQuantumBackend)
+        (config: HHLTypes.HHLConfig option)
+        : Result<HHLTypes.HHLResult, QuantumError> =
+        
+        // HHL.execute is not directly exposed as static method in module,
+        // so we need to instantiate or call via proper HHL module path.
+        // Assuming HHL module structure similar to Shor/QFT.
+        
+        let hhlConfig = 
+            match config with
+            | Some cfg -> cfg
+            | None -> HHLTypes.defaultConfig matrix vector
+            
+        HHL.execute hhlConfig topoBackend
 
     // ============================================================================
     // PERFORMANCE NOTES

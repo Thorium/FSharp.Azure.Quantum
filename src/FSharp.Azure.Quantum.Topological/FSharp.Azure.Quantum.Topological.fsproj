@@ -73,7 +73,7 @@
     <Compile Include="ToricCode.fs" />
     <Compile Include="EntanglementEntropy.fs" />
     <Compile Include="TopologicalBackend.fs" />
-    <!-- <Compile Include="AlgorithmExtensions.fs" /> --> <!-- TODO: Update to new interface (references removed adapters) -->
+    <Compile Include="AlgorithmExtensions.fs" />
     
     <!-- Legacy - Old measurement-only backend (deprecated) -->
     <Compile Include="Legacy\TopologicalBackend.fs" />  <!-- Old version for backward compatibility -->

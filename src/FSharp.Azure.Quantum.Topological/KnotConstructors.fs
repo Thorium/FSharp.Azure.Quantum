@@ -270,21 +270,113 @@ module KnotConstructors =
     /// <summary>
     /// Create a torus knot T(p,q).
     /// These are knots that can be drawn on the surface of a torus.
-    /// 
-    /// Common examples:
-    ///   T(2,3) = trefoil
-    ///   T(3,4) = 8-crossing torus knot
-    ///   T(2,5) = 5-crossing torus knot
-    /// 
-    /// Note: Full implementation requires more complex arc layout.
-    /// For now, we support specific cases.
+    /// Constructed as the closure of the braid (\sigma_1 \sigma_2 ... \sigma_{p-1})^q.
     /// </summary>
     let torusKnot (p: int) (q: int) : PlanarDiagram =
-        match (p, q) with
-        | (2, 3) | (3, 2) -> trefoil true  // T(2,3) = right-handed trefoil
-        | _ -> 
-            // TODO: Implement general torus knot construction
-            failwith $"Torus knot T({p},{q}) not yet implemented. Use specific constructors."
+        if p < 1 then failwith "Number of strands p must be positive"
+        
+        // Handle trivial cases
+        if p = 1 || q = 0 then unknot
+        else
+            // Determine sign based on q
+            let sign = if q > 0 then Positive else Negative
+            let numRepeats = abs q
+            
+            // Initial state:
+            // - nextCrossingId: 0
+            // - nextArcId: p (0..p-1 are initial reserved arc IDs)
+            // - strands: [0; 1; ...; p-1] (current arc ID at each position)
+            // - crossings: empty
+            // - arcs: empty
+            let initialState = (0, p, List.init p id, Map.empty, Map.empty)
+
+            // Sequence of crossing operations: repeat 'numRepeats' times, applying p-1 crossings
+            let operations = 
+                seq { for _ in 1 .. numRepeats do for k in 0 .. p - 2 do yield k }
+
+            // Fold over operations to build the knot
+            let (finalCrossingId, finalNextArcId, finalStrands, crossings, arcs) =
+                operations
+                |> Seq.fold (fun (cId, nextArcId, strands: int list, crossings, arcs) k ->
+                    // Inputs from current strands
+                    let inTop = strands.[k]      // NW input
+                    let inBottom = strands.[k+1] // SW input
+                    
+                    // Create new output arcs
+                    let outTop = nextArcId
+                    let outBottom = nextArcId + 1
+                    
+                    // Create crossing
+                    // "Bottom" input (SW) crosses OVER to "Top" output (NE) for Positive crossing
+                    let crossing = createCrossing cId sign inTop outTop inBottom outBottom
+                    
+                    // Helper to update an arc's End position
+                    let updateArcEnd arcId endPos arcsMap =
+                        match Map.tryFind arcId arcsMap with
+                        | Some arc -> Map.add arcId { arc with End = endPos } arcsMap
+                        | None -> 
+                            // Initial arc (0..p-1) not yet in map
+                            let arc = { Id = arcId; Start = FreeEnd 0; End = endPos }
+                            Map.add arcId arc arcsMap
+                    
+                    // Update ends of input arcs and add new output arcs
+                    let newArcs = 
+                        arcs
+                        |> updateArcEnd inTop (AtCrossing(cId, NW))
+                        |> updateArcEnd inBottom (AtCrossing(cId, SW))
+                        |> Map.add outTop { Id = outTop; Start = AtCrossing(cId, NE); End = FreeEnd 0 }
+                        |> Map.add outBottom { Id = outBottom; Start = AtCrossing(cId, SE); End = FreeEnd 0 }
+                        
+                    // Update strand positions: swap k and k+1 with new outputs
+                    let newStrands = 
+                        strands 
+                        |> List.mapi (fun i s -> 
+                            if i = k then outTop 
+                            elif i = k+1 then outBottom 
+                            else s)
+
+                    (cId + 1, nextArcId + 2, newStrands, Map.add cId crossing crossings, newArcs)
+                ) initialState
+            
+            // Closure: Connect final outputs to initial inputs
+            // Map: initialArcId -> finalArcId
+            let closureMap = 
+                List.zip (List.init p id) finalStrands 
+                |> Map.ofList
+                
+            // 1. Update Crossings: Replace references to initial arcs
+            let closedCrossings =
+                crossings |> Map.map (fun _ c ->
+                    let newConns = 
+                        c.Connections |> Map.map (fun _ arcId ->
+                            if arcId < p then closureMap.[arcId] else arcId
+                        )
+                    { c with Connections = newConns }
+                )
+                
+            // 2. Update Arcs:
+            // - Remove initial arcs (IDs < p)
+            // - Update final arcs to close the loop
+            let closedArcs =
+                arcs
+                |> Map.filter (fun id _ -> id >= p) // Remove initial placeholders
+                |> Map.map (fun id arc ->
+                    // Check if this arc is a final output that needs closure
+                    // Find if 'id' is a target in our closure map (reverse lookup)
+                    let initIdOpt = 
+                        closureMap 
+                        |> Map.tryPick (fun init final -> if final = id then Some init else None)
+                    
+                    match initIdOpt with
+                    | Some initId ->
+                        // Loop back: retrieve End info from the initial arc
+                        match Map.tryFind initId arcs with
+                        | Some initArc -> { arc with End = initArc.End }
+                        | None -> arc
+                    | None -> arc
+                )
+                
+            { Crossings = closedCrossings; Arcs = closedArcs }
     
     // ========================================
     // Validation

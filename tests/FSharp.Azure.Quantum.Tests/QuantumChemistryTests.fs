@@ -232,6 +232,7 @@ module GroundStateEnergyTests =
             Tolerance = 1e-6
             InitialParameters = None
             Backend = None
+            ProgressReporter = None
         }
         
         // Act
@@ -258,6 +259,7 @@ module GroundStateEnergyTests =
             Tolerance = 1e-6
             InitialParameters = None
             Backend = None
+            ProgressReporter = None
         }
         
         // Act
@@ -284,6 +286,7 @@ module GroundStateEnergyTests =
             Tolerance = 1e-6
             InitialParameters = None
             Backend = None
+            ProgressReporter = None
         }
         
         // Act
@@ -303,6 +306,7 @@ module GroundStateEnergyTests =
             Tolerance = 1e-6
             InitialParameters = None
             Backend = None
+            ProgressReporter = None
         }
         
         // Act
@@ -331,6 +335,7 @@ module GroundStateEnergyTests =
             Tolerance = 1e-6
             InitialParameters = None
             Backend = None
+            ProgressReporter = None
         }
         
         // Act
@@ -355,6 +360,7 @@ module GroundStateEnergyTests =
             Tolerance = 1e-6
             InitialParameters = None
             Backend = None
+            ProgressReporter = None
         }
         
         // Act
@@ -376,6 +382,7 @@ module GroundStateEnergyTests =
             Tolerance = 1e-6
             InitialParameters = None
             Backend = None
+            ProgressReporter = None
         }
         
         // Act
@@ -400,6 +407,7 @@ module GroundStateEnergyTests =
             Tolerance = 1e-8   // Very tight tolerance
             InitialParameters = None
             Backend = None
+            ProgressReporter = None
         }
         
         // Act
@@ -424,6 +432,7 @@ module GroundStateEnergyTests =
             Tolerance = 1e-6
             InitialParameters = Some initialParams
             Backend = None
+            ProgressReporter = None
         }
         
         // Act

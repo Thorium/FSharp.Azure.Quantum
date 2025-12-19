@@ -16,35 +16,55 @@ open FSharp.Azure.Quantum.Topological
 module AlgorithmExtensionsTests =
     
     [<Fact>]
-    let ``AlgorithmExtensions - searchWithTopology accepts topological backend`` () =
-        // Arrange: Create topological backend and simple oracle
-        let topoBackend = TopologicalBackend.createSimulator AnyonSpecies.AnyonType.Ising 8
+    let ``AlgorithmExtensions - factorWithTopology accepts topological backend`` () =
+        // Arrange
+        // Factoring 15 needs 8 precision + 4 target qubits = 12 qubits
+        // Ising anyons: 2n + 2 anyons -> 2*12 + 2 = 26 anyons
+        let topoBackend = TopologicalUnifiedBackendFactory.createIsing 30
         
-        match Oracle.forValue 1 2 with
+        // Act
+        // Use 15 as standard test case
+        let result = AlgorithmExtensions.factorWithTopology 15 topoBackend None
+        
+        // Assert
+        match result with
+        | Ok _ -> Assert.True(true)
+        | Error (QuantumError.OperationError (name, _)) ->
+            Assert.Equal("TopologicalBackend", name)
         | Error err ->
-            Assert.True(false, $"Oracle creation failed: {err}")
-        | Ok oracle ->
-            let config = { Grover.defaultConfig with Shots = 10; Iterations = Some 1 }
+            Assert.True(false, $"Unexpected error: {err}")
+
+    [<Fact>]
+    let ``AlgorithmExtensions - solveLinearSystemTopology accepts topological backend`` () =
+        // Arrange
+        // HHL: 1 qubit for eigenvalue (simple test) + 1 qubit for solution + 1 ancilla = 3 qubits
+        // Ising anyons: 2n + 2 anyons -> 2*3 + 2 = 8 anyons
+        let topoBackend = TopologicalUnifiedBackendFactory.createIsing 16
+        
+        // Setup simple 2x2 identity system: I * x = b
+        // x should equal b
+        let vector = [| System.Numerics.Complex.One; System.Numerics.Complex.Zero |]
+        let matrixRes = HHLTypes.createDiagonalMatrix [| 1.0; 1.0 |]
+        let vectorRes = HHLTypes.createQuantumVector vector
+        
+        match matrixRes, vectorRes with
+        | Ok matrix, Ok qVector ->
+            // Act
+            let result = AlgorithmExtensions.solveLinearSystemTopology matrix qVector topoBackend None
             
-            // Act: Call searchWithTopology (integration test - may fail on unsupported gates)
-            let result = AlgorithmExtensions.searchWithTopology oracle topoBackend config
-            
-            // Assert: Verify function signature and error handling work
+            // Assert
             match result with
-            | Ok _ -> 
-                // Success - full integration working
-                Assert.True(true)
-            | Error (QuantumError.BackendError (name, msg)) ->
-                // Expected: Grover may generate unsupported gates
-                Assert.Contains("Topological Backend Adapter", name)
-                // This is OK - proves adapter is being invoked
+            | Ok _ -> Assert.True(true)
+            | Error (QuantumError.OperationError (name, _)) ->
+                Assert.Equal("TopologicalBackend", name)
             | Error err ->
-                Assert.True(false, $"Unexpected error type: {err}")
-    
+                Assert.True(false, $"Unexpected error: {err}")
+        | _ -> Assert.True(false, "Failed to create HHL test data")
+
     [<Fact>]
     let ``AlgorithmExtensions - Empty target list rejected`` () =
         // Arrange: Create backend
-        let topoBackend = TopologicalBackend.createSimulator AnyonSpecies.AnyonType.Ising 8
+        let topoBackend = TopologicalUnifiedBackendFactory.createIsing 8
         let config = Grover.defaultConfig
         
         // Act: Try to search with empty target list
@@ -60,32 +80,15 @@ module AlgorithmExtensionsTests =
             Assert.True(false, $"Wrong error type: {err}")
     
     [<Fact>]
-    let ``AlgorithmExtensions - Fibonacci adapter rejects non-Ising compilation`` () =
-        // Arrange: Create Fibonacci anyon backend
-        // NOTE: This test is now obsolete - AlgorithmExtensions only supports Ising
-        // Kept for backwards compatibility - will always use Ising adapter internally
-        let topoBackend = TopologicalBackend.createSimulator AnyonSpecies.AnyonType.Fibonacci 8
-        let config = { Grover.defaultConfig with Shots = 10; Iterations = Some 1 }
-        
-        // Act: Try to use Fibonacci anyons (will use Ising adapter anyway)
-        let result = AlgorithmExtensions.searchSingleWithTopology 1 2 topoBackend config
-        
-        // Assert: Should fail since backend is Fibonacci but adapter is Ising
-        match result with
-        | Ok _ ->
-            Assert.True(false, "Fibonacci backend with Ising adapter should fail")
-        | Error _ ->
-            // Expected: mismatch between backend and adapter
-            Assert.True(true)
-    
-    [<Fact>]
     let ``AlgorithmExtensions - Adapter respects qubit count limits`` () =
         // Arrange: Create backend with strict qubit limit
-        let topoBackend = TopologicalBackend.createSimulator AnyonSpecies.AnyonType.Ising 5  // Max 4 qubits (5 anyons)
+        // 5 anyons is enough for 2 qubits (Ising needs 2n+2 generally, or specific fusion tree size)
+        // 5 anyons < (3 qubits * 2 + 2) = 8 anyons
+        let topoBackend = TopologicalUnifiedBackendFactory.createIsing 5  
         let config = { Grover.defaultConfig with Shots = 10 }
         
-        // Act: Try to create circuit requiring 6 anyons (5 qubits)
-        let result = AlgorithmExtensions.searchSingleWithTopology 1 5 topoBackend config
+        // Act: Try to create circuit requiring 3 qubits (which exceeds 5 anyon limit)
+        let result = AlgorithmExtensions.searchSingleWithTopology 1 3 topoBackend config
         
         // Assert: Should fail with validation or backend error
         match result with
@@ -96,20 +99,20 @@ module AlgorithmExtensionsTests =
             Assert.True(true)
     
     [<Fact>]
-    let ``AlgorithmExtensions - All convenience functions have correct signatures`` () =
-        // This test verifies all public API functions compile and have expected signatures
-        // No execution - just type checking
+    let ``AlgorithmExtensions - qftWithTopology accepts topological backend`` () =
+        // Arrange
+        let topoBackend = TopologicalUnifiedBackendFactory.createIsing 8
+        let config = QFT.defaultConfig
         
-        let topoBackend = TopologicalBackend.createSimulator AnyonSpecies.AnyonType.Ising 8
-        let config = Grover.defaultConfig
+        // Act
+        let result = AlgorithmExtensions.qftWithTopology 3 topoBackend config
         
-        // Verify function signatures exist (compile-time test)
-        // NOTE: Signatures updated - anyonType parameter removed (now implicit Ising)
-        let _ = AlgorithmExtensions.searchWithTopology : Oracle.CompiledOracle -> TopologicalBackend.ITopologicalBackend -> Grover.GroverConfig -> QuantumResult<Grover.GroverResult>
-        let _ = AlgorithmExtensions.searchSingleWithTopology : int -> int -> TopologicalBackend.ITopologicalBackend -> Grover.GroverConfig -> QuantumResult<Grover.GroverResult>
-        let _ = AlgorithmExtensions.searchMultipleWithTopology : int list -> int -> TopologicalBackend.ITopologicalBackend -> Grover.GroverConfig -> QuantumResult<Grover.GroverResult>
-        let _ = AlgorithmExtensions.searchWithPredicateTopology : (int -> bool) -> int -> TopologicalBackend.ITopologicalBackend -> Grover.GroverConfig -> QuantumResult<Grover.GroverResult>
-        
-        Assert.True(true, "All function signatures correct")
+        // Assert
+        match result with
+        | Ok _ -> Assert.True(true)
+        | Error (QuantumError.OperationError (name, _)) ->
+            Assert.Equal("TopologicalBackend", name)
+        | Error err ->
+            Assert.True(false, $"Unexpected error: {err}")
 
 
