@@ -216,17 +216,18 @@ module Observability =
     
     /// Log error with structured context
     let logErrorWithContext (state: ObservabilityState) message (context: Map<string, obj>) (exn: Exception option) =
+        let safeContext = sanitizeContext context
         match exn with
         | Some ex ->
             state.Logger.Error(
                 ex,
                 "Error: {Message} with context {@Context}",
                 message,
-                context
+                safeContext
             )
         | None ->
             state.Logger.Error(
                 "Error: {Message} with context {@Context}",
                 message,
-                context
+                safeContext
             )

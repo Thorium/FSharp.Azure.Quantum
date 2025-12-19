@@ -10,6 +10,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Compile Include="TestCollections.fs" />
     <Compile Include="StateVectorTests.fs" />
     <!-- QuantumStateTests.fs temporarily disabled - needs rewrite for backend operations instead of applyGate -->
     <!-- <Compile Include="QuantumStateTests.fs" /> -->

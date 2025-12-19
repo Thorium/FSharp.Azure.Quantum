@@ -9,6 +9,7 @@ open System
 /// Tests for Quantum Phase Estimation (QPE) using unified backend
 module QPE = FSharp.Azure.Quantum.Algorithms.QPE
 
+[<Collection("NonParallel")>]
 module QPETests =
 
     // ========================================================================

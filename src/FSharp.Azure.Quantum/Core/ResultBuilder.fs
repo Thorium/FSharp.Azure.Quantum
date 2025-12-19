@@ -1,5 +1,7 @@
 namespace FSharp.Azure.Quantum.Core
 
+open System
+
 /// Result computation expression builder for Railway-Oriented Programming
 /// 
 /// Provides a clean, composable syntax for handling Result types throughout
@@ -130,11 +132,25 @@ module Result =
         | Ok x -> x
         | Error e -> getDefault e
     
-    /// Unwrap Ok value or throw exception with error message
+    /// Unwrap Ok value or throw exception.
+    ///
+    /// NOTE: Prefer matching on the Result or using `defaultValue` / `defaultWith`.
+    /// This function exists mainly for tests/quick scripts.
+    [<Obsolete("Result.get throws on Error. Prefer matching on Result or using defaultValue/defaultWith.")>]
     let get (result: Result<'T, 'E>) : 'T =
         match result with
         | Ok x -> x
-        | Error e -> failwith $"Result.get called on Error: {e}"
+        | Error e ->
+            raise (InvalidOperationException($"Result.get called on Error: {e}"))
+
+    /// Unwrap Ok value or throw exception.
+    ///
+    /// Use this only when a thrown exception is acceptable.
+    let unsafeGet (result: Result<'T, 'E>) : 'T =
+        match result with
+        | Ok x -> x
+        | Error e ->
+            raise (InvalidOperationException($"Result.unsafeGet called on Error: {e}"))
     
     /// Check if result is Ok
     let isOk (result: Result<'T, 'E>) : bool =

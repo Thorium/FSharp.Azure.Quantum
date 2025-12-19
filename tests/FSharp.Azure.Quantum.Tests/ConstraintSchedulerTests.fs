@@ -25,6 +25,7 @@ type MockGroverBackend(solutions: int list) =
         member _.ExecuteToState _ = 
              Ok (QuantumState.StateVector (LocalSimulator.StateVector.init 1))
 
+[<Collection("NonParallel")>]
 module ConstraintSchedulerTests =
 
     // Helper to extract solution bits for testing
