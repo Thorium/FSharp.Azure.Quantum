@@ -204,6 +204,7 @@ module AlgorithmExtensions =
             | Some cfg -> cfg
             | None -> HHLTypes.defaultConfig matrix vector
             
+        // Use HHL.execute
         HHL.execute hhlConfig topoBackend
 
     // ============================================================================

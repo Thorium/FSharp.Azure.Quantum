@@ -180,6 +180,10 @@ The intent-first pattern described here is already implemented in several core a
 - **Annealing intent as an extension operation** (`src/FSharp.Azure.Quantum/Backends/DWaveBackend.fs`)
   - Demonstrates how non-unitary backends can expose **semantic intents** via `QuantumOperation.Extension` (e.g., sampling an Ising problem) without pretending to be a gate backend.
 
+- **HHL / Quantum Regression** (`src/FSharp.Azure.Quantum/Algorithms/HHL.fs`)
+  - Implements explicit intent/plan/execute (`HhlExecutionIntent`, `HhlPlan`).
+  - Educational implementation note: currently approximates general matrices via diagonal strategy for regression tests, pending full Trotterization support.
+
 ## Follow-Ups (Optional Improvements)
 
 - **Standardize plan visibility**: expose planned strategy in public results where it helps diagnostics.
