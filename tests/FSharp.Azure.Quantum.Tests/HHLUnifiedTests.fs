@@ -60,6 +60,12 @@ module HHLUnifiedTests =
                     match gate with
                     | X _ | Y _ | Z _ | H _ | RX _ | RY _ | RZ _ | CNOT _ | CZ _ | SWAP _ -> true
                     | S _ | SDG _ | T _ | TDG _ | P _ | CP _ | CRX _ | CRY _ | CRZ _ | MCZ _ | CCX _ | Measure _ | U3 _ -> false
+                | QuantumOperation.Extension _ 
+                | QuantumOperation.Braid _ 
+                | QuantumOperation.Measure _ 
+                | QuantumOperation.FMove _ 
+                | QuantumOperation.Sequence _ 
+                    -> false
 
             member _.Name = "rigetti.sim.qvm (gate-only)"
             member _.InitializeState numQubits = inner.InitializeState numQubits

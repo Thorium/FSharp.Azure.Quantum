@@ -85,79 +85,49 @@ module VisualizationExtensions =
             renderTree this.Tree "" true
             sb.ToString()
     
-    /// Extension methods for Topological Superposition states
-    type TopologicalOperations.Superposition with
+    /// Extension methods for TopologicalBuilder.BuilderContext
+    type TopologicalBuilder.BuilderContext with
         
-        /// Generate Mermaid diagram showing superposition components
+        /// Generate Mermaid sequence diagram of the topological circuit
         member this.ToMermaid() : string =
             let sb = StringBuilder()
             sb.AppendLine("```mermaid") |> ignore
-            sb.AppendLine("graph LR") |> ignore
-            sb.AppendLine("    %% Quantum Superposition") |> ignore
+            sb.AppendLine("sequenceDiagram") |> ignore
+            sb.AppendLine("    autonumber") |> ignore
             
-            // Show superposition as weighted sum of basis states
-            sb.AppendLine(sprintf "    psi[\"|ψ⟩<br/>Superposition<br/>(%d terms)\"]" this.Terms.Length) |> ignore
-            sb.AppendLine("    style psi fill:#ff6b6b,stroke:#333,stroke-width:3px") |> ignore
+            // Reverse history to process in chronological order
+            let history = List.rev this.History
             
-            // Show each term with amplitude and probability
-            this.Terms
-            |> List.iteri (fun i (amplitude, state) ->
-                let prob = TopologicalOperations.probability amplitude
-                let treeStr = FusionTree.toString state.Tree
-                
-                sb.AppendLine(sprintf "    term%d[\"%s<br/>amp: %.3f + %.3fi<br/>P: %.3f\"]" 
-                    i treeStr amplitude.Real amplitude.Imaginary prob) |> ignore
-                
-                // Color by probability
-                let color = 
-                    if prob > 0.5 then "95e1d3"  // High probability: green
-                    elif prob > 0.25 then "4ecdc4" // Medium: cyan
-                    else "a29bfe"  // Low: purple
-                
-                sb.AppendLine(sprintf "    style term%d fill:#%s,stroke:#333" i color) |> ignore
-                sb.AppendLine(sprintf "    psi ==>|\"%.3f\"| term%d" prob i) |> ignore
-            )
+            // Helper to get anyon names
+            let getAnyonName i = sprintf "Anyon%d" i
             
-            // Add normalization check
-            let isNorm = TopologicalOperations.isNormalized this
-            let normColor = if isNorm then "green" else "red"
-            sb.AppendLine("") |> ignore
-            sb.AppendLine(sprintf "    norm[\"Normalized: %b\"]" isNorm) |> ignore
-            sb.AppendLine(sprintf "    style norm fill:#ffffff,stroke:%s,stroke-width:2px" normColor) |> ignore
+            // Process history
+            let mutable anyonCount = 0
+            
+            for op in history do
+                match op with
+                | TopologicalBuilder.Init (anyonType, count) ->
+                    anyonCount <- count
+                    sb.AppendLine(sprintf "    Note over %s,%s: Initialize %d %A Anyons" 
+                        (getAnyonName 0) (getAnyonName (count-1)) count anyonType) |> ignore
+                        
+                | TopologicalBuilder.Braid index ->
+                    let left = getAnyonName index
+                    let right = getAnyonName (index + 1)
+                    sb.AppendLine(sprintf "    %s->>%s: Braid σ%d" left right index) |> ignore
+                    sb.AppendLine(sprintf "    %s->>%s: Swap" right left) |> ignore
+                    
+                | TopologicalBuilder.Measure (index, outcome, prob) ->
+                    let left = getAnyonName index
+                    let right = getAnyonName (index + 1)
+                    sb.AppendLine(sprintf "    Note over %s,%s: Measure Fusion" left right) |> ignore
+                    sb.AppendLine(sprintf "    %s-->>%s: Result: %A (P=%.2f)" left right outcome prob) |> ignore
+                    
+                | TopologicalBuilder.Comment msg ->
+                    if anyonCount > 0 then
+                        sb.AppendLine(sprintf "    Note over %s,%s: %s" 
+                            (getAnyonName 0) (getAnyonName (anyonCount-1)) msg) |> ignore
             
             sb.AppendLine("```") |> ignore
             sb.ToString()
-        
-        /// Generate ASCII representation of superposition
-        member this.ToASCII() : string =
-            let sb = StringBuilder()
-            sb.AppendLine("Topological Quantum Superposition") |> ignore
-            sb.AppendLine("==================================") |> ignore
-            sb.AppendLine(sprintf "Theory: %A" this.AnyonType) |> ignore
-            sb.AppendLine(sprintf "Terms: %d" this.Terms.Length) |> ignore
-            sb.AppendLine(sprintf "Normalized: %b" (TopologicalOperations.isNormalized this)) |> ignore
-            sb.AppendLine("") |> ignore
-            
-            // Calculate total probability
-            let totalProb = 
-                this.Terms 
-                |> List.sumBy (fun (amp, _) -> TopologicalOperations.probability amp)
-            sb.AppendLine(sprintf "Total Probability: %.6f" totalProb) |> ignore
-            sb.AppendLine("") |> ignore
-            
-            // Show each term
-            sb.AppendLine("Basis States:") |> ignore
-            this.Terms
-            |> List.iteri (fun i (amplitude, state) ->
-                let prob = TopologicalOperations.probability amplitude
-                let treeStr = FusionTree.toString state.Tree
-                
-                sb.AppendLine(sprintf "  [%d] %.4f + %.4fi  |  P = %.4f" i amplitude.Real amplitude.Imaginary prob) |> ignore
-                sb.AppendLine(sprintf "      Tree: %s" treeStr) |> ignore
-                sb.AppendLine(sprintf "      Anyons: %d, Charge: %A" 
-                    (FusionTree.size state.Tree) 
-                    (FusionTree.totalCharge state.Tree state.AnyonType)) |> ignore
-                sb.AppendLine("") |> ignore
-            )
-            
-            sb.ToString()
+

@@ -82,10 +82,16 @@ printfn ""
 // Create a uniform superposition of |0⟩ and |1⟩: (|0⟩ + |1⟩)/√2
 let bellState = TopologicalOperations.uniform [qubitZero; qubitOne] AnyonSpecies.AnyonType.Ising
 
-printfn "%s" (bellState.ToASCII())
+printfn "Bell State Superposition Terms:"
+for (amp, state) in bellState.Terms do
+    printfn "Amplitude: %A" amp
+    printfn "%s" (state.ToASCII())
+
 printfn ""
-printfn "Mermaid diagram:"
-printfn "%s" (bellState.ToMermaid())
+printfn "Mermaid diagrams for terms:"
+for (amp, state) in bellState.Terms do
+    printfn "Amplitude: %A" amp
+    printfn "%s" (state.ToMermaid())
 printfn ""
 
 // ============================================================================
@@ -125,10 +131,14 @@ let initialState = TopologicalOperations.pureState qubitZero
 match TopologicalOperations.braidSuperposition 0 initialState with
 | Ok braidedState ->
     printfn "After braiding anyon 0 and 1:"
-    printfn "%s" (braidedState.ToASCII())
+    for (amp, state) in braidedState.Terms do
+        printfn "Amplitude: %A" amp
+        printfn "%s" (state.ToASCII())
     printfn ""
     printfn "Mermaid diagram:"
-    printfn "%s" (braidedState.ToMermaid())
+    for (amp, state) in braidedState.Terms do
+        printfn "Amplitude: %A" amp
+        printfn "%s" (state.ToMermaid())
 | Error err ->
     printfn "Error during braiding: %s" err.Message
 

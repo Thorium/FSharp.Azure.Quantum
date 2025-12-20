@@ -18,7 +18,7 @@
 // ============================================================================
 
 // Use local build for development
-#I "../src/FSharp.Azure.Quantum/bin/Debug/net10.0"
+#I "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0"
 #r "FSharp.Azure.Quantum.dll"
 
 // For published package, use instead:

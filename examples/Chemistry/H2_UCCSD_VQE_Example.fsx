@@ -11,7 +11,7 @@
 /// **Target**: H2 molecule ground state energy = -1.137 Hartree (known exact value)
 /// **Accuracy Goal**: Chemical accuracy (±1 kcal/mol = ±0.0016 Hartree)
 
-#r "../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
+#r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 
 open FSharp.Azure.Quantum.QuantumChemistry
 open FSharp.Azure.Quantum.QuantumChemistry.FermionMapping

@@ -4,7 +4,7 @@
 /// This test verifies that the critical issues found in the BB84 implementation
 /// have been properly fixed.
 
-#r "../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
+#r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 
 open FSharp.Azure.Quantum.Algorithms.QuantumKeyDistribution
 open FSharp.Azure.Quantum.Backends.LocalBackend

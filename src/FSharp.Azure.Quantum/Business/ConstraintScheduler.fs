@@ -316,39 +316,91 @@ module ConstraintScheduler =
         // Each task-resource pair is a boolean variable
         let numVars = problem.Tasks.Length * problem.Resources.Length
         
-        // Hard constraints as SAT clauses (must all be satisfied)
-        let clauses =
+        // 1. Structural Constraints: Each task must be assigned to EXACTLY one resource
+        let structuralClauses =
+            problem.Tasks
+            |> List.collect (fun task ->
+                let t = taskIdx.[task]
+                
+                // 1a. At least one resource (OR of all resource vars for this task)
+                let atLeastOne = 
+                    problem.Resources
+                    |> List.mapi (fun r _ -> 
+                        let varId = t * problem.Resources.Length + r
+                        { VariableIndex = varId; IsNegated = false }
+                    )
+                    |> fun lits -> { Literals = lits }
+                
+                // 1b. At most one resource (Pairwise mutex: NOT r1 OR NOT r2)
+                let atMostOne = 
+                    problem.Resources
+                    |> List.mapi (fun r1 _ ->
+                        problem.Resources
+                        |> List.mapi (fun r2 _ ->
+                            if r1 < r2 then
+                                let v1 = t * problem.Resources.Length + r1
+                                let v2 = t * problem.Resources.Length + r2
+                                Some { Literals = [
+                                    { VariableIndex = v1; IsNegated = true }; 
+                                    { VariableIndex = v2; IsNegated = true }
+                                ] }
+                            else
+                                None
+                        )
+                        |> List.choose id
+                    )
+                    |> List.concat
+                    
+                atLeastOne :: atMostOne
+            )
+
+        // 2. User Hard constraints
+        let constraintClauses =
             problem.HardConstraints
-            |> List.choose (fun constraint' ->
+            |> List.collect (fun constraint' ->
                 match constraint' with
                 | Conflict (task1, task2) ->
                     // If task1 uses resource R, task2 cannot use R
-                    // Placeholder: would generate actual SAT clauses
-                    None
+                    // For each resource R: NOT x(t1,R) OR NOT x(t2,R)
+                    match Map.tryFind task1 taskIdx, Map.tryFind task2 taskIdx with
+                    | Some t1, Some t2 ->
+                        problem.Resources
+                        |> List.mapi (fun r _ ->
+                            let v1 = t1 * problem.Resources.Length + r
+                            let v2 = t2 * problem.Resources.Length + r
+                            { Literals = [
+                                { VariableIndex = v1; IsNegated = true }; 
+                                { VariableIndex = v2; IsNegated = true }
+                            ] }
+                        )
+                    | _ -> []
                 
                 | RequiresResource (task, resource) ->
                     // Task must use this specific resource
+                    // x(t,r) must be true
                     match Map.tryFind task taskIdx, Map.tryFind resource resIdx with
                     | Some t, Some r ->
                         let varId = t * problem.Resources.Length + r
                         let lit = { VariableIndex = varId; IsNegated = false }
-                        Some { Literals = [lit] }
-                    | _ -> None
+                        [ { Literals = [lit] } ]
+                    | _ -> []
                 
                 | Precedence _ ->
-                    None  // Would need temporal logic encoding
+                    []  // Would need temporal logic encoding, ignoring for now
             )
+        
+        let allClauses = structuralClauses @ constraintClauses
         
         let formula = {
             NumVariables = numVars
-            Clauses = clauses
+            Clauses = allClauses
         }
         
         {
             Formula = formula
-            MinClausesSatisfied = clauses.Length  // All hard constraints must be satisfied
+            MinClausesSatisfied = allClauses.Length  // All constraints (structural + user) must be satisfied
         }
-    
+
     /// Convert scheduling problem to Weighted Graph Coloring for cost optimization
     let private toWeightedColoring (problem: SchedulingProblem) : WeightedColoringConfig =
         let taskIdx = createTaskIndex problem.Tasks

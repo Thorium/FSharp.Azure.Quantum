@@ -8,7 +8,7 @@
 /// with a single query, compared to 2^(n-1)+1 queries classically.
 
 //#r "nuget: FSharp.Azure.Quantum"
-#r "../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
+#r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 
 open FSharp.Azure.Quantum.Algorithms.DeutschJozsa
 open FSharp.Azure.Quantum.Backends.LocalBackend

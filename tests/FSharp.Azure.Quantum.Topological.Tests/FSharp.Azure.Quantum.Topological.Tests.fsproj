@@ -28,6 +28,7 @@
     <Compile Include="TopologicalFormatTests.fs" />
     <Compile Include="MagicStateDistillationTests.fs" />
     <Compile Include="EntanglementEntropyTests.fs" />
+    <Compile Include="VisualizationTests.fs" />
     <!-- <Compile Include="TopologicalBackendAdapterTests.fs" /> --> <!-- TODO: TopologicalBackendAdapter implementation missing -->
     <Compile Include="AlgorithmExtensionsTests.fs" />
   </ItemGroup>

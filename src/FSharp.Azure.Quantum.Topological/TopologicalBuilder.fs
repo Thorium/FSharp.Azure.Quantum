@@ -4,7 +4,7 @@ namespace FSharp.Azure.Quantum.Topological
 /// 
 /// This builder provides idiomatic F# syntax for composing topological
 /// quantum operations. Programs written with this builder are backend-agnostic
-/// and work with ANY ITopologicalBackend (simulator OR hardware).
+/// and work with ANY IQuantumBackend (simulator OR hardware).
 /// 
 /// Key features:
 /// - Natural F# syntax with let! and do!
@@ -26,39 +26,53 @@ namespace FSharp.Azure.Quantum.Topological
 module TopologicalBuilder =
     
     open System.Threading.Tasks
+    open FSharp.Azure.Quantum.Core
+    open FSharp.Azure.Quantum.Core.BackendAbstraction
     
     // ========================================================================
     // BUILDER CONTEXT
     // ========================================================================
     
+    /// Record of a topological operation for visualization
+    type OperationRecord =
+        | Init of AnyonSpecies.AnyonType * int
+        | Braid of int
+        | Measure of int * AnyonSpecies.Particle * float
+        | Comment of string
+
     /// Context that flows through the computation
     /// Contains the backend and current quantum state
     type BuilderContext = {
         /// The backend being used for execution
-        Backend: TopologicalBackend.ITopologicalBackend
+        Backend: IQuantumBackend
         
-        /// Current quantum state (fusion tree superposition)
-        CurrentState: TopologicalOperations.Superposition
+        /// Current quantum state
+        CurrentState: QuantumState
         
         /// Accumulated measurement results
         MeasurementResults: (AnyonSpecies.Particle * float) list
         
         /// Execution log for debugging
         ExecutionLog: string list
+        
+        /// Structured history for visualization
+        History: OperationRecord list
     }
     
     /// Create initial context with empty state
-    let createContext backend = 
-        // Create a minimal initial state (will be replaced by Initialize)
+    let createContext (backend: IQuantumBackend) = 
+        // Create a minimal initial state (vacuum)
+        // Note: Real initialization happens via 'initialize' operation
         let vacuumTree = FusionTree.leaf AnyonSpecies.Particle.Vacuum
         let vacuumState = FusionTree.create vacuumTree AnyonSpecies.AnyonType.Ising
-        let initialState = TopologicalOperations.pureState vacuumState
+        let initialState = QuantumState.FusionSuperposition (TopologicalOperations.toInterface (TopologicalOperations.pureState vacuumState))
         
         {
             Backend = backend
             CurrentState = initialState
             MeasurementResults = []
             ExecutionLog = []
+            History = []
         }
     
     /// Update state in context
@@ -73,57 +87,103 @@ module TopologicalBuilder =
     /// Add log entry to context
     let log context message =
         { context with ExecutionLog = message :: context.ExecutionLog }
+
+    /// Add operation to history
+    let addHistory context op =
+        { context with History = op :: context.History }
     
     // ========================================================================
     // CORE OPERATIONS (Backend-Agnostic)
     // ========================================================================
     
     /// Initialize anyons
-    let initialize (anyonType: AnyonSpecies.AnyonType) (count: int) (context: BuilderContext) =
+    let initialize (anyonType: AnyonSpecies.AnyonType) (count: int) (context: BuilderContext) : Task<Result<BuilderContext, QuantumError>> =
         task {
-            let! stateResult = context.Backend.Initialize anyonType count
+            // Note: IQuantumBackend.InitializeState takes logical qubits/size.
+            // We map the requested count to the backend's initialization.
+            // The anyonType is primarily determined by the backend configuration,
+            // but we keep the parameter for DSL compatibility.
+            // REMINDER: InitializeState returns a Result, not a Task<Result>. Use 'let', not 'let!'.
+            let stateResult = context.Backend.InitializeState count
             return
                 match stateResult with
                 | Ok state ->
                     let ctx = updateState context state
                     let ctx' = log ctx $"Initialized {count} {anyonType} anyons"
-                    Ok ctx'
+                    let ctx'' = addHistory ctx' (Init (anyonType, count))
+                    Ok ctx''
                 | Error err ->
-                    Error err
+                    Error (QuantumError.OperationError ("TopologicalBuilder", err.ToString()))
         }
     
     /// Braid anyons at given index
-    let braid (leftIndex: int) (context: BuilderContext) =
+    let braid (leftIndex: int) (context: BuilderContext) : Task<Result<BuilderContext, QuantumError>> =
         task {
-            let! newStateResult = context.Backend.Braid leftIndex context.CurrentState
+            // REMINDER: ApplyOperation returns a Result, not a Task<Result>. Use 'let', not 'let!'.
+            let newStateResult = context.Backend.ApplyOperation (QuantumOperation.Braid leftIndex) context.CurrentState
             return
                 match newStateResult with
                 | Ok newState ->
                     let ctx = updateState context newState
                     let ctx' = log ctx $"Braided anyons at index {leftIndex}"
-                    Ok ctx'
+                    let ctx'' = addHistory ctx' (Braid leftIndex)
+                    Ok ctx''
                 | Error err ->
-                    Error err
+                    Error (QuantumError.OperationError ("TopologicalBuilder", err.ToString()))
         }
     
     /// Measure fusion at given index
-    let measure (leftIndex: int) (context: BuilderContext) =
+    let measure (leftIndex: int) (context: BuilderContext) : Task<Result<(AnyonSpecies.Particle * BuilderContext), QuantumError>> =
         task {
-            let! measureResult = context.Backend.MeasureFusion leftIndex context.CurrentState
-            
+            // IQuantumBackend doesn't support returning measurement outcome from ApplyOperation.
+            // We implement measurement logic client-side by inspecting the state.
+            let measureResult =
+                match context.CurrentState with
+                | QuantumState.FusionSuperposition fs ->
+                    match TopologicalOperations.fromInterface fs with
+                    | Some superposition ->
+                         // Check if it's a pure state (single term) which measureFusion supports
+                         match superposition.Terms with
+                         | [(_, singleState)] ->
+                             TopologicalOperations.measureFusion leftIndex singleState
+                             |> Result.mapError (fun err -> QuantumError.OperationError ("TopologicalBuilder", err.Message))
+                         | _ ->
+                             // TODO: Implement full superposition measurement if needed.
+                             // For now, we restrict to pure states as per original logic's implication.
+                             Error (QuantumError.OperationError ("TopologicalBuilder", "Measurement is currently only supported for pure topological states (single superposition term)."))
+                    | None ->
+                        Error (QuantumError.ValidationError ("state", "Could not unwrap FusionSuperposition"))
+                | _ ->
+                    Error (QuantumError.ValidationError ("state", "State is not a FusionSuperposition"))
+
             return
                 match measureResult with
-                | Ok (outcome, collapsed, probability) ->
-                    let ctx = updateState context collapsed
-                    let ctx' = addMeasurement ctx (outcome, probability)
-                    let ctx'' = log ctx' $"Measured fusion at index {leftIndex}: {outcome} (p={probability:F4})"
-                    Ok (outcome, ctx'')
+                | Ok outcomes ->
+                    // Sample one outcome (mimic single-shot behavior)
+                    match List.tryHead outcomes with
+                    | Some (prob, opResult) ->
+                         match opResult.ClassicalOutcome with
+                         | Some outcome ->
+                             // Correct: Re-wrap the raw FusionTree.State (opResult.State) into a Superposition
+                             let collapsedSuperposition = TopologicalOperations.pureState opResult.State
+                             let collapsedState = 
+                                 QuantumState.FusionSuperposition (TopologicalOperations.toInterface collapsedSuperposition)
+                             
+                             let ctx = updateState context collapsedState
+                             let ctx' = addMeasurement ctx (outcome, prob)
+                             let ctx'' = log ctx' $"Measured fusion at index {leftIndex}: {outcome} (p={prob:F4})"
+                             let ctx''' = addHistory ctx'' (Measure (leftIndex, outcome, prob))
+                             Ok (outcome, ctx''')
+                         | None ->
+                             Error (QuantumError.OperationError ("TopologicalBuilder", "Measurement produced no classical outcome"))
+                    | None ->
+                        Error (QuantumError.OperationError ("TopologicalBuilder", "Measurement returned no outcomes"))
                 | Error err ->
                     Error err
         }
     
     /// Apply a sequence of braiding operations
-    let braidSequence (indices: int list) (context: BuilderContext) =
+    let braidSequence (indices: int list) (context: BuilderContext) : Task<Result<BuilderContext, QuantumError>> =
         task {
             // Functional fold - no mutable state
             let! finalResult =
@@ -142,28 +202,32 @@ module TopologicalBuilder =
     
     /// Get current state (for inspection/debugging)
     let getState (context: BuilderContext) =
-        task { return (context.CurrentState, context) }
+        task { return Ok (context.CurrentState, context) }
     
     /// Get measurement results
     let getResults (context: BuilderContext) =
-        task { return (List.rev context.MeasurementResults, context) }
+        task { return Ok (List.rev context.MeasurementResults, context) }
     
     /// Get execution log
     let getLog (context: BuilderContext) =
-        task { return (List.rev context.ExecutionLog, context) }
+        task { return Ok (List.rev context.ExecutionLog, context) }
+        
+    /// Get full context (for visualization/debugging)
+    let getContext (context: BuilderContext) =
+        task { return Ok (context, context) }
     
     // ========================================================================
     // COMPUTATION EXPRESSION BUILDER
     // ========================================================================
     
     /// Computation expression builder for topological quantum programs
-    type TopologicalProgramBuilder(backend: TopologicalBackend.ITopologicalBackend) =
+    type TopologicalProgramBuilder(backend: IQuantumBackend) =
         
         /// Initial context
         let initialContext = createContext backend
         
         /// Bind operation for Result-wrapped values
-        member _.Bind(operation: BuilderContext -> Task<TopologicalResult<'a * BuilderContext>>, continuation: 'a -> BuilderContext -> Task<TopologicalResult<'b * BuilderContext>>) =
+        member _.Bind(operation: BuilderContext -> Task<Result<'a * BuilderContext, QuantumError>>, continuation: 'a -> BuilderContext -> Task<Result<'b * BuilderContext, QuantumError>>) =
             fun (context: BuilderContext) -> task {
                 let! opResult = operation context
                 return!
@@ -173,7 +237,7 @@ module TopologicalBuilder =
             }
         
         /// Bind for Result-wrapped context updates (for do!)
-        member _.Bind(operation: BuilderContext -> Task<TopologicalResult<BuilderContext>>, continuation: unit -> BuilderContext -> Task<TopologicalResult<'a * BuilderContext>>) =
+        member _.Bind(operation: BuilderContext -> Task<Result<BuilderContext, QuantumError>>, continuation: unit -> BuilderContext -> Task<Result<'a * BuilderContext, QuantumError>>) =
             fun (context: BuilderContext) -> task {
                 let! opResult = operation context
                 return!
@@ -182,6 +246,18 @@ module TopologicalBuilder =
                     | Error err -> Task.FromResult(Error err)
             }
         
+        /// Yield (return a value)
+        member _.Yield(value: 'a) =
+            fun (context: BuilderContext) -> task {
+                return Ok (value, context)
+            }
+        
+        /// Yield (return unit)
+        member _.Yield(x: unit) =
+            fun (context: BuilderContext) -> task {
+                return Ok ((), context)
+            }
+            
         /// Return a value
         member _.Return(value: 'a) =
             fun (context: BuilderContext) -> task {
@@ -189,7 +265,7 @@ module TopologicalBuilder =
             }
         
         /// Return from a computation
-        member _.ReturnFrom(operation: BuilderContext -> Task<TopologicalResult<'a * BuilderContext>>) =
+        member _.ReturnFrom(operation: BuilderContext -> Task<Result<'a * BuilderContext, QuantumError>>) =
             operation
         
         /// Zero (for computations without return)
@@ -199,22 +275,17 @@ module TopologicalBuilder =
             }
         
         /// Delay evaluation
-        member _.Delay(f: unit -> (BuilderContext -> Task<TopologicalResult<'a * BuilderContext>>)) =
+        member _.Delay(f: unit -> (BuilderContext -> Task<Result<'a * BuilderContext, QuantumError>>)) =
             fun (context: BuilderContext) -> task {
                 return! f () context
             }
         
         /// Run the computation with initial context
-        member _.Run(operation: BuilderContext -> Task<TopologicalResult<'a * BuilderContext>>) = task {
-            let! opResult = operation initialContext
-            return
-                match opResult with
-                | Ok (result, _) -> Ok result
-                | Error err -> Error err
-        }
+        member _.Run(operation: BuilderContext -> Task<Result<'a * BuilderContext, QuantumError>>) = 
+            operation
         
         /// Combine two computations
-        member _.Combine(operation1: BuilderContext -> Task<TopologicalResult<unit * BuilderContext>>, operation2: BuilderContext -> Task<TopologicalResult<'a * BuilderContext>>) =
+        member _.Combine(operation1: BuilderContext -> Task<Result<unit * BuilderContext, QuantumError>>, operation2: BuilderContext -> Task<Result<'a * BuilderContext, QuantumError>>) =
             fun (context: BuilderContext) -> task {
                 let! op1Result = operation1 context
                 return!
@@ -224,7 +295,7 @@ module TopologicalBuilder =
             }
         
         /// For loop - functional fold pattern
-        member _.For(sequence: seq<'T>, body: 'T -> BuilderContext -> Task<TopologicalResult<unit * BuilderContext>>) =
+        member _.For(sequence: seq<'T>, body: 'T -> BuilderContext -> Task<Result<unit * BuilderContext, QuantumError>>) =
             fun (context: BuilderContext) -> task {
                 let! finalResult =
                     sequence
@@ -249,7 +320,7 @@ module TopologicalBuilder =
             }
         
         /// While loop - recursive pattern (no mutable state)
-        member _.While(guard: unit -> bool, body: BuilderContext -> Task<TopologicalResult<unit * BuilderContext>>) =
+        member _.While(guard: unit -> bool, body: BuilderContext -> Task<Result<unit * BuilderContext, QuantumError>>) =
             fun (context: BuilderContext) -> 
                 let rec loop ctx = task {
                     if guard () then
@@ -295,85 +366,33 @@ module TopologicalBuilder =
     // ========================================================================
     
     /// Create a topological program builder for a given backend
-    let create (backend: TopologicalBackend.ITopologicalBackend) =
+    let create (backend: IQuantumBackend) =
         TopologicalProgramBuilder(backend)
     
     /// Execute a program and return result with execution context
-    let executeWithContext (backend: TopologicalBackend.ITopologicalBackend) (program: BuilderContext -> Task<'a * BuilderContext>) = task {
+    let executeWithContext (backend: IQuantumBackend) (program: BuilderContext -> Task<Result<'a * BuilderContext, QuantumError>>) = task {
         let ctx = createContext backend
-        let! (result, finalContext) = program ctx
-        return (result, finalContext)
+        let! opResult = program ctx
+        return
+            match opResult with
+            | Ok (result, finalContext) -> Ok (result, finalContext)
+            | Error err -> Error err
     }
     
     /// Execute a program and return just the result
-    let execute (backend: TopologicalBackend.ITopologicalBackend) (program: BuilderContext -> Task<'a * BuilderContext>) = task {
-        let! (result, _) = executeWithContext backend program
-        return result
+    let execute (backend: IQuantumBackend) (program: BuilderContext -> Task<Result<'a * BuilderContext, QuantumError>>) = task {
+        let! result = executeWithContext backend program
+        return
+            match result with
+            | Ok (res, _) -> Ok res
+            | Error err -> Error err
     }
     
     // ========================================================================
-    // CUSTOM OPERATIONS (OPTIONAL SYNTAX SUGAR)
+    // CUSTOM OPERATIONS (OPTIONAL SYNTAX SUGAR) - REMOVED FOR STABILITY
     // ========================================================================
-    
-    type TopologicalProgramBuilder with
-        
-        /// Custom operation: initialize anyons
-        /// Usage: initialize Ising 4
-        [<CustomOperation("initialize")>]
-        member _.Initialize(context: BuilderContext -> Task<unit * BuilderContext>, anyonType: AnyonSpecies.AnyonType, count: int) =
-            fun (ctx: BuilderContext) -> task {
-                let! (_, ctx') = context ctx
-                let! ctx'' = initialize anyonType count ctx'
-                return ((), ctx'')
-            }
-        
-        /// Custom operation: braid
-        /// Usage: braid 0
-        [<CustomOperation("braid")>]
-        member _.Braid(context: BuilderContext -> Task<unit * BuilderContext>, leftIndex: int) =
-            fun (ctx: BuilderContext) -> task {
-                let! (_, ctx') = context ctx
-                let! ctx'' = braid leftIndex ctx'
-                return ((), ctx'')
-            }
-        
-        /// Custom operation: measure
-        /// Usage: let! outcome = measure 0
-        [<CustomOperation("measure")>]
-        member _.Measure(context: BuilderContext -> Task<TopologicalResult<unit * BuilderContext>>, leftIndex: int) =
-            fun (ctx: BuilderContext) -> task {
-                let! ctxResult = context ctx
-                return!
-                    match ctxResult with
-                    | Ok (_, ctx') ->
-                        task {
-                            let! measureResult = measure leftIndex ctx'
-                            return
-                                match measureResult with
-                                | Ok (outcome, ctx'') -> Ok (outcome, ctx'')
-                                | Error err -> Error err
-                        }
-                    | Error err -> Task.FromResult(Error err)
-            }
-        
-        /// Custom operation: braid sequence
-        /// Usage: braidSequence [0; 2; 0; 2]
-        [<CustomOperation("braidSequence")>]
-        member _.BraidSequence(context: BuilderContext -> Task<TopologicalResult<unit * BuilderContext>>, indices: int list) =
-            fun (ctx: BuilderContext) -> task {
-                let! ctxResult = context ctx
-                return!
-                    match ctxResult with
-                    | Ok (_, ctx') ->
-                        task {
-                            let! braidResult = braidSequence indices ctx'
-                            return
-                                match braidResult with
-                                | Ok ctx'' -> Ok ((), ctx'')
-                                | Error err -> Error err
-                        }
-                    | Error err -> Task.FromResult(Error err)
-            }
+    // Custom operations removed to resolve FS0708 and FS0001 errors.
+    // The builder now strictly uses standard 'do!' / 'let!' syntax.
 
 // ========================================================================
 // GLOBAL BUILDER INSTANCE
@@ -383,6 +402,8 @@ module TopologicalBuilder =
 [<AutoOpen>]
 module TopologicalBuilderExtensions =
     
+    open FSharp.Azure.Quantum.Core.BackendAbstraction
+
     /// Create a topological program for a given backend
     /// 
     /// Example:
@@ -394,5 +415,5 @@ module TopologicalBuilderExtensions =
     ///     return outcome
     /// }
     /// ```
-    let topological (backend: TopologicalBackend.ITopologicalBackend) =
+    let topological (backend: IQuantumBackend) =
         TopologicalBuilder.TopologicalProgramBuilder(backend)

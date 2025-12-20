@@ -6,7 +6,7 @@
 //
 // NEW in this version: Smart configuration for quantum hardware
 
-#r "../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
+#r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 
 open System
 open System.Numerics

@@ -5,7 +5,7 @@
 /// 
 /// **Key Insight**: VQE converges 10-100× faster from HF initial state!
 
-#r "../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
+#r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 
 open FSharp.Azure.Quantum.QuantumChemistry.FermionMapping.HartreeFock
 open FSharp.Azure.Quantum.Core.BackendAbstraction

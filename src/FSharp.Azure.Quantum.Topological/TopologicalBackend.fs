@@ -18,7 +18,7 @@ open FSharp.Azure.Quantum.GroverSearch
 /// - Supports braiding operations, F-moves, and topological measurements
 /// - Can compile gate-based circuits to braiding operations
 /// - Efficient for topological codes and Clifford+T circuits
-/// - Implements both IQuantumBackend and IQuantumBackend
+/// - Implements IQuantumBackend
 /// 
 /// Usage:
 ///   let backend = TopologicalUnifiedBackend(AnyonType.Ising, 20)

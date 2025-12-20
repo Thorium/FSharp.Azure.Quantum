@@ -6,14 +6,14 @@
     <GenerateProgramFile>false</GenerateProgramFile>
 
     <!-- Package Metadata -->
-    <Version>0.3.2</Version>
+    <Version>0.3.3</Version>
     <PackageId>FSharp.Azure.Quantum.Topological</PackageId>
     <Title>FSharp.Azure.Quantum.Topological</Title>
-    <Description>Topological quantum computing plugin for FSharp.Azure.Quantum. Provides anyon theory (Ising/Fibonacci/SU(2)_k), braiding compilation, gate-to-braid conversion, Majorana hardware simulator, noise models, and topological file format (.tqp). Seamlessly integrates with main package algorithms (Grover, QFT, QAOA) via IQuantumBackend interface. Requires FSharp.Azure.Quantum v1.3.2+.</Description>
+    <Description>Topological quantum computing plugin for FSharp.Azure.Quantum. Provides anyon theory (Ising/Fibonacci/SU(2)_k), braiding compilation, gate-to-braid conversion, Majorana hardware simulator, noise models, and topological file format (.tqp). Seamlessly integrates with main package algorithms (Grover, QFT, QAOA) via IQuantumBackend interface. Requires FSharp.Azure.Quantum v1.3.3+.</Description>
     <Summary>F# topological quantum computing plugin with anyon models, braiding compilation, noise models, and seamless integration with FSharp.Azure.Quantum algorithms</Summary>
-    <PackageReleaseNotes>v0.3.2: Compatibility Update for Progress Reporting
-- UPDATED: Compatibility with FSharp.Azure.Quantum v1.3.2 progress reporting infrastructure
-- IMPROVED: Updated dependency to FSharp.Azure.Quantum v1.3.2 for enhanced observability
+    <PackageReleaseNotes>v0.3.3: Compatibility Update for Progress Reporting
+- UPDATED: Compatibility with FSharp.Azure.Quantum v1.3.3 progress reporting infrastructure
+- IMPROVED: Updated dependency to FSharp.Azure.Quantum v1.3.3 for enhanced observability
 - IMPROVED: Test suite fully compatible with new progress reporting API
 - IMPROVED: Better integration with main package's long-running operation feedback
 - Status: 451+ tests passing, ready for Azure Quantum Majorana hardware (when API available)</PackageReleaseNotes>

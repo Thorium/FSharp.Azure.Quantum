@@ -1,4 +1,4 @@
-#r "../src/FSharp.Azure.Quantum.Topological/bin/Debug/net10.0/FSharp.Azure.Quantum.Topological.dll"
+#r "../../src/FSharp.Azure.Quantum.Topological/bin/Debug/net10.0/FSharp.Azure.Quantum.Topological.dll"
 
 open FSharp.Azure.Quantum.Topological
 open System.Numerics

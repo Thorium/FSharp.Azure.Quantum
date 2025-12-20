@@ -8,17 +8,20 @@ module TopologicalBuilderTests =
     [<Fact>]
     let ``Builder module exists and is accessible`` () =
         // This test verifies the builder infrastructure is in place
-        let backend = TopologicalBackend.createSimulator AnyonSpecies.AnyonType.Ising 10
+        let backend = TopologicalUnifiedBackendFactory.createUnified AnyonSpecies.AnyonType.Ising 10
         let builder = topological backend
         Assert.NotNull(builder)
     
     [<Fact>]
     let ``Builder can execute simple program`` () = task {
-        let backend = TopologicalBackend.createSimulator AnyonSpecies.AnyonType.Ising 10
+        let backend = TopologicalUnifiedBackendFactory.createUnified AnyonSpecies.AnyonType.Ising 10
         
-        let! result = topological backend {
+        let program = topological backend {
             do! TopologicalBuilder.initialize AnyonSpecies.AnyonType.Ising 4
+            return ()
         }
+        
+        let! result = TopologicalBuilder.execute backend program
         
         match result with
         | Ok _ -> Assert.True(true)
@@ -27,13 +30,16 @@ module TopologicalBuilderTests =
     
     [<Fact>]
     let ``Builder operations thread state correctly`` () = task {
-        let backend = TopologicalBackend.createSimulator AnyonSpecies.AnyonType.Ising 10
+        let backend = TopologicalUnifiedBackendFactory.createUnified AnyonSpecies.AnyonType.Ising 10
         
-        let! result = topological backend {
+        let program = topological backend {
             do! TopologicalBuilder.initialize AnyonSpecies.AnyonType.Ising 4
             do! TopologicalBuilder.braid 0
             do! TopologicalBuilder.braid 2
+            return ()
         }
+        
+        let! result = TopologicalBuilder.execute backend program
         
         match result with
         | Ok _ -> Assert.True(true) // Success - operations threaded correctly
@@ -43,15 +49,18 @@ module TopologicalBuilderTests =
     [<Fact>]
     let ``Builder works with ANY backend (backend-agnostic principle)`` () = task {
         // This test demonstrates the key architectural principle:
-        // Programs work with ANY ITopologicalBackend implementation
+        // Programs work with ANY IQuantumBackend implementation
         
         // Test with simulator backend
-        let simulatorBackend = TopologicalBackend.createSimulator AnyonSpecies.AnyonType.Ising 10
+        let simulatorBackend = TopologicalUnifiedBackendFactory.createUnified AnyonSpecies.AnyonType.Ising 10
         
-        let! result = topological simulatorBackend {
+        let program = topological simulatorBackend {
             do! TopologicalBuilder.initialize AnyonSpecies.AnyonType.Ising 4
             do! TopologicalBuilder.braid 0
+            return ()
         }
+        
+        let! result = TopologicalBuilder.execute simulatorBackend program
         
         match result with
         | Ok _ -> Assert.True(true)
@@ -65,14 +74,18 @@ module TopologicalBuilderTests =
     
     [<Fact>]
     let ``Builder with braiding sequence`` () = task {
-        let backend = TopologicalBackend.createSimulator AnyonSpecies.AnyonType.Ising 10
+        // Increased backend capacity to 20 anyons to support 6 logical qubits
+        let backend = TopologicalUnifiedBackendFactory.createUnified AnyonSpecies.AnyonType.Ising 20
         
-        let! result = topological backend {
+        let program = topological backend {
             do! TopologicalBuilder.initialize AnyonSpecies.AnyonType.Ising 6
             do! TopologicalBuilder.braid 0
             do! TopologicalBuilder.braid 2
             do! TopologicalBuilder.braid 4
+            return ()
         }
+        
+        let! result = TopologicalBuilder.execute backend program
         
         match result with
         | Ok _ ->

@@ -10,7 +10,7 @@
 /// 
 /// **Chemical Accuracy**: ±1 kcal/mol (±0.0016 Hartree)
 
-#r "../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
+#r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 
 open FSharp.Azure.Quantum.QuantumChemistry.FermionMapping
 open FSharp.Azure.Quantum.QuantumChemistry.FermionMapping.UCCSD
