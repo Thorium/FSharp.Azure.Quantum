@@ -10,15 +10,15 @@
 
 ## Table of Contents
 
-1. [The Paradigm Shift: From Matrices to Topology](#page-1-the-paradigm-shift---from-matrices-to-topology)
-2. [Anyons: The Particles with Memory](#page-2-anyons---the-particles-with-memory)
-3. [Braiding Operations: Quantum Gates as Geometry](#page-3-braiding-operations---quantum-gates-as-geometry)
-4. [Library Architecture and Practical Patterns](#page-4-library-architecture-and-practical-patterns)
-5. [Advanced Topics and Production Readiness](#page-5-advanced-topics-and-production-readiness)
+1. [The Paradigm Shift: From Matrices to Topology](#the-paradigm-shift---from-matrices-to-topology)
+2. [Anyons: The Particles with Memory](#anyons---the-particles-with-memory)
+3. [Braiding Operations: Quantum Gates as Geometry](#braiding-operations---quantum-gates-as-geometry)
+4. [Library Architecture and Practical Patterns](#library-architecture-and-practical-patterns)
+5. [Advanced Topics and Production Readiness](#advanced-topics-and-production-readiness)
 
 ---
 
-## Page 1: The Paradigm Shift - From Matrices to Topology
+## The Paradigm Shift - From Matrices to Topology
 
 ### Why Traditional Quantum Computing is Fragile
 
@@ -86,7 +86,7 @@ let runTopologicalComputation () = task {
 Gate-Based QC:                   Topological QC:
 Time ↓                           Time ↓
   |0⟩ ——H—— ⊕ ——→                 ∘     ╱╲        (worldlines in 2D+time)
-  |0⟩ ———— CNOT ——→               │  ╲╱  │ ∘
+  |0⟩ ———— CNOT ——→                │  ╲╱  │ ∘
   |0⟩ ————————— ⊕ →               ∘     ╲╱ │      (braiding encodes gates)
                                    │  ╱╲    │
 (Amplitude evolution)              ∘     ×─→ ∘     (topology preserved)
@@ -97,10 +97,10 @@ Time ↓                           Time ↓
 ```
 Gate-Based Qubit (Fragile):              Topological Qubit (Protected):
                                           
-     α|0⟩ + β|1⟩                               ∘────────────∘
-     Amplitude space                           │  Anyon 1   │  Anyon 2
+     α|0⟩ + β|1⟩                                 ∘────────────∘
+     Amplitude space                            │  Anyon 1   │  Anyon 2
                                                 │            │
-  Noise: Δα, Δβ                                │   Fusion   │
+  Noise: Δα, Δβ                                 │   Fusion   │
   (continuous drift)                            │  Channel:  │
                                                 │   ├─ 1     │ (vacuum)
   ┌──────────────┐                              │   └─ ψ     │ (fermion)
@@ -172,7 +172,7 @@ Traditional QC:                    Topological QC:
 
 Qubit State Vector:                Anyon Configuration:
 ┌────────────────┐                 ┌─────────────────────┐
-│  α|0⟩ + β|1⟩  │                 │   ∘─────────∘       │
+│  α|0⟩ + β|1⟩    │                 │   ∘─────────∘       │
 │                │                 │   │         │       │
 │  α, β ∈ ℂ      │                 │   σ         σ       │
 │  |α|²+|β|²= 1  │                 │   │         │       │
@@ -209,15 +209,15 @@ Recovery: Active QEC
 **Δ = Energy gap, T = Temperature, L = Anyon separation (controllable)**
 
 **Trade-offs**:
-- ✅ **Pro**: Exponentially better error resistance
-- ✅ **Pro**: Simpler logical operations (no complex pulse sequences)
-- ❌ **Con**: Requires exotic materials (Majorana zero modes, fractional quantum Hall states)
-- ❌ **Con**: Operations are slower (physical motion of anyons, ~kHz vs GHz for gates)
-- ❌ **Con**: Limited gate set (Ising anyons can only do Clifford gates natively)
+- **Pro**: Exponentially better error resistance
+- **Pro**: Simpler logical operations (no complex pulse sequences)
+- **Con**: Requires exotic materials (Majorana zero modes, fractional quantum Hall states)
+- **Con**: Operations are slower (physical motion of anyons, ~kHz vs GHz for gates)
+- **Con**: Limited gate set (Ising anyons can only do Clifford gates natively)
 
 ---
 
-## Page 2: Anyons - The Particles with Memory
+## Anyons - The Particles with Memory
 
 ### Beyond Bosons and Fermions: 2D Statistics
 
@@ -431,8 +431,8 @@ Why? Solve: d_τ² = 1 + d_τ  (from τ × τ = 1 ⊕ τ)
 - **Status**: Active area of research (2025)
 
 **Ising anyons** (Majorana zero modes) are experimentally realizable but:
-- ❌ Not universal (only Clifford gates)
-- ✅ Require magic state distillation for full universal QC
+- Not universal (only Clifford gates)
+- Require magic state distillation for full universal QC
 
 ### Fusion Trees: The F# Data Structure Behind Everything
 
@@ -523,7 +523,7 @@ Mapping to logical qubits:
 
 ---
 
-## Page 3: Braiding Operations - Quantum Gates as Geometry
+## Braiding Operations - Quantum Gates as Geometry
 
 ### From Matrices to Worldlines: A Fundamental Shift
 
@@ -548,7 +548,7 @@ Clockwise Braid (R_σσ):          Counterclockwise Braid (R_σσ⁻¹):
 Time ↓                            Time ↓
 
   ∘ ── ∘                            ∘ ── ∘
-  │ ╱  │                            │ ╲  │
+  │ ╱  │                            │╲   │
   │╱   │  (anyon 1 crosses          │ ╲  │  (anyon 1 crosses
   ╱╲   │   OVER anyon 2)            │  ╲ │   UNDER anyon 2)
   │ ╲  │                            │   ╲│
@@ -617,15 +617,15 @@ module BraidingOperators =
 ```
 
 **Topological Protection Property**: R-matrix depends **only on**:
-- ✅ Anyon types (a, b)
-- ✅ Fusion channel (c)
-- ✅ Topology (clockwise vs counterclockwise)
+- Anyon types (a, b)
+- Fusion channel (c)
+- Topology (clockwise vs counterclockwise)
 
 **Does NOT depend on**:
-- ❌ Exact particle positions (can be microns apart)
-- ❌ Speed of exchange (can be slow or fast)
-- ❌ Detailed path shape (smooth deformations don't change phase)
-- ❌ Environmental temperature (as long as T << Δ/k_B)
+- Exact particle positions (can be microns apart)
+- Speed of exchange (can be slow or fast)
+- Detailed path shape (smooth deformations don't change phase)
+- Environmental temperature (as long as T << Δ/k_B)
 
 **Example Calculation**:
 
@@ -802,7 +802,7 @@ let tGate (qubitIndex: int) : MagicStateProtocol =
 
 ---
 
-## Page 4: Library Architecture and Practical Patterns
+## Library Architecture and Practical Patterns
 
 ### Type System: Railway-Oriented Programming for Physics
 
@@ -851,10 +851,10 @@ type TopologicalResult<'T> = Result<'T, TopologicalError>
 ```
 
 **Design Philosophy**:
-- ✅ **Railway-oriented programming**: All public functions return `Result<'T, TopologicalError>`
-- ✅ **No exceptions** in production code (except internal invariant violations)
-- ✅ **Composable** via `Result.bind`, `Result.map`, `Result.mapError`
-- ✅ **Explicit errors**: Discriminated union encodes all failure modes
+- **Railway-oriented programming**: All public functions return `Result<'T, TopologicalError>`
+- **No exceptions** in production code (except internal invariant violations)
+- **Composable** via `Result.bind`, `Result.map`, `Result.mapError`
+- **Explicit errors**: Discriminated union encodes all failure modes
 
 ### Backend Architecture: Layered Error Handling
 
@@ -1153,10 +1153,10 @@ toricCodeExample 8 0.05
 **Compilation: Use Compiled DLLs!**
 
 ```bash
-# ✅ DEFAULT: Use compiled DLL (48× faster startup)
+# DEFAULT: Use compiled DLL (48× faster startup)
 dotnet .tools/bin/TopologicalSimulator.dll --anyons Fibonacci --count 6
 
-# ❌ FALLBACK ONLY: Script mode (slow - 2.4s startup vs 50ms)
+# FALLBACK: Script mode (slow - 2.4s startup vs 50ms)
 dotnet fsi examples/ModularDataExample.fsx
 ```
 
@@ -1178,12 +1178,12 @@ dotnet fsi examples/ModularDataExample.fsx
 **Optimization Strategies**:
 
 ```fsharp
-// ✅ GOOD: Use Array for hot paths (better cache locality)
+// GOOD: Use Array for hot paths (better cache locality)
 let braidingMatrix = Array2D.init n n (fun i j ->
     if i = j then computeRMatrixElement i else Complex.Zero
 )
 
-// ✅ GOOD: Cache expensive computations (F-matrices don't change)
+// GOOD: Cache expensive computations (F-matrices don't change)
 let fMatrixCache = 
     let cache = Dictionary<_, _>()
     fun a b c d anyonType ->
@@ -1195,14 +1195,14 @@ let fMatrixCache =
             cache.[key] <- value
             value
 
-// ❌ BAD: Recompute F-matrices every time
+// BAD: Recompute F-matrices every time
 let slowApproach a b c d anyonType =
     computeFMatrix a b c d anyonType  // Called in tight loop - very slow!
 ```
 
 ---
 
-## Page 5: Advanced Topics and Production Readiness
+## Advanced Topics and Production Readiness
 
 ### Modular Data: Complete Characterization of TQFTs
 
@@ -1423,26 +1423,22 @@ let z2xz2SMatrix =
 
 ### Production Readiness: Current Status and Limitations
 
-**✅ What Works Well** (as of 2025):
+**What Works Well** (as of 2025):
 
 1. **Core Library**:
-   - ✅ 233/233 tests passing (100% pass rate)
-   - ✅ Zero mutable state in new modules (ModularData, ToricCode)
-   - ✅ Safe array indexing (no IndexOutOfRangeException possible)
-   - ✅ Idiomatic F# throughout (Result types, discriminated unions, pattern matching)
 
 2. **Features Implemented**:
-   - ✅ Ising anyons (full support)
-   - ✅ Fibonacci anyons (partial - fusion rules, R-matrices)
-   - ✅ SU(2)_k anyons (general framework, k=2,3 tested)
-   - ✅ Modular data (S/T matrices, quantum dimensions, verification)
-   - ✅ Toric code (error correction, syndrome measurement)
-   - ✅ Backend abstraction (simulator, extensible for hardware)
+   - Ising anyons (full support)
+   - Fibonacci anyons (partial - fusion rules, R-matrices)
+   - SU(2)_k anyons (general framework, k=2,3 tested)
+   - Modular data (S/T matrices, quantum dimensions, verification)
+   - Toric code (error correction, syndrome measurement)
+   - Backend abstraction (simulator, extensible for hardware)
 
 3. **Performance**:
-   - ✅ Compiled DLLs (48× faster than scripts)
-   - ✅ Cached F-matrices and R-matrices
-   - ✅ Array-based operations in hot paths
+   - Compiled DLLs (48× faster than scripts)
+   - Cached F-matrices and R-matrices
+   - Array-based operations in hot paths
 
 **⚠️ Current Limitations**:
 
@@ -1452,10 +1448,10 @@ let z2xz2SMatrix =
    - Max ~10-12 anyons practical (~5-6 logical qubits)
 
 2. **Incomplete Features**:
-   - ⚠️ Magic state distillation not implemented (Ising universality gap)
-   - ⚠️ Fibonacci F-matrices incomplete (some coefficients missing)
-   - ⚠️ No noise models (perfect operations assumed)
-   - ⚠️ Limited error correction (toric code only, no surface code variants)
+   - Magic state distillation not implemented (Ising universality gap)
+   - Fibonacci F-matrices incomplete (some coefficients missing)
+   - No noise models (perfect operations assumed)
+   - Limited error correction (toric code only, no surface code variants)
 
 3. **No Hardware Backend** (yet):
    - Microsoft Majorana quantum computer: Research phase (no Azure integration yet)
@@ -1465,34 +1461,28 @@ let z2xz2SMatrix =
 **Best Practices for Production Use**:
 
 ```fsharp
-// ✅ DO: Always handle Result types
+// DO: Always handle Result types
 match backend.Initialize Ising 4 with
 | Ok state -> (* continue *)
 | Error err -> (* log error, return gracefully *)
 
-// ❌ DON'T: Assume operations succeed
+// DON'T: Assume operations succeed
 let state = backend.Initialize Ising 4 |> Async.AwaitTask |> Async.RunSynchronously
 let unwrapped = Result.get state  // THROWS if Error!
 
-// ✅ DO: Understand complexity limits
+// DO: Understand complexity limits
 let reasonableSize = backend.Initialize Fibonacci 6  // F(7)=13 dimensional
 
-// ❌ DON'T: Try to simulate too many anyons
+// DON'T: Try to simulate too many anyons
 let tooLarge = backend.Initialize Fibonacci 20  // F(21)=10946 dimensional - will hang!
 
-// ✅ DO: Use compiled tools
-// dotnet .tools/bin/Simulator.dll (fast)
-
-// ❌ DON'T: Use scripts in production
-// dotnet fsi script.fsx (slow, recompiles every time)
-
-// ✅ DO: Cache expensive computations
+// DO: Cache expensive computations
 let precomputedFMatrices = 
     [for a,b,c,d in allCombinations -> 
         (a,b,c,d), fMatrix a b c d Ising]
     |> Map.ofList
 
-// ❌ DON'T: Recompute in tight loops
+// DON'T: Recompute in tight loops
 for _ in 1..1000 do
     let f = fMatrix Sigma Sigma Sigma Psi Ising  // Recomputed 1000 times!
 ```
@@ -1682,20 +1672,15 @@ cd ../src/FSharp.Azure.Quantum.Topological
 - Mathematical **elegance** matches operational **robustness**
 
 **The Future**: When Microsoft Majorana or other topological quantum computers come online, F# developers will be ideally positioned - this library provides:
-- ✅ **Strong typing** for quantum programs (discriminated unions, Result types)
-- ✅ **Composability** (railway-oriented programming for quantum circuits)
-- ✅ **Correctness** (exhaustive pattern matching catches errors at compile time)
-- ✅ **Elegance** (functional abstractions match physics beautifully)
+- **Strong typing** for quantum programs (discriminated unions, Result types)
+- **Composability** (railway-oriented programming for quantum circuits)
+- **Correctness** (exhaustive pattern matching catches errors at compile time)
+- **Elegance** (functional abstractions match physics beautifully)
 
 **Your Next Steps**:
-1. ⭐ Star the repository on GitHub
-2. 📖 Read Simon's textbook chapters 8-11 (essential theory)
-3. 💻 Run the examples (`ModularDataExample.fsx`, `ToricCodeExample.fsx`)
-4. 🔬 Explore the source code (`BraidingOperators.fs`, `ModularData.fs`)
-5. 🚀 Contribute! (Fibonacci completion, noise models, performance)
-
-**Questions? Issues?** 
-- GitHub Issues: `https://github.com/user/FSharp.Azure.Quantum/issues`
-- Discussions: `https://github.com/user/FSharp.Azure.Quantum/discussions`
+1. 📖 Read Simon's textbook chapters 8-11 (essential theory)
+2. 💻 Run the examples (`ModularDataExample.fsx`, `ToricCodeExample.fsx`)
+3. 🔬 Explore the source code (`BraidingOperators.fs`, `ModularData.fs`)
+4. 🚀 Contribute! (Fibonacci completion, noise models, performance)
 
 **Welcome to the frontier of topological quantum computing with F#!** 🎉
