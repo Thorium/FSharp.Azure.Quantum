@@ -21,7 +21,9 @@ A single qubit state is represented as:
 - <span style="color:#CC0066; font-weight:bold">β (beta)</span> = Complex amplitude for state |1⟩  
 - **Constraint:** <span style="color:#0066CC; font-weight:bold">|α|²</span> + <span style="color:#CC0066; font-weight:bold">|β|²</span> = 1 (probability conservation)
 
-When measured, the qubit collapses to |0⟩ with probability <span style="color:#0066CC; font-weight:bold">|α|²</span> or |1⟩ with probability <span style="color:#CC0066; font-weight:bold">|β|²</span>.
+When measured, the qubit collapses to 
+`|0⟩` with probability <span style="color:#0066CC; font-weight:bold">|α|²</span> or 
+`|1⟩` with probability <span style="color:#CC0066; font-weight:bold">|β|²</span>.
 
 For F# developers accustomed to algebraic data types and immutability, quantum states are best understood as immutable vectors in a complex vector space. Quantum operations are **unitary transformations** (reversible linear maps preserving norm), analogous to pure functions that preserve information content.
 
@@ -162,12 +164,12 @@ These gates compose sequentially and in parallel, forming **quantum circuits**. 
 </div>
 
 **Outcomes:**
-- **Outcome 0** with probability <span style="color:#0066CC; font-weight:bold">|α|²</span> → state collapses to |0⟩
-- **Outcome 1** with probability <span style="color:#CC0066; font-weight:bold">|β|²</span> → state collapses to |1⟩
+- **Outcome 0** with probability <span style="color:#0066CC; font-weight:bold">|α|²</span> → state collapses to `|0⟩`
+- **Outcome 1** with probability <span style="color:#CC0066; font-weight:bold">|β|²</span> → state collapses to `|1⟩`
 
 **Where:**
-- <span style="color:#0066CC; font-weight:bold">α</span> = Complex amplitude for |0⟩ state
-- <span style="color:#CC0066; font-weight:bold">β</span> = Complex amplitude for |1⟩ state
+- <span style="color:#0066CC; font-weight:bold">α</span> = Complex amplitude for `|0⟩` state
+- <span style="color:#CC0066; font-weight:bold">β</span> = Complex amplitude for `|1⟩` state
 - <span style="color:#0066CC; font-weight:bold">|α|²</span> = Probability of measuring 0 (Born rule)
 - <span style="color:#CC0066; font-weight:bold">|β|²</span> = Probability of measuring 1 (Born rule)
 
@@ -231,7 +233,7 @@ Searches an unstructured database of N items in O(√N) queries versus O(N) clas
 
 **Where:**
 - <span style="color:#CC0066; font-weight:bold">G</span> = Grover operator (applied iteratively)
-- <span style="color:#0066CC; font-weight:bold">|ψ⟩</span> = Uniform superposition state = (1/√N)Σᵢ|i⟩
+- <span style="color:#0066CC; font-weight:bold">|ψ⟩</span> = Uniform superposition `state = (1/√N)Σᵢ|i⟩`
 - <span style="color:#009966; font-weight:bold">2|ψ⟩⟨ψ| - I</span> = Inversion about average (reflection operator)
 - <span style="color:#CC6600; font-weight:bold">|target⟩</span> = Target state we're searching for
 - <span style="color:#9933CC; font-weight:bold">2|target⟩⟨target| - I</span> = Oracle that marks the target
@@ -342,7 +344,7 @@ Bloch Sphere: Geometric Representation of Single Qubit
     ╱                │                ╲
    │                 │                 │
    │        θ        │                 │
-   │         ◜──────●|ψ⟩              │──── X-axis
+   │         ◜──────●|ψ⟩               │──── X-axis
    │      ◜          │φ                │     (Hadamard)
    │   ◜             │                 │
     ╲                │                ╱
@@ -643,7 +645,7 @@ let ghzState n =
 ```
 
 **Practical workflow**:
-1. Develop and debug with local simulators (instant feedback, unlimited qubits)
+1. Develop and debug with local simulators (instant feedback, non-paid qubits)
 2. Test on Azure Quantum simulators (validate against noise models)
 3. Execute on real quantum hardware (IonQ, Quantinuum, Rigetti)
 4. Use resource estimation to plan for future scaled hardware
@@ -708,6 +710,9 @@ Each function is pure, composable, and type-safe—leveraging F#'s strengths for
 - **Cirq** (Python/Google): NISQ-focused, integration with Google's quantum processors
 - **Q#** (Microsoft): Full-featured quantum language integrated with Azure Quantum
 - **FSharp.Azure.Quantum** (F#): Functional abstractions over Azure Quantum and Q#
+
+**Other great F# applications**
+- This page is featured in F# Advent Calendar 2025: https://sergeytihon.com/2025/11/03/f-advent-calendar-in-english-2025/
 
 ---
 
