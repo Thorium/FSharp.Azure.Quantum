@@ -17,8 +17,8 @@ A single qubit state is represented as:
 </div>
 
 **Where:**
-- <span style="color:#0066CC; font-weight:bold">α (alpha)</span> = Complex amplitude for state |0⟩  
-- <span style="color:#CC0066; font-weight:bold">β (beta)</span> = Complex amplitude for state |1⟩  
+- <span style="color:#0066CC; font-weight:bold">α (alpha)</span> = Complex amplitude for state `|0⟩`
+- <span style="color:#CC0066; font-weight:bold">β (beta)</span> = Complex amplitude for state `|1⟩`
 - **Constraint:** <span style="color:#0066CC; font-weight:bold">|α|²</span> + <span style="color:#CC0066; font-weight:bold">|β|²</span> = 1 (probability conservation)
 
 When measured, the qubit collapses to 
@@ -133,7 +133,7 @@ These gates compose sequentially and in parallel, forming **quantum circuits**. 
 **Where:**
 - <span style="color:#0066CC; font-weight:bold">H</span> = Hadamard gate applied to q0
 - <span style="color:#009966; font-weight:bold">⊗</span> = Tensor product (combines qubit states)
-- **Result**: q0 in superposition, q1 still |0⟩ (separable state)
+- **Result**: q0 in superposition, q1 still `|0⟩` (separable state)
 
 **Step 2: Apply CNOT with q0 as control, q1 as target**
 
@@ -323,7 +323,7 @@ Several formal models capture quantum computation:
 
 **Topological Quantum Computing**: Use anyons (exotic quasiparticles in 2D systems) whose braiding statistics encode computation. Intrinsically fault-tolerant but technologically distant.
 
-The F# Azure Quantum library adopts the circuit model, exposing quantum operations as computation expressions. The type system ensures safety: `Quantum<'T>` types track quantum values, preventing premature measurement or cloning (forbidden by the no-cloning theorem). This functional approach maps naturally to quantum computing's reversible, compositional structure.
+The F# Azure Quantum library adopts the circuit model, exposing quantum operations as computation expressions. The type system ensures safety: Types track quantum values, preventing premature measurement or cloning (forbidden by the no-cloning theorem). This functional approach maps naturally to quantum computing's reversible, compositional structure.
 
 ## Building Quantum Intuition: The Bloch Sphere
 
@@ -364,10 +364,10 @@ Bloch Sphere: Geometric Representation of Single Qubit
 </div>
 
 **Where:**
-- <span style="color:#0066CC; font-weight:bold">θ (theta)</span> = Polar angle (0 to π), determines |0⟩ vs |1⟩ balance
+- <span style="color:#0066CC; font-weight:bold">θ (theta)</span> = Polar angle (0 to π), determines `|0⟩` vs `|1⟩` balance
 - <span style="color:#CC0066; font-weight:bold">φ (phi)</span> = Azimuthal angle (0 to 2π), determines relative phase
-- <span style="color:#009966; font-weight:bold">cos(θ/2)</span> = Amplitude for |0⟩ state
-- <span style="color:#CC6600; font-weight:bold">e^(iφ)sin(θ/2)</span> = Amplitude for |1⟩ state with phase
+- <span style="color:#009966; font-weight:bold">cos(θ/2)</span> = Amplitude for `|0⟩` state
+- <span style="color:#CC6600; font-weight:bold">e^(iφ)sin(θ/2)</span> = Amplitude for `|1⟩` state with phase
 
 Superpositions lie on the surface of the unit sphere.
 
@@ -559,12 +559,12 @@ match GraphColoring.solve problem 3 None with
     printfn "Failed: %s" err.Message
 ```
 
-Both approaches use quantum optimization (QAOA), but the business-focused API:
-- ✅ Expresses domain intent directly (register allocation, not qubits)
-- ✅ Hides quantum complexity (QAOA, QUBO encoding, parameter optimization)
-- ✅ Provides validated, actionable results (color assignments, not bitstrings)
-- ✅ Enables non-quantum-experts to leverage quantum advantage
-- ✅ Suitable for AI agents reasoning about business logic, not quantum gates
+✅ Both approaches use quantum optimization (QAOA), but the business-focused API:
+- Expresses domain intent directly (register allocation, not qubits)
+- Hides quantum complexity (QAOA, QUBO encoding, parameter optimization)
+- Provides validated, actionable results (color assignments, not bitstrings)
+- Enables non-quantum-experts to leverage quantum advantage
+- Suitable for AI agents reasoning about business logic, not quantum gates
 
 **Target users**:
 - **Enterprise developers** solving optimization problems (scheduling, routing, allocation)
