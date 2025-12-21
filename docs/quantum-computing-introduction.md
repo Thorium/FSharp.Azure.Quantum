@@ -146,7 +146,7 @@ These gates compose sequentially and in parallel, forming **quantum circuits**. 
 - **Result**: Entangled Bell state! Measuring q0 determines q1
 
 **Result: Bell state |Φ⁺⟩**
-- **Cannot be factored**: Not expressible as (α|0⟩ + β|1⟩) ⊗ (γ|0⟩ + δ|1⟩)
+- **Cannot be factored**: Not expressible as `(α|0⟩ + β|1⟩) ⊗ (γ|0⟩ + δ|1⟩)`
 - **Measurement outcomes**: 
   - Each qubit gives 0 or 1 with 50% probability
   - But outcomes are **perfectly correlated**: both 0 or both 1
