@@ -6,7 +6,7 @@ As XKCD stated "All the Fun Parts of Life are Optional": so is this tutorial.
 
 ## From Classical to Quantum: A Functional Perspective
 
-Classical computation operates on bits—discrete states of 0 or 1. Quantum computation operates on **qubits** (quantum bits), which exist in superposition states described by complex amplitudes. Where classical bits are elements of {0, 1}, qubits inhabit a two-dimensional complex Hilbert space ℂ².
+Classical computation operates on bits—discrete states of 0 or 1. Quantum computation operates on **qubits** (quantum bits), which exist in superposition states described by complex amplitudes (where "complex" refers math complex numbers). Where classical bits are elements of {0, 1}, qubits inhabit a two-dimensional complex Hilbert space ℂ².
 
 A single qubit state is represented as:
 
@@ -17,11 +17,13 @@ A single qubit state is represented as:
 </div>
 
 **Where:**
-- <span style="color:#0066CC; font-weight:bold">α (alpha)</span> = Complex amplitude for state |0⟩  
-- <span style="color:#CC0066; font-weight:bold">β (beta)</span> = Complex amplitude for state |1⟩  
+- <span style="color:#0066CC; font-weight:bold">α (alpha)</span> = Complex amplitude for state `|0⟩`
+- <span style="color:#CC0066; font-weight:bold">β (beta)</span> = Complex amplitude for state `|1⟩`
 - **Constraint:** <span style="color:#0066CC; font-weight:bold">|α|²</span> + <span style="color:#CC0066; font-weight:bold">|β|²</span> = 1 (probability conservation)
 
-When measured, the qubit collapses to |0⟩ with probability <span style="color:#0066CC; font-weight:bold">|α|²</span> or |1⟩ with probability <span style="color:#CC0066; font-weight:bold">|β|²</span>.
+When measured, the qubit collapses to 
+`|0⟩` with probability <span style="color:#0066CC; font-weight:bold">|α|²</span> or 
+`|1⟩` with probability <span style="color:#CC0066; font-weight:bold">|β|²</span>.
 
 For F# developers accustomed to algebraic data types and immutability, quantum states are best understood as immutable vectors in a complex vector space. Quantum operations are **unitary transformations** (reversible linear maps preserving norm), analogous to pure functions that preserve information content.
 
@@ -131,7 +133,7 @@ These gates compose sequentially and in parallel, forming **quantum circuits**. 
 **Where:**
 - <span style="color:#0066CC; font-weight:bold">H</span> = Hadamard gate applied to q0
 - <span style="color:#009966; font-weight:bold">⊗</span> = Tensor product (combines qubit states)
-- **Result**: q0 in superposition, q1 still |0⟩ (separable state)
+- **Result**: q0 in superposition, q1 still `|0⟩` (separable state)
 
 **Step 2: Apply CNOT with q0 as control, q1 as target**
 
@@ -144,7 +146,7 @@ These gates compose sequentially and in parallel, forming **quantum circuits**. 
 - **Result**: Entangled Bell state! Measuring q0 determines q1
 
 **Result: Bell state |Φ⁺⟩**
-- **Cannot be factored**: Not expressible as (α|0⟩ + β|1⟩) ⊗ (γ|0⟩ + δ|1⟩)
+- **Cannot be factored**: Not expressible as `(α|0⟩ + β|1⟩) ⊗ (γ|0⟩ + δ|1⟩)`
 - **Measurement outcomes**: 
   - Each qubit gives 0 or 1 with 50% probability
   - But outcomes are **perfectly correlated**: both 0 or both 1
@@ -162,12 +164,12 @@ These gates compose sequentially and in parallel, forming **quantum circuits**. 
 </div>
 
 **Outcomes:**
-- **Outcome 0** with probability <span style="color:#0066CC; font-weight:bold">|α|²</span> → state collapses to |0⟩
-- **Outcome 1** with probability <span style="color:#CC0066; font-weight:bold">|β|²</span> → state collapses to |1⟩
+- **Outcome 0** with probability <span style="color:#0066CC; font-weight:bold">|α|²</span> → state collapses to `|0⟩`
+- **Outcome 1** with probability <span style="color:#CC0066; font-weight:bold">|β|²</span> → state collapses to `|1⟩`
 
 **Where:**
-- <span style="color:#0066CC; font-weight:bold">α</span> = Complex amplitude for |0⟩ state
-- <span style="color:#CC0066; font-weight:bold">β</span> = Complex amplitude for |1⟩ state
+- <span style="color:#0066CC; font-weight:bold">α</span> = Complex amplitude for `|0⟩` state
+- <span style="color:#CC0066; font-weight:bold">β</span> = Complex amplitude for `|1⟩` state
 - <span style="color:#0066CC; font-weight:bold">|α|²</span> = Probability of measuring 0 (Born rule)
 - <span style="color:#CC0066; font-weight:bold">|β|²</span> = Probability of measuring 1 (Born rule)
 
@@ -231,7 +233,7 @@ Searches an unstructured database of N items in O(√N) queries versus O(N) clas
 
 **Where:**
 - <span style="color:#CC0066; font-weight:bold">G</span> = Grover operator (applied iteratively)
-- <span style="color:#0066CC; font-weight:bold">|ψ⟩</span> = Uniform superposition state = (1/√N)Σᵢ|i⟩
+- <span style="color:#0066CC; font-weight:bold">|ψ⟩</span> = Uniform superposition `state = (1/√N)Σᵢ|i⟩`
 - <span style="color:#009966; font-weight:bold">2|ψ⟩⟨ψ| - I</span> = Inversion about average (reflection operator)
 - <span style="color:#CC6600; font-weight:bold">|target⟩</span> = Target state we're searching for
 - <span style="color:#9933CC; font-weight:bold">2|target⟩⟨target| - I</span> = Oracle that marks the target
@@ -321,7 +323,7 @@ Several formal models capture quantum computation:
 
 **Topological Quantum Computing**: Use anyons (exotic quasiparticles in 2D systems) whose braiding statistics encode computation. Intrinsically fault-tolerant but technologically distant.
 
-The F# Azure Quantum library adopts the circuit model, exposing quantum operations as computation expressions. The type system ensures safety: `Quantum<'T>` types track quantum values, preventing premature measurement or cloning (forbidden by the no-cloning theorem). This functional approach maps naturally to quantum computing's reversible, compositional structure.
+The F# Azure Quantum library adopts the circuit model, exposing quantum operations as computation expressions. The type system ensures safety: Types track quantum values, preventing premature measurement or cloning (forbidden by the no-cloning theorem). This functional approach maps naturally to quantum computing's reversible, compositional structure.
 
 ## Building Quantum Intuition: The Bloch Sphere
 
@@ -342,7 +344,7 @@ Bloch Sphere: Geometric Representation of Single Qubit
     ╱                │                ╲
    │                 │                 │
    │        θ        │                 │
-   │         ◜──────●|ψ⟩              │──── X-axis
+   │         ◜──────●|ψ⟩               │──── X-axis
    │      ◜          │φ                │     (Hadamard)
    │   ◜             │                 │
     ╲                │                ╱
@@ -362,10 +364,10 @@ Bloch Sphere: Geometric Representation of Single Qubit
 </div>
 
 **Where:**
-- <span style="color:#0066CC; font-weight:bold">θ (theta)</span> = Polar angle (0 to π), determines |0⟩ vs |1⟩ balance
+- <span style="color:#0066CC; font-weight:bold">θ (theta)</span> = Polar angle (0 to π), determines `|0⟩` vs `|1⟩` balance
 - <span style="color:#CC0066; font-weight:bold">φ (phi)</span> = Azimuthal angle (0 to 2π), determines relative phase
-- <span style="color:#009966; font-weight:bold">cos(θ/2)</span> = Amplitude for |0⟩ state
-- <span style="color:#CC6600; font-weight:bold">e^(iφ)sin(θ/2)</span> = Amplitude for |1⟩ state with phase
+- <span style="color:#009966; font-weight:bold">cos(θ/2)</span> = Amplitude for `|0⟩` state
+- <span style="color:#CC6600; font-weight:bold">e^(iφ)sin(θ/2)</span> = Amplitude for `|1⟩` state with phase
 
 Superpositions lie on the surface of the unit sphere.
 
@@ -557,12 +559,12 @@ match GraphColoring.solve problem 3 None with
     printfn "Failed: %s" err.Message
 ```
 
-Both approaches use quantum optimization (QAOA), but the business-focused API:
-- ✅ Expresses domain intent directly (register allocation, not qubits)
-- ✅ Hides quantum complexity (QAOA, QUBO encoding, parameter optimization)
-- ✅ Provides validated, actionable results (color assignments, not bitstrings)
-- ✅ Enables non-quantum-experts to leverage quantum advantage
-- ✅ Suitable for AI agents reasoning about business logic, not quantum gates
+✅ Both approaches use quantum optimization (QAOA), but the business-focused API:
+- Expresses domain intent directly (register allocation, not qubits)
+- Hides quantum complexity (QAOA, QUBO encoding, parameter optimization)
+- Provides validated, actionable results (color assignments, not bitstrings)
+- Enables non-quantum-experts to leverage quantum advantage
+- Suitable for AI agents reasoning about business logic, not quantum gates
 
 **Target users**:
 - **Enterprise developers** solving optimization problems (scheduling, routing, allocation)
@@ -643,7 +645,7 @@ let ghzState n =
 ```
 
 **Practical workflow**:
-1. Develop and debug with local simulators (instant feedback, unlimited qubits)
+1. Develop and debug with local simulators (instant feedback, non-paid qubits)
 2. Test on Azure Quantum simulators (validate against noise models)
 3. Execute on real quantum hardware (IonQ, Quantinuum, Rigetti)
 4. Use resource estimation to plan for future scaled hardware
@@ -708,6 +710,9 @@ Each function is pure, composable, and type-safe—leveraging F#'s strengths for
 - **Cirq** (Python/Google): NISQ-focused, integration with Google's quantum processors
 - **Q#** (Microsoft): Full-featured quantum language integrated with Azure Quantum
 - **FSharp.Azure.Quantum** (F#): Functional abstractions over Azure Quantum and Q#
+
+**Other great F# applications**
+- This page is featured in F# Advent Calendar 2025: https://sergeytihon.com/2025/11/03/f-advent-calendar-in-english-2025/
 
 ---
 
