@@ -6,7 +6,7 @@ As XKCD stated "All the Fun Parts of Life are Optional": so is this tutorial.
 
 ## From Classical to Quantum: A Functional Perspective
 
-Classical computation operates on bits—discrete states of 0 or 1. Quantum computation operates on **qubits** (quantum bits), which exist in superposition states described by complex amplitudes. Where classical bits are elements of {0, 1}, qubits inhabit a two-dimensional complex Hilbert space ℂ².
+Classical computation operates on bits—discrete states of 0 or 1. Quantum computation operates on **qubits** (quantum bits), which exist in superposition states described by complex amplitudes (where "complex" refers math complex numbers). Where classical bits are elements of {0, 1}, qubits inhabit a two-dimensional complex Hilbert space ℂ².
 
 A single qubit state is represented as:
 
