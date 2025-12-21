@@ -173,7 +173,6 @@ module HybridSolver =
 
     /// Execute TSP problem on quantum backend using QAOA
     /// Note: Full quantum hardware integration requires circuit compilation and backend submission.
-    /// For prototype, uses classical solver with quantum-inspired heuristics.
     let private executeQuantumTsp
         (distances: float[,])
         (quantumConfig: QuantumExecutionConfig)

@@ -423,12 +423,6 @@ module HHLUnifiedTests =
         | Ok result -> 
             Assert.NotNull(result.Config)
             Assert.Equal(4, result.Config.Matrix.Dimension)
-        | Error (QuantumError.NotImplemented _) -> 
-            // Acceptable for educational implementation
-            ()
-        | Error (QuantumError.OperationError _) ->
-            // Acceptable - implementation incomplete
-            ()
         | Error err -> 
             Assert.Fail($"Unexpected error: {err}")
     
@@ -473,11 +467,7 @@ module HHLUnifiedTests =
                 let idx = i * 4 + i  // Diagonal index
                 assertComplexEqual (Complex(1.0, 0.0)) matrix.Elements[idx] $"Diagonal element {i}"
         | Error (QuantumError.NotImplemented _) -> 
-            // Acceptable for educational implementation
-            ()
-        | Error (QuantumError.OperationError _) ->
-            // Acceptable - implementation incomplete
-            ()
+            Assert.Fail($"Unexpected error: Not implemented?")
         | Error err -> 
             Assert.Fail($"Unexpected error: {err}")
     

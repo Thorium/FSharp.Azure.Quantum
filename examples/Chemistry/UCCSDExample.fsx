@@ -192,7 +192,6 @@ printfn "Hardware-Efficient Ansatz (generic):"
 printfn "  ❌ No chemical structure"
 printfn "  ❌ Parameters have no physical meaning"
 printfn "  ❌ No accuracy guarantee"
-printfn "  ⚠️  Only for educational/toy examples"
 printfn "  Parameters for H2: ~%d (arbitrary layers)" (numOrbitals * 3)
 printfn ""
 

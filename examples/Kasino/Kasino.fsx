@@ -7,7 +7,7 @@
 // Cultural Context:
 // Kasino is a popular Finnish card game where players capture table cards by
 // matching their sum to a hand card's value. This example showcases Finnish
-// cultural heritage while demonstrating quantum-inspired optimization.
+// cultural heritage while demonstrating quantum optimization.
 //
 // Business/Strategy Context:
 // - Subset sum is NP-complete (exponential classical complexity)

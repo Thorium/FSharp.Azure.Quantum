@@ -13,7 +13,7 @@ namespace KasinoExample
     /// 2. C# value tuples work directly with CSharpBuilders helpers
     /// 3. Extension methods for Result&lt;T,E&gt; and F# lists
     /// 4. NEW: findAllValidCombinations() for proper Kasino capture logic
-    /// 5. Quantum-inspired optimization (32x-181x speedup potential with QUBO encoding)
+    /// 5. Quantum optimization (32x-181x speedup potential with QUBO encoding)
     ///
     /// Kasino Game Rules:
     /// - Table cards: Numeric values (2-10, J=11, Q=12, K=13, Ace=1)
@@ -59,7 +59,7 @@ namespace KasinoExample
             Console.WriteLine("  • Clean C# API with GlobalUsings - no F# interop boilerplate!");
             Console.WriteLine("  • C# value tuples work directly with KnapsackProblem() helper");
             Console.WriteLine("  • Extension methods: result.IsOk(), result.GetOkValue(), list.Count()");
-            Console.WriteLine("  • Quantum-ready algorithms with quantum-inspired optimization");
+            Console.WriteLine("  • Quantum-ready algorithms with quantum optimization");
             Console.WriteLine("  • Quantum speedup potential: 32x-181x with QUBO encoding");
         }
 

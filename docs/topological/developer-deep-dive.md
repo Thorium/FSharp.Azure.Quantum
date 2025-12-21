@@ -1447,7 +1447,7 @@ let z2xz2SMatrix =
 **⚠️ Current Limitations**:
 
 1. **Simulator Only** (not faster than gate-based on classical hardware):
-   - Educational/research tool, not production quantum computer
+   - Educational/research tool, not production-ready topological quantum computer exists as of 2025
    - Classical simulation has exponential overhead
    - Max ~10-12 anyons practical (~5-6 logical qubits)
 

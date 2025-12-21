@@ -1,6 +1,6 @@
 # Jekyll configuration for GitHub Pages
 title: FSharp.Azure.Quantum
-description: F# library for quantum-inspired optimization - Solve TSP, Portfolio, and combinatorial optimization problems
+description: F# library for quantum computing - Solve TSP, Portfolio, and combinatorial optimization problems
 url: https://thorium.github.io
 baseurl: /FSharp.Azure.Quantum
 theme: jekyll-theme-cayman
