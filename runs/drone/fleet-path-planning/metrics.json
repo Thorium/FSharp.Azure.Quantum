@@ -1,0 +1,14 @@
+{
+  "run_id": "20260123_222746",
+  "waypoints_path": "examples/Drone/_data/waypoints.csv",
+  "drones_path": "examples/Drone/_data/drones.csv",
+  "waypoints_sha256": "52dbed92df41d6baf10df83f7eb09f5dfba6d466ff7cd3da248ff093c736f49b",
+  "drones_sha256": "9ec8b012d75f8b87f7650531e83bc4754db92e750d7696beb107610220167505",
+  "waypoint_count": 8,
+  "drone_count": 4,
+  "method_used": "Hybrid \u2192 Classical",
+  "total_distance_km": 15.555052296841044,
+  "estimated_flight_time_min": 21.604239301168114,
+  "energy_consumption_wh": 500,
+  "elapsed_ms": 79
+}

@@ -1,0 +1,9 @@
+task_id,type,waypoint_id,duration_min,priority,payload_kg,depends_on
+T001,takeoff,WP001,5,0,0.0,
+T002,delivery,WP002,10,2,1.5,T001
+T003,delivery,WP003,10,2,2.0,T001
+T004,inspection,WP004,20,1,0.5,T002
+T005,inspection,WP005,15,3,0.5,T003
+T006,emergency_response,WP006,30,5,0.0,
+T007,relay_setup,WP007,5,1,0.2,T004
+T008,return_to_base,WP008,5,0,0.0,T005;T007

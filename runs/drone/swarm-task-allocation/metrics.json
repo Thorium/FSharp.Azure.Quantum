@@ -1,0 +1,15 @@
+{
+  "run_id": "20260123_222747",
+  "tasks_path": "examples/Drone/_data/tasks.csv",
+  "drones_path": "examples/Drone/_data/drones.csv",
+  "tasks_sha256": "b42a7b8e768f368682bcec552e9e7947bdb0292c4a8ce52fb1e438ebbd64ea71",
+  "drones_sha256": "9ec8b012d75f8b87f7650531e83bc4754db92e750d7696beb107610220167505",
+  "task_count": 8,
+  "drone_count": 4,
+  "dependency_count": 7,
+  "method_used": "Classical (Topological Sort)",
+  "makespan_min": 45,
+  "total_idle_time_min": 80,
+  "resource_utilization": 0.5555555555555556,
+  "elapsed_ms": 84
+}
