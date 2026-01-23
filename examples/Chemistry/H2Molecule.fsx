@@ -113,11 +113,6 @@ printfn "================================================================"
 // Example 1: Simple H2 ground state at equilibrium bond length
 printfn "=== Example 1: H2 Ground State at 0.74 Å ==="
 
-// h2 function might collide with h2 value defined above, using explicit namespace or rename
-// The error [117:15] "This value is not a function" happens because 'h2' is defined as a value on line 41
-// shadowing the helper function 'h2' used in the builder. 
-// We should use Molecule.createH2 in the builder or rename the value.
-
 let h2Problem = quantumChemistry {
     molecule (Molecule.createH2 0.74) 
     basis "sto-3g"
