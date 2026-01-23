@@ -338,7 +338,7 @@ match solveQuantum backend problem with
 - [**JobScheduling**](https://github.com/Thorium/FSharp.Azure.Quantum/tree/main/examples/JobScheduling) - Task scheduling with dependencies
 
 #### Advanced Quantum Algorithms
-- [**QuantumChemistry**](https://github.com/Thorium/FSharp.Azure.Quantum/tree/main/examples/QuantumChemistry) - VQE for molecular simulation
+- [**QuantumChemistry**](https://github.com/Thorium/FSharp.Azure.Quantum/tree/main/examples/Chemistry) - VQE for molecular simulation
 - [**PhaseEstimation**](https://github.com/Thorium/FSharp.Azure.Quantum/tree/main/examples/PhaseEstimation) - Quantum Phase Estimation (QPE)
 - [**QuantumArithmetic**](https://github.com/Thorium/FSharp.Azure.Quantum/tree/main/examples/QuantumArithmetic) - QFT-based arithmetic operations
 - [**CryptographicAnalysis**](https://github.com/Thorium/FSharp.Azure.Quantum/tree/main/examples/CryptographicAnalysis) - Shor's algorithm demonstrations

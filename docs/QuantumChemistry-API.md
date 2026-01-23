@@ -554,7 +554,7 @@ let saveExperiment (problem: ChemistryProblem) (result: ChemistryResult) =
 - [Getting Started Guide](getting-started.md)
 - [Local Simulation](local-simulation.md)
 - [Backend Switching](backend-switching.md)
-- [Examples](../examples/QuantumChemistry/)
+- [Examples](../examples/Chemistry/)
 
 ---
 
