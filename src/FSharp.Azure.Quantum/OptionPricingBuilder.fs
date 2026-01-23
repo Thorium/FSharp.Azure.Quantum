@@ -375,3 +375,291 @@ module OptionPricing =
         
         // Use 6 qubits (64 price levels) and 5 Grover iterations
         price (AsianPut timeSteps) marketParams 6 5 backend
+    
+    // ========================================================================
+    // GREEKS - Option Sensitivities via Quantum Finite Differences
+    // ========================================================================
+    
+    /// Option Greeks (sensitivities) computed via quantum Monte Carlo
+    /// 
+    /// All Greeks are computed using finite difference methods with quantum repricing.
+    /// Each repricing call goes through IQuantumBackend (RULE1 compliant).
+    type OptionGreeks = {
+        /// Option price at current market parameters
+        Price: float
+        
+        /// Delta (Δ): ∂C/∂S - sensitivity to spot price
+        /// Measures how much the option price changes for a $1 change in spot
+        /// Range: [0, 1] for calls, [-1, 0] for puts
+        Delta: float
+        
+        /// Gamma (Γ): ∂²C/∂S² - rate of change of delta
+        /// Measures convexity/curvature of option price vs spot
+        /// Always positive for vanilla options
+        Gamma: float
+        
+        /// Vega (ν): ∂C/∂σ - sensitivity to volatility
+        /// Measures option price change for 1% change in volatility
+        /// Always positive for vanilla options
+        Vega: float
+        
+        /// Theta (Θ): -∂C/∂T - time decay (per day)
+        /// Measures option price change over one day
+        /// Usually negative (options lose value as time passes)
+        Theta: float
+        
+        /// Rho (ρ): ∂C/∂r - sensitivity to interest rate
+        /// Measures option price change for 1% change in risk-free rate
+        /// Positive for calls, negative for puts
+        Rho: float
+        
+        /// Confidence intervals for each Greek (same order as above)
+        ConfidenceIntervals: {| Delta: float; Gamma: float; Vega: float; Theta: float; Rho: float |}
+        
+        /// Method used for computation
+        Method: string
+        
+        /// Number of quantum pricing calls made (typically 9 for full Greeks)
+        PricingCalls: int
+    }
+    
+    /// Configuration for Greeks calculation
+    type GreeksConfig = {
+        /// Relative bump size for spot price (default 1% = 0.01)
+        SpotBump: float
+        
+        /// Absolute bump size for volatility (default 1% = 0.01)
+        VolatilityBump: float
+        
+        /// Time bump in years (default 1 day = 1/365)
+        TimeBump: float
+        
+        /// Absolute bump size for interest rate (default 1% = 0.01)
+        RateBump: float
+    }
+    
+    /// Default Greeks configuration
+    let defaultGreeksConfig = {
+        SpotBump = 0.01        // 1% relative bump for spot
+        VolatilityBump = 0.01  // 1% absolute bump for volatility
+        TimeBump = 1.0 / 365.0 // 1 day
+        RateBump = 0.01        // 1% absolute bump for rate
+    }
+    
+    /// Calculate option Greeks using quantum finite differences (RULE1 compliant)
+    /// 
+    /// **ALGORITHM**:
+    /// Uses central finite differences for first derivatives:
+    ///   ∂f/∂x ≈ (f(x+ε) - f(x-ε)) / 2ε
+    /// 
+    /// Uses central finite differences for second derivative (Gamma):
+    ///   ∂²f/∂x² ≈ (f(x+ε) - 2f(x) + f(x-ε)) / ε²
+    /// 
+    /// **QUANTUM ADVANTAGE**:
+    /// Each repricing uses quantum Monte Carlo with O(1/ε) complexity.
+    /// Total complexity: O(8/ε) for all Greeks (8 pricing calls in parallel)
+    /// vs classical: O(8/ε²) for same accuracy
+    /// 
+    /// **RULE1 COMPLIANCE**:
+    /// All pricing calls go through IQuantumBackend - no classical fallbacks
+    let calculateGreeks
+        (optionType: OptionType)
+        (marketParams: MarketParameters)
+        (config: GreeksConfig)
+        (numQubits: int)
+        (groverIterations: int)
+        (backend: IQuantumBackend)  // ✅ RULE1: Backend REQUIRED
+        : Async<QuantumResult<OptionGreeks>> =
+        
+        async {
+            // Validate configuration
+            if config.SpotBump <= 0.0 || config.SpotBump > 0.1 then
+                return Error (QuantumError.ValidationError ("SpotBump", "Must be in range (0, 0.1]"))
+            elif config.VolatilityBump <= 0.0 || config.VolatilityBump > 0.1 then
+                return Error (QuantumError.ValidationError ("VolatilityBump", "Must be in range (0, 0.1]"))
+            elif config.TimeBump <= 0.0 || config.TimeBump > 0.1 then
+                return Error (QuantumError.ValidationError ("TimeBump", "Must be in range (0, 0.1]"))
+            elif config.RateBump <= 0.0 || config.RateBump > 0.1 then
+                return Error (QuantumError.ValidationError ("RateBump", "Must be in range (0, 0.1]"))
+            elif marketParams.TimeToExpiry <= config.TimeBump then
+                return Error (QuantumError.ValidationError ("TimeToExpiry", "Must be greater than TimeBump for Theta calculation"))
+            else
+                
+                // Calculate bump amounts
+                let spotEps = marketParams.SpotPrice * config.SpotBump
+                let volEps = config.VolatilityBump
+                let timeEps = config.TimeBump
+                let rateEps = config.RateBump
+                
+                // Bumped market parameters for finite differences
+                let spotUp = { marketParams with SpotPrice = marketParams.SpotPrice + spotEps }
+                let spotDown = { marketParams with SpotPrice = marketParams.SpotPrice - spotEps }
+                let volUp = { marketParams with Volatility = marketParams.Volatility + volEps }
+                let volDown = { marketParams with Volatility = max 0.001 (marketParams.Volatility - volEps) } // Prevent negative vol
+                let timeDown = { marketParams with TimeToExpiry = marketParams.TimeToExpiry - timeEps } // For theta (time decay)
+                let rateUp = { marketParams with RiskFreeRate = marketParams.RiskFreeRate + rateEps }
+                let rateDown = { marketParams with RiskFreeRate = marketParams.RiskFreeRate - rateEps }
+                
+                // Price at all required points (8 quantum pricing calls)
+                // Run ALL calls in parallel for maximum efficiency
+                let pricingTasks = [|
+                    price optionType marketParams numQubits groverIterations backend  // 0: base
+                    price optionType spotUp numQubits groverIterations backend        // 1: spot up
+                    price optionType spotDown numQubits groverIterations backend      // 2: spot down
+                    price optionType volUp numQubits groverIterations backend         // 3: vol up
+                    price optionType volDown numQubits groverIterations backend       // 4: vol down
+                    price optionType timeDown numQubits groverIterations backend      // 5: time down
+                    price optionType rateUp numQubits groverIterations backend        // 6: rate up
+                    price optionType rateDown numQubits groverIterations backend      // 7: rate down
+                |]
+                
+                let! results = Async.Parallel pricingTasks
+                
+                // Extract results with proper error handling
+                let priceBase = results.[0]
+                let priceSpotUp = results.[1]
+                let priceSpotDown = results.[2]
+                let priceVolUp = results.[3]
+                let priceVolDown = results.[4]
+                let priceTimeDown = results.[5]
+                let priceRateUp = results.[6]
+                let priceRateDown = results.[7]
+                
+                // Check if ALL pricing calls succeeded - fail if any failed
+                let allResults = [
+                    ("base", priceBase)
+                    ("spotUp", priceSpotUp)
+                    ("spotDown", priceSpotDown)
+                    ("volUp", priceVolUp)
+                    ("volDown", priceVolDown)
+                    ("timeDown", priceTimeDown)
+                    ("rateUp", priceRateUp)
+                    ("rateDown", priceRateDown)
+                ]
+                
+                let firstError = 
+                    allResults 
+                    |> List.tryPick (fun (name, result) -> 
+                        match result with 
+                        | Error err -> Some (name, err) 
+                        | Ok _ -> None)
+                
+                match firstError with
+                | Some (name, err) -> 
+                    return Error (QuantumError.OperationError ("calculateGreeks", $"Pricing at '{name}' failed with {err}"))
+                | None ->
+                    // All succeeded - extract prices safely
+                    let p0 = match priceBase with Ok p -> p.Price | _ -> 0.0
+                    let pSpotUp = match priceSpotUp with Ok p -> p.Price | _ -> 0.0
+                    let pSpotDown = match priceSpotDown with Ok p -> p.Price | _ -> 0.0
+                    let pVolUp = match priceVolUp with Ok p -> p.Price | _ -> 0.0
+                    let pVolDown = match priceVolDown with Ok p -> p.Price | _ -> 0.0
+                    let pTimeDown = match priceTimeDown with Ok p -> p.Price | _ -> 0.0
+                    let pRateUp = match priceRateUp with Ok p -> p.Price | _ -> 0.0
+                    let pRateDown = match priceRateDown with Ok p -> p.Price | _ -> 0.0
+                    
+                    // Extract confidence intervals
+                    let ciBase = match priceBase with Ok p -> p.ConfidenceInterval | _ -> 0.0
+                    let ciSpotUp = match priceSpotUp with Ok p -> p.ConfidenceInterval | _ -> 0.0
+                    let ciSpotDown = match priceSpotDown with Ok p -> p.ConfidenceInterval | _ -> 0.0
+                    let ciVolUp = match priceVolUp with Ok p -> p.ConfidenceInterval | _ -> 0.0
+                    let ciVolDown = match priceVolDown with Ok p -> p.ConfidenceInterval | _ -> 0.0
+                    let ciTimeDown = match priceTimeDown with Ok p -> p.ConfidenceInterval | _ -> 0.0
+                    let ciRateUp = match priceRateUp with Ok p -> p.ConfidenceInterval | _ -> 0.0
+                    let ciRateDown = match priceRateDown with Ok p -> p.ConfidenceInterval | _ -> 0.0
+                    
+                    // Calculate Greeks using central finite differences
+                    
+                    // Delta: ∂C/∂S ≈ (C(S+ε) - C(S-ε)) / 2ε
+                    let delta = (pSpotUp - pSpotDown) / (2.0 * spotEps)
+                    
+                    // Gamma: ∂²C/∂S² ≈ (C(S+ε) - 2C(S) + C(S-ε)) / ε²
+                    let gamma = (pSpotUp - 2.0 * p0 + pSpotDown) / (spotEps * spotEps)
+                    
+                    // Vega: ∂C/∂σ ≈ (C(σ+ε) - C(σ-ε)) / 2ε
+                    // Result is price change per 1 unit (100%) volatility change
+                    // To get per 1% change, user can multiply by 0.01
+                    let vega = (pVolUp - pVolDown) / (2.0 * volEps)
+                    
+                    // Theta: -∂C/∂T ≈ -(C(T) - C(T-ε)) / ε
+                    // Using forward difference (can't price negative time)
+                    // timeEps is in years, so this gives annual theta
+                    // Divide by 365 to get daily theta
+                    let thetaAnnual = -(p0 - pTimeDown) / timeEps
+                    let theta = thetaAnnual / 365.0
+                    
+                    // Rho: ∂C/∂r ≈ (C(r+ε) - C(r-ε)) / 2ε
+                    // Result is price change per 1 unit (100%) rate change
+                    // To get per 1% change, user can multiply by 0.01
+                    let rho = (pRateUp - pRateDown) / (2.0 * rateEps)
+                    
+                    // Calculate confidence intervals for Greeks (propagate uncertainty)
+                    // Using error propagation: σ(Δf) ≈ √(σ₁² + σ₂²) / (2ε) for central difference
+                    let deltaCI = sqrt (ciSpotUp * ciSpotUp + ciSpotDown * ciSpotDown) / (2.0 * spotEps)
+                    let gammaCI = sqrt (ciSpotUp * ciSpotUp + 4.0 * ciBase * ciBase + ciSpotDown * ciSpotDown) / (spotEps * spotEps)
+                    let vegaCI = sqrt (ciVolUp * ciVolUp + ciVolDown * ciVolDown) / (2.0 * volEps)
+                    let thetaCI = sqrt (ciBase * ciBase + ciTimeDown * ciTimeDown) / timeEps / 365.0
+                    let rhoCI = sqrt (ciRateUp * ciRateUp + ciRateDown * ciRateDown) / (2.0 * rateEps)
+                    
+                    return Ok {
+                        Price = p0
+                        Delta = delta
+                        Gamma = gamma
+                        Vega = vega
+                        Theta = theta
+                        Rho = rho
+                        ConfidenceIntervals = {| 
+                            Delta = deltaCI
+                            Gamma = gammaCI
+                            Vega = vegaCI
+                            Theta = thetaCI
+                            Rho = rhoCI 
+                        |}
+                        Method = "Quantum Monte Carlo Finite Differences (Parallel)"
+                        PricingCalls = 8  // Base + 7 bumped prices (spotUp/Down, volUp/Down, timeDown, rateUp/Down)
+                    }
+        }
+    
+    /// Calculate Greeks for European call with default configuration (RULE1 compliant)
+    /// 
+    /// **REQUIRED PARAMETER**: backend: IQuantumBackend (NOT optional - RULE1)
+    let greeksEuropeanCall
+        (spot: float)
+        (strike: float)
+        (rate: float)
+        (volatility: float)
+        (expiry: float)
+        (backend: IQuantumBackend)  // ✅ RULE1: Backend REQUIRED
+        : Async<QuantumResult<OptionGreeks>> =
+        
+        let marketParams = {
+            SpotPrice = spot
+            StrikePrice = strike
+            RiskFreeRate = rate
+            Volatility = volatility
+            TimeToExpiry = expiry
+        }
+        
+        calculateGreeks EuropeanCall marketParams defaultGreeksConfig 6 5 backend
+    
+    /// Calculate Greeks for European put with default configuration (RULE1 compliant)
+    /// 
+    /// **REQUIRED PARAMETER**: backend: IQuantumBackend (NOT optional - RULE1)
+    let greeksEuropeanPut
+        (spot: float)
+        (strike: float)
+        (rate: float)
+        (volatility: float)
+        (expiry: float)
+        (backend: IQuantumBackend)  // ✅ RULE1: Backend REQUIRED
+        : Async<QuantumResult<OptionGreeks>> =
+        
+        let marketParams = {
+            SpotPrice = spot
+            StrikePrice = strike
+            RiskFreeRate = rate
+            Volatility = volatility
+            TimeToExpiry = expiry
+        }
+        
+        calculateGreeks EuropeanPut marketParams defaultGreeksConfig 6 5 backend

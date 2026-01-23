@@ -2,9 +2,10 @@ namespace FSharp.Azure.Quantum.MachineLearning
 
 open FSharp.Azure.Quantum.Core
 
-/// Simple Model Serialization for VQC Models.
+/// Simple Model Serialization for VQC and Portfolio Models.
 ///
-/// Provides basic save/load functionality for trained VQC models.
+/// Provides basic save/load functionality for trained VQC models
+/// and quantum portfolio optimization solutions.
 /// Stores parameters as JSON for easy inspection and portability.
 
 open System
@@ -677,3 +678,306 @@ module ModelSerialization =
                 else
                     let extractedParams = parameters.[0 .. (extractLayers * paramsPerLayer - 1)]
                     Ok extractedParams)
+    
+    // ========================================================================
+    // PORTFOLIO SOLUTION SERIALIZATION
+    // ========================================================================
+    
+    /// Serializable asset allocation for portfolio solutions
+    type SerializableAllocation = {
+        /// Asset symbol (e.g., "AAPL")
+        Symbol: string
+        
+        /// Number of shares allocated
+        Shares: float
+        
+        /// Dollar value of allocation
+        Value: float
+        
+        /// Percentage of total portfolio (0.0 to 1.0)
+        Percentage: float
+        
+        /// Original asset data
+        ExpectedReturn: float
+        Risk: float
+        Price: float
+    }
+    
+    /// Serializable QUBO matrix for portfolio optimization
+    type SerializableQuboMatrix = {
+        /// Number of variables (assets)
+        NumVariables: int
+        
+        /// QUBO coefficients as list of (row, col, value) tuples
+        /// Stored as list for JSON compatibility
+        Coefficients: (int * int * float) list
+    }
+    
+    /// Serializable quantum portfolio solution (JSON-friendly)
+    type SerializablePortfolioSolution = {
+        /// Asset allocations
+        Allocations: SerializableAllocation list
+        
+        /// Total portfolio value
+        TotalValue: float
+        
+        /// Expected portfolio return (weighted average)
+        ExpectedReturn: float
+        
+        /// Portfolio risk (standard deviation)
+        Risk: float
+        
+        /// Sharpe ratio (return / risk)
+        SharpeRatio: float
+        
+        /// Backend used for quantum execution
+        BackendName: string
+        
+        /// Number of measurement shots
+        NumShots: int
+        
+        /// Execution time in milliseconds
+        ElapsedMs: float
+        
+        /// QAOA parameters used (gamma, beta)
+        QaoaGamma: float
+        QaoaBeta: float
+        
+        /// QUBO objective value (energy)
+        BestEnergy: float
+        
+        /// Selected assets mapping (symbol -> selected)
+        SelectedAssets: (string * bool) list
+        
+        /// Risk aversion parameter used
+        RiskAversion: float
+        
+        /// Budget constraint
+        Budget: float
+        
+        /// QUBO matrix (optional, for reproducibility)
+        QuboMatrix: SerializableQuboMatrix option
+        
+        /// Timestamp when saved
+        SavedAt: string
+        
+        /// Optional note
+        Note: string option
+    }
+    
+    /// Convert QUBO matrix Map to serializable format
+    let private quboToSerializable (quboMap: Map<(int * int), float>) (numVars: int) : SerializableQuboMatrix =
+        let coefficients =
+            quboMap
+            |> Map.toList
+            |> List.map (fun ((i, j), v) -> (i, j, v))
+        {
+            NumVariables = numVars
+            Coefficients = coefficients
+        }
+    
+    /// Convert serializable QUBO back to Map format
+    let private serializableToQubo (serialized: SerializableQuboMatrix) : Map<(int * int), float> =
+        serialized.Coefficients
+        |> List.map (fun (i, j, v) -> ((i, j), v))
+        |> Map.ofList
+    
+    /// Save quantum portfolio solution to JSON file
+    ///
+    /// This is a data-centric serialization that takes all values directly,
+    /// avoiding coupling to specific solver types. Use helper functions in
+    /// QuantumPortfolioSolver to convert from QuantumPortfolioSolution if needed.
+    ///
+    /// Parameters:
+    ///   filePath - Path to save JSON file
+    ///   allocations - List of asset allocations
+    ///   totalValue - Total portfolio value
+    ///   expectedReturn - Expected portfolio return
+    ///   risk - Portfolio risk (standard deviation)
+    ///   sharpeRatio - Sharpe ratio
+    ///   backendName - Backend used for execution
+    ///   numShots - Number of measurement shots
+    ///   elapsedMs - Execution time in milliseconds
+    ///   qaoaParams - QAOA parameters (gamma, beta)
+    ///   bestEnergy - QUBO objective value
+    ///   selectedAssets - Map of asset symbol -> selected
+    ///   riskAversion - Risk aversion parameter used
+    ///   budget - Budget constraint used
+    ///   quboMatrix - Optional QUBO matrix for reproducibility
+    ///   note - Optional note about the solution
+    let savePortfolioSolutionAsync
+        (filePath: string)
+        (allocations: SerializableAllocation list)
+        (totalValue: float)
+        (expectedReturn: float)
+        (risk: float)
+        (sharpeRatio: float)
+        (backendName: string)
+        (numShots: int)
+        (elapsedMs: float)
+        (qaoaParams: float * float)
+        (bestEnergy: float)
+        (selectedAssets: Map<string, bool>)
+        (riskAversion: float)
+        (budget: float)
+        (quboMatrix: Map<(int * int), float> option)
+        (numVariables: int)
+        (note: string option)
+        : Async<QuantumResult<unit>> =
+        async {
+            try
+                let (gamma, beta) = qaoaParams
+                
+                // Convert selected assets to list for JSON
+                let selectedAssetsList =
+                    selectedAssets
+                    |> Map.toList
+                
+                // Convert QUBO matrix if provided
+                let serializableQubo =
+                    quboMatrix
+                    |> Option.map (fun q -> quboToSerializable q numVariables)
+                
+                let model = {
+                    Allocations = allocations
+                    TotalValue = totalValue
+                    ExpectedReturn = expectedReturn
+                    Risk = risk
+                    SharpeRatio = sharpeRatio
+                    BackendName = backendName
+                    NumShots = numShots
+                    ElapsedMs = elapsedMs
+                    QaoaGamma = gamma
+                    QaoaBeta = beta
+                    BestEnergy = bestEnergy
+                    SelectedAssets = selectedAssetsList
+                    RiskAversion = riskAversion
+                    Budget = budget
+                    QuboMatrix = serializableQubo
+                    SavedAt = DateTime.UtcNow.ToString("o")
+                    Note = note
+                }
+                
+                let options = JsonSerializerOptions()
+                options.WriteIndented <- true
+                
+                let json = JsonSerializer.Serialize(model, options)
+                do! File.WriteAllTextAsync(filePath, json) |> Async.AwaitTask
+                
+                return Ok ()
+            with ex ->
+                return Error (QuantumError.ValidationError ("Input", $"Failed to save portfolio solution: {ex.Message}"))
+        }
+    
+    /// Save portfolio solution synchronously
+    [<System.Obsolete("Use savePortfolioSolutionAsync for better performance")>]
+    let savePortfolioSolution
+        (filePath: string)
+        (allocations: SerializableAllocation list)
+        (totalValue: float)
+        (expectedReturn: float)
+        (risk: float)
+        (sharpeRatio: float)
+        (backendName: string)
+        (numShots: int)
+        (elapsedMs: float)
+        (qaoaParams: float * float)
+        (bestEnergy: float)
+        (selectedAssets: Map<string, bool>)
+        (riskAversion: float)
+        (budget: float)
+        (quboMatrix: Map<(int * int), float> option)
+        (numVariables: int)
+        (note: string option)
+        : QuantumResult<unit> =
+        savePortfolioSolutionAsync filePath allocations totalValue expectedReturn risk sharpeRatio 
+            backendName numShots elapsedMs qaoaParams bestEnergy selectedAssets riskAversion budget quboMatrix numVariables note
+        |> Async.RunSynchronously
+    
+    /// Load quantum portfolio solution from JSON file
+    ///
+    /// Returns: Serializable portfolio solution with all metadata
+    let loadPortfolioSolution
+        (filePath: string)
+        : QuantumResult<SerializablePortfolioSolution> =
+        
+        try
+            if not (File.Exists filePath) then
+                Error (QuantumError.ValidationError ("Input", $"File not found: {filePath}"))
+            else
+                let json = File.ReadAllText(filePath)
+                let model = JsonSerializer.Deserialize<SerializablePortfolioSolution>(json)
+                Ok model
+        with ex ->
+            Error (QuantumError.ValidationError ("Input", $"Failed to load portfolio solution: {ex.Message}"))
+    
+    /// Load QUBO matrix from saved portfolio solution
+    ///
+    /// Returns: QUBO matrix as Map if present in saved solution
+    let loadPortfolioQubo
+        (filePath: string)
+        : QuantumResult<Map<(int * int), float> option> =
+        
+        loadPortfolioSolution filePath
+        |> Result.map (fun solution ->
+            solution.QuboMatrix
+            |> Option.map serializableToQubo)
+    
+    /// Load QAOA parameters from saved portfolio solution
+    ///
+    /// Returns: (gamma, beta) tuple
+    let loadPortfolioQaoaParams
+        (filePath: string)
+        : QuantumResult<float * float> =
+        
+        loadPortfolioSolution filePath
+        |> Result.map (fun solution ->
+            (solution.QaoaGamma, solution.QaoaBeta))
+    
+    /// Get portfolio solution summary without loading full data
+    ///
+    /// Returns: (total_value, expected_return, risk, sharpe_ratio, backend_name, saved_at)
+    let getPortfolioSolutionInfo
+        (filePath: string)
+        : QuantumResult<float * float * float * float * string * string> =
+        
+        loadPortfolioSolution filePath
+        |> Result.map (fun solution ->
+            (solution.TotalValue,
+             solution.ExpectedReturn,
+             solution.Risk,
+             solution.SharpeRatio,
+             solution.BackendName,
+             solution.SavedAt))
+    
+    /// Print portfolio solution information to console
+    let printPortfolioSolutionInfo
+        (filePath: string)
+        : QuantumResult<unit> =
+        
+        loadPortfolioSolution filePath
+        |> Result.map (fun solution ->
+            printfn "=== Portfolio Solution Information ==="
+            printfn "File: %s" filePath
+            printfn "Saved at: %s" solution.SavedAt
+            printfn "Backend: %s" solution.BackendName
+            printfn "Total Value: $%.2f" solution.TotalValue
+            printfn "Expected Return: %.2f%%" (solution.ExpectedReturn * 100.0)
+            printfn "Risk: %.2f%%" (solution.Risk * 100.0)
+            printfn "Sharpe Ratio: %.4f" solution.SharpeRatio
+            printfn "QAOA Parameters: gamma=%.4f, beta=%.4f" solution.QaoaGamma solution.QaoaBeta
+            printfn "Risk Aversion: %.2f" solution.RiskAversion
+            printfn "Budget: $%.2f" solution.Budget
+            printfn "Best Energy: %.4f" solution.BestEnergy
+            printfn "Num Shots: %d" solution.NumShots
+            printfn "Elapsed: %.2fms" solution.ElapsedMs
+            printfn ""
+            printfn "Allocations (%d assets):" solution.Allocations.Length
+            solution.Allocations
+            |> List.iter (fun alloc ->
+                printfn "  %s: %.2f shares @ $%.2f = $%.2f (%.1f%%)" 
+                    alloc.Symbol alloc.Shares alloc.Price alloc.Value (alloc.Percentage * 100.0))
+            match solution.Note with
+            | Some note -> printfn "Note: %s" note
+            | None -> ()
+            printfn "======================================")

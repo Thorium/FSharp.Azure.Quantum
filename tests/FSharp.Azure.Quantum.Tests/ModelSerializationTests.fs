@@ -610,3 +610,301 @@ module ModelSerializationTests =
                     Assert.False(System.String.IsNullOrWhiteSpace(model.SavedAt), "SavedAt timestamp should be set")
         finally
             cleanupTestFile testFile
+    
+    // ========================================================================
+    // PORTFOLIO SOLUTION SERIALIZATION TESTS
+    // ========================================================================
+    
+    /// Create mock portfolio allocations for testing
+    let private createMockAllocations () : ModelSerialization.SerializableAllocation list =
+        [
+            {
+                Symbol = "AAPL"
+                Shares = 10.5
+                Value = 1575.0
+                Percentage = 0.35
+                ExpectedReturn = 0.12
+                Risk = 0.20
+                Price = 150.0
+            }
+            {
+                Symbol = "GOOGL"
+                Shares = 2.0
+                Value = 2800.0
+                Percentage = 0.45
+                ExpectedReturn = 0.15
+                Risk = 0.25
+                Price = 1400.0
+            }
+            {
+                Symbol = "MSFT"
+                Shares = 5.0
+                Value = 1750.0
+                Percentage = 0.20
+                ExpectedReturn = 0.10
+                Risk = 0.18
+                Price = 350.0
+            }
+        ]
+    
+    [<Fact>]
+    let ``Save portfolio solution creates JSON file`` () =
+        let testFile = "test_portfolio_save.json"
+        cleanupTestFile testFile
+        
+        try
+            let allocations = createMockAllocations()
+            let selectedAssets = Map.ofList [("AAPL", true); ("GOOGL", true); ("MSFT", true)]
+            
+            let result = 
+                ModelSerialization.savePortfolioSolutionAsync
+                    testFile
+                    allocations
+                    6125.0      // totalValue
+                    0.12        // expectedReturn
+                    0.15        // risk
+                    0.80        // sharpeRatio
+                    "LocalBackend"
+                    1000        // numShots
+                    150.5       // elapsedMs
+                    (0.5, 0.5)  // qaoaParams
+                    -0.08       // bestEnergy
+                    selectedAssets
+                    0.5         // riskAversion
+                    10000.0     // budget
+                    None        // quboMatrix
+                    3           // numVariables
+                    (Some "Test portfolio solution")
+                |> Async.RunSynchronously
+            
+            match result with
+            | Ok () ->
+                Assert.True(File.Exists testFile, "JSON file should be created")
+            | Error e ->
+                Assert.Fail($"Save failed: {e}")
+        finally
+            cleanupTestFile testFile
+    
+    [<Fact>]
+    let ``Load portfolio solution retrieves saved data`` () =
+        async {
+            let testFile = "test_portfolio_load.json"
+            cleanupTestFile testFile
+            
+            try
+                let allocations = createMockAllocations()
+                let selectedAssets = Map.ofList [("AAPL", true); ("GOOGL", true); ("MSFT", false)]
+                let totalValue = 4375.0
+                let expectedReturn = 0.11
+                let risk = 0.18
+                let sharpeRatio = 0.61
+                let budget = 5000.0
+                let riskAversion = 0.6
+                let gamma, beta = 0.75, 0.25
+                
+                // Save
+                let! saveResult = 
+                    ModelSerialization.savePortfolioSolutionAsync
+                        testFile allocations totalValue expectedReturn risk sharpeRatio
+                        "IonQ" 2000 200.0 (gamma, beta) -0.05 selectedAssets riskAversion budget None 3 None
+                
+                match saveResult with
+                | Error e -> Assert.Fail($"Save failed: {e}")
+                | Ok () ->
+                    
+                    // Load
+                    match ModelSerialization.loadPortfolioSolution testFile with
+                    | Error e -> Assert.Fail($"Load failed: {e}")
+                    | Ok solution ->
+                        Assert.Equal(3, solution.Allocations.Length)
+                        Assert.Equal(totalValue, solution.TotalValue, 2)
+                        Assert.Equal(expectedReturn, solution.ExpectedReturn, 2)
+                        Assert.Equal(risk, solution.Risk, 2)
+                        Assert.Equal(sharpeRatio, solution.SharpeRatio, 2)
+                        Assert.Equal("IonQ", solution.BackendName)
+                        Assert.Equal(2000, solution.NumShots)
+                        Assert.Equal(gamma, solution.QaoaGamma, 2)
+                        Assert.Equal(beta, solution.QaoaBeta, 2)
+                        Assert.Equal(budget, solution.Budget, 2)
+                        Assert.Equal(riskAversion, solution.RiskAversion, 2)
+                        
+                        // Check allocations
+                        let aaplAlloc = solution.Allocations |> List.find (fun a -> a.Symbol = "AAPL")
+                        Assert.Equal(10.5, aaplAlloc.Shares, 2)
+                        Assert.Equal(150.0, aaplAlloc.Price, 2)
+            finally
+                cleanupTestFile testFile
+        } |> Async.StartAsTask
+    
+    [<Fact>]
+    let ``Load portfolio QAOA params returns tuple`` () =
+        async {
+            let testFile = "test_portfolio_qaoa_params.json"
+            cleanupTestFile testFile
+            
+            try
+                let allocations = createMockAllocations()
+                let selectedAssets = Map.ofList [("AAPL", true)]
+                let gamma, beta = 0.333, 0.667
+                
+                let! saveResult = 
+                    ModelSerialization.savePortfolioSolutionAsync
+                        testFile allocations 1000.0 0.1 0.1 1.0
+                        "LocalBackend" 100 50.0 (gamma, beta) 0.0 selectedAssets 0.5 1000.0 None 1 None
+                
+                match saveResult with
+                | Error e -> Assert.Fail($"Save failed: {e}")
+                | Ok () ->
+                    
+                    match ModelSerialization.loadPortfolioQaoaParams testFile with
+                    | Error e -> Assert.Fail($"Load failed: {e}")
+                    | Ok (loadedGamma, loadedBeta) ->
+                        Assert.Equal(gamma, loadedGamma, 3)
+                        Assert.Equal(beta, loadedBeta, 3)
+            finally
+                cleanupTestFile testFile
+        } |> Async.StartAsTask
+    
+    [<Fact>]
+    let ``Portfolio solution with QUBO matrix roundtrip`` () =
+        async {
+            let testFile = "test_portfolio_qubo.json"
+            cleanupTestFile testFile
+            
+            try
+                let allocations = createMockAllocations()
+                let selectedAssets = Map.ofList [("AAPL", true); ("GOOGL", true)]
+                
+                // Create a simple QUBO matrix
+                let quboMatrix = 
+                    Map.ofList [
+                        ((0, 0), -0.5)
+                        ((1, 1), -0.3)
+                        ((0, 1), 0.2)
+                    ]
+                
+                let! saveResult = 
+                    ModelSerialization.savePortfolioSolutionAsync
+                        testFile allocations 2000.0 0.12 0.15 0.8
+                        "LocalBackend" 500 75.0 (0.4, 0.6) -0.1 selectedAssets 0.5 2500.0 
+                        (Some quboMatrix) 2 (Some "QUBO test")
+                
+                match saveResult with
+                | Error e -> Assert.Fail($"Save failed: {e}")
+                | Ok () ->
+                    
+                    // Load QUBO
+                    match ModelSerialization.loadPortfolioQubo testFile with
+                    | Error e -> Assert.Fail($"Load failed: {e}")
+                    | Ok quboOpt ->
+                        Assert.True(quboOpt.IsSome, "QUBO matrix should be present")
+                        let loadedQubo = quboOpt.Value
+                        Assert.Equal(3, loadedQubo.Count)
+                        Assert.Equal(-0.5, loadedQubo.[(0, 0)], 2)
+                        Assert.Equal(-0.3, loadedQubo.[(1, 1)], 2)
+                        Assert.Equal(0.2, loadedQubo.[(0, 1)], 2)
+            finally
+                cleanupTestFile testFile
+        } |> Async.StartAsTask
+    
+    [<Fact>]
+    let ``Get portfolio solution info returns summary`` () =
+        async {
+            let testFile = "test_portfolio_info.json"
+            cleanupTestFile testFile
+            
+            try
+                let allocations = createMockAllocations()
+                let selectedAssets = Map.ofList [("AAPL", true)]
+                let totalValue = 1575.0
+                let expectedReturn = 0.12
+                let risk = 0.20
+                let sharpeRatio = 0.60
+                
+                let! saveResult = 
+                    ModelSerialization.savePortfolioSolutionAsync
+                        testFile allocations totalValue expectedReturn risk sharpeRatio
+                        "Rigetti" 800 120.0 (0.5, 0.5) -0.02 selectedAssets 0.4 2000.0 None 1 None
+                
+                match saveResult with
+                | Error e -> Assert.Fail($"Save failed: {e}")
+                | Ok () ->
+                    
+                    match ModelSerialization.getPortfolioSolutionInfo testFile with
+                    | Error e -> Assert.Fail($"Get info failed: {e}")
+                    | Ok (tv, er, r, sr, bn, savedAt) ->
+                        Assert.Equal(totalValue, tv, 2)
+                        Assert.Equal(expectedReturn, er, 2)
+                        Assert.Equal(risk, r, 2)
+                        Assert.Equal(sharpeRatio, sr, 2)
+                        Assert.Equal("Rigetti", bn)
+                        Assert.NotEmpty(savedAt)
+            finally
+                cleanupTestFile testFile
+        } |> Async.StartAsTask
+    
+    [<Fact>]
+    let ``Load nonexistent portfolio file returns error`` () =
+        let result = ModelSerialization.loadPortfolioSolution "nonexistent_portfolio_12345.json"
+        
+        match result with
+        | Ok _ -> Assert.Fail("Should return error for nonexistent file")
+        | Error msg ->
+            Assert.Contains("not found", msg.Message.ToLower())
+    
+    [<Fact>]
+    let ``Portfolio solution preserves timestamp`` () =
+        async {
+            let testFile = "test_portfolio_timestamp.json"
+            cleanupTestFile testFile
+            
+            try
+                let allocations = createMockAllocations()
+                let selectedAssets = Map.ofList [("AAPL", true)]
+                
+                let! saveResult = 
+                    ModelSerialization.savePortfolioSolutionAsync
+                        testFile allocations 1000.0 0.1 0.1 1.0
+                        "LocalBackend" 100 50.0 (0.5, 0.5) 0.0 selectedAssets 0.5 1000.0 None 1 None
+                
+                match saveResult with
+                | Error e -> Assert.Fail($"Save failed: {e}")
+                | Ok () ->
+                    
+                    match ModelSerialization.loadPortfolioSolution testFile with
+                    | Error e -> Assert.Fail($"Load failed: {e}")
+                    | Ok solution ->
+                        Assert.False(System.String.IsNullOrWhiteSpace(solution.SavedAt), "Timestamp should be set")
+                        Assert.Contains("T", solution.SavedAt)  // ISO 8601 format
+            finally
+                cleanupTestFile testFile
+        } |> Async.StartAsTask
+    
+    [<Fact>]
+    let ``Portfolio solution preserves optional note`` () =
+        async {
+            let testFile = "test_portfolio_note.json"
+            cleanupTestFile testFile
+            
+            try
+                let allocations = createMockAllocations()
+                let selectedAssets = Map.ofList [("AAPL", true)]
+                let note = "Optimized portfolio for Q1 2024"
+                
+                let! saveResult = 
+                    ModelSerialization.savePortfolioSolutionAsync
+                        testFile allocations 1000.0 0.1 0.1 1.0
+                        "LocalBackend" 100 50.0 (0.5, 0.5) 0.0 selectedAssets 0.5 1000.0 None 1 (Some note)
+                
+                match saveResult with
+                | Error e -> Assert.Fail($"Save failed: {e}")
+                | Ok () ->
+                    
+                    match ModelSerialization.loadPortfolioSolution testFile with
+                    | Error e -> Assert.Fail($"Load failed: {e}")
+                    | Ok solution ->
+                        Assert.True(solution.Note.IsSome, "Note should be present")
+                        Assert.Equal(note, solution.Note.Value)
+            finally
+                cleanupTestFile testFile
+        } |> Async.StartAsTask

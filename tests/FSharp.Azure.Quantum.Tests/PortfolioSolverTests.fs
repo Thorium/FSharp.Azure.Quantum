@@ -269,3 +269,190 @@ let ``Portfolio solver should handle assets with zero risk`` () =
     // Risk-free asset should have infinite ratio, so greedy should prioritize it
     let riskFreeGreedy = greedySolution.Allocations |> List.tryFind (fun a -> a.Asset.Symbol = "RISKFREE")
     Assert.True(riskFreeGreedy.IsSome, "Greedy should allocate to risk-free asset (infinite ratio)")
+
+// ============================================================================
+// QUANTUM PORTFOLIO SOLVER - TRANSACTION COST QUBO ENCODING TESTS
+// ============================================================================
+
+open FSharp.Azure.Quantum.Quantum.QuantumPortfolioSolver
+
+[<Fact>]
+let ``Transaction cost QUBO encoding produces valid matrix`` () =
+    // Arrange
+    let assets: PortfolioTypes.Asset list = [
+        { Symbol = "AAPL"; ExpectedReturn = 0.12; Risk = 0.20; Price = 150.0 }
+        { Symbol = "GOOGL"; ExpectedReturn = 0.15; Risk = 0.25; Price = 2800.0 }
+        { Symbol = "MSFT"; ExpectedReturn = 0.10; Risk = 0.18; Price = 350.0 }
+    ]
+    
+    let constraints = {
+        Budget = 10000.0
+        MinHolding = 0.0
+        MaxHolding = 5000.0
+    }
+    
+    let currentHoldings = Map.ofList [("AAPL", 10.0)]  // Currently hold 10 shares of AAPL
+    
+    let problemWithCosts = 
+        createProblemWithCosts assets constraints 0.5 currentHoldings defaultTransactionCosts
+    
+    // Act
+    let result = toQuboWithTransactionCosts problemWithCosts
+    
+    // Assert
+    match result with
+    | Error err -> Assert.Fail($"Should succeed but got error: {err}")
+    | Ok quboMatrix ->
+        Assert.Equal(3, quboMatrix.NumVariables)
+        Assert.True(quboMatrix.Q.Count > 0, "QUBO matrix should have coefficients")
+
+[<Fact>]
+let ``Transaction cost QUBO includes buy penalty for new positions`` () =
+    // Arrange: No current holdings - all positions require buying
+    let assets: PortfolioTypes.Asset list = [
+        { Symbol = "AAPL"; ExpectedReturn = 0.12; Risk = 0.20; Price = 150.0 }
+        { Symbol = "MSFT"; ExpectedReturn = 0.10; Risk = 0.18; Price = 350.0 }
+    ]
+    
+    let constraints = { Budget = 5000.0; MinHolding = 0.0; MaxHolding = 2500.0 }
+    let currentHoldings = Map.empty  // No current holdings
+    
+    // High buy cost rate to make penalty significant
+    let highBuyCosts = { BuyCostRate = 0.05; SellCostRate = 0.0; FixedCostPerTrade = 0.0 }
+    
+    let problemWithCosts = createProblemWithCosts assets constraints 0.5 currentHoldings highBuyCosts
+    
+    // Compare QUBO with and without transaction costs
+    let baseProblem = problemWithCosts.BaseProblem
+    let baseQuboResult = toQubo baseProblem
+    let withCostsResult = toQuboWithTransactionCosts problemWithCosts
+    
+    // Assert
+    match baseQuboResult, withCostsResult with
+    | Ok baseQubo, Ok costsQubo ->
+        // The diagonal terms should be different (higher with buy costs)
+        let baseDiag0 = baseQubo.Q |> Map.tryFind (0, 0) |> Option.defaultValue 0.0
+        let costsDiag0 = costsQubo.Q |> Map.tryFind (0, 0) |> Option.defaultValue 0.0
+        
+        // With buy costs, the diagonal should be higher (more penalty for selecting)
+        Assert.True(costsDiag0 > baseDiag0, 
+            $"Buy penalty should increase diagonal term: base={baseDiag0}, with_costs={costsDiag0}")
+    | Error e, _ -> Assert.Fail($"Base QUBO failed: {e}")
+    | _, Error e -> Assert.Fail($"QUBO with costs failed: {e}")
+
+[<Fact>]
+let ``Transaction cost QUBO includes sell incentive for held positions`` () =
+    // Arrange: Currently holding all assets
+    let assets: PortfolioTypes.Asset list = [
+        { Symbol = "AAPL"; ExpectedReturn = 0.12; Risk = 0.20; Price = 150.0 }
+        { Symbol = "MSFT"; ExpectedReturn = 0.10; Risk = 0.18; Price = 350.0 }
+    ]
+    
+    let constraints = { Budget = 5000.0; MinHolding = 0.0; MaxHolding = 2500.0 }
+    
+    // Currently holding both assets
+    let currentHoldings = Map.ofList [("AAPL", 10.0); ("MSFT", 5.0)]
+    
+    // High sell cost rate
+    let highSellCosts = { BuyCostRate = 0.0; SellCostRate = 0.05; FixedCostPerTrade = 0.0 }
+    
+    let problemWithCosts = createProblemWithCosts assets constraints 0.5 currentHoldings highSellCosts
+    
+    // Compare QUBO with and without transaction costs
+    let baseProblem = problemWithCosts.BaseProblem
+    let baseQuboResult = toQubo baseProblem
+    let withCostsResult = toQuboWithTransactionCosts problemWithCosts
+    
+    // Assert
+    match baseQuboResult, withCostsResult with
+    | Ok baseQubo, Ok costsQubo ->
+        // The diagonal terms should be different (lower = incentive to keep position)
+        let baseDiag0 = baseQubo.Q |> Map.tryFind (0, 0) |> Option.defaultValue 0.0
+        let costsDiag0 = costsQubo.Q |> Map.tryFind (0, 0) |> Option.defaultValue 0.0
+        
+        // With sell costs, the diagonal should be lower (incentive to keep = select)
+        Assert.True(costsDiag0 < baseDiag0, 
+            $"Sell penalty should decrease diagonal term (incentive to keep): base={baseDiag0}, with_costs={costsDiag0}")
+    | Error e, _ -> Assert.Fail($"Base QUBO failed: {e}")
+    | _, Error e -> Assert.Fail($"QUBO with costs failed: {e}")
+
+[<Fact>]
+let ``Transaction cost QUBO with fixed costs adds turnover penalty`` () =
+    // Arrange: Mixed holdings
+    let assets: PortfolioTypes.Asset list = [
+        { Symbol = "AAPL"; ExpectedReturn = 0.12; Risk = 0.20; Price = 150.0 }
+        { Symbol = "GOOGL"; ExpectedReturn = 0.15; Risk = 0.25; Price = 2800.0 }
+        { Symbol = "MSFT"; ExpectedReturn = 0.10; Risk = 0.18; Price = 350.0 }
+    ]
+    
+    let constraints = { Budget = 10000.0; MinHolding = 0.0; MaxHolding = 5000.0 }
+    
+    // Hold AAPL but not GOOGL or MSFT
+    let currentHoldings = Map.ofList [("AAPL", 10.0)]
+    
+    // Fixed cost per trade (triggers turnover penalty terms)
+    let fixedCosts = { BuyCostRate = 0.0; SellCostRate = 0.0; FixedCostPerTrade = 10.0 }
+    
+    let problemWithCosts = createProblemWithCosts assets constraints 0.5 currentHoldings fixedCosts
+    
+    // Act
+    let result = toQuboWithTransactionCosts problemWithCosts
+    
+    // Assert
+    match result with
+    | Error err -> Assert.Fail($"Should succeed but got error: {err}")
+    | Ok quboMatrix ->
+        // Should have off-diagonal terms (turnover penalty for pairs where one is held)
+        // AAPL (0) is held, GOOGL (1) and MSFT (2) are not
+        // So pairs (0,1) and (0,2) should have turnover penalty
+        let hasPair01 = quboMatrix.Q |> Map.containsKey (0, 1)
+        let hasPair02 = quboMatrix.Q |> Map.containsKey (0, 2)
+        
+        Assert.True(hasPair01 || hasPair02, 
+            "Fixed costs should create off-diagonal turnover penalty terms")
+
+[<Fact>]
+let ``Transaction cost QUBO validation rejects negative cost rates`` () =
+    // Arrange
+    let assets: PortfolioTypes.Asset list = [
+        { Symbol = "AAPL"; ExpectedReturn = 0.12; Risk = 0.20; Price = 150.0 }
+    ]
+    
+    let constraints = { Budget = 1000.0; MinHolding = 0.0; MaxHolding = 1000.0 }
+    
+    let invalidCosts = { BuyCostRate = -0.01; SellCostRate = 0.0; FixedCostPerTrade = 0.0 }
+    
+    let problemWithCosts = createProblemWithCosts assets constraints 0.5 Map.empty invalidCosts
+    
+    // Act
+    let result = toQuboWithTransactionCosts problemWithCosts
+    
+    // Assert
+    match result with
+    | Ok _ -> Assert.Fail("Should fail with negative cost rate")
+    | Error err -> 
+        Assert.Contains("non-negative", err.Message.ToLower())
+
+[<Fact>]
+let ``Transaction cost QUBO handles empty portfolio`` () =
+    // Arrange: Empty assets list
+    let assets: PortfolioTypes.Asset list = []
+    let constraints = { Budget = 1000.0; MinHolding = 0.0; MaxHolding = 1000.0 }
+    
+    let problemWithCosts = createProblemWithCosts assets constraints 0.5 Map.empty defaultTransactionCosts
+    
+    // Act
+    let result = toQuboWithTransactionCosts problemWithCosts
+    
+    // Assert
+    match result with
+    | Ok _ -> Assert.Fail("Should fail with empty assets")
+    | Error err -> 
+        Assert.Contains("no assets", err.Message.ToLower())
+
+[<Fact>]
+let ``Default transaction costs are reasonable`` () =
+    // Assert default values make sense
+    Assert.Equal(0.001, defaultTransactionCosts.BuyCostRate)  // 0.1%
+    Assert.Equal(0.001, defaultTransactionCosts.SellCostRate) // 0.1%
+    Assert.Equal(0.0, defaultTransactionCosts.FixedCostPerTrade)

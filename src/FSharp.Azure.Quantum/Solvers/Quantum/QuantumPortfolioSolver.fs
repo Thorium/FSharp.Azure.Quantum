@@ -242,6 +242,231 @@ module QuantumPortfolioSolver =
             Error (QuantumError.OperationError ("QuboEncoding", sprintf "Failed to encode portfolio as QUBO: %s" ex.Message))
 
     // ================================================================================
+    // TRANSACTION COST QUBO ENCODING
+    // ================================================================================
+    
+    /// Transaction cost parameters for portfolio rebalancing
+    /// 
+    /// When rebalancing from a current portfolio to a new portfolio,
+    /// transaction costs are incurred for buying or selling assets.
+    type TransactionCosts = {
+        /// Cost rate for buying assets (e.g., 0.001 = 0.1% of transaction value)
+        BuyCostRate: float
+        
+        /// Cost rate for selling assets (e.g., 0.001 = 0.1% of transaction value)
+        SellCostRate: float
+        
+        /// Fixed cost per transaction (e.g., $5 per trade)
+        FixedCostPerTrade: float
+    }
+    
+    /// Default transaction costs (typical brokerage fees)
+    let defaultTransactionCosts = {
+        BuyCostRate = 0.001      // 0.1% commission
+        SellCostRate = 0.001    // 0.1% commission
+        FixedCostPerTrade = 0.0 // No fixed cost
+    }
+    
+    /// Current portfolio holdings for rebalancing
+    type CurrentHoldings = {
+        /// Current holdings per asset (symbol -> number of shares)
+        Holdings: Map<string, float>
+    }
+    
+    /// Portfolio problem with transaction costs for rebalancing
+    type PortfolioProblemWithCosts = {
+        /// Base portfolio problem
+        BaseProblem: PortfolioProblem
+        
+        /// Current holdings (empty for new portfolio)
+        CurrentHoldings: CurrentHoldings
+        
+        /// Transaction cost parameters
+        TransactionCosts: TransactionCosts
+    }
+    
+    /// Encode portfolio optimization with transaction costs as QUBO
+    /// 
+    /// Extends the base QUBO formulation to include:
+    /// - Transaction cost penalties for changing positions
+    /// - Holding cost considerations for existing positions
+    /// 
+    /// QUBO Formulation:
+    ///   Minimize: -Return + RiskAversion * Risk² + TransactionCostPenalty
+    /// 
+    /// Where TransactionCostPenalty:
+    ///   - For new positions (buying): rate * price_i * x_i
+    ///   - For closing positions (selling): rate * price_i * (1 - x_i)
+    ///   - Fixed costs: fixed_cost * |change|
+    /// 
+    /// Variables: x_i = 1 if asset i is included in new portfolio
+    /// 
+    /// Note: This is a simplified linear approximation of transaction costs.
+    /// For exact quadratic encoding of |x_new - x_old|, auxiliary variables
+    /// would be needed, which significantly increases problem size.
+    let toQuboWithTransactionCosts 
+        (problemWithCosts: PortfolioProblemWithCosts) 
+        : Result<GraphOptimization.QuboMatrix, QuantumError> =
+        
+        try
+            let problem = problemWithCosts.BaseProblem
+            let costs = problemWithCosts.TransactionCosts
+            let holdings = problemWithCosts.CurrentHoldings.Holdings
+            let numAssets = problem.Assets.Length
+            
+            if numAssets = 0 then
+                Error (QuantumError.ValidationError ("numAssets", "Portfolio problem has no assets"))
+            elif costs.BuyCostRate < 0.0 || costs.SellCostRate < 0.0 then
+                Error (QuantumError.ValidationError ("TransactionCosts", "Cost rates must be non-negative"))
+            elif costs.FixedCostPerTrade < 0.0 then
+                Error (QuantumError.ValidationError ("TransactionCosts", "Fixed cost must be non-negative"))
+            else
+                // First get the base QUBO terms
+                match toQubo problem with
+                | Error err -> Error err
+                | Ok baseQubo ->
+                    
+                    // ================================================================
+                    // TRANSACTION COST TERMS
+                    // ================================================================
+                    // 
+                    // For each asset i:
+                    // - If currently held (h_i > 0) and not selected (x_i = 0): SELL
+                    //   Cost = sell_rate * price_i * h_i
+                    //   In QUBO: penalty when x_i = 0, so add positive constant - penalty * x_i
+                    //   
+                    // - If not held (h_i = 0) and selected (x_i = 1): BUY
+                    //   Cost = buy_rate * price_i * value_allocated
+                    //   In QUBO: penalty when x_i = 1, so add penalty * x_i
+                    //
+                    // Simplification: Use average allocation value for buy penalty
+                    // ================================================================
+                    
+                    let avgAllocationValue = problem.Constraints.Budget / float numAssets
+                    
+                    let transactionCostTerms =
+                        [0 .. numAssets - 1]
+                        |> List.map (fun i ->
+                            let asset = problem.Assets.[i]
+                            let currentHolding = 
+                                holdings 
+                                |> Map.tryFind asset.Symbol 
+                                |> Option.defaultValue 0.0
+                            
+                            let isCurrentlyHeld = currentHolding > 0.0
+                            
+                            if isCurrentlyHeld then
+                                // Currently held: incentivize keeping (penalize selling)
+                                // QUBO term: -sellCost * x_i (diagonal term)
+                                // When x_i = 1: contribution = -sellCost (bonus for keeping)
+                                // When x_i = 0: contribution = 0 (no bonus = effective penalty)
+                                // This incentivizes x_i = 1 (keep position) over x_i = 0 (sell)
+                                let sellCost = costs.SellCostRate * asset.Price * currentHolding
+                                let fixedCost = costs.FixedCostPerTrade
+                                ((i, i), -(sellCost + fixedCost))
+                            else
+                                // Not held: cost to buy if selected
+                                // Add penalty when x_i = 1
+                                // QUBO term: +buyCost * x_i
+                                // When x_i = 1: penalty = buyCost (buying)
+                                // When x_i = 0: no penalty (don't buy)
+                                let buyCost = costs.BuyCostRate * avgAllocationValue
+                                let fixedCost = costs.FixedCostPerTrade
+                                ((i, i), buyCost + fixedCost)
+                        )
+                    
+                    // ================================================================
+                    // TURNOVER PENALTY (optional quadratic term)
+                    // ================================================================
+                    // 
+                    // NOTE: This is a simplified heuristic, not exact turnover modeling.
+                    // 
+                    // For pairs where one asset is currently held and one is not,
+                    // we add a small penalty when BOTH are selected in the new portfolio.
+                    // This encourages some consistency with current holdings.
+                    //
+                    // Limitation: True turnover penalty would require auxiliary variables
+                    // to model |x_new - x_old|, which significantly increases problem size.
+                    // This heuristic provides a reasonable approximation for small portfolios.
+                    // ================================================================
+                    
+                    let turnoverPenaltyTerms =
+                        if costs.FixedCostPerTrade > 0.0 then
+                            [0 .. numAssets - 2]
+                            |> List.collect (fun i ->
+                                let asset_i = problem.Assets.[i]
+                                let held_i = 
+                                    holdings 
+                                    |> Map.tryFind asset_i.Symbol 
+                                    |> Option.map (fun h -> h > 0.0) 
+                                    |> Option.defaultValue false
+                                
+                                [i + 1 .. numAssets - 1]
+                                |> List.choose (fun j ->
+                                    let asset_j = problem.Assets.[j]
+                                    let held_j = 
+                                        holdings 
+                                        |> Map.tryFind asset_j.Symbol 
+                                        |> Option.map (fun h -> h > 0.0) 
+                                        |> Option.defaultValue false
+                                    
+                                    // Penalize selecting both when holdings differ
+                                    // This encourages portfolio stability
+                                    if held_i <> held_j then
+                                        // Small penalty for selecting both (x_i * x_j = 1)
+                                        Some ((i, j), 0.5 * costs.FixedCostPerTrade)
+                                    else
+                                        None
+                                )
+                            )
+                        else
+                            []
+                    
+                    // ================================================================
+                    // Combine base QUBO with transaction cost terms
+                    // ================================================================
+                    
+                    let allTerms =
+                        (baseQubo.Q |> Map.toList)
+                        @ transactionCostTerms
+                        @ turnoverPenaltyTerms
+                    
+                    // Aggregate terms with same indices
+                    let aggregatedTerms =
+                        allTerms
+                        |> List.groupBy fst
+                        |> List.map (fun (key, terms) ->
+                            let totalCoeff = terms |> List.sumBy snd
+                            key, totalCoeff)
+                        |> Map.ofList
+                    
+                    Ok {
+                        NumVariables = numAssets
+                        Q = aggregatedTerms
+                    }
+        
+        with ex ->
+            Error (QuantumError.OperationError ("QuboEncodingWithCosts", sprintf "Failed to encode portfolio with costs as QUBO: %s" ex.Message))
+    
+    /// Create a portfolio problem with transaction costs
+    let createProblemWithCosts 
+        (assets: PortfolioTypes.Asset list)
+        (constraints: PortfolioSolver.Constraints)
+        (riskAversion: float)
+        (currentHoldings: Map<string, float>)
+        (transactionCosts: TransactionCosts)
+        : PortfolioProblemWithCosts =
+        {
+            BaseProblem = {
+                Assets = assets
+                Constraints = constraints
+                RiskAversion = riskAversion
+            }
+            CurrentHoldings = { Holdings = currentHoldings }
+            TransactionCosts = transactionCosts
+        }
+
+    // ================================================================================
     // SOLUTION DECODING
     // ================================================================================
 
