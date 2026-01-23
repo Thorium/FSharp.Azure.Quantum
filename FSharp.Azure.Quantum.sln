@@ -1,4 +1,4 @@
-﻿
+
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.0.31903.59
@@ -17,13 +17,13 @@ Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "FSharp.Azure.Quantum.Topolo
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "examples", "examples", "{B36A84DF-456D-A817-6EDD-3EC3E7F6E11F}"
 EndProject
-Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Kasino_CSharp", "Kasino_CSharp", "{F3E20B0D-CEED-F7C5-110D-E3294E5B36F3}"
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Kasino", "Kasino", "{F3E20B0D-CEED-F7C5-110D-E3294E5B36F3}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "KasinoExample", "examples\Kasino_CSharp\KasinoExample\KasinoExample.csproj", "{7F0BC746-927B-483A-AA70-0D5BDE5884CD}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "KasinoExample", "examples\Kasino\CSharp\KasinoExample\KasinoExample.csproj", "{7F0BC746-927B-483A-AA70-0D5BDE5884CD}"
 EndProject
-Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "InvestmentPortfolio_CSharp", "InvestmentPortfolio_CSharp", "{B9F9C642-61C3-5B05-531A-4E500983DEBB}"
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "InvestmentPortfolio", "InvestmentPortfolio", "{B9F9C642-61C3-5B05-531A-4E500983DEBB}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PortfolioExample", "examples\InvestmentPortfolio_CSharp\PortfolioExample\PortfolioExample.csproj", "{24C1285F-99FE-4C71-8ECB-92EFC8FEE734}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PortfolioExample", "examples\InvestmentPortfolio\CSharp\PortfolioExample\PortfolioExample.csproj", "{24C1285F-99FE-4C71-8ECB-92EFC8FEE734}"
 EndProject
 Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Gomoku", "examples\Gomoku\Gomoku.fsproj", "{4F5FBFC2-02B9-4D1B-83F5-CE57B1A26F73}"
 EndProject

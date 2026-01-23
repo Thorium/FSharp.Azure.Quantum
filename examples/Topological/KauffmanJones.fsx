@@ -13,7 +13,7 @@
 // ============================================================================
 
 #r "nuget: FSharp.Azure.Quantum"
-#load "../src/FSharp.Azure.Quantum.Topological/KauffmanBracket.fs"
+#load "../../src/FSharp.Azure.Quantum.Topological/KauffmanBracket.fs"
 
 open System
 open System.Numerics

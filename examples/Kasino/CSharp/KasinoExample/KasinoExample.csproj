@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
-    <ProjectReference Include="..\..\..\src\FSharp.Azure.Quantum\FSharp.Azure.Quantum.fsproj" />
+    <ProjectReference Include="..\..\..\..\src\FSharp.Azure.Quantum\FSharp.Azure.Quantum.fsproj" />
   </ItemGroup>
 
   <PropertyGroup>

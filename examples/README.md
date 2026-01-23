@@ -110,7 +110,7 @@ Examples are categorized into **4 levels** based on business utility and technic
   **Use Case:** Circuit partitioning, community detection  
   **Algorithm:** QAOA with D-Wave quantum annealer support
 
-- **[DWaveMaxCutExample.fsx](DWaveMaxCutExample.fsx)**  
+- **[MaxCut/DWaveMaxCutExample.fsx](MaxCut/DWaveMaxCutExample.fsx)**  
   MaxCut using D-Wave quantum annealer (2000+ qubits!)  
   **Hardware:** D-Wave Advantage (5640 qubits)  
   **Note:** Real quantum hardware example
@@ -162,11 +162,11 @@ Examples are categorized into **4 levels** based on business utility and technic
 **Quantum Expertise Required:** Moderate to High
 
 ### Quantum Search & Optimization
-- **[Grover_GraphColoring_Example.fsx](Grover_GraphColoring_Example.fsx)**  
+- **[Algorithms/Grover_GraphColoring_Example.fsx](Algorithms/Grover_GraphColoring_Example.fsx)**  
   Grover's algorithm applied to graph coloring  
   **Complexity:** O(√N) speedup over classical search
 
-- **[Grover_SAT_Example.fsx](Grover_SAT_Example.fsx)**  
+- **[Algorithms/Grover_SAT_Example.fsx](Algorithms/Grover_SAT_Example.fsx)**  
   Boolean satisfiability with quantum search  
   **Theory:** Amplitude amplification
 
@@ -218,18 +218,18 @@ Examples are categorized into **4 levels** based on business utility and technic
   HHL algorithm for solving linear systems  
   **Speedup:** Exponential over classical (for specific systems)
 
-- **[HHL_Extensions_Rigetti_Example.fsx](HHL_Extensions_Rigetti_Example.fsx)**  
+- **[LinearSystemSolver/HHL_Extensions_Rigetti_Example.fsx](LinearSystemSolver/HHL_Extensions_Rigetti_Example.fsx)**  
   HHL with Rigetti backend extensions
 
 ### Quantum Communication & Security
-- **[BB84_Complete_Pipeline_Example.fsx](BB84_Complete_Pipeline_Example.fsx)** 
+- **[Protocols/BB84_Complete_Pipeline_Example.fsx](Protocols/BB84_Complete_Pipeline_Example.fsx)** 
   Complete BB84 quantum key distribution protocol  
   **Use Case:** Secure communication, quantum cryptography
 
-- **[BB84_Issue_Fix_Verification.fsx](BB84_Issue_Fix_Verification.fsx)**  
+- **[Protocols/BB84_Issue_Fix_Verification.fsx](Protocols/BB84_Issue_Fix_Verification.fsx)**  
   Verification tests for BB84 implementation
 
-- **[QuantumTeleportationExample.fsx](QuantumTeleportationExample.fsx)**  
+- **[Protocols/QuantumTeleportationExample.fsx](Protocols/QuantumTeleportationExample.fsx)**  
   Quantum teleportation protocol
 
 ### Finance & Risk
@@ -240,7 +240,7 @@ Examples are categorized into **4 levels** based on business utility and technic
   Load probability distributions into quantum states
 
 ### Parameter Optimization
-- **[QaoaParameterOptimizationExample.fsx](QaoaParameterOptimizationExample.fsx)**  
+- **[Optimization/QaoaParameterOptimizationExample.fsx](Optimization/QaoaParameterOptimizationExample.fsx)**  
   QAOA parameter tuning strategies
 
 - **[IntegerVariables/IntegerVariablesExample.fsx](IntegerVariables/IntegerVariablesExample.fsx)**  
@@ -273,14 +273,14 @@ Examples are categorized into **4 levels** based on business utility and technic
 **Quantum Expertise Required:** Advanced (graduate-level physics)
 
 ### Topological Quantum Computing
-- **[TopologicalExample.fsx](TopologicalExample.fsx)**  
+- **[Topological/TopologicalExample.fsx](Topological/TopologicalExample.fsx)**  
   Introduction to anyon braiding and topological qubits
 
-- **[ToricCodeExample.fsx](ToricCodeExample.fsx)** ⭐ EDUCATIONAL  
+- **[Topological/ToricCodeExample.fsx](Topological/ToricCodeExample.fsx)** ⭐ EDUCATIONAL  
   Toric code error correction  
   **Theory:** Surface codes, topological protection
 
-- **[ModularDataExample.fsx](ModularDataExample.fsx)**  
+- **[Topological/ModularDataExample.fsx](Topological/ModularDataExample.fsx)**  
   Modular S and T matrices (topological invariants)  
   **Theory:** Modular tensor categories, fusion rules
 
@@ -288,23 +288,23 @@ Examples are categorized into **4 levels** based on business utility and technic
   Visualize anyon braiding operations
 
 ### Topological Backend Examples
-- **[TopologicalSimulator/BellState.fsx](TopologicalSimulator/BellState.fsx)**  
+- **[Topological/BellState.fsx](Topological/BellState.fsx)**  
   Bell state using topological qubits
 
-- **[TopologicalSimulator/BasicFusion.fsx](TopologicalSimulator/BasicFusion.fsx)**  
+- **[Topological/BasicFusion.fsx](Topological/BasicFusion.fsx)**  
   Anyon fusion demonstrations
 
-- **[TopologicalSimulator/BackendComparison.fsx](TopologicalSimulator/BackendComparison.fsx)**  
+- **[Topological/BackendComparison.fsx](Topological/BackendComparison.fsx)**  
   Compare gate-based vs topological backends
 
-- **[TopologicalSimulator/FormatDemo.fsx](TopologicalSimulator/FormatDemo.fsx)**  
+- **[Topological/FormatDemo.fsx](Topological/FormatDemo.fsx)**  
   Topological circuit file format (.tqp)
 
 ### Educational Quantum Algorithms
-- **[BellStatesExample.fsx](BellStatesExample.fsx)**  
+- **[Algorithms/BellStatesExample.fsx](Algorithms/BellStatesExample.fsx)**  
   Bell states and quantum entanglement
 
-- **[DeutschJozsaExample.fsx](DeutschJozsaExample.fsx)**  
+- **[Algorithms/DeutschJozsaExample.fsx](Algorithms/DeutschJozsaExample.fsx)**  
   Deutsch-Jozsa algorithm (first quantum advantage proof)
 
 ### Game Examples (Educational)
@@ -419,18 +419,18 @@ dotnet fsi test-all-examples.fsx
 1. GraphColoring/GraphColoring.fsx - Best documented
 2. MaxCut/MaxCut.fsx - Graph partitioning
 3. Knapsack/Knapsack.fsx - Classic NP problem
-4. DWaveMaxCutExample.fsx - Real quantum hardware
+4. MaxCut/DWaveMaxCutExample.fsx - Real quantum hardware
 
 ### Research Path (Quantum Algorithms)
-1. BellStatesExample.fsx - Quantum basics
-2. Grover_SAT_Example.fsx - Quantum search
+1. Algorithms/BellStatesExample.fsx - Quantum basics
+2. Algorithms/Grover_SAT_Example.fsx - Quantum search
 3. Chemistry/H2Molecule.fsx - VQE
-4. ToricCodeExample.fsx - Topological qubits
+4. Topological/ToricCodeExample.fsx - Topological qubits
 
 ### Expert Path (Full Stack)
 1. CircuitBuilder/ - Low-level circuits
 2. AzureQuantumWorkspace/ - Cloud infrastructure
-3. TopologicalSimulator/ - Exotic quantum models
+3. Topological/ - Exotic quantum models
 4. CryptographicAnalysis/ - Shor's algorithm
 
 ---
