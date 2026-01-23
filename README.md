@@ -3030,7 +3030,7 @@ match result with
 
 ### Examples
 
-See `examples/TopologicalSimulator/` for complete examples:
+See `examples/Topological/` for complete examples:
 - **BasicFusion.fsx** - Fusion rules and statistics
 - **BellState.fsx** - Creating entanglement via braiding
 - **BackendComparison.fsx** - Ising vs Fibonacci anyons

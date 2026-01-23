@@ -330,7 +330,7 @@ match solveQuantum backend problem with
 #### Optimization Problems (QAOA)
 - [**DeliveryRouting**](https://github.com/Thorium/FSharp.Azure.Quantum/tree/main/examples/DeliveryRouting) - TSP with 16-city NYC routing, HybridSolver
 - [**InvestmentPortfolio**](https://github.com/Thorium/FSharp.Azure.Quantum/tree/main/examples/InvestmentPortfolio) - Portfolio optimization with constraints (F#)
-- [**InvestmentPortfolio_CSharp**](https://github.com/Thorium/FSharp.Azure.Quantum/tree/main/examples/InvestmentPortfolio_CSharp) - Portfolio optimization (C# version)
+- [**InvestmentPortfolio_CSharp**](https://github.com/Thorium/FSharp.Azure.Quantum/tree/main/examples/InvestmentPortfolio/CSharp) - Portfolio optimization (C# version)
 - [**GraphColoring**](https://github.com/Thorium/FSharp.Azure.Quantum/tree/main/examples/GraphColoring) - Graph coloring with QAOA
 - [**MaxCut**](https://github.com/Thorium/FSharp.Azure.Quantum/tree/main/examples/MaxCut) - Max-Cut problem with QAOA
 - [**Knapsack**](https://github.com/Thorium/FSharp.Azure.Quantum/tree/main/examples/Knapsack) - 0/1 Knapsack optimization
@@ -346,7 +346,7 @@ match solveQuantum backend problem with
 #### Interactive Demonstrations
 - [**Gomoku**](https://github.com/Thorium/FSharp.Azure.Quantum/tree/main/examples/Gomoku) - Quantum vs Classical AI game (with Hybrid mode)
 - [**Kasino**](https://github.com/Thorium/FSharp.Azure.Quantum/tree/main/examples/Kasino) - Quantum gambling game demonstrating superposition (F#)
-- [**Kasino_CSharp**](https://github.com/Thorium/FSharp.Azure.Quantum/tree/main/examples/Kasino_CSharp) - Quantum gambling game (C# version)
+- [**Kasino_CSharp**](https://github.com/Thorium/FSharp.Azure.Quantum/tree/main/examples/Kasino/CSharp) - Quantum gambling game (C# version)
 
 ## 🎯 When to Use This Library
 
