@@ -178,27 +178,27 @@ Examples are categorized into **4 levels** based on business utility and technic
   Quantum pattern matching for configuration optimization
 
 ### Quantum Chemistry & Simulation
-- **[QuantumChemistry/H2Molecule.fsx](QuantumChemistry/H2Molecule.fsx)**  
+- **[Chemistry/H2Molecule.fsx](Chemistry/H2Molecule.fsx)**  
   VQE (Variational Quantum Eigensolver) for molecular ground state  
   **Molecule:** Hydrogen (H₂)
 
-- **[QuantumChemistry/H2GroundState.fsx](QuantumChemistry/H2GroundState.fsx)**  
+- **[Chemistry/H2GroundState.fsx](Chemistry/H2GroundState.fsx)**  
   Alternative H₂ ground state calculation
 
-- **[QuantumChemistry/H2OWater.fsx](QuantumChemistry/H2OWater.fsx)**  
+- **[Chemistry/H2OWater.fsx](Chemistry/H2OWater.fsx)**  
   Water molecule (H₂O) quantum simulation  
   **Complexity:** 10 qubits (requires cloud backend)
 
-- **[QuantumChemistry/HamiltonianTimeEvolution.fsx](QuantumChemistry/HamiltonianTimeEvolution.fsx)**  
+- **[Chemistry/HamiltonianTimeEvolution.fsx](Chemistry/HamiltonianTimeEvolution.fsx)**  
   Time evolution of molecular systems
 
-- **[H2_UCCSD_VQE_Example.fsx](H2_UCCSD_VQE_Example.fsx)**  
+- **[Chemistry/H2_UCCSD_VQE_Example.fsx](Chemistry/H2_UCCSD_VQE_Example.fsx)**  
   UCCSD (Unitary Coupled Cluster) ansatz for H₂
 
-- **[UCCSDExample.fsx](UCCSDExample.fsx)**  
+- **[Chemistry/UCCSDExample.fsx](Chemistry/UCCSDExample.fsx)**  
   Complete UCCSD workflow
 
-- **[HartreeFockInitialStateExample.fsx](HartreeFockInitialStateExample.fsx)**  
+- **[Chemistry/HartreeFockInitialStateExample.fsx](Chemistry/HartreeFockInitialStateExample.fsx)**  
   Hartree-Fock initial state preparation
 
 ### Quantum Arithmetic & Cryptography
@@ -362,7 +362,7 @@ dotnet fsi WorkspaceExample.fsx
 
 **Step 1:** Quantum chemistry
 ```bash
-cd examples/QuantumChemistry
+cd examples/Chemistry
 dotnet fsi H2Molecule.fsx
 ```
 
@@ -424,7 +424,7 @@ dotnet fsi test-all-examples.fsx
 ### Research Path (Quantum Algorithms)
 1. BellStatesExample.fsx - Quantum basics
 2. Grover_SAT_Example.fsx - Quantum search
-3. QuantumChemistry/H2Molecule.fsx - VQE
+3. Chemistry/H2Molecule.fsx - VQE
 4. ToricCodeExample.fsx - Topological qubits
 
 ### Expert Path (Full Stack)
