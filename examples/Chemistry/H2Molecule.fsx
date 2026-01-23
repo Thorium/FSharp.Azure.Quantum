@@ -1,6 +1,10 @@
 // H2 Molecule Ground State Energy Example
 // Demonstrates VQE (Variational Quantum Eigensolver) for hydrogen molecule
 //
+// This example shows two approaches:
+// 1. Direct API: Using low-level structures for maximum control
+// 2. Builder API: Using computation expressions for clean, declarative code
+//
 // WHEN TO USE THIS LIBRARY:
 // ✓ Lightweight quantum chemistry without heavy dependencies
 // ✓ Custom VQE implementations and experimentation
@@ -24,6 +28,14 @@
 
 
 open FSharp.Azure.Quantum.QuantumChemistry
+open FSharp.Azure.Quantum.QuantumChemistry.QuantumChemistryBuilder
+open FSharp.Azure.Quantum.Core
+open FSharp.Azure.Quantum.Core.BackendAbstraction
+open FSharp.Azure.Quantum.Backends.LocalBackend
+
+printfn "================================================================"
+printfn "APPROACH 1: Direct API (Low-Level)"
+printfn "================================================================"
 
 // Create H2 molecule at equilibrium bond length (0.74 Angstroms)
 let h2 = Molecule.createH2 0.74
@@ -36,9 +48,6 @@ printfn "Electrons: %d" (Molecule.countElectrons h2)
 printfn ""
 
 // Configure VQE solver
-open FSharp.Azure.Quantum.Core
-open FSharp.Azure.Quantum.Core.BackendAbstraction
-open FSharp.Azure.Quantum.Backends.LocalBackend
 let config = {
     Method = GroundStateMethod.VQE
     Backend = Some (LocalBackend() :> IQuantumBackend)
@@ -94,3 +103,101 @@ match resultAuto with
     printfn "(System chose best method based on molecule size)"
 | Error err ->
     printfn "Automatic method failed: %A" err.Message
+
+
+printfn ""
+printfn "================================================================"
+printfn "APPROACH 2: Builder API (Declarative)"
+printfn "================================================================"
+
+// Example 1: Simple H2 ground state at equilibrium bond length
+printfn "=== Example 1: H2 Ground State at 0.74 Å ==="
+
+// h2 function might collide with h2 value defined above, using explicit namespace or rename
+// The error [117:15] "This value is not a function" happens because 'h2' is defined as a value on line 41
+// shadowing the helper function 'h2' used in the builder. 
+// We should use Molecule.createH2 in the builder or rename the value.
+
+let h2Problem = quantumChemistry {
+    molecule (Molecule.createH2 0.74) 
+    basis "sto-3g"
+    ansatz UCCSD
+}
+
+printfn "Problem created successfully!"
+printfn "Molecule: %s" h2Problem.Molecule.Value.Name
+printfn "Basis: %s" h2Problem.Basis.Value
+printfn "Ansatz: %A" h2Problem.Ansatz.Value
+
+// Example 2: H2O (water) ground state
+printfn "\n=== Example 2: H2O Ground State ===" 
+
+let h2oProblem = quantumChemistry {
+    molecule (Molecule.createH2O ())  // Standard geometry
+    basis "sto-3g"
+    ansatz HEA  // Hardware-efficient ansatz (faster)
+    maxIterations 150
+}
+
+printfn "Problem created successfully!"
+printfn "Molecule: %s" h2oProblem.Molecule.Value.Name
+printfn "Number of atoms: %d" h2oProblem.Molecule.Value.Atoms.Length
+
+// Example 3: LiH (lithium hydride) - Manually constructed since createLiH helper doesn't exist
+printfn "\n=== Example 3: LiH Ground State ==="
+
+let createLiH (bondLength: float) =
+    {
+        Name = "LiH"
+        Atoms = [
+            { Element = "Li"; Position = (0.0, 0.0, 0.0) }
+            { Element = "H"; Position = (0.0, 0.0, bondLength) }
+        ]
+        Bonds = [
+            { Atom1 = 0; Atom2 = 1; BondOrder = 1.0 }
+        ]
+        Charge = 0
+        Multiplicity = 1
+    }
+
+let lihProblem = quantumChemistry {
+    molecule (createLiH 1.6)
+    basis "sto-3g"
+    ansatz UCCSD
+    optimizer "COBYLA"
+}
+
+printfn "Problem created successfully!"
+printfn "Molecule: %s" lihProblem.Molecule.Value.Name
+printfn "Optimizer: %s" lihProblem.Optimizer.Value.Method
+
+// Example 4: Conditional basis selection (demonstrates control flow)
+printfn "\n=== Example 4: Conditional Basis Selection ==="
+
+let smallMolecule = true
+
+// Compute basis selection outside computation expression
+let selectedBasis = if smallMolecule then "sto-3g" else "6-31g"
+
+let conditionalProblem = quantumChemistry {
+    molecule (Molecule.createH2 0.74)
+    basis selectedBasis  // Use pre-computed value
+    ansatz UCCSD
+}
+
+printfn "Problem created with basis: %s" conditionalProblem.Basis.Value
+
+// Example 5: Bond length scan (demonstrates for loop)
+printfn "\n=== Example 5: Bond Length Scan Setup ==="
+
+let bondLengths = [0.6; 0.7; 0.74; 0.8; 0.9]
+
+printfn "Creating problems for bond lengths: %A" bondLengths
+
+for distance in bondLengths do
+    let scanProblem = quantumChemistry {
+        molecule (Molecule.createH2 distance)
+        basis "sto-3g"
+        ansatz UCCSD
+    }
+    printfn "  Distance %.2f Å: Problem ready" distance
