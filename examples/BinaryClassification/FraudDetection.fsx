@@ -10,6 +10,56 @@
 /// Train a quantum classifier on historical transaction data (features + labels).
 /// Use the trained model to classify new transactions in real-time.
 
+(*
+===============================================================================
+ Background Theory
+===============================================================================
+
+Fraud detection is a binary classification problem: given transaction features
+(amount, time, location, merchant category, etc.), predict whether a transaction
+is legitimate (0) or fraudulent (1). Classical approaches use logistic regression,
+random forests, or neural networks. Quantum machine learning offers potential
+advantages through high-dimensional feature spaces and quantum kernel methods
+that may capture complex fraud patterns classical models miss.
+
+Variational Quantum Classifiers (VQCs) encode transaction features into quantum
+states via feature maps, then apply parameterized quantum circuits trained to
+separate fraud from non-fraud. The quantum feature space is exponentially large
+(2ⁿ-dimensional for n qubits), potentially capturing non-linear decision boundaries
+more efficiently than classical kernels. For imbalanced datasets (fraud is rare),
+quantum approaches can be combined with classical techniques like SMOTE oversampling.
+
+Key Equations:
+  - Feature encoding: |ψ(x)⟩ = U(x)|0⟩ⁿ where x = transaction features
+  - Classification: P(fraud|x) = |⟨1|V(θ)|ψ(x)⟩|² for trained parameters θ
+  - Loss function: L = -Σᵢ [yᵢ log(pᵢ) + (1-yᵢ) log(1-pᵢ)]  (cross-entropy)
+  - Precision: TP / (TP + FP)  (fraud predictions that are correct)
+  - Recall: TP / (TP + FN)  (actual frauds that are detected)
+  - F1 Score: 2 × (Precision × Recall) / (Precision + Recall)
+
+Quantum Advantage:
+  Fraud detection benefits from quantum ML in several ways: (1) High-dimensional
+  feature spaces may reveal fraud patterns invisible to classical methods.
+  (2) Quantum kernels provide rigorous similarity measures between transactions.
+  (3) For real-time scoring, quantum circuits execute in microseconds once trained.
+  Current applications use hybrid classical-quantum pipelines: classical preprocessing
+  (feature engineering, resampling) followed by quantum classification. Financial
+  institutions exploring quantum fraud detection include JPMorgan, Goldman Sachs,
+  and BBVA.
+
+References:
+  [1] Havlicek et al., "Supervised learning with quantum-enhanced feature spaces",
+      Nature 567, 209-212 (2019). https://doi.org/10.1038/s41586-019-0980-2
+  [2] Kyriienko & Magnusson, "Unsupervised Machine Learning on a Hybrid Quantum
+      Computer", arXiv:2001.03622 (2020). https://arxiv.org/abs/2001.03622
+  [3] Egger et al., "Credit Risk Analysis using Quantum Computers", IEEE ICQC (2021).
+      https://doi.org/10.1109/TQE.2021.3030319
+  [4] Wikipedia: Quantum_machine_learning
+      https://en.wikipedia.org/wiki/Quantum_machine_learning
+*)
+
+//#r "nuget: FSharp.Azure.Quantum"
+
 //#r "nuget: FSharp.Azure.Quantum"
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 

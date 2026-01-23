@@ -11,6 +11,52 @@
 // - Engineering: Finite element analysis, circuit simulation
 // - Finance: Portfolio optimization with covariance matrices
 
+(*
+===============================================================================
+ Background Theory
+===============================================================================
+
+The HHL algorithm (Harrow, Hassidim, Lloyd, 2009) solves linear systems Ax = b
+with exponential speedup under specific conditions. For an N×N sparse Hermitian
+matrix A with condition number κ, classical algorithms require O(N√κ) operations
+(conjugate gradient), while HHL runs in O(log(N) × poly(κ, 1/ε)) time. This
+exponential speedup in N makes HHL foundational for quantum machine learning,
+where linear algebra underlies most algorithms.
+
+The algorithm works in three phases: (1) Quantum Phase Estimation (QPE) extracts
+eigenvalues λⱼ of A into a register, decomposing |b⟩ = Σⱼ βⱼ|uⱼ⟩ in the eigenbasis.
+(2) Controlled rotation applies R_y(2 arcsin(C/λⱼ)) to an ancilla, encoding 1/λⱼ
+in the amplitude. (3) Inverse QPE uncomputes the eigenvalue register. Upon
+measuring the ancilla in |1⟩, the remaining state is proportional to |x⟩ = A⁻¹|b⟩.
+
+Key Equations:
+  - Linear system: A|x⟩ = |b⟩  where A is N×N Hermitian, κ = λ_max/λ_min
+  - Eigendecomposition: |b⟩ = Σⱼ βⱼ|uⱼ⟩ where A|uⱼ⟩ = λⱼ|uⱼ⟩
+  - Solution state: |x⟩ = A⁻¹|b⟩ = Σⱼ (βⱼ/λⱼ)|uⱼ⟩
+  - HHL complexity: O(log(N) × κ² × s × poly(1/ε)) for s-sparse matrices
+  - Success probability: P ∝ ||x||² / ||A⁻¹||²  (amplitude amplification helps)
+
+Quantum Advantage:
+  HHL achieves exponential speedup in matrix dimension N, but with caveats:
+  (1) Input |b⟩ must be efficiently preparable (qRAM or structured data)
+  (2) Output is quantum state |x⟩, not classical vector (readout costs O(N))
+  (3) Matrix A must be sparse and well-conditioned (κ appears polynomially)
+  (4) Useful when only expectation values ⟨x|M|x⟩ are needed, not full x
+  Despite limitations, HHL enables quantum speedups for SVM classification,
+  recommendation systems, and solving differential equations.
+
+References:
+  [1] Harrow, Hassidim, Lloyd, "Quantum Algorithm for Linear Systems of Equations",
+      Phys. Rev. Lett. 103, 150502 (2009). https://doi.org/10.1103/PhysRevLett.103.150502
+  [2] Childs, Kothari, Somma, "Quantum algorithm for systems of linear equations
+      with exponentially improved dependence on precision", SIAM J. Comput. (2017).
+      https://doi.org/10.1137/16M1087072
+  [3] Aaronson, "Read the fine print", Nature Physics 11, 291-293 (2015).
+      https://doi.org/10.1038/nphys3272
+  [4] Wikipedia: Quantum_algorithm_for_linear_systems_of_equations
+      https://en.wikipedia.org/wiki/Quantum_algorithm_for_linear_systems_of_equations
+*)
+
 //#r "nuget: FSharp.Azure.Quantum"
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 

@@ -15,6 +15,51 @@
 // 3. Find satisfying assignments using quantum search
 // ============================================================================
 
+(*
+===============================================================================
+ Background Theory
+===============================================================================
+
+Grover's algorithm (1996) provides a quadratic speedup for unstructured search
+problems. Given a search space of N items with M "marked" solutions, classical
+algorithms require O(N/M) queries on average, while Grover's algorithm finds a
+solution with high probability in O(√(N/M)) queries. For SAT problems with n
+variables, the search space is N = 2ⁿ, so Grover reduces the search from O(2ⁿ)
+to O(2^(n/2)) - a substantial speedup for large instances.
+
+The algorithm works by repeatedly applying two operations: (1) an oracle that
+marks solutions by flipping their phase, and (2) a diffusion operator that
+amplifies the amplitude of marked states. After approximately π/4 × √(N/M)
+iterations, measuring the quantum state yields a solution with probability
+approaching 1. For SAT, the oracle encodes the Boolean formula such that
+satisfying assignments receive a phase flip.
+
+Key Equations:
+  - Grover iterate: G = (2|ψ⟩⟨ψ| - I) × O_f  where O_f is the oracle
+  - Initial state: |ψ⟩ = H⊗ⁿ|0⟩ⁿ = (1/√N) Σₓ|x⟩  (uniform superposition)
+  - Optimal iterations: k ≈ (π/4)√(N/M) for M solutions in N items
+  - Success probability: P(success) = sin²((2k+1)θ) where sin²(θ) = M/N
+  - SAT oracle: O_f|x⟩ = (-1)^f(x)|x⟩ where f(x) = 1 iff x satisfies formula
+
+Quantum Advantage:
+  Grover's speedup is provably optimal for unstructured search (BBBV theorem).
+  For SAT, this means finding satisfying assignments in O(2^(n/2)) vs O(2ⁿ).
+  While this doesn't solve NP-complete problems in polynomial time, it provides
+  meaningful speedup for cryptanalysis (AES key search: 2¹²⁸ → 2⁶⁴) and
+  verification tasks. Hybrid classical-quantum approaches combine Grover with
+  classical preprocessing for practical SAT solving.
+
+References:
+  [1] Grover, "A fast quantum mechanical algorithm for database search",
+      STOC '96, pp. 212-219. https://doi.org/10.1145/237814.237866
+  [2] Boyer et al., "Tight bounds on quantum searching",
+      Fortschr. Phys. 46, 493-505 (1998). https://arxiv.org/abs/quant-ph/9605034
+  [3] Ambainis, "Quantum search algorithms", SIGACT News 35(2), 22-35 (2004).
+      https://doi.org/10.1145/992287.992296
+  [4] Wikipedia: Grover's_algorithm
+      https://en.wikipedia.org/wiki/Grover%27s_algorithm
+*)
+
 // Use local build for development
 #I "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0"
 #r "FSharp.Azure.Quantum.dll"

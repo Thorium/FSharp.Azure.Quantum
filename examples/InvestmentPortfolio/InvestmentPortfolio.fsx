@@ -17,6 +17,54 @@
 // - Quantum-ready optimization via HybridSolver
 // ==============================================================================
 
+(*
+===============================================================================
+ Background Theory
+===============================================================================
+
+Modern Portfolio Theory (MPT), introduced by Harry Markowitz in 1952, provides
+the mathematical framework for constructing portfolios that maximize expected
+return for a given level of risk. The key insight is that portfolio risk is not
+simply the weighted average of individual asset risks—correlations between assets
+allow for "diversification benefit" where combined volatility is lower than the
+sum of parts. This leads to the concept of the "efficient frontier": the set of
+portfolios offering maximum return for each risk level.
+
+The mean-variance optimization problem seeks to find optimal asset weights w that
+minimize portfolio variance σ²_p = w'Σw subject to achieving target return μ_p =
+w'μ and budget constraint Σwᵢ = 1. This is a quadratic programming problem that
+becomes computationally challenging as the number of assets grows (O(n³) for
+classical solvers with n assets). Real-world portfolios with thousands of assets
+and complex constraints (sector limits, ESG requirements, transaction costs)
+strain classical optimization.
+
+Key Equations:
+  - Expected portfolio return: μ_p = Σᵢ wᵢ·μᵢ = w'μ
+  - Portfolio variance: σ²_p = Σᵢ Σⱼ wᵢwⱼσᵢⱼ = w'Σw
+  - Sharpe ratio: S = (μ_p - r_f) / σ_p  (return per unit risk, r_f = risk-free rate)
+  - Efficient frontier: min w'Σw  s.t. w'μ ≥ μ_target, w'1 = 1, w ≥ 0
+
+Quantum Advantage:
+  Portfolio optimization maps naturally to QUBO (Quadratic Unconstrained Binary
+  Optimization), which can be solved using QAOA or quantum annealing. For large
+  portfolios (n > 50 assets), quantum approaches may offer speedup through:
+  (1) Parallel exploration of the 2ⁿ solution space via superposition
+  (2) Tunneling through local minima in complex constraint landscapes
+  (3) Potential quantum speedup for sampling from Boltzmann distributions
+  Current NISQ devices handle ~20-50 assets; fault-tolerant quantum computers
+  could enable real-time optimization of institutional portfolios.
+
+References:
+  [1] Markowitz, "Portfolio Selection", Journal of Finance 7(1), 77-91 (1952).
+      https://doi.org/10.2307/2975974
+  [2] Orus et al., "Quantum computing for finance: Overview and prospects",
+      Reviews of Modern Physics 91, 045001 (2019). https://doi.org/10.1103/RevModPhys.91.045001
+  [3] Egger et al., "Quantum Computing for Finance: State-of-the-Art and Future
+      Prospects", IEEE Trans. Quantum Eng. 1, 1-24 (2020). https://doi.org/10.1109/TQE.2020.3030314
+  [4] Wikipedia: Modern_portfolio_theory
+      https://en.wikipedia.org/wiki/Modern_portfolio_theory
+*)
+
 //#r "nuget: FSharp.Azure.Quantum"
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 

@@ -12,6 +12,54 @@
 /// - Load balancing (minimize inter-server communication)
 /// - Image segmentation (foreground/background separation)
 
+(*
+===============================================================================
+ Background Theory
+===============================================================================
+
+The Maximum Cut (MaxCut) problem is a fundamental combinatorial optimization
+problem: given a weighted graph G = (V, E, w), partition the vertices into two
+disjoint sets S and T such that the sum of edge weights crossing the partition
+is maximized. MaxCut is NP-hard, meaning no known classical algorithm can solve
+all instances efficiently. The best classical approximation algorithm (Goemans-
+Williamson, 1995) achieves a 0.878 approximation ratio using semidefinite
+programming, but exact solutions require exponential time in the worst case.
+
+The Quantum Approximate Optimization Algorithm (QAOA), introduced by Farhi et al.
+(2014), is a variational quantum algorithm specifically designed for combinatorial
+optimization problems like MaxCut. QAOA encodes the problem Hamiltonian H_C (cost)
+and a mixer Hamiltonian H_B (driver) into alternating quantum operations. At depth
+p, the ansatz is: |ψ(γ,β)⟩ = Πₖ exp(-iβₖH_B)·exp(-iγₖH_C)|+⟩ⁿ. The parameters
+(γ,β) are optimized classically to maximize ⟨H_C⟩.
+
+Key Equations:
+  - MaxCut cost function: C(z) = Σ_{(i,j)∈E} wᵢⱼ·½(1 - zᵢzⱼ)  where zᵢ ∈ {±1}
+  - Problem Hamiltonian: H_C = Σ_{(i,j)∈E} wᵢⱼ·½(I - ZᵢZⱼ)
+  - Mixer Hamiltonian: H_B = Σᵢ Xᵢ (induces transitions between configurations)
+  - QAOA depth-p ansatz: |γ,β⟩ = Πₖ₌₁ᵖ e^{-iβₖH_B} e^{-iγₖH_C} |+⟩ⁿ
+  - Expected cut value: ⟨γ,β|H_C|γ,β⟩ (maximized over parameters)
+
+Quantum Advantage:
+  QAOA provides a quantum-native approach to NP-hard optimization. At depth p→∞,
+  QAOA provably finds the optimal solution. For finite depth, QAOA can outperform
+  classical local search on certain graph instances. On NISQ devices, QAOA at
+  depth p=1-3 often matches or exceeds classical heuristics for small graphs.
+  The key advantage is parallel exploration of the solution space via quantum
+  superposition and interference, potentially finding high-quality solutions
+  faster than classical random sampling or greedy algorithms.
+
+References:
+  [1] Farhi, Goldstone, Gutmann, "A Quantum Approximate Optimization Algorithm",
+      arXiv:1411.4028 (2014). https://arxiv.org/abs/1411.4028
+  [2] Goemans & Williamson, "Improved approximation algorithms for maximum cut",
+      J. ACM 42(6), 1115-1145 (1995). https://doi.org/10.1145/227683.227684
+  [3] Zhou et al., "Quantum Approximate Optimization Algorithm: Performance,
+      Mechanism, and Implementation", Phys. Rev. X 10, 021067 (2020).
+      https://doi.org/10.1103/PhysRevX.10.021067
+  [4] Wikipedia: Maximum_cut
+      https://en.wikipedia.org/wiki/Maximum_cut
+*)
+
 //#r "nuget: FSharp.Azure.Quantum"
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 

@@ -89,6 +89,43 @@ Examples are categorized into **4 levels** based on business utility and technic
   **Use Case:** Marketing (influencer groups), fraud detection (collusion)  
   **ROI:** Targeted campaigns, detect coordinated fraud schemes
 
+### Drug Discovery & Pharmaceutical
+- **[DrugDiscovery/BindingAffinity.fsx](DrugDiscovery/BindingAffinity.fsx)** 🧬 NEW  
+  VQE for protein-ligand binding energy calculation  
+  **Quantum Advantage:** ✅ Exponential (electron correlation)  
+  **Use Case:** Lead optimization, selectivity calculations
+
+- **[DrugDiscovery/ReactionPathway.fsx](DrugDiscovery/ReactionPathway.fsx)** 🧬 NEW  
+  VQE for drug metabolism (CYP450 activation barriers)  
+  **Quantum Advantage:** ✅ Exponential (transition state multiconfigurational)  
+  **Use Case:** Half-life prediction, metabolite identification
+
+- **[DrugDiscovery/CaffeineEnergy.fsx](DrugDiscovery/CaffeineEnergy.fsx)** 🧬 NEW  
+  Fragment Molecular Orbital VQE for caffeine (drug-like molecule)  
+  **Quantum Advantage:** ✅ Exponential (electron correlation)  
+  **Use Case:** Lead optimization, fragment-based drug design
+
+- **[DrugDiscovery/MolecularSimilarity.fsx](DrugDiscovery/MolecularSimilarity.fsx)**  
+  Quantum kernel similarity for virtual screening  
+  **Quantum Advantage:** ⚠️ Unproven on NISQ  
+  **Recommendation:** Use classical Tanimoto for production
+
+### Financial Risk Management
+- **[FinancialRisk/QuantumVaR.fsx](FinancialRisk/QuantumVaR.fsx)** 📊  
+  Value-at-Risk with quantum amplitude estimation  
+  **Quantum Advantage:** ✅ Quadratic O(1/ε) vs O(1/ε²)  
+  **Use Case:** Regulatory capital (Basel III)
+
+- **[FinancialRisk/StressTesting.fsx](FinancialRisk/StressTesting.fsx)** 📊 NEW  
+  Multi-scenario stress testing (9 crisis scenarios)  
+  **Quantum Advantage:** ✅ Quadratic (amplitude estimation)  
+  **Use Case:** CCAR/DFAST regulatory compliance
+
+- **[FinancialRisk/ExoticOptions.fsx](FinancialRisk/ExoticOptions.fsx)** 📊 NEW  
+  Barrier and lookback options with Greeks  
+  **Quantum Advantage:** ✅ Quadratic (path-dependent MC)  
+  **Use Case:** Exotic derivatives pricing
+
 ---
 
 ## Level 2: Practical Optimization Problems

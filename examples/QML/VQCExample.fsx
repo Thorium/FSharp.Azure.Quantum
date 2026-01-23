@@ -11,6 +11,52 @@
     Run with: dotnet fsi VQCExample.fsx
 *)
 
+(*
+===============================================================================
+ Background Theory
+===============================================================================
+
+A Variational Quantum Classifier (VQC) is a hybrid quantum-classical algorithm
+for supervised machine learning. The approach uses parameterized quantum circuits
+(PQCs) as trainable models: classical data is encoded into quantum states via
+a feature map, then processed by a variational ansatz with tunable parameters,
+and finally measured to produce predictions. The parameters are optimized using
+classical gradient-based methods, creating a feedback loop between quantum
+circuit execution and classical optimization.
+
+The key innovation enabling gradient computation is the "parameter shift rule,"
+which allows exact gradient calculation on quantum hardware. For a gate with
+parameter θ, the gradient ∂f/∂θ can be computed as:
+  ∂f/∂θ = [f(θ + π/2) - f(θ - π/2)] / 2
+This requires only two circuit evaluations per parameter, making VQC compatible
+with NISQ devices where backpropagation is impossible.
+
+Key Equations:
+  - Quantum feature map: |ψ(x)⟩ = U(x)|0⟩ⁿ where x is classical input
+  - Variational ansatz: |φ(θ)⟩ = V(θ)|ψ(x)⟩ with trainable parameters θ
+  - Prediction: ŷ = ⟨φ(θ)|M|φ(θ)⟩ for observable M (typically Z measurement)
+  - Parameter shift gradient: ∂⟨M⟩/∂θ = ½[⟨M⟩_{θ+π/2} - ⟨M⟩_{θ-π/2}]
+  - Binary cross-entropy loss: L = -Σ[y·log(p) + (1-y)·log(1-p)]
+
+Quantum Advantage:
+  VQCs can access exponentially large feature spaces (2ⁿ-dimensional Hilbert
+  space for n qubits) that may be classically intractable to compute. Havlicek
+  et al. (2019) demonstrated provable quantum advantage for classification
+  problems where the quantum kernel is hard to simulate classically. For NISQ
+  devices, VQCs offer a practical path to quantum machine learning with shallow
+  circuits and noise resilience through variational optimization.
+
+References:
+  [1] Havlicek et al., "Supervised learning with quantum-enhanced feature spaces",
+      Nature 567, 209-212 (2019). https://doi.org/10.1038/s41586-019-0980-2
+  [2] Schuld & Petruccione, "Machine Learning with Quantum Computers",
+      Springer (2021). https://doi.org/10.1007/978-3-030-83098-4
+  [3] Mitarai et al., "Quantum circuit learning", Phys. Rev. A 98, 032309 (2018).
+      https://doi.org/10.1103/PhysRevA.98.032309
+  [4] Wikipedia: Variational_quantum_eigensolver (VQE uses similar principles)
+      https://en.wikipedia.org/wiki/Variational_quantum_eigensolver
+*)
+
 //#r "nuget: FSharp.Azure.Quantum"
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 

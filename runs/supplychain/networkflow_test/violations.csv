@@ -1,0 +1,4 @@
+solution,kind,node,details
+quantum,sink_unserved,C1,no incoming selected routes
+quantum,sink_unserved,C2,no incoming selected routes
+quantum,flow_conservation,W2,in=1 out=0

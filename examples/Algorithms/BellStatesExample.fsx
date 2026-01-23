@@ -13,6 +13,54 @@
 /// - Micius satellite quantum communication
 /// - IBM Quantum, IonQ, Rigetti platforms
 
+(*
+===============================================================================
+ Background Theory
+===============================================================================
+
+Bell states are the four maximally entangled two-qubit states, forming an
+orthonormal basis for the two-qubit Hilbert space. Named after physicist John
+Bell, these states exhibit "spooky action at a distance" (Einstein's phrase):
+measuring one qubit instantaneously determines the other's state, regardless of
+spatial separation. Bell states are the fundamental resource for quantum
+communication, teleportation, superdense coding, and entanglement-based protocols.
+
+The four Bell states are created from |00⟩ using Hadamard and CNOT gates, with
+optional X and Z gates for the variants. In each state, the two qubits are
+perfectly correlated (|Φ⟩ states) or anti-correlated (|Ψ⟩ states), and measuring
+either qubit in the computational basis yields a uniformly random outcome. The
+"entanglement" means the joint state cannot be written as a product of individual
+qubit states: |Φ⁺⟩ ≠ |ψ₁⟩ ⊗ |ψ₂⟩ for any single-qubit states.
+
+Key Equations:
+  - |Φ⁺⟩ = (|00⟩ + |11⟩) / √2  (correlated, same phase)
+  - |Φ⁻⟩ = (|00⟩ - |11⟩) / √2  (correlated, opposite phase)
+  - |Ψ⁺⟩ = (|01⟩ + |10⟩) / √2  (anti-correlated, same phase)
+  - |Ψ⁻⟩ = (|01⟩ - |10⟩) / √2  (anti-correlated, opposite phase / singlet)
+  - Creation circuit: |Φ⁺⟩ = CNOT(H|0⟩ ⊗ |0⟩)
+  - CHSH inequality: |S| ≤ 2 classically, |S| ≤ 2√2 ≈ 2.83 quantum (Bell violation)
+
+Quantum Advantage:
+  Bell states enable quantum advantages impossible classically: (1) Superdense
+  coding: send 2 classical bits using 1 qubit + 1 ebit. (2) Teleportation:
+  transfer quantum state using 2 cbits + 1 ebit. (3) Device-independent QKD:
+  Bell inequality violations certify security. (4) Entanglement swapping:
+  create entanglement between particles that never interacted. Bell's theorem
+  (1964) proved no local hidden variable theory can reproduce quantum predictions,
+  experimentally confirmed (Nobel Prize 2022: Aspect, Clauser, Zeilinger).
+
+References:
+  [1] Bell, "On the Einstein Podolsky Rosen Paradox", Physics 1, 195-200 (1964).
+      https://doi.org/10.1103/PhysicsPhysiqueFizika.1.195
+  [2] Aspect, Dalibard, Roger, "Experimental Test of Bell's Inequalities Using
+      Time-Varying Analyzers", Phys. Rev. Lett. 49, 1804 (1982).
+      https://doi.org/10.1103/PhysRevLett.49.1804
+  [3] Nielsen & Chuang, "Quantum Computation and Quantum Information",
+      Cambridge University Press (2010), Section 1.3.6.
+  [4] Wikipedia: Bell_state
+      https://en.wikipedia.org/wiki/Bell_state
+*)
+
 //#r "nuget: FSharp.Azure.Quantum"
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 

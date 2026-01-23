@@ -1,0 +1,19 @@
+{
+  "run_id": "20260123_172026",
+  "nodes_path": "examples/SupplyChain/_data/nodes_tiny.csv",
+  "routes_path": "examples/SupplyChain/_data/routes_tiny.csv",
+  "nodes_sha256": "f2e3b0fa3538c2b92c4490e43151089e189355474dc62a03f0a01ae72abfee7c",
+  "routes_sha256": "92e870004ad55fc88db553c29dabf93663c5868623ee2b1fe3f2ef5271d6de2b",
+  "nodes_count": 6,
+  "routes_count": 8,
+  "shots": 200,
+  "classical_cost": 33,
+  "classical_fill_rate": 1,
+  "classical_violations": 0,
+  "quantum_cost": 9,
+  "quantum_fill_rate": 0,
+  "quantum_violations": 3,
+  "elapsed_ms_total": 282,
+  "elapsed_ms_classical": 10,
+  "elapsed_ms_quantum": 57
+}

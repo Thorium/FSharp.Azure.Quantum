@@ -18,6 +18,55 @@
 //
 // ============================================================================
 
+(*
+===============================================================================
+ Background Theory
+===============================================================================
+
+Readout Error Mitigation (REM) corrects measurement errors, which are often the
+dominant error source on NISQ devices (1-5% per qubit on superconducting hardware,
+0.1-1% on trapped ions). The technique uses a "confusion matrix" M that captures
+the probability of measuring state j given the system is in state i: M_ij = P(j|i).
+By characterizing M through calibration circuits and inverting it, we can recover
+unbiased probability distributions from noisy measurements.
+
+Calibration involves preparing all 2ⁿ computational basis states and measuring each
+multiple times to estimate M. For n qubits, this requires 2ⁿ calibration circuits,
+so REM is practical for n ≤ 15-20 qubits. With the confusion matrix known, correction
+is simple: p_corrected = M⁻¹ · p_noisy. Since M⁻¹ is computed once, there is NO
+runtime overhead per circuit—only the initial calibration cost. Tensor product
+structure (assuming independent qubit errors) reduces complexity to O(n) calibrations.
+
+Key Equations:
+  - Confusion matrix: M_ij = P(measure j | true state i)
+  - Ideal: M = I (identity); noisy: M ≠ I with off-diagonal errors
+  - Correction: p_true ≈ M⁻¹ · p_measured (matrix inversion)
+  - For n independent qubits: M = M₁ ⊗ M₂ ⊗ ... ⊗ Mₙ (tensor product)
+  - Single-qubit model: M = [[1-ε₀, ε₁], [ε₀, 1-ε₁]] where εᵢ = P(flip|state i)
+  - Calibration shots: ~1000-10000 per basis state for good statistics
+
+Quantum Advantage:
+  REM is the most cost-effective error mitigation technique—essentially "free"
+  after calibration. It should be applied to ALL quantum computations as a baseline.
+  For VQE and QAOA, REM alone can improve results by 50-90% on high-error-rate
+  hardware. The technique is universally supported (IBM, IonQ, Rigetti, Google)
+  and often built into cloud quantum services. REM combines multiplicatively with
+  ZNE and PEC: apply REM first to clean up measurements, then use ZNE/PEC for
+  gate error mitigation.
+
+References:
+  [1] Maciejewski, Zimborás, Oszmaniec, "Mitigation of readout noise in near-term
+      quantum devices by classical post-processing based on detector tomography",
+      Quantum 4, 257 (2020). https://doi.org/10.22331/q-2020-04-24-257
+  [2] Bravyi, Sheldon, Kandala, Mckay, Gambetta, "Mitigating measurement errors in
+      multiqubit experiments", Phys. Rev. A 103, 042605 (2021).
+      https://doi.org/10.1103/PhysRevA.103.042605
+  [3] Nation et al., "Scalable mitigation of measurement errors on quantum computers",
+      PRX Quantum 2, 040326 (2021). https://doi.org/10.1103/PRXQuantum.2.040326
+  [4] Wikipedia: Quantum_error_mitigation
+      https://en.wikipedia.org/wiki/Quantum_error_mitigation
+*)
+
 #r "nuget: FSharp.Azure.Quantum"
 
 open System

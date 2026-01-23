@@ -3,6 +3,55 @@
 /// Demonstrates different feature map strategies for encoding classical data
 /// into quantum states
 
+(*
+===============================================================================
+ Background Theory
+===============================================================================
+
+Quantum feature maps are the bridge between classical data and quantum computation.
+They encode classical input vectors x ∈ ℝᵈ into quantum states |ψ(x)⟩ in a 2ⁿ-
+dimensional Hilbert space. The choice of feature map critically determines the
+expressiveness and potential quantum advantage of variational quantum algorithms.
+Different encoding strategies create different "quantum feature spaces" that may
+capture patterns invisible to classical methods.
+
+The most common encoding strategies are:
+- **Angle Encoding**: Each feature xᵢ is encoded as a rotation angle, typically
+  via Ry(π·xᵢ) or Rz(xᵢ) gates. Requires n qubits for n features. Simple and
+  hardware-efficient but limited expressiveness.
+- **Amplitude Encoding**: Features are encoded as amplitudes of a quantum state,
+  |ψ⟩ = Σᵢ xᵢ|i⟩ (normalized). Exponentially efficient (log₂(d) qubits for d
+  features) but requires complex state preparation circuits.
+- **ZZ Feature Map**: Combines single-qubit rotations with two-qubit ZZ interactions
+  that encode products of features: exp(i·φ(xᵢ,xⱼ)·ZᵢZⱼ). Creates entanglement
+  and captures feature correlations, proven advantageous in Havlicek et al.
+
+Key Equations:
+  - Angle encoding: |ψ(x)⟩ = ⊗ᵢ Ry(π·xᵢ)|0⟩ = ⊗ᵢ [cos(πxᵢ/2)|0⟩ + sin(πxᵢ/2)|1⟩]
+  - ZZ feature map layer: U_ZZ = exp(i·(π-xᵢ)(π-xⱼ)·ZᵢZⱼ) for connected qubits
+  - Quantum kernel: K(x,x') = |⟨ψ(x)|ψ(x')⟩|² (overlap of encoded states)
+  - Expressibility: measured by distribution of fidelities over parameter space
+
+Quantum Advantage:
+  The power of quantum feature maps lies in accessing feature spaces that are
+  classically intractable to compute. Havlicek et al. showed that ZZ feature maps
+  with depth O(n) create quantum kernels that cannot be efficiently computed
+  classically (under standard complexity assumptions). The "expressibility vs.
+  trainability" tradeoff is crucial: highly expressive maps may suffer from
+  barren plateaus (vanishing gradients), while simple maps may not offer quantum
+  advantage. Optimal depth for NISQ devices is typically 1-3 layers.
+
+References:
+  [1] Havlicek et al., "Supervised learning with quantum-enhanced feature spaces",
+      Nature 567, 209-212 (2019). https://doi.org/10.1038/s41586-019-0980-2
+  [2] Schuld & Killoran, "Quantum Machine Learning in Feature Hilbert Spaces",
+      Phys. Rev. Lett. 122, 040504 (2019). https://doi.org/10.1103/PhysRevLett.122.040504
+  [3] LaRose & Coyle, "Robust data encodings for quantum classifiers",
+      Phys. Rev. A 102, 032420 (2020). https://doi.org/10.1103/PhysRevA.102.032420
+  [4] Wikipedia: Quantum_machine_learning
+      https://en.wikipedia.org/wiki/Quantum_machine_learning
+*)
+
 //#r "nuget: FSharp.Azure.Quantum"
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 

@@ -3,6 +3,53 @@
 
 One-class quantum machine learning for detecting unusual patterns.
 
+(*
+===============================================================================
+ Background Theory
+===============================================================================
+
+Anomaly detection identifies data points that deviate significantly from "normal"
+behavior—critical for security (intrusion detection), fraud prevention, and
+quality control. Unlike binary classification, anomaly detection trains only on
+normal examples, learning a boundary that separates normal from everything else.
+This "one-class classification" approach is essential when anomalies are rare,
+diverse, or unknown (zero-day attacks, novel fraud schemes).
+
+Quantum approaches to anomaly detection leverage high-dimensional feature spaces
+and quantum kernel methods. The quantum one-class SVM encodes normal data into
+quantum states and learns a decision boundary in Hilbert space. For n qubits,
+the feature space is 2ⁿ-dimensional, potentially capturing complex patterns
+invisible to classical methods. The quantum kernel K(x,x') = |⟨ψ(x)|ψ(x')⟩|²
+measures similarity between data points, with anomalies having low similarity
+to the normal training set.
+
+Key Equations:
+  - One-class SVM objective: min ½||w||² - ρ + (1/νm)Σᵢξᵢ  s.t. w·φ(xᵢ) ≥ ρ - ξᵢ
+  - Quantum kernel: K(x,x') = |⟨ψ(x)|ψ(x')⟩|² (overlap of quantum states)
+  - Anomaly score: s(x) = -⟨ψ(x)|ρ_normal|ψ(x)⟩ (distance from normal density)
+  - Decision boundary: f(x) = sign(Σᵢ αᵢK(xᵢ,x) - ρ) where αᵢ are SVM coefficients
+  - Reconstruction error: ||x - D(E(x))||² for quantum autoencoder approach
+
+Quantum Advantage:
+  Quantum anomaly detection can identify subtle patterns in high-dimensional data
+  where classical methods struggle. For cybersecurity, network traffic has many
+  features (packet sizes, timing, protocols, ports); quantum kernels can find
+  correlations classical SVMs miss. The approach is particularly powerful for:
+  (1) High-dimensional sparse data, (2) Non-linear decision boundaries, (3) Small
+  training sets (few normal examples). Financial institutions and cybersecurity
+  firms are exploring quantum anomaly detection for fraud and intrusion detection.
+
+References:
+  [1] Liu & Rebentrost, "Quantum machine learning for quantum anomaly detection",
+      Phys. Rev. A 97, 042315 (2018). https://doi.org/10.1103/PhysRevA.97.042315
+  [2] Sakhnenko et al., "Hybrid classical-quantum autoencoder for anomaly detection",
+      Quantum Mach. Intell. 4, 27 (2022). https://doi.org/10.1007/s42484-022-00078-0
+  [3] Heredge et al., "Quantum Support Vector Machine for Big Data Classification",
+      Phys. Rev. Lett. 127, 130501 (2021). https://doi.org/10.1103/PhysRevLett.127.130501
+  [4] Wikipedia: Anomaly_detection
+      https://en.wikipedia.org/wiki/Anomaly_detection
+*)
+
 ## Overview
 
 This example demonstrates using quantum anomaly detection to identify

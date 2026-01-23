@@ -58,6 +58,10 @@
     <Compile Include="Core\Progress.fs" />
     <Compile Include="Core\ResultBuilder.fs" />
     
+    <!-- Data Infrastructure Layer (depends on Core) -->
+    <Compile Include="Data\MolecularData.fs" />
+    <Compile Include="Data\FinancialData.fs" />
+    
     <!-- QUBO Helpers - Shared patterns for optimization solvers -->
     <Compile Include="Qubo.fs" />
 

@@ -1,6 +1,56 @@
 // RSA Factorization Example - Shor's Algorithm for Breaking RSA Keys
 // Demonstrates quantum period finding to factor composite numbers
 
+(*
+===============================================================================
+ Background Theory
+===============================================================================
+
+Shor's algorithm (1994) is the most famous quantum algorithm, demonstrating
+exponential speedup for integer factorization—the problem underlying RSA
+encryption security. Given a composite number N = p × q, classical algorithms
+require O(exp(n^(1/3))) time (number field sieve) where n = log N, while Shor's
+algorithm runs in O(n³) time. This means a sufficiently large quantum computer
+could break 2048-bit RSA in hours instead of billions of years, fundamentally
+threatening current public-key cryptography.
+
+The algorithm reduces factoring to period finding: for random a coprime to N,
+find the period r of f(x) = aˣ mod N. If r is even and a^(r/2) ≢ ±1 (mod N),
+then gcd(a^(r/2) ± 1, N) yields a factor. Quantum Phase Estimation finds r by
+extracting the eigenvalue e^(2πi·s/r) from the modular exponentiation operator
+U_a|y⟩ = |ay mod N⟩. The period r appears in the phase, extracted via QFT and
+continued fractions. Success probability is ≥ 1/poly(log N) per attempt.
+
+Key Equations:
+  - Factoring reduction: N = p × q → find period r of aˣ mod N
+  - Modular exponentiation: U_a|y⟩ = |ay mod N⟩ has eigenvalues e^(2πi·s/r)
+  - Period extraction: QPE on U_a gives phase s/r; continued fractions yield r
+  - Factorization: gcd(a^(r/2) + 1, N) and gcd(a^(r/2) - 1, N) give p, q
+  - Resource estimate: ~4n qubits and ~O(n³) gates for n-bit integer N
+  - RSA-2048: ~4000 logical qubits, ~10⁹ T-gates (years away with error correction)
+
+Quantum Advantage:
+  Shor's algorithm provides exponential speedup: O(n³) quantum vs O(exp(n^(1/3)))
+  classical. This threatens RSA, Diffie-Hellman, and elliptic curve cryptography.
+  While current quantum computers (~1000 noisy qubits) cannot factor RSA-2048,
+  the threat has driven "post-quantum cryptography" standardization (NIST, 2024).
+  Shor's algorithm also works for discrete logarithms, breaking most current
+  public-key systems. Demonstrating Shor for small numbers (15, 21) validates
+  the quantum computing stack, even if practical RSA-breaking is decades away.
+
+References:
+  [1] Shor, "Polynomial-Time Algorithms for Prime Factorization and Discrete
+      Logarithms on a Quantum Computer", SIAM J. Comput. 26(5), 1484-1509 (1997).
+      https://doi.org/10.1137/S0097539795293172
+  [2] Vandersypen et al., "Experimental realization of Shor's quantum factoring
+      algorithm using nuclear magnetic resonance", Nature 414, 883-887 (2001).
+      https://doi.org/10.1038/414883a
+  [3] Gidney & Ekerå, "How to factor 2048 bit RSA integers in 8 hours using 20
+      million noisy qubits", Quantum 5, 433 (2021). https://doi.org/10.22331/q-2021-04-15-433
+  [4] Wikipedia: Shor's_algorithm
+      https://en.wikipedia.org/wiki/Shor%27s_algorithm
+*)
+
 // Reference local build (use this for development/testing)
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 

@@ -29,6 +29,54 @@ Haversine formula (great-circle distance on Earth's surface).
 between classical (fast, free) and quantum (scalable) solvers based on problem size.
 *)
 
+(*
+===============================================================================
+ Background Theory
+===============================================================================
+
+The Traveling Salesman Problem (TSP) asks: given n cities and pairwise distances,
+find the shortest tour visiting each city exactly once and returning to the start.
+TSP is NP-hard, meaning no known polynomial-time algorithm exists. For n cities,
+there are (n-1)!/2 possible tours; brute force is intractable beyond ~15 cities.
+Classical heuristics (nearest neighbor, 2-opt, Lin-Kernighan) find good solutions
+quickly, while exact methods (branch-and-bound, dynamic programming) guarantee
+optimality but scale exponentially.
+
+TSP maps to QUBO using binary variables xᵢ,ₜ ∈ {0,1} indicating city i is visited
+at time t. Constraints ensure: (1) each city visited once: Σₜ xᵢ,ₜ = 1, (2) each
+time has one city: Σᵢ xᵢ,ₜ = 1. The objective minimizes Σᵢⱼₜ dᵢⱼ·xᵢ,ₜ·xⱼ,ₜ₊₁.
+This quadratic form suits QAOA, which explores tours in superposition. The Vehicle
+Routing Problem (VRP) generalizes TSP to multiple vehicles with capacity constraints.
+
+Key Equations:
+  - Tour length: L = Σₖ₌₁ⁿ d(πₖ, πₖ₊₁) where π is a permutation of cities
+  - QUBO variables: xᵢ,ₜ = 1 iff city i visited at position t
+  - Row constraint: Σₜ xᵢ,ₜ = 1 for each city i
+  - Column constraint: Σᵢ xᵢ,ₜ = 1 for each time t
+  - Objective: Σᵢⱼₜ dᵢⱼ·xᵢ,ₜ·xⱼ,ₜ₊₁ (distance between consecutive cities)
+  - Held-Karp DP: O(n²·2ⁿ) exact solution (classical baseline)
+
+Quantum Advantage:
+  TSP is a prime target for quantum optimization. QAOA can explore the tour space
+  in superposition, potentially finding high-quality solutions faster than classical
+  local search for large instances. Quantum annealing (D-Wave) has demonstrated
+  TSP solutions for ~50 cities. The key advantage emerges for constrained variants
+  (time windows, vehicle capacity, precedence) where classical methods struggle.
+  Logistics companies (DHL, UPS) are exploring quantum routing; practical advantage
+  requires ~1000+ qubit fault-tolerant systems.
+
+References:
+  [1] Applegate et al., "The Traveling Salesman Problem: A Computational Study",
+      Princeton University Press (2006). https://doi.org/10.1515/9781400841103
+  [2] Lucas, "Ising formulations of many NP problems", Front. Phys. 2, 5 (2014).
+      https://doi.org/10.3389/fphy.2014.00005
+  [3] Feld et al., "A Hybrid Solution Method for the Capacitated Vehicle Routing
+      Problem Using a Quantum Annealer", Front. ICT 6, 13 (2019).
+      https://doi.org/10.3389/fict.2019.00013
+  [4] Wikipedia: Travelling_salesman_problem
+      https://en.wikipedia.org/wiki/Travelling_salesman_problem
+*)
+
 //#r "nuget: FSharp.Azure.Quantum"
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 

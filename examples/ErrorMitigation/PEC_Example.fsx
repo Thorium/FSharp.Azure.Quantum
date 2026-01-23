@@ -18,6 +18,53 @@
 //
 // ============================================================================
 
+(*
+===============================================================================
+ Background Theory
+===============================================================================
+
+Probabilistic Error Cancellation (PEC) is the most powerful error mitigation
+technique, capable of fully inverting known noise channels at the cost of
+exponential sampling overhead. The key idea: any noisy quantum channel Ẽ can be
+decomposed as Ẽ = E + N where E is the ideal operation and N is the noise. If we
+know the noise model precisely, we can construct a "quasi-probability" representation
+of the inverse: E = Σᵢ qᵢ·Õᵢ where qᵢ can be negative and Õᵢ are noisy operations.
+
+The method works by randomly sampling operations according to |qᵢ| and assigning
+sign(qᵢ) to the measurement outcome. After many samples, the expectation value
+converges to the noise-free result. The cost is determined by the "quasi-probability
+norm" γ = Σᵢ |qᵢ|, which grows exponentially with circuit depth but is manageable
+for shallow circuits. PEC requires precise characterization of the noise model,
+typically obtained through gate set tomography or randomized benchmarking.
+
+Key Equations:
+  - Quasi-probability decomposition: E = Σᵢ qᵢ·Õᵢ where Σᵢ qᵢ = 1, qᵢ ∈ ℝ
+  - Sampling cost (variance): Var(⟨O⟩_PEC) = γ² · Var(⟨O⟩_raw) / N_samples
+  - Quasi-probability norm: γ = Σᵢ |qᵢ| ≥ 1 (equals 1 only if no error)
+  - For depolarizing noise p: γ_gate ≈ (1 + 2p)/(1 - 2p) per gate
+  - Total overhead: γ_circuit = Πᵢ γ_gate(i) ≈ exp(O(depth × noise_rate))
+
+Quantum Advantage:
+  PEC is the only known technique that can, in principle, completely eliminate
+  noise effects (given perfect noise characterization). For VQE ground state
+  energies, PEC achieves 2-3x better accuracy than ZNE, often reaching chemical
+  accuracy (1.6 mHartree) for small molecules. The exponential sampling cost
+  limits PEC to shallow circuits (depth < 100), but within this regime it is
+  unmatched. IBM, Google, and IonQ use PEC in their quantum chemistry demonstrations.
+  Often combined with ZNE (PEC for gates, ZNE for residual errors).
+
+References:
+  [1] Temme, Bravyi, Gambetta, "Error Mitigation for Short-Depth Quantum Circuits",
+      Phys. Rev. Lett. 119, 180509 (2017). https://doi.org/10.1103/PhysRevLett.119.180509
+  [2] Endo, Benjamin, Li, "Practical Quantum Error Mitigation for Near-Future
+      Applications", Phys. Rev. X 8, 031027 (2018). https://doi.org/10.1103/PhysRevX.8.031027
+  [3] van den Berg et al., "Probabilistic error cancellation with sparse Pauli-Lindblad
+      models on noisy quantum processors", Nat. Phys. 19, 1116 (2023).
+      https://doi.org/10.1038/s41567-023-02042-2
+  [4] Wikipedia: Quantum_error_mitigation
+      https://en.wikipedia.org/wiki/Quantum_error_mitigation
+*)
+
 #r "nuget: FSharp.Azure.Quantum"
 
 open System

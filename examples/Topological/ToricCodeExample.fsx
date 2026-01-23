@@ -3,6 +3,55 @@
 open FSharp.Azure.Quantum.Topological
 open System
 
+(*
+===============================================================================
+ Background Theory
+===============================================================================
+
+The toric code, introduced by Alexei Kitaev (1997), is the most studied topological
+quantum error-correcting code. It encodes k = 2 logical qubits in n = 2L² physical
+qubits arranged on an L×L torus (periodic boundary conditions), with code distance
+d = L. The code can correct up to ⌊(d-1)/2⌋ arbitrary errors, making it a leading
+candidate for fault-tolerant quantum computing. Its topological nature means errors
+must form non-contractible loops to cause logical errors—isolated errors are harmless.
+
+The toric code is defined by two types of stabilizer generators: "star" operators
+Aᵥ = Πₑ∈star(v) Xₑ (product of X on edges around vertex v) and "plaquette" operators
+Bₚ = Πₑ∈∂p Zₑ (product of Z on edges around face p). The code space is the +1
+eigenspace of all stabilizers. Errors create "anyons": X errors create pairs of
+e-particles (plaquette violations), Z errors create pairs of m-particles (star
+violations). Error correction measures syndromes and pairs anyons via minimum-weight
+perfect matching.
+
+Key Equations:
+  - Star operator: Aᵥ = Πₑ∈star(v) Xₑ  (4-body for bulk vertices)
+  - Plaquette operator: Bₚ = Πₑ∈∂p Zₑ  (4-body for bulk faces)
+  - Code parameters: [[n, k, d]] = [[2L², 2, L]] for L×L torus
+  - Logical operators: X̄₁ = Πₑ∈horizontal_loop Xₑ, Z̄₁ = Πₑ∈vertical_loop Zₑ
+  - Error threshold: p_th ≈ 10.3% for independent depolarizing noise (MWPM decoder)
+  - Encoding rate: k/n = 2/(2L²) = 1/L² → 0 as L → ∞
+
+Quantum Advantage:
+  Topological codes like the toric code offer fundamentally better error protection
+  than concatenated codes for local noise models. The threshold of ~10% is much
+  higher than the ~1% for surface codes, though surface codes (toric code with
+  boundaries) are more practical for planar architectures. Google's 2023 quantum
+  error correction experiment demonstrated below-threshold operation of a distance-5
+  surface code. The toric code's anyonic excitations also connect to topological
+  quantum computing: braiding anyons implements fault-tolerant gates. This makes
+  the toric code both a practical QEC code and a testbed for exotic physics.
+
+References:
+  [1] Kitaev, "Fault-tolerant quantum computation by anyons", Ann. Phys. 303,
+      2-30 (2003). https://doi.org/10.1016/S0003-4916(02)00018-0
+  [2] Dennis et al., "Topological quantum memory", J. Math. Phys. 43, 4452 (2002).
+      https://doi.org/10.1063/1.1499754
+  [3] Fowler et al., "Surface codes: Towards practical large-scale quantum
+      computation", Phys. Rev. A 86, 032324 (2012). https://doi.org/10.1103/PhysRevA.86.032324
+  [4] Wikipedia: Toric_code
+      https://en.wikipedia.org/wiki/Toric_code
+*)
+
 /// Toric Code Example - Topological Error Correction
 /// 
 /// Demonstrates:

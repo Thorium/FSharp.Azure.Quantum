@@ -12,6 +12,52 @@
 /// - Task scheduling: Select tasks within time constraint
 /// - Budget planning: Choose features within sprint capacity
 
+(*
+===============================================================================
+ Background Theory
+===============================================================================
+
+The 0/1 Knapsack Problem is a classic NP-hard combinatorial optimization problem:
+given n items with weights wᵢ and values vᵢ, and a knapsack capacity W, select a
+subset S to maximize Σᵢ∈S vᵢ subject to Σᵢ∈S wᵢ ≤ W. Each item is either fully
+included (1) or excluded (0)—no fractional selections. While dynamic programming
+solves this in O(nW) pseudo-polynomial time, truly large instances (n > 100,
+W > 10⁶) or variants with additional constraints remain computationally challenging.
+
+The problem maps naturally to QUBO (Quadratic Unconstrained Binary Optimization)
+formulation suitable for quantum optimization. Binary variables xᵢ ∈ {0,1} indicate
+item selection. The objective maximizes Σᵢ vᵢxᵢ while a penalty term enforces the
+capacity constraint: minimize -Σᵢ vᵢxᵢ + λ(Σᵢ wᵢxᵢ - W)² where λ is a penalty
+strength. QAOA then searches for the ground state of this cost Hamiltonian.
+
+Key Equations:
+  - Objective function: max Σᵢ vᵢxᵢ  where xᵢ ∈ {0,1}
+  - Capacity constraint: Σᵢ wᵢxᵢ ≤ W
+  - QUBO formulation: min -Σᵢ vᵢxᵢ + λ·(Σᵢ wᵢxᵢ - W - s)²
+    where s is a slack variable for inequality → equality conversion
+  - Penalty strength: λ > max(vᵢ) ensures feasibility dominates
+  - Dynamic programming: O(nW) time, O(W) space (classical baseline)
+
+Quantum Advantage:
+  QAOA explores the 2ⁿ solution space in superposition, potentially finding
+  high-quality solutions faster than classical local search for large instances.
+  The quantum approach is particularly promising for knapsack variants with
+  complex constraints (multi-dimensional knapsack, multiple knapsacks, quadratic
+  knapsack) where classical DP becomes impractical. Current NISQ devices handle
+  n ≈ 20-50 items; fault-tolerant systems could address industrial-scale problems
+  with thousands of items and constraints.
+
+References:
+  [1] Martello & Toth, "Knapsack Problems: Algorithms and Computer Implementations",
+      Wiley (1990). https://doi.org/10.1002/9781118033142
+  [2] Lucas, "Ising formulations of many NP problems", Front. Phys. 2, 5 (2014).
+      https://doi.org/10.3389/fphy.2014.00005
+  [3] Glover et al., "Quantum Bridge Analytics I: A Tutorial on Formulating and
+      Using QUBO Models", 4OR 17, 335-371 (2019). https://doi.org/10.1007/s10288-019-00424-y
+  [4] Wikipedia: Knapsack_problem
+      https://en.wikipedia.org/wiki/Knapsack_problem
+*)
+
 //#r "nuget: FSharp.Azure.Quantum"
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 

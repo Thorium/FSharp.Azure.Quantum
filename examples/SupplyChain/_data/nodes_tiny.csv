@@ -1,0 +1,7 @@
+node_id,node_type,capacity,supply,demand
+S1,Source,100,100,
+S2,Source,100,100,
+W1,Intermediate,200,,
+W2,Intermediate,200,,
+C1,Sink,0,,1
+C2,Sink,0,,1

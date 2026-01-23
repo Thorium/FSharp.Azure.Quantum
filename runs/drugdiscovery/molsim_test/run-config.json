@@ -1,0 +1,12 @@
+{
+  "actives": "examples/DrugDiscovery/_data/actives_tiny.csv",
+  "feature_map": "ZZFeatureMap 2",
+  "fingerprint_bits": 1024,
+  "library": "examples/DrugDiscovery/_data/library_tiny.csv",
+  "out": "runs/drugdiscovery/molsim_test",
+  "run_id": "20260123_171229",
+  "shots": 200,
+  "threshold": 0.7,
+  "top": 3,
+  "utc": "2026-01-23T17:12:29.5204786+00:00"
+}

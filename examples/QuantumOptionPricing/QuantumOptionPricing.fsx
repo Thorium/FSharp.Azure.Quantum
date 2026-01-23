@@ -19,6 +19,63 @@
 //   dotnet fsi QuantumOptionPricing.fsx
 // ============================================================================
 
+(*
+===============================================================================
+ Background Theory
+===============================================================================
+
+OPTION PRICING is a cornerstone of quantitative finance. A European call option
+gives the holder the right (but not obligation) to buy an asset at a strike 
+price K at expiration time T. The famous BLACK-SCHOLES formula (1973) provides
+closed-form pricing for European options under geometric Brownian motion:
+
+    C = S₀ * N(d₁) - K * e^(-rT) * N(d₂)
+
+Where:
+    d₁ = [ln(S₀/K) + (r + σ²/2)T] / (σ√T)
+    d₂ = d₁ - σ√T
+    N(x) = standard normal CDF
+
+For complex options (path-dependent, American, multi-asset), closed-form 
+solutions don't exist, requiring MONTE CARLO SIMULATION:
+
+    Price = e^(-rT) * E[max(S_T - K, 0)]
+          ≈ e^(-rT) * (1/N) * Σᵢ max(Sᵢ - K, 0)
+
+Classical Monte Carlo achieves precision ε with O(1/ε²) samples due to the
+Central Limit Theorem convergence rate of 1/√N.
+
+QUANTUM AMPLITUDE ESTIMATION provides quadratic speedup. The algorithm:
+1. Encode the price distribution into quantum amplitudes: |ψ⟩ = Σₓ √p(x)|x⟩
+2. Apply an oracle marking "profitable" states (S > K)
+3. Use Grover-like iterations to amplify the probability
+4. Measure to estimate E[payoff] with O(1/ε) queries
+
+The quantum speedup is particularly valuable for:
+- High-precision pricing (regulatory capital calculations)
+- Many-asset basket options (exponential state space)
+- Real-time risk calculations during market stress
+- Greeks computation (multiple pricings per Greek)
+
+Key Equations:
+  - Black-Scholes: C = S₀*N(d₁) - K*e^(-rT)*N(d₂)
+  - GBM dynamics: dS = μS dt + σS dW
+  - Classical MC error: O(1/√N)
+  - Quantum AE error: O(1/N) - quadratic speedup
+
+Quantum Advantage:
+  For precision ε = 0.01 (1 cent on a $1 option):
+  - Classical: ~10,000 samples
+  - Quantum: ~100 queries
+  100x speedup per option, compounding for portfolios.
+
+References:
+  [1] Black, F. & Scholes, M. "The Pricing of Options" J. Political Economy (1973)
+  [2] Rebentrost, P. et al. "Quantum computational finance" arXiv:1805.00109 (2018)
+  [3] Stamatopoulos, N. et al. "Option Pricing using Quantum Computers" Quantum (2020)
+  [4] Wikipedia: Black-Scholes_model (https://en.wikipedia.org/wiki/Black-Scholes_model)
+*)
+
 #r "nuget: FSharp.Azure.Quantum"
 
 open System

@@ -22,6 +22,52 @@
 //
 // ============================================================================
 
+(*
+===============================================================================
+ Background Theory
+===============================================================================
+
+Graph k-coloring asks: can a graph G = (V, E) be colored with at most k colors
+such that no two adjacent vertices share a color? Determining the chromatic
+number χ(G) (minimum k for which this is possible) is NP-hard. Graph coloring
+has extensive applications: register allocation in compilers (interference graph),
+frequency assignment in wireless networks (avoid interference), exam scheduling
+(avoid student conflicts), map coloring, and Sudoku solving.
+
+The problem is formulated as QUBO by introducing binary variables xᵥ,c ∈ {0,1}
+indicating vertex v has color c. Constraints ensure: (1) each vertex gets exactly
+one color: Σc xᵥ,c = 1, and (2) adjacent vertices differ: xᵤ,c + xᵥ,c ≤ 1 for
+edges (u,v). These constraints are converted to penalty terms in the objective
+function, which QAOA minimizes. Finding the chromatic number requires testing
+k = 1, 2, ... until a valid coloring exists.
+
+Key Equations:
+  - One-color constraint: (Σc xᵥ,c - 1)² = 0 for each vertex v
+  - Edge constraint: Σc xᵤ,c·xᵥ,c = 0 for each edge (u,v)
+  - QUBO objective: min Σᵥ A(Σc xᵥ,c - 1)² + Σ₍ᵤ,ᵥ₎∈E B·Σc xᵤ,c·xᵥ,c
+  - Chromatic number: χ(G) = min{k : G is k-colorable}
+  - Greedy upper bound: χ(G) ≤ Δ(G) + 1 where Δ is max degree
+
+Quantum Advantage:
+  Graph coloring's combinatorial explosion (kⁿ possible assignments for n vertices,
+  k colors) makes it ideal for quantum speedup. QAOA explores colorings in
+  superposition, with interference amplifying valid solutions. For sparse graphs
+  with complex constraint structures (e.g., register allocation interference
+  graphs), quantum approaches may find optimal or near-optimal colorings faster
+  than classical branch-and-bound. Current demonstrations handle ~20 vertices;
+  scaling to industrial compiler workloads requires fault-tolerant hardware.
+
+References:
+  [1] Garey & Johnson, "Computers and Intractability: A Guide to the Theory of
+      NP-Completeness", W.H. Freeman (1979), Section 5.5.
+  [2] Lucas, "Ising formulations of many NP problems", Front. Phys. 2, 5 (2014).
+      https://doi.org/10.3389/fphy.2014.00005
+  [3] Tabi et al., "Quantum Optimization for the Graph Coloring Problem with
+      Polynomial Encoding", IEEE ICRC (2020). https://doi.org/10.1109/ICRC2020.2020.00006
+  [4] Wikipedia: Graph_coloring
+      https://en.wikipedia.org/wiki/Graph_coloring
+*)
+
 //#r "nuget: FSharp.Azure.Quantum"
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 

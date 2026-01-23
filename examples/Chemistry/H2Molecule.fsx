@@ -23,6 +23,53 @@
 // - Use this library for flexible VQE execution on any backend
 // - Bridge via FCIDump files or direct Hamiltonian conversion
 
+(*
+===============================================================================
+ Background Theory
+===============================================================================
+
+The hydrogen molecule (H₂) is the simplest neutral molecule and the "hydrogen atom
+of quantum chemistry"—the first system where quantum computers can outperform
+pen-and-paper calculations. The H₂ ground state energy problem asks: what is the
+lowest energy eigenvalue of the molecular Hamiltonian H? This determines chemical
+properties like bond length (0.74 Å), binding energy (4.75 eV), and vibrational
+frequency. Exact classical solution is possible for H₂ but scales exponentially
+for larger molecules, motivating quantum approaches.
+
+The Variational Quantum Eigensolver (VQE) is a hybrid quantum-classical algorithm
+for finding ground state energies. It uses the variational principle: for any trial
+state |ψ(θ)⟩, the energy E(θ) = ⟨ψ(θ)|H|ψ(θ)⟩ ≥ E₀ (ground state energy). VQE
+prepares |ψ(θ)⟩ on a quantum computer, measures E(θ), and uses a classical optimizer
+to minimize over θ. For H₂, a simple ansatz with one parameter (the bond angle)
+suffices to reach chemical accuracy (±1.6 mHartree ≈ ±1 kcal/mol).
+
+Key Equations:
+  - Molecular Hamiltonian: H = Σᵢ hᵢⱼ aᵢ†aⱼ + ½Σᵢⱼₖₗ hᵢⱼₖₗ aᵢ†aⱼ†aₖaₗ + E_nuc
+  - Variational principle: E(θ) = ⟨ψ(θ)|H|ψ(θ)⟩ ≥ E₀ for all θ
+  - H₂ exact ground state energy: E₀ = -1.137 Hartree (at equilibrium)
+  - Chemical accuracy: |E_computed - E_exact| < 1.6 mHartree ≈ 1 kcal/mol
+  - Qubit mapping (Jordan-Wigner): aᵢ† → (Xᵢ - iYᵢ)/2 · Πⱼ<ᵢ Zⱼ
+
+Quantum Advantage:
+  While H₂ can be solved classically, it demonstrates the VQE workflow that scales
+  to intractable molecules. The number of parameters in a full CI expansion grows
+  as O(N⁴) for N orbitals; quantum computers handle this natively via superposition.
+  For molecules like FeMoCo (nitrogen fixation catalyst, ~100 orbitals), classical
+  simulation is impossible, but VQE on fault-tolerant quantum computers could solve
+  it. H₂ serves as a benchmark: achieving chemical accuracy on H₂ validates the
+  entire VQE pipeline (ansatz, optimizer, error mitigation, hardware).
+
+References:
+  [1] Peruzzo et al., "A variational eigenvalue solver on a photonic quantum
+      processor", Nat. Commun. 5, 4213 (2014). https://doi.org/10.1038/ncomms5213
+  [2] O'Malley et al., "Scalable Quantum Simulation of Molecular Energies",
+      Phys. Rev. X 6, 031007 (2016). https://doi.org/10.1103/PhysRevX.6.031007
+  [3] McArdle et al., "Quantum computational chemistry", Rev. Mod. Phys. 92,
+      015003 (2020). https://doi.org/10.1103/RevModPhys.92.015003
+  [4] Wikipedia: Hydrogen_molecule
+      https://en.wikipedia.org/wiki/Hydrogen_molecule
+*)
+
 //#r "nuget: FSharp.Azure.Quantum"
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 

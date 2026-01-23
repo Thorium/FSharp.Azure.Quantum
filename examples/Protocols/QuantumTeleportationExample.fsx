@@ -20,6 +20,55 @@
 /// - USTC China: 143 km fiber teleportation (2012)
 /// - Delft quantum network experiments (2022)
 
+(*
+===============================================================================
+ Background Theory
+===============================================================================
+
+Quantum teleportation (Bennett et al., 1993) transfers an unknown quantum state
+|ψ⟩ = α|0⟩ + β|1⟩ from Alice to Bob using shared entanglement and classical
+communication. Crucially, the protocol does NOT transmit the physical qubit or
+violate relativity (classical bits must be sent). Instead, it "disassembles"
+the quantum information at Alice's location and "reassembles" it at Bob's,
+consuming one Bell pair and two classical bits per teleported qubit.
+
+The protocol proceeds in three steps: (1) Alice and Bob pre-share a Bell state
+|Φ⁺⟩ = (|00⟩ + |11⟩)/√2. (2) Alice performs a Bell-basis measurement on her
+qubit (the state to teleport) and her half of the Bell pair, obtaining 2 classical
+bits (m₁, m₂). This measurement collapses Bob's qubit into one of four states,
+each related to |ψ⟩ by a known Pauli operation. (3) Alice sends (m₁, m₂) to Bob,
+who applies the corresponding correction: I, X, Z, or XZ. Bob now has |ψ⟩.
+
+Key Equations:
+  - Initial state: |ψ⟩_A ⊗ |Φ⁺⟩_AB = (α|0⟩ + β|1⟩) ⊗ (|00⟩ + |11⟩)/√2
+  - Bell measurement outcomes and Bob's state:
+    |Φ⁺⟩: Bob has |ψ⟩ (apply I)
+    |Φ⁻⟩: Bob has Z|ψ⟩ (apply Z)
+    |Ψ⁺⟩: Bob has X|ψ⟩ (apply X)
+    |Ψ⁻⟩: Bob has XZ|ψ⟩ (apply XZ)
+  - Resource cost: 1 ebit (Bell pair) + 2 cbits → 1 teleported qubit
+  - Fidelity: F = |⟨ψ_ideal|ψ_actual⟩|² (ideally 1.0, limited by noise)
+
+Quantum Advantage:
+  Teleportation is foundational for quantum networking and distributed quantum
+  computing. It enables: (1) Quantum repeaters that extend entanglement over
+  long distances via entanglement swapping. (2) Gate teleportation for fault-
+  tolerant quantum computing (teleporting through a gate). (3) Quantum internet
+  protocols where qubits cannot be directly transmitted. The no-cloning theorem
+  ensures the original state is destroyed, preserving unitarity.
+
+References:
+  [1] Bennett et al., "Teleporting an unknown quantum state via dual classical
+      and Einstein-Podolsky-Rosen channels", Phys. Rev. Lett. 70, 1895 (1993).
+      https://doi.org/10.1103/PhysRevLett.70.1895
+  [2] Bouwmeester et al., "Experimental quantum teleportation", Nature 390,
+      575-579 (1997). https://doi.org/10.1038/37539
+  [3] Ren et al., "Ground-to-satellite quantum teleportation", Nature 549,
+      70-73 (2017). https://doi.org/10.1038/nature23675
+  [4] Wikipedia: Quantum_teleportation
+      https://en.wikipedia.org/wiki/Quantum_teleportation
+*)
+
 //#r "nuget: FSharp.Azure.Quantum"
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 

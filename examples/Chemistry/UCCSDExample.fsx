@@ -10,6 +10,57 @@
 /// 
 /// **Chemical Accuracy**: ±1 kcal/mol (±0.0016 Hartree)
 
+(*
+===============================================================================
+ Background Theory
+===============================================================================
+
+Unitary Coupled Cluster (UCC) is the leading ansatz for quantum chemistry on
+quantum computers. Classical Coupled Cluster (CC) is the "gold standard" of
+computational chemistry but is non-unitary, preventing direct quantum implementation.
+UCC exponentiates the cluster operator: |ψ⟩ = exp(T - T†)|HF⟩ where T creates
+excitations from the Hartree-Fock reference |HF⟩. The "Singles and Doubles" (SD)
+truncation includes only 1- and 2-electron excitations, balancing accuracy and
+circuit depth.
+
+UCCSD generates excitations T = T₁ + T₂ where T₁ = Σᵢₐ tᵢₐ aₐ†aᵢ (singles) and
+T₂ = Σᵢⱼₐᵦ tᵢⱼₐᵦ aₐ†aᵦ†aⱼaᵢ (doubles). Here i,j are occupied orbitals and a,b are
+virtual orbitals. The amplitudes {t} are variational parameters optimized via VQE.
+For H₂ in minimal basis, UCCSD has just 1 double excitation parameter, yet achieves
+exact results. For larger molecules, UCCSD with VQE routinely achieves chemical
+accuracy where classical CCSD may fail for strongly correlated systems.
+
+Key Equations:
+  - UCCSD ansatz: |ψ(θ)⟩ = exp(T(θ) - T†(θ))|HF⟩
+  - Singles operator: T₁ = Σᵢ∈occ,ₐ∈virt θᵢₐ aₐ†aᵢ
+  - Doubles operator: T₂ = Σᵢⱼ∈occ,ₐᵦ∈virt θᵢⱼₐᵦ aₐ†aᵦ†aⱼaᵢ
+  - Parameter count: O(N²M²) for N occupied, M virtual orbitals
+  - Trotter approximation: exp(A+B) ≈ (exp(A/n)exp(B/n))ⁿ for circuit compilation
+  - Jordan-Wigner depth: O(N⁴) gates for N spin-orbitals
+
+Quantum Advantage:
+  UCCSD on quantum computers can handle strongly correlated systems (multiple
+  near-degenerate configurations) where classical CCSD breaks down. Examples
+  include transition metal complexes (catalysis), bond-breaking processes, and
+  excited states. The quantum advantage comes from native representation of
+  fermionic antisymmetry and efficient handling of the exponentially large CI
+  space. Google's 2020 Hartree-Fock experiment and IBM's VQE demonstrations use
+  UCCSD variants. For production chemistry, UCCSD-VQE with error mitigation on
+  100+ qubit fault-tolerant devices could revolutionize drug discovery.
+
+References:
+  [1] Peruzzo et al., "A variational eigenvalue solver on a photonic quantum
+      processor", Nat. Commun. 5, 4213 (2014). https://doi.org/10.1038/ncomms5213
+  [2] Romero et al., "Strategies for quantum computing molecular energies using
+      the unitary coupled cluster ansatz", Quantum Sci. Technol. 4, 014008 (2018).
+      https://doi.org/10.1088/2058-9565/aad3e4
+  [3] Grimsley et al., "An adaptive variational algorithm for exact molecular
+      simulations on a quantum computer", Nat. Commun. 10, 3007 (2019).
+      https://doi.org/10.1038/s41467-019-10988-2
+  [4] Wikipedia: Coupled_cluster
+      https://en.wikipedia.org/wiki/Coupled_cluster
+*)
+
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 
 open FSharp.Azure.Quantum.QuantumChemistry.FermionMapping

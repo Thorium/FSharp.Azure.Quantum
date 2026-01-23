@@ -1,0 +1,11 @@
+compound_id,smiles
+analog_1,CC1=C(C=C(C=C1)NC(=O)C2=CC=CC=C2)NC3=NC=CC(=N3)C4=CC=CN=C4
+analog_2,COC1=CC2=C(C=C1OC)C(=NC=N2)NC3=CC(=CC=C3)Cl
+analog_3,COC1=CC2=NC=NC(=C2C=C1OCC)NC3=CC=CC=C3
+aspirin,CC(=O)OC1=CC=CC=C1C(=O)O
+ibuprofen,CC(C)CC1=CC=C(C=C1)C(C)C(=O)O
+caffeine,CN1C=NC2=C1C(=O)N(C(=O)N2C)C
+paracetamol,CC(=O)NC1=CC=C(C=C1)O
+quinazoline_scaffold,C1=CC=C(C=C1)NC2=NC=NC3=CC=CC=C32
+pyrimidine_aniline,C1=CN=C(N=C1)NC2=CC=C(C=C2)F
+pyrimidine_2,CC1=CN=C(N=C1N)C2=CC=CC=C2

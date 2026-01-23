@@ -18,6 +18,52 @@
 //
 // ============================================================================
 
+(*
+===============================================================================
+ Background Theory
+===============================================================================
+
+Zero-Noise Extrapolation (ZNE) is a leading error mitigation technique for NISQ
+devices. The key insight is that while we cannot reduce hardware noise directly,
+we CAN intentionally increase it by "stretching" circuit gates (pulse stretching
+or unitary folding). By measuring expectation values at multiple noise levels
+λ = 1, 2, 3, ... and fitting a polynomial or exponential model, we extrapolate
+backward to the zero-noise limit (λ → 0), recovering an estimate of the ideal result.
+
+The method works because noise effects are often systematic and predictable. For
+depolarizing noise with strength p, the expectation value decays as E(λ) ≈ E₀·(1-p)^λ.
+By measuring at multiple noise scale factors and fitting this model, we can estimate
+E₀ (the zero-noise value). Richardson extrapolation provides a rigorous framework:
+for scale factors λ₁, λ₂, ..., λₖ, the zero-noise estimate is a weighted combination
+of the measured values with weights determined by polynomial interpolation.
+
+Key Equations:
+  - Noise scaling: E(λ) = expectation value at noise scale factor λ
+  - Exponential model: E(λ) ≈ E₀ · exp(-γλ) where γ is noise rate
+  - Linear extrapolation (2 points): E₀ ≈ (λ₂·E₁ - λ₁·E₂) / (λ₂ - λ₁)
+  - Richardson extrapolation: E₀ = Σᵢ wᵢ·E(λᵢ) with polynomial weights
+  - Variance amplification: Var(E₀) ≈ (Σᵢ wᵢ²) · Var(E) (cost of extrapolation)
+
+Quantum Advantage:
+  ZNE enables NISQ devices to produce more accurate results than raw hardware
+  allows, effectively "borrowing" accuracy from the future. For VQE and QAOA,
+  ZNE typically improves energy estimates by 30-50%, often achieving chemical
+  accuracy for small molecules. The method is hardware-agnostic (works on IonQ,
+  Rigetti, IBM, etc.) and algorithm-agnostic. The main cost is 3-5x more circuit
+  executions, which is manageable for most applications. ZNE is often combined
+  with readout error mitigation (REM) for maximum benefit.
+
+References:
+  [1] Temme, Bravyi, Gambetta, "Error Mitigation for Short-Depth Quantum Circuits",
+      Phys. Rev. Lett. 119, 180509 (2017). https://doi.org/10.1103/PhysRevLett.119.180509
+  [2] Li & Benjamin, "Efficient Variational Quantum Simulator Incorporating Active
+      Error Minimization", Phys. Rev. X 7, 021050 (2017). https://doi.org/10.1103/PhysRevX.7.021050
+  [3] Kandala et al., "Error mitigation extends the computational reach of a noisy
+      quantum processor", Nature 567, 491-495 (2019). https://doi.org/10.1038/s41586-019-1040-7
+  [4] Wikipedia: Quantum_error_mitigation
+      https://en.wikipedia.org/wiki/Quantum_error_mitigation
+*)
+
 #r "nuget: FSharp.Azure.Quantum"
 
 open System

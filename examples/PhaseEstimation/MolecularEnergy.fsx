@@ -1,6 +1,54 @@
 // Quantum Phase Estimation Example - Molecular Energy Calculation
 // Demonstrates eigenvalue extraction for quantum chemistry simulations
 
+(*
+===============================================================================
+ Background Theory
+===============================================================================
+
+Quantum Phase Estimation (QPE) is one of the most important quantum subroutines,
+enabling exponential speedups in chemistry simulation and integer factorization.
+Given a unitary operator U and an eigenstate |ψ⟩ with U|ψ⟩ = e^(2πiφ)|ψ⟩, QPE
+estimates the phase φ to n bits of precision using O(n) controlled-U operations.
+This is exponentially faster than classical methods for extracting eigenvalues
+from large matrices, making QPE the foundation of quantum chemistry and Shor's
+algorithm.
+
+The algorithm uses quantum parallelism to simultaneously probe all 2ⁿ possible
+bit strings for the phase. An n-qubit "counting register" is prepared in uniform
+superposition, then controlled-U^(2^k) operations entangle it with the eigenstate.
+The inverse Quantum Fourier Transform (QFT⁻¹) on the counting register interferes
+amplitudes so that measurement yields φ in binary. For molecular Hamiltonians
+H, we use U = e^(iHt) and extract energies E = φ/t, enabling ground state energy
+calculations critical for drug discovery and materials science.
+
+Key Equations:
+  - Eigenvalue relation: U|ψ⟩ = e^(2πiφ)|ψ⟩ where φ ∈ [0,1) is the phase
+  - QPE circuit: |0⟩ⁿ|ψ⟩ → QFT⁻¹{Σₖ₌₀ⁿ⁻¹ H|0⟩ controlled-U^(2^k)} → |φ̃⟩|ψ⟩
+  - Phase precision: Δφ = 1/2ⁿ for n-qubit counting register
+  - Molecular energy: E = 2πφ/t where U = e^(-iHt) is time evolution
+  - Success probability: P(|φ̃ - φ| < 1/2ⁿ) ≥ 4/π² ≈ 0.405 (boosted by repetition)
+
+Quantum Advantage:
+  QPE extracts eigenvalues in O(poly(n)/ε) time where n is the system size and ε
+  is the precision, compared to O(N³) for classical diagonalization of N×N matrices.
+  For molecular Hamiltonians, N grows exponentially with electrons, making classical
+  methods intractable for ~50+ electrons. QPE on fault-tolerant quantum computers
+  could simulate FeMoCo (nitrogenase catalyst) in hours vs. billions of years
+  classically. QPE is also the core of Shor's algorithm (for period finding) and
+  quantum counting (estimating solution counts for search problems).
+
+References:
+  [1] Kitaev, "Quantum measurements and the Abelian Stabilizer Problem",
+      arXiv:quant-ph/9511026 (1995). https://arxiv.org/abs/quant-ph/9511026
+  [2] Nielsen & Chuang, "Quantum Computation and Quantum Information",
+      Cambridge University Press (2010), Section 5.2.
+  [3] Aspuru-Guzik et al., "Simulated Quantum Computation of Molecular Energies",
+      Science 309, 1704-1707 (2005). https://doi.org/10.1126/science.1113479
+  [4] Wikipedia: Quantum_phase_estimation_algorithm
+      https://en.wikipedia.org/wiki/Quantum_phase_estimation_algorithm
+*)
+
 // Reference local build (use this for development/testing)
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 

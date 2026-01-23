@@ -1,0 +1,8 @@
+{
+  "nodes": "examples/SupplyChain/_data/nodes_tiny.csv",
+  "out": "runs/supplychain/networkflow_test",
+  "routes": "examples/SupplyChain/_data/routes_tiny.csv",
+  "run_id": "20260123_172026",
+  "shots": 200,
+  "utc": "2026-01-23T17:20:26.281062+00:00"
+}
