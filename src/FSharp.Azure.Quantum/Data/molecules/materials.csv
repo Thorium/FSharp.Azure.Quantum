@@ -1,0 +1,41 @@
+# Materials science molecules for quantum chemistry
+# Molecules relevant to semiconductors, magnetic materials, quantum dots
+#
+# Format: Name,Formula,Charge,Multiplicity,Category,Reference,Atoms
+# Atoms format: Element:X:Y:Z;Element:X:Y:Z;...
+# Coordinates in Angstroms
+#
+Name,Formula,Charge,Multiplicity,Category,Reference,Atoms
+# Transition metal hydrides
+FeH,FeH,0,4,metal_hydride,Phillips 1987,Fe:0.0:0.0:0.0;H:1.63:0.0:0.0
+CoH,CoH,0,3,metal_hydride,NIST CCCBDB,Co:0.0:0.0:0.0;H:1.54:0.0:0.0
+NiH,NiH,0,2,metal_hydride,NIST CCCBDB,Ni:0.0:0.0:0.0;H:1.48:0.0:0.0
+CuH,CuH,0,1,metal_hydride,NIST CCCBDB,Cu:0.0:0.0:0.0;H:1.46:0.0:0.0
+# Metal dimers (for exchange coupling studies)
+Fe2,Fe2,0,7,metal_dimer,Moskovits 1984,Fe:0.0:0.0:0.0;Fe:2.02:0.0:0.0
+Co2,Co2,0,5,metal_dimer,NIST CCCBDB,Co:0.0:0.0:0.0;Co:2.00:0.0:0.0
+Ni2,Ni2,0,3,metal_dimer,NIST CCCBDB,Ni:0.0:0.0:0.0;Ni:2.15:0.0:0.0
+Cu2,Cu2,0,1,metal_dimer,NIST CCCBDB,Cu:0.0:0.0:0.0;Cu:2.22:0.0:0.0
+# Semiconductor dopants
+SiH4,SiH4,0,1,semiconductor,NIST CCCBDB,Si:0.0:0.0:0.0;H:1.480:0.0:0.0;H:-0.493:1.395:0.0;H:-0.493:-0.698:1.209;H:-0.493:-0.698:-1.209
+GeH4,GeH4,0,1,semiconductor,NIST CCCBDB,Ge:0.0:0.0:0.0;H:1.527:0.0:0.0;H:-0.509:1.440:0.0;H:-0.509:-0.720:1.247;H:-0.509:-0.720:-1.247
+AsH3,AsH3,0,1,semiconductor,NIST CCCBDB,As:0.0:0.0:0.0;H:0.0:1.274:0.737;H:1.103:-0.637:0.737;H:-1.103:-0.637:0.737
+# Quantum dots
+CdSe,CdSe,0,1,quantum_dot,Peng 2000,Cd:0.0:0.0:0.0;Se:2.62:0.0:0.0
+CdTe,CdTe,0,1,quantum_dot,NIST CCCBDB,Cd:0.0:0.0:0.0;Te:2.76:0.0:0.0
+ZnS,ZnS,0,1,quantum_dot,NIST CCCBDB,Zn:0.0:0.0:0.0;S:2.05:0.0:0.0
+ZnSe,ZnSe,0,1,quantum_dot,NIST CCCBDB,Zn:0.0:0.0:0.0;Se:2.25:0.0:0.0
+ZnO,ZnO,0,1,quantum_dot,NIST CCCBDB,Zn:0.0:0.0:0.0;O:1.72:0.0:0.0
+PbS,PbS,0,1,quantum_dot,NIST CCCBDB,Pb:0.0:0.0:0.0;S:2.29:0.0:0.0
+PbSe,PbSe,0,1,quantum_dot,NIST CCCBDB,Pb:0.0:0.0:0.0;Se:2.40:0.0:0.0
+# Metal oxides
+FeO,FeO,0,5,metal_oxide,NIST CCCBDB,Fe:0.0:0.0:0.0;O:1.62:0.0:0.0
+CoO,CoO,0,4,metal_oxide,NIST CCCBDB,Co:0.0:0.0:0.0;O:1.63:0.0:0.0
+NiO,NiO,0,3,metal_oxide,NIST CCCBDB,Ni:0.0:0.0:0.0;O:1.63:0.0:0.0
+CuO,CuO,0,2,metal_oxide,NIST CCCBDB,Cu:0.0:0.0:0.0;O:1.72:0.0:0.0
+TiO2,TiO2,0,1,metal_oxide,NIST CCCBDB,Ti:0.0:0.0:0.0;O:-1.62:0.55:0.0;O:1.62:0.55:0.0
+# Catalysis
+Pt2,Pt2,0,3,catalyst,NIST CCCBDB,Pt:0.0:0.0:0.0;Pt:2.33:0.0:0.0
+Pd2,Pd2,0,3,catalyst,NIST CCCBDB,Pd:0.0:0.0:0.0;Pd:2.48:0.0:0.0
+Au2,Au2,0,1,catalyst,NIST CCCBDB,Au:0.0:0.0:0.0;Au:2.47:0.0:0.0
+Ag2,Ag2,0,1,catalyst,NIST CCCBDB,Ag:0.0:0.0:0.0;Ag:2.53:0.0:0.0

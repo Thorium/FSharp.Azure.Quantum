@@ -1,0 +1,28 @@
+# Common molecules for quantum chemistry calculations
+# Geometries from NIST CCCBDB and experimental data
+#
+# Format: Name,Formula,Charge,Multiplicity,Category,Reference,Atoms
+# Atoms format: Element:X:Y:Z;Element:X:Y:Z;...
+# Coordinates in Angstroms
+#
+Name,Formula,Charge,Multiplicity,Category,Reference,Atoms
+H2,H2,0,1,diatomic,NIST CCCBDB,H:0.0:0.0:0.0;H:0.74:0.0:0.0
+He2,He2,0,1,diatomic,theoretical,He:0.0:0.0:0.0;He:2.97:0.0:0.0
+LiH,LiH,0,1,diatomic,NIST CCCBDB,Li:0.0:0.0:0.0;H:1.595:0.0:0.0
+HF,HF,0,1,diatomic,NIST CCCBDB,H:0.0:0.0:0.0;F:0.917:0.0:0.0
+HCl,HCl,0,1,diatomic,NIST CCCBDB,H:0.0:0.0:0.0;Cl:1.275:0.0:0.0
+HBr,HBr,0,1,diatomic,NIST CCCBDB,H:0.0:0.0:0.0;Br:1.414:0.0:0.0
+N2,N2,0,1,diatomic,NIST CCCBDB,N:0.0:0.0:0.0;N:1.098:0.0:0.0
+O2,O2,0,3,diatomic,NIST CCCBDB,O:0.0:0.0:0.0;O:1.208:0.0:0.0
+F2,F2,0,1,diatomic,NIST CCCBDB,F:0.0:0.0:0.0;F:1.412:0.0:0.0
+Cl2,Cl2,0,1,diatomic,NIST CCCBDB,Cl:0.0:0.0:0.0;Cl:1.988:0.0:0.0
+CO,CO,0,1,diatomic,NIST CCCBDB,C:0.0:0.0:0.0;O:1.128:0.0:0.0
+NO,NO,0,2,diatomic,NIST CCCBDB,N:0.0:0.0:0.0;O:1.151:0.0:0.0
+H2O,H2O,0,1,triatomic,NIST CCCBDB,O:0.0:0.0:0.0;H:0.958:0.0:0.0;H:-0.240:0.927:0.0
+H2S,H2S,0,1,triatomic,NIST CCCBDB,S:0.0:0.0:0.0;H:1.336:0.0:0.0;H:-0.335:1.294:0.0
+CO2,CO2,0,1,triatomic,NIST CCCBDB,C:0.0:0.0:0.0;O:-1.162:0.0:0.0;O:1.162:0.0:0.0
+SO2,SO2,0,1,triatomic,NIST CCCBDB,S:0.0:0.0:0.0;O:-1.237:0.723:0.0;O:1.237:0.723:0.0
+NO2,NO2,0,2,triatomic,NIST CCCBDB,N:0.0:0.0:0.0;O:-1.098:0.456:0.0;O:1.098:0.456:0.0
+O3,O3,0,1,triatomic,NIST CCCBDB,O:0.0:0.0:0.0;O:-1.078:0.655:0.0;O:1.078:0.655:0.0
+NH3,NH3,0,1,small,NIST CCCBDB,N:0.0:0.0:0.0;H:0.0:0.939:0.381;H:0.813:-0.470:0.381;H:-0.813:-0.470:0.381
+PH3,PH3,0,1,small,NIST CCCBDB,P:0.0:0.0:0.0;H:0.0:1.193:0.770;H:1.033:-0.596:0.770;H:-1.033:-0.596:0.770
