@@ -164,6 +164,8 @@ async {
 
 **Technology:** Superconducting transmon qubits at ~15 mK temperature
 
+> *Physics: Superconducting qubits exploit Josephson junctions—two superconductors separated by a thin insulator. Quantum tunneling of Cooper pairs creates discrete energy levels that encode |0⟩ and |1⟩. First described by Josephson (1962), this earned the Nobel Prize and enabled Google, IBM, and Rigetti hardware.*
+
 **Specifications:**
 - **Qubits:** ~80 qubits (varies by generation)
 - **Connectivity:** Limited (grid/lattice topology)

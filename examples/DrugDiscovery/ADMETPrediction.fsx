@@ -32,12 +32,91 @@
  Background Theory
 ===============================================================================
 
+BIOCHEMISTRY FOUNDATION (Harper's Illustrated Biochemistry, 28th Ed.):
+
+The ADMET properties are fundamentally rooted in biochemistry concepts:
+
+Chapter 47: Glycoproteins
+  - Drug transporters (P-gp, BCRP, OATPs) are glycoproteins
+  - N-glycosylation affects transporter activity and drug efflux
+  - Relevant for understanding BBB permeability and absorption
+
+Chapter 53: Metabolism of Xenobiotics
+  - Phase I reactions: CYP450 oxidation, reduction, hydrolysis
+  - Phase II reactions: Glucuronidation, sulfation, acetylation, GSH conjugation
+  - CYP450 isoforms: 3A4 (50%), 2D6 (25%), 2C9 (15%), 2C19, 1A2
+  - Induction/inhibition mechanisms (nuclear receptors PXR, CAR, AhR)
+  - Species differences in metabolism (human vs. preclinical models)
+
+Chapter 54: Clinical Biochemistry
+  - Liver function tests (ALT, AST) - hepatotoxicity markers
+  - Renal function (creatinine, BUN) - excretion capacity
+  - Therapeutic drug monitoring principles
+
+Chapter 50: Intracellular Traffic & Sorting of Proteins
+  - Membrane permeability principles
+  - Receptor-mediated endocytosis (drug delivery)
+  - Lysosomal trapping of basic drugs
+
+Chapter 40: Membranes: Structure & Function
+  - Lipid bilayer permeability (passive diffusion)
+  - LogP and membrane partitioning
+  - Ionization effects on membrane crossing (Henderson-Hasselbalch)
+
+PHARMACEUTICS FOUNDATION (Aulton's Pharmaceutics, 5th Ed.):
+
+Quantum-predicted properties must translate to formulated products:
+
+BIOPHARMACEUTICS CLASSIFICATION SYSTEM (BCS):
+  BCS predicts oral absorption based on solubility and permeability:
+  - Class I:  High solubility, High permeability → Well absorbed (Metoprolol)
+  - Class II: Low solubility, High permeability → Dissolution-limited (Nifedipine)
+  - Class III: High solubility, Low permeability → Permeability-limited (Cimetidine)
+  - Class IV: Low solubility, Low permeability → Poorly absorbed (Taxol)
+  
+  Thresholds:
+    High solubility: Highest dose dissolves in ≤250 mL water (pH 1-7.5)
+    High permeability: ≥90% absorption in humans
+  
+  See: _data/PHARMA_GLOSSARY.md → "Biopharmaceutics Classification System"
+
+DISSOLUTION & NOYES-WHITNEY EQUATION:
+  Dissolution is often the rate-limiting step for oral absorption:
+  
+    dm/dt = kA(Cs - C) / h
+  
+  Where:
+    dm/dt = dissolution rate (what we predict)
+    k     = diffusion coefficient (affected by GI fluid viscosity)
+    A     = surface area (increased by particle size reduction)
+    Cs    = saturation solubility (from quantum predictions)
+    C     = bulk concentration (low under sink conditions)
+    h     = boundary layer thickness (GI motility)
+  
+  Intrinsic Dissolution Rate (IDR):
+    IDR < 0.1 mg·cm⁻²·min⁻¹ → dissolution-rate-limited absorption
+  
+  See: _data/PHARMA_GLOSSARY.md → "Dissolution & the Noyes-Whitney Equation"
+
+pH-PARTITION HYPOTHESIS:
+  Drug ionization affects membrane permeation:
+    For acids: pH = pKa + log([A⁻]/[HA])
+    For bases: pH = pKa + log([B]/[BH⁺])
+  
+  GI pH ranges: Stomach (1-3), Duodenum (4-6), Jejunum/Ileum (6-7.5)
+  Un-ionized fraction crosses membranes (lipid bilayer permeability)
+  
+  See: _data/PHARMA_GLOSSARY.md → "pH-Partition Hypothesis"
+
+===============================================================================
+
 ADMET PROPERTIES determine whether a drug candidate can become a medicine:
 
 ABSORPTION: Can the drug enter the bloodstream?
   - Oral bioavailability (F): Fraction reaching systemic circulation
-  - Key factors: Solubility, permeability, P-gp efflux
+  - Key factors: Solubility, permeability, P-gp efflux, dissolution rate
   - Target: F > 30% for oral drugs (see _data/PHARMA_GLOSSARY.md)
+  - BCS Class determines formulation strategy (see Aulton's Ch.18-21)
 
 DISTRIBUTION: Where does the drug go in the body?
   - Volume of distribution (Vd): Apparent space drug occupies
@@ -84,12 +163,15 @@ Key Equations:
   Clearance: CL = Dose / AUC
   Half-life: t1/2 = 0.693 * Vd / CL
   LogP = log([drug]_octanol / [drug]_water)
+  Noyes-Whitney: dm/dt = kA(Cs - C) / h (dissolution rate)
+  Henderson-Hasselbalch: pH = pKa + log([A⁻]/[HA]) (ionization)
 
 References:
   [1] Lipinski, C.A. et al. "Rule of five" Adv. Drug Deliv. Rev. (2001)
   [2] Veber, D.F. et al. "Molecular properties" J. Med. Chem. (2002)
   [3] Cheng, F. et al. "admetSAR" J. Chem. Inf. Model. (2012)
-  [4] See: _data/PHARMA_GLOSSARY.md for complete definitions
+  [4] Aulton, M.E. & Taylor, K. "Pharmaceutics" 5th Ed. (2018) - BCS, dissolution
+  [5] See: _data/PHARMA_GLOSSARY.md for complete definitions including formulation strategies
 ===============================================================================
 *)
 
@@ -158,6 +240,7 @@ type ADMETPrediction = {
     BioavailabilityScore: float  // 0-1 probability
     Caco2Permeability: string    // "High", "Medium", "Low"
     PgpSubstrate: bool
+    BCSClass: string             // "I", "II", "III", "IV" (see PHARMA_GLOSSARY.md)
     
     // Distribution
     BBBPermeability: string      // "BBB+", "BBB-"
@@ -182,6 +265,7 @@ type ADMETPrediction = {
     // Overall
     OverallADMETScore: float     // 0-1 composite score
     Recommendation: string       // "Advance", "Optimize", "Deprioritize"
+    FormulationNote: string      // Guidance for formulation (from BCS)
 }
 
 // ==============================================================================
@@ -476,6 +560,29 @@ let predictMetabolicStability (desc: ADMETDescriptors) : string =
     elif instabilityScore >= 0.3 then "Moderate"
     else "Stable"
 
+/// Predict BCS class based on solubility and permeability
+/// See _data/PHARMA_GLOSSARY.md → "Biopharmaceutics Classification System"
+let predictBCSClass (desc: ADMETDescriptors) : string * string =
+    // Solubility estimate: Higher LogP = lower aqueous solubility
+    // TPSA correlates with permeability (lower TPSA = higher permeability)
+    let highSolubility = desc.LogP < 2.0 && desc.MolecularWeight < 400.0
+    let highPermeability = desc.TPSA < 100.0 && desc.LogP > 0.0
+    
+    // BCS Classification (FDA guidance)
+    // Class I: High solubility, High permeability → Well absorbed
+    // Class II: Low solubility, High permeability → Dissolution-limited
+    // Class III: High solubility, Low permeability → Permeability-limited
+    // Class IV: Low solubility, Low permeability → Poorly absorbed
+    match highSolubility, highPermeability with
+    | true, true -> 
+        ("I", "Well absorbed - standard formulation suitable")
+    | false, true -> 
+        ("II", "Dissolution-limited - consider particle size reduction, solid dispersions")
+    | true, false -> 
+        ("III", "Permeability-limited - consider permeation enhancers, prodrugs")
+    | false, false -> 
+        ("IV", "Poor absorption - requires advanced formulation (SEDDS, nanoparticles)")
+
 /// Compute overall ADMET score
 let computeOverallScore (pred: ADMETPrediction) : float =
     let scores = [
@@ -517,6 +624,7 @@ let predictADMET (compoundId: string) (smiles: string) : ADMETPrediction =
         else "Not drug-like"
     
     let cyp3a4, cyp2d6, cyp2c9 = predictCYP450 desc
+    let bcsClass, formulationNote = predictBCSClass desc
     
     let basePrediction = {
         CompoundId = compoundId
@@ -527,6 +635,7 @@ let predictADMET (compoundId: string) (smiles: string) : ADMETPrediction =
         BioavailabilityScore = if lipinskiViol = 0 then 0.7 else 0.4
         Caco2Permeability = if desc.TPSA < 100.0 then "High" else "Low"
         PgpSubstrate = desc.MolecularWeight > 400.0 && desc.HBondDonors >= 3
+        BCSClass = bcsClass
         BBBPermeability = predictBBB desc
         PlasmaProteinBinding = if desc.LogP > 3.0 then "High" else "Medium"
         VdCategory = if desc.LogP > 3.0 then "High" else "Medium"
@@ -544,6 +653,7 @@ let predictADMET (compoundId: string) (smiles: string) : ADMETPrediction =
         AMES = "Non-mutagenic"  // Would need QSAR model
         OverallADMETScore = 0.0  // Computed below
         Recommendation = ""  // Computed below
+        FormulationNote = formulationNote
     }
     
     let score = computeOverallScore basePrediction
@@ -593,6 +703,8 @@ for pred in predictions do
     printfn "    Bioavailability score: %.2f" pred.BioavailabilityScore
     printfn "    Caco-2 permeability: %s" pred.Caco2Permeability
     printfn "    P-gp substrate: %b" pred.PgpSubstrate
+    printfn "    BCS Class: %s" pred.BCSClass
+    printfn "    Formulation: %s" pred.FormulationNote
     printfn ""
     
     printfn "  Distribution:"

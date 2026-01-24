@@ -88,6 +88,7 @@ From a type theory perspective, entanglement means quantum states aren't simply 
 Quantum computation proceeds through **quantum gates**—unitary operators acting on qubits. The fundamental single-qubit gates include:
 
 - **Pauli gates** (X, Y, Z): Rotations by π around the respective Bloch sphere axes
+  > *Physical origin: The Stern-Gerlach experiment (1922) first demonstrated that spin-½ particles have exactly two measurable states along any axis—the original "qubit" observation.*
 - **Hadamard gate (H)**: Creates equal superposition
   ```
   H|0⟩ = (|0⟩ + |1⟩)/√2

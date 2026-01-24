@@ -36,6 +36,48 @@
  Background Theory
 ===============================================================================
 
+BIOCHEMISTRY FOUNDATION (Harper's Illustrated Biochemistry, 28th Ed.):
+
+Understanding protein structure is essential for rational drug design:
+
+Chapter 5: Proteins: Higher Orders of Structure
+  - Primary structure: Amino acid sequence
+  - Secondary structure: Alpha-helix, beta-sheet, turns, loops
+  - Tertiary structure: 3D folding (what PDB files capture)
+  - Quaternary structure: Multi-subunit assemblies
+  - Folding is driven by hydrophobic effect (entropy of water)
+
+Chapter 6: Proteins: Myoglobin & Hemoglobin
+  - Heme proteins as drug targets (CYP450, hemoglobin)
+  - Allosteric regulation and cooperative binding
+  - Oxygen binding curves (Hill equation)
+  - Relevance: Many drugs target heme enzymes
+
+Chapter 7: Enzymes: Mechanism of Action
+  - Active site geometry and substrate specificity
+  - Lock-and-key vs induced-fit models
+  - Transition state theory (drugs often mimic TS)
+  - Catalytic mechanisms (acid-base, covalent, metal ion)
+
+Chapter 8: Enzymes: Kinetics
+  - Michaelis-Menten kinetics (Km, Vmax, kcat)
+  - Inhibition types: Competitive, non-competitive, uncompetitive
+  - Ki determination (binding affinity of inhibitor)
+  - Lineweaver-Burk and Eadie-Hofstee plots
+
+Chapter 4: Proteins: Determination of Primary Structure
+  - Sequencing methods (mass spectrometry)
+  - Post-translational modifications
+  - Disulfide bond mapping
+
+DRUG TARGET CONSIDERATIONS:
+  - Binding pocket druggability (volume, polarity balance)
+  - Selectivity over related family members
+  - Allosteric vs orthosteric sites
+  - Covalent vs non-covalent inhibition strategies
+
+===============================================================================
+
 PROTEIN DATA BANK (PDB) FORMAT:
 The PDB file format is the standard for representing 3D structures of biological
 macromolecules determined by X-ray crystallography, NMR, or cryo-EM.

@@ -41,6 +41,51 @@
  Background Theory
 ===============================================================================
 
+BIOCHEMISTRY FOUNDATION:
+This example builds on concepts from Harper's Illustrated Biochemistry
+(28th Edition, Murray et al.):
+  - Chapter 7: Enzymes: Mechanism of Action - transition states, active sites
+  - Chapter 8: Enzymes: Kinetics - Michaelis-Menten, Km, Ki, inhibition types
+
+ENZYME-SUBSTRATE INTERACTIONS (Harper's Ch.7):
+Enzymes accelerate reactions by stabilizing the transition state. Drug design
+exploits this by creating transition state analogs that bind tightly to the
+active site. The "lock and key" model has evolved to "induced fit" - both
+enzyme and substrate undergo conformational changes upon binding.
+
+Key catalytic mechanisms (relevant to drug design):
+  - ACID-BASE CATALYSIS: Proton transfer (His, Glu, Asp residues)
+  - COVALENT CATALYSIS: Transient enzyme-substrate bonds (Ser, Cys)
+  - METAL ION CATALYSIS: Lewis acid or redox chemistry (Zn, Fe, Mg)
+  - PROXIMITY/ORIENTATION: Bringing reactants together optimally
+
+INHIBITION TYPES (Harper's Ch.8):
+  - COMPETITIVE: Drug binds active site, increases apparent Km
+  - NON-COMPETITIVE: Drug binds allosteric site, decreases Vmax
+  - UNCOMPETITIVE: Drug binds enzyme-substrate complex
+  - MECHANISM-BASED (suicide): Drug converted to irreversible inhibitor
+
+PHARMACEUTICS CONSIDERATIONS (Aulton's Pharmaceutics, 5th Ed.):
+
+After binding affinity is predicted, solid-state properties affect drug delivery:
+
+POLYMORPHISM & SOLID STATE:
+  The same molecule can crystallize in different forms with different bioavailability:
+  - Stable polymorph: Lowest energy, reference for development
+  - Metastable polymorph: Higher energy, faster dissolution but may convert
+  - Amorphous: No crystal lattice, fastest dissolution but stability concerns
+  - Hydrates/Solvates: Solvent in crystal, different solubility than anhydrous
+  
+  Key examples demonstrating pharmaceutical relevance:
+  - Ritonavir: Unexpected polymorph conversion caused market withdrawal (1998)
+  - Chloramphenicol palmitate: Polymorph B is therapeutically inactive
+  - Insulin zinc: Amorphous = fast onset; Crystalline = prolonged action
+  
+  Quantum binding predictions apply to a specific molecular conformation.
+  Different crystal forms may present different conformations to target proteins.
+  
+  See: _data/PHARMA_GLOSSARY.md → "Polymorphism & Solid State"
+
 BINDING AFFINITY is the fundamental measure of drug-target interaction strength.
 A drug's efficacy depends critically on how tightly and selectively it binds to
 its intended protein target. The binding free energy (Delta_G_bind) determines
@@ -86,6 +131,7 @@ Key Equations:
   - Binding Energy: Delta_E = E_complex - E_protein - E_ligand
   - Free Energy: Delta_G = Delta_H - T*Delta_S (entropic correction needed)
   - Dissociation Constant: K_d = exp(Delta_G / RT)
+  - Michaelis-Menten: v = Vmax*[S] / (Km + [S])  (Harper's Ch.8)
   - IC50 (inhibitor): Related to K_i via Cheng-Prusoff equation
 
 Quantum Advantage:
@@ -99,6 +145,8 @@ References:
   [2] Cao, Y. et al. "Quantum Chemistry in the Age of Quantum Computing" Chem. Rev. (2019)
   [3] Wikipedia: Binding_affinity (https://en.wikipedia.org/wiki/Binding_affinity)
   [4] Reiher, M. et al. "Elucidating reaction mechanisms on quantum computers" PNAS (2017)
+  [5] Harper's Illustrated Biochemistry, 28th Ed., Chapters 7-8 (enzyme mechanisms & kinetics)
+  [6] Aulton's Pharmaceutics, 5th Ed., Chapter 8 (polymorphism, solid-state impact on bioavailability)
 *)
 
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
@@ -485,6 +533,11 @@ printfn "4. Scale Up (Future):"
 printfn "   - Fault-tolerant quantum computers (2030+)"
 printfn "   - Full active site simulation (100+ qubits)"
 printfn "   - QM/MM hybrid approaches"
+printfn ""
+printfn "5. Solid-State Considerations (Formulation):"
+printfn "   - Binding predictions assume specific molecular conformation"
+printfn "   - Different polymorphs may have different bioavailability"
+printfn "   - See: _data/PHARMA_GLOSSARY.md → Polymorphism & Solid State"
 printfn ""
 
 // ==============================================================================

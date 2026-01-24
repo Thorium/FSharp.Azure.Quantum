@@ -226,6 +226,12 @@ Examples are categorized into **4 levels** based on business utility and technic
   Water molecule (H₂O) quantum simulation  
   **Complexity:** 10 qubits (requires cloud backend)
 
+- **[Chemistry/ElectronTransportChain.fsx](Chemistry/ElectronTransportChain.fsx)** 🧬 NEW  
+  VQE for cytochrome Fe2+/Fe3+ redox chemistry  
+  **Quantum Advantage:** ✅ Exponential (d-orbital correlation, spin states)  
+  **Use Case:** Mitochondrial dysfunction targets, antimicrobial respiration  
+  **Biochemistry:** Harper's Ch.12-13 (Biologic Oxidation, Respiratory Chain)
+
 - **[Chemistry/HamiltonianTimeEvolution.fsx](Chemistry/HamiltonianTimeEvolution.fsx)**  
   Time evolution of molecular systems
 

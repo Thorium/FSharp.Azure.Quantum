@@ -44,6 +44,45 @@
  Background Theory
 ===============================================================================
 
+BIOCHEMISTRY FOUNDATION:
+This example builds on concepts from Harper's Illustrated Biochemistry
+(28th Edition, Murray et al.):
+  - Chapter 53: Metabolism of Xenobiotics - CYP450 enzymes, Phase I/II reactions
+  - Chapter 12: Biologic Oxidation - redox chemistry, cytochromes
+
+XENOBIOTIC METABOLISM (Harper's Ch.53):
+Foreign compounds (xenobiotics) including drugs undergo biotransformation
+primarily in the liver, converting lipophilic molecules to hydrophilic
+metabolites for excretion. This occurs in two phases:
+
+  PHASE I (Functionalization):
+    - Oxidation, reduction, hydrolysis
+    - Introduces or exposes functional groups (-OH, -NH2, -COOH)
+    - Cytochrome P450 enzymes are primary catalysts
+    - Creates reactive intermediates (sometimes toxic)
+
+  PHASE II (Conjugation):
+    - Glucuronidation, sulfation, glutathione conjugation, acetylation
+    - Greatly increases water solubility
+    - Usually detoxification (but not always)
+
+CYTOCHROME P450 ENZYMES (Harper's Ch.53):
+The P450 superfamily contains >6000 members (57 in humans). Key drug-metabolizing
+isoforms include:
+
+  | Enzyme  | % of Drug Metabolism | Notable Substrates |
+  |---------|---------------------|-------------------|
+  | CYP3A4  | ~50%                | Most drugs        |
+  | CYP2D6  | ~25%                | Codeine, tamoxifen|
+  | CYP2C9  | ~15%                | Warfarin, NSAIDs  |
+  | CYP1A2  | ~5%                 | Caffeine, theophylline |
+
+The CYP450 catalytic cycle involves iron-oxo intermediates:
+  Fe(III) --> Fe(II) --> Fe(II)-O2 --> Fe(III)-OOH --> [Fe(IV)=O] --> Fe(III)
+                                                            |
+                                                    Hydrogen abstraction
+                                                    from substrate R-H
+
 TRANSITION STATE THEORY (TST), developed by Eyring, Polanyi, and Evans in 1935,
 provides the theoretical framework for understanding chemical reaction rates.
 The rate of a reaction depends on the ACTIVATION ENERGY (E_a) - the energy
@@ -94,6 +133,7 @@ Key Equations:
   - Arrhenius: k = A * exp(-E_a / RT)  
   - Eyring: k = (k_B*T/h) * exp(-Delta_G‡/RT)
   - Half-life: t_1/2 = ln(2) / k
+  - Hepatic clearance: CL_H = Q_H * E_H (blood flow x extraction ratio)
 
 Quantum Advantage:
   Transition state electronic structure requires multiconfigurational
@@ -107,6 +147,7 @@ References:
   [2] Guengerich, F.P. "Mechanisms of Cytochrome P450" Chem. Res. Toxicol. (2001)
   [3] Wikipedia: Transition_state_theory (https://en.wikipedia.org/wiki/Transition_state_theory)
   [4] Reiher, M. et al. "Elucidating reaction mechanisms on quantum computers" PNAS (2017)
+  [5] Harper's Illustrated Biochemistry, 28th Ed., Chapter 53 (Metabolism of Xenobiotics)
 *)
 
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"

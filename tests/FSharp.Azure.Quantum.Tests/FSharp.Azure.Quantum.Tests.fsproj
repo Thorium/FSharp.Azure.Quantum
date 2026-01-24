@@ -110,6 +110,9 @@
     <Compile Include="StatisticalDistributionsTests.fs" />
     <Compile Include="OptionPricingTests.fs" />
     
+    <!-- Drug Discovery Quantum Solvers Tests -->
+    <Compile Include="DrugDiscoverySolversTests.fs" />
+    
     <Compile Include="IntegrationTests.fs" />
   </ItemGroup>
 

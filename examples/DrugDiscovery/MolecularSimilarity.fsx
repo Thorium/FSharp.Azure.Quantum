@@ -21,6 +21,13 @@
 // feature space that may be missed by classical fingerprint methods. The
 // ZZ-feature map encodes pairwise correlations that are classically intractable.
 //
+// IMPORTANT CAVEAT - Formulation Considerations:
+// Similar molecular structures may require DIFFERENT formulation strategies!
+// - Similar LogP does not guarantee similar BCS class
+// - Polymorphism varies between compounds (see Ritonavir example)
+// - Different salt forms may be needed for similar APIs
+// See: _data/PHARMA_GLOSSARY.md → "Formulation Strategies for Poorly Soluble Drugs"
+//
 // RULE1 COMPLIANCE:
 // This example follows RULE1 from QUANTUM_BUSINESS_EXAMPLES_ROADMAP.md:
 // "All public APIs require backend: IQuantumBackend parameter"
@@ -326,5 +333,11 @@ printfn ""
 printfn "Next Steps:"
 printfn "  1. Validate top hits experimentally"
 printfn "  2. Perform docking studies on hits"
-printfn "  3. Consider ADMET properties"
-printfn "  4. Iterate with refined query compounds"
+printfn "  3. Consider ADMET properties (see ADMETPrediction.fsx)"
+printfn "  4. Evaluate BCS class for formulation planning"
+printfn "  5. Assess solid-state requirements (polymorphism risk)"
+printfn "  6. Iterate with refined query compounds"
+printfn ""
+printfn "NOTE: Similar structures may need different formulations!"
+printfn "  See: _data/PHARMA_GLOSSARY.md → Formulation Strategies"
+printfn ""

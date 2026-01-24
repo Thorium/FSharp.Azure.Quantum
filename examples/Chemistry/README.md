@@ -21,4 +21,41 @@ These examples focus on specific components of the quantum chemistry pipeline:
 
 ## Applications
 
-*   **[HamiltonianTimeEvolution.fsx](HamiltonianTimeEvolution.fsx)**: Demonstrates how to simulate the time evolution of a molecular Hamiltonian ($e^{-iHt}$), which is useful for studying dynamics and reaction pathways.
+*   **[HamiltonianTimeEvolution.fsx](HamiltonianTimeEvolution.fsx)**: Demonstrates how to simulate the time evolution of a molecular Hamiltonian ($e^{-iHt}$) using **Trotter-Suzuki decomposition**, which is useful for studying dynamics and reaction pathways.
+
+## Theoretical Background
+
+For a deeper understanding of the quantum chemistry algorithms used in this library, we recommend:
+
+### Recommended Reading
+
+*   **"Learn Quantum Computing with Python and Q#"** by Sarah Kaiser and Christopher Granade (Manning, 2021)
+    - **Chapter 10: Solving chemistry problems with quantum computers** - Excellent introduction to:
+      - Hamiltonians and energy eigenvalues
+      - Trotter-Suzuki decomposition (with intuitive "walking through Phoenix" analogy)
+      - Phase estimation for energy calculation
+      - Complete H₂ molecule simulation walkthrough
+    - ISBN: 978-1-61729-613-0
+    - https://www.manning.com/books/learn-quantum-computing-with-python-and-q-sharp
+
+### VQE vs Phase Estimation
+
+This library uses **VQE (Variational Quantum Eigensolver)** as its primary algorithm, while the Kaiser/Granade book demonstrates **Phase Estimation**. Both approaches find ground state energies:
+
+| This Library (VQE) | Book Chapter 10 (Phase Estimation) |
+|-------------------|-----------------------------------|
+| Hybrid quantum-classical | Pure quantum algorithm |
+| Shallow circuits (NISQ-friendly) | Deep circuits (fault-tolerant) |
+| Works on today's hardware | Requires future hardware |
+
+See `../DrugDiscovery/_data/PHARMA_GLOSSARY.md` → "VQE vs Phase Estimation" for detailed comparison.
+
+## Biologically Relevant Examples
+
+*   **[ElectronTransportChain.fsx](ElectronTransportChain.fsx)** 🧬 NEW: Simulates **electron transfer in cytochromes** using VQE for Fe2+/Fe3+ redox chemistry. Demonstrates:
+    - Marcus theory for electron transfer rates
+    - Quantum tunneling distance dependence in proteins
+    - Respiratory chain redox potential ladder (NADH → O2)
+    - Drug discovery implications (mitochondrial targets, antimicrobials)
+    - **Biochemistry Reference:** Harper's Ch.12-13 (Biologic Oxidation, Respiratory Chain)
+    - **Quantum Advantage:** ✅ True quantum advantage for d-orbital correlation and spin-state energetics

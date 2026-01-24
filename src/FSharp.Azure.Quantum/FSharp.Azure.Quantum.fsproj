@@ -186,6 +186,7 @@
     <Compile Include="Solvers\Quantum\QuantumPhaseEstimatorBuilder.fs" /> 
     <Compile Include="Solvers\Quantum\QuantumLinearSystemSolverBuilder.fs" />
     <Compile Include="Solvers\Quantum\QuantumChemistry.fs" />
+    <Compile Include="Solvers\Quantum\DrugDiscoverySolvers.fs" />
 
     <!-- Hybrid Solvers - Automatic routing between classical and quantum -->
     <Compile Include="Solvers\Hybrid\ProblemAnalysis.fs" />
