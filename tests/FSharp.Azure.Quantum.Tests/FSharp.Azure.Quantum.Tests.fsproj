@@ -75,6 +75,9 @@
     <Compile Include="PerformanceBenchmarkingTests.fs" />
     <Compile Include="QRNGTests.fs" />
     <Compile Include="FermionMappingTests.fs" />
+    <Compile Include="PeriodicTableTests.fs" />
+    <Compile Include="MoleculeLibraryTests.fs" />
+    <Compile Include="MoleculeLibraryIntegrationTests.fs" />
     <Compile Include="QuantumChemistryTests.fs" />
     <Compile Include="QuantumTreeSearchBuilderTests.fs" />
     <Compile Include="QuantumConstraintSolverBuilderTests.fs" />
