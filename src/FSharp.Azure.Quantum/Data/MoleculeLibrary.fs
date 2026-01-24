@@ -2,19 +2,48 @@ namespace FSharp.Azure.Quantum.Data
 
 /// Molecule Library - Pre-defined molecules loaded from embedded CSV data
 /// 
-/// This module provides a curated library of molecules for quantum chemistry calculations.
+/// This module provides a curated library of 62 molecules for quantum chemistry calculations.
 /// Geometries are from NIST CCCBDB, experimental data, and computational chemistry literature.
 ///
-/// Categories:
-/// - common: Basic molecules (H2, H2O, CO2, NH3, etc.)
-/// - hydrocarbons: Organic molecules (methane, benzene, etc.)
-/// - materials: Materials science molecules (metal hydrides, quantum dots, etc.)
+/// CATEGORIES (16 total):
+/// - diatomic: H2, N2, O2, CO, NO, HF, HCl, HBr, LiH, He2, F2, Cl2
+/// - triatomic: H2O, H2S, CO2, SO2, NO2, O3
+/// - small: NH3, PH3
+/// - alkane: methane, ethane, propane
+/// - alkene: ethylene, propene
+/// - alkyne: acetylene
+/// - aromatic: benzene, toluene, naphthalene
+/// - aldehyde: formaldehyde, acetaldehyde
+/// - alcohol: methanol, ethanol
+/// - carboxylic_acid: formic_acid, acetic_acid
+/// - metal_hydride: FeH, CoH, NiH, CuH
+/// - metal_dimer: Fe2, Co2, Ni2, Cu2
+/// - quantum_dot: CdSe, CdTe, ZnS, ZnSe, ZnO, PbS, PbSe
+/// - metal_oxide: FeO, CoO, NiO, CuO, TiO2
+/// - semiconductor: SiH4, GeH4, AsH3
+/// - catalyst: Pt2, Pd2, Au2, Ag2
 ///
-/// Usage:
+/// USAGE WITH QUANTUM CHEMISTRY:
+/// The molecules in this library use local types to avoid circular dependencies.
+/// To use them with VQE/GroundStateEnergy, convert using Molecule.fromLibrary:
+///
 ///   open FSharp.Azure.Quantum.Data
-///   let water = MoleculeLibrary.get "H2O"
-///   let benzene = MoleculeLibrary.get "benzene"
-///   let aromatics = MoleculeLibrary.byCategory "aromatic"
+///   open FSharp.Azure.Quantum.QuantumChemistry
+///   
+///   // Get molecule from library and convert for quantum chemistry
+///   let water = MoleculeLibrary.get "H2O" |> Molecule.fromLibrary
+///   
+///   // Configure and run VQE
+///   let config = { ... Backend = Some backend ... }
+///   let energy = GroundStateEnergy.estimateEnergy water config
+///
+/// WHEN TO USE FACTORY METHODS INSTEAD:
+/// Use Molecule.createH2, Molecule.createLiH, etc. when you need:
+/// - Custom bond lengths (e.g., for dissociation curves)
+/// - Variable parameters (e.g., different spin multiplicities)
+/// - Geometry optimization studies
+///
+/// Example: Molecule.createH2 0.74 creates H2 at 0.74 Å bond length
 
 open System
 

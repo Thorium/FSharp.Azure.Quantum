@@ -515,6 +515,51 @@ module Molecule =
             Charge = 0
             Multiplicity = 1
         }
+    
+    // ========================================================================
+    // CONVERSION FROM MOLECULELIBRARY
+    // ========================================================================
+    
+    /// Convert a molecule from the MoleculeLibrary (Data layer) to QuantumChemistry.Molecule
+    /// 
+    /// This enables using the pre-defined molecules from MoleculeLibrary with
+    /// quantum chemistry solvers like GroundStateEnergy.estimateEnergy.
+    /// 
+    /// Example:
+    ///   open FSharp.Azure.Quantum.Data
+    ///   open FSharp.Azure.Quantum.QuantumChemistry
+    ///   let water = MoleculeLibrary.get "H2O" |> Molecule.fromLibrary
+    ///   let energy = GroundStateEnergy.estimateEnergy backend water
+    let fromLibrary (libMol: FSharp.Azure.Quantum.Data.MoleculeLibrary.Molecule) : Molecule =
+        {
+            Name = libMol.Name
+            Atoms = libMol.Atoms |> List.map (fun a -> 
+                { Element = a.Element; Position = a.Position })
+            Bonds = libMol.Bonds |> List.map (fun b ->
+                { Atom1 = b.Atom1; Atom2 = b.Atom2; BondOrder = b.BondOrder })
+            Charge = libMol.Charge
+            Multiplicity = libMol.Multiplicity
+        }
+    
+    /// Try to get a molecule from MoleculeLibrary by name and convert it
+    /// Returns None if the molecule is not found in the library
+    /// 
+    /// Example:
+    ///   match Molecule.tryFromLibrary "benzene" with
+    ///   | Some mol -> printfn "Found: %s with %d atoms" mol.Name mol.Atoms.Length
+    ///   | None -> printfn "Not found"
+    let tryFromLibrary (name: string) : Molecule option =
+        FSharp.Azure.Quantum.Data.MoleculeLibrary.tryGet name
+        |> Option.map fromLibrary
+    
+    /// Get a molecule from MoleculeLibrary by name and convert it
+    /// Throws if the molecule is not found
+    /// 
+    /// Example:
+    ///   let water = Molecule.fromLibraryByName "H2O"
+    let fromLibraryByName (name: string) : Molecule =
+        FSharp.Azure.Quantum.Data.MoleculeLibrary.get name
+        |> fromLibrary
 
 // ============================================================================
 // MOLECULAR INPUT / FILE PARSERS

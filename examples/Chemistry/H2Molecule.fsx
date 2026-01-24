@@ -80,6 +80,11 @@ open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.Backends.LocalBackend
 
+// NOTE: For standard molecules with equilibrium geometries, you can also use:
+//   open FSharp.Azure.Quantum.Data
+//   let water = MoleculeLibrary.get "H2O" |> Molecule.fromLibrary
+// The MoleculeLibrary contains 62 pre-defined molecules from NIST CCCBDB.
+
 printfn "================================================================"
 printfn "APPROACH 1: Direct API (Low-Level)"
 printfn "================================================================"
@@ -187,25 +192,17 @@ printfn "Problem created successfully!"
 printfn "Molecule: %s" h2oProblem.Molecule.Value.Name
 printfn "Number of atoms: %d" h2oProblem.Molecule.Value.Atoms.Length
 
-// Example 3: LiH (lithium hydride) - Manually constructed since createLiH helper doesn't exist
+// Example 3: LiH (lithium hydride) - Using library or factory methods
 printfn "\n=== Example 3: LiH Ground State ==="
 
-let createLiH (bondLength: float) =
-    {
-        Name = "LiH"
-        Atoms = [
-            { Element = "Li"; Position = (0.0, 0.0, 0.0) }
-            { Element = "H"; Position = (0.0, 0.0, bondLength) }
-        ]
-        Bonds = [
-            { Atom1 = 0; Atom2 = 1; BondOrder = 1.0 }
-        ]
-        Charge = 0
-        Multiplicity = 1
-    }
+// Option A: Use factory method with custom bond length
+let lihCustom = Molecule.createLiH 1.6  // 1.6 Å (equilibrium is ~1.595 Å)
+
+// Option B: Use MoleculeLibrary for standard geometry (equilibrium bond length)
+// let lihStandard = Molecule.fromLibraryByName "LiH"  // Uses 1.595 Å from NIST CCCBDB
 
 let lihProblem = quantumChemistry {
-    molecule (createLiH 1.6)
+    molecule lihCustom
     basis "sto-3g"
     ansatz UCCSD
     optimizer "COBYLA"
