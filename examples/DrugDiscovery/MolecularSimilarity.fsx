@@ -58,10 +58,12 @@ let similarityThreshold = 0.7
 // ==============================================================================
 // SMILES strings for known active compounds against a hypothetical kinase target
 // These are real drug molecules (approved kinase inhibitors)
+// See _data/PHARMA_GLOSSARY.md for drug class definitions
 
 /// Known active compounds (query set)
+/// Kinase inhibitors block ATP binding - see PHARMA_GLOSSARY.md
 let knownActives = [
-    // Imatinib (Gleevec) - BCR-ABL inhibitor
+    // Imatinib (Gleevec) - BCR-ABL kinase inhibitor for CML
     "CC1=C(C=C(C=C1)NC(=O)C2=CC=C(C=C2)CN3CCN(CC3)C)NC4=NC=CC(=N4)C5=CN=CC=C5"
     
     // Gefitinib (Iressa) - EGFR inhibitor  
@@ -80,6 +82,7 @@ let candidateLibrary = [
     "COC1=CC2=NC=NC(=C2C=C1OCC)NC3=CC=CC=C3"                       // Erlotinib analog
     
     // Structurally different molecules (negative controls)
+    // NSAIDs - different mechanism (COX inhibition) - see PHARMA_GLOSSARY.md
     "CC(=O)OC1=CC=CC=C1C(=O)O"                                      // Aspirin
     "CC(C)CC1=CC=C(C=C1)C(C)C(=O)O"                                 // Ibuprofen
     "CN1C=NC2=C1C(=O)N(C(=O)N2C)C"                                  // Caffeine
@@ -289,6 +292,9 @@ printfn ""
 // ==============================================================================
 // LIPINSKI'S RULE OF 5 CHECK (Drug-likeness)
 // ==============================================================================
+// Predicts oral bioavailability - see _data/PHARMA_GLOSSARY.md
+// Drug repurposing strategy: Find similar compounds to known actives
+// that may have better ADMET profiles or novel IP position.
 
 printfn "=============================================="
 printfn " Drug-likeness Analysis (Lipinski's Rule of 5)"

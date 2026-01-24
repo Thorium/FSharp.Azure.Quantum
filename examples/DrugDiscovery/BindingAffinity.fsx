@@ -53,6 +53,11 @@ K_d in the nanomolar (nM) to picomolar (pM) range, corresponding to:
 
     Delta_G_bind = -7 to -12 kcal/mol (favorable binding)
 
+TPP Criteria (see _data/PHARMA_GLOSSARY.md):
+    Lead compound:      Kd < 10 μM
+    Drug candidate:     Kd < 100 nM  
+    Drug-like:          Kd < 10 nM with >1000x selectivity
+
 The binding energy can be decomposed as:
 
     Delta_E_bind = E_complex - E_protein - E_ligand
@@ -362,6 +367,7 @@ printfn "Interpretation: %s" interpretation
 printfn ""
 
 // Estimate dissociation constant (Kd)
+// Kd interpretation: nM = drug-like, pM = very potent - see _data/PHARMA_GLOSSARY.md
 // ΔG = -RT ln(Kd) ≈ ΔE for this simplified model
 // At T = 300K, RT = 0.596 kcal/mol
 let RT = 0.596  // kcal/mol at 300K
@@ -473,6 +479,7 @@ printfn "3. ADMET Prediction:"
 printfn "   - Use quantum chemistry for metabolism prediction"
 printfn "   - Calculate reaction barriers for CYP450 metabolism"
 printfn "   - See: examples/DrugDiscovery/ReactionPathway.fsx"
+printfn "   - See: _data/PHARMA_GLOSSARY.md for ADMET overview"
 printfn ""
 printfn "4. Scale Up (Future):"
 printfn "   - Fault-tolerant quantum computers (2030+)"

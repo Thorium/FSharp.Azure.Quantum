@@ -75,6 +75,7 @@ The EYRING EQUATION from TST gives the prefactor explicitly:
 Where Delta_G‡ = Delta_H‡ - T*Delta_S‡ includes entropy of activation.
 
 For DRUG METABOLISM, cytochrome P450 enzymes catalyze hydroxylation:
+See _data/PHARMA_GLOSSARY.md for CYP450 enzyme families
 
     R-H + [Fe=O]²⁺ --> R-OH + Fe²⁺
 
@@ -495,6 +496,7 @@ printfn "───────────────────────�
 printfn ""
 
 // Typical CYP450 metabolic activation energies for reference
+// CYP3A4 metabolizes ~50% of drugs - see _data/PHARMA_GLOSSARY.md
 let referenceBarriers = [
     ("CYP3A4 hydroxylation", 12.0, 18.0)
     ("CYP2D6 N-dealkylation", 15.0, 22.0)
@@ -550,6 +552,8 @@ printfn ""
 printfn "3. Pharmacogenomics:"
 printfn "   - CYP2D6 poor metabolizers (5-10%% of population)"
 printfn "   - May experience drug accumulation or reduced efficacy"
+printfn "   - Affects codeine→morphine, tamoxifen→endoxifen activation"
+printfn "   - See _data/PHARMA_GLOSSARY.md for CYP polymorphism table"
 printfn ""
 
 printfn "4. Toxic Metabolite Risk:"
