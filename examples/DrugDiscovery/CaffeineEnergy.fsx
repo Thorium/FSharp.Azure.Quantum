@@ -12,7 +12,7 @@
 //
 // NISQ REALITY:
 // - Full caffeine: 102 electrons → ~200+ qubits (infeasible)
-// - Fragment approach: compute small pieces (≤10 qubits)
+// - Fragment approach: compute small pieces (≤20 qubits for LocalBackend)
 // - Active space: freeze core electrons, correlate valence
 //
 // RULE1 COMPLIANT: All quantum calculations via IQuantumBackend
@@ -131,7 +131,7 @@ printfn "  Full caffeine VQE is IMPOSSIBLE on current hardware:"
 printfn ""
 printfn "    Qubits needed (STO-3G):   ~50 qubits"
 printfn "    Qubits needed (cc-pVDZ):  ~200 qubits"
-printfn "    Current NISQ limit:       ~10-20 qubits (with noise)"
+printfn "    LocalBackend limit:       20 qubits"
 printfn "    Fault-tolerant needed:    ~1000+ logical qubits"
 printfn ""
 printfn "  Solution: Fragment Molecular Orbital (FMO) approach"
@@ -291,20 +291,13 @@ for (name, molecule, _description) in fragments do
     printfn "  Qubits:     ~%d (STO-3G estimate)" qubitsNeeded
     printfn ""
     
-    if qubitsNeeded > 10 then
-        printfn "  ⚠️  Fragment too large for NISQ VQE (max 10 qubits)"
-        printfn "     Using classical DFT fallback..."
+    // LocalBackend supports up to 20 qubits - all our fragments fit within this limit
+    // RULE1: All quantum calculations must use IQuantumBackend (no classical fallbacks)
+    if qubitsNeeded > 20 then
+        printfn "  ⚠️  Fragment too large for LocalBackend (max 20 qubits)"
+        printfn "     Consider using Azure Quantum backend for larger molecules"
+        printfn "     or further fragment decomposition."
         printfn ""
-        
-        let dftConfig = { vqeConfig with Method = GroundStateMethod.ClassicalDFT }
-        let dftResult = GroundStateEnergy.estimateEnergy molecule dftConfig |> Async.RunSynchronously
-        
-        match dftResult with
-        | Ok r ->
-            printfn "  ✅ Classical DFT Energy: %.6f Hartree" r.Energy
-            results.Add((name, r.Energy, 0))
-        | Error err ->
-            printfn "  ❌ DFT Failed: %s" err.Message
     else
         printfn "  Running VQE..."
         let startTime = DateTime.Now
@@ -436,6 +429,6 @@ printfn "  - Quantum advantage in electron correlation"
 printfn ""
 printfn "RULE1 Compliance:"
 printfn "  ✅ All VQE calculations via IQuantumBackend"
-printfn "  ✅ Classical DFT fallback for large fragments"
+printfn "  ✅ No classical fallbacks - all fragments use quantum backend"
 printfn ""
 printfn "═══════════════════════════════════════════════════════════════"

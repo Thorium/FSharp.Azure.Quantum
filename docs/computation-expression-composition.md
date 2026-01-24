@@ -325,16 +325,18 @@ For support may be optional if:
 3. You prefer users to build collections outside the CE and pass them in
 
 ### Implementation Checklist
-- [ ] Implement `Zero()` method
-- [ ] Implement `Yield(_)` method
-- [ ] Implement `YieldFrom(state)` method for `yield!` support
-- [ ] Implement `Combine(state1, state2)` to merge states
-- [ ] Implement `Delay(f)` for deferred execution
-- [ ] Implement both `For` overloads (delayed + sequence)
-- [ ] Implement `Run(state)` for validation/finalization
-- [ ] Provide helper functions like `singleGate` for ergonomic loop bodies
-- [ ] Add examples demonstrating composition patterns
-- [ ] Test all composition scenarios
+- [x] Implement `Zero()` method
+- [x] Implement `Yield(_)` method
+- [x] Implement `YieldFrom(state)` method for `yield!` support (via `ReturnFrom`)
+- [x] Implement `Combine(state1, state2)` to merge states
+- [x] Implement `Delay(f)` for deferred execution
+- [x] Implement both `For` overloads (delayed + sequence)
+- [x] Implement `Run(state)` for validation/finalization
+- [x] Provide helper functions like `singleGate` for ergonomic loop bodies (see `braid`, `measure`, etc.)
+- [x] Add examples demonstrating composition patterns
+- [x] Test all composition scenarios
+
+> **Note**: All items implemented in `TopologicalBuilder.fs` with tests in `TopologicalBuilderTests.fs`
 
 ## Further Reading
 

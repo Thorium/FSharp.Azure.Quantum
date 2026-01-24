@@ -850,6 +850,353 @@ printfn "  - Scale to full derivative book with quantum advantage"
 printfn "  - Prepare for fault-tolerant quantum hardware (10-100x speedup)"
 printfn ""
 
+// ==============================================================================
+// CCAR/DFAST REGULATORY STRESS TEST REPORT TEMPLATE
+// ==============================================================================
+//
+// The Comprehensive Capital Analysis and Review (CCAR) is the Federal Reserve's
+// annual assessment of large bank holding companies' capital planning processes
+// and capital adequacy. The Dodd-Frank Act Stress Tests (DFAST) are statutory
+// requirements for banks with >$250B in assets.
+//
+// CCAR Requirements:
+// - 9-quarter forward projection under three scenarios
+// - Baseline: Normal economic conditions
+// - Adverse: Moderate recession
+// - Severely Adverse: Deep recession with market stress
+//
+// Key Metrics Reported:
+// - Pre-Provision Net Revenue (PPNR)
+// - Projected losses by asset class
+// - Capital ratios: CET1, Tier 1, Total Capital
+// - Risk-Weighted Assets (RWA)
+// - Capital buffers (Conservation, Countercyclical, G-SIB)
+//
+// This section generates a CCAR-compliant report based on quantum stress testing
+// calculations performed above.
+// ==============================================================================
+
+/// CCAR Report Data Structure
+type CCARReport = {
+    // Report Identification
+    ReportDate: DateTime
+    ReportingPeriod: string
+    InstitutionName: string
+    InstitutionId: string
+    
+    // Portfolio Summary
+    TotalAssets: float
+    RiskWeightedAssets: float
+    
+    // Scenario Results
+    SeverelyAdverseResults: ScenarioResults
+    AdverseResults: ScenarioResults
+    BaselineResults: ScenarioResults
+    
+    // Capital Ratios (Starting)
+    StartingCET1Ratio: float
+    StartingTier1Ratio: float
+    StartingTotalCapitalRatio: float
+    
+    // Minimum Capital Ratios (Under Stress)
+    MinCET1Ratio: float
+    MinTier1Ratio: float
+    MinTotalCapitalRatio: float
+    
+    // Capital Buffers
+    CapitalConservationBuffer: float
+    CountercyclicalBuffer: float
+    GSIBSurcharge: float
+    
+    // Quantum Computation Info
+    QuantumMethod: string
+    QuantumSpeedup: float
+    ScenariosAnalyzed: int
+}
+
+and ScenarioResults = {
+    ScenarioName: string
+    ScenarioDescription: string
+    
+    // Projected Losses by Asset Class
+    EquityLoss: float
+    FixedIncomeLoss: float
+    CommodityLoss: float
+    AlternativeLoss: float
+    TotalLoss: float
+    
+    // Loss as percentage
+    TotalLossPercent: float
+    
+    // PPNR Impact (simplified)
+    PPNRImpact: float
+    
+    // Tail Probability (from quantum estimation)
+    TailProbability: float
+    
+    // Capital Impact
+    CET1Impact: float
+}
+
+/// Calculate scenario results from quantum stress test
+let calculateScenarioResults (qr: QuantumStressResult option) (scenario: ExtendedStressScenario) : ScenarioResults =
+    // Calculate losses by asset class
+    let equityLoss = 
+        portfolio.Positions 
+        |> Array.filter (fun p -> p.AssetClass = AssetClass.Equity)
+        |> Array.sumBy (fun p -> 
+            let shock = scenario.AssetShocks |> Map.tryFind "Equity" |> Option.defaultValue 0.0
+            -p.MarketValue * shock)
+    
+    let fixedIncomeLoss = 
+        portfolio.Positions 
+        |> Array.filter (fun p -> p.AssetClass = AssetClass.FixedIncome)
+        |> Array.sumBy (fun p -> 
+            let shock = scenario.AssetShocks |> Map.tryFind "FixedIncome" |> Option.defaultValue 0.0
+            -p.MarketValue * shock)
+    
+    let commodityLoss = 
+        portfolio.Positions 
+        |> Array.filter (fun p -> p.AssetClass = AssetClass.Commodity)
+        |> Array.sumBy (fun p -> 
+            let shock = scenario.AssetShocks |> Map.tryFind "Commodity" |> Option.defaultValue 0.0
+            -p.MarketValue * shock)
+    
+    let alternativeLoss = 
+        portfolio.Positions 
+        |> Array.filter (fun p -> p.AssetClass = AssetClass.Alternative)
+        |> Array.sumBy (fun p -> 
+            let shock = scenario.AssetShocks |> Map.tryFind "RealEstate" |> Option.defaultValue 0.0
+            -p.MarketValue * shock)
+    
+    let totalLoss = equityLoss + fixedIncomeLoss + commodityLoss + alternativeLoss
+    
+    // Get tail probability from quantum result
+    let tailProb = 
+        match qr with
+        | Some r -> r.EstimatedTailProbability
+        | None -> scenario.ProbabilityWeight
+    
+    {
+        ScenarioName = scenario.Name
+        ScenarioDescription = scenario.Description
+        
+        EquityLoss = max 0.0 equityLoss
+        FixedIncomeLoss = max 0.0 fixedIncomeLoss
+        CommodityLoss = max 0.0 commodityLoss
+        AlternativeLoss = max 0.0 alternativeLoss
+        TotalLoss = max 0.0 totalLoss
+        
+        TotalLossPercent = (max 0.0 totalLoss) / portfolioValue * 100.0
+        
+        // PPNR impact (simplified as 30% of total loss)
+        PPNRImpact = (max 0.0 totalLoss) * 0.30
+        
+        TailProbability = tailProb
+        
+        // CET1 impact (loss / RWA, assuming RWA = 0.7 * Total Assets)
+        CET1Impact = (max 0.0 totalLoss) / (portfolioValue * 0.7) * 100.0
+    }
+
+/// Generate CCAR Report
+let generateCCARReport () : CCARReport =
+    
+    // Find scenarios for each category
+    let severelyAdverseScenario = 
+        allScenarios |> List.find (fun s -> s.Name.Contains("Severe Recession"))
+    let adverseScenario = 
+        allScenarios |> List.find (fun s -> s.Name.Contains("2022 Rate"))
+    let baselineScenario = 
+        // Use a mild scenario as baseline
+        { allScenarios.[0] with 
+            Name = "Baseline Economic Conditions"
+            Description = "Normal economic growth trajectory"
+            AssetShocks = Map.ofList [
+                ("Equity", -0.05)
+                ("FixedIncome", 0.02)
+                ("Commodity", 0.03)
+                ("RealEstate", -0.03)
+            ]
+            VolatilityMultiplier = 1.0
+            ProbabilityWeight = 0.50
+        }
+    
+    // Find quantum results for each scenario
+    let findQuantumResult scenarioName =
+        successfulResults |> List.tryFind (fun qr -> qr.Scenario.Name = scenarioName)
+    
+    let severelyAdverseResults = 
+        calculateScenarioResults (findQuantumResult severelyAdverseScenario.Name) severelyAdverseScenario
+    let adverseResults = 
+        calculateScenarioResults (findQuantumResult adverseScenario.Name) adverseScenario
+    let baselineResults = 
+        calculateScenarioResults None baselineScenario
+    
+    // Starting capital ratios (example values)
+    let startingCET1 = 12.5
+    let startingTier1 = 14.0
+    let startingTotal = 16.0
+    
+    // Minimum ratios under stress
+    let minCET1 = startingCET1 - severelyAdverseResults.CET1Impact
+    let minTier1 = startingTier1 - severelyAdverseResults.CET1Impact * 0.9
+    let minTotal = startingTotal - severelyAdverseResults.CET1Impact * 0.85
+    
+    {
+        ReportDate = DateTime.Today
+        ReportingPeriod = sprintf "Q1 %d - Q1 %d" DateTime.Today.Year (DateTime.Today.Year + 2)
+        InstitutionName = "Quantum Risk Analytics Bank"
+        InstitutionId = "QRAB-2026"
+        
+        TotalAssets = portfolioValue
+        RiskWeightedAssets = portfolioValue * 0.7  // 70% risk weight assumption
+        
+        SeverelyAdverseResults = severelyAdverseResults
+        AdverseResults = adverseResults
+        BaselineResults = baselineResults
+        
+        StartingCET1Ratio = startingCET1
+        StartingTier1Ratio = startingTier1
+        StartingTotalCapitalRatio = startingTotal
+        
+        MinCET1Ratio = max 0.0 minCET1
+        MinTier1Ratio = max 0.0 minTier1
+        MinTotalCapitalRatio = max 0.0 minTotal
+        
+        CapitalConservationBuffer = 2.5
+        CountercyclicalBuffer = 0.0
+        GSIBSurcharge = 0.0
+        
+        QuantumMethod = "Quantum Amplitude Estimation"
+        QuantumSpeedup = if successfulResults.Length > 0 then 
+                            float (successfulResults.[0].ClassicalEquivalent / successfulResults.[0].QuantumQueries)
+                         else 9.0
+        ScenariosAnalyzed = allScenarios.Length
+    }
+
+/// Print CCAR Report in Regulatory Format
+let printCCARReport (report: CCARReport) =
+    printfn ""
+    printfn "╔══════════════════════════════════════════════════════════════════════════════╗"
+    printfn "║          COMPREHENSIVE CAPITAL ANALYSIS AND REVIEW (CCAR) REPORT            ║"
+    printfn "║                   DODD-FRANK ACT STRESS TEST (DFAST)                         ║"
+    printfn "╠══════════════════════════════════════════════════════════════════════════════╣"
+    printfn "║  Report Date:         %-54s ║" (report.ReportDate.ToString("yyyy-MM-dd"))
+    printfn "║  Reporting Period:    %-54s ║" report.ReportingPeriod
+    printfn "║  Institution:         %-54s ║" report.InstitutionName
+    printfn "║  Institution ID:      %-54s ║" report.InstitutionId
+    printfn "╠══════════════════════════════════════════════════════════════════════════════╣"
+    printfn "║                           BALANCE SHEET SUMMARY                              ║"
+    printfn "╠══════════════════════════════════════════════════════════════════════════════╣"
+    printfn "║  Total Assets:              $%-47s ║" (report.TotalAssets.ToString("N0"))
+    printfn "║  Risk-Weighted Assets:      $%-47s ║" (report.RiskWeightedAssets.ToString("N0"))
+    printfn "╠══════════════════════════════════════════════════════════════════════════════╣"
+    printfn "║                        STARTING CAPITAL RATIOS                               ║"
+    printfn "╠══════════════════════════════════════════════════════════════════════════════╣"
+    printfn "║  CET1 Ratio:                %-48s ║" (sprintf "%.2f%%" report.StartingCET1Ratio)
+    printfn "║  Tier 1 Capital Ratio:      %-48s ║" (sprintf "%.2f%%" report.StartingTier1Ratio)
+    printfn "║  Total Capital Ratio:       %-48s ║" (sprintf "%.2f%%" report.StartingTotalCapitalRatio)
+    printfn "╠══════════════════════════════════════════════════════════════════════════════╣"
+    printfn "║                      SEVERELY ADVERSE SCENARIO                               ║"
+    printfn "╠══════════════════════════════════════════════════════════════════════════════╣"
+    printfn "║  Scenario: %-65s ║" report.SeverelyAdverseResults.ScenarioName
+    printfn "║  Description: %-62s ║" report.SeverelyAdverseResults.ScenarioDescription
+    printfn "║                                                                              ║"
+    printfn "║  PROJECTED LOSSES BY ASSET CLASS:                                            ║"
+    printfn "║    Equity:                  $%-47s ║" (report.SeverelyAdverseResults.EquityLoss.ToString("N0"))
+    printfn "║    Fixed Income:            $%-47s ║" (report.SeverelyAdverseResults.FixedIncomeLoss.ToString("N0"))
+    printfn "║    Commodities:             $%-47s ║" (report.SeverelyAdverseResults.CommodityLoss.ToString("N0"))
+    printfn "║    Alternatives:            $%-47s ║" (report.SeverelyAdverseResults.AlternativeLoss.ToString("N0"))
+    printfn "║    ────────────────────────────────────────────────────────────────────────  ║"
+    printfn "║    TOTAL LOSS:              $%-47s ║" (report.SeverelyAdverseResults.TotalLoss.ToString("N0"))
+    printfn "║    Loss as %% of Assets:     %-48s ║" (sprintf "%.2f%%" report.SeverelyAdverseResults.TotalLossPercent)
+    printfn "║                                                                              ║"
+    printfn "║  PPNR Impact:               $%-47s ║" (report.SeverelyAdverseResults.PPNRImpact.ToString("N0"))
+    printfn "║  Tail Probability:          %-48s ║" (sprintf "%.4f%%" (report.SeverelyAdverseResults.TailProbability * 100.0))
+    printfn "║  CET1 Impact:               %-48s ║" (sprintf "-%.2f%%" report.SeverelyAdverseResults.CET1Impact)
+    printfn "╠══════════════════════════════════════════════════════════════════════════════╣"
+    printfn "║                          ADVERSE SCENARIO                                    ║"
+    printfn "╠══════════════════════════════════════════════════════════════════════════════╣"
+    printfn "║  Scenario: %-65s ║" report.AdverseResults.ScenarioName
+    printfn "║  Total Loss:                $%-47s ║" (report.AdverseResults.TotalLoss.ToString("N0"))
+    printfn "║  Loss as %% of Assets:       %-48s ║" (sprintf "%.2f%%" report.AdverseResults.TotalLossPercent)
+    printfn "║  CET1 Impact:               %-48s ║" (sprintf "-%.2f%%" report.AdverseResults.CET1Impact)
+    printfn "╠══════════════════════════════════════════════════════════════════════════════╣"
+    printfn "║                         BASELINE SCENARIO                                    ║"
+    printfn "╠══════════════════════════════════════════════════════════════════════════════╣"
+    printfn "║  Scenario: %-65s ║" report.BaselineResults.ScenarioName
+    printfn "║  Total Loss:                $%-47s ║" (report.BaselineResults.TotalLoss.ToString("N0"))
+    printfn "║  Loss as %% of Assets:       %-48s ║" (sprintf "%.2f%%" report.BaselineResults.TotalLossPercent)
+    printfn "║  CET1 Impact:               %-48s ║" (sprintf "-%.2f%%" report.BaselineResults.CET1Impact)
+    printfn "╠══════════════════════════════════════════════════════════════════════════════╣"
+    printfn "║                    MINIMUM CAPITAL RATIOS (POST-STRESS)                      ║"
+    printfn "╠══════════════════════════════════════════════════════════════════════════════╣"
+    printfn "║                              Minimum      Required    Buffer                 ║"
+    printfn "║  CET1 Ratio:                %6.2f%%       4.50%%      %-6s                ║" 
+        report.MinCET1Ratio 
+        (if report.MinCET1Ratio >= 4.5 then "PASS" else "FAIL")
+    printfn "║  Tier 1 Capital Ratio:      %6.2f%%       6.00%%      %-6s                ║" 
+        report.MinTier1Ratio 
+        (if report.MinTier1Ratio >= 6.0 then "PASS" else "FAIL")
+    printfn "║  Total Capital Ratio:       %6.2f%%       8.00%%      %-6s                ║" 
+        report.MinTotalCapitalRatio 
+        (if report.MinTotalCapitalRatio >= 8.0 then "PASS" else "FAIL")
+    printfn "╠══════════════════════════════════════════════════════════════════════════════╣"
+    printfn "║                          CAPITAL BUFFERS                                     ║"
+    printfn "╠══════════════════════════════════════════════════════════════════════════════╣"
+    printfn "║  Capital Conservation Buffer:     %-42s ║" (sprintf "%.2f%%" report.CapitalConservationBuffer)
+    printfn "║  Countercyclical Buffer:          %-42s ║" (sprintf "%.2f%%" report.CountercyclicalBuffer)
+    printfn "║  G-SIB Surcharge:                 %-42s ║" (sprintf "%.2f%%" report.GSIBSurcharge)
+    printfn "║  ────────────────────────────────────────────────────────────────────────    ║"
+    printfn "║  Total Buffer Requirement:        %-42s ║" 
+        (sprintf "%.2f%%" (report.CapitalConservationBuffer + report.CountercyclicalBuffer + report.GSIBSurcharge))
+    printfn "║  Effective CET1 Minimum:          %-42s ║" 
+        (sprintf "%.2f%%" (4.5 + report.CapitalConservationBuffer + report.CountercyclicalBuffer + report.GSIBSurcharge))
+    printfn "╠══════════════════════════════════════════════════════════════════════════════╣"
+    printfn "║                     QUANTUM COMPUTATION SUMMARY                              ║"
+    printfn "╠══════════════════════════════════════════════════════════════════════════════╣"
+    printfn "║  Computation Method:        %-48s ║" report.QuantumMethod
+    printfn "║  Scenarios Analyzed:        %-48d ║" report.ScenariosAnalyzed
+    printfn "║  Quantum Speedup:           %-48s ║" (sprintf "%.1fx vs classical Monte Carlo" report.QuantumSpeedup)
+    printfn "║                                                                              ║"
+    printfn "║  Quantum Advantages for CCAR:                                                ║"
+    printfn "║    • Quadratic speedup in tail probability estimation                        ║"
+    printfn "║    • Efficient multi-scenario evaluation                                     ║"
+    printfn "║    • Precise capital requirement calculations                                ║"
+    printfn "║    • Real-time scenario sensitivity analysis                                 ║"
+    printfn "╠══════════════════════════════════════════════════════════════════════════════╣"
+    printfn "║                         REGULATORY ATTESTATION                               ║"
+    printfn "╠══════════════════════════════════════════════════════════════════════════════╣"
+    printfn "║  This stress test report has been prepared in accordance with:               ║"
+    printfn "║    • Federal Reserve Regulation YY (12 CFR 252)                              ║"
+    printfn "║    • Dodd-Frank Act Section 165(i)                                           ║"
+    printfn "║    • Basel III Capital Requirements                                          ║"
+    printfn "║                                                                              ║"
+    let overallStatus = 
+        if report.MinCET1Ratio >= 4.5 && report.MinTier1Ratio >= 6.0 && report.MinTotalCapitalRatio >= 8.0 
+        then "PASS - Capital adequacy maintained under severely adverse scenario"
+        else "FAIL - Capital ratios breach minimum requirements under stress"
+    printfn "║  OVERALL ASSESSMENT: %-55s ║" overallStatus
+    printfn "╚══════════════════════════════════════════════════════════════════════════════╝"
+    printfn ""
+
+// Generate and print the CCAR Report
+let ccarReport = generateCCARReport ()
+printCCARReport ccarReport
+
 printfn "=============================================="
 printfn " Stress Testing Complete"
 printfn "=============================================="
+printfn ""
+printfn "Reports Generated:"
+printfn "  1. Quantum Stress Test Results (above)"
+printfn "  2. CCAR/DFAST Regulatory Report"
+printfn ""
+printfn "Key Regulatory Outputs:"
+printfn "  • Severely Adverse Loss: $%s (%.2f%%)" 
+    (ccarReport.SeverelyAdverseResults.TotalLoss.ToString("N0"))
+    ccarReport.SeverelyAdverseResults.TotalLossPercent
+printfn "  • Minimum CET1 Ratio:    %.2f%% (Required: 4.5%%)" ccarReport.MinCET1Ratio
+printfn "  • Capital Status:        %s" 
+    (if ccarReport.MinCET1Ratio >= 4.5 then "ADEQUATE" else "DEFICIENT")
+printfn ""

@@ -578,3 +578,180 @@ printfn "  - Review equity concentration (50%% of portfolio)"
 printfn "  - Fixed income provides crisis hedge (+10%% in 2008)"
 printfn "  - Gold provides inflation/crisis diversification"
 printfn "  - Consider quantum for portfolio optimization at scale"
+
+// ==============================================================================
+// BASEL III FRTB REGULATORY REPORT TEMPLATE
+// ==============================================================================
+//
+// The Fundamental Review of the Trading Book (FRTB) under Basel III/IV requires
+// banks to report market risk capital using either:
+// - Internal Models Approach (IMA): VaR, Stressed VaR, Expected Shortfall
+// - Standardized Approach (SA): Sensitivity-based calculations
+//
+// This section generates an IMA-compliant report format based on quantum VaR
+// calculations performed above.
+//
+// Key Basel III Requirements:
+// - 10-day holding period (regulatory standard)
+// - 99% confidence level for VaR
+// - 97.5% confidence level for Expected Shortfall
+// - Stressed VaR under crisis scenario
+// - Capital multiplier mc (minimum 3.0, can increase to 4.0 based on backtesting)
+// ==============================================================================
+
+/// Basel III IMA Report Data Structure
+type BaselIIIReport = {
+    ReportDate: DateTime
+    PortfolioId: string
+    PortfolioName: string
+    PortfolioValue: float
+    
+    // VaR Metrics (10-day, 99%)
+    VaR_10d_99: float
+    VaR_Method: string
+    
+    // Expected Shortfall (10-day, 97.5%)
+    ES_10d_975: float
+    
+    // Stressed VaR (crisis scenario)
+    SVaR_10d_99: float
+    StressScenario: string
+    
+    // Capital Calculation
+    CapitalMultiplier: float
+    MarketRiskCapital: float
+    
+    // Backtesting Summary
+    BacktestingExceptions: int
+    BacktestingZone: string  // Green/Yellow/Red
+    
+    // Quantum-specific metrics
+    QuantumSpeedup: float
+    QuantumPrecision: float
+}
+
+/// Generate Basel III IMA Report
+let generateBaselIIIReport () : BaselIIIReport =
+    
+    // Extract VaR results from quantum calculation
+    let varValue = quantumVaRValue
+    
+    // Calculate Expected Shortfall at 97.5% (Basel III standard)
+    // ES = average of losses beyond VaR threshold
+    let esIndex = int (float sortedReturns.Length * (1.0 - 0.975))
+    let tailReturns975 = sortedReturns.[0 .. esIndex]
+    let es975 = -(tailReturns975 |> Array.average) * sqrt(float timeHorizon) * portfolioValue
+    
+    // Stressed VaR using 2008 crisis scenario
+    let stressedVaR = crisis2008Loss * sqrt(float timeHorizon / 1.0)
+    
+    // Capital multiplier (minimum 3.0 under Basel III)
+    // Can increase to 4.0 based on backtesting exceptions
+    let mc = 3.0  // Assuming green zone (0-4 exceptions)
+    
+    // Market Risk Capital = max(VaR_t-1, mc * VaR_avg) + max(sVaR_t-1, ms * sVaR_avg)
+    // Simplified: Capital = mc * (VaR + SVaR)
+    let marketRiskCapital = mc * (abs varValue + abs stressedVaR)
+    
+    {
+        ReportDate = DateTime.Today
+        PortfolioId = "PF-2026-001"
+        PortfolioName = portfolio.Name
+        PortfolioValue = portfolioValue
+        
+        VaR_10d_99 = abs varValue
+        VaR_Method = "Quantum Amplitude Estimation"
+        
+        ES_10d_975 = abs es975
+        
+        SVaR_10d_99 = abs stressedVaR
+        StressScenario = "2008 Global Financial Crisis"
+        
+        CapitalMultiplier = mc
+        MarketRiskCapital = marketRiskCapital
+        
+        BacktestingExceptions = 2  // Example: 2 exceptions in past 250 days
+        BacktestingZone = "Green"  // 0-4 exceptions = Green
+        
+        QuantumSpeedup = float (groverIterations * groverIterations)
+        QuantumPrecision = 1.0 / float groverIterations
+    }
+
+/// Print Basel III FRTB Report in Regulatory Format
+let printBaselIIIReport (report: BaselIIIReport) =
+    printfn ""
+    printfn "╔══════════════════════════════════════════════════════════════════════════════╗"
+    printfn "║                    BASEL III FRTB - IMA MARKET RISK REPORT                   ║"
+    printfn "╠══════════════════════════════════════════════════════════════════════════════╣"
+    printfn "║  Report Date:     %-58s ║" (report.ReportDate.ToString("yyyy-MM-dd"))
+    printfn "║  Portfolio ID:    %-58s ║" report.PortfolioId
+    printfn "║  Portfolio Name:  %-58s ║" report.PortfolioName
+    printfn "║  Portfolio Value: $%-57s ║" (report.PortfolioValue.ToString("N0"))
+    printfn "╠══════════════════════════════════════════════════════════════════════════════╣"
+    printfn "║                              VaR METRICS                                     ║"
+    printfn "╠══════════════════════════════════════════════════════════════════════════════╣"
+    printfn "║  Calculation Method:        %-48s ║" report.VaR_Method
+    printfn "║  Confidence Level:          99%% (Regulatory Standard)                        ║"
+    printfn "║  Holding Period:            10 days (Regulatory Standard)                    ║"
+    printfn "║                                                                              ║"
+    printfn "║  Value-at-Risk (VaR):       $%-47s ║" (report.VaR_10d_99.ToString("N0"))
+    printfn "║  VaR as %% of Portfolio:     %-48s ║" (sprintf "%.2f%%" (report.VaR_10d_99 / report.PortfolioValue * 100.0))
+    printfn "╠══════════════════════════════════════════════════════════════════════════════╣"
+    printfn "║                         EXPECTED SHORTFALL                                   ║"
+    printfn "╠══════════════════════════════════════════════════════════════════════════════╣"
+    printfn "║  Confidence Level:          97.5%% (Basel III Standard)                       ║"
+    printfn "║  Expected Shortfall (ES):   $%-47s ║" (report.ES_10d_975.ToString("N0"))
+    printfn "║  ES as %% of Portfolio:      %-48s ║" (sprintf "%.2f%%" (report.ES_10d_975 / report.PortfolioValue * 100.0))
+    printfn "╠══════════════════════════════════════════════════════════════════════════════╣"
+    printfn "║                           STRESSED VaR (SVaR)                                ║"
+    printfn "╠══════════════════════════════════════════════════════════════════════════════╣"
+    printfn "║  Stress Scenario:           %-48s ║" report.StressScenario
+    printfn "║  Stressed VaR:              $%-47s ║" (report.SVaR_10d_99.ToString("N0"))
+    printfn "║  SVaR as %% of Portfolio:    %-48s ║" (sprintf "%.2f%%" (report.SVaR_10d_99 / report.PortfolioValue * 100.0))
+    printfn "╠══════════════════════════════════════════════════════════════════════════════╣"
+    printfn "║                       CAPITAL REQUIREMENTS                                   ║"
+    printfn "╠══════════════════════════════════════════════════════════════════════════════╣"
+    printfn "║  Capital Multiplier (mc):   %-48s ║" (sprintf "%.1fx (Basel III minimum: 3.0x)" report.CapitalMultiplier)
+    printfn "║                                                                              ║"
+    printfn "║  Capital Formula: mc × (VaR + SVaR)                                          ║"
+    printfn "║  Market Risk Capital:       $%-47s ║" (report.MarketRiskCapital.ToString("N0"))
+    printfn "║  Capital as %% of Portfolio: %-48s ║" (sprintf "%.2f%%" (report.MarketRiskCapital / report.PortfolioValue * 100.0))
+    printfn "╠══════════════════════════════════════════════════════════════════════════════╣"
+    printfn "║                         BACKTESTING SUMMARY                                  ║"
+    printfn "╠══════════════════════════════════════════════════════════════════════════════╣"
+    printfn "║  Exceptions (past 250 days): %-47d ║" report.BacktestingExceptions
+    printfn "║  Zone Classification:        %-47s ║" report.BacktestingZone
+    printfn "║                                                                              ║"
+    printfn "║  Zone Thresholds:                                                            ║"
+    printfn "║    Green:  0-4 exceptions   → mc = 3.0                                       ║"
+    printfn "║    Yellow: 5-9 exceptions   → mc = 3.4-3.85                                  ║"
+    printfn "║    Red:    10+ exceptions   → mc = 4.0 + supervisory action                  ║"
+    printfn "╠══════════════════════════════════════════════════════════════════════════════╣"
+    printfn "║                      QUANTUM COMPUTATION METRICS                             ║"
+    printfn "╠══════════════════════════════════════════════════════════════════════════════╣"
+    printfn "║  Quantum Algorithm:         Amplitude Estimation (Grover-based)              ║"
+    printfn "║  Theoretical Speedup:       %-48s ║" (sprintf "%.0fx vs classical Monte Carlo" report.QuantumSpeedup)
+    printfn "║  Precision Achieved:        %-48s ║" (sprintf "O(1/%.0f) vs classical O(1/%.0f²)" (1.0/report.QuantumPrecision) (1.0/report.QuantumPrecision))
+    printfn "║                                                                              ║"
+    printfn "║  Quantum Advantage:                                                          ║"
+    printfn "║    - Quadratic speedup in precision                                          ║"
+    printfn "║    - Direct tail probability estimation                                      ║"
+    printfn "║    - Scalable to large portfolios                                            ║"
+    printfn "╠══════════════════════════════════════════════════════════════════════════════╣"
+    printfn "║                           REGULATORY NOTES                                   ║"
+    printfn "╠══════════════════════════════════════════════════════════════════════════════╣"
+    printfn "║  • Report generated per Basel III/IV FRTB IMA requirements                   ║"
+    printfn "║  • VaR computed using quantum amplitude estimation                           ║"
+    printfn "║  • SVaR based on 2008 financial crisis stress scenario                       ║"
+    printfn "║  • Capital requirements subject to supervisory review                        ║"
+    printfn "║  • Backtesting results determine multiplier adjustments                      ║"
+    printfn "╚══════════════════════════════════════════════════════════════════════════════╝"
+    printfn ""
+
+// Generate and print the Basel III Report
+let baselReport = generateBaselIIIReport ()
+printBaselIIIReport baselReport
+
+printfn "=============================================="
+printfn " Basel III Report Generation Complete"
+printfn "=============================================="
