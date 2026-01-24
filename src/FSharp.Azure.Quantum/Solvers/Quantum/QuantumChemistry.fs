@@ -24,34 +24,215 @@ open FSharp.Azure.Quantum  // For ErrorMitigationStrategy
 // ATOMIC DATA
 // ============================================================================
 
-/// Atomic numbers for common elements
+/// Atomic numbers and data for elements used in quantum chemistry
+/// 
+/// Coverage: Elements 1-54 (H through Xe) plus common heavier elements
+/// This covers all elements commonly encountered in:
+/// - Organic chemistry (C, H, N, O, S, P, halogens)
+/// - Materials science (Si, Fe, Co, Ni, Cu, Zn, Cd, Se)
+/// - Photosynthesis (Mg in chlorophyll, Mn in water-splitting)
+/// - Catalysis (transition metals)
+/// - Quantum dots (Cd, Se, Zn, S, Pb, Te)
 module AtomicNumbers =
-    let H = 1   // Hydrogen
-    let He = 2  // Helium
-    let Li = 3  // Lithium
-    let C = 6   // Carbon
-    let N = 7   // Nitrogen
-    let O = 8   // Oxygen
-    let F = 9   // Fluorine
-    let Na = 11 // Sodium
-    let Mg = 12 // Magnesium
-    let S = 16  // Sulfur
-    let Cl = 17 // Chlorine
+    // Period 1
+    let H = 1    // Hydrogen
+    let He = 2   // Helium
+    
+    // Period 2
+    let Li = 3   // Lithium
+    let Be = 4   // Beryllium
+    let B = 5    // Boron
+    let C = 6    // Carbon
+    let N = 7    // Nitrogen
+    let O = 8    // Oxygen
+    let F = 9    // Fluorine
+    let Ne = 10  // Neon
+    
+    // Period 3
+    let Na = 11  // Sodium
+    let Mg = 12  // Magnesium
+    let Al = 13  // Aluminum
+    let Si = 14  // Silicon
+    let P = 15   // Phosphorus
+    let S = 16   // Sulfur
+    let Cl = 17  // Chlorine
+    let Ar = 18  // Argon
+    
+    // Period 4 (includes first-row transition metals)
+    let K = 19   // Potassium
+    let Ca = 20  // Calcium
+    let Sc = 21  // Scandium
+    let Ti = 22  // Titanium
+    let V = 23   // Vanadium
+    let Cr = 24  // Chromium
+    let Mn = 25  // Manganese
+    let Fe = 26  // Iron
+    let Co = 27  // Cobalt
+    let Ni = 28  // Nickel
+    let Cu = 29  // Copper
+    let Zn = 30  // Zinc
+    let Ga = 31  // Gallium
+    let Ge = 32  // Germanium
+    let As = 33  // Arsenic
+    let Se = 34  // Selenium
+    let Br = 35  // Bromine
+    let Kr = 36  // Krypton
+    
+    // Period 5 (includes second-row transition metals)
+    let Rb = 37  // Rubidium
+    let Sr = 38  // Strontium
+    let Y = 39   // Yttrium
+    let Zr = 40  // Zirconium
+    let Nb = 41  // Niobium
+    let Mo = 42  // Molybdenum
+    let Tc = 43  // Technetium
+    let Ru = 44  // Ruthenium
+    let Rh = 45  // Rhodium
+    let Pd = 46  // Palladium
+    let Ag = 47  // Silver
+    let Cd = 48  // Cadmium
+    let In = 49  // Indium
+    let Sn = 50  // Tin
+    let Sb = 51  // Antimony
+    let Te = 52  // Tellurium
+    let I = 53   // Iodine
+    let Xe = 54  // Xenon
+    
+    // Selected heavier elements (commonly used)
+    let Pt = 78  // Platinum (catalysis)
+    let Au = 79  // Gold (nanoparticles)
+    let Pb = 82  // Lead (quantum dots, perovskites)
     
     /// Get atomic number from element symbol
+    /// Returns None for unsupported elements
     let fromSymbol (element: string) : int option =
         match element.ToUpperInvariant() with
+        // Period 1
         | "H" -> Some H
         | "HE" -> Some He
+        // Period 2
         | "LI" -> Some Li
+        | "BE" -> Some Be
+        | "B" -> Some B
         | "C" -> Some C
         | "N" -> Some N
         | "O" -> Some O
         | "F" -> Some F
+        | "NE" -> Some Ne
+        // Period 3
         | "NA" -> Some Na
         | "MG" -> Some Mg
+        | "AL" -> Some Al
+        | "SI" -> Some Si
+        | "P" -> Some P
         | "S" -> Some S
         | "CL" -> Some Cl
+        | "AR" -> Some Ar
+        // Period 4
+        | "K" -> Some K
+        | "CA" -> Some Ca
+        | "SC" -> Some Sc
+        | "TI" -> Some Ti
+        | "V" -> Some V
+        | "CR" -> Some Cr
+        | "MN" -> Some Mn
+        | "FE" -> Some Fe
+        | "CO" -> Some Co
+        | "NI" -> Some Ni
+        | "CU" -> Some Cu
+        | "ZN" -> Some Zn
+        | "GA" -> Some Ga
+        | "GE" -> Some Ge
+        | "AS" -> Some As
+        | "SE" -> Some Se
+        | "BR" -> Some Br
+        | "KR" -> Some Kr
+        // Period 5
+        | "RB" -> Some Rb
+        | "SR" -> Some Sr
+        | "Y" -> Some Y
+        | "ZR" -> Some Zr
+        | "NB" -> Some Nb
+        | "MO" -> Some Mo
+        | "TC" -> Some Tc
+        | "RU" -> Some Ru
+        | "RH" -> Some Rh
+        | "PD" -> Some Pd
+        | "AG" -> Some Ag
+        | "CD" -> Some Cd
+        | "IN" -> Some In
+        | "SN" -> Some Sn
+        | "SB" -> Some Sb
+        | "TE" -> Some Te
+        | "I" -> Some I
+        | "XE" -> Some Xe
+        // Heavier elements
+        | "PT" -> Some Pt
+        | "AU" -> Some Au
+        | "PB" -> Some Pb
+        | _ -> None
+    
+    /// Get element symbol from atomic number
+    /// Returns None for unsupported atomic numbers
+    let toSymbol (atomicNumber: int) : string option =
+        match atomicNumber with
+        | 1 -> Some "H"
+        | 2 -> Some "He"
+        | 3 -> Some "Li"
+        | 4 -> Some "Be"
+        | 5 -> Some "B"
+        | 6 -> Some "C"
+        | 7 -> Some "N"
+        | 8 -> Some "O"
+        | 9 -> Some "F"
+        | 10 -> Some "Ne"
+        | 11 -> Some "Na"
+        | 12 -> Some "Mg"
+        | 13 -> Some "Al"
+        | 14 -> Some "Si"
+        | 15 -> Some "P"
+        | 16 -> Some "S"
+        | 17 -> Some "Cl"
+        | 18 -> Some "Ar"
+        | 19 -> Some "K"
+        | 20 -> Some "Ca"
+        | 21 -> Some "Sc"
+        | 22 -> Some "Ti"
+        | 23 -> Some "V"
+        | 24 -> Some "Cr"
+        | 25 -> Some "Mn"
+        | 26 -> Some "Fe"
+        | 27 -> Some "Co"
+        | 28 -> Some "Ni"
+        | 29 -> Some "Cu"
+        | 30 -> Some "Zn"
+        | 31 -> Some "Ga"
+        | 32 -> Some "Ge"
+        | 33 -> Some "As"
+        | 34 -> Some "Se"
+        | 35 -> Some "Br"
+        | 36 -> Some "Kr"
+        | 37 -> Some "Rb"
+        | 38 -> Some "Sr"
+        | 39 -> Some "Y"
+        | 40 -> Some "Zr"
+        | 41 -> Some "Nb"
+        | 42 -> Some "Mo"
+        | 43 -> Some "Tc"
+        | 44 -> Some "Ru"
+        | 45 -> Some "Rh"
+        | 46 -> Some "Pd"
+        | 47 -> Some "Ag"
+        | 48 -> Some "Cd"
+        | 49 -> Some "In"
+        | 50 -> Some "Sn"
+        | 51 -> Some "Sb"
+        | 52 -> Some "Te"
+        | 53 -> Some "I"
+        | 54 -> Some "Xe"
+        | 78 -> Some "Pt"
+        | 79 -> Some "Au"
+        | 82 -> Some "Pb"
         | _ -> None
 
 // ============================================================================
@@ -178,6 +359,161 @@ module Molecule =
             ]
             Charge = 0
             Multiplicity = 1  // Singlet
+        }
+    
+    // ========================================================================
+    // MATERIALS SCIENCE MOLECULES
+    // ========================================================================
+    
+    /// Create LiH molecule (lithium hydride) at specified bond length
+    /// Default bond length: 1.596 Å (experimental equilibrium)
+    /// 
+    /// LiH is important for:
+    /// - Hydrogen storage materials
+    /// - Benchmark system for quantum chemistry (4 electrons)
+    /// - Nuclear fusion breeding blankets (Li-6)
+    let createLiH (bondLength: float) : Molecule =
+        {
+            Name = "LiH"
+            Atoms = [
+                { Element = "Li"; Position = (0.0, 0.0, 0.0) }
+                { Element = "H"; Position = (0.0, 0.0, bondLength) }
+            ]
+            Bonds = [
+                { Atom1 = 0; Atom2 = 1; BondOrder = 1.0 }
+            ]
+            Charge = 0
+            Multiplicity = 1  // Singlet
+        }
+    
+    /// Create Fe₂ dimer (iron dimer) at specified bond length
+    /// Default bond length: 2.02 Å (experimental)
+    /// 
+    /// Fe₂ is critical for:
+    /// - Exchange coupling (J) calculations in magnetic materials
+    /// - GMR (Giant Magnetoresistance) physics
+    /// - Benchmark for spin-dependent DFT and quantum methods
+    /// 
+    /// Ground state: ⁷Δᵤ (septet, 6 unpaired electrons, S=3)
+    let createFe2 (bondLength: float) (multiplicity: int) : Molecule =
+        {
+            Name = "Fe2"
+            Atoms = [
+                { Element = "Fe"; Position = (0.0, 0.0, 0.0) }
+                { Element = "Fe"; Position = (0.0, 0.0, bondLength) }
+            ]
+            Bonds = [
+                { Atom1 = 0; Atom2 = 1; BondOrder = 1.0 }  // Single bond approximation
+            ]
+            Charge = 0
+            Multiplicity = multiplicity  // Usually 7 for ground state (septet)
+        }
+    
+    /// Create FeH molecule (iron monohydride) at specified bond length
+    /// Default bond length: 1.63 Å (experimental)
+    /// 
+    /// FeH is relevant for:
+    /// - Hydrogen diffusion in steel (embrittlement)
+    /// - Interstellar chemistry
+    /// - Catalytic hydrogenation mechanisms
+    /// 
+    /// Ground state: ⁴Δ (quartet, 3 unpaired electrons, S=3/2)
+    let createFeH (bondLength: float) : Molecule =
+        {
+            Name = "FeH"
+            Atoms = [
+                { Element = "Fe"; Position = (0.0, 0.0, 0.0) }
+                { Element = "H"; Position = (0.0, 0.0, bondLength) }
+            ]
+            Bonds = [
+                { Atom1 = 0; Atom2 = 1; BondOrder = 1.0 }
+            ]
+            Charge = 0
+            Multiplicity = 4  // Quartet ground state
+        }
+    
+    /// Create SiH₄ molecule (silane) at equilibrium geometry
+    /// Si-H bond length: 1.480 Å (experimental)
+    /// 
+    /// SiH₄ is important for:
+    /// - Semiconductor doping precursor (CVD)
+    /// - Silicon surface chemistry
+    /// - Model for Si-H bonding in passivated surfaces
+    let createSiH4 () : Molecule =
+        // Tetrahedral geometry: Si at center, H at corners
+        let bondLength = 1.480
+        // Tetrahedral angle: cos⁻¹(-1/3) ≈ 109.47°
+        // Coordinates for regular tetrahedron with Si at origin
+        let a = bondLength / sqrt 3.0
+        {
+            Name = "SiH4"
+            Atoms = [
+                { Element = "Si"; Position = (0.0, 0.0, 0.0) }
+                { Element = "H"; Position = (a, a, a) }
+                { Element = "H"; Position = (-a, -a, a) }
+                { Element = "H"; Position = (-a, a, -a) }
+                { Element = "H"; Position = (a, -a, -a) }
+            ]
+            Bonds = [
+                { Atom1 = 0; Atom2 = 1; BondOrder = 1.0 }
+                { Atom1 = 0; Atom2 = 2; BondOrder = 1.0 }
+                { Atom1 = 0; Atom2 = 3; BondOrder = 1.0 }
+                { Atom1 = 0; Atom2 = 4; BondOrder = 1.0 }
+            ]
+            Charge = 0
+            Multiplicity = 1  // Singlet (all electrons paired)
+        }
+    
+    /// Create PH₃ molecule (phosphine) at equilibrium geometry
+    /// P-H bond length: 1.42 Å, H-P-H angle: 93.5°
+    /// 
+    /// PH₃ is important for:
+    /// - Phosphorus doping in semiconductors (n-type Si)
+    /// - MOCVD precursor for III-V semiconductors
+    /// - Model for donor impurity states in Si
+    let createPH3 () : Molecule =
+        let bondLength = 1.42
+        let angleRad = 93.5 * Math.PI / 180.0
+        // Pyramidal geometry with P at origin
+        let h = bondLength * cos(angleRad / 2.0)  // Height above base
+        let r = bondLength * sin(angleRad / 2.0)  // Radius of base
+        // Three H atoms arranged 120° apart
+        {
+            Name = "PH3"
+            Atoms = [
+                { Element = "P"; Position = (0.0, 0.0, 0.0) }
+                { Element = "H"; Position = (r, 0.0, h) }
+                { Element = "H"; Position = (-r * 0.5, r * 0.866, h) }
+                { Element = "H"; Position = (-r * 0.5, -r * 0.866, h) }
+            ]
+            Bonds = [
+                { Atom1 = 0; Atom2 = 1; BondOrder = 1.0 }
+                { Atom1 = 0; Atom2 = 2; BondOrder = 1.0 }
+                { Atom1 = 0; Atom2 = 3; BondOrder = 1.0 }
+            ]
+            Charge = 0
+            Multiplicity = 1  // Singlet
+        }
+    
+    /// Create CdSe dimer (cadmium selenide) - quantum dot building block
+    /// Cd-Se bond length: 2.63 Å (from wurtzite crystal structure)
+    /// 
+    /// CdSe is the most common quantum dot material:
+    /// - QLED displays (Samsung, Sony)
+    /// - Solar cells
+    /// - Biomedical imaging
+    let createCdSe (bondLength: float) : Molecule =
+        {
+            Name = "CdSe"
+            Atoms = [
+                { Element = "Cd"; Position = (0.0, 0.0, 0.0) }
+                { Element = "Se"; Position = (bondLength, 0.0, 0.0) }
+            ]
+            Bonds = [
+                { Atom1 = 0; Atom2 = 1; BondOrder = 2.0 }  // Approximate
+            ]
+            Charge = 0
+            Multiplicity = 1
         }
 
 // ============================================================================
