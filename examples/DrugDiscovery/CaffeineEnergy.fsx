@@ -272,6 +272,7 @@ let vqeConfig = {
     InitialParameters = None
     ProgressReporter = None
     ErrorMitigation = None
+    IntegralProvider = None
 }
 
 // Store results for summary

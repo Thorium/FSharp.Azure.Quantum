@@ -103,6 +103,7 @@ let config = {
     InitialParameters = None
     ProgressReporter = None
     ErrorMitigation = None  // No error mitigation for local simulator
+    IntegralProvider = None
 }
 
 // Estimate ground state energy
@@ -261,6 +262,7 @@ let configWithHistory = {
     InitialParameters = None
     ProgressReporter = None
     ErrorMitigation = None
+    IntegralProvider = None
 }
 
 // Create a custom molecule for demonstration

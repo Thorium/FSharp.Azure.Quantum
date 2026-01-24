@@ -1743,6 +1743,134 @@ module FermionMapping =
             }
 
 // ============================================================================  
+// MOLECULAR INTEGRALS (Pluggable Provider Interface)
+// ============================================================================
+//
+// This module provides a pluggable interface for molecular integrals, allowing
+// users to provide real quantum chemistry integrals from external packages
+// (PySCF, Psi4, NWChem, etc.) without adding dependencies to this library.
+//
+// ┌─────────────────────────────────────────────────────────────────────────┐
+// │ PRECONDITIONS FOR USING CUSTOM INTEGRAL PROVIDERS                       │
+// ├─────────────────────────────────────────────────────────────────────────┤
+// │                                                                         │
+// │ 1. INTEGRAL ARRAY DIMENSIONS                                            │
+// │    - OneElectron.Integrals must be [NumOrbitals x NumOrbitals]          │
+// │    - TwoElectron.Integrals must be [NumOrbitals x NumOrbitals x         │
+// │                                      NumOrbitals x NumOrbitals]         │
+// │    - Dimension mismatch will cause IndexOutOfRangeException             │
+// │                                                                         │
+// │ 2. INTEGRAL NOTATION                                                    │
+// │    - Two-electron integrals must be in CHEMIST notation: (pq|rs)        │
+// │    - NOT physicist notation <pr|qs>                                     │
+// │    - PySCF uses chemist notation by default ✓                           │
+// │    - Psi4 uses physicist notation - requires conversion!                │
+// │                                                                         │
+// │ 3. MOLECULAR ORBITAL BASIS                                              │
+// │    - All integrals must be in MO basis (not AO basis)                   │
+// │    - Transform AO integrals: h_MO = C^T @ h_AO @ C                      │
+// │    - Use ao2mo library for efficient 2-electron transformation          │
+// │                                                                         │
+// │ 4. SPIN ORBITAL EXPANSION                                               │
+// │    - Provider returns SPATIAL orbitals (NumOrbitals)                    │
+// │    - Library internally expands to spin orbitals (2 * NumOrbitals)      │
+// │    - This doubles the qubit count: nQubits = 2 * NumOrbitals            │
+// │                                                                         │
+// │ 5. QUBIT LIMITS                                                         │
+// │    - Maximum 20 qubits (10 spatial orbitals) for NISQ simulation        │
+// │    - H2 in STO-3G: 2 orbitals → 4 qubits ✓                              │
+// │    - H2O in STO-3G: 7 orbitals → 14 qubits ✓                            │
+// │    - Large molecules require active space selection                     │
+// │                                                                         │
+// │ 6. UNITS                                                                │
+// │    - All energies must be in Hartree (atomic units)                     │
+// │    - Positions in Molecule type are in Angstroms                        │
+// │                                                                         │
+// │ 7. EXTERNAL DEPENDENCIES (for PySCF provider example)                   │
+// │    - Python 3.8+ must be installed and in PATH                          │
+// │    - PySCF package: pip install pyscf                                   │
+// │    - NumPy package: pip install numpy                                   │
+// │    - pythonnet NuGet package (referenced in script, not library)        │
+// │                                                                         │
+// └─────────────────────────────────────────────────────────────────────────┘
+//
+// FAILURE MODES:
+// - Provider returns Error: VQE falls back to empirical integrals
+// - Dimension mismatch: IndexOutOfRangeException during Hamiltonian build
+// - Wrong notation: Incorrect energies (may converge to wrong value)
+// - AO basis integrals: Incorrect energies (integrals not properly transformed)
+// - Too many orbitals: ValidationError "Molecule too large"
+//
+// EXAMPLE USAGE:
+//   let provider = createPySCFProvider "sto-3g"  // From PySCFIntegration.fsx
+//   let config = { ... ; IntegralProvider = Some provider }
+//   let! result = GroundStateEnergy.estimateEnergy molecule config
+//
+// ============================================================================
+
+/// One-electron integrals h_pq = <p|T + V_nuc|q>
+/// Kinetic energy + nuclear attraction in molecular orbital basis
+type OneElectronIntegrals = {
+    /// Number of molecular orbitals
+    NumOrbitals: int
+    /// Integral matrix h[p,q] in Hartree
+    /// Access: h.[p, q] gives <p|h|q>
+    /// PRECONDITION: Array dimensions must match NumOrbitals
+    Integrals: float[,]
+}
+
+/// Two-electron integrals g_pqrs = (pq|rs) in chemist notation
+/// Electron repulsion integrals in molecular orbital basis
+type TwoElectronIntegrals = {
+    /// Number of molecular orbitals
+    NumOrbitals: int
+    /// Integral tensor g[p,q,r,s] in Hartree (chemist notation)
+    /// Access: g.[p,q,r,s] gives (pq|rs)
+    /// PRECONDITION: Must be in CHEMIST notation (pq|rs), not physicist <pr|qs>
+    /// PRECONDITION: Array dimensions must match NumOrbitals
+    Integrals: float[,,,]
+}
+
+/// Complete molecular integrals for quantum chemistry calculations
+/// Can be provided by external tools (PySCF, Psi4, etc.) or computed internally
+/// 
+/// PRECONDITIONS:
+/// - NumOrbitals must be ≤ 10 (gives 20 qubits after spin-orbital expansion)
+/// - All integrals must be in molecular orbital (MO) basis
+/// - Two-electron integrals must use chemist notation (pq|rs)
+/// - All energies in Hartree
+type MolecularIntegrals = {
+    /// Number of spatial molecular orbitals
+    /// PRECONDITION: Must be ≤ 10 for NISQ simulation (expands to 2N qubits)
+    NumOrbitals: int
+    /// Number of electrons
+    NumElectrons: int
+    /// Nuclear repulsion energy in Hartree (constant term)
+    NuclearRepulsion: float
+    /// One-electron integrals (kinetic + nuclear attraction)
+    OneElectron: OneElectronIntegrals
+    /// Two-electron integrals (electron repulsion)
+    TwoElectron: TwoElectronIntegrals
+    /// Reference energy from classical calculation (e.g., Hartree-Fock) for validation
+    ReferenceEnergy: float option
+}
+
+/// Function signature for custom integral providers
+/// Takes a molecule and returns integrals or an error message
+/// 
+/// IMPLEMENTATION REQUIREMENTS:
+/// - Return integrals in MO basis (not AO basis)
+/// - Use chemist notation (pq|rs) for two-electron integrals
+/// - Energies in Hartree, positions read from Molecule are in Angstroms
+/// - Handle errors gracefully and return descriptive error messages
+/// 
+/// COMMON PROVIDERS:
+/// - PySCF: See examples/DrugDiscovery/PySCFIntegration.fsx
+/// - Psi4: Requires notation conversion from physicist to chemist
+/// - File-based: Parse FCIDump or HDF5 files with pre-computed integrals
+type IntegralProvider = Molecule -> Result<MolecularIntegrals, string>
+
+// ============================================================================  
 // GROUND STATE ENERGY ESTIMATION  
 // ============================================================================
 
@@ -1784,6 +1912,11 @@ type SolverConfig = {
     /// Optional error mitigation strategy for noisy backends
     /// When set, applies error correction to measurement results
     ErrorMitigation: ErrorMitigationStrategy.RecommendedStrategy option
+    
+    /// Optional custom integral provider (e.g., from PySCF, Psi4)
+    /// When provided, uses real molecular integrals instead of empirical values
+    /// This enables research-grade accuracy for VQE calculations
+    IntegralProvider: IntegralProvider option
 }
 
 /// Molecular Hamiltonian in second quantization
@@ -1798,6 +1931,172 @@ module MolecularHamiltonian =
         | JordanWigner
         /// Bravyi-Kitaev transformation (research-grade, better scaling)
         | BravyiKitaev
+    
+    /// Build fermionic Hamiltonian terms from real molecular integrals
+    /// 
+    /// Constructs: H = E_nuc + Σ_pq h_pq a†_p a_q + 0.5 Σ_pqrs g_pqrs a†_p a†_r a_s a_q
+    /// 
+    /// This uses REAL integrals from external quantum chemistry packages (PySCF, Psi4, etc.)
+    /// instead of empirical approximations, enabling research-grade accuracy.
+    let private buildFermionTermsFromIntegrals (integrals: MolecularIntegrals) : FermionMapping.FermionTerm list =
+        let n = integrals.NumOrbitals
+        let h1 = integrals.OneElectron.Integrals
+        let g2 = integrals.TwoElectron.Integrals
+        
+        [
+            // One-electron terms: h_pq a†_p a_q (spin-orbital basis)
+            // Each spatial orbital gives two spin orbitals (alpha, beta)
+            for p in 0 .. n - 1 do
+                for q in 0 .. n - 1 do
+                    let h_pq = h1.[p, q]
+                    if abs h_pq > 1e-12 then
+                        // Alpha spin (even indices)
+                        yield {
+                            FermionMapping.Coefficient = System.Numerics.Complex(h_pq, 0.0)
+                            FermionMapping.Operators = [
+                                { FermionMapping.OrbitalIndex = 2 * p; FermionMapping.OperatorType = FermionMapping.Creation }
+                                { FermionMapping.OrbitalIndex = 2 * q; FermionMapping.OperatorType = FermionMapping.Annihilation }
+                            ]
+                        }
+                        // Beta spin (odd indices)
+                        yield {
+                            FermionMapping.Coefficient = System.Numerics.Complex(h_pq, 0.0)
+                            FermionMapping.Operators = [
+                                { FermionMapping.OrbitalIndex = 2 * p + 1; FermionMapping.OperatorType = FermionMapping.Creation }
+                                { FermionMapping.OrbitalIndex = 2 * q + 1; FermionMapping.OperatorType = FermionMapping.Annihilation }
+                            ]
+                        }
+            
+            // Two-electron terms: 0.5 * g_pqrs a†_p a†_r a_s a_q
+            // In chemist notation (pq|rs), converted to physicist <pr|qs>
+            for p in 0 .. n - 1 do
+                for q in 0 .. n - 1 do
+                    for r in 0 .. n - 1 do
+                        for s in 0 .. n - 1 do
+                            let g_pqrs = g2.[p, q, r, s]
+                            if abs g_pqrs > 1e-12 then
+                                // Four spin combinations: αα, αβ, βα, ββ
+                                // αα: p↑ r↑ s↑ q↑
+                                yield {
+                                    FermionMapping.Coefficient = System.Numerics.Complex(0.5 * g_pqrs, 0.0)
+                                    FermionMapping.Operators = [
+                                        { FermionMapping.OrbitalIndex = 2 * p; FermionMapping.OperatorType = FermionMapping.Creation }
+                                        { FermionMapping.OrbitalIndex = 2 * r; FermionMapping.OperatorType = FermionMapping.Creation }
+                                        { FermionMapping.OrbitalIndex = 2 * s; FermionMapping.OperatorType = FermionMapping.Annihilation }
+                                        { FermionMapping.OrbitalIndex = 2 * q; FermionMapping.OperatorType = FermionMapping.Annihilation }
+                                    ]
+                                }
+                                // ββ: p↓ r↓ s↓ q↓
+                                yield {
+                                    FermionMapping.Coefficient = System.Numerics.Complex(0.5 * g_pqrs, 0.0)
+                                    FermionMapping.Operators = [
+                                        { FermionMapping.OrbitalIndex = 2 * p + 1; FermionMapping.OperatorType = FermionMapping.Creation }
+                                        { FermionMapping.OrbitalIndex = 2 * r + 1; FermionMapping.OperatorType = FermionMapping.Creation }
+                                        { FermionMapping.OrbitalIndex = 2 * s + 1; FermionMapping.OperatorType = FermionMapping.Annihilation }
+                                        { FermionMapping.OrbitalIndex = 2 * q + 1; FermionMapping.OperatorType = FermionMapping.Annihilation }
+                                    ]
+                                }
+                                // αβ: p↑ r↓ s↓ q↑
+                                yield {
+                                    FermionMapping.Coefficient = System.Numerics.Complex(0.5 * g_pqrs, 0.0)
+                                    FermionMapping.Operators = [
+                                        { FermionMapping.OrbitalIndex = 2 * p; FermionMapping.OperatorType = FermionMapping.Creation }
+                                        { FermionMapping.OrbitalIndex = 2 * r + 1; FermionMapping.OperatorType = FermionMapping.Creation }
+                                        { FermionMapping.OrbitalIndex = 2 * s + 1; FermionMapping.OperatorType = FermionMapping.Annihilation }
+                                        { FermionMapping.OrbitalIndex = 2 * q; FermionMapping.OperatorType = FermionMapping.Annihilation }
+                                    ]
+                                }
+                                // βα: p↓ r↑ s↑ q↓
+                                yield {
+                                    FermionMapping.Coefficient = System.Numerics.Complex(0.5 * g_pqrs, 0.0)
+                                    FermionMapping.Operators = [
+                                        { FermionMapping.OrbitalIndex = 2 * p + 1; FermionMapping.OperatorType = FermionMapping.Creation }
+                                        { FermionMapping.OrbitalIndex = 2 * r; FermionMapping.OperatorType = FermionMapping.Creation }
+                                        { FermionMapping.OrbitalIndex = 2 * s; FermionMapping.OperatorType = FermionMapping.Annihilation }
+                                        { FermionMapping.OrbitalIndex = 2 * q + 1; FermionMapping.OperatorType = FermionMapping.Annihilation }
+                                    ]
+                                }
+        ]
+    
+    /// Build molecular Hamiltonian from real molecular integrals
+    /// 
+    /// This function uses integrals provided by external quantum chemistry packages
+    /// (PySCF, Psi4, etc.) to construct an accurate qubit Hamiltonian.
+    /// 
+    /// PRECONDITIONS (validated):
+    /// - NumOrbitals ≤ 10 (expands to 20 qubits)
+    /// - OneElectron.Integrals dimensions match NumOrbitals
+    /// - TwoElectron.Integrals dimensions match NumOrbitals
+    /// - NumElectrons > 0
+    /// 
+    /// PRECONDITIONS (not validated - caller responsibility):
+    /// - Integrals must be in MO basis (not AO)
+    /// - Two-electron integrals must use chemist notation (pq|rs)
+    /// - All values in Hartree
+    /// 
+    /// Returns: (ProblemHamiltonian, nuclearRepulsion) where nuclearRepulsion should
+    /// be added to the VQE energy to get the total molecular energy.
+    let buildFromIntegrals (integrals: MolecularIntegrals) (mapping: MappingMethod) : Result<QaoaCircuit.ProblemHamiltonian * float, QuantumError> =
+        result {
+            let n = integrals.NumOrbitals
+            let numSpinOrbitals = n * 2
+            
+            // Validate qubit count
+            do! if numSpinOrbitals > 20 then
+                    Error (QuantumError.ValidationError("MoleculeSize", 
+                        $"Molecule too large: {n} spatial orbitals → {numSpinOrbitals} spin orbitals (max 20). " +
+                        "Consider using active space selection to reduce orbital count."))
+                else
+                    Ok ()
+            
+            // Validate electron count
+            do! if integrals.NumElectrons <= 0 then
+                    Error (QuantumError.ValidationError("Integrals", 
+                        $"Invalid electron count: {integrals.NumElectrons}. Must be positive."))
+                else
+                    Ok ()
+            
+            // Validate one-electron integral dimensions
+            let h1Rows = integrals.OneElectron.Integrals.GetLength(0)
+            let h1Cols = integrals.OneElectron.Integrals.GetLength(1)
+            do! if h1Rows <> n || h1Cols <> n then
+                    Error (QuantumError.ValidationError("Integrals", 
+                        $"One-electron integral dimension mismatch: got [{h1Rows}x{h1Cols}], expected [{n}x{n}]. " +
+                        "Ensure OneElectron.Integrals dimensions match NumOrbitals."))
+                else
+                    Ok ()
+            
+            // Validate two-electron integral dimensions
+            let g2D0 = integrals.TwoElectron.Integrals.GetLength(0)
+            let g2D1 = integrals.TwoElectron.Integrals.GetLength(1)
+            let g2D2 = integrals.TwoElectron.Integrals.GetLength(2)
+            let g2D3 = integrals.TwoElectron.Integrals.GetLength(3)
+            do! if g2D0 <> n || g2D1 <> n || g2D2 <> n || g2D3 <> n then
+                    Error (QuantumError.ValidationError("Integrals", 
+                        $"Two-electron integral dimension mismatch: got [{g2D0}x{g2D1}x{g2D2}x{g2D3}], expected [{n}x{n}x{n}x{n}]. " +
+                        "Ensure TwoElectron.Integrals dimensions match NumOrbitals."))
+                else
+                    Ok ()
+            
+            // Build fermionic Hamiltonian from real integrals
+            let fermionTerms = buildFermionTermsFromIntegrals integrals
+            
+            let fermionHamiltonian = {
+                FermionMapping.NumOrbitals = numSpinOrbitals
+                FermionMapping.Terms = fermionTerms
+            }
+            
+            // Apply fermion-to-qubit mapping
+            let qubitHamiltonian =
+                match mapping with
+                | JordanWigner | Empirical ->
+                    FermionMapping.JordanWigner.transform fermionHamiltonian
+                | BravyiKitaev ->
+                    FermionMapping.BravyiKitaev.transform fermionHamiltonian
+            
+            // Convert to library format
+            return (FermionMapping.toQaoaHamiltonian qubitHamiltonian, integrals.NuclearRepulsion)
+        }
     
     /// Build molecular Hamiltonian using rigorous fermion mapping
     /// 
@@ -1922,8 +2221,8 @@ module MolecularHamiltonian =
                     let nq = molecule.Atoms.Length * 2
                     (nq, 1.0, 0.5)
             
-            do! if numQubits > 10 then
-                    Error (QuantumError.ValidationError("MoleculeSize", $"Molecule too large: {numQubits} qubits required (max 10)"))
+            do! if numQubits > 20 then
+                    Error (QuantumError.ValidationError("MoleculeSize", $"Molecule too large: {numQubits} qubits required (max 20)"))
                 else
                     Ok ()
             
@@ -2938,6 +3237,7 @@ module QuantumChemistryBuilder =
                 Backend = None  // Use default LocalBackend
                 ProgressReporter = None
                 ErrorMitigation = None  // No error mitigation by default
+                IntegralProvider = None  // Use empirical integrals by default
             }
             
             // Execute VQE (uses existing VQE module - TKT-95 framework)

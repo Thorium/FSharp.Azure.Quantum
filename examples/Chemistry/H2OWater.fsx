@@ -181,6 +181,7 @@ let vqeConfig = {
     InitialParameters = None
     ProgressReporter = None
     ErrorMitigation = None
+    IntegralProvider = None
 }
 
 printfn "Running VQE calculation..."

@@ -1,0 +1,16 @@
+compound_id,smiles,name,role,source,notes
+6-apa,CC1(C)SC2C(N)C(=O)N2C1C(=O)O,6-Aminopenicillanic acid,Core_precursor,Penicillin_G_hydrolysis,Core of all penicillins - 90% from China
+7-aca,CC(=O)OCC1=C(N2C(SC1)C(N)C2=O)C(=O)O,7-Aminocephalosporanic acid,Core_precursor,Cephalosporin_C_hydrolysis,Core of all cephalosporins - 90% from China
+7-adca,CC1=C(N2C(SC1)C(N)C2=O)C(=O)O,7-Aminodeacetoxycephalosporanic acid,Core_precursor,7-ACA_deacetylation,Alternative cephalosporin core
+penicillin_g,CC1(C)SC2C(NC(=O)Cc3ccccc3)C(=O)N2C1C(=O)O,Penicillin G,Fermentation_product,Penicillium_chrysogenum,Starting material for 6-APA
+cephalosporin_c,CC(=O)OCC1=C(N2C(SC1)C(NC(=O)CCCC(N)C(=O)O)C2=O)C(=O)O,Cephalosporin C,Fermentation_product,Acremonium_chrysogenum,Starting material for 7-ACA
+phenylacetic_acid,OC(=O)Cc1ccccc1,Phenylacetic acid,Side_chain,Chemical_synthesis,Side chain for Penicillin G
+d-phenylglycine,NC(C(=O)O)c1ccccc1,D-Phenylglycine,Side_chain,Chemical_synthesis,Side chain for ampicillin/amoxicillin
+ketene,C=C=O,Ketene,Staudinger_reactant,Chemical_synthesis,β-lactam ring synthesis
+methanimine,C=N,Methanimine,Staudinger_reactant,Chemical_synthesis,Simplest imine for [2+2] cycloaddition
+formaldehyde,C=O,Formaldehyde,Model_reactant,Chemical_synthesis,NISQ model for carbonyl reactivity
+ammonia,N,Ammonia,Model_reactant,Chemical_synthesis,NISQ model for nitrogen nucleophile
+formamide,NC=O,Formamide,Model_product,Chemical_synthesis,Simplest amide - models C-N bond
+2-azetidinone,O=C1CCN1,2-Azetidinone,Beta-lactam_core,Chemical_synthesis,Simplest β-lactam ring
+thiazolidine,C1CSNC1,Thiazolidine,Penam_component,Chemical_synthesis,5-membered ring in penicillins
+dihydrothiazine,C1CC=NSC1,Dihydrothiazine,Cephem_component,Chemical_synthesis,6-membered ring in cephalosporins

@@ -230,13 +230,16 @@ using static FSharp.Azure.Quantum.QuantumChemistry.Molecule;
 var molecule = createH2(0.74);
 
 // Configure VQE solver
-var config = new SolverConfig
-{
-    Method = GroundStateMethod.VQE,
-    MaxIterations = 100,
-    Tolerance = 1e-6,
-    InitialParameters = null
-};
+var config = new SolverConfig(
+    Method: GroundStateMethod.VQE,
+    Backend: FSharpOption<IQuantumBackend>.None,
+    MaxIterations: 100,
+    Tolerance: 1e-6,
+    InitialParameters: FSharpOption<double[]>.None,
+    ProgressReporter: FSharpOption<Action<int, double>>.None,
+    ErrorMitigation: FSharpOption<ErrorMitigationStrategy.RecommendedStrategy>.None,
+    IntegralProvider: FSharpOption<FSharpFunc<Molecule, FSharpResult<MolecularIntegrals, string>>>.None
+);
 
 // Run calculation
 var result = await GroundStateEnergy.estimateEnergy(molecule, config);

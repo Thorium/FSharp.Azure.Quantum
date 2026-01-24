@@ -325,6 +325,7 @@ let calculateEnergy (molecule: Molecule) : float =
         InitialParameters = None
         ProgressReporter = None
         ErrorMitigation = None
+        IntegralProvider = None
     }
     
     let result = GroundStateEnergy.estimateEnergy molecule config |> Async.RunSynchronously

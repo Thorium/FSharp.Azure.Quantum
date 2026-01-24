@@ -19,6 +19,9 @@ bld/
 [Oo]bj/
 [Ll]og/
 
+# Example run outputs
+runs/
+
 # Visual Studio cache/options directory
 .vs/
 

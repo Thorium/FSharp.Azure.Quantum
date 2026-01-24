@@ -235,6 +235,7 @@ module GroundStateEnergyTests =
             Backend = None
             ProgressReporter = None
             ErrorMitigation = None
+            IntegralProvider = None
         }
         
         // Act
@@ -263,6 +264,7 @@ module GroundStateEnergyTests =
             Backend = None
             ProgressReporter = None
             ErrorMitigation = None
+            IntegralProvider = None
         }
         
         // Act
@@ -291,6 +293,7 @@ module GroundStateEnergyTests =
             Backend = None
             ProgressReporter = None
             ErrorMitigation = None
+            IntegralProvider = None
         }
         
         // Act
@@ -312,6 +315,7 @@ module GroundStateEnergyTests =
             Backend = None
             ProgressReporter = None
             ErrorMitigation = None
+            IntegralProvider = None
         }
         
         // Act
@@ -342,6 +346,7 @@ module GroundStateEnergyTests =
             Backend = None
             ProgressReporter = None
             ErrorMitigation = None
+            IntegralProvider = None
         }
         
         // Act
@@ -368,6 +373,7 @@ module GroundStateEnergyTests =
             Backend = None
             ProgressReporter = None
             ErrorMitigation = None
+            IntegralProvider = None
         }
         
         // Act
@@ -391,6 +397,7 @@ module GroundStateEnergyTests =
             Backend = None
             ProgressReporter = None
             ErrorMitigation = None
+            IntegralProvider = None
         }
         
         // Act
@@ -417,6 +424,7 @@ module GroundStateEnergyTests =
             Backend = None
             ProgressReporter = None
             ErrorMitigation = None
+            IntegralProvider = None
         }
         
         // Act
@@ -443,6 +451,7 @@ module GroundStateEnergyTests =
             Backend = None
             ProgressReporter = None
             ErrorMitigation = None
+            IntegralProvider = None
         }
         
         // Act
@@ -1218,6 +1227,7 @@ module VQEErrorMitigationTests =
             InitialParameters = None
             ProgressReporter = None
             ErrorMitigation = None
+            IntegralProvider = None
         }
         
         // Assert
@@ -1253,6 +1263,7 @@ module VQEErrorMitigationTests =
             InitialParameters = None
             ProgressReporter = None
             ErrorMitigation = Some strategy
+            IntegralProvider = None
         }
         
         // Assert
@@ -1271,6 +1282,7 @@ module VQEErrorMitigationTests =
             InitialParameters = None
             ProgressReporter = None
             ErrorMitigation = None
+            IntegralProvider = None
         }
         
         // Act
@@ -1313,6 +1325,7 @@ module VQEErrorMitigationTests =
             InitialParameters = None
             ProgressReporter = None
             ErrorMitigation = Some strategy
+            IntegralProvider = None
         }
         
         // Act
