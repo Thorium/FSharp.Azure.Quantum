@@ -41,6 +41,26 @@ Quantum Advantage:
   barren plateaus (vanishing gradients), while simple maps may not offer quantum
   advantage. Optimal depth for NISQ devices is typically 1-3 layers.
 
+Dimensionality and Feature Spaces:
+  Classical statistical learning faces the "curse of dimensionality" [5]: as the
+  number of features grows, the volume of the feature space grows exponentially,
+  causing data to become sparse and distances less meaningful. Quantum feature maps
+  offer a unique approach—they map d-dimensional classical data into a 2ⁿ-dimensional
+  Hilbert space, but this exponential space is structured by quantum mechanics rather
+  than arbitrary. The quantum kernel K(x,x') = |⟨ψ(x)|ψ(x')⟩|² computes similarity
+  in this space, analogous to classical kernel methods [5, Ch. 9] but with potentially
+  classically-intractable kernels. This is the connection to Support Vector Machines:
+  both use the "kernel trick" to operate in high-dimensional spaces implicitly.
+
+Reproducing Kernel Hilbert Spaces (RKHS):
+  The mathematical foundation connecting classical SVMs and quantum kernels is RKHS
+  theory [6, Ch. 5.8]. A kernel K(x,x') implicitly defines a feature map φ such that
+  K(x,x') = ⟨φ(x), φ(x')⟩. For quantum kernels, the feature map is explicit:
+  φ(x) = |ψ(x)⟩, and the kernel is K(x,x') = |⟨ψ(x)|ψ(x')⟩|². The RKHS framework
+  guarantees that kernel-based learning (SVMs, kernel regression) finds optimal
+  solutions in this implicit feature space. Quantum advantage arises when the kernel
+  is classically hard to compute but quantum-efficient to evaluate.
+
 References:
   [1] Havlicek et al., "Supervised learning with quantum-enhanced feature spaces",
       Nature 567, 209-212 (2019). https://doi.org/10.1038/s41586-019-0980-2
@@ -50,6 +70,11 @@ References:
       Phys. Rev. A 102, 032420 (2020). https://doi.org/10.1103/PhysRevA.102.032420
   [4] Wikipedia: Quantum_machine_learning
       https://en.wikipedia.org/wiki/Quantum_machine_learning
+  [5] James et al., "An Introduction to Statistical Learning with Applications
+      in Python", Springer (2023). Chapters 2 (curse of dimensionality), 9 (SVMs/kernels).
+      https://www.statlearning.com/
+  [6] Hastie, Tibshirani, Friedman, "The Elements of Statistical Learning", 2nd ed.,
+      Springer (2009). Ch. 5.8 (RKHS), Ch. 12 (SVMs). https://hastie.su.domains/ElemStatLearn/
 *)
 
 //#r "nuget: FSharp.Azure.Quantum"

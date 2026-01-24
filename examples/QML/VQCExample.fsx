@@ -46,6 +46,34 @@ Quantum Advantage:
   devices, VQCs offer a practical path to quantum machine learning with shallow
   circuits and noise resilience through variational optimization.
 
+Bias-Variance Tradeoff:
+  A fundamental concept from statistical learning theory applies directly to VQC
+  design: the bias-variance tradeoff [5]. Circuit depth controls model flexibility—
+  deeper circuits (more layers) have lower bias but higher variance, while shallow
+  circuits have higher bias but lower variance. Underfitting occurs when circuits
+  are too shallow to capture the decision boundary; overfitting when circuits are
+  so deep they memorize training noise. The optimal depth minimizes total expected
+  error, which is bias² + variance + irreducible error. Cross-validation (splitting
+  data into training/validation sets) helps identify this optimal complexity.
+
+Model Selection:
+  Choosing the right circuit architecture (feature map type, ansatz depth, entanglement
+  pattern) is analogous to model selection in classical ML [6, Ch. 7]. Use k-fold
+  cross-validation to compare architectures: split data into k folds, train on k-1,
+  validate on the held-out fold, and average performance. For VQCs, key hyperparameters
+  include circuit depth, feature map type (angle vs. ZZ vs. amplitude), and ansatz
+  structure (RealAmplitudes vs. EfficientSU2). The "one standard error rule" from [6]
+  suggests choosing the simplest model within one standard error of the minimum CV error.
+
+Regularization and Barren Plateaus:
+  Regularization in classical ML (L1/L2 penalties, early stopping) prevents overfitting
+  by constraining model complexity [6, Ch. 3.4]. In VQCs, quantum noise acts as implicit
+  regularization—hardware noise effectively "blurs" the loss landscape. However, deep
+  circuits suffer from barren plateaus (exponentially vanishing gradients), making
+  optimization intractable. This creates a unique constraint: regularization via shallow
+  circuits is necessary not just for generalization but for trainability. Techniques
+  like layer-wise training and parameter initialization strategies help mitigate this.
+
 References:
   [1] Havlicek et al., "Supervised learning with quantum-enhanced feature spaces",
       Nature 567, 209-212 (2019). https://doi.org/10.1038/s41586-019-0980-2
@@ -55,6 +83,11 @@ References:
       https://doi.org/10.1103/PhysRevA.98.032309
   [4] Wikipedia: Variational_quantum_eigensolver (VQE uses similar principles)
       https://en.wikipedia.org/wiki/Variational_quantum_eigensolver
+  [5] James et al., "An Introduction to Statistical Learning with Applications
+      in Python", Springer (2023). Chapter 2: Statistical Learning (bias-variance).
+      https://www.statlearning.com/
+  [6] Hastie, Tibshirani, Friedman, "The Elements of Statistical Learning", 2nd ed.,
+      Springer (2009). Ch. 3.4 (shrinkage), Ch. 7 (model selection). https://hastie.su.domains/ElemStatLearn/
 *)
 
 //#r "nuget: FSharp.Azure.Quantum"

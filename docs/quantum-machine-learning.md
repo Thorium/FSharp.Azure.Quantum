@@ -47,6 +47,24 @@ Quantum Machine Learning (QML) leverages quantum computing to enhance classical 
 - Production deployment requires classical infrastructure
 - Interpretability is paramount
 
+### Statistical Learning Background
+
+Understanding classical statistical learning theory helps inform QML algorithm design and hyperparameter choices:
+
+**Bias-Variance Tradeoff:**
+Model error decomposes into bias (underfitting) + variance (overfitting) + irreducible noise. In VQC, circuit depth controls this tradeoff: shallow circuits have high bias but low variance; deep circuits have low bias but high variance. The optimal depth minimizes total expected error.
+
+**Cross-Validation:**
+K-fold CV estimates generalization error by training on k-1 folds and testing on the held-out fold, repeated k times. AutoML uses this internally for model selection. Typical values: k=5 or k=10.
+
+**Dimensionality and Feature Spaces:**
+Classical ML suffers the "curse of dimensionality"—as features grow, data becomes sparse. Quantum feature maps address this by mapping to structured 2ⁿ-dimensional Hilbert spaces where the quantum kernel K(x,y)=|⟨ψ(x)|ψ(y)⟩|² computes similarity implicitly.
+
+**Regularization:**
+Prevents overfitting by penalizing model complexity. In VQC, limiting circuit depth and using early stopping serve as implicit regularization.
+
+**Reference:** James et al., *An Introduction to Statistical Learning with Applications in Python*, Springer (2023). [statlearning.com](https://www.statlearning.com/)
+
 ## Variational Quantum Classifier (VQC)
 
 ### What is VQC?

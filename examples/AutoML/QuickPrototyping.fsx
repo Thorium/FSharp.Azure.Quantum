@@ -14,6 +14,18 @@
 /// 4. Tunes hyperparameters automatically
 /// 5. Returns best model with detailed report
 /// 
+/// WHY THIS WORKS - Cross-Validation Theory:
+/// AutoML uses k-fold cross-validation internally to select the best model [1].
+/// Cross-validation partitions training data into k subsets (folds), trains on k-1
+/// folds and validates on the held-out fold, repeating k times. This estimates
+/// true generalization error better than a single train/test split because every
+/// sample serves as both training and validation data. The "validationSplit" parameter
+/// controls what fraction of data is held out; typical values are 0.2-0.3 (20-30%).
+/// 
+/// Reference:
+/// [1] James et al., "An Introduction to Statistical Learning", Ch. 5 (Resampling).
+///     https://www.statlearning.com/
+/// 
 /// PERFECT FOR:
 /// - Quick prototyping: "Just give me a working model"
 /// - Non-experts: Don't know which algorithm to use

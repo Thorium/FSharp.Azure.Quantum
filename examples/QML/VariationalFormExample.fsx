@@ -3,6 +3,50 @@
 /// Demonstrates different variational form architectures for
 /// parameterized quantum circuits
 
+(*
+===============================================================================
+ Background Theory
+===============================================================================
+
+A variational form (or ansatz) is the parameterized quantum circuit V(θ) that
+transforms feature-encoded states into predictions. The choice of ansatz critically
+determines the expressiveness and trainability of a Variational Quantum Classifier.
+This is directly analogous to choosing a neural network architecture in classical
+deep learning [1, Ch. 11]: too few layers underfit, too many layers overfit and
+become untrainable.
+
+Expressibility vs. Trainability Tradeoff:
+  Expressibility measures how well a circuit can represent arbitrary quantum states—
+  highly expressive ansätze can approximate any unitary operation. However, increased
+  expressibility correlates with barren plateaus (vanishing gradients), making
+  optimization intractable [2]. This mirrors the bias-variance tradeoff [1, Ch. 2]:
+  expressive models (low bias) have high variance and require more data. For NISQ
+  devices, shallow circuits (1-3 layers) balance expressibility with trainability.
+
+Key Ansatz Architectures:
+  - **RealAmplitudes**: Ry rotations + CZ entanglement. Hardware-efficient, generates
+    real-valued amplitudes only. Good starting point for NISQ experiments.
+  - **TwoLocal**: Flexible rotation + entanglement layers. Configurable rotation
+    (Rx, Ry, Rz) and entanglement (CZ, CNOT) gates. More expressive than RealAmplitudes.
+  - **EfficientSU2**: Ry + Rz rotations (full single-qubit SU(2) coverage) with CZ
+    entanglement. 2× parameters per qubit but accesses complex amplitudes.
+
+Parameter Count and Complexity:
+  Circuit complexity scales with parameters: numParams = numQubits × depth × rotationsPerQubit.
+  More parameters increase expressibility but also variance and training difficulty.
+  The effective dimension (number of independent directions in parameter space) may be
+  much smaller than the nominal parameter count due to redundant parameterizations [3].
+
+References:
+  [1] Hastie, Tibshirani, Friedman, "The Elements of Statistical Learning", 2nd ed.,
+      Springer (2009). Ch. 2 (bias-variance), Ch. 11 (neural networks). https://hastie.su.domains/ElemStatLearn/
+  [2] McClean et al., "Barren plateaus in quantum neural network training landscapes",
+      Nature Communications 9, 4812 (2018). https://doi.org/10.1038/s41467-018-07090-4
+  [3] Sim, Johnson, Aspuru-Guzik, "Expressibility and entangling capability of
+      parameterized quantum circuits", Adv. Quantum Technol. 2, 1900070 (2019).
+      https://doi.org/10.1002/qute.201900070
+*)
+
 //#r "nuget: FSharp.Azure.Quantum"
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 
