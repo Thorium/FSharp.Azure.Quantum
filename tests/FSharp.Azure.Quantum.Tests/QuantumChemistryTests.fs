@@ -3,6 +3,7 @@ namespace FSharp.Azure.Quantum.Tests
 open Xunit
 open FSharp.Azure.Quantum.QuantumChemistry
 open FSharp.Azure.Quantum.Core
+open FSharp.Azure.Quantum  // For ErrorMitigationStrategy
 
 /// Tests for Molecule Representation (Task 1)
 module MoleculeTests =
@@ -233,6 +234,7 @@ module GroundStateEnergyTests =
             InitialParameters = None
             Backend = None
             ProgressReporter = None
+            ErrorMitigation = None
         }
         
         // Act
@@ -260,6 +262,7 @@ module GroundStateEnergyTests =
             InitialParameters = None
             Backend = None
             ProgressReporter = None
+            ErrorMitigation = None
         }
         
         // Act
@@ -287,6 +290,7 @@ module GroundStateEnergyTests =
             InitialParameters = None
             Backend = None
             ProgressReporter = None
+            ErrorMitigation = None
         }
         
         // Act
@@ -307,6 +311,7 @@ module GroundStateEnergyTests =
             InitialParameters = None
             Backend = None
             ProgressReporter = None
+            ErrorMitigation = None
         }
         
         // Act
@@ -336,6 +341,7 @@ module GroundStateEnergyTests =
             InitialParameters = None
             Backend = None
             ProgressReporter = None
+            ErrorMitigation = None
         }
         
         // Act
@@ -361,6 +367,7 @@ module GroundStateEnergyTests =
             InitialParameters = None
             Backend = None
             ProgressReporter = None
+            ErrorMitigation = None
         }
         
         // Act
@@ -383,6 +390,7 @@ module GroundStateEnergyTests =
             InitialParameters = None
             Backend = None
             ProgressReporter = None
+            ErrorMitigation = None
         }
         
         // Act
@@ -408,6 +416,7 @@ module GroundStateEnergyTests =
             InitialParameters = None
             Backend = None
             ProgressReporter = None
+            ErrorMitigation = None
         }
         
         // Act
@@ -433,6 +442,7 @@ module GroundStateEnergyTests =
             InitialParameters = Some initialParams
             Backend = None
             ProgressReporter = None
+            ErrorMitigation = None
         }
         
         // Act
@@ -445,6 +455,13 @@ module GroundStateEnergyTests =
 module HamiltonianSimulationTests =
     
     open FSharp.Azure.Quantum.LocalSimulator
+    open FSharp.Azure.Quantum.Core.BackendAbstraction
+    
+    /// Helper to extract StateVector from QuantumState
+    let extractStateVector (state: QuantumState) =
+        match state with
+        | QuantumState.StateVector sv -> sv
+        | _ -> failwith "Expected StateVector state"
     
     [<Fact>]
     let ``Trivial Hamiltonian (H=0) should leave state unchanged`` () =
@@ -454,20 +471,26 @@ module HamiltonianSimulationTests =
             QaoaCircuit.Terms = [||]
         }
         
-        let initialState = StateVector.init 2
+        let initialSV = StateVector.init 2
+        let initialState = QuantumState.StateVector initialSV
         let config = {
             HamiltonianSimulation.SimulationConfig.Time = 1.0
             HamiltonianSimulation.SimulationConfig.TrotterSteps = 10
             HamiltonianSimulation.SimulationConfig.TrotterOrder = 1
+            HamiltonianSimulation.SimulationConfig.Backend = None
         }
         
         // Act
-        let finalState = HamiltonianSimulation.simulate hamiltonian initialState config
+        let result = HamiltonianSimulation.simulate hamiltonian initialState config
         
         // Assert - state should be unchanged (still |00⟩)
-        let amplitude0 = StateVector.getAmplitude 0 finalState
-        Assert.Equal(1.0, amplitude0.Real, 10)
-        Assert.Equal(0.0, amplitude0.Imaginary, 10)
+        match result with
+        | Error err -> Assert.True(false, $"Simulation failed: {err.Message}")
+        | Ok finalState ->
+            let finalSV = extractStateVector finalState
+            let amplitude0 = StateVector.getAmplitude 0 finalSV
+            Assert.Equal(1.0, amplitude0.Real, 10)
+            Assert.Equal(0.0, amplitude0.Imaginary, 10)
     
     [<Fact>]
     let ``Single Pauli-Z term evolution should preserve computational basis`` () =
@@ -484,20 +507,26 @@ module HamiltonianSimulationTests =
         }
         
         // Start in |0⟩ state
-        let initialState = StateVector.init 1
+        let initialSV = StateVector.init 1
+        let initialState = QuantumState.StateVector initialSV
         let config = {
             HamiltonianSimulation.SimulationConfig.Time = 1.0
             HamiltonianSimulation.SimulationConfig.TrotterSteps = 10
             HamiltonianSimulation.SimulationConfig.TrotterOrder = 1
+            HamiltonianSimulation.SimulationConfig.Backend = None
         }
         
         // Act
-        let finalState = HamiltonianSimulation.simulate hamiltonian initialState config
+        let result = HamiltonianSimulation.simulate hamiltonian initialState config
         
         // Assert - |0⟩ is eigenstate of Z with eigenvalue +1, so gets phase exp(-i*1*t)
         // But global phase doesn't affect probabilities
-        let amplitude0 = StateVector.getAmplitude 0 finalState
-        Assert.True(abs amplitude0.Magnitude - 1.0 < 1e-10, "Probability should be preserved")
+        match result with
+        | Error err -> Assert.True(false, $"Simulation failed: {err.Message}")
+        | Ok finalState ->
+            let finalSV = extractStateVector finalState
+            let amplitude0 = StateVector.getAmplitude 0 finalSV
+            Assert.True(abs amplitude0.Magnitude - 1.0 < 1e-10, "Probability should be preserved")
     
     [<Fact>]
     let ``Time evolution should be unitary (preserve norm)`` () =
@@ -509,19 +538,25 @@ module HamiltonianSimulationTests =
         | Error err -> Assert.True(false, $"Hamiltonian construction failed: {err.Message}")
         | Ok hamiltonian ->
         
-        let initialState = StateVector.init hamiltonian.NumQubits
+        let initialSV = StateVector.init hamiltonian.NumQubits
+        let initialState = QuantumState.StateVector initialSV
         let config = {
             HamiltonianSimulation.SimulationConfig.Time = 0.5
             HamiltonianSimulation.SimulationConfig.TrotterSteps = 20
             HamiltonianSimulation.SimulationConfig.TrotterOrder = 2
+            HamiltonianSimulation.SimulationConfig.Backend = None
         }
         
         // Act
-        let finalState = HamiltonianSimulation.simulate hamiltonian initialState config
+        let result = HamiltonianSimulation.simulate hamiltonian initialState config
         
         // Assert - norm should be preserved (unitary evolution)
-        let norm = StateVector.norm finalState
-        Assert.Equal(1.0, norm, 6)  // Within 1e-6 tolerance
+        match result with
+        | Error err -> Assert.True(false, $"Simulation failed: {err.Message}")
+        | Ok finalState ->
+            let finalSV = extractStateVector finalState
+            let norm = StateVector.norm finalSV
+            Assert.Equal(1.0, norm, 6)  // Within 1e-6 tolerance
     
     [<Fact>]
     let ``Higher Trotter steps should improve accuracy`` () =
@@ -537,7 +572,8 @@ module HamiltonianSimulationTests =
             |]
         }
         
-        let initialState = StateVector.init 1
+        let initialSV = StateVector.init 1
+        let initialState = QuantumState.StateVector initialSV
         let time = 1.0
         
         // Act - simulate with different Trotter steps
@@ -545,19 +581,27 @@ module HamiltonianSimulationTests =
             HamiltonianSimulation.SimulationConfig.Time = time
             HamiltonianSimulation.SimulationConfig.TrotterSteps = 10
             HamiltonianSimulation.SimulationConfig.TrotterOrder = 1 
+            HamiltonianSimulation.SimulationConfig.Backend = None
         }
         let config100Steps = { 
             HamiltonianSimulation.SimulationConfig.Time = time
             HamiltonianSimulation.SimulationConfig.TrotterSteps = 100
             HamiltonianSimulation.SimulationConfig.TrotterOrder = 1 
+            HamiltonianSimulation.SimulationConfig.Backend = None
         }
         
-        let state10 = HamiltonianSimulation.simulate hamiltonian initialState config10Steps
-        let state100 = HamiltonianSimulation.simulate hamiltonian initialState config100Steps
+        let result10 = HamiltonianSimulation.simulate hamiltonian initialState config10Steps
+        let result100 = HamiltonianSimulation.simulate hamiltonian initialState config100Steps
         
         // Assert - both should have norm 1 (basic sanity check)
-        Assert.Equal(1.0, StateVector.norm state10, 6)
-        Assert.Equal(1.0, StateVector.norm state100, 6)
+        match result10, result100 with
+        | Ok state10, Ok state100 ->
+            let sv10 = extractStateVector state10
+            let sv100 = extractStateVector state100
+            Assert.Equal(1.0, StateVector.norm sv10, 6)
+            Assert.Equal(1.0, StateVector.norm sv100, 6)
+        | Error err, _ -> Assert.True(false, $"Simulation with 10 steps failed: {err.Message}")
+        | _, Error err -> Assert.True(false, $"Simulation with 100 steps failed: {err.Message}")
     
     [<Fact>]
     let ``Second-order Trotter should be supported`` () =
@@ -573,18 +617,24 @@ module HamiltonianSimulationTests =
             |]
         }
         
-        let initialState = StateVector.init 2
+        let initialSV = StateVector.init 2
+        let initialState = QuantumState.StateVector initialSV
         let config = {
             HamiltonianSimulation.SimulationConfig.Time = 0.5
             HamiltonianSimulation.SimulationConfig.TrotterSteps = 10
             HamiltonianSimulation.SimulationConfig.TrotterOrder = 2  // Second-order Trotter
+            HamiltonianSimulation.SimulationConfig.Backend = None
         }
         
         // Act
-        let finalState = HamiltonianSimulation.simulate hamiltonian initialState config
+        let result = HamiltonianSimulation.simulate hamiltonian initialState config
         
         // Assert - should complete without error and preserve norm
-        Assert.Equal(1.0, StateVector.norm finalState, 6)
+        match result with
+        | Error err -> Assert.True(false, $"Simulation failed: {err.Message}")
+        | Ok finalState ->
+            let finalSV = extractStateVector finalState
+            Assert.Equal(1.0, StateVector.norm finalSV, 6)
     
     [<Fact>]
     let ``Two-qubit ZZ interaction should be handled correctly`` () =
@@ -600,23 +650,29 @@ module HamiltonianSimulationTests =
             |]
         }
         
-        let initialState = StateVector.init 2  // |00⟩ state
+        let initialSV = StateVector.init 2  // |00⟩ state
+        let initialState = QuantumState.StateVector initialSV
         let config = {
             HamiltonianSimulation.SimulationConfig.Time = 1.0
             HamiltonianSimulation.SimulationConfig.TrotterSteps = 20
             HamiltonianSimulation.SimulationConfig.TrotterOrder = 1
+            HamiltonianSimulation.SimulationConfig.Backend = None
         }
         
         // Act
-        let finalState = HamiltonianSimulation.simulate hamiltonian initialState config
+        let result = HamiltonianSimulation.simulate hamiltonian initialState config
         
         // Assert - |00⟩ is eigenstate of Z₀⊗Z₁ with eigenvalue +1
         // Evolution should add global phase only
-        Assert.Equal(1.0, StateVector.norm finalState, 6)
-        
-        // Check |00⟩ amplitude still has magnitude 1
-        let amplitude00 = StateVector.getAmplitude 0 finalState
-        Assert.True(abs amplitude00.Magnitude - 1.0 < 1e-6, "Should stay in |00⟩ state")
+        match result with
+        | Error err -> Assert.True(false, $"Simulation failed: {err.Message}")
+        | Ok finalState ->
+            let finalSV = extractStateVector finalState
+            Assert.Equal(1.0, StateVector.norm finalSV, 6)
+            
+            // Check |00⟩ amplitude still has magnitude 1
+            let amplitude00 = StateVector.getAmplitude 0 finalSV
+            Assert.True(abs amplitude00.Magnitude - 1.0 < 1e-6, "Should stay in |00⟩ state")
 
 /// Tests for Molecular Input Parsers (Task 4)
 module MolecularInputTests =
@@ -1142,3 +1198,196 @@ module QuantumChemistryBuilderTests =
         Assert.True(problem.Basis.IsSome)
         Assert.True(problem.Ansatz.IsSome)
 
+// ============================================================================
+// Error Mitigation Integration Tests
+// ============================================================================
+
+/// Tests for VQE Error Mitigation integration
+module VQEErrorMitigationTests =
+    open FSharp.Azure.Quantum.Core.BackendAbstraction
+    open FSharp.Azure.Quantum.Backends.LocalBackend
+    
+    [<Fact>]
+    let ``SolverConfig should accept ErrorMitigation field`` () =
+        // Arrange - Create a config with no error mitigation
+        let config = {
+            Method = GroundStateMethod.VQE
+            Backend = Some (LocalBackend() :> IQuantumBackend)
+            MaxIterations = 10
+            Tolerance = 1e-6
+            InitialParameters = None
+            ProgressReporter = None
+            ErrorMitigation = None
+        }
+        
+        // Assert
+        Assert.True(config.ErrorMitigation.IsNone)
+        Assert.Equal(GroundStateMethod.VQE, config.Method)
+    
+    [<Fact>]
+    let ``SolverConfig should accept ErrorMitigation strategy`` () =
+        // Arrange - Create a recommended strategy
+        let testBackend : Types.Backend = {
+            Id = "test-backend"
+            Provider = "Test"
+            Name = "Test Backend"
+            Status = "Available"
+        }
+        
+        let criteria : ErrorMitigationStrategy.SelectionCriteria = {
+            CircuitDepth = 20
+            QubitCount = 4
+            Backend = testBackend
+            MaxCostUSD = Some 50.0
+            RequiredAccuracy = None
+        }
+        
+        let strategy = ErrorMitigationStrategy.selectStrategy criteria
+        
+        // Act - Create a config with error mitigation
+        let config = {
+            Method = GroundStateMethod.VQE
+            Backend = Some (LocalBackend() :> IQuantumBackend)
+            MaxIterations = 10
+            Tolerance = 1e-6
+            InitialParameters = None
+            ProgressReporter = None
+            ErrorMitigation = Some strategy
+        }
+        
+        // Assert
+        Assert.True(config.ErrorMitigation.IsSome)
+        Assert.NotEmpty(config.ErrorMitigation.Value.Reasoning)
+    
+    [<Fact>]
+    let ``VQE run should succeed with no error mitigation`` () =
+        // Arrange
+        let h2 = Molecule.createH2 0.74
+        let config = {
+            Method = GroundStateMethod.VQE
+            Backend = Some (LocalBackend() :> IQuantumBackend)
+            MaxIterations = 5  // Low for fast test
+            Tolerance = 1e-3
+            InitialParameters = None
+            ProgressReporter = None
+            ErrorMitigation = None
+        }
+        
+        // Act
+        let result = GroundStateEnergy.estimateEnergy h2 config |> Async.RunSynchronously
+        
+        // Assert
+        match result with
+        | Ok vqeResult ->
+            Assert.True(vqeResult.Energy < 0.0)  // Energy should be negative
+        | Error err ->
+            Assert.Fail($"VQE should succeed: {err.Message}")
+    
+    [<Fact>]
+    let ``VQE run should succeed with error mitigation strategy`` () =
+        // Arrange
+        let h2 = Molecule.createH2 0.74
+        
+        let testBackend : Types.Backend = {
+            Id = "test-backend"
+            Provider = "Test"
+            Name = "Test Backend"
+            Status = "Available"
+        }
+        
+        // Select a strategy (readout mitigation only - cheapest)
+        let criteria : ErrorMitigationStrategy.SelectionCriteria = {
+            CircuitDepth = 5  // Shallow circuit for H2
+            QubitCount = 4
+            Backend = testBackend
+            MaxCostUSD = Some 1.0  // Low budget forces readout-only
+            RequiredAccuracy = None
+        }
+        let strategy = ErrorMitigationStrategy.selectStrategy criteria
+        
+        let config = {
+            Method = GroundStateMethod.VQE
+            Backend = Some (LocalBackend() :> IQuantumBackend)
+            MaxIterations = 5  // Low for fast test
+            Tolerance = 1e-3
+            InitialParameters = None
+            ProgressReporter = None
+            ErrorMitigation = Some strategy
+        }
+        
+        // Act
+        let result = GroundStateEnergy.estimateEnergy h2 config |> Async.RunSynchronously
+        
+        // Assert
+        match result with
+        | Ok vqeResult ->
+            Assert.True(vqeResult.Energy < 0.0)  // Energy should be negative
+        | Error err ->
+            Assert.Fail($"VQE with error mitigation should succeed: {err.Message}")
+    
+    [<Fact>]
+    let ``ErrorMitigationStrategy selectStrategy should return valid strategy`` () =
+        // Arrange
+        let testBackend : Types.Backend = {
+            Id = "noisy-backend"
+            Provider = "IonQ"
+            Name = "Noisy Backend"
+            Status = "Available"
+        }
+        
+        // Test different scenarios
+        let scenarios : ErrorMitigationStrategy.SelectionCriteria list = [
+            // Shallow circuit, low budget
+            { CircuitDepth = 5; QubitCount = 4; Backend = testBackend; MaxCostUSD = Some 0.5; RequiredAccuracy = None }
+            // Medium circuit, medium budget
+            { CircuitDepth = 30; QubitCount = 6; Backend = testBackend; MaxCostUSD = Some 50.0; RequiredAccuracy = None }
+            // Deep circuit, high budget, high accuracy requirement
+            { CircuitDepth = 100; QubitCount = 10; Backend = testBackend; MaxCostUSD = Some 500.0; RequiredAccuracy = Some 0.95 }
+        ]
+        
+        // Act & Assert
+        for criteria in scenarios do
+            let strategy = ErrorMitigationStrategy.selectStrategy criteria
+            
+            // Strategy should have valid properties
+            Assert.NotEmpty(strategy.Reasoning)
+            Assert.True(strategy.EstimatedCostMultiplier >= 0.0)
+            Assert.True(strategy.EstimatedAccuracy >= 0.0 && strategy.EstimatedAccuracy <= 1.0)
+    
+    [<Fact>]
+    let ``ErrorMitigationStrategy applyStrategy should process histogram`` () =
+        // Arrange - Sample histogram from measurements
+        let histogram = 
+            Map.ofList [
+                ("00", 450)
+                ("01", 50)
+                ("10", 50)
+                ("11", 450)
+            ]
+        
+        let testBackend : Types.Backend = {
+            Id = "test"
+            Provider = "Test"
+            Name = "Test"
+            Status = "Available"
+        }
+        
+        let criteria : ErrorMitigationStrategy.SelectionCriteria = {
+            CircuitDepth = 5
+            QubitCount = 2
+            Backend = testBackend
+            MaxCostUSD = Some 10.0
+            RequiredAccuracy = None
+        }
+        let strategy = ErrorMitigationStrategy.selectStrategy criteria
+        
+        // Act
+        let result = ErrorMitigationStrategy.applyStrategy histogram strategy
+        
+        // Assert
+        match result with
+        | Ok mitigated ->
+            Assert.NotEmpty(mitigated.Histogram)
+            Assert.True(mitigated.ActualCostMultiplier >= 0.0)
+        | Error err ->
+            Assert.Fail($"Error mitigation should succeed: {err.Message}")

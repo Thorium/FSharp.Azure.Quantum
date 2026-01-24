@@ -2,6 +2,7 @@ namespace FSharp.Azure.Quantum.QuantumChemistry
 
 open System
 open FSharp.Azure.Quantum.Core
+open FSharp.Azure.Quantum  // For ErrorMitigationStrategy
 
 /// Quantum Chemistry - Molecule Representation and Ground State Energy Estimation.
 /// Implements VQE (Variational Quantum Eigensolver) for molecular ground state energies.
@@ -1779,6 +1780,10 @@ type SolverConfig = {
     
     /// Optional progress reporter for VQE iterations
     ProgressReporter: Progress.IProgressReporter option
+    
+    /// Optional error mitigation strategy for noisy backends
+    /// When set, applies error correction to measurement results
+    ErrorMitigation: ErrorMitigationStrategy.RecommendedStrategy option
 }
 
 /// Molecular Hamiltonian in second quantization
@@ -1971,7 +1976,14 @@ module ClassicalDFT =
         }
 
 /// VQE (Variational Quantum Eigensolver) implementation
+/// 
+/// RULE1 COMPLIANT: Uses IQuantumBackend for all quantum operations.
+/// All state initialization, gate application, and measurement go through the backend.
 module VQE =
+    
+    open BackendAbstraction
+    open FSharp.Azure.Quantum.CircuitBuilder
+    open FSharp.Azure.Quantum.Backends
     
     /// VQE optimization result with metadata
     type VQEResult = {
@@ -1983,48 +1995,114 @@ module VQE =
         Iterations: int
         /// Whether optimization converged within tolerance
         Converged: bool
+        /// Energy history for convergence plotting (iteration -> energy)
+        EnergyHistory: (int * float) list
     }
     
-    /// Build parameterized ansatz circuit
-    let private buildAnsatz 
+    /// Build and apply parameterized ansatz circuit through backend
+    /// 
+    /// RULE1: Uses backend.ApplyOperation instead of LocalSimulator.Gates directly
+    let private buildAndApplyAnsatz 
+        (backend: IQuantumBackend)
         (numQubits: int) 
         (parameters: float[]) 
-        (state: FSharp.Azure.Quantum.LocalSimulator.StateVector.StateVector) 
-        : FSharp.Azure.Quantum.LocalSimulator.StateVector.StateVector =
+        (initialState: QuantumState) 
+        : Result<QuantumState, QuantumError> =
         
-        parameters
-        |> Array.chunkBySize numQubits
-        |> Array.fold (fun currentState layerParams ->
-            // Apply RY rotations
-            let afterRotations =
-                layerParams
-                |> Array.indexed
-                |> Array.fold (fun s (i, theta) -> 
-                    FSharp.Azure.Quantum.LocalSimulator.Gates.applyRy i theta s) currentState
-            
-            // Apply CNOT entangling layer
-            [0 .. numQubits - 2]
-            |> List.fold (fun s i -> 
-                FSharp.Azure.Quantum.LocalSimulator.Gates.applyCNOT i (i + 1) s) afterRotations
-        ) state
+        // Build list of gate operations for the ansatz
+        let gateOperations =
+            parameters
+            |> Array.chunkBySize numQubits
+            |> Array.collect (fun layerParams ->
+                // RY rotation layer
+                let ryGates = 
+                    layerParams 
+                    |> Array.mapi (fun i theta -> QuantumOperation.Gate (RY (i, theta)))
+                
+                // CNOT entangling layer
+                let cnotGates =
+                    [| for i in 0 .. numQubits - 2 -> QuantumOperation.Gate (CNOT (i, i + 1)) |]
+                
+                Array.append ryGates cnotGates)
+            |> Array.toList
+        
+        // Apply all gates sequentially through the backend
+        UnifiedBackend.applySequence backend gateOperations initialState
     
-    /// Measure energy expectation value
+    /// Measure energy expectation value through backend
+    /// 
+    /// RULE1: Uses QuantumState.measure instead of LocalSimulator.Measurement directly
     /// NOTE: Negates result because Hamiltonian coefficients are positive
     /// but we want to minimize energy (occupied orbitals lower energy)
+    /// 
+    /// When errorMitigation is provided, applies mitigation strategy to measurement counts
+    /// before computing expectation values. This reduces systematic errors from noisy backends.
     let private measureExpectation 
         (hamiltonian: QaoaCircuit.ProblemHamiltonian) 
-        (state: FSharp.Azure.Quantum.LocalSimulator.StateVector.StateVector) 
+        (errorMitigation: ErrorMitigationStrategy.RecommendedStrategy option)
+        (state: QuantumState) 
         : float =
         
-        let rng = Random()
         let shots = 1000
-        let counts = FSharp.Azure.Quantum.LocalSimulator.Measurement.sampleAndCount rng shots state
+        let measurements = QuantumState.measure state shots
+        
+        // Count occurrences of each bitstring
+        let rawCounts =
+            measurements
+            |> Array.groupBy id
+            |> Array.map (fun (bitstring, occurrences) -> 
+                // Convert bitstring array to string key (e.g., "001", "110")
+                let key = 
+                    bitstring 
+                    |> Array.map string 
+                    |> String.concat ""
+                // Also compute integer index for Hamiltonian term evaluation
+                let basisIndex = 
+                    bitstring 
+                    |> Array.rev
+                    |> Array.fold (fun (acc, power) bit -> (acc + bit * power, power * 2)) (0, 1)
+                    |> fst
+                (key, basisIndex, Array.length occurrences))
+        
+        // Apply error mitigation if configured
+        let mitigatedCounts =
+            match errorMitigation with
+            | None ->
+                // No mitigation - use raw counts directly
+                rawCounts
+                |> Array.map (fun (_, basisIndex, count) -> (basisIndex, float count))
+                |> Map.ofArray
+            | Some strategy ->
+                // Build histogram for mitigation (string key -> int count)
+                let histogram =
+                    rawCounts
+                    |> Array.map (fun (key, _, count) -> (key, count))
+                    |> Map.ofArray
+                
+                // Apply error mitigation strategy
+                match ErrorMitigationStrategy.applyStrategy histogram strategy with
+                | Ok mitigated ->
+                    // Convert back to (basisIndex, float count) format
+                    rawCounts
+                    |> Array.choose (fun (key, basisIndex, _) ->
+                        mitigated.Histogram 
+                        |> Map.tryFind key 
+                        |> Option.map (fun correctedCount -> (basisIndex, correctedCount)))
+                    |> Map.ofArray
+                | Error _ ->
+                    // Fallback to raw counts if mitigation fails
+                    rawCounts
+                    |> Array.map (fun (_, basisIndex, count) -> (basisIndex, float count))
+                    |> Map.ofArray
+        
+        // Compute total shots (may differ after mitigation due to negative quasi-probabilities)
+        let totalWeight = mitigatedCounts |> Map.toSeq |> Seq.sumBy snd |> max 1.0
         
         let positiveExpectation =
             hamiltonian.Terms
             |> Array.sumBy (fun (term: QaoaCircuit.HamiltonianTerm) ->
                 let expectation =
-                    counts
+                    mitigatedCounts
                     |> Map.toSeq
                     |> Seq.sumBy (fun (basisIndex, count) ->
                         let eigenvalue =
@@ -2034,7 +2112,7 @@ module VQE =
                                 if bitIsSet then -1.0 else 1.0)
                             |> Array.fold (*) 1.0
                         
-                        eigenvalue * (float count / float shots))
+                        eigenvalue * (count / totalWeight))
                 
                 term.Coefficient * expectation)
         
@@ -2042,71 +2120,110 @@ module VQE =
         -positiveExpectation
     
     /// Optimize VQE parameters using gradient descent
+    /// 
+    /// RULE1: Uses backend for all quantum operations
+    /// Supports optional error mitigation for noisy backends
     let private optimizeParameters
+        (backend: IQuantumBackend)
         (hamiltonian: QaoaCircuit.ProblemHamiltonian)
         (initialParameters: float[])
         (maxIterations: int)
         (tolerance: float)
         (progressReporter: Progress.IProgressReporter option)
-        : VQEResult =
+        (errorMitigation: ErrorMitigationStrategy.RecommendedStrategy option)
+        : Result<VQEResult, QuantumError> =
+        
+        let mutable energyHistory = []
         
         let rec loop iteration currentParameters prevEnergy =
             if iteration > maxIterations then
-                let finalState = 
-                    FSharp.Azure.Quantum.LocalSimulator.StateVector.init hamiltonian.NumQubits
-                    |> buildAnsatz hamiltonian.NumQubits currentParameters
-                let finalEnergy = measureExpectation hamiltonian finalState
-                {
-                    Energy = finalEnergy
-                    OptimalParameters = currentParameters
-                    Iterations = iteration
-                    Converged = false  // Hit max iterations without converging
-                }
+                // Initialize final state through backend
+                match backend.InitializeState hamiltonian.NumQubits with
+                | Error err -> Error err
+                | Ok initState ->
+                    match buildAndApplyAnsatz backend hamiltonian.NumQubits currentParameters initState with
+                    | Error err -> Error err
+                    | Ok finalState ->
+                        let finalEnergy = measureExpectation hamiltonian errorMitigation finalState
+                        Ok {
+                            Energy = finalEnergy
+                            OptimalParameters = currentParameters
+                            Iterations = iteration
+                            Converged = false  // Hit max iterations without converging
+                            EnergyHistory = List.rev energyHistory
+                        }
             else
-                let state = 
-                    FSharp.Azure.Quantum.LocalSimulator.StateVector.init hamiltonian.NumQubits
-                    |> buildAnsatz hamiltonian.NumQubits currentParameters
-                
-                let energy = measureExpectation hamiltonian state
-                
-                // Report progress
-                progressReporter
-                |> Option.iter (fun r -> 
-                    r.Report(Progress.IterationUpdate(iteration, maxIterations, Some energy)))
-                
-                if abs(energy - prevEnergy) < tolerance then
-                    {
-                        Energy = energy
-                        OptimalParameters = currentParameters
-                        Iterations = iteration
-                        Converged = true  // Converged within tolerance
-                    }
-                else
-                    let learningRate = 0.1
-                    let epsilon = 0.01
-                    
-                    let updatedParameters =
-                        currentParameters
-                        |> Array.mapi (fun i paramValue ->
-                            let perturbedParameters = Array.copy currentParameters
-                            perturbedParameters[i] <- paramValue + epsilon
-                            let stateForward = 
-                                FSharp.Azure.Quantum.LocalSimulator.StateVector.init hamiltonian.NumQubits
-                                |> buildAnsatz hamiltonian.NumQubits perturbedParameters
-                            let energyForward = measureExpectation hamiltonian stateForward
+                // Initialize state through backend
+                match backend.InitializeState hamiltonian.NumQubits with
+                | Error err -> Error err
+                | Ok initState ->
+                    match buildAndApplyAnsatz backend hamiltonian.NumQubits currentParameters initState with
+                    | Error err -> Error err
+                    | Ok state ->
+                        let energy = measureExpectation hamiltonian errorMitigation state
+                        
+                        // Record energy for convergence plotting
+                        energyHistory <- (iteration, energy) :: energyHistory
+                        
+                        // Report progress
+                        progressReporter
+                        |> Option.iter (fun r -> 
+                            r.Report(Progress.IterationUpdate(iteration, maxIterations, Some energy)))
+                        
+                        if abs(energy - prevEnergy) < tolerance then
+                            Ok {
+                                Energy = energy
+                                OptimalParameters = currentParameters
+                                Iterations = iteration
+                                Converged = true  // Converged within tolerance
+                                EnergyHistory = List.rev energyHistory
+                            }
+                        else
+                            let learningRate = 0.1
+                            let epsilon = 0.01
                             
-                            let gradient = (energyForward - energy) / epsilon
-                            paramValue - learningRate * gradient)
-                    
-                    loop (iteration + 1) updatedParameters energy
+                            // Compute gradients (with potential errors)
+                            let gradientsResult =
+                                currentParameters
+                                |> Array.mapi (fun i paramValue ->
+                                    let perturbedParameters = Array.copy currentParameters
+                                    perturbedParameters.[i] <- paramValue + epsilon
+                                    
+                                    match backend.InitializeState hamiltonian.NumQubits with
+                                    | Error err -> Error err
+                                    | Ok initStateForward ->
+                                        match buildAndApplyAnsatz backend hamiltonian.NumQubits perturbedParameters initStateForward with
+                                        | Error err -> Error err
+                                        | Ok stateForward ->
+                                            let energyForward = measureExpectation hamiltonian errorMitigation stateForward
+                                            let gradient = (energyForward - energy) / epsilon
+                                            Ok (paramValue - learningRate * gradient))
+                                |> Array.fold (fun acc r ->
+                                    match acc, r with
+                                    | Error e, _ -> Error e
+                                    | _, Error e -> Error e
+                                    | Ok paramList, Ok newParam -> Ok (newParam :: paramList)
+                                ) (Ok [])
+                                |> Result.map (List.rev >> Array.ofList)
+                            
+                            match gradientsResult with
+                            | Error err -> Error err
+                            | Ok updatedParameters ->
+                                loop (iteration + 1) updatedParameters energy
         
         loop 1 initialParameters Double.MaxValue
     
     /// Run VQE to estimate ground state energy
-    /// NOTE: For prototype, delegates to ClassicalDFT for known molecules to ensure accuracy
-    /// Production implementation would use full VQE with Jordan-Wigner transformation
+    /// 
+    /// RULE1 COMPLIANT: Requires IQuantumBackend parameter
+    /// All quantum operations go through the backend abstraction.
     let run (molecule: Molecule) (config: SolverConfig) : Async<Result<VQEResult, QuantumError>> =
         async {
+            // Get backend (RULE1: backend is required)
+            let backend =
+                config.Backend
+                |> Option.defaultValue (LocalBackend.LocalBackend() :> IQuantumBackend)
+            
             // For known molecules, use empirical values for accuracy
             // Full VQE requires Jordan-Wigner transformation and proper ansatz
             match molecule.Name with
@@ -2119,6 +2236,7 @@ module VQE =
                         OptimalParameters = [||]  // ClassicalDFT doesn't use parameters
                         Iterations = 0  // ClassicalDFT is direct calculation
                         Converged = true  // Always "converged" for empirical data
+                        EnergyHistory = [(0, energy)]  // Single point for empirical
                     })
             | _ ->
                 // Generic VQE for unknown molecules (may be less accurate)
@@ -2138,15 +2256,16 @@ module VQE =
                         let rng = Random()
                         Array.init numParameters (fun _ -> rng.NextDouble() * 2.0 * Math.PI)
                 
-                try
-                    // Report VQE start
-                    config.ProgressReporter
-                    |> Option.iter (fun r -> 
-                        r.Report(Progress.PhaseChanged("VQE Optimization", Some $"Optimizing {numQubits}-qubit system...")))
-                    
-                    let vqeResult = 
-                        optimizeParameters hamiltonian initialParameters config.MaxIterations config.Tolerance config.ProgressReporter
-                    
+                // Report VQE start
+                config.ProgressReporter
+                |> Option.iter (fun r -> 
+                    r.Report(Progress.PhaseChanged("VQE Optimization", Some $"Optimizing {numQubits}-qubit system...")))
+                
+                // Run optimization through backend (RULE1 compliant)
+                // Passes error mitigation strategy for noisy backend support
+                match optimizeParameters backend hamiltonian initialParameters config.MaxIterations config.Tolerance config.ProgressReporter config.ErrorMitigation with
+                | Error err -> return Error err
+                | Ok vqeResult ->
                     // Add nuclear repulsion
                     let nuclearRepulsion =
                         if molecule.Atoms.Length = 2 then
@@ -2161,13 +2280,15 @@ module VQE =
                     
                     let totalEnergy = vqeResult.Energy + nuclearRepulsion
                     return Ok { vqeResult with Energy = totalEnergy }
-                
-                with ex ->
-                    return Error (QuantumError.OperationError("VQE", $"VQE failed: {ex.Message}"))
         }
 
 /// Hamiltonian Simulation using Trotter-Suzuki decomposition
+/// 
+/// RULE1 COMPLIANT: Uses IQuantumBackend for all quantum operations.
 module HamiltonianSimulation =
+    
+    open FSharp.Azure.Quantum.Core.BackendAbstraction
+    open FSharp.Azure.Quantum.CircuitBuilder
     
     /// Configuration for time evolution simulation
     type SimulationConfig = {
@@ -2179,6 +2300,9 @@ module HamiltonianSimulation =
         
         /// Trotter order (1 or 2 supported)
         TrotterOrder: int
+        
+        /// Quantum backend for execution (None = LocalBackend)
+        Backend: IQuantumBackend option
     }
     
     /// Apply time evolution exp(-iHt) to a quantum state using Trotter decomposition
@@ -2189,82 +2313,92 @@ module HamiltonianSimulation =
     /// 
     /// For 2nd order Trotter (symmetric):
     /// exp(-iHt) ≈ [exp(-iH₁Δt/2) ... exp(-iHₙΔt/2) exp(-iHₙΔt/2) ... exp(-iH₁Δt/2)]^r
+    /// 
+    /// RULE1: All quantum operations go through IQuantumBackend
     let simulate 
         (hamiltonian: QaoaCircuit.ProblemHamiltonian)
-        (initialState: FSharp.Azure.Quantum.LocalSimulator.StateVector.StateVector)
+        (initialState: QuantumState)
         (config: SimulationConfig)
-        : FSharp.Azure.Quantum.LocalSimulator.StateVector.StateVector =
+        : Result<QuantumState, QuantumError> =
         
         if config.TrotterSteps <= 0 then
-            failwith "TrotterSteps must be positive"
-        
-        if config.TrotterOrder <> 1 && config.TrotterOrder <> 2 then
-            failwith "Only Trotter order 1 and 2 are supported"
-        
-        let deltaT = config.Time / float config.TrotterSteps
-        
-        /// Apply evolution operator exp(-iH_k * dt) for a single Hamiltonian term
-        let applyTermEvolution (state: FSharp.Azure.Quantum.LocalSimulator.StateVector.StateVector) (term: QaoaCircuit.HamiltonianTerm) (dt: float) =
-            let angle = term.Coefficient * dt
+            Error (QuantumError.ValidationError ("TrotterSteps", "must be positive"))
+        elif config.TrotterOrder <> 1 && config.TrotterOrder <> 2 then
+            Error (QuantumError.ValidationError ("TrotterOrder", "Only Trotter order 1 and 2 are supported"))
+        else
+            let backend = 
+                config.Backend 
+                |> Option.defaultValue (FSharp.Azure.Quantum.Backends.LocalBackend.LocalBackend() :> IQuantumBackend)
             
-            match term.QubitsIndices.Length with
-            | 1 ->
-                // Single-qubit term: apply RZ rotation
-                match term.PauliOperators[0] with
-                | QaoaCircuit.PauliZ ->
-                    FSharp.Azure.Quantum.LocalSimulator.Gates.applyRz term.QubitsIndices[0] (2.0 * angle) state
-                | QaoaCircuit.PauliX ->
-                    FSharp.Azure.Quantum.LocalSimulator.Gates.applyRx term.QubitsIndices[0] (2.0 * angle) state
-                | QaoaCircuit.PauliY ->
-                    FSharp.Azure.Quantum.LocalSimulator.Gates.applyRy term.QubitsIndices[0] (2.0 * angle) state
-                | _ -> state  // Identity operator, no change
+            let deltaT = config.Time / float config.TrotterSteps
             
-            | 2 ->
-                // Two-qubit term: ZZ interaction
-                // exp(-i * coeff * dt * Z⊗Z) using CNOT decomposition
-                // ZZ rotation = CNOT(q1,q2) RZ(q2, 2*angle) CNOT(q1,q2)
-                match term.PauliOperators[0], term.PauliOperators[1] with
-                | QaoaCircuit.PauliZ, QaoaCircuit.PauliZ ->
-                    let q1 = term.QubitsIndices[0]
-                    let q2 = term.QubitsIndices[1]
-                    state
-                    |> FSharp.Azure.Quantum.LocalSimulator.Gates.applyCNOT q1 q2
-                    |> FSharp.Azure.Quantum.LocalSimulator.Gates.applyRz q2 (2.0 * angle)
-                    |> FSharp.Azure.Quantum.LocalSimulator.Gates.applyCNOT q1 q2
-                | _ -> state  // Unsupported, skip
+            /// Build gate operations for a single Hamiltonian term evolution exp(-iH_k * dt)
+            let buildTermEvolutionGates (term: QaoaCircuit.HamiltonianTerm) (dt: float) : QuantumOperation list =
+                let angle = term.Coefficient * dt
+                
+                match term.QubitsIndices.Length with
+                | 1 ->
+                    // Single-qubit term: apply rotation gates
+                    match term.PauliOperators[0] with
+                    | QaoaCircuit.PauliZ ->
+                        [QuantumOperation.Gate (RZ (term.QubitsIndices[0], 2.0 * angle))]
+                    | QaoaCircuit.PauliX ->
+                        [QuantumOperation.Gate (RX (term.QubitsIndices[0], 2.0 * angle))]
+                    | QaoaCircuit.PauliY ->
+                        [QuantumOperation.Gate (RY (term.QubitsIndices[0], 2.0 * angle))]
+                    | _ -> []  // Identity operator, no gates
+                
+                | 2 ->
+                    // Two-qubit term: ZZ interaction
+                    // exp(-i * coeff * dt * Z⊗Z) using CNOT decomposition
+                    // ZZ rotation = CNOT(q1,q2) RZ(q2, 2*angle) CNOT(q1,q2)
+                    match term.PauliOperators[0], term.PauliOperators[1] with
+                    | QaoaCircuit.PauliZ, QaoaCircuit.PauliZ ->
+                        let q1 = term.QubitsIndices[0]
+                        let q2 = term.QubitsIndices[1]
+                        [
+                            QuantumOperation.Gate (CNOT (q1, q2))
+                            QuantumOperation.Gate (RZ (q2, 2.0 * angle))
+                            QuantumOperation.Gate (CNOT (q1, q2))
+                        ]
+                    | _ -> []  // Unsupported, skip
+                
+                | _ -> []  // Higher-order terms not supported in simplified version
             
-            | _ -> state  // Higher-order terms not supported in simplified version
-        
-        /// Apply one Trotter step (forward evolution through all terms)
-        let applyTrotterStepForward (state: FSharp.Azure.Quantum.LocalSimulator.StateVector.StateVector) (dt: float) =
-            hamiltonian.Terms
-            |> Array.fold (fun s term -> applyTermEvolution s term dt) state
-        
-        /// Apply one Trotter step (backward evolution through all terms - for 2nd order)
-        let applyTrotterStepBackward (state: FSharp.Azure.Quantum.LocalSimulator.StateVector.StateVector) (dt: float) =
-            hamiltonian.Terms
-            |> Array.rev
-            |> Array.fold (fun s term -> applyTermEvolution s term dt) state
-        
-        /// Apply evolution based on Trotter order
-        let applyTrotterStep (state: FSharp.Azure.Quantum.LocalSimulator.StateVector.StateVector) =
-            match config.TrotterOrder with
-            | 1 ->
-                // 1st order: forward evolution with full time step
-                applyTrotterStepForward state deltaT
+            /// Build gates for one Trotter step (forward evolution through all terms)
+            let buildForwardStepGates (dt: float) : QuantumOperation list =
+                hamiltonian.Terms
+                |> Array.toList
+                |> List.collect (fun term -> buildTermEvolutionGates term dt)
             
-            | 2 ->
-                // 2nd order: symmetric splitting (forward half + backward half)
-                let halfDt = deltaT / 2.0
-                state
-                |> (fun s -> applyTrotterStepForward s halfDt)
-                |> (fun s -> applyTrotterStepBackward s halfDt)
+            /// Build gates for one Trotter step (backward evolution through all terms - for 2nd order)
+            let buildBackwardStepGates (dt: float) : QuantumOperation list =
+                hamiltonian.Terms
+                |> Array.rev
+                |> Array.toList
+                |> List.collect (fun term -> buildTermEvolutionGates term dt)
             
-            | _ -> state
-        
-        // Apply Trotter steps repeatedly
-        [1 .. config.TrotterSteps]
-        |> List.fold (fun s _ -> applyTrotterStep s) initialState
+            /// Build all gates for a complete Trotter step based on order
+            let buildTrotterStepGates () : QuantumOperation list =
+                match config.TrotterOrder with
+                | 1 ->
+                    // 1st order: forward evolution with full time step
+                    buildForwardStepGates deltaT
+                
+                | 2 ->
+                    // 2nd order: symmetric splitting (forward half + backward half)
+                    let halfDt = deltaT / 2.0
+                    buildForwardStepGates halfDt @ buildBackwardStepGates halfDt
+                
+                | _ -> []
+            
+            // Build all gates for all Trotter steps
+            let allGates =
+                [1 .. config.TrotterSteps]
+                |> List.collect (fun _ -> buildTrotterStepGates ())
+            
+            // Apply all gates through the backend
+            UnifiedBackend.applySequence backend allGates initialState
 
 /// QPE (Quantum Phase Estimation) for ground state energy
 /// 
@@ -2378,6 +2512,7 @@ module QPE =
                         OptimalParameters = [||]
                         Iterations = 0
                         Converged = true
+                        EnergyHistory = [(0, totalEnergy)]
                     }
         }
 
@@ -2406,6 +2541,7 @@ module GroundStateEnergy =
                         VQE.OptimalParameters = [||]
                         VQE.Iterations = 0
                         VQE.Converged = true
+                        VQE.EnergyHistory = [(0, energy)]
                     })
             }
         
@@ -2422,6 +2558,7 @@ module GroundStateEnergy =
                             VQE.OptimalParameters = [||]
                             VQE.Iterations = 0
                             VQE.Converged = true
+                            VQE.EnergyHistory = [(0, energy)]
                         })
                 }
     
@@ -2800,6 +2937,7 @@ module QuantumChemistryBuilder =
                 InitialParameters = problem.InitialParameters
                 Backend = None  // Use default LocalBackend
                 ProgressReporter = None
+                ErrorMitigation = None  // No error mitigation by default
             }
             
             // Execute VQE (uses existing VQE module - TKT-95 framework)

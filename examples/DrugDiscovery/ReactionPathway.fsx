@@ -346,6 +346,7 @@ let calculateEnergy (molecule: Molecule) : float * float =
         Tolerance = tolerance
         InitialParameters = None
         ProgressReporter = None
+        ErrorMitigation = None
     }
     
     let result = GroundStateEnergy.estimateEnergy molecule config |> Async.RunSynchronously

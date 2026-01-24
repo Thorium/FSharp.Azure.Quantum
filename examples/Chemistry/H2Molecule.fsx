@@ -102,6 +102,7 @@ let config = {
     Tolerance = 1e-6
     InitialParameters = None
     ProgressReporter = None
+    ErrorMitigation = None  // No error mitigation for local simulator
 }
 
 // Estimate ground state energy
@@ -243,3 +244,68 @@ for distance in bondLengths do
         ansatz UCCSD
     }
     printfn "  Distance %.2f Å: Problem ready" distance
+
+// Example 6: Energy Convergence Plotting
+printfn "\n=== Example 6: Energy Convergence During VQE Optimization ==="
+printfn ""
+printfn "The VQEResult includes EnergyHistory for tracking optimization progress."
+printfn "This can be used to verify convergence and tune hyperparameters."
+printfn ""
+
+// Recalculate with explicit iteration tracking (using a generic molecule)
+let configWithHistory = {
+    Method = GroundStateMethod.VQE
+    Backend = Some (LocalBackend() :> IQuantumBackend)
+    MaxIterations = 30  // More iterations to show convergence
+    Tolerance = 1e-8
+    InitialParameters = None
+    ProgressReporter = None
+    ErrorMitigation = None
+}
+
+// Create a custom molecule for demonstration
+let h2Custom = Molecule.createH2 0.75  // Slightly off equilibrium
+
+let resultWithHistory = GroundStateEnergy.estimateEnergy h2Custom configWithHistory |> Async.RunSynchronously
+
+match resultWithHistory with
+| Ok vqeResult ->
+    printfn "Final energy: %.6f Hartree" vqeResult.Energy
+    printfn "Iterations: %d" vqeResult.Iterations  
+    printfn "Converged: %b" vqeResult.Converged
+    printfn ""
+    printfn "Energy History (iteration -> energy):"
+    printfn "-----------------------------------------"
+    
+    // Print ASCII convergence plot
+    if vqeResult.EnergyHistory.Length > 0 then
+        let energies = vqeResult.EnergyHistory |> List.map snd
+        let minE = energies |> List.min
+        let maxE = energies |> List.max
+        let range = maxE - minE
+        
+        if range > 0.0 then
+            printfn ""
+            printfn "ASCII Convergence Plot:"
+            printfn ""
+            for (iteration, energy) in vqeResult.EnergyHistory do
+                let normalized = (energy - minE) / range
+                let barWidth = int (normalized * 40.0)
+                let bar = String.replicate barWidth "#"
+                printfn "  %3d | %.6f | %s" iteration energy bar
+        else
+            printfn ""
+            for (iteration, energy) in vqeResult.EnergyHistory do
+                printfn "  %3d | %.6f Hartree" iteration energy
+    else
+        printfn "  (Single-point calculation - no iteration history)"
+    
+    printfn ""
+    printfn "Tip: Export EnergyHistory to CSV for external plotting tools:"
+    printfn @"     vqeResult.EnergyHistory |> List.iter (fun (i,e) -> printfn ""%%d,%%0.6f"" i e)"
+    
+| Error err ->
+    printfn "Calculation failed: %A" err.Message
+
+printfn ""
+printfn "Done!"

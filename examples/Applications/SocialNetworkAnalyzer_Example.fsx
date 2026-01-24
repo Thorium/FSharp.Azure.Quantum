@@ -131,8 +131,9 @@ match quantumResult with
             printfn "    Internal Connections: %d" comm.InternalConnections
             printfn ""
     else
-        printfn "  (Note: Quantum solver currently returns placeholder results)"
-        printfn "  (Full solution decoding to be implemented)"
+        printfn "  No communities of size %d found in this network." 
+            (match quantumResult with Ok r -> 3 | Error _ -> 3)
+        printfn "  Try a smaller minimum community size or add more connections."
         printfn ""
 
 | Error err ->

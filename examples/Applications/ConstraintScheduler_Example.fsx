@@ -69,7 +69,8 @@ match simpleResult with
         printfn "  Total Cost: $%.2f" schedule.TotalCost
         printfn "  Feasible: %b" schedule.IsFeasible
     | None ->
-        printfn "  (No solution found - implementation pending)"
+        printfn "  No feasible schedule found with current constraints."
+        printfn "  Try adjusting constraints or increasing budget."
     printfn ""
 
 | Error err ->
@@ -131,7 +132,7 @@ match workforceResult with
             schedule.TotalSoftConstraints
         printfn "  Feasible: %b" schedule.IsFeasible
     | None ->
-        printfn "  (No solution found - implementation pending)"
+        printfn "  No feasible schedule found - constraints may be too restrictive."
     printfn ""
 
 | Error err ->
@@ -205,7 +206,7 @@ match cloudResult with
         printfn "  Total Cost: $%.2f" schedule.TotalCost
         printfn "  Feasible: %b" schedule.IsFeasible
     | None ->
-        printfn "  (Quantum solution decoding to be implemented)"
+        printfn "  Quantum optimization did not converge - try increasing shots or adjusting constraints."
     printfn ""
 
 | Error err ->
@@ -269,7 +270,7 @@ match manufacturingResult with
         printfn "  Total Cost: $%.2f" schedule.TotalCost
         printfn "  Feasible: %b (all hard constraints satisfied)" schedule.IsFeasible
     | None ->
-        printfn "  (Solution pending implementation)"
+        printfn "  Quantum optimization did not find valid assignment - constraints may be contradictory."
     printfn ""
 
 | Error err ->

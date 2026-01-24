@@ -271,6 +271,7 @@ let vqeConfig = {
     Tolerance = 1e-6
     InitialParameters = None
     ProgressReporter = None
+    ErrorMitigation = None
 }
 
 // Store results for summary

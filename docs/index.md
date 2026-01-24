@@ -16,7 +16,6 @@ title: FSharp.Azure.Quantum
 
 ```fsharp
 open FSharp.Azure.Quantum
-open FSharp.Azure.Quantum.GraphColoring
 
 // Graph Coloring: Register Allocation
 let problem = graphColoring {
@@ -33,8 +32,8 @@ match GraphColoring.solve problem 4 None with
     printfn "Colors used: %d" solution.ColorsUsed
     solution.Assignments 
     |> Map.iter (fun node color -> printfn "%s → %s" node color)
-| Error err -> 
-    printfn "Error: %s" err.Message
+| Error msg -> 
+    printfn "Error: %s" msg
 ```
 
 ### C# Fluent API
@@ -163,97 +162,140 @@ This is mostly transparent to users: you call the same API, but the backend may 
 ### Graph Coloring
 
 ```fsharp
+open FSharp.Azure.Quantum
+
 // Register allocation for compiler optimization
-let registers = graphColoring {
-    node "R1" ["R2"; "R3"; "R5"]
-    node "R2" ["R1"; "R4"]
-    node "R3" ["R1"; "R4"; "R5"]
-    node "R4" ["R2"; "R3"]
-    node "R5" ["R1"; "R3"]
-    colors ["EAX"; "EBX"; "ECX"; "EDX"]
+let problem = graphColoring {
+    node "Task1" ["Task2"; "Task3"]
+    node "Task2" ["Task1"; "Task4"]
+    node "Task3" ["Task1"; "Task4"]
+    node "Task4" ["Task2"; "Task3"]
+    colors ["Slot A"; "Slot B"; "Slot C"]
     objective MinimizeColors
 }
+
+match GraphColoring.solve problem 3 None with
+| Ok solution ->
+    printfn "Valid coloring: %b" solution.IsValid
+    printfn "Colors used: %d/%d" solution.ColorsUsed 3
+    printfn "Conflicts: %d" solution.ConflictCount
+| Error msg -> printfn "Error: %s" msg
 ```
 
 ### MaxCut
 
 ```fsharp
-// Network community detection
-let vertices = ["User1"; "User2"; "User3"; "User4"]
+let vertices = ["A"; "B"; "C"; "D"]
 let edges = [
-    ("User1", "User2", 3.0)  // interaction strength
-    ("User2", "User3", 5.0)
-    ("User3", "User4", 2.0)
-    ("User4", "User1", 4.0)
+    ("A", "B", 1.0)
+    ("B", "C", 2.0)
+    ("C", "D", 1.0)
+    ("D", "A", 1.0)
 ]
 
 let problem = MaxCut.createProblem vertices edges
-let solution = MaxCut.solve problem None
+
+match MaxCut.solve problem None with
+| Ok solution ->
+    printfn "Partition S: %A" solution.PartitionS
+    printfn "Partition T: %A" solution.PartitionT
+    printfn "Cut value: %.2f" solution.CutValue
+| Error msg -> printfn "Error: %s" msg
 ```
 
 ### Knapsack
 
 ```fsharp
-// Cargo loading optimization
 let items = [
-    ("Electronics", 50.0, 10000.0)
-    ("Furniture", 200.0, 5000.0)
-    ("Textiles", 30.0, 3000.0)
-    ("Machinery", 150.0, 8000.0)
+    ("laptop", 3.0, 1000.0)   // (id, weight, value)
+    ("phone", 0.5, 500.0)
+    ("tablet", 1.5, 700.0)
+    ("monitor", 2.0, 600.0)
 ]
 
-let problem = Knapsack.createProblem items 300.0  // 300kg capacity
+let problem = Knapsack.createProblem items 5.0  // capacity = 5.0
+
+match Knapsack.solve problem None with
+| Ok solution ->
+    printfn "Total value: $%.2f" solution.TotalValue
+    printfn "Total weight: %.2f/%.2f" solution.TotalWeight problem.Capacity
+    printfn "Items: %A" (solution.SelectedItems |> List.map (fun i -> i.Id))
+| Error msg -> printfn "Error: %s" msg
 ```
 
 ### TSP
 
 ```fsharp
-// Delivery route optimization
 let cities = [
-    ("Warehouse", 0.0, 0.0)
-    ("Store A", 5.0, 3.0)
-    ("Store B", 2.0, 7.0)
-    ("Store C", 8.0, 4.0)
+    ("Seattle", 0.0, 0.0)
+    ("Portland", 1.0, 0.5)
+    ("San Francisco", 2.0, 1.5)
+    ("Los Angeles", 3.0, 3.0)
 ]
 
 let problem = TSP.createProblem cities
+
+match TSP.solve problem None with
+| Ok tour ->
+    printfn "Optimal route: %s" (String.concat " → " tour.Cities)
+    printfn "Total distance: %.2f" tour.TotalDistance
+| Error msg -> printfn "Error: %s" msg
 ```
 
 ### Portfolio
 
 ```fsharp
-// Investment allocation
 let assets = [
-    ("Tech ETF", 0.15, 0.20, 100.0)    // return, risk, price
-    ("Bonds", 0.05, 0.05, 50.0)
-    ("Real Estate", 0.10, 0.12, 200.0)
+    ("AAPL", 0.12, 0.15, 150.0)  // (symbol, return, risk, price)
+    ("GOOGL", 0.10, 0.12, 2800.0)
+    ("MSFT", 0.11, 0.14, 350.0)
 ]
 
-let problem = Portfolio.createProblem assets 10000.0  // $10k budget
+let problem = Portfolio.createProblem assets 10000.0  // budget
+
+match Portfolio.solve problem None with
+| Ok allocation ->
+    printfn "Portfolio value: $%.2f" allocation.TotalValue
+    printfn "Expected return: %.2f%%" (allocation.ExpectedReturn * 100.0)
+    printfn "Risk: %.2f" allocation.Risk
+    
+    allocation.Allocations 
+    |> List.iter (fun (symbol, shares, value) ->
+        printfn "  %s: %.2f shares ($%.2f)" symbol shares value)
+| Error msg -> printfn "Error: %s" msg
 ```
 
 ### Network Flow
 
 ```fsharp
-// Supply chain optimization
 let nodes = [
-    { NetworkFlow.Id = "Factory"; NodeType = NetworkFlow.Source; Capacity = 1000 }
-    { NetworkFlow.Id = "Warehouse"; NodeType = NetworkFlow.Intermediate; Capacity = 800 }
-    { NetworkFlow.Id = "Customer"; NodeType = NetworkFlow.Sink; Capacity = 500 }
+    NetworkFlow.SourceNode("Factory", 100)
+    NetworkFlow.IntermediateNode("Warehouse", 80)
+    NetworkFlow.SinkNode("Store1", 40)
+    NetworkFlow.SinkNode("Store2", 60)
 ]
 
 let routes = [
-    { NetworkFlow.From = "Factory"; To = "Warehouse"; Cost = 5.0 }
-    { NetworkFlow.From = "Warehouse"; To = "Customer"; Cost = 3.0 }
+    NetworkFlow.Route("Factory", "Warehouse", 5.0)
+    NetworkFlow.Route("Warehouse", "Store1", 3.0)
+    NetworkFlow.Route("Warehouse", "Store2", 4.0)
 ]
 
 let problem = { NetworkFlow.Nodes = nodes; Routes = routes }
+
+match NetworkFlow.solve problem None with
+| Ok flow ->
+    printfn "Total cost: $%.2f" flow.TotalCost
+    printfn "Fill rate: %.1f%%" (flow.FillRate * 100.0)
+| Error msg -> printfn "Error: %s" msg
 ```
 
 ### Task Scheduling
 
 ```fsharp
-// Manufacturing workflow with dependencies
+open FSharp.Azure.Quantum
+
+// Define tasks with dependencies
 let taskA = scheduledTask {
     taskId "TaskA"
     duration (hours 2.0)
@@ -263,22 +305,47 @@ let taskA = scheduledTask {
 let taskB = scheduledTask {
     taskId "TaskB"
     duration (hours 1.5)
-    after "TaskA"  // Must wait for A
+    after "TaskA"  // Dependency
     requires "Worker" 2.0
     deadline 180.0
 }
 
+let taskC = scheduledTask {
+    taskId "TaskC"
+    duration (minutes 30.0)
+    after "TaskA"
+    requires "Machine" 1.0
+}
+
+// Define resources
+let worker = resource {
+    resourceId "Worker"
+    capacity 3.0
+}
+
+let machine = resource {
+    resourceId "Machine"
+    capacity 2.0
+}
+
+// Build scheduling problem
 let problem = scheduling {
-    tasks [taskA; taskB]
+    tasks [taskA; taskB; taskC]
+    resources [worker; machine]
     objective MinimizeMakespan
+    timeHorizon 500.0
 }
 
 // Solve with quantum backend for resource constraints
-let backend = LocalBackendFactory.createUnified()
+let backend = BackendAbstraction.createLocalBackend()
 match solveQuantum backend problem with
 | Ok solution ->
-    printfn "Makespan: %.2f" solution.Makespan
-| Error err -> printfn "Error: %s" err.Message
+    printfn "Makespan: %.2f hours" solution.Makespan
+    solution.Schedule 
+    |> List.iter (fun assignment ->
+        printfn "%s: starts %.2f, ends %.2f" 
+            assignment.TaskId assignment.StartTime assignment.EndTime)
+| Error msg -> printfn "Error: %s" msg
 ```
 
 ## 🏗️ Architecture
@@ -378,8 +445,8 @@ match solveQuantum backend problem with
 ```fsharp
 // Automatic: No backend parameter needed
 match MaxCut.solve problem None with
-| Ok solution -> printfn "Max cut value: %f" solution.CutValue
-| Error err -> eprintfn "Error: %s" err.Message
+| Ok solution -> printfn "Max cut value: %.2f" solution.CutValue
+| Error msg -> printfn "Error: %s" msg
 ```
 
 **Characteristics:**
@@ -391,38 +458,27 @@ match MaxCut.solve problem None with
 ### Azure Quantum (Cloud)
 
 ```fsharp
-// Create cloud backend - IonQ (trapped-ion)
-let backend_ionq = // Cloud backend requires Azure Quantum workspace configuration
-// createIonQBackend(
-    connectionString = "YOUR_CONNECTION_STRING",
-    targetId = "ionq.simulator"  // or "ionq.qpu"
-)
+open FSharp.Azure.Quantum.Backends.AzureQuantumWorkspace
 
-// Rigetti (superconducting)
-let backend_rigetti = // Cloud backend requires Azure Quantum workspace configuration
-// createRigettiBackend(
-    connectionString = "YOUR_CONNECTION_STRING",
-    targetId = "rigetti.sim.qvm"  // or "rigetti.qpu.*"
-)
+// Create workspace
+let workspace = createDefault "subscription-id" "resource-group" "workspace-name" "eastus"
 
-// Atom Computing (neutral atoms, 100+ qubits, all-to-all connectivity)
-let backend_atom = // Cloud backend requires Azure Quantum workspace
-// createAtomComputingBackend(
-    connectionString = "YOUR_CONNECTION_STRING",
-    targetId = "atom-computing.sim"  // or "atom-computing.qpu.phoenix"
-)
+// IonQ Backend (trapped-ion)
+let backend_ionq = BackendAbstraction.createFromWorkspace workspace "ionq.simulator"
 
-// Quantinuum (trapped-ion, highest fidelity)
-let backend_quantinuum = // Cloud backend requires Azure Quantum workspace
-// createQuantinuumBackend(
-    connectionString = "YOUR_CONNECTION_STRING",
-    targetId = "quantinuum.sim.h1-1sc"  // or "quantinuum.qpu.*"
-)
+// Rigetti Backend (superconducting)
+let backend_rigetti = BackendAbstraction.createFromWorkspace workspace "rigetti.sim.qvm"
+
+// Atom Computing Backend (neutral atoms, 100+ qubits, all-to-all connectivity)
+let backend_atom = BackendAbstraction.createFromWorkspace workspace "atom-computing.sim"
+
+// Quantinuum Backend (trapped-ion, highest fidelity)
+let backend_quantinuum = BackendAbstraction.createFromWorkspace workspace "quantinuum.sim.h1-1sc"
 
 // Pass to solver
 match MaxCut.solve problem (Some backend_atom) with
-| Ok solution -> printfn "Max cut value: %f" solution.CutValue
-| Error err -> eprintfn "Error: %s" err.Message
+| Ok solution -> printfn "Max cut value: %.2f" solution.CutValue
+| Error msg -> printfn "Error: %s" msg
 ```
 
 **Backend Characteristics:**
