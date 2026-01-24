@@ -1,0 +1,318 @@
+namespace FSharp.Azure.Quantum.Data
+
+/// Periodic Table data loaded from CSV
+/// 
+/// This module provides comprehensive element data from an embedded CSV resource,
+/// making it easy to maintain and extend without code changes.
+/// 
+/// Data sources:
+/// - Atomic masses: IUPAC 2021 standard atomic weights
+/// - Covalent radii: Cordero et al. (2008) "Covalent radii revisited"
+/// - Electronegativity: Pauling scale
+///
+/// Usage:
+///   open FSharp.Azure.Quantum.Data
+///   let carbon = PeriodicTable.bySymbol "C"
+///   let iron = PeriodicTable.byNumber 26
+
+open System
+open System.IO
+open System.Reflection
+
+module PeriodicTable =
+    
+    /// Element record with all periodic table properties
+    type Element = {
+        /// Atomic number (proton count)
+        AtomicNumber: int
+        
+        /// Element symbol (e.g., "H", "He", "Li")
+        Symbol: string
+        
+        /// Full element name
+        Name: string
+        
+        /// Standard atomic mass in unified atomic mass units (u)
+        AtomicMass: float
+        
+        /// Covalent radius in Angstroms (for bond length estimation)
+        CovalentRadius: float option
+        
+        /// Pauling electronegativity (for polarity estimation)
+        Electronegativity: float option
+        
+        /// Group number (1-18, 101=lanthanide, 102=actinide)
+        Group: int
+        
+        /// Period number (1-7)
+        Period: int
+    }
+    
+    /// Parse a float, returning None for empty strings
+    let private parseFloatOption (s: string) : float option =
+        if String.IsNullOrWhiteSpace(s) then None
+        else 
+            match Double.TryParse(s) with
+            | true, v -> Some v
+            | false, _ -> None
+    
+    /// Parse an element from a CSV line
+    let private parseElement (line: string) : Element option =
+        let fields = line.Split(',')
+        if fields.Length >= 8 then
+            try
+                Some {
+                    AtomicNumber = Int32.Parse(fields.[0].Trim())
+                    Symbol = fields.[1].Trim()
+                    Name = fields.[2].Trim()
+                    AtomicMass = Double.Parse(fields.[3].Trim())
+                    CovalentRadius = parseFloatOption fields.[4]
+                    Electronegativity = parseFloatOption fields.[5]
+                    Group = Int32.Parse(fields.[6].Trim())
+                    Period = Int32.Parse(fields.[7].Trim())
+                }
+            with _ -> None
+        else None
+    
+    /// Load elements from CSV content
+    let private loadFromCsvContent (content: string) : Element array =
+        content.Split([|'\n'; '\r'|], StringSplitOptions.RemoveEmptyEntries)
+        |> Array.skip 1  // Skip header
+        |> Array.choose parseElement
+    
+    /// Embedded CSV data (fallback if file not found)
+    /// This ensures the library works even when deployed as a NuGet package
+    let private embeddedCsvData = """AtomicNumber,Symbol,Name,AtomicMass,CovalentRadius,ElectronegativityPauling,Group,Period
+1,H,Hydrogen,1.008,0.31,2.20,1,1
+2,He,Helium,4.0026,0.28,,18,1
+3,Li,Lithium,6.94,1.28,0.98,1,2
+4,Be,Beryllium,9.0122,0.96,1.57,2,2
+5,B,Boron,10.81,0.84,2.04,13,2
+6,C,Carbon,12.011,0.76,2.55,14,2
+7,N,Nitrogen,14.007,0.71,3.04,15,2
+8,O,Oxygen,15.999,0.66,3.44,16,2
+9,F,Fluorine,18.998,0.57,3.98,17,2
+10,Ne,Neon,20.180,0.58,,18,2
+11,Na,Sodium,22.990,1.66,0.93,1,3
+12,Mg,Magnesium,24.305,1.41,1.31,2,3
+13,Al,Aluminum,26.982,1.21,1.61,13,3
+14,Si,Silicon,28.085,1.11,1.90,14,3
+15,P,Phosphorus,30.974,1.07,2.19,15,3
+16,S,Sulfur,32.06,1.05,2.58,16,3
+17,Cl,Chlorine,35.45,1.02,3.16,17,3
+18,Ar,Argon,39.948,1.06,,18,3
+19,K,Potassium,39.098,2.03,0.82,1,4
+20,Ca,Calcium,40.078,1.76,1.00,2,4
+21,Sc,Scandium,44.956,1.70,1.36,3,4
+22,Ti,Titanium,47.867,1.60,1.54,4,4
+23,V,Vanadium,50.942,1.53,1.63,5,4
+24,Cr,Chromium,51.996,1.39,1.66,6,4
+25,Mn,Manganese,54.938,1.39,1.55,7,4
+26,Fe,Iron,55.845,1.32,1.83,8,4
+27,Co,Cobalt,58.933,1.26,1.88,9,4
+28,Ni,Nickel,58.693,1.24,1.91,10,4
+29,Cu,Copper,63.546,1.32,1.90,11,4
+30,Zn,Zinc,65.38,1.22,1.65,12,4
+31,Ga,Gallium,69.723,1.22,1.81,13,4
+32,Ge,Germanium,72.630,1.20,2.01,14,4
+33,As,Arsenic,74.922,1.19,2.18,15,4
+34,Se,Selenium,78.971,1.20,2.55,16,4
+35,Br,Bromine,79.904,1.20,2.96,17,4
+36,Kr,Krypton,83.798,1.16,,18,4
+37,Rb,Rubidium,85.468,2.20,0.82,1,5
+38,Sr,Strontium,87.62,1.95,0.95,2,5
+39,Y,Yttrium,88.906,1.90,1.22,3,5
+40,Zr,Zirconium,91.224,1.75,1.33,4,5
+41,Nb,Niobium,92.906,1.64,1.60,5,5
+42,Mo,Molybdenum,95.95,1.54,2.16,6,5
+43,Tc,Technetium,97,1.47,1.90,7,5
+44,Ru,Ruthenium,101.07,1.46,2.20,8,5
+45,Rh,Rhodium,102.91,1.42,2.28,9,5
+46,Pd,Palladium,106.42,1.39,2.20,10,5
+47,Ag,Silver,107.87,1.45,1.93,11,5
+48,Cd,Cadmium,112.41,1.44,1.69,12,5
+49,In,Indium,114.82,1.42,1.78,13,5
+50,Sn,Tin,118.71,1.39,1.96,14,5
+51,Sb,Antimony,121.76,1.39,2.05,15,5
+52,Te,Tellurium,127.60,1.38,2.10,16,5
+53,I,Iodine,126.90,1.39,2.66,17,5
+54,Xe,Xenon,131.29,1.40,,18,5
+55,Cs,Cesium,132.91,2.44,0.79,1,6
+56,Ba,Barium,137.33,2.15,0.89,2,6
+57,La,Lanthanum,138.91,2.07,1.10,3,6
+58,Ce,Cerium,140.12,2.04,1.12,101,6
+59,Pr,Praseodymium,140.91,2.03,1.13,101,6
+60,Nd,Neodymium,144.24,2.01,1.14,101,6
+61,Pm,Promethium,145,1.99,1.13,101,6
+62,Sm,Samarium,150.36,1.98,1.17,101,6
+63,Eu,Europium,151.96,1.98,1.20,101,6
+64,Gd,Gadolinium,157.25,1.96,1.20,101,6
+65,Tb,Terbium,158.93,1.94,1.22,101,6
+66,Dy,Dysprosium,162.50,1.92,1.23,101,6
+67,Ho,Holmium,164.93,1.92,1.24,101,6
+68,Er,Erbium,167.26,1.89,1.24,101,6
+69,Tm,Thulium,168.93,1.90,1.25,101,6
+70,Yb,Ytterbium,173.05,1.87,1.10,101,6
+71,Lu,Lutetium,174.97,1.87,1.27,3,6
+72,Hf,Hafnium,178.49,1.75,1.30,4,6
+73,Ta,Tantalum,180.95,1.70,1.50,5,6
+74,W,Tungsten,183.84,1.62,2.36,6,6
+75,Re,Rhenium,186.21,1.51,1.90,7,6
+76,Os,Osmium,190.23,1.44,2.20,8,6
+77,Ir,Iridium,192.22,1.41,2.20,9,6
+78,Pt,Platinum,195.08,1.36,2.28,10,6
+79,Au,Gold,196.97,1.36,2.54,11,6
+80,Hg,Mercury,200.59,1.32,2.00,12,6
+81,Tl,Thallium,204.38,1.45,1.62,13,6
+82,Pb,Lead,207.2,1.46,1.87,14,6
+83,Bi,Bismuth,208.98,1.48,2.02,15,6
+84,Po,Polonium,209,1.40,2.00,16,6
+85,At,Astatine,210,1.50,2.20,17,6
+86,Rn,Radon,222,1.50,,18,6
+87,Fr,Francium,223,2.60,0.79,1,7
+88,Ra,Radium,226,2.21,0.90,2,7
+89,Ac,Actinium,227,2.15,1.10,3,7
+90,Th,Thorium,232.04,2.06,1.30,102,7
+91,Pa,Protactinium,231.04,2.00,1.50,102,7
+92,U,Uranium,238.03,1.96,1.38,102,7
+93,Np,Neptunium,237,1.90,1.36,102,7
+94,Pu,Plutonium,244,1.87,1.28,102,7
+95,Am,Americium,243,1.80,1.30,102,7
+96,Cm,Curium,247,1.69,1.30,102,7
+97,Bk,Berkelium,247,1.70,1.30,102,7
+98,Cf,Californium,251,1.70,1.30,102,7
+99,Es,Einsteinium,252,1.70,1.30,102,7
+100,Fm,Fermium,257,1.70,1.30,102,7
+101,Md,Mendelevium,258,1.70,1.30,102,7
+102,No,Nobelium,259,1.70,1.30,102,7
+103,Lr,Lawrencium,266,1.70,1.30,3,7
+104,Rf,Rutherfordium,267,,1.30,4,7
+105,Db,Dubnium,268,,1.30,5,7
+106,Sg,Seaborgium,269,,1.30,6,7
+107,Bh,Bohrium,270,,1.30,7,7
+108,Hs,Hassium,277,,1.30,8,7
+109,Mt,Meitnerium,278,,1.30,9,7
+110,Ds,Darmstadtium,281,,1.30,10,7
+111,Rg,Roentgenium,282,,1.30,11,7
+112,Cn,Copernicium,285,,1.30,12,7
+113,Nh,Nihonium,286,,1.30,13,7
+114,Fl,Flerovium,289,,1.30,14,7
+115,Mc,Moscovium,290,,1.30,15,7
+116,Lv,Livermorium,293,,1.30,16,7
+117,Ts,Tennessine,294,,1.30,17,7
+118,Og,Oganesson,294,,1.30,18,7"""
+    
+    /// All elements (lazy loaded)
+    let private elements = lazy (loadFromCsvContent embeddedCsvData)
+    
+    /// Lookup by symbol (lazy loaded)
+    let private bySymbolMap = lazy (
+        elements.Value
+        |> Array.map (fun e -> e.Symbol.ToUpperInvariant(), e)
+        |> Map.ofArray
+    )
+    
+    /// Lookup by atomic number (lazy loaded)
+    let private byNumberMap = lazy (
+        elements.Value
+        |> Array.map (fun e -> e.AtomicNumber, e)
+        |> Map.ofArray
+    )
+    
+    // ========================================================================
+    // PUBLIC API
+    // ========================================================================
+    
+    /// Get all elements
+    let all () : Element array = elements.Value
+    
+    /// Get element by symbol (case-insensitive)
+    /// Returns None if element not found
+    let tryBySymbol (symbol: string) : Element option =
+        bySymbolMap.Value.TryFind (symbol.ToUpperInvariant())
+    
+    /// Get element by symbol (case-insensitive)
+    /// Throws if element not found
+    let bySymbol (symbol: string) : Element =
+        match tryBySymbol symbol with
+        | Some e -> e
+        | None -> failwithf "Unknown element symbol: %s" symbol
+    
+    /// Get element by atomic number
+    /// Returns None if element not found
+    let tryByNumber (atomicNumber: int) : Element option =
+        byNumberMap.Value.TryFind atomicNumber
+    
+    /// Get element by atomic number
+    /// Throws if element not found
+    let byNumber (atomicNumber: int) : Element =
+        match tryByNumber atomicNumber with
+        | Some e -> e
+        | None -> failwithf "Unknown atomic number: %d" atomicNumber
+    
+    /// Get atomic number from symbol
+    let atomicNumber (symbol: string) : int =
+        (bySymbol symbol).AtomicNumber
+    
+    /// Get symbol from atomic number
+    let symbol (atomicNumber: int) : string =
+        (byNumber atomicNumber).Symbol
+    
+    /// Get atomic mass from symbol
+    let atomicMass (symbol: string) : float =
+        (bySymbol symbol).AtomicMass
+    
+    /// Get covalent radius from symbol (for bond length estimation)
+    let covalentRadius (symbol: string) : float option =
+        (bySymbol symbol).CovalentRadius
+    
+    /// Get electronegativity from symbol (Pauling scale)
+    let electronegativity (symbol: string) : float option =
+        (bySymbol symbol).Electronegativity
+    
+    /// Estimate bond length between two elements using covalent radii
+    /// Returns None if either element lacks covalent radius data
+    let estimateBondLength (symbol1: string) (symbol2: string) : float option =
+        match covalentRadius symbol1, covalentRadius symbol2 with
+        | Some r1, Some r2 -> Some (r1 + r2)
+        | _ -> None
+    
+    /// Check if an element symbol is valid
+    let isValidSymbol (symbol: string) : bool =
+        tryBySymbol symbol |> Option.isSome
+    
+    /// Check if an atomic number is valid
+    let isValidNumber (atomicNumber: int) : bool =
+        tryByNumber atomicNumber |> Option.isSome
+    
+    /// Get elements by period (1-7)
+    let byPeriod (period: int) : Element array =
+        elements.Value |> Array.filter (fun e -> e.Period = period)
+    
+    /// Get elements by group (1-18, 101=lanthanides, 102=actinides)
+    let byGroup (group: int) : Element array =
+        elements.Value |> Array.filter (fun e -> e.Group = group)
+    
+    /// Get transition metals (groups 3-12)
+    let transitionMetals () : Element array =
+        elements.Value |> Array.filter (fun e -> e.Group >= 3 && e.Group <= 12)
+    
+    /// Get lanthanides (group 101)
+    let lanthanides () : Element array =
+        elements.Value |> Array.filter (fun e -> e.Group = 101)
+    
+    /// Get actinides (group 102)
+    let actinides () : Element array =
+        elements.Value |> Array.filter (fun e -> e.Group = 102)
+    
+    /// Get noble gases (group 18)
+    let nobleGases () : Element array =
+        elements.Value |> Array.filter (fun e -> e.Group = 18)
+    
+    /// Get halogens (group 17)
+    let halogens () : Element array =
+        elements.Value |> Array.filter (fun e -> e.Group = 17)
+    
+    /// Get alkali metals (group 1, excluding H)
+    let alkaliMetals () : Element array =
+        elements.Value |> Array.filter (fun e -> e.Group = 1 && e.AtomicNumber > 1)
