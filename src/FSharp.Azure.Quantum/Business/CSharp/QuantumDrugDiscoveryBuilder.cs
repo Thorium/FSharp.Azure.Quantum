@@ -1,5 +1,6 @@
 namespace FSharp.Azure.Quantum.Business.CSharp;
 
+using FSharp.Azure.Quantum.Business;
 using FSharp.Azure.Quantum.Core;
 using Microsoft.FSharp.Core;
 using static FSharp.Azure.Quantum.Business.QuantumDrugDiscoveryDSL;
@@ -116,9 +117,15 @@ public class QuantumDrugDiscoveryBuilder
     /// </returns>
     public FSharpResult<ScreeningResult, QuantumError> Run()
     {
+        // Build CandidateSource from _candidatesPath if provided
+        var candidateSource = _candidatesPath == null
+            ? FSharpOption<CandidateSource>.None
+            : FSharpOption<CandidateSource>.Some(CandidateSource.NewFilePath(_candidatesPath));
+
         var config = new DrugDiscoveryConfiguration(
             _targetPdbPath == null ? FSharpOption<string>.None : FSharpOption<string>.Some(_targetPdbPath),
             _candidatesPath == null ? FSharpOption<string>.None : FSharpOption<string>.Some(_candidatesPath),
+            candidateSource,
             _method,
             _featureMap,
             _batchSize,
