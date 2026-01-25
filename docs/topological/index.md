@@ -333,5 +333,5 @@ This documentation and the FSharp.Azure.Quantum.Topological library are licensed
 ---
 
 **Last Updated:** December 2025  
-**Library Version:** 0.3.2  
-**F# Version:** 8.0+
+**Library Version:** 0.3.3  
+**F# Version:** 10.0

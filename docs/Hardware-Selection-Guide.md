@@ -135,21 +135,27 @@ let workspace = AzureQuantumWorkspace.create
 let ionqBackend = IonQBackend.create workspace "ionq.simulator"  // or "ionq.qpu"
 
 // Run VQE on IonQ
+open FSharp.Azure.Quantum.QuantumChemistry
+
 let h2 = Molecule.createH2 0.74  // H2 molecule
 let config = {
     Method = GroundStateMethod.VQE
     MaxIterations = 100
     Tolerance = 1e-6
     InitialParameters = None
+    Backend = Some ionqBackend
+    ProgressReporter = None
+    ErrorMitigation = None
+    IntegralProvider = None
 }
 
 async {
-    let! result = QuantumChemistry.estimateGroundState h2 config (Some ionqBackend)
+    let! result = GroundStateEnergy.estimateEnergy h2 config
     match result with
     | Ok vqeResult -> 
         printfn "Ground state energy: %.6f Hartree" vqeResult.Energy
     | Error err -> 
-        printfn "Error: %s" err.Message
+        printfn "Error: %A" err
 }
 |> Async.RunSynchronously
 ```

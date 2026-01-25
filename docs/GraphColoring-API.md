@@ -129,7 +129,7 @@ let problem = graphColoring {
 ```fsharp
 // High-priority variable with metadata
 let criticalVar = coloredNode {
-    id "R1"
+    nodeId "R1"
     conflictsWith ["R2"; "R3"]
     fixedColor "EAX"        // Pre-assign to specific register
     priority 100.0          // High priority for allocation
@@ -140,7 +140,7 @@ let criticalVar = coloredNode {
 }
 
 let normalVar = coloredNode {
-    id "R2"
+    nodeId "R2"
     conflictsWith ["R1"]
     priority 1.0
 }
@@ -234,7 +234,7 @@ type ColoringSolution = {
 
 | Operation | Description | Example |
 |-----------|-------------|---------|
-| `id "R1"` | Set node ID (required) | `id "Variable1"` |
+| `nodeId "R1"` | Set node ID (required) | `nodeId "Variable1"` |
 | `conflictsWith ["R2"]` | Set conflicts (required) | `conflictsWith ["R2"; "R3"]` |
 | `fixedColor "Red"` | Pre-assign color | `fixedColor "EAX"` |
 | `priority 10.0` | Set priority (default 0.0) | `priority 100.0` |
@@ -599,7 +599,7 @@ let nodesList2 = loadFromDatabase()
 
 // Level 3: Full builder
 let _ = coloredNode {
-    id "A"
+    nodeId "A"
     conflictsWith ["B"]
     fixedColor "Red"
     priority 100.0
