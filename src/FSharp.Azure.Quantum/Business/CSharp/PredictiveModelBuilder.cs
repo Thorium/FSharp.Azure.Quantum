@@ -65,7 +65,8 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// Set training features (samples × features matrix).
         /// Each row is one sample, each column is one feature.
         /// </summary>
-        /// <returns></returns>
+        /// <param name="features">Training features matrix.</param>
+        /// <returns>The current <see cref="PredictiveModelBuilder"/> instance for chaining.</returns>
         public PredictiveModelBuilder WithFeatures(double[][] features)
         {
             ArgumentNullException.ThrowIfNull(features);
@@ -78,7 +79,8 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// For regression: continuous values (e.g., revenue, demand).
         /// For multi-class: integer labels 0, 1, 2, ... (e.g., churn timing categories).
         /// </summary>
-        /// <returns></returns>
+        /// <param name="targets">Training targets array.</param>
+        /// <returns>The current <see cref="PredictiveModelBuilder"/> instance for chaining.</returns>
         public PredictiveModelBuilder WithTargets(double[] targets)
         {
             ArgumentNullException.ThrowIfNull(targets);
@@ -89,7 +91,8 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// <summary>
         /// Set training targets from integer array (convenience for multi-class).
         /// </summary>
-        /// <returns></returns>
+        /// <param name="targets">Training targets array.</param>
+        /// <returns>The current <see cref="PredictiveModelBuilder"/> instance for chaining.</returns>
         public PredictiveModelBuilder WithTargets(int[] targets)
         {
             ArgumentNullException.ThrowIfNull(targets);
@@ -101,7 +104,8 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// Specify problem type: Regression or MultiClass.
         /// Default: Regression.
         /// </summary>
-        /// <returns></returns>
+        /// <param name="problemType">Problem type to use.</param>
+        /// <returns>The current <see cref="PredictiveModelBuilder"/> instance for chaining.</returns>
         public PredictiveModelBuilder WithProblemType(ProblemType problemType)
         {
             _problemType = problemType;
@@ -112,7 +116,8 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// Choose model architecture (Quantum, Hybrid, or Classical).
         /// Default: Quantum.
         /// </summary>
-        /// <returns></returns>
+        /// <param name="architecture">Model architecture to use.</param>
+        /// <returns>The current <see cref="PredictiveModelBuilder"/> instance for chaining.</returns>
         public PredictiveModelBuilder WithArchitecture(ModelArchitecture architecture)
         {
             _architecture = architecture;
@@ -123,7 +128,8 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// Set learning rate for training.
         /// Default: 0.01.
         /// </summary>
-        /// <returns></returns>
+        /// <param name="learningRate">Learning rate value.</param>
+        /// <returns>The current <see cref="PredictiveModelBuilder"/> instance for chaining.</returns>
         public PredictiveModelBuilder WithLearningRate(double learningRate)
         {
             _learningRate = learningRate;
@@ -134,7 +140,8 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// Set maximum number of training epochs.
         /// Default: 100.
         /// </summary>
-        /// <returns></returns>
+        /// <param name="maxEpochs">Maximum number of epochs.</param>
+        /// <returns>The current <see cref="PredictiveModelBuilder"/> instance for chaining.</returns>
         public PredictiveModelBuilder WithMaxEpochs(int maxEpochs)
         {
             _maxEpochs = maxEpochs;
@@ -145,7 +152,8 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// Set convergence threshold for early stopping.
         /// Default: 0.001.
         /// </summary>
-        /// <returns></returns>
+        /// <param name="threshold">Convergence threshold value.</param>
+        /// <returns>The current <see cref="PredictiveModelBuilder"/> instance for chaining.</returns>
         public PredictiveModelBuilder WithConvergenceThreshold(double threshold)
         {
             _convergenceThreshold = threshold;
@@ -156,7 +164,8 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// Specify quantum backend to use.
         /// Default: LocalBackend (simulation).
         /// </summary>
-        /// <returns></returns>
+        /// <param name="backend">Quantum backend to use.</param>
+        /// <returns>The current <see cref="PredictiveModelBuilder"/> instance for chaining.</returns>
         public PredictiveModelBuilder WithBackend(IQuantumBackend backend)
         {
             ArgumentNullException.ThrowIfNull(backend);
@@ -168,7 +177,8 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// Set number of measurement shots for quantum circuits.
         /// Default: 1000.
         /// </summary>
-        /// <returns></returns>
+        /// <param name="shots">Number of measurement shots.</param>
+        /// <returns>The current <see cref="PredictiveModelBuilder"/> instance for chaining.</returns>
         public PredictiveModelBuilder WithShots(int shots)
         {
             _shots = shots;
@@ -179,7 +189,8 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// Enable verbose logging during training.
         /// Default: false.
         /// </summary>
-        /// <returns></returns>
+        /// <param name="verbose">Whether to enable verbose logging.</param>
+        /// <returns>The current <see cref="PredictiveModelBuilder"/> instance for chaining.</returns>
         public PredictiveModelBuilder WithVerbose(bool verbose = true)
         {
             _verbose = verbose;
@@ -189,7 +200,8 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// <summary>
         /// Save trained model to specified path.
         /// </summary>
-        /// <returns></returns>
+        /// <param name="path">Path to save the model.</param>
+        /// <returns>The current <see cref="PredictiveModelBuilder"/> instance for chaining.</returns>
         public PredictiveModelBuilder SaveModelTo(string path)
         {
             ArgumentNullException.ThrowIfNull(path);
@@ -200,7 +212,8 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// <summary>
         /// Add optional note about the model (saved in metadata).
         /// </summary>
-        /// <returns></returns>
+        /// <param name="note">Note to save with the model.</param>
+        /// <returns>The current <see cref="PredictiveModelBuilder"/> instance for chaining.</returns>
         public PredictiveModelBuilder WithNote(string note)
         {
             ArgumentNullException.ThrowIfNull(note);
@@ -213,7 +226,7 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// Returns a trained model ready for predictions.
         /// </summary>
         /// <exception cref="InvalidOperationException">Thrown if training fails.</exception>
-        /// <returns></returns>
+        /// <returns>A trained <see cref="IPredictiveModel"/> instance.</returns>
         public IPredictiveModel Build()
         {
             // Convert ProblemType to F# type
@@ -252,7 +265,8 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// <summary>
         /// Load a previously trained model from file.
         /// </summary>
-        /// <returns></returns>
+        /// <param name="path">Path to the saved model file.</param>
+        /// <returns>A loaded <see cref="IPredictiveModel"/> instance.</returns>
         public static IPredictiveModel LoadFrom(string path)
         {
             ArgumentNullException.ThrowIfNull(path);
@@ -344,18 +358,23 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// <summary>
         /// Evaluate regression model on test set.
         /// </summary>
-        /// <returns></returns>
+        /// <param name="testFeatures">Test features matrix.</param>
+        /// <param name="testTargets">Test targets array.</param>
+        /// <returns>Regression evaluation metrics.</returns>
         RegressionMetrics EvaluateRegression(double[][] testFeatures, double[] testTargets);
 
         /// <summary>
         /// Evaluate multi-class model on test set.
         /// </summary>
-        /// <returns></returns>
+        /// <param name="testFeatures">Test features matrix.</param>
+        /// <param name="testTargets">Test targets array.</param>
+        /// <returns>Multi-class evaluation metrics.</returns>
         MultiClassMetrics EvaluateMultiClass(double[][] testFeatures, int[] testTargets);
 
         /// <summary>
         /// Save model to file.
         /// </summary>
+        /// <param name="path">Path to save the model.</param>
         void SaveTo(string path);
 
         /// <summary>

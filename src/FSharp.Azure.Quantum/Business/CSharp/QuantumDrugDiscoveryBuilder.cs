@@ -1,6 +1,5 @@
 namespace FSharp.Azure.Quantum.Business.CSharp;
 
-using FSharp.Azure.Quantum.Business;
 using FSharp.Azure.Quantum.Core;
 using Microsoft.FSharp.Core;
 using static FSharp.Azure.Quantum.Business.QuantumDrugDiscoveryDSL;
@@ -20,6 +19,10 @@ public class QuantumDrugDiscoveryBuilder
     private int _fingerprintSize = 8;
     private int _shots = 100;
     private IQuantumBackend? _backend;
+    private int _vqcLayers = 2;
+    private int _vqcMaxEpochs = 50;
+    private double _selectionBudget = 10.0;
+    private double _diversityWeight = 0.5;
 
     /// <summary>
     /// Sets the target protein structure from a PDB file path.
@@ -110,6 +113,50 @@ public class QuantumDrugDiscoveryBuilder
     }
 
     /// <summary>
+    /// Sets the number of VQC ansatz layers (for VQCClassifier method).
+    /// </summary>
+    /// <param name="layers">Number of layers (default: 2).</param>
+    /// <returns>The current builder instance.</returns>
+    public QuantumDrugDiscoveryBuilder WithVQCLayers(int layers)
+    {
+        _vqcLayers = layers;
+        return this;
+    }
+
+    /// <summary>
+    /// Sets the maximum training epochs for VQC (for VQCClassifier method).
+    /// </summary>
+    /// <param name="epochs">Maximum epochs (default: 50).</param>
+    /// <returns>The current builder instance.</returns>
+    public QuantumDrugDiscoveryBuilder WithVQCMaxEpochs(int epochs)
+    {
+        _vqcMaxEpochs = epochs;
+        return this;
+    }
+
+    /// <summary>
+    /// Sets the budget constraint for diverse selection (for QAOADiverseSelection method).
+    /// </summary>
+    /// <param name="budget">Budget constraint (default: 10.0).</param>
+    /// <returns>The current builder instance.</returns>
+    public QuantumDrugDiscoveryBuilder WithSelectionBudget(double budget)
+    {
+        _selectionBudget = budget;
+        return this;
+    }
+
+    /// <summary>
+    /// Sets the diversity weight for QAOA selection (for QAOADiverseSelection method).
+    /// </summary>
+    /// <param name="weight">Diversity weight (default: 0.5).</param>
+    /// <returns>The current builder instance.</returns>
+    public QuantumDrugDiscoveryBuilder WithDiversityWeight(double weight)
+    {
+        _diversityWeight = weight;
+        return this;
+    }
+
+    /// <summary>
     /// Builds the configuration and runs the drug discovery workflow.
     /// </summary>
     /// <returns>
@@ -131,9 +178,12 @@ public class QuantumDrugDiscoveryBuilder
             _batchSize,
             _fingerprintSize,
             _shots,
-            _backend == null ? FSharpOption<IQuantumBackend>.None : FSharpOption<IQuantumBackend>.Some(_backend));
+            _backend == null ? FSharpOption<IQuantumBackend>.None : FSharpOption<IQuantumBackend>.Some(_backend),
+            _vqcLayers,
+            _vqcMaxEpochs,
+            _selectionBudget,
+            _diversityWeight);
 
         return drugDiscovery.Run(FSharpFunc<Unit, DrugDiscoveryConfiguration>.FromConverter(_ => config));
     }
-
 }

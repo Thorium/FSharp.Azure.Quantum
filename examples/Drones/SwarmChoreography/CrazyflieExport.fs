@@ -8,7 +8,7 @@
 /// - cflib high-level commander API
 /// - JSON waypoint export
 /// - Direct Python script generation
-module FSharp.Azure.Quantum.Examples.Drone.SwarmChoreography.CrazyflieExport
+module FSharp.Azure.Quantum.Examples.Drones.SwarmChoreography.CrazyflieExport
 
 open System
 open System.IO

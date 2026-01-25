@@ -14,7 +14,7 @@
 /// CRAZYFLIE EXPORT:
 /// - Use --export to generate Python scripts for real drone automation
 /// - Supports Crazyflie 2.1 with Lighthouse/Loco positioning
-namespace FSharp.Azure.Quantum.Examples.Drone.SwarmChoreography
+namespace FSharp.Azure.Quantum.Examples.Drones.SwarmChoreography
 
 open System
 open System.Diagnostics
@@ -26,7 +26,7 @@ open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.Backends.LocalBackend
 
 open FSharp.Azure.Quantum.Examples.Common
-open FSharp.Azure.Quantum.Examples.Drone.Domain
+open FSharp.Azure.Quantum.Examples.Drones.Domain
 
 // =============================================================================
 // DOMAIN TYPES (same as full version)

@@ -40,7 +40,8 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// <summary>
         /// Set training features (samples × features matrix).
         /// </summary>
-        /// <returns></returns>
+        /// <param name="features">Training features matrix.</param>
+        /// <returns>The builder instance for chaining.</returns>
         public BinaryClassificationBuilder WithFeatures(double[][] features)
         {
             ArgumentNullException.ThrowIfNull(features);
@@ -51,7 +52,8 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// <summary>
         /// Set training labels (0 or 1 for each sample).
         /// </summary>
-        /// <returns></returns>
+        /// <param name="labels">Training labels array.</param>
+        /// <returns>The builder instance for chaining.</returns>
         public BinaryClassificationBuilder WithLabels(int[] labels)
         {
             ArgumentNullException.ThrowIfNull(labels);
@@ -63,7 +65,8 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// Choose classification architecture (Quantum, Hybrid, or Classical).
         /// Default: Quantum.
         /// </summary>
-        /// <returns></returns>
+        /// <param name="architecture">Classification architecture to use.</param>
+        /// <returns>The builder instance for chaining.</returns>
         public BinaryClassificationBuilder WithArchitecture(Architecture architecture)
         {
             _architecture = architecture;
@@ -74,7 +77,8 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// Set learning rate for training.
         /// Default: 0.01.
         /// </summary>
-        /// <returns></returns>
+        /// <param name="learningRate">Learning rate value.</param>
+        /// <returns>The builder instance for chaining.</returns>
         public BinaryClassificationBuilder WithLearningRate(double learningRate)
         {
             _learningRate = learningRate;
@@ -85,7 +89,8 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// Set maximum number of training epochs.
         /// Default: 100.
         /// </summary>
-        /// <returns></returns>
+        /// <param name="maxEpochs">Maximum number of epochs.</param>
+        /// <returns>The builder instance for chaining.</returns>
         public BinaryClassificationBuilder WithMaxEpochs(int maxEpochs)
         {
             _maxEpochs = maxEpochs;
@@ -96,7 +101,8 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// Set convergence threshold for early stopping.
         /// Default: 0.001.
         /// </summary>
-        /// <returns></returns>
+        /// <param name="threshold">Convergence threshold value.</param>
+        /// <returns>The builder instance for chaining.</returns>
         public BinaryClassificationBuilder WithConvergenceThreshold(double threshold)
         {
             _convergenceThreshold = threshold;
@@ -107,7 +113,8 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// Specify quantum backend to use.
         /// Default: LocalBackend (simulation).
         /// </summary>
-        /// <returns></returns>
+        /// <param name="backend">Quantum backend to use.</param>
+        /// <returns>The builder instance for chaining.</returns>
         public BinaryClassificationBuilder WithBackend(IQuantumBackend backend)
         {
             ArgumentNullException.ThrowIfNull(backend);
@@ -119,7 +126,8 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// Set number of measurement shots for quantum circuits.
         /// Default: 1000.
         /// </summary>
-        /// <returns></returns>
+        /// <param name="shots">Number of measurement shots.</param>
+        /// <returns>The builder instance for chaining.</returns>
         public BinaryClassificationBuilder WithShots(int shots)
         {
             _shots = shots;
@@ -130,7 +138,8 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// Enable verbose logging during training.
         /// Default: false.
         /// </summary>
-        /// <returns></returns>
+        /// <param name="verbose">Whether to enable verbose logging.</param>
+        /// <returns>The builder instance for chaining.</returns>
         public BinaryClassificationBuilder WithVerbose(bool verbose = true)
         {
             _verbose = verbose;
@@ -140,7 +149,8 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// <summary>
         /// Save trained model to specified path.
         /// </summary>
-        /// <returns></returns>
+        /// <param name="path">Path to save the model.</param>
+        /// <returns>The builder instance for chaining.</returns>
         public BinaryClassificationBuilder SaveModelTo(string path)
         {
             ArgumentNullException.ThrowIfNull(path);
@@ -151,7 +161,8 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// <summary>
         /// Add optional note about the model (saved in metadata).
         /// </summary>
-        /// <returns></returns>
+        /// <param name="note">Note to save with the model.</param>
+        /// <returns>The builder instance for chaining.</returns>
         public BinaryClassificationBuilder WithNote(string note)
         {
             ArgumentNullException.ThrowIfNull(note);
@@ -164,13 +175,13 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// Returns a trained classifier ready for predictions.
         /// </summary>
         /// <exception cref="InvalidOperationException">Thrown if training fails.</exception>
-        /// <returns></returns>
+        /// <returns>A trained <see cref="IBinaryClassifier"/> instance.</returns>
         public IBinaryClassifier Build()
         {
             // Build F# problem specification
             var problem = new BinaryClassifier.ClassificationProblem(
-                (double[][])(_trainFeatures ?? throw new InvalidOperationException("Training features are required")),
-                (int[])(_trainLabels ?? throw new InvalidOperationException("Training labels are required")),
+                _trainFeatures ?? throw new InvalidOperationException("Training features are required"),
+                _trainLabels ?? throw new InvalidOperationException("Training labels are required"),
                 ConvertArchitecture(_architecture),
                 _learningRate,
                 _maxEpochs,
@@ -197,7 +208,8 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// <summary>
         /// Load a previously trained classifier from file.
         /// </summary>
-        /// <returns></returns>
+        /// <param name="path">Path to the saved classifier file.</param>
+        /// <returns>A loaded <see cref="IBinaryClassifier"/> instance.</returns>
         public static IBinaryClassifier LoadFrom(string path)
         {
             ArgumentNullException.ThrowIfNull(path);
@@ -262,6 +274,7 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// <summary>
         /// Save classifier to file.
         /// </summary>
+        /// <param name="path">Path to save the classifier.</param>
         void SaveTo(string path);
 
         /// <summary>

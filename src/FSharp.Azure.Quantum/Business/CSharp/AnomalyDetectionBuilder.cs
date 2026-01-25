@@ -34,7 +34,8 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// Set training data (normal examples only).
         /// The detector will learn what "normal" looks like from this data.
         /// </summary>
-        /// <returns></returns>
+        /// <param name="normalData">Training data containing normal examples.</param>
+        /// <returns>The builder instance for chaining.</returns>
         public AnomalyDetectionBuilder TrainOnNormalData(double[][] normalData)
         {
             ArgumentNullException.ThrowIfNull(normalData);
@@ -49,7 +50,8 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// High: More sensitive, more false alarms
         /// VeryHigh: Maximum sensitivity.
         /// </summary>
-        /// <returns></returns>
+        /// <param name="sensitivity">Sensitivity level for detection.</param>
+        /// <returns>The builder instance for chaining.</returns>
         public AnomalyDetectionBuilder WithSensitivity(Sensitivity sensitivity)
         {
             _sensitivity = sensitivity;
@@ -61,7 +63,8 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// If you know some training data may contain anomalies, set this.
         /// Default: 0.05 (5%).
         /// </summary>
-        /// <returns></returns>
+        /// <param name="rate">Contamination rate value.</param>
+        /// <returns>The builder instance for chaining.</returns>
         public AnomalyDetectionBuilder WithContaminationRate(double rate)
         {
             _contaminationRate = rate;
@@ -72,7 +75,8 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// Specify quantum backend to use.
         /// Default: LocalBackend (simulation).
         /// </summary>
-        /// <returns></returns>
+        /// <param name="backend">Quantum backend to use.</param>
+        /// <returns>The builder instance for chaining.</returns>
         public AnomalyDetectionBuilder WithBackend(IQuantumBackend backend)
         {
             ArgumentNullException.ThrowIfNull(backend);
@@ -84,7 +88,8 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// Set number of measurement shots for quantum circuits.
         /// Default: 1000.
         /// </summary>
-        /// <returns></returns>
+        /// <param name="shots">Number of measurement shots.</param>
+        /// <returns>The builder instance for chaining.</returns>
         public AnomalyDetectionBuilder WithShots(int shots)
         {
             _shots = shots;
@@ -95,7 +100,8 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// Enable verbose logging during training.
         /// Default: false.
         /// </summary>
-        /// <returns></returns>
+        /// <param name="verbose">Whether to enable verbose logging.</param>
+        /// <returns>The builder instance for chaining.</returns>
         public AnomalyDetectionBuilder WithVerbose(bool verbose = true)
         {
             _verbose = verbose;
@@ -105,7 +111,8 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// <summary>
         /// Save trained model to specified path.
         /// </summary>
-        /// <returns></returns>
+        /// <param name="path">Path to save the model.</param>
+        /// <returns>The builder instance for chaining.</returns>
         public AnomalyDetectionBuilder SaveModelTo(string path)
         {
             ArgumentNullException.ThrowIfNull(path);
@@ -116,7 +123,8 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// <summary>
         /// Add optional note about the model (saved in metadata).
         /// </summary>
-        /// <returns></returns>
+        /// <param name="note">Note to save with the model.</param>
+        /// <returns>The builder instance for chaining.</returns>
         public AnomalyDetectionBuilder WithNote(string note)
         {
             ArgumentNullException.ThrowIfNull(note);
@@ -129,12 +137,12 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// Returns a trained detector ready to check for anomalies.
         /// </summary>
         /// <exception cref="InvalidOperationException">Thrown if training fails.</exception>
-        /// <returns></returns>
+        /// <returns>A trained <see cref="IAnomalyDetector"/> instance.</returns>
         public IAnomalyDetector Build()
         {
             // Build F# problem specification
             var problem = new AnomalyDetector.DetectionProblem(
-                (double[][])(_normalData ?? throw new InvalidOperationException("Normal training data is required")),
+                _normalData ?? throw new InvalidOperationException("Normal training data is required"),
                 ConvertSensitivity(_sensitivity),
                 _contaminationRate,
                 _backend != null ? FSharpOption<IQuantumBackend>.Some(_backend) : FSharpOption<IQuantumBackend>.None,
@@ -159,7 +167,8 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// <summary>
         /// Load a previously trained detector from file.
         /// </summary>
-        /// <returns></returns>
+        /// <param name="path">Path to the saved detector file.</param>
+        /// <returns>A loaded <see cref="IAnomalyDetector"/> instance.</returns>
         public static IAnomalyDetector LoadFrom(string path)
         {
             ArgumentNullException.ThrowIfNull(path);
@@ -235,6 +244,7 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// <summary>
         /// Save detector to file.
         /// </summary>
+        /// <param name="path">Path to save the detector.</param>
         void SaveTo(string path);
 
         /// <summary>

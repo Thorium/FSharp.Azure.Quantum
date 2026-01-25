@@ -13,7 +13,7 @@
 /// - Swarm coordination parameters
 /// 
 /// REFERENCE: Johnson, R. "Drone Systems and Operations", Chapters 2-8
-module FSharp.Azure.Quantum.Examples.Drone.Domain
+module FSharp.Azure.Quantum.Examples.Drones.Domain
 
 open System
 

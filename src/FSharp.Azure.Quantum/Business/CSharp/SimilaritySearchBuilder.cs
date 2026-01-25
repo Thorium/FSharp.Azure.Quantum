@@ -21,6 +21,7 @@ namespace FSharp.Azure.Quantum.Business.CSharp
     /// var similar = matcher.FindSimilar(currentProduct, top: 5);
     /// </code>
     /// </summary>
+    /// <typeparam name="T">The type of items to index and search.</typeparam>
     public class SimilaritySearchBuilder<T>
     {
         private Tuple<T, double[]>[]? _items;
@@ -35,7 +36,9 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// <summary>
         /// Index items with their feature vectors.
         /// </summary>
-        /// <returns></returns>
+        /// <param name="items">Items to index.</param>
+        /// <param name="features">Feature vectors for each item.</param>
+        /// <returns>The builder instance for chaining.</returns>
         public SimilaritySearchBuilder<T> IndexItems(T[] items, double[][] features)
         {
             ArgumentNullException.ThrowIfNull(items);
@@ -53,7 +56,9 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// <summary>
         /// Index items with feature extraction function.
         /// </summary>
-        /// <returns></returns>
+        /// <param name="items">Items to index.</param>
+        /// <param name="featureExtractor">Function to extract features from each item.</param>
+        /// <returns>The builder instance for chaining.</returns>
         public SimilaritySearchBuilder<T> IndexItems(T[] items, Func<T, double[]> featureExtractor)
         {
             ArgumentNullException.ThrowIfNull(items);
@@ -65,7 +70,8 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// <summary>
         /// Index items with tuples of (item, features).
         /// </summary>
-        /// <returns></returns>
+        /// <param name="items">Tuples of (item, features) to index.</param>
+        /// <returns>The builder instance for chaining.</returns>
         public SimilaritySearchBuilder<T> IndexItems(Tuple<T, double[]>[] items)
         {
             ArgumentNullException.ThrowIfNull(items);
@@ -79,7 +85,8 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// Euclidean: Good for spatial data, images
         /// QuantumKernel: Maximum accuracy, slower.
         /// </summary>
-        /// <returns></returns>
+        /// <param name="metric">Similarity metric to use.</param>
+        /// <returns>The builder instance for chaining.</returns>
         public SimilaritySearchBuilder<T> WithMetric(SimilarityMetric metric)
         {
             _metric = metric;
@@ -90,7 +97,8 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// Set minimum similarity threshold [0, 1].
         /// Default: 0.7.
         /// </summary>
-        /// <returns></returns>
+        /// <param name="threshold">Minimum similarity threshold.</param>
+        /// <returns>The builder instance for chaining.</returns>
         public SimilaritySearchBuilder<T> WithThreshold(double threshold)
         {
             _threshold = threshold;
@@ -101,7 +109,8 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// Specify quantum backend (for QuantumKernel metric).
         /// Default: LocalBackend (simulation).
         /// </summary>
-        /// <returns></returns>
+        /// <param name="backend">Backend to execute</param>
+        /// <returns>The builder instance for chaining.</returns>
         public SimilaritySearchBuilder<T> WithBackend(IQuantumBackend backend)
         {
             ArgumentNullException.ThrowIfNull(backend);
@@ -113,7 +122,8 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// Set number of measurement shots for quantum kernel.
         /// Default: 1000.
         /// </summary>
-        /// <returns></returns>
+        /// <param name="shots">Number of measurement shots.</param>
+        /// <returns>The builder instance for chaining.</returns>
         public SimilaritySearchBuilder<T> WithShots(int shots)
         {
             _shots = shots;
@@ -124,7 +134,8 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// Enable verbose logging during indexing.
         /// Default: false.
         /// </summary>
-        /// <returns></returns>
+        /// <param name="verbose">Whether to enable verbose logging.</param>
+        /// <returns>The builder instance for chaining.</returns>
         public SimilaritySearchBuilder<T> WithVerbose(bool verbose = true)
         {
             _verbose = verbose;
@@ -134,7 +145,8 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// <summary>
         /// Save index to specified path.
         /// </summary>
-        /// <returns></returns>
+        /// <param name="path">Path to save the index.</param>
+        /// <returns>The builder instance for chaining.</returns>
         public SimilaritySearchBuilder<T> SaveIndexTo(string path)
         {
             ArgumentNullException.ThrowIfNull(path);
@@ -145,7 +157,8 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// <summary>
         /// Add optional note about the index (saved in metadata).
         /// </summary>
-        /// <returns></returns>
+        /// <param name="note">Note to save with the index.</param>
+        /// <returns>The builder instance for chaining.</returns>
         public SimilaritySearchBuilder<T> WithNote(string note)
         {
             ArgumentNullException.ThrowIfNull(note);
@@ -158,7 +171,7 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// Returns an index ready for similarity searches.
         /// </summary>
         /// <exception cref="InvalidOperationException">Thrown if indexing fails.</exception>
-        /// <returns></returns>
+        /// <returns>The built similarity search index.</returns>
         public ISimilaritySearchIndex<T> Build()
         {
             // Build F# problem specification
@@ -189,7 +202,8 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// <summary>
         /// Load a previously saved index from file.
         /// </summary>
-        /// <returns></returns>
+        /// <param name="path">Path to the saved index file.</param>
+        /// <returns>The loaded similarity search index.</returns>
         public static ISimilaritySearchIndex<T> LoadFrom(string path)
         {
             ArgumentNullException.ThrowIfNull(path);
@@ -255,6 +269,7 @@ namespace FSharp.Azure.Quantum.Business.CSharp
     /// <summary>
     /// Interface for similarity search index.
     /// </summary>
+    /// <typeparam name="T">The type of items in the index.</typeparam>
     public interface ISimilaritySearchIndex<T>
     {
         /// <summary>
@@ -291,6 +306,7 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// <summary>
         /// Save index to file.
         /// </summary>
+        /// <param name="path">Path to save the index.</param>
         void SaveTo(string path);
 
         /// <summary>
@@ -302,6 +318,7 @@ namespace FSharp.Azure.Quantum.Business.CSharp
     /// <summary>
     /// Search results (no F# types exposed).
     /// </summary>
+    /// <typeparam name="T">The type of items in the search results.</typeparam>
     public class SearchResults<T>
     {
         /// <summary>Gets query item.</summary>
@@ -317,6 +334,7 @@ namespace FSharp.Azure.Quantum.Business.CSharp
     /// <summary>
     /// Single match result (no F# types exposed).
     /// </summary>
+    /// <typeparam name="T">The type of the matched item.</typeparam>
     public class Match<T>
     {
         /// <summary>Gets matched item.</summary>
@@ -332,6 +350,7 @@ namespace FSharp.Azure.Quantum.Business.CSharp
     /// <summary>
     /// Group of duplicate/near-duplicate items (no F# types exposed).
     /// </summary>
+    /// <typeparam name="T">The type of items in the duplicate group.</typeparam>
     public class DuplicateGroup<T>
     {
         /// <summary>Gets representative item for the group.</summary>

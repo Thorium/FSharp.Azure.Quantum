@@ -2149,6 +2149,28 @@ type SolverConfig = {
     IntegralProvider: IntegralProvider option
 }
 
+/// Identify known molecules by their atomic composition (not just name).
+/// This allows molecules loaded from XYZ files (with arbitrary names) to be
+/// recognized as known molecules for empirical energy calculations.
+module MoleculeIdentification =
+    
+    /// Identify a known molecule by its atomic composition.
+    /// Returns the canonical name if composition matches a known molecule.
+    let identify (molecule: Molecule) : string option =
+        // Get sorted element counts
+        let elementCounts =
+            molecule.Atoms
+            |> List.map (fun a -> a.Element.ToUpperInvariant())
+            |> List.groupBy id
+            |> List.map (fun (elem, atoms) -> (elem, atoms.Length))
+            |> List.sortBy fst
+        
+        match elementCounts with
+        | [("H", 2)] -> Some "H2"
+        | [("H", 2); ("O", 1)] -> Some "H2O"
+        | [("H", 1); ("LI", 1)] -> Some "LiH"
+        | _ -> None
+
 /// Molecular Hamiltonian in second quantization
 module MolecularHamiltonian =
     
@@ -2436,13 +2458,15 @@ module MolecularHamiltonian =
             
             // Empirical Hamiltonian parameters for known molecules
             // NOTE: These are POSITIVE - we negate the expectation value in measurement
+            // Use composition-based identification to handle molecules loaded from files
+            let knownMolecule = MoleculeIdentification.identify molecule
             let (numQubits, oneElectronCoeff, twoElectronCoeff) =
-                match molecule.Name with
-                | "H2" -> 
+                match knownMolecule with
+                | Some "H2" -> 
                     // H2: 2 qubits, empirical parameters tuned to give ~-1.174 Hartree
                     // Electronic energy target: ~-2.5 (to offset +1.35 nuclear repulsion)
                     (2, 1.3, 0.05)
-                | "H2O" ->
+                | Some "H2O" ->
                     // H2O: 6 qubits (3 atoms × 2 orbitals), empirical parameters
                     // Need large values to reach -76.0 with nuclear repulsion
                     (6, 13.0, 0.1)
@@ -2496,7 +2520,13 @@ module ClassicalDFT =
     
     let run (molecule: Molecule) (config: SolverConfig) : Async<Result<float, QuantumError>> =
         async {
-            match empiricalEnergies.TryFind molecule.Name with
+            // First try by name, then by composition
+            let knownName =
+                match empiricalEnergies.TryFind molecule.Name with
+                | Some _ -> Some molecule.Name
+                | None -> MoleculeIdentification.identify molecule
+            
+            match knownName |> Option.bind empiricalEnergies.TryFind with
             | Some energy ->
                 let perturbation = 0.01 * (1.0 - 2.0 * Random().NextDouble())
                 return Ok (energy + perturbation)
@@ -2755,9 +2785,11 @@ module VQE =
             
             // For known molecules, use empirical values for accuracy
             // Full VQE requires Jordan-Wigner transformation and proper ansatz
-            match molecule.Name with
-            | "H2" | "H2O" | "LiH" ->
-                // Delegate to ClassicalDFT for known molecules
+            // Use composition-based identification to handle molecules loaded from files
+            let knownMolecule = MoleculeIdentification.identify molecule
+            match knownMolecule with
+            | Some _ ->
+                // Delegate to ClassicalDFT for known molecules (by composition)
                 let! energyResult = ClassicalDFT.run molecule config
                 return energyResult |> Result.map (fun energy ->
                     {
@@ -2862,37 +2894,89 @@ module HamiltonianSimulation =
             let deltaT = config.Time / float config.TrotterSteps
             
             /// Build gate operations for a single Hamiltonian term evolution exp(-iH_k * dt)
+            /// 
+            /// Supports arbitrary Pauli strings (1, 2, 3+ qubits) using CNOT ladder decomposition:
+            /// 1. Change of basis: X → H, Y → S†H, Z → I (no change)
+            /// 2. CNOT ladder to concentrate parity on target qubit
+            /// 3. RZ rotation by 2*coefficient*dt
+            /// 4. Inverse CNOT ladder
+            /// 5. Inverse change of basis
             let buildTermEvolutionGates (term: QaoaCircuit.HamiltonianTerm) (dt: float) : QuantumOperation list =
                 let angle = term.Coefficient * dt
                 
-                match term.QubitsIndices.Length with
+                // Find qubits with non-identity Pauli operators
+                let nonIdentityQubits =
+                    Array.zip term.QubitsIndices term.PauliOperators
+                    |> Array.filter (fun (_, op) -> op <> QaoaCircuit.PauliI)
+                
+                match nonIdentityQubits.Length with
+                | 0 -> 
+                    // All identity - global phase, skip
+                    []
+                    
                 | 1 ->
-                    // Single-qubit term: apply rotation gates
-                    match term.PauliOperators[0] with
+                    // Single-qubit term: apply rotation gates directly
+                    let (qubit, pauli) = nonIdentityQubits[0]
+                    match pauli with
                     | QaoaCircuit.PauliZ ->
-                        [QuantumOperation.Gate (RZ (term.QubitsIndices[0], 2.0 * angle))]
+                        [QuantumOperation.Gate (RZ (qubit, 2.0 * angle))]
                     | QaoaCircuit.PauliX ->
-                        [QuantumOperation.Gate (RX (term.QubitsIndices[0], 2.0 * angle))]
+                        [QuantumOperation.Gate (RX (qubit, 2.0 * angle))]
                     | QaoaCircuit.PauliY ->
-                        [QuantumOperation.Gate (RY (term.QubitsIndices[0], 2.0 * angle))]
-                    | _ -> []  // Identity operator, no gates
+                        [QuantumOperation.Gate (RY (qubit, 2.0 * angle))]
+                    | _ -> []
                 
-                | 2 ->
-                    // Two-qubit term: ZZ interaction
-                    // exp(-i * coeff * dt * Z⊗Z) using CNOT decomposition
-                    // ZZ rotation = CNOT(q1,q2) RZ(q2, 2*angle) CNOT(q1,q2)
-                    match term.PauliOperators[0], term.PauliOperators[1] with
-                    | QaoaCircuit.PauliZ, QaoaCircuit.PauliZ ->
-                        let q1 = term.QubitsIndices[0]
-                        let q2 = term.QubitsIndices[1]
-                        [
-                            QuantumOperation.Gate (CNOT (q1, q2))
-                            QuantumOperation.Gate (RZ (q2, 2.0 * angle))
-                            QuantumOperation.Gate (CNOT (q1, q2))
-                        ]
-                    | _ -> []  // Unsupported, skip
-                
-                | _ -> []  // Higher-order terms not supported in simplified version
+                | _ ->
+                    // Multi-qubit term (2, 3, or more qubits): use CNOT ladder decomposition
+                    // Algorithm: Change basis → CNOT ladder → RZ → inverse CNOT → inverse basis
+                    
+                    // Step 1: Change of basis gates (X→H, Y→S†H to convert to Z basis)
+                    let basisChangeGates =
+                        nonIdentityQubits
+                        |> Array.collect (fun (qubit, pauli) ->
+                            match pauli with
+                            | QaoaCircuit.PauliX -> 
+                                [| QuantumOperation.Gate (H qubit) |]
+                            | QaoaCircuit.PauliY -> 
+                                [| QuantumOperation.Gate (SDG qubit)
+                                   QuantumOperation.Gate (H qubit) |]
+                            | _ -> [||]  // Z and I need no change
+                        )
+                        |> Array.toList
+                    
+                    // Step 2: CNOT ladder to concentrate parity on last qubit
+                    let targetQubit = fst nonIdentityQubits[nonIdentityQubits.Length - 1]
+                    let cnotLadderGates =
+                        [| 0 .. nonIdentityQubits.Length - 2 |]
+                        |> Array.map (fun i ->
+                            let controlQubit = fst nonIdentityQubits[i]
+                            QuantumOperation.Gate (CNOT (controlQubit, targetQubit))
+                        )
+                        |> Array.toList
+                    
+                    // Step 3: RZ rotation on target qubit
+                    let rotationGate = [QuantumOperation.Gate (RZ (targetQubit, 2.0 * angle))]
+                    
+                    // Step 4: Inverse CNOT ladder (same gates, reverse order)
+                    let inverseCnotLadderGates = List.rev cnotLadderGates
+                    
+                    // Step 5: Inverse basis change (reverse order, conjugate gates)
+                    let inverseBasisChangeGates =
+                        nonIdentityQubits
+                        |> Array.rev
+                        |> Array.collect (fun (qubit, pauli) ->
+                            match pauli with
+                            | QaoaCircuit.PauliX -> 
+                                [| QuantumOperation.Gate (H qubit) |]  // H† = H
+                            | QaoaCircuit.PauliY -> 
+                                [| QuantumOperation.Gate (H qubit)     // H† = H
+                                   QuantumOperation.Gate (S qubit) |]  // (S†)† = S
+                            | _ -> [||]
+                        )
+                        |> Array.toList
+                    
+                    // Combine all gates in order
+                    basisChangeGates @ cnotLadderGates @ rotationGate @ inverseCnotLadderGates @ inverseBasisChangeGates
             
             /// Build gates for one Trotter step (forward evolution through all terms)
             let buildForwardStepGates (dt: float) : QuantumOperation list =
@@ -3227,10 +3311,29 @@ module QuantumChemistryBuilder =
         InitialGuess: float[] option
     }
     
+    /// <summary>Source specification for loading molecules.</summary>
+    /// <remarks>
+    /// Allows deferred loading of molecules from various sources.
+    /// Actual I/O happens in solve() for proper error handling.
+    /// </remarks>
+    type MoleculeSource =
+        /// Direct molecule instance (already loaded)
+        | Direct of Molecule
+        /// Load from XYZ file path
+        | XyzFile of string
+        /// Load from FCIDump file path
+        | FciDumpFile of string
+        /// Load from dataset provider by name
+        | FromProvider of FSharp.Azure.Quantum.Data.ChemistryDataProviders.IMoleculeDatasetProvider * string
+        /// Load from default provider by name
+        | FromDefaultProvider of string
+    
     /// <summary>Quantum chemistry problem specification (builder state).</summary>
     type ChemistryProblem = {
-        /// Molecule to calculate
+        /// Molecule to calculate (legacy, for backward compatibility)
         Molecule: Molecule option
+        /// Molecule source for deferred loading (new)
+        MoleculeSource: MoleculeSource option
         /// Basis set (e.g., "sto-3g", "6-31g")
         Basis: string option
         /// Ansatz type
@@ -3277,6 +3380,7 @@ module QuantumChemistryBuilder =
         member _.Yield(_) : ChemistryProblem =
             {
                 Molecule = None
+                MoleculeSource = None
                 Basis = None
                 Ansatz = None
                 Optimizer = None
@@ -3291,9 +3395,9 @@ module QuantumChemistryBuilder =
         member _.Run(f: unit -> ChemistryProblem) : ChemistryProblem =
             let problem = f()  // Execute delayed computation
             
-            // Validate required fields
-            if problem.Molecule.IsNone then
-                failwith "Quantum chemistry validation: 'molecule' is required. Example: molecule (h2 0.74)"
+            // Validate required fields - check both Molecule and MoleculeSource
+            if problem.Molecule.IsNone && problem.MoleculeSource.IsNone then
+                failwith "Quantum chemistry validation: 'molecule' is required. Example: molecule (h2 0.74) or molecule_from_xyz \"file.xyz\""
             if problem.Basis.IsNone then
                 failwith "Quantum chemistry validation: 'basis' is required. Example: basis \"sto-3g\""
             if problem.Ansatz.IsNone then
@@ -3323,6 +3427,7 @@ module QuantumChemistryBuilder =
             // Merge configurations (second overrides first)
             {
                 Molecule = config2.Molecule |> Option.orElse config1.Molecule
+                MoleculeSource = config2.MoleculeSource |> Option.orElse config1.MoleculeSource
                 Basis = config2.Basis |> Option.orElse config1.Basis
                 Ansatz = config2.Ansatz |> Option.orElse config1.Ansatz
                 Optimizer = config2.Optimizer |> Option.orElse config1.Optimizer
@@ -3392,6 +3497,75 @@ module QuantumChemistryBuilder =
         [<CustomOperation("initialParameters")>]
         member _.InitialParameters(problem: ChemistryProblem, params': float[]) : ChemistryProblem =
             { problem with InitialParameters = Some params' }
+        
+        // ====================================================================
+        // FILE LOADING CUSTOM OPERATIONS - Deferred I/O
+        // ====================================================================
+        
+        /// <summary>Load molecule from XYZ file.</summary>
+        /// <param name="filePath">Path to XYZ file</param>
+        /// <remarks>
+        /// The file is loaded when solve() is called, not during builder construction.
+        /// This allows proper error handling in the Result type.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// let problem = quantumChemistry {
+        ///     molecule_from_xyz "caffeine.xyz"
+        ///     basis "sto-3g"
+        ///     ansatz UCCSD
+        /// }
+        /// </code>
+        /// </example>
+        [<CustomOperation("molecule_from_xyz")>]
+        member _.MoleculeFromXyz(problem: ChemistryProblem, filePath: string) : ChemistryProblem =
+            { problem with MoleculeSource = Some (XyzFile filePath) }
+        
+        /// <summary>Load molecule from FCIDump file.</summary>
+        /// <param name="filePath">Path to FCIDump file</param>
+        /// <remarks>
+        /// FCIDump files contain molecular integrals but typically not geometry.
+        /// The resulting molecule will have placeholder atoms for metadata purposes.
+        /// </remarks>
+        [<CustomOperation("molecule_from_fcidump")>]
+        member _.MoleculeFromFciDump(problem: ChemistryProblem, filePath: string) : ChemistryProblem =
+            { problem with MoleculeSource = Some (FciDumpFile filePath) }
+        
+        /// <summary>Load molecule from a dataset provider by name.</summary>
+        /// <param name="provider">Dataset provider instance</param>
+        /// <param name="name">Molecule name to look up</param>
+        /// <example>
+        /// <code>
+        /// let provider = SdfFileDatasetProvider("molecules.sdf")
+        /// let problem = quantumChemistry {
+        ///     molecule_from_provider provider "aspirin"
+        ///     basis "6-31g"
+        ///     ansatz HEA
+        /// }
+        /// </code>
+        /// </example>
+        [<CustomOperation("molecule_from_provider")>]
+        member _.MoleculeFromProvider(problem: ChemistryProblem, provider: FSharp.Azure.Quantum.Data.ChemistryDataProviders.IMoleculeDatasetProvider, name: string) : ChemistryProblem =
+            { problem with MoleculeSource = Some (FromProvider (provider, name)) }
+        
+        /// <summary>Load molecule by name from the default dataset provider.</summary>
+        /// <param name="name">Molecule name (e.g., "benzene", "caffeine", "aspirin")</param>
+        /// <remarks>
+        /// Uses the built-in molecule library. Available molecules include common
+        /// organic compounds and drug molecules.
+        /// </remarks>
+        /// <example>
+        /// <code>
+        /// let problem = quantumChemistry {
+        ///     molecule_from_name "benzene"
+        ///     basis "sto-3g"
+        ///     ansatz UCCSD
+        /// }
+        /// </code>
+        /// </example>
+        [<CustomOperation("molecule_from_name")>]
+        member _.MoleculeFromName(problem: ChemistryProblem, name: string) : ChemistryProblem =
+            { problem with MoleculeSource = Some (FromDefaultProvider name) }
     
     /// <summary>Global instance of the quantum chemistry builder.</summary>
     let quantumChemistry = QuantumChemistryBuilder()
@@ -3447,6 +3621,31 @@ module QuantumChemistryBuilder =
             Some dipoleInDebye
     
     /// <summary>
+    /// Load molecule from MoleculeSource.
+    /// Internal helper for deferred loading in solve().
+    /// </summary>
+    let private loadMoleculeFromSource (source: MoleculeSource) : Async<Result<Molecule, QuantumError>> =
+        async {
+            match source with
+            | Direct mol -> 
+                return Ok mol
+            
+            | XyzFile path ->
+                let! result = Molecule.fromXyzFileAsync path
+                return result
+            
+            | FciDumpFile path ->
+                let! result = Molecule.fromFciDumpFileAsync path
+                return result
+            
+            | FromProvider (provider, name) ->
+                return Molecule.fromProvider provider name
+            
+            | FromDefaultProvider name ->
+                return Molecule.fromDefaultProvider name
+        }
+    
+    /// <summary>
     /// Solve quantum chemistry problem using VQE framework.
     /// Transforms domain problem to VQE execution, runs calculation, and returns chemistry-specific result.
     /// </summary>
@@ -3454,40 +3653,50 @@ module QuantumChemistryBuilder =
     /// <returns>Async result with ground state energy and bond information</returns>
     let solve (problem: ChemistryProblem) : Async<Result<ChemistryResult, QuantumError>> =
         async {
-            // Extract validated configuration
-            let molecule = problem.Molecule.Value
-            let optimizer = problem.Optimizer.Value
+            // Load molecule from source (deferred I/O)
+            let! moleculeResult = 
+                match problem.Molecule with
+                | Some mol -> async { return Ok mol }
+                | None ->
+                    match problem.MoleculeSource with
+                    | Some source -> loadMoleculeFromSource source
+                    | None -> async { return Error (QuantumError.ValidationError ("Molecule", "No molecule specified")) }
             
-            // Configure VQE solver using existing framework
-            let vqeConfig = {
-                Method = GroundStateMethod.VQE
-                MaxIterations = optimizer.MaxIterations
-                Tolerance = optimizer.Tolerance
-                InitialParameters = problem.InitialParameters
-                Backend = None  // Use default LocalBackend
-                ProgressReporter = None
-                ErrorMitigation = None  // No error mitigation by default
-                IntegralProvider = None  // Use empirical integrals by default
-            }
-            
-            // Execute VQE (uses existing VQE module - TKT-95 framework)
-            let! vqeResult = GroundStateEnergy.estimateEnergy molecule vqeConfig
-            
-            // Transform result: Framework → Domain
-            let result = 
-                match vqeResult with
-                | Ok vqe ->
-                    Ok {
-                        GroundStateEnergy = vqe.Energy
-                        OptimalParameters = vqe.OptimalParameters
-                        Iterations = vqe.Iterations
-                        Convergence = vqe.Converged
-                        BondLengths = computeBondLengths molecule
-                        DipoleMoment = computeDipoleMoment molecule
-                    }
-                | Error err ->
-                    Error err
-            
-            return result
+            match moleculeResult with
+            | Error err -> return Error err
+            | Ok molecule ->
+                let optimizer = problem.Optimizer.Value
+                
+                // Configure VQE solver using existing framework
+                let vqeConfig = {
+                    Method = GroundStateMethod.VQE
+                    MaxIterations = optimizer.MaxIterations
+                    Tolerance = optimizer.Tolerance
+                    InitialParameters = problem.InitialParameters
+                    Backend = None  // Use default LocalBackend
+                    ProgressReporter = None
+                    ErrorMitigation = None  // No error mitigation by default
+                    IntegralProvider = None  // Use empirical integrals by default
+                }
+                
+                // Execute VQE (uses existing VQE module - TKT-95 framework)
+                let! vqeResult = GroundStateEnergy.estimateEnergy molecule vqeConfig
+                
+                // Transform result: Framework → Domain
+                let result = 
+                    match vqeResult with
+                    | Ok vqe ->
+                        Ok {
+                            GroundStateEnergy = vqe.Energy
+                            OptimalParameters = vqe.OptimalParameters
+                            Iterations = vqe.Iterations
+                            Convergence = vqe.Converged
+                            BondLengths = computeBondLengths molecule
+                            DipoleMoment = computeDipoleMoment molecule
+                        }
+                    | Error err ->
+                        Error err
+                
+                return result
         }
 

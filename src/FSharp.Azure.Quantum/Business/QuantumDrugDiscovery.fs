@@ -7,13 +7,21 @@ open FSharp.Azure.Quantum.Data
 open FSharp.Azure.Quantum.Data.ChemistryDataProviders
 
 open FSharp.Azure.Quantum.MachineLearning
+open FSharp.Azure.Quantum.Quantum
 
 /// Screening methods available
 [<Struct>]
 type ScreeningMethod =
+    /// Quantum Kernel SVM - Uses quantum feature maps for kernel-based classification
     | QuantumKernelSVM
+    /// VQE Binding Affinity - Uses Variational Quantum Eigensolver (requires molecular Hamiltonians)
     | VQEBindingAffinity
+    /// Quantum GNN - Quantum Graph Neural Network (not yet implemented)
     | QuantumGNN
+    /// Variational Quantum Classifier - Uses parameterized quantum circuits for classification
+    | VQCClassifier
+    /// QAOA Diverse Selection - Uses QAOA to select diverse, high-value compounds within budget
+    | QAOADiverseSelection
 
 /// Feature maps for quantum encoding
 [<Struct>]
@@ -44,6 +52,14 @@ type DrugDiscoveryConfiguration = {
     FingerprintSize: int
     Shots: int
     Backend: IQuantumBackend option
+    /// VQC-specific: Number of variational ansatz layers (default: 2)
+    VQCLayers: int
+    /// VQC-specific: Maximum training epochs (default: 50)
+    VQCMaxEpochs: int
+    /// QAOA-specific: Budget constraint for diverse selection (default: 10.0)
+    SelectionBudget: float
+    /// QAOA-specific: Weight for diversity bonus (default: 0.5)
+    DiversityWeight: float
 }
 
 /// Result of the screening pipeline
@@ -156,6 +172,10 @@ type QuantumDrugDiscoveryBuilder() =
         FingerprintSize = 8  // Small size for local simulation compatibility
         Shots = 100
         Backend = None
+        VQCLayers = 2
+        VQCMaxEpochs = 50
+        SelectionBudget = 10.0
+        DiversityWeight = 0.5
     }
     
     member _.Yield(_) = defaultConfig
@@ -197,6 +217,88 @@ type QuantumDrugDiscoveryBuilder() =
               Configuration = state })
         |> Result.mapError (fun e -> QuantumError.OperationError ("Training", $"Training Failed: {e.Message}"))
 
+    member private this.TrainVQCClassifier (backend: IQuantumBackend) featureMap (features: float[][]) (labels: int[]) state =
+        let limit = min features.Length state.BatchSize
+        let trainData = features.[0..limit-1]
+        let trainLabels = labels.[0..limit-1]
+        
+        // Determine number of qubits from feature dimension
+        let numQubits = if trainData.Length > 0 then trainData.[0].Length else 1
+        
+        // Create variational form with configured layers
+        let variationalForm = VariationalForm.RealAmplitudes state.VQCLayers
+        
+        // Initialize random parameters
+        let numParams = numQubits * state.VQCLayers
+        let rng = System.Random(42)
+        let initialParams = Array.init numParams (fun _ -> rng.NextDouble() * 2.0 * System.Math.PI)
+        
+        // Configure VQC training
+        let vqcConfig = { 
+            VQC.defaultConfig with 
+                MaxEpochs = state.VQCMaxEpochs
+                Shots = state.Shots
+                Verbose = false 
+        }
+        
+        // Train VQC model
+        VQC.train backend (this.MapFeatureMap state.FeatureMap) variationalForm initialParams trainData trainLabels vqcConfig
+        |> Result.map (fun result ->
+            { Message = $"VQC Training Complete!\nEpochs: {result.Epochs}\nTrain Accuracy: {result.TrainAccuracy:P2}\nConverged: {result.Converged}\n\nNote: Model can now classify new candidate molecules."
+              Method = VQCClassifier
+              MoleculesProcessed = limit
+              Configuration = state })
+        |> Result.mapError (fun e -> QuantumError.OperationError ("VQCTraining", $"VQC Training Failed: {e.Message}"))
+
+    member private _.RunQAOADiverseSelection (backend: IQuantumBackend) (features: float[][]) (labelsOpt: int[] option) state =
+        let limit = min features.Length state.BatchSize
+        
+        // Create items from molecules with activity scores
+        // Use labels as activity scores if available, otherwise use feature-based heuristic
+        let items = 
+            features.[0..limit-1]
+            |> Array.mapi (fun i feat ->
+                let activityScore = 
+                    match labelsOpt with
+                    | Some labels when i < labels.Length -> float labels.[i]
+                    | _ -> feat |> Array.sum |> abs  // Heuristic: sum of features
+                { DrugDiscoverySolvers.DiverseSelection.Item.Id = $"Mol_{i}"
+                  DrugDiscoverySolvers.DiverseSelection.Item.Value = activityScore
+                  DrugDiscoverySolvers.DiverseSelection.Item.Cost = 1.0 })  // Equal cost per molecule
+            |> Array.toList
+        
+        // Compute diversity matrix using Tanimoto distance from fingerprints
+        let n = items.Length
+        let diversityMatrix = Array2D.create n n 0.0
+        for i in 0 .. n - 1 do
+            for j in 0 .. n - 1 do
+                if i <> j then
+                    // Compute Tanimoto distance (1 - similarity)
+                    let fp1 = features.[i]
+                    let fp2 = features.[j]
+                    let intersection = Array.map2 (fun a b -> min a b) fp1 fp2 |> Array.sum
+                    let union = Array.map2 (fun a b -> max a b) fp1 fp2 |> Array.sum
+                    let similarity = if union > 0.0 then intersection / union else 0.0
+                    diversityMatrix.[i, j] <- 1.0 - similarity  // Higher = more diverse
+        
+        // Create the diverse selection problem
+        let problem : DrugDiscoverySolvers.DiverseSelection.Problem = {
+            Items = items
+            Diversity = diversityMatrix
+            Budget = state.SelectionBudget
+            DiversityWeight = state.DiversityWeight
+        }
+        
+        // Run QAOA solver
+        DrugDiscoverySolvers.DiverseSelection.solve backend problem state.Shots
+        |> Result.map (fun solution ->
+            let selectedIds = solution.SelectedItems |> List.map (fun item -> item.Id) |> String.concat ", "
+            { Message = $"QAOA Diverse Selection Complete!\nSelected: {solution.SelectedItems.Length} compounds\nTotal Value: {solution.TotalValue:F2}\nDiversity Bonus: {solution.DiversityBonus:F2}\nTotal Cost: {solution.TotalCost:F2}\nFeasible: {solution.IsFeasible}\n\nSelected Compounds: {selectedIds}"
+              Method = QAOADiverseSelection
+              MoleculesProcessed = limit
+              Configuration = state })
+        |> Result.mapError (fun e -> QuantumError.OperationError ("QAOASelection", $"QAOA Selection Failed: {e.Message}"))
+
     member this.Run(state: DrugDiscoveryConfiguration) : QuantumResult<ScreeningResult> =
         // Load and validate candidates
         this.LoadCandidates(state)
@@ -220,8 +322,22 @@ type QuantumDrugDiscoveryBuilder() =
                     let labels = labelsOpt |> Option.defaultWith (fun () -> Array.create features.Length 0)
                     let featureMap = this.MapFeatureMap state.FeatureMap
                     this.TrainQuantumKernelSVM backend featureMap features labels state.BatchSize state.Shots state
-            | method ->
-                Error (QuantumError.OperationError ("NotImplemented", $"Method %A{method} is not yet implemented. Please use QuantumKernelSVM.")))
+            | VQCClassifier ->
+                match state.Backend with
+                | None -> Error (QuantumError.ValidationError ("Backend", "No backend provided. Use 'backend'."))
+                | Some backend ->
+                    let labels = labelsOpt |> Option.defaultWith (fun () -> Array.create features.Length 0)
+                    let featureMap = this.MapFeatureMap state.FeatureMap
+                    this.TrainVQCClassifier backend featureMap features labels state
+            | QAOADiverseSelection ->
+                match state.Backend with
+                | None -> Error (QuantumError.ValidationError ("Backend", "No backend provided. Use 'backend'."))
+                | Some backend ->
+                    this.RunQAOADiverseSelection backend features labelsOpt state
+            | VQEBindingAffinity ->
+                Error (QuantumError.OperationError ("NotImplemented", "VQEBindingAffinity requires molecular Hamiltonian construction which is not yet fully implemented."))
+            | QuantumGNN ->
+                Error (QuantumError.OperationError ("NotImplemented", "QuantumGNN requires quantum graph neural network infrastructure which is not yet implemented.")))
 
     member this.Run(f: unit -> DrugDiscoveryConfiguration) : QuantumResult<ScreeningResult> =
         this.Run(f())
@@ -277,6 +393,26 @@ type QuantumDrugDiscoveryBuilder() =
     [<CustomOperation("backend")>]
     member _.Backend(state: DrugDiscoveryConfiguration, backend: IQuantumBackend) =
         { state with Backend = Some backend }
+
+    /// Set the number of VQC ansatz layers (default: 2)
+    [<CustomOperation("vqc_layers")>]
+    member _.VQCLayers(state: DrugDiscoveryConfiguration, layers: int) =
+        { state with VQCLayers = layers }
+
+    /// Set the maximum VQC training epochs (default: 50)
+    [<CustomOperation("vqc_max_epochs")>]
+    member _.VQCMaxEpochs(state: DrugDiscoveryConfiguration, epochs: int) =
+        { state with VQCMaxEpochs = epochs }
+
+    /// Set the budget constraint for QAOA diverse selection (default: 10.0)
+    [<CustomOperation("selection_budget")>]
+    member _.SelectionBudget(state: DrugDiscoveryConfiguration, budget: float) =
+        { state with SelectionBudget = budget }
+
+    /// Set the diversity weight for QAOA selection (default: 0.5)
+    [<CustomOperation("diversity_weight")>]
+    member _.DiversityWeight(state: DrugDiscoveryConfiguration, weight: float) =
+        { state with DiversityWeight = weight }
 
 [<AutoOpen>]
 module QuantumDrugDiscoveryDSL =

@@ -20,7 +20,7 @@
 /// - Classical scheduling: NP-hard for resource-constrained cases
 /// - Quantum QAOA: Can explore solution space more efficiently
 /// - Particularly useful when combining dependencies + resource limits
-namespace FSharp.Azure.Quantum.Examples.Drone.SwarmTaskAllocation
+namespace FSharp.Azure.Quantum.Examples.Drones.SwarmTaskAllocation
 
 open System
 open System.Diagnostics
@@ -33,7 +33,7 @@ open FSharp.Azure.Quantum.Backends.LocalBackend
 open FSharp.Azure.Quantum.TaskScheduling.Types
 
 open FSharp.Azure.Quantum.Examples.Common
-open FSharp.Azure.Quantum.Examples.Drone.Domain
+open FSharp.Azure.Quantum.Examples.Drones.Domain
 
 // =============================================================================
 // DOMAIN TYPES
@@ -367,8 +367,8 @@ module Program =
         else
             let sw = Stopwatch.StartNew()
             
-            let tasksPath = Cli.getOr "tasks" "examples/Drone/_data/tasks.csv" args
-            let dronesPath = Cli.getOr "drones" "examples/Drone/_data/drones.csv" args
+            let tasksPath = Cli.getOr "tasks" "examples/Drones/_data/tasks.csv" args
+            let dronesPath = Cli.getOr "drones" "examples/Drones/_data/drones.csv" args
             let outDir = Cli.getOr "out" (Path.Combine("runs", "drone", "swarm-task-allocation")) args
             let method = Cli.getOr "method" "classical" args
             

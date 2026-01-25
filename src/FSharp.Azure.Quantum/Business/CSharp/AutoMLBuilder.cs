@@ -66,7 +66,9 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// Set training data (features and labels).
         /// AutoML will automatically detect the problem type from your labels.
         /// </summary>
-        /// <returns></returns>
+        /// <param name="features">Training features matrix.</param>
+        /// <param name="labels">Training labels array.</param>
+        /// <returns>The builder instance for chaining.</returns>
         public AutoMLBuilder WithData(double[][] features, double[] labels)
         {
             ArgumentNullException.ThrowIfNull(features);
@@ -79,7 +81,9 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// <summary>
         /// Set training data with integer labels (convenience for classification).
         /// </summary>
-        /// <returns></returns>
+        /// <param name="features">Training features matrix.</param>
+        /// <param name="labels">Training labels array.</param>
+        /// <returns>The builder instance for chaining.</returns>
         public AutoMLBuilder WithData(double[][] features, int[] labels)
         {
             ArgumentNullException.ThrowIfNull(features);
@@ -93,7 +97,8 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// Enable/disable binary classification trials.
         /// Default: true (enabled if data has 2 unique labels).
         /// </summary>
-        /// <returns></returns>
+        /// <param name="enable">Whether to enable binary classification trials.</param>
+        /// <returns>The builder instance for chaining.</returns>
         public AutoMLBuilder TryBinaryClassification(bool enable = true)
         {
             _tryBinaryClassification = enable;
@@ -104,7 +109,8 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// Enable multi-class classification trials with specified number of classes.
         /// If not set, AutoML will auto-detect from labels.
         /// </summary>
-        /// <returns></returns>
+        /// <param name="numClasses">Number of classes for multi-class classification.</param>
+        /// <returns>The builder instance for chaining.</returns>
         public AutoMLBuilder TryMultiClass(int numClasses)
         {
             _tryMultiClass = numClasses;
@@ -115,7 +121,8 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// Enable/disable anomaly detection trials.
         /// Default: true.
         /// </summary>
-        /// <returns></returns>
+        /// <param name="enable">Whether to enable anomaly detection trials.</param>
+        /// <returns>The builder instance for chaining.</returns>
         public AutoMLBuilder TryAnomalyDetection(bool enable = true)
         {
             _tryAnomalyDetection = enable;
@@ -126,7 +133,8 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// Enable/disable regression trials.
         /// Default: true (enabled if data has many unique values).
         /// </summary>
-        /// <returns></returns>
+        /// <param name="enable">Whether to enable regression trials.</param>
+        /// <returns>The builder instance for chaining.</returns>
         public AutoMLBuilder TryRegression(bool enable = true)
         {
             _tryRegression = enable;
@@ -137,7 +145,8 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// Enable/disable similarity search trials.
         /// Default: false (computationally expensive).
         /// </summary>
-        /// <returns></returns>
+        /// <param name="enable">Whether to enable similarity search trials.</param>
+        /// <returns>The builder instance for chaining.</returns>
         public AutoMLBuilder TrySimilaritySearch(bool enable = true)
         {
             _trySimilaritySearch = enable;
@@ -148,7 +157,8 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// Specify which architectures to test.
         /// Default: All (Quantum, Hybrid, Classical).
         /// </summary>
-        /// <returns></returns>
+        /// <param name="architectures">Architectures to test.</param>
+        /// <returns>The builder instance for chaining.</returns>
         public AutoMLBuilder WithArchitectures(params SearchArchitecture[] architectures)
         {
             ArgumentNullException.ThrowIfNull(architectures);
@@ -161,7 +171,8 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// Default: 20
         /// Higher = more thorough search but slower.
         /// </summary>
-        /// <returns></returns>
+        /// <param name="maxTrials">Maximum number of trials.</param>
+        /// <returns>The builder instance for chaining.</returns>
         public AutoMLBuilder WithMaxTrials(int maxTrials)
         {
             _maxTrials = maxTrials;
@@ -173,7 +184,8 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// Search will stop after this time even if not all trials completed.
         /// Default: No limit.
         /// </summary>
-        /// <returns></returns>
+        /// <param name="minutes">Maximum time in minutes.</param>
+        /// <returns>The builder instance for chaining.</returns>
         public AutoMLBuilder WithMaxTimeMinutes(int minutes)
         {
             _maxTimeMinutes = minutes;
@@ -184,7 +196,8 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// Set train/validation split ratio.
         /// Default: 0.2 (20% validation, 80% training).
         /// </summary>
-        /// <returns></returns>
+        /// <param name="split">Validation split ratio.</param>
+        /// <returns>The builder instance for chaining.</returns>
         public AutoMLBuilder WithValidationSplit(double split)
         {
             _validationSplit = split;
@@ -195,7 +208,8 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// Specify quantum backend to use.
         /// Default: LocalBackend (simulation).
         /// </summary>
-        /// <returns></returns>
+        /// <param name="backend">Quantum backend to use.</param>
+        /// <returns>The builder instance for chaining.</returns>
         public AutoMLBuilder WithBackend(IQuantumBackend backend)
         {
             ArgumentNullException.ThrowIfNull(backend);
@@ -207,7 +221,8 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// Enable verbose logging to see trial progress.
         /// Default: false.
         /// </summary>
-        /// <returns></returns>
+        /// <param name="verbose">Whether to enable verbose logging.</param>
+        /// <returns>The builder instance for chaining.</returns>
         public AutoMLBuilder WithVerbose(bool verbose = true)
         {
             _verbose = verbose;
@@ -217,7 +232,8 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// <summary>
         /// Save best model to specified path.
         /// </summary>
-        /// <returns></returns>
+        /// <param name="path">Path to save the best model.</param>
+        /// <returns>The builder instance for chaining.</returns>
         public AutoMLBuilder SaveBestModelTo(string path)
         {
             ArgumentNullException.ThrowIfNull(path);
@@ -228,7 +244,8 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// <summary>
         /// Set random seed for reproducibility.
         /// </summary>
-        /// <returns></returns>
+        /// <param name="seed">Random seed value.</param>
+        /// <returns>The builder instance for chaining.</returns>
         public AutoMLBuilder WithRandomSeed(int seed)
         {
             _randomSeed = seed;
@@ -241,7 +258,7 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// Returns the best model found with a detailed report.
         /// </summary>
         /// <exception cref="InvalidOperationException">Thrown if search fails.</exception>
-        /// <returns></returns>
+        /// <returns>An <see cref="IAutoMLResult"/> containing the best model and search results.</returns>
         public IAutoMLResult Build()
         {
             // Build F# problem specification
@@ -335,7 +352,8 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// Make prediction with the best model.
         /// Returns appropriate prediction type based on model type.
         /// </summary>
-        /// <returns></returns>
+        /// <param name="features">Feature vector to predict.</param>
+        /// <returns>Prediction result (type depends on best model type).</returns>
         object Predict(double[] features);
 
         /// <summary>

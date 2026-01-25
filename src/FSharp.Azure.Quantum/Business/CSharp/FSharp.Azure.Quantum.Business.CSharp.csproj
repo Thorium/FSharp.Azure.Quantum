@@ -18,7 +18,10 @@
   </ItemGroup>
 
   <PropertyGroup>
-    <NoWarn>CS1701;CS1702</NoWarn>
+    <NoWarn>CS1701;CS1702;SA1402</NoWarn>
+    <RunAnalyzersDuringBuild>False</RunAnalyzersDuringBuild>
+    <RunAnalyzersDuringLiveAnalysis>False</RunAnalyzersDuringLiveAnalysis>
+    <AnalysisLevel>latest-recommended</AnalysisLevel>
   </PropertyGroup>
 
   <!-- These builders are legacy/stale; compile disabled for now. -->

@@ -24,6 +24,7 @@ Business Problem Builders provide domain-specific APIs that hide quantum complex
 ### 3. Anomaly Detection - Security Threats, Quality Control
 ### 4. Predictive Modeling - Churn Prediction, Demand Forecasting
 ### 5. Similarity Search - Recommendations, Semantic Search
+### 6. Quantum Drug Discovery - Virtual Screening, Compound Selection
 
 ---
 
@@ -619,6 +620,229 @@ match result with
 ### Working Example
 
 See complete example: [examples/SimilaritySearch/](https://github.com/Thorium/FSharp.Azure.Quantum/tree/main/examples/SimilaritySearch/)
+
+---
+
+## Quantum Drug Discovery
+
+### What is Quantum Drug Discovery?
+
+Virtual screening of molecular candidates using quantum machine learning and optimization algorithms.
+
+**Business Applications:**
+- Virtual screening for drug candidates
+- Diverse compound library selection
+- Lead optimization
+- Pharmacophore feature selection
+- Compound prioritization
+
+### Available Screening Methods
+
+| Method | Description | Use Case |
+|--------|-------------|----------|
+| **QuantumKernelSVM** | Quantum kernel-based SVM classification | Binary activity classification |
+| **VQCClassifier** | Variational Quantum Classifier | Multi-label molecular classification |
+| **QAOADiverseSelection** | QAOA-based diverse subset selection | Select diverse, high-value compounds within budget |
+| **VQEBindingAffinity** | VQE for binding affinity (planned) | Quantum chemistry calculations |
+| **QuantumGNN** | Quantum Graph Neural Networks (planned) | Molecular graph learning |
+
+### API Reference
+
+```fsharp
+open FSharp.Azure.Quantum.Business
+open FSharp.Azure.Quantum.Business.QuantumDrugDiscoveryDSL
+
+// Method 1: Quantum Kernel SVM (default)
+let result = drugDiscovery {
+    load_candidates_from_file "candidates.sdf"
+    use_method QuantumKernelSVM
+    use_feature_map ZZFeatureMap
+    set_batch_size 20
+    shots 1000
+    backend localBackend
+}
+
+match result with
+| Ok screening ->
+    printfn "Method: %A" screening.Method
+    printfn "Molecules Processed: %d" screening.MoleculesProcessed
+    printfn "Result: %s" screening.Message
+| Error err -> eprintfn "Screening failed: %s" err.Message
+```
+
+### Configuration Options
+
+```fsharp
+// Full configuration example
+let result = drugDiscovery {
+    // Data source (choose one)
+    load_candidates_from_file "molecules.sdf"
+    // OR: load_candidates_from_provider sdfProvider
+    // OR: target_protein_from_pdb "target.pdb"
+    
+    // Screening method
+    use_method VQCClassifier  // or QuantumKernelSVM, QAOADiverseSelection
+    
+    // Feature encoding
+    use_feature_map ZZFeatureMap  // or PauliFeatureMap, ZFeatureMap
+    
+    // General settings
+    set_batch_size 20         // Molecules per batch
+    shots 1000                // Quantum measurement shots
+    backend localBackend      // Quantum backend
+    
+    // VQC-specific settings (for VQCClassifier)
+    vqc_layers 3              // Number of ansatz layers (default: 2)
+    vqc_max_epochs 100        // Max training epochs (default: 50)
+    
+    // QAOA-specific settings (for QAOADiverseSelection)
+    selection_budget 5.0      // Budget constraint (default: 10.0)
+    diversity_weight 0.7      // Diversity bonus weight (default: 0.5)
+}
+```
+
+### Method 1: Quantum Kernel SVM
+
+Classify molecules using quantum feature maps and support vector machines.
+
+```fsharp
+// Train a quantum kernel SVM for activity prediction
+let result = drugDiscovery {
+    load_candidates_from_file "labeled_compounds.csv"  // Requires activity labels
+    use_method QuantumKernelSVM
+    use_feature_map ZZFeatureMap
+    set_batch_size 50
+    shots 1000
+    backend (LocalBackend() :> IQuantumBackend)
+}
+
+match result with
+| Ok r -> 
+    printfn "Support vectors found: %s" r.Message
+    // Model can classify new candidates
+| Error e -> eprintfn "Error: %s" e.Message
+```
+
+**When to use:**
+- Binary classification (active/inactive)
+- Well-labeled training data available
+- Moderate dataset size (10-100 molecules)
+
+### Method 2: VQC Classifier
+
+Train a Variational Quantum Classifier for molecular activity prediction.
+
+```fsharp
+// Train VQC for multi-class molecular classification
+let result = drugDiscovery {
+    load_candidates_from_file "compounds.sdf"
+    use_method VQCClassifier
+    use_feature_map ZZFeatureMap
+    
+    // VQC-specific configuration
+    vqc_layers 3              // More layers = more expressivity
+    vqc_max_epochs 100        // Training iterations
+    
+    set_batch_size 30
+    shots 500
+    backend localBackend
+}
+
+match result with
+| Ok r ->
+    printfn "Training complete!"
+    printfn "%s" r.Message  // Shows accuracy, convergence
+| Error e -> eprintfn "Training failed: %s" e.Message
+```
+
+**When to use:**
+- Need trainable quantum model
+- Want to tune circuit depth
+- Classification with gradient-based optimization
+
+### Method 3: QAOA Diverse Selection
+
+Select a diverse subset of high-value compounds within a budget using QAOA optimization.
+
+```fsharp
+// Select diverse compounds for screening library
+let result = drugDiscovery {
+    load_candidates_from_file "compound_library.sdf"
+    use_method QAOADiverseSelection
+    
+    // QAOA-specific configuration
+    selection_budget 10.0     // Max total cost of selected compounds
+    diversity_weight 0.6      // Balance value vs diversity (0-1)
+    
+    set_batch_size 50         // Evaluate top 50 candidates
+    shots 2000                // More shots for better optimization
+    backend localBackend
+}
+
+match result with
+| Ok r ->
+    printfn "Selection complete!"
+    printfn "%s" r.Message  // Shows selected compounds, total value, diversity
+| Error e -> eprintfn "Selection failed: %s" e.Message
+```
+
+**When to use:**
+- Building diverse screening libraries
+- Budget-constrained compound selection
+- Maximizing chemical diversity
+- Avoiding redundant compounds
+
+### Example: Complete Virtual Screening Pipeline
+
+```fsharp
+open FSharp.Azure.Quantum.Business
+open FSharp.Azure.Quantum.Core.BackendAbstraction
+open FSharp.Azure.Quantum.Backends.LocalBackend
+
+// Create backend
+let backend = LocalBackend() :> IQuantumBackend
+
+// Step 1: Initial classification with VQC
+let classificationResult = drugDiscovery {
+    load_candidates_from_file "hit_compounds.sdf"
+    use_method VQCClassifier
+    vqc_layers 2
+    vqc_max_epochs 50
+    set_batch_size 100
+    backend backend
+}
+
+// Step 2: Select diverse subset from classified hits
+let selectionResult = drugDiscovery {
+    load_candidates_from_file "classified_hits.sdf"
+    use_method QAOADiverseSelection
+    selection_budget 20.0       // Select compounds worth total "cost" of 20
+    diversity_weight 0.5        // Equal weight to value and diversity
+    set_batch_size 50
+    backend backend
+}
+
+match classificationResult, selectionResult with
+| Ok cls, Ok sel ->
+    printfn "Classification: %d molecules processed" cls.MoleculesProcessed
+    printfn "Selection: %s" sel.Message
+| Error e, _ -> eprintfn "Classification failed: %s" e.Message
+| _, Error e -> eprintfn "Selection failed: %s" e.Message
+```
+
+### Supported File Formats
+
+| Format | Extension | Provider |
+|--------|-----------|----------|
+| SDF/MOL | .sdf, .mol | SdfFileDatasetProvider |
+| PDB | .pdb | PdbLigandDatasetProvider |
+| SMILES | .smi, .txt | MolecularData.loadFromSmilesList |
+| CSV | .csv | MolecularData.loadFromCsv |
+| FCIDump | .fcidump | FciDumpFileDatasetProvider |
+
+### Working Example
+
+See complete example: [examples/DrugDiscovery/](https://github.com/Thorium/FSharp.Azure.Quantum/tree/main/examples/DrugDiscovery/)
 
 ---
 

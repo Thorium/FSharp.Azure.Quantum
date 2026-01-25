@@ -2,7 +2,7 @@
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
-    <RootNamespace>FSharp.Azure.Quantum.Examples.Drone.SwarmChoreography</RootNamespace>
+    <RootNamespace>FSharp.Azure.Quantum.Examples.Drones.FleetPathPlanning</RootNamespace>
   </PropertyGroup>
 
   <ItemGroup>
@@ -10,7 +10,6 @@
     <Compile Include="..\..\_common\Data.fs" Link="_common\Data.fs" />
     <Compile Include="..\..\_common\Reporting.fs" Link="_common\Reporting.fs" />
     <Compile Include="..\_common\DroneDomain.fs" Link="_common\DroneDomain.fs" />
-    <Compile Include="CrazyflieExport.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 

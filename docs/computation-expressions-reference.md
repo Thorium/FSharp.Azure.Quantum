@@ -16,6 +16,7 @@ Computation expressions provide a declarative, F#-idiomatic way to construct qua
 | **circuit** | Build quantum circuits with gates and loops | `qubits`, `H`, `X`, `Y`, `Z`, `S`, `SDG`, `T`, `TDG`, `P`, `RX`, `RY`, `RZ`, `CNOT`, `CZ`, `CP`, `SWAP`, `CCX` |
 | **coloredNode** | Define a node in graph coloring problem | `nodeId`, `conflictsWith`, `fixedColor`, `priority`, `avoidColors`, `property` |
 | **constraintSolver<'T>** | Define constraint satisfaction problems (CSP) | `searchSpace`, `domain`, `satisfies`, `backend`, `maxIterations`, `shots` |
+| **drugDiscovery** | Virtual screening for drug discovery | `load_candidates_from_file`, `load_candidates_from_provider`, `load_candidates_from_provider_async`, `target_protein_from_pdb`, `use_method`, `use_feature_map`, `set_batch_size`, `shots`, `backend`, `vqc_layers`, `vqc_max_epochs`, `selection_budget`, `diversity_weight` |
 | **graphColoring** | Define graph coloring optimization problems | `node`, `nodes`, `colors`, `maxColors`, `objective`, `conflictPenalty` |
 | **patternMatcher<'T>** | Define quantum pattern matching problems | `searchSpace`, `searchSpaceSize`, `matchPattern`, `findTop`, `backend`, `maxIterations`, `shots` |
 | **periodFinder** | Define period finding (Shor's algorithm) | `number`, `chosenBase`, `precision`, `maxAttempts`, `backend`, `shots` |
@@ -27,6 +28,9 @@ Computation expressions provide a declarative, F#-idiomatic way to construct qua
 | **scheduledTask<'T>** | Define tasks for scheduling | `taskId`, `duration`, `after`, `afterMultiple`, `requires`, `priority`, `deadline`, `earliestStart` |
 | **schedulingProblem<'T>** | Define complete scheduling problems | `tasks`, `resources`, `objective`, `timeHorizon` |
 | **similaritySearch** | Find similar items using quantum kernels | `indexItems`, `similarityMetric`, `threshold`, `backend`, `shots`, `verbose`, `saveIndexTo`, `note`, `progressReporter`, `cancellationToken` |
+| **optionPricing** | Price financial options using quantum Monte Carlo | `spotPrice`, `strikePrice`, `riskFreeRate`, `volatility`, `expiry`, `optionType`, `qubits`, `iterations`, `shots`, `backend`, `cancellation_token` |
+| **topological** | Topological quantum computing with anyons | `let!`/`do!` syntax with `initialize`, `braid`, `measure`, `braidSequence`, `getState`, `getResults`, `getLog` |
+| **quantumChemistry** | Quantum chemistry ground state calculations | `molecule`, `basis`, `ansatz`, `optimizer`, `maxIterations`, `initialParameters`, `molecule_from_xyz`, `molecule_from_fcidump`, `molecule_from_provider`, `molecule_from_name` |
 
 ---
 
@@ -640,6 +644,203 @@ match finder with
 - Clustering
 - Image similarity
 - Document matching
+
+---
+
+### 18. optionPricing
+
+**Module**: `FSharp.Azure.Quantum.Business.OptionPricing`
+
+**Purpose**: Price financial options (European, Asian) using quantum Monte Carlo with quadratic speedup
+
+**Example**:
+```fsharp
+let result = optionPricing {
+    spotPrice 100.0
+    strikePrice 105.0
+    riskFreeRate 0.05
+    volatility 0.2
+    expiry 1.0
+    optionType EuropeanCall
+    qubits 6
+    iterations 5
+    shots 1000
+    backend (LocalBackend())
+}
+
+match result |> Async.RunSynchronously with
+| Ok price -> printfn "Option price: $%.4f (±%.4f)" price.Price price.ConfidenceInterval
+| Error e -> printfn "Error: %A" e
+```
+
+**Custom Operations**:
+- `spotPrice` - Current spot price of underlying asset (S₀)
+- `strikePrice` - Strike price of the option (K)
+- `riskFreeRate` - Risk-free interest rate (annualized, r)
+- `volatility` - Volatility of underlying asset (annualized, σ)
+- `expiry` - Time to expiry in years (T)
+- `optionType` - Option type: `EuropeanCall`, `EuropeanPut`, `AsianCall n`, `AsianPut n`
+- `qubits` - Number of qubits for price discretization (2-10)
+- `iterations` - Number of Grover iterations for amplitude estimation
+- `shots` - Number of measurement shots
+- `backend` - Quantum backend (REQUIRED - no default)
+- `cancellation_token` - Optional cancellation token for async operations
+
+**Option Types**:
+- `EuropeanCall` - max(S_T - K, 0)
+- `EuropeanPut` - max(K - S_T, 0)
+- `AsianCall n` - max(Avg(S_t) - K, 0) with n time steps
+- `AsianPut n` - max(K - Avg(S_t), 0) with n time steps
+
+**Quantum Advantage**:
+- Uses Möttönen state preparation for exact amplitude encoding
+- Achieves O(1/ε) complexity vs classical O(1/ε²)
+- Quadratic speedup: ~100x for 1% accuracy target
+
+**Greeks Calculation**:
+```fsharp
+// Calculate option sensitivities (Delta, Gamma, Vega, Theta, Rho)
+let! greeks = OptionPricing.greeksEuropeanCall 100.0 105.0 0.05 0.2 1.0 backend
+```
+
+---
+
+### 19. topological
+
+**Module**: `FSharp.Azure.Quantum.Topological.TopologicalBuilder`
+
+**Purpose**: Compose topological quantum programs with anyon braiding and fusion
+
+**Example**:
+```fsharp
+let program = topological backend {
+    let! ctx = TopologicalBuilder.initialize Ising 4
+    let! ctx = TopologicalBuilder.braid 0 ctx
+    let! ctx = TopologicalBuilder.braid 2 ctx
+    let! (outcome, ctx) = TopologicalBuilder.measure 0 ctx
+    return outcome
+}
+
+// Execute the program
+let! result = TopologicalBuilder.execute backend program
+match result with
+| Ok particle -> printfn "Measured: %A" particle
+| Error e -> printfn "Error: %A" e
+```
+
+**Builder Functions** (used with `let!` and `do!`):
+- `TopologicalBuilder.initialize anyonType count` - Initialize anyons of given type and count
+- `TopologicalBuilder.braid index context` - Braid anyons at given index
+- `TopologicalBuilder.measure index context` - Measure fusion outcome at given index
+- `TopologicalBuilder.braidSequence indices context` - Apply sequence of braiding operations
+- `TopologicalBuilder.getState context` - Get current quantum state
+- `TopologicalBuilder.getResults context` - Get accumulated measurement results
+- `TopologicalBuilder.getLog context` - Get execution log for debugging
+- `TopologicalBuilder.getContext context` - Get full context for visualization
+
+**Anyon Types**:
+- `Ising` - Ising anyons (Majorana fermions)
+- `Fibonacci` - Fibonacci anyons (universal quantum computation)
+
+**Execution Functions**:
+- `TopologicalBuilder.execute backend program` - Execute and return just the result
+- `TopologicalBuilder.executeWithContext backend program` - Execute and return result with full context
+
+**Features**:
+- Natural F# syntax with `let!` and `do!`
+- Automatic state threading through context
+- Backend-agnostic (works with any IQuantumBackend)
+- Composable operations with error handling
+- Execution log for debugging/visualization
+
+---
+
+### 20. quantumChemistry
+
+**Module**: `FSharp.Azure.Quantum.QuantumChemistry.QuantumChemistryBuilder`
+
+**Purpose**: Quantum chemistry ground state calculations with VQE (Variational Quantum Eigensolver)
+
+**Example**:
+```fsharp
+open FSharp.Azure.Quantum.QuantumChemistry.QuantumChemistryBuilder
+
+// Simple H2 molecule
+let problem = quantumChemistry {
+    molecule (h2 0.74)     // H2 at 0.74 Angstrom bond length
+    basis "sto-3g"         // Minimal basis set
+    ansatz UCCSD           // Most accurate ansatz
+}
+
+let! result = solve problem
+printfn "Ground state energy: %.6f Ha" result.GroundStateEnergy
+```
+
+**Custom Operations**:
+- `molecule mol` - Set molecule for calculation (direct instance)
+- `molecule_from_xyz path` - Load molecule from XYZ file
+- `molecule_from_fcidump path` - Load molecule from FCIDump file
+- `molecule_from_provider provider name` - Load molecule from dataset provider
+- `molecule_from_name name` - Load molecule by name from default library
+- `basis basisSet` - Set basis set (e.g., "sto-3g", "6-31g", "cc-pvdz")
+- `ansatz ansatzType` - Set ansatz type: `UCCSD`, `HEA`, `ADAPT`
+- `optimizer name` - Set optimizer method (e.g., "COBYLA", "SLSQP", "Powell")
+- `maxIterations n` - Set maximum VQE iterations (default: 100)
+- `initialParameters params` - Set initial parameters for warm start
+
+**Pre-built Molecules**:
+```fsharp
+// Hydrogen molecule
+let hydrogen = h2 0.74          // H2 at bond length 0.74 Å
+
+// Water molecule
+let water = h2o 0.96 104.5      // H2O with O-H 0.96 Å, angle 104.5°
+
+// Lithium hydride
+let lithiumHydride = lih 1.6    // LiH at bond length 1.6 Å
+```
+
+**Ansatz Types**:
+- `UCCSD` - Unitary Coupled Cluster Singles Doubles (most accurate, most expensive)
+- `HEA` - Hardware-Efficient Ansatz (faster, less accurate)
+- `ADAPT` - Adaptive ansatz (dynamic construction based on gradients)
+
+**Basis Sets**:
+- `"sto-3g"` - Minimal basis (fast, less accurate)
+- `"6-31g"` - Split-valence basis (balanced)
+- `"cc-pvdz"` - Correlation-consistent polarized double-zeta (accurate)
+
+**Loading from Files**:
+```fsharp
+// From XYZ file (geometry format)
+let problem1 = quantumChemistry {
+    molecule_from_xyz "caffeine.xyz"
+    basis "sto-3g"
+    ansatz UCCSD
+}
+
+// From FCIDump file (molecular integrals)
+let problem2 = quantumChemistry {
+    molecule_from_fcidump "h2o.fcidump"
+    basis "6-31g"
+    ansatz HEA
+}
+
+// From molecule library
+let problem3 = quantumChemistry {
+    molecule_from_name "benzene"
+    basis "sto-3g"
+    ansatz UCCSD
+}
+```
+
+**Result Fields**:
+- `GroundStateEnergy` - Ground state energy in Hartrees
+- `OptimalParameters` - Optimal VQE parameters found
+- `Iterations` - Number of VQE iterations performed
+- `Convergence` - Whether VQE converged within tolerance
+- `BondLengths` - Map of bond lengths (e.g., "H-H" -> 0.74)
+- `DipoleMoment` - Dipole moment if computed
 
 ---
 

@@ -18,7 +18,7 @@
 /// - Classical TSP: O(n!) brute force, O(n² 2^n) dynamic programming
 /// - Quantum QAOA: Polynomial speedup for large instances (>100 waypoints)
 /// - HybridSolver automatically selects best approach based on problem size
-namespace FSharp.Azure.Quantum.Examples.Drone.FleetPathPlanning
+namespace FSharp.Azure.Quantum.Examples.Drones.FleetPathPlanning
 
 open System
 open System.Diagnostics
@@ -30,7 +30,7 @@ open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.Backends.LocalBackend
 
 open FSharp.Azure.Quantum.Examples.Common
-open FSharp.Azure.Quantum.Examples.Drone.Domain
+open FSharp.Azure.Quantum.Examples.Drones.Domain
 
 // =============================================================================
 // DOMAIN TYPES
@@ -301,8 +301,8 @@ module Program =
         else
             let sw = Stopwatch.StartNew()
             
-            let waypointsPath = Cli.getOr "waypoints" "examples/Drone/_data/waypoints.csv" args
-            let dronesPath = Cli.getOr "drones" "examples/Drone/_data/drones.csv" args
+            let waypointsPath = Cli.getOr "waypoints" "examples/Drones/_data/waypoints.csv" args
+            let dronesPath = Cli.getOr "drones" "examples/Drones/_data/drones.csv" args
             let outDir = Cli.getOr "out" (Path.Combine("runs", "drone", "fleet-path-planning")) args
             let method = Cli.getOr "method" "hybrid" args
             

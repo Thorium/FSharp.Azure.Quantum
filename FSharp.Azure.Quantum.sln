@@ -27,7 +27,7 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PortfolioExample", "example
 EndProject
 Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Gomoku", "examples\Gomoku\Gomoku.fsproj", "{4F5FBFC2-02B9-4D1B-83F5-CE57B1A26F73}"
 EndProject
-Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Drone", "Drone", "{88E0619D-1778-4A22-D5FD-70F62D1BAB21}"
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Drones", "Drones", "{88E0619D-1778-4A22-D5FD-70F62D1BAB21}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "FSharp.Azure.Quantum (Solution Folder)", "FSharp.Azure.Quantum (Solution Folder)", "{1194F6F0-3CD9-2DAD-560C-8A8698C93BE5}"
 EndProject

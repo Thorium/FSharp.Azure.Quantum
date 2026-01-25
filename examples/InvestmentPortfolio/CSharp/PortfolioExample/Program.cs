@@ -48,7 +48,7 @@ internal sealed class Program
         // Define investment budget
         const double budget = 100000.0; // $100,000
 
-        bool useLive = args.Any(a => string.Equals(a, "--live", StringComparison.OrdinalIgnoreCase));
+        bool useLive = Array.Exists(args, a => string.Equals(a, "--live", StringComparison.OrdinalIgnoreCase));
 
         // Define available stocks with historical performance data
         var stocks = DefineStockUniverse(useLive);
@@ -138,7 +138,7 @@ internal sealed class Program
                 var priceSeriesResult = fetchYahooHistory(httpClient, request);
                 if (priceSeriesResult.IsError)
                 {
-                    throw new Exception($"Yahoo fetch failed for {symbol}: {priceSeriesResult.ErrorValue.Message}");
+                    throw new InvalidOperationException($"Yahoo fetch failed for {symbol}: {priceSeriesResult.ErrorValue.Message}");
                 }
 
                 var priceSeries = priceSeriesResult.ResultValue;
@@ -340,7 +340,7 @@ internal sealed class Program
         Console.WriteLine("PROJECTED ANNUAL OUTCOMES (1 Year):");
         Console.WriteLine("────────────────────────────────────────────────────────────────────────────────");
         Console.WriteLine($"  Initial Investment:    ${budget:N2}");
-        Console.WriteLine($"  Expected Return:       ${expectedGain:N2} ({portfolio.ExpectedReturn:P2} gain)");
+        Console.WriteLine($"  Expected Return:       ${expectedGain:N2} (+{portfolio.ExpectedReturn:P2} gain)");
         Console.WriteLine();
         Console.WriteLine("  SCENARIO ANALYSIS (95% confidence interval):");
         Console.WriteLine($"  • Best Case:           ${bestCase:N2} (+{(bestCase - budget) / budget:P2})");
