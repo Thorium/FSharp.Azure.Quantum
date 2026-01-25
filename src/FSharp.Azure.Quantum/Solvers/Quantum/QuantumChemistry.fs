@@ -524,223 +524,81 @@ module Molecule =
     ///   | Error e -> printfn "Error: %A" e
     let fromDefaultProvider (name: string) : Result<Molecule, QuantumError> =
         fromProvider ChemistryDataProviders.defaultDatasetProvider name
-
-// ============================================================================
-// MOLECULAR INPUT / FILE PARSERS
-// ============================================================================
-
-/// Molecular input parsers for XYZ and FCIDump formats.
-/// 
-/// DEPRECATED: This module is maintained for backwards compatibility.
-/// For new code, use FSharp.Azure.Quantum.Data.MoleculeFormats instead:
-/// - MoleculeFormats.Xyz.readAsync for XYZ files
-/// - MoleculeFormats.FciDump.readAsync for FCIDump files
-/// - MoleculeFormats.Sdf.readAsync for SDF/MOL files
-/// - MoleculeFormats.Pdb.readLigandsAsync for PDB ligand extraction
-module MolecularInput =
     
-    open System.IO
-    open System.Text.RegularExpressions
+    // ========================================================================
+    // FILE I/O FUNCTIONS (using MoleculeFormats)
+    // ========================================================================
     
-    /// Parse XYZ coordinate file format
-    /// 
-    /// XYZ format:
-    /// Line 1: Number of atoms
-    /// Line 2: Comment/title line
-    /// Lines 3+: Element X Y Z (element symbol, x, y, z coordinates in Angstroms)
+    /// Convert MoleculeFormats.MoleculeData to Molecule.
+    /// Internal helper that chains through MoleculeInstance conversion.
+    let private fromMoleculeData (data: FSharp.Azure.Quantum.Data.MoleculeFormats.MoleculeData) : Result<Molecule, QuantumError> =
+        let instance = ChemistryDataProviders.Conversions.fromMoleculeData data
+        fromInstance instance
+    
+    /// Load molecule from XYZ file asynchronously.
     /// 
     /// Example:
-    /// 3
-    /// Water molecule
-    /// O  0.000  0.000  0.119
-    /// H  0.000  0.757  0.587
-    /// H  0.000 -0.757  0.587
-    [<System.Obsolete("Use FSharp.Azure.Quantum.Data.MoleculeFormats.Xyz.readAsync instead for unified format handling")>]
-    let fromXYZAsync (filePath: string) : Async<Result<Molecule, QuantumError>> =
+    ///   let! result = Molecule.fromXyzFileAsync "water.xyz"
+    ///   match result with
+    ///   | Ok mol -> printfn "Loaded: %s" mol.Name
+    ///   | Error e -> printfn "Error: %A" e
+    let fromXyzFileAsync (filePath: string) : Async<Result<Molecule, QuantumError>> =
         async {
-            try
-                if not (File.Exists filePath) then
-                    return Error (QuantumError.ValidationError("FilePath", $"File not found: {filePath}"))
-                else
-                    let! lines = File.ReadAllLinesAsync(filePath) |> Async.AwaitTask
-                    let lines = lines |> Array.filter (fun l -> not (System.String.IsNullOrWhiteSpace l))
-                
-                    if lines.Length < 3 then
-                        return Error (QuantumError.ValidationError("XYZFile", "XYZ file must have at least 3 lines (count, title, and atoms)"))
-                    else
-                        // Parse atom count and build molecule using result CE
-                        return
-                            result {
-                                let! atomCount =
-                                    match System.Int32.TryParse(lines[0].Trim()) with
-                                    | false, _ -> Error (QuantumError.ValidationError("XYZFile", "First line must be atom count"))
-                                    | true, count -> Ok count
-                                
-                                do! if atomCount < 1 then
-                                        Error (QuantumError.ValidationError("AtomCount", "Atom count must be positive"))
-                                    elif lines.Length < 2 + atomCount then
-                                        Error (QuantumError.ValidationError("XYZFile", $"File has {lines.Length} lines but needs {2 + atomCount} for {atomCount} atoms"))
-                                    else
-                                        Ok ()
-                                
-                                let name = lines[1].Trim()
-                                
-                                // Parse atoms
-                                let! atoms =
-                                    lines[2 .. 1 + atomCount]
-                                    |> Array.mapi (fun i line ->
-                                        let parts = line.Split([| ' '; '\t' |], System.StringSplitOptions.RemoveEmptyEntries)
-                                        if parts.Length < 4 then
-                                            Error (QuantumError.ValidationError("XYZLine", $"Line {i + 3}: Expected 'Element X Y Z', got '{line}'"))
-                                        else
-                                            let element = parts[0].Trim()
-                                            match System.Double.TryParse(parts[1]), 
-                                                  System.Double.TryParse(parts[2]), 
-                                                  System.Double.TryParse(parts[3]) with
-                                            | (true, x), (true, y), (true, z) ->
-                                                Ok { Element = element; Position = (x, y, z) }
-                                            | _ ->
-                                                Error (QuantumError.ValidationError("XYZLine", $"Line {i + 3}: Could not parse coordinates from '{line}'"))
-                                    )
-                                    |> Array.fold (fun acc result ->
-                                        match acc, result with
-                                        | Error e, _ -> Error e
-                                        | _, Error e -> Error e
-                                        | Ok atoms, Ok atom -> Ok (atom :: atoms)
-                                    ) (Ok [])
-                                    |> Result.map List.rev
-                                
-                                // Infer bonds from distances (simple heuristic)
-                                let bonds =
-                                    [
-                                        for i in 0 .. atoms.Length - 2 do
-                                            for j in i + 1 .. atoms.Length - 1 do
-                                                let distance = Molecule.calculateBondLength atoms[i] atoms[j]
-                                                // Typical bond lengths: C-C ~1.5 Å, C-H ~1.1 Å, O-H ~1.0 Å, N-H ~1.0 Å
-                                                // Use generous cutoff of 1.8 Å for single bonds
-                                                if distance < 1.8 then
-                                                    yield { Atom1 = i; Atom2 = j; BondOrder = 1.0 }
-                                    ]
-                                
-                                return {
-                                    Name = if System.String.IsNullOrWhiteSpace name then "Molecule" else name
-                                    Atoms = atoms
-                                    Bonds = bonds
-                                    Charge = 0  // Assume neutral
-                                    Multiplicity = 1  // Assume singlet
-                                }
-                            }
-            with
-            | ex -> return Error (QuantumError.OperationError("XYZParsing", $"Failed to parse XYZ file: {ex.Message}"))
+            let! result = FSharp.Azure.Quantum.Data.MoleculeFormats.Xyz.readAsync filePath
+            return result |> Result.bind fromMoleculeData
         }
     
-    /// Synchronous wrapper for backwards compatibility
-    [<System.Obsolete("Use FSharp.Azure.Quantum.Data.MoleculeFormats.Xyz.readAsync instead for unified format handling")>]
-    let fromXYZ (filePath: string) : Result<Molecule, QuantumError> =
-        fromXYZAsync filePath |> Async.RunSynchronously
+    /// Load molecule from XYZ file synchronously.
+    let fromXyzFile (filePath: string) : Result<Molecule, QuantumError> =
+        fromXyzFileAsync filePath |> Async.RunSynchronously
     
-    /// Parse simplified FCIDump format (header only, for molecule geometry)
+    /// Load molecule from FCIDump file asynchronously.
     /// 
-    /// FCIDump format is complex - we parse only the header for basic info.
-    /// Full format includes molecular orbital integrals which require quantum chemistry software.
+    /// Note: FCIDump files typically don't contain geometry, so the resulting
+    /// Molecule will have placeholder atoms. Use for orbital/electron info only.
     /// 
-    /// Simplified parsing extracts:
-    /// - NORB: Number of orbitals (used to estimate qubits)
-    /// - NELEC: Number of electrons
-    /// - MS2: 2*Spin (multiplicity - 1)
-    /// 
-    /// Returns a minimal Molecule structure with inferred properties.
-    [<System.Obsolete("Use FSharp.Azure.Quantum.Data.MoleculeFormats.FciDump.readAsync instead for unified format handling")>]
-    let fromFCIDumpAsync (filePath: string) : Async<Result<Molecule, QuantumError>> =
+    /// Example:
+    ///   let! result = Molecule.fromFciDumpFileAsync "h2.fcidump"
+    let fromFciDumpFileAsync (filePath: string) : Async<Result<Molecule, QuantumError>> =
         async {
-            try
-                if not (File.Exists filePath) then
-                    return Error (QuantumError.ValidationError("FilePath", $"File not found: {filePath}"))
-                else
-                    let! lines = File.ReadAllLinesAsync(filePath) |> Async.AwaitTask
-                    
-                    // Find header line (&FCI ... &END)
-                    let headerLine = 
-                        lines 
-                        |> Array.tryFind (fun line -> line.Trim().StartsWith("&FCI"))
-                    
-                    match headerLine with
-                    | None -> return Error (QuantumError.ValidationError("FCIDumpFile", "No FCIDump header found (&FCI line)"))
-                    | Some header ->
-                        
-                        // Extract NORB, NELEC, MS2
-                        let extractParam name =
-                            let pattern = $"{name}\\s*=\\s*(\\d+)"
-                            let m = Regex.Match(header, pattern, RegexOptions.IgnoreCase)
-                            if m.Success then Some (int m.Groups[1].Value) else None
-                        
-                        let norb = extractParam "NORB"
-                        let nelec = extractParam "NELEC"
-                        let ms2 = extractParam "MS2"
-                        
-                        match norb, nelec with
-                        | None, _ -> return Error (QuantumError.ValidationError("FCIDumpHeader", "NORB (number of orbitals) not found in FCIDump header"))
-                        | _, None -> return Error (QuantumError.ValidationError("FCIDumpHeader", "NELEC (number of electrons) not found in FCIDump header"))
-                        | Some orbitals, Some electrons ->
-                            
-                            let multiplicity = match ms2 with | Some m -> m + 1 | None -> 1
-                            
-                            // Create minimal molecule representation
-                            // We don't have geometry, so create placeholder atoms
-                            let atoms =
-                                [ for i in 0 .. electrons - 1 do
-                                    { Element = "X"; Position = (float i, 0.0, 0.0) } ]
-                            
-                            return Ok {
-                                Name = "FCIDump molecule"
-                                Atoms = atoms
-                                Bonds = []  // No geometry available
-                                Charge = orbitals - electrons  // Inferred
-                                Multiplicity = multiplicity
-                            }
-            with
-            | ex -> return Error (QuantumError.OperationError("FCIDumpParsing", $"Failed to parse FCIDump file: {ex.Message}"))
+            let! result = FSharp.Azure.Quantum.Data.MoleculeFormats.FciDump.readAsync filePath
+            return result |> Result.bind fromMoleculeData
         }
     
-    /// Synchronous wrapper for backwards compatibility
-    [<System.Obsolete("Use FSharp.Azure.Quantum.Data.MoleculeFormats.FciDump.readAsync instead for unified format handling")>]
-    let fromFCIDump (filePath: string) : Result<Molecule, QuantumError> =
-        fromFCIDumpAsync filePath |> Async.RunSynchronously
+    /// Load molecule from FCIDump file synchronously.
+    let fromFciDumpFile (filePath: string) : Result<Molecule, QuantumError> =
+        fromFciDumpFileAsync filePath |> Async.RunSynchronously
     
-    /// Create XYZ file content from a Molecule
-    [<System.Obsolete("Use FSharp.Azure.Quantum.Data.MoleculeFormats.Xyz.format instead for unified format handling")>]
-    let toXYZ (molecule: Molecule) : string =
+    /// Format molecule as XYZ string.
+    /// 
+    /// Example:
+    ///   let xyzContent = Molecule.toXyz h2Molecule
+    let toXyz (molecule: Molecule) : string =
         let sb = System.Text.StringBuilder()
-        
-        // Line 1: Atom count
         sb.AppendLine(string molecule.Atoms.Length) |> ignore
-        
-        // Line 2: Molecule name/comment
         sb.AppendLine(molecule.Name) |> ignore
-        
-        // Lines 3+: Atoms
         for atom in molecule.Atoms do
             let (x, y, z) = atom.Position
             sb.AppendLine(sprintf "%-2s  %10.6f  %10.6f  %10.6f" atom.Element x y z) |> ignore
-        
         sb.ToString()
     
-    /// Save molecule to XYZ file
-    [<System.Obsolete("Use FSharp.Azure.Quantum.Data.MoleculeFormats.Xyz.writeAsync instead for unified format handling")>]
-    let saveXYZAsync (filePath: string) (molecule: Molecule) : Async<Result<unit, QuantumError>> =
+    /// Save molecule to XYZ file asynchronously.
+    /// 
+    /// Example:
+    ///   let! result = Molecule.saveToXyzFileAsync "output.xyz" molecule
+    let saveToXyzFileAsync (filePath: string) (molecule: Molecule) : Async<Result<unit, QuantumError>> =
         async {
             try
-                let content = toXYZ molecule
-                do! File.WriteAllTextAsync(filePath, content) |> Async.AwaitTask
+                let content = toXyz molecule
+                do! System.IO.File.WriteAllTextAsync(filePath, content) |> Async.AwaitTask
                 return Ok ()
-            with
-            | ex -> return Error (QuantumError.OperationError("XYZWriting", $"Failed to write XYZ file: {ex.Message}"))
+            with ex ->
+                return Error (QuantumError.IOError("WriteXYZ", filePath, ex.Message))
         }
     
-    /// Synchronous wrapper for backwards compatibility
-    [<System.Obsolete("Use FSharp.Azure.Quantum.Data.MoleculeFormats.Xyz.writeAsync instead for unified format handling")>]
-    let saveXYZ (filePath: string) (molecule: Molecule) : Result<unit, QuantumError> =
-        saveXYZAsync filePath molecule |> Async.RunSynchronously
+    /// Save molecule to XYZ file synchronously.
+    let saveToXyzFile (filePath: string) (molecule: Molecule) : Result<unit, QuantumError> =
+        saveToXyzFileAsync filePath molecule |> Async.RunSynchronously
 
 // ============================================================================
 // FERMION-TO-QUBIT MAPPINGS

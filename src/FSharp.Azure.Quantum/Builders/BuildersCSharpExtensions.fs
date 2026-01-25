@@ -849,21 +849,21 @@ module QuantumChemistryCSharpExtensions =
     /// </summary>
     [<Extension>]
     let FromXYZTask (filePath: string) : Task<Result<Molecule, QuantumError>> =
-        MolecularInput.fromXYZAsync filePath |> Async.StartAsTask
+        Molecule.fromXyzFileAsync filePath |> Async.StartAsTask
     
     /// <summary>
     /// Save molecule to XYZ file asynchronously using C# Task.
     /// </summary>
     [<Extension>]
     let SaveXYZTask (filePath: string) (molecule: Molecule) : Task<Result<unit, QuantumError>> =
-        MolecularInput.saveXYZAsync filePath molecule |> Async.StartAsTask
+        Molecule.saveToXyzFileAsync filePath molecule |> Async.StartAsTask
     
     /// <summary>
     /// Load molecule from FCIDump file asynchronously using C# Task.
     /// </summary>
     [<Extension>]
     let FromFCIDumpTask (filePath: string) : Task<Result<Molecule, QuantumError>> =
-        MolecularInput.fromFCIDumpAsync filePath |> Async.StartAsTask
+        Molecule.fromFciDumpFileAsync filePath |> Async.StartAsTask
 
 // ============================================================================
 // SVM MODEL SERIALIZATION EXTENSIONS - Task-based Async for C#

@@ -702,7 +702,7 @@ module MolecularInputTests =
             
             try
                 // Act
-                let! result = MolecularInput.fromXYZAsync tempFile
+                let! result = Molecule.fromXyzFileAsync tempFile
                 
                 // Assert
                 match result with
@@ -744,7 +744,7 @@ module MolecularInputTests =
             
             try
                 // Act
-                let! result = MolecularInput.fromXYZAsync tempFile
+                let! result = Molecule.fromXyzFileAsync tempFile
                 
                 // Assert
                 match result with
@@ -776,7 +776,7 @@ module MolecularInputTests =
             
             try
                 // Act
-                let! result = MolecularInput.fromXYZAsync tempFile
+                let! result = Molecule.fromXyzFileAsync tempFile
                 
                 // Assert
                 match result with
@@ -801,12 +801,12 @@ module MolecularInputTests =
             
             try
                 // Act
-                let! result = MolecularInput.fromXYZAsync tempFile
+                let! result = Molecule.fromXyzFileAsync tempFile
                 
                 // Assert
                 match result with
                 | Ok _ -> Assert.True(false, "Should reject file with wrong atom count")
-                | Error err -> Assert.Contains("needs", err.Message)
+                | Error err -> Assert.Contains("Expected", err.Message)  // Error message from MoleculeFormats
             finally
                 File.Delete(tempFile)
         } |> Async.StartAsTask
@@ -824,17 +824,23 @@ module MolecularInputTests =
             File.WriteAllText(tempFile, fcidumpContent)
             
             try
-                // Act
-                let! result = MolecularInput.fromFCIDumpAsync tempFile
+                // Act - Use MoleculeFormats directly since FCIDump has no geometry
+                // Molecule.fromFciDumpFileAsync will fail with MissingGeometry error
+                let! result = FSharp.Azure.Quantum.Data.MoleculeFormats.FciDump.readAsync tempFile
                 
                 // Assert
                 match result with
                 | Error err -> Assert.True(false, $"Parsing failed: {err.Message}")
-                | Ok molecule ->
-                    // Should extract NORB=2, NELEC=2
-                    Assert.Equal(2, molecule.Atoms.Length)  // NELEC electrons
-                    Assert.Equal(0, molecule.Charge)  // NORB - NELEC = 2 - 2 = 0
-                    Assert.Equal(1, molecule.Multiplicity)  // MS2=0 → singlet (2S+1=1)
+                | Ok moleculeData ->
+                    // Should extract NORB=2, NELEC=2 from header metadata
+                    // Note: Placeholder atoms = NELEC/2 = 1 atom
+                    Assert.Equal(1, moleculeData.Topology.Atoms.Length)  // Placeholder atoms (NELEC/2)
+                    Assert.Equal(Some 0, moleculeData.Topology.Charge)   // NORB - NELEC = 0
+                    Assert.Equal(Some 1, moleculeData.Topology.Multiplicity)  // MS2=0 → singlet
+                    Assert.Equal(None, moleculeData.Geometry)  // FCIDump has no geometry
+                    // Verify metadata has the original values
+                    Assert.Equal("2", moleculeData.Topology.Metadata.["norb"])
+                    Assert.Equal("2", moleculeData.Topology.Metadata.["nelec"])
             finally
                 File.Delete(tempFile)
         } |> Async.StartAsTask
@@ -850,8 +856,8 @@ module MolecularInputTests =
             File.WriteAllText(tempFile, fcidumpContent)
             
             try
-                // Act
-                let! result = MolecularInput.fromFCIDumpAsync tempFile
+                // Act - Use MoleculeFormats directly
+                let! result = FSharp.Azure.Quantum.Data.MoleculeFormats.FciDump.readAsync tempFile
                 
                 // Assert
                 match result with
@@ -867,7 +873,7 @@ module MolecularInputTests =
         let h2 = Molecule.createH2 0.74
         
         // Act
-        let xyzContent = MolecularInput.toXYZ h2
+        let xyzContent = Molecule.toXyz h2
         
         // Assert
         let lines = xyzContent.Split([| '\n'; '\r' |], System.StringSplitOptions.RemoveEmptyEntries)
@@ -886,14 +892,14 @@ module MolecularInputTests =
             
             try
                 // Act - save to file
-                let! saveResult = MolecularInput.saveXYZAsync tempFile original
+                let! saveResult = Molecule.saveToXyzFileAsync tempFile original
                 
                 match saveResult with
                 | Error err -> Assert.True(false, $"Save failed: {err.Message}")
                 | Ok () ->
                 
                 // Act - reload from file
-                let! loadResult = MolecularInput.fromXYZAsync tempFile
+                let! loadResult = Molecule.fromXyzFileAsync tempFile
                 
                 match loadResult with
                 | Error err -> Assert.True(false, $"Load failed: {err.Message}")
