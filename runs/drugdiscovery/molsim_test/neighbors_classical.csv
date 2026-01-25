@@ -1,4 +1,0 @@
-compound_id,smiles,avg_similarity,mw,logp,hbd,hba,tpsa
-analog_2,COC1=CC2=C(C=C1OC)C(=NC=N2)NC3=CC(=CC=C3)Cl,0.831944,278.21,-0.399,0,5,96.52
-analog_3,COC1=CC2=NC=NC(=C2C=C1OCC)NC3=CC=CC=C3,0.831944,278.21,-0.399,0,5,96.52
-caffeine,CN1C=NC2=C1C(=O)N(C(=O)N2C)C,0.767040,184.11,-2.452,0,6,122.54

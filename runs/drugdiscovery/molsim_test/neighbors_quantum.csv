@@ -1,4 +1,0 @@
-compound_id,smiles,avg_similarity,mw,logp,hbd,hba,tpsa
-analog_1,CC1=C(C=C(C=C1)NC(=O)C2=CC=CC=C2)NC3=NC=CC(=N3)C4=CC=CN=C4,0.830000,362.29,-0.758,0,6,139.33
-analog_2,COC1=CC2=C(C=C1OC)C(=NC=N2)NC3=CC(=CC=C3)Cl,0.638333,278.21,-0.399,0,5,96.52
-analog_3,COC1=CC2=NC=NC(=C2C=C1OCC)NC3=CC=CC=C3,0.623333,278.21,-0.399,0,5,96.52

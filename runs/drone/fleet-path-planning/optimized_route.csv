@@ -1,9 +1,0 @@
-sequence,waypoint_id,name,latitude,longitude,altitude_m
-1,WP001,Base Station,37.774900,-122.419400,50.0
-2,WP008,Charging Station,37.764900,-122.409400,50.0
-3,WP005,Inspection Site 2,37.754900,-122.399400,90.0
-4,WP003,Delivery Point B,37.764900,-122.429400,80.0
-5,WP006,Emergency Zone,37.774900,-122.449400,60.0
-6,WP007,Relay Point,37.784900,-122.459400,110.0
-7,WP004,Inspection Site 1,37.794900,-122.439400,120.0
-8,WP002,Delivery Point A,37.784900,-122.409400,100.0
