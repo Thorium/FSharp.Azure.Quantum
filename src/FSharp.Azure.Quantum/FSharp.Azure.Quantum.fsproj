@@ -61,6 +61,7 @@
     <!-- Data Infrastructure Layer (depends on Core) -->
     <Compile Include="Data\PeriodicTable.fs" />
     <Compile Include="Data\MoleculeLibrary.fs" />
+    <Compile Include="Data\MoleculeFormats.fs" />
     <Compile Include="Data\ChemistryDataProviders.fs" />
     <Compile Include="Data\MolecularData.fs" />
     <Compile Include="Data\SmilesDataProviders.fs" />

@@ -529,7 +529,14 @@ module Molecule =
 // MOLECULAR INPUT / FILE PARSERS
 // ============================================================================
 
-/// Molecular input parsers for XYZ and FCIDump formats
+/// Molecular input parsers for XYZ and FCIDump formats.
+/// 
+/// DEPRECATED: This module is maintained for backwards compatibility.
+/// For new code, use FSharp.Azure.Quantum.Data.MoleculeFormats instead:
+/// - MoleculeFormats.Xyz.readAsync for XYZ files
+/// - MoleculeFormats.FciDump.readAsync for FCIDump files
+/// - MoleculeFormats.Sdf.readAsync for SDF/MOL files
+/// - MoleculeFormats.Pdb.readLigandsAsync for PDB ligand extraction
 module MolecularInput =
     
     open System.IO
@@ -548,6 +555,7 @@ module MolecularInput =
     /// O  0.000  0.000  0.119
     /// H  0.000  0.757  0.587
     /// H  0.000 -0.757  0.587
+    [<System.Obsolete("Use FSharp.Azure.Quantum.Data.MoleculeFormats.Xyz.readAsync instead for unified format handling")>]
     let fromXYZAsync (filePath: string) : Async<Result<Molecule, QuantumError>> =
         async {
             try
@@ -627,7 +635,7 @@ module MolecularInput =
         }
     
     /// Synchronous wrapper for backwards compatibility
-    [<System.Obsolete("Use fromXYZAsync for better performance and to avoid blocking threads")>]
+    [<System.Obsolete("Use FSharp.Azure.Quantum.Data.MoleculeFormats.Xyz.readAsync instead for unified format handling")>]
     let fromXYZ (filePath: string) : Result<Molecule, QuantumError> =
         fromXYZAsync filePath |> Async.RunSynchronously
     
@@ -642,6 +650,7 @@ module MolecularInput =
     /// - MS2: 2*Spin (multiplicity - 1)
     /// 
     /// Returns a minimal Molecule structure with inferred properties.
+    [<System.Obsolete("Use FSharp.Azure.Quantum.Data.MoleculeFormats.FciDump.readAsync instead for unified format handling")>]
     let fromFCIDumpAsync (filePath: string) : Async<Result<Molecule, QuantumError>> =
         async {
             try
@@ -694,11 +703,12 @@ module MolecularInput =
         }
     
     /// Synchronous wrapper for backwards compatibility
-    [<System.Obsolete("Use fromFCIDumpAsync for better performance and to avoid blocking threads")>]
+    [<System.Obsolete("Use FSharp.Azure.Quantum.Data.MoleculeFormats.FciDump.readAsync instead for unified format handling")>]
     let fromFCIDump (filePath: string) : Result<Molecule, QuantumError> =
         fromFCIDumpAsync filePath |> Async.RunSynchronously
     
     /// Create XYZ file content from a Molecule
+    [<System.Obsolete("Use FSharp.Azure.Quantum.Data.MoleculeFormats.Xyz.format instead for unified format handling")>]
     let toXYZ (molecule: Molecule) : string =
         let sb = System.Text.StringBuilder()
         
@@ -716,6 +726,7 @@ module MolecularInput =
         sb.ToString()
     
     /// Save molecule to XYZ file
+    [<System.Obsolete("Use FSharp.Azure.Quantum.Data.MoleculeFormats.Xyz.writeAsync instead for unified format handling")>]
     let saveXYZAsync (filePath: string) (molecule: Molecule) : Async<Result<unit, QuantumError>> =
         async {
             try
@@ -727,7 +738,7 @@ module MolecularInput =
         }
     
     /// Synchronous wrapper for backwards compatibility
-    [<System.Obsolete("Use saveXYZAsync for better performance and to avoid blocking threads")>]
+    [<System.Obsolete("Use FSharp.Azure.Quantum.Data.MoleculeFormats.Xyz.writeAsync instead for unified format handling")>]
     let saveXYZ (filePath: string) (molecule: Molecule) : Result<unit, QuantumError> =
         saveXYZAsync filePath molecule |> Async.RunSynchronously
 
