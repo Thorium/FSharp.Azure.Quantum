@@ -1,5 +1,7 @@
 # Quantum Chemistry API Reference
 
+> Note: A follow-up design proposal exists in `docs/QuantumChemistry-DataProviders-Design.md`.
+
 ## Overview
 
 The Quantum Chemistry Domain Builder provides an idiomatic F# computation expression API for molecular ground state energy calculations using VQE (Variational Quantum Eigensolver). Built on top of the VQE Framework (TKT-95), it offers a chemistry-specific interface for quantum chemistry simulations.

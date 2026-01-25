@@ -3,6 +3,7 @@ namespace FSharp.Azure.Quantum.QuantumChemistry
 open System
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum  // For ErrorMitigationStrategy
+open FSharp.Azure.Quantum.Data  // For PeriodicTable and ChemistryDataProviders
 
 /// Quantum Chemistry - Molecule Representation and Ground State Energy Estimation.
 /// Implements VQE (Variational Quantum Eigensolver) for molecular ground state energies.
@@ -105,135 +106,17 @@ module AtomicNumbers =
     
     /// Get atomic number from element symbol
     /// Returns None for unsupported elements
+    /// NOTE: Now delegates to PeriodicTable for complete element coverage.
     let fromSymbol (element: string) : int option =
-        match element.ToUpperInvariant() with
-        // Period 1
-        | "H" -> Some H
-        | "HE" -> Some He
-        // Period 2
-        | "LI" -> Some Li
-        | "BE" -> Some Be
-        | "B" -> Some B
-        | "C" -> Some C
-        | "N" -> Some N
-        | "O" -> Some O
-        | "F" -> Some F
-        | "NE" -> Some Ne
-        // Period 3
-        | "NA" -> Some Na
-        | "MG" -> Some Mg
-        | "AL" -> Some Al
-        | "SI" -> Some Si
-        | "P" -> Some P
-        | "S" -> Some S
-        | "CL" -> Some Cl
-        | "AR" -> Some Ar
-        // Period 4
-        | "K" -> Some K
-        | "CA" -> Some Ca
-        | "SC" -> Some Sc
-        | "TI" -> Some Ti
-        | "V" -> Some V
-        | "CR" -> Some Cr
-        | "MN" -> Some Mn
-        | "FE" -> Some Fe
-        | "CO" -> Some Co
-        | "NI" -> Some Ni
-        | "CU" -> Some Cu
-        | "ZN" -> Some Zn
-        | "GA" -> Some Ga
-        | "GE" -> Some Ge
-        | "AS" -> Some As
-        | "SE" -> Some Se
-        | "BR" -> Some Br
-        | "KR" -> Some Kr
-        // Period 5
-        | "RB" -> Some Rb
-        | "SR" -> Some Sr
-        | "Y" -> Some Y
-        | "ZR" -> Some Zr
-        | "NB" -> Some Nb
-        | "MO" -> Some Mo
-        | "TC" -> Some Tc
-        | "RU" -> Some Ru
-        | "RH" -> Some Rh
-        | "PD" -> Some Pd
-        | "AG" -> Some Ag
-        | "CD" -> Some Cd
-        | "IN" -> Some In
-        | "SN" -> Some Sn
-        | "SB" -> Some Sb
-        | "TE" -> Some Te
-        | "I" -> Some I
-        | "XE" -> Some Xe
-        // Heavier elements
-        | "PT" -> Some Pt
-        | "AU" -> Some Au
-        | "PB" -> Some Pb
-        | _ -> None
+        PeriodicTable.tryBySymbol element
+        |> Option.map (fun e -> e.AtomicNumber)
     
     /// Get element symbol from atomic number
     /// Returns None for unsupported atomic numbers
+    /// NOTE: Now delegates to PeriodicTable for complete element coverage.
     let toSymbol (atomicNumber: int) : string option =
-        match atomicNumber with
-        | 1 -> Some "H"
-        | 2 -> Some "He"
-        | 3 -> Some "Li"
-        | 4 -> Some "Be"
-        | 5 -> Some "B"
-        | 6 -> Some "C"
-        | 7 -> Some "N"
-        | 8 -> Some "O"
-        | 9 -> Some "F"
-        | 10 -> Some "Ne"
-        | 11 -> Some "Na"
-        | 12 -> Some "Mg"
-        | 13 -> Some "Al"
-        | 14 -> Some "Si"
-        | 15 -> Some "P"
-        | 16 -> Some "S"
-        | 17 -> Some "Cl"
-        | 18 -> Some "Ar"
-        | 19 -> Some "K"
-        | 20 -> Some "Ca"
-        | 21 -> Some "Sc"
-        | 22 -> Some "Ti"
-        | 23 -> Some "V"
-        | 24 -> Some "Cr"
-        | 25 -> Some "Mn"
-        | 26 -> Some "Fe"
-        | 27 -> Some "Co"
-        | 28 -> Some "Ni"
-        | 29 -> Some "Cu"
-        | 30 -> Some "Zn"
-        | 31 -> Some "Ga"
-        | 32 -> Some "Ge"
-        | 33 -> Some "As"
-        | 34 -> Some "Se"
-        | 35 -> Some "Br"
-        | 36 -> Some "Kr"
-        | 37 -> Some "Rb"
-        | 38 -> Some "Sr"
-        | 39 -> Some "Y"
-        | 40 -> Some "Zr"
-        | 41 -> Some "Nb"
-        | 42 -> Some "Mo"
-        | 43 -> Some "Tc"
-        | 44 -> Some "Ru"
-        | 45 -> Some "Rh"
-        | 46 -> Some "Pd"
-        | 47 -> Some "Ag"
-        | 48 -> Some "Cd"
-        | 49 -> Some "In"
-        | 50 -> Some "Sn"
-        | 51 -> Some "Sb"
-        | 52 -> Some "Te"
-        | 53 -> Some "I"
-        | 54 -> Some "Xe"
-        | 78 -> Some "Pt"
-        | 79 -> Some "Au"
-        | 82 -> Some "Pb"
-        | _ -> None
+        PeriodicTable.tryByNumber atomicNumber
+        |> Option.map (fun e -> e.Symbol)
 
 // ============================================================================
 // MOLECULE REPRESENTATION
@@ -560,6 +443,87 @@ module Molecule =
     let fromLibraryByName (name: string) : Molecule =
         FSharp.Azure.Quantum.Data.MoleculeLibrary.get name
         |> fromLibrary
+
+    // ========================================================================
+    // PROVIDER-BASED MOLECULE LOADING
+    // ========================================================================
+    
+    /// Convert a MoleculeInstance from the provider system to QuantumChemistry.Molecule.
+    /// Returns Error if the instance has no geometry (QC requires 3D coordinates).
+    /// 
+    /// Example:
+    ///   let provider = ChemistryDataProviders.defaultDatasetProvider
+    ///   match provider.Load (DatasetQuery.ByName "H2O") with
+    ///   | Ok dataset ->
+    ///       match Molecule.fromInstance dataset.Molecules.[0] with
+    ///       | Ok mol -> // use mol
+    ///       | Error e -> // missing geometry
+    ///   | Error e -> // provider error
+    let fromInstance (instance: ChemistryDataProviders.MoleculeInstance) : Result<Molecule, QuantumError> =
+        match instance.Geometry with
+        | None ->
+            let molName = instance.Name |> Option.defaultValue "unknown"
+            Error (QuantumError.ValidationError(
+                "MissingGeometry", 
+                $"Molecule '{molName}' has no 3D geometry. QC requires coordinates."))
+        | Some geom ->
+            let topology = instance.Topology
+            
+            // Validate atom count matches coordinate count
+            if topology.Atoms.Length <> geom.Coordinates.Length then
+                Error (QuantumError.ValidationError(
+                    "AtomCoordinateMismatch",
+                    $"Topology has {topology.Atoms.Length} atoms but geometry has {geom.Coordinates.Length} coordinates"))
+            else
+                let atoms =
+                    Array.zip topology.Atoms geom.Coordinates
+                    |> Array.map (fun (element, coord) ->
+                        { Element = element
+                          Position = (coord.X, coord.Y, coord.Z) })
+                    |> Array.toList
+                
+                let bonds =
+                    topology.Bonds
+                    |> Array.map (fun (a1, a2, order) ->
+                        { Atom1 = a1
+                          Atom2 = a2
+                          BondOrder = order |> Option.defaultValue 1.0 })
+                    |> Array.toList
+                
+                Ok {
+                    Name = instance.Name |> Option.defaultValue "Molecule"
+                    Atoms = atoms
+                    Bonds = bonds
+                    Charge = topology.Charge |> Option.defaultValue 0
+                    Multiplicity = topology.Multiplicity |> Option.defaultValue 1
+                }
+    
+    /// Load molecule from a dataset provider by name.
+    /// Returns Error if not found or if geometry is missing.
+    /// 
+    /// Example:
+    ///   let provider = ChemistryDataProviders.defaultDatasetProvider
+    ///   match Molecule.fromProvider provider "H2O" with
+    ///   | Ok mol -> printfn "Loaded: %s" mol.Name
+    ///   | Error e -> printfn "Error: %A" e
+    let fromProvider (provider: ChemistryDataProviders.IMoleculeDatasetProvider) (name: string) : Result<Molecule, QuantumError> =
+        match provider.Load (ChemistryDataProviders.DatasetQuery.ByName name) with
+        | Error e -> Error e
+        | Ok dataset ->
+            if dataset.Molecules.Length = 0 then
+                Error (QuantumError.ValidationError("MoleculeNotFound", $"Molecule '{name}' not found in provider"))
+            else
+                fromInstance dataset.Molecules.[0]
+    
+    /// Load molecule from a dataset provider by name, using the default provider.
+    /// This is a convenience function that uses the built-in MoleculeLibrary provider.
+    /// 
+    /// Example:
+    ///   match Molecule.fromDefaultProvider "benzene" with
+    ///   | Ok mol -> printfn "Found: %s with %d atoms" mol.Name mol.Atoms.Length
+    ///   | Error e -> printfn "Error: %A" e
+    let fromDefaultProvider (name: string) : Result<Molecule, QuantumError> =
+        fromProvider ChemistryDataProviders.defaultDatasetProvider name
 
 // ============================================================================
 // MOLECULAR INPUT / FILE PARSERS

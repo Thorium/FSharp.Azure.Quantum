@@ -141,33 +141,16 @@ module MolecularData =
     }
     
     // ========================================================================
-    // ATOMIC DATA (Reference: IUPAC)
+    // ATOMIC DATA (Reference: IUPAC via PeriodicTable)
     // ========================================================================
     
-    /// Atomic masses for common elements
-    let private atomicMasses = 
-        Map.ofList [
-            ("H", 1.008)
-            ("C", 12.011)
-            ("N", 14.007)
-            ("O", 15.999)
-            ("F", 18.998)
-            ("P", 30.974)
-            ("S", 32.065)
-            ("Cl", 35.453)
-            ("Br", 79.904)
-            ("I", 126.904)
-            ("B", 10.811)
-            ("Si", 28.086)
-            ("Se", 78.96)
-            ("Na", 22.990)
-            ("K", 39.098)
-            ("Ca", 40.078)
-            ("Mg", 24.305)
-            ("Zn", 65.38)
-            ("Fe", 55.845)
-            ("Cu", 63.546)
-        ]
+    /// Get atomic mass for an element symbol.
+    /// Falls back to 0.0 for unknown elements (maintains backward compatibility).
+    /// NOTE: Now delegates to PeriodicTable for complete element coverage.
+    let private getAtomicMass (symbol: string) : float =
+        match PeriodicTable.tryBySymbol symbol with
+        | Some element -> element.AtomicMass
+        | None -> 0.0
     
     /// LogP contributions (Wildman-Crippen)
     let private logPContributions =
@@ -397,13 +380,12 @@ module MolecularData =
         let atoms = molecule.Atoms
         let bonds = molecule.Bonds
         
-        // Molecular weight
+        // Molecular weight (using element provider)
         let mw = 
             atoms
             |> Array.sumBy (fun a ->
-                match atomicMasses.TryFind(a.Element) with
-                | Some mass -> mass + float a.ExplicitHydrogens * 1.008
-                | None -> 0.0)
+                let baseMass = getAtomicMass a.Element
+                baseMass + float a.ExplicitHydrogens * getAtomicMass "H")
         
         // LogP (Wildman-Crippen estimate)
         let logP =
