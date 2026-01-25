@@ -785,5 +785,16 @@ The key fix is to add a missing middle layer: **geometry/conformer provisioning*
 **Implementation status**:
 - ✅ Phase 1: Provider interfaces implemented
 - ✅ Phase 2: Internal refactoring complete (PeriodicTable integration, provider-based loading)
-- ✅ Phase 3: Core formats complete (XYZ, SMILES, SDF/MOL); PDB planned for v2
+- ✅ Phase 3: Core formats complete (XYZ, SMILES, SDF/MOL, FCIDump); PDB planned for v2
 - 📋 Phase 4: Planned for future iterations (external RDKit/PubChem providers)
+
+### Supported Formats
+
+| Format | Provider Class | Geometry | Notes |
+|--------|---------------|----------|-------|
+| XYZ | `XyzFileDatasetProvider` | ✅ Yes | Standard computational chemistry format |
+| CSV+SMILES | `CsvSmilesDatasetProvider` | ❌ No | Topology only, needs conformer generation |
+| SMILES List | `SmilesListDatasetProvider` | ❌ No | In-memory SMILES strings |
+| SDF/MOL | `SdfFileDatasetProvider`, `MolDirectoryDatasetProvider` | ✅ Yes | PubChem, ChEMBL compatible |
+| FCIDump | `FciDumpFileDatasetProvider`, `FciDumpDirectoryDatasetProvider` | ❌ No | Electronic structure only, no geometry |
+| PDB | Planned (v2) | ✅ Yes | Focus on ligand extraction |

@@ -3,6 +3,7 @@ namespace FSharp.Azure.Quantum.Data
 open System
 open System.Globalization
 open System.IO
+open System.Text.RegularExpressions
 open FSharp.Azure.Quantum.Core
 
 /// Chemistry-related data providers and importers.
@@ -1182,5 +1183,282 @@ module ChemistryDataProviders =
                     let sdfNames = sdfFiles |> Array.map (fun p -> Path.GetFileNameWithoutExtension p)
                     
                     Array.append molNames sdfNames |> Array.distinct |> Array.toList
+                else
+                    []
+
+    // ========================================================================
+    // FCIDUMP PARSER MODULE
+    // ========================================================================
+
+    /// Parser for FCIDump (Full Configuration Interaction Dump) files.
+    /// 
+    /// FCIDump is a standard format for molecular orbital integrals used by
+    /// quantum chemistry programs. It contains:
+    /// - Header: NORB (orbitals), NELEC (electrons), MS2 (2*spin)
+    /// - Body: one/two-electron integrals (not parsed here)
+    /// 
+    /// This parser extracts header metadata only. Full integral parsing
+    /// requires specialized quantum chemistry software.
+    /// 
+    /// NOTE: FCIDump doesn't contain molecular geometry, so MoleculeInstance
+    /// created from FCIDump will have Geometry = None and placeholder atoms.
+    module FciDumpParser =
+        open System.Text.RegularExpressions
+
+        /// Parsed FCIDump header information.
+        type FciDumpHeader =
+            { /// Number of molecular orbitals
+              NumOrbitals: int
+              /// Number of electrons
+              NumElectrons: int
+              /// 2 * total spin (MS2); multiplicity = MS2 + 1
+              MS2: int option
+              /// Orbital symmetries (if present)
+              OrbSym: int array option
+              /// Number of irreducible representations (if present)
+              NumIrrep: int option
+              /// Raw header line for reference
+              RawHeader: string }
+
+        /// Parse FCIDump header from file content.
+        let parseHeader (content: string) : Result<FciDumpHeader, string> =
+            let lines = content.Replace("\r\n", "\n").Split('\n')
+            
+            // Find header start line (&FCI or $FCI)
+            let headerStartIdx = 
+                lines 
+                |> Array.tryFindIndex (fun line -> 
+                    let trimmed = line.Trim().ToUpperInvariant()
+                    trimmed.StartsWith("&FCI") || trimmed.StartsWith("$FCI"))
+            
+            match headerStartIdx with
+            | None -> Error "No FCIDump header found (&FCI line)"
+            | Some startIdx ->
+                // Collect all header lines until we find '/' or '&END' or '$END'
+                let headerLines = 
+                    lines.[startIdx..]
+                    |> Array.takeWhile (fun line ->
+                        let trimmed = line.Trim()
+                        // Stop at end of header markers, but include lines containing the marker
+                        not (trimmed = "/" || trimmed = "&END" || trimmed = "$END" || 
+                             trimmed = "&" || trimmed = "$"))
+                    |> Array.toList
+                
+                // Join all header lines into one string for regex matching
+                let header = String.concat " " headerLines
+                
+                // Extract integer parameter from header
+                let extractInt name =
+                    let pattern = $"{name}\\s*=\\s*(\\d+)"
+                    let m = Regex.Match(header, pattern, RegexOptions.IgnoreCase)
+                    if m.Success then Some (int m.Groups.[1].Value) else None
+                
+                // Extract array parameter (e.g., ORBSYM=1,1,1,...)
+                let extractIntArray name =
+                    let pattern = $"{name}\\s*=\\s*([\\d,\\s]+)"
+                    let m = Regex.Match(header, pattern, RegexOptions.IgnoreCase)
+                    if m.Success then
+                        let values = 
+                            m.Groups.[1].Value.Split([|','; ' '|], StringSplitOptions.RemoveEmptyEntries)
+                            |> Array.choose (fun s -> 
+                                match Int32.TryParse(s.Trim()) with
+                                | true, v -> Some v
+                                | false, _ -> None)
+                        if values.Length > 0 then Some values else None
+                    else
+                        None
+                
+                match extractInt "NORB", extractInt "NELEC" with
+                | None, _ -> Error "NORB (number of orbitals) not found in FCIDump header"
+                | _, None -> Error "NELEC (number of electrons) not found in FCIDump header"
+                | Some norb, Some nelec ->
+                    Ok { NumOrbitals = norb
+                         NumElectrons = nelec
+                         MS2 = extractInt "MS2"
+                         OrbSym = extractIntArray "ORBSYM"
+                         NumIrrep = extractInt "NIRREP"
+                         RawHeader = header }
+
+        /// Parse FCIDump file and return header information.
+        let parseFile (filePath: string) : Result<FciDumpHeader, string> =
+            try
+                if not (File.Exists filePath) then
+                    Error $"File not found: {filePath}"
+                else
+                    let content = File.ReadAllText(filePath)
+                    parseHeader content
+            with
+            | ex -> Error $"Failed to read FCIDump file: {ex.Message}"
+
+        /// Convert FCIDump header to MoleculeInstance.
+        /// 
+        /// NOTE: FCIDump doesn't contain geometry, so we create placeholder
+        /// atoms based on electron count. This is useful for tracking
+        /// electronic structure information but NOT for geometric calculations.
+        let toMoleculeInstance (header: FciDumpHeader) (sourcePath: string option) : MoleculeInstance =
+            let multiplicity = match header.MS2 with | Some ms2 -> ms2 + 1 | None -> 1
+            
+            // Create placeholder topology (no real atoms, just electron count)
+            let topology: MoleculeTopology =
+                { Atoms = 
+                    // Use "X" as placeholder for unknown atoms
+                    // One "atom" per pair of electrons (very rough approximation)
+                    Array.init (max 1 (header.NumElectrons / 2)) (fun _ -> "X")
+                  Bonds = [||]  // No bonds known
+                  Charge = Some (header.NumOrbitals - header.NumElectrons)  // Rough estimate
+                  Multiplicity = Some multiplicity
+                  Metadata = 
+                    [ "format", "fcidump"
+                      "norb", string header.NumOrbitals
+                      "nelec", string header.NumElectrons
+                      yield! match header.MS2 with | Some ms2 -> ["ms2", string ms2] | None -> []
+                      yield! match header.NumIrrep with | Some n -> ["nirrep", string n] | None -> []
+                      yield! match sourcePath with | Some p -> ["source", p] | None -> [] ]
+                    |> Map.ofList }
+            
+            { Id = sourcePath |> Option.map Path.GetFileNameWithoutExtension
+              Name = sourcePath |> Option.map (fun p -> $"FCIDump: {Path.GetFileName p}")
+              Topology = topology
+              Geometry = None  // FCIDump doesn't contain geometry!
+            }
+
+    /// Dataset provider for FCIDump files.
+    /// 
+    /// FCIDump (Full Configuration Interaction Dump) is a format for molecular
+    /// orbital integrals used by quantum chemistry programs like PySCF, Psi4, etc.
+    /// 
+    /// IMPORTANT: FCIDump files do NOT contain molecular geometry. The provider
+    /// extracts electronic structure metadata (orbitals, electrons, spin) but
+    /// the resulting MoleculeInstance will have `Geometry = None`.
+    /// 
+    /// For quantum chemistry workflows, FCIDump is typically used AFTER
+    /// geometry optimization, providing pre-computed integrals for correlation
+    /// energy calculations.
+    /// 
+    /// Example:
+    ///   let provider = FciDumpFileDatasetProvider("h2o.fcidump")
+    ///   match provider.Load All with
+    ///   | Ok dataset ->
+    ///       let mol = dataset.Molecules.[0]
+    ///       let norb = mol.Topology.Metadata.["norb"]
+    ///       printfn "FCIDump has %s orbitals" norb
+    ///   | Error e -> printfn "Error: %A" e
+    type FciDumpFileDatasetProvider(filePath: string) =
+
+        let loadDataset () : QuantumResult<MoleculeDataset> =
+            match FciDumpParser.parseFile filePath with
+            | Ok header ->
+                let molecule = FciDumpParser.toMoleculeInstance header (Some filePath)
+                Ok { Molecules = [| molecule |]
+                     Labels = None
+                     LabelColumn = None
+                     Metadata = Map.ofList ["source", filePath; "format", "fcidump"] }
+            | Error msg ->
+                Error (QuantumError.ValidationError("FciDumpParsing", msg))
+
+        interface IMoleculeDatasetProvider with
+            member _.Describe() =
+                $"FCIDump file provider (file: {filePath})"
+
+            member _.Load(query: DatasetQuery) =
+                match query with
+                | All -> loadDataset ()
+                | ByName _ -> loadDataset ()  // Only one molecule per FCIDump
+                | ByPath _ ->
+                    Error (QuantumError.ValidationError("UnsupportedQuery", "FciDumpFileDatasetProvider does not support path queries"))
+                | ByCategory _ ->
+                    Error (QuantumError.ValidationError("UnsupportedQuery", "FciDumpFileDatasetProvider does not support category queries"))
+
+            member _.ListNames() =
+                match loadDataset () with
+                | Ok ds -> 
+                    ds.Molecules 
+                    |> Array.choose (fun m -> m.Name)
+                    |> Array.toList
+                | Error _ -> []
+
+    /// Dataset provider that loads FCIDump files from a directory.
+    /// 
+    /// Example:
+    ///   let provider = FciDumpDirectoryDatasetProvider("/path/to/fcidumps")
+    ///   match provider.Load All with
+    ///   | Ok dataset -> printfn "Found %d FCIDump files" dataset.Molecules.Length
+    ///   | Error e -> printfn "Error: %A" e
+    type FciDumpDirectoryDatasetProvider(directoryPath: string, ?searchPattern: string) =
+        let pattern = defaultArg searchPattern "*.fcidump"
+
+        let loadFciDump (path: string) : MoleculeInstance option =
+            match FciDumpParser.parseFile path with
+            | Ok header -> Some (FciDumpParser.toMoleculeInstance header (Some path))
+            | Error _ -> None
+
+        interface IMoleculeDatasetProvider with
+            member _.Describe() =
+                $"FCIDump directory provider (dir: {directoryPath}, pattern: {pattern})"
+
+            member _.Load(query: DatasetQuery) =
+                if not (Directory.Exists directoryPath) then
+                    Error (QuantumError.ValidationError("DirectoryPath", $"Directory not found: {directoryPath}"))
+                else
+                    match query with
+                    | All ->
+                        let files = Directory.GetFiles(directoryPath, pattern)
+                        let molecules = files |> Array.choose loadFciDump
+                        
+                        if molecules.Length = 0 then
+                            Error (QuantumError.ValidationError("NoFciDumps", "No valid FCIDump files found in directory"))
+                        else
+                            Ok { Molecules = molecules
+                                 Labels = None
+                                 LabelColumn = None
+                                 Metadata = Map.ofList ["source", directoryPath; "format", "fcidump_directory"] }
+                    
+                    | ByName name ->
+                        let fcidumpPath = Path.Combine(directoryPath, $"{name}.fcidump")
+                        let altPath = Path.Combine(directoryPath, name)  // Try without extension
+                        
+                        let tryPath path =
+                            if File.Exists path then
+                                match loadFciDump path with
+                                | Some mol -> 
+                                    Some (Ok { Molecules = [| mol |]
+                                               Labels = None
+                                               LabelColumn = None
+                                               Metadata = Map.ofList ["source", path; "format", "fcidump"] })
+                                | None ->
+                                    Some (Error (QuantumError.ValidationError("ParseError", $"Failed to parse {path}")))
+                            else
+                                None
+                        
+                        match tryPath fcidumpPath with
+                        | Some result -> result
+                        | None ->
+                            match tryPath altPath with
+                            | Some result -> result
+                            | None ->
+                                Error (QuantumError.ValidationError("FileNotFound", $"No FCIDump file named '{name}' found"))
+                    
+                    | ByPath subPath ->
+                        let fullPath = Path.Combine(directoryPath, subPath)
+                        if File.Exists fullPath then
+                            match loadFciDump fullPath with
+                            | Some mol ->
+                                Ok { Molecules = [| mol |]
+                                     Labels = None
+                                     LabelColumn = None
+                                     Metadata = Map.ofList ["source", fullPath; "format", "fcidump"] }
+                            | None ->
+                                Error (QuantumError.ValidationError("ParseError", $"Failed to parse {fullPath}"))
+                        else
+                            Error (QuantumError.ValidationError("FileNotFound", $"File not found: {fullPath}"))
+                    
+                    | ByCategory _ ->
+                        Error (QuantumError.ValidationError("UnsupportedQuery", "FciDumpDirectoryDatasetProvider does not support category queries"))
+
+            member _.ListNames() =
+                if Directory.Exists directoryPath then
+                    Directory.GetFiles(directoryPath, pattern)
+                    |> Array.map Path.GetFileNameWithoutExtension
+                    |> Array.toList
                 else
                     []
