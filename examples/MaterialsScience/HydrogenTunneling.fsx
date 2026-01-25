@@ -12,6 +12,11 @@
 // - Aerospace (pressure vessel integrity)
 // - Chemical industry (hydrogenation processes)
 //
+// Experimental context:
+// Hydrogen-in-metals studies are often validated with scattering/spectroscopy
+// techniques performed at large-scale facilities (synchrotron radiation and
+// spallation neutron sources).
+//
 // This example shows:
 // - Quantum tunneling probability calculations
 // - WKB approximation for barrier penetration
@@ -30,6 +35,9 @@
 // Based on "Concepts of Materials Science" by Adrian P. Sutton
 // Chapter 6: Electronic Structure
 // Section 6.8: Quantum Diffusion (pp. 79-80)
+//
+// Background reading (physics):
+// - The Feynman Lectures on Physics, Vol III: diffusion equation; crystals
 //
 // RULE1 COMPLIANCE:
 // All quantum calculations use IQuantumBackend throughout.

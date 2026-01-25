@@ -12,6 +12,11 @@
 // - Biomedical imaging (fluorescent markers)
 // - Lasers and single-photon sources
 //
+// Experimental context:
+// Optical and electronic properties of nanomaterials are often measured using
+// photon and neutron probes (e.g., synchrotron radiation and spallation neutron
+// sources described in Particle Physics Reference Library, Vol. 3).
+//
 // This example shows:
 // - Particle-in-a-box model mapping to qubit Hamiltonian
 // - VQE calculation of ground and excited state energies

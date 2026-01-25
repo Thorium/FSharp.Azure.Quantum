@@ -13,9 +13,15 @@
 // ==============================================================================
 
 using System;
+using System.IO;
+using System.Linq;
+using System.Net.Http;
 using FSharp.Azure.Quantum;
 using FSharp.Azure.Quantum.Classical;
+using FSharp.Azure.Quantum.Data;
+using Microsoft.FSharp.Core;
 using static FSharp.Azure.Quantum.CSharpBuilders;
+using static FSharp.Azure.Quantum.Data.FinancialData;
 
 namespace PortfolioExample;
 
@@ -35,12 +41,17 @@ internal sealed class Program
         Console.WriteLine("║              Using HybridSolver (Quantum-Ready Optimization)                ║");
         Console.WriteLine("╚══════════════════════════════════════════════════════════════════════════════╝");
         Console.WriteLine();
+        Console.WriteLine("Usage: dotnet run --project examples/InvestmentPortfolio/CSharp/PortfolioExample/PortfolioExample.csproj [-- --live]");
+        Console.WriteLine("  --live   Use live Yahoo Finance data (cached; falls back offline)");
+        Console.WriteLine();
 
         // Define investment budget
         const double budget = 100000.0; // $100,000
 
+        bool useLive = args.Any(a => string.Equals(a, "--live", StringComparison.OrdinalIgnoreCase));
+
         // Define available stocks with historical performance data
-        var stocks = DefineStockUniverse();
+        var stocks = DefineStockUniverse(useLive);
 
         Console.WriteLine($"Problem: Allocate ${budget:N2} across {stocks.Length} tech stocks");
         Console.WriteLine("Objective: Maximize risk-adjusted returns (Sharpe ratio)");
@@ -87,7 +98,78 @@ internal sealed class Program
     /// <summary>
     /// Define the stock universe with historical performance data.
     /// </summary>
-    private static PortfolioTypes.Asset[] DefineStockUniverse()
+    private static PortfolioTypes.Asset[] DefineStockUniverse(bool useLive)
+    {
+        var fallback = DefineStockUniverseFallback();
+
+        if (!useLive)
+        {
+            Console.WriteLine("[DATA] Live Yahoo: disabled (using built-in sample data)");
+            Console.WriteLine();
+            return fallback;
+        }
+
+        var cacheDir = Path.Combine(AppContext.BaseDirectory, "output", "yahoo-cache");
+        Directory.CreateDirectory(cacheDir);
+
+        Console.WriteLine("[DATA] Live Yahoo: enabled");
+        Console.WriteLine($"[DATA] Cache: {cacheDir}");
+
+        try
+        {
+            using var httpClient = new HttpClient();
+
+            // Use 2 years of daily data for a more stable estimate.
+            var range = YahooHistoryRange.TwoYears;
+            var interval = YahooHistoryInterval.OneDay;
+
+            var fallbackBySymbol = fallback.ToDictionary(a => a.Symbol, StringComparer.OrdinalIgnoreCase);
+
+            var assets = fallback.Select(a => a.Symbol).Select(symbol =>
+            {
+                var request = new YahooHistoryRequest(
+                    symbol: symbol,
+                    range: range,
+                    interval: interval,
+                    includeAdjustedClose: true,
+                    cacheDirectory: FSharpOption<string>.Some(cacheDir),
+                    cacheTtl: TimeSpan.FromHours(6));
+
+                var priceSeriesResult = fetchYahooHistory(httpClient, request);
+                if (priceSeriesResult.IsError)
+                {
+                    throw new Exception($"Yahoo fetch failed for {symbol}: {priceSeriesResult.ErrorValue.Message}");
+                }
+
+                var priceSeries = priceSeriesResult.ResultValue;
+
+                var returns = calculateReturns(priceSeries);
+
+                // Portfolio example expects annual expected return + annual volatility.
+                double expectedReturn = calculateExpectedReturn(returns, 252.0);
+                double risk = calculateVolatility(returns, 252.0);
+
+                var latestPriceOpt = tryGetLatestPrice(priceSeries);
+                double fallbackPrice = fallbackBySymbol[symbol].Price;
+                double price = latestPriceOpt != null ? latestPriceOpt.Value : fallbackPrice;
+
+                return new PortfolioTypes.Asset(symbol, expectedReturn, risk, price);
+            }).ToArray();
+
+            Console.WriteLine("[DATA] Yahoo fetch succeeded for all symbols.");
+            Console.WriteLine();
+
+            return assets;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[DATA] Yahoo fetch failed; falling back to sample data: {ex.Message}");
+            Console.WriteLine();
+            return fallback;
+        }
+    }
+
+    private static PortfolioTypes.Asset[] DefineStockUniverseFallback()
     {
         return new[]
         {

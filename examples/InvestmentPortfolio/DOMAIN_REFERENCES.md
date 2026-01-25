@@ -10,6 +10,15 @@ Brief summary of advanced portfolio theory concepts relevant to extending this e
 
 ## Extension Concepts
 
+### Stochastic Processes (Finance Context)
+
+Brownian motion/Wiener processes are core to continuous-time finance models (e.g., diffusion models for prices and rates). Even if this example stays discrete/optimization-focused, these concepts are useful when extending the scenario generation and risk modeling.
+
+Why this matters:
+- **Risk is distributional**: meaningful risk statements are about ranges/sets of outcomes (probability of loss exceeding a threshold), not single “exact” realizations.
+- **Information updates**: conditional expectations formalize “what we know now” vs “what we’ll know later”, which is central to multi-stage investment decisions and regime-based models.
+- **Model rigor**: continuous-time models require careful handling of expectations/integration (measure-theoretic foundations) to avoid common derivation pitfalls.
+
 ### Risk Measures Beyond Volatility
 
 | Measure | Formula | Use Case |
@@ -34,8 +43,10 @@ When parameter estimates (μ, Σ) are uncertain:
 
 ## References
 
-1. Glasserman & Xu - "Robust Risk Measurement and Model Risk"
-2. Puzanova & Düllmann - "Copula-Specific Credit Portfolio Modeling"
-3. Zagst et al. - "Risk Control in Asset Management"
+1. Löffler & Kruschwitz - *The Brownian Motion: A Rigorous but Gentle Introduction for Economists* (Springer, 2019, Open Access)
+   - Useful background on Brownian/Wiener processes, “almost sure” reasoning, and conditional expectation in finance contexts.
+2. Glasserman & Xu - "Robust Risk Measurement and Model Risk"
+3. Puzanova & Düllmann - "Copula-Specific Credit Portfolio Modeling"
+4. Zagst et al. - "Risk Control in Asset Management"
 
-*From: Innovations in Quantitative Risk Management (Springer, 2015)*
+*From: Innovations in Quantitative Risk Management (Springer, 2015) for items 2–4*

@@ -85,4 +85,4 @@ SESSION-*.md
 examples/**/*.model
 examples/**/*.tqp
 examples/**/schedule.txt
-!examples/**/output/
+examples/**/output/

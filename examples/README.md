@@ -276,7 +276,7 @@ Examples are categorized into **4 levels** based on business utility and technic
   Quantum teleportation protocol
 
 ### Finance & Risk
-- **[QuantumOptionPricing/QuantumOptionPricing.fsx](QuantumOptionPricing/QuantumOptionPricing.fsx)**  
+- **[FinancialRisk/OptionPricing.fsx](FinancialRisk/OptionPricing.fsx)**  
   Monte Carlo option pricing with quantum acceleration
 
 - **[QuantumDistributions/QuantumDistributions.fsx](QuantumDistributions/QuantumDistributions.fsx)**  

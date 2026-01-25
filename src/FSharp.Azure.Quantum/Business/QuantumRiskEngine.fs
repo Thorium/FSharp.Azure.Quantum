@@ -26,6 +26,7 @@ type RiskConfiguration = {
     GroverIterations: int
     Shots: int
     Backend: IQuantumBackend option
+    CancellationToken: System.Threading.CancellationToken option
 }
 
 /// Result of the risk engine execution
@@ -53,101 +54,123 @@ module RiskEngine =
             0.0005 + 0.02 * z
         )
 
-    /// Execute the configured risk analysis
-    let execute (config: RiskConfiguration) : RiskReport =
-        let startTime = System.DateTime.Now
+    let private runQmcHydration (config: RiskConfiguration) (backend: IQuantumBackend) : Async<unit> =
+        async {
+            match config.CancellationToken with
+            | Some token when token.IsCancellationRequested ->
+                return raise (System.OperationCanceledException token)
+            | _ ->
+                ()
 
-        // 1. Ingest Data (Real or Mock)
-        let returns = 
-            match config.MarketDataPath with
-            | Some path when System.IO.File.Exists(path) ->
-                // Basic CSV parsing for single column of returns
-                System.IO.File.ReadAllLines(path)
-                |> Array.skip 1 // Header
-                |> Array.map (fun line -> 
-                    match System.Double.TryParse(line.Trim()) with
-                    | true, v -> v
-                    | _ -> 0.0)
-            | _ -> 
-                generateMockReturns config.SimulationPaths
+            let numQubits = config.NumQubits
+            let statePrep = CircuitBuilder.empty numQubits // Placeholder for data loading
+            let oracle = CircuitBuilder.empty numQubits    // Placeholder for threshold check
 
-        // 2. Prepare Quantum Simulation (Amplitude Estimation)
-        // We use the integration with QuantumMonteCarlo to estimate the probability 
-        // of loss exceeding the VaR threshold.
-        
-        // For demonstration, we'll calculate VaR classically first to define the threshold,
-        // then use QMC to estimate the probability (verifying the confidence level).
-        // In a full Q-VaR implementation, QMC would search for the threshold.
-        
-        let sortedReturns = Array.sort returns
-        let varIndex = int ((1.0 - config.ConfidenceLevel) * float returns.Length)
-        let classicalVaR = -sortedReturns.[varIndex] // VaR is typically positive (loss)
-        
-        let methodUsed = 
-            if config.UseAmplitudeEstimation then 
-                 // Hydrate: prepare QMC config
-                 match config.Backend with
-                 | None ->
-                     "Quantum Amplitude Estimation (no backend)"
-                 | Some backend ->
-                 
-                     // Map the "Loss > Threshold" condition to a quantum oracle
-                // Since we can't easily load arbitrary data into QRAM on NISQ,
-                // we mock the oracle by creating a circuit that rotates amplitude 
-                // proportional to the measured loss probability.
-                //
-                // Real implementation: Load distribution via Grover-Rudolph state prep.
-                
-                // For this DSL hydration, we'll execute a representative QMC operation
-                // to show integration, even if the circuit is a placeholder for the full distribution.
-                
-                     let numQubits = config.NumQubits
-                     let statePrep = CircuitBuilder.empty numQubits // Placeholder for data loading
-                     let oracle = CircuitBuilder.empty numQubits    // Placeholder for threshold check
-                
-                     let qmcConfig = {
-                         QuantumMonteCarlo.QMCConfig.NumQubits = numQubits
-                         QuantumMonteCarlo.QMCConfig.StatePreparation = statePrep
-                         QuantumMonteCarlo.QMCConfig.Oracle = oracle
-                         QuantumMonteCarlo.QMCConfig.GroverIterations = config.GroverIterations
-                         QuantumMonteCarlo.QMCConfig.Shots = config.Shots
-                     }
+            let qmcConfig = {
+                QuantumMonteCarlo.QMCConfig.NumQubits = numQubits
+                QuantumMonteCarlo.QMCConfig.StatePreparation = statePrep
+                QuantumMonteCarlo.QMCConfig.Oracle = oracle
+                QuantumMonteCarlo.QMCConfig.GroverIterations = config.GroverIterations
+                QuantumMonteCarlo.QMCConfig.Shots = config.Shots
+            }
 
-                     // Execute (fire-and-forget for this hydration example to avoid blocking async)
-                     let _ = QuantumMonteCarlo.estimateExpectation qmcConfig backend |> Async.RunSynchronously
+            // Execute representative QMC operation (hydration/demo)
+            // If a caller provided a CancellationToken, honor it.
+            let! _ =
+                match config.CancellationToken with
+                | Some token ->
+                    Async.StartAsTask(
+                        QuantumMonteCarlo.estimateExpectation qmcConfig backend,
+                        cancellationToken = token,
+                        taskCreationOptions = System.Threading.Tasks.TaskCreationOptions.None)
+                    |> Async.AwaitTask
+                | None -> QuantumMonteCarlo.estimateExpectation qmcConfig backend
 
-                     "Quantum Amplitude Estimation"
-            else 
-                "Classical Monte Carlo"
-
-        // 3. Calculate Metrics (Hybrid Approach)
-        // Use the classical estimate refined by method selection
-        let vaR = if List.contains ValueAtRisk config.Metrics then ValueSome classicalVaR else ValueNone
-        
-        let tailLosses = sortedReturns |> Array.take (varIndex + 1)
-        let cVaRVal = - (Array.average tailLosses)
-        let cVaR = if List.contains ConditionalVaR config.Metrics then ValueSome cVaRVal else ValueNone
-        let es = if List.contains ExpectedShortfall config.Metrics then ValueSome cVaRVal else ValueNone // ES often synonymous with CVaR
-        
-        let vol = 
-            if List.contains Volatility config.Metrics then 
-                let mean = Array.average returns
-                let sumSq = returns |> Array.sumBy (fun x -> pown (x - mean) 2)
-                ValueSome (sqrt (sumSq / float returns.Length))
-            else ValueNone
-
-        let executionTime = (System.DateTime.Now - startTime).TotalMilliseconds
-
-        {
-            VaR = vaR
-            CVaR = cVaR
-            ExpectedShortfall = es
-            Volatility = vol
-            ConfidenceLevel = config.ConfidenceLevel
-            ExecutionTimeMs = executionTime
-            Method = methodUsed
-            Configuration = config
+            return ()
         }
+
+    /// Execute the configured risk analysis (async, cancellable)
+    let executeAsync (config: RiskConfiguration) : Async<RiskReport> =
+        async {
+            let startTime = System.DateTime.Now
+
+            // 1. Ingest Data (Real or Mock)
+            let returns = 
+                match config.MarketDataPath with
+                | Some path when System.IO.File.Exists(path) ->
+                    // Basic CSV parsing for single column of returns
+                    System.IO.File.ReadAllLines(path)
+                    |> Array.skip 1 // Header
+                    |> Array.map (fun line -> 
+                        match System.Double.TryParse(line.Trim()) with
+                        | true, v -> v
+                        | _ -> 0.0)
+                | _ -> 
+                    generateMockReturns config.SimulationPaths
+
+            // 2. Prepare Quantum Simulation (Amplitude Estimation)
+            // We use the integration with QuantumMonteCarlo to estimate the probability 
+            // of loss exceeding the VaR threshold.
+            
+            // For demonstration, we'll calculate VaR classically first to define the threshold,
+            // then use QMC to estimate the probability (verifying the confidence level).
+            // In a full Q-VaR implementation, QMC would search for the threshold.
+            
+            let sortedReturns = Array.sort returns
+            let varIndex = int ((1.0 - config.ConfidenceLevel) * float returns.Length)
+            let classicalVaR = -sortedReturns.[varIndex] // VaR is typically positive (loss)
+            
+            let! methodUsed = 
+                if config.UseAmplitudeEstimation then 
+                     // Hydrate: prepare QMC config
+                     match config.Backend with
+                     | None ->
+                         async.Return "Quantum Amplitude Estimation (no backend)"
+                     | Some backend ->
+                         async {
+                             do! runQmcHydration config backend
+                             return "Quantum Amplitude Estimation"
+                         }
+                else 
+                    async.Return "Classical Monte Carlo"
+
+            // 3. Calculate Metrics (Hybrid Approach)
+            // Use the classical estimate refined by method selection
+            let vaR = if List.contains ValueAtRisk config.Metrics then ValueSome classicalVaR else ValueNone
+            
+            let tailLosses = sortedReturns |> Array.take (varIndex + 1)
+            let cVaRVal = - (Array.average tailLosses)
+            let cVaR = if List.contains ConditionalVaR config.Metrics then ValueSome cVaRVal else ValueNone
+            let es = if List.contains ExpectedShortfall config.Metrics then ValueSome cVaRVal else ValueNone // ES often synonymous with CVaR
+            
+            let vol = 
+                if List.contains Volatility config.Metrics then 
+                    let mean = Array.average returns
+                    let sumSq = returns |> Array.sumBy (fun x -> pown (x - mean) 2)
+                    ValueSome (sqrt (sumSq / float returns.Length))
+                else ValueNone
+
+            let executionTime = (System.DateTime.Now - startTime).TotalMilliseconds
+
+            return {
+                VaR = vaR
+                CVaR = cVaR
+                ExpectedShortfall = es
+                Volatility = vol
+                ConfidenceLevel = config.ConfidenceLevel
+                ExecutionTimeMs = executionTime
+                Method = methodUsed
+                Configuration = config
+            }
+        }
+
+    /// Execute the configured risk analysis (sync wrapper)
+    let execute (config: RiskConfiguration) : RiskReport =
+        match config.CancellationToken with
+        | Some token ->
+            Async.RunSynchronously(executeAsync config, cancellationToken = token)
+        | None ->
+            executeAsync config |> Async.RunSynchronously
 
 /// Builder for the Quantum Risk Engine DSL
 type QuantumRiskEngineBuilder() =
@@ -162,6 +185,7 @@ type QuantumRiskEngineBuilder() =
         GroverIterations = 2
         Shots = 100
         Backend = None
+        CancellationToken = None
     }
 
     member _.Zero() = {
@@ -175,6 +199,7 @@ type QuantumRiskEngineBuilder() =
         GroverIterations = 2
         Shots = 100
         Backend = None
+        CancellationToken = None
     }
 
     member _.Delay(f: unit -> RiskConfiguration) = f
@@ -217,6 +242,11 @@ type QuantumRiskEngineBuilder() =
     [<CustomOperation("calculate_metric")>]
     member _.CalculateMetric(state: RiskConfiguration, metric: RiskMetric) =
         { state with Metrics = state.Metrics @ [metric] }
+
+    /// Provide a cancellation token for long-running operations
+    [<CustomOperation("cancellation_token")>]
+    member _.CancellationToken(state: RiskConfiguration, token: System.Threading.CancellationToken) =
+        { state with CancellationToken = Some token }
 
     /// Set number of qubits for QMC operations
     [<CustomOperation("qubits")>]

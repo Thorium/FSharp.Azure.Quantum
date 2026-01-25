@@ -12,6 +12,18 @@
 // - Thermoelectric materials (band engineering)
 // - Topological materials (band inversion)
 //
+// Experimental context:
+// Many band-structure conclusions are validated via large-scale facilities.
+// Synchrotron radiation sources and spallation neutron sources are widely used
+// in materials and condensed-matter studies, and ion implantation is a key
+// semiconductor manufacturing process.
+// Reference: Particle Physics Reference Library, Vol. 3 (Myers & Schopper),
+// "Accelerators, Colliders and Their Application".
+//
+// Background reading (physics):
+// - The Feynman Lectures on Physics, Vol II: semiconductors (n-type/p-type)
+// - The Feynman Lectures on Physics, Vol III: internal geometry of crystals
+//
 // This example shows:
 // - Free electron model and Fermi energy
 // - Band gap formation from periodic potentials

@@ -13,6 +13,11 @@
 // - Oxide electronics (correlated oxide devices)
 // - Battery materials (lithium cobaltate transitions)
 //
+// Experimental context:
+// Strongly correlated phases are frequently mapped using scattering and
+// spectroscopy; synchrotron radiation and spallation neutron sources are common
+// infrastructure for these measurements.
+//
 // This example shows:
 // - Mott criterion for metal-insulator transition
 // - Hubbard model for electron correlation

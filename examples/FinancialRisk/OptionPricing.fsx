@@ -16,7 +16,7 @@
 // - FSharp.Azure.Quantum library
 //
 // USAGE:
-//   dotnet fsi QuantumOptionPricing.fsx
+//   dotnet fsi FinancialRisk/OptionPricing.fsx
 // ============================================================================
 
 (*
@@ -76,13 +76,14 @@ References:
   [4] Wikipedia: Black-Scholes_model (https://en.wikipedia.org/wiki/Black-Scholes_model)
 *)
 
-#r "nuget: FSharp.Azure.Quantum"
+#r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 
 open System
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.BackendAbstraction
+open FSharp.Azure.Quantum.Business
 
 printfn "╔═══════════════════════════════════════════════════════════════╗"
 printfn "║   Quantum Monte Carlo Option Pricing                         ║"
@@ -115,6 +116,11 @@ printfn ""
 // Use local quantum simulator
 let backend = LocalBackend.LocalBackend() :> IQuantumBackend
 
+// Quantum configuration
+let numQubits = 6
+let groverIterations = 2
+let shots = 500
+
 printfn "Using LocalBackend (quantum simulator)..."
 printfn "Running quantum Monte Carlo..."
 printfn ""
@@ -127,6 +133,9 @@ let result =
         riskFreeRate 
         volatility 
         timeToExpiry 
+        numQubits
+        groverIterations
+        shots
         backend
     |> Async.RunSynchronously
 
@@ -161,8 +170,10 @@ printfn ""
 
 let priceBothOptions spot strike =
     async {
-        let! callResult = OptionPricing.priceEuropeanCall spot strike riskFreeRate volatility timeToExpiry backend
-        let! putResult = OptionPricing.priceEuropeanPut spot strike riskFreeRate volatility timeToExpiry backend
+        let! callResult = 
+            OptionPricing.priceEuropeanCall spot strike riskFreeRate volatility timeToExpiry numQubits groverIterations shots backend
+        let! putResult = 
+            OptionPricing.priceEuropeanPut spot strike riskFreeRate volatility timeToExpiry numQubits groverIterations shots backend
         
         return (callResult, putResult)
     }
@@ -214,7 +225,7 @@ printfn "  (Spot = $%.2f)\n" spotPrice
 
 for (strike, description) in strikes do
     let result = 
-        OptionPricing.priceEuropeanCall spotPrice strike riskFreeRate volatility timeToExpiry backend
+        OptionPricing.priceEuropeanCall spotPrice strike riskFreeRate volatility timeToExpiry numQubits groverIterations shots backend
         |> Async.RunSynchronously
     
     match result with
@@ -240,7 +251,7 @@ printfn "  (Spot = Strike = $%.2f)\n" spotPrice
 
 for vol in volatilities do
     let result = 
-        OptionPricing.priceEuropeanCall spotPrice spotPrice riskFreeRate vol timeToExpiry backend
+        OptionPricing.priceEuropeanCall spotPrice spotPrice riskFreeRate vol timeToExpiry numQubits groverIterations shots backend
         |> Async.RunSynchronously
     
     match result with
@@ -272,7 +283,7 @@ printfn ""
 
 // Test negative spot
 let invalidResult = 
-    OptionPricing.priceEuropeanCall (-100.0) 105.0 riskFreeRate volatility timeToExpiry backend
+    OptionPricing.priceEuropeanCall (-100.0) 105.0 riskFreeRate volatility timeToExpiry numQubits groverIterations shots backend
     |> Async.RunSynchronously
 
 match invalidResult with
@@ -305,6 +316,9 @@ let asianResult =
         volatility 
         timeToExpiry 
         timeSteps
+        numQubits
+        groverIterations
+        shots
         backend
     |> Async.RunSynchronously
 

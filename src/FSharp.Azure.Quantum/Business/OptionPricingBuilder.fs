@@ -107,6 +107,7 @@ module OptionPricing =
         GroverIterations: int
         Shots: int
         Backend: IQuantumBackend voption
+        CancellationToken: System.Threading.CancellationToken option
     }
     
     // ========================================================================
@@ -223,13 +224,14 @@ module OptionPricing =
     /// - Payoff oracle uses MSB approximation (see encodePayoffOracle documentation)
     /// - Requires careful selection of numQubits based on price range
     /// - groverIterations affects accuracy: more iterations = higher precision
-    let price
+    let priceWithCancellation
+        (cancellationTokenOpt: System.Threading.CancellationToken option)
         (optionType: OptionType)
         (marketParams: MarketParameters)
         (numQubits: int)
         (groverIterations: int)
         (shots: int)
-        (backend: IQuantumBackend)  // ✅ RULE1: Backend REQUIRED (not optional)
+        (backend: IQuantumBackend)
         : Async<QuantumResult<OptionPrice>> =
         
         async {
@@ -276,7 +278,17 @@ module OptionPricing =
                 }
                 
                 // Execute QMC on quantum backend (✅ RULE1 compliant - backend required)
-                let! qmcResult = QuantumMonteCarlo.estimateExpectation qmcConfig backend
+                let! qmcResult =
+                    match cancellationTokenOpt with
+                    | Some token when token.IsCancellationRequested ->
+                        raise (OperationCanceledException token)
+                    | Some token ->
+                        Async.StartAsTask(
+                            QuantumMonteCarlo.estimateExpectation qmcConfig backend,
+                            cancellationToken = token,
+                            taskCreationOptions = System.Threading.Tasks.TaskCreationOptions.None)
+                        |> Async.AwaitTask
+                    | None -> QuantumMonteCarlo.estimateExpectation qmcConfig backend
                 
                 // Calculate discount factor
                 let discountFactor = exp (-marketParams.RiskFreeRate * marketParams.TimeToExpiry)
@@ -298,6 +310,16 @@ module OptionPricing =
                     }
                 )
         }
+
+    let price
+        (optionType: OptionType)
+        (marketParams: MarketParameters)
+        (numQubits: int)
+        (groverIterations: int)
+        (shots: int)
+        (backend: IQuantumBackend)  // ✅ RULE1: Backend REQUIRED (not optional)
+        : Async<QuantumResult<OptionPrice>> =
+        priceWithCancellation None optionType marketParams numQubits groverIterations shots backend
     
     // ========================================================================
     // COMPUTATION EXPRESSION BUILDER
@@ -319,6 +341,7 @@ module OptionPricing =
                 GroverIterations = 5
                 Shots = 1000
                 Backend = ValueNone
+                CancellationToken = None
             }
 
         member _.Delay(f) = f
@@ -326,7 +349,8 @@ module OptionPricing =
         member _.Run(f) : Async<QuantumResult<OptionPrice>> =
             let config : OptionPricingConfig = f()
             match config.Backend with
-            | ValueSome b -> price config.OptionType config.Market config.NumQubits config.GroverIterations config.Shots b
+            | ValueSome b ->
+                priceWithCancellation config.CancellationToken config.OptionType config.Market config.NumQubits config.GroverIterations config.Shots b
             | ValueNone -> async { return Error (QuantumError.ValidationError ("Backend", "Quantum Backend must be specified")) }
 
         // Custom Operations
@@ -370,6 +394,10 @@ module OptionPricing =
         [<CustomOperation("backend")>]
         member _.Backend(config: OptionPricingConfig, b) =
             { config with Backend = ValueSome b }
+
+        [<CustomOperation("cancellation_token")>]
+        member _.CancellationToken(config: OptionPricingConfig, token: System.Threading.CancellationToken) =
+            { config with CancellationToken = Some token }
 
     let optionPricing = OptionPricingBuilder()
 
@@ -509,7 +537,7 @@ module OptionPricing =
                 
                 // Helper to run pricing safely
                 let priceAt params' = 
-                    price optionType params' numQubits groverIterations 1000 backend
+                    priceWithCancellation None optionType params' numQubits groverIterations 1000 backend
                 
                 // Define scenarios for Finite Differences
                 

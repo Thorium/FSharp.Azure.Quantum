@@ -12,6 +12,11 @@
 // - Spintronic logic circuits
 // - Magnetic field sensors
 //
+// Experimental context:
+// Spin- and band-structure features are commonly investigated using advanced
+// beam-based probes; accelerator-driven photon sources (synchrotrons) are a
+// major enabler for materials characterization at scale.
+//
 // This example shows:
 // - Mott's two-current model for spin-dependent scattering
 // - GMR in Fe/Cr/Fe trilayer structures

@@ -86,6 +86,8 @@ References:
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 
 open System
+open System.Net.Http
+open System.IO
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.BackendAbstraction
@@ -320,11 +322,57 @@ let marketData = [
     ("EEM",  "Emerging Markets",      0.08, 0.22, 0.05, 48, AssetClass.Equity)
 ]
 
+let liveDataEnabled =
+    match Environment.GetEnvironmentVariable("FINANCIALRISK_LIVE_DATA") with
+    | null -> false
+    | s ->
+        match s.Trim().ToLowerInvariant() with
+        | "1" | "true" | "yes" -> true
+        | _ -> false
+
+let yahooCacheDir = Path.Combine(__SOURCE_DIRECTORY__, "output", "yahoo-cache")
+let _ = Directory.CreateDirectory(yahooCacheDir) |> ignore
+
+let tryFetchReturnSeries (symbols: string list) : ReturnSeries[] option =
+    try
+        use httpClient = new HttpClient()
+        let series =
+            symbols
+            |> List.map (fun symbol ->
+                let request: YahooHistoryRequest = {
+                    Symbol = symbol
+                    Range = YahooHistoryRange.TwoYears
+                    Interval = YahooHistoryInterval.OneDay
+                    IncludeAdjustedClose = true
+                    CacheDirectory = Some yahooCacheDir
+                    CacheTtl = TimeSpan.FromHours(6.0)
+                }
+
+                match fetchYahooHistory httpClient request with
+                | Ok priceSeries -> calculateReturns priceSeries
+                | Error error -> raise (InvalidOperationException(sprintf "Failed to fetch Yahoo data for %s: %A" symbol error))
+            )
+            |> List.toArray
+
+        Some series
+    with _ -> None
+
 let returnSeries =
-    marketData
-    |> List.map (fun (sym, _, ret, vol, _, seed, _) ->
-        generateReturns sym ret vol lookbackPeriod seed)
-    |> List.toArray
+    if liveDataEnabled then
+        let symbols = marketData |> List.map (fun (sym, _, _, _, _, _, _) -> sym)
+        match tryFetchReturnSeries symbols with
+        | Some series ->
+            printfn "Using live Yahoo Finance data (cached at %s)" yahooCacheDir
+            series
+        | None ->
+            printfn "Live Yahoo data unavailable; falling back to simulated returns"
+            marketData
+            |> List.map (fun (sym, _, ret, vol, _, seed, _) -> generateReturns sym ret vol lookbackPeriod seed)
+            |> List.toArray
+    else
+        marketData
+        |> List.map (fun (sym, _, ret, vol, _, seed, _) -> generateReturns sym ret vol lookbackPeriod seed)
+        |> List.toArray
 
 // ==============================================================================
 // PORTFOLIO CONSTRUCTION
@@ -332,6 +380,7 @@ let returnSeries =
 
 printfn "=============================================="
 printfn " Quantum Multi-Scenario Stress Testing"
+if liveDataEnabled then printfn "(Live data toggle enabled: FINANCIALRISK_LIVE_DATA)"
 printfn "=============================================="
 printfn ""
 
