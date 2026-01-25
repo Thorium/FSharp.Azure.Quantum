@@ -1,7 +1,10 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\FSharp.Azure.Quantum\FSharp.Azure.Quantum.fsproj" />
+    <Reference Include="FSharp.Azure.Quantum.Business.CSharp">
+      <HintPath>..\..\src\FSharp.Azure.Quantum\Business\CSharp\bin\$(Configuration)\net10.0\FSharp.Azure.Quantum.Business.CSharp.dll</HintPath>
+    </Reference>
   </ItemGroup>
 
   <PropertyGroup>

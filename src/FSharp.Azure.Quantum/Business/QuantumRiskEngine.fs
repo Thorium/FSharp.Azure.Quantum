@@ -179,9 +179,14 @@ type QuantumRiskEngineBuilder() =
 
     member _.Delay(f: unit -> RiskConfiguration) = f
 
-    member _.Run(f: unit -> RiskConfiguration) : QuantumResult<RiskReport> =
-        let config = f()
-        Ok (RiskEngine.execute config)
+    member _.For(state: RiskConfiguration, body: unit -> RiskConfiguration) =
+        body()
+
+    member _.Run(state: RiskConfiguration) : QuantumResult<RiskReport> =
+        Ok (RiskEngine.execute state)
+
+    member this.Run(f: unit -> RiskConfiguration) : QuantumResult<RiskReport> =
+        this.Run(f())
 
     /// Load market data from a file path
     [<CustomOperation("load_market_data")>]

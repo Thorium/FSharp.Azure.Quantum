@@ -259,12 +259,14 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- C# Business Builder Wrappers (included as content for NuGet package) -->
-    <None Include="Business\CSharp\*.cs" Pack="true" PackagePath="contentFiles\cs\any\FSharp.Azure.Quantum.Business.CSharp" />
-    
+    <!-- Compiled C# Business Builder Wrappers DLL -->
+    <None Include="Business\CSharp\bin\$(Configuration)\net10.0\FSharp.Azure.Quantum.Business.CSharp.dll" Pack="true" PackagePath="lib\net10.0\" />
+    <None Include="Business\CSharp\bin\$(Configuration)\net10.0\FSharp.Azure.Quantum.Business.CSharp.xml" Pack="true" PackagePath="lib\net10.0\" Condition="Exists('Business\CSharp\bin\$(Configuration)\net10.0\FSharp.Azure.Quantum.Business.CSharp.xml')" />
+
     <!-- C# Global Usings (auto-enables extensions for .NET 10 C# projects) -->
     <None Include="GlobalUsings.cs" Pack="true" PackagePath="contentFiles\cs\net10.0\GlobalUsings.cs" />
   </ItemGroup>
+
 
   <ItemGroup>
     <!-- NOTE: FSharp.Core is implicitly included by the F# SDK and automatically 

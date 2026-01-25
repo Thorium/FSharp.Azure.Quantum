@@ -1,11 +1,9 @@
 namespace FSharp.Azure.Quantum.Business.CSharp;
 
-using System;
-using System.Collections.Generic;
-using FSharp.Azure.Quantum.Core.BackendAbstraction;
-using Microsoft.FSharp.Collections;
+using FSharp.Azure.Quantum.Core;
 using Microsoft.FSharp.Core;
 using static FSharp.Azure.Quantum.Business.QuantumDrugDiscoveryDSL;
+using static FSharp.Azure.Quantum.Core.BackendAbstraction;
 
 /// <summary>
 /// C# Builder for Quantum Drug Discovery.
@@ -70,7 +68,7 @@ public class QuantumDrugDiscoveryBuilder
         return this;
     }
 
-    public QuantumResult<ScreeningResult> Run()
+    public FSharpResult<ScreeningResult, QuantumError> Run()
     {
         var config = new DrugDiscoveryConfiguration(
             _targetPdbPath == null ? FSharpOption<string>.None : FSharpOption<string>.Some(_targetPdbPath),
@@ -80,9 +78,8 @@ public class QuantumDrugDiscoveryBuilder
             _batchSize,
             _fingerprintSize,
             _shots,
-            _backend == null ? FSharpOption<IQuantumBackend>.None : FSharpOption<IQuantumBackend>.Some(_backend)
-        );
+            _backend == null ? FSharpOption<IQuantumBackend>.None : FSharpOption<IQuantumBackend>.Some(_backend));
 
-        return drugDiscovery.Run(_ => config);
+        return drugDiscovery.Run(FSharpFunc<Unit, DrugDiscoveryConfiguration>.FromConverter(_ => config));
     }
 }

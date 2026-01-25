@@ -1,16 +1,17 @@
 using System;
 using System.Linq;
-using FSharp.Azure.Quantum.Core.BackendAbstraction;
+using FSharp.Azure.Quantum.Core;
 using Microsoft.FSharp.Core;
+using static FSharp.Azure.Quantum.Core.BackendAbstraction;
 
 namespace FSharp.Azure.Quantum.Business.CSharp
 {
     /// <summary>
     /// C# Fluent API for Predictive Modeling
-    /// 
+    ///
     /// Provides enterprise-friendly API for forecasting and prediction without exposing F# types.
     /// Supports both regression (continuous values) and multi-class classification (categories).
-    /// 
+    ///
     /// Use Cases:
     /// - Customer churn prediction (will customer leave? when?)
     /// - Demand forecasting (how many units will sell?)
@@ -18,7 +19,7 @@ namespace FSharp.Azure.Quantum.Business.CSharp
     /// - Customer lifetime value (LTV)
     /// - Risk scoring (credit risk, insurance risk)
     /// - Lead scoring (probability of conversion)
-    /// 
+    ///
     /// Example (Regression):
     /// <code>
     /// var model = new PredictiveModelBuilder()
@@ -26,11 +27,11 @@ namespace FSharp.Azure.Quantum.Business.CSharp
     ///     .WithTargets(trainY)
     ///     .WithProblemType(ProblemType.Regression)
     ///     .Build();
-    ///     
+    ///
     /// var prediction = model.Predict(newCustomer);
     /// Console.WriteLine($"Expected revenue: ${prediction.Value}");
     /// </code>
-    /// 
+    ///
     /// Example (Multi-Class):
     /// <code>
     /// var churnModel = new PredictiveModelBuilder()
@@ -39,7 +40,7 @@ namespace FSharp.Azure.Quantum.Business.CSharp
     ///     .WithProblemType(ProblemType.MultiClass(4))
     ///     .SaveModelTo("churn_predictor.model")
     ///     .Build();
-    ///     
+    ///
     /// var pred = churnModel.PredictCategory(customer);
     /// if (pred.Category == 1)
     ///     Console.WriteLine("⚠️ Churn risk in 30 days!");
@@ -47,25 +48,27 @@ namespace FSharp.Azure.Quantum.Business.CSharp
     /// </summary>
     public class PredictiveModelBuilder
     {
-        private double[][] _trainFeatures;
-        private double[] _trainTargets;
+        private double[][]? _trainFeatures;
+        private double[]? _trainTargets;
         private ProblemType _problemType = ProblemType.Regression;
         private ModelArchitecture _architecture = ModelArchitecture.Quantum;
         private double _learningRate = 0.01;
         private int _maxEpochs = 100;
         private double _convergenceThreshold = 0.001;
-        private IQuantumBackend _backend = null;
+        private IQuantumBackend? _backend;
         private int _shots = 1000;
-        private bool _verbose = false;
-        private string _savePath = null;
-        private string _note = null;
+        private bool _verbose;
+        private string? _savePath;
+        private string? _note;
 
         /// <summary>
         /// Set training features (samples × features matrix).
         /// Each row is one sample, each column is one feature.
         /// </summary>
+        /// <returns></returns>
         public PredictiveModelBuilder WithFeatures(double[][] features)
         {
+            ArgumentNullException.ThrowIfNull(features);
             _trainFeatures = features;
             return this;
         }
@@ -75,8 +78,10 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// For regression: continuous values (e.g., revenue, demand).
         /// For multi-class: integer labels 0, 1, 2, ... (e.g., churn timing categories).
         /// </summary>
+        /// <returns></returns>
         public PredictiveModelBuilder WithTargets(double[] targets)
         {
+            ArgumentNullException.ThrowIfNull(targets);
             _trainTargets = targets;
             return this;
         }
@@ -84,16 +89,19 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// <summary>
         /// Set training targets from integer array (convenience for multi-class).
         /// </summary>
+        /// <returns></returns>
         public PredictiveModelBuilder WithTargets(int[] targets)
         {
+            ArgumentNullException.ThrowIfNull(targets);
             _trainTargets = targets.Select(t => (double)t).ToArray();
             return this;
         }
 
         /// <summary>
         /// Specify problem type: Regression or MultiClass.
-        /// Default: Regression
+        /// Default: Regression.
         /// </summary>
+        /// <returns></returns>
         public PredictiveModelBuilder WithProblemType(ProblemType problemType)
         {
             _problemType = problemType;
@@ -102,8 +110,9 @@ namespace FSharp.Azure.Quantum.Business.CSharp
 
         /// <summary>
         /// Choose model architecture (Quantum, Hybrid, or Classical).
-        /// Default: Quantum
+        /// Default: Quantum.
         /// </summary>
+        /// <returns></returns>
         public PredictiveModelBuilder WithArchitecture(ModelArchitecture architecture)
         {
             _architecture = architecture;
@@ -112,8 +121,9 @@ namespace FSharp.Azure.Quantum.Business.CSharp
 
         /// <summary>
         /// Set learning rate for training.
-        /// Default: 0.01
+        /// Default: 0.01.
         /// </summary>
+        /// <returns></returns>
         public PredictiveModelBuilder WithLearningRate(double learningRate)
         {
             _learningRate = learningRate;
@@ -122,8 +132,9 @@ namespace FSharp.Azure.Quantum.Business.CSharp
 
         /// <summary>
         /// Set maximum number of training epochs.
-        /// Default: 100
+        /// Default: 100.
         /// </summary>
+        /// <returns></returns>
         public PredictiveModelBuilder WithMaxEpochs(int maxEpochs)
         {
             _maxEpochs = maxEpochs;
@@ -132,8 +143,9 @@ namespace FSharp.Azure.Quantum.Business.CSharp
 
         /// <summary>
         /// Set convergence threshold for early stopping.
-        /// Default: 0.001
+        /// Default: 0.001.
         /// </summary>
+        /// <returns></returns>
         public PredictiveModelBuilder WithConvergenceThreshold(double threshold)
         {
             _convergenceThreshold = threshold;
@@ -142,18 +154,21 @@ namespace FSharp.Azure.Quantum.Business.CSharp
 
         /// <summary>
         /// Specify quantum backend to use.
-        /// Default: LocalBackend (simulation)
+        /// Default: LocalBackend (simulation).
         /// </summary>
+        /// <returns></returns>
         public PredictiveModelBuilder WithBackend(IQuantumBackend backend)
         {
+            ArgumentNullException.ThrowIfNull(backend);
             _backend = backend;
             return this;
         }
 
         /// <summary>
         /// Set number of measurement shots for quantum circuits.
-        /// Default: 1000
+        /// Default: 1000.
         /// </summary>
+        /// <returns></returns>
         public PredictiveModelBuilder WithShots(int shots)
         {
             _shots = shots;
@@ -162,8 +177,9 @@ namespace FSharp.Azure.Quantum.Business.CSharp
 
         /// <summary>
         /// Enable verbose logging during training.
-        /// Default: false
+        /// Default: false.
         /// </summary>
+        /// <returns></returns>
         public PredictiveModelBuilder WithVerbose(bool verbose = true)
         {
             _verbose = verbose;
@@ -173,8 +189,10 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// <summary>
         /// Save trained model to specified path.
         /// </summary>
+        /// <returns></returns>
         public PredictiveModelBuilder SaveModelTo(string path)
         {
+            ArgumentNullException.ThrowIfNull(path);
             _savePath = path;
             return this;
         }
@@ -182,8 +200,10 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// <summary>
         /// Add optional note about the model (saved in metadata).
         /// </summary>
+        /// <returns></returns>
         public PredictiveModelBuilder WithNote(string note)
         {
+            ArgumentNullException.ThrowIfNull(note);
             _note = note;
             return this;
         }
@@ -193,6 +213,7 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// Returns a trained model ready for predictions.
         /// </summary>
         /// <exception cref="InvalidOperationException">Thrown if training fails.</exception>
+        /// <returns></returns>
         public IPredictiveModel Build()
         {
             // Convert ProblemType to F# type
@@ -202,48 +223,47 @@ namespace FSharp.Azure.Quantum.Business.CSharp
 
             // Build F# problem specification
             var problem = new PredictiveModel.PredictionProblem(
-                TrainFeatures: _trainFeatures,
-                TrainTargets: _trainTargets,
-                ProblemType: fsharpProblemType,
-                Architecture: ConvertArchitecture(_architecture),
-                LearningRate: _learningRate,
-                MaxEpochs: _maxEpochs,
-                ConvergenceThreshold: _convergenceThreshold,
-                Backend: _backend != null ? FSharpOption<IQuantumBackend>.Some(_backend) : FSharpOption<IQuantumBackend>.None,
-                Shots: _shots,
-                Verbose: _verbose,
-                SavePath: _savePath != null ? FSharpOption<string>.Some(_savePath) : FSharpOption<string>.None,
-                Note: _note != null ? FSharpOption<string>.Some(_note) : FSharpOption<string>.None
-            );
+                _trainFeatures,
+                _trainTargets,
+                fsharpProblemType,
+                ConvertArchitecture(_architecture),
+                _learningRate,
+                _maxEpochs,
+                _convergenceThreshold,
+                _backend != null ? FSharpOption<IQuantumBackend>.Some(_backend) : FSharpOption<IQuantumBackend>.None,
+                _shots,
+                _verbose,
+                _savePath != null ? FSharpOption<string>.Some(_savePath) : FSharpOption<string>.None,
+                _note != null ? FSharpOption<string>.Some(_note) : FSharpOption<string>.None,
+                FSharpOption<Core.Progress.IProgressReporter>.None,
+                FSharpOption<System.Threading.CancellationToken>.None);
 
             // Train model
             var result = PredictiveModel.train(problem);
 
-            if (FSharpResult<PredictiveModel.Model, string>.get_IsError(result))
+            if (result.IsError)
             {
-                var error = ((FSharpResult<PredictiveModel.Model, string>.Error)result).ErrorValue;
-                throw new InvalidOperationException($"Training failed: {error}");
+                throw new InvalidOperationException($"Training failed: {result.ErrorValue.Message}");
             }
 
-            var model = ((FSharpResult<PredictiveModel.Model, string>.Ok)result).ResultValue;
-            return new PredictiveModelWrapper(model);
+            return new PredictiveModelWrapper(result.ResultValue);
         }
 
         /// <summary>
         /// Load a previously trained model from file.
         /// </summary>
+        /// <returns></returns>
         public static IPredictiveModel LoadFrom(string path)
         {
+            ArgumentNullException.ThrowIfNull(path);
             var result = PredictiveModel.load(path);
 
-            if (FSharpResult<PredictiveModel.Model, string>.get_IsError(result))
+            if (result.IsError)
             {
-                var error = ((FSharpResult<PredictiveModel.Model, string>.Error)result).ErrorValue;
-                throw new InvalidOperationException($"Failed to load model: {error}");
+                throw new InvalidOperationException($"Failed to load model: {result.ErrorValue.Message}");
             }
 
-            var model = ((FSharpResult<PredictiveModel.Model, string>.Ok)result).ResultValue;
-            return new PredictiveModelWrapper(model);
+            return new PredictiveModelWrapper(result.ResultValue);
         }
 
         private static PredictiveModel.Architecture ConvertArchitecture(ModelArchitecture arch)
@@ -253,7 +273,7 @@ namespace FSharp.Azure.Quantum.Business.CSharp
                 ModelArchitecture.Quantum => PredictiveModel.Architecture.Quantum,
                 ModelArchitecture.Hybrid => PredictiveModel.Architecture.Hybrid,
                 ModelArchitecture.Classical => PredictiveModel.Architecture.Classical,
-                _ => PredictiveModel.Architecture.Quantum
+                _ => PredictiveModel.Architecture.Quantum,
             };
         }
     }
@@ -272,13 +292,15 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// Predict categories (churn timing, risk levels, etc.).
         /// </summary>
         /// <param name="numClasses">Number of categories.</param>
-        public static ProblemType MultiClass(int numClasses) => new ProblemType 
-        { 
-            IsMultiClass = true, 
-            NumClasses = numClasses 
+        /// <returns></returns>
+        public static ProblemType MultiClass(int numClasses) => new ProblemType
+        {
+            IsMultiClass = true,
+            NumClasses = numClasses,
         };
 
         internal bool IsMultiClass { get; init; }
+
         internal int NumClasses { get; init; }
     }
 
@@ -289,12 +311,12 @@ namespace FSharp.Azure.Quantum.Business.CSharp
     {
         /// <summary>Pure quantum model using variational quantum circuits.</summary>
         Quantum,
-        
+
         /// <summary>Hybrid quantum-classical using quantum kernel SVM.</summary>
         Hybrid,
-        
+
         /// <summary>Classical baseline for comparison.</summary>
-        Classical
+        Classical,
     }
 
     /// <summary>
@@ -322,11 +344,13 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// <summary>
         /// Evaluate regression model on test set.
         /// </summary>
+        /// <returns></returns>
         RegressionMetrics EvaluateRegression(double[][] testFeatures, double[] testTargets);
 
         /// <summary>
         /// Evaluate multi-class model on test set.
         /// </summary>
+        /// <returns></returns>
         MultiClassMetrics EvaluateMultiClass(double[][] testFeatures, int[] testTargets);
 
         /// <summary>
@@ -335,7 +359,7 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         void SaveTo(string path);
 
         /// <summary>
-        /// Get model metadata.
+        /// Gets get model metadata.
         /// </summary>
         PredictiveModelMetadata Metadata { get; }
     }
@@ -345,50 +369,32 @@ namespace FSharp.Azure.Quantum.Business.CSharp
     /// </summary>
     public class RegressionPrediction
     {
-        /// <summary>Predicted value (e.g., revenue, demand, LTV).</summary>
+        /// <summary>Gets predicted value.</summary>
         public double Value { get; init; }
 
-        /// <summary>Confidence interval (if available).</summary>
+        /// <summary>Gets optional confidence interval (lower, upper).</summary>
         public (double Lower, double Upper)? ConfidenceInterval { get; init; }
 
-        /// <summary>Model type used for prediction.</summary>
-        public string ModelType { get; init; }
+        /// <summary>Gets model type used for prediction.</summary>
+        public required string ModelType { get; init; }
     }
 
     /// <summary>
-    /// Multi-class prediction result (no F# types exposed).
+    /// Multi-class category prediction result (no F# types exposed).
     /// </summary>
     public class CategoryPrediction
     {
-        /// <summary>Predicted category (class index: 0, 1, 2, ...).</summary>
+        /// <summary>Gets predicted category index.</summary>
         public int Category { get; init; }
 
-        /// <summary>Confidence score for predicted category [0, 1].</summary>
+        /// <summary>Gets confidence score [0, 1].</summary>
         public double Confidence { get; init; }
 
-        /// <summary>Probability distribution over all categories.</summary>
-        public double[] Probabilities { get; init; }
+        /// <summary>Gets mapping of category index to probability.</summary>
+        public required double[] Probabilities { get; init; }
 
-        /// <summary>Model type used for prediction.</summary>
-        public string ModelType { get; init; }
-    }
-
-    /// <summary>
-    /// Regression evaluation metrics (no F# types exposed).
-    /// </summary>
-    public class RegressionMetrics
-    {
-        /// <summary>R² score (coefficient of determination). 1.0 = perfect, 0.0 = baseline.</summary>
-        public double RSquared { get; init; }
-
-        /// <summary>Mean Absolute Error.</summary>
-        public double MAE { get; init; }
-
-        /// <summary>Mean Squared Error.</summary>
-        public double MSE { get; init; }
-
-        /// <summary>Root Mean Squared Error.</summary>
-        public double RMSE { get; init; }
+        /// <summary>Gets model type used for prediction.</summary>
+        public required string ModelType { get; init; }
     }
 
     /// <summary>
@@ -396,41 +402,73 @@ namespace FSharp.Azure.Quantum.Business.CSharp
     /// </summary>
     public class MultiClassMetrics
     {
-        /// <summary>Overall accuracy.</summary>
+        /// <summary>Gets overall accuracy.</summary>
         public double Accuracy { get; init; }
 
-        /// <summary>Precision per class.</summary>
-        public double[] Precision { get; init; }
+        /// <summary>Gets precision per class.</summary>
+        public required double[] Precision { get; init; }
 
-        /// <summary>Recall per class.</summary>
-        public double[] Recall { get; init; }
+        /// <summary>Gets recall per class.</summary>
+        public required double[] Recall { get; init; }
 
-        /// <summary>F1 score per class.</summary>
-        public double[] F1Score { get; init; }
+        /// <summary>Gets F1 score per class.</summary>
+        public required double[] F1Score { get; init; }
 
-        /// <summary>Confusion matrix (actual × predicted).</summary>
-        public int[][] ConfusionMatrix { get; init; }
+        /// <summary>Gets confusion matrix.</summary>
+        public required int[][] ConfusionMatrix { get; init; }
     }
 
     /// <summary>
-    /// Model metadata (no F# types exposed).
+    /// Predictive model metadata (no F# types exposed).
     /// </summary>
     public class PredictiveModelMetadata
     {
-        public string ProblemType { get; init; }
+        /// <summary>Gets problem type (Regression or MultiClass).</summary>
+        public required string ProblemType { get; init; }
+
+        /// <summary>Gets architecture used for training.</summary>
         public ModelArchitecture Architecture { get; init; }
+
+        /// <summary>Gets training score (R-squared for regression, accuracy for multi-class).</summary>
         public double TrainingScore { get; init; }
+
+        /// <summary>Gets training duration.</summary>
         public TimeSpan TrainingTime { get; init; }
+
+        /// <summary>Gets number of input features.</summary>
         public int NumFeatures { get; init; }
+
+        /// <summary>Gets number of samples used for training.</summary>
         public int NumSamples { get; init; }
+
+        /// <summary>Gets timestamp when the model was created.</summary>
         public DateTime CreatedAt { get; init; }
-        public string Note { get; init; }
+
+        /// <summary>Gets optional user note stored with the model.</summary>
+        public string? Note { get; init; }
+    }
+
+    /// <summary>
+    /// Regression evaluation metrics (no F# types exposed).
+    /// </summary>
+    public class RegressionMetrics
+    {
+        /// <summary>Gets r² score (coefficient of determination). 1.0 = perfect, 0.0 = baseline.</summary>
+        public double RSquared { get; init; }
+
+        /// <summary>Gets mean Absolute Error.</summary>
+        public double MAE { get; init; }
+
+        /// <summary>Gets mean Squared Error.</summary>
+        public double MSE { get; init; }
+
+        /// <summary>Gets root Mean Squared Error.</summary>
+        public double RMSE { get; init; }
     }
 
     // ============================================================================
     // INTERNAL WRAPPER - Hides F# types from C# consumers
     // ============================================================================
-
     internal class PredictiveModelWrapper : IPredictiveModel
     {
         private readonly PredictiveModel.Model _model;
@@ -442,15 +480,18 @@ namespace FSharp.Azure.Quantum.Business.CSharp
 
         public RegressionPrediction Predict(double[] features)
         {
-            var result = PredictiveModel.predict(features, _model);
+            var result = PredictiveModel.predict(
+                features,
+                _model,
+                FSharpOption<IQuantumBackend>.None,
+                FSharpOption<int>.None);
 
-            if (FSharpResult<PredictiveModel.RegressionPrediction, string>.get_IsError(result))
+            if (result.IsError)
             {
-                var error = ((FSharpResult<PredictiveModel.RegressionPrediction, string>.Error)result).ErrorValue;
-                throw new InvalidOperationException($"Prediction failed: {error}");
+                throw new InvalidOperationException($"Prediction failed: {result.ErrorValue.Message}");
             }
 
-            var prediction = ((FSharpResult<PredictiveModel.RegressionPrediction, string>.Ok)result).ResultValue;
+            var prediction = result.ResultValue;
 
             (double, double)? confidenceInterval = null;
             if (FSharpOption<Tuple<double, double>>.get_IsSome(prediction.ConfidenceInterval))
@@ -463,28 +504,31 @@ namespace FSharp.Azure.Quantum.Business.CSharp
             {
                 Value = prediction.Value,
                 ConfidenceInterval = confidenceInterval,
-                ModelType = prediction.ModelType
+                ModelType = prediction.ModelType,
             };
         }
 
         public CategoryPrediction PredictCategory(double[] features)
         {
-            var result = PredictiveModel.predictCategory(features, _model);
+            var result = PredictiveModel.predictCategory(
+                features,
+                _model,
+                FSharpOption<IQuantumBackend>.None,
+                FSharpOption<int>.None);
 
-            if (FSharpResult<PredictiveModel.CategoryPrediction, string>.get_IsError(result))
+            if (result.IsError)
             {
-                var error = ((FSharpResult<PredictiveModel.CategoryPrediction, string>.Error)result).ErrorValue;
-                throw new InvalidOperationException($"Prediction failed: {error}");
+                throw new InvalidOperationException($"Prediction failed: {result.ErrorValue.Message}");
             }
 
-            var prediction = ((FSharpResult<PredictiveModel.CategoryPrediction, string>.Ok)result).ResultValue;
+            var prediction = result.ResultValue;
 
             return new CategoryPrediction
             {
                 Category = prediction.Category,
                 Confidence = prediction.Confidence,
                 Probabilities = prediction.Probabilities,
-                ModelType = prediction.ModelType
+                ModelType = prediction.ModelType,
             };
         }
 
@@ -492,20 +536,19 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         {
             var result = PredictiveModel.evaluateRegression(testFeatures, testTargets, _model);
 
-            if (FSharpResult<PredictiveModel.RegressionMetrics, string>.get_IsError(result))
+            if (result.IsError)
             {
-                var error = ((FSharpResult<PredictiveModel.RegressionMetrics, string>.Error)result).ErrorValue;
-                throw new InvalidOperationException($"Evaluation failed: {error}");
+                throw new InvalidOperationException($"Evaluation failed: {result.ErrorValue.Message}");
             }
 
-            var metrics = ((FSharpResult<PredictiveModel.RegressionMetrics, string>.Ok)result).ResultValue;
+            var metrics = result.ResultValue;
 
             return new RegressionMetrics
             {
                 RSquared = metrics.RSquared,
                 MAE = metrics.MAE,
                 MSE = metrics.MSE,
-                RMSE = metrics.RMSE
+                RMSE = metrics.RMSE,
             };
         }
 
@@ -513,13 +556,12 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         {
             var result = PredictiveModel.evaluateMultiClass(testFeatures, testTargets, _model);
 
-            if (FSharpResult<PredictiveModel.MultiClassMetrics, string>.get_IsError(result))
+            if (result.IsError)
             {
-                var error = ((FSharpResult<PredictiveModel.MultiClassMetrics, string>.Error)result).ErrorValue;
-                throw new InvalidOperationException($"Evaluation failed: {error}");
+                throw new InvalidOperationException($"Evaluation failed: {result.ErrorValue.Message}");
             }
 
-            var metrics = ((FSharpResult<PredictiveModel.MultiClassMetrics, string>.Ok)result).ResultValue;
+            var metrics = result.ResultValue;
 
             return new MultiClassMetrics
             {
@@ -527,7 +569,7 @@ namespace FSharp.Azure.Quantum.Business.CSharp
                 Precision = metrics.Precision,
                 Recall = metrics.Recall,
                 F1Score = metrics.F1Score,
-                ConfusionMatrix = metrics.ConfusionMatrix
+                ConfusionMatrix = metrics.ConfusionMatrix,
             };
         }
 
@@ -535,10 +577,9 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         {
             var result = PredictiveModel.save(path, _model);
 
-            if (FSharpResult<Unit, string>.get_IsError(result))
+            if (result.IsError)
             {
-                var error = ((FSharpResult<Unit, string>.Error)result).ErrorValue;
-                throw new InvalidOperationException($"Save failed: {error}");
+                throw new InvalidOperationException($"Save failed: {result.ErrorValue.Message}");
             }
         }
 
@@ -547,7 +588,7 @@ namespace FSharp.Azure.Quantum.Business.CSharp
             get
             {
                 var meta = _model.Metadata;
-                
+
                 var problemTypeStr = meta.ProblemType.IsRegression
                     ? "Regression"
                     : $"MultiClass({((PredictiveModel.ProblemType.MultiClass)meta.ProblemType).Item})";
@@ -565,7 +606,7 @@ namespace FSharp.Azure.Quantum.Business.CSharp
                     NumFeatures = meta.NumFeatures,
                     NumSamples = meta.NumSamples,
                     CreatedAt = meta.CreatedAt,
-                    Note = FSharpOption<string>.get_IsSome(meta.Note) ? meta.Note.Value : null
+                    Note = FSharpOption<string>.get_IsSome(meta.Note) ? meta.Note.Value : null,
                 };
             }
         }

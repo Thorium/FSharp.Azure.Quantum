@@ -1,23 +1,23 @@
 using System;
-using System.Linq;
-using FSharp.Azure.Quantum.Core.BackendAbstraction;
+using FSharp.Azure.Quantum.Core;
 using Microsoft.FSharp.Core;
+using static FSharp.Azure.Quantum.Core.BackendAbstraction;
 
 namespace FSharp.Azure.Quantum.Business.CSharp
 {
     /// <summary>
     /// C# Fluent API for Binary Classification
-    /// 
+    ///
     /// Provides enterprise-friendly API for binary classification without exposing F# types.
     /// Use this for production .NET applications where you need to classify items into two categories.
-    /// 
+    ///
     /// Example:
     /// <code>
     /// var classifier = new BinaryClassificationBuilder()
     ///     .WithFeatures(trainX)
     ///     .WithLabels(trainY)
     ///     .Build();
-    ///     
+    ///
     /// var result = classifier.Classify(newSample);
     /// if (result.IsFraud)
     ///     BlockTransaction();
@@ -25,23 +25,25 @@ namespace FSharp.Azure.Quantum.Business.CSharp
     /// </summary>
     public class BinaryClassificationBuilder
     {
-        private double[][] _trainFeatures;
-        private int[] _trainLabels;
+        private double[][]? _trainFeatures;
+        private int[]? _trainLabels;
         private Architecture _architecture = Architecture.Quantum;
         private double _learningRate = 0.01;
         private int _maxEpochs = 100;
         private double _convergenceThreshold = 0.001;
-        private IQuantumBackend _backend = null;
+        private IQuantumBackend? _backend;
         private int _shots = 1000;
-        private bool _verbose = false;
-        private string _savePath = null;
-        private string _note = null;
+        private bool _verbose;
+        private string? _savePath;
+        private string? _note;
 
         /// <summary>
         /// Set training features (samples × features matrix).
         /// </summary>
+        /// <returns></returns>
         public BinaryClassificationBuilder WithFeatures(double[][] features)
         {
+            ArgumentNullException.ThrowIfNull(features);
             _trainFeatures = features;
             return this;
         }
@@ -49,16 +51,19 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// <summary>
         /// Set training labels (0 or 1 for each sample).
         /// </summary>
+        /// <returns></returns>
         public BinaryClassificationBuilder WithLabels(int[] labels)
         {
+            ArgumentNullException.ThrowIfNull(labels);
             _trainLabels = labels;
             return this;
         }
 
         /// <summary>
         /// Choose classification architecture (Quantum, Hybrid, or Classical).
-        /// Default: Quantum
+        /// Default: Quantum.
         /// </summary>
+        /// <returns></returns>
         public BinaryClassificationBuilder WithArchitecture(Architecture architecture)
         {
             _architecture = architecture;
@@ -67,8 +72,9 @@ namespace FSharp.Azure.Quantum.Business.CSharp
 
         /// <summary>
         /// Set learning rate for training.
-        /// Default: 0.01
+        /// Default: 0.01.
         /// </summary>
+        /// <returns></returns>
         public BinaryClassificationBuilder WithLearningRate(double learningRate)
         {
             _learningRate = learningRate;
@@ -77,8 +83,9 @@ namespace FSharp.Azure.Quantum.Business.CSharp
 
         /// <summary>
         /// Set maximum number of training epochs.
-        /// Default: 100
+        /// Default: 100.
         /// </summary>
+        /// <returns></returns>
         public BinaryClassificationBuilder WithMaxEpochs(int maxEpochs)
         {
             _maxEpochs = maxEpochs;
@@ -87,8 +94,9 @@ namespace FSharp.Azure.Quantum.Business.CSharp
 
         /// <summary>
         /// Set convergence threshold for early stopping.
-        /// Default: 0.001
+        /// Default: 0.001.
         /// </summary>
+        /// <returns></returns>
         public BinaryClassificationBuilder WithConvergenceThreshold(double threshold)
         {
             _convergenceThreshold = threshold;
@@ -97,18 +105,21 @@ namespace FSharp.Azure.Quantum.Business.CSharp
 
         /// <summary>
         /// Specify quantum backend to use.
-        /// Default: LocalBackend (simulation)
+        /// Default: LocalBackend (simulation).
         /// </summary>
+        /// <returns></returns>
         public BinaryClassificationBuilder WithBackend(IQuantumBackend backend)
         {
+            ArgumentNullException.ThrowIfNull(backend);
             _backend = backend;
             return this;
         }
 
         /// <summary>
         /// Set number of measurement shots for quantum circuits.
-        /// Default: 1000
+        /// Default: 1000.
         /// </summary>
+        /// <returns></returns>
         public BinaryClassificationBuilder WithShots(int shots)
         {
             _shots = shots;
@@ -117,8 +128,9 @@ namespace FSharp.Azure.Quantum.Business.CSharp
 
         /// <summary>
         /// Enable verbose logging during training.
-        /// Default: false
+        /// Default: false.
         /// </summary>
+        /// <returns></returns>
         public BinaryClassificationBuilder WithVerbose(bool verbose = true)
         {
             _verbose = verbose;
@@ -128,8 +140,10 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// <summary>
         /// Save trained model to specified path.
         /// </summary>
+        /// <returns></returns>
         public BinaryClassificationBuilder SaveModelTo(string path)
         {
+            ArgumentNullException.ThrowIfNull(path);
             _savePath = path;
             return this;
         }
@@ -137,8 +151,10 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// <summary>
         /// Add optional note about the model (saved in metadata).
         /// </summary>
+        /// <returns></returns>
         public BinaryClassificationBuilder WithNote(string note)
         {
+            ArgumentNullException.ThrowIfNull(note);
             _note = note;
             return this;
         }
@@ -148,51 +164,51 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// Returns a trained classifier ready for predictions.
         /// </summary>
         /// <exception cref="InvalidOperationException">Thrown if training fails.</exception>
+        /// <returns></returns>
         public IBinaryClassifier Build()
         {
             // Build F# problem specification
             var problem = new BinaryClassifier.ClassificationProblem(
-                TrainFeatures: _trainFeatures,
-                TrainLabels: _trainLabels,
-                Architecture: ConvertArchitecture(_architecture),
-                LearningRate: _learningRate,
-                MaxEpochs: _maxEpochs,
-                ConvergenceThreshold: _convergenceThreshold,
-                Backend: _backend != null ? FSharpOption<IQuantumBackend>.Some(_backend) : FSharpOption<IQuantumBackend>.None,
-                Shots: _shots,
-                Verbose: _verbose,
-                SavePath: _savePath != null ? FSharpOption<string>.Some(_savePath) : FSharpOption<string>.None,
-                Note: _note != null ? FSharpOption<string>.Some(_note) : FSharpOption<string>.None
-            );
+                (double[][])(_trainFeatures ?? throw new InvalidOperationException("Training features are required")),
+                (int[])(_trainLabels ?? throw new InvalidOperationException("Training labels are required")),
+                ConvertArchitecture(_architecture),
+                _learningRate,
+                _maxEpochs,
+                _convergenceThreshold,
+                _backend != null ? FSharpOption<IQuantumBackend>.Some(_backend) : FSharpOption<IQuantumBackend>.None,
+                _shots,
+                _verbose,
+                _savePath != null ? FSharpOption<string>.Some(_savePath) : FSharpOption<string>.None,
+                _note != null ? FSharpOption<string>.Some(_note) : FSharpOption<string>.None,
+                FSharpOption<Core.Progress.IProgressReporter>.None,
+                FSharpOption<System.Threading.CancellationToken>.None);
 
             // Train classifier
             var result = BinaryClassifier.train(problem);
 
-            if (FSharpResult<BinaryClassifier.Classifier, string>.get_IsError(result))
+            if (result.IsError)
             {
-                var error = ((FSharpResult<BinaryClassifier.Classifier, string>.Error)result).ErrorValue;
-                throw new InvalidOperationException($"Training failed: {error}");
+                throw new InvalidOperationException($"Training failed: {result.ErrorValue.Message}");
             }
 
-            var classifier = ((FSharpResult<BinaryClassifier.Classifier, string>.Ok)result).ResultValue;
-            return new BinaryClassifierWrapper(classifier);
+            return new BinaryClassifierWrapper(result.ResultValue);
         }
 
         /// <summary>
         /// Load a previously trained classifier from file.
         /// </summary>
+        /// <returns></returns>
         public static IBinaryClassifier LoadFrom(string path)
         {
+            ArgumentNullException.ThrowIfNull(path);
             var result = BinaryClassifier.load(path);
 
-            if (FSharpResult<BinaryClassifier.Classifier, string>.get_IsError(result))
+            if (result.IsError)
             {
-                var error = ((FSharpResult<BinaryClassifier.Classifier, string>.Error)result).ErrorValue;
-                throw new InvalidOperationException($"Failed to load model: {error}");
+                throw new InvalidOperationException($"Failed to load model: {result.ErrorValue.Message}");
             }
 
-            var classifier = ((FSharpResult<BinaryClassifier.Classifier, string>.Ok)result).ResultValue;
-            return new BinaryClassifierWrapper(classifier);
+            return new BinaryClassifierWrapper(result.ResultValue);
         }
 
         private static BinaryClassifier.Architecture ConvertArchitecture(Architecture arch)
@@ -202,7 +218,7 @@ namespace FSharp.Azure.Quantum.Business.CSharp
                 Architecture.Quantum => BinaryClassifier.Architecture.Quantum,
                 Architecture.Hybrid => BinaryClassifier.Architecture.Hybrid,
                 Architecture.Classical => BinaryClassifier.Architecture.Classical,
-                _ => BinaryClassifier.Architecture.Quantum
+                _ => BinaryClassifier.Architecture.Quantum,
             };
         }
     }
@@ -214,12 +230,12 @@ namespace FSharp.Azure.Quantum.Business.CSharp
     {
         /// <summary>Pure quantum classifier using variational quantum circuits.</summary>
         Quantum,
-        
+
         /// <summary>Hybrid quantum-classical using quantum kernel SVM.</summary>
         Hybrid,
-        
+
         /// <summary>Classical baseline for comparison.</summary>
-        Classical
+        Classical,
     }
 
     /// <summary>
@@ -249,7 +265,7 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         void SaveTo(string path);
 
         /// <summary>
-        /// Get classifier metadata.
+        /// Gets get classifier metadata.
         /// </summary>
         ClassifierMetadata Metadata { get; }
     }
@@ -259,32 +275,32 @@ namespace FSharp.Azure.Quantum.Business.CSharp
     /// </summary>
     public class ClassificationResult
     {
-        /// <summary>Predicted class (0 or 1).</summary>
+        /// <summary>Gets predicted class (0 or 1).</summary>
         public int Label { get; init; }
 
-        /// <summary>Confidence score [0, 1].</summary>
+        /// <summary>Gets confidence score [0, 1].</summary>
         public double Confidence { get; init; }
 
-        /// <summary>True if predicted class is 1 (positive/fraud/spam/etc).</summary>
+        /// <summary>Gets a value indicating whether true if predicted class is 1 (positive/fraud/spam/etc).</summary>
         public bool IsPositive { get; init; }
 
-        /// <summary>True if predicted class is 0 (negative/legitimate/ham/etc).</summary>
+        /// <summary>Gets a value indicating whether true if predicted class is 0 (negative/legitimate/ham/etc).</summary>
         public bool IsNegative { get; init; }
 
         /// <summary>
-        /// Convenience property for fraud detection use case.
+        /// Gets a value indicating whether convenience property for fraud detection use case.
         /// Same as IsPositive.
         /// </summary>
         public bool IsFraud => IsPositive;
 
         /// <summary>
-        /// Convenience property for spam filtering use case.
+        /// Gets a value indicating whether convenience property for spam filtering use case.
         /// Same as IsPositive.
         /// </summary>
         public bool IsSpam => IsPositive;
 
         /// <summary>
-        /// Convenience property for churn prediction use case.
+        /// Gets a value indicating whether convenience property for churn prediction use case.
         /// Same as IsPositive.
         /// </summary>
         public bool WillChurn => IsPositive;
@@ -295,13 +311,28 @@ namespace FSharp.Azure.Quantum.Business.CSharp
     /// </summary>
     public class EvaluationMetrics
     {
+        /// <summary>Gets overall accuracy [0, 1].</summary>
         public double Accuracy { get; init; }
+
+        /// <summary>Gets precision [0, 1].</summary>
         public double Precision { get; init; }
+
+        /// <summary>Gets recall [0, 1].</summary>
         public double Recall { get; init; }
+
+        /// <summary>Gets f1 score [0, 1].</summary>
         public double F1Score { get; init; }
+
+        /// <summary>Gets true positive count.</summary>
         public int TruePositives { get; init; }
+
+        /// <summary>Gets true negative count.</summary>
         public int TrueNegatives { get; init; }
+
+        /// <summary>Gets false positive count.</summary>
         public int FalsePositives { get; init; }
+
+        /// <summary>Gets false negative count.</summary>
         public int FalseNegatives { get; init; }
     }
 
@@ -310,19 +341,31 @@ namespace FSharp.Azure.Quantum.Business.CSharp
     /// </summary>
     public class ClassifierMetadata
     {
+        /// <summary>Gets architecture used for training.</summary>
         public Architecture Architecture { get; init; }
+
+        /// <summary>Gets training accuracy [0, 1].</summary>
         public double TrainingAccuracy { get; init; }
+
+        /// <summary>Gets training duration.</summary>
         public TimeSpan TrainingTime { get; init; }
+
+        /// <summary>Gets number of input features.</summary>
         public int NumFeatures { get; init; }
+
+        /// <summary>Gets number of samples used for training.</summary>
         public int NumSamples { get; init; }
+
+        /// <summary>Gets timestamp when the model was created.</summary>
         public DateTime CreatedAt { get; init; }
-        public string Note { get; init; }
+
+        /// <summary>Gets optional user note stored with the model.</summary>
+        public string? Note { get; init; }
     }
 
     // ============================================================================
     // INTERNAL WRAPPER - Hides F# types from C# consumers
     // ============================================================================
-
     internal class BinaryClassifierWrapper : IBinaryClassifier
     {
         private readonly BinaryClassifier.Classifier _classifier;
@@ -336,20 +379,19 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         {
             var result = BinaryClassifier.predict(sample, _classifier);
 
-            if (FSharpResult<BinaryClassifier.Prediction, string>.get_IsError(result))
+            if (result.IsError)
             {
-                var error = ((FSharpResult<BinaryClassifier.Prediction, string>.Error)result).ErrorValue;
-                throw new InvalidOperationException($"Prediction failed: {error}");
+                throw new InvalidOperationException($"Prediction failed: {result.ErrorValue.Message}");
             }
 
-            var prediction = ((FSharpResult<BinaryClassifier.Prediction, string>.Ok)result).ResultValue;
+            var prediction = result.ResultValue;
 
             return new ClassificationResult
             {
                 Label = prediction.Label,
                 Confidence = prediction.Confidence,
                 IsPositive = prediction.IsPositive,
-                IsNegative = prediction.IsNegative
+                IsNegative = prediction.IsNegative,
             };
         }
 
@@ -357,13 +399,12 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         {
             var result = BinaryClassifier.evaluate(testFeatures, testLabels, _classifier);
 
-            if (FSharpResult<BinaryClassifier.EvaluationMetrics, string>.get_IsError(result))
+            if (result.IsError)
             {
-                var error = ((FSharpResult<BinaryClassifier.EvaluationMetrics, string>.Error)result).ErrorValue;
-                throw new InvalidOperationException($"Evaluation failed: {error}");
+                throw new InvalidOperationException($"Evaluation failed: {result.ErrorValue.Message}");
             }
 
-            var metrics = ((FSharpResult<BinaryClassifier.EvaluationMetrics, string>.Ok)result).ResultValue;
+            var metrics = result.ResultValue;
 
             return new EvaluationMetrics
             {
@@ -374,7 +415,7 @@ namespace FSharp.Azure.Quantum.Business.CSharp
                 TruePositives = metrics.TruePositives,
                 TrueNegatives = metrics.TrueNegatives,
                 FalsePositives = metrics.FalsePositives,
-                FalseNegatives = metrics.FalseNegatives
+                FalseNegatives = metrics.FalseNegatives,
             };
         }
 
@@ -382,10 +423,9 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         {
             var result = BinaryClassifier.save(path, _classifier);
 
-            if (FSharpResult<Microsoft.FSharp.Core.Unit, string>.get_IsError(result))
+            if (result.IsError)
             {
-                var error = ((FSharpResult<Microsoft.FSharp.Core.Unit, string>.Error)result).ErrorValue;
-                throw new InvalidOperationException($"Failed to save model: {error}");
+                throw new InvalidOperationException($"Failed to save model: {result.ErrorValue.Message}");
             }
         }
 
@@ -406,7 +446,7 @@ namespace FSharp.Azure.Quantum.Business.CSharp
                     NumFeatures = metadata.NumFeatures,
                     NumSamples = metadata.NumSamples,
                     CreatedAt = metadata.CreatedAt,
-                    Note = FSharpOption<string>.get_IsSome(metadata.Note) ? metadata.Note.Value : null
+                    Note = FSharpOption<string>.get_IsSome(metadata.Note) ? metadata.Note.Value : null,
                 };
             }
         }

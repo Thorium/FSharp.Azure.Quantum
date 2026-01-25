@@ -66,12 +66,14 @@ type QuantumDrugDiscoveryBuilder() =
 
     member _.Delay(f: unit -> DrugDiscoveryConfiguration) = f
 
-    member _.Run(f: unit -> DrugDiscoveryConfiguration) : QuantumResult<ScreeningResult> =
-        let state = f()
+    member _.For(state: DrugDiscoveryConfiguration, body: unit -> DrugDiscoveryConfiguration) =
+        body()
+
+    member _.Run(state: DrugDiscoveryConfiguration) : QuantumResult<ScreeningResult> =
         
         // 1. Resolve Candidates Path
         match state.CandidatesPath with
-        | None -> 
+        | None ->
             Error (QuantumError.ValidationError ("Input", "No candidates file specified. Use 'load_candidates_from_file'."))
         | Some path ->
             if not (System.IO.File.Exists path) then
@@ -90,22 +92,24 @@ type QuantumDrugDiscoveryBuilder() =
                         FSharp.Azure.Quantum.Data.MolecularData.loadFromSmilesList lines
 
                 match loadResult with
-                | Error e -> Error (QuantumError.OperationError ("DataLoading", sprintf "Error loading molecular data: %s" e.Message))
+                | Error e ->
+                    Error (QuantumError.OperationError ("DataLoading", sprintf "Error loading molecular data: %s" e.Message))
                 | Ok dataset ->
-                    
+
                     // 3. Feature Extraction
                     // Enable both descriptors and fingerprints for best results
-                    // Note: LocalBackend has a qubit limit (e.g. 20). 
+                    // Note: LocalBackend has a qubit limit (e.g. 20).
                     // 1024 bits is too large for full simulation, so we use the configured size.
-                    let datasetWithFeats = 
-                        dataset 
-                        |> FSharp.Azure.Quantum.Data.MolecularData.withDescriptors 
+                    let datasetWithFeats =
+                        dataset
+                        |> FSharp.Azure.Quantum.Data.MolecularData.withDescriptors
                         |> FSharp.Azure.Quantum.Data.MolecularData.withFingerprints state.FingerprintSize
 
                     match FSharp.Azure.Quantum.Data.MolecularData.toFeatureMatrix true true datasetWithFeats with
-                    | Error e -> Error (QuantumError.OperationError ("FeatureExtraction", sprintf "Error generating features: %s" e.Message))
+                    | Error e ->
+                        Error (QuantumError.OperationError ("FeatureExtraction", sprintf "Error generating features: %s" e.Message))
                     | Ok (features, labelsOpt) ->
-                        
+
                         match state.Method with
                         | QuantumKernelSVM ->
                             // 4. Run Quantum Kernel SVM
@@ -113,8 +117,8 @@ type QuantumDrugDiscoveryBuilder() =
                             // For this "Screening" demo, if we have labels, we show CV score.
                             // If no labels, we might be expected to predict. But we have no model!
                             // Fallback: If no labels, generate dummy labels just to demonstrate the KERNEL computation (the expensive part).
-                            
-                            let labels = 
+
+                            let labels =
                                 match labelsOpt with
                                 | Some l -> l
                                 | None -> Array.create features.Length 0 // Dummy
@@ -130,11 +134,12 @@ type QuantumDrugDiscoveryBuilder() =
                                     | PauliFeatureMap -> FeatureMapType.PauliFeatureMap (["Z"; "ZZ"], 2)
                                     | ZFeatureMap -> FeatureMapType.ZZFeatureMap 1 // Z feature map is subset of ZZ depth 1
 
-                                let config = { 
-                                    FSharp.Azure.Quantum.MachineLearning.QuantumKernelSVM.defaultConfig with 
-                                        Verbose = false
-                                        MaxIterations = 20 // Keep it quick for demo
-                                }
+                                let config =
+                                    {
+                                        FSharp.Azure.Quantum.MachineLearning.QuantumKernelSVM.defaultConfig with
+                                            Verbose = false
+                                            MaxIterations = 20 // Keep it quick for demo
+                                    }
 
                                 // Limit dataset for demo performance (SVM is O(N^3))
                                 let limit = min features.Length state.BatchSize
@@ -144,13 +149,20 @@ type QuantumDrugDiscoveryBuilder() =
                                 match FSharp.Azure.Quantum.MachineLearning.QuantumKernelSVM.train backend coreFeatureMap trainData trainLabels config state.Shots with
                                 | Ok model ->
                                     let supportVectors = model.SupportVectorIndices.Length
-                                    let msg = sprintf "Success! Model Trained.\nSupport Vectors: %d\nBias: %.4f\n\nNote: In a real scenario, this model would now score the remaining candidates." supportVectors model.Bias
+                                    let msg =
+                                        sprintf
+                                            "Success! Model Trained.\nSupport Vectors: %d\nBias: %.4f\n\nNote: In a real scenario, this model would now score the remaining candidates."
+                                            supportVectors
+                                            model.Bias
                                     Ok { Message = msg; Method = QuantumKernelSVM; MoleculesProcessed = limit; Configuration = state }
                                 | Error e ->
                                     Error (QuantumError.OperationError ("Training", sprintf "Training Failed: %s" e.Message))
 
-                        | _ -> 
+                        | _ ->
                             Error (QuantumError.OperationError ("NotImplemented", sprintf "Method %A is not yet fully hydrated. Please use QuantumKernelSVM." state.Method))
+
+    member this.Run(f: unit -> DrugDiscoveryConfiguration) : QuantumResult<ScreeningResult> =
+        this.Run(f())
 
     /// Load target protein structure from a PDB file
     [<CustomOperation("target_protein_from_pdb")>]

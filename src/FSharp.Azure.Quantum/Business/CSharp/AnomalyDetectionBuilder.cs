@@ -1,45 +1,43 @@
 using System;
 using System.Linq;
-using FSharp.Azure.Quantum.Core.BackendAbstraction;
+using FSharp.Azure.Quantum.Core;
 using Microsoft.FSharp.Core;
+using static FSharp.Azure.Quantum.Core.BackendAbstraction;
 
 namespace FSharp.Azure.Quantum.Business.CSharp
 {
     /// <summary>
     /// C# Fluent API for Anomaly Detection
-    /// 
+    ///
     /// Detects unusual patterns by learning from normal data only.
     /// Use this when you have examples of normal behavior and want to find outliers.
-    /// 
+    ///
     /// Example:
     /// <code>
-    /// var detector = new AnomalyDetectionBuilder()
-    ///     .TrainOnNormalData(normalTransactions)
-    ///     .WithSensitivity(Sensitivity.Medium)
-    ///     .Build();
-    ///     
     /// var result = detector.Check(suspiciousTransaction);
-    /// if (result.IsAnomaly && result.AnomalyScore > 0.8)
+    /// if (result.IsAnomaly &amp;&amp; result.AnomalyScore > 0.8)
     ///     BlockTransaction();
     /// </code>
     /// </summary>
     public class AnomalyDetectionBuilder
     {
-        private double[][] _normalData;
+        private double[][]? _normalData;
         private Sensitivity _sensitivity = Sensitivity.Medium;
         private double _contaminationRate = 0.05;
-        private IQuantumBackend _backend = null;
+        private IQuantumBackend? _backend;
         private int _shots = 1000;
-        private bool _verbose = false;
-        private string _savePath = null;
-        private string _note = null;
+        private bool _verbose;
+        private string? _savePath;
+        private string? _note;
 
         /// <summary>
         /// Set training data (normal examples only).
         /// The detector will learn what "normal" looks like from this data.
         /// </summary>
+        /// <returns></returns>
         public AnomalyDetectionBuilder TrainOnNormalData(double[][] normalData)
         {
+            ArgumentNullException.ThrowIfNull(normalData);
             _normalData = normalData;
             return this;
         }
@@ -49,8 +47,9 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// Low: Fewer false alarms, may miss some anomalies
         /// Medium: Balanced (default)
         /// High: More sensitive, more false alarms
-        /// VeryHigh: Maximum sensitivity
+        /// VeryHigh: Maximum sensitivity.
         /// </summary>
+        /// <returns></returns>
         public AnomalyDetectionBuilder WithSensitivity(Sensitivity sensitivity)
         {
             _sensitivity = sensitivity;
@@ -60,8 +59,9 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// <summary>
         /// Set expected contamination rate in training data (0.0 to 0.5).
         /// If you know some training data may contain anomalies, set this.
-        /// Default: 0.05 (5%)
+        /// Default: 0.05 (5%).
         /// </summary>
+        /// <returns></returns>
         public AnomalyDetectionBuilder WithContaminationRate(double rate)
         {
             _contaminationRate = rate;
@@ -70,18 +70,21 @@ namespace FSharp.Azure.Quantum.Business.CSharp
 
         /// <summary>
         /// Specify quantum backend to use.
-        /// Default: LocalBackend (simulation)
+        /// Default: LocalBackend (simulation).
         /// </summary>
+        /// <returns></returns>
         public AnomalyDetectionBuilder WithBackend(IQuantumBackend backend)
         {
+            ArgumentNullException.ThrowIfNull(backend);
             _backend = backend;
             return this;
         }
 
         /// <summary>
         /// Set number of measurement shots for quantum circuits.
-        /// Default: 1000
+        /// Default: 1000.
         /// </summary>
+        /// <returns></returns>
         public AnomalyDetectionBuilder WithShots(int shots)
         {
             _shots = shots;
@@ -90,8 +93,9 @@ namespace FSharp.Azure.Quantum.Business.CSharp
 
         /// <summary>
         /// Enable verbose logging during training.
-        /// Default: false
+        /// Default: false.
         /// </summary>
+        /// <returns></returns>
         public AnomalyDetectionBuilder WithVerbose(bool verbose = true)
         {
             _verbose = verbose;
@@ -101,8 +105,10 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// <summary>
         /// Save trained model to specified path.
         /// </summary>
+        /// <returns></returns>
         public AnomalyDetectionBuilder SaveModelTo(string path)
         {
+            ArgumentNullException.ThrowIfNull(path);
             _savePath = path;
             return this;
         }
@@ -110,8 +116,10 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// <summary>
         /// Add optional note about the model (saved in metadata).
         /// </summary>
+        /// <returns></returns>
         public AnomalyDetectionBuilder WithNote(string note)
         {
+            ArgumentNullException.ThrowIfNull(note);
             _note = note;
             return this;
         }
@@ -121,48 +129,48 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// Returns a trained detector ready to check for anomalies.
         /// </summary>
         /// <exception cref="InvalidOperationException">Thrown if training fails.</exception>
+        /// <returns></returns>
         public IAnomalyDetector Build()
         {
             // Build F# problem specification
             var problem = new AnomalyDetector.DetectionProblem(
-                NormalData: _normalData,
-                Sensitivity: ConvertSensitivity(_sensitivity),
-                ContaminationRate: _contaminationRate,
-                Backend: _backend != null ? FSharpOption<IQuantumBackend>.Some(_backend) : FSharpOption<IQuantumBackend>.None,
-                Shots: _shots,
-                Verbose: _verbose,
-                SavePath: _savePath != null ? FSharpOption<string>.Some(_savePath) : FSharpOption<string>.None,
-                Note: _note != null ? FSharpOption<string>.Some(_note) : FSharpOption<string>.None
-            );
+                (double[][])(_normalData ?? throw new InvalidOperationException("Normal training data is required")),
+                ConvertSensitivity(_sensitivity),
+                _contaminationRate,
+                _backend != null ? FSharpOption<IQuantumBackend>.Some(_backend) : FSharpOption<IQuantumBackend>.None,
+                _shots,
+                _verbose,
+                _savePath != null ? FSharpOption<string>.Some(_savePath) : FSharpOption<string>.None,
+                _note != null ? FSharpOption<string>.Some(_note) : FSharpOption<string>.None,
+                FSharpOption<Core.Progress.IProgressReporter>.None,
+                FSharpOption<System.Threading.CancellationToken>.None);
 
             // Train detector
             var result = AnomalyDetector.train(problem);
 
-            if (FSharpResult<AnomalyDetector.Detector, string>.get_IsError(result))
+            if (result.IsError)
             {
-                var error = ((FSharpResult<AnomalyDetector.Detector, string>.Error)result).ErrorValue;
-                throw new InvalidOperationException($"Training failed: {error}");
+                throw new InvalidOperationException($"Training failed: {result.ErrorValue.Message}");
             }
 
-            var detector = ((FSharpResult<AnomalyDetector.Detector, string>.Ok)result).ResultValue;
-            return new AnomalyDetectorWrapper(detector);
+            return new AnomalyDetectorWrapper(result.ResultValue);
         }
 
         /// <summary>
         /// Load a previously trained detector from file.
         /// </summary>
+        /// <returns></returns>
         public static IAnomalyDetector LoadFrom(string path)
         {
+            ArgumentNullException.ThrowIfNull(path);
             var result = AnomalyDetector.load(path);
 
-            if (FSharpResult<AnomalyDetector.Detector, string>.get_IsError(result))
+            if (result.IsError)
             {
-                var error = ((FSharpResult<AnomalyDetector.Detector, string>.Error)result).ErrorValue;
-                throw new InvalidOperationException($"Failed to load detector: {error}");
+                throw new InvalidOperationException($"Failed to load detector: {result.ErrorValue.Message}");
             }
 
-            var detector = ((FSharpResult<AnomalyDetector.Detector, string>.Ok)result).ResultValue;
-            return new AnomalyDetectorWrapper(detector);
+            return new AnomalyDetectorWrapper(result.ResultValue);
         }
 
         private static AnomalyDetector.Sensitivity ConvertSensitivity(Sensitivity sens)
@@ -173,7 +181,7 @@ namespace FSharp.Azure.Quantum.Business.CSharp
                 Sensitivity.Medium => AnomalyDetector.Sensitivity.Medium,
                 Sensitivity.High => AnomalyDetector.Sensitivity.High,
                 Sensitivity.VeryHigh => AnomalyDetector.Sensitivity.VeryHigh,
-                _ => AnomalyDetector.Sensitivity.Medium
+                _ => AnomalyDetector.Sensitivity.Medium,
             };
         }
     }
@@ -185,15 +193,15 @@ namespace FSharp.Azure.Quantum.Business.CSharp
     {
         /// <summary>Conservative - fewer false alarms, may miss some anomalies.</summary>
         Low,
-        
+
         /// <summary>Balanced - good trade-off between detection and false alarms.</summary>
         Medium,
-        
+
         /// <summary>Aggressive - more detections, more false alarms.</summary>
         High,
-        
+
         /// <summary>Maximum sensitivity - catches most anomalies but many false alarms.</summary>
-        VeryHigh
+        VeryHigh,
     }
 
     /// <summary>
@@ -230,7 +238,7 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         void SaveTo(string path);
 
         /// <summary>
-        /// Get detector metadata.
+        /// Gets get detector metadata.
         /// </summary>
         DetectorMetadata Metadata { get; }
     }
@@ -240,22 +248,22 @@ namespace FSharp.Azure.Quantum.Business.CSharp
     /// </summary>
     public class AnomalyResult
     {
-        /// <summary>True if sample is anomalous.</summary>
+        /// <summary>Gets a value indicating whether true if sample is anomalous.</summary>
         public bool IsAnomaly { get; init; }
 
-        /// <summary>True if sample is normal.</summary>
+        /// <summary>Gets a value indicating whether true if sample is normal.</summary>
         public bool IsNormal { get; init; }
 
-        /// <summary>Anomaly score [0, 1] - higher means more anomalous.</summary>
+        /// <summary>Gets anomaly score [0, 1] - higher means more anomalous.</summary>
         public double AnomalyScore { get; init; }
 
-        /// <summary>Confidence in the detection [0, 1].</summary>
+        /// <summary>Gets confidence in the detection [0, 1].</summary>
         public double Confidence { get; init; }
 
         /// <summary>
-        /// Recommended action based on score and confidence.
+        /// Gets recommended action based on score and confidence.
         /// </summary>
-        public string Recommendation => 
+        public string Recommendation =>
             IsAnomaly && AnomalyScore > 0.8 ? "BLOCK" :
             IsAnomaly && AnomalyScore > 0.5 ? "REVIEW" :
             "ALLOW";
@@ -266,20 +274,20 @@ namespace FSharp.Azure.Quantum.Business.CSharp
     /// </summary>
     public class BatchResults
     {
-        /// <summary>Total items checked.</summary>
+        /// <summary>Gets total items checked.</summary>
         public int TotalItems { get; init; }
 
-        /// <summary>Number of anomalies detected.</summary>
+        /// <summary>Gets number of anomalies detected.</summary>
         public int AnomaliesDetected { get; init; }
 
-        /// <summary>Percentage of anomalies.</summary>
+        /// <summary>Gets percentage of anomalies.</summary>
         public double AnomalyRate { get; init; }
 
-        /// <summary>Individual results for each sample.</summary>
-        public AnomalyResult[] Results { get; init; }
+        /// <summary>Gets individual results for each sample.</summary>
+        public required AnomalyResult[] Results { get; init; }
 
-        /// <summary>Indices and scores of top anomalies.</summary>
-        public (int Index, double Score)[] TopAnomalies { get; init; }
+        /// <summary>Gets indices and scores of top anomalies.</summary>
+        public required (int Index, double Score)[] TopAnomalies { get; init; }
     }
 
     /// <summary>
@@ -287,10 +295,10 @@ namespace FSharp.Azure.Quantum.Business.CSharp
     /// </summary>
     public class FeatureContribution
     {
-        /// <summary>Feature name or index.</summary>
-        public string FeatureName { get; init; }
+        /// <summary>Gets feature name or index.</summary>
+        public required string FeatureName { get; init; }
 
-        /// <summary>Contribution score (higher = more unusual).</summary>
+        /// <summary>Gets contribution score (higher = more unusual).</summary>
         public double Contribution { get; init; }
     }
 
@@ -299,18 +307,28 @@ namespace FSharp.Azure.Quantum.Business.CSharp
     /// </summary>
     public class DetectorMetadata
     {
+        /// <summary>Gets sensitivity level used for training.</summary>
         public Sensitivity Sensitivity { get; init; }
+
+        /// <summary>Gets training duration.</summary>
         public TimeSpan TrainingTime { get; init; }
+
+        /// <summary>Gets number of features in the training data.</summary>
         public int NumFeatures { get; init; }
+
+        /// <summary>Gets number of samples used for training.</summary>
         public int NumNormalSamples { get; init; }
+
+        /// <summary>Gets timestamp when the model was created.</summary>
         public DateTime CreatedAt { get; init; }
-        public string Note { get; init; }
+
+        /// <summary>Gets optional user note stored with the model.</summary>
+        public string? Note { get; init; }
     }
 
     // ============================================================================
     // INTERNAL WRAPPER - Hides F# types from C# consumers
     // ============================================================================
-
     internal class AnomalyDetectorWrapper : IAnomalyDetector
     {
         private readonly AnomalyDetector.Detector _detector;
@@ -324,20 +342,19 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         {
             var result = AnomalyDetector.check(sample, _detector);
 
-            if (FSharpResult<AnomalyDetector.AnomalyResult, string>.get_IsError(result))
+            if (result.IsError)
             {
-                var error = ((FSharpResult<AnomalyDetector.AnomalyResult, string>.Error)result).ErrorValue;
-                throw new InvalidOperationException($"Detection failed: {error}");
+                throw new InvalidOperationException($"Detection failed: {result.ErrorValue.Message}");
             }
 
-            var anomalyResult = ((FSharpResult<AnomalyDetector.AnomalyResult, string>.Ok)result).ResultValue;
+            var anomalyResult = result.ResultValue;
 
             return new AnomalyResult
             {
                 IsAnomaly = anomalyResult.IsAnomaly,
                 IsNormal = anomalyResult.IsNormal,
                 AnomalyScore = anomalyResult.AnomalyScore,
-                Confidence = anomalyResult.Confidence
+                Confidence = anomalyResult.Confidence,
             };
         }
 
@@ -345,13 +362,12 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         {
             var result = AnomalyDetector.checkBatch(samples, _detector);
 
-            if (FSharpResult<AnomalyDetector.BatchResults, string>.get_IsError(result))
+            if (result.IsError)
             {
-                var error = ((FSharpResult<AnomalyDetector.BatchResults, string>.Error)result).ErrorValue;
-                throw new InvalidOperationException($"Batch detection failed: {error}");
+                throw new InvalidOperationException($"Batch detection failed: {result.ErrorValue.Message}");
             }
 
-            var batchResults = ((FSharpResult<AnomalyDetector.BatchResults, string>.Ok)result).ResultValue;
+            var batchResults = result.ResultValue;
 
             return new BatchResults
             {
@@ -363,9 +379,9 @@ namespace FSharp.Azure.Quantum.Business.CSharp
                     IsAnomaly = r.IsAnomaly,
                     IsNormal = r.IsNormal,
                     AnomalyScore = r.AnomalyScore,
-                    Confidence = r.Confidence
+                    Confidence = r.Confidence,
                 }).ToArray(),
-                TopAnomalies = batchResults.TopAnomalies.Select(t => (t.Item1, t.Item2)).ToArray()
+                TopAnomalies = batchResults.TopAnomalies.Select(t => (t.Item1, t.Item2)).ToArray(),
             };
         }
 
@@ -373,18 +389,17 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         {
             var result = AnomalyDetector.explain(sample, _detector, trainingData);
 
-            if (FSharpResult<Tuple<string, double>[], string>.get_IsError(result))
+            if (result.IsError)
             {
-                var error = ((FSharpResult<Tuple<string, double>[], string>.Error)result).ErrorValue;
-                throw new InvalidOperationException($"Explanation failed: {error}");
+                throw new InvalidOperationException($"Explanation failed: {result.ErrorValue.Message}");
             }
 
-            var contributions = ((FSharpResult<Tuple<string, double>[], string>.Ok)result).ResultValue;
+            var contributions = result.ResultValue;
 
             return contributions.Select(c => new FeatureContribution
             {
                 FeatureName = c.Item1,
-                Contribution = c.Item2
+                Contribution = c.Item2,
             }).ToArray();
         }
 
@@ -392,10 +407,9 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         {
             var result = AnomalyDetector.save(path, _detector);
 
-            if (FSharpResult<Microsoft.FSharp.Core.Unit, string>.get_IsError(result))
+            if (result.IsError)
             {
-                var error = ((FSharpResult<Microsoft.FSharp.Core.Unit, string>.Error)result).ErrorValue;
-                throw new InvalidOperationException($"Failed to save detector: {error}");
+                throw new InvalidOperationException($"Failed to save detector: {result.ErrorValue.Message}");
             }
         }
 
@@ -416,7 +430,7 @@ namespace FSharp.Azure.Quantum.Business.CSharp
                     NumFeatures = metadata.NumFeatures,
                     NumNormalSamples = metadata.NumNormalSamples,
                     CreatedAt = metadata.CreatedAt,
-                    Note = FSharpOption<string>.get_IsSome(metadata.Note) ? metadata.Note.Value : null
+                    Note = FSharpOption<string>.get_IsSome(metadata.Note) ? metadata.Note.Value : null,
                 };
             }
         }

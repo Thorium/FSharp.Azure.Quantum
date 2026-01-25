@@ -70,8 +70,11 @@ References:
 
 
 open System
+open System.Net.Http
+open System.IO
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Classical
+open FSharp.Azure.Quantum.Data
 
 // ==============================================================================
 // DOMAIN MODEL - Investment Portfolio Types
@@ -97,36 +100,88 @@ type PortfolioAnalysis = {
 }
 
 // ==============================================================================
-// STOCK DATA - Real tech sector data (2024 historical averages)
+// STOCK DATA
 // ==============================================================================
-// Data based on historical performance analysis
-// Returns and volatility calculated from 5-year trailing data
+//
+// This example can optionally fetch real Yahoo Finance history to compute:
+// - Current price (latest close)
+// - Expected return (annualized from log returns)
+// - Volatility (annualized standard deviation)
+//
+// If fetch fails (offline, rate limiting, etc.), we fall back to static 2024-ish
+// values so the example remains runnable.
 
-let stocks = [
-    { Symbol = "AAPL"; Name = "Apple Inc."
-      ExpectedReturn = 0.18; Volatility = 0.22; Price = 175.00 }
-    
-    { Symbol = "MSFT"; Name = "Microsoft Corp."
-      ExpectedReturn = 0.22; Volatility = 0.25; Price = 380.00 }
-    
-    { Symbol = "GOOGL"; Name = "Alphabet Inc."
-      ExpectedReturn = 0.16; Volatility = 0.28; Price = 140.00 }
-    
-    { Symbol = "AMZN"; Name = "Amazon.com Inc."
-      ExpectedReturn = 0.24; Volatility = 0.32; Price = 155.00 }
-    
-    { Symbol = "NVDA"; Name = "NVIDIA Corp."
-      ExpectedReturn = 0.35; Volatility = 0.45; Price = 485.00 }
-    
-    { Symbol = "META"; Name = "Meta Platforms Inc."
-      ExpectedReturn = 0.28; Volatility = 0.38; Price = 350.00 }
-    
-    { Symbol = "TSLA"; Name = "Tesla Inc."
-      ExpectedReturn = 0.30; Volatility = 0.55; Price = 245.00 }
-    
-    { Symbol = "AMD"; Name = "Advanced Micro Devices"
-      ExpectedReturn = 0.26; Volatility = 0.42; Price = 125.00 }
+let staticStocks = [
+    { Symbol = "AAPL"; Name = "Apple Inc.";                 ExpectedReturn = 0.18; Volatility = 0.22; Price = 175.00 }
+    { Symbol = "MSFT"; Name = "Microsoft Corp.";            ExpectedReturn = 0.22; Volatility = 0.25; Price = 380.00 }
+    { Symbol = "GOOGL"; Name = "Alphabet Inc.";             ExpectedReturn = 0.16; Volatility = 0.28; Price = 140.00 }
+    { Symbol = "AMZN"; Name = "Amazon.com Inc.";            ExpectedReturn = 0.24; Volatility = 0.32; Price = 155.00 }
+    { Symbol = "NVDA"; Name = "NVIDIA Corp.";              ExpectedReturn = 0.35; Volatility = 0.45; Price = 485.00 }
+    { Symbol = "META"; Name = "Meta Platforms Inc.";       ExpectedReturn = 0.28; Volatility = 0.38; Price = 350.00 }
+    { Symbol = "TSLA"; Name = "Tesla Inc.";                ExpectedReturn = 0.30; Volatility = 0.55; Price = 245.00 }
+    { Symbol = "AMD";  Name = "Advanced Micro Devices";     ExpectedReturn = 0.26; Volatility = 0.42; Price = 125.00 }
 ]
+
+let useLiveYahoo =
+    let argEnabled =
+        Environment.GetCommandLineArgs()
+        |> Array.exists (fun a ->
+            match a.Trim().ToLowerInvariant() with
+            | "--live" | "-live" | "/live" | "--yahoo" -> true
+            | _ -> false)
+
+    let envEnabled =
+        Environment.GetEnvironmentVariable("INVESTMENTPORTFOLIO_LIVE_DATA")
+        |> Option.ofObj
+        |> Option.map (fun v -> v.Trim())
+        |> Option.exists (fun v -> v.Equals("1") || v.Equals("true", StringComparison.OrdinalIgnoreCase) || v.Equals("yes", StringComparison.OrdinalIgnoreCase))
+
+    argEnabled || envEnabled
+
+let yahooLookback = FinancialData.YahooHistoryRange.TwoYears
+let yahooInterval = FinancialData.YahooHistoryInterval.OneDay
+
+let private tryLoadLiveStock (httpClient: HttpClient) (cacheDir: string) (stock: Stock) : Stock option =
+    let req : FinancialData.YahooHistoryRequest = {
+        Symbol = stock.Symbol
+        Range = yahooLookback
+        Interval = yahooInterval
+        IncludeAdjustedClose = true
+        CacheDirectory = Some cacheDir
+        CacheTtl = TimeSpan.FromHours 6.0
+    }
+
+    match FinancialData.fetchYahooHistory httpClient req with
+    | Error _ -> None
+    | Ok series ->
+        let returns = FinancialData.calculateReturns series
+        let expectedReturn = FinancialData.calculateExpectedReturn returns 252.0
+        let volatility = FinancialData.calculateVolatility returns 252.0
+        match FinancialData.tryGetLatestPrice series with
+        | None -> None
+        | Some price ->
+            Some { stock with ExpectedReturn = expectedReturn; Volatility = volatility; Price = price }
+
+let stocks =
+    if not useLiveYahoo then
+        printfn "[DATA] Live Yahoo Finance disabled"
+        staticStocks
+    else
+        use httpClient = new HttpClient()
+        let cacheDir = Path.Combine(__SOURCE_DIRECTORY__, "output", "yahoo-cache")
+        let _ = Directory.CreateDirectory(cacheDir) |> ignore
+        printfn "[DATA] Live Yahoo Finance enabled"
+        printfn "[DATA] Cache: %s" cacheDir
+
+        let live =
+            staticStocks
+            |> List.choose (fun s -> tryLoadLiveStock httpClient cacheDir s)
+
+        if live.Length = staticStocks.Length then
+            live
+        else
+            printfn "[DATA] Live fetch incomplete; falling back to static values"
+            staticStocks
 
 // ==============================================================================
 // CONFIGURATION

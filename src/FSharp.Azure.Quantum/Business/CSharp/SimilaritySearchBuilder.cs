@@ -1,43 +1,50 @@
 using System;
 using System.Linq;
-using FSharp.Azure.Quantum.Core.BackendAbstraction;
+using FSharp.Azure.Quantum.Core;
 using Microsoft.FSharp.Core;
+using static FSharp.Azure.Quantum.Core.BackendAbstraction;
 
 namespace FSharp.Azure.Quantum.Business.CSharp
 {
     /// <summary>
     /// C# Fluent API for Similarity Search
-    /// 
+    ///
     /// Find similar items using quantum kernel similarity.
     /// Use this for recommendations, duplicate detection, and content similarity.
-    /// 
+    ///
     /// Example:
     /// <code>
     /// var matcher = new SimilaritySearchBuilder&lt;Product&gt;()
     ///     .IndexItems(products, p => p.Features)
     ///     .Build();
-    ///     
+    ///
     /// var similar = matcher.FindSimilar(currentProduct, top: 5);
     /// </code>
     /// </summary>
     public class SimilaritySearchBuilder<T>
     {
-        private Tuple<T, double[]>[] _items;
+        private Tuple<T, double[]>[]? _items;
         private SimilarityMetric _metric = SimilarityMetric.Cosine;
         private double _threshold = 0.7;
-        private IQuantumBackend _backend = null;
+        private IQuantumBackend? _backend;
         private int _shots = 1000;
-        private bool _verbose = false;
-        private string _savePath = null;
-        private string _note = null;
+        private bool _verbose;
+        private string? _savePath;
+        private string? _note;
 
         /// <summary>
         /// Index items with their feature vectors.
         /// </summary>
+        /// <returns></returns>
         public SimilaritySearchBuilder<T> IndexItems(T[] items, double[][] features)
         {
+            ArgumentNullException.ThrowIfNull(items);
+            ArgumentNullException.ThrowIfNull(features);
+
             if (items.Length != features.Length)
+            {
                 throw new ArgumentException("Items and features must have same length");
+            }
 
             _items = items.Zip(features, (item, feat) => Tuple.Create(item, feat)).ToArray();
             return this;
@@ -46,8 +53,11 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// <summary>
         /// Index items with feature extraction function.
         /// </summary>
+        /// <returns></returns>
         public SimilaritySearchBuilder<T> IndexItems(T[] items, Func<T, double[]> featureExtractor)
         {
+            ArgumentNullException.ThrowIfNull(items);
+            ArgumentNullException.ThrowIfNull(featureExtractor);
             _items = items.Select(item => Tuple.Create(item, featureExtractor(item))).ToArray();
             return this;
         }
@@ -55,8 +65,10 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// <summary>
         /// Index items with tuples of (item, features).
         /// </summary>
+        /// <returns></returns>
         public SimilaritySearchBuilder<T> IndexItems(Tuple<T, double[]>[] items)
         {
+            ArgumentNullException.ThrowIfNull(items);
             _items = items;
             return this;
         }
@@ -65,8 +77,9 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// Set similarity metric.
         /// Cosine: Good for text, high-dimensional data (default)
         /// Euclidean: Good for spatial data, images
-        /// QuantumKernel: Maximum accuracy, slower
+        /// QuantumKernel: Maximum accuracy, slower.
         /// </summary>
+        /// <returns></returns>
         public SimilaritySearchBuilder<T> WithMetric(SimilarityMetric metric)
         {
             _metric = metric;
@@ -75,8 +88,9 @@ namespace FSharp.Azure.Quantum.Business.CSharp
 
         /// <summary>
         /// Set minimum similarity threshold [0, 1].
-        /// Default: 0.7
+        /// Default: 0.7.
         /// </summary>
+        /// <returns></returns>
         public SimilaritySearchBuilder<T> WithThreshold(double threshold)
         {
             _threshold = threshold;
@@ -85,18 +99,21 @@ namespace FSharp.Azure.Quantum.Business.CSharp
 
         /// <summary>
         /// Specify quantum backend (for QuantumKernel metric).
-        /// Default: LocalBackend (simulation)
+        /// Default: LocalBackend (simulation).
         /// </summary>
+        /// <returns></returns>
         public SimilaritySearchBuilder<T> WithBackend(IQuantumBackend backend)
         {
+            ArgumentNullException.ThrowIfNull(backend);
             _backend = backend;
             return this;
         }
 
         /// <summary>
         /// Set number of measurement shots for quantum kernel.
-        /// Default: 1000
+        /// Default: 1000.
         /// </summary>
+        /// <returns></returns>
         public SimilaritySearchBuilder<T> WithShots(int shots)
         {
             _shots = shots;
@@ -105,8 +122,9 @@ namespace FSharp.Azure.Quantum.Business.CSharp
 
         /// <summary>
         /// Enable verbose logging during indexing.
-        /// Default: false
+        /// Default: false.
         /// </summary>
+        /// <returns></returns>
         public SimilaritySearchBuilder<T> WithVerbose(bool verbose = true)
         {
             _verbose = verbose;
@@ -116,8 +134,10 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// <summary>
         /// Save index to specified path.
         /// </summary>
+        /// <returns></returns>
         public SimilaritySearchBuilder<T> SaveIndexTo(string path)
         {
+            ArgumentNullException.ThrowIfNull(path);
             _savePath = path;
             return this;
         }
@@ -125,8 +145,10 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// <summary>
         /// Add optional note about the index (saved in metadata).
         /// </summary>
+        /// <returns></returns>
         public SimilaritySearchBuilder<T> WithNote(string note)
         {
+            ArgumentNullException.ThrowIfNull(note);
             _note = note;
             return this;
         }
@@ -136,47 +158,49 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         /// Returns an index ready for similarity searches.
         /// </summary>
         /// <exception cref="InvalidOperationException">Thrown if indexing fails.</exception>
+        /// <returns></returns>
         public ISimilaritySearchIndex<T> Build()
         {
             // Build F# problem specification
             var problem = new SimilaritySearch.SearchProblem<T>(
-                Items: _items,
-                Metric: ConvertMetric(_metric),
-                Threshold: _threshold,
-                Backend: _backend != null ? FSharpOption<IQuantumBackend>.Some(_backend) : FSharpOption<IQuantumBackend>.None,
-                Shots: _shots,
-                Verbose: _verbose,
-                SavePath: _savePath != null ? FSharpOption<string>.Some(_savePath) : FSharpOption<string>.None,
-                Note: _note != null ? FSharpOption<string>.Some(_note) : FSharpOption<string>.None
-            );
+                items: _items,
+                metric: ConvertMetric(_metric),
+                threshold: _threshold,
+                backend: _backend != null ? FSharpOption<IQuantumBackend>.Some(_backend) : FSharpOption<IQuantumBackend>.None,
+                shots: _shots,
+                verbose: _verbose,
+                savePath: _savePath != null ? FSharpOption<string>.Some(_savePath) : FSharpOption<string>.None,
+                note: _note != null ? FSharpOption<string>.Some(_note) : FSharpOption<string>.None,
+                progressReporter: FSharpOption<Progress.IProgressReporter>.None,
+                cancellationToken: FSharpOption<System.Threading.CancellationToken>.None);
 
             // Build index
             var result = SimilaritySearch.build(problem);
 
-            if (FSharpResult<SimilaritySearch.SearchIndex<T>, string>.get_IsError(result))
+            if (result.IsError)
             {
-                var error = ((FSharpResult<SimilaritySearch.SearchIndex<T>, string>.Error)result).ErrorValue;
-                throw new InvalidOperationException($"Indexing failed: {error}");
+                throw new InvalidOperationException($"Indexing failed: {result.ErrorValue.Message}");
             }
 
-            var index = ((FSharpResult<SimilaritySearch.SearchIndex<T>, string>.Ok)result).ResultValue;
+            var index = result.ResultValue;
             return new SimilaritySearchIndexWrapper<T>(index);
         }
 
         /// <summary>
         /// Load a previously saved index from file.
         /// </summary>
+        /// <returns></returns>
         public static ISimilaritySearchIndex<T> LoadFrom(string path)
         {
+            ArgumentNullException.ThrowIfNull(path);
             var result = SimilaritySearch.load<T>(path);
 
-            if (FSharpResult<SimilaritySearch.SearchIndex<T>, string>.get_IsError(result))
+            if (result.IsError)
             {
-                var error = ((FSharpResult<SimilaritySearch.SearchIndex<T>, string>.Error)result).ErrorValue;
-                throw new InvalidOperationException($"Failed to load index: {error}");
+                throw new InvalidOperationException($"Failed to load index: {result.ErrorValue.Message}");
             }
 
-            var index = ((FSharpResult<SimilaritySearch.SearchIndex<T>, string>.Ok)result).ResultValue;
+            var index = result.ResultValue;
             return new SimilaritySearchIndexWrapper<T>(index);
         }
 
@@ -187,7 +211,7 @@ namespace FSharp.Azure.Quantum.Business.CSharp
                 SimilarityMetric.Cosine => SimilaritySearch.SimilarityMetric.Cosine,
                 SimilarityMetric.Euclidean => SimilaritySearch.SimilarityMetric.Euclidean,
                 SimilarityMetric.QuantumKernel => SimilaritySearch.SimilarityMetric.QuantumKernel,
-                _ => SimilaritySearch.SimilarityMetric.Cosine
+                _ => SimilaritySearch.SimilarityMetric.Cosine,
             };
         }
     }
@@ -199,12 +223,33 @@ namespace FSharp.Azure.Quantum.Business.CSharp
     {
         /// <summary>Cosine similarity - good for text and high-dimensional data.</summary>
         Cosine,
-        
+
         /// <summary>Euclidean distance - good for spatial data and images.</summary>
         Euclidean,
-        
+
         /// <summary>Quantum kernel similarity - maximum accuracy, computationally expensive.</summary>
-        QuantumKernel
+        QuantumKernel,
+    }
+
+    /// <summary>
+    /// Index metadata (no F# types exposed).
+    /// </summary>
+    public class IndexMetadata
+    {
+        /// <summary>Gets number of indexed items.</summary>
+        public int NumItems { get; init; }
+
+        /// <summary>Gets number of features per item.</summary>
+        public int NumFeatures { get; init; }
+
+        /// <summary>Gets similarity metric used by the index.</summary>
+        public SimilarityMetric Metric { get; init; }
+
+        /// <summary>Gets timestamp when the index was created.</summary>
+        public DateTime CreatedAt { get; init; }
+
+        /// <summary>Gets optional user note stored with the index.</summary>
+        public string? Note { get; init; }
     }
 
     /// <summary>
@@ -249,7 +294,7 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         void SaveTo(string path);
 
         /// <summary>
-        /// Get index metadata.
+        /// Gets get index metadata.
         /// </summary>
         IndexMetadata Metadata { get; }
     }
@@ -259,62 +304,49 @@ namespace FSharp.Azure.Quantum.Business.CSharp
     /// </summary>
     public class SearchResults<T>
     {
-        /// <summary>Query item.</summary>
-        public T Query { get; init; }
+        /// <summary>Gets query item.</summary>
+        public required T Query { get; init; }
 
-        /// <summary>Top matches sorted by similarity.</summary>
-        public Match<T>[] Matches { get; init; }
+        /// <summary>Gets matching items and their similarity scores.</summary>
+        public required Match<T>[] Matches { get; init; }
 
-        /// <summary>Time taken to search.</summary>
+        /// <summary>Gets time taken to perform the search.</summary>
         public TimeSpan SearchTime { get; init; }
     }
 
     /// <summary>
-    /// A single similarity match.
+    /// Single match result (no F# types exposed).
     /// </summary>
     public class Match<T>
     {
-        /// <summary>Matched item.</summary>
-        public T Item { get; init; }
+        /// <summary>Gets matched item.</summary>
+        public required T Item { get; init; }
 
-        /// <summary>Similarity score [0, 1] - higher is more similar.</summary>
+        /// <summary>Gets similarity score (higher means more similar).</summary>
         public double Similarity { get; init; }
 
-        /// <summary>Rank in results (1 = most similar).</summary>
+        /// <summary>Gets rank of the match in results (0-based).</summary>
         public int Rank { get; init; }
     }
 
     /// <summary>
-    /// Group of duplicate/similar items.
+    /// Group of duplicate/near-duplicate items (no F# types exposed).
     /// </summary>
     public class DuplicateGroup<T>
     {
-        /// <summary>Representative item for the group.</summary>
-        public T Representative { get; init; }
+        /// <summary>Gets representative item for the group.</summary>
+        public required T Representative { get; init; }
 
-        /// <summary>All items in the group (including representative).</summary>
-        public T[] Items { get; init; }
+        /// <summary>Gets all items in the group.</summary>
+        public required T[] Items { get; init; }
 
-        /// <summary>Average similarity within the group.</summary>
+        /// <summary>Gets average similarity within the group.</summary>
         public double AvgSimilarity { get; init; }
-    }
-
-    /// <summary>
-    /// Index metadata (no F# types exposed).
-    /// </summary>
-    public class IndexMetadata
-    {
-        public int NumItems { get; init; }
-        public int NumFeatures { get; init; }
-        public SimilarityMetric Metric { get; init; }
-        public DateTime CreatedAt { get; init; }
-        public string Note { get; init; }
     }
 
     // ============================================================================
     // INTERNAL WRAPPER - Hides F# types from C# consumers
     // ============================================================================
-
     internal class SimilaritySearchIndexWrapper<T> : ISimilaritySearchIndex<T>
     {
         private readonly SimilaritySearch.SearchIndex<T> _index;
@@ -328,13 +360,12 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         {
             var result = SimilaritySearch.findSimilar(queryItem, queryFeatures, topN, _index);
 
-            if (FSharpResult<SimilaritySearch.SearchResults<T>, string>.get_IsError(result))
+            if (result.IsError)
             {
-                var error = ((FSharpResult<SimilaritySearch.SearchResults<T>, string>.Error)result).ErrorValue;
-                throw new InvalidOperationException($"Search failed: {error}");
+                throw new InvalidOperationException($"Search failed: {result.ErrorValue.Message}");
             }
 
-            var searchResults = ((FSharpResult<SimilaritySearch.SearchResults<T>, string>.Ok)result).ResultValue;
+            var searchResults = result.ResultValue;
 
             return new SearchResults<T>
             {
@@ -343,9 +374,9 @@ namespace FSharp.Azure.Quantum.Business.CSharp
                 {
                     Item = m.Item,
                     Similarity = m.Similarity,
-                    Rank = m.Rank
+                    Rank = m.Rank,
                 }).ToArray(),
-                SearchTime = searchResults.SearchTime
+                SearchTime = searchResults.SearchTime,
             };
         }
 
@@ -353,19 +384,18 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         {
             var result = SimilaritySearch.findAllSimilar(queryFeatures, _index);
 
-            if (FSharpResult<SimilaritySearch.Match<T>[], string>.get_IsError(result))
+            if (result.IsError)
             {
-                var error = ((FSharpResult<SimilaritySearch.Match<T>[], string>.Error)result).ErrorValue;
-                throw new InvalidOperationException($"Search failed: {error}");
+                throw new InvalidOperationException($"Search failed: {result.ErrorValue.Message}");
             }
 
-            var matches = ((FSharpResult<SimilaritySearch.Match<T>[], string>.Ok)result).ResultValue;
+            var matches = result.ResultValue;
 
             return matches.Select(m => new Match<T>
             {
                 Item = m.Item,
                 Similarity = m.Similarity,
-                Rank = m.Rank
+                Rank = m.Rank,
             }).ToArray();
         }
 
@@ -373,19 +403,18 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         {
             var result = SimilaritySearch.findDuplicates(threshold, _index);
 
-            if (FSharpResult<SimilaritySearch.DuplicateGroup<T>[], string>.get_IsError(result))
+            if (result.IsError)
             {
-                var error = ((FSharpResult<SimilaritySearch.DuplicateGroup<T>[], string>.Error)result).ErrorValue;
-                throw new InvalidOperationException($"Duplicate detection failed: {error}");
+                throw new InvalidOperationException($"Duplicate detection failed: {result.ErrorValue.Message}");
             }
 
-            var groups = ((FSharpResult<SimilaritySearch.DuplicateGroup<T>[], string>.Ok)result).ResultValue;
+            var groups = result.ResultValue;
 
             return groups.Select(g => new DuplicateGroup<T>
             {
                 Representative = g.Representative,
                 Items = g.Items,
-                AvgSimilarity = g.AvgSimilarity
+                AvgSimilarity = g.AvgSimilarity,
             }).ToArray();
         }
 
@@ -393,23 +422,21 @@ namespace FSharp.Azure.Quantum.Business.CSharp
         {
             var result = SimilaritySearch.cluster(numClusters, maxIterations, _index);
 
-            if (FSharpResult<T[][], string>.get_IsError(result))
+            if (result.IsError)
             {
-                var error = ((FSharpResult<T[][], string>.Error)result).ErrorValue;
-                throw new InvalidOperationException($"Clustering failed: {error}");
+                throw new InvalidOperationException($"Clustering failed: {result.ErrorValue.Message}");
             }
 
-            return ((FSharpResult<T[][], string>.Ok)result).ResultValue;
+            return result.ResultValue;
         }
 
         public void SaveTo(string path)
         {
             var result = SimilaritySearch.save(path, _index);
 
-            if (FSharpResult<Microsoft.FSharp.Core.Unit, string>.get_IsError(result))
+            if (result.IsError)
             {
-                var error = ((FSharpResult<Microsoft.FSharp.Core.Unit, string>.Error)result).ErrorValue;
-                throw new InvalidOperationException($"Failed to save index: {error}");
+                throw new InvalidOperationException($"Failed to save index: {result.ErrorValue.Message}");
             }
         }
 
@@ -428,7 +455,7 @@ namespace FSharp.Azure.Quantum.Business.CSharp
                     NumFeatures = metadata.NumFeatures,
                     Metric = metric,
                     CreatedAt = metadata.CreatedAt,
-                    Note = FSharpOption<string>.get_IsSome(metadata.Note) ? metadata.Note.Value : null
+                    Note = FSharpOption<string>.get_IsSome(metadata.Note) ? metadata.Note.Value : null,
                 };
             }
         }

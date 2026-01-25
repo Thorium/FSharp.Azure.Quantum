@@ -1,0 +1,7 @@
+compound_id,SMILES,Label
+imatinib,CC1=C(C=C(C=C1)NC(=O)C2=CC=C(C=C2)CN3CCN(CC3)C)NC4=NC=CC(=N4)C5=CN=CC=C5,1
+gefitinib,COC1=C(C=C2C(=C1)N=CN=C2NC3=CC(=C(C=C3)F)Cl)OCCCN4CCOCC4,1
+erlotinib,COC1=C(C=C2C(=C1)C(=NC=N2)NC3=CC=CC(=C3)C#C)OCCOC,1
+aspirin,CC(=O)OC1=CC=CC=C1C(=O)O,0
+ibuprofen,CC(C)CC1=CC=C(C=C1)C(C)C(=O)O,0
+caffeine,CN1C=NC2=C1C(=O)N(C(=O)N2C)C,0

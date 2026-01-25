@@ -29,31 +29,34 @@ printfn "╚══════════════════════�
 printfn ""
 
 // Execute the screening pipeline using the DSL
-let screeningSummary =
+let screeningResult =
     drugDiscovery {
         // 1. Target Definition
         // Load the 3D structure of the target protein (e.g., SARS-CoV-2 Mpro)
         target_protein_from_pdb "3CL_protease.pdb"
-        
-        // 2. Candidate Library
-        // Load candidate molecules from a SMILES file
-        // (Mock file path for this example)
-        load_candidates_from_file "chembl_subset_kinase_inhibitors.smi"
-        
+
+// 2. Training Dataset
+// Load molecules + labels from a tiny CSV dataset.
+// For training, labels are required (e.g., active=1, inactive=0).
+// NOTE: A separate unlabeled SMILES (.smi) file is available in _data for candidate-only scoring scenarios.
+        load_candidates_from_file (System.IO.Path.Combine(__SOURCE_DIRECTORY__, "_data", "actives_tiny_labeled.csv"))
+
         // 3. Strategy
         // Use Quantum Kernel SVM for non-linear classification
         use_method ScreeningMethod.QuantumKernelSVM
-        
+
         // Map chemical features to quantum Hilbert space using ZZ interactions
         use_feature_map FeatureMap.ZZFeatureMap
-        
+
         // 4. Execution
         set_batch_size 50
-        run_virtual_screening
+        backend (FSharp.Azure.Quantum.Backends.LocalBackend.LocalBackend())
     }
 
 // Display the output
-printfn "%s" screeningSummary
+match screeningResult with
+| Ok result -> printfn "%s" result.Message
+| Error e -> printfn "Screening failed: %A" e
 printfn ""
 printfn "Business Value:"
 printfn "  - Non-linear separation of 'Active' vs 'Inactive' compounds."

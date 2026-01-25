@@ -10,6 +10,10 @@ namespace FSharp.Azure.Quantum.Data
 
 open System
 open System.Text.RegularExpressions
+open System.Net.Http
+open System.IO
+open System.Security.Cryptography
+open System.Text
 open FSharp.Azure.Quantum.Core
 
 module FinancialData =
@@ -343,7 +347,254 @@ module FinancialData =
     /// Load prices for Yahoo Finance CSV format
     let loadYahooFinanceCsv (filePath: string) (symbol: string) : QuantumResult<PriceSeries> =
         loadPricesFromCsv filePath symbol "Date" "Close"
-    
+
+    // ========================================================================
+    // YAHOO FINANCE - LIVE FETCHING
+    // ========================================================================
+
+    type YahooHistoryInterval =
+        | OneDay
+        | OneWeek
+        | OneMonth
+
+        member this.ToQueryString() =
+            match this with
+            | OneDay -> "1d"
+            | OneWeek -> "1wk"
+            | OneMonth -> "1mo"
+
+    type YahooHistoryRange =
+        | OneMonth
+        | ThreeMonths
+        | SixMonths
+        | OneYear
+        | TwoYears
+        | FiveYears
+        | TenYears
+        | Max
+
+        member this.ToQueryString() =
+            match this with
+            | OneMonth -> "1mo"
+            | ThreeMonths -> "3mo"
+            | SixMonths -> "6mo"
+            | OneYear -> "1y"
+            | TwoYears -> "2y"
+            | FiveYears -> "5y"
+            | TenYears -> "10y"
+            | Max -> "max"
+
+    type YahooHistoryRequest = {
+        Symbol: string
+        Range: YahooHistoryRange
+        Interval: YahooHistoryInterval
+        IncludeAdjustedClose: bool
+        CacheDirectory: string option
+        CacheTtl: TimeSpan
+    }
+
+    let private defaultYahooHistoryRequest symbol =
+        {
+            Symbol = symbol
+            Range = OneYear
+            Interval = OneDay
+            IncludeAdjustedClose = true
+            CacheDirectory = None
+            CacheTtl = TimeSpan.FromHours 6.0
+        }
+
+    let private sha256Hex (text: string) =
+        use sha = SHA256.Create()
+        let bytes = Encoding.UTF8.GetBytes(text)
+        let hash = sha.ComputeHash(bytes)
+        hash |> Array.map (fun b -> b.ToString("x2")) |> String.Concat
+
+    let private tryReadFreshCache (cachePath: string) (ttl: TimeSpan) : string option =
+        try
+            if File.Exists(cachePath) then
+                let age = DateTime.UtcNow - File.GetLastWriteTimeUtc(cachePath)
+                if age <= ttl then
+                    Some (File.ReadAllText(cachePath))
+                else
+                    None
+            else
+                None
+        with _ -> None
+
+    let private tryWriteCache (cachePath: string) (content: string) : unit =
+        try
+            let directory = Path.GetDirectoryName(cachePath)
+            if not (String.IsNullOrWhiteSpace directory) then
+                Directory.CreateDirectory(directory) |> ignore
+            File.WriteAllText(cachePath, content)
+        with _ -> ()
+
+    let private parseYahooChartJson (symbol: string) (json: string) : QuantumResult<PriceSeries> =
+        try
+            use doc = System.Text.Json.JsonDocument.Parse(json)
+            let root = doc.RootElement
+
+            let chart = root.GetProperty("chart")
+
+            let errorEl = chart.GetProperty("error")
+            if errorEl.ValueKind <> System.Text.Json.JsonValueKind.Null then
+                let message =
+                    match errorEl.TryGetProperty("description") with
+                    | true, v -> (v.GetString() |> Option.ofObj) |> Option.defaultValue (errorEl.ToString())
+                    | _ -> errorEl.ToString()
+
+                Error (QuantumError.BackendError ("YahooFinance", message))
+            else
+                let resultArr = chart.GetProperty("result")
+                if resultArr.GetArrayLength() = 0 then
+                    Error (QuantumError.BackendError ("YahooFinance", "Empty result"))
+                else
+                    let result0 = resultArr.[0]
+
+                    let timestamps = result0.GetProperty("timestamp").EnumerateArray() |> Seq.toArray
+                    let indicators = result0.GetProperty("indicators")
+                    let quote0 = indicators.GetProperty("quote").[0]
+
+                    let closes = quote0.GetProperty("close").EnumerateArray() |> Seq.toArray
+                    let opens = quote0.GetProperty("open").EnumerateArray() |> Seq.toArray
+                    let highs = quote0.GetProperty("high").EnumerateArray() |> Seq.toArray
+                    let lows = quote0.GetProperty("low").EnumerateArray() |> Seq.toArray
+
+                    let volumes =
+                        match quote0.TryGetProperty("volume") with
+                        | true, v -> v.EnumerateArray() |> Seq.toArray
+                        | _ -> Array.empty
+
+                    let adjCloses =
+                        match indicators.TryGetProperty("adjclose") with
+                        | true, adjArr ->
+                            let adj0 = adjArr.[0]
+                            match adj0.TryGetProperty("adjclose") with
+                            | true, v -> v.EnumerateArray() |> Seq.toArray
+                            | _ -> Array.empty
+                        | _ -> Array.empty
+
+                    let currency =
+                        match result0.TryGetProperty("meta") with
+                        | true, meta ->
+                            match meta.TryGetProperty("currency") with
+                            | true, v -> (v.GetString() |> Option.ofObj) |> Option.defaultValue "USD"
+                            | _ -> "USD"
+                        | _ -> "USD"
+
+                    let inline tryGetFloat (el: System.Text.Json.JsonElement) : float option =
+                        if el.ValueKind = System.Text.Json.JsonValueKind.Number then
+                            el.GetDouble() |> Some
+                        else
+                            None
+
+                    let toDate (unixSeconds: int64) =
+                        DateTimeOffset.FromUnixTimeSeconds(unixSeconds).UtcDateTime.Date
+
+                    let count = timestamps.Length
+
+                    let bars =
+                        [|
+                            for i in 0 .. count - 1 do
+                                let closeOpt = tryGetFloat closes.[i]
+                                if closeOpt.IsSome then
+                                    let ts = timestamps.[i].GetInt64()
+                                    let openP = tryGetFloat opens.[i] |> Option.defaultValue closeOpt.Value
+                                    let highP = tryGetFloat highs.[i] |> Option.defaultValue closeOpt.Value
+                                    let lowP = tryGetFloat lows.[i] |> Option.defaultValue closeOpt.Value
+
+                                    let volume =
+                                        if i < volumes.Length then
+                                            tryGetFloat volumes.[i] |> Option.defaultValue 0.0
+                                        else
+                                            0.0
+
+                                    let adjClose =
+                                        if i < adjCloses.Length then
+                                            tryGetFloat adjCloses.[i]
+                                        else
+                                            None
+
+                                    yield {
+                                        Date = toDate (timestamps.[i].GetInt64())
+                                        Open = openP
+                                        High = highP
+                                        Low = lowP
+                                        Close = closeOpt.Value
+                                        Volume = volume
+                                        AdjustedClose = adjClose
+                                    }
+                        |]
+                        |> Array.sortBy (fun b -> b.Date)
+
+                    Ok {
+                        Symbol = symbol
+                        Name = None
+                        Currency = currency
+                        Prices = bars
+                        Frequency = Daily
+                    }
+        with ex ->
+            Error (QuantumError.OperationError ("YahooFinance.Parse", ex.Message))
+
+    /// Download historical prices from Yahoo Finance's chart API.
+    ///
+    /// Note: Yahoo Finance does not provide an official public API; this uses the JSON
+    /// endpoint used by their website.
+    let fetchYahooHistoryAsync
+        (httpClient: HttpClient)
+        (request: YahooHistoryRequest)
+        : Async<QuantumResult<PriceSeries>> =
+        async {
+            let symbol = request.Symbol.Trim().ToUpperInvariant()
+            if String.IsNullOrWhiteSpace symbol then
+                return Error (QuantumError.ValidationError ("symbol", "Symbol must be non-empty"))
+            else
+                let range = request.Range.ToQueryString()
+                let interval = request.Interval.ToQueryString()
+
+                let url =
+                    sprintf "https://query1.finance.yahoo.com/v8/finance/chart/%s?range=%s&interval=%s&includePrePost=false&events=div%%7Csplits" (Uri.EscapeDataString symbol) range interval
+                    + (if request.IncludeAdjustedClose then "&includeAdjustedClose=true" else "")
+
+                let cacheKey = sha256Hex url
+                let cachePathOpt =
+                    request.CacheDirectory
+                    |> Option.map (fun dir -> Path.Combine(dir, sprintf "yahoo_chart_%s.json" cacheKey))
+
+                match cachePathOpt |> Option.bind (fun p -> tryReadFreshCache p request.CacheTtl) with
+                | Some cachedJson ->
+                    return parseYahooChartJson symbol cachedJson
+                | None ->
+                    try
+                        httpClient.DefaultRequestHeaders.UserAgent.ParseAdd("FSharp.Azure.Quantum/InvestmentPortfolio")
+                    with _ -> ()
+
+                    try
+                        use req = new HttpRequestMessage(HttpMethod.Get, url)
+                        let! resp = httpClient.SendAsync(req) |> Async.AwaitTask
+                        let! body = resp.Content.ReadAsStringAsync() |> Async.AwaitTask
+
+                        if not resp.IsSuccessStatusCode then
+                            return Error (QuantumError.BackendError ("YahooFinance", $"HTTP {(int resp.StatusCode)}: {body}"))
+                        else
+                            cachePathOpt |> Option.iter (fun p -> tryWriteCache p body)
+                            return parseYahooChartJson symbol body
+                    with ex ->
+                        return Error (QuantumError.BackendError ("YahooFinance", ex.Message))
+        }
+
+    /// Synchronous wrapper for fetchYahooHistoryAsync.
+    let fetchYahooHistory
+        (httpClient: HttpClient)
+        (request: YahooHistoryRequest)
+        : QuantumResult<PriceSeries> =
+        fetchYahooHistoryAsync httpClient request |> Async.RunSynchronously
+
+    /// Convenience overload with defaults.
+    let fetchYahooHistoryDefault (httpClient: HttpClient) (symbol: string) : QuantumResult<PriceSeries> =
+        fetchYahooHistory httpClient (defaultYahooHistoryRequest symbol)
+
     // ========================================================================
     // RETURN CALCULATIONS
     // ========================================================================
@@ -395,7 +646,25 @@ module FinancialData =
                 |> Array.map (fun r -> (r - mean) ** 2.0)
                 |> Array.average
             sqrt(variance * annualizationFactor)
-    
+
+    /// Calculate annualized expected return from log returns.
+    ///
+    /// Typical usage: annualizationFactor = 252.0 for daily returns.
+    let calculateExpectedReturn (returns: ReturnSeries) (annualizationFactor: float) : float =
+        let n = returns.LogReturns.Length
+        if n < 1 then 0.0
+        else
+            let meanLog = returns.LogReturns |> Array.average
+            // Convert expected log return to expected simple return
+            exp(meanLog * annualizationFactor) - 1.0
+
+    /// Extract latest close from a PriceSeries.
+    let tryGetLatestPrice (series: PriceSeries) : float option =
+        series.Prices
+        |> Array.sortBy (fun p -> p.Date)
+        |> Array.tryLast
+        |> Option.map (fun p -> p.AdjustedClose |> Option.defaultValue p.Close)
+
     // ========================================================================
     // CORRELATION & COVARIANCE
     // ========================================================================

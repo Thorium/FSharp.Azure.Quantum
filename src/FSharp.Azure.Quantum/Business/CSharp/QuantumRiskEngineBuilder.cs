@@ -1,11 +1,10 @@
 namespace FSharp.Azure.Quantum.Business.CSharp;
 
-using System;
 using System.Collections.Generic;
-using FSharp.Azure.Quantum.Core.BackendAbstraction;
 using Microsoft.FSharp.Collections;
 using Microsoft.FSharp.Core;
 using static FSharp.Azure.Quantum.Business.QuantumRiskEngineDSL;
+using static FSharp.Azure.Quantum.Core.BackendAbstraction;
 
 /// <summary>
 /// C# Builder for Quantum Risk Engine.
@@ -96,8 +95,7 @@ public class QuantumRiskEngineBuilder
             _numQubits,
             _groverIterations,
             _shots,
-            _backend == null ? FSharpOption<IQuantumBackend>.None : FSharpOption<IQuantumBackend>.Some(_backend)
-        );
+            _backend == null ? FSharpOption<IQuantumBackend>.None : FSharpOption<IQuantumBackend>.Some(_backend));
 
         return RiskEngine.execute(config);
     }
