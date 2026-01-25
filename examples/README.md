@@ -59,7 +59,7 @@ Examples are categorized into **4 levels** based on business utility and technic
 ### Workforce & Operations
 
 #### Scheduling & Resource Allocation
-- **[ConstraintScheduler_Example.fsx](ConstraintScheduler_Example.fsx)** RECOMMENDED  
+- **[JobScheduling/ConstraintScheduler_Example.fsx](JobScheduling/ConstraintScheduler_Example.fsx)** RECOMMENDED  
   Schedule employees/resources with hard and soft constraints  
   **Use Case:** Workforce management, cloud VM allocation, manufacturing  
   **ROI:** $25,000/hour savings (validated in powerplant optimization)
@@ -84,7 +84,7 @@ Examples are categorized into **4 levels** based on business utility and technic
   Small-scale supply chain example (faster execution)
 
 ### Network & Social Analysis
-- **[SocialNetworkAnalyzer_Example.fsx](SocialNetworkAnalyzer_Example.fsx)**  
+- **[GraphAnalytics/SocialNetworkAnalyzer_Example.fsx](GraphAnalytics/SocialNetworkAnalyzer_Example.fsx)**  
   Detect communities and fraud rings in social networks  
   **Use Case:** Marketing (influencer groups), fraud detection (collusion)  
   **ROI:** Targeted campaigns, detect coordinated fraud schemes
@@ -455,7 +455,7 @@ dotnet fsi test-all-examples.fsx
 ### Beginner Path (Business Focus)
 1. AutoML/QuickPrototyping.fsx - Easiest start
 2. BinaryClassification/FraudDetection.fsx - Real use case
-3. ConstraintScheduler_Example.fsx - Optimization intro
+3. JobScheduling/ConstraintScheduler_Example.fsx - Optimization intro
 4. GraphColoring/GraphColoring.fsx - Classic problem
 
 ### Developer Path (Quantum Optimization)

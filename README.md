@@ -903,7 +903,7 @@ match network with
 - Classical fallback for small networks
 - Community strength metrics (connectivity percentage)
 
-**Example:** `examples/SocialNetworkAnalyzer_Example.fsx`
+**Example:** `examples/GraphAnalytics/SocialNetworkAnalyzer_Example.fsx`
 
 ---
 
@@ -1001,7 +1001,7 @@ match schedule with
 - Classical fallback for small problems
 - Detailed constraint satisfaction metrics
 
-**Example:** `examples/ConstraintScheduler_Example.fsx`
+**Example:** `examples/JobScheduling/ConstraintScheduler_Example.fsx`
 
 ---
 
@@ -1144,8 +1144,8 @@ match SimilaritySearch.findSimilar search targetProduct with
 - Ready for Production - Model serialization, evaluation metrics, validation
 
 **Examples:**
-- `examples/SocialNetworkAnalyzer_Example.fsx` - Community detection and fraud ring identification
-- `examples/ConstraintScheduler_Example.fsx` - Workforce and resource scheduling
+- `examples/GraphAnalytics/SocialNetworkAnalyzer_Example.fsx` - Community detection and fraud ring identification
+- `examples/JobScheduling/ConstraintScheduler_Example.fsx` - Workforce and resource scheduling
 - `examples/AutoML/QuickPrototyping.fsx` - Complete AutoML pipeline
 - `examples/AnomalyDetection/SecurityThreatDetection.fsx` - Network security monitoring
 - `examples/BinaryClassification/FraudDetection.fsx` - Transaction fraud detection
