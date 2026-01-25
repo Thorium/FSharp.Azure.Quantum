@@ -1747,6 +1747,16 @@ module FermionMapping =
             FinalState: QuantumState
         }
         
+        /// Internal optimization state for tail-recursive VQE loop
+        type private OptimizationState = {
+            Parameters: float array
+            Iteration: int
+            PrevEnergy: float
+            CurrentEnergy: float
+            FinalState: QuantumState
+            Converged: bool
+        }
+        
         /// Build UCCSD ansatz circuit and apply to state
         /// 
         /// **Parameters**:
@@ -2020,79 +2030,85 @@ module FermionMapping =
                     
                     // Initialize parameters (small random values near zero)
                     let rng = System.Random(42)
-                    let mutable currentParameters = 
+                    let initialParameters = 
                         Array.init totalParams (fun _ -> (rng.NextDouble() - 0.5) * 0.01)
                     
-                    // Step 3: Optimization loop (simple gradient descent)
-                    let mutable iteration = 0
-                    let mutable converged = false
-                    let mutable prevEnergy = Double.MaxValue
-                    let mutable currentEnergy = 0.0
-                    let mutable finalState = initialState
-                    let mutable errorOccurred = None
+                    let learningRate = 0.01
+                    let epsilon = 0.001
                     
-                    while iteration < config.MaxIterations && not converged && Option.isNone errorOccurred do
-                        // Generate pool with current parameters
-                        match UCCSD.generateExcitationPool numElectrons numOrbitals currentParameters with
-                        | Error msg ->
-                            errorOccurred <- Some (QuantumError.OperationError("UCCSD", msg))
-                        | Ok pool ->
+                    // Compute gradient for a single parameter using finite differences
+                    let computeGradient (paramIdx: int) (baseEnergy: float) (parameters: float array) =
+                        let perturbedParams = Array.copy parameters
+                        perturbedParams.[paramIdx] <- perturbedParams.[paramIdx] + epsilon
+                        
+                        UCCSD.generateExcitationPool numElectrons numOrbitals perturbedParams
+                        |> Result.mapError (fun msg -> QuantumError.OperationError("UCCSD", msg))
+                        |> Result.bind (fun pool -> buildUCCSDCircuit pool perturbedParams initialState config.Backend)
+                        |> Result.bind (fun state -> measureEnergy config.Hamiltonian state config.Backend)
+                        |> Result.map (fun perturbedEnergy -> (perturbedEnergy - baseEnergy) / epsilon)
+                        |> Result.defaultValue 0.0  // Skip parameter on error
+                    
+                    // Single optimization step: evaluate energy and compute gradient descent update
+                    let optimizationStep (state: OptimizationState) : Result<OptimizationState, QuantumError> =
+                        UCCSD.generateExcitationPool numElectrons numOrbitals state.Parameters
+                        |> Result.mapError (fun msg -> QuantumError.OperationError("UCCSD", msg))
+                        |> Result.bind (fun pool -> buildUCCSDCircuit pool state.Parameters initialState config.Backend)
+                        |> Result.bind (fun ansatzState ->
+                            measureEnergy config.Hamiltonian ansatzState config.Backend
+                            |> Result.map (fun energy -> (ansatzState, energy)))
+                        |> Result.map (fun (ansatzState, energy) ->
+                            // Report progress
+                            config.ProgressReporter
+                            |> Option.iter (fun r ->
+                                r.Report(Progress.IterationUpdate(state.Iteration + 1, config.MaxIterations, Some energy)))
                             
-                            // Build and apply UCCSD circuit
-                            match buildUCCSDCircuit pool currentParameters initialState config.Backend with
-                            | Error err -> errorOccurred <- Some err
-                            | Ok ansatzState ->
+                            // Check convergence
+                            if abs(energy - state.PrevEnergy) < config.Tolerance then
+                                { state with 
+                                    CurrentEnergy = energy
+                                    FinalState = ansatzState
+                                    Converged = true }
+                            else
+                                // Compute gradients and update parameters
+                                let gradients = 
+                                    [| for i in 0 .. state.Parameters.Length - 1 ->
+                                        computeGradient i energy state.Parameters |]
+                                let updatedParams = 
+                                    Array.mapi (fun i p -> p - learningRate * gradients.[i]) state.Parameters
                                 
-                                // Measure energy
-                                match measureEnergy config.Hamiltonian ansatzState config.Backend with
-                                | Error err -> errorOccurred <- Some err
-                                | Ok energy ->
-                                    currentEnergy <- energy
-                                    finalState <- ansatzState
-                                
-                                // Report progress
-                                config.ProgressReporter
-                                |> Option.iter (fun r ->
-                                    r.Report(Progress.IterationUpdate(iteration + 1, config.MaxIterations, Some currentEnergy)))
-                                
-                                // Check convergence
-                                if abs(currentEnergy - prevEnergy) < config.Tolerance then
-                                    converged <- true
-                                else
-                                    // Simple gradient descent update (finite difference)
-                                    let learningRate = 0.01
-                                    let epsilon = 0.001
-                                    
-                                    for i in 0 .. currentParameters.Length - 1 do
-                                        let perturbedParams = Array.copy currentParameters
-                                        perturbedParams.[i] <- perturbedParams.[i] + epsilon
-                                        
-                                        match UCCSD.generateExcitationPool numElectrons numOrbitals perturbedParams with
-                                        | Ok perturbedPool ->
-                                            match buildUCCSDCircuit perturbedPool perturbedParams initialState config.Backend with
-                                            | Ok perturbedState ->
-                                                match measureEnergy config.Hamiltonian perturbedState config.Backend with
-                                                | Ok perturbedEnergy ->
-                                                    let gradient = (perturbedEnergy - currentEnergy) / epsilon
-                                                    currentParameters.[i] <- currentParameters.[i] - learningRate * gradient
-                                                | Error _ -> ()
-                                            | Error _ -> ()
-                                        | Error _ -> ()
-                                    
-                                    prevEnergy <- currentEnergy
-                                    iteration <- iteration + 1
+                                { Parameters = updatedParams
+                                  Iteration = state.Iteration + 1
+                                  PrevEnergy = energy
+                                  CurrentEnergy = energy
+                                  FinalState = ansatzState
+                                  Converged = false })
                     
-                    // Return result or error
-                    match errorOccurred with
-                    | Some err -> return Error err
-                    | None ->
-                        return Ok {
-                            Energy = currentEnergy
-                            OptimalParameters = currentParameters
-                            Iterations = iteration
-                            Converged = converged
-                            FinalState = finalState
-                        }
+                    // Tail-recursive optimization loop
+                    let rec optimizeLoop (state: OptimizationState) : Result<ChemistryVQEResult, QuantumError> =
+                        if state.Iteration >= config.MaxIterations || state.Converged then
+                            Ok {
+                                Energy = state.CurrentEnergy
+                                OptimalParameters = state.Parameters
+                                Iterations = state.Iteration
+                                Converged = state.Converged
+                                FinalState = state.FinalState
+                            }
+                        else
+                            match optimizationStep state with
+                            | Error err -> Error err
+                            | Ok newState -> optimizeLoop newState
+                    
+                    // Start optimization from initial state
+                    let initialOptState : OptimizationState = {
+                        Parameters = initialParameters
+                        Iteration = 0
+                        PrevEnergy = Double.MaxValue
+                        CurrentEnergy = 0.0
+                        FinalState = initialState
+                        Converged = false
+                    }
+                    
+                    return optimizeLoop initialOptState
                 
                 | HardwareEfficient layers ->
                     return Error (QuantumError.NotImplemented("HardwareEfficient", Some "Use existing VQE module for HEA"))
