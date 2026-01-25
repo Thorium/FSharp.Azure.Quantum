@@ -145,3 +145,132 @@ let ``Converted metal dimers have correct multiplicities`` () =
     
     let cu2 = Molecule.fromLibraryByName "Cu2"
     Assert.Equal(1, cu2.Multiplicity)  // Singlet (closed shell)
+
+// =============================================================================
+// PROVIDER-BASED MOLECULE LOADING TESTS
+// =============================================================================
+
+[<Fact>]
+let ``Molecule.fromDefaultProvider loads H2 successfully`` () =
+    let result = Molecule.fromDefaultProvider "H2"
+    Assert.True(Result.isOk result, $"Expected Ok but got: {result}")
+    match result with
+    | Ok mol ->
+        Assert.Equal("H2", mol.Name)
+        Assert.Equal(2, mol.Atoms.Length)
+        Assert.Equal(1, mol.Bonds.Length)
+    | Error _ -> ()
+
+[<Fact>]
+let ``Molecule.fromDefaultProvider loads H2O with correct atoms`` () =
+    let result = Molecule.fromDefaultProvider "H2O"
+    Assert.True(Result.isOk result)
+    match result with
+    | Ok mol ->
+        Assert.Equal("H2O", mol.Name)
+        Assert.Equal(3, mol.Atoms.Length)
+        // Check element types
+        let elements = mol.Atoms |> List.map (fun a -> a.Element) |> List.sort
+        Assert.Equal<string list>(["H"; "H"; "O"], elements)
+    | Error _ -> ()
+
+[<Fact>]
+let ``Molecule.fromDefaultProvider returns error for invalid molecule`` () =
+    let result = Molecule.fromDefaultProvider "NotARealMolecule"
+    Assert.True(Result.isError result, "Expected Error for invalid molecule name")
+
+[<Fact>]
+let ``Molecule.fromProvider with custom provider works`` () =
+    let provider = ChemistryDataProviders.defaultDatasetProvider
+    let result = Molecule.fromProvider provider "LiH"
+    Assert.True(Result.isOk result)
+    match result with
+    | Ok mol -> Assert.Equal("LiH", mol.Name)
+    | Error _ -> ()
+
+[<Fact>]
+let ``Molecule.fromInstance converts MoleculeInstance correctly`` () =
+    // Create a MoleculeInstance manually
+    let topology: ChemistryDataProviders.MoleculeTopology = {
+        Atoms = [| "C"; "O" |]
+        Bonds = [| (0, 1, Some 2.0) |]
+        Charge = Some 0
+        Multiplicity = Some 1
+        Metadata = Map.empty
+    }
+    let geometry: ChemistryDataProviders.MoleculeGeometry = {
+        Coordinates = [|
+            { X = 0.0; Y = 0.0; Z = 0.0 }
+            { X = 1.128; Y = 0.0; Z = 0.0 }
+        |]
+        Units = "angstrom"
+    }
+    let instance: ChemistryDataProviders.MoleculeInstance = {
+        Id = Some "CO"
+        Name = Some "Carbon Monoxide"
+        Topology = topology
+        Geometry = Some geometry
+    }
+    
+    let result = Molecule.fromInstance instance
+    Assert.True(Result.isOk result, $"Expected Ok but got: {result}")
+    match result with
+    | Ok mol ->
+        Assert.Equal("Carbon Monoxide", mol.Name)
+        Assert.Equal(2, mol.Atoms.Length)
+        Assert.Equal("C", mol.Atoms.[0].Element)
+        Assert.Equal("O", mol.Atoms.[1].Element)
+        Assert.Equal(1, mol.Bonds.Length)
+        Assert.Equal(2.0, mol.Bonds.[0].BondOrder)
+    | Error _ -> ()
+
+[<Fact>]
+let ``Molecule.fromInstance returns error when geometry is missing`` () =
+    let topology: ChemistryDataProviders.MoleculeTopology = {
+        Atoms = [| "H"; "H" |]
+        Bonds = [| (0, 1, Some 1.0) |]
+        Charge = Some 0
+        Multiplicity = Some 1
+        Metadata = Map.empty
+    }
+    let instance: ChemistryDataProviders.MoleculeInstance = {
+        Id = Some "H2"
+        Name = Some "Hydrogen"
+        Topology = topology
+        Geometry = None  // No geometry!
+    }
+    
+    let result = Molecule.fromInstance instance
+    Assert.True(Result.isError result, "Expected Error when geometry is missing")
+
+[<Fact>]
+let ``Molecules loaded via provider pass validation`` () =
+    let molecules = ["H2"; "H2O"; "LiH"; "benzene"; "methane"]
+    
+    for name in molecules do
+        let result = Molecule.fromDefaultProvider name
+        match result with
+        | Ok mol ->
+            let validationResult = Molecule.validate mol
+            Assert.True(Result.isOk validationResult, 
+                $"Molecule {name} loaded via provider failed validation: {validationResult}")
+        | Error e ->
+            Assert.Fail($"Failed to load molecule {name}: {e}")
+
+[<Fact>]
+let ``Provider-loaded molecules have correct electron counts`` () =
+    // Test a few molecules with known electron counts
+    let testCases = [
+        ("H2", 2)      // 2 hydrogen
+        ("H2O", 10)    // O(8) + 2*H(1)
+        ("LiH", 4)     // Li(3) + H(1)
+        ("methane", 10) // C(6) + 4*H(1)
+    ]
+    
+    for (name, expectedElectrons) in testCases do
+        match Molecule.fromDefaultProvider name with
+        | Ok mol ->
+            let electrons = Molecule.countElectrons mol
+            Assert.Equal(expectedElectrons, electrons)
+        | Error e ->
+            Assert.Fail($"Failed to load {name}: {e}")
