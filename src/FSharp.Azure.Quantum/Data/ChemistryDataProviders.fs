@@ -1462,3 +1462,478 @@ module ChemistryDataProviders =
                     |> Array.toList
                 else
                     []
+
+    // ========================================================================
+    // PDB PARSER MODULE
+    // ========================================================================
+
+    /// Parser for PDB (Protein Data Bank) format files.
+    /// 
+    /// PDB is the standard format for macromolecular structures. This parser
+    /// focuses on extracting small molecule ligands (HETATM records) which are
+    /// relevant for quantum chemistry calculations.
+    /// 
+    /// Key features:
+    /// - Extracts HETATM records (ligands, cofactors, small molecules)
+    /// - Optionally extracts ATOM records (protein/nucleic acid)
+    /// - Groups atoms by residue name and chain
+    /// - Supports multiple models (NMR ensembles)
+    /// 
+    /// PDB Format Reference: https://www.wwpdb.org/documentation/file-format
+    module PdbParser =
+        
+        /// A single atom from a PDB file.
+        type PdbAtom =
+            { /// Atom serial number (columns 7-11)
+              Serial: int
+              /// Atom name (columns 13-16)
+              Name: string
+              /// Alternate location indicator (column 17)
+              AltLoc: char option
+              /// Residue name (columns 18-20)
+              ResName: string
+              /// Chain identifier (column 22)
+              ChainId: char option
+              /// Residue sequence number (columns 23-26)
+              ResSeq: int
+              /// Insertion code (column 27)
+              ICode: char option
+              /// X coordinate in Angstroms (columns 31-38)
+              X: float
+              /// Y coordinate in Angstroms (columns 39-46)
+              Y: float
+              /// Z coordinate in Angstroms (columns 47-54)
+              Z: float
+              /// Occupancy (columns 55-60)
+              Occupancy: float option
+              /// Temperature factor (columns 61-66)
+              TempFactor: float option
+              /// Element symbol (columns 77-78)
+              Element: string
+              /// Charge (columns 79-80)
+              Charge: string option
+              /// True if HETATM, false if ATOM
+              IsHetAtom: bool }
+
+        /// A group of atoms forming a residue/molecule.
+        type PdbResidue =
+            { /// Residue name (3-letter code)
+              Name: string
+              /// Chain identifier
+              ChainId: char option
+              /// Residue sequence number
+              ResSeq: int
+              /// Atoms in this residue
+              Atoms: PdbAtom array
+              /// True if this is a heteroatom residue (ligand)
+              IsHet: bool }
+
+        /// Parsed PDB structure.
+        type PdbStructure =
+            { /// PDB ID (from HEADER or filename)
+              PdbId: string option
+              /// Title (from TITLE record)
+              Title: string option
+              /// All residues in the structure
+              Residues: PdbResidue array
+              /// Model number (for NMR ensembles)
+              ModelNumber: int option
+              /// Source file path
+              SourcePath: string option }
+
+        /// Parse a single ATOM or HETATM line.
+        let private parseAtomLine (line: string) (isHetatm: bool) : PdbAtom option =
+            if line.Length < 54 then None
+            else
+                try
+                    // PDB format is fixed-column, 1-indexed in documentation
+                    // We use 0-indexed substrings
+                    let serial = line.[6..10].Trim() |> int
+                    let name = line.[12..15].Trim()
+                    let altLoc = 
+                        let c = line.[16]
+                        if c = ' ' then None else Some c
+                    let resName = line.[17..19].Trim()
+                    let chainId = 
+                        let c = line.[21]
+                        if c = ' ' then None else Some c
+                    let resSeq = line.[22..25].Trim() |> int
+                    let iCode = 
+                        if line.Length > 26 then
+                            let c = line.[26]
+                            if c = ' ' then None else Some c
+                        else None
+                    let x = line.[30..37].Trim() |> Double.Parse
+                    let y = line.[38..45].Trim() |> Double.Parse
+                    let z = line.[46..53].Trim() |> Double.Parse
+                    
+                    let occupancy = 
+                        if line.Length >= 60 then
+                            match Double.TryParse(line.[54..59].Trim()) with
+                            | true, v -> Some v
+                            | _ -> None
+                        else None
+                    
+                    let tempFactor =
+                        if line.Length >= 66 then
+                            match Double.TryParse(line.[60..65].Trim()) with
+                            | true, v -> Some v
+                            | _ -> None
+                        else None
+                    
+                    let element =
+                        if line.Length >= 78 then
+                            line.[76..77].Trim()
+                        else
+                            // Infer from atom name
+                            name.TrimStart([|'0'..'9'|]).[0..0]
+                    
+                    let charge =
+                        if line.Length >= 80 then
+                            let ch = line.[78..79].Trim()
+                            if String.IsNullOrEmpty ch then None else Some ch
+                        else None
+                    
+                    Some {
+                        Serial = serial
+                        Name = name
+                        AltLoc = altLoc
+                        ResName = resName
+                        ChainId = chainId
+                        ResSeq = resSeq
+                        ICode = iCode
+                        X = x
+                        Y = y
+                        Z = z
+                        Occupancy = occupancy
+                        TempFactor = tempFactor
+                        Element = element
+                        Charge = charge
+                        IsHetAtom = isHetatm
+                    }
+                with
+                | _ -> None
+
+        /// Options for parsing PDB files.
+        type PdbParseOptions =
+            { /// Include ATOM records (protein/nucleic acid atoms)
+              IncludeAtom: bool
+              /// Include HETATM records (ligands, water, etc.)
+              IncludeHetatm: bool
+              /// Exclude water molecules (HOH, WAT, H2O)
+              ExcludeWater: bool
+              /// Only include specific residue names (empty = all)
+              ResidueFilter: string list
+              /// Only include first model (for NMR ensembles)
+              FirstModelOnly: bool }
+
+        /// Default parse options: HETATM only, no water.
+        let defaultOptions =
+            { IncludeAtom = false
+              IncludeHetatm = true
+              ExcludeWater = true
+              ResidueFilter = []
+              FirstModelOnly = true }
+
+        /// Parse PDB content with options.
+        let parseWithOptions (options: PdbParseOptions) (content: string) : Result<PdbStructure, string> =
+            let lines = content.Replace("\r\n", "\n").Split('\n')
+            let mutable atoms: PdbAtom list = []
+            let mutable pdbId = None
+            let mutable title = None
+            let mutable inModel = false
+            let mutable modelNumber = None
+            let mutable firstModelEnded = false
+            
+            let waterNames = set ["HOH"; "WAT"; "H2O"; "DOD"; "DIS"]
+            
+            for line in lines do
+                if line.Length >= 6 then
+                    let recordType = line.[0..5].TrimEnd()
+                    
+                    match recordType with
+                    | "HEADER" when line.Length >= 66 ->
+                        pdbId <- Some (line.[62..65].Trim())
+                    | "TITLE" when line.Length > 10 ->
+                        let titlePart = line.[10..].Trim()
+                        title <- match title with
+                                 | Some t -> Some (t + " " + titlePart)
+                                 | None -> Some titlePart
+                    | "MODEL" ->
+                        if not inModel then
+                            inModel <- true
+                            modelNumber <- 
+                                if line.Length >= 14 then
+                                    match Int32.TryParse(line.[10..13].Trim()) with
+                                    | true, n -> Some n
+                                    | _ -> Some 1
+                                else Some 1
+                    | "ENDMDL" ->
+                        inModel <- false
+                        if options.FirstModelOnly then
+                            firstModelEnded <- true
+                    | "ATOM" when options.IncludeAtom && not firstModelEnded ->
+                        match parseAtomLine line false with
+                        | Some atom -> atoms <- atom :: atoms
+                        | None -> ()
+                    | "HETATM" when options.IncludeHetatm && not firstModelEnded ->
+                        match parseAtomLine line true with
+                        | Some atom ->
+                            let shouldInclude =
+                                // Check water exclusion
+                                (not options.ExcludeWater || not (waterNames.Contains atom.ResName)) &&
+                                // Check residue filter
+                                (options.ResidueFilter.IsEmpty || 
+                                 options.ResidueFilter |> List.exists (fun r -> 
+                                     r.Equals(atom.ResName, StringComparison.OrdinalIgnoreCase)))
+                            if shouldInclude then
+                                atoms <- atom :: atoms
+                        | None -> ()
+                    | _ -> ()
+            
+            // Group atoms into residues
+            let residues =
+                atoms
+                |> List.rev
+                |> List.groupBy (fun a -> (a.ResName, a.ChainId, a.ResSeq))
+                |> List.map (fun ((resName, chainId, resSeq), resAtoms) ->
+                    { Name = resName
+                      ChainId = chainId
+                      ResSeq = resSeq
+                      Atoms = resAtoms |> List.toArray
+                      IsHet = resAtoms |> List.exists (fun a -> a.IsHetAtom) })
+                |> List.toArray
+            
+            Ok {
+                PdbId = pdbId
+                Title = title
+                Residues = residues
+                ModelNumber = modelNumber
+                SourcePath = None
+            }
+
+        /// Parse PDB content with default options (HETATM only, no water).
+        let parse (content: string) : Result<PdbStructure, string> =
+            parseWithOptions defaultOptions content
+
+        /// Parse PDB file.
+        let parseFile (filePath: string) : Result<PdbStructure, string> =
+            try
+                if not (File.Exists filePath) then
+                    Error $"File not found: {filePath}"
+                else
+                    let content = File.ReadAllText(filePath)
+                    match parse content with
+                    | Ok structure -> 
+                        Ok { structure with SourcePath = Some filePath }
+                    | Error e -> Error e
+            with
+            | ex -> Error $"Failed to read PDB file: {ex.Message}"
+
+        /// Convert a PDB residue to MoleculeInstance.
+        let residueToMoleculeInstance (residue: PdbResidue) (pdbId: string option) : MoleculeInstance =
+            let topology: MoleculeTopology =
+                { Atoms = residue.Atoms |> Array.map (fun a -> a.Element)
+                  Bonds = [||]  // PDB doesn't include bond information for HETATM
+                  Charge = None  // Would need to sum individual charges
+                  Multiplicity = Some 1
+                  Metadata = 
+                    [ "format", "pdb"
+                      "residue_name", residue.Name
+                      "residue_seq", string residue.ResSeq
+                      yield! match residue.ChainId with | Some c -> ["chain_id", string c] | None -> []
+                      yield! match pdbId with | Some id -> ["pdb_id", id] | None -> [] ]
+                    |> Map.ofList }
+            
+            let geometry: MoleculeGeometry =
+                { Coordinates = 
+                    residue.Atoms 
+                    |> Array.map (fun a -> { X = a.X; Y = a.Y; Z = a.Z })
+                  Units = "angstrom" }
+            
+            let name = 
+                match pdbId with
+                | Some id -> $"{id}_{residue.Name}_{residue.ResSeq}"
+                | None -> $"{residue.Name}_{residue.ResSeq}"
+            
+            { Id = Some name
+              Name = Some name
+              Topology = topology
+              Geometry = Some geometry }
+
+        /// Convert all non-water HETATM residues to MoleculeInstances.
+        let structureToMoleculeInstances (structure: PdbStructure) : MoleculeInstance array =
+            structure.Residues
+            |> Array.filter (fun r -> r.IsHet)
+            |> Array.map (fun r -> residueToMoleculeInstance r structure.PdbId)
+
+    /// Dataset provider for PDB files, focusing on ligand extraction.
+    /// 
+    /// PDB files typically contain protein structures with bound ligands.
+    /// This provider extracts the ligand molecules (HETATM records) which
+    /// are suitable for quantum chemistry calculations.
+    /// 
+    /// Example:
+    ///   let provider = PdbLigandDatasetProvider("1ATP.pdb")
+    ///   match provider.Load All with
+    ///   | Ok dataset ->
+    ///       for mol in dataset.Molecules do
+    ///           printfn "Ligand: %s (%d atoms)" 
+    ///               (mol.Name |> Option.defaultValue "?")
+    ///               mol.Topology.Atoms.Length
+    ///   | Error e -> printfn "Error: %A" e
+    type PdbLigandDatasetProvider(filePath: string, ?options: PdbParser.PdbParseOptions) =
+        let parseOptions = defaultArg options PdbParser.defaultOptions
+
+        let loadDataset () : QuantumResult<MoleculeDataset> =
+            match PdbParser.parseFile filePath with
+            | Ok structure ->
+                let structure = { structure with SourcePath = Some filePath }
+                let molecules = PdbParser.structureToMoleculeInstances structure
+                
+                if molecules.Length = 0 then
+                    Error (QuantumError.ValidationError("NoLigands", "No ligand molecules found in PDB file"))
+                else
+                    Ok { Molecules = molecules
+                         Labels = None
+                         LabelColumn = None
+                         Metadata = 
+                            [ "source", filePath
+                              "format", "pdb"
+                              yield! match structure.PdbId with | Some id -> ["pdb_id", id] | None -> []
+                              yield! match structure.Title with | Some t -> ["title", t] | None -> [] ]
+                            |> Map.ofList }
+            | Error msg ->
+                Error (QuantumError.ValidationError("PdbParsing", msg))
+
+        interface IMoleculeDatasetProvider with
+            member _.Describe() =
+                $"PDB ligand provider (file: {filePath})"
+
+            member _.Load(query: DatasetQuery) =
+                match query with
+                | All -> loadDataset ()
+                | ByName name ->
+                    loadDataset ()
+                    |> Result.bind (fun ds ->
+                        let matching = 
+                            ds.Molecules 
+                            |> Array.filter (fun m -> 
+                                m.Name = Some name || 
+                                m.Id = Some name ||
+                                // Also match by residue name
+                                m.Topology.Metadata.TryFind "residue_name" = Some name)
+                        if matching.Length > 0 then
+                            Ok { ds with Molecules = matching }
+                        else
+                            Error (QuantumError.ValidationError("LigandNotFound", $"No ligand named '{name}' found in PDB file")))
+                | ByPath _ ->
+                    Error (QuantumError.ValidationError("UnsupportedQuery", "PdbLigandDatasetProvider does not support path queries"))
+                | ByCategory _ ->
+                    Error (QuantumError.ValidationError("UnsupportedQuery", "PdbLigandDatasetProvider does not support category queries"))
+
+            member _.ListNames() =
+                match loadDataset () with
+                | Ok ds -> 
+                    ds.Molecules 
+                    |> Array.choose (fun m -> m.Name)
+                    |> Array.toList
+                | Error _ -> []
+
+    /// Dataset provider that loads ligands from a directory of PDB files.
+    /// 
+    /// Example:
+    ///   let provider = PdbDirectoryDatasetProvider("/path/to/pdb_files")
+    ///   match provider.Load All with
+    ///   | Ok dataset -> printfn "Found %d ligands" dataset.Molecules.Length
+    ///   | Error e -> printfn "Error: %A" e
+    type PdbDirectoryDatasetProvider(directoryPath: string, ?searchPattern: string, ?options: PdbParser.PdbParseOptions) =
+        let pattern = defaultArg searchPattern "*.pdb"
+        let parseOptions = defaultArg options PdbParser.defaultOptions
+
+        let loadPdbFile (path: string) : MoleculeInstance array =
+            match PdbParser.parseFile path with
+            | Ok structure ->
+                let structure = { structure with SourcePath = Some path }
+                PdbParser.structureToMoleculeInstances structure
+            | Error _ -> [||]
+
+        interface IMoleculeDatasetProvider with
+            member _.Describe() =
+                $"PDB directory provider (dir: {directoryPath}, pattern: {pattern})"
+
+            member _.Load(query: DatasetQuery) =
+                if not (Directory.Exists directoryPath) then
+                    Error (QuantumError.ValidationError("DirectoryPath", $"Directory not found: {directoryPath}"))
+                else
+                    match query with
+                    | All ->
+                        let files = Directory.GetFiles(directoryPath, pattern)
+                        let molecules = files |> Array.collect loadPdbFile
+                        
+                        if molecules.Length = 0 then
+                            Error (QuantumError.ValidationError("NoLigands", "No ligands found in PDB files"))
+                        else
+                            Ok { Molecules = molecules
+                                 Labels = None
+                                 LabelColumn = None
+                                 Metadata = Map.ofList ["source", directoryPath; "format", "pdb_directory"] }
+                    
+                    | ByName name ->
+                        // First try to find a PDB file with that name
+                        let pdbPath = Path.Combine(directoryPath, $"{name}.pdb")
+                        if File.Exists pdbPath then
+                            let molecules = loadPdbFile pdbPath
+                            if molecules.Length > 0 then
+                                Ok { Molecules = molecules
+                                     Labels = None
+                                     LabelColumn = None
+                                     Metadata = Map.ofList ["source", pdbPath; "format", "pdb"] }
+                            else
+                                Error (QuantumError.ValidationError("NoLigands", $"No ligands found in {pdbPath}"))
+                        else
+                            // Search all PDB files for a ligand with that name
+                            let files = Directory.GetFiles(directoryPath, pattern)
+                            let matching =
+                                files
+                                |> Array.collect loadPdbFile
+                                |> Array.filter (fun m ->
+                                    m.Name = Some name ||
+                                    m.Id = Some name ||
+                                    m.Topology.Metadata.TryFind "residue_name" = Some name)
+                            
+                            if matching.Length > 0 then
+                                Ok { Molecules = matching
+                                     Labels = None
+                                     LabelColumn = None
+                                     Metadata = Map.ofList ["source", directoryPath; "format", "pdb_directory"] }
+                            else
+                                Error (QuantumError.ValidationError("LigandNotFound", $"No ligand named '{name}' found"))
+                    
+                    | ByPath subPath ->
+                        let fullPath = Path.Combine(directoryPath, subPath)
+                        if File.Exists fullPath then
+                            let molecules = loadPdbFile fullPath
+                            if molecules.Length > 0 then
+                                Ok { Molecules = molecules
+                                     Labels = None
+                                     LabelColumn = None
+                                     Metadata = Map.ofList ["source", fullPath; "format", "pdb"] }
+                            else
+                                Error (QuantumError.ValidationError("NoLigands", $"No ligands found in {fullPath}"))
+                        else
+                            Error (QuantumError.ValidationError("FileNotFound", $"File not found: {fullPath}"))
+                    
+                    | ByCategory _ ->
+                        Error (QuantumError.ValidationError("UnsupportedQuery", "PdbDirectoryDatasetProvider does not support category queries"))
+
+            member _.ListNames() =
+                if Directory.Exists directoryPath then
+                    let files = Directory.GetFiles(directoryPath, pattern)
+                    files
+                    |> Array.collect loadPdbFile
+                    |> Array.choose (fun m -> m.Name)
+                    |> Array.distinct
+                    |> Array.toList
+                else
+                    []

@@ -81,6 +81,7 @@
     <Compile Include="SmilesDataProvidersTests.fs" />
     <Compile Include="SdfMolParserTests.fs" />
     <Compile Include="FciDumpParserTests.fs" />
+    <Compile Include="PdbParserTests.fs" />
     <Compile Include="QuantumChemistryTests.fs" />
     <Compile Include="QuantumTreeSearchBuilderTests.fs" />
     <Compile Include="QuantumConstraintSolverBuilderTests.fs" />

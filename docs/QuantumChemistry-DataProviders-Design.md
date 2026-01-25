@@ -785,7 +785,7 @@ The key fix is to add a missing middle layer: **geometry/conformer provisioning*
 **Implementation status**:
 - ✅ Phase 1: Provider interfaces implemented
 - ✅ Phase 2: Internal refactoring complete (PeriodicTable integration, provider-based loading)
-- ✅ Phase 3: Core formats complete (XYZ, SMILES, SDF/MOL, FCIDump); PDB planned for v2
+- ✅ Phase 3: All core formats complete (XYZ, SMILES, SDF/MOL, FCIDump, PDB)
 - 📋 Phase 4: Planned for future iterations (external RDKit/PubChem providers)
 
 ### Supported Formats
@@ -797,4 +797,4 @@ The key fix is to add a missing middle layer: **geometry/conformer provisioning*
 | SMILES List | `SmilesListDatasetProvider` | ❌ No | In-memory SMILES strings |
 | SDF/MOL | `SdfFileDatasetProvider`, `MolDirectoryDatasetProvider` | ✅ Yes | PubChem, ChEMBL compatible |
 | FCIDump | `FciDumpFileDatasetProvider`, `FciDumpDirectoryDatasetProvider` | ❌ No | Electronic structure only, no geometry |
-| PDB | Planned (v2) | ✅ Yes | Focus on ligand extraction |
+| PDB | `PdbLigandDatasetProvider`, `PdbDirectoryDatasetProvider` | ✅ Yes | Ligand extraction from protein structures |
