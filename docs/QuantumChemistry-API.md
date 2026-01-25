@@ -21,6 +21,8 @@ The Quantum Chemistry Domain Builder provides an idiomatic F# computation expres
 3. [C# API Equivalent](#c-api-equivalent)
 4. [Real-World Examples](#real-world-examples)
 5. [Pre-Built Molecules](#pre-built-molecules)
+   - [Loading Molecules from Files](#loading-molecules-from-files)
+   - [Custom Molecules](#custom-molecules)
 6. [Ansatz Types](#ansatz-types)
 7. [Performance Characteristics](#performance-characteristics)
 
@@ -358,6 +360,70 @@ for (name, mol) in molecules do
 | H₂ (Hydrogen) | `h2 distance` | Distance (Å) | 0.74 |
 | H₂O (Water) | `h2o bondLength angle` | Bond length (Å), Angle (°) | 0.96, 104.5 |
 | LiH (Lithium Hydride) | `lih distance` | Distance (Å) | 1.6 |
+
+### Loading Molecules from Files
+
+Load molecules from standard chemistry file formats:
+
+#### XYZ Files
+
+```fsharp
+open FSharp.Azure.Quantum.QuantumChemistry
+
+// Async loading (recommended)
+let! result = Molecule.fromXyzFileAsync "caffeine.xyz"
+
+match result with
+| Ok molecule -> 
+    printfn "Loaded %s with %d atoms" molecule.Name molecule.Atoms.Length
+| Error err -> 
+    printfn "Error: %A" err
+
+// Synchronous loading
+let result = Molecule.fromXyzFile "water.xyz"
+```
+
+#### FCIDump Files
+
+```fsharp
+// Load pre-computed molecular integrals
+let! result = Molecule.fromFciDumpFileAsync "h2.fcidump"
+
+// Note: FCIDump files contain orbital/electron data but not geometry.
+// The resulting molecule has placeholder atoms for metadata only.
+```
+
+#### Saving Molecules
+
+```fsharp
+// Convert molecule to XYZ format string
+let xyzContent = Molecule.toXyz myMolecule
+
+// Save to file
+let! result = Molecule.saveToXyzFileAsync "output.xyz" myMolecule
+```
+
+#### Low-Level Format Access (MoleculeFormats)
+
+For more control, use the `MoleculeFormats` module directly:
+
+```fsharp
+open FSharp.Azure.Quantum.Data.MoleculeFormats
+
+// XYZ format
+let! data = Xyz.readAsync "molecule.xyz"      // MoleculeData
+let content = Xyz.format data                  // string
+do! Xyz.writeAsync "output.xyz" data          // unit
+
+// SDF/MOL format (supports multiple molecules)
+let! molecules = Sdf.readAsync "library.sdf"  // MoleculeData list
+
+// PDB format (extract ligands)
+let! ligands = Pdb.readLigandsAsync "protein.pdb"  // MoleculeData list
+
+// FCIDump format (quantum chemistry integrals)
+let! header = FciDump.readAsync "integrals.fcidump"  // FciDumpHeader
+```
 
 ### Custom Molecules
 
