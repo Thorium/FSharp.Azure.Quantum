@@ -1,6 +1,7 @@
 namespace FSharp.Azure.Quantum.Business.CSharp;
 
 using System.Collections.Generic;
+using System.Threading;
 using Microsoft.FSharp.Collections;
 using Microsoft.FSharp.Core;
 using static FSharp.Azure.Quantum.Business.QuantumRiskEngineDSL;
@@ -21,6 +22,7 @@ public class QuantumRiskEngineBuilder
     private int _groverIterations = 2;
     private int _shots = 100;
     private IQuantumBackend? _backend;
+    private CancellationToken? _cancellationToken;
     private readonly List<RiskMetric> _metrics = new();
 
     /// <summary>
@@ -134,6 +136,17 @@ public class QuantumRiskEngineBuilder
     }
 
     /// <summary>
+    /// Sets the cancellation token used for cooperative cancellation.
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation token to use.</param>
+    /// <returns>The current builder instance.</returns>
+    public QuantumRiskEngineBuilder WithCancellationToken(CancellationToken cancellationToken)
+    {
+        _cancellationToken = cancellationToken;
+        return this;
+    }
+
+    /// <summary>
     /// Builds a risk configuration from the current settings and executes the risk engine.
     /// </summary>
     /// <returns>A computed <see cref="RiskReport"/>.</returns>
@@ -149,7 +162,8 @@ public class QuantumRiskEngineBuilder
             _numQubits,
             _groverIterations,
             _shots,
-            _backend == null ? FSharpOption<IQuantumBackend>.None : FSharpOption<IQuantumBackend>.Some(_backend));
+            _backend == null ? FSharpOption<IQuantumBackend>.None : FSharpOption<IQuantumBackend>.Some(_backend),
+            _cancellationToken.HasValue ? FSharpOption<CancellationToken>.Some(_cancellationToken.Value) : FSharpOption<CancellationToken>.None);
 
         return RiskEngine.execute(config);
     }
