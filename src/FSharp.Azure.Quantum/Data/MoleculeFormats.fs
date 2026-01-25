@@ -432,6 +432,36 @@ module MoleculeFormats =
             else
                 None
 
+        /// Parse M  CHG entries from a single M  CHG line
+        let private parseChargeEntries (parts: string array) : (int * int) list =
+            match tryParseInt parts.[0] with
+            | Some count ->
+                [ for i in 0 .. count - 1 do
+                    if parts.Length > 1 + i * 2 + 1 then
+                        match tryParseInt parts.[1 + i * 2], tryParseInt parts.[2 + i * 2] with
+                        | Some idx, Some chg -> yield (idx, chg)
+                        | _ -> () ]
+            | None -> []
+
+        /// Parse properties block (M  CHG lines) until M  END using tail recursion
+        let private parsePropertiesBlock (lines: string array) (startLine: int) : (int * int) list * int =
+            let rec loop lineNum chargesAcc =
+                if lineNum >= lines.Length then
+                    (List.rev chargesAcc, lineNum)
+                else
+                    let line = lines.[lineNum]
+                    if line.StartsWith("M  END") then
+                        (List.rev chargesAcc, lineNum + 1)
+                    elif line.StartsWith("M  CHG") then
+                        let parts = splitLine (line.Substring(6))
+                        let newCharges =
+                            if parts.Length >= 3 then parseChargeEntries parts
+                            else []
+                        loop (lineNum + 1) (List.append (List.rev newCharges) chargesAcc)
+                    else
+                        loop (lineNum + 1) chargesAcc
+            loop startLine []
+
         /// Parse a single MOL block
         let private parseMolBlock (lines: string array) : Result<MolRecord * int, string> =
             if lines.Length < 4 then
@@ -462,79 +492,56 @@ module MoleculeFormats =
                                 lines.[bondStart .. bondStart + bondCount - 1]
                                 |> Array.choose parseBondLine
 
-                            // Find M  END and parse M  CHG lines
-                            let mutable charges = []
-                            let mutable currentLine = bondStart + bondCount
-                            let mutable foundEnd = false
-
-                            while currentLine < lines.Length && not foundEnd do
-                                let line = lines.[currentLine]
-
-                                if line.StartsWith("M  END") then
-                                    foundEnd <- true
-                                elif line.StartsWith("M  CHG") then
-                                    let parts = splitLine (line.Substring(6))
-
-                                    if parts.Length >= 3 then
-                                        match tryParseInt parts.[0] with
-                                        | Some count ->
-                                            for i in 0 .. count - 1 do
-                                                if parts.Length > 1 + i * 2 + 1 then
-                                                    match tryParseInt parts.[1 + i * 2], tryParseInt parts.[2 + i * 2] with
-                                                    | Some idx, Some chg -> charges <- (idx, chg) :: charges
-                                                    | _ -> ()
-                                        | None -> ()
-
-                                currentLine <- currentLine + 1
+                            // Parse properties block using tail recursion
+                            let (charges, linesConsumed) = parsePropertiesBlock lines (bondStart + bondCount)
 
                             Ok(
                                 { Name = name
                                   Atoms = atoms
                                   Bonds = bonds
-                                  Charges = List.rev charges
+                                  Charges = charges
                                   Properties = Map.empty },
-                                if foundEnd then currentLine else bondStart + bondCount
+                                linesConsumed
                             )
                     | _ -> Error $"Cannot parse atom/bond counts from '{countsLine}'"
 
-        /// Parse data fields from SDF format
+        /// Parse data fields from SDF format using tail recursion
         let private parseDataFields (lines: string array) (startLine: int) : Map<string, string> * int =
-            let mutable properties = Map.empty
-            let mutable currentLine = startLine
-            let mutable currentField = None
-            let mutable currentValue = StringBuilder()
-
-            while currentLine < lines.Length && not (lines.[currentLine].StartsWith("$$$$")) do
-                let line = lines.[currentLine]
-
-                if line.StartsWith("> ") || line.StartsWith(">  ") then
-                    match currentField with
-                    | Some fieldName -> properties <- properties.Add(fieldName, currentValue.ToString().Trim())
-                    | None -> ()
-
-                    let fieldMatch = Regex.Match(line, @">\s*<([^>]+)>")
-
-                    if fieldMatch.Success then
-                        currentField <- Some fieldMatch.Groups.[1].Value
-                        currentValue <- StringBuilder()
+            let rec loop lineNum currentField (valueBuilder: StringBuilder) properties =
+                if lineNum >= lines.Length || lines.[lineNum].StartsWith("$$$$") then
+                    // Finalize any pending field
+                    let finalProps =
+                        match currentField with
+                        | Some fieldName -> properties |> Map.add fieldName (valueBuilder.ToString().Trim())
+                        | None -> properties
+                    // Skip the $$$$ delimiter if present
+                    let nextLine = if lineNum < lines.Length && lines.[lineNum].StartsWith("$$$$") then lineNum + 1 else lineNum
+                    (finalProps, nextLine)
+                else
+                    let line = lines.[lineNum]
+                    
+                    if line.StartsWith("> ") || line.StartsWith(">  ") then
+                        // Save previous field if exists
+                        let updatedProps =
+                            match currentField with
+                            | Some fieldName -> properties |> Map.add fieldName (valueBuilder.ToString().Trim())
+                            | None -> properties
+                        
+                        // Parse new field name
+                        let fieldMatch = Regex.Match(line, @">\s*<([^>]+)>")
+                        if fieldMatch.Success then
+                            loop (lineNum + 1) (Some fieldMatch.Groups.[1].Value) (StringBuilder()) updatedProps
+                        else
+                            loop (lineNum + 1) None (StringBuilder()) updatedProps
+                    elif currentField.IsSome && line.Trim().Length > 0 then
+                        if valueBuilder.Length > 0 then
+                            valueBuilder.AppendLine() |> ignore
+                        valueBuilder.Append(line.Trim()) |> ignore
+                        loop (lineNum + 1) currentField valueBuilder properties
                     else
-                        currentField <- None
-                elif currentField.IsSome && line.Trim().Length > 0 then
-                    if currentValue.Length > 0 then
-                        currentValue.AppendLine() |> ignore
-
-                    currentValue.Append(line.Trim()) |> ignore
-
-                currentLine <- currentLine + 1
-
-            match currentField with
-            | Some fieldName -> properties <- properties.Add(fieldName, currentValue.ToString().Trim())
-            | None -> ()
-
-            if currentLine < lines.Length && lines.[currentLine].StartsWith("$$$$") then
-                currentLine <- currentLine + 1
-
-            (properties, currentLine)
+                        loop (lineNum + 1) currentField valueBuilder properties
+            
+            loop startLine None (StringBuilder()) Map.empty
 
         /// Convert MolRecord to MoleculeData
         let private toMoleculeData (record: MolRecord) : MoleculeData =
@@ -567,39 +574,44 @@ module MoleculeFormats =
                     { Coordinates = record.Atoms |> Array.map (fun a -> { X = a.X; Y = a.Y; Z = a.Z })
                       Units = "angstrom" } }
 
-        /// Parse SDF content (may contain multiple molecules).
+        /// Parse SDF content (may contain multiple molecules) using tail recursion.
         let parseAll (content: string) : QuantumResult<MoleculeData array> =
             let lines = content.Replace("\r\n", "\n").Split('\n')
-            let mutable records = []
-            let mutable currentLine = 0
-            let mutable errors = []
-
-            while currentLine < lines.Length do
-                // Skip empty lines
-                while currentLine < lines.Length && String.IsNullOrWhiteSpace lines.[currentLine] do
-                    currentLine <- currentLine + 1
-
-                if currentLine < lines.Length then
-                    match parseMolBlock lines.[currentLine..] with
+            
+            /// Skip empty lines and return next non-empty line index
+            let rec skipEmpty lineNum =
+                if lineNum >= lines.Length then lineNum
+                elif String.IsNullOrWhiteSpace lines.[lineNum] then skipEmpty (lineNum + 1)
+                else lineNum
+            
+            /// Skip to next $$$$ delimiter and return line after it
+            let rec skipToDelimiter lineNum =
+                if lineNum >= lines.Length then lineNum
+                elif lines.[lineNum].StartsWith("$$$$") then lineNum + 1
+                else skipToDelimiter (lineNum + 1)
+            
+            /// Main parsing loop
+            let rec parseLoop lineNum recordsAcc errorsAcc =
+                let startLine = skipEmpty lineNum
+                if startLine >= lines.Length then
+                    (List.rev recordsAcc, List.rev errorsAcc)
+                else
+                    match parseMolBlock lines.[startLine..] with
                     | Ok(record, linesConsumed) ->
-                        let nextLine = currentLine + linesConsumed
+                        let nextLine = startLine + linesConsumed
                         let (properties, finalLine) = parseDataFields lines nextLine
                         let recordWithProps = { record with Properties = properties }
-                        records <- recordWithProps :: records
-                        currentLine <- finalLine
+                        parseLoop finalLine (recordWithProps :: recordsAcc) errorsAcc
                     | Error e ->
-                        errors <- e :: errors
-                        // Skip to next $$$$
-                        while currentLine < lines.Length && not (lines.[currentLine].StartsWith("$$$$")) do
-                            currentLine <- currentLine + 1
-
-                        if currentLine < lines.Length then
-                            currentLine <- currentLine + 1
-
+                        let nextLine = skipToDelimiter startLine
+                        parseLoop nextLine recordsAcc (e :: errorsAcc)
+            
+            let (records, errors) = parseLoop 0 [] []
+            
             if records.IsEmpty && not errors.IsEmpty then
                 Error(QuantumError.ValidationError("SdfParsing", String.concat "; " errors))
             else
-                Ok(records |> List.rev |> List.map toMoleculeData |> List.toArray)
+                Ok(records |> List.map toMoleculeData |> List.toArray)
 
         /// Parse single MOL file content.
         let parse (content: string) : QuantumResult<MoleculeData> =
