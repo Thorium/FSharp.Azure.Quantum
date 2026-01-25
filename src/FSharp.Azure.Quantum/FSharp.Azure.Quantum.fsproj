@@ -63,6 +63,7 @@
     <Compile Include="Data\MoleculeLibrary.fs" />
     <Compile Include="Data\ChemistryDataProviders.fs" />
     <Compile Include="Data\MolecularData.fs" />
+    <Compile Include="Data\SmilesDataProviders.fs" />
     <Compile Include="Data\FinancialData.fs" />
     
     <!-- QUBO Helpers - Shared patterns for optimization solvers -->

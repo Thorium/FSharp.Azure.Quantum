@@ -418,49 +418,90 @@ Update docs so they don't teach multiple approaches.
    - `Conversions.fromMoleculeEntry` - Legacy types → new types
    - `XyzImporter.toMoleculeInstance` - XYZ → unified instance
 
-### Phase 2: Refactor internals to *use* providers 🔄 IN PROGRESS
+### Phase 2: Refactor internals to *use* providers ✅ COMPLETE
 
-**Next steps**:
+**What was done**:
 
-1. Replace hardcoded atomic mass maps in `MolecularData` with `IElementProvider`:
+1. Replaced hardcoded `atomicMasses` map in `MolecularData.fs` with `PeriodicTable` lookup:
    ```fsharp
-   // Before (in MolecularData.fs):
+   // Before:
    let private atomicMasses = Map.ofList [("H", 1.008); ("C", 12.011); ...]
    
    // After:
-   let private elementProvider = ChemistryDataProviders.defaultElementProvider
-   let atomicMass symbol = 
-     match elementProvider.TryGetBySymbol symbol with
-     | Some e -> e.AtomicMass
-     | None -> failwithf "Unknown element: %s" symbol
+   let private getAtomicMass (symbol: string) : float option =
+       PeriodicTable.tryGetBySymbol symbol
+       |> Option.bind (fun e -> e.AtomicMass)
    ```
 
-2. Replace `AtomicNumbers` lookups in `QuantumChemistry.fs` with element provider.
-
-3. Add `fromProvider` function to `QuantumChemistryBuilder`:
+2. Replaced `AtomicNumbers.fromSymbol/toSymbol` in `QuantumChemistry.fs` with `PeriodicTable`:
    ```fsharp
-   // New: Load molecule from provider
-   let fromProvider (provider: IMoleculeDatasetProvider) (name: string) =
-     match provider.Load (DatasetQuery.ByName name) with
-     | Ok dataset when dataset.Molecules.Length > 0 ->
-         let instance = dataset.Molecules.[0]
-         // Convert to Molecule type
-         moleculeFromInstance instance
-     | Ok _ -> failwithf "Molecule '%s' not found" name
-     | Error e -> failwithf "Provider error: %A" e
+   // Before:
+   AtomicNumbers.fromSymbol symbol
+   
+   // After:
+   PeriodicTable.getAtomicNumber symbol
    ```
 
-### Phase 3: Add importers and dataset packages 📋 PLANNED
+3. Added provider-based molecule loading functions to `QuantumChemistry.Molecule`:
+   ```fsharp
+   /// Load molecule from a MoleculeInstance (provider result)
+   let fromInstance (instance: MoleculeInstance) : Molecule option
+   
+   /// Load molecule from a dataset provider by name
+   let fromProvider (provider: IMoleculeDatasetProvider) (name: string) : Molecule option
+   
+   /// Load from default built-in provider
+   let fromDefaultProvider (name: string) : Molecule option
+   ```
+
+4. Added integration tests for provider-based molecule loading (24 tests in `MoleculeLibraryIntegrationTests.fs`)
+
+### Phase 3: Add importers and dataset packages 🔄 IN PROGRESS
 
 **File format support priority**:
 
 | Format | Priority | Status | Notes |
 |--------|----------|--------|-------|
 | XYZ | v1 | ✅ Done | `XyzImporter` in ChemistryDataProviders |
-| CSV+SMILES | v1 | 🔄 Partial | Existing in `MolecularData`, needs provider wrapper |
+| CSV+SMILES | v1 | ✅ Done | `CsvSmilesDatasetProvider` in SmilesDataProviders |
+| SMILES List | v1 | ✅ Done | `SmilesListDatasetProvider` in SmilesDataProviders |
+| Composite | v1 | ✅ Done | `CompositeDatasetProvider` - tries multiple providers |
 | SDF/MOL | v1.5 | 📋 Planned | Interface ready, implementation TBD |
 | PDB | v2 | 📋 Planned | Ligand extraction focus |
 | FCIDump | v2 | 🔄 Partial | Existing in `MolecularInput`, needs provider alignment |
+
+**SMILES-based providers** (NEW - implemented in `SmilesDataProviders.fs`):
+
+1. `CsvSmilesDatasetProvider` - Loads molecules from CSV files with SMILES column:
+   ```fsharp
+   let provider = CsvSmilesDatasetProvider("molecules.csv", "SMILES", Some "Activity")
+   match provider.Load All with
+   | Ok dataset -> printfn "Loaded %d molecules" dataset.Molecules.Length
+   | Error e -> printfn "Error: %A" e
+   ```
+
+2. `SmilesListDatasetProvider` - In-memory SMILES list provider:
+   ```fsharp
+   let smiles = ["CCO"; "CC(=O)O"; "c1ccccc1"]  // Ethanol, acetic acid, benzene
+   let provider = SmilesListDatasetProvider(smiles)
+   ```
+
+3. `CompositeDatasetProvider` - Tries multiple providers in sequence:
+   ```fsharp
+   // Try built-in library first, then fall back to CSV file
+   let provider = CompositeDatasetProvider [
+       defaultDatasetProvider
+       CsvSmilesDatasetProvider("custom_molecules.csv", "SMILES")
+   ]
+   ```
+
+4. Convenience functions:
+   - `parseSmiles` - Parse single SMILES to `MoleculeInstance`
+   - `parseSmilesMany` - Parse multiple SMILES, returning successful parses
+   - `fromSingleSmiles` - Create provider from single SMILES string
+
+**Note**: SMILES molecules are **topology-only** (no 3D geometry). For quantum chemistry
+calculations requiring geometry, combine with a geometry provider or use XYZ files.
 
 **Dataset packaging options**:
 
@@ -688,5 +729,6 @@ The key fix is to add a missing middle layer: **geometry/conformer provisioning*
 
 **Implementation status**:
 - ✅ Phase 1: Provider interfaces implemented
-- 🔄 Phase 2: Internal refactoring in progress
-- 📋 Phase 3-4: Planned for future iterations
+- ✅ Phase 2: Internal refactoring complete (PeriodicTable integration, provider-based loading)
+- 🔄 Phase 3: In progress (SMILES providers done, SDF/PDB planned)
+- 📋 Phase 4: Planned for future iterations (external RDKit/PubChem providers)
