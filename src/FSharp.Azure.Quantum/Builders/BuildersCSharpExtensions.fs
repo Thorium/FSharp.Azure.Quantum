@@ -9,6 +9,7 @@ open Microsoft.FSharp.Collections
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.Core.CircuitAbstraction
 open FSharp.Azure.Quantum.Core
+open FSharp.Azure.Quantum.Business
 
 /// <summary>
 /// C#-friendly extensions for ALL builder APIs in FSharp.Azure.Quantum.
@@ -310,8 +311,8 @@ type CSharpBuilders private () =
     /// Uses Quantum Monte Carlo for quadratic speedup over classical Monte Carlo.
     /// Classical MC: O(1/ε²) samples, Quantum MC: O(1/ε) queries → 100x speedup!
     /// </remarks>
-    static member PriceEuropeanCall(spotPrice: float, strikePrice: float, riskFreeRate: float, volatility: float, timeToExpiry: float, backend: IQuantumBackend) =
-        OptionPricing.priceEuropeanCall spotPrice strikePrice riskFreeRate volatility timeToExpiry backend
+    static member PriceEuropeanCall(spotPrice: float, strikePrice: float, riskFreeRate: float, volatility: float, timeToExpiry: float, numQubits: int, groverIterations: int, shots: int, backend: IQuantumBackend) =
+        OptionPricing.priceEuropeanCall spotPrice strikePrice riskFreeRate volatility timeToExpiry numQubits groverIterations shots backend
     
     /// <summary>Price European put option using quantum Monte Carlo (C# helper).</summary>
     /// <param name="spotPrice">Current price of underlying asset</param>
@@ -321,8 +322,8 @@ type CSharpBuilders private () =
     /// <param name="timeToExpiry">Time to expiry in years</param>
     /// <param name="backend">Quantum backend (REQUIRED - RULE1 compliance)</param>
     /// <returns>Async task with option price result</returns>
-    static member PriceEuropeanPut(spotPrice: float, strikePrice: float, riskFreeRate: float, volatility: float, timeToExpiry: float, backend: IQuantumBackend) =
-        OptionPricing.priceEuropeanPut spotPrice strikePrice riskFreeRate volatility timeToExpiry backend
+    static member PriceEuropeanPut(spotPrice: float, strikePrice: float, riskFreeRate: float, volatility: float, timeToExpiry: float, numQubits: int, groverIterations: int, shots: int, backend: IQuantumBackend) =
+        OptionPricing.priceEuropeanPut spotPrice strikePrice riskFreeRate volatility timeToExpiry numQubits groverIterations shots backend
     
     /// <summary>Price Asian call option using quantum Monte Carlo (C# helper).</summary>
     /// <param name="spotPrice">Current price of underlying asset</param>
@@ -333,8 +334,8 @@ type CSharpBuilders private () =
     /// <param name="timeSteps">Number of time steps for averaging</param>
     /// <param name="backend">Quantum backend (REQUIRED - RULE1 compliance)</param>
     /// <returns>Async task with option price result</returns>
-    static member PriceAsianCall(spotPrice: float, strikePrice: float, riskFreeRate: float, volatility: float, timeToExpiry: float, timeSteps: int, backend: IQuantumBackend) =
-        OptionPricing.priceAsianCall spotPrice strikePrice riskFreeRate volatility timeToExpiry timeSteps backend
+    static member PriceAsianCall(spotPrice: float, strikePrice: float, riskFreeRate: float, volatility: float, timeToExpiry: float, timeSteps: int, numQubits: int, groverIterations: int, shots: int, backend: IQuantumBackend) =
+        OptionPricing.priceAsianCall spotPrice strikePrice riskFreeRate volatility timeToExpiry timeSteps numQubits groverIterations shots backend
     
     /// <summary>Price Asian put option using quantum Monte Carlo (C# helper).</summary>
     /// <param name="spotPrice">Current price of underlying asset</param>
@@ -345,8 +346,8 @@ type CSharpBuilders private () =
     /// <param name="timeSteps">Number of time steps for averaging</param>
     /// <param name="backend">Quantum backend (REQUIRED - RULE1 compliance)</param>
     /// <returns>Async task with option price result</returns>
-    static member PriceAsianPut(spotPrice: float, strikePrice: float, riskFreeRate: float, volatility: float, timeToExpiry: float, timeSteps: int, backend: IQuantumBackend) =
-        OptionPricing.priceAsianPut spotPrice strikePrice riskFreeRate volatility timeToExpiry timeSteps backend
+    static member PriceAsianPut(spotPrice: float, strikePrice: float, riskFreeRate: float, volatility: float, timeToExpiry: float, timeSteps: int, numQubits: int, groverIterations: int, shots: int, backend: IQuantumBackend) =
+        OptionPricing.priceAsianPut spotPrice strikePrice riskFreeRate volatility timeToExpiry timeSteps numQubits groverIterations shots backend
     
     // ============================================================================
     // QUANTUM TREE SEARCH BUILDER EXTENSIONS
@@ -986,10 +987,10 @@ module OptionPricingExtensions =
         (riskFreeRate: float)
         (volatility: float)
         (timeToExpiry: float)
-        (backend: IQuantumBackend)
+        (backend: Core.BackendAbstraction.IQuantumBackend)
         : Task<QuantumResult<OptionPricing.OptionPrice>> =
         
-        OptionPricing.priceEuropeanPut spotPrice strikePrice riskFreeRate volatility timeToExpiry backend
+        OptionPricing.priceEuropeanPut spotPrice strikePrice riskFreeRate volatility timeToExpiry 6 5 1000 backend
         |> Async.StartAsTask
     
     /// <summary>
@@ -1019,10 +1020,10 @@ module OptionPricingExtensions =
         (volatility: float)
         (timeToExpiry: float)
         (timeSteps: int)
-        (backend: IQuantumBackend)
+        (backend: Core.BackendAbstraction.IQuantumBackend)
         : Task<QuantumResult<OptionPricing.OptionPrice>> =
         
-        OptionPricing.priceAsianCall spotPrice strikePrice riskFreeRate volatility timeToExpiry timeSteps backend
+        OptionPricing.priceAsianCall spotPrice strikePrice riskFreeRate volatility timeToExpiry timeSteps 6 5 1000 backend
         |> Async.StartAsTask
     
     /// <summary>
@@ -1052,8 +1053,8 @@ module OptionPricingExtensions =
         (volatility: float)
         (timeToExpiry: float)
         (timeSteps: int)
-        ([<Optional; DefaultParameterValue(null:obj)>] backend: IQuantumBackend)
+        (backend: Core.BackendAbstraction.IQuantumBackend)
         : Task<QuantumResult<OptionPricing.OptionPrice>> =
         
-        OptionPricing.priceAsianPut spotPrice strikePrice riskFreeRate volatility timeToExpiry timeSteps backend
+        OptionPricing.priceAsianPut spotPrice strikePrice riskFreeRate volatility timeToExpiry timeSteps 6 5 1000 backend
         |> Async.StartAsTask

@@ -4,6 +4,7 @@ open System
 open Xunit
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Core
+open FSharp.Azure.Quantum.Business
 open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 
@@ -28,7 +29,7 @@ module OptionPricingTests =
     let ``priceEuropeanCall should return valid result with LocalBackend`` () =
         let test = async {
             let backend = LocalBackend.LocalBackend() :> IQuantumBackend
-            let! result = OptionPricing.priceEuropeanCall 100.0 105.0 0.05 0.2 1.0 backend
+            let! result = OptionPricing.priceEuropeanCall 100.0 105.0 0.05 0.2 1.0 6 5 200 backend
             
             return
                 match result with
@@ -40,13 +41,53 @@ module OptionPricingTests =
                     failwith $"Should succeed, got error: {err}"
         }
         test |> Async.RunSynchronously |> ignore
+
+    [<Fact>]
+    let ``optionPricing CE should respect qubits and shots`` () =
+        let quantumBackend = LocalBackend.LocalBackend() :> IQuantumBackend
+
+        let result =
+            OptionPricing.optionPricing {
+                spotPrice 100.0
+                strikePrice 105.0
+                riskFreeRate 0.05
+                volatility 0.2
+                expiry 1.0
+                optionType OptionPricing.EuropeanCall
+                qubits 4
+                iterations 3
+                shots 100
+                backend quantumBackend
+            }
+            |> Async.RunSynchronously
+
+        match result with
+        | Ok price ->
+            Assert.Equal(4, price.QubitsUsed)
+        | Error err ->
+            failwith $"Should succeed, got error: {err}"
+
+    [<Fact>]
+    let ``optionPricing CE should reject missing backend`` () =
+        let result =
+            OptionPricing.optionPricing {
+                spotPrice 100.0
+                strikePrice 105.0
+            }
+            |> Async.RunSynchronously
+
+        match result with
+        | Error (QuantumError.ValidationError (param, _)) ->
+            Assert.Equal("Backend", param)
+        | _ ->
+            failwith "Should return ValidationError for missing backend"
     
     [<Fact>]
     let ``price should reject numQubits less than 2`` () =
         let test = async {
             let backend = LocalBackend.LocalBackend() :> IQuantumBackend
             let params' = createMarketParams 100.0 105.0 0.05 0.2 1.0
-            let! result = OptionPricing.price OptionPricing.EuropeanCall params' 1 5 backend
+            let! result = OptionPricing.price OptionPricing.EuropeanCall params' 1 5 200 backend
             
             return
                 match result with
@@ -63,7 +104,7 @@ module OptionPricingTests =
         let test = async {
             let backend = LocalBackend.LocalBackend() :> IQuantumBackend
             let params' = createMarketParams -100.0 105.0 0.05 0.2 1.0
-            let! result = OptionPricing.price OptionPricing.EuropeanCall params' 6 5 backend
+            let! result = OptionPricing.price OptionPricing.EuropeanCall params' 6 5 200 backend
             
             return
                 match result with
@@ -79,7 +120,7 @@ module OptionPricingTests =
     let ``priceEuropeanPut should return valid result`` () =
         let test = async {
             let backend = LocalBackend.LocalBackend() :> IQuantumBackend
-            let! result = OptionPricing.priceEuropeanPut 100.0 105.0 0.05 0.2 1.0 backend
+            let! result = OptionPricing.priceEuropeanPut 100.0 105.0 0.05 0.2 1.0 6 5 200 backend
             
             return
                 match result with
@@ -96,7 +137,7 @@ module OptionPricingTests =
     let ``Call option should have non-negative price`` () =
         let test = async {
             let backend = LocalBackend.LocalBackend() :> IQuantumBackend
-            let! result = OptionPricing.priceEuropeanCall 50.0 100.0 0.05 0.2 1.0 backend
+            let! result = OptionPricing.priceEuropeanCall 50.0 100.0 0.05 0.2 1.0 6 5 200 backend
             
             return
                 match result with
@@ -114,8 +155,8 @@ module OptionPricingTests =
             let backend = LocalBackend.LocalBackend() :> IQuantumBackend
             let params' = createMarketParams 100.0 105.0 0.05 0.2 1.0
             
-            let! result4 = OptionPricing.price OptionPricing.EuropeanCall params' 4 3 backend
-            let! result8 = OptionPricing.price OptionPricing.EuropeanCall params' 8 3 backend
+            let! result4 = OptionPricing.price OptionPricing.EuropeanCall params' 4 3 200 backend
+            let! result8 = OptionPricing.price OptionPricing.EuropeanCall params' 8 3 200 backend
             
             return
                 match result4, result8 with

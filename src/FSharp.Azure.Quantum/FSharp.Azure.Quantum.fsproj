@@ -214,7 +214,7 @@
     <Compile Include="Solvers\Classical\GraphColoringBuilder.fs" />
     
     <!-- Financial Derivatives - Quantum Monte Carlo for Option Pricing -->
-    <Compile Include="OptionPricingBuilder.fs" />
+    <Compile Include="Business\OptionPricingBuilder.fs" />
 
     <!-- Utilities Layer (depends on Classical Builders) -->
     <Compile Include="Utilities\PerformanceBenchmarking.fs" />
@@ -247,6 +247,8 @@
     <Compile Include="Business\SimilaritySearchBuilder.fs" />
     <Compile Include="Business\PredictiveModelBuilder.fs" />
     <Compile Include="Business\AutoMLBuilder.fs" />
+    <Compile Include="Business\QuantumRiskEngine.fs" />
+    <Compile Include="Business\QuantumDrugDiscovery.fs" />
     
     <!-- Business-First Quantum Solvers -->
     <Compile Include="Business\SocialNetworkAnalyzer.fs" />
