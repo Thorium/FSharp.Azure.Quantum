@@ -667,3 +667,520 @@ module ChemistryDataProviders =
               Name = Some entry.Name
               Topology = topology
               Geometry = Some geometry }
+
+    // ========================================================================
+    // SDF/MOL FILE PARSER AND PROVIDER
+    // ========================================================================
+
+    /// Module for parsing MDL MOL and SDF (Structure-Data File) formats.
+    /// 
+    /// Supports:
+    /// - MOL V2000 format (the most common version)
+    /// - SDF files (multiple MOL records with associated data)
+    /// 
+    /// The parser extracts:
+    /// - 3D atomic coordinates (in Angstroms)
+    /// - Bond connectivity and types
+    /// - Associated data fields (for SDF files)
+    /// - Charge and other properties from the M  CHG lines
+    module SdfMolParser =
+
+        open System.Text.RegularExpressions
+
+        /// Bond type from MOL file
+        type MolBondType =
+            | Single = 1
+            | Double = 2
+            | Triple = 3
+            | Aromatic = 4
+            | SingleOrDouble = 5
+            | SingleOrAromatic = 6
+            | DoubleOrAromatic = 7
+            | Any = 8
+
+        /// Parsed atom from MOL file
+        type MolAtom = {
+            X: float
+            Y: float
+            Z: float
+            Symbol: string
+            MassDifference: int
+            Charge: int
+            StereoParity: int
+        }
+
+        /// Parsed bond from MOL file
+        type MolBond = {
+            Atom1: int  // 1-indexed
+            Atom2: int  // 1-indexed
+            BondType: int
+            Stereo: int
+        }
+
+        /// Parsed MOL record
+        type MolRecord = {
+            Name: string
+            Comment: string
+            Atoms: MolAtom array
+            Bonds: MolBond array
+            Charges: (int * int) list  // (atom index 1-based, charge)
+            Properties: Map<string, string>  // Associated data from SDF
+        }
+
+        /// Parse a single MOL block (V2000 format)
+        let parseMolBlock (lines: string array) : Result<MolRecord * int, string> =
+            try
+                if lines.Length < 4 then
+                    Error "MOL block too short (need at least 4 lines for header)"
+                else
+                    // Line 1: Molecule name (can be empty)
+                    let name = if lines.Length > 0 then lines.[0].Trim() else ""
+                    
+                    // Line 2: Program/timestamp (ignored)
+                    // Line 3: Comment (can be empty)
+                    let comment = if lines.Length > 2 then lines.[2].Trim() else ""
+                    
+                    // Line 4: Counts line - "aaabbblllfff...V2000"
+                    let countsLine = lines.[3]
+                    if countsLine.Length < 6 then
+                        Error $"Counts line too short: '{countsLine}'"
+                    else
+                        // Parse atom and bond counts (first 6 characters, 3 each)
+                        let atomCountStr = countsLine.Substring(0, 3).Trim()
+                        let bondCountStr = countsLine.Substring(3, 3).Trim()
+                        
+                        match Int32.TryParse atomCountStr, Int32.TryParse bondCountStr with
+                        | (false, _), _ -> Error $"Cannot parse atom count: '{atomCountStr}'"
+                        | _, (false, _) -> Error $"Cannot parse bond count: '{bondCountStr}'"
+                        | (true, atomCount), (true, bondCount) ->
+                            
+                            let atomStartLine = 4
+                            let bondStartLine = atomStartLine + atomCount
+                            let endLine = bondStartLine + bondCount
+                            
+                            if lines.Length < endLine then
+                                Error $"MOL block too short: need {endLine} lines, got {lines.Length}"
+                            else
+                                // Parse atoms
+                                let atoms = 
+                                    [| for i in 0 .. atomCount - 1 do
+                                        let line = lines.[atomStartLine + i]
+                                        // Format: xxxxx.xxxxyyyyy.yyyyzzzzz.zzzz aaaddcccssshhhbbbvvvHHHrrriiimmmnnneee
+                                        // x,y,z: 10.4 format each (but often space-separated)
+                                        // aaa: atom symbol (3 chars)
+                                        // dd: mass difference
+                                        // ccc: charge (0=uncharged, 1=+3, 2=+2, 3=+1, 4=doublet radical, 5=-1, 6=-2, 7=-3)
+                                        
+                                        let parts = line.Split([|' '|], StringSplitOptions.RemoveEmptyEntries)
+                                        if parts.Length >= 4 then
+                                            let x = Double.Parse(parts.[0], CultureInfo.InvariantCulture)
+                                            let y = Double.Parse(parts.[1], CultureInfo.InvariantCulture)
+                                            let z = Double.Parse(parts.[2], CultureInfo.InvariantCulture)
+                                            let symbol = parts.[3].Trim()
+                                            
+                                            // Parse optional fields
+                                            let massDiff = if parts.Length > 4 then Int32.Parse parts.[4] else 0
+                                            let chargeCode = if parts.Length > 5 then Int32.Parse parts.[5] else 0
+                                            
+                                            // Convert charge code to actual charge
+                                            let charge = 
+                                                match chargeCode with
+                                                | 0 -> 0
+                                                | 1 -> 3
+                                                | 2 -> 2
+                                                | 3 -> 1
+                                                | 4 -> 0  // doublet radical
+                                                | 5 -> -1
+                                                | 6 -> -2
+                                                | 7 -> -3
+                                                | _ -> 0
+                                            
+                                            { X = x; Y = y; Z = z
+                                              Symbol = symbol
+                                              MassDifference = massDiff
+                                              Charge = charge
+                                              StereoParity = 0 }
+                                        else
+                                            // Try fixed-width parsing as fallback
+                                            let x = Double.Parse(line.Substring(0, 10).Trim(), CultureInfo.InvariantCulture)
+                                            let y = Double.Parse(line.Substring(10, 10).Trim(), CultureInfo.InvariantCulture)
+                                            let z = Double.Parse(line.Substring(20, 10).Trim(), CultureInfo.InvariantCulture)
+                                            let symbol = line.Substring(31, 3).Trim()
+                                            
+                                            { X = x; Y = y; Z = z
+                                              Symbol = symbol
+                                              MassDifference = 0
+                                              Charge = 0
+                                              StereoParity = 0 }
+                                    |]
+                                
+                                // Parse bonds
+                                let bonds =
+                                    [| for i in 0 .. bondCount - 1 do
+                                        let line = lines.[bondStartLine + i]
+                                        // Format: 111222tttsssxxxrrrccc
+                                        // 111: first atom (3 chars)
+                                        // 222: second atom (3 chars)
+                                        // ttt: bond type
+                                        // sss: stereo
+                                        
+                                        let parts = line.Split([|' '|], StringSplitOptions.RemoveEmptyEntries)
+                                        if parts.Length >= 3 then
+                                            let atom1 = Int32.Parse parts.[0]
+                                            let atom2 = Int32.Parse parts.[1]
+                                            let bondType = Int32.Parse parts.[2]
+                                            let stereo = if parts.Length > 3 then Int32.Parse parts.[3] else 0
+                                            
+                                            { Atom1 = atom1
+                                              Atom2 = atom2
+                                              BondType = bondType
+                                              Stereo = stereo }
+                                        else
+                                            // Fixed-width fallback
+                                            let atom1 = Int32.Parse(line.Substring(0, 3).Trim())
+                                            let atom2 = Int32.Parse(line.Substring(3, 3).Trim())
+                                            let bondType = Int32.Parse(line.Substring(6, 3).Trim())
+                                            
+                                            { Atom1 = atom1
+                                              Atom2 = atom2
+                                              BondType = bondType
+                                              Stereo = 0 }
+                                    |]
+                                
+                                // Parse properties block (M  CHG, etc.) and find M  END
+                                let mutable charges = []
+                                let mutable currentLine = endLine
+                                let mutable foundEnd = false
+                                
+                                while currentLine < lines.Length && not foundEnd do
+                                    let line = lines.[currentLine]
+                                    if line.StartsWith("M  END") then
+                                        foundEnd <- true
+                                    elif line.StartsWith("M  CHG") then
+                                        // Format: M  CHG  n  aaa vvv  aaa vvv ...
+                                        let parts = line.Substring(6).Trim().Split([|' '|], StringSplitOptions.RemoveEmptyEntries)
+                                        if parts.Length >= 3 then
+                                            let count = Int32.Parse parts.[0]
+                                            for i in 0 .. count - 1 do
+                                                if parts.Length > 1 + i * 2 + 1 then
+                                                    let atomIdx = Int32.Parse parts.[1 + i * 2]
+                                                    let charge = Int32.Parse parts.[2 + i * 2]
+                                                    charges <- (atomIdx, charge) :: charges
+                                    currentLine <- currentLine + 1
+                                
+                                let linesConsumed = if foundEnd then currentLine else endLine
+                                
+                                Ok ({ Name = name
+                                      Comment = comment
+                                      Atoms = atoms
+                                      Bonds = bonds
+                                      Charges = charges |> List.rev
+                                      Properties = Map.empty }, linesConsumed)
+            with
+            | ex -> Error $"Failed to parse MOL block: {ex.Message}"
+
+        /// Parse associated data fields from SDF format
+        let parseDataFields (lines: string array) (startLine: int) : Map<string, string> * int =
+            let mutable properties = Map.empty
+            let mutable currentLine = startLine
+            let mutable currentField = None
+            let mutable currentValue = System.Text.StringBuilder()
+            
+            while currentLine < lines.Length && not (lines.[currentLine].StartsWith("$$$$")) do
+                let line = lines.[currentLine]
+                
+                if line.StartsWith("> ") || line.StartsWith(">  ") then
+                    // Save previous field if exists
+                    match currentField with
+                    | Some fieldName ->
+                        properties <- properties.Add(fieldName, currentValue.ToString().Trim())
+                    | None -> ()
+                    
+                    // Parse new field name: >  <FieldName>
+                    let fieldMatch = Regex.Match(line, @">\s*<([^>]+)>")
+                    if fieldMatch.Success then
+                        currentField <- Some fieldMatch.Groups.[1].Value
+                        currentValue <- System.Text.StringBuilder()
+                    else
+                        currentField <- None
+                elif currentField.IsSome && line.Trim().Length > 0 then
+                    if currentValue.Length > 0 then
+                        currentValue.AppendLine() |> ignore
+                    currentValue.Append(line.Trim()) |> ignore
+                
+                currentLine <- currentLine + 1
+            
+            // Save last field
+            match currentField with
+            | Some fieldName ->
+                properties <- properties.Add(fieldName, currentValue.ToString().Trim())
+            | None -> ()
+            
+            // Skip the $$$$ delimiter if present
+            if currentLine < lines.Length && lines.[currentLine].StartsWith("$$$$") then
+                currentLine <- currentLine + 1
+            
+            (properties, currentLine)
+
+        /// Parse a complete SDF file (multiple MOL records with data)
+        let parseSdfFile (content: string) : Result<MolRecord array, string> =
+            let lines = content.Replace("\r\n", "\n").Split('\n')
+            let mutable records = []
+            let mutable currentLine = 0
+            let mutable errors = []
+            
+            while currentLine < lines.Length do
+                // Skip empty lines
+                while currentLine < lines.Length && lines.[currentLine].Trim().Length = 0 do
+                    currentLine <- currentLine + 1
+                
+                if currentLine < lines.Length then
+                    // Try to parse a MOL block
+                    let remainingLines = lines.[currentLine..]
+                    match parseMolBlock remainingLines with
+                    | Ok (record, linesConsumed) ->
+                        let nextLine = currentLine + linesConsumed
+                        
+                        // Parse associated data fields
+                        let (properties, finalLine) = parseDataFields lines nextLine
+                        let recordWithProps = { record with Properties = properties }
+                        
+                        records <- recordWithProps :: records
+                        currentLine <- finalLine
+                    | Error e ->
+                        // Skip to next $$$$ or end
+                        errors <- e :: errors
+                        while currentLine < lines.Length && not (lines.[currentLine].StartsWith("$$$$")) do
+                            currentLine <- currentLine + 1
+                        if currentLine < lines.Length then
+                            currentLine <- currentLine + 1
+            
+            if records.IsEmpty && not errors.IsEmpty then
+                Error (String.concat "; " errors)
+            else
+                Ok (records |> List.rev |> List.toArray)
+
+        /// Parse a single MOL file
+        let parseMolFile (content: string) : Result<MolRecord, string> =
+            match parseSdfFile content with
+            | Ok records when records.Length > 0 -> Ok records.[0]
+            | Ok _ -> Error "No molecule found in MOL file"
+            | Error e -> Error e
+
+        /// Convert MolRecord to MoleculeInstance
+        let toMoleculeInstance (record: MolRecord) : MoleculeInstance =
+            // Apply M  CHG charges to atoms
+            let chargeMap = record.Charges |> List.map (fun (idx, chg) -> (idx, chg)) |> Map.ofList
+            
+            let topology: MoleculeTopology =
+                { Atoms = record.Atoms |> Array.map (fun a -> a.Symbol)
+                  Bonds = 
+                    record.Bonds 
+                    |> Array.map (fun b -> 
+                        // Convert 1-indexed to 0-indexed
+                        let bondOrder = float b.BondType
+                        (b.Atom1 - 1, b.Atom2 - 1, Some bondOrder))
+                  Charge = 
+                    // Sum of inline charges + M  CHG charges
+                    let inlineCharge = record.Atoms |> Array.sumBy (fun a -> a.Charge)
+                    let mChgCharge = record.Charges |> List.sumBy snd
+                    Some (inlineCharge + mChgCharge)
+                  Multiplicity = Some 1  // Not specified in MOL format
+                  Metadata = 
+                    record.Properties
+                    |> Map.toList
+                    |> List.map (fun (k, v) -> (k, v))
+                    |> Map.ofList }
+            
+            let geometry: MoleculeGeometry =
+                { Coordinates = 
+                    record.Atoms 
+                    |> Array.map (fun a -> { X = a.X; Y = a.Y; Z = a.Z })
+                  Units = "angstrom" }
+            
+            let name = 
+                if String.IsNullOrWhiteSpace record.Name then
+                    record.Properties.TryFind "Name" 
+                    |> Option.orElse (record.Properties.TryFind "PUBCHEM_IUPAC_NAME")
+                    |> Option.orElse (record.Properties.TryFind "PUBCHEM_COMPOUND_CID" |> Option.map (fun cid -> $"CID_{cid}"))
+                else
+                    Some record.Name
+            
+            { Id = name
+              Name = name
+              Topology = topology
+              Geometry = Some geometry }
+
+    /// Dataset provider that loads molecules from SDF files.
+    /// 
+    /// SDF (Structure-Data File) is a common format for molecular structures,
+    /// especially for datasets from PubChem, ChEMBL, and other databases.
+    /// 
+    /// Example:
+    ///   let provider = SdfFileDatasetProvider("molecules.sdf")
+    ///   match provider.Load All with
+    ///   | Ok dataset -> printfn "Loaded %d molecules" dataset.Molecules.Length
+    ///   | Error e -> printfn "Error: %A" e
+    type SdfFileDatasetProvider(filePath: string) =
+
+        let loadDataset () : QuantumResult<MoleculeDataset> =
+            try
+                if not (File.Exists filePath) then
+                    Error (QuantumError.ValidationError("FilePath", $"File not found: {filePath}"))
+                else
+                    let content = File.ReadAllText(filePath)
+                    match SdfMolParser.parseSdfFile content with
+                    | Ok records ->
+                        let molecules = 
+                            records 
+                            |> Array.map SdfMolParser.toMoleculeInstance
+                        Ok { Molecules = molecules
+                             Labels = None
+                             LabelColumn = None
+                             Metadata = Map.ofList ["source", filePath; "format", "sdf"] }
+                    | Error e ->
+                        Error (QuantumError.ValidationError("SdfParsing", e))
+            with
+            | ex -> Error (QuantumError.OperationError("SdfLoading", $"Failed to load SDF file: {ex.Message}"))
+
+        interface IMoleculeDatasetProvider with
+            member _.Describe() =
+                $"SDF file provider (file: {filePath})"
+
+            member _.Load(query: DatasetQuery) =
+                match query with
+                | All -> loadDataset ()
+                | ByName name ->
+                    loadDataset ()
+                    |> Result.bind (fun ds ->
+                        let matching = 
+                            ds.Molecules 
+                            |> Array.filter (fun m -> 
+                                m.Name = Some name || m.Id = Some name)
+                        if matching.Length > 0 then
+                            Ok { ds with Molecules = matching }
+                        else
+                            Error (QuantumError.ValidationError("MoleculeNotFound", $"No molecule named '{name}' found in SDF file")))
+                | ByPath _ ->
+                    Error (QuantumError.ValidationError("UnsupportedQuery", "SdfFileDatasetProvider does not support path queries"))
+                | ByCategory _ ->
+                    Error (QuantumError.ValidationError("UnsupportedQuery", "SdfFileDatasetProvider does not support category queries"))
+
+            member _.ListNames() =
+                match loadDataset () with
+                | Ok ds -> 
+                    ds.Molecules 
+                    |> Array.choose (fun m -> m.Name)
+                    |> Array.toList
+                | Error _ -> []
+
+    /// Dataset provider that loads molecules from a directory of MOL/SDF files.
+    /// 
+    /// Example:
+    ///   let provider = MolDirectoryDatasetProvider("/path/to/molecules")
+    ///   match provider.Load (ByName "aspirin") with
+    ///   | Ok dataset -> printfn "Found aspirin"
+    ///   | Error e -> printfn "Not found"
+    type MolDirectoryDatasetProvider(directoryPath: string, ?searchPattern: string) =
+        let pattern = defaultArg searchPattern "*.mol"
+
+        let loadMolFile (path: string) : MoleculeInstance option =
+            try
+                let content = File.ReadAllText(path)
+                match SdfMolParser.parseMolFile content with
+                | Ok record -> Some (SdfMolParser.toMoleculeInstance record)
+                | Error _ -> None
+            with
+            | _ -> None
+
+        interface IMoleculeDatasetProvider with
+            member _.Describe() =
+                $"MOL directory provider (dir: {directoryPath}, pattern: {pattern})"
+
+            member _.Load(query: DatasetQuery) =
+                if not (Directory.Exists directoryPath) then
+                    Error (QuantumError.ValidationError("DirectoryPath", $"Directory not found: {directoryPath}"))
+                else
+                    match query with
+                    | All ->
+                        let files = Directory.GetFiles(directoryPath, pattern)
+                        let sdfFiles = Directory.GetFiles(directoryPath, "*.sdf")
+                        
+                        let molMolecules = 
+                            files |> Array.choose loadMolFile
+                        
+                        let sdfMolecules =
+                            sdfFiles
+                            |> Array.collect (fun path ->
+                                let content = File.ReadAllText(path)
+                                match SdfMolParser.parseSdfFile content with
+                                | Ok records -> records |> Array.map SdfMolParser.toMoleculeInstance
+                                | Error _ -> [||])
+                        
+                        let allMolecules = Array.append molMolecules sdfMolecules
+                        
+                        if allMolecules.Length = 0 then
+                            Error (QuantumError.ValidationError("NoMolecules", "No valid MOL/SDF files found in directory"))
+                        else
+                            Ok { Molecules = allMolecules
+                                 Labels = None
+                                 LabelColumn = None
+                                 Metadata = Map.ofList ["source", directoryPath; "format", "mol_directory"] }
+                    
+                    | ByName name ->
+                        // Try to find file by name
+                        let molPath = Path.Combine(directoryPath, $"{name}.mol")
+                        let sdfPath = Path.Combine(directoryPath, $"{name}.sdf")
+                        
+                        if File.Exists molPath then
+                            match loadMolFile molPath with
+                            | Some mol -> 
+                                Ok { Molecules = [| mol |]
+                                     Labels = None
+                                     LabelColumn = None
+                                     Metadata = Map.ofList ["source", molPath; "format", "mol"] }
+                            | None ->
+                                Error (QuantumError.ValidationError("ParseError", $"Failed to parse {molPath}"))
+                        elif File.Exists sdfPath then
+                            let content = File.ReadAllText(sdfPath)
+                            match SdfMolParser.parseSdfFile content with
+                            | Ok records when records.Length > 0 ->
+                                Ok { Molecules = records |> Array.map SdfMolParser.toMoleculeInstance
+                                     Labels = None
+                                     LabelColumn = None
+                                     Metadata = Map.ofList ["source", sdfPath; "format", "sdf"] }
+                            | Ok _ ->
+                                Error (QuantumError.ValidationError("EmptyFile", $"No molecules in {sdfPath}"))
+                            | Error e ->
+                                Error (QuantumError.ValidationError("ParseError", e))
+                        else
+                            Error (QuantumError.ValidationError("MoleculeNotFound", $"No file named '{name}.mol' or '{name}.sdf' found"))
+                    
+                    | ByPath subPath ->
+                        let fullPath = Path.Combine(directoryPath, subPath)
+                        if File.Exists fullPath then
+                            match loadMolFile fullPath with
+                            | Some mol ->
+                                Ok { Molecules = [| mol |]
+                                     Labels = None
+                                     LabelColumn = None
+                                     Metadata = Map.ofList ["source", fullPath; "format", "mol"] }
+                            | None ->
+                                Error (QuantumError.ValidationError("ParseError", $"Failed to parse {fullPath}"))
+                        else
+                            Error (QuantumError.ValidationError("FileNotFound", $"File not found: {fullPath}"))
+                    
+                    | ByCategory _ ->
+                        Error (QuantumError.ValidationError("UnsupportedQuery", "MolDirectoryDatasetProvider does not support category queries"))
+
+            member _.ListNames() =
+                if Directory.Exists directoryPath then
+                    let molFiles = Directory.GetFiles(directoryPath, pattern)
+                    let sdfFiles = Directory.GetFiles(directoryPath, "*.sdf")
+                    
+                    let molNames = molFiles |> Array.map (fun p -> Path.GetFileNameWithoutExtension p)
+                    let sdfNames = sdfFiles |> Array.map (fun p -> Path.GetFileNameWithoutExtension p)
+                    
+                    Array.append molNames sdfNames |> Array.distinct |> Array.toList
+                else
+                    []

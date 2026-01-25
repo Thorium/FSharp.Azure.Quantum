@@ -466,7 +466,7 @@ Update docs so they don't teach multiple approaches.
 | CSV+SMILES | v1 | ✅ Done | `CsvSmilesDatasetProvider` in SmilesDataProviders |
 | SMILES List | v1 | ✅ Done | `SmilesListDatasetProvider` in SmilesDataProviders |
 | Composite | v1 | ✅ Done | `CompositeDatasetProvider` - tries multiple providers |
-| SDF/MOL | v1.5 | 📋 Planned | Interface ready, implementation TBD |
+| SDF/MOL | v1.5 | ✅ Done | `SdfFileDatasetProvider`, `MolDirectoryDatasetProvider` |
 | PDB | v2 | 📋 Planned | Ligand extraction focus |
 | FCIDump | v2 | 🔄 Partial | Existing in `MolecularInput`, needs provider alignment |
 
@@ -502,6 +502,61 @@ Update docs so they don't teach multiple approaches.
 
 **Note**: SMILES molecules are **topology-only** (no 3D geometry). For quantum chemistry
 calculations requiring geometry, combine with a geometry provider or use XYZ files.
+
+**SDF/MOL providers** (NEW - implemented in `ChemistryDataProviders.fs`):
+
+SDF (Structure-Data File) and MOL formats are the most common formats for molecular
+structures, especially for datasets from PubChem, ChEMBL, and other databases.
+
+1. `SdfMolParser` module - Low-level parser for MOL V2000 and SDF formats:
+   ```fsharp
+   // Parse a single MOL file
+   match SdfMolParser.parseMolFile molContent with
+   | Ok record -> 
+       printfn "Parsed %s with %d atoms" record.Name record.Atoms.Length
+   | Error e -> printfn "Error: %s" e
+   
+   // Parse SDF file with multiple molecules
+   match SdfMolParser.parseSdfFile sdfContent with
+   | Ok records -> 
+       printfn "Loaded %d molecules" records.Length
+   | Error e -> printfn "Error: %s" e
+   ```
+
+2. `SdfFileDatasetProvider` - Load molecules from SDF files:
+   ```fsharp
+   let provider = SdfFileDatasetProvider("molecules.sdf")
+   match provider.Load All with
+   | Ok dataset -> 
+       for mol in dataset.Molecules do
+           printfn "%s: %d atoms" 
+               (mol.Name |> Option.defaultValue "?") 
+               mol.Topology.Atoms.Length
+   | Error e -> printfn "Error: %A" e
+   ```
+
+3. `MolDirectoryDatasetProvider` - Load from directory of MOL/SDF files:
+   ```fsharp
+   let provider = MolDirectoryDatasetProvider("/path/to/molecules")
+   
+   // Load all molecules
+   match provider.Load All with
+   | Ok dataset -> printfn "Found %d molecules" dataset.Molecules.Length
+   | Error e -> printfn "Error: %A" e
+   
+   // Load specific molecule by name (looks for aspirin.mol or aspirin.sdf)
+   match provider.Load (ByName "aspirin") with
+   | Ok dataset -> printfn "Found aspirin"
+   | Error e -> printfn "Not found"
+   ```
+
+**Supported MOL/SDF features**:
+- MOL V2000 format (most common)
+- 3D atomic coordinates in Angstroms
+- Bond types (single, double, triple, aromatic)
+- Atom charges (inline and M  CHG property lines)
+- Associated data fields (SDF `>  <FieldName>` syntax)
+- Multiple molecules in single SDF file
 
 **Dataset packaging options**:
 
@@ -730,5 +785,5 @@ The key fix is to add a missing middle layer: **geometry/conformer provisioning*
 **Implementation status**:
 - ✅ Phase 1: Provider interfaces implemented
 - ✅ Phase 2: Internal refactoring complete (PeriodicTable integration, provider-based loading)
-- 🔄 Phase 3: In progress (SMILES providers done, SDF/PDB planned)
+- ✅ Phase 3: Core formats complete (XYZ, SMILES, SDF/MOL); PDB planned for v2
 - 📋 Phase 4: Planned for future iterations (external RDKit/PubChem providers)
