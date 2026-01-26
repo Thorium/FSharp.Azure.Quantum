@@ -394,8 +394,12 @@ module Program =
             printfn "║    --out <dir>       Output directory            ║"
             printfn "║    --shots <n>       Number of measurements      ║"
             printfn "║    --export          Export Crazyflie Python     ║"
+            printfn "║    --mavlink         Export MAVLink (ArduPilot)  ║"
             printfn "║    --scale <f>       Scale factor (default 0.05) ║"
             printfn "║    --duration <s>    Transition time (default 3) ║"
+            printfn "║    --home-lat <deg>  Home latitude (MAVLink)     ║"
+            printfn "║    --home-lon <deg>  Home longitude (MAVLink)    ║"
+            printfn "║    --home-alt <m>    Home altitude (MAVLink)     ║"
             printfn "║    --help            Show this help              ║"
             printfn "╚══════════════════════════════════════════════════╝"
             printfn ""
@@ -403,12 +407,18 @@ module Program =
             printfn "  All optimization uses QAOA via IQuantumBackend."
             printfn "  Classical fallback only used if quantum fails."
             printfn ""
-            printfn "EXPORT EXAMPLE:"
-            printfn "  dotnet run -- --export"
+            printfn "EXPORT EXAMPLES:"
+            printfn "  Crazyflie (indoor): dotnet run -- --export"
+            printfn "  MAVLink (outdoor):  dotnet run -- --mavlink --home-lat 49.84 --home-lon 24.03"
             printfn ""
-            printfn "  This generates:"
+            printfn "  Crazyflie generates:"
             printfn "    - crazyflie_show.json  (waypoint data)"
             printfn "    - crazyflie_show.py    (executable script)"
+            printfn ""
+            printfn "  MAVLink generates:"
+            printfn "    - DroneN_mission.plan  (QGroundControl plans)"
+            printfn "    - DroneN.waypoints     (MAVLink waypoint files)"
+            printfn "    - mavlink_swarm.py     (pymavlink/dronekit script)"
             0
         else
             let sw = Stopwatch.StartNew()
@@ -595,36 +605,37 @@ This example is **RULE 1 compliant**:
             
             Reporting.writeTextFile (Path.Combine(outDir, "run-report.md")) report
             
+            // Common export setup (used by both Crazyflie and MAVLink)
+            let scale = Cli.getOr "scale" "0.05" args |> float  // Scale down for indoor use
+            let transitionDuration = Cli.getOr "duration" "3.0" args |> float
+            
+            // Convert formations to anonymous record format for export
+            let formationsForExport = 
+                formations 
+                |> Array.map (fun f -> 
+                    {| 
+                        Name = f.Name
+                        Positions = f.Positions |> Array.map (fun p -> {| X = p.X; Y = p.Y; Z = p.Z |})
+                    |})
+            
+            // Convert transitions to anonymous record format for export
+            let transitionsForExport =
+                transitions.ToArray()
+                |> Array.map (fun t ->
+                    {|
+                        FromFormation = t.FromFormation
+                        ToFormation = t.ToFormation
+                        Assignments = t.Assignments |> Array.map (fun a -> {| DroneId = a.DroneId; TargetPositionIndex = a.TargetPositionIndex |})
+                        TotalDistance = t.TotalDistance
+                        Method = t.Method
+                    |})
+            
             // Export to Crazyflie Python if requested
             if Cli.hasFlag "export" args then
                 printfn ""
                 printfn "╔══════════════════════════════════════════════════╗"
                 printfn "║  CRAZYFLIE EXPORT                                ║"
                 printfn "╚══════════════════════════════════════════════════╝"
-                
-                let scale = Cli.getOr "scale" "0.05" args |> float  // Scale down for indoor use
-                let transitionDuration = Cli.getOr "duration" "3.0" args |> float
-                
-                // Convert formations to anonymous record format for export
-                let formationsForExport = 
-                    formations 
-                    |> Array.map (fun f -> 
-                        {| 
-                            Name = f.Name
-                            Positions = f.Positions |> Array.map (fun p -> {| X = p.X; Y = p.Y; Z = p.Z |})
-                        |})
-                
-                // Convert transitions to anonymous record format for export
-                let transitionsForExport =
-                    transitions.ToArray()
-                    |> Array.map (fun t ->
-                        {|
-                            FromFormation = t.FromFormation
-                            ToFormation = t.ToFormation
-                            Assignments = t.Assignments |> Array.map (fun a -> {| DroneId = a.DroneId; TargetPositionIndex = a.TargetPositionIndex |})
-                            TotalDistance = t.TotalDistance
-                            Method = t.Method
-                        |})
                 
                 // Create show definition
                 let show = CrazyflieExport.fromTransitionResults transitionsForExport formationsForExport scale transitionDuration
@@ -651,6 +662,74 @@ This example is **RULE 1 compliant**:
                 printfn "  2. Set up Lighthouse/Loco positioning"
                 printfn "  3. Update DRONE_URIS in the Python script"
                 printfn "  4. Run: python %s" pythonPath
+            
+            // Export to MAVLink if requested (can be combined with Crazyflie export)
+            if Cli.hasFlag "mavlink" args then
+                printfn ""
+                printfn "╔══════════════════════════════════════════════════╗"
+                printfn "║  MAVLINK EXPORT                                  ║"
+                printfn "╚══════════════════════════════════════════════════╝"
+                
+                // Home position is REQUIRED for MAVLink export (GPS coordinates)
+                match Cli.tryGet "home-lat" args, Cli.tryGet "home-lon" args with
+                | None, _ | _, None ->
+                    printfn ""
+                    printfn "ERROR: --home-lat and --home-lon are required for MAVLink export."
+                    printfn ""
+                    printfn "These specify the GPS coordinates where drones will take off from."
+                    printfn "Using incorrect coordinates is dangerous!"
+                    printfn ""
+                    printfn "Example:"
+                    printfn "  dotnet run -- --mavlink --home-lat 49.8397 --home-lon 24.0297"
+                    printfn ""
+                    printfn "To find coordinates:"
+                    printfn "  - Google Maps: Right-click location → coordinates shown"
+                    printfn "  - GPS device: Read from drone's GPS when placed at takeoff point"
+                | Some latStr, Some lonStr ->
+                
+                let homeLat = latStr |> float
+                let homeLon = lonStr |> float
+                let homeAlt = Cli.getOr "home-alt" "0.0" args |> float
+                
+                let homePosition : MAVLinkExport.GeoCoordinate = {
+                    Latitude = homeLat
+                    Longitude = homeLon
+                    Altitude = homeAlt
+                }
+                
+                let mavlinkDir = Path.Combine(outDir, "mavlink")
+                let transitionSpeed = 3.0  // m/s cruise speed
+                let numDrones = formationsForExport.[0].Positions.Length
+                
+                printfn ""
+                printfn "Export parameters:"
+                printfn "  Home position: %.6f, %.6f (alt: %.1f m)" homeLat homeLon homeAlt
+                printfn "  Scale: %.2f (positions = original × scale)" scale
+                printfn "  Cruise speed: %.1f m/s" transitionSpeed
+                printfn "  Drones: %d" numDrones
+                printfn ""
+                
+                MAVLinkExport.exportShow 
+                    mavlinkDir 
+                    "Quantum Drone Choreography" 
+                    homePosition 
+                    scale 
+                    transitionSpeed 
+                    formationsForExport 
+                    numDrones 
+                    "Quantum (QAOA)"
+                
+                printfn ""
+                printfn "To use with ArduPilot/PX4 drones:"
+                printfn "  Option 1 - QGroundControl:"
+                printfn "    1. Open QGroundControl"
+                printfn "    2. Load DroneN_mission.plan files"
+                printfn "    3. Upload to each drone"
+                printfn ""
+                printfn "  Option 2 - Python Script:"
+                printfn "    1. Install: pip install dronekit pymavlink"
+                printfn "    2. Update DRONE_CONNECTIONS in mavlink_swarm.py"
+                printfn "    3. Run: python mavlink_swarm.py [--parallel]"
             
             printfn ""
             printfn "Results written to: %s" outDir

@@ -40,11 +40,50 @@ type Waypoint = {
     Duration: float  // seconds to reach this position
 }
 
+/// Extended waypoint with delay support for collision-free transitions
+type TimedWaypoint = {
+    DroneId: int
+    Position: CrazyfliePosition
+    Color: LedColor option
+    DelaySeconds: float   // seconds to wait before starting movement
+    DurationSeconds: float // seconds to complete the movement
+}
+
 /// A formation consisting of waypoints for all drones at a specific time
 type FormationWaypoints = {
     Name: string
     TimestampMs: int
     Waypoints: Waypoint[]
+}
+
+/// A collision-free formation with per-drone timing
+type TimedFormationWaypoints = {
+    Name: string
+    BaseTimestampMs: int
+    Waypoints: TimedWaypoint[]
+    TotalDurationSeconds: float  // Max delay + max duration
+}
+
+/// Show definition type - standard or collision-free
+type ShowType =
+    | Standard
+    | CollisionFree of minSeparation: float
+
+/// Show metadata
+type ShowMetadata = {
+    GeneratedBy: string
+    GeneratedAt: DateTimeOffset
+    OptimizationMethod: string
+    NumDrones: int
+    TotalTransitions: int
+    TotalDistanceMeters: float
+}
+
+/// Drone configuration
+type DroneConfig = {
+    Id: int
+    Uri: string  // e.g., "radio://0/80/2M/E7E7E7E700"
+    Name: string option
 }
 
 /// Complete show definition
@@ -54,19 +93,12 @@ type ShowDefinition = {
     Formations: FormationWaypoints[]
 }
 
-and ShowMetadata = {
-    GeneratedBy: string
-    GeneratedAt: DateTimeOffset
-    OptimizationMethod: string
-    NumDrones: int
-    TotalTransitions: int
-    TotalDistanceMeters: float
-}
-
-and DroneConfig = {
-    Id: int
-    Uri: string  // e.g., "radio://0/80/2M/E7E7E7E700"
-    Name: string option
+/// Collision-free show definition with staggered timing
+type CollisionFreeShowDefinition = {
+    Metadata: ShowMetadata
+    Drones: DroneConfig[]
+    Formations: TimedFormationWaypoints[]
+    MinSeparationMeters: float
 }
 
 // =============================================================================
@@ -270,8 +302,10 @@ let toPythonScript (show: ShowDefinition) : string =
     sb.AppendLine("# HELPER FUNCTIONS") |> ignore
     sb.AppendLine("# ==============================================================================") |> ignore
     sb.AppendLine("") |> ignore
+    sb.AppendLine("POSITION_TIMEOUT = 30  # seconds to wait for position estimator") |> ignore
+    sb.AppendLine("") |> ignore
     sb.AppendLine("def wait_for_position_estimator(scf):") |> ignore
-    sb.AppendLine("    \"\"\"Wait for the position estimator to have a valid position.\"\"\"") |> ignore
+    sb.AppendLine("    \"\"\"Wait for the position estimator to have a valid position (with timeout).\"\"\"") |> ignore
     sb.AppendLine("    print(f'Waiting for position estimate for {scf.cf.link_uri}...')") |> ignore
     sb.AppendLine("    ") |> ignore
     sb.AppendLine("    log_config = LogConfig(name='Position', period_in_ms=100)") |> ignore
@@ -279,8 +313,14 @@ let toPythonScript (show: ShowDefinition) : string =
     sb.AppendLine("    log_config.add_variable('stateEstimate.y', 'float')") |> ignore
     sb.AppendLine("    log_config.add_variable('stateEstimate.z', 'float')") |> ignore
     sb.AppendLine("    ") |> ignore
+    sb.AppendLine("    start_time = time.time()") |> ignore
     sb.AppendLine("    with SyncLogger(scf, log_config) as logger:") |> ignore
     sb.AppendLine("        for log_entry in logger:") |> ignore
+    sb.AppendLine("            # Timeout check") |> ignore
+    sb.AppendLine("            if time.time() - start_time > POSITION_TIMEOUT:") |> ignore
+    sb.AppendLine("                print(f'  TIMEOUT: Position not found within {POSITION_TIMEOUT}s')") |> ignore
+    sb.AppendLine("                return False") |> ignore
+    sb.AppendLine("            ") |> ignore
     sb.AppendLine("            x = log_entry[1]['stateEstimate.x']") |> ignore
     sb.AppendLine("            y = log_entry[1]['stateEstimate.y']") |> ignore
     sb.AppendLine("            z = log_entry[1]['stateEstimate.z']") |> ignore
@@ -301,7 +341,8 @@ let toPythonScript (show: ShowDefinition) : string =
     sb.AppendLine("    cf.param.set_value('kalman.resetEstimation', '1')") |> ignore
     sb.AppendLine("    time.sleep(0.1)") |> ignore
     sb.AppendLine("    cf.param.set_value('kalman.resetEstimation', '0')") |> ignore
-    sb.AppendLine("    wait_for_position_estimator(scf)") |> ignore
+    sb.AppendLine("    if not wait_for_position_estimator(scf):") |> ignore
+    sb.AppendLine("        print(f'  WARNING: Position estimator may not be ready for {scf.cf.link_uri}')") |> ignore
     sb.AppendLine("") |> ignore
     sb.AppendLine("") |> ignore
     sb.AppendLine("def set_led_color(cf, r, g, b):") |> ignore
@@ -568,3 +609,519 @@ let fromTransitionResults
         Drones = drones
         Formations = formationWaypoints.ToArray()
     }
+
+// =============================================================================
+// COLLISION-FREE SHOW SUPPORT
+// =============================================================================
+
+module CollisionFreeExport =
+    
+    /// Convert CollisionAvoidance.Position3D to CrazyfliePosition with scaling
+    let private convertPosition (pos: CollisionAvoidance.Position3D) (scale: float) : CrazyfliePosition =
+        { X = pos.Y * scale      // Y (forward) -> CF X
+          Y = -pos.X * scale     // X (right) -> CF -Y (left)
+          Z = pos.Z * scale }    // Z = up
+    
+    /// Get color for drone by ID
+    let private colorForDrone (droneId: int) : LedColor option =
+        if droneId < defaultColors.Length then Some defaultColors.[droneId]
+        else None
+    
+    /// Convert a single CollisionFreePlan to TimedFormationWaypoints
+    let private planToTimedFormation 
+        (name: string)
+        (baseTimestampMs: int)
+        (plan: CollisionAvoidance.CollisionFreePlan)
+        (scale: float)
+        (baseDurationSeconds: float)
+        : TimedFormationWaypoints =
+        
+        let waypoints =
+            plan.Paths
+            |> List.map (fun path ->
+                // Get first waypoint's dwell time as delay, last waypoint as target position
+                let delay, targetPos : float * CollisionAvoidance.Position3D =
+                    match path.Waypoints with
+                    | [] -> 
+                        // Empty: default position
+                        (0.0, { CollisionAvoidance.Position3D.X = 0.0; Y = 0.0; Z = 0.0 })
+                    | [single] -> 
+                        // Single waypoint: no delay, use that position
+                        (0.0, single.Position)
+                    | start :: rest -> 
+                        // Two or more waypoints: use first's dwell time, last's position
+                        (start.DwellTime * baseDurationSeconds, (List.last rest).Position)
+                
+                { DroneId = path.DroneId
+                  Position = convertPosition targetPos scale
+                  Color = colorForDrone path.DroneId
+                  DelaySeconds = delay
+                  DurationSeconds = baseDurationSeconds })
+            |> List.toArray
+        
+        // Guard against empty waypoints array for Array.max
+        let totalDuration =
+            if Array.isEmpty waypoints then baseDurationSeconds
+            else
+                waypoints
+                |> Array.map (fun wp -> wp.DelaySeconds + wp.DurationSeconds)
+                |> Array.max
+        
+        { Name = name
+          BaseTimestampMs = baseTimestampMs
+          Waypoints = waypoints
+          TotalDurationSeconds = totalDuration }
+    
+    /// Convert a sequence of CollisionFreePlans to a complete show definition
+    let fromCollisionFreePlans
+        (plans: (string * CollisionAvoidance.CollisionFreePlan) list)
+        (scale: float)
+        (baseDurationSeconds: float)
+        : CollisionFreeShowDefinition =
+        
+        let numDrones =
+            plans
+            |> List.tryHead
+            |> Option.map (fun (_, p) -> p.Paths.Length)
+            |> Option.defaultValue 4
+        
+        let drones =
+            [| for i in 0 .. numDrones - 1 ->
+                { Id = i
+                  Uri = 
+                    if i < defaultDroneUris.Length then defaultDroneUris.[i] 
+                    else $"radio://0/80/2M/E7E7E7E7{i:X2}"
+                  Name = Some $"Drone {i}" } |]
+        
+        // Convert plans to timed formations
+        let formations =
+            plans
+            |> List.fold (fun (timestamp, acc) (name, plan) ->
+                let formation = planToTimedFormation name timestamp plan scale baseDurationSeconds
+                let nextTimestamp = timestamp + int (formation.TotalDurationSeconds * 1000.0) + 500
+                (nextTimestamp, formation :: acc))
+                (0, [])
+            |> snd
+            |> List.rev
+            |> List.toArray
+        
+        let totalDistance = plans |> List.sumBy (fun (_, p) -> p.TotalDistance)
+        let minSeparation = 
+            plans 
+            |> List.map (fun (_, p) -> p.MinAchievedSeparation)
+            |> function [] -> 2.0 | seps -> List.min seps
+        
+        let optimizationMethod =
+            plans
+            |> List.filter (fun (_, p) -> p.Method.Contains("Quantum"))
+            |> List.length
+            |> fun quantumCount ->
+                if quantumCount > plans.Length / 2 then "Quantum (QAOA) - Collision-Free"
+                elif quantumCount > 0 then "Hybrid - Collision-Free"
+                else "Classical - Collision-Free"
+        
+        { Metadata = 
+            { GeneratedBy = "FSharp.Azure.Quantum SwarmChoreography (Collision-Free)"
+              GeneratedAt = DateTimeOffset.UtcNow
+              OptimizationMethod = optimizationMethod
+              NumDrones = numDrones
+              TotalTransitions = plans.Length
+              TotalDistanceMeters = totalDistance }
+          Drones = drones
+          Formations = formations
+          MinSeparationMeters = minSeparation }
+    
+    /// Convert CollisionFreeShowDefinition to JSON
+    let toJson (show: CollisionFreeShowDefinition) : string =
+        let sb = StringBuilder()
+        
+        sb.AppendLine("{") |> ignore
+        
+        // Metadata
+        sb.AppendLine("  \"metadata\": {") |> ignore
+        sb.AppendLine($"    \"generated_by\": \"{escapeJson show.Metadata.GeneratedBy}\",") |> ignore
+        sb.AppendLine($"    \"generated_at\": \"{show.Metadata.GeneratedAt:O}\",") |> ignore
+        sb.AppendLine($"    \"optimization_method\": \"{escapeJson show.Metadata.OptimizationMethod}\",") |> ignore
+        sb.AppendLine($"    \"num_drones\": {show.Metadata.NumDrones},") |> ignore
+        sb.AppendLine($"    \"total_transitions\": {show.Metadata.TotalTransitions},") |> ignore
+        sb.AppendLine($"    \"total_distance_meters\": {show.Metadata.TotalDistanceMeters:F2},") |> ignore
+        sb.AppendLine($"    \"min_separation_meters\": {show.MinSeparationMeters:F2},") |> ignore
+        sb.AppendLine($"    \"collision_free\": true") |> ignore
+        sb.AppendLine("  },") |> ignore
+        
+        // Drones
+        sb.AppendLine("  \"drones\": [") |> ignore
+        show.Drones
+        |> Array.iteri (fun i drone ->
+            let comma = if i < show.Drones.Length - 1 then "," else ""
+            let name = drone.Name |> Option.map (fun n -> $", \"name\": \"{escapeJson n}\"") |> Option.defaultValue ""
+            sb.AppendLine($"    {{ \"id\": {drone.Id}, \"uri\": \"{drone.Uri}\"{name} }}{comma}") |> ignore)
+        sb.AppendLine("  ],") |> ignore
+        
+        // Formations with timing
+        sb.AppendLine("  \"formations\": [") |> ignore
+        show.Formations
+        |> Array.iteri (fun fi formation ->
+            sb.AppendLine("    {") |> ignore
+            sb.AppendLine($"      \"name\": \"{escapeJson formation.Name}\",") |> ignore
+            sb.AppendLine($"      \"base_timestamp_ms\": {formation.BaseTimestampMs},") |> ignore
+            sb.AppendLine($"      \"total_duration_seconds\": {formation.TotalDurationSeconds:F2},") |> ignore
+            sb.AppendLine("      \"waypoints\": [") |> ignore
+            formation.Waypoints
+            |> Array.iteri (fun wi wp ->
+                let wcomma = if wi < formation.Waypoints.Length - 1 then "," else ""
+                let colorStr = 
+                    wp.Color 
+                    |> Option.map (fun c -> $", \"color\": {{ \"r\": {c.R}, \"g\": {c.G}, \"b\": {c.B} }}")
+                    |> Option.defaultValue ""
+                sb.AppendLine($"        {{ \"drone_id\": {wp.DroneId}, \"x\": {wp.Position.X:F3}, \"y\": {wp.Position.Y:F3}, \"z\": {wp.Position.Z:F3}, \"delay\": {wp.DelaySeconds:F2}, \"duration\": {wp.DurationSeconds:F1}{colorStr} }}{wcomma}") |> ignore)
+            sb.AppendLine("      ]") |> ignore
+            let fcomma = if fi < show.Formations.Length - 1 then "," else ""
+            sb.AppendLine($"    }}{fcomma}") |> ignore)
+        sb.AppendLine("  ]") |> ignore
+        
+        sb.AppendLine("}") |> ignore
+        sb.ToString()
+    
+    /// Write collision-free JSON to file
+    let writeJson (path: string) (show: CollisionFreeShowDefinition) : unit =
+        File.WriteAllText(path, toJson show)
+        printfn "Wrote collision-free JSON waypoints to: %s" path
+    
+    /// Generate Python script with staggered timing support
+    let toPythonScript (show: CollisionFreeShowDefinition) : string =
+        let sb = StringBuilder()
+        
+        // Header
+        [ "#!/usr/bin/env python3"
+          "\"\"\""
+          "Crazyflie Swarm Choreography Script (COLLISION-FREE)"
+          $"Generated by: {show.Metadata.GeneratedBy}"
+          $"Generated at: {show.Metadata.GeneratedAt:O}"
+          $"Optimization: {show.Metadata.OptimizationMethod}"
+          $"Drones: {show.Metadata.NumDrones}"
+          $"Total distance: {show.Metadata.TotalDistanceMeters:F2} meters"
+          $"Min separation: {show.MinSeparationMeters:F2} meters"
+          ""
+          "This script uses STAGGERED TIMING to ensure collision-free transitions."
+          "Each drone may have a different delay before starting its movement."
+          ""
+          "Requirements:"
+          "  pip install cflib"
+          ""
+          "Hardware:"
+          "  - Crazyflie 2.1 drones with Lighthouse/Loco positioning"
+          "  - Crazyradio PA USB dongle"
+          "  - Lighthouse base stations OR Loco positioning anchors"
+          "\"\"\""
+          ""
+          "import time"
+          "import logging"
+          "import threading"
+          "from threading import Event, Thread"
+          ""
+          "import cflib.crtp"
+          "from cflib.crazyflie import Crazyflie"
+          "from cflib.crazyflie.log import LogConfig"
+          "from cflib.crazyflie.syncCrazyflie import SyncCrazyflie"
+          "from cflib.crazyflie.syncLogger import SyncLogger"
+          "from cflib.positioning.motion_commander import MotionCommander"
+          "from cflib.crazyflie.swarm import CachedCfFactory, Swarm"
+          "" ]
+        |> List.iter (sb.AppendLine >> ignore)
+        
+        // Configuration
+        [ "# =============================================================================="
+          "# CONFIGURATION"
+          "# =============================================================================="
+          ""
+          "# Drone URIs - update these to match your Crazyflies"
+          "DRONE_URIS = [" ]
+        |> List.iter (sb.AppendLine >> ignore)
+        
+        show.Drones
+        |> Array.iter (fun drone ->
+            sb.AppendLine($"    '{drone.Uri}',  # Drone {drone.Id}") |> ignore)
+        
+        [ "]"
+          ""
+          "# Flight parameters"
+          "TAKEOFF_HEIGHT = 0.5  # meters"
+          "TAKEOFF_DURATION = 2.0  # seconds"
+          "LANDING_DURATION = 2.0  # seconds"
+          ""
+          "# Safety parameters"
+          "MAX_HEIGHT = 2.0  # meters - adjust for your space"
+          "MIN_HEIGHT = 0.2  # meters"
+          $"MIN_SEPARATION = {show.MinSeparationMeters:F2}  # meters - collision avoidance threshold"
+          "EMERGENCY_STOP = Event()"
+          "" ]
+        |> List.iter (sb.AppendLine >> ignore)
+        
+        // Waypoints data with timing
+        [ "# =============================================================================="
+          "# WAYPOINTS (collision-free with staggered timing)"
+          "# =============================================================================="
+          ""
+          "FORMATIONS = {" ]
+        |> List.iter (sb.AppendLine >> ignore)
+        
+        show.Formations
+        |> Array.iter (fun formation ->
+            sb.AppendLine($"    '{escapeJson formation.Name}': {{") |> ignore
+            sb.AppendLine($"        'base_timestamp_ms': {formation.BaseTimestampMs},") |> ignore
+            sb.AppendLine($"        'total_duration': {formation.TotalDurationSeconds:F2},") |> ignore
+            sb.AppendLine("        'waypoints': {") |> ignore
+            formation.Waypoints
+            |> Array.iter (fun wp ->
+                let colorStr = 
+                    wp.Color 
+                    |> Option.map (fun c -> $", 'color': ({c.R}, {c.G}, {c.B})")
+                    |> Option.defaultValue ""
+                sb.AppendLine($"            {wp.DroneId}: {{'x': {wp.Position.X:F3}, 'y': {wp.Position.Y:F3}, 'z': {wp.Position.Z:F3}, 'delay': {wp.DelaySeconds:F2}, 'duration': {wp.DurationSeconds:F1}{colorStr}}},") |> ignore)
+            sb.AppendLine("        }") |> ignore
+            sb.AppendLine("    },") |> ignore)
+        
+        sb.AppendLine("}") |> ignore
+        sb.AppendLine("") |> ignore
+        
+        // Formation sequence
+        sb.AppendLine("# Formation sequence (order of execution)") |> ignore
+        sb.AppendLine("FORMATION_SEQUENCE = [") |> ignore
+        show.Formations
+        |> Array.iter (fun f -> sb.AppendLine($"    '{escapeJson f.Name}',") |> ignore)
+        sb.AppendLine("]") |> ignore
+        sb.AppendLine("") |> ignore
+        
+        // Helper functions
+        [ "# =============================================================================="
+          "# HELPER FUNCTIONS"
+          "# =============================================================================="
+          ""
+          "POSITION_TIMEOUT = 30  # seconds to wait for position estimator"
+          ""
+          "def wait_for_position_estimator(scf):"
+          "    \"\"\"Wait for the position estimator to have a valid position (with timeout).\"\"\""
+          "    print(f'Waiting for position estimate for {scf.cf.link_uri}...')"
+          "    "
+          "    log_config = LogConfig(name='Position', period_in_ms=100)"
+          "    log_config.add_variable('stateEstimate.x', 'float')"
+          "    log_config.add_variable('stateEstimate.y', 'float')"
+          "    log_config.add_variable('stateEstimate.z', 'float')"
+          "    "
+          "    start_time = time.time()"
+          "    with SyncLogger(scf, log_config) as logger:"
+          "        for log_entry in logger:"
+          "            # Timeout check"
+          "            if time.time() - start_time > POSITION_TIMEOUT:"
+          "                print(f'  TIMEOUT: Position not found within {POSITION_TIMEOUT}s')"
+          "                return False"
+          "            "
+          "            x = log_entry[1]['stateEstimate.x']"
+          "            y = log_entry[1]['stateEstimate.y']"
+          "            z = log_entry[1]['stateEstimate.z']"
+          "            "
+          "            # Check if we have a reasonable position"
+          "            if abs(x) < 10 and abs(y) < 10 and abs(z) < 5:"
+          "                print(f'  Position found: ({x:.2f}, {y:.2f}, {z:.2f})')"
+          "                return True"
+          "            "
+          "            if EMERGENCY_STOP.is_set():"
+          "                return False"
+          "    return False"
+          ""
+          ""
+          "def reset_estimator(scf):"
+          "    \"\"\"Reset the position estimator.\"\"\""
+          "    cf = scf.cf"
+          "    cf.param.set_value('kalman.resetEstimation', '1')"
+          "    time.sleep(0.1)"
+          "    cf.param.set_value('kalman.resetEstimation', '0')"
+          "    if not wait_for_position_estimator(scf):"
+          "        print(f'  WARNING: Position estimator may not be ready for {scf.cf.link_uri}')"
+          ""
+          ""
+          "def set_led_color(cf, r, g, b):"
+          "    \"\"\"Set LED ring color (requires LED ring deck).\"\"\""
+          "    try:"
+          "        cf.param.set_value('ring.effect', '7')"
+          "        cf.param.set_value('ring.solidRed', str(r))"
+          "        cf.param.set_value('ring.solidGreen', str(g))"
+          "        cf.param.set_value('ring.solidBlue', str(b))"
+          "    except Exception:"
+          "        pass  # LED ring not installed"
+          ""
+          "" ]
+        |> List.iter (sb.AppendLine >> ignore)
+        
+        // Staggered execution functions
+        [ "# =============================================================================="
+          "# COLLISION-FREE EXECUTION (STAGGERED TIMING)"
+          "# =============================================================================="
+          ""
+          "def takeoff(scf, height=TAKEOFF_HEIGHT, duration=TAKEOFF_DURATION):"
+          "    \"\"\"Takeoff to specified height.\"\"\""
+          "    cf = scf.cf"
+          "    commander = cf.high_level_commander"
+          "    commander.takeoff(height, duration)"
+          "    time.sleep(duration + 0.5)"
+          ""
+          ""
+          "def land(scf, duration=LANDING_DURATION):"
+          "    \"\"\"Land the drone.\"\"\""
+          "    cf = scf.cf"
+          "    commander = cf.high_level_commander"
+          "    commander.land(0.0, duration)"
+          "    time.sleep(duration + 0.5)"
+          "    commander.stop()"
+          ""
+          ""
+          "def go_to_position_delayed(scf, x, y, z, delay, duration, color=None):"
+          "    \"\"\""
+          "    Move drone to position after a delay (for collision-free transitions)."
+          "    "
+          "    Args:"
+          "        scf: SyncCrazyflie instance"
+          "        x, y, z: Target position in meters"
+          "        delay: Seconds to wait before starting movement"
+          "        duration: Seconds to complete the movement"
+          "        color: Optional (r, g, b) tuple for LED"
+          "    \"\"\""
+          "    if EMERGENCY_STOP.is_set():"
+          "        return"
+          "    "
+          "    cf = scf.cf"
+          "    commander = cf.high_level_commander"
+          "    "
+          "    # Wait for staggered start"
+          "    if delay > 0:"
+          "        time.sleep(delay)"
+          "    "
+          "    if EMERGENCY_STOP.is_set():"
+          "        return"
+          "    "
+          "    # Clamp height for safety"
+          "    z = max(MIN_HEIGHT, min(MAX_HEIGHT, z))"
+          "    "
+          "    # Set LED color if specified"
+          "    if color:"
+          "        set_led_color(cf, color[0], color[1], color[2])"
+          "    "
+          "    # Go to position"
+          "    commander.go_to(x, y, z, 0, duration)"
+          "    time.sleep(duration)"
+          ""
+          ""
+          "def execute_formation_collision_free(swarm, formation_name):"
+          "    \"\"\""
+          "    Execute a formation transition with staggered timing for collision avoidance."
+          "    "
+          "    Each drone waits its specified delay before moving, ensuring paths"
+          "    don't intersect at the same time."
+          "    \"\"\""
+          "    if formation_name not in FORMATIONS:"
+          "        print(f'Unknown formation: {formation_name}')"
+          "        return"
+          "    "
+          "    formation = FORMATIONS[formation_name]"
+          "    total_duration = formation['total_duration']"
+          "    "
+          "    print(f'\\nExecuting formation: {formation_name} (collision-free, {total_duration:.1f}s)')"
+          "    "
+          "    # Build args dict with delay information"
+          "    args = {}"
+          "    for drone_id, wp in formation['waypoints'].items():"
+          "        uri = DRONE_URIS[drone_id]"
+          "        color = wp.get('color', None)"
+          "        args[uri] = [wp['x'], wp['y'], wp['z'], wp['delay'], wp['duration'], color]"
+          "    "
+          "    # Execute with staggered timing - each drone handles its own delay"
+          "    swarm.parallel_safe("
+          "        lambda scf, x, y, z, delay, dur, col: go_to_position_delayed(scf, x, y, z, delay, dur, col),"
+          "        args"
+          "    )"
+          "    "
+          "    # Small pause between formations"
+          "    time.sleep(0.5)"
+          ""
+          "" ]
+        |> List.iter (sb.AppendLine >> ignore)
+        
+        // Main function
+        [ "# =============================================================================="
+          "# MAIN EXECUTION"
+          "# =============================================================================="
+          ""
+          "def run_show():"
+          "    \"\"\"Execute the complete collision-free drone show.\"\"\""
+          "    "
+          "    print('=' * 60)"
+          "    print('CRAZYFLIE SWARM CHOREOGRAPHY (COLLISION-FREE)')"
+          $"    print('Generated by: {show.Metadata.GeneratedBy}')"
+          $"    print('Optimization: {show.Metadata.OptimizationMethod}')"
+          "    print(f'Drones: {len(DRONE_URIS)}')"
+          $"    print(f'Min separation: {show.MinSeparationMeters:F2}m')"
+          "    print('=' * 60)"
+          "    print()"
+          "    "
+          "    cflib.crtp.init_drivers()"
+          "    "
+          "    factory = CachedCfFactory(rw_cache='./cf_cache')"
+          "    "
+          "    with Swarm(DRONE_URIS, factory=factory) as swarm:"
+          "        print('Connected to all drones!')"
+          "        print()"
+          "        "
+          "        print('Resetting position estimators...')"
+          "        swarm.parallel_safe(reset_estimator)"
+          "        print()"
+          "        "
+          "        print('Taking off...')"
+          "        swarm.parallel_safe(takeoff)"
+          "        print('All drones airborne!')"
+          "        print()"
+          "        "
+          "        try:"
+          "            for formation_name in FORMATION_SEQUENCE:"
+          "                if EMERGENCY_STOP.is_set():"
+          "                    print('Emergency stop triggered!')"
+          "                    break"
+          "                execute_formation_collision_free(swarm, formation_name)"
+          "        except KeyboardInterrupt:"
+          "            print('\\nShow interrupted by user')"
+          "            EMERGENCY_STOP.set()"
+          "        "
+          "        print()"
+          "        print('Landing...')"
+          "        swarm.parallel_safe(land)"
+          "        print('All drones landed!')"
+          "    "
+          "    print()"
+          "    print('Show complete!')"
+          ""
+          ""
+          "if __name__ == '__main__':"
+          "    logging.basicConfig(level=logging.WARNING)"
+          "    "
+          "    print()"
+          "    print('SAFETY CHECKLIST (COLLISION-FREE MODE):')"
+          "    print('  1. Lighthouse/Loco positioning system is running')"
+          "    print('  2. All drones are on the ground in starting positions')"
+          "    print('  3. Flight area is clear of obstacles')"
+          "    print('  4. Emergency stop is accessible (Ctrl+C)')"
+          $"    print('  5. Min separation configured: {show.MinSeparationMeters:F2}m')"
+          "    print()"
+          "    "
+          "    response = input('Ready to start? (yes/no): ')"
+          "    if response.lower() in ['yes', 'y']:"
+          "        run_show()"
+          "    else:"
+          "        print('Show cancelled.')" ]
+        |> List.iter (sb.AppendLine >> ignore)
+        
+        sb.ToString()
+    
+    /// Write collision-free Python script to file
+    let writePythonScript (path: string) (show: CollisionFreeShowDefinition) : unit =
+        File.WriteAllText(path, toPythonScript show)
+        printfn "Wrote collision-free Python script to: %s" path

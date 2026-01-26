@@ -15,6 +15,7 @@ This example is **fully RULE 1 compliant**:
 
 - **16 qubits** (4 drones x 4 positions) - fits LocalBackend limit
 - **Quantum solver executes** - actual QAOA optimization
+- **Collision avoidance** - optional extension for safe path planning
 - **Crazyflie export** - generates executable Python scripts for real drones
 - **JSON waypoints** - standard format for custom integrations
 
@@ -247,6 +248,109 @@ For n drones and n positions:
 - Variables: `x[i,j] = 1` if drone i assigned to position j
 - Total variables: n² = 16 for 4 drones
 - Qubits required: 16 (within 20-qubit limit)
+
+## Collision Avoidance Extension
+
+The `CollisionAvoidance` module is an **optional extension** that ensures drones don't collide during formation transitions. The main solver optimizes **which drone goes where**, but doesn't consider **when** each drone moves. With simultaneous straight-line paths, drones might collide mid-flight.
+
+### The Problem
+
+Consider transitioning from Diamond to Square formation:
+```
+Diamond:          Square:
+      0               0   1
+    1   2       →   
+      3               2   3
+```
+
+If drone 0 (top) goes to bottom-left and drone 3 (bottom) goes to top-right, their paths cross in the middle.
+
+### The Solution
+
+The collision avoidance module uses QAOA to find **optimal timing offsets** - each drone can have a delay before starting its transition. This is formulated as another QUBO problem:
+
+- Variables: `x[d,k] = 1` if drone d has delay step k
+- For 4 drones with 4 delay options: 16 qubits (fits LocalBackend)
+- Constraints: One delay per drone, minimize collision risk
+
+### Usage
+
+```fsharp
+open FSharp.Azure.Quantum.Examples.Drones.SwarmChoreography.CollisionAvoidance
+
+// After getting assignments from main solver
+let assignments = [(0, 2); (1, 0); (2, 3); (3, 1)]
+
+// Check for collision risks (no quantum execution)
+let risk = validateTransition currentPositions targetPositions assignments PlanningConstraints.defaults
+printfn "%s" (describeRisk risk)
+
+// Or get a collision-free plan (uses QAOA if needed)
+let constraints = 
+    PlanningConstraints.defaults
+    |> PlanningConstraints.withSeparation 1.5  // 1.5m minimum
+    |> PlanningConstraints.withDelaySteps 4    // 4 timing options
+
+match planTransition backend 1000 currentPositions targetFormation assignments constraints with
+| Ok plan ->
+    printfn "Method: %s" plan.Method
+    printfn "Min separation: %.2fm" plan.MinAchievedSeparation
+    printfn "Max delay: %.2f (normalized)" plan.MaxDelay
+    for path in plan.Paths do
+        printfn "Drone %d: starts at t=%.2f" path.DroneId path.Waypoints.[0].DwellTime
+| Error msg ->
+    printfn "Planning failed: %s" msg
+```
+
+### Constraints Builder
+
+```fsharp
+// Fluent configuration
+let constraints = 
+    PlanningConstraints.defaults           // 2.0m separation, 4 delay steps
+    |> PlanningConstraints.withSeparation 1.5
+    |> PlanningConstraints.withDelaySteps 6
+    |> PlanningConstraints.withMaxVelocity 3.0
+    |> PlanningConstraints.withSamples 30
+```
+
+### Qubit Scaling
+
+| Drones | Delay Steps | Qubits | Fits LocalBackend? |
+|--------|-------------|--------|-------------------|
+| 4 | 4 | 16 | Yes |
+| 4 | 5 | 20 | Yes (limit) |
+| 5 | 4 | 20 | Yes (limit) |
+| 8 | 4 | 32 | No (needs Azure) |
+| 100 | 4 | 400 | No (needs Azure) |
+
+### When to Use
+
+- **Indoor shows**: Tight spaces increase collision risk
+- **Dense formations**: Small separation between positions
+- **Crossing transitions**: Assignments that swap drone positions
+- **Safety-critical**: When any collision must be prevented
+
+### Behavior
+
+1. **No collisions detected**: Returns direct paths immediately (no QAOA needed)
+2. **Collisions detected**: Uses QAOA to find safe timing offsets
+3. **Quantum fails**: Falls back to greedy sequential timing
+
+### Output
+
+The plan includes timing information for each drone:
+
+```fsharp
+type CollisionFreePlan = {
+    Paths: DronePath list           // Path with timing for each drone
+    OriginalAssignments: (int * int) list
+    TotalDistance: float            // Same as without collision avoidance
+    MinAchievedSeparation: float    // Actual minimum separation achieved
+    MaxDelay: float                 // Maximum delay used (0-1 normalized)
+    Method: string                  // "Direct" or "Quantum (QAOA)"
+}
+```
 
 ## See Also
 
