@@ -28,10 +28,6 @@
 // - Different salt forms may be needed for similar APIs
 // See: _data/PHARMA_GLOSSARY.md → "Formulation Strategies for Poorly Soluble Drugs"
 //
-// RULE1 COMPLIANCE:
-// This example follows RULE1 from QUANTUM_BUSINESS_EXAMPLES_ROADMAP.md:
-// "All public APIs require backend: IQuantumBackend parameter"
-// The quantum kernel computation uses IQuantumBackend throughout.
 // ==============================================================================
 
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"

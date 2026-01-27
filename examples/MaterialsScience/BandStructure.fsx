@@ -43,8 +43,6 @@
 // Chapter 6: Electronic Structure
 // Section 6.5: Band Theory of Solids (pp. 73-76)
 //
-// RULE1 COMPLIANCE:
-// All quantum calculations use IQuantumBackend throughout.
 // ==============================================================================
 
 (*
@@ -789,9 +787,6 @@ printfn "  - Band gaps arise from periodic potential"
 printfn "  - Direct vs indirect affects optical properties"
 printfn "  - Temperature reduces band gap"
 printfn "  - Optimal solar cell gap ~1.34 eV"
-printfn ""
-
-printfn "RULE1 compliant: All VQE calculations via IQuantumBackend"
 printfn ""
 
 printfn "=================================================================="

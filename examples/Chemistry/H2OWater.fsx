@@ -15,8 +15,6 @@
 // - Demonstrates basis set effects
 // - Compares methods: HF < DFT < VQE < Full CI (exact)
 //
-// RULE1 COMPLIANT: All quantum calculations via IQuantumBackend
-//
 // ============================================================================
 
 (*
@@ -387,7 +385,7 @@ printfn "  - Basis set determines accuracy vs cost tradeoff"
 printfn "  - VQE captures electron correlation beyond HF"
 printfn "  - Water exemplifies H-bonding and solvation"
 printfn ""
-printfn "RULE1 Compliance:"
+printfn "Quantum Compliance:"
 printfn "  ✅ All VQE calculations via IQuantumBackend"
 printfn "  ✅ No classical-only energy returned as 'quantum'"
 printfn ""

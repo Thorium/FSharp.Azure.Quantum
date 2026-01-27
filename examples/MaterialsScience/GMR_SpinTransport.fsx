@@ -39,8 +39,6 @@
 // Nobel Prize in Physics 2007: Albert Fert and Peter Grünberg
 // for the discovery of Giant Magnetoresistance
 //
-// RULE1 COMPLIANCE:
-// All quantum calculations use IQuantumBackend throughout.
 // ==============================================================================
 
 (*
@@ -774,9 +772,6 @@ printfn "Historical Impact:"
 printfn "  - GMR enabled >1000x increase in HDD capacity"
 printfn "  - Nobel Prize 2007: Fert & Grünberg"
 printfn "  - Foundation for MRAM and spintronics"
-printfn ""
-
-printfn "RULE1 compliant: All VQE calculations via IQuantumBackend"
 printfn ""
 
 printfn "=================================================================="

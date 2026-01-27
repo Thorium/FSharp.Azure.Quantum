@@ -181,7 +181,7 @@ let result2 = autoML {
     tryAnomalyDetection false            // Skip anomaly detection
     tryRegression false                  // Skip regression
     
-    // Which architectures to test (Quantum-only per Rule 1)
+    // Which architectures to test
     tryArchitectures [Quantum; Hybrid]
     
     // Search budget
@@ -308,7 +308,7 @@ let result3 = autoML {
     tryAnomalyDetection false
     tryRegression true
     
-    // Test quantum architectures only (Rule 1: Quantum-only library)
+    // Test quantum architectures only
     tryArchitectures [Hybrid; Quantum]
     
     maxTrials 1

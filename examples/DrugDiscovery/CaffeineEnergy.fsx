@@ -15,8 +15,6 @@
 // - Fragment approach: compute small pieces (≤20 qubits for LocalBackend)
 // - Active space: freeze core electrons, correlate valence
 //
-// RULE1 COMPLIANT: All quantum calculations via IQuantumBackend
-//
 // ============================================================================
 
 (*
@@ -293,7 +291,6 @@ for (name, molecule, _description) in fragments do
     printfn ""
     
     // LocalBackend supports up to 20 qubits - all our fragments fit within this limit
-    // RULE1: All quantum calculations must use IQuantumBackend (no classical fallbacks)
     if qubitsNeeded > 20 then
         printfn "  ⚠️  Fragment too large for LocalBackend (max 20 qubits)"
         printfn "     Consider using Azure Quantum backend for larger molecules"
@@ -429,7 +426,7 @@ printfn "  - Fragments (10-30 electrons) tractable on NISQ"
 printfn "  - Fragment sum approximates molecular energy"
 printfn "  - Quantum advantage in electron correlation"
 printfn ""
-printfn "RULE1 Compliance:"
+printfn "Quantum Compliance:"
 printfn "  ✅ All VQE calculations via IQuantumBackend"
 printfn "  ✅ No classical fallbacks - all fragments use quantum backend"
 printfn ""

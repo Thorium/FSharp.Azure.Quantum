@@ -22,8 +22,6 @@
 // - Classical: O(S × N / ε²) for S scenarios, N paths, precision ε
 // - Quantum:   O(S × N / ε)  - quadratic improvement in precision
 //
-// RULE1 COMPLIANCE:
-// This example follows RULE1 from QUANTUM_BUSINESS_EXAMPLES_ROADMAP.md:
 // "All public APIs require backend: IQuantumBackend parameter"
 // The quantum stress testing MUST use the backend - no fake quantum code.
 // ==============================================================================
@@ -508,7 +506,6 @@ printfn ""
 // Aggregation: We run quantum estimation for multiple scenarios and combine
 // results using probability weights to get aggregate stress metrics.
 //
-// RULE1 COMPLIANCE: Uses IQuantumBackend throughout
 // ==============================================================================
 
 printfn "=============================================="
@@ -516,7 +513,7 @@ printfn " Quantum Stress Testing (PRIMARY METHOD)"
 printfn "=============================================="
 printfn ""
 
-// Create quantum backend (RULE1: Required for all quantum operations)
+// Create quantum backend (Required for all quantum operations)
 let backend = LocalBackend() :> IQuantumBackend
 printfn "Backend: %s" backend.Name
 printfn "Quantum Configuration:"

@@ -39,8 +39,6 @@
 // Background reading (physics):
 // - The Feynman Lectures on Physics, Vol III: diffusion equation; crystals
 //
-// RULE1 COMPLIANCE:
-// All quantum calculations use IQuantumBackend throughout.
 // ==============================================================================
 
 // BACKGROUND THEORY:
@@ -673,9 +671,6 @@ printfn "Practical Implications:"
 printfn "  - Hydrogen economy infrastructure needs quantum-aware design"
 printfn "  - Low temperature operation may increase embrittlement"
 printfn "  - Isotope substitution can reduce tunneling rates"
-printfn ""
-
-printfn "RULE1 compliant: All VQE calculations via IQuantumBackend"
 printfn ""
 
 printfn "=================================================================="

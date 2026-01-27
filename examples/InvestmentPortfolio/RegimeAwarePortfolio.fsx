@@ -18,8 +18,6 @@
 //    - Bear: Minimize Variance (Capital Preservation).
 // 4. Optimize portfolio using HybridSolver (Quantum-Ready).
 //
-// Rule 1 Compliance:
-// - All solver operations accept IQuantumBackend.
 // ==============================================================================
 
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
@@ -257,7 +255,7 @@ module RegimeAwareOptimizer =
         // For this example, we assume HybridSolver can utilize the provided backend context
         // implicitly or we simulate the connection. 
         // *Correction*: HybridSolver in this library typically handles backend internally or via config.
-        // To strictly follow Rule 1 pattern for *this* module, we pass it, but if HybridSolver
+        // To strictly follow quantum-ready pattern for *this* module, we pass it, but if HybridSolver
         // doesn't accept it, we acknowledge the pattern. 
         // Assuming HybridSolver signature from InvestmentPortfolio.fsx:
         // solvePortfolio assets constraints method backend_config ...

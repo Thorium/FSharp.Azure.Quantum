@@ -28,8 +28,6 @@
 // - Penalty prevents selecting adjacent (overlapping) features
 // - Note: QAOA is heuristic - may have soft constraint violations
 //
-// RULE1 COMPLIANCE:
-// Uses DrugDiscoverySolvers.IndependentSet.solve which uses IQuantumBackend.
 // ==============================================================================
 
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"

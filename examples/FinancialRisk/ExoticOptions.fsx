@@ -10,8 +10,6 @@
 // - Path-dependent options require many simulation paths
 // - Quantum provides speedup for high-precision pricing
 //
-// RULE1 COMPLIANT: All calculations via IQuantumBackend
-//
 // ============================================================================
 
 (*
@@ -273,7 +271,7 @@ let private buildPayoffOracle (numQubits: int) : CircuitBuilder.Circuit =
     circuit |> CircuitBuilder.addGate (CircuitBuilder.Z msb)
 
 // ============================================================================
-// Quantum Monte Carlo Pricing (RULE1 Compliant)
+// Quantum Monte Carlo Pricing (Quantum Compliant)
 // ============================================================================
 
 /// Price exotic option using quantum amplitude estimation
@@ -314,7 +312,7 @@ let private priceWithQuantumMC
     }
 
 // ============================================================================
-// Public API - Barrier Options (RULE1 Compliant)
+// Public API - Barrier Options (Quantum Compliant)
 // ============================================================================
 
 /// Price a barrier option using quantum Monte Carlo
@@ -384,7 +382,7 @@ let priceLookbackOption
     }
 
 // ============================================================================
-// Greeks Calculation (RULE1 Compliant)
+// Greeks Calculation (Quantum Compliant)
 // ============================================================================
 
 /// Calculate Delta (price sensitivity to spot)
@@ -708,7 +706,7 @@ printfn "  - Path-dependent options require many MC paths"
 printfn "  - Quantum amplitude estimation: O(1/ε) vs classical O(1/ε²)"
 printfn "  - Beneficial for high-precision exotic pricing"
 printfn ""
-printfn "RULE1 Compliance:"
+printfn "Quantum Compliance:"
 printfn "  ✅ All pricing via IQuantumBackend"
 printfn "  ✅ Quantum Monte Carlo with Grover iterations"
 printfn "  ✅ No classical-only pricing exposed"

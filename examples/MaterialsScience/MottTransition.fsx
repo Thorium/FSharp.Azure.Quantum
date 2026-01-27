@@ -59,8 +59,6 @@
 //   [2] Wikipedia: Mott_insulator
 //   [3] Mott, N.F. "Metal-Insulator Transitions" (Taylor and Francis, 1990)
 //
-// RULE1 COMPLIANCE:
-// All quantum calculations use IQuantumBackend throughout.
 // ==============================================================================
 
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
@@ -650,9 +648,6 @@ printfn "Applications:"
 printfn "  - Smart windows (VO2 at 68C)"
 printfn "  - Neuromorphic computing (Mott memristors)"
 printfn "  - High-Tc superconductors (cuprates)"
-printfn ""
-
-printfn "RULE1 compliant: All VQE calculations via IQuantumBackend"
 printfn ""
 
 printfn "=================================================================="

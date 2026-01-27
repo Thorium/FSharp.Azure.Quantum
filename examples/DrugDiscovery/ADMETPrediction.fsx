@@ -23,8 +23,6 @@
 // a high-dimensional Hilbert space that may reveal patterns missed by
 // classical methods.
 //
-// RULE1 COMPLIANCE:
-// All quantum calculations use IQuantumBackend throughout.
 // ==============================================================================
 
 (*

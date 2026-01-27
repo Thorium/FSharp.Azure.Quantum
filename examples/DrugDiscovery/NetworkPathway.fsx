@@ -24,8 +24,6 @@
 // - Optimize: individual scores + synergy bonus for interacting targets
 // - Note: QAOA is heuristic - may not find exact k, but finds good solutions
 //
-// RULE1 COMPLIANCE:
-// Uses DrugDiscoverySolvers.InfluenceMaximization.solve which uses IQuantumBackend.
 // ==============================================================================
 
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
@@ -276,7 +274,7 @@ printfn "  Summary"
 printfn "============================================================"
 printfn ""
 printfn "[OK] Demonstrated quantum Influence Maximization for target ID"
-printfn "[OK] Used DrugDiscoverySolvers.InfluenceMaximization.solve (RULE1)"
+printfn "[OK] Used DrugDiscoverySolvers.InfluenceMaximization.solve"
 printfn "[OK] Correct QUBO formulation with cardinality constraint"
 printfn "[OK] Compared quantum vs classical greedy solutions"
 printfn ""

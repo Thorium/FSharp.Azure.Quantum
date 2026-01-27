@@ -22,9 +22,6 @@
 // - Hydrogen bond networks
 // Classical force fields use fixed charges; quantum captures polarization.
 //
-// RULE1 COMPLIANCE:
-// All quantum calculations use IQuantumBackend throughout.
-//
 // Reference: Roitt's Essential Immunology, 13th Ed., Chapter 3 (Antibodies)
 // ==============================================================================
 
@@ -309,7 +306,7 @@ printfn "   Summary"
 printfn "=============================================================="
 printfn ""
 printfn "Demonstrated VQE for antibody-antigen salt bridge"
-printfn "RULE1 compliant (all calculations via IQuantumBackend)"
+printfn "Quantum compliant (all calculations via IQuantumBackend)"
 printfn ""
 printfn "Next Steps:"
 printfn "  - Model CDR loop conformations (QAOA for sampling)"

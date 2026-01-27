@@ -33,8 +33,6 @@
 // - Simplified catalyst models (metal + 1-2 ligands)
 // - Practical runtime: ~2-10 seconds per VQE calculation
 //
-// RULE1 COMPLIANCE:
-// All quantum calculations use IQuantumBackend throughout.
 // ==============================================================================
 
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
@@ -458,7 +456,7 @@ let totalTime = results |> List.sumBy (fun r -> r.ComputeTime)
 printfn "✅ Screened %d Lewis acid catalysts" catalysts.Length
 printfn "✅ Best catalyst: %s (E_bind = %.1f kcal/mol)" best.Catalyst.Formula bestBindingKcal
 printfn "✅ Total computation time: %.1f seconds" (totalTime + substrateTime)
-printfn "✅ RULE1 compliant (all VQE via IQuantumBackend)"
+printfn "✅ Quantum compliant (all VQE via IQuantumBackend)"
 printfn ""
 
 printfn "📋 Next Steps for β-Lactam Synthesis Route Development:"

@@ -1,5 +1,5 @@
 // ==============================================================================
-// Supply Chain Optimization Example - QUANTUM-FIRST (Rule 1 Compliant)
+// Supply Chain Optimization Example - QUANTUM-FIRST
 // ==============================================================================
 // Demonstrates multi-stage supply chain optimization using quantum QAOA via
 // QuantumNetworkFlowSolver to minimize total logistics cost while meeting demand.
@@ -9,7 +9,7 @@
 // distributors → customers. The goal is to route products through the network
 // to meet all customer demand at minimum total cost.
 //
-// QUANTUM APPROACH (Rule 1 - No Classical Fallbacks):
+// QUANTUM APPROACH (No Classical Fallbacks):
 // - Uses QAOA (Quantum Approximate Optimization Algorithm)
 // - Encodes min-cost flow as QUBO matrix
 // - Executes on quantum backend (LocalSimulator, IonQ, Rigetti)
@@ -22,7 +22,7 @@
 //
 // This example shows:
 // - Quantum network flow optimization using QUBO encoding
-// - Backend-agnostic quantum execution (Rule 1 compliant)
+// - Backend-agnostic quantum execution
 // - Capacity-constrained routing with flow conservation
 // - Multi-stage logistics network optimization
 // ==============================================================================
@@ -112,7 +112,7 @@ let transportRoutes = [
 
 printfn "╔══════════════════════════════════════════════════════════════════════════════╗"
 printfn "║                SUPPLY CHAIN OPTIMIZATION EXAMPLE                             ║"
-printfn "║              Using QuantumNetworkFlowSolver (Rule 1 Compliant)              ║"
+printfn "║              Using QuantumNetworkFlowSolver (Quantum Compliant)              ║"
 printfn "╚══════════════════════════════════════════════════════════════════════════════╝"
 printfn ""
 
@@ -314,7 +314,7 @@ match solutionResult with
 printfn ""
 printfn "ALGORITHM NOTES:"
 printfn "────────────────────────────────────────────────────────────────────────────────"
-printfn "  • Quantum: QAOA with min-cost flow QUBO encoding (Rule 1 compliant)"
+printfn "  • Quantum: QAOA with min-cost flow QUBO encoding"
 printfn "  • Backend: %s (supports IonQ, Rigetti, Local)" (match solutionResult with Ok s -> s.BackendName | Error _ -> "N/A")
 printfn "  • Problem: 14 edges (14 qubits) + multi-stage flow constraints"
 printfn "  • Current: p=1 QAOA layers (basic) - partial solutions expected"
@@ -323,7 +323,7 @@ printfn "  • Quantum advantage: Emerges on larger networks (100+ nodes) with r
 printfn ""
 printfn "QUANTUM BEHAVIOR NOTES:"
 printfn "────────────────────────────────────────────────────────────────────────────────"
-printfn "  This is a QUANTUM-FIRST example (no classical fallbacks per Rule 1)."
+printfn "  This is a QUANTUM-FIRST example."
 printfn "  Low fill rates with p=1 QAOA are expected - this demonstrates that:"
 printfn "    1. Complex combinatorial problems need sufficient QAOA depth (p=3+)"
 printfn "    2. Parameter optimization improves solution quality"
@@ -335,7 +335,7 @@ printfn "╔══════════════════════�
 printfn "║                     OPTIMIZATION COMPLETE                                    ║"
 printfn "╚══════════════════════════════════════════════════════════════════════════════╝"
 printfn ""
-printfn "✨ QUANTUM-FIRST EXAMPLE (Rule 1 Compliant)"
+printfn "✨ QUANTUM-FIRST EXAMPLE"
 printfn "   This example uses QuantumNetworkFlowSolver with LocalBackend."
 printfn "   "
 printfn "   For production deployments:"

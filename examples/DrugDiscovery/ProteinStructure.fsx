@@ -27,8 +27,6 @@
 // - Must extract minimal binding site fragment (10-20 atoms)
 // - Fragment Molecular Orbital (FMO) approach required
 //
-// RULE1 COMPLIANCE:
-// All quantum calculations use IQuantumBackend throughout.
 // ==============================================================================
 
 (*

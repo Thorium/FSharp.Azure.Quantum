@@ -49,8 +49,6 @@
 // (via PySCF, Psi4, or similar) would be required to generate proper Hamiltonians.
 // See: https://qiskit.org/documentation/nature/ for molecular integral pipelines.
 //
-// RULE1 COMPLIANCE:
-// All quantum calculations use IQuantumBackend throughout.
 // ==============================================================================
 
 (*
@@ -764,7 +762,7 @@ printfn "✅ Reaction thermodynamics: %.2f kcal/mol (%s)"
     (if reactionEnergyKcal < 0.0 then "exothermic" else "endothermic")
 printfn "✅ Rate constant estimated via transition state theory"
 printfn "✅ Catalyst design recommendations provided"
-printfn "✅ RULE1 compliant (all VQE via IQuantumBackend)"
+printfn "✅ Quantum compliant (all VQE via IQuantumBackend)"
 printfn ""
 
 let totalTime = reactantTime + tsTime + productTime

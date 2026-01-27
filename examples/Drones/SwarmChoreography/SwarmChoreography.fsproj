@@ -10,6 +10,7 @@
     <Compile Include="..\..\_common\Data.fs" Link="_common\Data.fs" />
     <Compile Include="..\..\_common\Reporting.fs" Link="_common\Reporting.fs" />
     <Compile Include="..\_common\DroneDomain.fs" Link="_common\DroneDomain.fs" />
+    <Compile Include="DynamicBehavior.fs" />
     <Compile Include="CollisionAvoidance.fs" />
     <Compile Include="CrazyflieExport.fs" />
     <Compile Include="MAVLinkExport.fs" />

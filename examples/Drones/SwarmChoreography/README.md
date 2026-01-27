@@ -2,11 +2,11 @@
 
 **Quantum-Optimized Formation Planning with Real Drone Export**
 
-This example demonstrates quantum optimization using QAOA to solve the Quadratic Assignment Problem (QAP) for drone formation transitions. It uses 4 drones (16 qubits) which fits within the LocalBackend's 20-qubit limit, enabling actual quantum execution and **real drone automation** through Crazyflie export.
+This example demonstrates quantum optimization using QAOA to solve the Quadratic Assignment Problem (QAP) for drone formation transitions. It uses 4 drones (16 qubits) which fits within the LocalBackend's 20-qubit limit, enabling actual quantum execution and **real drone automation** through Crazyflie or MAVLink export.
 
-## RULE 1 Compliance
+## Quantum Compliance
 
-This example is **fully RULE 1 compliant**:
+This example is **fully quantum compliant**:
 - All optimization uses QAOA via `IQuantumBackend`
 - Classical greedy is only used as internal fallback if quantum solver fails
 - No standalone classical solver exposed in public API
@@ -16,7 +16,8 @@ This example is **fully RULE 1 compliant**:
 - **16 qubits** (4 drones x 4 positions) - fits LocalBackend limit
 - **Quantum solver executes** - actual QAOA optimization
 - **Collision avoidance** - optional extension for safe path planning
-- **Crazyflie export** - generates executable Python scripts for real drones
+- **Crazyflie export** - generates executable Python scripts for indoor micro-drones
+- **MAVLink export** - generates mission files for ArduPilot/PX4 drones (outdoor)
 - **JSON waypoints** - standard format for custom integrations
 
 ## Quick Start
@@ -25,11 +26,17 @@ This example is **fully RULE 1 compliant**:
 # Build and run with quantum optimization
 dotnet run -- --shots 2000
 
-# Run with Crazyflie export
+# Run with Crazyflie export (indoor micro-drones)
 dotnet run -- --export
+
+# Run with MAVLink export (outdoor ArduPilot/PX4 drones)
+dotnet run -- --mavlink --home-lat 50.4501 --home-lon 30.5234
 
 # Custom export parameters
 dotnet run -- --export --scale 0.1 --duration 5.0
+
+# Both exports simultaneously
+dotnet run -- --export --mavlink --home-lat 50.4501 --home-lon 30.5234
 ```
 
 ## Command Line Options
@@ -39,8 +46,12 @@ dotnet run -- --export --scale 0.1 --duration 5.0
 | `--shots` | `2000` | Number of quantum measurements |
 | `--out` | `runs/drone/swarm` | Output directory |
 | `--export` | (flag) | Generate Crazyflie Python script |
+| `--mavlink` | (flag) | Generate MAVLink mission files |
 | `--scale` | `0.05` | Position scale factor for indoor use |
 | `--duration` | `3.0` | Transition duration in seconds |
+| `--home-lat` | (required for MAVLink) | Home position latitude (decimal degrees) |
+| `--home-lon` | (required for MAVLink) | Home position longitude (decimal degrees) |
+| `--home-alt` | `0.0` | Home position altitude (meters) |
 
 ## Show Sequence
 
@@ -158,6 +169,132 @@ Complete Python script using `cflib` that:
    python crazyflie_show.py
    ```
 
+## MAVLink Export
+
+The `--mavlink` flag generates mission files compatible with ArduPilot and PX4 flight controllers, enabling outdoor drone swarm shows with standard drones (DJI, Pixhawk-based, etc.).
+
+**Required parameters:**
+- `--home-lat` - Home position latitude (decimal degrees)
+- `--home-lon` - Home position longitude (decimal degrees)
+- `--home-alt` (optional) - Home altitude in meters (default: 0.0)
+
+### Generated Files
+
+The MAVLink export creates three files:
+
+#### 1. `mavlink_mission.plan` - QGroundControl Plan
+
+JSON format that loads directly into QGroundControl:
+
+```json
+{
+  "fileType": "Plan",
+  "version": 1,
+  "groundStation": "QGroundControl",
+  "mission": {
+    "plannedHomePosition": [50.4501, 30.5234, 0.0],
+    "items": [
+      {
+        "command": 22,
+        "params": [0, 0, 0, 0, 50.4501, 30.5234, 5.0]
+      }
+    ]
+  }
+}
+```
+
+#### 2. `mavlink_mission.waypoints` - MAVLink Waypoint Format
+
+Standard MAVLink waypoint format compatible with Mission Planner and ArduPilot:
+
+```
+QGC WPL 110
+0	1	0	16	0	0	0	0	50.450100	30.523400	0.000000	1
+1	0	3	22	0	0	0	0	50.450100	30.523400	5.000000	1
+2	0	3	16	0	0	0	0	50.450108	30.523392	15.000000	1
+```
+
+#### 3. `mavlink_swarm.py` - Python Control Script
+
+Complete Python script using pymavlink/dronekit that:
+- Connects to multiple drones via UDP/serial
+- Arms drones and sets flight mode
+- Executes synchronized takeoff to safe altitude
+- Flies all formations in sequence with position commands
+- Supports both ArduPilot and PX4 protocols
+- Handles emergency stop (Ctrl+C)
+- Lands all drones safely
+
+### MAVLink Hardware Requirements
+
+| Component | Required? | Recommended | Purpose |
+|-----------|-----------|-------------|---------|
+| **Flight Controller** | Yes | Pixhawk 4/6, Cube Orange | ArduPilot/PX4 compatible |
+| **GPS** | Yes | u-blox M8N/M9N | Outdoor positioning |
+| **Ground Station** | Yes | QGroundControl | Mission upload & monitoring |
+| **Telemetry Radio** | No* | SiK Radio 915MHz | Real-time communication |
+| **RTK GPS** | No | u-blox F9P | cm-level precision (for tight formations) |
+| **4G/LTE Modem** | No | Holybro 4G Module | Long-range telemetry alternative |
+
+*For testing, you can use USB connection or WiFi. Telemetry radio recommended for actual outdoor flights.
+
+### MAVLink Setup Steps
+
+1. **Install dependencies**:
+   ```bash
+   pip install pymavlink dronekit
+   ```
+
+2. **Configure drones**:
+   - Flash ArduPilot or PX4 firmware
+   - Calibrate sensors (accelerometer, compass, gyro)
+   - Configure GPS and wait for 3D fix
+   - Set flight modes (GUIDED mode required)
+
+3. **Update connection strings** in `mavlink_swarm.py`:
+   ```python
+   DRONE_CONNECTIONS = [
+       'udp:127.0.0.1:14550',  # Drone 0 (SITL or telemetry)
+       'udp:127.0.0.1:14560',  # Drone 1
+       'udp:127.0.0.1:14570',  # Drone 2
+       'udp:127.0.0.1:14580',  # Drone 3
+   ]
+   ```
+
+4. **For real hardware**, use serial or UDP connections:
+   ```python
+   DRONE_CONNECTIONS = [
+       '/dev/ttyUSB0',           # Serial telemetry radio
+       'udpin:0.0.0.0:14550',    # UDP from telemetry
+       'tcp:192.168.1.10:5760',  # TCP to companion computer
+   ]
+   ```
+
+5. **Upload QGC plan** (alternative to Python script):
+   - Open QGroundControl
+   - Connect to drone
+   - Plan → Load Plan → select `mavlink_mission.plan`
+   - Upload to vehicle
+
+6. **Run the swarm show**:
+   ```bash
+   python mavlink_swarm.py
+   ```
+
+### MAVLink Safety Checklist
+
+Before running outdoor swarm operations:
+- [ ] All drones have valid GPS lock (>8 satellites, HDOP < 2.0)
+- [ ] Flight area is clear of people and obstacles
+- [ ] Airspace authorization obtained (if required)
+- [ ] Battery levels checked (>80% for full show)
+- [ ] Telemetry links verified for all drones
+- [ ] Emergency stop accessible (Ctrl+C or RC failsafe)
+- [ ] Wind conditions acceptable (<15 km/h recommended)
+- [ ] Home position set correctly (--home-lat, --home-lon)
+- [ ] Geofence configured in flight controller
+- [ ] Return-to-Launch (RTL) altitude set appropriately
+
 ### Safety Checklist
 
 Before running:
@@ -194,7 +331,7 @@ The `--scale` parameter converts outdoor show dimensions to indoor-safe dimensio
 ║  Total Flight Distance:   205.06 meters          ║
 ║  Elapsed Time: 7841 ms                           ║
 ╠══════════════════════════════════════════════════╣
-║  RULE 1 COMPLIANT: Quantum solver via IBackend  ║
+║  Quantum compliant: Quantum solver via IBackend  ║
 ║  Quantum solved: 4 | Fallback used: 0            ║
 ╚══════════════════════════════════════════════════╝
 
@@ -207,19 +344,21 @@ Wrote Python script to: runs/drone/swarm/crazyflie_show.py
 
 ## Files Generated
 
-| File | Description |
-|------|-------------|
-| `metrics.json` | Performance metrics (JSON) |
-| `run-report.md` | Human-readable summary |
-| `crazyflie_show.json` | Waypoint data for custom integrations |
-| `crazyflie_show.py` | Executable Crazyflie Python script |
+| File | Flag | Description |
+|------|------|-------------|
+| `metrics.json` | (always) | Performance metrics (JSON) |
+| `run-report.md` | (always) | Human-readable summary |
+| `crazyflie_show.json` | `--export` | Waypoint data for custom integrations |
+| `crazyflie_show.py` | `--export` | Executable Crazyflie Python script |
+| `mavlink_mission.plan` | `--mavlink` | QGroundControl mission plan |
+| `mavlink_mission.waypoints` | `--mavlink` | MAVLink waypoint format |
+| `mavlink_swarm.py` | `--mavlink` | Python control script (pymavlink/dronekit) |
 
 ## Quantum Computing Notes
 
-### RULE 1 Architecture
+### Quantum Architecture
 
 ```fsharp
-// RULE 1 COMPLIANT: Backend required, no standalone classical
 let solve (backend: IQuantumBackend) (shots: int) (distanceMatrix: float[,]) 
     : Result<Assignment[], string> =
     
@@ -352,6 +491,121 @@ type CollisionFreePlan = {
 }
 ```
 
+## Dynamic Behavior Extension
+
+The `DynamicBehavior` module enables **drone-initiated events** and **real-time swarm adaptation**. Drones can self-initiate events (low battery, point of interest detected, etc.) and the swarm adapts formations dynamically.
+
+### Concept
+
+```
+Mission Timeline:
+Formation A ──────► Formation B ──────► Formation C
+                         │
+                    ┌────┴────┐
+                    │ EVENT:  │
+                    │ Drone 2 │
+                    │ battery │
+                    │ low     │
+                    └────┬────┘
+                         │
+            ┌────────────┴────────────┐
+            │ SHORT EVENT (<30s):     │ LONG EVENT:
+            │ Others HOLD, wait       │ Others CONTINUE
+            │ Drone rejoins           │ Recalculate for N-1
+            └────────────┬────────────┘
+                         │
+                    Continue show
+```
+
+### Drone Profiles
+
+Different drone types have different thresholds:
+
+```fsharp
+open FSharp.Azure.Quantum.Examples.Drones.SwarmChoreography.DynamicBehavior
+
+// Pre-defined profiles
+let profile = DroneProfile.crazyflie      // Indoor micro-drone
+let profile = DroneProfile.standard       // Outdoor quad
+let profile = DroneProfile.heavyLifter    // Cargo drone (higher battery threshold)
+let profile = DroneProfile.scout          // Recon drone (lower threshold, optimized)
+```
+
+### Standard Events
+
+Drones can self-initiate these events based on internal state:
+
+| Category | Events |
+|----------|--------|
+| **Battery** | `LowBattery`, `CriticalBattery`, `RechargeComplete` |
+| **Navigation** | `ObstacleDetected`, `GpsLost`, `GpsRecovered`, `ReturnToHome` |
+| **Mission** | `PointOfInterest`, `ItemReadyToDrop`, `ItemDropped`, `PayloadPickedUp` |
+| **Social** | `PersonRecognized`, `GestureDetected`, `FollowMeRequested` |
+| **Environmental** | `HighWind`, `TemperatureWarning`, `RainDetected` |
+| **Hardware** | `MotorWarning`, `SensorFault`, `CommunicationDegraded` |
+| **Formation** | `ReadyToRejoin`, `FormationPositionReached`, `CollisionRisk` |
+
+### Communication Protocol
+
+Simple text-based protocol works with both MAVLink STATUSTEXT and Crazyflie console:
+
+```
+# Notification from drone
+EVT|2|BAT_LOW|X|10.5|5.2|15.0|18
+
+# Command to drone(s)
+CMD|0,1,3|HOLD|30
+CMD|*|RESUME|
+```
+
+### Usage
+
+```fsharp
+open FSharp.Azure.Quantum.Examples.Drones.SwarmChoreography.DynamicBehavior
+
+// Create swarm state
+let profiles = [DroneProfile.standard; DroneProfile.standard; DroneProfile.heavyLifter; DroneProfile.scout]
+let state = SwarmState.create 4 profiles
+
+// Receive notification from drone
+let notification = {
+    DroneId = 2
+    Event = Standard (LowBattery 18.0)
+    CurrentPosition = Position.create 10.5 5.2 15.0
+    Timestamp = DateTime.UtcNow
+    Priority = Normal
+}
+
+// Handle event - swarm adapts
+let newState, commands = handleNotification backend config state notification
+
+// Commands tell other drones what to do
+for cmd in commands do
+    printfn "Send: %s" (Protocol.encodeCommand cmd)
+```
+
+### Event Duration
+
+Events are classified by expected duration:
+
+| Duration | Behavior | Example |
+|----------|----------|---------|
+| `Momentary` (<10s) | Others hover, wait for rejoin | `ItemDropped` |
+| `Brief` (10-60s) | Others hover or slow-loop | `PointOfInterest` |
+| `Extended` (unknown) | Recalculate formations for N-1 drones | `LowBattery`, `ReturnToHome` |
+
+### Custom Events
+
+For domain-specific needs:
+
+```fsharp
+let customEvent = Custom {
+    EventType = "THERMAL_DETECTED"
+    Payload = Map.ofList ["lat", "50.45"; "lon", "30.52"; "strength", "0.8"]
+    SuggestedDuration = Brief 20.0
+}
+```
+
 ## See Also
 
 - [FleetPathPlanning](../FleetPathPlanning/README.md) - TSP for drone delivery routes
@@ -359,7 +613,18 @@ type CollisionFreePlan = {
 
 ## References
 
+### Crazyflie (Indoor Micro-drones)
 1. **Crazyflie Documentation** - https://www.bitcraze.io/documentation/
 2. **Lighthouse Positioning** - https://www.bitcraze.io/documentation/system/positioning/lighthouse/
 3. **cflib API** - https://www.bitcraze.io/documentation/repository/crazyflie-lib-python/
-4. **QAOA** - Farhi et al. (2014) - arXiv:1411.4028
+
+### MAVLink (Outdoor Drones)
+4. **MAVLink Protocol** - https://mavlink.io/en/
+5. **ArduPilot Documentation** - https://ardupilot.org/copter/
+6. **PX4 User Guide** - https://docs.px4.io/main/en/
+7. **QGroundControl** - https://docs.qgroundcontrol.com/master/en/
+8. **pymavlink** - https://github.com/ArduPilot/pymavlink
+9. **dronekit-python** - https://dronekit-python.readthedocs.io/
+
+### Quantum Computing
+10. **QAOA** - Farhi et al. (2014) - arXiv:1411.4028

@@ -21,8 +21,6 @@
 // simulations used in VaR calculations. Classical Monte Carlo achieves
 // precision O(1/sqrt(N)) with N samples; quantum achieves O(1/N) with N queries.
 //
-// RULE1 COMPLIANCE:
-// This example follows RULE1 from QUANTUM_BUSINESS_EXAMPLES_ROADMAP.md:
 // "All public APIs require backend: IQuantumBackend parameter"
 // The quantum VaR calculation MUST use the backend - no fake quantum code.
 // ==============================================================================
@@ -340,7 +338,6 @@ match historicalVaRResult with
 // Speedup: Classical Monte Carlo needs O(1/epsilon^2) samples for precision epsilon
 //          Quantum achieves O(1/epsilon) queries - quadratic improvement
 //
-// RULE1 COMPLIANCE: Uses IQuantumBackend throughout
 // ==============================================================================
 
 printfn "=============================================="
@@ -348,7 +345,7 @@ printfn " Quantum Amplitude Estimation VaR (PRIMARY)"
 printfn "=============================================="
 printfn ""
 
-// Create quantum backend (RULE1: Required for all quantum operations)
+// Create quantum backend
 let backend = LocalBackend() :> IQuantumBackend
 printfn "Backend: %s" backend.Name
 printfn "Backend State Type: %A" backend.NativeStateType
@@ -495,7 +492,7 @@ printfn ""
 printfn "Executing Quantum Monte Carlo via backend..."
 printfn ""
 
-// Use QuantumMonteCarlo.estimateProbability (RULE1 compliant - uses IQuantumBackend)
+// Use QuantumMonteCarlo.estimateProbability (Quantum compliant - uses IQuantumBackend)
 let quantumResult = 
     estimateProbability statePrep oracle groverIterations backend
     |> Async.RunSynchronously

@@ -35,8 +35,6 @@
 // Chapter 7: Small is Different (Quantum Dots)
 // Equation 7.1: E(nx,ny,nz) = (h^2 / 8mL^2) * (nx^2 + ny^2 + nz^2)
 //
-// RULE1 COMPLIANCE:
-// All quantum calculations use IQuantumBackend throughout.
 // ==============================================================================
 
 (*
@@ -720,9 +718,6 @@ printfn "  - Quantum confinement: E ~ 1/L^2 (energy increases as size decreases)
 printfn "  - Effective mass: m* determines level spacing"
 printfn "  - Exciton binding: Enhanced in confined systems"
 printfn "  - Color tunability: Direct result of quantum mechanics"
-printfn ""
-
-printfn "RULE1 compliant: All VQE calculations via IQuantumBackend"
 printfn ""
 
 printfn "=================================================================="

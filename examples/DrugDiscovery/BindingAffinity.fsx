@@ -32,8 +32,6 @@
 // - Must use Fragment Molecular Orbital (FMO) approximation
 // - Full protein simulation requires fault-tolerant quantum computers
 //
-// RULE1 COMPLIANCE:
-// All quantum calculations use IQuantumBackend throughout.
 // ==============================================================================
 
 (*
@@ -552,7 +550,7 @@ printfn ""
 printfn "✅ Demonstrated VQE for protein-ligand binding"
 printfn "✅ Calculated binding energy via fragment approach"
 printfn "✅ Compared with classical force field estimate"
-printfn "✅ RULE1 compliant (all calculations via IQuantumBackend)"
+printfn "✅ Quantum compliant (all calculations via IQuantumBackend)"
 printfn ""
 printfn "Total computation time: %.2f seconds" (ligandTime + proteinTime + complexTime)
 printfn ""

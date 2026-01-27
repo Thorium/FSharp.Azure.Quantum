@@ -34,8 +34,6 @@
 // - Full protein environment requires QM/MM approach
 // - Multiple spin states challenging for VQE
 //
-// RULE1 COMPLIANCE:
-// All quantum calculations use IQuantumBackend throughout.
 // ==============================================================================
 
 (*
@@ -572,7 +570,7 @@ let totalTime = time_Fe2 + time_Fe3
 printfn "Total computation time: %.2f seconds" totalTime
 printfn ""
 
-printfn "RULE1 compliant: All calculations via IQuantumBackend"
+printfn "All calculations via IQuantumBackend"
 printfn ""
 
 printfn "=================================================================="
