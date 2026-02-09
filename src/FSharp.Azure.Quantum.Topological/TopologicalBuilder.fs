@@ -113,7 +113,7 @@ module TopologicalBuilder =
                     let ctx'' = addHistory ctx' (Init (anyonType, count))
                     Ok ctx''
                 | Error err ->
-                    Error (QuantumError.OperationError ("TopologicalBuilder", err.ToString()))
+                    Error err
         }
     
     /// Braid anyons at given index
@@ -129,7 +129,7 @@ module TopologicalBuilder =
                     let ctx'' = addHistory ctx' (Braid leftIndex)
                     Ok ctx''
                 | Error err ->
-                    Error (QuantumError.OperationError ("TopologicalBuilder", err.ToString()))
+                    Error err
         }
     
     /// Measure fusion at given index

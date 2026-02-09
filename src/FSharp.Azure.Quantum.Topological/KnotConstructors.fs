@@ -273,7 +273,7 @@ module KnotConstructors =
     /// Constructed as the closure of the braid (\sigma_1 \sigma_2 ... \sigma_{p-1})^q.
     /// </summary>
     let torusKnot (p: int) (q: int) : PlanarDiagram =
-        if p < 1 then failwith "Number of strands p must be positive"
+        if p < 1 then invalidArg (nameof p) "Number of strands p must be positive"
         
         // Handle trivial cases
         if p = 1 || q = 0 then unknot

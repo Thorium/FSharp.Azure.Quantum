@@ -278,31 +278,31 @@ module QuantumTeleportation =
             else
                 let dim = 1 <<< n
 
-                let mutable rho00 = Complex.Zero
-                let mutable rho01 = Complex.Zero
-                let mutable rho10 = Complex.Zero
-                let mutable rho11 = Complex.Zero
+                // Partial trace: sum over all basis indices i,j with same "other" bits; only target bit differs.
+                let (rho00, rho01, rho10, rho11) =
+                    seq {
+                        for i in 0 .. dim - 1 do
+                            let iBit = (i >>> targetQubit) &&& 1
+                            let iOther = i &&& (~~~(1 <<< targetQubit))
+                            let ampI = StateVector.getAmplitude i sv
 
-                // sum over all basis indices i,j with same "other" bits; only target bit differs.
-                for i in 0 .. dim - 1 do
-                    let iBit = (i >>> targetQubit) &&& 1
-                    let iOther = i &&& (~~~(1 <<< targetQubit))
-                    let ampI = StateVector.getAmplitude i sv
+                            for j in 0 .. dim - 1 do
+                                let jBit = (j >>> targetQubit) &&& 1
+                                let jOther = j &&& (~~~(1 <<< targetQubit))
 
-                    for j in 0 .. dim - 1 do
-                        let jBit = (j >>> targetQubit) &&& 1
-                        let jOther = j &&& (~~~(1 <<< targetQubit))
-
-                        if iOther = jOther then
-                            let ampJ = StateVector.getAmplitude j sv
-                            let term = ampI * Complex.Conjugate ampJ
-
-                            match (iBit, jBit) with
-                            | 0, 0 -> rho00 <- rho00 + term
-                            | 0, 1 -> rho01 <- rho01 + term
-                            | 1, 0 -> rho10 <- rho10 + term
-                            | 1, 1 -> rho11 <- rho11 + term
-                            | _ -> ()
+                                if iOther = jOther then
+                                    let ampJ = StateVector.getAmplitude j sv
+                                    let term = ampI * Complex.Conjugate ampJ
+                                    (iBit, jBit, term)
+                    }
+                    |> Seq.fold (fun (r00, r01, r10, r11) (iBit, jBit, term) ->
+                        match (iBit, jBit) with
+                        | 0, 0 -> (r00 + term, r01, r10, r11)
+                        | 0, 1 -> (r00, r01 + term, r10, r11)
+                        | 1, 0 -> (r00, r01, r10 + term, r11)
+                        | 1, 1 -> (r00, r01, r10, r11 + term)
+                        | _ -> (r00, r01, r10, r11))
+                       (Complex.Zero, Complex.Zero, Complex.Zero, Complex.Zero)
 
                 Ok (rho00, rho01, rho10, rho11)
 
@@ -430,7 +430,7 @@ module QuantumTeleportation =
                 BobCorrection = correction
                 BobState = correctedState
                 NumQubits = 3
-                BackendName = backend.NativeStateType.ToString()
+                BackendName = backend.Name
                 Fidelity = fidelity
             }
         }

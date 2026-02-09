@@ -118,8 +118,14 @@ module SolovayKitaev =
         let bDag = dagger b
         multiply (multiply (multiply a b) aDag) bDag
     
-    /// Operator norm distance between two SU(2) matrices
-    /// Uses Frobenius norm as approximation: ||U - V||_F = sqrt(tr((U-V)†(U-V)))
+    /// Operator norm distance between two SU(2) matrices in PSU(2)
+    /// 
+    /// Since we work in PSU(2) = SU(2)/±I, two matrices U and V are equivalent
+    /// if U = ±V. The distance must account for this global phase ambiguity:
+    ///   d_PSU2(U,V) = min(||U - V||_F, ||U + V||_F)
+    /// 
+    /// Without this, the Solovay-Kitaev algorithm wastes gates trying to match
+    /// an unmatchable global phase (e.g., Pauli gates have det = -1).
     let operatorDistance (u: SU2Matrix) (v: SU2Matrix) : float =
         // Compute difference matrix elements
         let da = u.A - v.A
@@ -127,14 +133,28 @@ module SolovayKitaev =
         let dc = u.C - v.C
         let dd = u.D - v.D
         
-        // Frobenius norm: sqrt(|a|² + |b|² + |c|² + |d|²)
-        let sumSquares =
+        // Frobenius norm of (U - V): sqrt(|a|² + |b|² + |c|² + |d|²)
+        let normMinus =
             (da * Complex.Conjugate da).Real +
             (db * Complex.Conjugate db).Real +
             (dc * Complex.Conjugate dc).Real +
             (dd * Complex.Conjugate dd).Real
         
-        sqrt sumSquares
+        // Compute sum matrix elements (U + V) for PSU(2) equivalence
+        let sa = u.A + v.A
+        let sb = u.B + v.B
+        let sc = u.C + v.C
+        let sd = u.D + v.D
+        
+        // Frobenius norm of (U + V)
+        let normPlus =
+            (sa * Complex.Conjugate sa).Real +
+            (sb * Complex.Conjugate sb).Real +
+            (sc * Complex.Conjugate sc).Real +
+            (sd * Complex.Conjugate sd).Real
+        
+        // PSU(2) distance: min of both (U ≡ -U in PSU(2))
+        sqrt (min normMinus normPlus)
     
     /// Check if two matrices are approximately equal (within tolerance)
     let approxEqual (tolerance: float) (u: SU2Matrix) (v: SU2Matrix) : bool =
@@ -156,7 +176,6 @@ module SolovayKitaev =
         
         | T ->
             // T = diag(1, exp(iπ/8))
-            let phase = Complex.Exp(i * Math.PI / 4.0)  // exp(iπ/4) = √exp(iπ/8)
             let t = Complex.Exp(i * Math.PI / 8.0)      // exp(iπ/8)
             createSU2 one zero zero t
         

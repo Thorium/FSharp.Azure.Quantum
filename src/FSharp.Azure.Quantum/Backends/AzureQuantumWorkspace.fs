@@ -107,9 +107,15 @@ module AzureQuantumWorkspace =
         
         let mutable disposed = false
         
+        let throwIfDisposed () =
+            if disposed then
+                raise (ObjectDisposedException(nameof QuantumWorkspace))
+        
         member _.Config = config
         
         member _.ListQuotasAsync() : Async<QuotaInfo list> =
+            throwIfDisposed ()
+
             async {
                 let quotasEnumerable = workspace.ListQuotasAsync()
                 let! quotasList = asyncEnumerableToList quotasEnumerable
@@ -136,6 +142,7 @@ module AzureQuantumWorkspace =
             }
         
         member this.GetTotalQuotaAsync() : Async<QuotaInfo> =
+            throwIfDisposed ()
             async {
                 let! quotas = this.ListQuotasAsync()
                 
@@ -165,12 +172,14 @@ module AzureQuantumWorkspace =
             }
         
         member this.GetProviderQuotaAsync(provider: string) : Async<QuotaInfo option> =
+            throwIfDisposed ()
             async {
                 let! quotas = this.ListQuotasAsync()
                 return quotas |> List.tryFind (fun q -> q.Provider = provider)
             }
         
         member _.ListProvidersAsync() : Async<ProviderStatus list> =
+            throwIfDisposed ()
             async {
                 let providersEnumerable = workspace.ListProvidersStatusAsync()
                 let! providersList = asyncEnumerableToList providersEnumerable
@@ -187,7 +196,9 @@ module AzureQuantumWorkspace =
                     })
             }
         
-        member _.InnerWorkspace = workspace
+        member _.InnerWorkspace =
+            throwIfDisposed ()
+            workspace
         
         // ========================================================================
         // IDISPOSABLE IMPLEMENTATION

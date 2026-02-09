@@ -321,8 +321,8 @@ module OpenQasmExport =
         // Quantum register declaration
         sb.AppendLine($"qreg q[{circuit.QubitCount}];") |> ignore
         
-        // Gate instructions
-        for gate in circuit.Gates do
+        // Gate instructions (gates stored in reverse order internally)
+        for gate in circuit.Gates |> List.rev do
             sb.AppendLine(gateToQasm gate) |> ignore
         
         // Remove trailing newline

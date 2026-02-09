@@ -31,6 +31,7 @@ namespace FSharp.Azure.Quantum.Topological
 /// - Witten, "Quantum Field Theory and the Jones Polynomial" (1989)
 /// - Moore & Seiberg, "Classical and Quantum Conformal Field Theory" (1989)
 /// - Kitaev, "Anyons in an exactly solved model" (2006)
+[<RequireQualifiedAccess>]
 module RMatrix =
     
     open System
@@ -55,19 +56,12 @@ module RMatrix =
     }
     
     // ========================================================================
-    // COMPLEX NUMBER HELPERS
+    // COMPLEX NUMBER HELPERS (from TopologicalHelpers)
     // ========================================================================
     
-    /// Create complex number from polar form: r * e^(iθ)
-    let inline private polar (r: float) (theta: float) : Complex =
-        Complex(r * cos theta, r * sin theta)
-    
-    /// Create unit complex number: e^(iθ)
-    let inline expI (theta: float) : Complex =
-        polar 1.0 theta
-    
-    /// Pi constant for readability
-    let private π = Math.PI
+    let inline private polar r theta = TopologicalHelpers.polar r theta
+    let inline private expI theta = TopologicalHelpers.expI theta
+    let private π = TopologicalHelpers.π
     
     // ========================================================================
     // ISING R-MATRICES (SU(2)_2 / Majorana Zero Modes)
@@ -223,11 +217,11 @@ module RMatrix =
             | other -> invalidOp $"SU(2)_k R-matrix: particle {other} is not valid for SU(2) theory (expected Vacuum or SpinJ)"
         
         // Generate all R-symbols for valid fusion channels
-        let rSymbols =
+        let rSymbolResults =
             particleList
             |> List.collect (fun a ->
                 particleList
-                |> List.collect (fun b ->
+                |> List.map (fun b ->
                     match FusionRules.fuse a b (AnyonSpecies.AnyonType.SU2Level k) with
                     | Ok fusionOutcomes ->
                         fusionOutcomes
@@ -243,14 +237,22 @@ module RMatrix =
                             let rValue = expI (2.0 * π * theta)
                             
                             { A = a; B = b; C = c }, rValue)
-                    | Error _ -> []))  // Skip invalid fusions
-            |> Map.ofList
+                        |> Ok
+                    | Error err -> Error err))
         
-        Ok {
-            AnyonType = AnyonSpecies.AnyonType.SU2Level k
-            RSymbols = rSymbols
-            IsValidated = false
-        }
+        match rSymbolResults |> List.tryPick (function Error e -> Some e | Ok _ -> None) with
+        | Some err -> Error err
+        | None ->
+            let rSymbols =
+                rSymbolResults
+                |> List.collect (function Ok pairs -> pairs | Error _ -> [])
+                |> Map.ofList
+            
+            Ok {
+                AnyonType = AnyonSpecies.AnyonType.SU2Level k
+                RSymbols = rSymbols
+                IsValidated = false
+            }
     
     // ========================================================================
     // PUBLIC API
@@ -406,23 +408,8 @@ module RMatrix =
     // DISPLAY UTILITIES
     // ========================================================================
     
-    /// Format a particle for display
-    let private formatParticle (p: AnyonSpecies.Particle) : string =
-        match p with
-        | AnyonSpecies.Particle.Vacuum -> "1"
-        | AnyonSpecies.Particle.Sigma -> "σ"
-        | AnyonSpecies.Particle.Psi -> "ψ"
-        | AnyonSpecies.Particle.Tau -> "τ"
-        | _ -> p.ToString()
-    
-    /// Format a complex number for display
-    let private formatComplex (z: Complex) : string =
-        if abs z.Imaginary < 1e-10 then
-            sprintf "%.6f" z.Real
-        elif abs z.Real < 1e-10 then
-            sprintf "%.6fi" z.Imaginary
-        else
-            sprintf "%.6f + %.6fi" z.Real z.Imaginary
+    let private formatParticle p = TopologicalHelpers.formatParticle p
+    let private formatComplex z = TopologicalHelpers.formatComplex z
     
     /// Display all R-symbols for an anyon type
     let displayAllRSymbols (data: RMatrixData) : string =

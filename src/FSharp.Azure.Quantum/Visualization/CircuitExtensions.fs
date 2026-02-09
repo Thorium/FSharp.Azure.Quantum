@@ -24,7 +24,7 @@ module CircuitExtensions =
         ///   q_1: ─────┼X─
         ///             │
         member this.ToASCII() : string =
-            let vizGates = this.Gates |> List.map toVisualizationGate
+            let vizGates = this.Gates |> List.rev |> List.map toVisualizationGate
             ASCIIRenderer.render this.QubitCount vizGates
         
         /// Render circuit as ASCII art with custom configuration
@@ -33,7 +33,7 @@ module CircuitExtensions =
         ///   let config = { VisualizationConfig.defaultConfig with ShowMeasurements = false }
         ///   printfn "%s" (circuit.ToASCIIWithConfig config)
         member this.ToASCIIWithConfig(config: VisualizationConfig) : string =
-            let vizGates = this.Gates |> List.map toVisualizationGate
+            let vizGates = this.Gates |> List.rev |> List.map toVisualizationGate
             ASCIIRenderer.renderWithConfig config this.QubitCount vizGates
         
         /// Render circuit as Mermaid sequence diagram
@@ -44,7 +44,7 @@ module CircuitExtensions =
         /// 
         /// Output: Mermaid markdown showing temporal gate application
         member this.ToMermaid() : string =
-            let vizGates = this.Gates |> List.map toVisualizationGate
+            let vizGates = this.Gates |> List.rev |> List.map toVisualizationGate
             MermaidRenderer.Sequence.render this.QubitCount vizGates
         
         /// Render circuit as Mermaid flowchart (data flow view)
@@ -55,5 +55,5 @@ module CircuitExtensions =
         /// 
         /// Output: Mermaid flowchart showing qubit data flow
         member this.ToMermaidFlowchart() : string =
-            let vizGates = this.Gates |> List.map toVisualizationGate
+            let vizGates = this.Gates |> List.rev |> List.map toVisualizationGate
             MermaidRenderer.Flowchart.render this.QubitCount vizGates

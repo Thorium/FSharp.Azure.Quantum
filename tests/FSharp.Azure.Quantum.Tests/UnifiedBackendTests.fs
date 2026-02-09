@@ -377,7 +377,7 @@ module UnifiedBackendTests =
         match backend.InitializeState 2 with
         | Ok state ->
             // Should not require conversion
-            match UnifiedBackend.applyWithConversion backend (QuantumOperation.Gate (CircuitBuilder.H 0)) state false with
+            match UnifiedBackend.applyWithConversion backend (QuantumOperation.Gate (CircuitBuilder.H 0)) state with
             | Ok (QuantumState.StateVector _) ->
                 Assert.True(true)
             | Ok _ ->

@@ -360,13 +360,15 @@ module QuantumKernelSVM =
     
     /// Helper to convert Result array to array Result
     let private traverseResult (results: Result<'a, 'e> array) : Result<'a array, 'e> =
-        let folder state item =
-            match state, item with
-            | Ok acc, Ok value -> Ok (Array.append acc [| value |])
-            | Error e, _ -> Error e
-            | _, Error e -> Error e
-        
-        Array.fold folder (Ok [||]) results
+        match results |> Array.tryFind Result.isError with
+        | Some (Error e) -> Error e
+        | _ ->
+            results
+            |> Array.map (fun r ->
+                match r with
+                | Ok v -> v
+                | Error _ -> failwith "unreachable")
+            |> Ok
     
     /// Predict label for a single sample
     ///

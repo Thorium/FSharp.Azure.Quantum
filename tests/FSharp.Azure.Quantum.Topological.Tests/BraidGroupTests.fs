@@ -34,6 +34,12 @@ module BraidGroupTests =
         Assert.InRange(actual.Real, expected.Real - tolerance, expected.Real + tolerance)
         Assert.InRange(actual.Imaginary, expected.Imaginary - tolerance, expected.Imaginary + tolerance)
     
+    /// Helper to unwrap identity braid or fail
+    let private identityOrFail n testContext =
+        match BraidGroup.identity n with
+        | Ok braid -> braid
+        | Error err -> failwith $"{testContext}: {err.Message}"
+
     /// Helper to assert phase is on unit circle
     let private assertOnUnitCircle (phase: Complex) =
         let magnitude = phase.Magnitude
@@ -66,7 +72,7 @@ module BraidGroupTests =
     let ``Identity braid has empty generator list`` () =
         // Business meaning: The identity braid performs no exchanges. It leaves
         // all anyons in their original positions with no phase accumulation.
-        let idBraid = BraidGroup.identity 3
+        let idBraid = identityOrFail 3 "Identity braid"
         
         Assert.Equal(3, idBraid.StrandCount)
         Assert.Empty(idBraid.Generators)
@@ -97,9 +103,9 @@ module BraidGroupTests =
     let ``Identity braid requires at least 2 strands`` () =
         // Business meaning: Braiding requires at least two objects to exchange.
         // A single anyon cannot be braided.
-        Assert.Throws<System.ArgumentException>(fun () ->
-            BraidGroup.identity 1 |> ignore
-        ) |> ignore
+        match BraidGroup.identity 1 with
+        | Ok _ -> failwith "Should have rejected 1-strand identity"
+        | Error err -> Assert.Contains("2 strands", err.Message)
     
     // ========================================================================
     // BRAID COMPOSITION TESTS
@@ -125,8 +131,8 @@ module BraidGroupTests =
     let ``Composing braids with different strand counts fails`` () =
         // Business meaning: Cannot compose braids on different numbers of anyons.
         // The physical systems must match.
-        let braid3 = BraidGroup.identity 3
-        let braid4 = BraidGroup.identity 4
+        let braid3 = identityOrFail 3 "3-strand identity"
+        let braid4 = identityOrFail 4 "4-strand identity"
         
         match BraidGroup.compose braid3 braid4 with
         | Ok _ -> failwith "Should have rejected different strand counts"
@@ -137,7 +143,7 @@ module BraidGroupTests =
         // Business meaning: Identity is the unit element - braiding with identity
         // doesn't change the braid. This is a fundamental group property.
         let braid = braidFromGensOrFail 3 [BraidGroup.sigma 0; BraidGroup.sigma 1] "Test braid"
-        let idBraid = BraidGroup.identity 3
+        let idBraid = identityOrFail 3 "Identity"
         
         let leftCompose = composeOrFail idBraid braid "Identity · Braid"
         let rightCompose = composeOrFail braid idBraid "Braid · Identity"
@@ -176,7 +182,7 @@ module BraidGroupTests =
     [<Fact>]
     let ``Inverse of identity is identity`` () =
         // Business meaning: Undoing "do nothing" is still "do nothing".
-        let idBraid = BraidGroup.identity 3
+        let idBraid = identityOrFail 3 "Identity for inverse"
         let inv = BraidGroup.inverse idBraid
         
         Assert.Equal(3, inv.StrandCount)
@@ -292,7 +298,7 @@ module BraidGroupTests =
     let ``Applying identity braid gives phase 1`` () =
         // Business meaning: Identity braid doesn't change the quantum state.
         // Phase accumulated is 1 (no phase change).
-        let idBraid = BraidGroup.identity 2
+        let idBraid = identityOrFail 2 "Identity 2-strand"
         let anyons = [AnyonSpecies.Particle.Sigma; AnyonSpecies.Particle.Sigma]
         let channel = AnyonSpecies.Particle.Vacuum
         
@@ -310,7 +316,7 @@ module BraidGroupTests =
         
         let result = applyBraidOrFail braid anyons channel AnyonSpecies.AnyonType.Ising "σ×σ→1"
         
-        let expectedPhase = RMatrix.expI (System.Math.PI / 8.0)
+        let expectedPhase = TopologicalHelpers.expI (System.Math.PI / 8.0)
         assertPhaseEquals expectedPhase result.Phase
         assertOnUnitCircle result.Phase
     
@@ -366,7 +372,7 @@ module BraidGroupTests =
         
         let result = applyBraidOrFail braid anyons channel AnyonSpecies.AnyonType.Fibonacci "τ×τ→1"
         
-        let expectedPhase = RMatrix.expI (4.0 * System.Math.PI / 5.0)
+        let expectedPhase = TopologicalHelpers.expI (4.0 * System.Math.PI / 5.0)
         assertPhaseEquals expectedPhase result.Phase
         assertOnUnitCircle result.Phase
     
@@ -461,6 +467,32 @@ module BraidGroupTests =
         | Error err -> failwith $"Failed: {err.Message}"
         | Ok satisfied ->
             Assert.True(satisfied, "Fibonacci anyons must satisfy Yang-Baxter")
+
+    [<Fact>]
+    let ``Ising anyons satisfy Yang-Baxter for ALL fusion channels`` () =
+        // Business meaning: Yang-Baxter must hold for EVERY valid total fusion
+        // channel, not just the one we happen to pick. This is the comprehensive check.
+        let anyons = [
+            AnyonSpecies.Particle.Sigma
+            AnyonSpecies.Particle.Sigma
+            AnyonSpecies.Particle.Sigma
+        ]
+        
+        match BraidGroup.verifyYangBaxterAllChannels 0 3 anyons AnyonSpecies.AnyonType.Ising with
+        | Error err -> failwith $"Failed: {err.Message}"
+        | Ok satisfied ->
+            Assert.True(satisfied, "Ising anyons must satisfy Yang-Baxter for all fusion channels")
+
+    [<Fact>]
+    let ``Fibonacci anyons satisfy Yang-Baxter for ALL fusion channels`` () =
+        // Business meaning: Comprehensive Yang-Baxter verification across all
+        // fusion channels. τ×τ×τ can fuse to both 1 and τ — both must satisfy.
+        let anyons = [AnyonSpecies.Particle.Tau; AnyonSpecies.Particle.Tau; AnyonSpecies.Particle.Tau]
+        
+        match BraidGroup.verifyYangBaxterAllChannels 0 3 anyons AnyonSpecies.AnyonType.Fibonacci with
+        | Error err -> failwith $"Failed: {err.Message}"
+        | Ok satisfied ->
+            Assert.True(satisfied, "Fibonacci anyons must satisfy Yang-Baxter for all fusion channels")
     
     // ========================================================================
     // DISPLAY TESTS
@@ -483,7 +515,7 @@ module BraidGroupTests =
     [<Fact>]
     let ``Display identity braid shows identity text`` () =
         // Business meaning: Identity should be clearly labeled as such.
-        let idBraid = BraidGroup.identity 4
+        let idBraid = identityOrFail 4 "Identity for display"
         let display = BraidGroup.displayBraid idBraid
         
         Assert.Contains("Identity", display)

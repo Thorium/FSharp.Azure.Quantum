@@ -231,19 +231,24 @@ module BraidToGate =
     
     /// Calculate circuit depth (longest path through dependent gates)
     let calculateDepth (gates: CircuitBuilder.Gate list) (numQubits: int) : int =
-        // Track depth at each qubit
-        let depths = Array.create numQubits 0
-        
-        for gate in gates do
-            let qubits = getAffectedQubits gate
-            let maxDepth = qubits |> List.map (fun q -> depths.[q]) |> List.max
-            let newDepth = maxDepth + 1
+        if numQubits = 0 then 0
+        else
+            // Track depth at each qubit
+            let depths = Array.create numQubits 0
             
-            // Update all affected qubits to new depth
-            for q in qubits do
-                depths.[q] <- newDepth
-        
-        Array.max depths
+            for gate in gates do
+                let qubits = getAffectedQubits gate
+                match qubits with
+                | [] -> ()  // Gate with no affected qubits (e.g., unrecognized gate type)
+                | _ ->
+                    let maxDepth = qubits |> List.map (fun q -> depths.[q]) |> List.max
+                    let newDepth = maxDepth + 1
+                    
+                    // Update all affected qubits to new depth
+                    for q in qubits do
+                        depths.[q] <- newDepth
+            
+            Array.max depths
 
     // ========================================================================
     // BRAID TO GATE COMPILATION

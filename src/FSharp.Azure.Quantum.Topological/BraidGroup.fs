@@ -20,6 +20,7 @@ namespace FSharp.Azure.Quantum.Topological
 /// Mathematical Reference:
 /// - Kassel & Turaev "Braid Groups" (2008)
 /// - Freedman et al. "Topological Quantum Computation" (2003)
+[<RequireQualifiedAccess>]
 module BraidGroup =
     
     open System.Numerics
@@ -72,10 +73,11 @@ module BraidGroup =
         { Index = i; IsClockwise = false }
     
     /// Create an empty braid (identity) for n strands
-    let identity (n: int) : BraidWord =
+    let identity (n: int) : TopologicalResult<BraidWord> =
         if n < 2 then
-            invalidArg (nameof n) "Must have at least 2 strands"
-        { StrandCount = n; Generators = [] }
+            TopologicalResult.validationError "strandCount" "Must have at least 2 strands"
+        else
+            Ok { StrandCount = n; Generators = [] }
     
     /// Create a braid word from a list of generators
     let fromGenerators (n: int) (generators: BraidGenerator list) : TopologicalResult<BraidWord> =
@@ -159,11 +161,11 @@ module BraidGroup =
     /// This applies the R-matrix for braiding anyons at positions i and i+1:
     /// - For σ_i: multiply by R[a_i, a_{i+1}; c]
     /// - For σ_i^{-1}: multiply by R[a_i, a_{i+1}; c]^{-1} = R[a_i, a_{i+1}; c]*
-    let applyGenerator
+    let private applyGeneratorWithRData
         (generator: BraidGenerator)
         (anyons: AnyonSpecies.Particle list)
         (fusionChannel: AnyonSpecies.Particle)
-        (anyonType: AnyonSpecies.AnyonType)
+        (rData: RMatrix.RMatrixData)
         : TopologicalResult<Complex> =
         
         let i = generator.Index
@@ -176,11 +178,6 @@ module BraidGroup =
             let a = anyons.[i]
             let b = anyons.[i + 1]
             
-            // Get R-matrix data
-            match RMatrix.computeRMatrix anyonType with
-            | Error err -> Error err
-            | Ok rData ->
-            
             // Get R-matrix element
             let rIndex = { RMatrix.A = a; RMatrix.B = b; RMatrix.C = fusionChannel }
             match RMatrix.getRSymbol rData rIndex with
@@ -189,6 +186,21 @@ module BraidGroup =
                 // For inverse, take complex conjugate (since R is unitary)
                 let phase = if generator.IsClockwise then rValue else Complex.Conjugate rValue
                 Ok phase
+
+    /// Apply a single generator to anyon state, computing R-matrix phase
+    /// 
+    /// Public wrapper that computes the R-matrix. For bulk operations,
+    /// prefer applyBraid which computes R-matrix once.
+    let applyGenerator
+        (generator: BraidGenerator)
+        (anyons: AnyonSpecies.Particle list)
+        (fusionChannel: AnyonSpecies.Particle)
+        (anyonType: AnyonSpecies.AnyonType)
+        : TopologicalResult<Complex> =
+        
+        match RMatrix.computeRMatrix anyonType with
+        | Error err -> Error err
+        | Ok rData -> applyGeneratorWithRData generator anyons fusionChannel rData
     
     /// Apply a full braid word to anyon state
     /// 
@@ -205,19 +217,25 @@ module BraidGroup =
         if anyons.Length <> braid.StrandCount then
             TopologicalResult.logicError "operation" $"Braid has {braid.StrandCount} strands but {anyons.Length} anyons provided"
         else
-            // Apply each generator sequentially, accumulating phase
-            let rec applyGenerators (gens: BraidGenerator list) (currentPhase: Complex) (steps: string list) =
+            // Compute R-matrix once for the entire braid word
+            match RMatrix.computeRMatrix anyonType with
+            | Error err -> Error err
+            | Ok rData ->
+            
+            // Apply each generator sequentially, accumulating phase.
+            // Steps are collected in reverse (O(1) prepend) and reversed at the end.
+            let rec applyGenerators (gens: BraidGenerator list) (currentPhase: Complex) (revSteps: string list) =
                 match gens with
-                | [] -> Ok (currentPhase, steps)
+                | [] -> Ok (currentPhase, List.rev revSteps)
                 | g :: rest ->
-                    match applyGenerator g anyons fusionChannel anyonType with
+                    match applyGeneratorWithRData g anyons fusionChannel rData with
                     | Error err -> Error err
                     | Ok genPhase ->
                         let newPhase = currentPhase * genPhase
                         let step = 
                             let dir = if g.IsClockwise then "σ" else "σ⁻¹"
                             $"{dir}_{g.Index}: phase × {genPhase.Magnitude:F3}∠{System.Math.Atan2(genPhase.Imaginary, genPhase.Real) * 180.0 / System.Math.PI:F1}°"
-                        applyGenerators rest newPhase (steps @ [step])
+                        applyGenerators rest newPhase (step :: revSteps)
             
             match applyGenerators braid.Generators Complex.One [] with
             | Error err -> Error err
@@ -290,6 +308,7 @@ module BraidGroup =
             Ok (deviation < 1e-9)
     
     /// Verify Yang-Baxter equation: σ_i σ_{i+1} σ_i = σ_{i+1} σ_i σ_{i+1}
+    /// for a single fusion channel.
     let verifyYangBaxter
         (i: int)
         (n: int)
@@ -316,6 +335,52 @@ module BraidGroup =
                     Ok (deviation < 1e-9)
                 | Error err, _ | _, Error err -> Error err
             | Error err, _ | _, Error err -> Error err
+
+    /// Compute all valid pairwise fusion channels for anyons at positions
+    /// involved in the Yang-Baxter braiding (positions i, i+1, i+2).
+    ///
+    /// The fusionChannel parameter in applyBraid represents the pairwise
+    /// intermediate channel c in R[a,b;c]. For a valid Yang-Baxter test,
+    /// we need all c such that a_i × a_{i+1} → c is allowed.
+    let private pairwiseFusionChannels
+        (anyons: AnyonSpecies.Particle list)
+        (i: int)
+        (anyonType: AnyonSpecies.AnyonType)
+        : TopologicalResult<AnyonSpecies.Particle list> =
+        
+        let a = anyons.[i]
+        let b = anyons.[i + 1]
+        FusionRules.channels a b anyonType
+
+    /// Verify Yang-Baxter equation across ALL valid fusion channels.
+    ///
+    /// This is the comprehensive version: instead of testing a single
+    /// fusion channel, it computes all valid pairwise fusion channels
+    /// for the anyons being braided and verifies the Yang-Baxter
+    /// equation holds for each.
+    ///
+    /// Returns Ok true only if the equation is satisfied for every channel.
+    /// Returns the first failure details if any channel violates Yang-Baxter.
+    let verifyYangBaxterAllChannels
+        (i: int)
+        (n: int)
+        (anyons: AnyonSpecies.Particle list)
+        (anyonType: AnyonSpecies.AnyonType)
+        : TopologicalResult<bool> =
+        
+        if i < 0 || i >= n - 2 then
+            TopologicalResult.logicError "operation" $"Yang-Baxter check requires 0 ≤ i < {n-2}, got {i}"
+        else
+            match pairwiseFusionChannels anyons i anyonType with
+            | Error err -> Error err
+            | Ok channels ->
+                channels
+                |> List.fold (fun acc channel ->
+                    match acc with
+                    | Error err -> Error err
+                    | Ok false -> Ok false
+                    | Ok true -> verifyYangBaxter i n anyons channel anyonType
+                ) (Ok true)
     
     // ========================================================================
     // DISPLAY UTILITIES

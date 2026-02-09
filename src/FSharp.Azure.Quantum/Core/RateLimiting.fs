@@ -98,8 +98,8 @@ module RateLimiting =
     // 4. EXPONENTIAL BACKOFF
     // ============================================================================
     
-    /// Calculate exponential backoff delay in milliseconds
-    /// Start at 1s, double each attempt, cap at 60s
+    /// Calculate exponential backoff delay in milliseconds with jitter
+    /// Start at 1s, double each attempt, cap at 60s, add random jitter
     let calculateExponentialBackoff (attemptNumber: int) : int =
         let baseDelayMs = 1000  // 1 second
         let maxDelayMs = 60000  // 60 seconds
@@ -108,7 +108,11 @@ module RateLimiting =
         let delay = baseDelayMs * (pown 2 (attemptNumber - 1))
         
         // Cap at maximum
-        min delay maxDelayMs
+        let capped = min delay maxDelayMs
+        
+        // Add jitter: ±25% to avoid thundering herd
+        let jitter = Random.Shared.Next(-capped / 4, capped / 4 + 1)
+        max 100 (capped + jitter)
     
     // ============================================================================
     // 5. THROTTLING HANDLER
@@ -127,29 +131,36 @@ module RateLimiting =
         member private this.CallBaseSendAsync(request: HttpRequestMessage, cancellationToken: CancellationToken) =
             base.SendAsync(request, cancellationToken)
         
-        /// Send HTTP request with automatic throttling
+        /// Send HTTP request with automatic throttling and retry on 429
         override this.SendAsync(request: HttpRequestMessage, cancellationToken: CancellationToken) : Task<HttpResponseMessage> =
-            async {
-                // Check if we should throttle before sending
-                if rateLimiter.ShouldThrottle() then
-                    do! Async.Sleep(1000)  // Simple 1s delay when approaching limit
-                
-                // Call base handler's SendAsync via helper method
-                let! response = 
-                    this.CallBaseSendAsync(request, cancellationToken)
-                    |> Async.AwaitTask
-                
-                // Parse rate limit headers from response and update state
-                parseRateLimitHeaders response
-                |> Option.iter rateLimiter.UpdateState
-                
-                // Handle 429 Too Many Requests with exponential backoff
-                if response.StatusCode = Net.HttpStatusCode.TooManyRequests then
-                    let attempt = rateLimiter.IncrementAttempt()
-                    let delay = calculateExponentialBackoff attempt
-                    do! Async.Sleep(delay)
-                else
-                    rateLimiter.ResetAttempt()  // Reset on success
-                
-                return response
-            } |> Async.StartAsTask
+            let maxRetries = 3
+            
+            let rec sendWithRetry (retryCount: int) =
+                async {
+                    // Check if we should throttle before sending
+                    if rateLimiter.ShouldThrottle() then
+                        do! Async.Sleep(1000)  // Simple 1s delay when approaching limit
+                    
+                    // Call base handler's SendAsync via helper method
+                    let! response = 
+                        this.CallBaseSendAsync(request, cancellationToken)
+                        |> Async.AwaitTask
+                    
+                    // Parse rate limit headers from response and update state
+                    parseRateLimitHeaders response
+                    |> Option.iter rateLimiter.UpdateState
+                    
+                    // Handle 429 Too Many Requests with exponential backoff and retry
+                    if response.StatusCode = Net.HttpStatusCode.TooManyRequests && retryCount < maxRetries then
+                        let attempt = rateLimiter.IncrementAttempt()
+                        let delay = calculateExponentialBackoff attempt
+                        do! Async.Sleep(delay)
+                        response.Dispose()
+                        return! sendWithRetry (retryCount + 1)
+                    else
+                        if response.StatusCode <> Net.HttpStatusCode.TooManyRequests then
+                            rateLimiter.ResetAttempt()  // Reset on success
+                        return response
+                }
+            
+            sendWithRetry 0 |> Async.StartAsTask

@@ -174,6 +174,9 @@ References:
 *)
 
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
+#load "../_common/Cli.fs"
+#load "../_common/Data.fs"
+#load "../_common/Reporting.fs"
 
 open System
 open System.IO
@@ -183,6 +186,28 @@ open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.Backends.LocalBackend
 open FSharp.Azure.Quantum.Data
 open FSharp.Azure.Quantum.MachineLearning
+open FSharp.Azure.Quantum.Examples.Common
+
+// ==============================================================================
+// CLI INTERFACE
+// ==============================================================================
+
+let args = Cli.parse (fsi.CommandLineArgs |> Array.skip 1)
+
+args |> Cli.exitIfHelp "DrugDiscovery/ADMETPrediction.fsx"
+    "Predict ADMET properties for drug candidates using quantum ML"
+    [ { Name = "input";  Description = "CSV/SMI file with compounds (columns: compound_id, smiles)"; Default = Some "built-in 10 drugs" }
+      { Name = "output"; Description = "Write results to JSON file"; Default = None }
+      { Name = "csv";    Description = "Write results to CSV file"; Default = None }
+      { Name = "top";    Description = "Show only top N candidates by ADMET score"; Default = Some "all" }
+      { Name = "quiet";  Description = "Suppress detailed per-compound output (flag)"; Default = None } ]
+
+let scriptDir = __SOURCE_DIRECTORY__
+let inputFile = args |> Cli.tryGet "input"
+let outputFile = args |> Cli.tryGet "output"
+let csvFile = args |> Cli.tryGet "csv"
+let topN = args |> Cli.tryGet "top" |> Option.map int
+let quiet = args |> Cli.hasFlag "quiet"
 
 // ==============================================================================
 // CONFIGURATION
@@ -267,7 +292,7 @@ type ADMETPrediction = {
 }
 
 // ==============================================================================
-// SAMPLE DRUG CANDIDATES
+// DATA LOADING
 // ==============================================================================
 
 printfn "=========================================="
@@ -275,9 +300,9 @@ printfn " ADMET Prediction (Quantum ML)"
 printfn "=========================================="
 printfn ""
 
-/// Drug candidates for ADMET prediction
+/// Built-in drug candidates (used when no --input is provided)
 /// Mix of approved drugs (validation) and hypothetical candidates
-let drugCandidates = [
+let builtinCandidates = [
     // Approved drugs (known ADMET)
     ("imatinib", "CC1=C(C=C(C=C1)NC(=O)C2=CC=C(C=C2)CN3CCN(CC3)C)NC4=NC=CC(=N4)C5=CN=CC=C5")
     ("atorvastatin", "CC(C)C1=C(C(=C(N1CCC(CC(CC(=O)O)O)O)C2=CC=C(C=C2)F)C3=CC=CC=C3)C(=O)NC4=CC=CC=C4")
@@ -292,6 +317,48 @@ let drugCandidates = [
     ("candidate_4", "C1=CC=C(C=C1)NC2=NC=NC3=CC=CC=C32")  // Quinazoline
     ("candidate_5", "CC1=CN=C(N=C1N)C2=CC=CC=C2")  // Pyrimidine
 ]
+
+/// Load drug candidates from file or use built-in data
+let drugCandidates =
+    match inputFile with
+    | Some path ->
+        let resolved = Data.resolveRelative scriptDir path
+        if not (File.Exists resolved) then
+            eprintfn "Error: Input file not found: %s" resolved
+            exit 1
+        printfn "Loading compounds from: %s" resolved
+        let ext = Path.GetExtension(resolved).ToLowerInvariant()
+        match ext with
+        | ".csv" ->
+            let rows = Data.readCsvWithHeader resolved
+            rows |> List.map (fun row ->
+                let id =
+                    row.Values |> Map.tryFind "compound_id"
+                    |> Option.orElse (row.Values |> Map.tryFind "name")
+                    |> Option.defaultValue "unknown"
+                let smiles =
+                    row.Values |> Map.tryFind "smiles"
+                    |> Option.orElse (row.Values |> Map.tryFind "SMILES")
+                    |> Option.defaultValue ""
+                (id, smiles))
+            |> List.filter (fun (_, s) -> s <> "")
+        | ".smi" | ".smiles" ->
+            Data.readSmiles resolved
+            |> List.mapi (fun i s -> (sprintf "compound_%d" (i + 1), s))
+        | ".json" ->
+            Data.readJsonRows resolved
+            |> List.map (fun row ->
+                let id = row.Values |> Map.tryFind "CompoundId" |> Option.defaultValue "unknown"
+                let smiles = row.Values |> Map.tryFind "Smiles" |> Option.defaultValue ""
+                (id, smiles))
+            |> List.filter (fun (_, s) -> s <> "")
+        | _ ->
+            // Treat as plain text SMILES, one per line
+            Data.readLines resolved
+            |> List.mapi (fun i s -> (sprintf "compound_%d" (i + 1), s))
+    | None ->
+        printfn "Using built-in compound library (use --input to load your own)"
+        builtinCandidates
 
 // ==============================================================================
 // MOLECULAR DESCRIPTOR CALCULATION
@@ -674,131 +741,138 @@ printfn ""
 let predictions = 
     drugCandidates 
     |> List.map (fun (id, smiles) -> predictADMET id smiles)
+    |> List.sortByDescending (fun p -> p.OverallADMETScore)
+
+let displayPredictions =
+    match topN with
+    | Some n -> predictions |> List.truncate n
+    | None -> predictions
 
 // ==============================================================================
 // RESULTS DISPLAY
 // ==============================================================================
 
-printfn "=========================================="
-printfn " ADMET Prediction Results"
-printfn "=========================================="
-printfn ""
+if not quiet then
+    printfn "=========================================="
+    printfn " ADMET Prediction Results"
+    printfn "=========================================="
+    printfn ""
 
-for pred in predictions do
-    printfn "Compound: %s" pred.CompoundId
-    printfn "  SMILES: %s" (if pred.Smiles.Length > 50 then pred.Smiles.[0..49] + "..." else pred.Smiles)
+    for pred in displayPredictions do
+        printfn "Compound: %s" pred.CompoundId
+        printfn "  SMILES: %s" (if pred.Smiles.Length > 50 then pred.Smiles.[0..49] + "..." else pred.Smiles)
+        printfn ""
+        
+        // Drug-likeness
+        printfn "  Drug-likeness:"
+        printfn "    Lipinski violations: %d" pred.LipinskiViolations
+        printfn "    Veber violations: %d" pred.VeberViolations
+        printfn "    Classification: %s" pred.DrugLikeness
+        printfn ""
+        
+        // ADMET properties
+        printfn "  Absorption:"
+        printfn "    Bioavailability score: %.2f" pred.BioavailabilityScore
+        printfn "    Caco-2 permeability: %s" pred.Caco2Permeability
+        printfn "    P-gp substrate: %b" pred.PgpSubstrate
+        printfn "    BCS Class: %s" pred.BCSClass
+        printfn "    Formulation: %s" pred.FormulationNote
+        printfn ""
+        
+        printfn "  Distribution:"
+        printfn "    BBB permeability: %s" pred.BBBPermeability
+        printfn "    Plasma protein binding: %s" pred.PlasmaProteinBinding
+        printfn ""
+        
+        printfn "  Metabolism:"
+        printfn "    CYP3A4 substrate: %b" pred.CYP3A4Substrate
+        printfn "    CYP2D6 substrate: %b" pred.CYP2D6Substrate
+        printfn "    CYP2C9 substrate: %b" pred.CYP2C9Substrate
+        printfn "    Metabolic stability: %s" pred.MetabolicStability
+        printfn ""
+        
+        printfn "  Excretion:"
+        printfn "    Half-life category: %s" pred.HalfLifeCategory
+        printfn "    Renal clearance: %s" pred.RenalClearance
+        printfn ""
+        
+        printfn "  Toxicity:"
+        printfn "    hERG inhibition: %s" pred.hERGInhibition
+        printfn "    Hepatotoxicity risk: %s" pred.HepatotoxicityRisk
+        printfn "    AMES (mutagenicity): %s" pred.AMES
+        printfn ""
+        
+        // Overall assessment
+        let scoreBar = String.replicate (int (pred.OverallADMETScore * 20.0)) "*"
+        printfn "  Overall ADMET Score: %.2f [%s]" pred.OverallADMETScore scoreBar
+        printfn "  Recommendation: %s" pred.Recommendation
+        printfn ""
+        printfn "  ----------------------------------------"
+        printfn ""
+
+    // ==============================================================================
+    // QUANTUM KERNEL ANALYSIS
+    // ==============================================================================
+
+    printfn "=========================================="
+    printfn " Quantum Kernel Similarity Analysis"
+    printfn "=========================================="
     printfn ""
-    
-    // Drug-likeness
-    printfn "  Drug-likeness:"
-    printfn "    Lipinski violations: %d" pred.LipinskiViolations
-    printfn "    Veber violations: %d" pred.VeberViolations
-    printfn "    Classification: %s" pred.DrugLikeness
+
+    printfn "Computing pairwise quantum kernel similarities..."
     printfn ""
-    
-    // ADMET properties
-    printfn "  Absorption:"
-    printfn "    Bioavailability score: %.2f" pred.BioavailabilityScore
-    printfn "    Caco-2 permeability: %s" pred.Caco2Permeability
-    printfn "    P-gp substrate: %b" pred.PgpSubstrate
-    printfn "    BCS Class: %s" pred.BCSClass
-    printfn "    Formulation: %s" pred.FormulationNote
+
+    // Compute kernel matrix for first 5 compounds
+    let featureVectors = 
+        predictions 
+        |> List.truncate 5
+        |> List.map (fun p -> 
+            let desc = calculateDescriptors p.Smiles
+            (p.CompoundId, encodeFeatures desc))
+
+    printfn "Quantum Kernel Matrix (first 5 compounds):"
     printfn ""
-    
-    printfn "  Distribution:"
-    printfn "    BBB permeability: %s" pred.BBBPermeability
-    printfn "    Plasma protein binding: %s" pred.PlasmaProteinBinding
+
+    // Header
+    printf "              "
+    for (id, _) in featureVectors do
+        printf "%-12s" (if id.Length > 10 then id.[0..9] else id)
     printfn ""
-    
-    printfn "  Metabolism:"
-    printfn "    CYP3A4 substrate: %b" pred.CYP3A4Substrate
-    printfn "    CYP2D6 substrate: %b" pred.CYP2D6Substrate
-    printfn "    CYP2C9 substrate: %b" pred.CYP2C9Substrate
-    printfn "    Metabolic stability: %s" pred.MetabolicStability
+
+    // Matrix rows
+    for (id1, f1) in featureVectors do
+        printf "%-14s" (if id1.Length > 12 then id1.[0..11] else id1)
+        for (_, f2) in featureVectors do
+            let kernel = computeQuantumKernel f1 f2
+            printf "%-12.3f" kernel
+        printfn ""
+
     printfn ""
-    
-    printfn "  Excretion:"
-    printfn "    Half-life category: %s" pred.HalfLifeCategory
-    printfn "    Renal clearance: %s" pred.RenalClearance
+
+    // ==============================================================================
+    // FEATURE MAP CIRCUIT EXAMPLE
+    // ==============================================================================
+
+    printfn "=========================================="
+    printfn " Example Quantum Feature Map Circuit"
+    printfn "=========================================="
     printfn ""
-    
-    printfn "  Toxicity:"
-    printfn "    hERG inhibition: %s" pred.hERGInhibition
-    printfn "    Hepatotoxicity risk: %s" pred.HepatotoxicityRisk
-    printfn "    AMES (mutagenicity): %s" pred.AMES
+
+    let exampleCompound = predictions.[0]
+    let exampleDesc = calculateDescriptors exampleCompound.Smiles
+    let exampleFeatures = encodeFeatures exampleDesc
+
+    printfn "Compound: %s" exampleCompound.CompoundId
+    printfn "Feature vector: [%s]" 
+        (exampleFeatures |> Array.map (sprintf "%.2f") |> String.concat ", ")
     printfn ""
-    
-    // Overall assessment
-    let scoreBar = String.replicate (int (pred.OverallADMETScore * 20.0)) "*"
-    printfn "  Overall ADMET Score: %.2f [%s]" pred.OverallADMETScore scoreBar
-    printfn "  Recommendation: %s" pred.Recommendation
-    printfn ""
-    printfn "  ----------------------------------------"
-    printfn ""
+
+    let circuitStr = createFeatureMapCircuit exampleFeatures 4
+    printfn "Quantum circuit (4 qubits, depth %d):" featureMapDepth
+    printfn "%s" circuitStr
 
 // ==============================================================================
-// QUANTUM KERNEL ANALYSIS
-// ==============================================================================
-
-printfn "=========================================="
-printfn " Quantum Kernel Similarity Analysis"
-printfn "=========================================="
-printfn ""
-
-printfn "Computing pairwise quantum kernel similarities..."
-printfn ""
-
-// Compute kernel matrix for first 5 compounds
-let featureVectors = 
-    predictions 
-    |> List.take 5
-    |> List.map (fun p -> 
-        let desc = calculateDescriptors p.Smiles
-        (p.CompoundId, encodeFeatures desc))
-
-printfn "Quantum Kernel Matrix (first 5 compounds):"
-printfn ""
-
-// Header
-printf "              "
-for (id, _) in featureVectors do
-    printf "%-12s" (if id.Length > 10 then id.[0..9] else id)
-printfn ""
-
-// Matrix rows
-for (id1, f1) in featureVectors do
-    printf "%-14s" (if id1.Length > 12 then id1.[0..11] else id1)
-    for (_, f2) in featureVectors do
-        let kernel = computeQuantumKernel f1 f2
-        printf "%-12.3f" kernel
-    printfn ""
-
-printfn ""
-
-// ==============================================================================
-// FEATURE MAP CIRCUIT EXAMPLE
-// ==============================================================================
-
-printfn "=========================================="
-printfn " Example Quantum Feature Map Circuit"
-printfn "=========================================="
-printfn ""
-
-let exampleCompound = predictions.[0]
-let exampleDesc = calculateDescriptors exampleCompound.Smiles
-let exampleFeatures = encodeFeatures exampleDesc
-
-printfn "Compound: %s" exampleCompound.CompoundId
-printfn "Feature vector: [%s]" 
-    (exampleFeatures |> Array.map (sprintf "%.2f") |> String.concat ", ")
-printfn ""
-
-let circuitStr = createFeatureMapCircuit exampleFeatures 4
-printfn "Quantum circuit (4 qubits, depth %d):" featureMapDepth
-printfn "%s" circuitStr
-
-// ==============================================================================
-// SUMMARY AND RECOMMENDATIONS
+// SUMMARY (always shown)
 // ==============================================================================
 
 printfn "=========================================="
@@ -825,59 +899,88 @@ predictions
 printfn ""
 
 // ==============================================================================
-// INTEGRATION WITH OTHER EXAMPLES
+// STRUCTURED OUTPUT
 // ==============================================================================
 
-printfn "=========================================="
-printfn " Integration with Drug Discovery Pipeline"
-printfn "=========================================="
-printfn ""
+/// Convert prediction to serializable map for JSON/CSV output
+let predictionToMap (p: ADMETPrediction) : Map<string, string> =
+    Map.ofList [
+        "CompoundId", p.CompoundId
+        "Smiles", p.Smiles
+        "LipinskiViolations", string p.LipinskiViolations
+        "VeberViolations", string p.VeberViolations
+        "DrugLikeness", p.DrugLikeness
+        "BioavailabilityScore", sprintf "%.3f" p.BioavailabilityScore
+        "Caco2Permeability", p.Caco2Permeability
+        "PgpSubstrate", string p.PgpSubstrate
+        "BCSClass", p.BCSClass
+        "BBBPermeability", p.BBBPermeability
+        "PlasmaProteinBinding", p.PlasmaProteinBinding
+        "CYP3A4Substrate", string p.CYP3A4Substrate
+        "CYP2D6Substrate", string p.CYP2D6Substrate
+        "CYP2C9Substrate", string p.CYP2C9Substrate
+        "MetabolicStability", p.MetabolicStability
+        "HalfLifeCategory", p.HalfLifeCategory
+        "RenalClearance", p.RenalClearance
+        "hERGInhibition", p.hERGInhibition
+        "HepatotoxicityRisk", p.HepatotoxicityRisk
+        "AMES", p.AMES
+        "OverallADMETScore", sprintf "%.3f" p.OverallADMETScore
+        "Recommendation", p.Recommendation
+        "FormulationNote", p.FormulationNote
+    ]
 
-printfn "Complete drug discovery workflow:"
-printfn ""
-printfn "1. Target Structure Analysis:"
-printfn "   -> ProteinStructure.fsx (PDB parsing)"
-printfn "   -> Identify binding site residues"
-printfn ""
-printfn "2. Virtual Screening:"
-printfn "   -> MolecularSimilarity.fsx (quantum kernel screening)"
-printfn "   -> Rank candidates by similarity to known actives"
-printfn ""
-printfn "3. ADMET Filtering (THIS EXAMPLE):"
-printfn "   -> ADMETPrediction.fsx"
-printfn "   -> Filter by drug-likeness and safety"
-printfn ""
-printfn "4. Binding Affinity:"
-printfn "   -> BindingAffinity.fsx (VQE calculation)"
-printfn "   -> Predict binding strength"
-printfn ""
-printfn "5. Metabolism Prediction:"
-printfn "   -> ReactionPathway.fsx (CYP450 modeling)"
-printfn "   -> Predict metabolic fate"
-printfn ""
-printfn "6. Lead Optimization:"
-printfn "   -> Iterate with modified structures"
-printfn "   -> See _data/PHARMA_GLOSSARY.md for TPP criteria"
-printfn ""
+match outputFile with
+| Some path ->
+    let maps = predictions |> List.map predictionToMap
+    Reporting.writeJson path maps
+    printfn "Results written to: %s" path
+| None -> ()
+
+match csvFile with
+| Some path ->
+    let header = [
+        "CompoundId"; "Smiles"; "OverallADMETScore"; "Recommendation"; "DrugLikeness"
+        "BCSClass"; "BBBPermeability"; "MetabolicStability"; "hERGInhibition"
+        "HepatotoxicityRisk"; "LipinskiViolations"; "FormulationNote"
+    ]
+    let rows =
+        predictions |> List.map (fun p ->
+            [ p.CompoundId; p.Smiles; sprintf "%.3f" p.OverallADMETScore; p.Recommendation
+              p.DrugLikeness; p.BCSClass; p.BBBPermeability; p.MetabolicStability
+              p.hERGInhibition; p.HepatotoxicityRisk; string p.LipinskiViolations
+              p.FormulationNote ])
+    Reporting.writeCsv path header rows
+    printfn "CSV results written to: %s" path
+| None -> ()
 
 // ==============================================================================
-// DATA FILES
+// USAGE HINTS (only when using built-in data)
 // ==============================================================================
 
-printfn "=========================================="
-printfn " Available Compound Libraries"
-printfn "=========================================="
-printfn ""
-printfn "Use these CSV files for batch ADMET prediction:"
-printfn ""
-printfn "  _data/kinase_inhibitors.csv  - 20 approved kinase drugs"
-printfn "  _data/gpcr_ligands.csv       - 20 GPCR-targeting compounds"
-printfn "  _data/antibiotics.csv        - 20 antibiotic scaffolds"
-printfn "  _data/library_tiny.csv       - 10 general candidates"
-printfn "  _data/actives_tiny.csv       - 3 known actives"
-printfn ""
-printfn "Loading example:"
-printfn "  let compounds = File.ReadAllLines(\"_data/kinase_inhibitors.csv\")"
-printfn "  let predictions = compounds |> Array.skip 1 |> Array.map parseLine |> Array.map predictADMET"
-printfn ""
-printfn "See _data/PHARMA_GLOSSARY.md for domain terminology."
+if inputFile.IsNone && outputFile.IsNone && csvFile.IsNone then
+    printfn "=========================================="
+    printfn " Try with your own data"
+    printfn "=========================================="
+    printfn ""
+    printfn "  # Screen the included kinase inhibitor library:"
+    printfn "  dotnet fsi ADMETPrediction.fsx -- --input _data/kinase_inhibitors.csv --csv results.csv"
+    printfn ""
+    printfn "  # Screen GPCR ligands and export JSON for pipeline:"
+    printfn "  dotnet fsi ADMETPrediction.fsx -- --input _data/gpcr_ligands.csv --output gpcr_admet.json"
+    printfn ""
+    printfn "  # Quick summary of top 5 from your own SMILES file:"
+    printfn "  dotnet fsi ADMETPrediction.fsx -- --input my_compounds.smi --top 5 --quiet"
+    printfn ""
+    printfn "  # Pipeline: VirtualScreening -> ADMET filtering:"
+    printfn "  dotnet fsi VirtualScreening.fsx -- --input library.smi --output hits.json"
+    printfn "  dotnet fsi ADMETPrediction.fsx -- --input hits.json --csv final_candidates.csv"
+    printfn ""
+
+// Exit with appropriate code
+let hasFailures = predictions |> List.exists (fun p -> p.Recommendation = "Deprioritize")
+if predictions.IsEmpty then
+    eprintfn "Error: No compounds to analyze"
+    exit 1
+else
+    exit 0

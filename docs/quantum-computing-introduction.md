@@ -59,7 +59,7 @@ Classical Bit:               Qubit State Space (Bloch Sphere):
 
 **Superposition** allows a qubit to represent multiple classical states simultaneously. An n-qubit system exists in a superposition of 2ⁿ basis states, enabling massive parallelism. A quantum algorithm manipulates all these amplitudes coherently—conceptually similar to how `List.map` applies a function to all elements, but with complex interference effects.
 
-Crucially, superposition is not probabilistic uncertainty (as in "the bit is 0 or 1, we just don't know which"). The qubit genuinely exists in both states, with amplitudes that can interfere constructively or destructively. This interference is the mechanism behind quantum speedups.
+Crucially, superposition is not probabilistic uncertainty (as in "the bit is 0 or 1, we just don't know which"). The qubit genuinely exists in both states, with amplitudes that can interfere constructively or destructively. This interference is the mechanism behind quantum speedups. (To be exact, not only 0 and 1 but also all the numbers in between; the state space is continuous, not discrete.)
 
 **Entanglement** creates correlations between qubits that have no classical analog. When qubits are entangled, measuring one instantaneously affects the others' probabilities, regardless of spatial separation. 
 
@@ -99,7 +99,10 @@ Quantum computation proceeds through **quantum gates**—unitary operators actin
 
 Multi-qubit gates create entanglement. The **CNOT** (Controlled-NOT) gate flips a target qubit conditioned on a control qubit's state.
 
-**CNOT Truth Table:**
+> With 2 Schrödinger's cats: If the control cat is dead, flip the target cat's state. Otherwise, do nothing.
+> The fate of the target cat depends on the control cat, the cats are entangled.
+
+**CNOT Truth Table (like classical XOR):**
 - CNOT|00⟩ = |00⟩ (control=0, target unchanged)
 - CNOT|01⟩ = |01⟩ (control=0, target unchanged)
 - CNOT|10⟩ = |11⟩ (control=1, target flipped)

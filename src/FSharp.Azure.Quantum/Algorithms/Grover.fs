@@ -136,7 +136,7 @@ module Grover =
         // (MCZ decomposes to CCX, which then decomposes to CNOTs + T gates)
         let transpiled2 = GateTranspiler.transpileForBackend "topological" transpiled1
         
-        transpiled2.Gates
+        transpiled2.Gates |> List.rev
     
     /// Apply Hadamard transform to all qubits (superposition creation)
     let private applyHadamardTransform 

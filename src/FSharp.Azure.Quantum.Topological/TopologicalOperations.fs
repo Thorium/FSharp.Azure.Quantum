@@ -489,16 +489,27 @@ module TopologicalOperations =
                 if outcomes.IsEmpty then
                     return! TopologicalResult.logicError "fusion" $"No fusion channels for {anyon1} and {anyon2}"
                 else
-                    // For each outcome, create a new state with those anyons fused
-                    // Probability is uniform for now (should be from quantum state amplitudes)
-                    let probability = 1.0 / float outcomes.Length
+                    // Born-rule probabilities from quantum dimensions:
+                    // P(c | a × b) = d_c² / Σ_{c'} d_{c'}²
+                    // where d_c is the quantum dimension of fusion outcome c.
+                    // This is the correct topological measurement probability for
+                    // a state whose internal fusion channels are in the canonical basis.
+                    let outcomeDimSq =
+                        outcomes
+                        |> List.map (fun o -> 
+                            let d = AnyonSpecies.quantumDimension o.Result
+                            (o, d * d))
+                    
+                    let totalDimSq = outcomeDimSq |> List.sumBy snd
                     
                     // Build result list using fold with Result propagation
                     let! results =
-                        outcomes
-                        |> List.fold (fun resultsResult outcome ->
+                        outcomeDimSq
+                        |> List.fold (fun resultsResult (outcome, dimSq) ->
                             topologicalResult {
                                 let! results = resultsResult
+                                
+                                let probability = dimSq / totalDimSq
                                 
                                 // Create new anyon list with fusion applied - optimized
                                 // Use List.mapi for single-pass construction instead of 3 concatenations
@@ -560,13 +571,12 @@ module TopologicalOperations =
     /// Creates superposition: |0⟩ → (|0⟩ + |1⟩)/√2
     /// 
     /// In topological QC, this requires a sequence of F-moves and braidings.
-    let hadamard (qubitIndex: int) (superposition: Superposition) : Superposition =
-        // Simplified: For a true Hadamard, need magic state distillation
-        // or use Fibonacci anyons (which have universal braiding)
-        
-        // For Ising anyons, Hadamard requires ancilla qubits
-        // Return identity for now
-        superposition
+    /// Ising anyons need ancilla qubits and magic state distillation.
+    /// Fibonacci anyons need a braid sequence approximation (see SolovayKitaev).
+    let hadamard (qubitIndex: int) (superposition: Superposition) : TopologicalResult<Superposition> =
+        TopologicalResult.notImplemented
+            "Hadamard gate"
+            (Some "Ising anyons require ancilla + magic state distillation; Fibonacci anyons require braid sequence approximation via SolovayKitaev")
     
     /// Controlled-NOT gate for topological qubits
     /// 
@@ -676,8 +686,8 @@ module TopologicalOperations =
             |> List.scan (+) 0.0
             |> List.tail  // Remove initial 0.0
         
-        // Random number generator for sampling
-        let rng = System.Random()
+        // Use shared random number generator (thread-safe, no per-call allocation)
+        let rng = System.Random.Shared
         
         // Sample function: Given a random value [0,1), return the corresponding term index
         let sample (r: float) : int =

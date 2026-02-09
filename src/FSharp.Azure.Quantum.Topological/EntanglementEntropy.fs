@@ -249,7 +249,7 @@ module EntanglementEntropy =
         else
             // Use ModularData to compute GSD
             ModularData.computeModularData anyonType
-            |> Result.map (fun data ->
+            |> Result.bind (fun data ->
                 ModularData.groundStateDegeneracy data genus
             )
     

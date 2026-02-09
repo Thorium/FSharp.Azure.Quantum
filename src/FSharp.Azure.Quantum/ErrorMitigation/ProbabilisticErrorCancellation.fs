@@ -285,7 +285,8 @@ module ProbabilisticErrorCancellation =
             try
                 // Step 1: Decompose all gates in the circuit
                 let gateDecompositions = 
-                    circuit.Gates 
+                    circuit.Gates
+                    |> List.rev
                     |> List.map (fun gate ->
                         match gate with
                         | CircuitBuilder.Gate.CNOT _ 

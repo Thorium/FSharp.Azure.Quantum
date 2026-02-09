@@ -23,6 +23,11 @@ open System.Numerics
 /// 6. Extract solution vector |x⟩ from remaining qubits
 module HHLTypes =
     
+    /// Integer log base 2 (number of qubits needed for dimension n)
+    let private log2Int n =
+        let rec go n = if n <= 1 then 0 else 1 + go (n / 2)
+        go n
+    
     // ========================================================================
     // MATRIX REPRESENTATION
     // ========================================================================
@@ -252,8 +257,8 @@ module HHLTypes =
                     if i = j then Complex(eigenvalues[i], 0.0) else Complex.Zero
                 )
                 
-                // Calculate condition number
-                let maxEig = eigenvalues |> Array.max
+                // Calculate condition number: κ = |λ_max| / |λ_min|
+                let maxEig = eigenvalues |> Array.map abs |> Array.max
                 let conditionNumber = Some (maxEig / minEigAbs)
                 
                 Ok {
@@ -379,17 +384,18 @@ module HHLTypes =
             // True implementation would solve (A - σI)x = b iteratively
             
             // Fallback: Use Gershgorin circle theorem for bounds
-            let gershgorinBound = 
+            // Minimum eigenvalue is bounded below by min(aii - Ri) where Ri is off-diagonal row sum
+            let gershgorinMinBound = 
                 [| for i in 0 .. n - 1 do
                     let aii = matrix.Elements[i * n + i].Real
                     let rowSum = 
                         [| for j in 0 .. n - 1 do
                             if i <> j then yield matrix.Elements[i * n + j].Magnitude |]
                         |> Array.sum
-                    yield abs (aii - rowSum) |]
+                    yield aii - rowSum |]
                 |> Array.min
             
-            max gershgorinBound 1e-10  // Avoid zero
+            abs (max gershgorinMinBound 1e-10)  // Take absolute value of the bound, avoid zero
     
     /// <summary>
     /// Calculate condition number κ = λ_max / λ_min for Hermitian matrix.
@@ -672,10 +678,11 @@ module HHLTypes =
     let optimizedConfig 
         (matrix: HermitianMatrix) 
         (inputVector: QuantumVector) 
-        (targetAccuracy: float option) : HHLConfig =
+        (targetAccuracy: float option) : QuantumResult<HHLConfig> =
         
         if matrix.Dimension <> inputVector.Dimension then
-            failwith "Matrix and vector dimensions must match"
+            Error (QuantumError.ValidationError ("dimensions", "Matrix and vector dimensions must match"))
+        else
         
         // Calculate condition number if not present
         let matrixWithKappa = calculateConditionNumber matrix
@@ -697,11 +704,9 @@ module HHLTypes =
         // Skip for poorly conditioned (already low success rate, avoid further reduction)
         let usePostSelection = kappa <= 100.0
         
-        let solutionQubits = 
-            let rec log2 n = if n <= 1 then 0 else 1 + log2 (n / 2)
-            log2 matrix.Dimension
+        let solutionQubits = log2Int matrix.Dimension
         
-        {
+        Ok {
             Matrix = matrixWithKappa
             InputVector = inputVector
             EigenvalueQubits = qpePrecision
@@ -713,15 +718,14 @@ module HHLTypes =
         }
     
     /// Default HHL configuration
-    let defaultConfig (matrix: HermitianMatrix) (inputVector: QuantumVector) : HHLConfig =
+    let defaultConfig (matrix: HermitianMatrix) (inputVector: QuantumVector) : QuantumResult<HHLConfig> =
         if matrix.Dimension <> inputVector.Dimension then
-            failwith "Matrix and vector dimensions must match"
+            Error (QuantumError.ValidationError ("dimensions", "Matrix and vector dimensions must match"))
+        else
         
-        let solutionQubits = 
-            let rec log2 n = if n <= 1 then 0 else 1 + log2 (n / 2)
-            log2 matrix.Dimension
+        let solutionQubits = log2Int matrix.Dimension
         
-        {
+        Ok {
             Matrix = matrix
             InputVector = inputVector
             EigenvalueQubits = 4  // 4 qubits = 16 eigenvalue bins

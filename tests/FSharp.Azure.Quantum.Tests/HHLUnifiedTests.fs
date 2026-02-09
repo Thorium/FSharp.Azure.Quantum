@@ -81,7 +81,9 @@ module HHLUnifiedTests =
         | Error err, _ -> Assert.Fail($"Matrix creation failed: {err}")
         | _, Error err -> Assert.Fail($"Vector creation failed: {err}")
         | Ok matrix, Ok vector ->
-            let config = defaultConfig matrix vector
+            match defaultConfig matrix vector with
+            | Error err -> Assert.Fail($"Config creation failed: {err}")
+            | Ok config ->
 
             let intent: HHL.HhlExecutionIntent =
                 {
@@ -112,7 +114,9 @@ module HHLUnifiedTests =
         | Error err, _ -> Assert.Fail($"Matrix creation failed: {err}")
         | _, Error err -> Assert.Fail($"Vector creation failed: {err}")
         | Ok matrix, Ok vector ->
-            let config = defaultConfig matrix vector
+            match defaultConfig matrix vector with
+            | Error err -> Assert.Fail($"Config creation failed: {err}")
+            | Ok config ->
 
             let intent: HHL.HhlExecutionIntent =
                 {
@@ -155,9 +159,13 @@ module HHLUnifiedTests =
         | Error err, _ -> Assert.Fail($"Matrix creation failed: {err}")
         | _, Error err -> Assert.Fail($"Vector creation failed: {err}")
         | Ok matrix, Ok vector ->
+            match defaultConfig matrix vector with
+            | Error err -> Assert.Fail($"Config creation failed: {err}")
+            | Ok baseConfig ->
+
             let config =
                 {
-                    defaultConfig matrix vector with
+                    baseConfig with
                         // keep tiny for test runtime
                         EigenvalueQubits = 2
                         QPEPrecision = 2
@@ -203,9 +211,13 @@ module HHLUnifiedTests =
         | Error err, _ -> Assert.Fail($"Matrix creation failed: {err}")
         | _, Error err -> Assert.Fail($"Vector creation failed: {err}")
         | Ok matrix, Ok vector ->
+            match defaultConfig matrix vector with
+            | Error err -> Assert.Fail($"Config creation failed: {err}")
+            | Ok baseConfig ->
+
             let config =
                 {
-                    defaultConfig matrix vector with
+                    baseConfig with
                         // keep tiny for test runtime
                         EigenvalueQubits = 2
                         QPEPrecision = 2
@@ -330,7 +342,9 @@ module HHLUnifiedTests =
             match createQuantumVector inputVector with
             | Error err -> Assert.Fail($"Vector creation failed: {err}")
             | Ok vector ->
-                let config = defaultConfig matrix vector
+                match defaultConfig matrix vector with
+                | Error err -> Assert.Fail($"Config creation failed: {err}")
+                | Ok config ->
                 
                 Assert.Equal(matrix, config.Matrix)
                 Assert.Equal(vector, config.InputVector)

@@ -55,6 +55,7 @@
     <Compile Include="TopologicalError.fs" />
     <Compile Include="AnyonSpecies.fs" />
     <Compile Include="FusionRules.fs" />
+    <Compile Include="TopologicalHelpers.fs" />
     <Compile Include="BraidingOperators.fs" />
     <Compile Include="FusionTree.fs" />
     <Compile Include="TopologicalOperations.fs" />

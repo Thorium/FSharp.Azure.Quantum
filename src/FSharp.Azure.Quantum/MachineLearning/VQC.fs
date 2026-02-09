@@ -845,7 +845,7 @@ module VQC =
                     |> Array.map (fun features ->
                         match predictRegression backend featureMap variationalForm finalState.Parameters features config.Shots valueRange with
                         | Ok pred -> pred.Value
-                        | Error _ -> 0.0)  // Fallback
+                        | Error _ -> nan)  // NaN signals prediction failure in metrics
                 
                 let finalMSE = 
                     Array.zip trainTargets predictions
@@ -972,24 +972,24 @@ module VQC =
                     let classifiers = classifierResults |> Array.choose (function Ok r -> Some r | _ -> None)
                     
                     // Compute overall training accuracy using one-vs-rest prediction
-                    let mutable correctCount = 0
-                    for i in 0 .. trainFeatures.Length - 1 do
-                        // Get scores from all classifiers
-                        let scores = 
-                            classifiers 
-                            |> Array.map (fun classifier ->
-                                match predict backend featureMap variationalForm classifier.Parameters trainFeatures.[i] config.Shots with
-                                | Ok pred -> pred.Probability
-                                | Error _ -> 0.0
-                            )
-                        
-                        // Predicted class is the one with highest score
-                        // Use Array.mapi and maxBy to avoid floating-point comparison issues
-                        let predictedClassIdx = scores |> Array.mapi (fun i s -> (i, s)) |> Array.maxBy snd |> fst
-                        let predictedClass = classLabels.[predictedClassIdx]
-                        
-                        if predictedClass = trainLabels.[i] then
-                            correctCount <- correctCount + 1
+                    let correctCount =
+                        trainFeatures
+                        |> Array.mapi (fun i features ->
+                            // Get scores from all classifiers
+                            let scores = 
+                                classifiers 
+                                |> Array.map (fun classifier ->
+                                    match predict backend featureMap variationalForm classifier.Parameters features config.Shots with
+                                    | Ok pred -> pred.Probability
+                                    | Error _ -> 0.0
+                                )
+                            
+                            // Predicted class is the one with highest score
+                            let predictedClassIdx = scores |> Array.mapi (fun idx s -> (idx, s)) |> Array.maxBy snd |> fst
+                            let predictedClass = classLabels.[predictedClassIdx]
+                            
+                            if predictedClass = trainLabels.[i] then 1 else 0)
+                        |> Array.sum
                     
                     let accuracy = float correctCount / float trainFeatures.Length
                     
@@ -1029,12 +1029,12 @@ module VQC =
         | _ ->
             let scores = scoreResults |> Array.choose (function Ok s -> Some s | _ -> None)
             
-            // Normalize scores to probabilities (softmax-like)
-            let expScores = scores |> Array.map exp
-            let sumExp = expScores |> Array.sum
+            // Normalize measurement probabilities directly
+            // Scores are already probabilities from quantum measurements — softmax is inappropriate here
+            let sumScores = scores |> Array.sum
             let probabilities = 
-                if sumExp > 0.0 then
-                    expScores |> Array.map (fun e -> e / sumExp)
+                if sumScores > 0.0 then
+                    scores |> Array.map (fun s -> s / sumScores)
                 else
                     Array.create result.NumClasses (1.0 / float result.NumClasses)
             

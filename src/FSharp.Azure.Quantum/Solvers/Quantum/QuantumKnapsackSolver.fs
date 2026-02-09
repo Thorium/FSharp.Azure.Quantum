@@ -155,28 +155,26 @@ module QuantumKnapsackSolver =
                 let penalty = Qubo.computeLucasPenalties (max maxValue totalValue) numItems
                 
                 // Build QUBO terms as Map<(int * int), float>
-                let mutable quboTerms = Map.empty
+                // Linear terms (diagonal)
+                let linearTerms =
+                    [ for i in 0 .. numItems - 1 do
+                        let item = problem.Items.[i]
+                        let w = item.Weight
+                        let v = item.Value
+                        let W = problem.Capacity
+                        // Q_ii = -v_i + λ * (w_i² - 2W*w_i)
+                        yield (i, i), -v + penalty * (w * w - 2.0 * W * w) ]
                 
-                // Process linear terms (diagonal)
-                for i in 0 .. numItems - 1 do
-                    let item = problem.Items.[i]
-                    let w = item.Weight
-                    let v = item.Value
-                    let W = problem.Capacity
-                    
-                    // Q_ii = -v_i + λ * (w_i² - 2W*w_i)
-                    let linearTerm = -v + penalty * (w * w - 2.0 * W * w)
-                    quboTerms <- quboTerms |> Map.add (i, i) linearTerm
+                // Quadratic terms (upper triangle)
+                let quadraticTerms =
+                    [ for i in 0 .. numItems - 1 do
+                        for j in i + 1 .. numItems - 1 do
+                            let w_i = problem.Items.[i].Weight
+                            let w_j = problem.Items.[j].Weight
+                            // Q_ij = λ * 2*w_i*w_j
+                            yield (i, j), penalty * 2.0 * w_i * w_j ]
                 
-                // Process quadratic terms (upper triangle)
-                for i in 0 .. numItems - 1 do
-                    for j in i + 1 .. numItems - 1 do
-                        let w_i = problem.Items.[i].Weight
-                        let w_j = problem.Items.[j].Weight
-                        
-                        // Q_ij = λ * 2*w_i*w_j
-                        let quadraticTerm = penalty * 2.0 * w_i * w_j
-                        quboTerms <- quboTerms |> Map.add (i, j) quadraticTerm
+                let quboTerms = linearTerms @ quadraticTerms |> Map.ofList
                 
                 Ok {
                     Q = quboTerms

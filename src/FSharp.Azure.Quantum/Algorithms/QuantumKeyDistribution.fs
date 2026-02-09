@@ -577,7 +577,7 @@ module QuantumKeyDistribution =
                 FinalKeyLength = finalKeyLength
                 OverallEfficiency = overallEfficiency
                 Success = success
-                BackendName = backend.NativeStateType.ToString()
+                BackendName = backend.Name
             }
         }
 
@@ -998,37 +998,38 @@ module QuantumKeyDistribution =
         else
             // Create mutable copy for correction
             let correctedKey = Array.copy bobKey
-            let mutable errorsDetected = 0
-            let mutable errorsCorrected = 0
-            let mutable informationLeaked = 0.0
             
             // Divide into blocks
             let numBlocks = (aliceKey.Length + blockSize - 1) / blockSize
             
-            for blockIdx in 0 .. numBlocks - 1 do
-                let startPos = blockIdx * blockSize
-                let endPos = min ((blockIdx + 1) * blockSize) aliceKey.Length
-                let blockPositions = [| startPos .. endPos - 1 |]
-                
-                // Calculate parities
-                let aliceBlockBits = blockPositions |> Array.map (fun i -> aliceKey.[i])
-                let bobBlockBits = blockPositions |> Array.map (fun i -> correctedKey.[i])
-                
-                let aliceParity = calculateParity aliceBlockBits
-                let bobParity = calculateParity bobBlockBits
-                
-                informationLeaked <- informationLeaked + 1.0  // Each parity check leaks 1 bit
-                
-                if aliceParity <> bobParity then
-                    // Error detected in this block
-                    errorsDetected <- errorsDetected + 1
+            let (errorsDetected, errorsCorrected, informationLeaked) =
+                ((0, 0, 0.0), [0 .. numBlocks - 1])
+                ||> List.fold (fun (detected, corrected, leaked) blockIdx ->
+                    let startPos = blockIdx * blockSize
+                    let endPos = min ((blockIdx + 1) * blockSize) aliceKey.Length
+                    let blockPositions = [| startPos .. endPos - 1 |]
                     
-                    // Simplified correction: flip first bit in block (naive approach)
-                    // Real Cascade does binary search
-                    if blockPositions.Length > 0 then
-                        let errorPos = blockPositions.[0]
-                        correctedKey.[errorPos] <- not correctedKey.[errorPos]
-                        errorsCorrected <- errorsCorrected + 1
+                    // Calculate parities
+                    let aliceBlockBits = blockPositions |> Array.map (fun i -> aliceKey.[i])
+                    let bobBlockBits = blockPositions |> Array.map (fun i -> correctedKey.[i])
+                    
+                    let aliceParity = calculateParity aliceBlockBits
+                    let bobParity = calculateParity bobBlockBits
+                    
+                    let leaked' = leaked + 1.0  // Each parity check leaks 1 bit
+                    
+                    if aliceParity <> bobParity then
+                        // Error detected in this block
+                        // Simplified correction: flip first bit in block (naive approach)
+                        // Real Cascade does binary search
+                        if blockPositions.Length > 0 then
+                            let errorPos = blockPositions.[0]
+                            correctedKey.[errorPos] <- not correctedKey.[errorPos]
+                            (detected + 1, corrected + 1, leaked')
+                        else
+                            (detected + 1, corrected, leaked')
+                    else
+                        (detected, corrected, leaked'))
             
             {
                 OriginalKey = bobKey
@@ -1062,19 +1063,13 @@ module QuantumKeyDistribution =
         (initialBlockSize: int)
         (numPasses: int) : ErrorCorrectionResult =
         
-        let mutable currentKey = Array.copy bobKey
-        let mutable totalErrorsDetected = 0
-        let mutable totalErrorsCorrected = 0
-        let mutable totalLeaked = 0.0
-        
-        for pass in 0 .. numPasses - 1 do
-            let blockSize = initialBlockSize * (1 <<< pass)  // Double each pass
-            let result = errorCorrection aliceKey currentKey blockSize
-            
-            currentKey <- result.CorrectedKey
-            totalErrorsDetected <- totalErrorsDetected + result.ErrorsDetected
-            totalErrorsCorrected <- totalErrorsCorrected + result.ErrorsCorrected
-            totalLeaked <- totalLeaked + result.InformationLeaked
+        let (currentKey, totalErrorsDetected, totalErrorsCorrected, totalLeaked) =
+            ((Array.copy bobKey, 0, 0, 0.0), [0 .. numPasses - 1])
+            ||> List.fold (fun (key, detected, corrected, leaked) pass ->
+                let blockSize = initialBlockSize * (1 <<< pass)  // Double each pass
+                let result = errorCorrection aliceKey key blockSize
+                
+                (result.CorrectedKey, detected + result.ErrorsDetected, corrected + result.ErrorsCorrected, leaked + result.InformationLeaked))
         
         {
             OriginalKey = bobKey

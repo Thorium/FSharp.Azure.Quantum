@@ -288,11 +288,16 @@ module ModularData =
                             Particles = particles
                         }))))
     
-    /// Matrix multiplication helper
+    /// Matrix multiplication helper (validates dimensions)
     let private matrixMultiply (a: Complex[,]) (b: Complex[,]) : Complex[,] =
-        let n = Array2D.length1 a
-        Array2D.init n n (fun i j ->
-            [0 .. n - 1]
+        let aRows = Array2D.length1 a
+        let aCols = Array2D.length2 a
+        let bRows = Array2D.length1 b
+        let bCols = Array2D.length2 b
+        if aCols <> bRows then
+            invalidArg "b" $"Matrix dimension mismatch: A is {aRows}×{aCols} but B is {bRows}×{bCols}"
+        Array2D.init aRows bCols (fun i j ->
+            [0 .. aCols - 1]
             |> List.fold (fun acc k -> acc + a.[i, k] * b.[k, j]) Complex.Zero)
     
     /// Verify S-matrix is unitary: S S† = I
@@ -373,7 +378,7 @@ module ModularData =
     let totalQuantumDimension (anyonType: AnyonSpecies.AnyonType) 
         : TopologicalResult<float> =
         
-        result {
+        topologicalResult {
             let! particles = AnyonSpecies.particles anyonType
             let sumSquares = 
                 particles
@@ -392,9 +397,10 @@ module ModularData =
     /// - g=0 (sphere): Dim = 1
     /// - g=1 (torus): Dim = number of particles
     /// - g=2: Dim = Σₐ (dₐ/D)⁻²
-    let groundStateDegeneracy (data: ModularData) (genus: int) : int =
+    let groundStateDegeneracy (data: ModularData) (genus: int) : TopologicalResult<int> =
         if genus < 0 then
-            invalidArg (nameof genus) "Genus must be non-negative"
+            TopologicalResult.validationError "genus" "Genus must be non-negative"
+        else
         
         let n = data.Particles.Length
         let s = data.SMatrix
@@ -408,3 +414,4 @@ module ModularData =
             contribution.Real)
         |> round
         |> int
+        |> Ok

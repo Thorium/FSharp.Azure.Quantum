@@ -136,8 +136,17 @@ module FMatrix =
         let vacuum = AnyonSpecies.Particle.Vacuum
         
         Map.ofList [
+            // F^{τττ}_1 matrix (1×1: only e=τ, f=τ is fusion-valid)
             // F[τ,τ,τ,1;τ,τ] = φ⁻¹
             { A = tau; B = tau; C = tau; D = vacuum; E = tau; F = tau }, 
+            Complex(phiInv, 0.0)
+            
+            // F^{τττ}_τ matrix (2×2 in the {1,τ} basis)
+            // From Simon "Topological Quantum", Table 9.5:
+            //   F^{τττ}_τ = [[φ⁻¹, φ⁻¹/²], [φ⁻¹/², -φ⁻¹]]
+            
+            // F[τ,τ,τ,τ;1,1] = φ⁻¹
+            { A = tau; B = tau; C = tau; D = tau; E = vacuum; F = vacuum }, 
             Complex(phiInv, 0.0)
             
             // F[τ,τ,τ,τ;1,τ] = φ⁻¹/²
@@ -235,18 +244,20 @@ module FMatrix =
         // - (b × c) can fuse to f
         // - (a × f) can fuse to d  (right-associative path)
         
-        // Use railway-oriented programming pattern
         let validateAllChannels () =
-            canFuseTo index.A index.B index.E data.AnyonType
-            |> Result.bind (fun abValid ->
-                if not abValid then Ok false
-                else canFuseTo index.E index.C index.D data.AnyonType)
-            |> Result.bind (fun ecValid ->
-                if not ecValid then Ok false
-                else canFuseTo index.B index.C index.F data.AnyonType)
-            |> Result.bind (fun bcValid ->
-                if not bcValid then Ok false
-                else canFuseTo index.A index.F index.D data.AnyonType)
+            topologicalResult {
+                let! abToE = canFuseTo index.A index.B index.E data.AnyonType
+                if not abToE then return false
+                else
+                    let! ecToD = canFuseTo index.E index.C index.D data.AnyonType
+                    if not ecToD then return false
+                    else
+                        let! bcToF = canFuseTo index.B index.C index.F data.AnyonType
+                        if not bcToF then return false
+                        else
+                            let! afToD = canFuseTo index.A index.F index.D data.AnyonType
+                            return afToD
+            }
         
         validateAllChannels ()
         |> Result.bind (function
@@ -439,22 +450,8 @@ module FMatrix =
     // UTILITY FUNCTIONS
     // ========================================================================
     
-    /// Format a particle for display
-    let private formatParticle = function
-        | AnyonSpecies.Particle.Vacuum -> "1"
-        | AnyonSpecies.Particle.Sigma -> "σ"
-        | AnyonSpecies.Particle.Psi -> "ψ"
-        | AnyonSpecies.Particle.Tau -> "τ"
-        | p -> p.ToString()
-    
-    /// Format a complex number for display
-    let private formatComplex (value: Complex) : string =
-        let re, im = value.Real, value.Imaginary
-        match abs re < 1e-10, abs im < 1e-10 with
-        | true, true -> "0"
-        | true, false -> sprintf "%.6fi" im
-        | false, true -> sprintf "%.6f" re
-        | false, false -> sprintf "%.6f + %.6fi" re im
+    let private formatParticle p = TopologicalHelpers.formatParticle p
+    let private formatComplex z = TopologicalHelpers.formatComplex z
     
     /// Display F-symbol information
     let displayFSymbol (index: FSymbolIndex) (value: Complex) : string =

@@ -2,8 +2,6 @@ namespace FSharp.Azure.Quantum.Topological
 
 open System
 open System.Numerics
-open System.Threading
-open System.Threading.Tasks
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.BackendAbstraction
@@ -31,7 +29,6 @@ module TopologicalUnifiedBackend =
     
     /// Topological quantum backend with unified interface
     type TopologicalUnifiedBackend(anyonType: AnyonSpecies.AnyonType, maxAnyons: int) =
-        let mutable cancellationToken: CancellationToken option = None
         
         // Helper to convert TopologicalResult to Result with error message extraction
         let toResult (topResult: TopologicalResult<'T>) : Result<'T, string> =
@@ -181,9 +178,11 @@ module TopologicalUnifiedBackend =
                         None
                     else
                         let bits = intToBitsLsbFirst numQubits x |> Array.toList
-                        let tree = FusionTree.fromComputationalBasis bits anyonType
-                        let state = FusionTree.create tree anyonType
-                        Some (reflected, state))
+                        match FusionTree.fromComputationalBasis bits anyonType with
+                        | Error _ -> None
+                        | Ok tree ->
+                            let state = FusionTree.create tree anyonType
+                            Some (reflected, state))
 
             let diffused : TopologicalOperations.Superposition =
                 { Terms = newTerms; AnyonType = fusionState.AnyonType }
@@ -241,11 +240,11 @@ module TopologicalUnifiedBackend =
                 Error (QuantumError.OperationError ("TopologicalBackend", $"Failed to compile gate {gate} to braiding: {topErr.Message}"))
         
         /// Apply F-move operation
-        member private this.ApplyFMove (direction: obj) (depth: int) (fusionState: TopologicalOperations.Superposition) : Result<QuantumState, QuantumError> =
+        member private this.ApplyFMove (direction: FMoveDirection) (depth: int) (fusionState: TopologicalOperations.Superposition) : Result<QuantumState, QuantumError> =
             let fmoveDir = 
                 match direction with
-                | :? TopologicalOperations.FMoveDirection as dir -> dir
-                | _ -> TopologicalOperations.FMoveDirection.LeftToRight
+                | FMoveDirection.Forward -> TopologicalOperations.FMoveDirection.LeftToRight
+                | FMoveDirection.Backward -> TopologicalOperations.FMoveDirection.RightToLeft
             
             let newTerms =
                 fusionState.Terms
@@ -312,7 +311,7 @@ module TopologicalUnifiedBackend =
                                         let phases =
                                             [targetQubit + 1 .. intent.NumQubits - 1]
                                             |> List.map (fun k ->
-                                                let power = k - targetQubit + 1
+                                                let power = k - targetQubit
                                                 let angle = 2.0 * Math.PI / float (1 <<< power)
                                                 let angle = if intent.Inverse then -angle else angle
                                                 QuantumOperation.Gate (CircuitBuilder.CP (k, targetQubit, angle)))
@@ -340,18 +339,23 @@ module TopologicalUnifiedBackend =
                                 try
                                     let dim = 1 <<< numQubits
 
-                                    let states =
+                                    let stateResults =
                                         [ 0 .. dim - 1 ]
                                         |> List.map (fun x ->
                                             let bits = intToBitsLsbFirst numQubits x |> Array.toList
-                                            let tree = FusionTree.fromComputationalBasis bits anyonType
-                                            FusionTree.create tree anyonType)
+                                            FusionTree.fromComputationalBasis bits anyonType
+                                            |> Result.map (fun tree -> FusionTree.create tree anyonType))
 
-                                    let superposition =
-                                        TopologicalOperations.uniform states anyonType
-                                        |> TopologicalOperations.normalize
+                                    match stateResults |> List.tryFind Result.isError with
+                                    | Some (Error err) -> Error (QuantumError.OperationError ("TopologicalBackend", err.Message))
+                                    | _ ->
+                                        let states = stateResults |> List.map (fun r -> match r with Ok s -> s | Error _ -> failwith "unreachable")
 
-                                    Ok (QuantumState.FusionSuperposition (TopologicalOperations.toInterface superposition))
+                                        let superposition =
+                                            TopologicalOperations.uniform states anyonType
+                                            |> TopologicalOperations.normalize
+
+                                        Ok (QuantumState.FusionSuperposition (TopologicalOperations.toInterface superposition))
                                 with
                                 | ex -> Error (QuantumError.OperationError ("TopologicalBackend", ex.Message))
 
@@ -567,8 +571,9 @@ module TopologicalUnifiedBackend =
 
                     try
                         let requiredAnyons =
-                            FusionTree.fromComputationalBasis (List.replicate requiredQubits 0) anyonType
-                            |> FusionTree.size
+                            match FusionTree.fromComputationalBasis (List.replicate requiredQubits 0) anyonType with
+                            | Ok tree -> FusionTree.size tree
+                            | Error _ -> System.Int32.MaxValue
 
                         if requiredAnyons > maxAnyons then
                             false
@@ -611,15 +616,18 @@ module TopologicalUnifiedBackend =
                 try
                     // Initialize to computational basis |0...0⟩ using FusionTree encoding.
                     // For Ising encoding we include an extra σ-pair parity ancilla.
-                    let initialTree = FusionTree.fromComputationalBasis (List.replicate numQubits 0) anyonType
-                    let requiredAnyons = FusionTree.size initialTree
+                    match FusionTree.fromComputationalBasis (List.replicate numQubits 0) anyonType with
+                    | Error err ->
+                        Error (QuantumError.OperationError ("TopologicalBackend", err.Message))
+                    | Ok initialTree ->
+                        let requiredAnyons = FusionTree.size initialTree
 
-                    if requiredAnyons > maxAnyons then
-                        Error (QuantumError.ValidationError ("numQubits", $"Requested {numQubits} logical qubits requires {requiredAnyons} anyons, but backend maxAnyons is {maxAnyons}"))
-                    else
-                        let initialFusionState = FusionTree.create initialTree anyonType
-                        let initialSuperposition = TopologicalOperations.pureState initialFusionState
-                        Ok (QuantumState.FusionSuperposition (TopologicalOperations.toInterface initialSuperposition))
+                        if requiredAnyons > maxAnyons then
+                            Error (QuantumError.ValidationError ("numQubits", $"Requested {numQubits} logical qubits requires {requiredAnyons} anyons, but backend maxAnyons is {maxAnyons}"))
+                        else
+                            let initialFusionState = FusionTree.create initialTree anyonType
+                            let initialSuperposition = TopologicalOperations.pureState initialFusionState
+                            Ok (QuantumState.FusionSuperposition (TopologicalOperations.toInterface initialSuperposition))
                 with
                 | ex -> Error (QuantumError.OperationError ("TopologicalBackend", ex.Message))
 

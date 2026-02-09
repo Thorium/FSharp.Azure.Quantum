@@ -289,7 +289,7 @@ module OpenQasmImport =
                 | None -> Error $"Line {state.LineNumber}: Gate used before qreg declaration"
                 | Some qCount ->
                     match parseThreeQubitGate gateName qubit1 qubit2 qubit3 qCount with
-                    | Ok gate -> Ok { state with Gates = state.Gates @ [gate] }
+                    | Ok gate -> Ok { state with Gates = gate :: state.Gates }
                     | Error msg -> Error $"Line {state.LineNumber}: {msg}"
             
             // Two-qubit rotation gate (with parameter) - must check before two-qubit gate
@@ -306,7 +306,7 @@ module OpenQasmImport =
                     match parseAngle angleStr with
                     | Ok angle ->
                         match parseTwoQubitRotationGate gateName angle qubit1 qubit2 qCount with
-                        | Ok gate -> Ok { state with Gates = state.Gates @ [gate] }
+                        | Ok gate -> Ok { state with Gates = gate :: state.Gates }
                         | Error msg -> Error $"Line {state.LineNumber}: {msg}"
                     | Error msg -> Error $"Line {state.LineNumber}: {msg}"
             
@@ -321,7 +321,7 @@ module OpenQasmImport =
                 | None -> Error $"Line {state.LineNumber}: Gate used before qreg declaration"
                 | Some qCount ->
                     match parseTwoQubitGate gateName qubit1 qubit2 qCount with
-                    | Ok gate -> Ok { state with Gates = state.Gates @ [gate] }
+                    | Ok gate -> Ok { state with Gates = gate :: state.Gates }
                     | Error msg -> Error $"Line {state.LineNumber}: {msg}"
             
             // U3 gate (three parameters) - must check before rotation gate (one parameter)
@@ -339,7 +339,7 @@ module OpenQasmImport =
                     match parseAngle thetaStr, parseAngle phiStr, parseAngle lambdaStr with
                     | Ok theta, Ok phi, Ok lambda ->
                         match parseU3Gate gateName theta phi lambda qubit qCount with
-                        | Ok gate -> Ok { state with Gates = state.Gates @ [gate] }
+                        | Ok gate -> Ok { state with Gates = gate :: state.Gates }
                         | Error msg -> Error $"Line {state.LineNumber}: {msg}"
                     | Error msg, _, _ -> Error $"Line {state.LineNumber}: {msg}"
                     | _, Error msg, _ -> Error $"Line {state.LineNumber}: {msg}"
@@ -358,7 +358,7 @@ module OpenQasmImport =
                     match parseAngle angleStr with
                     | Ok angle ->
                         match parseRotationGate gateName angle qubit qCount with
-                        | Ok gate -> Ok { state with Gates = state.Gates @ [gate] }
+                        | Ok gate -> Ok { state with Gates = gate :: state.Gates }
                         | Error msg -> Error $"Line {state.LineNumber}: {msg}"
                     | Error msg -> Error $"Line {state.LineNumber}: {msg}"
             
@@ -376,7 +376,7 @@ module OpenQasmImport =
                     | None -> Error $"Line {state.LineNumber}: Gate used before qreg declaration"
                     | Some qCount ->
                         match parseSingleQubitGate gateName qubit qCount with
-                        | Ok gate -> Ok { state with Gates = state.Gates @ [gate] }
+                        | Ok gate -> Ok { state with Gates = gate :: state.Gates }
                         | Error msg -> Error $"Line {state.LineNumber}: {msg}"
             
             else

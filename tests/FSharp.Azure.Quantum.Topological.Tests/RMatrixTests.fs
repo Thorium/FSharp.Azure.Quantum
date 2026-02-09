@@ -63,7 +63,7 @@ module RMatrixTests =
         let vacuum = AnyonSpecies.Particle.Vacuum
         
         let value = getRSymbolOrFail data (rIndex sigma sigma vacuum) "R[σ,σ;1]"
-        let expected = RMatrix.expI (System.Math.PI / 8.0)
+        let expected = TopologicalHelpers.expI (System.Math.PI / 8.0)
         
         assertComplexEquals expected value
         assertOnUnitCircle value
@@ -78,7 +78,7 @@ module RMatrixTests =
         let psi = AnyonSpecies.Particle.Psi
         
         let value = getRSymbolOrFail data (rIndex sigma sigma psi) "R[σ,σ;ψ]"
-        let expected = RMatrix.expI (-3.0 * System.Math.PI / 8.0)
+        let expected = TopologicalHelpers.expI (-3.0 * System.Math.PI / 8.0)
         
         assertComplexEquals expected value
         assertOnUnitCircle value
@@ -104,7 +104,7 @@ module RMatrixTests =
         let psi = AnyonSpecies.Particle.Psi
         
         let value = getRSymbolOrFail data (rIndex sigma psi sigma) "R[σ,ψ;σ]"
-        let expected = RMatrix.expI (System.Math.PI / 4.0)
+        let expected = TopologicalHelpers.expI (System.Math.PI / 4.0)
         
         assertComplexEquals expected value
         assertOnUnitCircle value
@@ -155,7 +155,7 @@ module RMatrixTests =
         let vacuum = AnyonSpecies.Particle.Vacuum
         
         let value = getRSymbolOrFail data (rIndex tau tau vacuum) "R[τ,τ;1]"
-        let expected = RMatrix.expI (4.0 * System.Math.PI / 5.0)
+        let expected = TopologicalHelpers.expI (4.0 * System.Math.PI / 5.0)
         
         assertComplexEquals expected value
         assertOnUnitCircle value
@@ -169,7 +169,7 @@ module RMatrixTests =
         let tau = AnyonSpecies.Particle.Tau
         
         let value = getRSymbolOrFail data (rIndex tau tau tau) "R[τ,τ;τ]"
-        let expected = RMatrix.expI (-3.0 * System.Math.PI / 5.0)
+        let expected = TopologicalHelpers.expI (-3.0 * System.Math.PI / 5.0)
         
         assertComplexEquals expected value
         assertOnUnitCircle value

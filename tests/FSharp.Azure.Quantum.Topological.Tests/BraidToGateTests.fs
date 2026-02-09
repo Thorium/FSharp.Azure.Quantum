@@ -20,6 +20,11 @@ module BraidToGateTests =
         | Error err -> failwith $"{context}: {err.Message}"
         | Ok sequence -> sequence
 
+    let private identityOrFail n context =
+        match BraidGroup.identity n with
+        | Ok braid -> braid
+        | Error err -> failwith $"{context}: {err.Message}"
+
     // ========================================================================
     // GATE NAME AND UTILITIES TESTS
     // ========================================================================
@@ -112,7 +117,7 @@ module BraidToGateTests =
     [<Fact>]
     let ``Ising identity braid compiles to empty gate sequence`` () =
         // Business meaning: Identity operation = no gates needed
-        let braid = BraidGroup.identity 3
+        let braid = identityOrFail 3 "Identity 3-strand"
         let sequence = 
             compileOrFail braid AnyonSpecies.AnyonType.Ising 
                 BraidToGate.defaultOptions "Identity"
@@ -316,7 +321,7 @@ module BraidToGateTests =
     [<Fact>]
     let ``Empty braid produces zero-depth circuit`` () =
         // Business meaning: Identity operation has no depth
-        let braid = BraidGroup.identity 5
+        let braid = identityOrFail 5 "Identity 5-strand"
         let sequence = 
             compileOrFail braid AnyonSpecies.AnyonType.Ising 
                 BraidToGate.defaultOptions "Zero depth"

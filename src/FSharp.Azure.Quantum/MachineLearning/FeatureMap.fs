@@ -139,7 +139,10 @@ module FeatureMap =
     /// |ψ⟩ = ∑_i x_i |i⟩
     ///
     /// Requires: len(x) = 2^n for n qubits
-    /// Uses: Mottonen state preparation or isometry
+    /// Uses: Möttönen state preparation algorithm
+    ///
+    /// Reference: M. Möttönen et al., "Transformation of quantum states using
+    /// uniformly controlled rotations", Quant. Inf. Comp. 5, 467 (2005).
     let amplitudeEncoding (features: FeatureVector) : Circuit =
         // Determine number of qubits needed
         let numQubits = int (Math.Ceiling(Math.Log(float features.Length, 2.0)))
@@ -149,24 +152,121 @@ module FeatureMap =
         
         // Pad to power of 2 if needed
         let targetSize = 1 <<< numQubits
-        let padded = 
+        let amplitudes = 
             if normalized.Length < targetSize then
                 Array.append normalized (Array.zeroCreate (targetSize - normalized.Length))
             else
                 normalized
         
-        // Use simplified Mottonen-style state preparation
-        let mutable circ = empty numQubits
+        // Möttönen state preparation:
+        // Recursively decompose the target state into uniformly-controlled RY rotations.
+        // At each level k (from n-1 down to 0), compute rotation angles from pairs
+        // of amplitudes and apply controlled rotations.
         
-        // For a full implementation, we would:
-        // 1. Use Gray code ordering
-        // 2. Apply controlled rotations hierarchically
-        // 3. Optimize gate count
+        /// Compute rotation angles for a level of the Möttönen decomposition.
+        /// Given 2^(k+1) amplitudes at level k, compute 2^k rotation angles.
+        let computeAngles (amps: float array) : float array =
+            let halfLen = amps.Length / 2
+            Array.init halfLen (fun i ->
+                let a = amps.[2 * i]
+                let b = amps.[2 * i + 1]
+                let norm = Math.Sqrt(a * a + b * b)
+                if norm < 1e-15 then 0.0
+                else 2.0 * Math.Atan2(b, a))
         
-        // Simplified version: just apply Hadamard to create uniform superposition
-        // (This is a placeholder - full Mottonen is complex)
-        for i in 0 .. numQubits - 1 do
-            circ <- addGate (H i) circ
+        /// Recursively compute all RY angles for each qubit level.
+        /// Returns a list of (qubitIndex, angles) from most significant to least significant qubit.
+        let rec computeAllAngles (amps: float array) (qubitIdx: int) : (int * float array) list =
+            if amps.Length <= 1 then []
+            else
+                let angles = computeAngles amps
+                // Compute residual amplitudes for next level (norms of pairs)
+                let residuals =
+                    Array.init (amps.Length / 2) (fun i ->
+                        let a = amps.[2 * i]
+                        let b = amps.[2 * i + 1]
+                        Math.Sqrt(a * a + b * b))
+                (qubitIdx, angles) :: computeAllAngles residuals (qubitIdx - 1)
+        
+        let allAngles = computeAllAngles amplitudes (numQubits - 1)
+        
+        // Helper: find bit position of lowest set bit (trailing zero count)
+        let trailingZeros n =
+            let rec go d pos =
+                if d <= 1 then pos
+                else go (d >>> 1) (pos + 1)
+            go n 0
+        
+        // Walsh-Hadamard transform (in-place on a copy — inherently imperative)
+        let walshHadamardTransform (angles: float[]) =
+            let transformed = Array.copy angles
+            let rec applyStep step =
+                if step >= transformed.Length then ()
+                else
+                    for i in 0 .. step .. transformed.Length - 1 do
+                        for j in 0 .. step - 1 do
+                            if i + j + step < transformed.Length then
+                                let u = transformed.[i + j]
+                                let v = transformed.[i + j + step]
+                                transformed.[i + j] <- (u + v) / 2.0
+                                transformed.[i + j + step] <- (u - v) / 2.0
+                    applyStep (step * 2)
+            applyStep 1
+            transformed
+        
+        // Apply uniformly-controlled rotations from most significant to least significant qubit
+        let circ =
+            (empty numQubits, allAngles |> List.rev)
+            ||> List.fold (fun circ (targetQubit, angles) ->
+                if angles.Length = 1 then
+                    // No controls needed — single RY on the target qubit
+                    if abs angles.[0] > 1e-15 then
+                        addGate (RY(targetQubit, angles.[0])) circ
+                    else
+                        circ
+                else
+                    // Uniformly-controlled rotation: for each control basis state |k⟩,
+                    // apply RY(angle_k) to the target qubit.
+                    // Decompose using Gray code traversal with CNOT + RY pairs.
+                    // Simplified decomposition: use multiplexed rotations via Walsh-Hadamard transform.
+                    let numControls = int (Math.Log(float angles.Length, 2.0))
+                    let controlQubits = [0 .. numControls - 1] |> List.filter (fun q -> q <> targetQubit)
+                    
+                    let transformed = walshHadamardTransform angles
+                    
+                    // Apply the decomposed rotations
+                    // First rotation (unconditional)
+                    let circ' =
+                        if abs transformed.[0] > 1e-15 then
+                            addGate (RY(targetQubit, transformed.[0])) circ
+                        else
+                            circ
+                    
+                    // Controlled rotations via CNOT + RY pairs (Gray code ordering)
+                    let circ'' =
+                        (circ', [1 .. transformed.Length - 1])
+                        ||> List.fold (fun c k ->
+                            if abs transformed.[k] > 1e-15 then
+                                // Find which control bit flipped (lowest set bit of Gray code)
+                                let grayK = k ^^^ (k >>> 1)
+                                let grayKm1 = (k - 1) ^^^ ((k - 1) >>> 1)
+                                let diff = grayK ^^^ grayKm1
+                                let bitPos = trailingZeros diff
+                                
+                                if bitPos < controlQubits.Length then
+                                    let controlQubit = controlQubits.[bitPos]
+                                    c |> addGate (CNOT(controlQubit, targetQubit)) |> addGate (RY(targetQubit, transformed.[k]))
+                                else
+                                    // Fallback: apply as unconditional rotation
+                                    addGate (RY(targetQubit, transformed.[k])) c
+                            else
+                                c)
+                    
+                    // Final CNOT to undo last Gray code step
+                    if controlQubits.Length > 0 then
+                        addGate (CNOT(controlQubits.[0], targetQubit)) circ''
+                    else
+                        circ'')
         
         circ
     

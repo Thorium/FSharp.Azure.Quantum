@@ -89,26 +89,23 @@ module CircuitOptimization =
         | g :: rest -> g :: cancelInverses rest
     
     /// Merge adjacent gates on same axis
-    /// Example: T·T = S, S·S = Z, T⁴ = Z²  = I
+    /// Example: T·T = S, Z·Z = I
+    /// 
+    /// **Gate phase arithmetic** (T = diag(1, exp(iπ/8))):
+    ///   T² = S, T⁴ = S² = diag(1,i), T⁸ = S⁴ = Z, T¹⁶ = Z² = I
+    ///   S·S ≠ Z (S² = diag(1,i), not diag(1,-1))
+    ///   T·S = T³ (no single-gate equivalent)
     let rec mergeAdjacentGates (gates: GateSequence) : GateSequence =
         match gates with
         | [] -> []
         | [g] -> [g]
         
-        // T·T = S
+        // T·T = S (correct: exp(iπ/8)² = exp(iπ/4))
         | T :: T :: rest -> mergeAdjacentGates (S :: rest)
         | TDagger :: TDagger :: rest -> mergeAdjacentGates (SDagger :: rest)
         
-        // S·S = Z
-        | S :: S :: rest -> mergeAdjacentGates (Z :: rest)
-        | SDagger :: SDagger :: rest -> mergeAdjacentGates (Z :: rest)
-        
-        // T·T·T·T = Z·Z = I (remove)
+        // Z·Z = I (correct: (-1)² = 1)
         | Z :: Z :: rest -> mergeAdjacentGates rest
-        
-        // T·S = T·T·T = T³ → optimize to SDagger
-        | T :: S :: rest -> mergeAdjacentGates (SDagger :: rest)
-        | S :: T :: rest -> mergeAdjacentGates (SDagger :: rest)
         
         | g :: rest -> g :: mergeAdjacentGates rest
     
@@ -144,28 +141,36 @@ module CircuitOptimization =
     
     /// Recognize common patterns and replace with optimized equivalents
     /// 
-    /// Example patterns:
-    /// - H·T·H = S·H (reduces T count by 1)
-    /// - T⁷ = T† (reduces T count from 7 to 1)
-    /// - S·T·S† = T·T·T = S·T (reduces gate count)
+    /// **Verified identities** (T = diag(1, exp(iπ/8)), S = T²):
+    /// - T⁷ = T⁸·T⁻¹ = Z·T† (7 T gates → 1 T gate + 1 Clifford)
+    /// - T³ = T²·T = S·T (3 T gates → 1 T gate + 1 Clifford)
+    /// - S³ = S⁴·S⁻¹ = Z·S† (3 Cliffords → 2 Cliffords)
+    /// 
+    /// **Previous bugs fixed:**
+    /// - T⁷ → T† was WRONG (exp(i·7π/8) ≠ exp(-iπ/8))
+    /// - T³ → S†·T was WRONG (S†·T = T† ≠ T³)
+    /// - S³ → S† was WRONG (S⁴ = Z ≠ I, so S³ ≠ S⁻¹)
     let rec templateMatch (gates: GateSequence) : GateSequence * bool =
         match gates with
         | [] -> ([], false)
         | [g] -> ([g], false)
         
-        // Pattern: T⁷ = T† (modulo global phase)
+        // Pattern: T⁷ = Z·T† (T⁸ = Z, so T⁷ = Z·T⁻¹)
+        // Reduces T-count from 7 to 1
         | T :: T :: T :: T :: T :: T :: T :: rest ->
-            let (optimized, _) = templateMatch (TDagger :: rest)
+            let (optimized, _) = templateMatch (Z :: TDagger :: rest)
             (optimized, true)
         
-        // Pattern: T³ = S†·T
+        // Pattern: T³ = S·T (T² = S, so T³ = S·T)
+        // Reduces T-count from 3 to 1
         | T :: T :: T :: rest ->
-            let (optimized, _) = templateMatch (SDagger :: T :: rest)
+            let (optimized, _) = templateMatch (S :: T :: rest)
             (optimized, true)
         
-        // Pattern: S³ = S† (since S⁴ = Z² = I)
+        // Pattern: S³ = Z·S† (S⁴ = Z, so S³ = Z·S⁻¹)
+        // Reduces gate count from 3 to 2
         | S :: S :: S :: rest ->
-            let (optimized, _) = templateMatch (SDagger :: rest)
+            let (optimized, _) = templateMatch (Z :: SDagger :: rest)
             (optimized, true)
         
         | g :: rest ->

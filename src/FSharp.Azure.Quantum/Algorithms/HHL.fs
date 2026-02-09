@@ -494,7 +494,7 @@ module HHL =
                              (solutionQubits |> List.toArray)
                              (CircuitBuilder.empty totalQubits)
 
-                     evolved.Gates |> List.map QuantumOperation.Gate
+                     evolved.Gates |> List.rev |> List.map QuantumOperation.Gate
 
                  let controlledEvolutions =
                      eigenQubits
@@ -691,7 +691,7 @@ module HHL =
                                                transpileToFixpoint (remaining - 1) next
 
                                    let transpiled = transpileToFixpoint 5 circuit
-                                   transpiled.Gates |> List.map QuantumOperation.Gate
+                                   transpiled.Gates |> List.rev |> List.map QuantumOperation.Gate
                               else
                                   // Non-gate operations should never appear in lowering, but keep this safe.
                                   ops
@@ -825,7 +825,7 @@ module HHL =
             let! vector = HHLTypes.createQuantumVector [| b0; b1 |]
             
             // Create configuration
-            let config = HHLTypes.defaultConfig matrix vector
+            let! config = HHLTypes.defaultConfig matrix vector
             
             // Execute HHL
             let! result = execute config backend
@@ -855,7 +855,7 @@ module HHL =
                 let! matrix = HHLTypes.createDiagonalMatrix eigenvalues
                 let! vector = HHLTypes.createQuantumVector inputVector
                 
-                let config = HHLTypes.defaultConfig matrix vector
+                let! config = HHLTypes.defaultConfig matrix vector
                 return! execute config backend
             }
     
@@ -882,6 +882,6 @@ module HHL =
                 let! matrix = HHLTypes.createDiagonalMatrix eigenvalues
                 let! vector = HHLTypes.createQuantumVector inputVector
                 
-                let config = HHLTypes.defaultConfig matrix vector
+                let! config = HHLTypes.defaultConfig matrix vector
                 return! execute config backend
             }

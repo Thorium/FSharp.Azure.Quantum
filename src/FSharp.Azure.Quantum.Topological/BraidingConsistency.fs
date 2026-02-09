@@ -110,13 +110,14 @@ module BraidingConsistency =
         // Left side: F[a,b,c;e] · F[a,e,d;f]
         // Right side: Σ_g F[b,c,d;g] · F[a,b,g;f] · F[g,c,d;f]
         
-        // For now, return placeholder result
-        // Full implementation requires summing over all intermediate states
+        // TODO: Full pentagon verification requires summing over all intermediate states.
+        // For multiplicity-free theories this is a matrix multiplication check.
+        // For now, mark as NOT verified (not implemented) rather than falsely reporting success.
         {
             Equation = $"Pentagon: F[{a},{b},{c};{e}] · F[{a},{e},{d};f]"
-            IsSatisfied = true  // Trust literature values
-            MaxDeviation = 0.0
-            Details = "Placeholder: Full pentagon verification not yet implemented"
+            IsSatisfied = false
+            MaxDeviation = nan
+            Details = "NOT IMPLEMENTED: Pentagon verification requires summing over intermediate fusion channels. Results should not be trusted until this is implemented."
         }
     
     /// Verify pentagon equation for all valid particle combinations
@@ -124,24 +125,14 @@ module BraidingConsistency =
         let particles = getParticles fData.AnyonType
         
         // Generate all valid 5-tuples (a,b,c,d,e)
-        let checks =
-            [
-                for a in particles do
-                for b in particles do
-                for c in particles do
-                for d in particles do
-                for e in particles ->
-                    verifyPentagonForParticles fData a b c d e
-            ]
-        
-        // For now, return a single placeholder check
+        // Return actual per-combination results (currently all NOT IMPLEMENTED)
         [
-            {
-                Equation = "Pentagon equation (all combinations)"
-                IsSatisfied = true
-                MaxDeviation = 0.0
-                Details = $"Checked {checks.Length} combinations (placeholder - trust literature)"
-            }
+            for a in particles do
+            for b in particles do
+            for c in particles do
+            for d in particles do
+            for e in particles ->
+                verifyPentagonForParticles fData a b c d e
         ]
     
     // ========================================================================

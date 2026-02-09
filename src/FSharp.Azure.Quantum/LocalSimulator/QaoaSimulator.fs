@@ -266,24 +266,28 @@ module QaoaSimulator =
                 let betas = circuit.Parameters |> Array.indexed |> Array.filter (fun (i, _) -> i % 2 = 1) |> Array.map snd
                 
                 // Initialize state to uniform superposition
-                let mutable state = initializeUniformSuperposition circuit.NumQubits
+                let initialState = initializeUniformSuperposition circuit.NumQubits
                 
                 // Apply each QAOA layer
-                for layerIdx in 0 .. circuit.Depth - 1 do
-                    let gamma = gammas[layerIdx]
-                    let beta = betas[layerIdx]
-                    
-                    // Apply cost layer: process all cost terms
-                    for (q1, q2, weight) in circuit.CostTerms do
-                        if q1 = q2 then
-                            // Single-qubit term (diagonal)
-                            state <- state |> Gates.applyRz q1 (2.0 * gamma * weight)
-                        else
-                            // Two-qubit interaction term
-                            state <- applyCostInteraction gamma q1 q2 weight state
-                    
-                    // Apply mixer layer
-                    state <- applyMixerLayer beta state
+                let state =
+                    (initialState, [0 .. circuit.Depth - 1])
+                    ||> List.fold (fun st layerIdx ->
+                        let gamma = gammas[layerIdx]
+                        let beta = betas[layerIdx]
+                        
+                        // Apply cost layer: process all cost terms
+                        let st' =
+                            (st, circuit.CostTerms)
+                            ||> Array.fold (fun s (q1, q2, weight) ->
+                                if q1 = q2 then
+                                    // Single-qubit term (diagonal)
+                                    s |> Gates.applyRz q1 (2.0 * gamma * weight)
+                                else
+                                    // Two-qubit interaction term
+                                    applyCostInteraction gamma q1 q2 weight s)
+                        
+                        // Apply mixer layer
+                        applyMixerLayer beta st')
                 
                 // Perform measurements
                 let rng = Random()

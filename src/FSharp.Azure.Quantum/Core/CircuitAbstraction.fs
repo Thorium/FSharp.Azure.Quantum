@@ -199,12 +199,15 @@ module CircuitAbstraction =
         let circuitToQaoaCircuit (circuit: CircuitBuilder.Circuit) : Result<QaoaCircuit, QuantumError> =
             // Convert gates, collecting decomposed sequences
             let convertedGates = 
-                circuit.Gates 
+                circuit.Gates
+                |> List.rev
                 |> List.collect circuitBuilderGateToQaoaGate
             
-            // Check if any gates failed to convert
+            // Check if any non-measurement gates failed to convert
+            // Measure gates intentionally return [] (handled separately by the backend)
             let unconvertedCount = 
                 circuit.Gates 
+                |> List.filter (fun gate -> match gate with CircuitBuilder.Measure _ -> false | _ -> true)
                 |> List.map circuitBuilderGateToQaoaGate 
                 |> List.filter (fun gates -> gates.IsEmpty)
                 |> List.length
@@ -242,18 +245,22 @@ module CircuitAbstraction =
         // CONVERSION: QaoaCircuit → CircuitBuilder.Circuit
         // ========================================================================
         
-        /// Convert QAOA QuantumGate to CircuitBuilder.Gate
-        let private qaoaGateToCircuitBuilderGate (gate: QuantumGate) : CircuitBuilder.Gate =
+        /// Convert QAOA QuantumGate to CircuitBuilder.Gate list
+        /// Returns a list because some gates (e.g., RZZ) decompose into multiple gates
+        let private qaoaGateToCircuitBuilderGates (gate: QuantumGate) : CircuitBuilder.Gate list =
             match gate with
-            | QuantumGate.H q -> CircuitBuilder.H q
-            | QuantumGate.RX (q, angle) -> CircuitBuilder.RX (q, angle)
-            | QuantumGate.RY (q, angle) -> CircuitBuilder.RY (q, angle)
-            | QuantumGate.RZ (q, angle) -> CircuitBuilder.RZ (q, angle)
-            | QuantumGate.CNOT (c, t) -> CircuitBuilder.CNOT (c, t)
+            | QuantumGate.H q -> [CircuitBuilder.H q]
+            | QuantumGate.RX (q, angle) -> [CircuitBuilder.RX (q, angle)]
+            | QuantumGate.RY (q, angle) -> [CircuitBuilder.RY (q, angle)]
+            | QuantumGate.RZ (q, angle) -> [CircuitBuilder.RZ (q, angle)]
+            | QuantumGate.CNOT (c, t) -> [CircuitBuilder.CNOT (c, t)]
             | QuantumGate.RZZ (q1, q2, angle) ->
-                // RZZ is not directly supported in CircuitBuilder
-                // Approximate with CZ for now (full decomposition would be: CNOT RZ CNOT)
-                CircuitBuilder.CZ (q1, q2)
+                // RZZ(θ) = CNOT(q1,q2) · RZ(q2, θ) · CNOT(q1,q2)
+                [
+                    CircuitBuilder.CNOT (q1, q2)
+                    CircuitBuilder.RZ (q2, angle)
+                    CircuitBuilder.CNOT (q1, q2)
+                ]
         
         /// Convert QaoaCircuit to CircuitBuilder.Circuit
         /// 
@@ -262,8 +269,8 @@ module CircuitAbstraction =
             // Convert initial state gates
             let initialGates = 
                 qaoa.InitialStateGates 
-                |> Array.map qaoaGateToCircuitBuilderGate 
-                |> List.ofArray
+                |> Array.toList
+                |> List.collect qaoaGateToCircuitBuilderGates
             
             // Convert all layer gates (cost + mixer) in sequence
             let layerGates =
@@ -271,8 +278,8 @@ module CircuitAbstraction =
                 |> Array.collect (fun layer ->
                     Array.append layer.CostGates layer.MixerGates
                 )
-                |> Array.map qaoaGateToCircuitBuilderGate
-                |> List.ofArray
+                |> Array.toList
+                |> List.collect qaoaGateToCircuitBuilderGates
             
             // Combine all gates
             let allGates = initialGates @ layerGates
@@ -360,6 +367,7 @@ module CircuitAbstraction =
                 // Convert all gates
                 let convertedGates =
                     builderCircuit.Gates
+                    |> List.rev
                     |> List.choose circuitBuilderGateToIonQGate
                 
                 // Check if any gates failed to convert
@@ -385,6 +393,7 @@ module CircuitAbstraction =
                 // Convert all gates to Quil instructions
                 let instructions =
                     builderCircuit.Gates
+                    |> List.rev
                     |> List.choose circuitBuilderGateToQuilGate
                 
                 // Check if any gates failed to convert

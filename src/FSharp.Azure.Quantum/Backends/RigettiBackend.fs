@@ -247,6 +247,7 @@ module RigettiBackend =
         {
             CircuitValidator.NumQubits = maxQubit + 1  // Convert 0-indexed to count
             CircuitValidator.GateCount = program.Instructions.Length
+            CircuitValidator.Depth = None
             CircuitValidator.UsedGates = usedGates
             CircuitValidator.TwoQubitGates = twoQubitGates
         }

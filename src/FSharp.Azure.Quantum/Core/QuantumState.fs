@@ -222,25 +222,17 @@ module QuantumState =
     
     /// Convert basis index to bitstring representation
     let private indexToBitstring (n: int) (index: int) : int[] =
-        let bitstring = Array.zeroCreate n
-        let mutable idx = index
-        for i in n - 1 .. -1 .. 0 do
-            bitstring.[i] <- idx &&& 1
-            idx <- idx >>> 1
-        bitstring
+        Array.init n (fun i -> (index >>> (n - 1 - i)) &&& 1)
     
     /// Sample index from probability distribution using cumulative sampling
     let private sampleFromDistribution (rng: Random) (probabilities: (int * float)[]) (totalProb: float) : int =
         let r = rng.NextDouble() * totalProb
-        let mutable cumulative = 0.0
-        let mutable selectedIdx = 0
-        
-        for (idx, prob) in probabilities do
-            cumulative <- cumulative + prob
-            if cumulative >= r && selectedIdx = 0 then
-                selectedIdx <- idx
-        
-        selectedIdx
+        probabilities
+        |> Array.scan (fun (_, cumul) (idx, prob) -> (idx, cumul + prob)) (0, 0.0)
+        |> Array.tail
+        |> Array.tryFind (fun (_, cumul) -> cumul >= r)
+        |> Option.map fst
+        |> Option.defaultWith (fun () -> fst probabilities.[probabilities.Length - 1])
     
     /// Get number of qubits/variables in state
     /// 

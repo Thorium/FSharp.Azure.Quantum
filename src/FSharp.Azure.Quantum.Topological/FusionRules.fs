@@ -53,7 +53,7 @@ module FusionRules =
         match AnyonSpecies.isValid anyonType a, AnyonSpecies.isValid anyonType b with
         | Error err, _ | _, Error err -> Error err
         | Ok false, _ | _, Ok false -> 
-            TopologicalResult.validationError "field" $"Invalid particles {a} or {b} for anyon type {anyonType}"
+            TopologicalResult.validationError "particles" $"Invalid particles {a} or {b} for anyon type {anyonType}"
         | Ok true, Ok true ->
         
         match anyonType, a, b with
@@ -106,22 +106,22 @@ module FusionRules =
         // Mixing Ising and Fibonacci particles is invalid
         | AnyonSpecies.AnyonType.Ising, AnyonSpecies.Particle.Tau, _ 
         | AnyonSpecies.AnyonType.Ising, _, AnyonSpecies.Particle.Tau ->
-            TopologicalResult.validationError "field" "Tau particle not valid for Ising anyon type"
+            TopologicalResult.validationError "particle" "Tau particle not valid for Ising anyon type"
         
         | AnyonSpecies.AnyonType.Fibonacci, AnyonSpecies.Particle.Sigma, _ 
         | AnyonSpecies.AnyonType.Fibonacci, _, AnyonSpecies.Particle.Sigma
         | AnyonSpecies.AnyonType.Fibonacci, AnyonSpecies.Particle.Psi, _ 
         | AnyonSpecies.AnyonType.Fibonacci, _, AnyonSpecies.Particle.Psi ->
-            TopologicalResult.validationError "field" "Sigma or Psi particles not valid for Fibonacci anyon type"
+            TopologicalResult.validationError "particle" "Sigma or Psi particles not valid for Fibonacci anyon type"
         
         // Mixing Ising/Fibonacci with SU(2)_k SpinJ particles is invalid
         | AnyonSpecies.AnyonType.Ising, AnyonSpecies.Particle.SpinJ _, _
         | AnyonSpecies.AnyonType.Ising, _, AnyonSpecies.Particle.SpinJ _ ->
-            TopologicalResult.validationError "field" "SpinJ particles not valid for Ising anyon type (use SU2Level instead)"
+            TopologicalResult.validationError "particle" "SpinJ particles not valid for Ising anyon type (use SU2Level instead)"
         
         | AnyonSpecies.AnyonType.Fibonacci, AnyonSpecies.Particle.SpinJ _, _
         | AnyonSpecies.AnyonType.Fibonacci, _, AnyonSpecies.Particle.SpinJ _ ->
-            TopologicalResult.validationError "field" "SpinJ particles not valid for Fibonacci anyon type (use SU2Level instead)"
+            TopologicalResult.validationError "particle" "SpinJ particles not valid for Fibonacci anyon type (use SU2Level instead)"
         
         // ========================================================================
         // SU(2)_k FUSION RULES (GENERAL CASE)
@@ -130,6 +130,10 @@ module FusionRules =
         // SU(2)_k fusion rule: j1 × j2 → j3
         // where |j1 - j2| ≤ j3 ≤ min(j1 + j2, k - j1 - j2) in steps of 1
         // 
+        // Truncation condition: j1 + j2 + j3 ≤ k (in true spin units where
+        // spins range from 0 to k/2). Since j values are already in spin units
+        // (j = j_doubled / 2), the upper bound is k - j1 - j2 (NOT k/2 - j1 - j2).
+        // 
         // Reference: "Topological Quantum" by Steven H. Simon, Chapter 17
         | AnyonSpecies.AnyonType.SU2Level k, AnyonSpecies.Particle.SpinJ (j1_doubled, _), AnyonSpecies.Particle.SpinJ (j2_doubled, _) ->
             let j1 = float j1_doubled / 2.0
@@ -137,18 +141,20 @@ module FusionRules =
             let k_float = float k
             
             // Compute fusion bounds
+            // j_min from triangle inequality, j_max from SU(2)_k truncation
             let j_min = abs (j1 - j2)
-            let j_max = min (j1 + j2) (k_float / 2.0 - j1 - j2)
+            let j_max = min (j1 + j2) (k_float - j1 - j2)
             
             // Check if fusion is allowed
             if j_max < j_min then
                 Ok []  // No valid fusion channels
             else
-                // Generate all j3 values in steps of 1 (or 0.5 if j1+j2 is half-integer)
-                let step = if (j1_doubled + j2_doubled) % 2 = 0 then 1.0 else 0.5
+                // SU(2)_k fusion outputs always step by 1 in spin units.
+                // The parity of j1_doubled + j2_doubled determines whether
+                // j3 starts at an integer or half-integer, but the step is always 1.
                 let fusion_results = 
-                    [j_min .. step .. j_max]
-                    |> List.filter (fun j3 -> j3 <= k_float / 2.0)  // Ensure j3 ≤ k/2
+                    [j_min .. 1.0 .. j_max]
+                    |> List.filter (fun j3 -> j3 <= k_float / 2.0)  // Ensure j3 ≤ k/2 (max spin)
                     |> List.map (fun j3 -> 
                         { Result = AnyonSpecies.Particle.SpinJ (int (j3 * 2.0), k); Multiplicity = 1 }
                     )
@@ -164,7 +170,7 @@ module FusionRules =
         
         // Mixing particle types is invalid
         | AnyonSpecies.AnyonType.SU2Level _, _, _ ->
-            TopologicalResult.validationError "field" "Mixing Ising/Fibonacci particles with SU(2)_k SpinJ particles is invalid"
+            TopologicalResult.validationError "particle" "Mixing Ising/Fibonacci particles with SU(2)_k SpinJ particles is invalid"
     
     /// Get fusion multiplicity N^c_ab
     /// 

@@ -48,11 +48,11 @@ module JobLifecycle =
                 
                 // Serialize to JSON
                 let jsonContent = JsonSerializer.Serialize(payload)
-                let content = new StringContent(jsonContent, System.Text.Encoding.UTF8, "application/json")
+                use content = new StringContent(jsonContent, System.Text.Encoding.UTF8, "application/json")
                 
                 // Make PUT request to /jobs/{id}
                 let url = sprintf "%s/jobs/%s" workspaceUrl submission.JobId
-                let! response = httpClient.PutAsync(url, content) |> Async.AwaitTask
+                use! response = httpClient.PutAsync(url, content) |> Async.AwaitTask
                 
                 // Handle response
                 match response.StatusCode with
@@ -127,7 +127,7 @@ module JobLifecycle =
             try
                 // Make GET request to /jobs/{id}
                 let url = sprintf "%s/jobs/%s" workspaceUrl jobId
-                let! response = httpClient.GetAsync(url) |> Async.AwaitTask
+                use! response = httpClient.GetAsync(url) |> Async.AwaitTask
                 
                 // Handle response
                 match response.StatusCode with
@@ -318,7 +318,7 @@ module JobLifecycle =
         async {
             try
                 // Make GET request to blob storage URI
-                let! response = httpClient.GetAsync(blobUri) |> Async.AwaitTask
+                use! response = httpClient.GetAsync(blobUri) |> Async.AwaitTask
                 
                 // Handle response
                 match response.StatusCode with
@@ -393,7 +393,7 @@ module JobLifecycle =
             try
                 // Make DELETE request to /jobs/{id}
                 let url = sprintf "%s/jobs/%s" workspaceUrl jobId
-                let! response = httpClient.DeleteAsync(url) |> Async.AwaitTask
+                use! response = httpClient.DeleteAsync(url) |> Async.AwaitTask
                 
                 // Handle response
                 match response.StatusCode with

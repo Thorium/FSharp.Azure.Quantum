@@ -41,25 +41,27 @@ module GateTranspiler =
     /// Decompose S gate into RZ(π/2)
     /// 
     /// S = [[1,  0],
-    ///      [0,  i]] = RZ(π/2)
+    ///      [0,  i]] ≈ RZ(π/2) up to global phase e^(-iπ/4)
     /// 
     /// Effect: Adds π/2 phase to |1⟩ state
+    /// Note: Global phase difference is unobservable in measurement outcomes
     let private decomposeS (qubit: int) : Gate list =
         [RZ (qubit, piOver2)]
     
     /// Decompose S-dagger gate into RZ(-π/2)
     /// 
     /// SDG = [[1,  0],
-    ///        [0, -i]] = RZ(-π/2)
+    ///        [0, -i]] ≈ RZ(-π/2) up to global phase e^(iπ/4)
     /// 
     /// Effect: Adds -π/2 phase to |1⟩ state
+    /// Note: Global phase difference is unobservable in measurement outcomes
     let private decomposeSDG (qubit: int) : Gate list =
         [RZ (qubit, -piOver2)]
     
     /// Decompose T gate into RZ(π/4)
     /// 
     /// T = [[1,  0],
-    ///      [0,  e^(iπ/4)]] = RZ(π/4)
+    ///      [0,  e^(iπ/4)]] ≈ RZ(π/4) up to global phase e^(-iπ/8)
     /// 
     /// Effect: Adds π/4 phase to |1⟩ state
     let private decomposeT (qubit: int) : Gate list =
@@ -159,22 +161,22 @@ module GateTranspiler =
     /// 
     /// CP(θ) = diag(1, 1, 1, e^(iθ)) - controlled phase rotation
     /// 
-    /// Decomposition: CP(θ) = RZ(θ/2) · CNOT · RZ(-θ/2) · CNOT · RZ(θ/2)
+    /// Decomposition: CP(θ) = RZ_c(θ/2) · CNOT(c,t) · RZ_t(-θ/2) · CNOT(c,t) · RZ_t(θ/2)
     /// 
     /// Reference: Nielsen & Chuang, Exercise 4.16
     /// 
     /// Circuit:
-    ///   c: ─RZ(θ/2)──●──RZ(-θ/2)──●──RZ(θ/2)─
+    ///   c: ─RZ(θ/2)──●─────────────●───────────
     ///                │             │
-    ///   t: ─────────┤ X ├─────────┤ X ├───────
+    ///   t: ─────────┤ X ├─RZ(-θ/2)┤ X ├─RZ(θ/2)
     let private decomposeCP (control: int) (target: int) (angle: float) : Gate list =
         let halfAngle = angle / 2.0
         [
             RZ (control, halfAngle)
             CNOT (control, target)
-            RZ (control, -halfAngle)
+            RZ (target, -halfAngle)
             CNOT (control, target)
-            RZ (control, halfAngle)
+            RZ (target, halfAngle)
         ]
     
     /// Decompose SWAP gate into 3 CNOTs
@@ -345,10 +347,6 @@ module GateTranspiler =
             [CNOT (c, target)]
         
         | [c1; c2] -> 
-            [CCX (c1, c2, target)]
-        
-        | c1 :: c2 :: rest when rest.IsEmpty ->
-            // Two controls: standard Toffoli
             [CCX (c1, c2, target)]
         
         | c1 :: c2 :: aux :: restControls ->
@@ -711,6 +709,18 @@ module GateTranspiler =
                 not (supportedGates.Contains "CZ")
             | CCX _ -> 
                 not (supportedGates.Contains "CCX")
+            | SWAP _ ->
+                not (supportedGates.Contains "SWAP")
+            | CP _ ->
+                not (supportedGates.Contains "CP")
+            | CRX _ ->
+                not (supportedGates.Contains "CRX")
+            | CRY _ ->
+                not (supportedGates.Contains "CRY")
+            | CRZ _ ->
+                not (supportedGates.Contains "CRZ")
+            | MCZ _ ->
+                not (supportedGates.Contains "MCZ")
             | _ -> false)
     
     /// Get transpilation statistics for a circuit

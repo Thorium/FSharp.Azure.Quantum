@@ -4,6 +4,7 @@ open System
 open System.IO
 open System.Security.Cryptography
 open System.Text
+open System.Text.Json
 
 module Data =
     let ensureDirectory (path: string) =
@@ -88,3 +89,55 @@ module Data =
 
     let readCsvWithHeader (path: string) : CsvRow list =
         readCsvWithHeaderWithErrors path |> fst
+
+    /// Read a JSON file and deserialize to a list of string-keyed dictionaries.
+    /// Useful for pipeline composition where one script's JSON output feeds another.
+    let readJsonRows (path: string) : CsvRow list =
+        let json = File.ReadAllText path
+        let doc = JsonDocument.Parse json
+        match doc.RootElement.ValueKind with
+        | JsonValueKind.Array ->
+            [ for elem in doc.RootElement.EnumerateArray() do
+                if elem.ValueKind = JsonValueKind.Object then
+                    let values =
+                        [ for prop in elem.EnumerateObject() ->
+                            prop.Name, prop.Value.ToString() ]
+                        |> Map.ofList
+                    { Values = values } ]
+        | _ -> []
+
+    /// Read lines from a text file, trimming whitespace and skipping blank/comment lines.
+    let readLines (path: string) : string list =
+        File.ReadAllLines path
+        |> Array.map (fun l -> l.Trim())
+        |> Array.filter (fun l ->
+            not (String.IsNullOrWhiteSpace l)
+            && not (l.StartsWith("#", StringComparison.Ordinal)))
+        |> Array.toList
+
+    /// Read SMILES strings from a .smi or .csv file (one SMILES per line, or first column).
+    let readSmiles (path: string) : string list =
+        let ext = Path.GetExtension(path).ToLowerInvariant()
+        match ext with
+        | ".csv" ->
+            let rows = readCsvWithHeader path
+            rows
+            |> List.choose (fun r ->
+                r.Values
+                |> Map.tryFind "smiles"
+                |> Option.orElse (r.Values |> Map.tryFind "SMILES")
+                |> Option.orElse (
+                    // Fall back to first column value
+                    r.Values |> Map.toList |> List.tryHead |> Option.map snd))
+        | _ ->
+            // .smi or plain text: one SMILES per line (optionally tab-separated id)
+            readLines path
+            |> List.map (fun line ->
+                match line.Split([| '\t'; ' ' |], 2) with
+                | [| smiles; _ |] -> smiles
+                | _ -> line)
+
+    /// Resolve a file path relative to the script's directory.
+    let resolveRelative (scriptDir: string) (path: string) : string =
+        if Path.IsPathRooted path then path
+        else Path.Combine(scriptDir, path) |> Path.GetFullPath

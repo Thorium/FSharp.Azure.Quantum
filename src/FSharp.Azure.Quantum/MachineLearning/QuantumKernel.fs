@@ -55,10 +55,11 @@ module QuantumKernels =
                 | PauliFeatureMap (paulis, depth) -> FeatureMap.pauliFeatureMap paulis depth y
                 | AmplitudeEncoding -> FeatureMap.amplitudeEncoding y
             
-            // Create inverse of circuitY (reverse order, negate rotation angles)
+            // Create inverse of circuitY (adjoint: negate rotation angles)
+            // Gates are stored in reverse order internally.
+            // Mapping inverseGate over reversed gates produces the adjoint in reversed order.
             let inverseGatesY = 
                 circuitY.Gates 
-                |> List.rev 
                 |> List.map (fun gate ->
                     match gate with
                     | H q -> H q
@@ -75,7 +76,8 @@ module QuantumKernels =
                 )
             
             // Combine: U_φ(x) followed by U_φ†(y)
-            let combinedGates = circuitX.Gates @ inverseGatesY
+            // In reversed storage: [inverseY reversed] @ [circuitX reversed]
+            let combinedGates = inverseGatesY @ circuitX.Gates
             
             Ok { 
                 QubitCount = circuitX.QubitCount
@@ -170,43 +172,37 @@ module QuantumKernels =
         else
             let n = data.Length
             
-            // Compute kernel values (exploit symmetry) using functional approach
-            let computeAllKernels () =
-                [0 .. n - 1]
-                |> List.tryPick (fun i ->
-                    [i .. n - 1]
-                    |> List.tryPick (fun j ->
-                        match computeKernel backend featureMap data.[i] data.[j] shots with
-                        | Error e -> Some (Error (QuantumError.ValidationError ("Input", $"Kernel computation failed at ({i},{j}): {e}")))
-                        | Ok _ -> None))
-                |> Option.defaultWith (fun () ->
-                    // 🚀 PARALLELIZED: Compute all unique kernel entries in parallel
-                    // For symmetric matrix, only compute upper triangle (i,j) where j >= i
-                    let uniquePairs = 
-                        [| for i in 0 .. n - 1 do
-                            for j in i .. n - 1 do
-                                yield (i, j) |]
-                    
-                    let kernelEntries =
-                        uniquePairs
-                        |> Array.map (fun (i, j) -> 
-                            async { 
-                                return (i, j, computeKernel backend featureMap data.[i] data.[j] shots)
-                            })
-                        |> Async.Parallel
-                        |> Async.RunSynchronously
-                    
-                    let kernelMatrix = Array2D.zeroCreate n n
-                    for (i, j, result) in kernelEntries do
-                        match result with
-                        | Ok kernelValue ->
-                            kernelMatrix.[i, j] <- kernelValue
-                            if i <> j then
-                                kernelMatrix.[j, i] <- kernelValue
-                        | Error _ -> () // Already checked in tryPick
-                    Ok kernelMatrix)
+            // Compute all unique kernel entries in parallel
+            // For symmetric matrix, only compute upper triangle (i,j) where j >= i
+            let uniquePairs = 
+                [| for i in 0 .. n - 1 do
+                    for j in i .. n - 1 do
+                        yield (i, j) |]
             
-            computeAllKernels ()
+            let kernelEntries =
+                uniquePairs
+                |> Array.map (fun (i, j) -> 
+                    async { 
+                        return (i, j, computeKernel backend featureMap data.[i] data.[j] shots)
+                    })
+                |> Async.Parallel
+                |> Async.RunSynchronously
+            
+            // Check for errors first
+            match kernelEntries |> Array.tryFind (fun (_, _, r) -> Result.isError r) with
+            | Some (i, j, Error e) ->
+                Error (QuantumError.ValidationError ("Input", $"Kernel computation failed at ({i},{j}): {e}"))
+            | _ ->
+                // Build symmetric matrix from successful results
+                let kernelMatrix = Array2D.zeroCreate n n
+                for (i, j, result) in kernelEntries do
+                    match result with
+                    | Ok kernelValue ->
+                        kernelMatrix.[i, j] <- kernelValue
+                        if i <> j then
+                            kernelMatrix.[j, i] <- kernelValue
+                    | Error _ -> () // Already handled above
+                Ok kernelMatrix
     
     /// Compute kernel matrix between train and test sets
     ///
@@ -281,12 +277,13 @@ module QuantumKernels =
         if n <> m then
             false
         else
-            let mutable symmetric = true
-            for i in 0 .. n - 1 do
-                for j in i + 1 .. n - 1 do
-                    if abs (matrix.[i, j] - matrix.[j, i]) > tolerance then
-                        symmetric <- false
-            symmetric
+            seq {
+                for i in 0 .. n - 1 do
+                    for j in i + 1 .. n - 1 do
+                        yield (i, j)
+            }
+            |> Seq.forall (fun (i, j) ->
+                abs (matrix.[i, j] - matrix.[j, i]) <= tolerance)
     
     /// Check if kernel matrix is positive semi-definite
     ///
@@ -298,13 +295,7 @@ module QuantumKernels =
     let isPositiveSemiDefinite (matrix: float[,]) : bool =
         // Simple check: diagonal elements should be non-negative
         let n = Array2D.length1 matrix
-        let mutable valid = true
-        
-        for i in 0 .. n - 1 do
-            if matrix.[i, i] < 0.0 then
-                valid <- false
-        
-        valid
+        [| 0 .. n - 1 |] |> Array.forall (fun i -> matrix.[i, i] >= 0.0)
     
     /// Normalize kernel matrix (divide by diagonal elements)
     ///

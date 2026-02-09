@@ -42,37 +42,33 @@ module QuboExtraction =
     ///   QUBO: Q_00 = 2.0, Q_01 = 2.0
     let fromProblemHamiltonian (hamiltonian: ProblemHamiltonian) : Map<(int * int), float> =
         
-        let mutable quboTerms = Map.empty
-        
-        // Helper: Add or update QUBO term
-        let addQuboTerm (i: int) (j: int) (value: float) =
+        // Helper: Add or update QUBO term in map
+        let addQuboTerm (qubo: Map<(int * int), float>) (i: int) (j: int) (value: float) =
             let key = if i <= j then (i, j) else (j, i)  // Normalize to upper triangle
-            let current = Map.tryFind key quboTerms |> Option.defaultValue 0.0
-            quboTerms <- Map.add key (current + value) quboTerms
+            let current = Map.tryFind key qubo |> Option.defaultValue 0.0
+            Map.add key (current + value) qubo
         
-        // Process each Hamiltonian term
-        for term in hamiltonian.Terms do
+        // Process each Hamiltonian term, threading the map
+        hamiltonian.Terms
+        |> Seq.fold (fun qubo term ->
             match term.QubitsIndices.Length with
             | 1 ->
                 // Single-qubit Z term: c * Z_i
                 // Inverse: Q_ii = -2 * c
                 let i = term.QubitsIndices.[0]
-                let coeff = term.Coefficient
-                addQuboTerm i i (-2.0 * coeff)
+                addQuboTerm qubo i i (-2.0 * term.Coefficient)
             
             | 2 ->
                 // Two-qubit ZZ term: c * Z_i * Z_j
                 // Inverse: Q_ij = 4 * c
                 let i = term.QubitsIndices.[0]
                 let j = term.QubitsIndices.[1]
-                let coeff = term.Coefficient
-                addQuboTerm i j (4.0 * coeff)
+                addQuboTerm qubo i j (4.0 * term.Coefficient)
             
             | _ ->
                 // Higher-order terms not supported in QUBO
                 failwith $"Unsupported term order: {term.QubitsIndices.Length} qubits (QUBO supports only 1 and 2)"
-        
-        quboTerms
+        ) Map.empty
     
     // ============================================================================
     // QUBO EXTRACTION FROM QAOA CIRCUIT
@@ -207,12 +203,11 @@ module QuboExtraction =
         if n1 <> n2 then
             failwith "QUBO array must be square"
         
-        let mutable qubo = Map.empty
-        
-        for i in 0 .. n1 - 1 do
-            for j in i .. n1 - 1 do  // Upper triangle only
-                let value = array.[i, j]
-                if abs value > 1e-10 then  // Skip near-zero terms
-                    qubo <- Map.add (i, j) value qubo
-        
-        qubo
+        seq {
+            for i in 0 .. n1 - 1 do
+                for j in i .. n1 - 1 do  // Upper triangle only
+                    let value = array.[i, j]
+                    if abs value > 1e-10 then  // Skip near-zero terms
+                        yield (i, j), value
+        }
+        |> Map.ofSeq

@@ -200,8 +200,9 @@ module ModularDataTests =
         // Act & Assert
         match result with
         | Ok data ->
-            let dim = ModularData.groundStateDegeneracy data 0  // genus=0 (sphere)
-            Assert.Equal(1, dim)
+            match ModularData.groundStateDegeneracy data 0 with  // genus=0 (sphere)
+            | Ok dim -> Assert.Equal(1, dim)
+            | Error e -> Assert.Fail($"Failed to compute degeneracy: {e}")
         | Error e ->
             Assert.Fail($"Failed: {e}")
     
@@ -213,8 +214,9 @@ module ModularDataTests =
         // Act & Assert
         match result with
         | Ok data ->
-            let dim = ModularData.groundStateDegeneracy data 1  // genus=1 (torus)
-            Assert.Equal(3, dim)  // Number of particle types
+            match ModularData.groundStateDegeneracy data 1 with  // genus=1 (torus)
+            | Ok dim -> Assert.Equal(3, dim)  // Number of particle types
+            | Error e -> Assert.Fail($"Failed to compute degeneracy: {e}")
         | Error e ->
             Assert.Fail($"Failed: {e}")
     
@@ -226,8 +228,9 @@ module ModularDataTests =
         // Act & Assert
         match result with
         | Ok data ->
-            let dim = ModularData.groundStateDegeneracy data 1  // genus=1 (torus)
-            Assert.Equal(2, dim)  // Number of particle types
+            match ModularData.groundStateDegeneracy data 1 with  // genus=1 (torus)
+            | Ok dim -> Assert.Equal(2, dim)  // Number of particle types
+            | Error e -> Assert.Fail($"Failed to compute degeneracy: {e}")
         | Error e ->
             Assert.Fail($"Failed: {e}")
     

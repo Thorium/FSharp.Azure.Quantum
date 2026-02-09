@@ -177,6 +177,11 @@ module BackendAbstraction =
         inherit IQuantumOperationExtension
         abstract member ApplyToStateVector: LocalSimulator.StateVector.StateVector -> LocalSimulator.StateVector.StateVector
 
+    /// Direction of an F-move (basis change in fusion tree)
+    type FMoveDirection =
+        | Forward
+        | Backward
+
     /// Quantum operation types (gates, braids, algorithm intent, and extensions)
     ///
     /// Represents operations that can be applied to quantum states.
@@ -215,12 +220,11 @@ module BackendAbstraction =
         /// F-move operation (basis change in fusion tree)
         ///
         /// Parameters:
-        ///   direction - Forward or backward F-move (as obj to avoid circular dependency)
+        ///   direction - Forward or backward F-move
         ///   depth - Depth in fusion tree
         ///
         /// Only applicable to topological backends.
-        /// Direction type is FSharp.Azure.Quantum.Topological.TopologicalOperations.FMoveDirection
-        | FMove of direction: obj * depth: int
+        | FMove of direction: FMoveDirection * depth: int
         
         /// Sequence of operations (batch execution)
         ///
@@ -426,13 +430,12 @@ module BackendAbstraction =
         /// Execute operation with automatic state conversion if needed
         /// 
         /// Handles conversion between state types transparently.
-        /// Caches converted state if multiple operations will be applied.
+        /// For batch operations, prefer applySequence which converts once.
         /// 
         /// Parameters:
         ///   backend - Unified quantum backend
         ///   operation - Operation to apply
         ///   state - Current quantum state
-        ///   willReuse - Whether state will be reused (enables caching)
         /// 
         /// Returns:
         ///   Evolved state (possibly converted to backend's native type)
@@ -440,7 +443,6 @@ module BackendAbstraction =
             (backend: IQuantumBackend) 
             (operation: QuantumOperation) 
             (state: QuantumState)
-            (willReuse: bool)
             : Result<QuantumState, QuantumError> =
             
             let stateType = QuantumState.stateType state

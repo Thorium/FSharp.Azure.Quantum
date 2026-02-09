@@ -44,6 +44,10 @@ module CircuitValidator =
         /// Total number of gates in circuit
         GateCount: int
         
+        /// Circuit depth (longest path through parallel gates)
+        /// If not provided, GateCount is used as upper bound
+        Depth: int option
+        
         /// Set of unique gate types used
         UsedGates: Set<string>
         
@@ -173,10 +177,12 @@ module CircuitValidator =
         match constraints.MaxCircuitDepth with
         | None -> Ok ()  // No depth limit
         | Some maxDepth ->
-            if circuit.GateCount <= maxDepth then
+            // Use actual depth if available, otherwise fall back to gate count as upper bound
+            let circuitDepth = circuit.Depth |> Option.defaultValue circuit.GateCount
+            if circuitDepth <= maxDepth then
                 Ok ()
             else
-                Error (CircuitDepthExceeded(circuit.GateCount, maxDepth, constraints.Name))
+                Error (CircuitDepthExceeded(circuitDepth, maxDepth, constraints.Name))
     
     /// Validate two-qubit gate connectivity against backend constraints
     let validateConnectivity (constraints: BackendConstraints) (circuit: CircuitStats) : Result<unit, ValidationError list> =

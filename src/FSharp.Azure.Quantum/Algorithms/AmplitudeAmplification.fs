@@ -223,7 +223,7 @@ module AmplitudeAmplification =
 
             let transpiled1 = GateTranspiler.transpileForBackend "topological" circuitWithMCZ
             let transpiled2 = GateTranspiler.transpileForBackend "topological" transpiled1
-            transpiled2.Gates
+            transpiled2.Gates |> List.rev
 
         let private lowerPreparedStateReflection (numQubits: int) : QuantumOperation list =
             // S0 (reflection about |0..0⟩) implemented as:
@@ -309,14 +309,14 @@ module AmplitudeAmplification =
             : Result<QuantumOperation list * QuantumOperation list, QuantumError> =
 
             // Normalize prep circuit into a sequence of gate operations.
-            let prepOps = intent.StatePreparation.Gates |> List.map QuantumOperation.Gate
+            let prepOps = intent.StatePreparation.Gates |> List.rev |> List.map QuantumOperation.Gate
 
             let reflectionOps =
                 // Reflection about prepared state: A · S0 · A†
                 let inversePrep = CircuitBuilder.reverse intent.StatePreparation
                 prepOps
                 @ lowerPreparedStateReflection intent.NumQubits
-                @ (inversePrep.Gates |> List.map QuantumOperation.Gate)
+                @ (inversePrep.Gates |> List.rev |> List.map QuantumOperation.Gate)
 
             result {
                 let! oracleOps = lowerOracleOps intent.Oracle

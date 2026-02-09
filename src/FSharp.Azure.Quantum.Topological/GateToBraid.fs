@@ -85,7 +85,7 @@ module GateToBraid =
     module private ResultPrivate =
         let sequence (results: Result<'a, TopologicalError> list) : Result<'a list, TopologicalError> =
             let folder state item =
-                result {
+                topologicalResult {
                     let! acc = state
                     let! value = item
                     return value :: acc
@@ -94,18 +94,18 @@ module GateToBraid =
             |> List.fold folder (Ok [])
             |> Result.map List.rev
     
-    /// Normalize angle to [0, 2π) range
-    let private normalizeAngle (angle: float) : float =
-        let twoPi = 2.0 * Math.PI
-        let normalized = angle % twoPi
-        if normalized < 0.0 then normalized + twoPi else normalized
-    
-    /// Compute approximation error for angle discretization
+    /// Compute approximation error for angle discretization.
+    /// Returns (error, numTGates) where numTGates can be negative (for counter-clockwise).
+    /// 
+    /// Uses signed angle to pick optimal direction:
+    ///   - Positive n → clockwise T gates (exp(+iπ/8) each)
+    ///   - Negative n → counter-clockwise T† gates (exp(-iπ/8) each)
+    /// This avoids e.g. Rz(-π/8) becoming 15 clockwise gates instead of 1 counter-clockwise.
     let private computeAngleError (targetAngle: float) (tPhase: float) : float * int =
-        let normalizedTarget = normalizeAngle targetAngle
-        let numTGates = int (Math.Round(normalizedTarget / tPhase))
+        // Round to nearest integer multiple of tPhase (signed)
+        let numTGates = int (Math.Round(targetAngle / tPhase))
         let approximateAngle = float numTGates * tPhase
-        let error = abs(normalizedTarget - approximateAngle)
+        let error = abs(targetAngle - approximateAngle)
         (error, numTGates)
 
     // ========================================================================
@@ -179,18 +179,20 @@ module GateToBraid =
         | SolovayKitaev.S -> sGateToBraid qubitIndex numQubits
         | SolovayKitaev.SDagger -> sDaggerGateToBraid qubitIndex numQubits
         | SolovayKitaev.Z -> zGateToBraid qubitIndex numQubits
-        | SolovayKitaev.I -> Ok (BraidGroup.identity (numQubits + 1))
+        | SolovayKitaev.I -> BraidGroup.identity (numQubits + 1)
         // H/X/Y should NEVER appear in output when using topological-compatible base set
         | SolovayKitaev.H | SolovayKitaev.X | SolovayKitaev.Y ->
             TopologicalResult.computationError "gateConversion" $"Gate %A{gate} should not appear in Solovay-Kitaev output for topological systems"
     
     /// Compose a list of braids (left-to-right)
-    let composeBraids (braids: BraidGroup.BraidWord list) (numQubits: int) : BraidGroup.BraidWord =
+    /// Returns Error if any composition fails (e.g., mismatched strand counts)
+    let composeBraids (braids: BraidGroup.BraidWord list) (numQubits: int) : Result<BraidGroup.BraidWord, TopologicalError> =
         braids 
         |> List.fold (fun acc braid ->
-            match BraidGroup.compose acc braid with
-            | Ok composed -> composed
-            | Error _ -> acc  // Fallback to accumulator on error (shouldn't happen with valid braids)
+            match acc with
+            | Error _ -> acc  // Propagate previous error
+            | Ok current ->
+                BraidGroup.compose current braid
         ) (BraidGroup.identity (numQubits + 1))
     
     /// Convert Solovay-Kitaev gate sequence to composed braiding
@@ -198,7 +200,7 @@ module GateToBraid =
         gates
         |> List.map (fun gate -> basicGateToBraid gate qubitIndex numQubits)
         |> ResultPrivate.sequence
-        |> Result.map (fun braids -> composeBraids braids numQubits)
+        |> Result.bind (fun braids -> composeBraids braids numQubits)
     
     /// Hadamard gate decomposition using topological-specific Solovay-Kitaev
     /// 
@@ -243,10 +245,10 @@ module GateToBraid =
     /// 
     /// For topological QC, global phases don't matter, so:
     /// Rz(θ) ≈ T^n where n = round(θ / (π/8))
+    /// Positive n → clockwise T gates, negative n → counter-clockwise T† gates.
     /// 
     /// This is an APPROXIMATION unless θ is an exact multiple of π/8.
     let rzGateToBraid (qubitIndex: int) (angle: float) (numQubits: int) (tolerance: float) : Result<BraidGroup.BraidWord, TopologicalError> =
-        // Normalize angle to [0, 2π)
         let tPhase = Math.PI / 8.0
         let (error, numTGates) = computeAngleError angle tPhase
         
@@ -254,10 +256,12 @@ module GateToBraid =
         if error > tolerance then
             TopologicalResult.computationError "Rz gate approximation" $"Rz({angle}) approximation error {error:F6} exceeds tolerance {tolerance:F6}"
         else
-            // All gates are clockwise after normalization
+            // Use sign to determine direction: positive → clockwise, negative → counter-clockwise
+            let isClockwise = numTGates >= 0
+            let absCount = abs numTGates
             let gens : BraidGroup.BraidGenerator list = 
-                List.init numTGates (fun _ -> 
-                    { Index = qubitIndex; IsClockwise = true })
+                List.init absCount (fun _ -> 
+                    { Index = qubitIndex; IsClockwise = isClockwise })
             
             BraidGroup.fromGenerators (numQubits + 1) gens
     
@@ -346,7 +350,7 @@ module GateToBraid =
     ///   - CZ requires braiding strand 2*control+1 with strand 2*target
     ///   - This creates the phase flip on |11⟩ state
     let controlledZGateToBraid (controlQubit: int) (targetQubit: int) (numQubits: int) (tolerance: float) : Result<BraidGroup.BraidWord, TopologicalError> =
-        result {
+        topologicalResult {
             // Step 1: Apply S gates to set up the entangling interaction
             let! sControl = sGateToBraid controlQubit numQubits
             let! sTarget = sGateToBraid targetQubit numQubits
@@ -395,7 +399,7 @@ module GateToBraid =
             TopologicalResult.computationError "operation" "Control and target qubits must be different"
         else
             // Standard CNOT decomposition: CNOT = H(t) · CZ(c,t) · H(t)
-            result {
+            topologicalResult {
                 // Step 1: Apply Hadamard to target qubit
                 let! h1 = hadamardGateToBraid targetQubit numQubits tolerance
                 
@@ -682,6 +686,7 @@ module GateToBraid =
             }
             
             // Fold over transpiled gates, accumulating results or short-circuiting on error
+            // Note: AllBraids accumulated in reverse order, reversed at the end to avoid O(n²) append
             transpiledCircuit.Gates
             |> List.fold (fun stateResult gate ->
                 match stateResult with
@@ -695,8 +700,12 @@ module GateToBraid =
                             | Some note -> note :: state.Warnings
                             | None -> state.Warnings
                         
+                        // Prepend reversed braids (O(1) per braid) instead of append (O(n))
+                        let newBraids =
+                            (List.rev decomp.BraidSequence) @ state.AllBraids
+                        
                         Ok {
-                            AllBraids = state.AllBraids @ decomp.BraidSequence
+                            AllBraids = newBraids
                             TotalError = state.TotalError + decomp.ApproximationError
                             Warnings = newWarnings
                         }
@@ -704,7 +713,7 @@ module GateToBraid =
             |> Result.map (fun finalState ->
                 {
                     OriginalGateCount = gateSequence.Gates.Length
-                    CompiledBraids = finalState.AllBraids
+                    CompiledBraids = List.rev finalState.AllBraids
                     TotalError = finalState.TotalError
                     IsExact = (finalState.TotalError < 1e-10)
                     AnyonType = anyonType

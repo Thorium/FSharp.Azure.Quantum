@@ -69,7 +69,7 @@ module NoiseModels =
         /// Typical: 10-1000 Hz depending on temperature
         PoisoningRate: float
         
-        /// Temperature (milli-Kelvin)
+        /// Temperature in Kelvin (displayed as milli-Kelvin in diagnostics)
         /// Lower temperature → less poisoning
         Temperature: float
     }
@@ -213,44 +213,83 @@ module NoiseModels =
     // NOISE APPLICATION
     // ========================================================================
     
-    /// Apply decoherence to a quantum state over time
+    /// Apply decoherence to a quantum superposition over time
     ///
     /// Models:
-    /// 1. Amplitude damping (T1): |1⟩ → |0⟩ relaxation
-    /// 2. Phase damping (T2): Loss of coherence
+    /// 1. Amplitude damping (T1): Excited states decay toward ground state
+    /// 2. Phase damping (T2): Off-diagonal coherences decay exponentially
+    ///
+    /// The first term in the superposition is treated as the ground state.
+    /// T1 relaxation transfers amplitude from excited states to ground.
+    /// T2 dephasing multiplies each amplitude by exp(-t/T2), reducing coherence.
     let applyDecoherence 
         (parameters: DecoherenceParameters) 
         (elapsedTime: float) 
-        (state: FusionTree.State) 
-        (random: Random) 
-        : FusionTree.State =
+        (superposition: TopologicalOperations.Superposition) 
+        (_random: Random) 
+        : TopologicalOperations.Superposition =
         
-        // Calculate decay probabilities
-        let t1Decay = 1.0 - exp (-elapsedTime / parameters.T1)
-        let t2Decay = 1.0 - exp (-elapsedTime / parameters.T2)
+        let t1Decay = exp (-elapsedTime / parameters.T1)
+        let t2Decay = exp (-elapsedTime / parameters.T2)
         
-        // For simulation simplicity, state doesn't change structurally
-        // (Real implementation would modify amplitudes in superposition)
-        // This is a placeholder for the structural decay
-        state
+        match superposition.Terms with
+        | [] -> superposition
+        | [(amp, state)] ->
+            // Single basis state: T2 dephasing has no observable effect on a pure
+            // computational basis state (global phase is unobservable).
+            // T1 would only matter if this is an excited state, but with a single term
+            // there is no ground state to decay into, so return unchanged.
+            superposition
+        | (groundAmp, groundState) :: excitedTerms ->
+            // T1: Each excited amplitude is damped by sqrt(t1Decay),
+            //     and the lost probability transfers to the ground state.
+            // T2: Each amplitude is damped by t2Decay (coherence loss).
+            let dampedExcited =
+                excitedTerms
+                |> List.map (fun (amp, state) ->
+                    let t1Factor = sqrt t1Decay       // amplitude damping
+                    let t2Factor = t2Decay             // phase damping
+                    (amp * Complex(t1Factor * t2Factor, 0.0), state))
+            
+            // Probability transferred from excited states to ground via T1
+            let excitedProbBefore =
+                excitedTerms |> List.sumBy (fun (amp, _) -> (Complex.Abs amp) ** 2.0)
+            let excitedProbAfter =
+                dampedExcited |> List.sumBy (fun (amp, _) -> (Complex.Abs amp) ** 2.0)
+            let transferredProb = excitedProbBefore - excitedProbAfter
+            
+            // Ground state amplitude grows from transferred probability
+            let groundProbNew = (Complex.Abs groundAmp) ** 2.0 + max 0.0 transferredProb
+            let groundPhase = if Complex.Abs groundAmp > 1e-15 then groundAmp / Complex(Complex.Abs groundAmp, 0.0) else Complex.One
+            let newGroundAmp = groundPhase * Complex(sqrt groundProbNew, 0.0)
+            
+            { superposition with Terms = (newGroundAmp, groundState) :: dampedExcited }
+            |> TopologicalOperations.normalize
     
-    /// Apply depolarizing noise to a quantum state
+    /// Apply depolarizing noise to a quantum superposition
     ///
     /// Depolarizing channel: ρ → (1-p)ρ + p(I/d)
-    /// With probability p, replace state with maximally mixed state
+    /// With probability p, replace state with maximally mixed superposition
+    /// over the existing basis states (uniform amplitudes).
     let applyDepolarizingNoise 
         (errorRate: float) 
-        (state: FusionTree.State) 
+        (superposition: TopologicalOperations.Superposition) 
         (random: Random) 
-        : FusionTree.State =
+        : TopologicalOperations.Superposition =
         
         if random.NextDouble() < errorRate then
-            // Error occurred - state gets randomized
-            // (Placeholder: in reality, would create mixed state)
-            state
+            // Error occurred — replace with uniform superposition over the
+            // same basis states (maximally mixed in this subspace)
+            match superposition.Terms with
+            | [] -> superposition
+            | terms ->
+                let d = float terms.Length
+                let uniformAmp = Complex(1.0 / sqrt d, 0.0)
+                { superposition with
+                    Terms = terms |> List.map (fun (_, state) -> (uniformAmp, state)) }
         else
-            // No error
-            state
+            // No error — state unchanged
+            superposition
     
     /// Apply measurement error (bit flip)
     ///
@@ -295,12 +334,12 @@ module NoiseModels =
     let noisyBraid 
         (noiseModel: NoiseModel) 
         (leftIndex: int) 
-        (state: FusionTree.State) 
+        (superposition: TopologicalOperations.Superposition) 
         (random: Random) 
-        : FusionTree.State =
+        : TopologicalOperations.Superposition =
         
         // Functional pipeline (idiomatic F#) - no mutable state!
-        state
+        superposition
         |> (match noiseModel.GateErrors with
             | Some gateErrors ->
                 (fun s -> applyDepolarizingNoise gateErrors.TwoQubitErrorRate s random)
@@ -313,8 +352,14 @@ module NoiseModels =
             | Some poisoning, Some gateErrors ->
                 fun s ->
                     if checkQuasiparticlePoisoning poisoning gateErrors.BraidingTime random then
-                        // Poisoning event - state corrupted (placeholder)
-                        s
+                        // Poisoning event — replace with uniform superposition
+                        // (quasiparticle corrupts the encoded state)
+                        match s.Terms with
+                        | [] -> s
+                        | terms ->
+                            let d = float terms.Length
+                            let uniformAmp = Complex(1.0 / sqrt d, 0.0)
+                            { s with Terms = terms |> List.map (fun (_, state) -> (uniformAmp, state)) }
                     else
                         s
             | _ -> id)

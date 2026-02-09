@@ -212,15 +212,15 @@ module DeutschJozsa =
                 let zeroProbability = float zeroCount / float shots
 
                 // Ideal DJ: constant → always zero, balanced → never zero.
-                // For noisy backends, a threshold can be adopted by callers/tests.
-                let oracleType = if zeroProbability = 1.0 then Constant else Balanced
+                // Use threshold to handle noise from real backends.
+                let oracleType = if zeroProbability > 0.99 then Constant else Balanced
 
                 return {
                     OracleType = oracleType
                     ZeroProbability = zeroProbability
                     NumQubits = numQubits
                     Shots = shots
-                    BackendName = backend.NativeStateType.ToString()
+                    BackendName = backend.Name
                 }
             }
     

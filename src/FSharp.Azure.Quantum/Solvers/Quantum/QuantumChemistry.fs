@@ -1295,22 +1295,21 @@ module FermionMapping =
             if amplitudes.Length <> expectedParams then
                 failwith $"Doubles: expected {expectedParams} amplitudes, got {amplitudes.Length}"
             
-            let mutable paramIndex = 0
             [
                 for i in 0 .. numElectrons - 2 do
                     for j in i + 1 .. numElectrons - 1 do
                         for a in numElectrons .. numOrbitals - 2 do
                             for b in a + 1 .. numOrbitals - 1 do
-                                let excitation = {
-                                    OccupiedOrbital1 = i
-                                    OccupiedOrbital2 = j
-                                    VirtualOrbital1 = a
-                                    VirtualOrbital2 = b
-                                    Amplitude = amplitudes.[paramIndex]
-                                }
-                                paramIndex <- paramIndex + 1
-                                excitation
+                                (i, j, a, b)
             ]
+            |> List.mapi (fun idx (i, j, a, b) ->
+                {
+                    OccupiedOrbital1 = i
+                    OccupiedOrbital2 = j
+                    VirtualOrbital1 = a
+                    VirtualOrbital2 = b
+                    Amplitude = amplitudes.[idx]
+                })
         
         /// Generate complete UCCSD excitation pool
         /// 
@@ -2692,9 +2691,7 @@ module VQE =
         (errorMitigation: ErrorMitigationStrategy.RecommendedStrategy option)
         : Result<VQEResult, QuantumError> =
         
-        let mutable energyHistory = []
-        
-        let rec loop iteration currentParameters prevEnergy =
+        let rec loop iteration currentParameters prevEnergy energyHistory =
             if iteration > maxIterations then
                 // Initialize final state through backend
                 match backend.InitializeState hamiltonian.NumQubits with
@@ -2722,7 +2719,7 @@ module VQE =
                         let energy = measureExpectation hamiltonian errorMitigation state
                         
                         // Record energy for convergence plotting
-                        energyHistory <- (iteration, energy) :: energyHistory
+                        let energyHistory' = (iteration, energy) :: energyHistory
                         
                         // Report progress
                         progressReporter
@@ -2735,7 +2732,7 @@ module VQE =
                                 OptimalParameters = currentParameters
                                 Iterations = iteration
                                 Converged = true  // Converged within tolerance
-                                EnergyHistory = List.rev energyHistory
+                                EnergyHistory = List.rev energyHistory'
                             }
                         else
                             let learningRate = 0.1
@@ -2768,9 +2765,9 @@ module VQE =
                             match gradientsResult with
                             | Error err -> Error err
                             | Ok updatedParameters ->
-                                loop (iteration + 1) updatedParameters energy
+                                loop (iteration + 1) updatedParameters energy energyHistory'
         
-        loop 1 initialParameters Double.MaxValue
+        loop 1 initialParameters Double.MaxValue []
     
     /// Run VQE to estimate ground state energy
     /// 

@@ -593,13 +593,11 @@ module ProblemTransformer =
             Validation.failure (errors |> Seq.toList)
         else
             // Check 2: Matrix symmetry (only if sizes match)
-            let mutable isSymmetric = true
             for i in 0 .. qubo.Size - 1 do
                 for j in i + 1 .. qubo.Size - 1 do
                     let qij = qubo.Coefficients.[i, j]
                     let qji = qubo.Coefficients.[j, i]
                     if abs(qij - qji) > 1e-10 then
-                        isSymmetric <- false
                         errors.Add(sprintf "Asymmetry detected: Q[%d,%d] = %f but Q[%d,%d] = %f" 
                             i j qij j i qji)
             

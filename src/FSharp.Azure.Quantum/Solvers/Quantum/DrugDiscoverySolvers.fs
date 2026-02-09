@@ -81,11 +81,12 @@ module DrugDiscoverySolvers =
     /// Evaluate QUBO objective for a bitstring
     let private evaluateQubo (qubo: float[,]) (bits: int[]) : float =
         let n = Array2D.length1 qubo
-        let mutable energy = 0.0
-        for i in 0 .. n - 1 do
-            for j in 0 .. n - 1 do
-                energy <- energy + qubo.[i, j] * float bits.[i] * float bits.[j]
-        energy
+        seq {
+            for i in 0 .. n - 1 do
+                for j in 0 .. n - 1 do
+                    yield qubo.[i, j] * float bits.[i] * float bits.[j]
+        }
+        |> Seq.sum
     
     /// Execute a single QAOA circuit with given parameters and return measurements
     let private executeQaoaCircuit
@@ -206,20 +207,22 @@ module DrugDiscoverySolvers =
         let gammaValues = [| 0.1; 0.3; 0.5; 0.7; 1.0; 1.5; Math.PI / 4.0 |]
         let betaValues = [| 0.1; 0.3; 0.5; 0.7; 1.0 |]
         
-        let mutable bestSolution : int[] option = None
-        let mutable bestEnergy = System.Double.MaxValue
-        let mutable bestParams : (float * float)[] = Array.empty
-        let mutable lastError : QuantumError option = None
+        let initialState = {| BestSolution = None; BestEnergy = System.Double.MaxValue; BestParams = Array.empty<float * float>; LastError = None |}
         
         // Try different parameter combinations
-        for gamma in gammaValues do
-            for beta in betaValues do
+        let result =
+            (initialState, seq {
+                for gamma in gammaValues do
+                    for beta in betaValues do
+                        yield (gamma, beta)
+            })
+            ||> Seq.fold (fun state (gamma, beta) ->
                 // Create multi-layer parameters (same gamma/beta for each layer)
                 let parameters = Array.init config.NumLayers (fun _ -> (gamma, beta))
                 
                 match executeQaoaCircuit backend problemHam mixerHam parameters config.FinalShots with
                 | Error err -> 
-                    lastError <- Some err
+                    {| state with LastError = Some err |}
                 | Ok measurements ->
                     // Find best measurement in this batch
                     let candidate = 
@@ -227,15 +230,15 @@ module DrugDiscoverySolvers =
                         |> Array.minBy (fun bits -> evaluateQubo qubo bits)
                     
                     let energy = evaluateQubo qubo candidate
-                    if energy < bestEnergy then
-                        bestEnergy <- energy
-                        bestSolution <- Some candidate
-                        bestParams <- parameters
+                    if energy < state.BestEnergy then
+                        {| state with BestSolution = Some candidate; BestEnergy = energy; BestParams = parameters |}
+                    else
+                        state)
         
-        match bestSolution with
-        | Some solution -> Ok (solution, bestParams)
+        match result.BestSolution with
+        | Some solution -> Ok (solution, result.BestParams)
         | None -> 
-            match lastError with
+            match result.LastError with
             | Some err -> Error err
             | None -> Error (QuantumError.OperationError ("QAOA", "No valid solution found"))
 
@@ -757,7 +760,7 @@ module DrugDiscoverySolvers =
         /// Constraint repair: remove items to get within budget (remove lowest value first)
         let private repairConstraints (problem: Problem) (bits: int[]) : int[] =
             let repaired = Array.copy bits
-            let mutable currentCost = 
+            let currentCost = 
                 problem.Items
                 |> List.indexed
                 |> List.filter (fun (i, _) -> repaired.[i] = 1)
@@ -776,10 +779,14 @@ module DrugDiscoverySolvers =
                         if item.Cost <= 0.0 then System.Double.MaxValue
                         else item.Value / item.Cost)  // Remove worst ratio first
                 
-                for (i, item) in selected do
-                    if currentCost > problem.Budget then
-                        repaired.[i] <- 0
-                        currentCost <- currentCost - item.Cost
+                let _finalCost =
+                    (currentCost, selected)
+                    ||> List.fold (fun cost (i, item) ->
+                        if cost > problem.Budget then
+                            repaired.[i] <- 0
+                            cost - item.Cost
+                        else
+                            cost)
                 
                 repaired
         
@@ -877,30 +884,32 @@ module DrugDiscoverySolvers =
             // Greedy by value/cost ratio, considering diversity
             let n = problem.Items.Length
             let selected = Array.zeroCreate n
-            let mutable remainingBudget = problem.Budget
             
-            while remainingBudget > 0.0 do
-                let candidates = 
-                    problem.Items
-                    |> List.indexed
-                    |> List.filter (fun (i, item) -> 
-                        selected.[i] = 0 && item.Cost <= remainingBudget)
-                
-                if List.isEmpty candidates then
-                    remainingBudget <- 0.0
+            let rec greedySelect remainingBudget =
+                if remainingBudget <= 0.0 then ()
                 else
-                    // Score: value + diversity bonus with already selected
-                    let bestIdx, bestItem = 
-                        candidates
-                        |> List.maxBy (fun (i, item) ->
-                            let diversityBonus = 
-                                [0 .. n - 1]
-                                |> List.filter (fun j -> selected.[j] = 1)
-                                |> List.sumBy (fun j -> problem.Diversity.[i, j] * problem.DiversityWeight)
-                            item.Value + diversityBonus)
+                    let candidates = 
+                        problem.Items
+                        |> List.indexed
+                        |> List.filter (fun (i, item) -> 
+                            selected.[i] = 0 && item.Cost <= remainingBudget)
                     
-                    selected.[bestIdx] <- 1
-                    remainingBudget <- remainingBudget - bestItem.Cost
+                    if List.isEmpty candidates then ()
+                    else
+                        // Score: value + diversity bonus with already selected
+                        let bestIdx, bestItem = 
+                            candidates
+                            |> List.maxBy (fun (i, item) ->
+                                let diversityBonus = 
+                                    [0 .. n - 1]
+                                    |> List.filter (fun j -> selected.[j] = 1)
+                                    |> List.sumBy (fun j -> problem.Diversity.[i, j] * problem.DiversityWeight)
+                                item.Value + diversityBonus)
+                        
+                        selected.[bestIdx] <- 1
+                        greedySelect (remainingBudget - bestItem.Cost)
+            
+            greedySelect problem.Budget
             
             decode problem selected
             |> fun s -> { s with BackendName = "Classical Greedy" }

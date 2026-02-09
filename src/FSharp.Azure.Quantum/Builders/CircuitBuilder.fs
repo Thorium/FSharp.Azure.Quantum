@@ -63,12 +63,14 @@ module CircuitBuilder =
         circuit.QubitCount
 
     /// Adds a single gate to the end of a circuit
+    /// Internally prepends for O(1) performance; gates are reversed at output boundaries
     let addGate (gate: Gate) (circuit: Circuit) : Circuit =
-        { circuit with Gates = circuit.Gates @ [gate] }
+        { circuit with Gates = gate :: circuit.Gates }
 
     /// Adds multiple gates to the end of a circuit
+    /// Internally prepends reversed for O(n) where n = new gates; gates are reversed at output boundaries
     let addGates (gates: Gate list) (circuit: Circuit) : Circuit =
-        { circuit with Gates = circuit.Gates @ gates }
+        { circuit with Gates = (List.rev gates) @ circuit.Gates }
 
     /// Adds a measurement operation to the end of a circuit
     let addMeasurement (qubit: int) (circuit: Circuit) : Circuit =
@@ -78,11 +80,11 @@ module CircuitBuilder =
     let compose (circuit1: Circuit) (circuit2: Circuit) : Circuit =
         if circuit1.QubitCount <> circuit2.QubitCount then
             failwith "Cannot compose circuits with different qubit counts"
-        { circuit1 with Gates = circuit1.Gates @ circuit2.Gates }
+        { circuit1 with Gates = circuit2.Gates @ circuit1.Gates }
 
     /// Gets all gates from a circuit in order
     let getGates (circuit: Circuit) : Gate list =
-        circuit.Gates
+        List.rev circuit.Gates
 
     /// Optimizes a circuit by removing inverse gate pairs and fusing rotation gates
     let optimize (circuit: Circuit) : Circuit =
@@ -123,7 +125,10 @@ module CircuitBuilder =
             | gate :: rest ->
                 gate :: optimizeGates rest
         
-        { circuit with Gates = optimizeGates circuit.Gates }
+        // Gates are stored in reverse order internally; reverse for optimization, then re-reverse
+        let forwardGates = List.rev circuit.Gates
+        let optimized = optimizeGates forwardGates
+        { circuit with Gates = List.rev optimized }
 
     /// Converts a gate to OpenQASM 2.0 format
     let private gateToQASM (gate: Gate) : string =
@@ -160,7 +165,7 @@ module CircuitBuilder =
     let toOpenQASM (circuit: Circuit) : string =
         let header = "OPENQASM 2.0;\ninclude \"qelib1.inc\";"
         let qregDecl = $"qreg q[{circuit.QubitCount}];"
-        let gateLines = circuit.Gates |> List.map gateToQASM
+        let gateLines = circuit.Gates |> List.rev |> List.map gateToQASM
         
         let allLines = header :: qregDecl :: gateLines
         System.String.Join("\n", allLines)
@@ -286,7 +291,8 @@ module CircuitBuilder =
                 List.rev errors
 
         let allErrors = 
-            circuit.Gates 
+            circuit.Gates
+            |> List.rev
             |> List.collect validateGate
 
         if List.isEmpty allErrors then
@@ -343,10 +349,12 @@ module CircuitBuilder =
         
         member _.Combine(circuit1: Circuit, circuit2: Circuit) : Circuit =
             // Compose circuits: merge gates and preserve qubit count
+            // Gates are stored in reverse order, so circuit2's gates (which come after)
+            // should be prepended to circuit1's gates
             let qubitCount = max circuit1.QubitCount circuit2.QubitCount
             {
                 QubitCount = qubitCount
-                Gates = circuit1.Gates @ circuit2.Gates
+                Gates = circuit2.Gates @ circuit1.Gates
             }
         
         member _.Zero() : Circuit =
@@ -392,52 +400,52 @@ module CircuitBuilder =
         /// Apply Hadamard gate to qubit
         [<CustomOperation("H")>]
         member _.H(circuit: Circuit, qubit: int) : Circuit =
-            { circuit with Gates = circuit.Gates @ [H qubit] }
+            { circuit with Gates = (H qubit) :: circuit.Gates }
         
         /// Apply Pauli-X (NOT) gate to qubit
         [<CustomOperation("X")>]
         member _.X(circuit: Circuit, qubit: int) : Circuit =
-            { circuit with Gates = circuit.Gates @ [X qubit] }
+            { circuit with Gates = (X qubit) :: circuit.Gates }
         
         /// Apply Pauli-Y gate to qubit
         [<CustomOperation("Y")>]
         member _.Y(circuit: Circuit, qubit: int) : Circuit =
-            { circuit with Gates = circuit.Gates @ [Y qubit] }
+            { circuit with Gates = (Y qubit) :: circuit.Gates }
         
         /// Apply Pauli-Z gate to qubit
         [<CustomOperation("Z")>]
         member _.Z(circuit: Circuit, qubit: int) : Circuit =
-            { circuit with Gates = circuit.Gates @ [Z qubit] }
+            { circuit with Gates = (Z qubit) :: circuit.Gates }
         
         /// Apply S gate (phase gate, √Z) to qubit
         [<CustomOperation("S")>]
         member _.S(circuit: Circuit, qubit: int) : Circuit =
-            { circuit with Gates = circuit.Gates @ [S qubit] }
+            { circuit with Gates = (S qubit) :: circuit.Gates }
         
         /// Apply S-dagger (S†, inverse phase) to qubit
         [<CustomOperation("SDG")>]
         member _.SDG(circuit: Circuit, qubit: int) : Circuit =
-            { circuit with Gates = circuit.Gates @ [SDG qubit] }
+            { circuit with Gates = (SDG qubit) :: circuit.Gates }
         
         /// Apply T gate (π/8 gate, √S) to qubit
         [<CustomOperation("T")>]
         member _.T(circuit: Circuit, qubit: int) : Circuit =
-            { circuit with Gates = circuit.Gates @ [T qubit] }
+            { circuit with Gates = (T qubit) :: circuit.Gates }
         
         /// Apply T-dagger (T†, inverse π/8) to qubit
         [<CustomOperation("TDG")>]
         member _.TDG(circuit: Circuit, qubit: int) : Circuit =
-            { circuit with Gates = circuit.Gates @ [TDG qubit] }
+            { circuit with Gates = (TDG qubit) :: circuit.Gates }
         
         /// Apply phase gate P(θ) to qubit
         [<CustomOperation("P")>]
         member _.P(circuit: Circuit, qubit: int, angle: float) : Circuit =
-            { circuit with Gates = circuit.Gates @ [P (qubit, angle)] }
+            { circuit with Gates = (P (qubit, angle)) :: circuit.Gates }
 
         /// Apply phase gate P(θ) to qubit, tuple
         [<CustomOperation("P")>]
         member _.P(circuit: Circuit, qubitAndAngle: int*float) : Circuit =
-            { circuit with Gates = circuit.Gates @ [P qubitAndAngle] }
+            { circuit with Gates = (P qubitAndAngle) :: circuit.Gates }
         
         
         // ========================================================================
@@ -447,32 +455,32 @@ module CircuitBuilder =
         /// Apply RX rotation (around X-axis) to qubit
         [<CustomOperation("RX")>]
         member _.RX(circuit: Circuit, qubit: int, angle: float) : Circuit =
-            { circuit with Gates = circuit.Gates @ [RX (qubit, angle)] }
+            { circuit with Gates = (RX (qubit, angle)) :: circuit.Gates }
 
         /// Apply RX rotation (around X-axis) to qubit
         [<CustomOperation("RX")>]
         member _.RX(circuit: Circuit, qubitAndangle: int*float) : Circuit =
-            { circuit with Gates = circuit.Gates @ [RX qubitAndangle] }
+            { circuit with Gates = (RX qubitAndangle) :: circuit.Gates }
         
         /// Apply RY rotation (around Y-axis) to qubit
         [<CustomOperation("RY")>]
         member _.RY(circuit: Circuit, qubit: int, angle: float) : Circuit =
-            { circuit with Gates = circuit.Gates @ [RY (qubit, angle)] }
+            { circuit with Gates = (RY (qubit, angle)) :: circuit.Gates }
 
         /// Apply RY rotation (around Y-axis) to qubit
         [<CustomOperation("RY")>]
         member _.RY(circuit: Circuit, qubitAndAngle: int*float) : Circuit =
-            { circuit with Gates = circuit.Gates @ [RY qubitAndAngle] }
+            { circuit with Gates = (RY qubitAndAngle) :: circuit.Gates }
         
         /// Apply RZ rotation (around Z-axis) to qubit
         [<CustomOperation("RZ")>]
         member _.RZ(circuit: Circuit, qubit: int, angle: float) : Circuit =
-            { circuit with Gates = circuit.Gates @ [RZ (qubit, angle)] }
+            { circuit with Gates = (RZ (qubit, angle)) :: circuit.Gates }
 
         /// Apply RZ rotation (around Z-axis) to qubit
         [<CustomOperation("RZ")>]
         member _.RZ(circuit: Circuit, qubitAndAngle: int*float) : Circuit =
-            { circuit with Gates = circuit.Gates @ [RZ qubitAndAngle] }
+            { circuit with Gates = (RZ qubitAndAngle) :: circuit.Gates }
         
         // ========================================================================
         // TWO-QUBIT GATES
@@ -481,44 +489,44 @@ module CircuitBuilder =
         /// Apply CNOT (controlled-NOT) gate, control and target (separately)
         [<CustomOperation("CNOT")>]
         member _.CNOT(circuit: Circuit, control: int, target: int) : Circuit =
-            { circuit with Gates = circuit.Gates @ [CNOT (control, target)] }
+            { circuit with Gates = (CNOT (control, target)) :: circuit.Gates }
 
         /// Apply CNOT (controlled-NOT) gate (control and target, tuple)
         [<CustomOperation("CNOT")>]
         member _.CNOT(circuit: Circuit, controlAndTarget: int*int) : Circuit =
-            { circuit with Gates = circuit.Gates @ [CNOT controlAndTarget] }
+            { circuit with Gates = (CNOT controlAndTarget) :: circuit.Gates }
         
         
         /// Apply CZ (controlled-Z) gate
         [<CustomOperation("CZ")>]
         member _.CZ(circuit: Circuit, control: int, target: int) : Circuit =
-            { circuit with Gates = circuit.Gates @ [CZ (control, target)] }
+            { circuit with Gates = (CZ (control, target)) :: circuit.Gates }
 
         /// Apply CZ (controlled-Z) gate
         [<CustomOperation("CZ")>]
         member _.CZ(circuit: Circuit, controlAndTarget: int*int) : Circuit =
-            { circuit with Gates = circuit.Gates @ [CZ controlAndTarget] }
+            { circuit with Gates = (CZ controlAndTarget) :: circuit.Gates }
         
         
         /// Apply controlled-phase gate CP(θ)
         [<CustomOperation("CP")>]
         member _.CP(circuit: Circuit, control: int, target: int, angle: float) : Circuit =
-            { circuit with Gates = circuit.Gates @ [CP (control, target, angle)] }
+            { circuit with Gates = (CP (control, target, angle)) :: circuit.Gates }
 
         /// Apply controlled-phase gate CP(θ)
         [<CustomOperation("CP")>]
         member _.CP(circuit: Circuit, controlTargetAngle: int*int*float) : Circuit =
-            { circuit with Gates = circuit.Gates @ [CP controlTargetAngle] }
+            { circuit with Gates = (CP controlTargetAngle) :: circuit.Gates }
         
         /// Apply SWAP gate to exchange two qubits
         [<CustomOperation("SWAP")>]
         member _.SWAP(circuit: Circuit, qubit1: int, qubit2: int) : Circuit =
-            { circuit with Gates = circuit.Gates @ [SWAP (qubit1, qubit2)] }
+            { circuit with Gates = (SWAP (qubit1, qubit2)) :: circuit.Gates }
 
         /// Apply SWAP gate to exchange two qubits
         [<CustomOperation("SWAP")>]
         member _.SWAP(circuit: Circuit, qubit1and2: int*int) : Circuit =
-            { circuit with Gates = circuit.Gates @ [SWAP qubit1and2] }
+            { circuit with Gates = (SWAP qubit1and2) :: circuit.Gates }
         
         
         // ========================================================================
@@ -528,12 +536,12 @@ module CircuitBuilder =
         /// Apply CCX (Toffoli, CCNOT) gate
         [<CustomOperation("CCX")>]
         member _.CCX(circuit: Circuit, control1: int, control2: int, target: int) : Circuit =
-            { circuit with Gates = circuit.Gates @ [CCX (control1, control2, target)] }
+            { circuit with Gates = (CCX (control1, control2, target)) :: circuit.Gates }
         
         /// Apply CCX (Toffoli, CCNOT) gate
         [<CustomOperation("CCX")>]
         member _.CCX(circuit: Circuit, control1control2target: int*int*int) : Circuit =
-            { circuit with Gates = circuit.Gates @ [CCX control1control2target] }
+            { circuit with Gates = (CCX control1control2target) :: circuit.Gates }
         
         // ========================================================================
         // HELPER FOR FOR-LOOPS
@@ -542,7 +550,7 @@ module CircuitBuilder =
         /// Apply a gate (useful in for loops where custom operations don't work directly)
         [<CustomOperation("gate")>]
         member _.Gate(circuit: Circuit, g: Gate) : Circuit =
-            { circuit with Gates = circuit.Gates @ [g] }
+            { circuit with Gates = g :: circuit.Gates }
     
     /// Global computation expression instance for circuit construction
     let circuit = CircuitBuilderCE()
@@ -659,7 +667,7 @@ module CircuitBuilder =
     /// Fold over gates (left fold)
     /// Example: foldGates (fun count gate -> count + 1) 0 circuit
     let foldGates (folder: 'State -> Gate -> 'State) (state: 'State) (circuit: Circuit) : 'State =
-        List.fold folder state circuit.Gates
+        circuit.Gates |> List.rev |> List.fold folder state
     
     /// Count gates matching predicate
     /// Example: countGatesWhere (fun g -> match g with T _ -> true | _ -> false) circuit
@@ -704,7 +712,12 @@ module CircuitBuilder =
             // Measurement not reversible (approximate as identity)
             | Measure q -> Measure q
         
-        { circuit with Gates = circuit.Gates |> List.rev |> List.map inverseGate }
+        // Gates are stored in reverse chronological order internally.
+        // Adjoint of [A, B, C] (forward) is [C†, B†, A†] (forward).
+        // Stored reversed: original is [C, B, A], adjoint stored reversed is [A†, B†, C†].
+        // Mapping inverseGate over [C, B, A] gives [C†, B†, A†] which is already the
+        // correct reversed storage for the adjoint — no List.rev needed.
+        { circuit with Gates = circuit.Gates |> List.map inverseGate }
     
     // ========================================================================
     // COMMON CIRCUIT PATTERNS (Quantum Subroutines)
@@ -729,14 +742,23 @@ module CircuitBuilder =
     
     /// Create W state: |W_n⟩ = (|100...0⟩ + |010...0⟩ + ... + |000...1⟩)/√n
     /// Another type of multi-qubit entangled state (not equivalent to GHZ)
+    /// 
+    /// Algorithm: Start with |100...0⟩, then use controlled rotations to
+    /// distribute the single excitation uniformly across all qubits.
+    /// For each step i (0..n-2): apply RY(2·arccos(√(1/(n-i)))) controlled
+    /// on qubit i targeting qubit i+1, then CNOT(i+1, i) to transfer the excitation.
     let wState (n: int) : Circuit =
         if n < 2 then
-            empty n
+            empty (max n 1) |> addGate (X 0)
         else
-            // Simplified W-state preparation (not perfect but demonstrates pattern)
-            let circuit = empty n |> addGate (H 0)
-            [0 .. n-2] 
-            |> List.fold (fun c i -> c |> addGate (CNOT(i, i+1))) circuit
+            let mutable c = empty n |> addGate (X 0)
+            for i in 0 .. n - 2 do
+                // Rotation angle: 2·arccos(√(1/(n-i)))
+                // This gives the correct amplitude split at each step
+                let angle = 2.0 * System.Math.Acos(System.Math.Sqrt(1.0 / float (n - i)))
+                c <- c |> addGate (CRY(i, i + 1, angle))
+                c <- c |> addGate (CNOT(i + 1, i))
+            c
     
     /// Quantum Fourier Transform (QFT) on specified qubits
     /// The quantum analogue of the discrete Fourier transform
@@ -927,7 +949,8 @@ module CircuitBuilder =
     /// Calculate circuit depth (critical path length when gates are parallelized)
     /// Lower depth = faster execution and less decoherence on real hardware
     let depth (circuit: Circuit) : int =
-        let gates = circuit.Gates
+        // Gates stored in reverse order; reverse to get chronological for layer building
+        let gates = circuit.Gates |> List.rev
         
         // Build layers by tracking which qubits are occupied
         let rec buildLayers (remainingGates: Gate list) (currentLayer: Gate list) (occupiedQubits: Set<int>) (currentDepth: int) : int =

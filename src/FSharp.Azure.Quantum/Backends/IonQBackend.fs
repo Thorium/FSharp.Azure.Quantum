@@ -162,6 +162,7 @@ module IonQBackend =
         {
             CircuitValidator.NumQubits = circuit.Qubits
             CircuitValidator.GateCount = circuit.Circuit.Length
+            CircuitValidator.Depth = None
             CircuitValidator.UsedGates = usedGates
             CircuitValidator.TwoQubitGates = twoQubitGates
         }

@@ -64,10 +64,12 @@ module FusionTree =
     // ========================================================================
     
     /// Get all leaf particles (anyons) in the tree (left-to-right order)
-    let rec leaves (tree: Tree) : AnyonSpecies.Particle list =
-        match tree with
-        | Leaf p -> [p]
-        | Fusion (left, right, _) -> (leaves left) @ (leaves right)
+    let leaves (tree: Tree) : AnyonSpecies.Particle list =
+        let rec collect (tree: Tree) (acc: AnyonSpecies.Particle list) : AnyonSpecies.Particle list =
+            match tree with
+            | Leaf p -> p :: acc
+            | Fusion (left, right, _) -> collect left (collect right acc)
+        collect tree []
     
     /// Get the total charge (root fusion outcome)
     let rec totalCharge (tree: Tree) (anyonType: AnyonSpecies.AnyonType) : AnyonSpecies.Particle =
@@ -230,20 +232,23 @@ module FusionTree =
                 splits
                 |> List.collect (fun (leftParticles, rightParticles) ->
                     channels
-                    |> List.collect (fun intermediate ->
-                        // Get all trees for left side fusing to intermediate
-                        match allTrees leftParticles intermediate anyonType,
-                              allTrees rightParticles intermediate anyonType,
-                              FusionRules.isPossible intermediate intermediate totalCharge anyonType with
-                        | Ok leftTrees, Ok rightTrees, Ok true ->
-                            // Combine all left and right trees
-                            [ for leftTree in leftTrees do
-                              for rightTree in rightTrees do
-                                Ok (Fusion (leftTree, rightTree, totalCharge)) ]
-                        | Ok _, Ok _, Ok false -> []
-                        | Error err, _, _ -> [Error err]
-                        | _, Error err, _ -> [Error err]
-                        | _, _, Error err -> [Error err]
+                    |> List.collect (fun leftIntermediate ->
+                        channels
+                        |> List.collect (fun rightIntermediate ->
+                            // Check if leftIntermediate × rightIntermediate → totalCharge
+                            match allTrees leftParticles leftIntermediate anyonType,
+                                  allTrees rightParticles rightIntermediate anyonType,
+                                  FusionRules.isPossible leftIntermediate rightIntermediate totalCharge anyonType with
+                            | Ok leftTrees, Ok rightTrees, Ok true ->
+                                // Combine all left and right trees
+                                [ for leftTree in leftTrees do
+                                  for rightTree in rightTrees do
+                                    Ok (Fusion (leftTree, rightTree, totalCharge)) ]
+                            | Ok _, Ok _, Ok false -> []
+                            | Error err, _, _ -> [Error err]
+                            | _, Error err, _ -> [Error err]
+                            | _, _, Error err -> [Error err]
+                        )
                     )
                 )
             
@@ -323,7 +328,7 @@ module FusionTree =
     /// Example:
     ///   fromComputationalBasis [1; 0; 1] Ising
     ///   → |101⟩ in Ising anyon representation
-    let fromComputationalBasis (bits: int list) (anyonType: AnyonSpecies.AnyonType) : Tree =
+    let fromComputationalBasis (bits: int list) (anyonType: AnyonSpecies.AnyonType) : TopologicalResult<Tree> =
         match anyonType with
         | AnyonSpecies.AnyonType.Ising ->
             // Each bit determines fusion outcome for its σ-pair:
@@ -357,13 +362,33 @@ module FusionTree =
 
             let pairTrees = qubitPairs @ [parityPair]
 
-            // Fuse all pairs left-to-right with vacuum total charge accumulator
+            // Fuse all pairs left-to-right, tracking running charge
+            // Each intermediate channel must equal the fusion of accumulated charge
+            // with the next pair's charge. Ising fusion: 1×1→1, 1×ψ→ψ, ψ×1→ψ, ψ×ψ→1
             match pairTrees with
             | [] -> Leaf AnyonSpecies.Particle.Vacuum
             | [single] -> single
             | first :: rest ->
+                let firstCharge =
+                    match first with
+                    | Fusion (_, _, ch) -> ch
+                    | Leaf p -> p
                 rest
-                |> List.fold (fun acc tree -> Fusion (acc, tree, AnyonSpecies.Particle.Vacuum)) first
+                |> List.fold (fun (acc, runningCharge) tree ->
+                    let pairCharge =
+                        match tree with
+                        | Fusion (_, _, ch) -> ch
+                        | Leaf p -> p
+                    // Ising fusion: Vacuum acts as identity, Psi×Psi→Vacuum
+                    let newCharge =
+                        match runningCharge, pairCharge with
+                        | AnyonSpecies.Particle.Vacuum, c | c, AnyonSpecies.Particle.Vacuum -> c
+                        | AnyonSpecies.Particle.Psi, AnyonSpecies.Particle.Psi -> AnyonSpecies.Particle.Vacuum
+                        | _ -> AnyonSpecies.Particle.Vacuum // fallback
+                    (Fusion (acc, tree, newCharge), newCharge)
+                ) (first, firstCharge)
+                |> fst
+            |> Ok
         
         | AnyonSpecies.AnyonType.Fibonacci ->
             // Similar encoding for Fibonacci anyons
@@ -385,13 +410,32 @@ module FusionTree =
             | [] -> Leaf AnyonSpecies.Particle.Vacuum
             | [single] -> single
             | first :: rest ->
+                let firstCharge =
+                    match first with
+                    | Fusion (_, _, ch) -> ch
+                    | Leaf p -> p
                 rest
-                |> List.fold (fun acc tree ->
-                    Fusion (acc, tree, AnyonSpecies.Particle.Vacuum)
-                ) first
+                |> List.fold (fun (acc, runningCharge) tree ->
+                    let pairCharge =
+                        match tree with
+                        | Fusion (_, _, ch) -> ch
+                        | Leaf p -> p
+                    // Fibonacci fusion: Vacuum is identity, τ×τ → pick Vacuum
+                    // (standard convention for computational basis encoding)
+                    let newCharge =
+                        match runningCharge, pairCharge with
+                        | AnyonSpecies.Particle.Vacuum, c | c, AnyonSpecies.Particle.Vacuum -> c
+                        | AnyonSpecies.Particle.Tau, AnyonSpecies.Particle.Tau -> AnyonSpecies.Particle.Vacuum
+                        | _ -> AnyonSpecies.Particle.Vacuum // fallback
+                    (Fusion (acc, tree, newCharge), newCharge)
+                ) (first, firstCharge)
+                |> fst
+            |> Ok
         
         | _ ->
-            failwith $"Computational basis encoding not yet implemented for {anyonType}"
+            TopologicalResult.notImplemented
+                "Computational basis encoding"
+                (Some $"Encoding not yet implemented for anyon type {anyonType}")
     
     /// Convert fusion tree to computational basis bitstring
     /// 

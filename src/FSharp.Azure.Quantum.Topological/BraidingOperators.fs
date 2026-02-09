@@ -15,25 +15,19 @@ namespace FSharp.Azure.Quantum.Topological
 ///   - Satisfies pentagon equation (consistency)
 /// 
 /// Mathematical reference: "Topological Quantum" by Steven H. Simon, Chapters 9-10
+[<RequireQualifiedAccess>]
 module BraidingOperators =
     
     open System
     open System.Numerics
     
     // ============================================================================
-    // COMPLEX NUMBER HELPERS
+    // COMPLEX NUMBER HELPERS (from TopologicalHelpers)
     // ============================================================================
     
-    /// Create complex number from polar form: r * e^(iθ)
-    let inline polar (r: float) (theta: float) : Complex =
-        Complex(r * cos theta, r * sin theta)
-    
-    /// Create unit complex number: e^(iθ)
-    let inline expI (theta: float) : Complex =
-        polar 1.0 theta
-    
-    /// Pi constant for readability
-    let π = Math.PI
+    let inline private polar r theta = TopologicalHelpers.polar r theta
+    let inline private expI theta = TopologicalHelpers.expI theta
+    let private π = TopologicalHelpers.π
     
     // ============================================================================
     // R-MATRIX (BRAIDING OPERATOR)
@@ -65,60 +59,59 @@ module BraidingOperators =
         | Ok false -> TopologicalResult.logicError "operation" $"Cannot fuse {a} × {b} → {c} in {anyonType} theory"
         | Ok true ->
         
-        Ok (
-            match anyonType, a, b, c with
-            // ========================================================================
-            // ISING R-MATRICES (SU(2)₂)
-            // ========================================================================
-            
-            // Vacuum braiding is trivial
-            | AnyonSpecies.AnyonType.Ising, AnyonSpecies.Particle.Vacuum, x, _ when c = x ->
-                Complex.One
-            | AnyonSpecies.AnyonType.Ising, x, AnyonSpecies.Particle.Vacuum, _ when c = x ->
-                Complex.One
-            
-            // σ × σ → 1: R^1_σσ = e^(iπ/8)
-            | AnyonSpecies.AnyonType.Ising, AnyonSpecies.Particle.Sigma, AnyonSpecies.Particle.Sigma, AnyonSpecies.Particle.Vacuum ->
-                expI (π / 8.0)
-            
-            // σ × σ → ψ: R^ψ_σσ = e^(-3iπ/8)
-            | AnyonSpecies.AnyonType.Ising, AnyonSpecies.Particle.Sigma, AnyonSpecies.Particle.Sigma, AnyonSpecies.Particle.Psi ->
-                expI (-3.0 * π / 8.0)
-            
-            // σ × ψ → σ: R^σ_σψ = e^(iπ/4)
-            | AnyonSpecies.AnyonType.Ising, AnyonSpecies.Particle.Sigma, AnyonSpecies.Particle.Psi, AnyonSpecies.Particle.Sigma 
-            | AnyonSpecies.AnyonType.Ising, AnyonSpecies.Particle.Psi, AnyonSpecies.Particle.Sigma, AnyonSpecies.Particle.Sigma ->
-                expI (π / 4.0)
-            
-            // ψ × ψ → 1: R^1_ψψ = -1 (fermion statistics!)
-            | AnyonSpecies.AnyonType.Ising, AnyonSpecies.Particle.Psi, AnyonSpecies.Particle.Psi, AnyonSpecies.Particle.Vacuum ->
-                Complex(-1.0, 0.0)
-            
-            // ========================================================================
-            // FIBONACCI R-MATRICES
-            // ========================================================================
-            
-            // Vacuum braiding
-            | AnyonSpecies.AnyonType.Fibonacci, AnyonSpecies.Particle.Vacuum, x, _ when c = x ->
-                Complex.One
-            | AnyonSpecies.AnyonType.Fibonacci, x, AnyonSpecies.Particle.Vacuum, _ when c = x ->
-                Complex.One
-            
-            // τ × τ → 1: R^1_ττ = e^(4πi/5)
-            | AnyonSpecies.AnyonType.Fibonacci, AnyonSpecies.Particle.Tau, AnyonSpecies.Particle.Tau, AnyonSpecies.Particle.Vacuum ->
-                expI (4.0 * π / 5.0)
-            
-            // τ × τ → τ: R^τ_ττ = e^(-3πi/5)
-            | AnyonSpecies.AnyonType.Fibonacci, AnyonSpecies.Particle.Tau, AnyonSpecies.Particle.Tau, AnyonSpecies.Particle.Tau ->
-                expI (-3.0 * π / 5.0)
-            
-            // ========================================================================
-            // INVALID CASES
-            // ========================================================================
-            
-            | _ ->
-                Complex.Zero  // Should never happen after validation
-        )
+        match anyonType, a, b, c with
+        // ========================================================================
+        // ISING R-MATRICES (SU(2)₂)
+        // ========================================================================
+        
+        // Vacuum braiding is trivial
+        | AnyonSpecies.AnyonType.Ising, AnyonSpecies.Particle.Vacuum, x, _ when c = x ->
+            Ok Complex.One
+        | AnyonSpecies.AnyonType.Ising, x, AnyonSpecies.Particle.Vacuum, _ when c = x ->
+            Ok Complex.One
+        
+        // σ × σ → 1: R^1_σσ = e^(iπ/8)
+        | AnyonSpecies.AnyonType.Ising, AnyonSpecies.Particle.Sigma, AnyonSpecies.Particle.Sigma, AnyonSpecies.Particle.Vacuum ->
+            Ok (expI (π / 8.0))
+        
+        // σ × σ → ψ: R^ψ_σσ = e^(-3iπ/8)
+        | AnyonSpecies.AnyonType.Ising, AnyonSpecies.Particle.Sigma, AnyonSpecies.Particle.Sigma, AnyonSpecies.Particle.Psi ->
+            Ok (expI (-3.0 * π / 8.0))
+        
+        // σ × ψ → σ: R^σ_σψ = e^(iπ/4)
+        | AnyonSpecies.AnyonType.Ising, AnyonSpecies.Particle.Sigma, AnyonSpecies.Particle.Psi, AnyonSpecies.Particle.Sigma 
+        | AnyonSpecies.AnyonType.Ising, AnyonSpecies.Particle.Psi, AnyonSpecies.Particle.Sigma, AnyonSpecies.Particle.Sigma ->
+            Ok (expI (π / 4.0))
+        
+        // ψ × ψ → 1: R^1_ψψ = -1 (fermion statistics!)
+        | AnyonSpecies.AnyonType.Ising, AnyonSpecies.Particle.Psi, AnyonSpecies.Particle.Psi, AnyonSpecies.Particle.Vacuum ->
+            Ok (Complex(-1.0, 0.0))
+        
+        // ========================================================================
+        // FIBONACCI R-MATRICES
+        // ========================================================================
+        
+        // Vacuum braiding
+        | AnyonSpecies.AnyonType.Fibonacci, AnyonSpecies.Particle.Vacuum, x, _ when c = x ->
+            Ok Complex.One
+        | AnyonSpecies.AnyonType.Fibonacci, x, AnyonSpecies.Particle.Vacuum, _ when c = x ->
+            Ok Complex.One
+        
+        // τ × τ → 1: R^1_ττ = e^(4πi/5)
+        | AnyonSpecies.AnyonType.Fibonacci, AnyonSpecies.Particle.Tau, AnyonSpecies.Particle.Tau, AnyonSpecies.Particle.Vacuum ->
+            Ok (expI (4.0 * π / 5.0))
+        
+        // τ × τ → τ: R^τ_ττ = e^(-3πi/5)
+        | AnyonSpecies.AnyonType.Fibonacci, AnyonSpecies.Particle.Tau, AnyonSpecies.Particle.Tau, AnyonSpecies.Particle.Tau ->
+            Ok (expI (-3.0 * π / 5.0))
+        
+        // ========================================================================
+        // UNRECOGNIZED CASES
+        // ========================================================================
+        
+        | _ ->
+            TopologicalResult.logicError "R-matrix"
+                $"No R-matrix element defined for {a} × {b} → {c} in {anyonType} theory"
     
     /// Get full R-matrix for a given pair (a,b) and anyon type
     /// 
@@ -197,105 +190,99 @@ module BraidingOperators =
         elif not (path2a && path2b) then
             Ok Complex.Zero
         else
-            Ok (
-                match anyonType with
-                // ====================================================================
-                // ISING F-MATRICES
-                // ====================================================================
+            match anyonType with
+            // ====================================================================
+            // ISING F-MATRICES
+            // ====================================================================
+            
+            | AnyonSpecies.AnyonType.Ising ->
+                match a, b, c, d, e, f with
+                // Vacuum in any position gives identity
+                | AnyonSpecies.Particle.Vacuum, _, _, _, _, _ 
+                | _, AnyonSpecies.Particle.Vacuum, _, _, _, _
+                | _, _, AnyonSpecies.Particle.Vacuum, _, _, _ ->
+                    if e = b && f = b && d = b then Ok Complex.One
+                    elif e = b && f = c && d = c then Ok Complex.One
+                    elif e = c && f = b && d = b then Ok Complex.One
+                    else Ok Complex.Zero
                 
-                | AnyonSpecies.AnyonType.Ising ->
-                    match a, b, c, d, e, f with
-                    // Vacuum in any position gives identity
-                    | AnyonSpecies.Particle.Vacuum, _, _, _, _, _ 
-                    | _, AnyonSpecies.Particle.Vacuum, _, _, _, _
-                    | _, _, AnyonSpecies.Particle.Vacuum, _, _, _ ->
-                        if e = b && f = b && d = b then Complex.One
-                        elif e = b && f = c && d = c then Complex.One
-                        elif e = c && f = b && d = b then Complex.One
-                        else Complex.Zero
-                    
-                    // σσσ case - the interesting one!
-                    //
-                    // In the Ising theory, σ×σ×σ always fuses to σ, and the non-trivial
-                    // basis change is:
-                    //   F^{σσσ}_σ = (1/√2) * [[1, 1], [1, -1]]
-                    // in the {1, ψ} intermediate-channel basis.
-                    | AnyonSpecies.Particle.Sigma, AnyonSpecies.Particle.Sigma, AnyonSpecies.Particle.Sigma, finalResult, intermediate1, intermediate2 ->
-                        match finalResult, intermediate1, intermediate2 with
-                        | AnyonSpecies.Particle.Sigma, AnyonSpecies.Particle.Vacuum, AnyonSpecies.Particle.Vacuum ->
-                            Complex(0.5 * sqrt 2.0, 0.0)
-                        | AnyonSpecies.Particle.Sigma, AnyonSpecies.Particle.Vacuum, AnyonSpecies.Particle.Psi ->
-                            Complex(0.5 * sqrt 2.0, 0.0)
-                        | AnyonSpecies.Particle.Sigma, AnyonSpecies.Particle.Psi, AnyonSpecies.Particle.Vacuum ->
-                            Complex(0.5 * sqrt 2.0, 0.0)
-                        | AnyonSpecies.Particle.Sigma, AnyonSpecies.Particle.Psi, AnyonSpecies.Particle.Psi ->
-                            Complex(-0.5 * sqrt 2.0, 0.0)
-                        | _ ->
-                            Complex.Zero
-                    
-                    // Other simple cases
+                // σσσ case - the interesting one!
+                //
+                // In the Ising theory, σ×σ×σ always fuses to σ, and the non-trivial
+                // basis change is:
+                //   F^{σσσ}_σ = (1/√2) * [[1, 1], [1, -1]]
+                // in the {1, ψ} intermediate-channel basis.
+                | AnyonSpecies.Particle.Sigma, AnyonSpecies.Particle.Sigma, AnyonSpecies.Particle.Sigma, finalResult, intermediate1, intermediate2 ->
+                    match finalResult, intermediate1, intermediate2 with
+                    | AnyonSpecies.Particle.Sigma, AnyonSpecies.Particle.Vacuum, AnyonSpecies.Particle.Vacuum ->
+                        Ok (Complex(0.5 * sqrt 2.0, 0.0))
+                    | AnyonSpecies.Particle.Sigma, AnyonSpecies.Particle.Vacuum, AnyonSpecies.Particle.Psi ->
+                        Ok (Complex(0.5 * sqrt 2.0, 0.0))
+                    | AnyonSpecies.Particle.Sigma, AnyonSpecies.Particle.Psi, AnyonSpecies.Particle.Vacuum ->
+                        Ok (Complex(0.5 * sqrt 2.0, 0.0))
+                    | AnyonSpecies.Particle.Sigma, AnyonSpecies.Particle.Psi, AnyonSpecies.Particle.Psi ->
+                        Ok (Complex(-0.5 * sqrt 2.0, 0.0))
                     | _ ->
-                        match FusionRules.isPossible a b e anyonType, FusionRules.isPossible e c d anyonType with
-                        | Ok true, Ok true when e = f -> Complex.One
-                        | _ -> Complex.Zero
+                        Ok Complex.Zero
                 
-                // ====================================================================
-                // FIBONACCI F-MATRICES
-                // ====================================================================
-                
-                | AnyonSpecies.AnyonType.Fibonacci ->
-                    let phi = (1.0 + sqrt 5.0) / 2.0  // Golden ratio
-                    let sqrtPhi = sqrt phi
-                    
-                    match a, b, c, d, e, f with
-                    // Vacuum cases
-                    | AnyonSpecies.Particle.Vacuum, _, _, _, _, _ 
-                    | _, AnyonSpecies.Particle.Vacuum, _, _, _, _
-                    | _, _, AnyonSpecies.Particle.Vacuum, _, _, _ ->
-                        if e = b && f = b && d = b then Complex.One
-                        elif e = b && f = c && d = c then Complex.One
-                        elif e = c && f = b && d = b then Complex.One
-                        else Complex.Zero
-                    
-                    // F^{τττ}_1 matrix
-                    | AnyonSpecies.Particle.Tau, AnyonSpecies.Particle.Tau, AnyonSpecies.Particle.Tau, 
-                      AnyonSpecies.Particle.Vacuum, AnyonSpecies.Particle.Vacuum, AnyonSpecies.Particle.Vacuum ->
-                        Complex(1.0 / sqrtPhi, 0.0)
-                    
-                    | AnyonSpecies.Particle.Tau, AnyonSpecies.Particle.Tau, AnyonSpecies.Particle.Tau, 
-                      AnyonSpecies.Particle.Vacuum, AnyonSpecies.Particle.Vacuum, AnyonSpecies.Particle.Tau ->
-                        Complex(1.0 / phi, 0.0)
-                    
-                    | AnyonSpecies.Particle.Tau, AnyonSpecies.Particle.Tau, AnyonSpecies.Particle.Tau, 
-                      AnyonSpecies.Particle.Vacuum, AnyonSpecies.Particle.Tau, AnyonSpecies.Particle.Vacuum ->
-                        Complex(1.0 / phi, 0.0)
-                    
-                    | AnyonSpecies.Particle.Tau, AnyonSpecies.Particle.Tau, AnyonSpecies.Particle.Tau, 
-                      AnyonSpecies.Particle.Vacuum, AnyonSpecies.Particle.Tau, AnyonSpecies.Particle.Tau ->
-                        Complex(-1.0 / sqrtPhi, 0.0)
-                    
-                    // F^{τττ}_τ matrix
-                    | AnyonSpecies.Particle.Tau, AnyonSpecies.Particle.Tau, AnyonSpecies.Particle.Tau, 
-                      AnyonSpecies.Particle.Tau, AnyonSpecies.Particle.Vacuum, AnyonSpecies.Particle.Vacuum ->
-                        Complex(1.0 / phi, 0.0)
-                    
-                    | AnyonSpecies.Particle.Tau, AnyonSpecies.Particle.Tau, AnyonSpecies.Particle.Tau, 
-                      AnyonSpecies.Particle.Tau, AnyonSpecies.Particle.Vacuum, AnyonSpecies.Particle.Tau ->
-                        Complex(-1.0 / sqrtPhi, 0.0)
-                    
-                    | AnyonSpecies.Particle.Tau, AnyonSpecies.Particle.Tau, AnyonSpecies.Particle.Tau, 
-                      AnyonSpecies.Particle.Tau, AnyonSpecies.Particle.Tau, AnyonSpecies.Particle.Vacuum ->
-                        Complex(-1.0 / sqrtPhi, 0.0)
-                    
-                    | AnyonSpecies.Particle.Tau, AnyonSpecies.Particle.Tau, AnyonSpecies.Particle.Tau, 
-                      AnyonSpecies.Particle.Tau, AnyonSpecies.Particle.Tau, AnyonSpecies.Particle.Tau ->
-                        Complex(1.0 / sqrtPhi, 0.0)
-                    
-                    | _ -> Complex.Zero
-                
+                // Other simple cases
                 | _ ->
-                    Complex.Zero  // Should be caught by validation
-            )
+                    match FusionRules.isPossible a b e anyonType, FusionRules.isPossible e c d anyonType with
+                    | Ok true, Ok true when e = f -> Ok Complex.One
+                    | _ -> Ok Complex.Zero
+            
+            // ====================================================================
+            // FIBONACCI F-MATRICES
+            // ====================================================================
+            
+            | AnyonSpecies.AnyonType.Fibonacci ->
+                let phi = (1.0 + sqrt 5.0) / 2.0  // Golden ratio
+                let sqrtPhi = sqrt phi
+                
+                match a, b, c, d, e, f with
+                // Vacuum cases
+                | AnyonSpecies.Particle.Vacuum, _, _, _, _, _ 
+                | _, AnyonSpecies.Particle.Vacuum, _, _, _, _
+                | _, _, AnyonSpecies.Particle.Vacuum, _, _, _ ->
+                    if e = b && f = b && d = b then Ok Complex.One
+                    elif e = b && f = c && d = c then Ok Complex.One
+                    elif e = c && f = b && d = b then Ok Complex.One
+                    else Ok Complex.Zero
+                
+                // F^{τττ}_1 matrix (1×1: only e=τ, f=τ is fusion-valid)
+                // The other 3 combinations (e=1 or f=1) are rejected by the fusion
+                // validator above, so only the (τ,τ) entry is reachable.
+                // F[τ,τ,τ,1;τ,τ] = φ⁻¹
+                | AnyonSpecies.Particle.Tau, AnyonSpecies.Particle.Tau, AnyonSpecies.Particle.Tau, 
+                  AnyonSpecies.Particle.Vacuum, AnyonSpecies.Particle.Tau, AnyonSpecies.Particle.Tau ->
+                    Ok (Complex(1.0 / phi, 0.0))
+                
+                // F^{τττ}_τ matrix
+                // From Simon "Topological Quantum", Table 9.5:
+                //   F^{τττ}_τ = [[φ⁻¹, φ⁻¹/²], [φ⁻¹/², -φ⁻¹]]
+                // in the {1,τ} intermediate-channel basis.
+                | AnyonSpecies.Particle.Tau, AnyonSpecies.Particle.Tau, AnyonSpecies.Particle.Tau, 
+                  AnyonSpecies.Particle.Tau, AnyonSpecies.Particle.Vacuum, AnyonSpecies.Particle.Vacuum ->
+                    Ok (Complex(1.0 / phi, 0.0))
+                
+                | AnyonSpecies.Particle.Tau, AnyonSpecies.Particle.Tau, AnyonSpecies.Particle.Tau, 
+                  AnyonSpecies.Particle.Tau, AnyonSpecies.Particle.Vacuum, AnyonSpecies.Particle.Tau ->
+                    Ok (Complex(1.0 / sqrtPhi, 0.0))
+                
+                | AnyonSpecies.Particle.Tau, AnyonSpecies.Particle.Tau, AnyonSpecies.Particle.Tau, 
+                  AnyonSpecies.Particle.Tau, AnyonSpecies.Particle.Tau, AnyonSpecies.Particle.Vacuum ->
+                    Ok (Complex(1.0 / sqrtPhi, 0.0))
+                
+                | AnyonSpecies.Particle.Tau, AnyonSpecies.Particle.Tau, AnyonSpecies.Particle.Tau, 
+                  AnyonSpecies.Particle.Tau, AnyonSpecies.Particle.Tau, AnyonSpecies.Particle.Tau ->
+                    Ok (Complex(-1.0 / phi, 0.0))
+                
+                | _ -> Ok Complex.Zero
+            
+            | _ ->
+                TopologicalResult.notImplemented
+                    "F-matrix"
+                    (Some $"F-matrix not implemented for anyon type {anyonType}")
     
     /// Get full F-matrix for (a,b,c) fusion to d
     /// 

@@ -158,68 +158,80 @@ module QuantumGraphColoringSolver =
                 // Helper: Get QUBO variable index for (vertex_index, color)
                 let getVarIndex vertexIdx color = vertexIdx * numColors + color
                 
+                // Helper: add value to existing map entry
+                let addTerm key value (qubo: Map<(int * int), float>) =
+                    let existing = qubo |> Map.tryFind key |> Option.defaultValue 0.0
+                    qubo |> Map.add key (existing + value)
+                
                 // Build QUBO terms as Map<(int * int), float>
-                let mutable quboTerms = Map.empty
                 
                 // CONSTRAINT 1: One-hot constraint (each vertex gets exactly one color)
                 // Penalty: Σ_i (1 - Σ_c x_{i,c})²
                 //        = Σ_i (1 - 2*Σ_c x_{i,c} + (Σ_c x_{i,c})²)
                 //        = Σ_i (1 - 2*Σ_c x_{i,c} + Σ_c x_{i,c} + Σ_{c≠d} x_{i,c}*x_{i,d})
                 
-                for v in 0 .. numVertices - 1 do
-                    // Check if vertex has fixed color
-                    let vertexName = problem.Vertices.[v]
-                    match Map.tryFind vertexName problem.FixedColors with
-                    | Some fixedColor ->
-                        // For fixed color: force x_{v,fixedColor} = 1, others = 0
-                        // Add large penalty to other colors
-                        for c in 0 .. numColors - 1 do
-                            if c <> fixedColor then
-                                let varIdx = getVarIndex v c
-                                let existing = quboTerms |> Map.tryFind (varIdx, varIdx) |> Option.defaultValue 0.0
-                                quboTerms <- quboTerms |> Map.add (varIdx, varIdx) (existing + penaltyWeight * 10.0)
-                    | None ->
-                        // Normal one-hot constraint using shared helper
-                        let varIndices = [ for c in 0 .. numColors - 1 -> getVarIndex v c ]
-                        let oneHotTerms = Qubo.oneHotConstraint varIndices penaltyWeight
-                        
-                        // Merge one-hot terms into quboTerms
-                        quboTerms <- 
+                let quboTerms =
+                    [0 .. numVertices - 1]
+                    |> List.fold (fun qubo v ->
+                        // Check if vertex has fixed color
+                        let vertexName = problem.Vertices.[v]
+                        match Map.tryFind vertexName problem.FixedColors with
+                        | Some fixedColor ->
+                            // For fixed color: force x_{v,fixedColor} = 1, others = 0
+                            // Add large penalty to other colors
+                            [0 .. numColors - 1]
+                            |> List.fold (fun q c ->
+                                if c <> fixedColor then
+                                    let varIdx = getVarIndex v c
+                                    q |> addTerm (varIdx, varIdx) (penaltyWeight * 10.0)
+                                else q) qubo
+                        | None ->
+                            // Normal one-hot constraint using shared helper
+                            let varIndices = [ for c in 0 .. numColors - 1 -> getVarIndex v c ]
+                            let oneHotTerms = Qubo.oneHotConstraint varIndices penaltyWeight
+                            
+                            // Merge one-hot terms into quboTerms
                             oneHotTerms 
                             |> Map.fold (fun acc key value -> 
-                                let existing = acc |> Map.tryFind key |> Option.defaultValue 0.0
-                                acc |> Map.add key (existing + value)) quboTerms
+                                acc |> addTerm key value) qubo
+                    ) Map.empty
                 
                 // CONSTRAINT 2: Adjacent vertices have different colors
                 // Penalty: Σ_{(i,j) ∈ E} Σ_c x_{i,c} * x_{j,c}
                 
-                for edge in problem.Edges do
-                    let i = vertexIndexMap.[edge.Source]
-                    let j = vertexIndexMap.[edge.Target]
-                    
-                    for c in 0 .. numColors - 1 do
-                        let varIdx1 = getVarIndex i c
-                        let varIdx2 = getVarIndex j c
+                let quboTerms =
+                    problem.Edges
+                    |> Seq.fold (fun qubo edge ->
+                        let i = vertexIndexMap.[edge.Source]
+                        let j = vertexIndexMap.[edge.Target]
                         
-                        if varIdx1 = varIdx2 then
-                            // Self-loop (should not happen in valid graph)
-                            let existingLinear = quboTerms |> Map.tryFind (varIdx1, varIdx1) |> Option.defaultValue 0.0
-                            quboTerms <- quboTerms |> Map.add (varIdx1, varIdx1) (existingLinear + penaltyWeight)
-                        else
-                            let (row, col) = (min varIdx1 varIdx2, max varIdx1 varIdx2)
-                            let existingQuad = quboTerms |> Map.tryFind (row, col) |> Option.defaultValue 0.0
-                            quboTerms <- quboTerms |> Map.add (row, col) (existingQuad + penaltyWeight)
+                        [0 .. numColors - 1]
+                        |> List.fold (fun q c ->
+                            let varIdx1 = getVarIndex i c
+                            let varIdx2 = getVarIndex j c
+                            
+                            if varIdx1 = varIdx2 then
+                                // Self-loop (should not happen in valid graph)
+                                q |> addTerm (varIdx1, varIdx1) penaltyWeight
+                            else
+                                let (row, col) = (min varIdx1 varIdx2, max varIdx1 varIdx2)
+                                q |> addTerm (row, col) penaltyWeight
+                        ) qubo
+                    ) quboTerms
                 
                 // CONSTRAINT 3: Minimize colors used (soft constraint, small weight)
                 // Penalty: Σ_c c * max_i(x_{i,c})
                 // Approximation: Add small linear penalty proportional to color index
                 let colorPenaltyWeight = penaltyWeight * 0.1
-                for v in 0 .. numVertices - 1 do
-                    for c in 0 .. numColors - 1 do
-                        let varIdx = getVarIndex v c
-                        let colorPenalty = float c * colorPenaltyWeight
-                        let existingLinear = quboTerms |> Map.tryFind (varIdx, varIdx) |> Option.defaultValue 0.0
-                        quboTerms <- quboTerms |> Map.add (varIdx, varIdx) (existingLinear + colorPenalty)
+                let quboTerms =
+                    seq {
+                        for v in 0 .. numVertices - 1 do
+                            for c in 0 .. numColors - 1 do
+                                yield getVarIndex v c, float c * colorPenaltyWeight
+                    }
+                    |> Seq.fold (fun qubo (varIdx, colorPenalty) ->
+                        qubo |> addTerm (varIdx, varIdx) colorPenalty
+                    ) quboTerms
                 
                 Ok ({
                     Q = quboTerms

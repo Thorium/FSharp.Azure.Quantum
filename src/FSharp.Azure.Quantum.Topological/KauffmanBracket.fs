@@ -1,5 +1,7 @@
 namespace FSharp.Azure.Quantum.Topological
 
+open System.Collections.Generic
+
 /// <summary>
 /// Kauffman Bracket Invariant and Jones Polynomial for Knot Theory
 /// 
@@ -18,7 +20,6 @@ module KauffmanBracket =
 
     open System
     open System.Numerics
-    open System.Collections.Generic
 
     // ========================================
     // Simplified Crossing List Model
@@ -102,17 +103,24 @@ module KauffmanBracket =
     let rec evaluateBracket (diagram: KnotDiagram) (a: Complex) : Complex =
         match diagram with
         | [] ->
-            // No crossings = unknot
-            loopValue a
+            // No crossings = unknot = single loop
+            // The Kauffman bracket of the unknot is 1 (by normalization convention).
+            // Each ADDITIONAL loop contributes a factor of d = -A² - A⁻².
+            Complex.One
         
         | Positive :: rest ->
-            // Positive crossing: A * horizontal + A^(-1) * vertical
+            // Positive crossing: A * [0-smoothing] + A⁻¹ * [1-smoothing]
+            // In the simplified crossing-list model, removing a crossing either:
+            //   - 0-smoothing: reconnects strands horizontally (same number of loops)
+            //   - 1-smoothing: reconnects strands vertically (may create an extra loop)
+            // For this simplified model (standard alternating knots), the vertical
+            // smoothing creates one extra loop, contributing a factor of d.
             let horizontal = evaluateBracket rest a
             let vertical = (loopValue a) * (evaluateBracket rest a)
             a * horizontal + (Complex.One / a) * vertical
         
         | Negative :: rest ->
-            // Negative crossing: A^(-1) * horizontal + A * vertical
+            // Negative crossing: A⁻¹ * [0-smoothing] + A * [1-smoothing]
             let horizontal = evaluateBracket rest a
             let vertical = (loopValue a) * (evaluateBracket rest a)
             (Complex.One / a) * horizontal + a * vertical
@@ -363,9 +371,11 @@ module KauffmanBracket =
                     
                     (diagram0, diagram1)
 
-        /// Memoization cache for bracket evaluation
-        let private bracketCache = Dictionary<string * Complex, Complex>()
+        /// Memoization cache for bracket evaluation (thread-safe)
+        let private bracketCache = System.Collections.Concurrent.ConcurrentDictionary<string * Complex, Complex>()
 
+        /// Compute a hash key for memoization that includes full connectivity.
+        /// Must distinguish structurally different diagrams with same crossing signs.
         let private diagramHash (diagram: PlanarDiagram) : string =
             let crossingStr = 
                 diagram.Crossings
@@ -373,9 +383,22 @@ module KauffmanBracket =
                 |> List.sortBy fst
                 |> List.map (fun (id, c) -> 
                     let sign = match c.Sign with Positive -> "+" | Negative -> "-"
-                    sprintf "%d%s" id sign)
+                    // Include arc connectivity, not just ID and sign
+                    let conns = 
+                        c.Connections
+                        |> Map.toList
+                        |> List.sortBy (fun (pos, _) -> sprintf "%A" pos)
+                        |> List.map (fun (pos, arcId) -> sprintf "%A:%d" pos arcId)
+                        |> String.concat ";"
+                    sprintf "%d%s(%s)" id sign conns)
                 |> String.concat ","
-            sprintf "C[%s]A[%d]" crossingStr diagram.Arcs.Count
+            let arcStr =
+                diagram.Arcs
+                |> Map.toList
+                |> List.sortBy fst
+                |> List.map (fun (id, arc) -> sprintf "%d:%A-%A" id arc.Start arc.End)
+                |> String.concat ","
+            sprintf "C[%s]A[%s]" crossingStr arcStr
 
         /// Evaluate Kauffman bracket using skein relation (rigorous planar diagram version)
         let rec evaluateBracket (diagram: PlanarDiagram) (a: Complex) : Complex =
@@ -387,9 +410,11 @@ module KauffmanBracket =
             | (false, _) ->
                 let result =
                     if Map.isEmpty diagram.Crossings then
+                        // n loops → d^(n-1) where d = -A² - A⁻²
+                        // Convention: single unknot loop = 1, each ADDITIONAL loop multiplies by d
                         let n = countComponents diagram
-                        if n = 0 then Complex.One
-                        else Complex.Pow(loopValue a, float n)
+                        if n <= 1 then Complex.One
+                        else Complex.Pow(loopValue a, float (n - 1))
                     else
                         let crossingId = diagram.Crossings |> Map.toList |> List.head |> fst
                         let crossing = diagram.Crossings.[crossingId]
@@ -402,7 +427,7 @@ module KauffmanBracket =
                         | Positive -> a * value0 + (Complex.One / a) * value1
                         | Negative -> (Complex.One / a) * value0 + a * value1
                 
-                bracketCache.[key] <- result
+                bracketCache.TryAdd(key, result) |> ignore
                 result
 
         /// Compute Jones polynomial from planar diagram
@@ -441,7 +466,7 @@ module KauffmanBracket =
                 let (d0, d1) = resolveCrossing d cid
                 if smoothing = 0 then d0 else d1) diagram
 
-        /// Calculate weight of a state: A^(#A-smoothings - #B-smoothings) * d^(#loops)
+        /// Calculate weight of a state: A^(#A-smoothings - #B-smoothings) * d^(#loops - 1)
         let stateWeight (diagram: PlanarDiagram) (state: State) (a: Complex) : Complex =
             let resolved = applyState diagram state
             let loops = countComponents resolved
@@ -451,7 +476,10 @@ module KauffmanBracket =
             let bCount = state |> Map.toList |> List.filter (fun (_, s) -> s = 1) |> List.length
             
             let exponent = aCount - bCount
-            let loopFactor = Complex.Pow(loopValue a, float loops)
+            // d^(n-1): single loop = 1, each additional loop contributes d
+            let loopFactor = 
+                if loops <= 1 then Complex.One
+                else Complex.Pow(loopValue a, float (loops - 1))
             
             Complex.Pow(a, float exponent) * loopFactor
 
@@ -459,7 +487,8 @@ module KauffmanBracket =
         let evaluateBracketStateSum (diagram: PlanarDiagram) (a: Complex) : Complex =
             if Map.isEmpty diagram.Crossings then
                 let n = countComponents diagram
-                Complex.Pow(loopValue a, float n)
+                if n <= 1 then Complex.One
+                else Complex.Pow(loopValue a, float (n - 1))
             else
                 generateAllStates diagram
                 |> List.map (fun state -> stateWeight diagram state a)

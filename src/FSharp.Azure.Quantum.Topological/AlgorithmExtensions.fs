@@ -199,13 +199,15 @@ module AlgorithmExtensions =
         // so we need to instantiate or call via proper HHL module path.
         // Assuming HHL module structure similar to Shor/QFT.
         
-        let hhlConfig = 
+        let hhlConfigResult = 
             match config with
-            | Some cfg -> cfg
+            | Some cfg -> Ok cfg
             | None -> HHLTypes.defaultConfig matrix vector
             
         // Use HHL.execute
-        HHL.execute hhlConfig topoBackend
+        match hhlConfigResult with
+        | Error err -> Error err
+        | Ok hhlConfig -> HHL.execute hhlConfig topoBackend
 
     // ============================================================================
     // PERFORMANCE NOTES

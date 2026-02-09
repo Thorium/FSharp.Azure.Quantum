@@ -7,7 +7,6 @@ open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.Core.CircuitAbstraction
-open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.LocalSimulator
 
 /// Local quantum simulator backend implementing unified quantum backend interface
@@ -98,9 +97,10 @@ module LocalBackend =
                 // Initialize to |0⟩^⊗n
                 let initialState = StateVector.init numQubits
                 
-                // Apply gates sequentially
+                // Apply gates sequentially (gates stored in reverse order internally)
                 let finalState =
                     circuit.Gates
+                    |> List.rev
                     |> List.fold (fun state gate ->
                         applyGate gate state
                     ) initialState
@@ -137,6 +137,7 @@ module LocalBackend =
                         let initialState = StateVector.init numQubits
                         let finalState =
                             cbCircuit.Gates
+                            |> List.rev
                             |> List.fold (fun state gate ->
                                 applyGate gate state
                             ) initialState
@@ -155,6 +156,7 @@ module LocalBackend =
                         let initialState = StateVector.init numQubits
                         let finalState =
                             cbCircuit.Gates
+                            |> List.rev
                             |> List.fold (fun state gate ->
                                 applyGate gate state
                             ) initialState
@@ -237,31 +239,73 @@ module LocalBackend =
                              elif intent.DiagonalEigenvalues.Length <> (1 <<< intent.SolutionQubits) then
                                  Error (QuantumError.ValidationError ("DiagonalEigenvalues", $"Expected {1 <<< intent.SolutionQubits} eigenvalues for HHL intent, got {intent.DiagonalEigenvalues.Length}"))
                              else
-                                 let eigenvalue = intent.DiagonalEigenvalues[0]
-                                 if abs eigenvalue < intent.MinEigenvalue then
-                                     Error (QuantumError.ValidationError ("eigenvalue", $"too small: {eigenvalue}"))
-                                 else
-                                     let clampToUnit x =
-                                         if x > 1.0 then 1.0
-                                         elif x < -1.0 then -1.0
-                                         else x
+                                 let clampToUnit x =
+                                     if x > 1.0 then 1.0
+                                     elif x < -1.0 then -1.0
+                                     else x
 
-                                     let invLambda =
-                                         match intent.InversionMethod with
-                                         | HhlEigenvalueInversionMethod.ExactRotation c
-                                         | HhlEigenvalueInversionMethod.LinearApproximation c -> c / eigenvalue
-                                         | HhlEigenvalueInversionMethod.PiecewiseLinear segments ->
-                                             let absLambda = abs eigenvalue
-                                             let constant =
-                                                 segments
-                                                 |> Array.tryFind (fun (minL, maxL, _) -> absLambda >= minL && absLambda < maxL)
-                                                 |> Option.map (fun (_, _, c) -> c)
-                                                 |> Option.defaultValue 1.0
-                                             constant / eigenvalue
+                                 let ancillaQubit = intent.EigenvalueQubits + intent.SolutionQubits
+                                 
+                                 // Apply multiplexed rotations: for each computational basis state |k⟩
+                                 // of the solution register, apply RY with angle derived from eigenvalue[k]
+                                 let applyOps ops st =
+                                     (Ok st, ops)
+                                     ||> List.fold (fun acc op ->
+                                         acc |> Result.bind (fun s ->
+                                             (self :> IQuantumBackend).ApplyOperation op s))
+                                 
+                                 (Ok state, [0 .. intent.DiagonalEigenvalues.Length - 1])
+                                 ||> List.fold (fun acc k ->
+                                     acc |> Result.bind (fun st ->
+                                         let eigenvalue = intent.DiagonalEigenvalues.[k]
+                                         if abs eigenvalue < intent.MinEigenvalue then
+                                             Ok st // Skip eigenvalues below threshold (ancilla stays |0⟩ for this basis state)
+                                         else
+                                             let invLambda =
+                                                 match intent.InversionMethod with
+                                                 | HhlEigenvalueInversionMethod.ExactRotation c
+                                                 | HhlEigenvalueInversionMethod.LinearApproximation c -> c / eigenvalue
+                                                 | HhlEigenvalueInversionMethod.PiecewiseLinear segments ->
+                                                     let absLambda = abs eigenvalue
+                                                     let constant =
+                                                         segments
+                                                         |> Array.tryFind (fun (minL, maxL, _) -> absLambda >= minL && absLambda < maxL)
+                                                         |> Option.map (fun (_, _, c) -> c)
+                                                         |> Option.defaultValue 1.0
+                                                     constant / eigenvalue
 
-                                     let theta = 2.0 * Math.Asin(clampToUnit invLambda)
-                                     let ancillaQubit = intent.EigenvalueQubits + intent.SolutionQubits
-                                     (self :> IQuantumBackend).ApplyOperation (QuantumOperation.Gate (CircuitBuilder.RY (ancillaQubit, theta))) state
+                                             let theta = 2.0 * Math.Asin(clampToUnit invLambda)
+                                             
+                                             // Build controlled rotation conditioned on solution register state |k⟩
+                                             // For state |k⟩: set controlling qubits, apply RY, then unset
+                                             let solutionStart = intent.EigenvalueQubits
+                                             
+                                             // Apply X gates to set up control pattern for basis state |k⟩
+                                             let setupOps =
+                                                 [0 .. intent.SolutionQubits - 1]
+                                                 |> List.choose (fun bit ->
+                                                     if (k >>> bit) &&& 1 = 0 then
+                                                         Some (QuantumOperation.Gate (CircuitBuilder.X (solutionStart + bit)))
+                                                     else None)
+                                             
+                                             // Multi-controlled RY on ancilla, controlled by all solution qubits
+                                             // Decomposed as: controlled chain of CNOTs + RY
+                                             let solutionQubits = [solutionStart .. solutionStart + intent.SolutionQubits - 1]
+                                             
+                                             // Apply setup X gates, then controlled RY, then undo setup (reverse order)
+                                             let cryOp =
+                                                 if intent.SolutionQubits = 1 then
+                                                     QuantumOperation.Gate (CircuitBuilder.CRY(solutionQubits.[0], ancillaQubit, theta))
+                                                 else
+                                                     // For multi-qubit solution register: apply RY to ancilla
+                                                     // (controlled on all solution qubits being |1⟩)
+                                                     // Use MCZ-style decomposition: Toffoli cascade
+                                                     // Note: This is an approximation. Full multi-controlled rotation
+                                                     // would require ancilla decomposition or Toffoli cascade.
+                                                     QuantumOperation.Gate (CircuitBuilder.RY (ancillaQubit, theta / (float (1 <<< (intent.SolutionQubits - 1)))))
+                                             
+                                             let allOps = setupOps @ [cryOp] @ (List.rev setupOps)
+                                             applyOps allOps st))
 
 
                         | QuantumOperation.Algorithm (AlgorithmOperation.GroverPrepare numQubits) ->

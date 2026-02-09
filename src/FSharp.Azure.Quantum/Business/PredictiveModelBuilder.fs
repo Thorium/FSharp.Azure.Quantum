@@ -749,13 +749,13 @@ module PredictiveModel =
                     |> Result.mapError (fun e -> QuantumError.ValidationError ("Input", $"Hybrid multi-class training failed: {e}"))
                     |> Result.map (fun multiClassModel ->
                         
-                        let mutable correctCount = 0
-                        for i in 0 .. problem.TrainFeatures.Length - 1 do
-                            match MultiClassSVM.predict backend multiClassModel problem.TrainFeatures.[i] problem.Shots with
-                            | Ok prediction ->
-                                if prediction.Label = labels.[i] then
-                                    correctCount <- correctCount + 1
-                            | Error _ -> ()
+                        let correctCount =
+                            problem.TrainFeatures
+                            |> Array.mapi (fun i features ->
+                                match MultiClassSVM.predict backend multiClassModel features problem.Shots with
+                                | Ok prediction when prediction.Label = labels.[i] -> 1
+                                | _ -> 0)
+                            |> Array.sum
                         
                         let accuracy = float correctCount / float labels.Length
                         

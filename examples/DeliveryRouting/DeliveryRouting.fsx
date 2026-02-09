@@ -27,6 +27,13 @@ Haversine formula (great-circle distance on Earth's surface).
 
 **Quantum-Ready**: This example uses the HybridSolver which automatically routes
 between classical (fast, free) and quantum (scalable) solvers based on problem size.
+
+Usage:
+  dotnet fsi DeliveryRouting.fsx                                  (defaults)
+  dotnet fsi DeliveryRouting.fsx -- --help                        (show options)
+  dotnet fsi DeliveryRouting.fsx -- --input locations.csv
+  dotnet fsi DeliveryRouting.fsx -- --output route.json --csv route.csv
+  dotnet fsi DeliveryRouting.fsx -- --quiet --output route.json   (pipeline mode)
 *)
 
 (*
@@ -80,10 +87,35 @@ References:
 //#r "nuget: FSharp.Azure.Quantum"
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 
+#load "../_common/Cli.fs"
+#load "../_common/Data.fs"
+#load "../_common/Reporting.fs"
 
 open System
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Classical
+open FSharp.Azure.Quantum.Examples.Common
+
+// ==============================================================================
+// CLI ARGUMENT PARSING
+// ==============================================================================
+
+let argv = fsi.CommandLineArgs |> Array.skip 1
+let args = Cli.parse argv
+
+Cli.exitIfHelp
+    "DeliveryRouting.fsx"
+    "Quantum-ready delivery route optimization (TSP) using HybridSolver."
+    [ { Cli.OptionSpec.Name = "input";   Description = "CSV file with locations (name,latitude,longitude)"; Default = None }
+      { Cli.OptionSpec.Name = "output";  Description = "Write results to JSON file";                        Default = None }
+      { Cli.OptionSpec.Name = "csv";     Description = "Write results to CSV file";                         Default = None }
+      { Cli.OptionSpec.Name = "quiet";   Description = "Suppress informational output";                     Default = None } ]
+    args
+
+let quiet = Cli.hasFlag "quiet" args
+let inputPath = Cli.tryGet "input" args
+let outputPath = Cli.tryGet "output" args
+let csvPath = Cli.tryGet "csv" args
 
 // ============================================================================
 // Domain Model (Idiomatic F#)
@@ -111,16 +143,16 @@ type Performance = {
 }
 
 // ============================================================================
-// Real NYC Delivery Data
+// Real NYC Delivery Data (or load from file)
 // ============================================================================
 
-let warehouse = {
+let builtInWarehouse = {
     Name = "QuickShip Warehouse - Manhattan"
     Latitude = 40.7589
     Longitude = -73.9851
 }
 
-let customers = [
+let builtInCustomers = [
     { Name = "Brooklyn Tech Hub"; Latitude = 40.6782; Longitude = -73.9442 }
     { Name = "Queens Distribution"; Latitude = 40.7282; Longitude = -73.7949 }
     { Name = "Bronx Medical Supply"; Latitude = 40.8448; Longitude = -73.8648 }
@@ -137,6 +169,38 @@ let customers = [
     { Name = "Lakewood Retail"; Latitude = 40.0979; Longitude = -74.2179 }
     { Name = "Toms River Distribution"; Latitude = 39.9537; Longitude = -74.1979 }
 ]
+
+/// Load locations from a CSV file with columns: name, latitude, longitude
+/// First row is treated as the warehouse/depot; remaining rows are customers.
+let loadLocationsFromCsv (path: string) : Location * Location list =
+    let rows = Data.readCsvWithHeader path
+    let toLocation (row: Data.CsvRow) : Location =
+        { Name =
+            row.Values
+            |> Map.tryFind "name"
+            |> Option.defaultValue "Unknown"
+          Latitude =
+            row.Values
+            |> Map.tryFind "latitude"
+            |> Option.bind (fun s -> match Double.TryParse s with true, v -> Some v | _ -> None)
+            |> Option.defaultValue 0.0
+          Longitude =
+            row.Values
+            |> Map.tryFind "longitude"
+            |> Option.bind (fun s -> match Double.TryParse s with true, v -> Some v | _ -> None)
+            |> Option.defaultValue 0.0 }
+    match rows with
+    | [] -> failwith "Input CSV is empty"
+    | depot :: rest -> (toLocation depot, rest |> List.map toLocation)
+
+let warehouse, customers =
+    match inputPath with
+    | Some path ->
+        let resolved = Data.resolveRelative __SOURCE_DIRECTORY__ path
+        if not quiet then printfn "Loading locations from: %s" resolved
+        loadLocationsFromCsv resolved
+    | None ->
+        builtInWarehouse, builtInCustomers
 
 let allStops = warehouse :: customers
 
@@ -197,25 +261,26 @@ let formatTime (time: TimeSpan) : string =
 
 /// Print route details (side effect clearly isolated)
 let printRoute (label: string) (route: Route) (perf: Performance) (method: string option) : unit =
-    printfn "\n%s" label
-    printfn "  Distance: %s" (formatDistance route.TotalDistance)
-    printfn "  Est. Time: %s" (formatTime route.TotalTime)
-    printfn "  Solution Time: %.0fms" perf.SolutionTime.TotalMilliseconds
-    
-    match method with
-    | Some m -> printfn "  Solver: %s" m
-    | None -> ()
-    
-    match perf.Improvement with
-    | Some improvement -> 
-        printfn "  Improvement: %.1f%% better than naive route" improvement
-    | None -> ()
-    
-    printfn "\n  Route:"
-    route.Path 
-    |> List.iteri (fun i loc -> 
-        printfn "    %2d. %s" (i + 1) loc.Name
-    )
+    if not quiet then
+        printfn "\n%s" label
+        printfn "  Distance: %s" (formatDistance route.TotalDistance)
+        printfn "  Est. Time: %s" (formatTime route.TotalTime)
+        printfn "  Solution Time: %.0fms" perf.SolutionTime.TotalMilliseconds
+        
+        match method with
+        | Some m -> printfn "  Solver: %s" m
+        | None -> ()
+        
+        match perf.Improvement with
+        | Some improvement -> 
+            printfn "  Improvement: %.1f%% better than naive route" improvement
+        | None -> ()
+        
+        printfn "\n  Route:"
+        route.Path 
+        |> List.iteri (fun i loc -> 
+            printfn "    %2d. %s" (i + 1) loc.Name
+        )
 
 // ============================================================================
 // Solver Integration (Using HybridSolver for Quantum-Ready Optimization)
@@ -277,66 +342,133 @@ let calculateNaiveRoute (locations: Location list) : Route =
 // Main Execution (Side effects isolated at top level)
 // ============================================================================
 
-printfn "╔═══════════════════════════════════════════════════════════════╗"
-printfn "║     QuickShip Logistics - Delivery Route Optimization        ║"
-printfn "╚═══════════════════════════════════════════════════════════════╝"
-printfn ""
-printfn "Business Problem:"
-printfn "  Optimize daily delivery route for 15 customers in NYC area"
-printfn "  Starting point: %s" warehouse.Name
-printfn "  Customers: %d stops" customers.Length
-printfn ""
+if not quiet then
+    printfn "╔═══════════════════════════════════════════════════════════════╗"
+    printfn "║     QuickShip Logistics - Delivery Route Optimization        ║"
+    printfn "╚═══════════════════════════════════════════════════════════════╝"
+    printfn ""
+    printfn "Business Problem:"
+    printfn "  Optimize daily delivery route for 15 customers in NYC area"
+    printfn "  Starting point: %s" warehouse.Name
+    printfn "  Customers: %d stops" customers.Length
+    printfn ""
 
 // Calculate baseline (naive route)
 let naiveRoute = calculateNaiveRoute allStops
-printfn "📊 Baseline Analysis:"
-printfn "  Naive route (visit in given order):"
-printfn "    Distance: %s" (formatDistance naiveRoute.TotalDistance)
-printfn "    Est. Time: %s" (formatTime naiveRoute.TotalTime)
+if not quiet then
+    printfn "📊 Baseline Analysis:"
+    printfn "  Naive route (visit in given order):"
+    printfn "    Distance: %s" (formatDistance naiveRoute.TotalDistance)
+    printfn "    Est. Time: %s" (formatTime naiveRoute.TotalTime)
 
 // Solve with hybrid optimization (quantum-ready)
-printfn "\n⚙️  Solving with HybridSolver (Quantum-Ready Optimization)..."
+if not quiet then
+    printfn "\n⚙️  Solving with HybridSolver (Quantum-Ready Optimization)..."
 
-match solveWithHybridSolver allStops with
-| Ok (optimizedRoute, perf, reasoning) ->
-    // Calculate improvement
-    let improvement = 
-        (naiveRoute.TotalDistance - optimizedRoute.TotalDistance) / naiveRoute.TotalDistance * 100.0
-    
-    let perfWithImprovement = { perf with Improvement = Some improvement }
-    
-    printfn "\n💡 Solver Decision: %s" reasoning
-    printRoute "✅ Optimized Route Found" optimizedRoute perfWithImprovement (Some "HybridSolver")
-    
-    // Business insights
-    printfn "\n💡 Business Impact:"
-    let fuelSavings = improvement
-    let timeSavings = naiveRoute.TotalTime - optimizedRoute.TotalTime
-    
-    printfn "  • %.1f km shorter route (%.1f%% reduction)" 
-        (naiveRoute.TotalDistance - optimizedRoute.TotalDistance) improvement
-    printfn "  • %s faster delivery" (formatTime timeSavings)
-    printfn "  • Estimated fuel savings: %.1f%% per day" fuelSavings
-    printfn "  • Annual impact (250 work days): ~%.0f km saved" 
-        ((naiveRoute.TotalDistance - optimizedRoute.TotalDistance) * 250.0)
+let solverResult = solveWithHybridSolver allStops
 
-| Error msg ->
-    printfn "❌ Optimization failed: %s" msg
-    printfn "\nUsing baseline naive route"
-    let perf = {
-        SolutionTime = TimeSpan.Zero
-        TotalDistance = naiveRoute.TotalDistance
-        Improvement = None
-    }
-    printRoute "Naive Route" naiveRoute perf None
+let resultRoute, resultPerf, resultSolver =
+    match solverResult with
+    | Ok (optimizedRoute, perf, reasoning) ->
+        let improvement =
+            (naiveRoute.TotalDistance - optimizedRoute.TotalDistance) / naiveRoute.TotalDistance * 100.0
+
+        let perfWithImprovement = { perf with Improvement = Some improvement }
+
+        if not quiet then
+            printfn "\n💡 Solver Decision: %s" reasoning
+            printRoute "✅ Optimized Route Found" optimizedRoute perfWithImprovement (Some "HybridSolver")
+
+            // Business insights
+            printfn "\n💡 Business Impact:"
+            let fuelSavings = improvement
+            let timeSavings = naiveRoute.TotalTime - optimizedRoute.TotalTime
+
+            printfn "  • %.1f km shorter route (%.1f%% reduction)"
+                (naiveRoute.TotalDistance - optimizedRoute.TotalDistance) improvement
+            printfn "  • %s faster delivery" (formatTime timeSavings)
+            printfn "  • Estimated fuel savings: %.1f%% per day" fuelSavings
+            printfn "  • Annual impact (250 work days): ~%.0f km saved"
+                ((naiveRoute.TotalDistance - optimizedRoute.TotalDistance) * 250.0)
+
+        (optimizedRoute, perfWithImprovement, "HybridSolver")
+
+    | Error msg ->
+        if not quiet then
+            printfn "❌ Optimization failed: %s" msg
+            printfn "\nUsing baseline naive route"
+
+        let perf = {
+            SolutionTime = TimeSpan.Zero
+            TotalDistance = naiveRoute.TotalDistance
+            Improvement = None
+        }
+
+        if not quiet then
+            printRoute "Naive Route" naiveRoute perf None
+
+        (naiveRoute, perf, "Fallback (naive)")
 
 // Additional Analysis
-printfn "\n📈 Route Statistics:"
-printfn "  Total stops: %d" allStops.Length
-printfn "  Average distance between stops: %.1f km" 
-    (naiveRoute.TotalDistance / float allStops.Length)
+if not quiet then
+    printfn "\n📈 Route Statistics:"
+    printfn "  Total stops: %d" allStops.Length
+    printfn "  Average distance between stops: %.1f km"
+        (naiveRoute.TotalDistance / float allStops.Length)
 
-printfn "\n✨ Note: This example uses HybridSolver with automatic classical/quantum routing."
-printfn "   Current problem size (16 cities) → Classical solver (fast, optimal for <50 cities)"
-printfn "   For larger problems (50+ cities), quantum solvers may provide advantages."
-printfn ""
+    printfn "\n✨ Note: This example uses HybridSolver with automatic classical/quantum routing."
+    printfn "   Current problem size (16 cities) → Classical solver (fast, optimal for <50 cities)"
+    printfn "   For larger problems (50+ cities), quantum solvers may provide advantages."
+    printfn ""
+
+// ==============================================================================
+// STRUCTURED OUTPUT
+// ==============================================================================
+
+let routeStops =
+    resultRoute.Path
+    |> List.map (fun loc -> loc.Name)
+    |> String.concat " → "
+
+let resultRows : Map<string, string> list =
+    [ Map.ofList
+        [ "method", resultSolver
+          "total_distance_km", sprintf "%.2f" resultRoute.TotalDistance
+          "estimated_time_hours", sprintf "%.2f" resultRoute.TotalTime.TotalHours
+          "num_stops", sprintf "%d" allStops.Length
+          "improvement_pct",
+              match resultPerf.Improvement with
+              | Some pct -> sprintf "%.1f" pct
+              | None -> "N/A"
+          "solution_time_ms", sprintf "%.0f" resultPerf.SolutionTime.TotalMilliseconds
+          "naive_distance_km", sprintf "%.2f" naiveRoute.TotalDistance
+          "route", routeStops ] ]
+
+match outputPath with
+| Some path ->
+    Reporting.writeJson path resultRows
+    if not quiet then printfn "Results written to %s" path
+| None -> ()
+
+match csvPath with
+| Some path ->
+    let header = [ "method"; "total_distance_km"; "estimated_time_hours"; "num_stops";
+                   "improvement_pct"; "solution_time_ms"; "naive_distance_km"; "route" ]
+    let rows =
+        resultRows
+        |> List.map (fun m ->
+            header |> List.map (fun h -> m |> Map.tryFind h |> Option.defaultValue ""))
+    Reporting.writeCsv path header rows
+    if not quiet then printfn "Results written to %s" path
+| None -> ()
+
+// ==============================================================================
+// USAGE HINTS
+// ==============================================================================
+
+if argv.Length = 0 && not quiet then
+    printfn "💡 Tip: Run with --help to see all options:"
+    printfn "   dotnet fsi DeliveryRouting.fsx -- --help"
+    printfn "   dotnet fsi DeliveryRouting.fsx -- --input locations.csv --output route.json"
+    printfn "   dotnet fsi DeliveryRouting.fsx -- --quiet --output route.json  (pipeline mode)"
+    printfn ""

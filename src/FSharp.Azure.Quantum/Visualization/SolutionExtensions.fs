@@ -64,7 +64,8 @@ module SolutionVisualizationExtensions =
         member this.ToASCII() : string =
             // Convert CircuitBuilder.Gate to VisualizationGate
             let vizGates = 
-                this.Gates 
+                this.Gates
+                |> List.rev
                 |> List.map (fun gate -> CircuitGate gate)
             
             // Render using ASCII renderer
@@ -74,7 +75,8 @@ module SolutionVisualizationExtensions =
         member this.ToMermaid() : string =
             // Convert CircuitBuilder.Gate to VisualizationGate
             let vizGates = 
-                this.Gates 
+                this.Gates
+                |> List.rev
                 |> List.map (fun gate -> CircuitGate gate)
             
             // Render using Mermaid sequence diagram

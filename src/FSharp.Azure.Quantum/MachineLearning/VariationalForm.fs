@@ -141,24 +141,27 @@ module VariationalForms =
         if parameters.Length <> expectedParams then
             Error (QuantumError.ValidationError ("Input", $"EfficientSU2 requires {expectedParams} parameters (2 per qubit) for {numQubits} qubits and depth {depth}, got {parameters.Length}"))
         else
-            let mutable circuit = empty numQubits
-            let mutable paramIdx = 0
-            
-            for layer in 0 .. depth - 1 do
-                // Layer 1: Ry + Rz rotations on all qubits
-                for qubit in 0 .. numQubits - 1 do
-                    let angleRy = parameters.[paramIdx]
-                    let angleRz = parameters.[paramIdx + 1]
+            let circuit, _paramIdx =
+                ((empty numQubits, 0), [0 .. depth - 1])
+                ||> List.fold (fun (circ, pIdx) layer ->
+                    // Layer 1: Ry + Rz rotations on all qubits
+                    let circ', pIdx' =
+                        ((circ, pIdx), [0 .. numQubits - 1])
+                        ||> List.fold (fun (c, p) qubit ->
+                            let angleRy = parameters.[p]
+                            let angleRz = parameters.[p + 1]
+                            let c' = c |> addGate (RY(qubit, angleRy)) |> addGate (RZ(qubit, angleRz))
+                            (c', p + 2))
                     
-                    circuit <- addGate (RY(qubit, angleRy)) circuit
-                    circuit <- addGate (RZ(qubit, angleRz)) circuit
+                    // Layer 2: CX entanglement
+                    let circ'' =
+                        if layer < depth - 1 || depth = 1 then
+                            (circ', [0 .. numQubits - 2])
+                            ||> List.fold (fun c qubit -> addGate (CNOT(qubit, qubit + 1)) c)
+                        else
+                            circ'
                     
-                    paramIdx <- paramIdx + 2
-                
-                // Layer 2: CX entanglement
-                if layer < depth - 1 || depth = 1 then
-                    for qubit in 0 .. numQubits - 2 do
-                        circuit <- addGate (CNOT(qubit, qubit + 1)) circuit
+                    (circ'', pIdx'))
             
             Ok circuit
     

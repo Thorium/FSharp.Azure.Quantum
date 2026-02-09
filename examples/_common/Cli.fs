@@ -60,3 +60,41 @@ module Cli =
             match Double.TryParse s with
             | true, v -> v
             | false, _ -> fallback
+
+    let getList (name: string) (args: ParsedArgs) : string list =
+        args.Values |> Map.tryFind name |> Option.defaultValue []
+
+    /// Split a comma-separated value into a list of trimmed strings.
+    let getCommaSeparated (name: string) (args: ParsedArgs) : string list =
+        match tryGet name args with
+        | None -> []
+        | Some s -> s.Split(',') |> Array.map (fun x -> x.Trim()) |> Array.toList
+
+    type OptionSpec =
+        { Name: string
+          Description: string
+          Default: string option }
+
+    /// Print a usage banner and exit if --help is present.
+    let exitIfHelp (scriptName: string) (description: string) (options: OptionSpec list) (args: ParsedArgs) =
+        if hasFlag "help" args then
+            printfn ""
+            printfn "  %s" scriptName
+            printfn "  %s" description
+            printfn ""
+            printfn "  Usage: dotnet fsi %s -- [OPTIONS]" scriptName
+            printfn ""
+            printfn "  Options:"
+            for opt in options do
+                let defaultStr =
+                    match opt.Default with
+                    | Some d -> sprintf " (default: %s)" d
+                    | None -> ""
+                printfn "    --%-20s %s%s" opt.Name opt.Description defaultStr
+            printfn "    --%-20s %s" "help" "Show this help message"
+            printfn ""
+            printfn "  Examples:"
+            printfn "    dotnet fsi %s" scriptName
+            printfn "    dotnet fsi %s -- --help" scriptName
+            printfn ""
+            exit 0

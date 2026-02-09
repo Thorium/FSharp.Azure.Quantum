@@ -358,5 +358,5 @@ module QaoaCircuit =
             
             {
                 FSharp.Azure.Quantum.CircuitBuilder.QubitCount = qaoa.NumQubits
-                FSharp.Azure.Quantum.CircuitBuilder.Gates = allGates
+                FSharp.Azure.Quantum.CircuitBuilder.Gates = List.rev allGates
             }

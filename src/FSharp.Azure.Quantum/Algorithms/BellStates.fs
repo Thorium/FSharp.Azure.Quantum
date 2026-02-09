@@ -172,7 +172,7 @@ module BellStates =
                 State = PhiPlus
                 QuantumState = finalState
                 NumQubits = 2
-                BackendName = backend.NativeStateType.ToString()
+                BackendName = backend.Name
             }
         }
     
@@ -200,7 +200,7 @@ module BellStates =
                 State = PhiMinus
                 QuantumState = finalState
                 NumQubits = 2
-                BackendName = backend.NativeStateType.ToString()
+                BackendName = backend.Name
             }
         }
     
@@ -228,7 +228,7 @@ module BellStates =
                 State = PsiPlus
                 QuantumState = finalState
                 NumQubits = 2
-                BackendName = backend.NativeStateType.ToString()
+                BackendName = backend.Name
             }
         }
     
@@ -256,7 +256,7 @@ module BellStates =
                 State = PsiMinus
                 QuantumState = finalState
                 NumQubits = 2
-                BackendName = backend.NativeStateType.ToString()
+                BackendName = backend.Name
             }
         }
     

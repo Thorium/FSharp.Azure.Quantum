@@ -125,6 +125,7 @@ let riskReport =
         GroverIterations = 2
         Shots = 100
         Backend = None
+        CancellationToken = None
     }
 
 // Report Results

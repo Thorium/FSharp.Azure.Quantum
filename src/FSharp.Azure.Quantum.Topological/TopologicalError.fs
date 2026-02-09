@@ -294,6 +294,3 @@ module TopologicalResultBuilder =
     
     /// Global instance of the TopologicalResult computation expression builder
     let topologicalResult = TopologicalResultBuilder()
-    
-    /// Backward compatibility alias (will be deprecated)
-    let result = topologicalResult

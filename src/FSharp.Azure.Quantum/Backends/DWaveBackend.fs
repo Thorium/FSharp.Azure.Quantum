@@ -249,19 +249,15 @@ module DWaveBackend =
             
             /// Execute circuit and return quantum state (annealing samples)
             member this.ExecuteToState (circuit: ICircuit) : Result<QuantumState, QuantumError> =
-                // Execute to get measurements
-                match this.Execute circuit 1 with
-                | Error e -> Error e
-                | Ok execResult ->
-                    // Extract Ising problem and solutions
-                    match extractFromICircuit circuit with
-                    | Error e -> Error (QuantumError.ValidationError ("QUBO extraction", e))
-                    | Ok qubo ->
-                        let ising = quboToIsing qubo
-                        let solutions = MockSimulatedAnnealing.solve ising 1 seed
-                        
-                        // Return as IsingSamples state
-                        Ok (QuantumState.IsingSamples (box ising, box solutions))
+                // Extract Ising problem and solve directly (avoid redundant Execute call)
+                match extractFromICircuit circuit with
+                | Error e -> Error (QuantumError.ValidationError ("QUBO extraction", e))
+                | Ok qubo ->
+                    let ising = quboToIsing qubo
+                    let solutions = MockSimulatedAnnealing.solve ising 1 seed
+                    
+                    // Return as IsingSamples state
+                    Ok (QuantumState.IsingSamples (box ising, box solutions))
             
             /// Get backend's native state type (Annealing)
             member _.NativeStateType = QuantumStateType.Annealing

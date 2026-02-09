@@ -3,11 +3,8 @@ namespace FSharp.Azure.Quantum.Business
 open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum.Core
 open System
-open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum.Core.BackendAbstraction
-open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum.MachineLearning
-open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum
 
 /// High-Level Binary Classification Builder - Business-First API
@@ -117,6 +114,9 @@ module BinaryClassifier =
         
         /// Training metadata
         Metadata: ClassifierMetadata
+        
+        /// Backend used for training/prediction
+        Backend: IQuantumBackend
     }
     
     and ClassifierModel =
@@ -227,7 +227,8 @@ module BinaryClassifier =
         
         // Train VQC (initialize parameters randomly)
         let numParams = AnsatzHelpers.parameterCount variationalForm numQubits
-        let initialParams = Array.init numParams (fun _ -> Random().NextDouble() * 2.0 * Math.PI)
+        let rng = Random()
+        let initialParams = Array.init numParams (fun _ -> rng.NextDouble() * 2.0 * Math.PI)
         
         VQC.train backend featureMap variationalForm initialParams features labels trainConfig
         |> Result.mapError (fun e -> QuantumError.ValidationError ("Input", $"VQC training failed: {e}"))
@@ -246,6 +247,7 @@ module BinaryClassifier =
                     CreatedAt = startTime
                     Note = config.Note
                 }
+                Backend = backend
             }
             
             // Save if requested
@@ -312,6 +314,7 @@ module BinaryClassifier =
                     CreatedAt = startTime
                     Note = config.Note
                 }
+                Backend = backend
             })
     
     /// Train classifier based on architecture choice
@@ -336,9 +339,9 @@ module BinaryClassifier =
     
     /// Make prediction on new sample
     let predict (sample: float array) (classifier: Classifier) : QuantumResult<Prediction> =
+        let backend = classifier.Backend
         match classifier.Model with
         | VQCModel (result, featureMap, varForm, numQubits) ->
-            let backend = LocalBackend.LocalBackend() :> IQuantumBackend
             VQC.predict backend featureMap varForm result.Parameters sample 1000
             |> Result.map (fun vqcPred ->
                 {
@@ -349,8 +352,6 @@ module BinaryClassifier =
                 })
         
         | SVMModel (model, storedNumQubits) ->
-            let backend = LocalBackend.LocalBackend() :> IQuantumBackend
-            let featureMap = FeatureMapType.ZZFeatureMap 2
             QuantumKernelSVM.predict backend model sample 1000
             |> Result.map (fun prediction ->
                 // Convert decision value to confidence (sigmoid-like transformation)
@@ -452,6 +453,7 @@ module BinaryClassifier =
                                 CreatedAt = DateTime.UtcNow
                                 Note = serialized.Note
                             }
+                            Backend = LocalBackend.LocalBackend() :> IQuantumBackend
                         }))
             else
                 // Load as VQC model
@@ -487,6 +489,7 @@ module BinaryClassifier =
                             CreatedAt = DateTime.UtcNow
                             Note = None
                         }
+                        Backend = LocalBackend.LocalBackend() :> IQuantumBackend
                     })
         with ex ->
             Error (QuantumError.ValidationError ("Input", $"Failed to load model: {ex.Message}"))
