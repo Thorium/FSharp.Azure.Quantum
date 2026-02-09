@@ -102,10 +102,17 @@ module GateToBraid =
     ///   - Negative n → counter-clockwise T† gates (exp(-iπ/8) each)
     /// This avoids e.g. Rz(-π/8) becoming 15 clockwise gates instead of 1 counter-clockwise.
     let private computeAngleError (targetAngle: float) (tPhase: float) : float * int =
+        // Normalize to (-π, π] for shortest-path direction
+        let twoPi = 2.0 * Math.PI
+        let normalized = targetAngle % twoPi
+        let normalized =
+            if normalized > Math.PI then normalized - twoPi
+            elif normalized <= -Math.PI then normalized + twoPi
+            else normalized
         // Round to nearest integer multiple of tPhase (signed)
-        let numTGates = int (Math.Round(targetAngle / tPhase))
+        let numTGates = int (Math.Round(normalized / tPhase))
         let approximateAngle = float numTGates * tPhase
-        let error = abs(targetAngle - approximateAngle)
+        let error = abs(normalized - approximateAngle)
         (error, numTGates)
 
     // ========================================================================

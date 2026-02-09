@@ -118,14 +118,15 @@ let ``calculateExponentialBackoff should return increasing delays`` () =
     let delay6 = calculateExponentialBackoff 6
     let delay7 = calculateExponentialBackoff 7  // Should be capped at 60s
     
-    // Assert - exponential backoff: 1s, 2s, 4s, 8s, 16s, 32s, 60s (max)
-    Assert.Equal(1000, delay1)   // 1 second
-    Assert.Equal(2000, delay2)   // 2 seconds
-    Assert.Equal(4000, delay3)   // 4 seconds
-    Assert.Equal(8000, delay4)   // 8 seconds
-    Assert.Equal(16000, delay5)  // 16 seconds
-    Assert.Equal(32000, delay6)  // 32 seconds
-    Assert.Equal(60000, delay7)  // 60 seconds (capped)
+    // Assert - exponential backoff with ±25% jitter: base 1s, 2s, 4s, 8s, 16s, 32s, 60s (max)
+    // Jitter adds ±25% so we check ranges. Minimum is clamped to 100ms.
+    Assert.InRange(delay1, 750, 1250)     // 1s ± 25%
+    Assert.InRange(delay2, 1500, 2500)    // 2s ± 25%
+    Assert.InRange(delay3, 3000, 5000)    // 4s ± 25%
+    Assert.InRange(delay4, 6000, 10000)   // 8s ± 25%
+    Assert.InRange(delay5, 12000, 20000)  // 16s ± 25%
+    Assert.InRange(delay6, 24000, 40000)  // 32s ± 25%
+    Assert.InRange(delay7, 45000, 75000)  // 60s ± 25%
 
 // ============================================================================
 // TDD Cycle #6: ThrottlingHandler Integration
@@ -191,9 +192,9 @@ let ``ThrottlingHandler should return 429 response when rate limit is exceeded``
         // Act
         let! response = client.GetAsync("https://test.example.com") |> Async.AwaitTask
         
-        // Assert - should receive 429 response and track attempt number
+        // Assert - handler now retries up to 3 times on 429 with exponential backoff
         Assert.Equal(Net.HttpStatusCode.TooManyRequests, response.StatusCode)
-        Assert.Equal(1, callCount)  // One call made, backoff delay happens after response returned
+        Assert.Equal(4, callCount)  // 1 initial + 3 retries (maxRetries = 3)
         
         // Verify attempt number was incremented for exponential backoff
         let limiter = throttlingHandler.GetRateLimiter()

@@ -384,18 +384,17 @@ module HHLTypes =
             // True implementation would solve (A - σI)x = b iteratively
             
             // Fallback: Use Gershgorin circle theorem for bounds
-            // Minimum eigenvalue is bounded below by min(aii - Ri) where Ri is off-diagonal row sum
-            let gershgorinMinBound = 
+            let gershgorinBound = 
                 [| for i in 0 .. n - 1 do
                     let aii = matrix.Elements[i * n + i].Real
                     let rowSum = 
                         [| for j in 0 .. n - 1 do
                             if i <> j then yield matrix.Elements[i * n + j].Magnitude |]
                         |> Array.sum
-                    yield aii - rowSum |]
+                    yield abs (aii - rowSum) |]
                 |> Array.min
             
-            abs (max gershgorinMinBound 1e-10)  // Take absolute value of the bound, avoid zero
+            max gershgorinBound 1e-10  // Avoid zero
     
     /// <summary>
     /// Calculate condition number κ = λ_max / λ_min for Hermitian matrix.

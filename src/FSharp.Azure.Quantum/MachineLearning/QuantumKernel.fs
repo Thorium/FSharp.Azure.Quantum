@@ -55,11 +55,14 @@ module QuantumKernels =
                 | PauliFeatureMap (paulis, depth) -> FeatureMap.pauliFeatureMap paulis depth y
                 | AmplitudeEncoding -> FeatureMap.amplitudeEncoding y
             
-            // Create inverse of circuitY (adjoint: negate rotation angles)
-            // Gates are stored in reverse order internally.
-            // Mapping inverseGate over reversed gates produces the adjoint in reversed order.
+            // Create inverse of circuitY (adjoint: reverse gate order, negate rotation angles)
+            // Gates are stored in reverse chronological order internally (prepend convention).
+            // To form the adjoint: reverse the stored list (restoring forward order),
+            // then map inverseGate to negate angles. The result is the adjoint in
+            // prepend-storage order.
             let inverseGatesY = 
-                circuitY.Gates 
+                circuitY.Gates
+                |> List.rev
                 |> List.map (fun gate ->
                     match gate with
                     | H q -> H q
@@ -76,7 +79,7 @@ module QuantumKernels =
                 )
             
             // Combine: U_φ(x) followed by U_φ†(y)
-            // In reversed storage: [inverseY reversed] @ [circuitX reversed]
+            // In reversed storage: adjoint(Y) @ circuitX
             let combinedGates = inverseGatesY @ circuitX.Gates
             
             Ok { 

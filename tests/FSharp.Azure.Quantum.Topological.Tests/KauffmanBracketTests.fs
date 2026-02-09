@@ -29,16 +29,15 @@ let expectedD (a: Complex) : Complex =
 // ========================================
 
 [<Fact>]
-let ``Unknot has Kauffman bracket value d`` () =
+let ``Unknot has Kauffman bracket value 1`` () =
     // Arrange
     let a = standardA
-    let expectedValue = expectedD a
     
     // Act
     let actualValue = evaluateBracket unknot a
     
-    // Assert
-    assertComplexEqual expectedValue actualValue 1e-10
+    // Assert - unknot (empty diagram) evaluates to 1, not d
+    assertComplexEqual Complex.One actualValue 1e-10
 
 [<Fact>]
 let ``Loop value function returns correct d`` () =

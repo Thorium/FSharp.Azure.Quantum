@@ -111,6 +111,12 @@ module FMatrix =
             
             // F[σ,σ,σ,σ;ψ,ψ] = -1/√2
             { A = sigma; B = sigma; C = sigma; D = sigma; E = psi; F = psi }, minusInvSqrt2
+            
+            // F[σ,ψ,σ,ψ;σ,σ] = -1
+            { A = sigma; B = psi; C = sigma; D = psi; E = sigma; F = sigma }, Complex(-1.0, 0.0)
+            
+            // F[ψ,σ,ψ,σ;σ,σ] = -1
+            { A = psi; B = sigma; C = psi; D = sigma; E = sigma; F = sigma }, Complex(-1.0, 0.0)
         ]
     
     // ========================================================================
@@ -137,9 +143,9 @@ module FMatrix =
         
         Map.ofList [
             // F^{τττ}_1 matrix (1×1: only e=τ, f=τ is fusion-valid)
-            // F[τ,τ,τ,1;τ,τ] = φ⁻¹
+            // F[τ,τ,τ,1;τ,τ] = 1 (1×1 unitary matrix must have magnitude 1)
             { A = tau; B = tau; C = tau; D = vacuum; E = tau; F = tau }, 
-            Complex(phiInv, 0.0)
+            Complex(1.0, 0.0)
             
             // F^{τττ}_τ matrix (2×2 in the {1,τ} basis)
             // From Simon "Topological Quantum", Table 9.5:

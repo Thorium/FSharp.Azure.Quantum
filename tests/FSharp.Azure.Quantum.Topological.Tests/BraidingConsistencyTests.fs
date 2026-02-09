@@ -219,15 +219,17 @@ module BraidingConsistencyTests =
     
     [<Fact>]
     let ``Pentagon equation verified for all Ising particle 5-tuples`` () =
-        // Business meaning: Pentagon must hold for all combinations of 5 particles.
-        // With {1,σ,ψ}, that's 3^5 = 243 cases, though many are trivial or invalid.
+        // With particles {1,σ,ψ}, we check all 3^5 = 243 particle 5-tuples (a,b,c,d,e).
+        // Each 5-tuple yields one ConsistencyCheckResult covering all valid
+        // intermediate-channel index combinations for that tuple.
         let summary = verifyConsistencyOrFail AnyonSpecies.AnyonType.Ising
         
-        assertCheckCount 1 summary.PentagonChecks.Length "Pentagon"
+        // 3 particles ^ 5 positions = 243 per-combination results
+        Assert.Equal(243, summary.PentagonChecks.Length)
         
         summary.PentagonChecks
         |> List.iter (fun check ->
-            Assert.True(check.IsSatisfied, $"Pentagon check failed: {check.Details}")
+            Assert.True(check.IsSatisfied, $"Pentagon check failed: {check.Equation} - {check.Details}")
         )
     
     [<Fact>]

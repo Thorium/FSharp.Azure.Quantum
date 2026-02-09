@@ -447,7 +447,7 @@ module OpenQasmImport =
                 match finalState.QubitCount with
                 | None -> Error "No qreg declaration found"
                 | Some qCount ->
-                    Ok { QubitCount = qCount; Gates = finalState.Gates }
+                    Ok { QubitCount = qCount; Gates = finalState.Gates |> List.rev }
             | Error msg -> Error msg
     
     /// <summary>

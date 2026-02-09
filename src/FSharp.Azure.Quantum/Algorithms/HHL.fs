@@ -494,7 +494,7 @@ module HHL =
                              (solutionQubits |> List.toArray)
                              (CircuitBuilder.empty totalQubits)
 
-                     evolved.Gates |> List.rev |> List.map QuantumOperation.Gate
+                     evolved.Gates |> List.map QuantumOperation.Gate
 
                  let controlledEvolutions =
                      eigenQubits
@@ -691,7 +691,7 @@ module HHL =
                                                transpileToFixpoint (remaining - 1) next
 
                                    let transpiled = transpileToFixpoint 5 circuit
-                                   transpiled.Gates |> List.rev |> List.map QuantumOperation.Gate
+                                   transpiled.Gates |> List.map QuantumOperation.Gate
                               else
                                   // Non-gate operations should never appear in lowering, but keep this safe.
                                   ops

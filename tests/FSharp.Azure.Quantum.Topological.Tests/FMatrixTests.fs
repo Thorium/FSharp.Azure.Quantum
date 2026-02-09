@@ -47,14 +47,14 @@ module FMatrixTests =
     // ========================================================================
     
     [<Fact>]
-    let ``Ising anyons have exactly 4 non-trivial F-symbols for σ×σ×σ→σ basis transformation`` () =
-        // Business meaning: For Ising anyons (Majorana zero modes), the only
-        // non-trivial basis transformation is when fusing three sigma anyons.
+    let ``Ising anyons have exactly 6 non-trivial F-symbols including abelian sector signs`` () =
+        // Business meaning: For Ising anyons (Majorana zero modes), we have the
+        // 4 σ×σ×σ→σ basis transformations plus 2 abelian sector sign F-symbols.
         // This reflects the underlying Z₂ × Z₂ algebraic structure.
         let data = computeFMatrixOrFail AnyonSpecies.AnyonType.Ising
         
         Assert.Equal(AnyonSpecies.AnyonType.Ising, data.AnyonType)
-        Assert.Equal(4, data.FSymbols.Count)
+        Assert.Equal(6, data.FSymbols.Count)
     
     [<Fact>]
     let ``Ising basis transformation F[σ,σ,σ,σ;1,1] equals 1/√2 preserving normalization`` () =
@@ -125,18 +125,17 @@ module FMatrixTests =
         Assert.True(data.FSymbols.Count > 0, "Should have non-trivial F-symbols")
     
     [<Fact>]
-    let ``Fibonacci F[τ,τ,τ,1;τ,τ] equals φ⁻¹ from golden ratio fusion algebra`` () =
-        // Business meaning: The fusion rule τ×τ = 1 + τ creates a recurrence
-        // relation whose solution involves φ. This F-symbol relates the two
-        // fusion channels (τ×τ)→1 and (τ×τ)→τ when fusing three τ anyons.
-        let phi = (1.0 + sqrt 5.0) / 2.0
+    let ``Fibonacci F[τ,τ,τ,1;τ,τ] equals 1 from unitary normalization of 1×1 block`` () =
+        // Business meaning: When the total fusion outcome is vacuum (1), there is
+        // only one intermediate channel (τ), making this a 1×1 block in the F-matrix.
+        // Unitarity of a 1×1 block requires the value to be 1.
         let data = computeFMatrixOrFail AnyonSpecies.AnyonType.Fibonacci
         let tau = AnyonSpecies.Particle.Tau
         let vacuum = AnyonSpecies.Particle.Vacuum
         
         let value = getFSymbolOrFail data (fIndex tau tau tau vacuum tau tau) "F[τ,τ,τ,1;τ,τ]"
         
-        assertRealValue (1.0 / phi) value
+        assertRealValue 1.0 value
     
     [<Fact>]
     let ``Fibonacci F[τ,τ,τ,τ;τ,τ] equals -φ⁻¹ for τ→τ basis transformation`` () =

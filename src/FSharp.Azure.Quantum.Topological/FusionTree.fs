@@ -232,23 +232,20 @@ module FusionTree =
                 splits
                 |> List.collect (fun (leftParticles, rightParticles) ->
                     channels
-                    |> List.collect (fun leftIntermediate ->
-                        channels
-                        |> List.collect (fun rightIntermediate ->
-                            // Check if leftIntermediate × rightIntermediate → totalCharge
-                            match allTrees leftParticles leftIntermediate anyonType,
-                                  allTrees rightParticles rightIntermediate anyonType,
-                                  FusionRules.isPossible leftIntermediate rightIntermediate totalCharge anyonType with
-                            | Ok leftTrees, Ok rightTrees, Ok true ->
-                                // Combine all left and right trees
-                                [ for leftTree in leftTrees do
-                                  for rightTree in rightTrees do
-                                    Ok (Fusion (leftTree, rightTree, totalCharge)) ]
-                            | Ok _, Ok _, Ok false -> []
-                            | Error err, _, _ -> [Error err]
-                            | _, Error err, _ -> [Error err]
-                            | _, _, Error err -> [Error err]
-                        )
+                    |> List.collect (fun intermediate ->
+                        // Get all trees for left side fusing to intermediate
+                        match allTrees leftParticles intermediate anyonType,
+                              allTrees rightParticles intermediate anyonType,
+                              FusionRules.isPossible intermediate intermediate totalCharge anyonType with
+                        | Ok leftTrees, Ok rightTrees, Ok true ->
+                            // Combine all left and right trees
+                            [ for leftTree in leftTrees do
+                              for rightTree in rightTrees do
+                                Ok (Fusion (leftTree, rightTree, totalCharge)) ]
+                        | Ok _, Ok _, Ok false -> []
+                        | Error err, _, _ -> [Error err]
+                        | _, Error err, _ -> [Error err]
+                        | _, _, Error err -> [Error err]
                     )
                 )
             

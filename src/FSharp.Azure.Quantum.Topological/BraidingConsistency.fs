@@ -50,46 +50,55 @@ module BraidingConsistency =
     // HELPERS
     // ========================================================================
     
-    /// Check if two complex numbers are approximately equal
-    let private areComplexEqual (tolerance: float) (z1: Complex) (z2: Complex) : bool =
-        let diff = z1 - z2
-        diff.Magnitude < tolerance
-    
-    /// Get list of all particles for an anyon type
+    /// Get all particles in a theory, returning empty list for unsupported types
     let rec private getParticles (anyonType: AnyonSpecies.AnyonType) : AnyonSpecies.Particle list =
         match anyonType with
         | AnyonSpecies.AnyonType.Ising ->
-            [
-                AnyonSpecies.Particle.Vacuum
-                AnyonSpecies.Particle.Sigma
-                AnyonSpecies.Particle.Psi
-            ]
+            [ AnyonSpecies.Particle.Vacuum
+              AnyonSpecies.Particle.Sigma
+              AnyonSpecies.Particle.Psi ]
         | AnyonSpecies.AnyonType.Fibonacci ->
-            [
-                AnyonSpecies.Particle.Vacuum
-                AnyonSpecies.Particle.Tau
-            ]
+            [ AnyonSpecies.Particle.Vacuum
+              AnyonSpecies.Particle.Tau ]
         | AnyonSpecies.AnyonType.SU2Level 2 ->
-            getParticles AnyonSpecies.AnyonType.Ising  // Isomorphic
-        | _ ->
-            []  // Not implemented yet
+            getParticles AnyonSpecies.AnyonType.Ising
+        | _ -> []
     
-    /// Extract fusion channels from Result, returning empty list on error
-    let private toParticles (result: TopologicalResult<FusionRules.Outcome list>) : AnyonSpecies.Particle list =
-        match result with
-        | Ok outcomes -> outcomes |> List.map (fun (o: FusionRules.Outcome) -> o.Result)
+    /// Get fusion channels a×b, returning empty list on error
+    let private fusionChannels
+        (a: AnyonSpecies.Particle)
+        (b: AnyonSpecies.Particle)
+        (anyonType: AnyonSpecies.AnyonType)
+        : AnyonSpecies.Particle list =
+        match FusionRules.channels a b anyonType with
+        | Ok channels -> channels
         | Error _ -> []
+    
+    /// Look up F-symbol value, returning None if fusion constraints are violated
+    let private tryGetF
+        (fData: FMatrix.FMatrixData)
+        (a, b, c, d, e, f)
+        : Complex option =
+        match FMatrix.getFSymbol fData { FMatrix.A = a; FMatrix.B = b; FMatrix.C = c; FMatrix.D = d; FMatrix.E = e; FMatrix.F = f } with
+        | Ok value -> Some value
+        | Error _ -> None
     
     // ========================================================================
     // PENTAGON EQUATION VERIFICATION
     // ========================================================================
     
-    /// Verify pentagon equation for specific particles (a,b,c,d,e)
+    /// Verify the pentagon equation for four fusing anyons (a,b,c,d) with total charge e.
     ///
-    /// Pentagon equation:
-    /// F[a,b,c;e] · F[a,e,d;f] = Σ_g F[b,c,d;g] · F[a,b,g;f] · F[g,c,d;f]
+    /// The pentagon identity (Kitaev 2006, Appendix C) states that two distinct
+    /// sequences of F-moves relating fusion trees of four anyons must agree:
     ///
-    /// This ensures associativity of fusion: ((a×b)×c)×d = a×(b×(c×d))
+    ///   F^{fcd}_{e;gl} · F^{abl}_{e;fh} = Σ_k F^{abc}_{g;fk} · F^{akd}_{e;gh} · F^{bcd}_{h;kl}
+    ///
+    /// In our FSymbolIndex convention F[A,B,C,D;E,F] = F^{ABC}_{D;EF}, where
+    /// (A×B)→E is the left intermediate channel and (B×C)→F the right intermediate.
+    ///
+    /// Free indices: f ∈ a×b, g ∈ f×c, l ∈ c×d, h ∈ b×l.
+    /// Summed index: k ∈ b×c.
     let verifyPentagonForParticles
         (fData: FMatrix.FMatrixData)
         (a: AnyonSpecies.Particle)
@@ -100,40 +109,67 @@ module BraidingConsistency =
         : ConsistencyCheckResult =
         
         let anyonType = fData.AnyonType
+        let tolerance = 1e-10
         
-        // Get possible intermediate channels
-        let channelsAB = FusionRules.fuse a b anyonType |> toParticles
-        let channelsBC = FusionRules.fuse b c anyonType |> toParticles
-        let channelsCD = FusionRules.fuse c d anyonType |> toParticles
+        let channelsAB = fusionChannels a b anyonType
+        let channelsBC = fusionChannels b c anyonType
+        let channelsCD = fusionChannels c d anyonType
         
-        // For multiplicity-free theories, we can simplify the check
-        // Left side: F[a,b,c;e] · F[a,e,d;f]
-        // Right side: Σ_g F[b,c,d;g] · F[a,b,g;f] · F[g,c,d;f]
+        // For each valid combination of free indices (f,g,l,h), compare LHS and RHS
+        let deviations =
+            [ for f in channelsAB do
+                for g in fusionChannels f c anyonType do
+                    for l in channelsCD do
+                        for h in fusionChannels b l anyonType do
+                            // LHS: F[f,c,d,e; g,l] · F[a,b,l,e; f,h]
+                            match tryGetF fData (f,c,d,e,g,l), tryGetF fData (a,b,l,e,f,h) with
+                            | Some lhs1, Some lhs2 ->
+                                let lhs = lhs1 * lhs2
+                                
+                                // RHS: Σ_k F[a,b,c,g; f,k] · F[a,k,d,e; g,h] · F[b,c,d,h; k,l]
+                                let rhs =
+                                    channelsBC
+                                    |> List.choose (fun k ->
+                                        match tryGetF fData (a,b,c,g,f,k),
+                                              tryGetF fData (a,k,d,e,g,h),
+                                              tryGetF fData (b,c,d,h,k,l) with
+                                        | Some v1, Some v2, Some v3 -> Some (v1 * v2 * v3)
+                                        | _ -> None)
+                                    |> List.fold (+) Complex.Zero
+                                
+                                (lhs - rhs).Magnitude
+                            | _ -> () ]
         
-        // TODO: Full pentagon verification requires summing over all intermediate states.
-        // For multiplicity-free theories this is a matrix multiplication check.
-        // For now, mark as NOT verified (not implemented) rather than falsely reporting success.
-        {
-            Equation = $"Pentagon: F[{a},{b},{c};{e}] · F[{a},{e},{d};f]"
-            IsSatisfied = false
-            MaxDeviation = nan
-            Details = "NOT IMPLEMENTED: Pentagon verification requires summing over intermediate fusion channels. Results should not be trusted until this is implemented."
-        }
+        let label = $"Pentagon({a},{b},{c},{d};{e})"
+        
+        match deviations with
+        | [] ->
+            { Equation = label
+              IsSatisfied = true
+              MaxDeviation = 0.0
+              Details = "No valid fusion paths" }
+        | _ ->
+            let maxDev = List.max deviations
+            let satisfied = deviations |> List.forall (fun d -> d < tolerance)
+            { Equation = label
+              IsSatisfied = satisfied
+              MaxDeviation = maxDev
+              Details =
+                  if satisfied then
+                      $"Verified {deviations.Length} index combinations (max deviation: {maxDev:E3})"
+                  else
+                      $"FAILED: max deviation {maxDev:E3} exceeds tolerance {tolerance:E3}" }
     
-    /// Verify pentagon equation for all valid particle combinations
+    /// Verify pentagon equation for all particle 5-tuples (a,b,c,d,e) in the theory.
+    /// Returns one ConsistencyCheckResult per combination.
     let verifyAllPentagons (fData: FMatrix.FMatrixData) : ConsistencyCheckResult list =
         let particles = getParticles fData.AnyonType
-        
-        // Generate all valid 5-tuples (a,b,c,d,e)
-        // Return actual per-combination results (currently all NOT IMPLEMENTED)
-        [
-            for a in particles do
-            for b in particles do
-            for c in particles do
-            for d in particles do
-            for e in particles ->
-                verifyPentagonForParticles fData a b c d e
-        ]
+        [ for a in particles do
+          for b in particles do
+          for c in particles do
+          for d in particles do
+          for e in particles ->
+              verifyPentagonForParticles fData a b c d e ]
     
     // ========================================================================
     // HEXAGON EQUATION VERIFICATION
@@ -159,8 +195,8 @@ module BraidingConsistency =
         let tolerance = 1e-10
         
         // Get possible intermediate fusion channels
-        let channelsAB = FusionRules.fuse a b anyonType |> toParticles
-        let channelsBC = FusionRules.fuse b c anyonType |> toParticles
+        let channelsAB = fusionChannels a b anyonType
+        let channelsBC = fusionChannels b c anyonType
         
         // For multiplicity-free theories (Ising, Fibonacci), hexagon simplifies
         // We need to check: R[b,c] · F[a,b,c;d] · R[a,c] = F'[b,a,c;d] · R[a,b] · F[a,b,c;d]

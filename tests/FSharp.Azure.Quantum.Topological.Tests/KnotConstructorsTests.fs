@@ -106,7 +106,7 @@ let ``Torus knot T(4,3) is constructed correctly`` () =
 
 [<Fact>]
 let ``Torus knot fails for invalid p`` () =
-    Assert.Throws<System.Exception>(fun () -> KnotConstructors.torusKnot 0 5 |> ignore)
+    Assert.Throws<System.ArgumentException>(fun () -> KnotConstructors.torusKnot 0 5 |> ignore)
 
 [<Fact>]
 let ``Torus knot T(2,0) is unlink (two unknots)`` () =

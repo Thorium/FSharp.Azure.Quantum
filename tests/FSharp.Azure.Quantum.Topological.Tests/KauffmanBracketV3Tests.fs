@@ -228,16 +228,15 @@ let ``Loop value equals minus A squared minus A inverse squared`` () =
 // ========================================
 
 [<Fact>]
-let ``Unknot Kauffman bracket equals d`` () =
+let ``Unknot Kauffman bracket equals 1`` () =
     // Arrange
     let a = testA
-    let expected = loopValue a
     
     // Act
     let actual = evaluateBracket unknot a
     
-    // Assert
-    assertComplexEqual expected actual 1e-10
+    // Assert - unknot (empty diagram) evaluates to 1, not d
+    assertComplexEqual Complex.One actual 1e-10
 
 [<Fact>]
 let ``Trefoil Kauffman bracket is non-zero`` () =

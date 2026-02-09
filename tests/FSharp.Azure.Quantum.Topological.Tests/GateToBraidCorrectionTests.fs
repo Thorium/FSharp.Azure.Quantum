@@ -43,23 +43,24 @@ module GateToBraidCorrectionTests =
     // ========================================================================
     
     [<Fact>]
-    let ``CORRECTED - Rz with negative angle normalizes to positive`` () =
-        // Business meaning: Rz(-π/8) should equal Rz(15π/8) after normalization
-        // BEFORE FIX: Would use counter-clockwise braiding (inconsistent)
-        // AFTER FIX: Normalizes to [0, 2π) and uses clockwise only
+    let ``CORRECTED - Rz with negative angle uses counter-clockwise braiding`` () =
+        // Business meaning: Rz(-π/8) should produce 1 counter-clockwise T† gate
+        // instead of 15 clockwise gates. Signed angles pick optimal direction.
+        // BEFORE FIX: Would normalize to [0, 2π) and use 15 clockwise braids
+        // AFTER FIX: Uses signed angle → 1 counter-clockwise braid (T†)
         
         let angleNeg = -Math.PI / 8.0
-        let anglePos = 15.0 * Math.PI / 8.0
+        let anglePos = Math.PI / 8.0
         
         match GateToBraid.rzGateToBraid 0 angleNeg 2 1e-10, GateToBraid.rzGateToBraid 0 anglePos 2 1e-10 with
         | Ok braidNeg, Ok braidPos ->
-            // Both should produce 15 clockwise braids after normalization
-            Assert.Equal(braidNeg.Generators.Length, braidPos.Generators.Length)
-            Assert.Equal(15, braidNeg.Generators.Length)
+            // Both should produce 1 braid (optimal direction)
+            Assert.Equal(1, braidNeg.Generators.Length)
+            Assert.Equal(1, braidPos.Generators.Length)
             
-            // All generators should be clockwise after normalization
-            Assert.All(braidNeg.Generators, fun gen -> Assert.True(gen.IsClockwise))
-            Assert.All(braidPos.Generators, fun gen -> Assert.True(gen.IsClockwise))
+            // Negative angle → counter-clockwise, positive → clockwise
+            Assert.False(braidNeg.Generators.[0].IsClockwise)
+            Assert.True(braidPos.Generators.[0].IsClockwise)
         | _ -> failwith "Rz compilation should succeed"
     
     [<Fact>]
