@@ -84,7 +84,10 @@ match matrix1 with
         printfn "❌ Vector error: %A" err
     | Ok vec ->
         printfn "Setting up HHL configuration..."
-        let config = defaultConfig mat vec
+        match defaultConfig mat vec with
+        | Error err ->
+            printfn "❌ Config error: %A" err
+        | Ok config ->
         printfn "  QPE precision: %d qubits" config.EigenvalueQubits
         printfn "  Inversion method: %A" config.InversionMethod
         printfn ""
@@ -175,7 +178,10 @@ match matrix1 with
         printfn ""
         
         // Target 1% accuracy
-        let config = optimizedConfig mat vec (Some 0.01)
+        match optimizedConfig mat vec (Some 0.01) with
+        | Error err ->
+            printfn "❌ Config error: %A" err
+        | Ok config ->
         
         printfn "✅ Configuration automatically optimized:"
         printfn "   Matrix condition number: %.2f" 
@@ -216,7 +222,10 @@ let vectorResult = createQuantumVector [|Complex(1.0, 0.0); Complex(1.0, 0.0)|]
 match matrixResult, vectorResult with
 | Ok matrix, Ok vector ->
     printfn "Step 1: Auto-optimize configuration..."
-    let config = optimizedConfig matrix vector (Some 0.01)  // 1% target accuracy
+    match optimizedConfig matrix vector (Some 0.01) with  // 1% target accuracy
+    | Error err ->
+        printfn "  ❌ Config error: %A" err
+    | Ok config ->
     printfn "  ✅ κ = %.2f (well-conditioned)" 
         (config.Matrix.ConditionNumber |> Option.defaultValue 0.0)
     printfn "  ✅ Method: %A" config.InversionMethod

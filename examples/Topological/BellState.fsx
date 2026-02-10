@@ -16,6 +16,7 @@
 // ============================================================================
 
 #r "../../src/FSharp.Azure.Quantum.Topological/bin/Debug/net10.0/FSharp.Azure.Quantum.Topological.dll"
+#r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 
 open FSharp.Azure.Quantum.Topological
 
@@ -26,21 +27,23 @@ open FSharp.Azure.Quantum.Topological
 printfn "=== Creating Bell State with Topological Operations ==="
 printfn ""
 
-let backend = TopologicalBackend.createSimulator AnyonSpecies.AnyonType.Ising 10
+let backend = TopologicalUnifiedBackendFactory.createIsing 10
 
 // Use the topological builder (computation expression)
+let bellStateProgram = topological backend {
+    // Initialize 4 anyons (minimum for encoding 1 qubit of entanglement)
+    do! TopologicalBuilder.initialize AnyonSpecies.AnyonType.Ising 4
+    
+    // Braid operations create entanglement
+    do! TopologicalBuilder.braid 0  // Braid anyons 0 and 1
+    do! TopologicalBuilder.braid 2  // Braid anyons 2 and 3
+    
+    // The braiding pattern creates an entangled state
+    // analogous to |Φ⁺⟩ = (|00⟩ + |11⟩) / √2
+}
+
 let createBellState = task {
-    let! result = topological backend {
-        // Initialize 4 anyons (minimum for encoding 1 qubit of entanglement)
-        do! TopologicalBuilder.initialize AnyonSpecies.AnyonType.Ising 4
-        
-        // Braid operations create entanglement
-        do! TopologicalBuilder.braid 0  // Braid anyons 0 and 1
-        do! TopologicalBuilder.braid 2  // Braid anyons 2 and 3
-        
-        // The braiding pattern creates an entangled state
-        // analogous to |Φ⁺⟩ = (|00⟩ + |11⟩) / √2
-    }
+    let! result = TopologicalBuilder.execute backend bellStateProgram
     
     match result with
     | Ok () ->
@@ -72,7 +75,7 @@ let testEntanglement numTrials = task {
     let mutable correlatedCount = 0
     
     for i in 1..numTrials do
-        let! programResult = topological backend {
+        let trialProgram = topological backend {
             do! TopologicalBuilder.initialize AnyonSpecies.AnyonType.Ising 4
             do! TopologicalBuilder.braid 0
             do! TopologicalBuilder.braid 2
@@ -85,6 +88,8 @@ let testEntanglement numTrials = task {
             
             return (outcome1, outcome2)
         }
+        
+        let! programResult = TopologicalBuilder.execute backend trialProgram
         
         match programResult with
         | Ok (outcome1, outcome2) ->

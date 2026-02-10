@@ -284,7 +284,7 @@ let spinAsymmetry (majorityR: float) (minorityR: float) : float =
 
 /// RKKY coupling strength vs spacer thickness
 /// J(d) ∝ cos(2k_F × d) / d²
-let rkkyyCoupling (spacer: SpacerMaterial) (thickness_nm: float) : float =
+let rkkyCoupling (spacer: SpacerMaterial) (thickness_nm: float) : float =
     let k_F = spacer.FermiWavevector  // nm⁻¹
     let J0 = 1.0  // Coupling strength prefactor (arbitrary units)
     J0 * Math.Cos(2.0 * k_F * thickness_nm) / (thickness_nm * thickness_nm)
@@ -447,7 +447,7 @@ printfn "  d (nm)    J (a.u.)    Coupling Type"
 printfn "  ------    --------    -------------"
 
 for d in spacerThicknesses do
-    let J = rkkyyCoupling Chromium d
+    let J = rkkyCoupling Chromium d
     let coupling = couplingType J
     let Jstr = if J >= 0.0 then sprintf "+%.3f" J else sprintf "%.3f" J
     printfn "    %.1f      %s       %s" d Jstr coupling

@@ -56,327 +56,392 @@ References:
       Using QUBO Models", 4OR 17, 335-371 (2019). https://doi.org/10.1007/s10288-019-00424-y
   [4] Wikipedia: Knapsack_problem
       https://en.wikipedia.org/wiki/Knapsack_problem
+
+Usage:
+  dotnet fsi Knapsack.fsx                                          (defaults)
+  dotnet fsi Knapsack.fsx -- --help                                (show options)
+  dotnet fsi Knapsack.fsx -- --input items.csv --capacity 300000
+  dotnet fsi Knapsack.fsx -- --example cargo                       (run cargo example)
+  dotnet fsi Knapsack.fsx -- --quiet --output results.json         (pipeline mode)
 *)
 
 //#r "nuget: FSharp.Azure.Quantum"
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 
+#load "../_common/Cli.fs"
+#load "../_common/Data.fs"
+#load "../_common/Reporting.fs"
 
-open FSharp.Azure.Quantum
 open System
+open FSharp.Azure.Quantum
+open FSharp.Azure.Quantum.Examples.Common
 
-printfn "======================================"
-printfn "Knapsack - Resource Allocation"
-printfn "======================================"
-printfn ""
+// ==============================================================================
+// CLI ARGUMENT PARSING
+// ==============================================================================
 
-// ============================================================================
-// EXAMPLE 1: Software Project Selection
-// ============================================================================
+let argv = fsi.CommandLineArgs |> Array.skip 1
+let args = Cli.parse argv
 
-printfn "Example 1: Software Project Selection (Budget Allocation)"
-printfn "------------------------------------------------------------"
+Cli.exitIfHelp
+    "Knapsack.fsx"
+    "Quantum-ready 0/1 Knapsack optimization using QAOA."
+    [ { Cli.OptionSpec.Name = "input";    Description = "CSV file with items (id,weight,value)";       Default = None }
+      { Cli.OptionSpec.Name = "capacity"; Description = "Knapsack capacity constraint";                Default = Some "300000" }
+      { Cli.OptionSpec.Name = "example";  Description = "Built-in example: projects|cargo|sprint|classic|validation|random"; Default = Some "projects" }
+      { Cli.OptionSpec.Name = "output";   Description = "Write results to JSON file";                  Default = None }
+      { Cli.OptionSpec.Name = "csv";      Description = "Write results to CSV file";                   Default = None }
+      { Cli.OptionSpec.Name = "quiet";    Description = "Suppress informational output";               Default = None } ]
+    args
 
-// Available projects with costs and expected benefits (reduced to 5 items to avoid memory issues)
-let projects = [
-    ("API Rewrite", 150000.0, 500000.0)          // High value, high cost
-    ("Dashboard UI", 50000.0, 200000.0)          // Excellent value/cost ratio
-    ("Performance Optimization", 40000.0, 120000.0)  // Quick win
-    ("Security Audit", 60000.0, 250000.0)        // High value, medium cost
-    ("Database Migration", 120000.0, 280000.0)   // Major undertaking
-]
+let quiet = Cli.hasFlag "quiet" args
+let inputPath = Cli.tryGet "input" args
+let outputPath = Cli.tryGet "output" args
+let csvPath = Cli.tryGet "csv" args
+let exampleName = Cli.getOr "example" "projects" args
 
-let quarterlyBudget = 300000.0
+// ==============================================================================
+// BUILT-IN DATASETS
+// ==============================================================================
 
-let projectProblem = Knapsack.budgetAllocation projects quarterlyBudget
+/// Software projects with costs and expected benefits
+let builtInProjects =
+    [ ("API Rewrite",              150000.0, 500000.0)
+      ("Dashboard UI",              50000.0, 200000.0)
+      ("Performance Optimization",  40000.0, 120000.0)
+      ("Security Audit",            60000.0, 250000.0)
+      ("Database Migration",       120000.0, 280000.0) ]
 
-printfn "Available Projects: %d" projectProblem.ItemCount
-printfn "Quarterly Budget: $%.0f" quarterlyBudget
-printfn "Total Value (all projects): $%.0f" projectProblem.TotalValue
-printfn "Total Cost (all projects): $%.0f" projectProblem.TotalWeight
-printfn ""
+/// Cargo items with weight (kg) and value ($)
+let builtInCargo =
+    [ ("Electronics",  100.0, 50000.0)
+      ("Furniture",    500.0, 15000.0)
+      ("Textiles",     200.0, 20000.0)
+      ("Appliances",   300.0, 35000.0)
+      ("Jewelry",       10.0, 80000.0)
+      ("Books",        150.0,  5000.0)
+      ("Computers",     80.0, 60000.0)
+      ("Tools",        120.0, 18000.0) ]
 
-// Solve using quantum QAOA
-printfn "Solving with quantum QAOA..."
-match Knapsack.solve projectProblem None with
-| Ok solution ->
-    printfn "✓ Quantum Solution Found!"
-    printfn "  Selected Projects:"
-    for item in solution.SelectedItems do
-        let ratio = item.Value / item.Weight
-        printfn "    - %s (cost: $%.0f, benefit: $%.0f, ROI: %.1fx)" 
-            item.Id item.Weight item.Value ratio
+/// Sprint tasks with time (hours) and priority score
+let builtInTasks =
+    [ ("Critical Bug Fix",     4.0, 100.0)
+      ("Feature Request A",    8.0,  60.0)
+      ("Code Review",          2.0,  40.0)
+      ("Refactoring",         12.0,  50.0)
+      ("Documentation",        3.0,  30.0)
+      ("Unit Tests",            5.0,  70.0)
+      ("Performance Tuning",   6.0,  80.0)
+      ("Security Update",      4.0,  90.0) ]
+
+/// Classic textbook items
+let builtInClassic =
+    [ ("Gold Bar",   10.0,  60.0)
+      ("Silver Bar", 20.0, 100.0)
+      ("Bronze Bar", 30.0, 120.0) ]
+
+/// Small validation items
+let builtInValidation =
+    [ ("Item1", 2.0, 10.0)
+      ("Item2", 3.0, 15.0)
+      ("Item3", 5.0, 30.0)
+      ("Item4", 7.0, 35.0) ]
+
+// ==============================================================================
+// DATA LOADING
+// ==============================================================================
+
+/// Load items from a CSV file with columns: id, weight, value
+let loadItemsFromCsv (path: string) : (string * float * float) list =
+    let rows = Data.readCsvWithHeader path
+    rows
+    |> List.map (fun row ->
+        let id =
+            row.Values
+            |> Map.tryFind "id"
+            |> Option.orElse (row.Values |> Map.tryFind "name")
+            |> Option.defaultValue "Unknown"
+        let weight =
+            row.Values
+            |> Map.tryFind "weight"
+            |> Option.bind (fun s -> match Double.TryParse s with true, v -> Some v | _ -> None)
+            |> Option.defaultValue 0.0
+        let value =
+            row.Values
+            |> Map.tryFind "value"
+            |> Option.bind (fun s -> match Double.TryParse s with true, v -> Some v | _ -> None)
+            |> Option.defaultValue 0.0
+        (id, weight, value))
+
+// ==============================================================================
+// DISPLAY HELPERS
+// ==============================================================================
+
+let printHeader title =
+    if not quiet then
+        printfn ""
+        printfn "%s" title
+        printfn "%s" (String.replicate (String.length title) "-")
+
+let printSolution (label: string) (solution: Knapsack.Solution) (capacity: float) =
+    if not quiet then
+        printfn "%s" label
+        for item in solution.SelectedItems do
+            let ratio = if item.Weight > 0.0 then item.Value / item.Weight else 0.0
+            printfn "    - %s (weight: %.0f, value: %.0f, ratio: %.1fx)"
+                item.Id item.Weight item.Value ratio
+        printfn "  Total Weight: %.0f / %.0f" solution.TotalWeight capacity
+        printfn "  Total Value: %.0f" solution.TotalValue
+        printfn "  Utilization: %.1f%%" solution.CapacityUtilization
+        printfn "  Efficiency: %.2f value/weight" solution.Efficiency
+        printfn "  Feasible: %b" solution.IsFeasible
+        printfn "  Backend: %s" solution.BackendName
+        printfn ""
+
+// ==============================================================================
+// SOLVE AND COLLECT RESULTS
+// ==============================================================================
+
+/// Solve a problem and return structured result row for output
+let solveAndReport
+    (label: string)
+    (items: (string * float * float) list)
+    (capacity: float)
+    (createProblem: (string * float * float) list -> float -> Knapsack.Problem)
+    : Map<string, string> option =
+
+    let problem = createProblem items capacity
+
+    if not quiet then
+        printfn "Items: %d | Capacity: %.0f | Total Weight: %.0f | Total Value: %.0f"
+            problem.ItemCount capacity problem.TotalWeight problem.TotalValue
+
+    match Knapsack.solve problem None with
+    | Ok solution ->
+        printSolution "  Quantum QAOA solution:" solution capacity
+
+        Some (Map.ofList
+            [ "example",           label
+              "method",            "QAOA"
+              "items_count",       sprintf "%d" problem.ItemCount
+              "capacity",          sprintf "%.0f" capacity
+              "selected_count",    sprintf "%d" solution.SelectedItems.Length
+              "selected_items",    solution.SelectedItems |> List.map (fun i -> i.Id) |> String.concat "; "
+              "total_weight",      sprintf "%.2f" solution.TotalWeight
+              "total_value",       sprintf "%.2f" solution.TotalValue
+              "utilization_pct",   sprintf "%.1f" solution.CapacityUtilization
+              "efficiency",        sprintf "%.2f" solution.Efficiency
+              "feasible",          sprintf "%b" solution.IsFeasible
+              "backend",           solution.BackendName ])
+
+    | Error err ->
+        if not quiet then printfn "  Failed: %A" err
+        None
+
+// ==============================================================================
+// MAIN EXECUTION
+// ==============================================================================
+
+if not quiet then
+    printfn "======================================"
+    printfn "Knapsack - Resource Allocation"
+    printfn "======================================"
+
+let allResults = ResizeArray<Map<string, string>>()
+
+match inputPath with
+| Some path ->
+    // External data mode: load from CSV
+    let resolved = Data.resolveRelative __SOURCE_DIRECTORY__ path
+    if not quiet then printfn "Loading items from: %s" resolved
+
+    let items = loadItemsFromCsv resolved
+    let capacity = Cli.getFloatOr "capacity" 300000.0 args
+
+    printHeader "Custom Input"
+    solveAndReport "custom" items capacity Knapsack.createProblem
+    |> Option.iter allResults.Add
+
+| None ->
+    // Built-in examples mode
+    match exampleName.ToLowerInvariant() with
+    | "all" ->
+        // Run all built-in examples
+        printHeader "Example 1: Software Project Selection (Budget Allocation)"
+        solveAndReport "projects" builtInProjects 300000.0 Knapsack.budgetAllocation
+        |> Option.iter allResults.Add
+
+        // Classical greedy comparison
+        let greedySol = Knapsack.solveClassicalGreedy (Knapsack.budgetAllocation builtInProjects 300000.0)
+        if not quiet then
+            printfn "  Classical Greedy comparison:"
+            printfn "    Selected: %d items | Value: %.0f | Weight: %.0f"
+                greedySol.SelectedItems.Length greedySol.TotalValue greedySol.TotalWeight
+            printfn ""
+
+        printHeader "Example 2: Cargo Loading (Maximize Value on Truck)"
+        solveAndReport "cargo" builtInCargo 600.0 Knapsack.cargoLoading
+        |> Option.iter allResults.Add
+
+        printHeader "Example 3: Sprint Task Selection (Time-Constrained)"
+        solveAndReport "sprint" builtInTasks 40.0 Knapsack.taskScheduling
+        |> Option.iter allResults.Add
+
+        printHeader "Example 4: Classic Knapsack (Textbook Example)"
+        solveAndReport "classic" builtInClassic 50.0 Knapsack.createProblem
+        |> Option.iter allResults.Add
+
+        printHeader "Example 5: Solution Validation and Metrics"
+        let testProblem = Knapsack.createProblem builtInValidation 10.0
+        solveAndReport "validation" builtInValidation 10.0 Knapsack.createProblem
+        |> Option.iter allResults.Add
+
+        // Manual selection analysis
+        if not quiet then
+            let manualSelection =
+                testProblem.Items
+                |> List.filter (fun item -> item.Id = "Item2" || item.Id = "Item3")
+            let isFeasible = Knapsack.isFeasible testProblem manualSelection
+            let tw = Knapsack.totalWeight manualSelection
+            let tv = Knapsack.totalValue manualSelection
+            let eff = Knapsack.efficiency manualSelection
+            printfn "  Manual selection (Item2, Item3):"
+            printfn "    Feasible: %b (weight %.0f <= %.0f)" isFeasible tw testProblem.Capacity
+            printfn "    Value: %.0f | Efficiency: %.1f value/weight" tv eff
+
+            let optSol = Knapsack.solveClassicalDP testProblem
+            printfn "  Optimal (DP): %A -> Value: %.0f"
+                (optSol.SelectedItems |> List.map (fun i -> i.Id)) optSol.TotalValue
+            if tv = optSol.TotalValue then
+                printfn "    Manual selection is optimal!"
+            else
+                printfn "    Manual is %.1f%% of optimal" (tv / optSol.TotalValue * 100.0)
+            printfn ""
+
+        printHeader "Example 6: Random Problem Instance"
+        let randomProblem = Knapsack.randomInstance 8 100.0 500.0 0.5
+        if not quiet then
+            printfn "Generated: %d items, capacity %.0f"
+                randomProblem.ItemCount randomProblem.Capacity
+        match Knapsack.solve randomProblem None with
+        | Ok solution ->
+            printSolution "  Quantum QAOA solution:" solution randomProblem.Capacity
+            allResults.Add (Map.ofList
+                [ "example",           "random"
+                  "method",            "QAOA"
+                  "items_count",       sprintf "%d" randomProblem.ItemCount
+                  "capacity",          sprintf "%.0f" randomProblem.Capacity
+                  "selected_count",    sprintf "%d" solution.SelectedItems.Length
+                  "selected_items",    solution.SelectedItems |> List.map (fun i -> i.Id) |> String.concat "; "
+                  "total_weight",      sprintf "%.2f" solution.TotalWeight
+                  "total_value",       sprintf "%.2f" solution.TotalValue
+                  "utilization_pct",   sprintf "%.1f" solution.CapacityUtilization
+                  "efficiency",        sprintf "%.2f" solution.Efficiency
+                  "feasible",          sprintf "%b" solution.IsFeasible
+                  "backend",           solution.BackendName ])
+        | Error err ->
+            if not quiet then printfn "  Failed: %A" err
+
+    | "projects" ->
+        printHeader "Software Project Selection (Budget Allocation)"
+        let capacity = Cli.getFloatOr "capacity" 300000.0 args
+        solveAndReport "projects" builtInProjects capacity Knapsack.budgetAllocation
+        |> Option.iter allResults.Add
+
+    | "cargo" ->
+        printHeader "Cargo Loading (Maximize Value on Truck)"
+        let capacity = Cli.getFloatOr "capacity" 600.0 args
+        solveAndReport "cargo" builtInCargo capacity Knapsack.cargoLoading
+        |> Option.iter allResults.Add
+
+    | "sprint" ->
+        printHeader "Sprint Task Selection (Time-Constrained)"
+        let capacity = Cli.getFloatOr "capacity" 40.0 args
+        solveAndReport "sprint" builtInTasks capacity Knapsack.taskScheduling
+        |> Option.iter allResults.Add
+
+    | "classic" ->
+        printHeader "Classic Knapsack (Textbook Example)"
+        let capacity = Cli.getFloatOr "capacity" 50.0 args
+        solveAndReport "classic" builtInClassic capacity Knapsack.createProblem
+        |> Option.iter allResults.Add
+
+    | "validation" ->
+        printHeader "Solution Validation and Metrics"
+        let capacity = Cli.getFloatOr "capacity" 10.0 args
+        solveAndReport "validation" builtInValidation capacity Knapsack.createProblem
+        |> Option.iter allResults.Add
+
+    | "random" ->
+        printHeader "Random Problem Instance"
+        let capacity = Cli.getFloatOr "capacity" 250.0 args
+        let randomProblem = Knapsack.randomInstance 8 100.0 500.0 0.5
+        if not quiet then
+            printfn "Generated: %d items, capacity %.0f"
+                randomProblem.ItemCount randomProblem.Capacity
+        match Knapsack.solve randomProblem None with
+        | Ok solution ->
+            printSolution "  Quantum QAOA solution:" solution randomProblem.Capacity
+            allResults.Add (Map.ofList
+                [ "example",           "random"
+                  "method",            "QAOA"
+                  "items_count",       sprintf "%d" randomProblem.ItemCount
+                  "capacity",          sprintf "%.0f" randomProblem.Capacity
+                  "selected_count",    sprintf "%d" solution.SelectedItems.Length
+                  "selected_items",    solution.SelectedItems |> List.map (fun i -> i.Id) |> String.concat "; "
+                  "total_weight",      sprintf "%.2f" solution.TotalWeight
+                  "total_value",       sprintf "%.2f" solution.TotalValue
+                  "utilization_pct",   sprintf "%.1f" solution.CapacityUtilization
+                  "efficiency",        sprintf "%.2f" solution.Efficiency
+                  "feasible",          sprintf "%b" solution.IsFeasible
+                  "backend",           solution.BackendName ])
+        | Error err ->
+            if not quiet then printfn "  Failed: %A" err
+
+    | other ->
+        eprintfn "Unknown example: '%s'. Use: projects|cargo|sprint|classic|validation|random|all" other
+        exit 1
+
+if not quiet then
+    printfn "======================================"
+    printfn "Knapsack Examples Complete!"
+    printfn "======================================"
+
+// ==============================================================================
+// STRUCTURED OUTPUT
+// ==============================================================================
+
+let resultRows = allResults |> Seq.toList
+
+match outputPath with
+| Some path ->
+    Reporting.writeJson path resultRows
+    if not quiet then printfn "Results written to %s" path
+| None -> ()
+
+match csvPath with
+| Some path ->
+    let header =
+        [ "example"; "method"; "items_count"; "capacity"; "selected_count";
+          "selected_items"; "total_weight"; "total_value"; "utilization_pct";
+          "efficiency"; "feasible"; "backend" ]
+    let rows =
+        resultRows
+        |> List.map (fun m ->
+            header |> List.map (fun h -> m |> Map.tryFind h |> Option.defaultValue ""))
+    Reporting.writeCsv path header rows
+    if not quiet then printfn "Results written to %s" path
+| None -> ()
+
+// ==============================================================================
+// USAGE HINTS
+// ==============================================================================
+
+if argv.Length = 0 && not quiet then
     printfn ""
-    printfn "  Total Cost: $%.0f (budget: $%.0f)" solution.TotalWeight quarterlyBudget
-    printfn "  Total Benefit: $%.0f" solution.TotalValue
-    printfn "  Capacity Utilization: %.1f%%" solution.CapacityUtilization
-    printfn "  Value/Cost Ratio: %.2fx" solution.Efficiency
-    printfn "  Feasible: %b" solution.IsFeasible
-    printfn "  Backend: %s" solution.BackendName
+    printfn "Tip: Run with --help to see all options:"
+    printfn "   dotnet fsi Knapsack.fsx -- --help"
+    printfn "   dotnet fsi Knapsack.fsx -- --example all"
+    printfn "   dotnet fsi Knapsack.fsx -- --input items.csv --capacity 500"
+    printfn "   dotnet fsi Knapsack.fsx -- --quiet --output results.json  (pipeline mode)"
     printfn ""
-| Error err ->
-    printfn "✗ Quantum solve failed: %s" err.Message
-    printfn ""
-
-// Compare with classical DP (optimal) - Commented out due to memory issues with large budgets
-// For demonstration, the greedy solution provides a good approximation
-(*
-printfn "Solving with classical DP (optimal)..."
-let dpSolution = Knapsack.solveClassicalDP projectProblem
-
-printfn "✓ Classical DP Solution (Optimal):"
-printfn "  Selected Projects:"
-for item in dpSolution.SelectedItems do
-    printfn "    - %s (cost: $%.0f, benefit: $%.0f)" 
-        item.Id item.Weight item.Value
-printfn ""
-printfn "  Total Cost: $%.0f" dpSolution.TotalWeight
-printfn "  Total Benefit: $%.0f" dpSolution.TotalValue
-printfn "  Capacity Utilization: %.1f%%" dpSolution.CapacityUtilization
-printfn "  Value/Cost Ratio: %.2fx" dpSolution.Efficiency
-printfn ""
-*)
-
-// Compare with greedy heuristic
-printfn "Solving with classical greedy..."
-let greedySolution = Knapsack.solveClassicalGreedy projectProblem
-
-printfn "✓ Classical Greedy Solution:"
-printfn "  Selected Projects: %d" greedySolution.SelectedItems.Length
-printfn "  Total Cost: $%.0f" greedySolution.TotalWeight
-printfn "  Total Benefit: $%.0f" greedySolution.TotalValue
-printfn "  Capacity Utilization: %.1f%%" greedySolution.CapacityUtilization
-printfn ""
-
-// ============================================================================
-// EXAMPLE 2: Cargo Loading Optimization
-// ============================================================================
-
-printfn ""
-printfn "Example 2: Cargo Loading (Maximize Value on Truck)"
-printfn "---------------------------------------------------"
-
-let cargo = [
-    ("Electronics", 100.0, 50000.0)      // High value density
-    ("Furniture", 500.0, 15000.0)        // Low value density
-    ("Textiles", 200.0, 20000.0)         // Medium value density
-    ("Appliances", 300.0, 35000.0)       // Good value density
-    ("Jewelry", 10.0, 80000.0)           // Excellent value density!
-    ("Books", 150.0, 5000.0)             // Very low value density
-    ("Computers", 80.0, 60000.0)         // Excellent value density
-    ("Tools", 120.0, 18000.0)            // Medium-low value density
-]
-
-let truckCapacity = 600.0  // kg
-
-let cargoProblem = Knapsack.cargoLoading cargo truckCapacity
-
-printfn "Available Cargo: %d items" cargoProblem.ItemCount
-printfn "Truck Capacity: %.0f kg" truckCapacity
-printfn ""
-
-match Knapsack.solve cargoProblem None with
-| Ok solution ->
-    printfn "✓ Optimal Loading Plan:"
-    printfn "  Selected Cargo:"
-    for item in solution.SelectedItems |> List.sortByDescending (fun i -> i.Value / i.Weight) do
-        printfn "    - %s (%.0f kg, $%.0f, $%.0f/kg)" 
-            item.Id item.Weight item.Value (item.Value / item.Weight)
-    printfn ""
-    printfn "  Total Weight: %.0f kg (capacity: %.0f kg)" solution.TotalWeight truckCapacity
-    printfn "  Total Value: $%.0f" solution.TotalValue
-    printfn "  Utilization: %.1f%%" solution.CapacityUtilization
-    printfn "  Average Value Density: $%.0f/kg" solution.Efficiency
-| Error err ->
-    printfn "✗ Failed: %s" err.Message
-
-printfn ""
-
-// ============================================================================
-// EXAMPLE 3: Sprint Task Selection
-// ============================================================================
-
-printfn ""
-printfn "Example 3: Sprint Task Selection (Time-Constrained)"
-printfn "---------------------------------------------------"
-
-let tasks = [
-    ("Critical Bug Fix", 4.0, 100.0)         // Very high priority
-    ("Feature Request A", 8.0, 60.0)         // Medium priority, long
-    ("Code Review", 2.0, 40.0)               // Quick, important
-    ("Refactoring", 12.0, 50.0)              // Long, medium priority
-    ("Documentation", 3.0, 30.0)             // Quick, lower priority
-    ("Unit Tests", 5.0, 70.0)                // High priority
-    ("Performance Tuning", 6.0, 80.0)        // High priority
-    ("Security Update", 4.0, 90.0)           // Very high priority
-]
-
-let sprintHours = 40.0  // 1 week sprint
-
-let sprintProblem = Knapsack.taskScheduling tasks sprintHours
-
-printfn "Available Tasks: %d" sprintProblem.ItemCount
-printfn "Sprint Capacity: %.0f hours" sprintHours
-printfn ""
-
-match Knapsack.solve sprintProblem None with
-| Ok solution ->
-    printfn "✓ Sprint Plan:"
-    printfn "  Selected Tasks:"
-    for item in solution.SelectedItems |> List.sortByDescending (fun i -> i.Value) do
-        printfn "    - %s (%.0fh, priority: %.0f)" 
-            item.Id item.Weight item.Value
-    printfn ""
-    printfn "  Total Time: %.0fh (available: %.0fh)" solution.TotalWeight sprintHours
-    printfn "  Total Priority Points: %.0f" solution.TotalValue
-    printfn "  Time Utilization: %.1f%%" solution.CapacityUtilization
-    printfn "  Remaining Time: %.0fh" (sprintHours - solution.TotalWeight)
-| Error err ->
-    printfn "✗ Failed: %s" err.Message
-
-printfn ""
-
-// ============================================================================
-// EXAMPLE 4: Small Classic Knapsack
-// ============================================================================
-
-printfn ""
-printfn "Example 4: Classic Knapsack (Textbook Example)"
-printfn "----------------------------------------------"
-
-let classicItems = [
-    ("Gold Bar", 10.0, 60.0)
-    ("Silver Bar", 20.0, 100.0)
-    ("Bronze Bar", 30.0, 120.0)
-]
-
-let knapsackCapacity = 50.0
-let classicProblem = Knapsack.createProblem classicItems knapsackCapacity
-
-match Knapsack.solve classicProblem None with
-| Ok solution ->
-    printfn "Items: %A" (classicItems |> List.map (fun (id, w, v) -> sprintf "%s(w=%.0f,v=%.0f)" id w v))
-    printfn "Capacity: %.0f" knapsackCapacity
-    printfn ""
-    printfn "✓ Quantum Solution:"
-    printfn "  Selected: %A" (solution.SelectedItems |> List.map (fun i -> i.Id))
-    printfn "  Weight: %.0f / %.0f" solution.TotalWeight knapsackCapacity
-    printfn "  Value: %.0f" solution.TotalValue
-    printfn "  Efficiency: %.2f value/weight" solution.Efficiency
-| Error err ->
-    printfn "✗ Failed: %s" err.Message
-
-printfn ""
-
-// ============================================================================
-// EXAMPLE 5: Different Problem Sizes
-// ============================================================================
-
-printfn ""
-printfn "Example 5: Multiple Test Cases"
-printfn "--------------------------------"
-
-// Small problem
-let smallItems = [
-    ("Item1", 2.0, 10.0)
-    ("Item2", 3.0, 15.0)
-    ("Item3", 5.0, 30.0)
-    ("Item4", 7.0, 35.0)
-]
-
-let smallProblem = Knapsack.createProblem smallItems 10.0
-
-printfn "Small Problem (4 items, capacity 10):"
-match Knapsack.solve smallProblem None with
-| Ok solution ->
-    printfn "  Selected: %A" (solution.SelectedItems |> List.map (fun i -> i.Id))
-    printfn "  Total Value: %.0f" solution.TotalValue
-    printfn "  Total Weight: %.0f" solution.TotalWeight
-    printfn "  Efficiency: %.2f" solution.Efficiency
-    printfn "  Feasible: %b" solution.IsFeasible
-| Error err ->
-    printfn "  ✗ Failed: %s" err.Message
-
-printfn ""
-printfn "Example 5: Solution Validation and Metrics"
-printfn "------------------------------------------"
-
-// Create test problem
-let testItems = [
-    ("Item1", 2.0, 10.0)
-    ("Item2", 3.0, 15.0)
-    ("Item3", 5.0, 30.0)
-    ("Item4", 7.0, 35.0)
-]
-
-let testCapacity = 10.0
-let testProblem = Knapsack.createProblem testItems testCapacity
-
-// Manual selection
-let manualSelection = 
-    testProblem.Items 
-    |> List.filter (fun item -> item.Id = "Item2" || item.Id = "Item3")
-
-printfn "Test Problem:"
-printfn "  Items: %d" testProblem.ItemCount
-printfn "  Capacity: %.0f" testCapacity
-printfn ""
-
-printfn "Manual Selection: Item2, Item3"
-let isFeasible = Knapsack.isFeasible testProblem manualSelection
-let totalWeight = Knapsack.totalWeight manualSelection
-let totalValue = Knapsack.totalValue manualSelection
-let efficiency = Knapsack.efficiency manualSelection
-
-printfn "  Feasible: %b (weight %.0f ≤ %.0f)" isFeasible totalWeight testCapacity
-printfn "  Total Value: %.0f" totalValue
-printfn "  Efficiency: %.1f value/weight" efficiency
-printfn ""
-
-// Find optimal
-let optimalSol = Knapsack.solveClassicalDP testProblem
-printfn "Optimal Solution:"
-printfn "  Selected: %A" (optimalSol.SelectedItems |> List.map (fun i -> i.Id))
-printfn "  Total Value: %.0f" optimalSol.TotalValue
-printfn "  Efficiency: %.1f" optimalSol.Efficiency
-
-if totalValue = optimalSol.TotalValue then
-    printfn "  ✓ Manual selection is optimal!"
-else
-    printfn "  ⚠ Manual selection is suboptimal (%.1f%% of optimal)" 
-        (totalValue / optimalSol.TotalValue * 100.0)
-
-printfn ""
-
-// ============================================================================
-// EXAMPLE 6: Random Problem Generation
-// ============================================================================
-
-printfn ""
-printfn "Example 6: Random Problem Instance"
-printfn "-----------------------------------"
-
-let randomProblem = Knapsack.randomInstance 8 100.0 500.0 0.5
-
-printfn "Random Problem: %d items, capacity %.0f" 
-    randomProblem.ItemCount randomProblem.Capacity
-printfn ""
-
-// Quantum QAOA
-match Knapsack.solve randomProblem None with
-| Ok solution ->
-    printfn "Quantum QAOA Solution:"
-    printfn "  Selected Items: %d" solution.SelectedItems.Length
-    printfn "  Value: %.0f" solution.TotalValue
-    printfn "  Weight: %.0f / %.0f" solution.TotalWeight randomProblem.Capacity
-    printfn "  Utilization: %.1f%%" solution.CapacityUtilization
-    printfn "  Efficiency: %.2f value/weight" solution.Efficiency
-    printfn "  Feasible: %b" solution.IsFeasible
-| Error err ->
-    printfn "✗ Failed: %s" err.Message
-
-printfn ""
-
-printfn "======================================"
-printfn "Knapsack Examples Complete!"
-printfn "======================================"

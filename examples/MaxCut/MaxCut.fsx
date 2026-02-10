@@ -63,211 +63,312 @@ References:
 //#r "nuget: FSharp.Azure.Quantum"
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 
+#load "../_common/Cli.fs"
+#load "../_common/Data.fs"
+#load "../_common/Reporting.fs"
 
-open FSharp.Azure.Quantum
 open System
+open FSharp.Azure.Quantum
+open FSharp.Azure.Quantum.Examples.Common
 
-printfn "======================================"
-printfn "MaxCut - Circuit Wire Minimization"
-printfn "======================================"
-printfn ""
+// ---------------------------------------------------------------------------
+// CLI
+// ---------------------------------------------------------------------------
 
-// ============================================================================
+let argv = fsi.CommandLineArgs |> Array.skip 1
+let args = Cli.parse argv
+
+Cli.exitIfHelp
+    "MaxCut.fsx"
+    "Solve Maximum Cut problems using quantum QAOA optimization."
+    [ { Cli.OptionSpec.Name = "example"
+        Description = "Example to run: circuit|helpers|social|triangle|k3|all"
+        Default = Some "all" }
+      { Cli.OptionSpec.Name = "input"
+        Description = "CSV file with graph edges (columns: source,target,weight)"
+        Default = None }
+      { Cli.OptionSpec.Name = "output"
+        Description = "Write results to JSON file"
+        Default = None }
+      { Cli.OptionSpec.Name = "csv"
+        Description = "Write results to CSV file"
+        Default = None }
+      { Cli.OptionSpec.Name = "quiet"
+        Description = "Suppress printed output"
+        Default = None } ]
+    args
+
+let quiet = Cli.hasFlag "quiet" args
+let exampleName = Cli.getOr "example" "all" args
+let inputPath = Cli.tryGet "input" args
+let outputPath = Cli.tryGet "output" args
+let csvPath = Cli.tryGet "csv" args
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/// Build a structured result row from a MaxCut solution.
+let resultRow
+    (example: string)
+    (vertices: string list)
+    (edgeCount: int)
+    (solution: MaxCut.Solution)
+    : Map<string, string> =
+    [ "example", example
+      "vertices", string vertices.Length
+      "edges", string edgeCount
+      "cut_value", sprintf "%.1f" solution.CutValue
+      "cut_edges", string solution.CutEdges.Length
+      "partition_s", (solution.PartitionS |> String.concat ";")
+      "partition_t", (solution.PartitionT |> String.concat ";")
+      "backend", solution.BackendName ]
+    |> Map.ofList
+
+/// Solve a MaxCut problem and print results. Returns a result row on success.
+let solveAndReport
+    (example: string)
+    (vertices: string list)
+    (problem: MaxCut.MaxCutProblem)
+    : Map<string, string> option =
+    match MaxCut.solve problem None with
+    | Ok solution ->
+        if not quiet then
+            printfn "  Partition A: %A" solution.PartitionS
+            printfn "  Partition B: %A" solution.PartitionT
+            printfn "  Cut Value: %.1f" solution.CutValue
+            printfn "  Cut Edges: %d" solution.CutEdges.Length
+            printfn "  Backend: %s" solution.BackendName
+            for edge in solution.CutEdges do
+                printfn "    %s <-> %s (weight: %.1f)" edge.Source edge.Target edge.Weight
+            printfn ""
+        Some (resultRow example vertices problem.EdgeCount solution)
+    | Error err ->
+        if not quiet then
+            printfn "  Failed: %s" err.Message
+            printfn ""
+        None
+
+let results = ResizeArray<Map<string, string>>()
+let shouldRun name = exampleName = "all" || exampleName = name
+
+// ---------------------------------------------------------------------------
 // EXAMPLE 1: Small Circuit Design (4 blocks)
-// ============================================================================
+// ---------------------------------------------------------------------------
 
-printfn "Example 1: Small Circuit with 4 Blocks"
-printfn "--------------------------------------"
+if shouldRun "circuit" then
+    if not quiet then
+        printfn "======================================"
+        printfn "MaxCut - Circuit Wire Minimization"
+        printfn "======================================"
+        printfn ""
+        printfn "Example 1: Small Circuit with 4 Blocks"
+        printfn "--------------------------------------"
 
-// Define circuit blocks
-let blocks = ["CPU"; "GPU"; "RAM"; "IO"]
+    let blocks = ["CPU"; "GPU"; "RAM"; "IO"]
 
-// Define interconnections with communication weights
-// Higher weight = more data transferred between blocks
-let interconnects = [
-    ("CPU", "GPU", 5.0)   // Heavy compute communication
-    ("CPU", "RAM", 10.0)  // Very high memory bandwidth
-    ("CPU", "IO", 2.0)    // Low I/O traffic
-    ("GPU", "RAM", 7.0)   // GPU memory access
-    ("GPU", "IO", 1.0)    // Minimal GPU I/O
-    ("RAM", "IO", 3.0)    // DMA transfers
-]
+    let interconnects = [
+        ("CPU", "GPU", 5.0)
+        ("CPU", "RAM", 10.0)
+        ("CPU", "IO", 2.0)
+        ("GPU", "RAM", 7.0)
+        ("GPU", "IO", 1.0)
+        ("RAM", "IO", 3.0)
+    ]
 
-// Create MaxCut problem
-let circuitProblem = MaxCut.createProblem blocks interconnects
+    let circuitProblem = MaxCut.createProblem blocks interconnects
 
-printfn "Circuit Blocks: %A" blocks
-printfn "Interconnects: %d edges, total weight: %.1f" 
-    circuitProblem.EdgeCount 
-    (interconnects |> List.sumBy (fun (_, _, w) -> w))
-printfn ""
+    if not quiet then
+        printfn "Circuit Blocks: %A" blocks
+        printfn "Interconnects: %d edges, total weight: %.1f"
+            circuitProblem.EdgeCount
+            (interconnects |> List.sumBy (fun (_, _, w) -> w))
+        printfn ""
+        printfn "Solving with quantum QAOA..."
 
-// Solve using quantum optimization (LocalBackend simulation)
-printfn "Solving with quantum QAOA..."
-match MaxCut.solve circuitProblem None with
-| Ok solution ->
-    printfn "✓ Quantum Solution Found!"
-    printfn "  Partition A (Left side): %A" solution.PartitionS
-    printfn "  Partition B (Right side): %A" solution.PartitionT
-    printfn "  Cut Value: %.1f (communication overhead)" solution.CutValue
-    printfn "  Cut Edges: %d wires crossing partition" solution.CutEdges.Length
-    printfn "  Backend: %s" solution.BackendName
-    printfn ""
-    
-    // Show which wires cross the partition
-    printfn "  Wire Crossings:"
-    for edge in solution.CutEdges do
-        printfn "    %s <-> %s (weight: %.1f)" edge.Source edge.Target edge.Weight
-    printfn ""
+    solveAndReport "circuit" blocks circuitProblem
+    |> Option.iter results.Add
 
-| Error err ->
-    printfn "✗ Quantum solve failed: %s" err.Message
-    printfn ""
-
-// ============================================================================
+// ---------------------------------------------------------------------------
 // EXAMPLE 2: Helper Functions - Common Graph Structures
-// ============================================================================
+// ---------------------------------------------------------------------------
 
-printfn ""
-printfn "Example 2: Helper Functions for Common Graphs"
-printfn "----------------------------------------------"
+if shouldRun "helpers" then
+    if not quiet then
+        printfn "Example 2: Helper Functions for Common Graphs"
+        printfn "----------------------------------------------"
 
-// Complete graph (K4) - all nodes connected
-printfn "Complete Graph (K4):"
-let completeGraph = MaxCut.completeGraph ["A"; "B"; "C"; "D"] 1.0
-printfn "  Vertices: %d, Edges: %d" completeGraph.VertexCount completeGraph.EdgeCount
+    // Complete graph K4
+    if not quiet then printfn "Complete Graph (K4):"
+    let k4 = MaxCut.completeGraph ["A"; "B"; "C"; "D"] 1.0
+    if not quiet then
+        printfn "  Vertices: %d, Edges: %d" k4.VertexCount k4.EdgeCount
+    solveAndReport "helpers_k4" ["A"; "B"; "C"; "D"] k4
+    |> Option.iter results.Add
 
-match MaxCut.solve completeGraph None with
-| Ok sol ->
-    printfn "  Max Cut: %.0f (optimal is %d for K4)" sol.CutValue 4
-    printfn "  Partition: %A | %A" sol.PartitionS sol.PartitionT
-| Error _ -> ()
-printfn ""
+    // Cycle graph C4
+    if not quiet then printfn "Cycle Graph (C4):"
+    let c4 = MaxCut.cycleGraph ["A"; "B"; "C"; "D"] 1.0
+    if not quiet then
+        printfn "  Vertices: %d, Edges: %d" c4.VertexCount c4.EdgeCount
+    solveAndReport "helpers_c4" ["A"; "B"; "C"; "D"] c4
+    |> Option.iter results.Add
 
-// Cycle graph (C4) - nodes in a ring
-printfn "Cycle Graph (C4):"
-let cycleGraph = MaxCut.cycleGraph ["A"; "B"; "C"; "D"] 1.0
-printfn "  Vertices: %d, Edges: %d" cycleGraph.VertexCount cycleGraph.EdgeCount
+    // Star graph
+    if not quiet then printfn "Star Graph (1 center, 3 spokes):"
+    let star = MaxCut.starGraph "Hub" ["S1"; "S2"; "S3"] 1.0
+    if not quiet then
+        printfn "  Vertices: %d, Edges: %d" star.VertexCount star.EdgeCount
+    solveAndReport "helpers_star" ["Hub"; "S1"; "S2"; "S3"] star
+    |> Option.iter results.Add
 
-match MaxCut.solve cycleGraph None with
-| Ok sol ->
-    printfn "  Max Cut: %.0f (optimal is %d for C4)" sol.CutValue 4
-    printfn "  Partition: %A | %A" sol.PartitionS sol.PartitionT
-| Error _ -> ()
-printfn ""
+    // Grid graph 2x3
+    if not quiet then printfn "Grid Graph (2x3):"
+    let grid = MaxCut.gridGraph 2 3 1.0
+    if not quiet then
+        printfn "  Vertices: %d, Edges: %d" grid.VertexCount grid.EdgeCount
+    // Grid vertices are generated internally; use a placeholder list with the right count
+    let gridVertices = [ for i in 0 .. grid.VertexCount - 1 -> sprintf "(%d,%d)" (i / 3) (i % 3) ]
+    solveAndReport "helpers_grid" gridVertices grid
+    |> Option.iter results.Add
 
-// Star graph - one central hub
-printfn "Star Graph (1 center, 3 spokes):"
-let starGraph = MaxCut.starGraph "Hub" ["S1"; "S2"; "S3"] 1.0
-printfn "  Vertices: %d, Edges: %d" starGraph.VertexCount starGraph.EdgeCount
-
-match MaxCut.solve starGraph None with
-| Ok sol ->
-    printfn "  Max Cut: %.0f (optimal is %d for star)" sol.CutValue 3
-    printfn "  Partition: %A | %A" sol.PartitionS sol.PartitionT
-| Error _ -> ()
-printfn ""
-
-// Grid graph - 2D lattice
-printfn "Grid Graph (2x3):"
-let gridGraph = MaxCut.gridGraph 2 3 1.0
-printfn "  Vertices: %d, Edges: %d" gridGraph.VertexCount gridGraph.EdgeCount
-
-match MaxCut.solve gridGraph None with
-| Ok sol ->
-    printfn "  Max Cut: %.0f" sol.CutValue
-    printfn "  Partition: %A | %A" sol.PartitionS sol.PartitionT
-| Error _ -> ()
-printfn ""
-
-// ============================================================================
+// ---------------------------------------------------------------------------
 // EXAMPLE 3: Social Network Community Detection
-// ============================================================================
+// ---------------------------------------------------------------------------
 
-printfn ""
-printfn "Example 3: Social Network Community Detection"
-printfn "---------------------------------------------"
+if shouldRun "social" then
+    if not quiet then
+        printfn "Example 3: Social Network Community Detection"
+        printfn "---------------------------------------------"
 
-let socialNetwork = [
-    ("Alice", "Bob", 5.0)     // Close friends
-    ("Alice", "Charlie", 3.0)
-    ("Bob", "Charlie", 4.0)   
-    ("David", "Eve", 6.0)     // Different group
-    ("David", "Frank", 5.0)
-    ("Eve", "Frank", 4.0)
-    ("Charlie", "David", 1.0) // Weak bridge between groups
-]
+    let people = ["Alice"; "Bob"; "Charlie"; "David"; "Eve"; "Frank"]
 
-let people = ["Alice"; "Bob"; "Charlie"; "David"; "Eve"; "Frank"]
-let networkProblem = MaxCut.createProblem people socialNetwork
+    let socialNetwork = [
+        ("Alice", "Bob", 5.0)
+        ("Alice", "Charlie", 3.0)
+        ("Bob", "Charlie", 4.0)
+        ("David", "Eve", 6.0)
+        ("David", "Frank", 5.0)
+        ("Eve", "Frank", 4.0)
+        ("Charlie", "David", 1.0)
+    ]
 
-printfn "Social Network: %d people, %d connections" 
-    networkProblem.VertexCount networkProblem.EdgeCount
+    let networkProblem = MaxCut.createProblem people socialNetwork
 
-match MaxCut.solve networkProblem None with
-| Ok solution ->
-    printfn "✓ Detected Communities:"
-    printfn "  Community 1: %A" solution.PartitionS
-    printfn "  Community 2: %A" solution.PartitionT
-    printfn "  Polarization Score: %.1f" solution.CutValue
-    printfn "  (Higher score = more polarized/distinct communities)"
+    if not quiet then
+        printfn "Social Network: %d people, %d connections"
+            networkProblem.VertexCount networkProblem.EdgeCount
+        printfn ""
+
+    solveAndReport "social" people networkProblem
+    |> Option.iter results.Add
+
+// ---------------------------------------------------------------------------
+// EXAMPLE 4: Simple Triangle Graph
+// ---------------------------------------------------------------------------
+
+if shouldRun "triangle" then
+    if not quiet then
+        printfn "Example 4: Simple Triangle Graph"
+        printfn "---------------------------------"
+
+    let vertices = ["X"; "Y"; "Z"]
+    let edges = [("X", "Y", 2.0); ("Y", "Z", 3.0); ("Z", "X", 1.0)]
+    let triangleProblem = MaxCut.createProblem vertices edges
+
+    solveAndReport "triangle" vertices triangleProblem
+    |> Option.iter results.Add
+
+// ---------------------------------------------------------------------------
+// EXAMPLE 5: Complete Graph K3
+// ---------------------------------------------------------------------------
+
+if shouldRun "k3" then
+    if not quiet then
+        printfn "Example 5: Complete Graph K3"
+        printfn "-----------------------------"
+
+    let k3 = MaxCut.completeGraph ["A"; "B"; "C"] 1.0
+
+    if not quiet then
+        printfn "  Complete graph K3: 3 vertices, 3 edges (all connected)"
+        printfn "  For K3, optimal MaxCut = 2 (any 2 edges can be cut)"
+
+    solveAndReport "k3" ["A"; "B"; "C"] k3
+    |> Option.iter results.Add
+
+// ---------------------------------------------------------------------------
+// Custom graph from CSV input
+// ---------------------------------------------------------------------------
+
+match inputPath with
+| Some path ->
+    if not quiet then
+        printfn "Custom Graph from: %s" path
+        printfn "----------------------------"
+
+    let scriptDir = __SOURCE_DIRECTORY__
+    let resolved = Data.resolveRelative scriptDir path
+    let rows = Data.readCsvWithHeader resolved
+
+    let vertices =
+        rows
+        |> List.collect (fun r ->
+            [ r.Values |> Map.tryFind "source" |> Option.defaultValue ""
+              r.Values |> Map.tryFind "target" |> Option.defaultValue "" ])
+        |> List.filter (fun s -> s <> "")
+        |> List.distinct
+
+    let edges =
+        rows
+        |> List.choose (fun r ->
+            match Map.tryFind "source" r.Values, Map.tryFind "target" r.Values with
+            | Some s, Some t ->
+                let w =
+                    r.Values
+                    |> Map.tryFind "weight"
+                    |> Option.bind (fun v ->
+                        match Double.TryParse v with
+                        | true, d -> Some d
+                        | _ -> None)
+                    |> Option.defaultValue 1.0
+                Some (s, t, w)
+            | _ -> None)
+
+    if not quiet then
+        printfn "  Loaded %d vertices, %d edges" vertices.Length edges.Length
+
+    let customProblem = MaxCut.createProblem vertices edges
+    solveAndReport "custom" vertices customProblem
+    |> Option.iter results.Add
+
+| None -> ()
+
+// ---------------------------------------------------------------------------
+// Structured output
+// ---------------------------------------------------------------------------
+
+let resultsList = results |> Seq.toList
+
+match outputPath with
+| Some p -> Reporting.writeJson p resultsList
+| None -> ()
+
+match csvPath with
+| Some p ->
+    let header = ["example"; "vertices"; "edges"; "cut_value"; "cut_edges"; "partition_s"; "partition_t"; "backend"]
+    let rows =
+        resultsList
+        |> List.map (fun m ->
+            header |> List.map (fun h -> m |> Map.tryFind h |> Option.defaultValue ""))
+    Reporting.writeCsv p header rows
+| None -> ()
+
+if not quiet then
+    printfn "======================================"
+    printfn "MaxCut Examples Complete!"
+    printfn "======================================"
+
+if argv.Length = 0 && inputPath.IsNone then
     printfn ""
-    
-    printfn "  Weak connections between communities:"
-    for edge in solution.CutEdges do
-        printfn "    %s <-> %s (strength: %.1f)" edge.Source edge.Target edge.Weight
-| Error err ->
-    printfn "✗ Failed: %s" err.Message
-
-printfn ""
-
-// ============================================================================
-// EXAMPLE 4: Direct API Usage
-// ============================================================================
-
-printfn ""
-printfn "Example 4: Simple Triangle Graph"
-printfn "---------------------------------"
-
-// Solve triangle graph
-let vertices = ["X"; "Y"; "Z"]
-let edges = [("X", "Y", 2.0); ("Y", "Z", 3.0); ("Z", "X", 1.0)]
-let triangleProblem = MaxCut.createProblem vertices edges
-
-match MaxCut.solve triangleProblem None with
-| Ok solution ->
-    printfn "Triangle graph MaxCut: %.0f" solution.CutValue
-    printfn "Partition: %A | %A" solution.PartitionS solution.PartitionT
-| Error err ->
-    printfn "✗ Failed: %s" err.Message
-
-printfn ""
-
-// ============================================================================
-// EXAMPLE 5: Optimal Solution for Complete Graph
-// ============================================================================
-
-printfn ""
-printfn "Example 5: Complete Graph K3"
-printfn "-----------------------------"
-
-// Create complete graph K3 (triangle)
-let testProblem = MaxCut.completeGraph ["A"; "B"; "C"] 1.0
-
-// Find optimal solution using quantum QAOA
-match MaxCut.solve testProblem None with
-| Ok optimal ->
-    printfn "Complete graph K3:"
-    printfn "  Vertices: 3, Edges: 3 (all connected)"
-    printfn "  Optimal cut value: %.0f" optimal.CutValue
-    printfn "  Partition: %A | %A" optimal.PartitionS optimal.PartitionT
-    printfn "  Cut edges: %d" optimal.CutEdges.Length
-    printfn ""
-    printfn "For K3, optimal MaxCut = 2 (any 2 edges can be cut)"
-| Error err ->
-    printfn "✗ Failed: %s" err.Message
-
-printfn ""
-printfn "======================================"
-printfn "MaxCut Examples Complete!"
-printfn "======================================"
+    printfn "Tip: run with --help for CLI options."

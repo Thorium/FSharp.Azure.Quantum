@@ -84,8 +84,9 @@ match ModularData.computeModularData AnyonSpecies.Ising with
     // Ground state degeneracies
     printfn "🌐 Ground State Degeneracies (genus g):"
     for g in 0 .. 3 do
-        let dim = ModularData.groundStateDegeneracy isingData g
-        printfn "   g=%d: dim = %d" g dim
+        match ModularData.groundStateDegeneracy isingData g with
+        | Ok dim -> printfn "   g=%d: dim = %d" g dim
+        | Error err -> printfn "   g=%d: error - %s" g err.Message
     printfn ""
 
 // ============================================================================
@@ -137,8 +138,9 @@ match ModularData.computeModularData AnyonSpecies.Fibonacci with
     // Ground state degeneracies
     printfn "🌐 Ground State Degeneracies:"
     for g in 0 .. 3 do
-        let dim = ModularData.groundStateDegeneracy fibData g
-        printfn "   g=%d: dim = %d" g dim
+        match ModularData.groundStateDegeneracy fibData g with
+        | Ok dim -> printfn "   g=%d: dim = %d" g dim
+        | Error err -> printfn "   g=%d: error - %s" g err.Message
     printfn ""
 
 // ============================================================================
@@ -197,8 +199,9 @@ match ModularData.computeModularData (AnyonSpecies.SU2Level 3) with
     // Ground state degeneracies
     printfn "🌐 Ground State Degeneracies:"
     for g in 0 .. 2 do
-        let dim = ModularData.groundStateDegeneracy su2Data g
-        printfn "   g=%d: dim = %d" g dim
+        match ModularData.groundStateDegeneracy su2Data g with
+        | Ok dim -> printfn "   g=%d: dim = %d" g dim
+        | Error err -> printfn "   g=%d: error - %s" g err.Message
     printfn ""
 
 // ============================================================================

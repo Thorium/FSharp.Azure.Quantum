@@ -85,29 +85,38 @@ open FSharp.Azure.Quantum.QuantumChemistry
 let initializePython () =
     printfn "🐍 Initializing Python Runtime..."
     
-    // Try to find Python DLL
-    let pythonDllPaths = [
-        // Windows typical locations
-        @"C:\Python312\python312.dll"
-        @"C:\Python311\python311.dll"
-        @"C:\Python310\python310.dll"
-        @"C:\Users\" + Environment.UserName + @"\AppData\Local\Programs\Python\Python312\python312.dll"
-        @"C:\Users\" + Environment.UserName + @"\AppData\Local\Programs\Python\Python311\python311.dll"
-        @"C:\Users\" + Environment.UserName + @"\AppData\Local\Programs\Python\Python310\python310.dll"
-        // Conda environments
-        @"C:\Users\" + Environment.UserName + @"\miniconda3\python311.dll"
-        @"C:\Users\" + Environment.UserName + @"\anaconda3\python311.dll"
-        // Linux/macOS
-        "/usr/lib/x86_64-linux-gnu/libpython3.11.so"
-        "/usr/lib/x86_64-linux-gnu/libpython3.10.so"
-        "/usr/local/lib/libpython3.11.dylib"
-    ]
-    
-    let existingPath = 
-        pythonDllPaths 
-        |> List.tryFind System.IO.File.Exists
-    
-    match existingPath with
+    // Discover Python dynamically via PATH instead of hardcoded paths
+    let discoverPythonDll () =
+        let isWindows = System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Windows)
+        let proc = new System.Diagnostics.Process()
+        proc.StartInfo.FileName <- if isWindows then "where" else "which"
+        proc.StartInfo.Arguments <- "python"
+        proc.StartInfo.RedirectStandardOutput <- true
+        proc.StartInfo.UseShellExecute <- false
+        proc.StartInfo.CreateNoWindow <- true
+        try
+            proc.Start() |> ignore
+            let output = proc.StandardOutput.ReadLine()
+            proc.WaitForExit()
+            if not (System.String.IsNullOrWhiteSpace output) then
+                let pythonDir = System.IO.Path.GetDirectoryName(output)
+                // Derive DLL/SO name from python executable location
+                if isWindows then
+                    // Look for pythonXYZ.dll in same directory
+                    System.IO.Directory.GetFiles(pythonDir, "python3*.dll")
+                    |> Array.tryHead
+                else
+                    // Look for libpythonX.Y.so or .dylib in lib directory
+                    let libDir = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(pythonDir), "lib")
+                    if System.IO.Directory.Exists libDir then
+                        System.IO.Directory.GetFiles(libDir, "libpython3*")
+                        |> Array.filter (fun f -> f.EndsWith(".so") || f.EndsWith(".dylib"))
+                        |> Array.tryHead
+                    else None
+            else None
+        with _ -> None
+
+    match discoverPythonDll () with
     | Some path -> 
         Runtime.PythonDLL <- path
         printfn "   Using Python: %s" path

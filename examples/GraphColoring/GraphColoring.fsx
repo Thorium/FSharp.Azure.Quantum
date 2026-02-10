@@ -71,350 +71,294 @@ References:
 //#r "nuget: FSharp.Azure.Quantum"
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 
+#load "../_common/Cli.fs"
+#load "../_common/Data.fs"
+#load "../_common/Reporting.fs"
 
+open System
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.GraphColoring
+open FSharp.Azure.Quantum.Examples.Common
 
-// ============================================================================
+// ---------------------------------------------------------------------------
+// CLI
+// ---------------------------------------------------------------------------
+
+let argv = fsi.CommandLineArgs |> Array.skip 1
+let args = Cli.parse argv
+
+Cli.exitIfHelp
+    "GraphColoring.fsx"
+    "Solve graph coloring problems using quantum QAOA optimization."
+    [ { Cli.OptionSpec.Name = "example"
+        Description = "Example to run: registers|frequency|exams|cycle|dense|precolored|all"
+        Default = Some "all" }
+      { Cli.OptionSpec.Name = "colors"
+        Description = "Number of colors to try (where applicable)"
+        Default = Some "3" }
+      { Cli.OptionSpec.Name = "output"
+        Description = "Write results to JSON file"
+        Default = None }
+      { Cli.OptionSpec.Name = "csv"
+        Description = "Write results to CSV file"
+        Default = None }
+      { Cli.OptionSpec.Name = "quiet"
+        Description = "Suppress printed output"
+        Default = None } ]
+    args
+
+let quiet = Cli.hasFlag "quiet" args
+let exampleName = Cli.getOr "example" "all" args
+let _numColors = Cli.getIntOr "colors" 3 args
+let outputPath = Cli.tryGet "output" args
+let csvPath = Cli.tryGet "csv" args
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/// Build a structured result row from a graph coloring solution.
+let resultRow (example: string) (solution: GraphColoring.ColoringSolution) : Map<string, string> =
+    let assignments =
+        solution.Assignments
+        |> Map.toList
+        |> List.map (fun (k, v) -> sprintf "%s=%s" k v)
+        |> String.concat ";"
+    [ "example", example
+      "colors_used", string solution.ColorsUsed
+      "conflicts", string solution.ConflictCount
+      "valid", string solution.IsValid
+      "assignments", assignments
+      "backend", solution.BackendName ]
+    |> Map.ofList
+
+/// Solve a graph coloring problem, print results, and return a result row on success.
+let solveAndReport
+    (example: string)
+    (problem: GraphColoring.GraphColoringProblem)
+    (numColors: int)
+    : Map<string, string> option =
+    match GraphColoring.solve problem numColors None with
+    | Ok solution ->
+        if not quiet then
+            printfn "  Colors used: %d" solution.ColorsUsed
+            printfn "  Valid: %b | Conflicts: %d" solution.IsValid solution.ConflictCount
+            printfn ""
+            printfn "  Assignments:"
+            for (node, color) in Map.toList solution.Assignments do
+                printfn "    %s -> %s" node color
+            printfn ""
+            printfn "  Color Distribution:"
+            for (color, count) in Map.toList solution.ColorDistribution do
+                printfn "    %s: %d vertices" color count
+            printfn ""
+        Some (resultRow example solution)
+    | Error err ->
+        if not quiet then
+            printfn "  Error: %s" err.Message
+            printfn ""
+        None
+
+let results = ResizeArray<Map<string, string>>()
+let shouldRun name = exampleName = "all" || exampleName = name
+
+// ---------------------------------------------------------------------------
 // EXAMPLE 1: Register Allocation (Compiler Optimization)
-// ============================================================================
-//
-// PROBLEM: Assign CPU registers to program variables such that variables
-// that are "live" at the same time get different registers.
-//
-// REAL-WORLD IMPACT:
-// - Fewer registers = faster code, smaller binary
-// - Better register allocation = 5-10% performance gain in compiled code
-//
-// GRAPH MODEL:
-// - Vertices = program variables
-// - Edges = variable liveness conflicts (cannot share same register)
-// - Colors = physical CPU registers (EAX, EBX, ECX, EDX)
-//
-printfn "========================================="
-printfn "EXAMPLE 1: Register Allocation"
-printfn "========================================="
-printfn ""
+// ---------------------------------------------------------------------------
 
-// Define variables and their liveness conflicts
-let registerProblem = graphColoring {
-    // Variable R1 conflicts with R2 and R3 (live at same time)
-    node "R1" ["R2"; "R3"]
-    node "R2" ["R1"; "R4"]
-    node "R3" ["R1"; "R4"]
-    node "R4" ["R2"; "R3"]
-    
-    // Available CPU registers
-    colors ["EAX"; "EBX"; "ECX"; "EDX"]
-    objective MinimizeColors
-}
+if shouldRun "registers" then
+    if not quiet then
+        printfn "========================================="
+        printfn "EXAMPLE 1: Register Allocation"
+        printfn "========================================="
+        printfn ""
+        printfn "Problem: Allocate 4 variables to CPU registers"
+        printfn "Conflicts: R1<->R2, R1<->R3, R2<->R4, R3<->R4"
+        printfn ""
 
-printfn "Problem: Allocate 4 variables to CPU registers"
-printfn "Conflicts: R1↔R2, R1↔R3, R2↔R4, R3↔R4"
-printfn ""
+    let registerProblem = graphColoring {
+        node "R1" ["R2"; "R3"]
+        node "R2" ["R1"; "R4"]
+        node "R3" ["R1"; "R4"]
+        node "R4" ["R2"; "R3"]
+        colors ["EAX"; "EBX"; "ECX"; "EDX"]
+        objective MinimizeColors
+    }
 
-// Solve with quantum simulation (default)
-match GraphColoring.solve registerProblem 4 None with
-| Ok solution ->
-    printfn "✅ Quantum Solution:"
-    printfn "   Used %d registers (chromatic number)" solution.ColorsUsed
-    printfn "   Valid: %b | Conflicts: %d" solution.IsValid solution.ConflictCount
-    printfn ""
-    printfn "   Register Allocation:"
-    for (var, register) in Map.toList solution.Assignments do
-        printfn "     %s → %s" var register
-    printfn ""
-    printfn "   Register Usage:"
-    for (register, count) in Map.toList solution.ColorDistribution do
-        printfn "     %s: %d variables" register count
-| Error err ->
-    printfn "❌ Error: %s" err.Message
+    solveAndReport "registers" registerProblem 4
+    |> Option.iter results.Add
 
-printfn ""
-
-// ============================================================================
+// ---------------------------------------------------------------------------
 // EXAMPLE 2: Frequency Assignment (Wireless Network Planning)
-// ============================================================================
-//
-// PROBLEM: Assign radio frequencies to cell towers such that nearby towers
-// don't interfere with each other.
-//
-// REAL-WORLD IMPACT:
-// - Minimize spectrum usage (save money on frequency licenses)
-// - Avoid interference (better call quality)
-// - Maximize network capacity
-//
-// GRAPH MODEL:
-// - Vertices = cell towers
-// - Edges = interference range (nearby towers)
-// - Colors = radio frequencies (F1, F2, F3, F4)
-//
-printfn "========================================="
-printfn "EXAMPLE 2: Frequency Assignment"
-printfn "========================================="
-printfn ""
+// ---------------------------------------------------------------------------
 
-// Create frequency assignment problem using graphColoring builder
-let frequencyProblem = graphColoring {
-    // Define cell towers and their interference conflicts (reduced to 3 towers)
-    node "Tower1" ["Tower2"; "Tower3"]
-    node "Tower2" ["Tower1"; "Tower3"]
-    node "Tower3" ["Tower1"; "Tower2"]
-    
-    // Available frequencies
-    colors ["F1"; "F2"; "F3"]
-    objective MinimizeColors
-}
+if shouldRun "frequency" then
+    if not quiet then
+        printfn "========================================="
+        printfn "EXAMPLE 2: Frequency Assignment"
+        printfn "========================================="
+        printfn ""
+        printfn "Problem: Assign frequencies to 3 cell towers"
+        printfn "Interference pairs: 3 edges (complete triangle)"
+        printfn ""
 
-printfn "Problem: Assign frequencies to 3 cell towers"
-printfn "Interference pairs: 3 edges (complete triangle)"
-printfn ""
+    let frequencyProblem = graphColoring {
+        node "Tower1" ["Tower2"; "Tower3"]
+        node "Tower2" ["Tower1"; "Tower3"]
+        node "Tower3" ["Tower1"; "Tower2"]
+        colors ["F1"; "F2"; "F3"]
+        objective MinimizeColors
+    }
 
-match GraphColoring.solve frequencyProblem 3 None with
-| Ok solution ->
-    printfn "✅ Quantum Solution:"
-    printfn "   Used %d frequencies" solution.ColorsUsed
-    printfn "   Valid: %b | Conflicts: %d" solution.IsValid solution.ConflictCount
-    printfn ""
-    printfn "   Frequency Assignment:"
-    for (tower, frequency) in Map.toList solution.Assignments do
-        printfn "     %s → %s" tower frequency
-    printfn ""
-    printfn "   Frequency Usage:"
-    for (frequency, count) in Map.toList solution.ColorDistribution do
-        printfn "     %s: %d towers" frequency count
-| Error err ->
-    printfn "❌ Error: %s" err.Message
+    solveAndReport "frequency" frequencyProblem 3
+    |> Option.iter results.Add
 
-printfn ""
-
-// ============================================================================
+// ---------------------------------------------------------------------------
 // EXAMPLE 3: Exam Scheduling (University Timetabling)
-// ============================================================================
-//
-// PROBLEM: Schedule university exams so that students enrolled in multiple
-// courses don't have exam conflicts.
-//
-// REAL-WORLD IMPACT:
-// - Minimize exam periods (finish semester faster)
-// - Avoid student conflicts (no two exams at same time for one student)
-// - Better resource utilization (fewer exam rooms needed per period)
-//
-// GRAPH MODEL:
-// - Vertices = exams
-// - Edges = student enrollment conflicts (same students in both courses)
-// - Colors = time slots (Morning1, Morning2, Afternoon1, Afternoon2)
-//
-printfn "========================================="
-printfn "EXAMPLE 3: Exam Scheduling"
-printfn "========================================="
-printfn ""
+// ---------------------------------------------------------------------------
 
-// Create exam scheduling problem using graphColoring builder (reduced to 3 exams to fit 20 qubit limit)
-let examProblem = graphColoring {
-    // Define exams and their student enrollment conflicts
-    node "Math101" ["CS101"; "Physics101"]
-    node "CS101" ["Math101"]
-    node "Physics101" ["Math101"]
-    
-    // Available time slots
-    colors ["Morning"; "Afternoon"; "Evening"]
-    objective MinimizeColors
-}
+if shouldRun "exams" then
+    if not quiet then
+        printfn "========================================="
+        printfn "EXAMPLE 3: Exam Scheduling"
+        printfn "========================================="
+        printfn ""
+        printfn "Problem: Schedule 3 exams into time slots"
+        printfn "Student conflicts: 2 pairs"
+        printfn ""
 
-printfn "Problem: Schedule 3 exams into time slots"
-printfn "Student conflicts: 2 pairs"
-printfn ""
+    let examProblem = graphColoring {
+        node "Math101" ["CS101"; "Physics101"]
+        node "CS101" ["Math101"]
+        node "Physics101" ["Math101"]
+        colors ["Morning"; "Afternoon"; "Evening"]
+        objective MinimizeColors
+    }
 
-match GraphColoring.solve examProblem 3 None with
-| Ok solution ->
-    printfn "✅ Quantum Solution:"
-    printfn "   Used %d time slots" solution.ColorsUsed
-    printfn "   Valid: %b | Conflicts: %d" solution.IsValid solution.ConflictCount
+    solveAndReport "exams" examProblem 3
+    |> Option.iter results.Add
+
+// ---------------------------------------------------------------------------
+// EXAMPLE 4: Cycle Graph Coloring
+// ---------------------------------------------------------------------------
+
+if shouldRun "cycle" then
+    if not quiet then
+        printfn "========================================="
+        printfn "EXAMPLE 4: Cycle Graph Coloring"
+        printfn "========================================="
+        printfn ""
+        printfn "Problem: Color cycle graph (4 vertices, 4 edges)"
+        printfn "Known chromatic number: 2 colors"
+        printfn ""
+
+    let cycleGraph = graphColoring {
+        node "V1" ["V2"; "V4"]
+        node "V2" ["V1"; "V3"]
+        node "V3" ["V2"; "V4"]
+        node "V4" ["V3"; "V1"]
+        colors ["Red"; "Green"; "Blue"]
+        objective MinimizeColors
+    }
+
+    solveAndReport "cycle" cycleGraph 3
+    |> Option.iter results.Add
+
+// ---------------------------------------------------------------------------
+// EXAMPLE 5: Complex Dense Graph
+// ---------------------------------------------------------------------------
+
+if shouldRun "dense" then
+    if not quiet then
+        printfn "========================================="
+        printfn "EXAMPLE 5: Complex Dense Graph"
+        printfn "========================================="
+        printfn ""
+        printfn "Problem: Color 4-vertex graph with dense edges"
+        printfn ""
+
+    let comparisonGraph = graphColoring {
+        node "A" ["B"; "C"]
+        node "B" ["A"; "C"; "D"]
+        node "C" ["A"; "B"; "D"]
+        node "D" ["B"; "C"]
+        colors ["Color1"; "Color2"; "Color3"]
+        objective MinimizeColors
+    }
+
+    solveAndReport "dense" comparisonGraph 3
+    |> Option.iter results.Add
+
+// ---------------------------------------------------------------------------
+// EXAMPLE 6: Pre-colored Vertices (Fixed Colors)
+// ---------------------------------------------------------------------------
+
+if shouldRun "precolored" then
+    if not quiet then
+        printfn "========================================="
+        printfn "EXAMPLE 6: Pre-colored Vertices"
+        printfn "========================================="
+        printfn ""
+        printfn "Problem: R1 is pre-assigned to EAX, color the rest"
+        printfn ""
+
+    let precoloredProblem = graphColoring {
+        nodes [
+            coloredNode {
+                nodeId "R1"
+                conflictsWith ["R2"; "R3"]
+                fixedColor "EAX"
+            }
+        ]
+        node "R2" ["R1"; "R4"]
+        node "R3" ["R1"; "R4"]
+        node "R4" ["R2"; "R3"]
+        colors ["EAX"; "EBX"; "ECX"; "EDX"]
+        objective MinimizeColors
+    }
+
+    match GraphColoring.solve precoloredProblem 4 None with
+    | Ok solution ->
+        if not quiet then
+            printfn "  Colors used: %d" solution.ColorsUsed
+            printfn "  Valid: %b | Conflicts: %d" solution.IsValid solution.ConflictCount
+            printfn ""
+            printfn "  Assignments:"
+            for (var, register) in Map.toList solution.Assignments do
+                let marker = if var = "R1" then " (fixed)" else ""
+                printfn "    %s -> %s%s" var register marker
+            printfn ""
+        results.Add(resultRow "precolored" solution)
+    | Error err ->
+        if not quiet then
+            printfn "  Error: %s" err.Message
+            printfn ""
+
+// ---------------------------------------------------------------------------
+// Structured output
+// ---------------------------------------------------------------------------
+
+let resultsList = results |> Seq.toList
+
+match outputPath with
+| Some p -> Reporting.writeJson p resultsList
+| None -> ()
+
+match csvPath with
+| Some p ->
+    let header = ["example"; "colors_used"; "conflicts"; "valid"; "assignments"; "backend"]
+    let rows =
+        resultsList
+        |> List.map (fun m ->
+            header |> List.map (fun h -> m |> Map.tryFind h |> Option.defaultValue ""))
+    Reporting.writeCsv p header rows
+| None -> ()
+
+if not quiet then
+    printfn "========================================="
+    printfn "Graph Coloring Examples Complete!"
+    printfn "========================================="
+
+if argv.Length = 0 then
     printfn ""
-    printfn "   Exam Schedule:"
-    for (exam, timeSlot) in Map.toList solution.Assignments do
-        printfn "     %s → %s" exam timeSlot
-    printfn ""
-    printfn "   Time Slot Usage:"
-    for (timeSlot, count) in Map.toList solution.ColorDistribution do
-        printfn "     %s: %d exams" timeSlot count
-| Error err ->
-    printfn "❌ Error: %s" err.Message
-
-printfn ""
-
-// ============================================================================
-// EXAMPLE 4: Simple Graph Coloring (Basic K-Coloring)
-// ============================================================================
-//
-// PROBLEM: Color a simple graph (Petersen graph - a classic example)
-// with minimal colors.
-//
-// WHY INTERESTING:
-// - Petersen graph has chromatic number = 3 (requires exactly 3 colors)
-// - Classic benchmark for graph coloring algorithms
-// - Tests algorithm effectiveness on well-studied graphs
-//
-printfn "========================================="
-printfn "EXAMPLE 4: Cycle Graph Coloring"
-printfn "========================================="
-printfn ""
-
-// Simple cycle graph (reduced from Petersen to fit 20 qubit limit)
-// A 4-cycle requires 2 colors
-let cycleGraph = graphColoring {
-    node "V1" ["V2"; "V4"]
-    node "V2" ["V1"; "V3"]
-    node "V3" ["V2"; "V4"]
-    node "V4" ["V3"; "V1"]
-    
-    colors ["Red"; "Green"; "Blue"]
-    objective MinimizeColors
-}
-
-printfn "Problem: Color cycle graph (4 vertices, 4 edges)"
-printfn "Known chromatic number: 2 colors"
-printfn ""
-
-match GraphColoring.solve cycleGraph 3 None with
-| Ok solution ->
-    printfn "✅ Quantum Solution:"
-    printfn "   Used %d colors" solution.ColorsUsed
-    printfn "   Valid: %b | Conflicts: %d" solution.IsValid solution.ConflictCount
-    printfn ""
-    printfn "   Vertex Coloring:"
-    for (vertex, color) in Map.toList solution.Assignments do
-        printfn "     %s → %s" vertex color
-    printfn ""
-    printfn "   Color Distribution:"
-    for (color, count) in Map.toList solution.ColorDistribution do
-        printfn "     %s: %d vertices" color count
-| Error err ->
-    printfn "❌ Error: %s" err.Message
-
-printfn ""
-
-// ============================================================================
-// EXAMPLE 5: Complex Graph Coloring
-// ============================================================================
-//
-// PROBLEM: Color a dense graph with 6 vertices to test quantum optimization
-//
-// WHY INTERESTING:
-// - Dense connectivity makes coloring challenging
-// - Demonstrates quantum QAOA on non-trivial problem
-// - Shows objective function (minimize colors)
-//
-printfn "========================================="
-printfn "EXAMPLE 5: Complex Dense Graph"
-printfn "========================================="
-printfn ""
-
-let comparisonGraph = graphColoring {
-    // 4-vertex graph with complex structure (reduced to fit qubit limit)
-    node "A" ["B"; "C"]
-    node "B" ["A"; "C"; "D"]
-    node "C" ["A"; "B"; "D"]
-    node "D" ["B"; "C"]
-    
-    colors ["Color1"; "Color2"; "Color3"]
-    objective MinimizeColors
-}
-
-printfn "Problem: Color 4-vertex graph with dense edges"
-printfn ""
-
-// Quantum solution (LocalBackend simulation)
-printfn "🔬 Quantum QAOA Solution:"
-match GraphColoring.solve comparisonGraph 3 None with
-| Ok solution ->
-    printfn "   Colors used: %d" solution.ColorsUsed
-    printfn "   Valid: %b | Conflicts: %d" solution.IsValid solution.ConflictCount
-    printfn "   Backend: %s" solution.BackendName
-    printfn "   Is Quantum: %b" solution.IsQuantum
-| Error err ->
-    printfn "   ❌ Error: %s" err.Message
-
-printfn ""
-
-// ============================================================================
-// EXAMPLE 6: Advanced - Fixed Colors (Pre-coloring Constraints)
-// ============================================================================
-//
-// PROBLEM: Some vertices have pre-assigned colors (e.g., some registers
-// already allocated), and we must color the rest accordingly.
-//
-// USE CASE:
-// - Incremental compilation (some code already compiled)
-// - Partial solutions (some assignments already made)
-// - Constraints from external systems
-//
-printfn "========================================="
-printfn "EXAMPLE 6: Pre-colored Vertices"
-printfn "========================================="
-printfn ""
-
-let precoloredProblem = graphColoring {
-    // R1 is pre-assigned to EAX (fixed)
-    nodes [
-        coloredNode {
-            nodeId "R1"
-            conflictsWith ["R2"; "R3"]
-            fixedColor "EAX"  // Pre-assigned
-        }
-    ]
-    
-    // Other variables with normal conflicts
-    node "R2" ["R1"; "R4"]
-    node "R3" ["R1"; "R4"]
-    node "R4" ["R2"; "R3"]
-    
-    colors ["EAX"; "EBX"; "ECX"; "EDX"]
-    objective MinimizeColors
-}
-
-printfn "Problem: R1 is pre-assigned to EAX, color the rest"
-printfn ""
-
-match GraphColoring.solve precoloredProblem 4 None with
-| Ok solution ->
-    printfn "✅ Solution with fixed color:"
-    printfn "   Register Allocation:"
-    for (var, register) in Map.toList solution.Assignments do
-        let marker = if var = "R1" then " (fixed)" else ""
-        printfn "     %s → %s%s" var register marker
-| Error err ->
-    printfn "❌ Error: %s" err.Message
-
-printfn ""
-
-// ============================================================================
-// SUMMARY
-// ============================================================================
-
-printfn "========================================="
-printfn "SUMMARY"
-printfn "========================================="
-printfn ""
-printfn "Graph Coloring Examples Completed:"
-printfn "  1. ✅ Register Allocation (compiler)"
-printfn "  2. ✅ Frequency Assignment (wireless)"
-printfn "  3. ✅ Exam Scheduling (university)"
-printfn "  4. ✅ Cycle Graph (2-colorable)"
-printfn "  5. ✅ Complex Dense Graph (quantum QAOA)"
-printfn "  6. ✅ Pre-colored vertices (constraints)"
-printfn ""
-printfn "KEY TAKEAWAYS:"
-printfn "  • Graph coloring is NP-complete (chromatic number)"
-printfn "  • Quantum QAOA explores superposition of colorings"
-printfn "  • Real-world applications: compilers, networks, scheduling"
-printfn "  • Quantum-first API with LocalBackend simulation by default"
-printfn "  • Computation expression builder for easy problem definition"
-printfn ""
-printfn "NEXT STEPS:"
-printfn "  • Try with cloud quantum backends (IonQ, Rigetti)"
-printfn "  • Experiment with larger graphs (10-15 vertices)"
-printfn "  • Explore BalanceColors objective for load balancing"
-printfn "  • Add custom constraints with AvoidColors and Priority"
-printfn ""
+    printfn "Tip: run with --help for CLI options."

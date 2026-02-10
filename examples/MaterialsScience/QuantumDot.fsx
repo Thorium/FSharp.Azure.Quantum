@@ -211,9 +211,10 @@ let particleInBoxEnergy (size_nm: float) (effectiveMass: float) (nx: int) (ny: i
 /// Calculate the quantum confinement energy (increase in gap due to size)
 /// This is the first excited state minus ground state
 let confinementEnergy (size_nm: float) (material: QDMaterial) : float =
-    // Ground state: (1,1,1)
-    let E_ground = particleInBoxEnergy size_nm material.ElectronMass 1 1 1
-    E_ground
+    // Confinement energy = electron confinement + hole confinement
+    let E_e = particleInBoxEnergy size_nm material.ElectronMass 1 1 1
+    let E_h = particleInBoxEnergy size_nm material.HoleMass 1 1 1
+    E_e + E_h
 
 /// Calculate effective band gap including confinement
 /// E_gap(L) = E_gap(bulk) + E_confinement(electron) + E_confinement(hole) - E_exciton

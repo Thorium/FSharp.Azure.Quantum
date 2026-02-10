@@ -93,7 +93,6 @@ References:
 //#r "nuget: FSharp.Azure.Quantum"
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 
-#r "nuget: FsUnit"
 //#load "../../src/FSharp.Azure.Quantum/Types.fs"
 //#load "../../src/FSharp.Azure.Quantum/Backends.fs"
 //#load "../../src/FSharp.Azure.Quantum/LocalBackend.fs"

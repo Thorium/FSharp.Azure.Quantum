@@ -27,6 +27,7 @@
 // ==============================================================================
 
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
+#r "nuget: MathNet.Numerics, 5.0.0"
 
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Core

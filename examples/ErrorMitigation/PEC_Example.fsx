@@ -65,7 +65,8 @@ References:
       https://en.wikipedia.org/wiki/Quantum_error_mitigation
 *)
 
-#r "nuget: FSharp.Azure.Quantum"
+#r "nuget: MathNet.Numerics, 5.0.0"
+#r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 
 open System
 open FSharp.Azure.Quantum

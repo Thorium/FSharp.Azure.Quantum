@@ -15,6 +15,7 @@
 // ============================================================================
 
 #r "../../src/FSharp.Azure.Quantum.Topological/bin/Debug/net10.0/FSharp.Azure.Quantum.Topological.dll"
+#r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 
 open FSharp.Azure.Quantum.Topological
 open System.Diagnostics
@@ -27,8 +28,13 @@ printfn "=== Topological Backend Comparison ==="
 printfn ""
 
 // Create both backend types
+// ITopologicalBackend for low-level access (Capabilities, Initialize, MeasureFusion)
 let isingBackend = TopologicalBackend.createSimulator AnyonSpecies.AnyonType.Ising 10
 let fibonacciBackend = TopologicalBackend.createSimulator AnyonSpecies.AnyonType.Fibonacci 10
+
+// IQuantumBackend for the topological builder
+let isingUnifiedBackend = TopologicalUnifiedBackendFactory.createIsing 20
+let fibonacciUnifiedBackend = TopologicalUnifiedBackendFactory.createFibonacci 20
 
 printfn "┌─────────────────────────────────────────────────────────────┐"
 printfn "│ Backend: Ising Anyons (Microsoft Majorana)                 │"
@@ -85,15 +91,17 @@ printfn ""
 printfn "=== Performance Comparison: Initialize + Braid ==="
 printfn ""
 
-let measurePerformance backend anyonType label = task {
+let measurePerformance (backend: FSharp.Azure.Quantum.Core.BackendAbstraction.IQuantumBackend) anyonType label = task {
     let sw = Stopwatch.StartNew()
     
-    let! result = topological backend {
+    let program = topological backend {
         do! TopologicalBuilder.initialize anyonType 6
         do! TopologicalBuilder.braid 0
         do! TopologicalBuilder.braid 2
         do! TopologicalBuilder.braid 4
     }
+    
+    let! result = TopologicalBuilder.execute backend program
     
     sw.Stop()
     
@@ -106,10 +114,10 @@ let measurePerformance backend anyonType label = task {
         return Error err
 }
 
-let isingTime = measurePerformance isingBackend AnyonSpecies.AnyonType.Ising "Ising Backend  "
+let isingTime = measurePerformance isingUnifiedBackend AnyonSpecies.AnyonType.Ising "Ising Backend  "
                 |> Async.AwaitTask |> Async.RunSynchronously
 
-let fibTime = measurePerformance fibonacciBackend AnyonSpecies.AnyonType.Fibonacci "Fibonacci Backend"
+let fibTime = measurePerformance fibonacciUnifiedBackend AnyonSpecies.AnyonType.Fibonacci "Fibonacci Backend"
               |> Async.AwaitTask |> Async.RunSynchronously
 
 printfn ""
