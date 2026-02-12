@@ -47,6 +47,7 @@ module SuperdenseCoding =
     // ========================================================================
 
     /// Two classical bits to transmit via the superdense coding protocol
+    [<Struct>]
     type ClassicalMessage = {
         /// First classical bit (0 or 1)
         Bit1: int

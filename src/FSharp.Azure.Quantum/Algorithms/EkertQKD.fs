@@ -62,6 +62,7 @@ module EkertQKD =
     /// - 0 degrees (Z-basis measurement)
     /// - 45 degrees (pi/4 rotated basis)
     /// - 90 degrees (X-basis measurement)
+    [<Struct>]
     type AliceBasis =
         /// 0 degrees: Computational (Z) basis
         | AliceDeg0
@@ -76,6 +77,7 @@ module EkertQKD =
     /// - 0 degrees (Z-basis measurement)
     /// - 45 degrees (pi/4 rotated basis)
     /// - 135 degrees (3*pi/4 rotated basis)
+    [<Struct>]
     type BobBasis =
         /// 0 degrees: Computational (Z) basis
         | BobDeg0
@@ -517,7 +519,7 @@ module EkertQKD =
 
         result {
             // Validate backend supports required operations
-            let! _plan = planE91 backend
+            let! _ = planE91 backend
 
             let rng =
                 match intent.Seed with

@@ -38,6 +38,7 @@ module QuantumErrorCorrection =
     // ========================================================================
 
     /// Type of quantum error that can be injected or detected
+    [<Struct>]
     type ErrorType =
         /// Bit-flip error (X gate): |0> <-> |1>
         | BitFlipError
@@ -50,6 +51,7 @@ module QuantumErrorCorrection =
         | UncorrectableError
 
     /// Quantum error correction code identifier
+    [<Struct>]
     type ErrorCode =
         /// 3-qubit bit-flip code [[3,1,1]]
         | BitFlipCode3
@@ -61,6 +63,7 @@ module QuantumErrorCorrection =
         | SteaneCode7
 
     /// Code parameters describing the structure of an error correction code
+    [<Struct>]
     type CodeParameters = {
         /// Which code this describes
         Code: ErrorCode
