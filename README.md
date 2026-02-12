@@ -16,7 +16,7 @@ flowchart TD
        Ph.D stuff]
 
     %% Backend interfaces
-    C[Backend Interfaces: IQuantumBackend / ITopologicalBackend]
+    C[Backend Interfaces: IQuantumBackend]
 
     %% Quantum Gate Backends
     D[Quantum Gate Backends: 
@@ -3071,3 +3071,4 @@ Contributions welcome!
 ---
 
 **Status**: Quantum-only architecture, 6 problem builders, full QAOA implementation
+
