@@ -147,8 +147,10 @@
     
     <!-- Unified Backend Algorithms (depends on CircuitBuilder, UnifiedBackendAbstraction, LocalBackend) -->
     <Compile Include="Algorithms\BellStates.fs" />
+    <Compile Include="Algorithms\SuperdenseCoding.fs" />
     <Compile Include="Algorithms\DeutschJozsa.fs" />
     <Compile Include="Algorithms\QuantumKeyDistribution.fs" />
+    <Compile Include="Algorithms\EkertQKD.fs" />
     <Compile Include="Algorithms\QuantumTeleportation.fs" />
     <Compile Include="Algorithms\Grover.fs" />
     <Compile Include="Algorithms\TreeSearch.fs" />
@@ -156,6 +158,7 @@
     <Compile Include="Algorithms\QPE.fs" />
     <Compile Include="Algorithms\Shor.fs" />
     <Compile Include="Algorithms\TrotterSuzuki.fs" />
+    <Compile Include="Algorithms\QuantumErrorCorrection.fs" />
     <Compile Include="Algorithms\HHLTypes.fs" />
     <Compile Include="Algorithms\HHL.fs" />
     

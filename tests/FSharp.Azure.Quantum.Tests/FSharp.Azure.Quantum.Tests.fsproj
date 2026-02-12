@@ -28,6 +28,7 @@
     <Compile Include="DeutschJozsaTests.fs" />
     <Compile Include="BellStatesTests.fs" />
     <Compile Include="QuantumTeleportationTests.fs" />
+    <Compile Include="SuperdenseCodingTests.fs" />
     <Compile Include="HHLTests.fs" />
     <Compile Include="ShorsTests.fs" />
     <Compile Include="QuantumArithmeticTests.fs" />
@@ -104,6 +105,8 @@
     <Compile Include="QuantumRegressionHHLTests.fs" />
     <Compile Include="VisualizationTests.fs" />
     <Compile Include="QuantumKeyDistributionTests.fs" />
+    <Compile Include="EkertQKDTests.fs" />
+    <Compile Include="QuantumErrorCorrectionTests.fs" />
     
     <!-- Unified Backend Architecture Tests -->
     <Compile Include="UnifiedBackendTests.fs" />
