@@ -2,129 +2,180 @@
 // ============================================================================
 // Quantum Circuit Visualization - Easy Integration Example
 // ============================================================================
-// 
-// This example demonstrates how visualization is now easily integrated
-// with CircuitBuilder using simple extension methods.
 //
-// KEY FEATURES:
-// - Call .ToASCII() directly on any Circuit
-// - Call .ToMermaid() directly on any Circuit
-// - No manual conversion needed!
+// Demonstrates how visualization is easily integrated with CircuitBuilder
+// using simple extension methods (.ToASCII(), .ToMermaid()).
+//
+// Examples: Bell state, QFT-3, rotation gates with controlled operations.
+// Extensible starting point for circuit visualization workflows.
 //
 // ============================================================================
 
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
+#load "../_common/Cli.fs"
+#load "../_common/Data.fs"
+#load "../_common/Reporting.fs"
 
 open System
 open FSharp.Azure.Quantum.CircuitBuilder
 open FSharp.Azure.Quantum.Visualization
+open FSharp.Azure.Quantum.Core.BackendAbstraction
+open FSharp.Azure.Quantum.Backends.LocalBackend
+open FSharp.Azure.Quantum.Examples.Common
 
-// ============================================================================
-// EXAMPLE 1: Bell State Visualization
-// ============================================================================
+// IQuantumBackend available for downstream circuit execution
+let quantumBackend = LocalBackend() :> IQuantumBackend
 
-printfn "=== Example 1: Bell State ===" 
-printfn ""
+// --- CLI ---
+let argv = fsi.CommandLineArgs |> Array.skip 1
+let args = Cli.parse argv
 
-let bellState = circuit {
+Cli.exitIfHelp
+    "CircuitVisualization.fsx"
+    "Quantum circuit visualization with ASCII and Mermaid output"
+    [ { Name = "example"; Description = "Which example (all|bell|qft|rotations)"; Default = Some "all" }
+      { Name = "format"; Description = "Output format (all|ascii|mermaid)"; Default = Some "all" }
+      { Name = "mermaid-file"; Description = "Write Mermaid diagram to file"; Default = None }
+      { Name = "output"; Description = "Write results to JSON file"; Default = None }
+      { Name = "csv"; Description = "Write results to CSV file"; Default = None }
+      { Name = "quiet"; Description = "Suppress console output"; Default = None } ]
+    args
+
+let quiet = Cli.hasFlag "quiet" args
+let outputPath = Cli.tryGet "output" args
+let csvPath = Cli.tryGet "csv" args
+let mermaidFile = Cli.tryGet "mermaid-file" args
+let example = Cli.getOr "example" "all" args
+let format = Cli.getOr "format" "all" args
+
+let pr fmt = Printf.ksprintf (fun s -> if not quiet then printfn "%s" s) fmt
+
+// --- Circuit Definitions ---
+
+let bellCircuit = circuit {
     qubits 2
-    H 0          // Hadamard on qubit 0
-    CNOT (0, 1)  // Entangle qubits
+    H 0
+    CNOT (0, 1)
 }
 
-printfn "ASCII Visualization:"
-printfn "--------------------"
-printfn "%s" (bellState.ToASCII())
-printfn ""
-
-printfn "Mermaid Sequence Diagram:"
-printfn "-------------------------"
-printfn "%s" (bellState.ToMermaid())
-printfn ""
-
-
-// ============================================================================
-// EXAMPLE 2: Quantum Fourier Transform (3 qubits)
-// ============================================================================
-
-printfn "=== Example 2: QFT-3 ===" 
-printfn ""
-
-let qft3 = circuit {
+let qft3Circuit = circuit {
     qubits 3
-    
-    // QFT on qubit 0
     H 0
     CP (1, 0, Math.PI / 2.0)
     CP (2, 0, Math.PI / 4.0)
-    
-    // QFT on qubit 1
     H 1
     CP (2, 1, Math.PI / 2.0)
-    
-    // QFT on qubit 2
     H 2
-    
-    // SWAP for bit-reversal
     SWAP (0, 2)
 }
 
-printfn "ASCII Visualization:"
-printfn "--------------------"
-printfn "%s" (qft3.ToASCII())
-printfn ""
-
-printfn "Mermaid Sequence Diagram:"
-printfn "-------------------------"
-printfn "%s" (qft3.ToMermaid())
-printfn ""
-
-
-// ============================================================================
-// EXAMPLE 3: Simple Multi-Gate Circuit
-// ============================================================================
-
-printfn "=== Example 3: Rotation Gates ===" 
-printfn ""
-
-let rotations = circuit {
+let rotationsCircuit = circuit {
     qubits 3
-    
-    // Various rotation gates
     RX (0, Math.PI / 4.0)
     RY (1, Math.PI / 3.0)
     RZ (2, Math.PI / 2.0)
-    
-    // Controlled rotations
     CRX (0, 1, Math.PI / 6.0)
     CRY (1, 2, Math.PI / 8.0)
-    
-    // Measurement
     Measure 0
     Measure 1
     Measure 2
 }
 
-printfn "ASCII Visualization:"
-printfn "--------------------"
-printfn "%s" (rotations.ToASCII())
-printfn ""
+// --- Example Runner ---
 
+type CircuitInfo =
+    { Name: string
+      Label: string
+      Circuit: Circuit
+      Qubits: int
+      Gates: int
+      AsciiDiagram: string
+      MermaidDiagram: string }
 
-// ============================================================================
-// SUMMARY
-// ============================================================================
+let buildInfo (name: string) (label: string) (c: Circuit) =
+    { Name = name
+      Label = label
+      Circuit = c
+      Qubits = c.QubitCount
+      Gates = List.length c.Gates
+      AsciiDiagram = c.ToASCII()
+      MermaidDiagram = c.ToMermaid() }
 
-printfn ""
-printfn "=== Easy Visualization Integration ==="
-printfn ""
-printfn "✓ Call .ToASCII() on any Circuit"
-printfn "✓ Call .ToMermaid() on any Circuit"
-printfn "✓ No manual conversion needed"
-printfn "✓ Works with all CircuitBuilder gates"
-printfn ""
-printfn "Example usage:"
-printfn "  let myCircuit = circuit { ... }"
-printfn "  printfn \"%s\" (myCircuit.ToASCII())     // Terminal-friendly"
-printfn "  printfn \"%s\" (myCircuit.ToMermaid())   // GitHub/docs"
-printfn ""
+let allExamples =
+    [ ("bell", "Bell State (Entanglement)", bellCircuit)
+      ("qft", "QFT-3 (Quantum Fourier Transform)", qft3Circuit)
+      ("rotations", "Rotation Gates + Controlled Ops", rotationsCircuit) ]
+
+let selected =
+    if example = "all" then allExamples
+    else allExamples |> List.filter (fun (key, _, _) -> key = example)
+
+let results =
+    selected
+    |> List.map (fun (key, label, c) ->
+        let info = buildInfo key label c
+
+        pr "=== %s ===" info.Label
+        pr "  Qubits: %d  |  Gates: %d" info.Qubits info.Gates
+        pr ""
+
+        if format = "all" || format = "ascii" then
+            pr "ASCII Visualization:"
+            pr "--------------------"
+            pr "%s" info.AsciiDiagram
+            pr ""
+
+        if format = "all" || format = "mermaid" then
+            pr "Mermaid Sequence Diagram:"
+            pr "-------------------------"
+            pr "%s" info.MermaidDiagram
+            pr ""
+
+        info)
+
+// --- Mermaid file export ---
+
+mermaidFile
+|> Option.iter (fun path ->
+    let content =
+        results
+        |> List.map (fun r -> sprintf "%% %s\n%s" r.Label r.MermaidDiagram)
+        |> String.concat "\n\n"
+    IO.File.WriteAllText(path, content)
+    pr "Mermaid diagrams written to %s" path)
+
+// --- JSON output ---
+
+outputPath
+|> Option.iter (fun path ->
+    let payload =
+        results
+        |> List.map (fun r ->
+            dict [
+                "name", box r.Name
+                "label", box r.Label
+                "qubits", box r.Qubits
+                "gates", box r.Gates
+                "ascii", box r.AsciiDiagram
+                "mermaid", box r.MermaidDiagram ])
+    Reporting.writeJson path payload)
+
+// --- CSV output ---
+
+csvPath
+|> Option.iter (fun path ->
+    let header = [ "name"; "label"; "qubits"; "gates" ]
+    let rows =
+        results
+        |> List.map (fun r ->
+            [ r.Name; r.Label; string r.Qubits; string r.Gates ])
+    Reporting.writeCsv path header rows)
+
+// --- Usage hint ---
+
+if not quiet && outputPath.IsNone && csvPath.IsNone && (argv |> Array.isEmpty) then
+    pr ""
+    pr "Tip: Use --output results.json or --csv results.csv to export data."
+    pr "     Use --format ascii or --format mermaid to filter output."
+    pr "     Use --mermaid-file diagrams.md to export Mermaid diagrams."
+    pr "     Run with --help for all options."

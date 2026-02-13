@@ -1,211 +1,192 @@
-/// QAOA Parameter Optimization Example
-///
-/// This example demonstrates:
-/// 1. Building a MaxCut QAOA problem
-/// 2. Automatic parameter optimization with multiple strategies
-/// 3. Comparing optimization results
-/// 4. Visualizing convergence
-///
-/// Run with: dotnet fsi examples/QaoaParameterOptimizationExample.fsx
+#!/usr/bin/env dotnet fsi
+// ============================================================================
+// QAOA Parameter Optimization Example
+// ============================================================================
+//
+// Demonstrates QAOA (Quantum Approximate Optimization Algorithm) parameter
+// optimization for MaxCut. Compares optimization strategies: single-run,
+// multi-start, and two-local pattern initialization.
+//
+// Extensible starting point for combinatorial optimization with QAOA.
+//
+// ============================================================================
 
-//#r "nuget: FSharp.Azure.Quantum"
 #r "nuget: MathNet.Numerics, 5.0.0"
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
+#load "../_common/Cli.fs"
+#load "../_common/Data.fs"
+#load "../_common/Reporting.fs"
 
 open System
 open FSharp.Azure.Quantum.Core.QaoaCircuit
 open FSharp.Azure.Quantum.Core.QaoaParameterOptimizer
 open FSharp.Azure.Quantum.Core.CircuitAbstraction
+open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.Backends.DWaveBackend
 open FSharp.Azure.Quantum.Backends.DWaveTypes
+open FSharp.Azure.Quantum.Examples.Common
 
-printfn "╔══════════════════════════════════════════════════════════════╗"
-printfn "║  QAOA Parameter Optimization Demo                            ║"
-printfn "╚══════════════════════════════════════════════════════════════╝"
-printfn ""
+// --- CLI ---
+let argv = fsi.CommandLineArgs |> Array.skip 1
+let args = Cli.parse argv
+
+Cli.exitIfHelp
+    "QaoaParameterOptimizationExample.fsx"
+    "QAOA parameter optimization for MaxCut with strategy comparison"
+    [ { Name = "layers"; Description = "QAOA depth (p layers)"; Default = Some "1" }
+      { Name = "shots"; Description = "Measurement shots per evaluation"; Default = Some "500" }
+      { Name = "max-iter"; Description = "Max optimizer iterations"; Default = Some "50" }
+      { Name = "multi-starts"; Description = "Number of starts for multi-start strategy"; Default = Some "3" }
+      { Name = "verify-shots"; Description = "Shots for final verification"; Default = Some "2000" }
+      { Name = "seed"; Description = "Random seed for reproducibility"; Default = Some "42" }
+      { Name = "output"; Description = "Write results to JSON file"; Default = None }
+      { Name = "csv"; Description = "Write results to CSV file"; Default = None }
+      { Name = "quiet"; Description = "Suppress console output"; Default = None } ]
+    args
+
+let quiet = Cli.hasFlag "quiet" args
+let outputPath = Cli.tryGet "output" args
+let csvPath = Cli.tryGet "csv" args
+let p = Cli.getIntOr "layers" 1 args
+let cliShots = Cli.getIntOr "shots" 500 args
+let maxIter = Cli.getIntOr "max-iter" 50 args
+let multiStarts = Cli.getIntOr "multi-starts" 3 args
+let verifyShots = Cli.getIntOr "verify-shots" 2000 args
+let seed = Cli.getIntOr "seed" 42 args
+
+let pr fmt = Printf.ksprintf (fun s -> if not quiet then printfn "%s" s) fmt
+
+// --- Quantum Backend (Rule 1) ---
+// MockDWaveBackend implements IQuantumBackend; keep concrete type for Execute method
+let dwaveBackend = createMockDWaveBackend Advantage_System6_1 (Some seed)
+let quantumBackend = dwaveBackend :> IQuantumBackend
 
 // ============================================================================
-// STEP 1: Define the Problem
+// STEP 1: Define MaxCut Problem
 // ============================================================================
 
-printfn "📊 Step 1: Define MaxCut Problem"
-printfn "──────────────────────────────────"
+pr "--- Step 1: Define MaxCut Problem ---"
+pr ""
 
-// Small graph for quick optimization
-// Triangle: (0-1-2) with equal weights
-let edges = [(0, 1, 1.0); (1, 2, 1.0); (0, 2, 1.0)]
+// Triangle graph with equal weights
+let edges = [ (0, 1, 1.0); (1, 2, 1.0); (0, 2, 1.0) ]
+let numVertices = 3
 
-// Build problem Hamiltonian
-let buildMaxCutHamiltonian (numVertices: int) (edges: (int * int * float) list) : ProblemHamiltonian =
+let buildMaxCutHamiltonian (nVerts: int) (edgeList: (int * int * float) list) : ProblemHamiltonian =
     let diagonalTerms =
-        [0 .. numVertices - 1]
+        [ 0 .. nVerts - 1 ]
         |> List.map (fun v ->
-            let weight = 
-                edges 
+            let weight =
+                edgeList
                 |> List.filter (fun (u, w, _) -> u = v || w = v)
                 |> List.sumBy (fun (_, _, w) -> w)
-            { Coefficient = weight / 2.0; QubitsIndices = [| v |]; PauliOperators = [| PauliZ |] }
-        )
-    
-    let offDiagonalTerms =
-        edges
-        |> List.map (fun (u, v, w) ->
-            { Coefficient = -w / 4.0; QubitsIndices = [| u; v |]; PauliOperators = [| PauliZ; PauliZ |] }
-        )
-    
-    {
-        NumQubits = numVertices
-        Terms = List.append diagonalTerms offDiagonalTerms |> List.toArray
-    }
+            { Coefficient = weight / 2.0; QubitsIndices = [| v |]; PauliOperators = [| PauliZ |] })
 
-let numVertices = 3
+    let offDiagonalTerms =
+        edgeList
+        |> List.map (fun (u, v, w) ->
+            { Coefficient = -w / 4.0; QubitsIndices = [| u; v |]; PauliOperators = [| PauliZ; PauliZ |] })
+
+    { NumQubits = nVerts
+      Terms = List.append diagonalTerms offDiagonalTerms |> List.toArray }
+
 let problemHam = buildMaxCutHamiltonian numVertices edges
 
-printfn $"Graph: {edges.Length} edges, {numVertices} vertices"
-printfn $"Problem Hamiltonian: {problemHam.Terms.Length} terms"
-printfn ""
+pr "  Graph: %d edges, %d vertices" edges.Length numVertices
+pr "  Hamiltonian terms: %d" problemHam.Terms.Length
+pr ""
 
 // ============================================================================
-// STEP 2: Create Backend
+// STEP 2: Compare Optimization Strategies
 // ============================================================================
 
-printfn "🔧 Step 2: Create Quantum Backend"
-printfn "───────────────────────────────────"
+pr "--- Step 2: Compare Optimization Strategies ---"
+pr ""
 
-// Use D-Wave backend with fixed seed for reproducibility
-let backend = createMockDWaveBackend Advantage_System6_1 (Some 42)
-printfn $"Backend: {backend.Name}"
-printfn $"Max Qubits: {backend.MaxQubits}"
-printfn ""
+let makeConfig strategy initStrat =
+    { defaultConfig with
+        OptStrategy = strategy
+        InitStrategy = initStrat
+        NumShots = cliShots
+        MaxIterations = maxIter
+        RandomSeed = Some seed }
 
-// ============================================================================
-// STEP 3: Optimization Strategy Comparison
-// ============================================================================
+let strategies =
+    [ ("SingleRun-Standard", makeConfig SingleRun StandardQAOA)
+      (sprintf "MultiStart-%dx" multiStarts, makeConfig (MultiStart multiStarts) RandomUniform)
+      ("SingleRun-TwoLocal", makeConfig SingleRun TwoLocalPattern) ]
 
-printfn "⚡ Step 3: Compare Optimization Strategies"
-printfn "────────────────────────────────────────────"
-printfn ""
+let results =
+    strategies
+    |> List.map (fun (name, config) ->
+        pr "  Running: %s ..." name
+        let result = optimizeQaoaParameters problemHam p quantumBackend config
+        pr "    Energy: %.6f  |  Converged: %b  |  Evaluations: %d" result.FinalEnergy result.Converged result.TotalEvaluations
+        (name, result))
 
-let p = 1  // Single QAOA layer for speed
-
-// Strategy 1: Single Run with Standard Initialization
-printfn "┌─ Strategy 1: Single Run (Standard Init) ─────────────┐"
-let config1 = {
-    defaultConfig with
-        OptStrategy = SingleRun
-        InitStrategy = StandardQAOA
-        NumShots = 500  // Fewer shots for speed
-        MaxIterations = 50
-        RandomSeed = Some 42
-}
-
-let result1 = optimizeQaoaParameters problemHam p backend config1
-printfn ""
-
-// Strategy 2: Multi-Start (3 starts)
-printfn "┌─ Strategy 2: Multi-Start (3 starts) ─────────────────┐"
-let config2 = {
-    defaultConfig with
-        OptStrategy = MultiStart 3
-        InitStrategy = RandomUniform
-        NumShots = 500
-        MaxIterations = 50
-        RandomSeed = Some 42
-}
-
-let result2 = optimizeQaoaParameters problemHam p backend config2
-printfn ""
-
-// Strategy 3: Two-Local Pattern Initialization
-printfn "┌─ Strategy 3: Two-Local Pattern Init ─────────────────┐"
-let config3 = {
-    defaultConfig with
-        OptStrategy = SingleRun
-        InitStrategy = TwoLocalPattern
-        NumShots = 500
-        MaxIterations = 50
-        RandomSeed = Some 42
-}
-
-let result3 = optimizeQaoaParameters problemHam p backend config3
-printfn ""
+pr ""
 
 // ============================================================================
-// STEP 4: Compare Results
+// STEP 3: Compare Results
 // ============================================================================
 
-printfn "📊 Step 4: Compare Results"
-printfn "───────────────────────────"
-printfn ""
+pr "--- Step 3: Results Comparison ---"
+pr ""
+pr "  %-25s | %12s | %9s | %11s" "Strategy" "Final Energy" "Converged" "Evaluations"
+pr "  %s" (String.replicate 70 "-")
 
-let results = [
-    ("Single Run (Standard)", result1)
-    ("Multi-Start (3x)", result2)
-    ("Two-Local Pattern", result3)
-]
+results
+|> List.iter (fun (name, result) ->
+    pr "  %-25s | %12.6f | %9b | %11d" name result.FinalEnergy result.Converged result.TotalEvaluations)
 
-printfn "  Strategy              | Final Energy | Converged | Evaluations"
-printfn "  ──────────────────────|──────────────|───────────|────────────"
-for (name, result) in results do
-    printfn $"  {name,-22}| {result.FinalEnergy,12:F6} | {result.Converged,9} | {result.TotalEvaluations,10}"
+let (bestName, bestResult) =
+    results |> List.minBy (fun (_, res) -> res.FinalEnergy)
 
-printfn ""
-
-// Find best result
-let (bestName, bestResult) = 
-    results 
-    |> List.minBy (fun (_, res) -> res.FinalEnergy)
-
-printfn $"✨ Best Strategy: {bestName}"
-printfn $"   Energy: {bestResult.FinalEnergy:F6}"
-printfn $"   Converged: {bestResult.Converged}"
-printfn ""
+pr ""
+pr "  Best: %s (energy=%.6f)" bestName bestResult.FinalEnergy
+pr ""
 
 // ============================================================================
-// STEP 5: Verify with Final Circuit
+// STEP 4: Verify with Final Circuit
 // ============================================================================
 
-printfn "🔍 Step 5: Verify Optimized Solution"
-printfn "──────────────────────────────────────"
+pr "--- Step 4: Verify Optimized Solution ---"
+pr ""
 
 let (optGamma, optBeta) = bestResult.OptimizedParameters.[0]
-printfn $"Optimized Parameters: γ = {optGamma:F4}, β = {optBeta:F4}"
-printfn ""
+pr "  Optimized: gamma=%.4f, beta=%.4f" optGamma optBeta
 
-// Build circuit with optimized parameters
 let mixerHam = MixerHamiltonian.create numVertices
 let optimalCircuit = QaoaCircuit.build problemHam mixerHam bestResult.OptimizedParameters
 let circuitWrapper = QaoaCircuitWrapper(optimalCircuit) :> ICircuit
 
-// Execute with more shots for better statistics
-match backend.Execute circuitWrapper 2000 with
-| Error e -> printfn $"Error: {e}"
+match dwaveBackend.Execute circuitWrapper verifyShots with
+| Error e ->
+    pr "  [ERROR] Verification failed: %A" e
 | Ok execResult ->
-    // Analyze solution distribution
-    let counts = 
+    let counts =
         execResult.Measurements
         |> Array.countBy id
         |> Array.sortByDescending snd
-    
-    printfn "Top 3 solutions:"
-    printfn "  Bitstring | Count  | Probability | Cut Value"
-    printfn "  ──────────|────────|─────────────|──────────"
-    
-    for i in 0 .. min 2 (counts.Length - 1) do
-        let (bitstring, count) = counts.[i]
+
+    pr ""
+    pr "  Top solutions (%d shots):" verifyShots
+    pr "  %-12s | %6s | %11s | %9s" "Bitstring" "Count" "Probability" "Cut Value"
+    pr "  %s" (String.replicate 48 "-")
+
+    let topN = min 3 counts.Length
+
+    counts
+    |> Array.take topN
+    |> Array.iter (fun (bitstring, count) ->
         let prob = float count / float execResult.NumShots
-        
-        // Calculate cut value
         let cutValue =
             edges
             |> List.filter (fun (u, v, _) -> bitstring.[u] <> bitstring.[v])
             |> List.sumBy (fun (_, _, w) -> w)
-        
         let bitstringStr = String.Join("", bitstring)
-        printfn $"  {bitstringStr}       | {count,6} | {prob,11:P2} | {cutValue,9:F1}"
-    
-    printfn ""
-    
+        pr "  %-12s | %6d | %10.2f%% | %9.1f" bitstringStr count (prob * 100.0) cutValue)
+
     // Find maximum cut
     let maxCutSolution =
         counts
@@ -214,41 +195,52 @@ match backend.Execute circuitWrapper 2000 with
                 edges
                 |> List.filter (fun (u, v, _) -> bitstring.[u] <> bitstring.[v])
                 |> List.sumBy (fun (_, _, w) -> w)
-            (bitstring, count, cutValue)
-        )
+            (bitstring, count, cutValue))
         |> Array.maxBy (fun (_, _, cutValue) -> cutValue)
-    
+
     let (maxBitstring, maxCount, maxCut) = maxCutSolution
-    
-    printfn "╔══════════════════════════════════════════════════════════╗"
-    printfn "║  Maximum Cut Solution                                    ║"
-    printfn "╚══════════════════════════════════════════════════════════╝"
-    printfn ""
     let maxPartitionStr = String.Join("", maxBitstring)
-    printfn $"  Partition: {maxPartitionStr}"
-    printfn $"  Cut Value: {maxCut:F1} / {float edges.Length:F1}"
-    printfn $"  Percentage: {maxCut / float edges.Length:P1}"
-    printfn $"  Found in: {float maxCount / float execResult.NumShots:P1} of shots"
-    printfn ""
 
-// ============================================================================
-// Summary
-// ============================================================================
+    pr ""
+    pr "  Maximum Cut: partition=%s, cut=%.1f/%.1f (%.1f%%)" maxPartitionStr maxCut (float edges.Length) (maxCut / float edges.Length * 100.0)
+    pr "  Found in: %.1f%% of shots" (float maxCount / float execResult.NumShots * 100.0)
+    pr ""
 
-printfn "╔══════════════════════════════════════════════════════════╗"
-printfn "║  Key Takeaways                                           ║"
-printfn "╚══════════════════════════════════════════════════════════╝"
-printfn ""
-printfn "1. Multi-start optimization helps escape local minima"
-printfn "2. Different initialization strategies affect convergence"
-printfn "3. More shots → better energy estimates but slower"
-printfn "4. Nelder-Mead is derivative-free (works with noisy quantum)"
-printfn "5. QAOA finds good approximate solutions quickly"
-printfn ""
+// --- JSON output ---
 
-printfn "💡 Next Steps:"
-printfn "   - Try deeper circuits (p=2, p=3)"
-printfn "   - Experiment with larger graphs"
-printfn "   - Compare with classical algorithms"
-printfn "   - Use real D-Wave hardware"
-printfn ""
+outputPath
+|> Option.iter (fun path ->
+    let payload =
+        results
+        |> List.map (fun (name, r) ->
+            dict [
+                "strategy", box name
+                "finalEnergy", box r.FinalEnergy
+                "converged", box r.Converged
+                "totalEvaluations", box r.TotalEvaluations
+                "gamma", box (fst r.OptimizedParameters.[0])
+                "beta", box (snd r.OptimizedParameters.[0]) ])
+    Reporting.writeJson path payload)
+
+// --- CSV output ---
+
+csvPath
+|> Option.iter (fun path ->
+    let header = [ "strategy"; "finalEnergy"; "converged"; "evaluations"; "gamma"; "beta" ]
+    let rows =
+        results
+        |> List.map (fun (name, r) ->
+            [ name; sprintf "%.6f" r.FinalEnergy; string r.Converged
+              string r.TotalEvaluations
+              sprintf "%.4f" (fst r.OptimizedParameters.[0])
+              sprintf "%.4f" (snd r.OptimizedParameters.[0]) ])
+    Reporting.writeCsv path header rows)
+
+// --- Summary ---
+
+if not quiet && outputPath.IsNone && csvPath.IsNone && (argv |> Array.isEmpty) then
+    pr ""
+    pr "Tip: Use --output results.json or --csv results.csv to export data."
+    pr "     Use --layers 2 for deeper QAOA circuits."
+    pr "     Use --shots 1000 for better energy estimates."
+    pr "     Run with --help for all options."

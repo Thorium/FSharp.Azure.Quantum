@@ -1,56 +1,68 @@
 // ==============================================================================
-// Supply Chain Optimization Example - QUANTUM-FIRST
+// Supply Chain Optimization Example
 // ==============================================================================
-// Demonstrates multi-stage supply chain optimization using quantum QAOA via
+// Multi-stage supply chain optimization using quantum QAOA via
 // QuantumNetworkFlowSolver to minimize total logistics cost while meeting demand.
 //
 // Business Context:
-// A logistics company operates a 4-stage supply chain: suppliers → warehouses →
-// distributors → customers. The goal is to route products through the network
+// A logistics company operates a 4-stage supply chain: suppliers -> warehouses ->
+// distributors -> customers. The goal is to route products through the network
 // to meet all customer demand at minimum total cost.
 //
-// QUANTUM APPROACH (No Classical Fallbacks):
-// - Uses QAOA (Quantum Approximate Optimization Algorithm)
-// - Encodes min-cost flow as QUBO matrix
-// - Executes on quantum backend (LocalSimulator, IonQ, Rigetti)
+// Quantum Approach:
+// - QAOA (Quantum Approximate Optimization Algorithm) via QUBO encoding
 // - 14 edges = 14 qubits + complex flow conservation constraints
+// - Executes on quantum backend (LocalSimulator, IonQ, Rigetti)
 //
-// EXPECTED BEHAVIOR:
-// - With p=1 QAOA layers (default): Finds partial solutions (low fill rate)
-// - With p=3+ QAOA layers: Better solution quality (requires more shots)
-// - On real quantum hardware: Potential quantum advantage for large networks
-//
-// This example shows:
-// - Quantum network flow optimization using QUBO encoding
-// - Backend-agnostic quantum execution
-// - Capacity-constrained routing with flow conservation
-// - Multi-stage logistics network optimization
+// Usage:
+//   dotnet fsi SupplyChain.fsx
+//   dotnet fsi SupplyChain.fsx -- --shots 3000
+//   dotnet fsi SupplyChain.fsx -- --quiet --output results.json --csv results.csv
 // ==============================================================================
 
-//#r "nuget: FSharp.Azure.Quantum"
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
+#load "../_common/Cli.fs"
+#load "../_common/Data.fs"
+#load "../_common/Reporting.fs"
+open FSharp.Azure.Quantum.Examples.Common
 
 open System
 open FSharp.Azure.Quantum.Quantum
 open FSharp.Azure.Quantum.Core
+open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.GraphOptimization
 open FSharp.Azure.Quantum.Backends.LocalBackend
 
+// --- CLI ---
+let argv = fsi.CommandLineArgs |> Array.skip 1
+let args = Cli.parse argv
+Cli.exitIfHelp "SupplyChain.fsx" "Multi-stage supply chain optimization (14 qubits, QAOA)" [
+    { Name = "shots"; Description = "Number of measurement shots"; Default = Some "1000" }
+    { Name = "output"; Description = "Write results to JSON file"; Default = None }
+    { Name = "csv"; Description = "Write results to CSV file"; Default = None }
+    { Name = "quiet"; Description = "Suppress printed output"; Default = None }
+] args
+
+let cliShots = Cli.getIntOr "shots" 1000 args
+let quiet = Cli.hasFlag "quiet" args
+let outputPath = Cli.tryGet "output" args
+let csvPath = Cli.tryGet "csv" args
+
+let pr fmt = Printf.ksprintf (fun s -> if not quiet then printfn "%s" s) fmt
+
 // ==============================================================================
-// DOMAIN MODEL - Supply Chain Types
+// Domain Model
 // ==============================================================================
 
-/// Supply chain node with capacity and operating cost
 type SupplyChainNode = {
     Id: string
-    NodeType: string  // "Supplier", "Warehouse", "Distributor", "Customer"
-    Capacity: int       // Maximum units that can flow through
-    OperatingCost: float  // Cost per unit processed
-    Demand: int option  // For customers only
-    Revenue: float option  // For customers only
+    NodeType: string
+    Capacity: int
+    OperatingCost: float
+    Demand: int option
+    Revenue: float option
 }
 
-/// Complete supply chain solution
 type SupplyChainSolution = {
     SelectedRoutes: Edge<float> list
     TotalCost: float
@@ -62,42 +74,30 @@ type SupplyChainSolution = {
 }
 
 // ==============================================================================
-// SUPPLY CHAIN DATA - Realistic logistics network
+// Supply Chain Data
 // ==============================================================================
 
 let supplyChainNodes = [
-    // Suppliers
     { Id = "S1_Shanghai"; NodeType = "Supplier"; Capacity = 1000; OperatingCost = 100.0; Demand = None; Revenue = None }
     { Id = "S2_Mumbai"; NodeType = "Supplier"; Capacity = 800; OperatingCost = 90.0; Demand = None; Revenue = None }
-    
-    // Warehouses
     { Id = "W1_Singapore"; NodeType = "Warehouse"; Capacity = 1200; OperatingCost = 50.0; Demand = None; Revenue = None }
     { Id = "W2_Dubai"; NodeType = "Warehouse"; Capacity = 900; OperatingCost = 45.0; Demand = None; Revenue = None }
-    
-    // Distributors
     { Id = "D1_London"; NodeType = "Distributor"; Capacity = 800; OperatingCost = 30.0; Demand = None; Revenue = None }
     { Id = "D2_Frankfurt"; NodeType = "Distributor"; Capacity = 700; OperatingCost = 35.0; Demand = None; Revenue = None }
-    
-    // Customers
     { Id = "C1_Paris"; NodeType = "Customer"; Capacity = 0; OperatingCost = 0.0; Demand = Some 400; Revenue = Some 200.0 }
     { Id = "C2_Berlin"; NodeType = "Customer"; Capacity = 0; OperatingCost = 0.0; Demand = Some 500; Revenue = Some 220.0 }
     { Id = "C3_Amsterdam"; NodeType = "Customer"; Capacity = 0; OperatingCost = 0.0; Demand = Some 350; Revenue = Some 180.0 }
 ]
 
 let transportRoutes = [
-    // Suppliers → Warehouses (ocean freight)
     ("S1_Shanghai", "W1_Singapore", 20.0)
     ("S1_Shanghai", "W2_Dubai", 25.0)
     ("S2_Mumbai", "W1_Singapore", 22.0)
     ("S2_Mumbai", "W2_Dubai", 18.0)
-    
-    // Warehouses → Distributors (air freight)
     ("W1_Singapore", "D1_London", 15.0)
     ("W1_Singapore", "D2_Frankfurt", 18.0)
     ("W2_Dubai", "D1_London", 16.0)
     ("W2_Dubai", "D2_Frankfurt", 14.0)
-    
-    // Distributors → Customers (ground shipping)
     ("D1_London", "C1_Paris", 10.0)
     ("D1_London", "C2_Berlin", 12.0)
     ("D1_London", "C3_Amsterdam", 11.0)
@@ -107,79 +107,41 @@ let transportRoutes = [
 ]
 
 // ==============================================================================
-// PROBLEM SETUP - Using QuantumNetworkFlowSolver
+// Problem Setup
 // ==============================================================================
 
-printfn "╔══════════════════════════════════════════════════════════════════════════════╗"
-printfn "║                SUPPLY CHAIN OPTIMIZATION EXAMPLE                             ║"
-printfn "║              Using QuantumNetworkFlowSolver (Quantum Compliant)              ║"
-printfn "╚══════════════════════════════════════════════════════════════════════════════╝"
-printfn ""
+let nodesByType nodeType =
+    supplyChainNodes |> List.filter (fun n -> n.NodeType = nodeType)
 
-let totalSupply =
+let totalSupply = nodesByType "Supplier" |> List.sumBy (fun n -> n.Capacity)
+let totalDemand = nodesByType "Customer" |> List.sumBy (fun n -> n.Demand |> Option.defaultValue 0)
+
+pr "=== Supply Chain Optimization ==="
+pr "    QuantumNetworkFlowSolver (QAOA)"
+pr ""
+pr "Problem: Route %d units through 4-stage supply chain" totalDemand
+pr "  Suppliers:    %d (capacity: %d units)" (nodesByType "Supplier" |> List.length) totalSupply
+pr "  Warehouses:   %d" (nodesByType "Warehouse" |> List.length)
+pr "  Distributors: %d" (nodesByType "Distributor" |> List.length)
+pr "  Customers:    %d (demand: %d units)" (nodesByType "Customer" |> List.length) totalDemand
+pr "Objective: Minimize total cost while meeting demand"
+pr ""
+
+let sources = nodesByType "Supplier" |> List.map (fun n -> n.Id)
+let sinks = nodesByType "Customer" |> List.map (fun n -> n.Id)
+let intermediateNodes =
     supplyChainNodes
-    |> List.filter (fun n -> n.NodeType = "Supplier")
-    |> List.sumBy (fun n -> n.Capacity)
-
-let totalDemand =
-    supplyChainNodes
-    |> List.filter (fun n -> n.NodeType = "Customer")
-    |> List.sumBy (fun n -> n.Demand |> Option.defaultValue 0)
-
-let supplierCount = supplyChainNodes |> List.filter (fun n -> n.NodeType = "Supplier") |> List.length
-let warehouseCount = supplyChainNodes |> List.filter (fun n -> n.NodeType = "Warehouse") |> List.length
-let distributorCount = supplyChainNodes |> List.filter (fun n -> n.NodeType = "Distributor") |> List.length
-let customerCount = supplyChainNodes |> List.filter (fun n -> n.NodeType = "Customer") |> List.length
-
-printfn "Problem: Route %d units through 4-stage supply chain" totalDemand
-printfn "  • Suppliers: %d (capacity: %d units)" supplierCount totalSupply
-printfn "  • Warehouses: %d" warehouseCount
-printfn "  • Distributors: %d" distributorCount
-printfn "  • Customers: %d (demand: %d units)" customerCount totalDemand
-printfn "Objective: Minimize total cost while meeting demand"
-printfn ""
-
-// Convert to network flow problem specification
-let sources = supplyChainNodes |> List.filter (fun n -> n.NodeType = "Supplier") |> List.map (fun n -> n.Id)
-let sinks = supplyChainNodes |> List.filter (fun n -> n.NodeType = "Customer") |> List.map (fun n -> n.Id)
-let intermediateNodes = 
-    supplyChainNodes 
     |> List.filter (fun n -> n.NodeType = "Warehouse" || n.NodeType = "Distributor")
     |> List.map (fun n -> n.Id)
 
-// Build capacity map
-let capacities =
-    supplyChainNodes
-    |> List.map (fun n -> n.Id, n.Capacity)
-    |> Map.ofList
+let capacities = supplyChainNodes |> List.map (fun n -> n.Id, n.Capacity) |> Map.ofList
+let demands = supplyChainNodes |> List.choose (fun n -> n.Demand |> Option.map (fun d -> n.Id, d)) |> Map.ofList
+let supplies = nodesByType "Supplier" |> List.map (fun n -> n.Id, n.Capacity) |> Map.ofList
 
-// Build demand map
-let demands =
-    supplyChainNodes
-    |> List.choose (fun n -> n.Demand |> Option.map (fun d -> n.Id, d))
-    |> Map.ofList
-
-// Build supply map
-let supplies =
-    supplyChainNodes
-    |> List.filter (fun n -> n.NodeType = "Supplier")
-    |> List.map (fun n -> n.Id, n.Capacity)
-    |> Map.ofList
-
-// Convert routes to edges
 let edges =
-    transportRoutes
-    |> List.map (fun (from, to_, cost) ->
-        { 
-            Source = from
-            Target = to_
-            Weight = cost
-            Directed = true
-            Value = Some cost
-            Properties = Map.empty
-        })
+    transportRoutes |> List.map (fun (src, tgt, cost) ->
+        { Source = src; Target = tgt; Weight = cost; Directed = true; Value = Some cost; Properties = Map.empty })
 
-// Build network flow problem
 let flowProblem : QuantumNetworkFlowSolver.NetworkFlowProblem = {
     Sources = sources
     Sinks = sinks
@@ -191,83 +153,67 @@ let flowProblem : QuantumNetworkFlowSolver.NetworkFlowProblem = {
 }
 
 // ==============================================================================
-// SOLVE - Using Quantum Backend (LocalSimulator)
+// Quantum Execution
 // ==============================================================================
 
-printfn "Running quantum network flow optimization..."
+let quantumBackend = LocalBackend() :> IQuantumBackend
+
+pr "Running quantum network flow optimization (%d shots)..." cliShots
 let startTime = DateTime.UtcNow
+let solutionResult = QuantumNetworkFlowSolver.solveWithShots quantumBackend flowProblem cliShots
+let elapsed = (DateTime.UtcNow - startTime).TotalMilliseconds
 
-// Create backend (use LocalSimulator for development)
-let backend = LocalBackend() :> BackendAbstraction.IQuantumBackend
-
-// Solve using quantum network flow solver
-let solutionResult = QuantumNetworkFlowSolver.solveWithShots backend flowProblem 1000
-
-let elapsed = DateTime.UtcNow - startTime
-printfn "Completed in %d ms" (int elapsed.TotalMilliseconds)
-printfn ""
+pr "Completed in %.0f ms" elapsed
+pr ""
 
 // ==============================================================================
-// RESULTS - Flow Analysis
+// Results
 // ==============================================================================
 
-printfn "╔══════════════════════════════════════════════════════════════════════════════╗"
-printfn "║                     SUPPLY CHAIN FLOW REPORT                                 ║"
-printfn "╚══════════════════════════════════════════════════════════════════════════════╝"
-printfn ""
+pr "=== Supply Chain Flow Report ==="
+pr ""
 
 match solutionResult with
 | Error err ->
-    printfn "❌ Solution failed: %s" err.Message
-    printfn ""
+    pr "FAILED: %s" err.Message
+    pr ""
+
 | Ok solution ->
     let selectedRoutes = solution.SelectedEdges
-    
+
     if selectedRoutes.IsEmpty then
-        printfn "❌ No routes selected - check problem constraints"
-        printfn ""
+        pr "No routes selected - check problem constraints"
+        pr ""
     else
         // Group flows by stage
-        let supplierToWarehouse =
-            selectedRoutes
-            |> List.filter (fun e -> e.Source.StartsWith("S") && e.Target.StartsWith("W"))
-        
-        let warehouseToDistributor =
-            selectedRoutes
-            |> List.filter (fun e -> e.Source.StartsWith("W") && e.Target.StartsWith("D"))
-        
-        let distributorToCustomer =
-            selectedRoutes
-            |> List.filter (fun e -> e.Source.StartsWith("D") && e.Target.StartsWith("C"))
-        
-        printfn "STAGE 1: SUPPLIERS → WAREHOUSES (Ocean Freight)"
-        printfn "────────────────────────────────────────────────────────────────────────────────"
-        for route in supplierToWarehouse do
-            printfn "  %s → %s: $%.2f per unit" route.Source route.Target route.Weight
-        
-        printfn ""
-        printfn "STAGE 2: WAREHOUSES → DISTRIBUTORS (Air Freight)"
-        printfn "────────────────────────────────────────────────────────────────────────────────"
-        for route in warehouseToDistributor do
-            printfn "  %s → %s: $%.2f per unit" route.Source route.Target route.Weight
-        
-        printfn ""
-        printfn "STAGE 3: DISTRIBUTORS → CUSTOMERS (Ground Shipping)"
-        printfn "────────────────────────────────────────────────────────────────────────────────"
-        for route in distributorToCustomer do
-            printfn "  %s → %s: $%.2f per unit" route.Source route.Target route.Weight
-        
-        printfn ""
-        printfn "FLOW ANALYSIS:"
-        printfn "────────────────────────────────────────────────────────────────────────────────"
-        printfn "  Total Routes Selected:     %d" selectedRoutes.Length
-        printfn "  Total Cost:                $%.2f (quantum optimized)" solution.TotalCost
-        printfn "  Demand Satisfied:          %.0f / %.0f units" solution.DemandSatisfied solution.TotalDemand
-        printfn "  Fill Rate:                 %.1f%%" (solution.FillRate * 100.0)
-        printfn "  Backend:                   %s" solution.BackendName
-        printfn "  Measurement Shots:         %d" solution.NumShots
-        
-        // Calculate total potential revenue
+        let stages = [
+            ("Stage 1: Suppliers -> Warehouses (Ocean Freight)", "S", "W")
+            ("Stage 2: Warehouses -> Distributors (Air Freight)", "W", "D")
+            ("Stage 3: Distributors -> Customers (Ground Shipping)", "D", "C")
+        ]
+
+        stages |> List.iter (fun (label, srcPrefix, tgtPrefix) ->
+            let stageRoutes =
+                selectedRoutes
+                |> List.filter (fun e -> e.Source.StartsWith(srcPrefix) && e.Target.StartsWith(tgtPrefix))
+            pr "%s" label
+            pr "-------------------------------------------"
+            stageRoutes |> List.iter (fun route ->
+                pr "  %s -> %s: $%.2f per unit" route.Source route.Target route.Weight
+            )
+            pr ""
+        )
+
+        pr "Flow Analysis:"
+        pr "-------------------------------------------"
+        pr "  Total Routes Selected: %d" selectedRoutes.Length
+        pr "  Total Cost:            $%.2f (quantum optimized)" solution.TotalCost
+        pr "  Demand Satisfied:      %.0f / %.0f units" solution.DemandSatisfied solution.TotalDemand
+        pr "  Fill Rate:             %.1f%%" (solution.FillRate * 100.0)
+        pr "  Backend:               %s" solution.BackendName
+        pr "  Measurement Shots:     %d" solution.NumShots
+        pr ""
+
         let totalRevenue =
             supplyChainNodes
             |> List.choose (fun n ->
@@ -275,75 +221,48 @@ match solutionResult with
                 | Some rev, Some dem -> Some (rev * float dem)
                 | _ -> None)
             |> List.sum
-        
-        printfn "  Estimated Revenue:         $%.2f (if all demand met)" totalRevenue
-        printfn "  Estimated Profit:          $%.2f" (totalRevenue - solution.TotalCost)
-        printfn ""
 
-// ==============================================================================
-// BUSINESS INSIGHTS
-// ==============================================================================
+        pr "  Estimated Revenue:     $%.2f (if all demand met)" totalRevenue
+        pr "  Estimated Profit:      $%.2f" (totalRevenue - solution.TotalCost)
+        pr ""
 
-printfn "╔══════════════════════════════════════════════════════════════════════════════╗"
-printfn "║                       BUSINESS INSIGHTS                                      ║"
-printfn "╚══════════════════════════════════════════════════════════════════════════════╝"
-printfn ""
-printfn "KEY INSIGHTS:"
-printfn "────────────────────────────────────────────────────────────────────────────────"
-
-match solutionResult with
-| Error _ ->
-    printfn "  ⚠ Quantum solver encountered an error"
-    printfn "  💡 This problem has 14 qubits + complex constraints"
-    printfn "  💡 Try: Increase shots, use p=3+ QAOA layers, or simplify network"
-| Ok solution ->
-    if solution.SelectedEdges.IsEmpty then
-        printfn "  ⚠ No feasible flow found - QAOA didn't converge"
-        printfn "  💡 Try: More shots (5000+), better QAOA parameters, or simpler network"
-    else
-        printfn "  ✓ Quantum QAOA found min-cost routes through network"
-        printfn "  ✓ Multi-stage logistics network optimized via QUBO encoding"
-        printfn "  ✓ Selected %d optimal routes minimizing total transport cost" solution.SelectedEdges.Length
-        
         if solution.FillRate < 0.5 then
-            printfn "  ⚠ Low fill rate (%.1f%%) - p=1 QAOA finds partial solutions" (solution.FillRate * 100.0)
-            printfn "  💡 For production: Use p=3+ QAOA layers for better solution quality"
-        else
-            printfn "  ✓ Fill rate: %.1f%% of demand satisfied" (solution.FillRate * 100.0)
+            pr "Note: Low fill rate (%.1f%%) is expected with p=1 QAOA layers." (solution.FillRate * 100.0)
+            pr "  For production: Use p=3+ layers, more shots, or real quantum hardware."
+            pr ""
 
-printfn ""
-printfn "ALGORITHM NOTES:"
-printfn "────────────────────────────────────────────────────────────────────────────────"
-printfn "  • Quantum: QAOA with min-cost flow QUBO encoding"
-printfn "  • Backend: %s (supports IonQ, Rigetti, Local)" (match solutionResult with Ok s -> s.BackendName | Error _ -> "N/A")
-printfn "  • Problem: 14 edges (14 qubits) + multi-stage flow constraints"
-printfn "  • Current: p=1 QAOA layers (basic) - partial solutions expected"
-printfn "  • Production: Use p=3+ layers for better quality (more circuit depth)"
-printfn "  • Quantum advantage: Emerges on larger networks (100+ nodes) with real hardware"
-printfn ""
-printfn "QUANTUM BEHAVIOR NOTES:"
-printfn "────────────────────────────────────────────────────────────────────────────────"
-printfn "  This is a QUANTUM-FIRST example."
-printfn "  Low fill rates with p=1 QAOA are expected - this demonstrates that:"
-printfn "    1. Complex combinatorial problems need sufficient QAOA depth (p=3+)"
-printfn "    2. Parameter optimization improves solution quality"
-printfn "    3. Real quantum hardware (IonQ/Rigetti) provides better results"
-printfn "    4. For production: tune QAOA parameters or decompose large problems"
-printfn ""
+        // --- JSON output ---
+        outputPath |> Option.iter (fun path ->
+            let payload =
+                {| totalCost = solution.TotalCost
+                   routesSelected = selectedRoutes.Length
+                   fillRate = solution.FillRate
+                   demandSatisfied = solution.DemandSatisfied
+                   totalDemand = solution.TotalDemand
+                   backendName = solution.BackendName
+                   shots = solution.NumShots
+                   elapsedMs = elapsed
+                   estimatedRevenue = totalRevenue
+                   estimatedProfit = totalRevenue - solution.TotalCost
+                   routes = selectedRoutes |> List.map (fun e ->
+                       {| source = e.Source; target = e.Target; weight = e.Weight |}) |}
+            Reporting.writeJson path payload
+            pr "JSON written to %s" path
+        )
 
-printfn "╔══════════════════════════════════════════════════════════════════════════════╗"
-printfn "║                     OPTIMIZATION COMPLETE                                    ║"
-printfn "╚══════════════════════════════════════════════════════════════════════════════╝"
-printfn ""
-printfn "✨ QUANTUM-FIRST EXAMPLE"
-printfn "   This example uses QuantumNetworkFlowSolver with LocalBackend."
-printfn "   "
-printfn "   For production deployments:"
-printfn "     • Use Azure Quantum backends (IonQ, Rigetti) for real quantum hardware"
-printfn "     • Increase QAOA layers (p=3 to p=5) for better solution quality"
-printfn "     • Optimize QAOA parameters (gamma, beta) using VQE-style optimization"
-printfn "     • Consider problem decomposition for very large networks (100+ nodes)"
-printfn ""
-printfn "   Note: Low fill rates demonstrate quantum algorithm behavior."
-printfn "   This is educational - showing realistic QAOA performance with p=1 layers."
-printfn ""
+        // --- CSV output ---
+        csvPath |> Option.iter (fun path ->
+            let header = ["Source"; "Target"; "Weight"]
+            let rows =
+                selectedRoutes |> List.map (fun e ->
+                    [e.Source; e.Target; sprintf "%.2f" e.Weight])
+            Reporting.writeCsv path header rows
+            pr "CSV written to %s" path
+        )
+
+// --- Usage hints ---
+if not quiet && outputPath.IsNone && csvPath.IsNone then
+    pr "-------------------------------------------"
+    pr "Tip: Use --output results.json or --csv results.csv to export data."
+    pr "     Use --shots N to change measurement count (default 1000)."
+    pr "     Use --help for all options."

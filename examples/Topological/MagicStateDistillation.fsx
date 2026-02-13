@@ -1,212 +1,243 @@
-// Magic State Distillation Example
-// 
-// Demonstrates how to achieve universal quantum computation with Ising anyons
-// using magic state distillation for T-gates.
-//
-// Ising anyons (Majorana zero modes) can only perform Clifford operations natively.
-// To achieve universality, we need non-Clifford gates like T-gates.
-// Magic state distillation allows us to implement T-gates with high fidelity.
+(*
+    Magic State Distillation — Topological Quantum Computing
+    ==========================================================
 
+    Demonstrates achieving universal quantum computation with
+    Ising anyons using magic state distillation for T-gates.
+
+    Ising anyons (Majorana zero modes) perform only Clifford
+    operations natively. Distillation enables non-Clifford T-gates.
+
+    Run with: dotnet fsi MagicStateDistillation.fsx
+              dotnet fsi MagicStateDistillation.fsx -- --example 3
+              dotnet fsi MagicStateDistillation.fsx -- --error-rate 0.08
+*)
+
+#r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 #r "../../src/FSharp.Azure.Quantum.Topological/bin/Debug/net10.0/FSharp.Azure.Quantum.Topological.dll"
+#load "../_common/Cli.fs"
+#load "../_common/Data.fs"
+#load "../_common/Reporting.fs"
 
 open System
 open FSharp.Azure.Quantum.Topological
+open FSharp.Azure.Quantum.Core.BackendAbstraction
+open FSharp.Azure.Quantum.Examples.Common
 
-printfn "=========================================="
-printfn "Magic State Distillation Example"
-printfn "=========================================="
-printfn ""
+// ---------------------------------------------------------------------------
+// CLI
+// ---------------------------------------------------------------------------
+let argv = fsi.CommandLineArgs |> Array.skip 1
+let args = Cli.parse argv
 
-// ========================================
-// Example 1: Single Round Distillation
-// ========================================
+Cli.exitIfHelp "MagicStateDistillation.fsx" "Magic state distillation for T-gate universality"
+    [ { Name = "example";    Description = "Which example: 1-4|all";          Default = Some "all" }
+      { Name = "error-rate"; Description = "Initial noisy state error rate";  Default = Some "0.05" }
+      { Name = "output";     Description = "Write results to JSON file";      Default = None }
+      { Name = "csv";        Description = "Write results to CSV file";       Default = None }
+      { Name = "quiet";      Description = "Suppress console output";         Default = None } ] args
 
-printfn "Example 1: Single Round 15-to-1 Distillation"
-printfn "---------------------------------------------"
+let quiet      = Cli.hasFlag "quiet" args
+let outputPath = Cli.tryGet "output" args
+let csvPath    = Cli.tryGet "csv" args
+let exChoice   = Cli.getOr "example" "all" args
+let cliError   = Cli.getFloatOr "error-rate" 0.05 args
+
+let pr fmt = Printf.ksprintf (fun s -> if not quiet then printfn "%s" s) fmt
+let shouldRun ex = exChoice = "all" || exChoice = string ex
+let separator () = pr "%s" (String.replicate 60 "-")
+let fmt (x: float) = sprintf "%.6f" x
+
+// ---------------------------------------------------------------------------
+// Quantum backend (Rule 1) — topological IQuantumBackend
+// ---------------------------------------------------------------------------
+let quantumBackend = TopologicalUnifiedBackendFactory.createIsing 10
 
 let random = Random()
-let noisyErrorRate = 0.05  // 5% error
 
-// Prepare 15 noisy magic states
-printfn "Preparing 15 noisy magic states with %.1f%% error..." (noisyErrorRate * 100.0)
+// Results accumulators
+let mutable jsonResults : (string * obj) list = []
+let mutable csvRows     : string list list    = []
 
-let noisyStates = 
-    [1..15]
-    |> List.map (fun _ -> 
-        MagicStateDistillation.prepareNoisyMagicState noisyErrorRate AnyonSpecies.AnyonType.Ising
-    )
-    |> List.choose (function Ok state -> Some state | Error _ -> None)
+// ---------------------------------------------------------------------------
+// Example 1 — Single round 15-to-1 distillation
+// ---------------------------------------------------------------------------
+if shouldRun 1 then
+    separator ()
+    pr "EXAMPLE 1: Single round 15-to-1 distillation (error=%.1f%%)" (cliError * 100.0)
+    separator ()
 
-match noisyStates with
-| (states: MagicStateDistillation.MagicState list) when states.Length = 15 ->
-    printfn "✓ Successfully prepared %d noisy states" states.Length
-    printfn "  Average input fidelity: %.4f (%.2f%% error)" 
-        (List.averageBy (fun (s: MagicStateDistillation.MagicState) -> s.Fidelity) states)
-        ((List.averageBy (fun (s: MagicStateDistillation.MagicState) -> s.ErrorRate) states) * 100.0)
-    
-    // Distill to high-fidelity magic state
-    printfn ""
-    printfn "Applying 15-to-1 distillation protocol..."
-    
-    match MagicStateDistillation.distill15to1 random states with
-    | Ok distillResult ->
-        let purifiedState = distillResult.PurifiedState
-        
-        printfn "✓ Distillation successful!"
-        printfn "  Output fidelity: %.6f (%.4f%% error)" 
-            purifiedState.Fidelity
-            (purifiedState.ErrorRate * 100.0)
-        
-        let errorSuppression = 
-            (List.averageBy (fun (s: MagicStateDistillation.MagicState) -> s.ErrorRate) states) / purifiedState.ErrorRate
-        
-        printfn "  Error suppression: %.1fx" errorSuppression
-        printfn "  Acceptance probability: %.4f" distillResult.AcceptanceProbability
-        printfn "  Syndromes detected: %d/%d" 
-            (distillResult.Syndromes |> List.filter id |> List.length)
-            (distillResult.Syndromes.Length)
-        
-    | Error err ->
-        printfn "✗ Distillation failed: %s" err.Message
+    let noisyStates =
+        [1..15]
+        |> List.map (fun _ ->
+            MagicStateDistillation.prepareNoisyMagicState cliError AnyonSpecies.AnyonType.Ising)
+        |> List.choose (function Ok s -> Some s | Error _ -> None)
 
-| states ->
-    printfn "✗ Failed to prepare sufficient states (got %d/15)" states.Length
+    match noisyStates with
+    | states when states.Length = 15 ->
+        let avgFid = List.averageBy (fun (s: MagicStateDistillation.MagicState) -> s.Fidelity) states
+        let avgErr = List.averageBy (fun (s: MagicStateDistillation.MagicState) -> s.ErrorRate) states
+        pr "Input: 15 noisy states, avg fidelity %.6f (%.4f%% error)" avgFid (avgErr * 100.0)
 
-printfn ""
+        match MagicStateDistillation.distill15to1 random states with
+        | Ok distR ->
+            let p = distR.PurifiedState
+            let suppression = avgErr / p.ErrorRate
+            pr "Output fidelity:    %s (%.6f%% error)" (fmt p.Fidelity) (p.ErrorRate * 100.0)
+            pr "Error suppression:  %.1fx" suppression
+            pr "Acceptance prob:    %s" (fmt distR.AcceptanceProbability)
 
-// ========================================
-// Example 2: Iterative Distillation
-// ========================================
-
-printfn "Example 2: Two Rounds of Iterative Distillation"
-printfn "-----------------------------------------------"
-
-// For 2 rounds, we need 15^2 = 225 initial states
-let initialErrorRate = 0.10  // 10% error
-let requiredStates = 225
-
-printfn "Preparing %d noisy states with %.1f%% error..." requiredStates (initialErrorRate * 100.0)
-
-let round1States = 
-    [1..requiredStates]
-    |> List.map (fun _ -> 
-        MagicStateDistillation.prepareNoisyMagicState initialErrorRate AnyonSpecies.AnyonType.Ising
-    )
-    |> List.choose (function Ok state -> Some state | Error _ -> None)
-
-match round1States with
-| states when states.Length = requiredStates ->
-    printfn "✓ Successfully prepared %d noisy states" states.Length
-    
-    printfn ""
-    printfn "Applying 2 rounds of distillation (15^2 = 225 → 1)..."
-    
-    match MagicStateDistillation.distillIterative random 2 states with
-    | Ok finalState ->
-        printfn "✓ Iterative distillation successful!"
-        printfn "  Input error:  %.4f (%.2f%%)" initialErrorRate (initialErrorRate * 100.0)
-        printfn "  Output error: %.8f (%.6f%%)" finalState.ErrorRate (finalState.ErrorRate * 100.0)
-        
-        let totalSuppression = initialErrorRate / finalState.ErrorRate
-        printfn "  Total error suppression: %.1fx" totalSuppression
-        
-        printfn ""
-        printfn "  Theoretical prediction: p_out ≈ 35^2 * p_in^9"
-        let theoreticalOutput = 35.0 * 35.0 * (initialErrorRate ** 9.0)
-        printfn "  Theoretical output error: %.8f" theoreticalOutput
-        
-    | Error err ->
-        printfn "✗ Iterative distillation failed: %s" err.Message
-
-| states ->
-    printfn "✗ Failed to prepare sufficient states (got %d/%d)" states.Length requiredStates
-
-printfn ""
-
-// ========================================
-// Example 3: Resource Estimation
-// ========================================
-
-printfn "Example 3: Resource Estimation"
-printfn "------------------------------"
-
-let targetFidelity = 0.9999  // 99.99% target fidelity
-let noisyFidelity = 0.95     // 95% initial fidelity
-
-printfn "Target fidelity: %.2f%%" (targetFidelity * 100.0)
-printfn "Noisy state fidelity: %.2f%%" (noisyFidelity * 100.0)
-printfn ""
-
-let estimate = 
-    MagicStateDistillation.estimateResources targetFidelity noisyFidelity
-
-printfn "%s" (MagicStateDistillation.displayResourceEstimate estimate)
-
-printfn ""
-
-// ========================================
-// Example 4: Applying T-Gate
-// ========================================
-
-printfn "Example 4: Applying T-Gate to Topological Qubit"
-printfn "-----------------------------------------------"
-
-// Create a topological qubit in |0⟩ state (4 sigma anyons)
-let sigma = AnyonSpecies.Particle.Sigma
-let vacuum = AnyonSpecies.Particle.Vacuum
-
-let dataQubit = 
-    let tree =
-        FusionTree.fuse
-            (FusionTree.fuse
-                (FusionTree.fuse
-                    (FusionTree.leaf sigma)
-                    (FusionTree.leaf sigma)
-                    vacuum)
-                (FusionTree.leaf sigma)
-                vacuum)
-            (FusionTree.leaf sigma)
-            vacuum
-    FusionTree.create tree AnyonSpecies.AnyonType.Ising
-
-printfn "Created topological qubit |0⟩ (4 sigma anyons)"
-
-// Prepare high-fidelity magic state for T-gate
-let magicStatesForTGate = 
-    [1..15]
-    |> List.map (fun _ -> 
-        MagicStateDistillation.prepareNoisyMagicState 0.05 AnyonSpecies.AnyonType.Ising
-    )
-    |> List.choose (function Ok state -> Some state | Error _ -> None)
-
-match magicStatesForTGate with
-| states when states.Length = 15 ->
-    match MagicStateDistillation.distill15to1 random states with
-    | Ok distillResult ->
-        let purifiedMagicState = distillResult.PurifiedState
-        printfn "Prepared purified magic state (fidelity: %.6f)" purifiedMagicState.Fidelity
-        
-        printfn ""
-        printfn "Applying T-gate using magic state injection..."
-        
-        match MagicStateDistillation.applyTGate random dataQubit purifiedMagicState with
-        | Ok tGateResult ->
-            printfn "✓ T-gate applied successfully!"
-            printfn "  Gate fidelity: %.6f" tGateResult.GateFidelity
-            printfn "  Output state: T|0⟩"
-            printfn ""
-            printfn "  With Clifford gates + T-gate → Universal quantum computation!"
-            
+            jsonResults <- ("1_single_round", box {| inputError = cliError
+                                                     outputFidelity = p.Fidelity
+                                                     outputError = p.ErrorRate
+                                                     suppression = suppression |}) :: jsonResults
+            csvRows <- [ "1_single_round"; fmt p.Fidelity; sprintf "%.8f" p.ErrorRate;
+                          sprintf "%.1f" suppression ] :: csvRows
         | Error err ->
-            printfn "✗ T-gate application failed: %s" err.Message
-    
-    | Error err ->
-        printfn "✗ Magic state distillation failed: %s" err.Message
+            pr "Distillation failed: %s" err.Message
+    | states ->
+        pr "Insufficient states (%d/15)" states.Length
 
-| states ->
-    printfn "✗ Failed to prepare sufficient magic states (got %d/15)" states.Length
+// ---------------------------------------------------------------------------
+// Example 2 — Iterative distillation (2 rounds)
+// ---------------------------------------------------------------------------
+if shouldRun 2 then
+    separator ()
+    pr "EXAMPLE 2: Two rounds iterative distillation (error=10%%)"
+    separator ()
 
-printfn ""
-printfn "=========================================="
-printfn "Example completed successfully!"
-printfn "=========================================="
+    let initErr = 0.10
+    let needed  = 225
+
+    let states =
+        [1..needed]
+        |> List.map (fun _ ->
+            MagicStateDistillation.prepareNoisyMagicState initErr AnyonSpecies.AnyonType.Ising)
+        |> List.choose (function Ok s -> Some s | Error _ -> None)
+
+    match states with
+    | s when s.Length = needed ->
+        pr "Prepared %d noisy states (%.1f%% error)" needed (initErr * 100.0)
+
+        match MagicStateDistillation.distillIterative random 2 s with
+        | Ok finalState ->
+            let suppression = initErr / finalState.ErrorRate
+            pr "Output error:       %.8f (%.6f%%)" finalState.ErrorRate (finalState.ErrorRate * 100.0)
+            pr "Total suppression:  %.1fx" suppression
+            let theoretical = 35.0 * 35.0 * (initErr ** 9.0)
+            pr "Theoretical p_out:  %.8f  (35^2 * p^9)" theoretical
+
+            jsonResults <- ("2_iterative", box {| inputError = initErr
+                                                  rounds = 2
+                                                  outputError = finalState.ErrorRate
+                                                  theoretical = theoretical |}) :: jsonResults
+            csvRows <- [ "2_iterative"; sprintf "%.8f" finalState.ErrorRate;
+                          sprintf "%.8f" theoretical; sprintf "%.1f" suppression ] :: csvRows
+        | Error err ->
+            pr "Iterative distillation failed: %s" err.Message
+    | s ->
+        pr "Insufficient states (%d/%d)" s.Length needed
+
+// ---------------------------------------------------------------------------
+// Example 3 — Resource estimation
+// ---------------------------------------------------------------------------
+if shouldRun 3 then
+    separator ()
+    pr "EXAMPLE 3: Resource estimation"
+    separator ()
+
+    let targetFid = 0.9999
+    let noisyFid  = 1.0 - cliError
+    pr "Target fidelity: %.2f%%   Noisy fidelity: %.2f%%" (targetFid * 100.0) (noisyFid * 100.0)
+    pr ""
+
+    let estimate = MagicStateDistillation.estimateResources targetFid noisyFid
+    pr "%s" (MagicStateDistillation.displayResourceEstimate estimate)
+
+    jsonResults <- ("3_resources", box {| targetFidelity = targetFid
+                                          noisyFidelity = noisyFid |}) :: jsonResults
+    csvRows <- [ "3_resources"; sprintf "%.4f" targetFid; sprintf "%.4f" noisyFid ] :: csvRows
+
+// ---------------------------------------------------------------------------
+// Example 4 — Apply T-gate via magic state injection
+// ---------------------------------------------------------------------------
+if shouldRun 4 then
+    separator ()
+    pr "EXAMPLE 4: Apply T-gate to topological qubit"
+    separator ()
+
+    let sigma' = AnyonSpecies.Particle.Sigma
+    let vacuum' = AnyonSpecies.Particle.Vacuum
+
+    let dataQubit =
+        let tree =
+            FusionTree.fuse
+                (FusionTree.fuse
+                    (FusionTree.fuse
+                        (FusionTree.leaf sigma')
+                        (FusionTree.leaf sigma')
+                        vacuum')
+                    (FusionTree.leaf sigma')
+                    vacuum')
+                (FusionTree.leaf sigma')
+                vacuum'
+        FusionTree.create tree AnyonSpecies.AnyonType.Ising
+
+    pr "Data qubit: |0> (4 sigma anyons)"
+
+    let magicStates =
+        [1..15]
+        |> List.map (fun _ ->
+            MagicStateDistillation.prepareNoisyMagicState cliError AnyonSpecies.AnyonType.Ising)
+        |> List.choose (function Ok s -> Some s | Error _ -> None)
+
+    match magicStates with
+    | ms when ms.Length = 15 ->
+        match MagicStateDistillation.distill15to1 random ms with
+        | Ok distR ->
+            pr "Purified magic state fidelity: %s" (fmt distR.PurifiedState.Fidelity)
+
+            match MagicStateDistillation.applyTGate random dataQubit distR.PurifiedState with
+            | Ok tGateR ->
+                pr "T-gate applied — gate fidelity: %s" (fmt tGateR.GateFidelity)
+                pr ""
+                pr "Clifford + T-gate = universal quantum computation!"
+
+                jsonResults <- ("4_t_gate", box {| gateFidelity = tGateR.GateFidelity
+                                                   magicFidelity = distR.PurifiedState.Fidelity |}) :: jsonResults
+                csvRows <- [ "4_t_gate"; fmt tGateR.GateFidelity;
+                              fmt distR.PurifiedState.Fidelity ] :: csvRows
+            | Error err ->
+                pr "T-gate failed: %s" err.Message
+        | Error err ->
+            pr "Distillation failed: %s" err.Message
+    | ms ->
+        pr "Insufficient magic states (%d/15)" ms.Length
+
+// ---------------------------------------------------------------------------
+// Output
+// ---------------------------------------------------------------------------
+if outputPath.IsSome then
+    let payload =
+        {| script    = "MagicStateDistillation.fsx"
+           backend   = "Topological (Ising)"
+           timestamp = DateTime.UtcNow.ToString("o")
+           example   = exChoice
+           errorRate = cliError
+           results   = jsonResults |> List.rev |> List.map (fun (k,v) -> {| key = k; value = v |}) |}
+    Reporting.writeJson outputPath.Value payload
+
+if csvPath.IsSome then
+    let header = [ "example"; "metric1"; "metric2"; "metric3" ]
+    Reporting.writeCsv csvPath.Value header (csvRows |> List.rev)
+
+// ---------------------------------------------------------------------------
+// Usage hints
+// ---------------------------------------------------------------------------
+if not quiet && argv.Length = 0 then
+    pr ""
+    pr "Usage hints:"
+    pr "  dotnet fsi MagicStateDistillation.fsx -- --example 3"
+    pr "  dotnet fsi MagicStateDistillation.fsx -- --error-rate 0.08"
+    pr "  dotnet fsi MagicStateDistillation.fsx -- --quiet --output r.json --csv r.csv"
+    pr "  dotnet fsi MagicStateDistillation.fsx -- --help"

@@ -1,269 +1,284 @@
-// ============================================================================
-// Backend Comparison - Ising vs Fibonacci Anyons
-// ============================================================================
-//
-// This example compares different topological backend configurations:
-// 1. Ising anyons (Microsoft Majorana - experimentally realizable)
-// 2. Fibonacci anyons (theoretical gold standard - universal braiding)
-//
-// Key Differences:
-// - Ising: Clifford-only (needs magic states for universality)
-// - Fibonacci: Universal (braiding alone is universal for QC)
-// - Ising: Simpler fusion rules (easier to implement in hardware)
-// - Fibonacci: More complex but more powerful
-//
-// ============================================================================
+(*
+    Backend Comparison -- Ising vs Fibonacci Anyons
+    =================================================
 
-#r "../../src/FSharp.Azure.Quantum.Topological/bin/Debug/net10.0/FSharp.Azure.Quantum.Topological.dll"
+    Compares topological backend configurations: capabilities,
+    fusion rules, performance, fusion statistics, and validation.
+
+    Examples:
+      1  Backend capabilities (Ising & Fibonacci)
+      2  Fusion rule summary
+      3  Performance comparison (initialize + braid)
+      4  Computational power table
+      5  Fusion measurement statistics
+      6  Capability validation
+
+    Run with: dotnet fsi BackendComparison.fsx
+              dotnet fsi BackendComparison.fsx -- --example 5 --trials 500
+              dotnet fsi BackendComparison.fsx -- --quiet --output r.json --csv r.csv
+*)
+
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
+#r "../../src/FSharp.Azure.Quantum.Topological/bin/Debug/net10.0/FSharp.Azure.Quantum.Topological.dll"
+#load "../_common/Cli.fs"
+#load "../_common/Data.fs"
+#load "../_common/Reporting.fs"
 
-open FSharp.Azure.Quantum.Topological
+open System
 open System.Diagnostics
+open FSharp.Azure.Quantum.Topological
+open FSharp.Azure.Quantum.Core.BackendAbstraction
+open FSharp.Azure.Quantum.Examples.Common
 
-// ============================================================================
-// Backend Configuration Comparison
-// ============================================================================
+// ---------------------------------------------------------------------------
+// CLI
+// ---------------------------------------------------------------------------
+let argv = fsi.CommandLineArgs |> Array.skip 1
+let args = Cli.parse argv
 
-printfn "=== Topological Backend Comparison ==="
-printfn ""
+Cli.exitIfHelp "BackendComparison.fsx" "Compare Ising vs Fibonacci topological backends"
+    [ { Name = "example"; Description = "Which example: 1-6|all"; Default = Some "all" }
+      { Name = "trials";  Description = "Fusion statistics trials"; Default = Some "1000" }
+      { Name = "output";  Description = "Write results to JSON file"; Default = None }
+      { Name = "csv";     Description = "Write results to CSV file";  Default = None }
+      { Name = "quiet";   Description = "Suppress console output";    Default = None } ] args
 
-// Create both backend types
-// ITopologicalBackend for low-level access (Capabilities, Initialize, MeasureFusion)
-let isingBackend = TopologicalBackend.createSimulator AnyonSpecies.AnyonType.Ising 10
-let fibonacciBackend = TopologicalBackend.createSimulator AnyonSpecies.AnyonType.Fibonacci 10
+let quiet      = Cli.hasFlag "quiet" args
+let outputPath = Cli.tryGet "output" args
+let csvPath    = Cli.tryGet "csv" args
+let exChoice   = Cli.getOr "example" "all" args
+let numTrials  = Cli.getIntOr "trials" 1000 args
 
-// IQuantumBackend for the topological builder
-let isingUnifiedBackend = TopologicalUnifiedBackendFactory.createIsing 20
-let fibonacciUnifiedBackend = TopologicalUnifiedBackendFactory.createFibonacci 20
+let pr fmt = Printf.ksprintf (fun s -> if not quiet then printfn "%s" s) fmt
+let shouldRun ex = exChoice = "all" || exChoice = string ex
+let separator () = pr "%s" (String.replicate 60 "-")
 
-printfn "┌─────────────────────────────────────────────────────────────┐"
-printfn "│ Backend: Ising Anyons (Microsoft Majorana)                 │"
-printfn "├─────────────────────────────────────────────────────────────┤"
-printfn "│ Capabilities:                                               │"
+// ---------------------------------------------------------------------------
+// Backends (Rule 1 -- IQuantumBackend + legacy ITopologicalBackend)
+// ---------------------------------------------------------------------------
+let isingBackend    = TopologicalBackend.createSimulator AnyonSpecies.AnyonType.Ising 10
+let fibBackend      = TopologicalBackend.createSimulator AnyonSpecies.AnyonType.Fibonacci 10
+let quantumBackend  = TopologicalUnifiedBackendFactory.createIsing 20
+let fibUnified      = TopologicalUnifiedBackendFactory.createFibonacci 20
 
-let isingCaps = isingBackend.Capabilities
-printfn "│   Supported Anyons: %A" isingCaps.SupportedAnyonTypes
-printfn "│   Max Anyons: %A" isingCaps.MaxAnyons
-printfn "│   Braiding: %b" isingCaps.SupportsBraiding
-printfn "│   Measurement: %b" isingCaps.SupportsMeasurement
-printfn "│   F-Moves: %b" isingCaps.SupportsFMoves
-printfn "│   Error Correction: %b" isingCaps.SupportsErrorCorrection
-printfn "└─────────────────────────────────────────────────────────────┘"
-printfn ""
+// Results accumulators
+let mutable jsonResults : (string * obj) list = []
+let mutable csvRows     : string list list    = []
 
-printfn "┌─────────────────────────────────────────────────────────────┐"
-printfn "│ Backend: Fibonacci Anyons (Theoretical Universal)          │"
-printfn "├─────────────────────────────────────────────────────────────┤"
-printfn "│ Capabilities:                                               │"
+// ---------------------------------------------------------------------------
+// Example 1 -- Backend capabilities
+// ---------------------------------------------------------------------------
+if shouldRun 1 then
+    separator ()
+    pr "EXAMPLE 1: Backend Capabilities"
+    separator ()
 
-let fibCaps = fibonacciBackend.Capabilities
-printfn "│   Supported Anyons: %A" fibCaps.SupportedAnyonTypes
-printfn "│   Max Anyons: %A" fibCaps.MaxAnyons
-printfn "│   Braiding: %b" fibCaps.SupportsBraiding
-printfn "│   Measurement: %b" fibCaps.SupportsMeasurement
-printfn "│   F-Moves: %b" fibCaps.SupportsFMoves
-printfn "│   Error Correction: %b" fibCaps.SupportsErrorCorrection
-printfn "└─────────────────────────────────────────────────────────────┘"
-printfn ""
+    let showCaps label (b: TopologicalBackend.ITopologicalBackend) =
+        let c = b.Capabilities
+        pr "  %s:" label
+        pr "    Anyon types:      %A" c.SupportedAnyonTypes
+        pr "    Max anyons:       %A" c.MaxAnyons
+        pr "    Braiding:         %b" c.SupportsBraiding
+        pr "    Measurement:      %b" c.SupportsMeasurement
+        pr "    F-Moves:          %b" c.SupportsFMoves
+        pr "    Error correction: %b" c.SupportsErrorCorrection
 
-// ============================================================================
-// Fusion Rule Comparison
-// ============================================================================
+    showCaps "Ising (Microsoft Majorana)" isingBackend
+    pr ""
+    showCaps "Fibonacci (Theoretical Universal)" fibBackend
 
-printfn "=== Fusion Rules Comparison ==="
-printfn ""
+    jsonResults <- ("1_capabilities", box {| ising = "ok"; fibonacci = "ok" |}) :: jsonResults
+    csvRows <- [ "1_capabilities"; "ok"; "ok" ] :: csvRows
 
-printfn "Ising Anyons: {1, σ, ψ}"
-printfn "  σ × σ = 1 + ψ   (creates superposition)"
-printfn "  σ × ψ = σ       (fermion acts like Z gate)"
-printfn "  ψ × ψ = 1       (fermions annihilate)"
-printfn ""
+// ---------------------------------------------------------------------------
+// Example 2 -- Fusion rules
+// ---------------------------------------------------------------------------
+if shouldRun 2 then
+    separator ()
+    pr "EXAMPLE 2: Fusion Rules"
+    separator ()
 
-printfn "Fibonacci Anyons: {1, τ}"
-printfn "  τ × τ = 1 + τ   (creates superposition)"
-printfn "  (Simpler particle set but MORE powerful!)"
-printfn ""
+    pr "  Ising {1, sigma, psi}:"
+    pr "    sigma x sigma = 1 + psi  (superposition)"
+    pr "    sigma x psi   = sigma    (fermion ~ Z gate)"
+    pr "    psi   x psi   = 1        (annihilation)"
+    pr ""
+    pr "  Fibonacci {1, tau}:"
+    pr "    tau x tau = 1 + tau  (golden ratio superposition)"
+    pr "    (Simpler particles, MORE powerful!)"
 
-// ============================================================================
-// Performance Comparison: Same Operation on Both Backends
-// ============================================================================
+    jsonResults <- ("2_fusion_rules", box {| summary = "ok" |}) :: jsonResults
+    csvRows <- [ "2_fusion_rules"; "ok" ] :: csvRows
 
-printfn "=== Performance Comparison: Initialize + Braid ==="
-printfn ""
+// ---------------------------------------------------------------------------
+// Example 3 -- Performance comparison
+// ---------------------------------------------------------------------------
+if shouldRun 3 then
+    separator ()
+    pr "EXAMPLE 3: Performance Comparison (Init + 3 Braids)"
+    separator ()
 
-let measurePerformance (backend: FSharp.Azure.Quantum.Core.BackendAbstraction.IQuantumBackend) anyonType label = task {
-    let sw = Stopwatch.StartNew()
-    
-    let program = topological backend {
-        do! TopologicalBuilder.initialize anyonType 6
-        do! TopologicalBuilder.braid 0
-        do! TopologicalBuilder.braid 2
-        do! TopologicalBuilder.braid 4
+    let bench (qb: IQuantumBackend) anyonType label = task {
+        let sw = Stopwatch.StartNew()
+        let program = topological qb {
+            do! TopologicalBuilder.initialize anyonType 6
+            do! TopologicalBuilder.braid 0
+            do! TopologicalBuilder.braid 2
+            do! TopologicalBuilder.braid 4
+        }
+        let! result = TopologicalBuilder.execute qb program
+        sw.Stop()
+        match result with
+        | Ok () ->
+            pr "  %s: %.3f ms" label sw.Elapsed.TotalMilliseconds
+            return Ok sw.Elapsed.TotalMilliseconds
+        | Error err ->
+            pr "  %s: FAILED - %s" label err.Message
+            return Error err
     }
-    
-    let! result = TopologicalBuilder.execute backend program
-    
-    sw.Stop()
-    
-    match result with
-    | Ok () ->
-        printfn "✅ %s: %.3f ms" label sw.Elapsed.TotalMilliseconds
-        return Ok sw.Elapsed.TotalMilliseconds
-    | Error err ->
-        printfn "❌ %s: Failed - %s" label err.Message
-        return Error err
-}
 
-let isingTime = measurePerformance isingUnifiedBackend AnyonSpecies.AnyonType.Ising "Ising Backend  "
-                |> Async.AwaitTask |> Async.RunSynchronously
+    let iT = bench quantumBackend AnyonSpecies.AnyonType.Ising "Ising    "
+             |> Async.AwaitTask |> Async.RunSynchronously
+    let fT = bench fibUnified AnyonSpecies.AnyonType.Fibonacci "Fibonacci"
+             |> Async.AwaitTask |> Async.RunSynchronously
 
-let fibTime = measurePerformance fibonacciUnifiedBackend AnyonSpecies.AnyonType.Fibonacci "Fibonacci Backend"
-              |> Async.AwaitTask |> Async.RunSynchronously
+    match iT, fT with
+    | Ok t1, Ok t2 ->
+        if t1 < t2 then pr "  Ising %.2fx faster" (t2 / t1)
+        else pr "  Fibonacci %.2fx faster" (t1 / t2)
 
-printfn ""
+        jsonResults <- ("3_performance", box {| ising_ms = t1; fib_ms = t2 |}) :: jsonResults
+        csvRows <- [ "3_performance"; sprintf "%.3f" t1; sprintf "%.3f" t2 ] :: csvRows
+    | _ ->
+        pr "  Comparison incomplete"
 
-match (isingTime, fibTime) with
-| (Ok t1, Ok t2) ->
-    if t1 < t2 then
-        printfn "Ising backend is %.2fx faster" (t2 / t1)
-    else
-        printfn "Fibonacci backend is %.2fx faster" (t1 / t2)
-| _ ->
-    printfn "Performance comparison incomplete"
+// ---------------------------------------------------------------------------
+// Example 4 -- Computational power table
+// ---------------------------------------------------------------------------
+if shouldRun 4 then
+    separator ()
+    pr "EXAMPLE 4: Computational Power"
+    separator ()
 
-printfn ""
+    pr "  %-18s %-17s %-20s" "Capability" "Ising" "Fibonacci"
+    pr "  %s" (String.replicate 56 "-")
+    pr "  %-18s %-17s %-20s" "Clifford Gates"   "Yes"           "Yes"
+    pr "  %-18s %-17s %-20s" "T Gate"            "Magic States"  "Braiding Only"
+    pr "  %-18s %-17s %-20s" "Universal QC"      "Hybrid"        "Pure Braiding"
+    pr "  %-18s %-17s %-20s" "Hardware Status"   "Experimental"  "Theoretical"
+    pr "  %-18s %-17s %-20s" "Fusion Outcomes"   "3 particles"   "2 particles"
 
-// ============================================================================
-// Computational Power Comparison
-// ============================================================================
+    jsonResults <- ("4_power", box {| summary = "ok" |}) :: jsonResults
+    csvRows <- [ "4_power"; "ok" ] :: csvRows
 
-printfn "=== Computational Power ==="
-printfn ""
+// ---------------------------------------------------------------------------
+// Example 5 -- Fusion statistics
+// ---------------------------------------------------------------------------
+if shouldRun 5 then
+    separator ()
+    pr "EXAMPLE 5: Fusion Measurement Statistics (%d trials)" numTrials
+    separator ()
 
-printfn "┌──────────────────┬─────────────────┬──────────────────────┐"
-printfn "│ Capability       │ Ising Anyons    │ Fibonacci Anyons     │"
-printfn "├──────────────────┼─────────────────┼──────────────────────┤"
-printfn "│ Clifford Gates   │ ✅ Yes          │ ✅ Yes               │"
-printfn "│ T Gate           │ ❌ Magic States │ ✅ Braiding Only     │"
-printfn "│ Universal QC     │ ⚠️  Hybrid      │ ✅ Pure Braiding     │"
-printfn "│ Hardware Status  │ ✅ Experimental │ ❌ Theoretical       │"
-printfn "│ Fusion Outcomes  │ 3 particles     │ 2 particles          │"
-printfn "│ Complexity       │ Lower           │ Higher               │"
-printfn "└──────────────────┴─────────────────┴──────────────────────┘"
-printfn ""
-
-// ============================================================================
-// Fusion Measurement Statistics
-// ============================================================================
-
-printfn "=== Fusion Measurement Statistics ==="
-printfn ""
-
-let runFusionStatistics (backend: TopologicalBackend.ITopologicalBackend) anyonType label numTrials = task {
-    let outcomes = System.Collections.Generic.Dictionary<AnyonSpecies.Particle, int>()
-    
-    for i in 1..numTrials do
-        let! initResult = backend.Initialize anyonType 2
-        
-        match initResult with
-        | Ok state ->
-            let! measureResult = backend.MeasureFusion 0 state
-            
-            match measureResult with
-            | Ok (outcome, _, _) ->
-                if outcomes.ContainsKey(outcome) then
-                    outcomes.[outcome] <- outcomes.[outcome] + 1
-                else
-                    outcomes.[outcome] <- 1
+    let runStats (lb: TopologicalBackend.ITopologicalBackend) anyonType label = task {
+        let outcomes = System.Collections.Generic.Dictionary<AnyonSpecies.Particle, int>()
+        for _ in 1 .. numTrials do
+            let! initR = lb.Initialize anyonType 2
+            match initR with
+            | Ok st ->
+                let! measR = lb.MeasureFusion 0 st
+                match measR with
+                | Ok (outcome, _, _) ->
+                    if outcomes.ContainsKey(outcome) then outcomes.[outcome] <- outcomes.[outcome] + 1
+                    else outcomes.[outcome] <- 1
+                | Error _ -> ()
             | Error _ -> ()
-        | Error _ -> ()
-    
-    printfn "%s (2 anyons, %d trials):" label numTrials
-    for kvp in outcomes do
-        let percentage = (float kvp.Value / float numTrials) * 100.0
-        printfn "  %A: %d times (%.1f%%)" kvp.Key kvp.Value percentage
-    printfn ""
-}
 
-runFusionStatistics isingBackend AnyonSpecies.AnyonType.Ising "Ising σ × σ" 1000
-|> Async.AwaitTask |> Async.RunSynchronously
+        pr "  %s (%d trials):" label numTrials
+        let mutable resultPairs : (string * float) list = []
+        for kvp in outcomes do
+            let pct = (float kvp.Value / float numTrials) * 100.0
+            pr "    %A: %d (%.1f%%)" kvp.Key kvp.Value pct
+            resultPairs <- (sprintf "%A" kvp.Key, pct) :: resultPairs
+        return resultPairs
+    }
 
-runFusionStatistics fibonacciBackend AnyonSpecies.AnyonType.Fibonacci "Fibonacci τ × τ" 1000
-|> Async.AwaitTask |> Async.RunSynchronously
+    let isingStats = runStats isingBackend AnyonSpecies.AnyonType.Ising "Ising sigma x sigma"
+                     |> Async.AwaitTask |> Async.RunSynchronously
+    let fibStats   = runStats fibBackend AnyonSpecies.AnyonType.Fibonacci "Fibonacci tau x tau"
+                     |> Async.AwaitTask |> Async.RunSynchronously
 
-// ============================================================================
-// Which Backend to Use?
-// ============================================================================
+    jsonResults <- ("5_fusion_stats", box {| trials = numTrials; ising = isingStats; fibonacci = fibStats |}) :: jsonResults
+    csvRows <- [ "5_fusion_stats"; string numTrials ] :: csvRows
 
-printfn "=== Which Backend Should You Use? ==="
-printfn ""
+// ---------------------------------------------------------------------------
+// Example 6 -- Capability validation
+// ---------------------------------------------------------------------------
+if shouldRun 6 then
+    separator ()
+    pr "EXAMPLE 6: Capability Validation"
+    separator ()
 
-printfn "Choose ISING ANYONS if:"
-printfn "  ✅ You want to match Microsoft's hardware roadmap"
-printfn "  ✅ You're simulating Majorana-based topological computers"
-printfn "  ✅ You need realistic hardware emulation"
-printfn "  ✅ You're implementing Clifford circuits (H, S, CNOT, CZ)"
-printfn "  ⚠️  Note: Requires magic state distillation for T gates"
-printfn ""
+    let validate (lb: TopologicalBackend.ITopologicalBackend) reqs label =
+        match TopologicalBackend.validateCapabilities lb reqs with
+        | Ok () -> pr "  %s: PASS" label; "PASS"
+        | Error err -> pr "  %s: FAIL - %s" label err.Message; "FAIL"
 
-printfn "Choose FIBONACCI ANYONS if:"
-printfn "  ✅ You want theoretical exploration of universal braiding"
-printfn "  ✅ You're researching topological quantum computation theory"
-printfn "  ✅ You need pure braiding universality (no magic states)"
-printfn "  ⚠️  Note: Not yet realized in physical systems"
-printfn ""
+    let isingReqs = {
+        TopologicalBackend.SupportedAnyonTypes = [ AnyonSpecies.AnyonType.Ising ]
+        TopologicalBackend.MaxAnyons = Some 4
+        TopologicalBackend.SupportsBraiding = true
+        TopologicalBackend.SupportsMeasurement = true
+        TopologicalBackend.SupportsFMoves = false
+        TopologicalBackend.SupportsErrorCorrection = false
+    }
+    let r1 = validate isingBackend isingReqs "Ising meets Ising reqs"
 
-// ============================================================================
-// Example: Validation Test
-// ============================================================================
+    let wrongReqs = {
+        TopologicalBackend.SupportedAnyonTypes = [ AnyonSpecies.AnyonType.Fibonacci ]
+        TopologicalBackend.MaxAnyons = None
+        TopologicalBackend.SupportsBraiding = true
+        TopologicalBackend.SupportsMeasurement = true
+        TopologicalBackend.SupportsFMoves = false
+        TopologicalBackend.SupportsErrorCorrection = false
+    }
+    let r2 = validate isingBackend wrongReqs "Ising meets Fibonacci reqs (expect fail)"
 
-printfn "=== Validation: Capability Check ==="
-printfn ""
+    jsonResults <- ("6_validation", box {| correct = r1; wrong = r2 |}) :: jsonResults
+    csvRows <- [ "6_validation"; r1; r2 ] :: csvRows
 
-let validateBackend (backend: TopologicalBackend.ITopologicalBackend) requirements =
-    let result = TopologicalBackend.validateCapabilities backend requirements
-    
-    match result with
-    | Ok () ->
-        printfn "✅ Backend meets all requirements"
-    | Error err ->
-        printfn "❌ Backend validation failed: %s" err.Message
+// ---------------------------------------------------------------------------
+// Recommendations
+// ---------------------------------------------------------------------------
+if not quiet then
+    separator ()
+    pr "Recommendations:"
+    pr "  Ising:     Microsoft Majorana roadmap, Clifford circuits"
+    pr "  Fibonacci: Theoretical exploration, universal braiding"
+    separator ()
 
-// Require Ising anyons with braiding support
-let isingRequirements = {
-    TopologicalBackend.SupportedAnyonTypes = [AnyonSpecies.AnyonType.Ising]
-    TopologicalBackend.MaxAnyons = Some 4
-    TopologicalBackend.SupportsBraiding = true
-    TopologicalBackend.SupportsMeasurement = true
-    TopologicalBackend.SupportsFMoves = false
-    TopologicalBackend.SupportsErrorCorrection = false
-}
+// ---------------------------------------------------------------------------
+// Output
+// ---------------------------------------------------------------------------
+if outputPath.IsSome then
+    let payload =
+        {| script    = "BackendComparison.fsx"
+           backend   = quantumBackend.Name
+           timestamp = DateTime.UtcNow.ToString("o")
+           example   = exChoice
+           trials    = numTrials
+           results   = jsonResults |> List.rev |> List.map (fun (k,v) -> {| key = k; value = v |}) |}
+    Reporting.writeJson outputPath.Value payload
 
-printfn "Testing Ising backend against requirements:"
-validateBackend isingBackend isingRequirements
+if csvPath.IsSome then
+    let header = [ "example"; "detail1"; "detail2" ]
+    Reporting.writeCsv csvPath.Value header (csvRows |> List.rev)
 
-printfn ""
-
-// Try to use Ising backend for Fibonacci (should fail)
-let wrongRequirements = {
-    TopologicalBackend.SupportedAnyonTypes = [AnyonSpecies.AnyonType.Fibonacci]
-    TopologicalBackend.MaxAnyons = None
-    TopologicalBackend.SupportsBraiding = true
-    TopologicalBackend.SupportsMeasurement = true
-    TopologicalBackend.SupportsFMoves = false
-    TopologicalBackend.SupportsErrorCorrection = false
-}
-
-printfn "Testing Ising backend with Fibonacci requirements (should fail):"
-validateBackend isingBackend wrongRequirements
-
-printfn ""
-
-printfn "=== Backend Comparison Complete ==="
-printfn ""
-printfn "Key Takeaways:"
-printfn "1. Ising anyons match Microsoft's Majorana hardware"
-printfn "2. Fibonacci anyons are theoretically more powerful"
-printfn "3. Both backends support core topological operations"
-printfn "4. Performance characteristics are similar for basic operations"
-printfn "5. Choose based on use case (hardware emulation vs theory)"
+// ---------------------------------------------------------------------------
+// Usage hints
+// ---------------------------------------------------------------------------
+if not quiet && argv.Length = 0 then
+    pr ""
+    pr "Usage hints:"
+    pr "  dotnet fsi BackendComparison.fsx -- --example 5 --trials 500"
+    pr "  dotnet fsi BackendComparison.fsx -- --quiet --output r.json --csv r.csv"
+    pr "  dotnet fsi BackendComparison.fsx -- --help"

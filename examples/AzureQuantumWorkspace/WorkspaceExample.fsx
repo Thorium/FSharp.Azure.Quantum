@@ -1,380 +1,255 @@
-// Azure Quantum Workspace Example
-// Demonstrates SDK-powered workspace management
+#!/usr/bin/env dotnet fsi
+// ============================================================================
+// Azure Quantum Workspace Management
+// ============================================================================
+//
+// Demonstrates SDK-powered workspace management for Azure Quantum:
+// creating connections, checking quota, listing providers, environment
+// config, and backend comparison (Local vs HTTP vs SDK).
+//
+// Most examples print code patterns since Azure credentials are required
+// for real execution. The workspace creation and environment config check
+// run without credentials.
+//
+// Examples: create, env-config, backends, all.
+// Extensible starting point for Azure Quantum workspace integration.
+//
+// ============================================================================
 
 //#r "nuget: FSharp.Azure.Quantum"
 #r "nuget: Microsoft.Azure.Quantum.Client"
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
-
+#load "../_common/Cli.fs"
+#load "../_common/Data.fs"
+#load "../_common/Reporting.fs"
 
 open System
 open FSharp.Azure.Quantum.Backends.AzureQuantumWorkspace
-
-printfn "========================================="
-printfn "Azure Quantum Workspace Example"
-printfn "=========================================\n"
-
-// ============================================================================
-// Example 1: Create Workspace Connection
-// ============================================================================
-
-printfn "Example 1: Create Workspace\n"
-
-// Create workspace with your Azure Quantum credentials
-// Note: Workspace implements IDisposable for proper resource cleanup
-use workspace = 
-    createDefault
-        "your-subscription-id"          // Azure subscription ID
-        "your-resource-group"            // Resource group name
-        "your-workspace-name"            // Workspace name
-        "eastus"                         // Azure region
-
-printfn "✅ Workspace created: %s" workspace.Config.WorkspaceName
-printfn "   Location: %s" workspace.Config.Location
-printfn "   (Using 'use' keyword for automatic disposal)"
-printfn ""
-
-// ============================================================================
-// Example 2: Check Quota (Requires Real Azure Quantum Workspace)
-// ============================================================================
-
-printfn "Example 2: Check Quota (requires valid credentials)\n"
-
-// Uncomment to test with real workspace:
-(*
-async {
-    try
-        let! quota = workspace.GetTotalQuotaAsync()
-        
-        printfn "Quota Status:"
-        match quota.Limit with
-        | Some limit -> printfn "  Total Limit: %.2f credits" limit
-        | None -> printfn "  Total Limit: Unlimited"
-        
-        match quota.Used with
-        | Some used -> printfn "  Used: %.2f credits" used
-        | None -> printfn "  Used: 0.00 credits"
-        
-        match quota.Remaining with
-        | Some remaining -> 
-            printfn "  Remaining: %.2f credits" remaining
-            if remaining < 100.0 then
-                printfn "  ⚠️  WARNING: Low quota remaining!"
-        | None -> printfn "  Remaining: Unlimited"
-        
-    with ex ->
-        printfn "❌ Could not fetch quota: %s" ex.Message
-        printfn "   (This is expected without valid Azure Quantum credentials)"
-} |> Async.RunSynchronously
-*)
-
-printfn "💡 To test quota checking:"
-printfn "   1. Set up Azure Quantum workspace at https://portal.azure.com"
-printfn "   2. Update credentials in this script"
-printfn "   3. Uncomment the async block above"
-printfn ""
-
-// ============================================================================
-// Example 3: List Providers (Requires Real Workspace)
-// ============================================================================
-
-printfn "Example 3: List Quantum Providers\n"
-
-// Uncomment to test with real workspace:
-(*
-async {
-    try
-        let! providers = workspace.ListProvidersAsync()
-        
-        printfn "Available Quantum Providers:"
-        for provider in providers do
-            printfn ""
-            printfn "  Provider: %s" provider.ProviderId
-            match provider.CurrentAvailability with
-            | Some status -> printfn "    Status: %s" status
-            | None -> printfn "    Status: Unknown"
-            printfn "    Targets: %d" provider.TargetCount
-            
-    with ex ->
-        printfn "❌ Could not fetch providers: %s" ex.Message
-} |> Async.RunSynchronously
-*)
-
-printfn "💡 Typical providers include:"
-printfn "   - ionq (Trapped ion quantum computers)"
-printfn "   - rigetti (Superconducting quantum processors)"
-printfn "   - quantinuum (Trapped ion systems)"
-printfn ""
-
-// ============================================================================
-// Example 4: Environment-Based Configuration (Production Pattern)
-// ============================================================================
-
-printfn "Example 4: Environment Configuration\n"
-
-printfn "For production, use environment variables:"
-printfn "  export AZURE_QUANTUM_SUBSCRIPTION_ID=\"...\""
-printfn "  export AZURE_QUANTUM_RESOURCE_GROUP=\"...\""
-printfn "  export AZURE_QUANTUM_WORKSPACE_NAME=\"...\""
-printfn "  export AZURE_QUANTUM_LOCATION=\"eastus\""
-printfn ""
-
-match createFromEnvironment() with
-| Ok ws ->
-    printfn "✅ Workspace loaded from environment"
-    printfn "   Workspace: %s" ws.Config.WorkspaceName
-| Error err ->
-    printfn "⚠️  Environment variables not set"
-    printfn "   %s" err.Message
-
-printfn ""
-printfn "========================================="
-printfn "Example 5: Hybrid Workspace + HTTP Pattern (RECOMMENDED)"
-printfn "=========================================\n"
-
-printfn "Best practice: Use workspace for quota/discovery, HTTP backends for execution\n"
-
-// Create a backend using the workspace
 open FSharp.Azure.Quantum.Core.BackendAbstraction
+open FSharp.Azure.Quantum.Backends.LocalBackend
+open FSharp.Azure.Quantum.Examples.Common
 
-printfn "Step 1: Check quota before execution"
-printfn ""
+// --- Quantum Backend (Rule 1) ---
+// LocalBackend for local development; workspace creates cloud backends
+let quantumBackend = LocalBackend() :> IQuantumBackend
 
-// Uncomment to test with real workspace:
-(*
-async {
-    try
-        let! quota = workspace.GetTotalQuotaAsync()
-        
-        match quota.Remaining with
-        | Some remaining when remaining < 10.0 ->
-            printfn "⚠️  Low quota (%.2f credits) - stopping execution" remaining
-            return None
-        | Some remaining ->
-            printfn "✅ Sufficient quota (%.2f credits remaining)" remaining
-            return Some remaining
-        | None ->
-            printfn "✅ Unlimited quota"
-            return Some System.Double.MaxValue
-    with ex ->
-        printfn "❌ Could not check quota: %s" ex.Message
-        return None
-} |> Async.RunSynchronously
-*)
+// --- CLI ---
+let argv = fsi.CommandLineArgs |> Array.skip 1
+let args = Cli.parse argv
 
-printfn ""
-printfn "Step 2: Create HTTP backend for proven execution"
-printfn ""
+Cli.exitIfHelp
+    "WorkspaceExample.fsx"
+    "Azure Quantum workspace management: create, env config, backend comparison"
+    [ { Name = "example"; Description = "Which example (all|create|env-config|backends)"; Default = Some "all" }
+      { Name = "subscription"; Description = "Azure subscription ID"; Default = Some "your-subscription-id" }
+      { Name = "resource-group"; Description = "Azure resource group"; Default = Some "your-resource-group" }
+      { Name = "workspace-name"; Description = "Azure Quantum workspace name"; Default = Some "your-workspace-name" }
+      { Name = "location"; Description = "Azure region"; Default = Some "eastus" }
+      { Name = "output"; Description = "Write results to JSON file"; Default = None }
+      { Name = "csv"; Description = "Write results to CSV file"; Default = None }
+      { Name = "quiet"; Description = "Suppress console output"; Default = None } ]
+    args
 
-printfn "Code example:"
-printfn ""
-printfn "   open System.Net.Http"
-printfn "   use httpClient = new HttpClient()"
-printfn ""
-printfn "   let backend = createIonQBackend"
-printfn "       httpClient"
-printfn "       \"https://your-workspace.quantum.azure.com\""
-printfn "       \"ionq.simulator\""
-printfn ""
-printfn "   // Convert circuit to provider format"
-printfn "   let circuit = quantumCircuit { H 0; CNOT 0 1 }"
-printfn "   let wrapper = CircuitWrapper(circuit) :> ICircuit"
-printfn ""
-printfn "   match convertCircuitToProviderFormat wrapper \"ionq.simulator\" with"
-printfn "   | Ok json -> "
-printfn "       // Execute on backend"
-printfn "       match backend.Execute wrapper 1000 with"
-printfn "       | Ok result -> printfn \"Success!\""
-printfn "       | Error msg -> printfn \"Error: %s\" msg"
-printfn "   | Error msg -> "
-printfn "       printfn \"Circuit conversion failed: %s\" msg"
-printfn ""
+let quiet = Cli.hasFlag "quiet" args
+let outputPath = Cli.tryGet "output" args
+let csvPath = Cli.tryGet "csv" args
+let exampleArg = Cli.getOr "example" "all" args
+let subscription = Cli.getOr "subscription" "your-subscription-id" args
+let resourceGroup = Cli.getOr "resource-group" "your-resource-group" args
+let workspaceName = Cli.getOr "workspace-name" "your-workspace-name" args
+let location = Cli.getOr "location" "eastus" args
 
-printfn "Benefits of this hybrid approach:"
-printfn "  ✅ Workspace quota checking and provider discovery"
-printfn "  ✅ Circuit format conversion helpers (Phase 2)"
-printfn "  ✅ Proven HTTP backends for job execution"
-printfn "  ✅ Full job submission, polling, and result parsing"
-printfn "  ✅ Production-ready NOW (no SDK API exploration needed)"
-printfn ""
+let pr fmt = Printf.ksprintf (fun s -> if not quiet then printfn "%s" s) fmt
+let shouldRun key = exampleArg = "all" || exampleArg = key
 
-printfn "========================================="
-printfn "Example 6: Circuit Conversion Helpers (Phase 2)"
-printfn "=========================================\n"
+// --- Result Tracking ---
 
-printfn "Convert circuits to provider-specific formats:\n"
+type ExampleResult =
+    { Name: string
+      Label: string
+      Status: string
+      Detail: string }
 
-printfn "Code example:"
-printfn ""
-printfn "   // Your circuit"
-printfn "   let circuit = quantumCircuit {"
-printfn "       H 0"
-printfn "       CNOT 0 1"
-printfn "       RX (0, Math.PI / 4.0)"
-printfn "   }"
-printfn ""
-printfn "   let wrapper = CircuitWrapper(circuit) :> ICircuit"
-printfn ""
-printfn "   // Convert to IonQ JSON format"
-printfn "   match convertCircuitToProviderFormat wrapper \"ionq.simulator\" with"
-printfn "   | Ok ionqJson ->"
-printfn "       printfn \"IonQ JSON: %s\" ionqJson"
-printfn "   | Error msg ->"
-printfn "       printfn \"Error: %s\" msg"
-printfn ""
-printfn "   // Convert to Rigetti Quil format"
-printfn "   match convertCircuitToProviderFormat wrapper \"rigetti.sim.qvm\" with"
-printfn "   | Ok quilProgram ->"
-printfn "       printfn \"Rigetti Quil: %s\" quilProgram"
-printfn "   | Error msg ->"
-printfn "       printfn \"Error: %s\" msg"
-printfn ""
+let mutable jsonResults : ExampleResult list = []
+let mutable csvRows : string list list = []
 
-printfn "Features:"
-printfn "  ✅ Automatic provider detection from target ID"
-printfn "  ✅ Gate transpilation for backend compatibility"
-printfn "  ✅ Support for CircuitWrapper and QaoaCircuitWrapper"
-printfn "  ✅ IonQ and Rigetti providers (Quantinuum coming soon)"
-printfn ""
+let record (r: ExampleResult) =
+    jsonResults <- jsonResults @ [ r ]
+    csvRows <- csvRows @ [ [ r.Name; r.Label; r.Status; r.Detail ] ]
 
-printfn "========================================="
-printfn "Example 7: SDK Backend - Full Integration (NEW!)"
-printfn "=========================================\n"
+// ============================================================================
+// EXAMPLE 1: Create Workspace Connection
+// ============================================================================
 
-printfn "Use SDK backend for complete Azure Quantum integration:\n"
+if shouldRun "create" then
+    pr "=== Example 1: Create Workspace Connection ==="
+    pr ""
 
-printfn "Code example:"
-printfn ""
-printfn "   // Step 1: Create workspace"
-printfn "   use workspace = createDefault \"sub-id\" \"rg\" \"ws-name\" \"eastus\""
-printfn ""
-printfn "   // Step 2: Create SDK backend"
-printfn "   open FSharp.Azure.Quantum.Core.BackendAbstraction"
-printfn "   let backend = createFromWorkspace workspace \"ionq.simulator\""
-printfn ""
-printfn "   // Step 3: Build a circuit"
-printfn "   open FSharp.Azure.Quantum.Core.Circuits"
-printfn "   let circuit = quantumCircuit {"
-printfn "       H 0"
-printfn "       CNOT 0 1"
-printfn "       MEASURE_ALL"
-printfn "   }"
-printfn ""
-printfn "   let wrapper = CircuitWrapper(circuit) :> ICircuit"
-printfn ""
-printfn "   // Step 4: Execute on Azure Quantum"
-printfn "   match backend.Execute wrapper 1000 with"
-printfn "   | Ok result ->"
-printfn "       printfn \"✅ Job completed!\""
-printfn "       printfn \"   Backend: %s\" result.BackendName"
-printfn "       printfn \"   Shots: %d\" result.NumShots"
-printfn "       printfn \"   Job ID: %s\" (result.Metadata.[\"job_id\"] :?> string)"
-printfn "       // Analyze measurements"
-printfn "       let counts = result.Measurements |> Array.countBy id"
-printfn "       counts |> Array.iter (fun (bitstring, count) ->"
-printfn "           printfn \"   %A: %d times\" bitstring count)"
-printfn "   | Error msg ->"
-printfn "       printfn \"❌ Execution failed: %s\" msg"
-printfn ""
+    let workspace =
+        createDefault subscription resourceGroup workspaceName location
 
-printfn "SDK Backend Features:"
-printfn "  ✅ Full job lifecycle: submit → poll → retrieve results"
-printfn "  ✅ Automatic circuit format conversion (IonQ/Rigetti)"
-printfn "  ✅ Exponential backoff polling (1s → 30s max)"
-printfn "  ✅ Rich metadata: job_id, provider, target, status"
-printfn "  ✅ Histogram parsing and measurement extraction"
-printfn "  ✅ IDisposable workspace for proper resource cleanup"
-printfn ""
+    pr "  [OK] Workspace created: %s" workspace.Config.WorkspaceName
+    pr "  Location: %s" workspace.Config.Location
+    pr ""
 
-printfn "========================================="
-printfn "Example 8: Backend Comparison - HTTP vs SDK"
-printfn "=========================================\n"
+    pr "  Quota checking (requires valid Azure credentials):"
+    pr "    let! quota = workspace.GetTotalQuotaAsync()"
+    pr "    match quota.Remaining with"
+    pr "    | Some remaining -> printfn \"Credits: %%.2f\" remaining"
+    pr "    | None -> printfn \"Unlimited\""
+    pr ""
 
-printfn "Three backend options available:\n"
+    pr "  Provider listing (requires valid Azure credentials):"
+    pr "    let! providers = workspace.ListProvidersAsync()"
+    pr "    providers |> Seq.iter (fun p -> printfn \"%%s\" p.ProviderId)"
+    pr ""
+    pr "  Typical providers: ionq, rigetti, quantinuum"
+    pr ""
 
-printfn "1️⃣  Local Simulator Backend"
-printfn "   let backend = createLocalBackend()"
-printfn "   • ✅ Fast (milliseconds)"
-printfn "   • ✅ No Azure account needed"
-printfn "   • ⚠️  Limited to 20 qubits"
-printfn "   • ⚠️  No real quantum hardware"
-printfn ""
+    record
+        { Name = "create"; Label = "Workspace Connection"
+          Status = "OK"
+          Detail = sprintf "%s @ %s" workspace.Config.WorkspaceName workspace.Config.Location }
 
-printfn "2️⃣  HTTP Backend (Recommended for production)"
-printfn "   use httpClient = new HttpClient()"
-printfn "   let backend = createIonQBackend httpClient workspaceUrl \"ionq.simulator\""
-printfn "   • ✅ Production-proven (used by existing algorithms)"
-printfn "   • ✅ Direct REST API control"
-printfn "   • ✅ Lower-level error handling"
-printfn "   • ⚠️  Manual job lifecycle management"
-printfn ""
+// ============================================================================
+// EXAMPLE 2: Environment-Based Configuration
+// ============================================================================
 
-printfn "3️⃣  SDK Backend (NEW - Full Integration)"
-printfn "   use workspace = createDefault \"sub\" \"rg\" \"ws\" \"eastus\""
-printfn "   let backend = createFromWorkspace workspace \"ionq.simulator\""
-printfn "   • ✅ Full Azure Quantum integration"
-printfn "   • ✅ Quota checking and provider discovery"
-printfn "   • ✅ Automatic job polling with backoff"
-printfn "   • ✅ IDisposable resource management"
-printfn "   • ⚠️  Requires Microsoft.Azure.Quantum.Client SDK"
-printfn ""
+if shouldRun "env-config" then
+    pr "=== Example 2: Environment Configuration ==="
+    pr ""
 
-printfn "When to use each:"
-printfn "  • Local: Development, testing, small circuits (<20 qubits)"
-printfn "  • HTTP: Production workloads, proven stability, manual control"
-printfn "  • SDK: Full workspace features, quota management, easier setup"
-printfn ""
+    pr "  Required environment variables:"
+    pr "    AZURE_QUANTUM_SUBSCRIPTION_ID"
+    pr "    AZURE_QUANTUM_RESOURCE_GROUP"
+    pr "    AZURE_QUANTUM_WORKSPACE_NAME"
+    pr "    AZURE_QUANTUM_LOCATION"
+    pr ""
 
-printfn "========================================="
-printfn "Example 9: SDK Backend with Quota Check"
-printfn "=========================================\n"
+    match createFromEnvironment() with
+    | Ok ws ->
+        pr "  [OK] Workspace loaded from environment: %s" ws.Config.WorkspaceName
 
-printfn "Check quota before execution to avoid surprise costs:\n"
+        record
+            { Name = "env-config"; Label = "Environment Config"
+              Status = "OK"
+              Detail = ws.Config.WorkspaceName }
+    | Error err ->
+        pr "  [WARN] Environment variables not set: %s" err.Message
+        pr "  (This is expected without Azure Quantum credentials)"
 
-printfn "Code example:"
-printfn ""
-printfn "   async {"
-printfn "       // Check quota first"
-printfn "       let! quota = workspace.GetTotalQuotaAsync()"
-printfn "       "
-printfn "       match quota.Remaining with"
-printfn "       | Some remaining when remaining < 10.0 ->"
-printfn "           printfn \"⚠️  Low quota: %.2f credits\" remaining"
-printfn "           printfn \"Stopping execution\""
-printfn "       | Some remaining ->"
-printfn "           printfn \"✅ Quota available: %.2f credits\" remaining"
-printfn "           "
-printfn "           // Create backend and execute"
-printfn "           let backend = createFromWorkspace workspace \"ionq.simulator\""
-printfn "           match backend.Execute circuit 1000 with"
-printfn "           | Ok result -> printfn \"Success!\""
-printfn "           | Error msg -> printfn \"Error: %s\" msg"
-printfn "       | None ->"
-printfn "           printfn \"✅ Unlimited quota\""
-printfn "           let backend = createFromWorkspace workspace \"ionq.simulator\""
-printfn "           // Execute..."
-printfn "   } |> Async.RunSynchronously"
-printfn ""
+        record
+            { Name = "env-config"; Label = "Environment Config"
+              Status = "NOT_SET"
+              Detail = err.Message }
+    pr ""
 
-printfn "Best Practice Pattern:"
-printfn "  1. Check quota before execution"
-printfn "  2. Estimate cost (shots × circuit_complexity)"
-printfn "  3. Execute only if sufficient quota"
-printfn "  4. Monitor remaining quota after execution"
-printfn ""
+// ============================================================================
+// EXAMPLE 3: Backend Comparison & Patterns
+// ============================================================================
 
-printfn "========================================="
-printfn "Next Steps"
-printfn "=========================================\n"
-printfn "1. Set up Azure Quantum workspace:"
-printfn "   https://docs.microsoft.com/azure/quantum/"
-printfn ""
-printfn "2. Get your credentials from Azure Portal"
-printfn ""
-printfn "3. Choose your backend approach:"
-printfn "   • Local: createLocalBackend() - for testing"
-printfn "   • HTTP: createIonQBackend(...) - for production (recommended)"
-printfn "   • SDK: createFromWorkspace(...) - for full integration (new!)"
-printfn ""
-printfn "4. Start building quantum circuits:"
-printfn "   See examples/CircuitBuilder/QuantumCircuits.fsx"
-printfn ""
+if shouldRun "backends" then
+    pr "=== Example 3: Backend Comparison ==="
+    pr ""
+
+    // --- Local Backend (actually runs) ---
+    pr "  1. Local Simulator Backend"
+    pr "     let backend = LocalBackend() :> IQuantumBackend"
+    pr "     + Fast (milliseconds), no Azure account needed"
+    pr "     + Good for development and testing (<20 qubits)"
+    pr ""
+
+    // Demonstrate local backend is working
+    pr "     Local backend active: %s (state type: %A)" quantumBackend.Name quantumBackend.NativeStateType
+    pr ""
+
+    // --- HTTP Backend ---
+    pr "  2. HTTP Backend (recommended for production)"
+    pr "     use httpClient = new HttpClient()"
+    pr "     let backend = createIonQBackend httpClient workspaceUrl \"ionq.simulator\""
+    pr "     + Production-proven, direct REST API control"
+    pr "     + Lower-level error handling"
+    pr ""
+
+    // --- SDK Backend ---
+    pr "  3. SDK Backend (full integration)"
+    pr "     use workspace = createDefault \"sub\" \"rg\" \"ws\" \"eastus\""
+    pr "     let backend = createFromWorkspace workspace \"ionq.simulator\""
+    pr "     + Full Azure Quantum integration"
+    pr "     + Quota checking and provider discovery"
+    pr "     + Automatic job polling with backoff"
+    pr ""
+
+    // --- Hybrid Pattern ---
+    pr "  Recommended pattern: workspace for quota/discovery, HTTP for execution"
+    pr ""
+    pr "  Code pattern:"
+    pr "    // Check quota"
+    pr "    let! quota = workspace.GetTotalQuotaAsync()"
+    pr "    match quota.Remaining with"
+    pr "    | Some r when r < 10.0 -> printfn \"Low quota\""
+    pr "    | _ ->"
+    pr "        // Execute via HTTP backend"
+    pr "        let result = backend.Execute wrapper 1000"
+    pr ""
+
+    // --- Circuit Conversion ---
+    pr "  Circuit format conversion:"
+    pr "    match convertCircuitToProviderFormat wrapper \"ionq.simulator\" with"
+    pr "    | Ok json -> printfn \"IonQ: %%s\" json"
+    pr "    | Error e -> printfn \"Error: %%s\" e"
+    pr ""
+
+    pr "  When to use each:"
+    pr "    Local  - Development, testing, small circuits"
+    pr "    HTTP   - Production workloads, proven stability"
+    pr "    SDK    - Full workspace features, quota management"
+    pr ""
+
+    record
+        { Name = "backends"; Label = "Backend Comparison"
+          Status = "OK"
+          Detail = sprintf "local backend=%s type=%A" quantumBackend.Name quantumBackend.NativeStateType }
+
+// --- JSON output ---
+
+outputPath
+|> Option.iter (fun path ->
+    let payload =
+        jsonResults
+        |> List.map (fun r ->
+            dict [
+                "name", box r.Name
+                "label", box r.Label
+                "status", box r.Status
+                "detail", box r.Detail ])
+    Reporting.writeJson path payload)
+
+// --- CSV output ---
+
+csvPath
+|> Option.iter (fun path ->
+    let header = [ "name"; "label"; "status"; "detail" ]
+    Reporting.writeCsv path header csvRows)
+
+// --- Summary ---
+
+if not quiet then
+    pr ""
+    pr "=== Summary ==="
+    jsonResults
+    |> List.iter (fun r ->
+        pr "  [%s] %-25s %s" r.Status r.Label r.Detail)
+    pr ""
+    pr "Next steps:"
+    pr "  1. Set up Azure Quantum workspace: https://docs.microsoft.com/azure/quantum/"
+    pr "  2. Set environment variables or pass --subscription, --resource-group, etc."
+    pr "  3. Choose backend: Local (testing), HTTP (production), SDK (full integration)"
+    pr "  4. See examples/CircuitBuilder/ for circuit building"
+    pr ""
+
+if not quiet && outputPath.IsNone && csvPath.IsNone && (argv |> Array.isEmpty) then
+    pr "Tip: Use --output results.json or --csv results.csv to export data."
+    pr "     Use --example create to run a single example."
+    pr "     Pass --subscription/--resource-group/--workspace-name for real Azure config."
+    pr "     Run with --help for all options."

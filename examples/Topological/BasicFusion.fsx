@@ -1,174 +1,206 @@
-// ============================================================================
-// Basic Fusion Example - Topological Quantum Computing
-// ============================================================================
-//
-// This example demonstrates the fundamental fusion rules of Ising anyons,
-// which are the building blocks of Microsoft's topological quantum computer.
-//
-// Key Concepts:
-// - Ising anyons: {1 (vacuum), σ (sigma), ψ (psi)}
-// - Fusion rule: σ × σ = 1 + ψ (sigma + sigma can fuse to vacuum OR psi)
-// - Measurement collapses the superposition to one outcome
-//
-// ============================================================================
+(*
+    Basic Fusion Example — Topological Quantum Computing
+    ======================================================
 
+    Demonstrates fundamental fusion rules of Ising anyons:
+      sigma x sigma = 1 (vacuum) + psi (fermion)
+
+    These are the building blocks of Microsoft's topological quantum
+    computer using Majorana zero modes.
+
+    Run with: dotnet fsi BasicFusion.fsx
+              dotnet fsi BasicFusion.fsx -- --example 3 --trials 500
+              dotnet fsi BasicFusion.fsx -- --quiet --output r.json --csv r.csv
+*)
+
+#r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 #r "../../src/FSharp.Azure.Quantum.Topological/bin/Debug/net10.0/FSharp.Azure.Quantum.Topological.dll"
+#load "../_common/Cli.fs"
+#load "../_common/Data.fs"
+#load "../_common/Reporting.fs"
 
+open System
 open FSharp.Azure.Quantum.Topological
+open FSharp.Azure.Quantum.Core.BackendAbstraction
+open FSharp.Azure.Quantum.Examples.Common
 
-// ============================================================================
-// Example 1: Create and Inspect Initial State
-// ============================================================================
+// ---------------------------------------------------------------------------
+// CLI
+// ---------------------------------------------------------------------------
+let argv = fsi.CommandLineArgs |> Array.skip 1
+let args = Cli.parse argv
 
-printfn "=== Example 1: Initialize Ising Anyons ==="
-printfn ""
+Cli.exitIfHelp "BasicFusion.fsx" "Ising anyon fusion rules and measurement statistics"
+    [ { Name = "example"; Description = "Which example: 1-4|all"; Default = Some "all" }
+      { Name = "trials";  Description = "Fusion statistics trials"; Default = Some "1000" }
+      { Name = "output";  Description = "Write results to JSON file"; Default = None }
+      { Name = "csv";     Description = "Write results to CSV file";  Default = None }
+      { Name = "quiet";   Description = "Suppress console output";    Default = None } ] args
 
-// Create a topological backend (simulator for Ising anyons)
-let backend = TopologicalBackend.createSimulator AnyonSpecies.AnyonType.Ising 10
+let quiet      = Cli.hasFlag "quiet" args
+let outputPath = Cli.tryGet "output" args
+let csvPath    = Cli.tryGet "csv" args
+let exChoice   = Cli.getOr "example" "all" args
+let cliTrials  = Cli.getIntOr "trials" 1000 args
 
-// Initialize with 2 sigma anyons
-let initialize2Anyons = task {
-    let! result = backend.Initialize AnyonSpecies.AnyonType.Ising 2
-    
+let pr fmt = Printf.ksprintf (fun s -> if not quiet then printfn "%s" s) fmt
+let shouldRun ex = exChoice = "all" || exChoice = string ex
+let separator () = pr "%s" (String.replicate 60 "-")
+
+// ---------------------------------------------------------------------------
+// Quantum backend (Rule 1) — topological IQuantumBackend
+// ---------------------------------------------------------------------------
+let quantumBackend = TopologicalUnifiedBackendFactory.createIsing 10
+
+// Legacy topological backend for fusion-specific operations
+let topoBackend = TopologicalBackend.createSimulator AnyonSpecies.AnyonType.Ising 10
+
+// Results accumulators
+let mutable jsonResults : (string * obj) list = []
+let mutable csvRows     : string list list    = []
+
+// ---------------------------------------------------------------------------
+// Example 1 — Initialise Ising anyons
+// ---------------------------------------------------------------------------
+if shouldRun 1 then
+    separator ()
+    pr "EXAMPLE 1: Initialise 2 Ising anyons (sigma particles)"
+    separator ()
+
+    let state2 =
+        task { return! topoBackend.Initialize AnyonSpecies.AnyonType.Ising 2 }
+        |> Async.AwaitTask |> Async.RunSynchronously
+
+    match state2 with
+    | Ok state ->
+        pr "Initialised 2 sigma anyons"
+        pr "  Terms in superposition: %d" state.Terms.Length
+        for (amp, fusionState) in state.Terms do
+            pr "  Amplitude: %A   Tree: %A" amp fusionState.Tree
+
+        jsonResults <- ("1_init", box {| anyons = 2; terms = state.Terms.Length |}) :: jsonResults
+        csvRows <- [ "1_init"; "2"; string state.Terms.Length ] :: csvRows
+    | Error err ->
+        pr "Initialisation failed: %s" err.Message
+
+// ---------------------------------------------------------------------------
+// Example 2 — Fusion measurement (sigma x sigma = 1 + psi)
+// ---------------------------------------------------------------------------
+if shouldRun 2 then
+    separator ()
+    pr "EXAMPLE 2: Measure fusion of two sigma anyons"
+    separator ()
+
+    let result =
+        task {
+            let! initR = topoBackend.Initialize AnyonSpecies.AnyonType.Ising 2
+            match initR with
+            | Ok state ->
+                let! measR = topoBackend.MeasureFusion 0 state
+                return measR
+            | Error e -> return Error e
+        } |> Async.AwaitTask |> Async.RunSynchronously
+
+    match result with
+    | Ok (outcome, collapsed, probability) ->
+        let outName =
+            match outcome with
+            | AnyonSpecies.Particle.Vacuum -> "vacuum (trivial)"
+            | AnyonSpecies.Particle.Psi    -> "psi (fermion)"
+            | _                            -> sprintf "%A" outcome
+        pr "Outcome: %s   (probability: %.4f)" outName probability
+        pr "Collapsed state terms: %d" collapsed.Terms.Length
+
+        jsonResults <- ("2_measure", box {| outcome = sprintf "%A" outcome
+                                            probability = probability |}) :: jsonResults
+        csvRows <- [ "2_measure"; sprintf "%A" outcome; sprintf "%.4f" probability ] :: csvRows
+    | Error err ->
+        pr "Measurement failed: %s" err.Message
+
+// ---------------------------------------------------------------------------
+// Example 3 — Fusion statistics
+// ---------------------------------------------------------------------------
+if shouldRun 3 then
+    separator ()
+    pr "EXAMPLE 3: Fusion statistics (%d trials)" cliTrials
+    separator ()
+
+    let (vacCount, psiCount) =
+        task {
+            let mutable vac = 0
+            let mutable psi = 0
+            for _ in 1 .. cliTrials do
+                let! initR = topoBackend.Initialize AnyonSpecies.AnyonType.Ising 2
+                match initR with
+                | Ok state ->
+                    let! measR = topoBackend.MeasureFusion 0 state
+                    match measR with
+                    | Ok (AnyonSpecies.Particle.Vacuum, _, _) -> vac <- vac + 1
+                    | Ok (AnyonSpecies.Particle.Psi, _, _)    -> psi <- psi + 1
+                    | _ -> ()
+                | _ -> ()
+            return (vac, psi)
+        } |> Async.AwaitTask |> Async.RunSynchronously
+
+    let vacPct = float vacCount / float cliTrials * 100.0
+    let psiPct = float psiCount / float cliTrials * 100.0
+    pr "Vacuum (1): %d times (%.1f%%)" vacCount vacPct
+    pr "Psi    (ψ): %d times (%.1f%%)" psiCount psiPct
+    pr ""
+    pr "Expected: ~50%% vacuum, ~50%% psi  (from sigma x sigma = 1 + psi)"
+
+    jsonResults <- ("3_stats", box {| trials = cliTrials; vacuum = vacCount; psi = psiCount
+                                      vacuumPct = vacPct; psiPct = psiPct |}) :: jsonResults
+    csvRows <- [ "3_stats"; string vacCount; string psiCount;
+                  sprintf "%.1f" vacPct; sprintf "%.1f" psiPct ] :: csvRows
+
+// ---------------------------------------------------------------------------
+// Example 4 — Four anyons (2-qubit equivalent)
+// ---------------------------------------------------------------------------
+if shouldRun 4 then
+    separator ()
+    pr "EXAMPLE 4: Four Ising anyons (2-qubit equivalent)"
+    separator ()
+
+    let result =
+        task { return! topoBackend.Initialize AnyonSpecies.AnyonType.Ising 4 }
+        |> Async.AwaitTask |> Async.RunSynchronously
+
     match result with
     | Ok state ->
-        printfn "✅ Initialized 2 Ising anyons (σ particles)"
-        printfn "State has %d terms in superposition" state.Terms.Length
-        
-        // Show the fusion tree structure
-        for (amplitude, fusionState) in state.Terms do
-            printfn "  Amplitude: %A" amplitude
-            printfn "  Fusion tree: %A" fusionState.Tree
-        
-        return Ok state
+        pr "Initialised 4 anyons (2-dimensional fusion space)"
+        pr "  Terms in superposition: %d" state.Terms.Length
+        for (amp, _) in state.Terms do
+            pr "  Amplitude: %A" amp
+
+        jsonResults <- ("4_four_anyons", box {| anyons = 4; terms = state.Terms.Length |}) :: jsonResults
+        csvRows <- [ "4_four_anyons"; "4"; string state.Terms.Length ] :: csvRows
     | Error err ->
-        printfn "❌ Initialization failed: %s" err.Message
-        return Error err
-}
+        pr "Failed: %s" err.Message
 
-let state2 = initialize2Anyons |> Async.AwaitTask |> Async.RunSynchronously
+// ---------------------------------------------------------------------------
+// Output
+// ---------------------------------------------------------------------------
+if outputPath.IsSome then
+    let payload =
+        {| script    = "BasicFusion.fsx"
+           backend   = "Topological (Ising)"
+           timestamp = DateTime.UtcNow.ToString("o")
+           example   = exChoice
+           trials    = cliTrials
+           results   = jsonResults |> List.rev |> List.map (fun (k,v) -> {| key = k; value = v |}) |}
+    Reporting.writeJson outputPath.Value payload
 
-printfn ""
+if csvPath.IsSome then
+    let header = [ "example"; "detail1"; "detail2"; "detail3"; "detail4" ]
+    Reporting.writeCsv csvPath.Value header (csvRows |> List.rev)
 
-// ============================================================================
-// Example 2: Fusion Measurement (σ × σ = 1 + ψ)
-// ============================================================================
-
-printfn "=== Example 2: Measure Fusion of Two Sigma Anyons ==="
-printfn ""
-
-match state2 with
-| Ok initialState ->
-    let measureFusion = task {
-        let! measureResult = backend.MeasureFusion 0 initialState
-        
-        match measureResult with
-        | Ok (outcome, collapsedState, probability) ->
-            printfn "✅ Fusion measurement complete!"
-            printfn "Outcome: %A (probability: %.4f)" outcome probability
-            
-            match outcome with
-            | AnyonSpecies.Particle.Vacuum ->
-                printfn "  → Anyons fused to vacuum (trivial fusion)"
-            | AnyonSpecies.Particle.Psi ->
-                printfn "  → Anyons fused to psi fermion (non-trivial fusion)"
-            | AnyonSpecies.Particle.Sigma ->
-                printfn "  → Unexpected: sigma (shouldn't happen for σ×σ)"
-            | _ ->
-                printfn "  → Unknown outcome"
-            
-            printfn ""
-            printfn "Collapsed state:"
-            printfn "  Terms after measurement: %d" collapsedState.Terms.Length
-            
-            return Ok ()
-        | Error err ->
-            printfn "❌ Measurement failed: %s" err.Message
-            return Error err
-    }
-    
-    measureFusion |> Async.AwaitTask |> Async.RunSynchronously |> ignore
-| Error _ ->
-    printfn "⏭️  Skipping measurement (initialization failed)"
-
-printfn ""
-
-// ============================================================================
-// Example 3: Multiple Measurements (Statistical Distribution)
-// ============================================================================
-
-printfn "=== Example 3: Fusion Statistics (1000 measurements) ==="
-printfn ""
-
-let runFusionStatistics numTrials = task {
-    let mutable vacuumCount = 0
-    let mutable psiCount = 0
-    
-    for i in 1..numTrials do
-        // Initialize fresh state each time
-        let! initResult = backend.Initialize AnyonSpecies.AnyonType.Ising 2
-        
-        match initResult with
-        | Ok state ->
-            let! measureResult = backend.MeasureFusion 0 state
-            
-            match measureResult with
-            | Ok (outcome, _, _) ->
-                match outcome with
-                | AnyonSpecies.Particle.Vacuum -> vacuumCount <- vacuumCount + 1
-                | AnyonSpecies.Particle.Psi -> psiCount <- psiCount + 1
-                | _ -> ()
-            | Error _ -> ()
-        | Error _ -> ()
-    
-    printfn "Results from %d trials:" numTrials
-    printfn "  Vacuum (1): %d times (%.1f%%)" vacuumCount ((float vacuumCount / float numTrials) * 100.0)
-    printfn "  Psi (ψ):    %d times (%.1f%%)" psiCount ((float psiCount / float numTrials) * 100.0)
-    printfn ""
-    printfn "Expected distribution: ~50%% vacuum, ~50%% psi"
-    printfn "  (from fusion rule σ × σ = 1 + ψ)"
-}
-
-runFusionStatistics 1000 |> Async.AwaitTask |> Async.RunSynchronously
-
-printfn ""
-
-// ============================================================================
-// Example 4: Four Anyons (More Complex Fusion Tree)
-// ============================================================================
-
-printfn "=== Example 4: Four Ising Anyons (2-Qubit Equivalent) ==="
-printfn ""
-
-let fourAnyonExample = task {
-    let! initResult = backend.Initialize AnyonSpecies.AnyonType.Ising 4
-    
-    match initResult with
-    | Ok state ->
-        printfn "✅ Initialized 4 anyons (creates 2-dimensional fusion space)"
-        printfn "Terms in superposition: %d" state.Terms.Length
-        
-        // This creates a fusion tree that encodes quantum information
-        // similar to 1 qubit in gate-based QC
-        printfn ""
-        printfn "Fusion tree structure:"
-        for (amp, fusionState) in state.Terms do
-            printfn "  Amplitude: %A" amp
-        
-        return Ok ()
-    | Error err ->
-        printfn "❌ Failed: %s" err.Message
-        return Error err
-}
-
-fourAnyonExample |> Async.AwaitTask |> Async.RunSynchronously |> ignore
-
-printfn ""
-printfn "=== Basic Fusion Examples Complete ==="
-printfn ""
-printfn "Key Takeaways:"
-printfn "1. Ising anyons (σ) are the building blocks of topological qubits"
-printfn "2. Fusion rule σ × σ = 1 + ψ creates superposition"
-printfn "3. Measurement collapses to one outcome (vacuum or psi)"
-printfn "4. Statistics match quantum mechanical predictions"
-printfn "5. More anyons create larger fusion spaces (quantum information)"
+// ---------------------------------------------------------------------------
+// Usage hints
+// ---------------------------------------------------------------------------
+if not quiet && argv.Length = 0 then
+    pr ""
+    pr "Usage hints:"
+    pr "  dotnet fsi BasicFusion.fsx -- --example 3 --trials 500"
+    pr "  dotnet fsi BasicFusion.fsx -- --quiet --output r.json --csv r.csv"
+    pr "  dotnet fsi BasicFusion.fsx -- --help"

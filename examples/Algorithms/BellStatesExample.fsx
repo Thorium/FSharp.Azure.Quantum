@@ -1,20 +1,12 @@
-/// Bell States (EPR Pairs) Example
-/// 
-/// Demonstrates creation of maximally entangled two-qubit states
-/// using the unified backend architecture:
-/// - LocalBackend (gate-based StateVector simulation)
-/// - TopologicalUnifiedBackend (braiding-based FusionSuperposition)
-/// 
-/// **Production Use Cases**:
-/// - Quantum Error Correction (surface codes, toric codes)
-/// - Quantum Key Distribution (BB84, E91 protocols)
-/// - Quantum Teleportation (requires pre-shared Bell pair)
-/// - Quantum Networking (entanglement swapping)
-/// 
-/// **Real Deployments**:
-/// - ID Quantique commercial QKD systems
-/// - Micius satellite quantum communication
-/// - IBM Quantum, IonQ, Rigetti platforms
+// Bell States (EPR Pairs) Example
+// Creates and verifies maximally entangled two-qubit states across backends
+//
+// Usage:
+//   dotnet fsi BellStatesExample.fsx
+//   dotnet fsi BellStatesExample.fsx -- --help
+//   dotnet fsi BellStatesExample.fsx -- --backend local --state phiplus
+//   dotnet fsi BellStatesExample.fsx -- --verification-shots 500
+//   dotnet fsi BellStatesExample.fsx -- --quiet --output results.json --csv results.csv
 
 (*
 ===============================================================================
@@ -23,216 +15,250 @@
 
 Bell states are the four maximally entangled two-qubit states, forming an
 orthonormal basis for the two-qubit Hilbert space. Named after physicist John
-Bell, these states exhibit "spooky action at a distance" (Einstein's phrase):
-measuring one qubit instantaneously determines the other's state, regardless of
-spatial separation. Bell states are the fundamental resource for quantum
-communication, teleportation, superdense coding, and entanglement-based protocols.
+Bell, these states exhibit "spooky action at a distance": measuring one qubit
+instantaneously determines the other's state, regardless of separation.
 
-The four Bell states are created from |00⟩ using Hadamard and CNOT gates, with
-optional X and Z gates for the variants. In each state, the two qubits are
-perfectly correlated (|Φ⟩ states) or anti-correlated (|Ψ⟩ states), and measuring
-either qubit in the computational basis yields a uniformly random outcome. The
-"entanglement" means the joint state cannot be written as a product of individual
-qubit states: |Φ⁺⟩ ≠ |ψ₁⟩ ⊗ |ψ₂⟩ for any single-qubit states.
+The four Bell states:
+  |Phi+> = (|00> + |11>) / sqrt(2)  (correlated, same phase)
+  |Phi-> = (|00> - |11>) / sqrt(2)  (correlated, opposite phase)
+  |Psi+> = (|01> + |10>) / sqrt(2)  (anti-correlated, same phase)
+  |Psi-> = (|01> - |10>) / sqrt(2)  (anti-correlated, opposite phase / singlet)
 
-Key Equations:
-  - |Φ⁺⟩ = (|00⟩ + |11⟩) / √2  (correlated, same phase)
-  - |Φ⁻⟩ = (|00⟩ - |11⟩) / √2  (correlated, opposite phase)
-  - |Ψ⁺⟩ = (|01⟩ + |10⟩) / √2  (anti-correlated, same phase)
-  - |Ψ⁻⟩ = (|01⟩ - |10⟩) / √2  (anti-correlated, opposite phase / singlet)
-  - Creation circuit: |Φ⁺⟩ = CNOT(H|0⟩ ⊗ |0⟩)
-  - CHSH inequality: |S| ≤ 2 classically, |S| ≤ 2√2 ≈ 2.83 quantum (Bell violation)
+Creation circuit: |Phi+> = CNOT(H|0> x |0>)
+CHSH inequality: |S| <= 2 classically, |S| <= 2*sqrt(2) ~ 2.83 quantum
 
-Quantum Advantage:
-  Bell states enable quantum advantages impossible classically: (1) Superdense
-  coding: send 2 classical bits using 1 qubit + 1 ebit. (2) Teleportation:
-  transfer quantum state using 2 cbits + 1 ebit. (3) Device-independent QKD:
-  Bell inequality violations certify security. (4) Entanglement swapping:
-  create entanglement between particles that never interacted. Bell's theorem
-  (1964) proved no local hidden variable theory can reproduce quantum predictions,
-  experimentally confirmed (Nobel Prize 2022: Aspect, Clauser, Zeilinger).
+Production Use Cases:
+  - Quantum Error Correction (surface codes, toric codes)
+  - Quantum Key Distribution (BB84, E91 protocols)
+  - Quantum Teleportation (requires pre-shared Bell pair)
+  - Quantum Networking (entanglement swapping)
+
+Real Deployments:
+  - ID Quantique commercial QKD systems
+  - Micius satellite quantum communication (2016+)
+  - IBM Quantum, IonQ, Rigetti platforms
 
 Unified Backend Architecture:
-  This example demonstrates how the same Bell state algorithms work across
-  different quantum backends through the IQuantumBackend interface:
-  
-  - LocalBackend: Traditional gate-based simulation using state vectors
-  - TopologicalBackend: Braiding-based computation using Ising anyons
-  
-  The unified architecture enables backend-agnostic algorithm development.
+  Same Bell state algorithms work across backends via IQuantumBackend:
+  - LocalBackend: Gate-based simulation (state vectors)
+  - TopologicalBackend: Braiding-based computation (Ising anyons)
 
 References:
-  [1] Bell, "On the Einstein Podolsky Rosen Paradox", Physics 1, 195-200 (1964).
-      https://doi.org/10.1103/PhysicsPhysiqueFizika.1.195
-  [2] Aspect, Dalibard, Roger, "Experimental Test of Bell's Inequalities Using
-      Time-Varying Analyzers", Phys. Rev. Lett. 49, 1804 (1982).
-      https://doi.org/10.1103/PhysRevLett.49.1804
+  [1] Bell, "On the Einstein Podolsky Rosen Paradox", Physics 1, 195 (1964).
+  [2] Aspect, Dalibard, Roger, "Experimental Test of Bell's Inequalities",
+      Phys. Rev. Lett. 49, 1804 (1982).
   [3] Nielsen & Chuang, "Quantum Computation and Quantum Information",
       Cambridge University Press (2010), Section 1.3.6.
-  [4] Wikipedia: Bell_state
-      https://en.wikipedia.org/wiki/Bell_state
+  [4] Wikipedia: Bell_state https://en.wikipedia.org/wiki/Bell_state
 *)
 
-//#r "nuget: FSharp.Azure.Quantum"
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 #r "../../src/FSharp.Azure.Quantum.Topological/bin/Debug/net10.0/FSharp.Azure.Quantum.Topological.dll"
+#load "../_common/Cli.fs"
+#load "../_common/Data.fs"
+#load "../_common/Reporting.fs"
 
 open FSharp.Azure.Quantum.Algorithms.BellStates
 open FSharp.Azure.Quantum.Backends.LocalBackend
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.Topological
-
-printfn "╔══════════════════════════════════════════════════════════════╗"
-printfn "║         Bell States (EPR Pairs) - Unified Backend Demo       ║"
-printfn "╚══════════════════════════════════════════════════════════════╝"
-printfn ""
+open FSharp.Azure.Quantum.Examples.Common
 
 // ============================================================================
-// HELPER: Run Bell state tests on any backend
+// CLI Setup
 // ============================================================================
 
-let runBellStateTests (backend: IQuantumBackend) (backendLabel: string) =
-    printfn "╔══════════════════════════════════════════════════════════════╗"
-    printfn "║  %s" (backendLabel.PadRight(60) + "║")
-    printfn "╚══════════════════════════════════════════════════════════════╝"
-    printfn ""
-    printfn "Backend: %s" backend.Name
-    printfn "Native state type: %A" backend.NativeStateType
-    printfn ""
-    
-    printfn "Creating All Four Bell States:"
-    printfn "─────────────────────────────────────────────────────────"
-    printfn ""
-    
-    // Create |Φ⁺⟩ = (|00⟩ + |11⟩) / √2
-    printfn "1. Creating |Φ⁺⟩ (Phi Plus) - Most common Bell state"
-    printfn "   Circuit: H(0), CNOT(0,1)"
-    printfn "   Used in: Teleportation, Superdense Coding, QKD"
-    match createPhiPlus backend with
-    | Ok result ->
-        printfn "%s" (formatResult result)
-        printfn "   State type: %A" (FSharp.Azure.Quantum.Core.QuantumState.stateType result.QuantumState)
-        printfn ""
-    | Error err ->
-        printfn "   Error: %A" err
-        printfn ""
-    
-    // Create |Φ⁻⟩ = (|00⟩ - |11⟩) / √2
-    printfn "2. Creating |Φ⁻⟩ (Phi Minus)"
-    printfn "   Circuit: H(0), CNOT(0,1), Z(0)"
-    match createPhiMinus backend with
-    | Ok result ->
-        printfn "%s" (formatResult result)
-        printfn ""
-    | Error err ->
-        printfn "   Error: %A" err
-        printfn ""
-    
-    // Create |Ψ⁺⟩ = (|01⟩ + |10⟩) / √2
-    printfn "3. Creating |Ψ⁺⟩ (Psi Plus)"
-    printfn "   Circuit: H(0), CNOT(0,1), X(1)"
-    match createPsiPlus backend with
-    | Ok result ->
-        printfn "%s" (formatResult result)
-        printfn ""
-    | Error err ->
-        printfn "   Error: %A" err
-        printfn ""
-    
-    // Create |Ψ⁻⟩ = (|01⟩ - |10⟩) / √2
-    printfn "4. Creating |Ψ⁻⟩ (Psi Minus)"
-    printfn "   Circuit: H(0), CNOT(0,1), X(1), Z(0)"
-    match createPsiMinus backend with
-    | Ok result ->
-        printfn "%s" (formatResult result)
-        printfn ""
-    | Error err ->
-        printfn "   Error: %A" err
-        printfn ""
-    
-    // Verify entanglement
-    printfn "Verifying Entanglement:"
-    printfn "─────────────────────────────────────────────────────────"
-    printfn ""
-    
-    match createPhiPlus backend with
-    | Ok phiPlus ->
-        printfn "Created |Φ⁺⟩ - verifying entanglement..."
-        match verifyEntanglement phiPlus backend 100 with
-        | Ok correlation ->
-            printfn "Correlation coefficient: %.2f" correlation
-            if abs correlation > 0.9 then
-                printfn "Strong entanglement verified! (|correlation| > 0.9)"
-            else
-                printfn "Weak correlation - may indicate approximation differences"
-        | Error err ->
-            printfn "Verification error: %A" err
-    | Error err ->
-        printfn "Creation error: %A" err
-    
-    printfn ""
+let argv = fsi.CommandLineArgs |> Array.skip 1
+let args = Cli.parse argv
+
+Cli.exitIfHelp "BellStatesExample.fsx" "Create and verify Bell states (EPR pairs) on gate-based and topological backends." [
+    { Name = "backend"; Description = "Backend to use (local/topological/both)"; Default = Some "both" }
+    { Name = "state"; Description = "Bell state (phiplus/phiminus/psiplus/psiminus/all)"; Default = Some "all" }
+    { Name = "verification-shots"; Description = "Shots for entanglement verification"; Default = Some "100" }
+    { Name = "output"; Description = "Write results to JSON file"; Default = None }
+    { Name = "csv"; Description = "Write results to CSV file"; Default = None }
+    { Name = "quiet"; Description = "Suppress informational output"; Default = None }
+] args
+
+let backendArg = Cli.getOr "backend" "both" args
+let stateArg = Cli.getOr "state" "all" args
+let verificationShots = Cli.getIntOr "verification-shots" 100 args
+let quiet = Cli.hasFlag "quiet" args
+let outputPath = Cli.tryGet "output" args
+let csvPath = Cli.tryGet "csv" args
 
 // ============================================================================
-// BACKEND 1: LocalBackend (Gate-based StateVector simulation)
+// Quantum Backends
 // ============================================================================
 
 let localBackend = LocalBackend() :> IQuantumBackend
-runBellStateTests localBackend "BACKEND 1: LocalBackend (Gate-based StateVector)"
-
-// ============================================================================
-// BACKEND 2: TopologicalUnifiedBackend (Braiding-based simulation)
-// ============================================================================
-
-printfn ""
 let topoBackend = TopologicalUnifiedBackendFactory.createIsing 8
-runBellStateTests topoBackend "BACKEND 2: TopologicalBackend (Ising Anyons)"
+
+let backendsToTest =
+    match backendArg with
+    | "local" -> [ ("local", localBackend) ]
+    | "topological" | "topo" -> [ ("topological", topoBackend) ]
+    | _ -> [ ("local", localBackend); ("topological", topoBackend) ]
 
 // ============================================================================
-// UNIFIED ARCHITECTURE SUMMARY
+// Result Collection
 // ============================================================================
 
-printfn "╔══════════════════════════════════════════════════════════════╗"
-printfn "║              Unified Backend Architecture                    ║"
-printfn "╚══════════════════════════════════════════════════════════════╝"
-printfn ""
-printfn "Both backends implement IQuantumBackend interface:"
-printfn ""
-printfn "  type IQuantumBackend ="
-printfn "      abstract ExecuteToState: ICircuit -> Result<QuantumState, QuantumError>"
-printfn "      abstract ApplyOperation: QuantumOperation -> QuantumState -> Result<...>"
-printfn "      abstract InitializeState: int -> Result<QuantumState, QuantumError>"
-printfn "      abstract NativeStateType: QuantumStateType"
-printfn "      abstract Name: string"
-printfn ""
-printfn "Benefits:"
-printfn "  - Write algorithms once, run on any backend"
-printfn "  - Automatic state type conversion when needed"
-printfn "  - Backend-specific optimizations preserved"
-printfn "  - Future backends (ion trap, photonic) plug in seamlessly"
-printfn ""
+let results = System.Collections.Generic.List<Map<string, string>>()
 
 // ============================================================================
-// PRODUCTION APPLICATIONS
+// Bell State Definitions
 // ============================================================================
 
-printfn "╔══════════════════════════════════════════════════════════════╗"
-printfn "║              Production Applications                         ║"
-printfn "╚══════════════════════════════════════════════════════════════╝"
-printfn ""
-printfn "Bell states in production:"
-printfn "  - Quantum Error Correction: Bell pairs detect/correct errors"
-printfn "  - Quantum Key Distribution: Secure communication (ID Quantique, Micius)"
-printfn "  - Quantum Teleportation: Transfer quantum states"
-printfn "  - Quantum Networks: Entanglement swapping for quantum internet"
-printfn ""
-printfn "Real-World Status:"
-printfn "  - Commercially deployed (QKD systems)"
-printfn "  - Satellite quantum communication (Micius, 2016+)"
-printfn "  - Every quantum platform supports Bell states"
-printfn "  - Future: Quantum internet backbone (2030+)"
-printfn ""
-printfn "Why Topological Backend Matters:"
-printfn "  - Ising anyons provide inherent error protection"
-printfn "  - Non-Abelian braiding = fault-tolerant quantum gates"
-printfn "  - Microsoft's approach to scalable quantum computing"
-printfn "  - Same Bell state algorithms work on both paradigms!"
+type BellStateSpec = {
+    Key: string
+    Label: string
+    Notation: string
+    Circuit: string
+    Create: IQuantumBackend -> Result<BellStateResult, FSharp.Azure.Quantum.Core.QuantumError>
+}
+
+let allStates = [
+    { Key = "phiplus"; Label = "Phi Plus"; Notation = "|Phi+> = (|00> + |11>) / sqrt(2)"
+      Circuit = "H(0), CNOT(0,1)"; Create = createPhiPlus }
+    { Key = "phiminus"; Label = "Phi Minus"; Notation = "|Phi-> = (|00> - |11>) / sqrt(2)"
+      Circuit = "H(0), CNOT(0,1), Z(0)"; Create = createPhiMinus }
+    { Key = "psiplus"; Label = "Psi Plus"; Notation = "|Psi+> = (|01> + |10>) / sqrt(2)"
+      Circuit = "H(0), CNOT(0,1), X(1)"; Create = createPsiPlus }
+    { Key = "psiminus"; Label = "Psi Minus"; Notation = "|Psi-> = (|01> - |10>) / sqrt(2)"
+      Circuit = "H(0), CNOT(0,1), X(1), Z(0)"; Create = createPsiMinus }
+]
+
+let statesToTest =
+    match stateArg with
+    | "all" -> allStates
+    | key -> allStates |> List.filter (fun s -> s.Key = key)
+
+// ============================================================================
+// Run Bell State Creation + Verification
+// ============================================================================
+
+if not quiet then
+    printfn "=== Bell States (EPR Pairs) ==="
+    printfn ""
+    printfn "BUSINESS SCENARIO:"
+    printfn "Create maximally entangled qubit pairs — the fundamental"
+    printfn "resource for quantum communication, teleportation, and QKD."
+    printfn ""
+
+for (backendKey, backend) in backendsToTest do
+    if not quiet then
+        printfn "--- Backend: %s (%s) ---" backend.Name backendKey
+        printfn "  Native state type: %A" backend.NativeStateType
+        printfn ""
+        printfn "  Creating Bell States:"
+        printfn ""
+
+    for (idx, spec) in statesToTest |> List.mapi (fun i s -> (i + 1, s)) do
+        match spec.Create backend with
+        | Ok result ->
+            if not quiet then
+                printfn "  %d. %s" idx spec.Label
+                printfn "     %s" spec.Notation
+                printfn "     Circuit: %s" spec.Circuit
+                printfn "%s" (formatResult result)
+                printfn ""
+
+            // Verify entanglement
+            let correlationStr =
+                match verifyEntanglement result backend verificationShots with
+                | Ok correlation ->
+                    if not quiet then
+                        let strength = if abs correlation > 0.9 then "STRONG" elif abs correlation > 0.5 then "moderate" else "weak"
+                        printfn "     Entanglement: correlation = %.4f [%s]" correlation strength
+
+                    sprintf "%.4f" correlation
+                | Error _ ->
+                    if not quiet then
+                        printfn "     Entanglement: verification unavailable"
+                    "N/A"
+
+            if not quiet then printfn ""
+
+            results.Add(
+                [ "backend", backendKey
+                  "backend_name", backend.Name
+                  "state_key", spec.Key
+                  "state_label", spec.Label
+                  "notation", spec.Notation
+                  "circuit", spec.Circuit
+                  "qubits", string result.NumQubits
+                  "correlation", correlationStr
+                  "success", "true" ]
+                |> Map.ofList)
+
+        | Error err ->
+            if not quiet then
+                printfn "  %d. %s - ERROR: %A" idx spec.Label err
+                printfn ""
+
+            results.Add(
+                [ "backend", backendKey
+                  "state_key", spec.Key
+                  "state_label", spec.Label
+                  "error", sprintf "%A" err
+                  "success", "false" ]
+                |> Map.ofList)
+
+// ============================================================================
+// Summary
+// ============================================================================
+
+if not quiet then
+    printfn "--- Applications ---"
+    printfn ""
+    printfn "  Bell states in production:"
+    printfn "    Quantum Error Correction:  Bell pairs detect/correct errors"
+    printfn "    Quantum Key Distribution:  Secure communication (ID Quantique, Micius)"
+    printfn "    Quantum Teleportation:     Transfer quantum states"
+    printfn "    Quantum Networks:          Entanglement swapping for quantum internet"
+    printfn ""
+
+    if backendsToTest.Length > 1 then
+        printfn "--- Unified Architecture ---"
+        printfn ""
+        printfn "  Same Bell state code works on BOTH backends:"
+        printfn "    LocalBackend:        Gate-based simulation (state vectors)"
+        printfn "    TopologicalBackend:  Braiding-based (Ising anyons, fault-tolerant)"
+        printfn ""
+        printfn "  Topological advantage: inherent error protection via non-Abelian braiding"
+        printfn "  (Microsoft's approach to scalable quantum computing)"
+        printfn ""
+
+// ============================================================================
+// Structured Output
+// ============================================================================
+
+let resultsList = results |> Seq.toList
+
+match outputPath with
+| Some path -> Reporting.writeJson path resultsList
+| None -> ()
+
+match csvPath with
+| Some path ->
+    let allKeys =
+        resultsList
+        |> List.collect (fun m -> m |> Map.toList |> List.map fst)
+        |> List.distinct
+    let rows =
+        resultsList
+        |> List.map (fun m -> allKeys |> List.map (fun k -> m |> Map.tryFind k |> Option.defaultValue ""))
+    Reporting.writeCsv path allKeys rows
+| None -> ()
+
+// ============================================================================
+// Usage Hints
+// ============================================================================
+
+if not quiet && outputPath.IsNone && csvPath.IsNone && argv.Length = 0 then
+    printfn "Hint: Customize this run with CLI options:"
+    printfn "  dotnet fsi BellStatesExample.fsx -- --backend local --state phiplus"
+    printfn "  dotnet fsi BellStatesExample.fsx -- --verification-shots 500"
+    printfn "  dotnet fsi BellStatesExample.fsx -- --quiet --output results.json --csv results.csv"
+    printfn "  dotnet fsi BellStatesExample.fsx -- --help"

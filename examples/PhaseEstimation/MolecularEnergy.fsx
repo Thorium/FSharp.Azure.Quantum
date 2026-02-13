@@ -1,237 +1,257 @@
-// Quantum Phase Estimation Example - Molecular Energy Calculation
-// Demonstrates eigenvalue extraction for quantum chemistry simulations
+#!/usr/bin/env dotnet fsi
+// ============================================================================
+// Quantum Phase Estimation - Molecular Energy Calculation
+// ============================================================================
+//
+// Demonstrates eigenvalue extraction for quantum chemistry simulations.
+// QPE extracts eigenvalues exponentially faster than classical methods,
+// critical for drug discovery, materials science, and computational chemistry.
+//
+// Scenarios: T-gate (educational), molecular rotation, crystal lattice dynamics.
+// Extensible starting point for QPE-based quantum chemistry workflows.
+//
+// ============================================================================
 
-(*
-===============================================================================
- Background Theory
-===============================================================================
-
-Quantum Phase Estimation (QPE) is one of the most important quantum subroutines,
-enabling exponential speedups in chemistry simulation and integer factorization.
-Given a unitary operator U and an eigenstate |ψ⟩ with U|ψ⟩ = e^(2πiφ)|ψ⟩, QPE
-estimates the phase φ to n bits of precision using O(n) controlled-U operations.
-This is exponentially faster than classical methods for extracting eigenvalues
-from large matrices, making QPE the foundation of quantum chemistry and Shor's
-algorithm.
-
-The algorithm uses quantum parallelism to simultaneously probe all 2ⁿ possible
-bit strings for the phase. An n-qubit "counting register" is prepared in uniform
-superposition, then controlled-U^(2^k) operations entangle it with the eigenstate.
-The inverse Quantum Fourier Transform (QFT⁻¹) on the counting register interferes
-amplitudes so that measurement yields φ in binary. For molecular Hamiltonians
-H, we use U = e^(iHt) and extract energies E = φ/t, enabling ground state energy
-calculations critical for drug discovery and materials science.
-
-Key Equations:
-  - Eigenvalue relation: U|ψ⟩ = e^(2πiφ)|ψ⟩ where φ ∈ [0,1) is the phase
-  - QPE circuit: |0⟩ⁿ|ψ⟩ → QFT⁻¹{Σₖ₌₀ⁿ⁻¹ H|0⟩ controlled-U^(2^k)} → |φ̃⟩|ψ⟩
-  - Phase precision: Δφ = 1/2ⁿ for n-qubit counting register
-  - Molecular energy: E = 2πφ/t where U = e^(-iHt) is time evolution
-  - Success probability: P(|φ̃ - φ| < 1/2ⁿ) ≥ 4/π² ≈ 0.405 (boosted by repetition)
-
-Quantum Advantage:
-  QPE extracts eigenvalues in O(poly(n)/ε) time where n is the system size and ε
-  is the precision, compared to O(N³) for classical diagonalization of N×N matrices.
-  For molecular Hamiltonians, N grows exponentially with electrons, making classical
-  methods intractable for ~50+ electrons. QPE on fault-tolerant quantum computers
-  could simulate FeMoCo (nitrogenase catalyst) in hours vs. billions of years
-  classically. QPE is also the core of Shor's algorithm (for period finding) and
-  quantum counting (estimating solution counts for search problems).
-
-References:
-  [1] Kitaev, "Quantum measurements and the Abelian Stabilizer Problem",
-      arXiv:quant-ph/9511026 (1995). https://arxiv.org/abs/quant-ph/9511026
-  [2] Nielsen & Chuang, "Quantum Computation and Quantum Information",
-      Cambridge University Press (2010), Section 5.2.
-  [3] Aspuru-Guzik et al., "Simulated Quantum Computation of Molecular Energies",
-      Science 309, 1704-1707 (2005). https://doi.org/10.1126/science.1113479
-  [4] Wikipedia: Quantum_phase_estimation_algorithm
-      https://en.wikipedia.org/wiki/Quantum_phase_estimation_algorithm
-*)
-
-// Reference local build (use this for development/testing)
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
-
-// Or use published NuGet package (uncomment when package is published):
-// #r "nuget: FSharp.Azure.Quantum"
+#load "../_common/Cli.fs"
+#load "../_common/Data.fs"
+#load "../_common/Reporting.fs"
 
 open System
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.QuantumPhaseEstimator
-open FSharp.Azure.Quantum.Algorithms.QPE  // For TGate, SGate, RotationZ, PhaseGate types
+open FSharp.Azure.Quantum.Algorithms.QPE
+open FSharp.Azure.Quantum.Core.BackendAbstraction
+open FSharp.Azure.Quantum.Backends.LocalBackend
+open FSharp.Azure.Quantum.Examples.Common
 
-printfn "=== Molecular Energy Calculation with Quantum Phase Estimation ==="
-printfn ""
-printfn "BUSINESS SCENARIO:"
-printfn "A pharmaceutical company needs to calculate ground state energies of"
-printfn "drug molecules to predict binding affinity. Quantum Phase Estimation (QPE)"
-printfn "extracts eigenvalues from quantum systems exponentially faster than classical methods."
-printfn ""
+// --- Quantum Backend (Rule 1) ---
+let quantumBackend = LocalBackend() :> IQuantumBackend
 
-// ============================================================================
-// SCENARIO 1: Simple Gate Phase Estimation (Educational)
-// ============================================================================
+// --- CLI ---
+let argv = fsi.CommandLineArgs |> Array.skip 1
+let args = Cli.parse argv
 
-printfn "--- Scenario 1: T-Gate Phase Estimation (Educational) ---"
-printfn ""
+Cli.exitIfHelp
+    "MolecularEnergy.fsx"
+    "Quantum Phase Estimation for molecular energy calculation"
+    [ { Name = "scenario"; Description = "Which scenario (all|tgate|molecular|crystal)"; Default = Some "all" }
+      { Name = "precision"; Description = "Precision qubits for estimation"; Default = Some "10" }
+      { Name = "theta"; Description = "Rotation angle for molecular scenario (radians)"; Default = Some "1.0472" }
+      { Name = "phase-angle"; Description = "Phase angle for crystal scenario (radians)"; Default = Some "0.7854" }
+      { Name = "output"; Description = "Write results to JSON file"; Default = None }
+      { Name = "csv"; Description = "Write results to CSV file"; Default = None }
+      { Name = "quiet"; Description = "Suppress console output"; Default = None } ]
+    args
 
-printfn "The T-gate is a fundamental quantum gate with eigenvalue λ = e^(iπ/4)"
-printfn "We use QPE to estimate the phase φ where λ = e^(2πiφ)"
-printfn ""
+let quiet = Cli.hasFlag "quiet" args
+let outputPath = Cli.tryGet "output" args
+let csvPath = Cli.tryGet "csv" args
+let scenario = Cli.getOr "scenario" "all" args
+let cliPrecision = Cli.getIntOr "precision" 10 args
+let theta = Cli.getFloatOr "theta" (Math.PI / 3.0) args
+let phaseAngle = Cli.getFloatOr "phase-angle" (Math.PI / 4.0) args
 
-let tGateProblem = phaseEstimator {
-    unitary TGate
-    precision 10      // 10 qubits for 10-bit precision
-}
+let pr fmt = Printf.ksprintf (fun s -> if not quiet then printfn "%s" s) fmt
+let shouldRun key = scenario = "all" || scenario = key
 
-printfn "Running QPE circuit..."
-printfn ""
+// --- Result Type ---
 
-match tGateProblem with
-| Ok prob ->
-    match estimate prob with
-    | Ok result ->
-        printfn "✅ SUCCESS: Phase Estimated!"
-        printfn ""
-        printfn "RESULTS:"
-        printfn "  Estimated Phase (φ):  %.6f" result.Phase
-        printfn "  Expected Phase:       0.125 (exact: 1/8)"
-        printfn "  Error:                %.6f" (abs (result.Phase - 0.125))
-        printfn ""
-        
-        let eigenvalue = result.Eigenvalue
-        printfn "  Eigenvalue (λ):       %.4f + %.4fi" eigenvalue.Real eigenvalue.Imaginary
-        printfn "  |λ|:                  %.6f" eigenvalue.Magnitude
-        printfn "  arg(λ):               %.6f radians" eigenvalue.Phase
-        printfn ""
-        printfn "CIRCUIT STATISTICS:"
-        printfn "  Qubits Used:          %d" result.TotalQubits
-        printfn "  Gate Count:           %d" result.GateCount
-        printfn "  Precision:            %d bits" result.Precision
+type QPEResult =
+    { Scenario: string
+      Label: string
+      Phase: float
+      ExpectedPhase: float
+      PhaseError: float
+      Qubits: int
+      GateCount: int
+      PrecisionBits: int
+      Note: string }
 
-    | Error err ->
-        printfn "❌ Execution Error: %s" err.Message
+let mutable jsonResults : QPEResult list = []
+let mutable csvRows : string list list = []
 
-| Error err ->
-    printfn "❌ Builder Error: %s" err.Message
-
-printfn ""
-printfn "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-printfn ""
+let record (r: QPEResult) =
+    jsonResults <- jsonResults @ [ r ]
+    csvRows <- csvRows @ [
+        [ r.Scenario; r.Label; sprintf "%.6f" r.Phase; sprintf "%.6f" r.ExpectedPhase
+          sprintf "%.6f" r.PhaseError; string r.Qubits; string r.GateCount
+          string r.PrecisionBits; r.Note ] ]
 
 // ============================================================================
-// SCENARIO 2: Rotation Gate Analysis (Drug Design Simulation)
+// SCENARIO 1: T-Gate Phase Estimation (Educational)
 // ============================================================================
 
-printfn "--- Scenario 2: Molecular Rotation Hamiltonian ---"
-printfn ""
+if shouldRun "tgate" then
+    pr "--- Scenario 1: T-Gate Phase Estimation (Educational) ---"
+    pr ""
+    pr "The T-gate has eigenvalue e^(i*pi/4), so phase = 1/8 = 0.125"
+    pr ""
 
-let theta = Math.PI / 3.0  // 60-degree rotation
+    let tGateProblem = phaseEstimator {
+        unitary TGate
+        precision cliPrecision
+        backend quantumBackend
+    }
 
-printfn "DRUG MOLECULE SIMULATION:"
-printfn "  Modeling a simplified molecular Hamiltonian H = Rz(θ)"
-printfn "  Rotation angle θ:     %.4f radians (60°)" theta
-printfn "  Goal: Extract ground state energy (lowest eigenvalue)"
-printfn ""
+    match tGateProblem with
+    | Ok prob ->
+        match estimate prob with
+        | Ok result ->
+            let expected = 0.125
+            let err = abs (result.Phase - expected)
 
-let molecularProblem = phaseEstimator {
-    unitary (RotationZ theta)
-    precision 12        // Higher precision for accurate energy
-    targetQubits 1
-}
+            pr "  [OK] Phase Estimated!"
+            pr "  Estimated Phase:  %.6f" result.Phase
+            pr "  Expected Phase:   %.6f" expected
+            pr "  Error:            %.6f" err
+            pr "  Eigenvalue:       %.4f + %.4fi" result.Eigenvalue.Real result.Eigenvalue.Imaginary
+            pr "  Qubits: %d  |  Gates: %d  |  Precision: %d bits" result.TotalQubits result.GateCount result.Precision
+            pr ""
 
-printfn "Simulating molecular quantum dynamics..."
-printfn ""
+            record
+                { Scenario = "tgate"; Label = "T-Gate Phase"
+                  Phase = result.Phase; ExpectedPhase = expected; PhaseError = err
+                  Qubits = result.TotalQubits; GateCount = result.GateCount
+                  PrecisionBits = result.Precision
+                  Note = sprintf "eigenvalue magnitude=%.4f" result.Eigenvalue.Magnitude }
 
-match molecularProblem with
-| Ok prob ->
-    match estimate prob with
-    | Ok result ->
-        printfn "✅ SUCCESS: Molecular Energy Extracted!"
-        printfn ""
-        
-        // In real quantum chemistry, the phase relates to energy: E = hν = ℏω
-        // For this simplified model, we demonstrate the QPE extraction process
-        let energy_au = result.Phase * 2.0 * Math.PI  // Convert phase to energy (atomic units)
-        
-        printfn "MOLECULAR PROPERTIES:"
-        printfn "  Estimated Phase (φ):  %.6f" result.Phase
-        printfn "  Ground State Energy:  %.6f a.u." energy_au
-        printfn "  Eigenvalue Magnitude: %.6f" result.Eigenvalue.Magnitude
-        printfn ""
-        printfn "PHARMACEUTICAL APPLICATION:"
-        printfn "  • Lower energy = More stable molecular configuration"
-        printfn "  • Predicts drug-protein binding affinity"
-        printfn "  • Guides molecular design for optimal efficacy"
-        printfn "  • Quantum advantage: Exponentially faster than classical DFT"
-        printfn ""
-        printfn "QUANTUM RESOURCES:"
-        printfn "  Qubits Required:      %d qubits" result.TotalQubits
-        printfn "  Gate Count:           %d gates" result.GateCount
-        printfn "  Precision:            %d bits (%.4f%% accuracy)" prob.Precision (100.0 / (2.0 ** float prob.Precision))
+        | Error err -> pr "  [ERROR] Execution: %s" err.Message
 
-    | Error err ->
-        printfn "❌ Execution Error: %s" err.Message
-
-| Error err ->
-    printfn "❌ Builder Error: %s" err.Message
-
-printfn ""
-printfn "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-printfn ""
+    | Error err -> pr "  [ERROR] Builder: %s" err.Message
 
 // ============================================================================
-// SCENARIO 3: Phase Gate Analysis (Material Science)
+// SCENARIO 2: Molecular Rotation Hamiltonian (Drug Design)
 // ============================================================================
 
-printfn "--- Scenario 3: Material Science - Crystal Lattice Dynamics ---"
-printfn ""
+if shouldRun "molecular" then
+    pr "--- Scenario 2: Molecular Rotation Hamiltonian ---"
+    pr ""
+    pr "  Modeling simplified Hamiltonian H = Rz(theta)"
+    pr "  Rotation angle: %.4f radians (%.1f deg)" theta (theta * 180.0 / Math.PI)
+    pr ""
 
-let phaseAngle = Math.PI / 4.0  // 45-degree phase shift
+    let molecularProblem = phaseEstimator {
+        unitary (RotationZ theta)
+        precision (max cliPrecision 12)
+        targetQubits 1
+        backend quantumBackend
+    }
 
-printfn "MATERIAL PROPERTY ANALYSIS:"
-printfn "  System: Crystalline solid with periodic structure"
-printfn "  Phase angle θ:        %.4f radians (45°)" phaseAngle
-printfn "  Application: Predicting electronic band structure"
-printfn ""
+    match molecularProblem with
+    | Ok prob ->
+        match estimate prob with
+        | Ok result ->
+            let expectedPhase = theta / (2.0 * Math.PI)
+            let err = abs (result.Phase - expectedPhase)
+            let energyAU = result.Phase * 2.0 * Math.PI
 
-let materialProblem = phaseEstimator {
-    unitary (PhaseGate phaseAngle)
-    precision 12
-}
+            pr "  [OK] Molecular Energy Extracted!"
+            pr "  Estimated Phase:  %.6f" result.Phase
+            pr "  Expected Phase:   %.6f" expectedPhase
+            pr "  Ground State E:   %.6f a.u." energyAU
+            pr "  Phase Error:      %.6f" err
+            pr "  Qubits: %d  |  Gates: %d  |  Precision: %d bits" result.TotalQubits result.GateCount prob.Precision
+            pr ""
+            pr "  Application: Lower energy = more stable molecular config"
+            pr "  Predicts drug-protein binding affinity"
+            pr ""
 
-match materialProblem with
-| Ok problem ->
-    match estimate problem with
-    | Ok result ->
-        printfn "✅ SUCCESS: Band Structure Eigenvalue Extracted!"
-        printfn ""
-        printfn "MATERIAL PROPERTIES:"
-        printfn "  Bloch Phase (φ):      %.6f" result.Phase
-        printfn "  Expected Phase:       %.6f" (phaseAngle / (2.0 * Math.PI))
-        printfn "  Measurement Error:    %.6f" (abs (result.Phase - (phaseAngle / (2.0 * Math.PI))))
-        printfn ""
-        printfn "INDUSTRIAL APPLICATIONS:"
-        printfn "  • Semiconductor design (optimize band gaps)"
-        printfn "  • Solar cell efficiency prediction"
-        printfn "  • Superconductor discovery"
-        printfn "  • Battery material optimization"
-        printfn ""
-        printfn "QUANTUM ADVANTAGE:"
-        printfn "  Classical Methods:    Hours to days (DFT calculations)"
-        printfn "  QPE (Quantum):        Seconds to minutes (exponential speedup)"
-        printfn "  Scalability:          Handles systems with 100+ atoms (classical: ~50 atoms)"
-    
-    | Error err ->
-        printfn "❌ Error: %s" err.Message
-| Error err ->
-    printfn "❌ Problem setup error: %s" err.Message
+            record
+                { Scenario = "molecular"; Label = "Molecular Rotation"
+                  Phase = result.Phase; ExpectedPhase = expectedPhase; PhaseError = err
+                  Qubits = result.TotalQubits; GateCount = result.GateCount
+                  PrecisionBits = prob.Precision
+                  Note = sprintf "energy=%.6f a.u., theta=%.4f" energyAU theta }
 
-printfn ""
-printfn "=== Key Takeaways ==="
-printfn "• Quantum Phase Estimation extracts eigenvalues exponentially faster"
-printfn "• Critical for quantum chemistry, drug discovery, materials science"
-printfn "• Accuracy scales as 1/2^n where n = precision qubits"
-printfn "• Core subroutine in VQE, Shor's algorithm, and HHL linear solver"
-printfn "• Current NISQ hardware: Limited precision due to gate errors"
-printfn "• Future fault-tolerant systems: Will revolutionize computational chemistry"
+        | Error err -> pr "  [ERROR] Execution: %s" err.Message
+
+    | Error err -> pr "  [ERROR] Builder: %s" err.Message
+
+// ============================================================================
+// SCENARIO 3: Crystal Lattice Dynamics (Materials Science)
+// ============================================================================
+
+if shouldRun "crystal" then
+    pr "--- Scenario 3: Crystal Lattice Dynamics ---"
+    pr ""
+    pr "  Phase angle: %.4f radians (%.1f deg)" phaseAngle (phaseAngle * 180.0 / Math.PI)
+    pr "  Application: Electronic band structure prediction"
+    pr ""
+
+    let materialProblem = phaseEstimator {
+        unitary (PhaseGate phaseAngle)
+        precision (max cliPrecision 12)
+        backend quantumBackend
+    }
+
+    match materialProblem with
+    | Ok problem ->
+        match estimate problem with
+        | Ok result ->
+            let expectedPhase = phaseAngle / (2.0 * Math.PI)
+            let err = abs (result.Phase - expectedPhase)
+
+            pr "  [OK] Band Structure Eigenvalue Extracted!"
+            pr "  Bloch Phase:      %.6f" result.Phase
+            pr "  Expected Phase:   %.6f" expectedPhase
+            pr "  Measurement Error: %.6f" err
+            pr "  Qubits: %d  |  Gates: %d" result.TotalQubits result.GateCount
+            pr ""
+            pr "  Applications: semiconductor design, solar cells, superconductors"
+            pr ""
+
+            record
+                { Scenario = "crystal"; Label = "Crystal Lattice"
+                  Phase = result.Phase; ExpectedPhase = expectedPhase; PhaseError = err
+                  Qubits = result.TotalQubits; GateCount = result.GateCount
+                  PrecisionBits = problem.Precision
+                  Note = sprintf "phaseAngle=%.4f rad" phaseAngle }
+
+        | Error err -> pr "  [ERROR] %s" err.Message
+
+    | Error err -> pr "  [ERROR] Builder: %s" err.Message
+
+// --- JSON output ---
+
+outputPath
+|> Option.iter (fun path ->
+    let payload =
+        jsonResults
+        |> List.map (fun r ->
+            dict [
+                "scenario", box r.Scenario
+                "label", box r.Label
+                "phase", box r.Phase
+                "expectedPhase", box r.ExpectedPhase
+                "phaseError", box r.PhaseError
+                "qubits", box r.Qubits
+                "gateCount", box r.GateCount
+                "precisionBits", box r.PrecisionBits
+                "note", box r.Note ])
+    Reporting.writeJson path payload)
+
+// --- CSV output ---
+
+csvPath
+|> Option.iter (fun path ->
+    let header = [ "scenario"; "label"; "phase"; "expectedPhase"; "phaseError"; "qubits"; "gateCount"; "precisionBits"; "note" ]
+    Reporting.writeCsv path header csvRows)
+
+// --- Summary ---
+
+if not quiet then
+    pr ""
+    pr "=== Summary ==="
+    jsonResults
+    |> List.iter (fun r ->
+        pr "  [OK] %-25s phase=%.6f (err=%.6f) %d qubits" r.Label r.Phase r.PhaseError r.Qubits)
+    pr ""
+    pr "Key: QPE extracts eigenvalues in O(poly(n)/eps) vs O(N^3) classical"
+    pr ""
+
+if not quiet && outputPath.IsNone && csvPath.IsNone && (argv |> Array.isEmpty) then
+    pr "Tip: Use --output results.json or --csv results.csv to export data."
+    pr "     Use --scenario tgate to run a single scenario."
+    pr "     Use --precision 14 for higher accuracy."
+    pr "     Run with --help for all options."

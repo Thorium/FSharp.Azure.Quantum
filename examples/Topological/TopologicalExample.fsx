@@ -1,396 +1,295 @@
-// ============================================================================
-// Topological Quantum Computing Example
-// Demonstrates the layered architecture with idiomatic F#
-// ============================================================================
+(*
+    Topological Quantum Computing -- Layered Architecture Demo
+    ============================================================
 
-#r "../../src/FSharp.Azure.Quantum.Topological/bin/Debug/net10.0/FSharp.Azure.Quantum.Topological.dll"
+    Demonstrates the full topological computing stack through 6 layers:
+      1  Core math: fusion rules, quantum dimensions
+      2  Backend capabilities: IQuantumBackend properties
+      3  Quantum circuit: initialize, braid, measure via IQuantumBackend
+      4  Algorithm: knot invariant via braiding measurement
+      5  Builder pattern: topological { } computation expression
+      6  Business application: topological error detection
+
+    Run with: dotnet fsi TopologicalExample.fsx
+              dotnet fsi TopologicalExample.fsx -- --example 3
+              dotnet fsi TopologicalExample.fsx -- --quiet --output r.json --csv r.csv
+*)
+
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
+#r "../../src/FSharp.Azure.Quantum.Topological/bin/Debug/net10.0/FSharp.Azure.Quantum.Topological.dll"
+#load "../_common/Cli.fs"
+#load "../_common/Data.fs"
+#load "../_common/Reporting.fs"
 
-open FSharp.Azure.Quantum.Topological
 open System
+open FSharp.Azure.Quantum.Topological
+open FSharp.Azure.Quantum.Core
+open FSharp.Azure.Quantum.Core.BackendAbstraction
+open FSharp.Azure.Quantum.Examples.Common
 
-// ============================================================================
-// LAYER 1: CORE - Mathematical Foundation (Pure Functions)
-// ============================================================================
-// This layer contains the mathematical primitives: anyon species, fusion rules,
-// braiding operators. These are pure functions with no side effects.
+// ---------------------------------------------------------------------------
+// CLI
+// ---------------------------------------------------------------------------
+let argv = fsi.CommandLineArgs |> Array.skip 1
+let args = Cli.parse argv
 
-module CoreTopologicalMath =
-    
-    /// Create an Ising theory context
-    let isingTheory = AnyonSpecies.AnyonType.Ising
-    
-    /// Get fusion channels for sigma × sigma
-    let sigmaFusionChannels = 
-        FusionRules.channels 
-            AnyonSpecies.Particle.Sigma 
-            AnyonSpecies.Particle.Sigma 
-            isingTheory
-    
-    /// Demonstrate fusion rule: σ × σ = 1 + ψ
-    let demonstrateFusionRule () =
-        printfn "=== Core Fusion Rules ==="
-        printfn "σ × σ fusion channels:"
-        match sigmaFusionChannels with
-        | Ok channels ->
-            channels |> List.iter (fun channel -> printfn "  - %A" channel)
-        | Error err ->
-            printfn "  Error: %s" err.Message
-        printfn ""
-        
-        // Calculate quantum dimension
-        let sigmaDim = AnyonSpecies.quantumDimension AnyonSpecies.Particle.Sigma
-        printfn "Quantum dimension of σ: %f" sigmaDim
-        printfn ""
+Cli.exitIfHelp "TopologicalExample.fsx" "Layered topological quantum computing architecture demo"
+    [ { Name = "example"; Description = "Which example: 1-6|all"; Default = Some "all" }
+      { Name = "output";  Description = "Write results to JSON file"; Default = None }
+      { Name = "csv";     Description = "Write results to CSV file";  Default = None }
+      { Name = "quiet";   Description = "Suppress console output";    Default = None } ] args
 
-// ============================================================================
-// LAYER 2: BACKENDS - Execution Abstraction
-// ============================================================================
-// This layer provides backend implementations (simulator, hardware) that
-// execute topological quantum operations. Uses unified IQuantumBackend.
+let quiet      = Cli.hasFlag "quiet" args
+let outputPath = Cli.tryGet "output" args
+let csvPath    = Cli.tryGet "csv" args
+let exChoice   = Cli.getOr "example" "all" args
 
-module TopologicalBackends =
-    open FSharp.Azure.Quantum.Core.BackendAbstraction
-    
-    /// Create a local simulator backend for Ising anyons
-    let createIsingSimulator maxAnyons =
-        TopologicalUnifiedBackendFactory.createIsing maxAnyons
-    
-    /// Create a local simulator backend for Fibonacci anyons
-    let createFibonacciSimulator maxAnyons =
-        TopologicalUnifiedBackendFactory.createFibonacci maxAnyons
-    
-    /// Demonstrate backend capabilities
-    let demonstrateBackendCapabilities () =
-        printfn "=== Backend Capabilities ==="
-        
-        let backend = createIsingSimulator 10
-        // Unified backend doesn't expose raw Capabilities object in the same way,
-        // but we can query it.
-        printfn "Backend Name: %s" backend.Name
-        printfn "Native State Type: %A" backend.NativeStateType
-        
-        // We can check supported operations
-        let supportsBraid = backend.SupportsOperation (QuantumOperation.Braid 0)
-        let supportsMeasure = backend.SupportsOperation (QuantumOperation.Measure 0)
-        
-        printfn "Supports braiding: %b" supportsBraid
-        printfn "Supports measurement: %b" supportsMeasure
-        printfn ""
+let pr fmt = Printf.ksprintf (fun s -> if not quiet then printfn "%s" s) fmt
+let shouldRun ex = exChoice = "all" || exChoice = string ex
+let separator () = pr "%s" (String.replicate 60 "-")
 
-// ============================================================================
-// LAYER 3: OPERATIONS - High-Level Quantum Operations
-// ============================================================================
-// This layer builds on backends to provide meaningful quantum operations.
-// We use the unified QuantumOperation and QuantumState types.
+// ---------------------------------------------------------------------------
+// Quantum backend (Rule 1)
+// ---------------------------------------------------------------------------
+let quantumBackend = TopologicalUnifiedBackendFactory.createIsing 20
 
-module TopologicalCircuits =
-    open FSharp.Azure.Quantum.Core
-    open FSharp.Azure.Quantum.Core.BackendAbstraction
-    
-    /// Encode a topological qubit using 4 sigma anyons
-    /// This creates a qubit in the |0⟩ state (all fuse to vacuum)
-    let encodeQubitZero (backend: IQuantumBackend) = 
-        task {
-            // Initialize 4 sigma anyons
-            // Note: InitializeState returns Result<QuantumState, QuantumError>
-            let result = backend.InitializeState 4
-            return 
-                match result with
-                | Ok state -> state
-                | Error e -> failwith $"Initialize failed: {e}"
-        }
-    
-    /// Apply a braiding sequence to implement a quantum gate
-    let applyBraidingGate 
-        (backend: IQuantumBackend) 
-        (state: QuantumState) =
-        task {
-            // Braid first pair of anyons
-            // backend.ApplyOperation returns Result<QuantumState, QuantumError>
-            let result1 = backend.ApplyOperation (QuantumOperation.Braid 0) state
-            let state1 = 
-                match result1 with
-                | Ok s -> s
-                | Error e -> failwith $"Braid failed: {e}"
-            
-            // Braid second pair
-            let result2 = backend.ApplyOperation (QuantumOperation.Braid 2) state1
-            let state2 = 
-                match result2 with
-                | Ok s -> s
-                | Error e -> failwith $"Braid failed: {e}"
-            
-            // Braid first pair again
-            let result3 = backend.ApplyOperation (QuantumOperation.Braid 0) state2
-            let state3 = 
-                match result3 with
-                | Ok s -> s
-                | Error e -> failwith $"Braid failed: {e}"
-            
-            return state3
-        }
-    
-    /// Demonstrate a simple quantum circuit
-    let demonstrateQuantumCircuit () = task {
-        printfn "=== Topological Quantum Circuit ==="
-        
-        let backend = TopologicalBackends.createIsingSimulator 10
-        
-        // Initialize qubit
-        printfn "Initializing 4-anyon qubit..."
-        let! qubit = encodeQubitZero backend
-        
-        // Inspect state (cast to specific type for details)
-        match qubit with
-        | QuantumState.FusionSuperposition fs ->
-             // Need to cast to underlying type or access known properties
-             // Since FusionSuperposition wraps ITopologicalSuperposition, we need to inspect the interface
-             printfn "Initial state created: %d logical qubits" fs.LogicalQubits
-        | _ -> printfn "State created (abstract)"
-        
-        // Apply braiding operations
-        printfn "Applying braiding sequence (quantum gate)..."
-        let! evolved = applyBraidingGate backend qubit
-        
-        match evolved with
-        | QuantumState.FusionSuperposition fs ->
-             printfn "State after braiding: %d logical qubits" fs.LogicalQubits
-        | _ -> ()
-        
-        // Measure
-        // For manual measurement with IQuantumBackend in this example, 
-        // we'll use the TopologicalOperations helper directly to get the outcome,
-        // as ApplyOperation(Measure) updates the state but returns void/state.
-        printfn "Measuring fusion..."
-        
-        match evolved with
-        | QuantumState.FusionSuperposition fs ->
-            // Unwrap to native type
-            match TopologicalOperations.fromInterface fs with
-            | Some nativeState ->
-                 // We measure the first term (assuming pure state for this simple demo)
-                 let singleState = snd (List.head nativeState.Terms)
-                 match TopologicalOperations.measureFusion 0 singleState with
-                 | Ok outcomes ->
-                     let (prob, result) = List.head outcomes
-                     match result.ClassicalOutcome with
-                     | Some outcome ->
-                         printfn "Measurement outcome: %A (probability: %.4f)" outcome prob
-                     | None -> printfn "Measurement collapsed state but no outcome"
-                 | Error e -> printfn "Measurement failed: %s" e.Message
-            | None -> printfn "Could not unwrap state"
-        | _ -> printfn "Cannot measure abstract state manually in this demo"
-        
-        printfn ""
-    }
+// Results accumulators
+let mutable jsonResults : (string * obj) list = []
+let mutable csvRows     : string list list    = []
 
-// ============================================================================
-// LAYER 4: ALGORITHMS - Domain-Specific Quantum Algorithms
-// ============================================================================
-// This layer implements algorithms specific to topological quantum computing.
+// Fold a sequence of braid operations over a quantum state, short-circuiting on error
+let applyBraids indices state =
+    (Ok state, indices) ||> List.fold (fun acc idx ->
+        acc |> Result.bind (fun s ->
+            quantumBackend.ApplyOperation (QuantumOperation.Braid idx) s
+            |> Result.mapError (fun e -> sprintf "Braid %d failed: %A" idx e)))
 
-module TopologicalAlgorithms =
-    open FSharp.Azure.Quantum.Core
-    open FSharp.Azure.Quantum.Core.BackendAbstraction
-    
-    /// Calculate Kauffman bracket invariant via topological measurement
-    let calculateKnotInvariant 
-        (backend: IQuantumBackend)
-        (braidingSequence: int list) =
-        task {
-            // Create anyon pairs
-            let initResult = backend.InitializeState 6
-            let initialState = 
-                match initResult with
-                | Ok s -> s
-                | Error e -> failwith $"Initialize failed: {e}"
-            
-            // Apply braiding sequence to form knot
-            let mutable state = initialState
-            for index in braidingSequence do
-                let braidResult = backend.ApplyOperation (QuantumOperation.Braid index) state
-                state <- 
-                    match braidResult with
-                    | Ok s -> s
-                    | Error e -> failwith $"Braid failed: {e}"
-            
-            // Measure manually
+// ---------------------------------------------------------------------------
+// Example 1 -- Core Topological Math (Layer 1)
+// ---------------------------------------------------------------------------
+if shouldRun 1 then
+    separator ()
+    pr "EXAMPLE 1: Core Fusion Rules (Layer 1 - Math)"
+    separator ()
+
+    let channels =
+        FusionRules.channels
+            AnyonSpecies.Particle.Sigma
+            AnyonSpecies.Particle.Sigma
+            AnyonSpecies.AnyonType.Ising
+
+    match channels with
+    | Ok ch ->
+        pr "  sigma x sigma fusion channels:"
+        ch |> List.iter (fun c -> pr "    %A" c)
+    | Error err ->
+        pr "  Error: %s" err.Message
+
+    let sigmaDim = AnyonSpecies.quantumDimension AnyonSpecies.Particle.Sigma
+    pr "  Quantum dimension of sigma: %.4f" sigmaDim
+
+    jsonResults <- ("1_core", box {| sigmaDim = sigmaDim |}) :: jsonResults
+    csvRows <- [ "1_core"; sprintf "%.4f" sigmaDim ] :: csvRows
+
+// ---------------------------------------------------------------------------
+// Example 2 -- Backend Capabilities (Layer 2)
+// ---------------------------------------------------------------------------
+if shouldRun 2 then
+    separator ()
+    pr "EXAMPLE 2: Backend Capabilities (Layer 2)"
+    separator ()
+
+    pr "  Name:            %s" quantumBackend.Name
+    pr "  Native state:    %A" quantumBackend.NativeStateType
+    pr "  Supports braid:  %b" (quantumBackend.SupportsOperation (QuantumOperation.Braid 0))
+    pr "  Supports measure: %b" (quantumBackend.SupportsOperation (QuantumOperation.Measure 0))
+
+    jsonResults <- ("2_backend", box {| name = quantumBackend.Name |}) :: jsonResults
+    csvRows <- [ "2_backend"; quantumBackend.Name ] :: csvRows
+
+// ---------------------------------------------------------------------------
+// Example 3 -- Quantum Circuit (Layer 3)
+// ---------------------------------------------------------------------------
+if shouldRun 3 then
+    separator ()
+    pr "EXAMPLE 3: Topological Quantum Circuit (Layer 3)"
+    separator ()
+
+    let circuitResult =
+        pr "  Initializing 4-anyon qubit..."
+        quantumBackend.InitializeState 4
+        |> Result.mapError (fun e -> sprintf "Init failed: %A" e)
+        |> Result.bind (fun qubit ->
+            match qubit with
+            | QuantumState.FusionSuperposition fs ->
+                pr "  Initial state: %d logical qubits" fs.LogicalQubits
+            | _ -> pr "  State created (abstract)"
+
+            pr "  Applying braiding sequence..."
+            applyBraids [ 0; 2; 0 ] qubit)
+        |> Result.bind (fun state ->
+            match state with
+            | QuantumState.FusionSuperposition fs ->
+                pr "  After braiding: %d logical qubits" fs.LogicalQubits
+            | _ -> ()
+
+            pr "  Measuring fusion..."
             match state with
             | QuantumState.FusionSuperposition fs ->
                 match TopologicalOperations.fromInterface fs with
                 | Some nativeState ->
-                     let singleState = snd (List.head nativeState.Terms)
-                     match TopologicalOperations.measureFusion 0 singleState with
-                     | Ok outcomes ->
-                         let (prob, result) = List.head outcomes
-                         match result.ClassicalOutcome with
-                         | Some outcome -> return (outcome, prob)
-                         | None -> return failwith "No outcome"
-                     | Error e -> return failwith e.Message
-                | None -> return failwith "Invalid state"
-            | _ -> return failwith "Invalid state type"
-        }
-    
-    /// Demonstrate topological-specific algorithm
-    let demonstrateKnotInvariantCalculation () = task {
-        printfn "=== Topological Algorithm: Knot Invariant ==="
-        
-        // Increase capacity to support complex braids
-        let backend = TopologicalBackends.createIsingSimulator 20
-        
-        // Define a simple braiding pattern (trefoil knot)
-        let braidingPattern = [0; 2; 0; 2; 0; 2]
-        
-        printfn "Calculating Kauffman invariant via braiding pattern: %A" braidingPattern
-        
-        let! (outcome, probability) = calculateKnotInvariant backend braidingPattern
-        
-        printfn "Knot invariant measurement:"
-        printfn "  Fusion outcome: %A" outcome
-        printfn "  Reannihilation probability: %.6f" probability
-        printfn "  (Related to |Kauffman bracket|²)"
-        printfn ""
-    }
+                    let singleState = snd (List.head nativeState.Terms)
+                    TopologicalOperations.measureFusion 0 singleState
+                    |> Result.mapError (fun e -> sprintf "Measure: %s" e.Message)
+                    |> Result.bind (fun outcomes ->
+                        let (prob, result) = List.head outcomes
+                        match result.ClassicalOutcome with
+                        | Some outcome ->
+                            pr "  Outcome: %A (prob: %.4f)" outcome prob
+                            Ok (sprintf "%A" outcome, prob)
+                        | None -> Ok ("collapsed", 0.0))
+                | None -> Error "Could not unwrap state"
+            | _ -> Error "Invalid state type")
 
-// ============================================================================
-// LAYER 5: BUSINESS BUILDERS - User-Friendly DSL
-// ============================================================================
-// This layer provides computation expression builders for composing
-// topological quantum programs in an idiomatic F# style.
-// WE USE THE LIBRARY'S BUILDER HERE.
+    match circuitResult with
+    | Ok (outcome, prob) ->
+        jsonResults <- ("3_circuit", box {| outcome = outcome; probability = prob |}) :: jsonResults
+        csvRows <- [ "3_circuit"; outcome; sprintf "%.4f" prob ] :: csvRows
+    | Error msg ->
+        pr "  Error: %s" msg
+        jsonResults <- ("3_circuit", box {| error = msg |}) :: jsonResults
+        csvRows <- [ "3_circuit"; "error"; msg ] :: csvRows
 
-module TopologicalBuilders =
-    open FSharp.Azure.Quantum.Core.BackendAbstraction
-    open FSharp.Azure.Quantum.Core
-    open System.Threading.Tasks
-    
-    // We define a local helper to execute the builder programs
-    // because the direct usage of the library builder in F# scripts 
-    // sometimes has type inference issues with overloads.
-    
-    /// Example using the builder
-    let exampleProgram (backend: IQuantumBackend) = topological backend {
-        // Initialize
+// ---------------------------------------------------------------------------
+// Example 4 -- Knot Invariant Algorithm (Layer 4)
+// ---------------------------------------------------------------------------
+if shouldRun 4 then
+    separator ()
+    pr "EXAMPLE 4: Knot Invariant via Braiding (Layer 4)"
+    separator ()
+
+    let braidingPattern = [ 0; 2; 0; 2; 0; 2 ]
+
+    let knotResult =
+        pr "  Braiding pattern (trefoil): %A" braidingPattern
+        quantumBackend.InitializeState 6
+        |> Result.mapError (fun e -> sprintf "Init: %A" e)
+        |> Result.bind (applyBraids braidingPattern)
+        |> Result.bind (fun state ->
+            match state with
+            | QuantumState.FusionSuperposition fs ->
+                match TopologicalOperations.fromInterface fs with
+                | Some nativeState ->
+                    let singleState = snd (List.head nativeState.Terms)
+                    TopologicalOperations.measureFusion 0 singleState
+                    |> Result.mapError (fun e -> e.Message)
+                    |> Result.bind (fun outcomes ->
+                        let (prob, result) = List.head outcomes
+                        match result.ClassicalOutcome with
+                        | Some outcome ->
+                            pr "  Fusion outcome: %A" outcome
+                            pr "  Reannihilation probability: %.6f" prob
+                            pr "  (Related to |Kauffman bracket|^2)"
+                            Ok (sprintf "%A" outcome, prob)
+                        | None -> Ok ("collapsed", 0.0))
+                | None -> Error "Invalid state"
+            | _ -> Error "Invalid state type")
+
+    match knotResult with
+    | Ok (outcome, prob) ->
+        jsonResults <- ("4_knot", box {| outcome = outcome; probability = prob |}) :: jsonResults
+        csvRows <- [ "4_knot"; outcome; sprintf "%.6f" prob ] :: csvRows
+    | Error msg ->
+        pr "  Error: %s" msg
+
+// ---------------------------------------------------------------------------
+// Example 5 -- Builder Pattern (Layer 5)
+// ---------------------------------------------------------------------------
+if shouldRun 5 then
+    separator ()
+    pr "EXAMPLE 5: Builder Pattern (Layer 5 - Idiomatic F#)"
+    separator ()
+
+    let program = topological quantumBackend {
         do! TopologicalBuilder.initialize AnyonSpecies.AnyonType.Ising 4
-        
-        // Apply braiding
         do! TopologicalBuilder.braid 0
         do! TopologicalBuilder.braid 2
         do! TopologicalBuilder.braid 0
-        
-        // Measure
-        // Explicit type annotation helps resolution
         let! (outcome: AnyonSpecies.Particle) = TopologicalBuilder.measure 0
-        
         return outcome
     }
-    
-    /// Demonstrate builder usage
-    let demonstrateBuilder () = task {
-        printfn "=== Builder Pattern (Idiomatic F#) ==="
-        
-        let backend = TopologicalBackends.createIsingSimulator 10
-        
-        // IMPORTANT: The builder returns a function (Context -> Task<...>)
-        // We must execute it using the runner.
-        let program = exampleProgram backend
-        let! result = TopologicalBuilder.execute backend program
-        
-        match result with
-        | Ok (outcome) ->
-            printfn "Program result:"
-            printfn "  Outcome: %A" outcome
-            
-        | Error e ->
-            printfn "Program failed: %A" e
-            
-        printfn ""
+
+    let builderResult =
+        task {
+            let! r = TopologicalBuilder.execute quantumBackend program
+            return r
+        } |> Async.AwaitTask |> Async.RunSynchronously
+
+    match builderResult with
+    | Ok outcome ->
+        pr "  Builder outcome: %A" outcome
+        jsonResults <- ("5_builder", box {| outcome = sprintf "%A" outcome |}) :: jsonResults
+        csvRows <- [ "5_builder"; sprintf "%A" outcome ] :: csvRows
+    | Error e ->
+        pr "  Builder failed: %A" e
+
+// ---------------------------------------------------------------------------
+// Example 6 -- Business Application: Error Detection (Layer 6)
+// ---------------------------------------------------------------------------
+if shouldRun 6 then
+    separator ()
+    pr "EXAMPLE 6: Topological Error Detection (Layer 6 - Business)"
+    separator ()
+
+    let errorProgram = topological quantumBackend {
+        do! TopologicalBuilder.initialize AnyonSpecies.AnyonType.Ising 4
+        do! TopologicalBuilder.braid 0
+        let! (outcome: AnyonSpecies.Particle) = TopologicalBuilder.measure 0
+        let errorDetected =
+            match outcome with
+            | AnyonSpecies.Particle.Vacuum -> false
+            | AnyonSpecies.Particle.Psi -> true
+            | _ -> false
+        return errorDetected
     }
 
-// ============================================================================
-// LAYER 6: BUSINESS DOMAIN - Real-World Applications
-// ============================================================================
-// This layer maps business problems to topological quantum solutions.
+    let errorResult =
+        task {
+            let! r = TopologicalBuilder.execute quantumBackend errorProgram
+            return r
+        } |> Async.AwaitTask |> Async.RunSynchronously
 
-module BusinessApplications =
-    open FSharp.Azure.Quantum.Core.BackendAbstraction
-    open FSharp.Azure.Quantum.Core
-    
-    /// Quantum error detection using topological properties
-    let topologicalErrorDetection 
-        (backend: IQuantumBackend) = 
-        topological backend {
-            // Create a qubit
-            do! TopologicalBuilder.initialize AnyonSpecies.AnyonType.Ising 4
-            
-            // Simulate operations (braid)
-            do! TopologicalBuilder.braid 0
-            
-            // Measure syndrome
-            let! (outcome: AnyonSpecies.Particle) = TopologicalBuilder.measure 0
-            
-            let errorDetected = 
-                match outcome with
-                | AnyonSpecies.Particle.Vacuum -> false  // No error
-                | AnyonSpecies.Particle.Psi -> true      // Error detected!
-                | _ -> false
-            
-            return errorDetected
-        }
-    
-    /// Demonstrate business application
-    let demonstrateErrorDetection () = task {
-        printfn "=== Business Application: Error Detection ==="
-        
-        let backend = TopologicalBackends.createIsingSimulator 10
-        
-        // Execute the program
-        let program = topologicalErrorDetection backend
-        let! result = TopologicalBuilder.execute backend program
-        
-        match result with
-        | Ok (hasError) ->
-            printfn "Error detection result: %s" 
-                (if hasError then "ERROR DETECTED!" else "No errors")
-        | Error e ->
-            printfn "Error: %A" e
-            
-        printfn ""
-    }
+    match errorResult with
+    | Ok hasError ->
+        let status = if hasError then "ERROR DETECTED" else "No errors"
+        pr "  Error detection: %s" status
+        jsonResults <- ("6_error_detect", box {| errorDetected = hasError |}) :: jsonResults
+        csvRows <- [ "6_error_detect"; string hasError ] :: csvRows
+    | Error e ->
+        pr "  Error: %A" e
 
-// ============================================================================
-// MAIN DEMONSTRATION
-// ============================================================================
+// ---------------------------------------------------------------------------
+// Output
+// ---------------------------------------------------------------------------
+if outputPath.IsSome then
+    let payload =
+        {| script    = "TopologicalExample.fsx"
+           backend   = quantumBackend.Name
+           timestamp = DateTime.UtcNow.ToString("o")
+           example   = exChoice
+           results   = jsonResults |> List.rev |> List.map (fun (k,v) -> {| key = k; value = v |}) |}
+    Reporting.writeJson outputPath.Value payload
 
-let runAllExamples () = task {
-    printfn "╔══════════════════════════════════════════════════════════════╗"
-    printfn "║  Topological Quantum Computing - Layered Architecture Demo  ║"
-    printfn "╚══════════════════════════════════════════════════════════════╝"
-    printfn ""
-    
-    // Layer 1: Core
-    CoreTopologicalMath.demonstrateFusionRule ()
-    
-    // Layer 2: Backends
-    TopologicalBackends.demonstrateBackendCapabilities ()
-    
-    // Layer 3: Operations
-    do! TopologicalCircuits.demonstrateQuantumCircuit ()
-    
-    // Layer 4: Algorithms
-    do! TopologicalAlgorithms.demonstrateKnotInvariantCalculation ()
-    
-    // Layer 5: Builders
-    do! TopologicalBuilders.demonstrateBuilder ()
-    
-    // Layer 6: Business
-    do! BusinessApplications.demonstrateErrorDetection ()
-    
-    printfn "╔══════════════════════════════════════════════════════════════╗"
-    printfn "║  All examples completed successfully!                       ║"
-    printfn "╚══════════════════════════════════════════════════════════════╝"
-}
+if csvPath.IsSome then
+    let header = [ "example"; "detail1"; "detail2" ]
+    Reporting.writeCsv csvPath.Value header (csvRows |> List.rev)
 
-// Run the demonstration
-runAllExamples() |> Async.AwaitTask |> Async.RunSynchronously
+// ---------------------------------------------------------------------------
+// Usage hints
+// ---------------------------------------------------------------------------
+if not quiet && argv.Length = 0 then
+    pr ""
+    pr "Usage hints:"
+    pr "  dotnet fsi TopologicalExample.fsx -- --example 5"
+    pr "  dotnet fsi TopologicalExample.fsx -- --quiet --output r.json --csv r.csv"
+    pr "  dotnet fsi TopologicalExample.fsx -- --help"

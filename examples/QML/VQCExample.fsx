@@ -1,443 +1,361 @@
 (*
     Variational Quantum Classifier (VQC) Example
     ============================================
-    
-    Demonstrates end-to-end quantum machine learning using VQC:
-    - Binary classification with quantum circuits
-    - Training with parameter shift rule
-    - Model evaluation with standard ML metrics
-    - Real quantum simulation with LocalBackend
-    
+
+    End-to-end quantum machine learning: train, predict, evaluate.
+    Uses parameter shift rule for quantum gradients on LocalBackend.
+
     Run with: dotnet fsi VQCExample.fsx
+              dotnet fsi VQCExample.fsx -- --epochs 10 --learning-rate 0.05
+              dotnet fsi VQCExample.fsx -- --example 4 --quiet --output r.json
+
+    References:
+      [1] Havlicek et al., Nature 567, 209-212 (2019)
+      [2] Schuld & Petruccione, "ML with Quantum Computers" (2021)
+      [3] Mitarai et al., Phys. Rev. A 98, 032309 (2018)
 *)
 
-(*
-===============================================================================
- Background Theory
-===============================================================================
-
-A Variational Quantum Classifier (VQC) is a hybrid quantum-classical algorithm
-for supervised machine learning. The approach uses parameterized quantum circuits
-(PQCs) as trainable models: classical data is encoded into quantum states via
-a feature map, then processed by a variational ansatz with tunable parameters,
-and finally measured to produce predictions. The parameters are optimized using
-classical gradient-based methods, creating a feedback loop between quantum
-circuit execution and classical optimization.
-
-The key innovation enabling gradient computation is the "parameter shift rule,"
-which allows exact gradient calculation on quantum hardware. For a gate with
-parameter θ, the gradient ∂f/∂θ can be computed as:
-  ∂f/∂θ = [f(θ + π/2) - f(θ - π/2)] / 2
-This requires only two circuit evaluations per parameter, making VQC compatible
-with NISQ devices where backpropagation is impossible.
-
-Key Equations:
-  - Quantum feature map: |ψ(x)⟩ = U(x)|0⟩ⁿ where x is classical input
-  - Variational ansatz: |φ(θ)⟩ = V(θ)|ψ(x)⟩ with trainable parameters θ
-  - Prediction: ŷ = ⟨φ(θ)|M|φ(θ)⟩ for observable M (typically Z measurement)
-  - Parameter shift gradient: ∂⟨M⟩/∂θ = ½[⟨M⟩_{θ+π/2} - ⟨M⟩_{θ-π/2}]
-  - Binary cross-entropy loss: L = -Σ[y·log(p) + (1-y)·log(1-p)]
-
-Quantum Advantage:
-  VQCs can access exponentially large feature spaces (2ⁿ-dimensional Hilbert
-  space for n qubits) that may be classically intractable to compute. Havlicek
-  et al. (2019) demonstrated provable quantum advantage for classification
-  problems where the quantum kernel is hard to simulate classically. For NISQ
-  devices, VQCs offer a practical path to quantum machine learning with shallow
-  circuits and noise resilience through variational optimization.
-
-Bias-Variance Tradeoff:
-  A fundamental concept from statistical learning theory applies directly to VQC
-  design: the bias-variance tradeoff [5]. Circuit depth controls model flexibility—
-  deeper circuits (more layers) have lower bias but higher variance, while shallow
-  circuits have higher bias but lower variance. Underfitting occurs when circuits
-  are too shallow to capture the decision boundary; overfitting when circuits are
-  so deep they memorize training noise. The optimal depth minimizes total expected
-  error, which is bias² + variance + irreducible error. Cross-validation (splitting
-  data into training/validation sets) helps identify this optimal complexity.
-
-Model Selection:
-  Choosing the right circuit architecture (feature map type, ansatz depth, entanglement
-  pattern) is analogous to model selection in classical ML [6, Ch. 7]. Use k-fold
-  cross-validation to compare architectures: split data into k folds, train on k-1,
-  validate on the held-out fold, and average performance. For VQCs, key hyperparameters
-  include circuit depth, feature map type (angle vs. ZZ vs. amplitude), and ansatz
-  structure (RealAmplitudes vs. EfficientSU2). The "one standard error rule" from [6]
-  suggests choosing the simplest model within one standard error of the minimum CV error.
-
-Regularization and Barren Plateaus:
-  Regularization in classical ML (L1/L2 penalties, early stopping) prevents overfitting
-  by constraining model complexity [6, Ch. 3.4]. In VQCs, quantum noise acts as implicit
-  regularization—hardware noise effectively "blurs" the loss landscape. However, deep
-  circuits suffer from barren plateaus (exponentially vanishing gradients), making
-  optimization intractable. This creates a unique constraint: regularization via shallow
-  circuits is necessary not just for generalization but for trainability. Techniques
-  like layer-wise training and parameter initialization strategies help mitigate this.
-
-References:
-  [1] Havlicek et al., "Supervised learning with quantum-enhanced feature spaces",
-      Nature 567, 209-212 (2019). https://doi.org/10.1038/s41586-019-0980-2
-  [2] Schuld & Petruccione, "Machine Learning with Quantum Computers",
-      Springer (2021). https://doi.org/10.1007/978-3-030-83098-4
-  [3] Mitarai et al., "Quantum circuit learning", Phys. Rev. A 98, 032309 (2018).
-      https://doi.org/10.1103/PhysRevA.98.032309
-  [4] Wikipedia: Variational_quantum_eigensolver (VQE uses similar principles)
-      https://en.wikipedia.org/wiki/Variational_quantum_eigensolver
-  [5] James et al., "An Introduction to Statistical Learning with Applications
-      in Python", Springer (2023). Chapter 2: Statistical Learning (bias-variance).
-      https://www.statlearning.com/
-  [6] Hastie, Tibshirani, Friedman, "The Elements of Statistical Learning", 2nd ed.,
-      Springer (2009). Ch. 3.4 (shrinkage), Ch. 7 (model selection). https://hastie.su.domains/ElemStatLearn/
-*)
-
-//#r "nuget: FSharp.Azure.Quantum"
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
-
-//#load "../../src/FSharp.Azure.Quantum/Types.fs"
-//#load "../../src/FSharp.Azure.Quantum/Backends.fs"
-//#load "../../src/FSharp.Azure.Quantum/LocalBackend.fs"
-//#load "../../src/FSharp.Azure.Quantum/MachineLearning/QMLTypes.fs"
-//#load "../../src/FSharp.Azure.Quantum/MachineLearning/FeatureMap.fs"
-//#load "../../src/FSharp.Azure.Quantum/MachineLearning/VariationalForm.fs"
-//#load "../../src/FSharp.Azure.Quantum/MachineLearning/VQC.fs"
+#load "../_common/Cli.fs"
+#load "../_common/Data.fs"
+#load "../_common/Reporting.fs"
 
 open System
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.MachineLearning
+open FSharp.Azure.Quantum.Core.BackendAbstraction
+open FSharp.Azure.Quantum.Backends.LocalBackend
+open FSharp.Azure.Quantum.Examples.Common
 
-// Helper function to print section headers
-let printSection title =
-    printfn ""
-    printfn "%s" (String.replicate 60 "=")
-    printfn "%s" title
-    printfn "%s" (String.replicate 60 "=")
-    printfn ""
+// ---------------------------------------------------------------------------
+// CLI
+// ---------------------------------------------------------------------------
+let argv = fsi.CommandLineArgs |> Array.skip 1
+let args = Cli.parse argv
 
-// Helper function to print results
-let printResult label value =
-    printfn "%-30s: %s" label value
+Cli.exitIfHelp "VQCExample.fsx" "End-to-end Variational Quantum Classifier (train, predict, evaluate)"
+    [ { Name = "example";       Description = "Which example: 1-8|all";          Default = Some "all" }
+      { Name = "epochs";        Description = "Max training epochs";             Default = Some "5" }
+      { Name = "learning-rate"; Description = "Optimiser learning rate";         Default = Some "0.1" }
+      { Name = "shots";         Description = "Shots per circuit evaluation";    Default = Some "1000" }
+      { Name = "ansatz-depth";  Description = "Variational form depth";          Default = Some "2" }
+      { Name = "output";        Description = "Write results to JSON file";      Default = None }
+      { Name = "csv";           Description = "Write results to CSV file";       Default = None }
+      { Name = "quiet";         Description = "Suppress console output";         Default = None } ] args
 
-// Helper function to format float
+let quiet      = Cli.hasFlag "quiet" args
+let outputPath = Cli.tryGet "output" args
+let csvPath    = Cli.tryGet "csv" args
+let exChoice   = Cli.getOr "example" "all" args
+let cliEpochs  = Cli.getIntOr "epochs" 5 args
+let cliLR      = Cli.getFloatOr "learning-rate" 0.1 args
+let cliShots   = Cli.getIntOr "shots" 1000 args
+let cliDepth   = Cli.getIntOr "ansatz-depth" 2 args
+
+let pr fmt = Printf.ksprintf (fun s -> if not quiet then printfn "%s" s) fmt
+
+let shouldRun ex =
+    exChoice = "all" || exChoice = string ex
+
+let separator () =
+    pr "%s" (String.replicate 60 "-")
+
 let fmt (x: float) = sprintf "%.4f" x
-
-// Helper function to format array
-let fmtArray (xs: float array) = 
+let fmtArr (xs: float array) =
     xs |> Array.map fmt |> String.concat ", " |> sprintf "[%s]"
 
-printSection "Variational Quantum Classifier (VQC) Example"
+// ---------------------------------------------------------------------------
+// Quantum backend (Rule 1)
+// ---------------------------------------------------------------------------
+let quantumBackend = LocalBackend() :> IQuantumBackend
 
-// ============================================================================
-// 1. Setup: Backend and Architecture
-// ============================================================================
+// ---------------------------------------------------------------------------
+// Shared configuration
+// ---------------------------------------------------------------------------
+let featureMap       = AngleEncoding
+let variationalForm  = RealAmplitudes cliDepth
 
-printSection "1. Setup: Backend and Architecture"
+let config : VQC.TrainingConfig =
+    { LearningRate          = cliLR
+      MaxEpochs             = cliEpochs
+      ConvergenceThreshold  = 0.001
+      Shots                 = cliShots
+      Verbose               = false
+      Optimizer             = VQC.Adam { LearningRate = cliLR; Beta1 = 0.9; Beta2 = 0.999; Epsilon = 1e-8 }
+      ProgressReporter      = None }
 
-// Create quantum backend
-open FSharp.Azure.Quantum.Backends.LocalBackend
-let backend = LocalBackend() :> FSharp.Azure.Quantum.Core.BackendAbstraction.IQuantumBackend
-printResult "Backend" "LocalBackend (quantum simulator)"
-
-// Define VQC architecture
-let featureMap = AngleEncoding
-printResult "Feature Map" "AngleEncoding (Ry rotations)"
-
-let variationalForm = RealAmplitudes 2  // depth = 2
-printResult "Variational Form" "RealAmplitudes (depth=2)"
-
-// Training configuration
-let config : VQC.TrainingConfig = {
-    LearningRate = 0.1
-    MaxEpochs = 5
-    ConvergenceThreshold = 0.001
-    Shots = 1000
-    Verbose = false
-    Optimizer = VQC.Adam { LearningRate = 0.1; Beta1 = 0.9; Beta2 = 0.999; Epsilon = 1e-8 }
-    ProgressReporter = None
-}
-
-printfn ""
-printResult "Learning Rate" (fmt config.LearningRate)
-printResult "Max Epochs" (string config.MaxEpochs)
-printResult "Convergence Tolerance" (fmt config.ConvergenceThreshold)
-printResult "Shots per Circuit" (string config.Shots)
-
-// ============================================================================
-// 2. Dataset: Binary Classification (XOR-like Problem)
-// ============================================================================
-
-printSection "2. Dataset: Binary Classification"
-
-// Training data: Simple 2D binary classification
-// Class 0: Points near (0, 0) and (1, 1)
-// Class 1: Points near (0, 1) and (1, 0)
+// XOR-like dataset
 let trainData = [|
-    // Class 0 (bottom-left and top-right quadrants)
-    [| 0.1; 0.1 |]; [| 0.2; 0.1 |]; [| 0.1; 0.2 |]
+    [| 0.1; 0.1 |]; [| 0.2; 0.1 |]; [| 0.1; 0.2 |]   // class 0
     [| 0.9; 0.9 |]; [| 0.8; 0.9 |]; [| 0.9; 0.8 |]
-    
-    // Class 1 (top-left and bottom-right quadrants)
-    [| 0.1; 0.9 |]; [| 0.2; 0.8 |]; [| 0.1; 0.8 |]
-    [| 0.9; 0.1 |]; [| 0.8; 0.2 |]; [| 0.9; 0.2 |]
-|]
+    [| 0.1; 0.9 |]; [| 0.2; 0.8 |]; [| 0.1; 0.8 |]   // class 1
+    [| 0.9; 0.1 |]; [| 0.8; 0.2 |]; [| 0.9; 0.2 |] |]
+let trainLabels = [| 0;0;0; 0;0;0; 1;1;1; 1;1;1 |]
 
-let trainLabels = [|
-    0; 0; 0;  // Class 0
-    0; 0; 0;
-    1; 1; 1;  // Class 1
-    1; 1; 1
-|]
-
-printResult "Training samples" (string trainData.Length)
-printResult "Features per sample" (string trainData.[0].Length)
-printResult "Class 0 samples" (trainLabels |> Array.filter ((=) 0) |> Array.length |> string)
-printResult "Class 1 samples" (trainLabels |> Array.filter ((=) 1) |> Array.length |> string)
-
-printfn ""
-printfn "Sample data points:"
-printfn "  Class 0: %s → %d" (fmtArray trainData.[0]) trainLabels.[0]
-printfn "  Class 0: %s → %d" (fmtArray trainData.[5]) trainLabels.[5]
-printfn "  Class 1: %s → %d" (fmtArray trainData.[6]) trainLabels.[6]
-printfn "  Class 1: %s → %d" (fmtArray trainData.[11]) trainLabels.[11]
-
-// Test data: Hold-out samples for evaluation
-let testData = [|
-    [| 0.15; 0.15 |]  // Class 0 (near bottom-left)
-    [| 0.85; 0.85 |]  // Class 0 (near top-right)
-    [| 0.15; 0.85 |]  // Class 1 (near top-left)
-    [| 0.85; 0.15 |]  // Class 1 (near bottom-right)
-|]
-
+let testData   = [| [|0.15;0.15|]; [|0.85;0.85|]; [|0.15;0.85|]; [|0.85;0.15|] |]
 let testLabels = [| 0; 0; 1; 1 |]
 
-printfn ""
-printResult "Test samples" (string testData.Length)
+let numQubits     = trainData.[0].Length
+let initialParams = Array.init (numQubits * 2) (fun _ -> 0.1)
 
-// ============================================================================
-// 3. Training: Quantum Circuit Optimization
-// ============================================================================
+// Mutable results accumulator
+let mutable jsonResults : (string * obj) list = []
+let mutable csvRows     : string list list    = []
 
-printSection "3. Training: Quantum Circuit Optimization"
+// ---------------------------------------------------------------------------
+// Example 1 — Setup & Architecture
+// ---------------------------------------------------------------------------
+if shouldRun 1 then
+    separator ()
+    pr "EXAMPLE 1: Setup & Architecture"
+    separator ()
+    pr "Backend:          LocalBackend (quantum simulator)"
+    pr "Feature Map:      AngleEncoding (Ry rotations)"
+    pr "Variational Form: RealAmplitudes (depth=%d)" cliDepth
+    pr "Learning Rate:    %s" (fmt config.LearningRate)
+    pr "Max Epochs:       %d" config.MaxEpochs
+    pr "Shots per Circuit: %d" config.Shots
+    pr "Optimiser:        Adam"
 
-printfn "Training VQC with parameter shift rule..."
+    jsonResults <- ("1_setup", box {| backend = "LocalBackend"
+                                      featureMap = "AngleEncoding"
+                                      ansatz = sprintf "RealAmplitudes(depth=%d)" cliDepth
+                                      learningRate = config.LearningRate
+                                      maxEpochs = config.MaxEpochs
+                                      shots = config.Shots |}) :: jsonResults
 
-// Initialize parameters (small random values)
-let numQubits = trainData.[0].Length
-let initialParams = Array.init (numQubits * 2) (fun _ -> 0.1)  // Simplified initialization
+// ---------------------------------------------------------------------------
+// Example 2 — Dataset
+// ---------------------------------------------------------------------------
+if shouldRun 2 then
+    separator ()
+    pr "EXAMPLE 2: Dataset (XOR-like binary classification)"
+    separator ()
+    let c0 = trainLabels |> Array.filter ((=) 0) |> Array.length
+    let c1 = trainLabels |> Array.filter ((=) 1) |> Array.length
+    pr "Training samples: %d  (class 0: %d, class 1: %d)" trainData.Length c0 c1
+    pr "Features:         %d" numQubits
+    pr "Test samples:     %d" testData.Length
+    pr ""
+    pr "Sample points:"
+    pr "  Class 0: %s" (fmtArr trainData.[0])
+    pr "  Class 0: %s" (fmtArr trainData.[5])
+    pr "  Class 1: %s" (fmtArr trainData.[6])
+    pr "  Class 1: %s" (fmtArr trainData.[11])
 
-let trainResult = VQC.train backend featureMap variationalForm initialParams trainData trainLabels config
+    jsonResults <- ("2_dataset", box {| trainSamples = trainData.Length
+                                        testSamples = testData.Length
+                                        features = numQubits
+                                        class0 = c0; class1 = c1 |}) :: jsonResults
 
-match trainResult with
-| Error err ->
-    printfn "❌ Training failed: %s" err.Message
-    
-| Ok result ->
-    printfn "✅ Training completed successfully"
-    printfn ""
-    
-    // Training metrics
-    printResult "Final Parameters" (fmtArray result.Parameters)
-    printResult "Training Accuracy" (fmt result.TrainAccuracy)
-    printResult "Epochs Run" (string result.Epochs)
-    printResult "Converged" (if result.Converged then "✓ Yes" else "✗ No (reached max epochs)")
-    
-    printfn ""
-    printfn "Loss History (first 10 epochs):"
-    result.LossHistory 
-    |> List.take (min 10 result.LossHistory.Length)
-    |> List.iteri (fun i loss -> printfn "  Epoch %2d: %s" (i+1) (fmt loss))
-    
-    if result.LossHistory.Length > 10 then
-        printfn "  ..."
-        printfn "  Epoch %2d: %s" 
-            result.LossHistory.Length 
-            (fmt (List.last result.LossHistory))
-    
-    // ============================================================================
-    // 4. Prediction: Individual Sample Classification
-    // ============================================================================
-    
-    printSection "4. Prediction: Individual Sample Classification"
-    
-    printfn "Making predictions on test samples..."
-    printfn ""
-    
-    testData
-    |> Array.iteri (fun i sample ->
-        let predResult = VQC.predict backend featureMap variationalForm result.Parameters sample config.Shots
-        match predResult with
-        | Ok pred ->
-            let correct = if pred.Label = testLabels.[i] then "✓" else "✗"
-            printfn "Sample %d: %s" (i+1) (fmtArray sample)
-            printfn "  Prediction: Class %d (probability: %s)" pred.Label (fmt pred.Probability)
-            printfn "  True Label: Class %d" testLabels.[i]
-            printfn "  Correct:    %s" correct
-            printfn ""
-        | Error err ->
-            printfn "Sample %d: Prediction failed - %s" (i+1) err.Message
-    )
-    
-    // ============================================================================
-    // 5. Evaluation: Model Performance Metrics
-    // ============================================================================
-    
-    printSection "5. Evaluation: Model Performance Metrics"
-    
-    // Evaluate on training set
-    printfn "Training Set Evaluation:"
-    printfn ""
-    
-    let trainEval = VQC.evaluate backend featureMap variationalForm result.Parameters trainData trainLabels config.Shots
-    match trainEval with
-    | Ok accuracy ->
-        printResult "Accuracy" (sprintf "%s (%.1f%%)" (fmt accuracy) (accuracy * 100.0))
-    | Error err ->
-        printfn "❌ Evaluation failed: %s" err.Message
-    
-    printfn ""
-    
-    // Evaluate on test set
-    printfn "Test Set Evaluation:"
-    printfn ""
-    
-    let testEval = VQC.evaluate backend featureMap variationalForm result.Parameters testData testLabels config.Shots
-    match testEval with
-    | Ok accuracy ->
-        printResult "Accuracy" (sprintf "%s (%.1f%%)" (fmt accuracy) (accuracy * 100.0))
-    | Error err ->
-        printfn "❌ Evaluation failed: %s" err.Message
-    
-    // ============================================================================
-    // 6. Confusion Matrix: Detailed Classification Analysis
-    // ============================================================================
-    
-    printSection "6. Confusion Matrix: Detailed Analysis"
-    
-    let confMatrix = VQC.confusionMatrix backend featureMap variationalForm result.Parameters testData testLabels config.Shots
-    
-    match confMatrix with
-    | Ok cm ->
-        printfn "Confusion Matrix (Test Set):"
-        printfn ""
-        printfn "                    Predicted"
-        printfn "                Class 0  Class 1"
-        printfn "Actual  Class 0    %2d       %2d" cm.TrueNegatives cm.FalsePositives
-        printfn "        Class 1    %2d       %2d" cm.FalseNegatives cm.TruePositives
-        printfn ""
-        printResult "True Positives (TP)" (string cm.TruePositives)
-        printResult "True Negatives (TN)" (string cm.TrueNegatives)
-        printResult "False Positives (FP)" (string cm.FalsePositives)
-        printResult "False Negatives (FN)" (string cm.FalseNegatives)
-        printfn ""
-        
-        // Derived metrics using VQC helper functions
-        let precision = VQC.precision cm
-        let recall = VQC.recall cm
-        let f1 = VQC.f1Score cm
-        let accuracy = float (cm.TruePositives + cm.TrueNegatives) / float testData.Length
-        
-        printfn "Derived Metrics:"
-        printResult "  Accuracy" (sprintf "%s (%.1f%%)" (fmt accuracy) (accuracy * 100.0))
-        printResult "  Precision" (fmt precision)
-        printResult "  Recall" (fmt recall)
-        printResult "  F1 Score" (fmt f1)
-        
-    | Error err ->
-        printfn "❌ Confusion matrix failed: %s" err.Message
+// ---------------------------------------------------------------------------
+// Example 3 — Training
+// ---------------------------------------------------------------------------
+// Train once and share result across examples 3-6
+let trainResult =
+    if shouldRun 3 || shouldRun 4 || shouldRun 5 || shouldRun 6 then
+        Some (VQC.train quantumBackend featureMap variationalForm initialParams trainData trainLabels config)
+    else None
 
-// ============================================================================
-// 7. Quantum Circuit Analysis
-// ============================================================================
-
-printSection "7. Quantum Circuit Analysis"
-
-let numParams = AnsatzHelpers.parameterCount variationalForm numQubits
-
-printResult "Number of Qubits" (string numQubits)
-printResult "Number of Parameters" (string numParams)
-
-// Estimate circuit complexity  
-let featureMapCircuit = FeatureMap.angleEncoding trainData.[0]
-printResult "Feature Map Gates" (string featureMapCircuit.Gates.Length)
-
-let ansatzCircuit = VariationalForms.buildVariationalForm variationalForm (Array.create numParams 0.0) numQubits
-match ansatzCircuit with
-| Ok aCircuit ->
-    printResult "Variational Form Gates" (string aCircuit.Gates.Length)
-    printResult "Total Circuit Gates" (string (featureMapCircuit.Gates.Length + aCircuit.Gates.Length))
-    
-    // Gradient computation cost
-    let gradientsPerEpoch = numParams * 2  // Parameter shift rule requires 2 evaluations per parameter
-    let circuitsPerSample = 1  // Forward pass
-    let totalCircuitsPerEpoch = trainData.Length * circuitsPerSample + gradientsPerEpoch * trainData.Length
-    
-    printfn ""
-    printfn "Training Complexity:"
-    printResult "  Circuits per Sample" (string circuitsPerSample)
-    printResult "  Gradient Evals per Param" "2 (parameter shift rule)"
-    printResult "  Total Circuits per Epoch" (string totalCircuitsPerEpoch)
-    
+if shouldRun 3 then
+    separator ()
+    pr "EXAMPLE 3: Training (parameter shift rule)"
+    separator ()
     match trainResult with
-    | Ok result ->
-        let totalCircuits = totalCircuitsPerEpoch * result.Epochs
-        printResult "  Total Circuits (Training)" (string totalCircuits)
-    | _ -> ()
-    
-| Error err ->
-    printfn "Error creating variational form: %s" err.Message
+    | Some (Ok result) ->
+        pr "Training completed"
+        pr "  Final params:    %s" (fmtArr result.Parameters)
+        pr "  Train accuracy:  %s" (fmt result.TrainAccuracy)
+        pr "  Epochs:          %d" result.Epochs
+        pr "  Converged:       %s" (if result.Converged then "yes" else "no (max epochs)")
+        pr ""
+        pr "Loss history:"
+        result.LossHistory
+        |> List.take (min 10 result.LossHistory.Length)
+        |> List.iteri (fun i l -> pr "  Epoch %2d: %s" (i+1) (fmt l))
+        if result.LossHistory.Length > 10 then
+            pr "  ..."
+            pr "  Epoch %2d: %s" result.LossHistory.Length (fmt (List.last result.LossHistory))
 
-// ============================================================================
-// 8. Summary and Recommendations
-// ============================================================================
+        jsonResults <- ("3_training", box {| accuracy = result.TrainAccuracy
+                                             epochs = result.Epochs
+                                             converged = result.Converged
+                                             finalParams = result.Parameters |}) :: jsonResults
+        csvRows <- [ "3_training"; fmt result.TrainAccuracy; string result.Epochs;
+                      string result.Converged; fmtArr result.Parameters ] :: csvRows
 
-printSection "8. Summary and Recommendations"
+    | Some (Error err) ->
+        pr "Training failed: %s" err.Message
+    | None -> ()
 
-printfn "Quantum Machine Learning with VQC:"
-printfn ""
-printfn "✅ Feature Encoding: Classical data → Quantum states"
-printfn "✅ Parameterized Circuits: Trainable quantum transformations"
-printfn "✅ Quantum Gradients: Parameter shift rule for optimization"
-printfn "✅ Binary Classification: Standard ML task with quantum advantage"
-printfn ""
+// ---------------------------------------------------------------------------
+// Example 4 — Predictions
+// ---------------------------------------------------------------------------
+if shouldRun 4 then
+    separator ()
+    pr "EXAMPLE 4: Predictions on test set"
+    separator ()
+    match trainResult with
+    | Some (Ok result) ->
+        testData |> Array.iteri (fun i sample ->
+            match VQC.predict quantumBackend featureMap variationalForm result.Parameters sample config.Shots with
+            | Ok pred ->
+                let mark = if pred.Label = testLabels.[i] then "correct" else "wrong"
+                pr "Sample %d: %s  -> predicted %d (prob %s)  actual %d  [%s]"
+                    (i+1) (fmtArr sample) pred.Label (fmt pred.Probability) testLabels.[i] mark
 
-printfn "When to Use VQC:"
-printfn ""
-printfn "  ✓ High-dimensional feature spaces"
-printfn "  ✓ Non-linear decision boundaries"
-printfn "  ✓ Small to medium datasets"
-printfn "  ✓ Quantum hardware available"
-printfn ""
+                csvRows <- [ sprintf "4_predict_%d" (i+1); string pred.Label;
+                             fmt pred.Probability; string testLabels.[i]; mark ] :: csvRows
+            | Error err ->
+                pr "Sample %d: prediction failed — %s" (i+1) err.Message)
+    | Some (Error _) -> pr "(skipped — training failed)"
+    | None -> ()
 
-printfn "VQC Advantages:"
-printfn ""
-printfn "  • Quantum feature spaces (exponentially large)"
-printfn "  • Entanglement captures complex patterns"
-printfn "  • Proven advantages for certain problems"
-printfn "  • Works on NISQ devices"
-printfn ""
+// ---------------------------------------------------------------------------
+// Example 5 — Evaluation
+// ---------------------------------------------------------------------------
+if shouldRun 5 then
+    separator ()
+    pr "EXAMPLE 5: Model evaluation"
+    separator ()
+    match trainResult with
+    | Some (Ok result) ->
+        let showEval label data labels =
+            match VQC.evaluate quantumBackend featureMap variationalForm result.Parameters data labels config.Shots with
+            | Ok acc ->
+                pr "%s accuracy: %s (%.1f%%)" label (fmt acc) (acc * 100.0)
+                acc
+            | Error err ->
+                pr "%s evaluation failed: %s" label err.Message
+                0.0
+        let trainAcc = showEval "Training set" trainData trainLabels
+        let testAcc  = showEval "Test set"     testData  testLabels
 
-printfn "Next Steps:"
-printfn ""
-printfn "  1. Try different feature maps (ZZ, Pauli)"
-printfn "  2. Experiment with variational forms (TwoLocal, EfficientSU2)"
-printfn "  3. Tune hyperparameters (learning rate, depth)"
-printfn "  4. Scale to larger datasets"
-printfn "  5. Deploy on real quantum hardware (IonQ, Rigetti)"
-printfn ""
+        jsonResults <- ("5_evaluation", box {| trainAccuracy = trainAcc
+                                               testAccuracy = testAcc |}) :: jsonResults
+        csvRows <- [ "5_evaluation"; fmt trainAcc; fmt testAcc; ""; "" ] :: csvRows
 
-printfn "Real Quantum Hardware:"
-printfn ""
-printfn "  // Replace LocalBackend with Azure Quantum:"
-printfn "  // let backend = IonQBackend(workspace, \"ionq.simulator\") :> IQuantumBackend"
-printfn "  // let backend = RigettiBackend(workspace, \"Aspen-M-3\") :> IQuantumBackend"
-printfn ""
+    | Some (Error _) -> pr "(skipped — training failed)"
+    | None -> ()
 
-printSection "VQC Example Complete!"
+// ---------------------------------------------------------------------------
+// Example 6 — Confusion matrix
+// ---------------------------------------------------------------------------
+if shouldRun 6 then
+    separator ()
+    pr "EXAMPLE 6: Confusion matrix (test set)"
+    separator ()
+    match trainResult with
+    | Some (Ok result) ->
+        match VQC.confusionMatrix quantumBackend featureMap variationalForm result.Parameters testData testLabels config.Shots with
+        | Ok cm ->
+            pr "                 Predicted"
+            pr "              Class 0  Class 1"
+            pr "Actual  C0      %2d       %2d" cm.TrueNegatives cm.FalsePositives
+            pr "        C1      %2d       %2d" cm.FalseNegatives cm.TruePositives
+            pr ""
+            let prec = VQC.precision cm
+            let rec' = VQC.recall cm
+            let f1   = VQC.f1Score cm
+            let acc  = float (cm.TruePositives + cm.TrueNegatives) / float testData.Length
+            pr "Accuracy:  %s  Precision: %s  Recall: %s  F1: %s"
+                (fmt acc) (fmt prec) (fmt rec') (fmt f1)
 
-printfn "This example demonstrated:"
-printfn "  ✓ Binary classification with quantum circuits"
-printfn "  ✓ Training with parameter shift rule"
-printfn "  ✓ Model evaluation with ML metrics"
-printfn "  ✓ Real quantum simulation"
-printfn ""
-printfn "The VQC framework is production-ready for quantum machine learning!"
-printfn ""
+            jsonResults <- ("6_confusion", box {| tp = cm.TruePositives; tn = cm.TrueNegatives
+                                                  fp = cm.FalsePositives; fn = cm.FalseNegatives
+                                                  accuracy = acc; precision = prec
+                                                  recall = rec'; f1 = f1 |}) :: jsonResults
+            csvRows <- [ "6_confusion"; fmt acc; fmt prec; fmt rec'; fmt f1 ] :: csvRows
+
+        | Error err -> pr "Confusion matrix failed: %s" err.Message
+    | Some (Error _) -> pr "(skipped — training failed)"
+    | None -> ()
+
+// ---------------------------------------------------------------------------
+// Example 7 — Circuit analysis
+// ---------------------------------------------------------------------------
+if shouldRun 7 then
+    separator ()
+    pr "EXAMPLE 7: Circuit analysis"
+    separator ()
+    let numParams = AnsatzHelpers.parameterCount variationalForm numQubits
+    let fmCircuit = FeatureMap.angleEncoding trainData.[0]
+    let fmGates   = fmCircuit.Gates.Length
+
+    pr "Qubits:           %d" numQubits
+    pr "Parameters:       %d" numParams
+    pr "Feature-map gates: %d" fmGates
+
+    match VariationalForms.buildVariationalForm variationalForm (Array.create numParams 0.0) numQubits with
+    | Ok ac ->
+        let aGates = ac.Gates.Length
+        pr "Ansatz gates:      %d" aGates
+        pr "Total gates:       %d" (fmGates + aGates)
+        pr ""
+        let gradsPerEpoch   = numParams * 2
+        let circPerEpoch    = trainData.Length + gradsPerEpoch * trainData.Length
+        pr "Circuits/epoch:    %d  (forward + %d gradient evals)" circPerEpoch gradsPerEpoch
+        match trainResult with
+        | Some (Ok r) -> pr "Total circuits:    %d  (%d epochs)" (circPerEpoch * r.Epochs) r.Epochs
+        | _ -> ()
+
+        jsonResults <- ("7_circuit", box {| qubits = numQubits; vParams = numParams
+                                            featureMapGates = fmGates; ansatzGates = aGates
+                                            totalGates = fmGates + aGates |}) :: jsonResults
+        csvRows <- [ "7_circuit"; string numQubits; string numParams; string fmGates;
+                      string aGates ] :: csvRows
+
+    | Error err -> pr "Error building ansatz: %s" err.Message
+
+// ---------------------------------------------------------------------------
+// Example 8 — Summary & recommendations
+// ---------------------------------------------------------------------------
+if shouldRun 8 then
+    separator ()
+    pr "EXAMPLE 8: Summary & recommendations"
+    separator ()
+    pr "VQC pipeline:"
+    pr "  1. Feature encoding  — classical data -> quantum states"
+    pr "  2. Parameterised circuit — trainable quantum transformations"
+    pr "  3. Quantum gradients — parameter shift rule"
+    pr "  4. Binary classification — standard ML task"
+    pr ""
+    pr "When to use VQC:"
+    pr "  - High-dimensional feature spaces"
+    pr "  - Non-linear decision boundaries"
+    pr "  - Small-to-medium datasets"
+    pr ""
+    pr "Scale to real hardware:"
+    pr "  let quantumBackend = IonQBackend(workspace, \"ionq.simulator\") :> IQuantumBackend"
+    pr "  let quantumBackend = RigettiBackend(workspace, \"Aspen-M-3\") :> IQuantumBackend"
+
+// ---------------------------------------------------------------------------
+// Output
+// ---------------------------------------------------------------------------
+if outputPath.IsSome then
+    let payload =
+        {| script    = "VQCExample.fsx"
+           backend   = "Local Simulator"
+           timestamp = DateTime.UtcNow.ToString("o")
+           epochs    = cliEpochs
+           learningRate = cliLR
+           shots     = cliShots
+           ansatzDepth = cliDepth
+           example   = exChoice
+           results   = jsonResults |> List.rev |> List.map (fun (k,v) -> {| key = k; value = v |}) |}
+    Reporting.writeJson outputPath.Value payload
+
+if csvPath.IsSome then
+    let header = [ "example"; "metric1"; "metric2"; "metric3"; "metric4" ]
+    Reporting.writeCsv csvPath.Value header (csvRows |> List.rev)
+
+// ---------------------------------------------------------------------------
+// Usage hints
+// ---------------------------------------------------------------------------
+if not quiet && argv.Length = 0 then
+    pr ""
+    pr "Usage hints:"
+    pr "  dotnet fsi VQCExample.fsx -- --example 3"
+    pr "  dotnet fsi VQCExample.fsx -- --epochs 10 --learning-rate 0.05"
+    pr "  dotnet fsi VQCExample.fsx -- --quiet --output r.json --csv r.csv"
+    pr "  dotnet fsi VQCExample.fsx -- --help"

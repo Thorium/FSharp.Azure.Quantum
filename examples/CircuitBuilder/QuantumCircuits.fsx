@@ -1,263 +1,350 @@
 #!/usr/bin/env dotnet fsi
-
 // ============================================================================
 // Quantum Circuit Builder - Computation Expression Examples
 // ============================================================================
-// 
-// This example demonstrates the new computation expression (CE) syntax for
-// building quantum circuits declaratively with support for loops and
-// natural gate composition.
 //
-// KEY FEATURES:
-// - Declarative circuit construction with `circuit { }` syntax
-// - Support for `for` loops to apply gates to multiple qubits
-// - Automatic circuit validation on construction
-// - Clean, readable quantum algorithm implementations
+// Demonstrates the circuit { } computation expression for declarative quantum
+// circuit construction. Includes Bell state, GHZ, QFT, superposition, phase
+// kickback, Toffoli, circuit optimization, and validation.
+//
+// Extensible starting point for building quantum circuits programmatically.
 //
 // ============================================================================
 
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
+#load "../_common/Cli.fs"
+#load "../_common/Data.fs"
+#load "../_common/Reporting.fs"
 
 open System
 open FSharp.Azure.Quantum.CircuitBuilder
+open FSharp.Azure.Quantum.Core.BackendAbstraction
+open FSharp.Azure.Quantum.Backends.LocalBackend
+open FSharp.Azure.Quantum.Examples.Common
+
+// IQuantumBackend available for downstream circuit execution
+let quantumBackend = LocalBackend() :> IQuantumBackend
+
+// --- CLI ---
+let argv = fsi.CommandLineArgs |> Array.skip 1
+let args = Cli.parse argv
+
+Cli.exitIfHelp
+    "QuantumCircuits.fsx"
+    "Quantum circuit builder CE examples: Bell, GHZ, QFT, optimization, validation"
+    [ { Name = "example"; Description = "Which example (all|bell|ghz|qft|super|kickback|toffoli|optimize|validate)"; Default = Some "all" }
+      { Name = "ghz-qubits"; Description = "Number of qubits for GHZ state"; Default = Some "5" }
+      { Name = "super-qubits"; Description = "Number of qubits for superposition"; Default = Some "8" }
+      { Name = "output"; Description = "Write results to JSON file"; Default = None }
+      { Name = "csv"; Description = "Write results to CSV file"; Default = None }
+      { Name = "quiet"; Description = "Suppress console output"; Default = None } ]
+    args
+
+let quiet = Cli.hasFlag "quiet" args
+let outputPath = Cli.tryGet "output" args
+let csvPath = Cli.tryGet "csv" args
+let exampleArg = Cli.getOr "example" "all" args
+let ghzQubits = Cli.getIntOr "ghz-qubits" 5 args
+let superQubits = Cli.getIntOr "super-qubits" 8 args
+
+let pr fmt = Printf.ksprintf (fun s -> if not quiet then printfn "%s" s) fmt
+
+// --- Circuit Result Type ---
+
+type CircuitResult =
+    { Name: string
+      Label: string
+      Qubits: int
+      Gates: int
+      Note: string
+      Qasm: string option }
+
+// --- Helper: run example and collect result ---
+
+let shouldRun key = exampleArg = "all" || exampleArg = key
+
+let mutable jsonResults : CircuitResult list = []
+let mutable csvRows : string list list = []
+
+let record (r: CircuitResult) =
+    jsonResults <- jsonResults @ [ r ]
+    csvRows <- csvRows @ [ [ r.Name; r.Label; string r.Qubits; string r.Gates; r.Note ] ]
 
 // ============================================================================
-// EXAMPLE 1: Bell State (Quantum Entanglement)
+// EXAMPLE 1: Bell State
 // ============================================================================
-// Creates a maximally entangled pair of qubits:
-// |Φ⁺⟩ = (|00⟩ + |11⟩) / √2
 
-printfn "=== Example 1: Bell State ==="
-printfn ""
+if shouldRun "bell" then
+    pr "=== Example 1: Bell State ==="
+    pr ""
 
-let bellState = circuit {
-    qubits 2
-    H 0          // Apply Hadamard to qubit 0: creates superposition
-    CNOT (0, 1)  // Entangle qubit 0 and 1
-}
+    let bellState = circuit {
+        qubits 2
+        H 0
+        CNOT (0, 1)
+    }
 
-printfn "Bell State Circuit:"
-printfn "  Qubits: %d" bellState.QubitCount
-printfn "  Gates:  %d" (List.length bellState.Gates)
-printfn "  Depth:  2 (H followed by CNOT)"
-printfn ""
+    let qasm = toOpenQASM bellState
 
-// Export to OpenQASM for execution on quantum hardware
-let bellQASM = toOpenQASM bellState
-printfn "OpenQASM Output:"
-printfn "%s" bellQASM
-printfn ""
+    pr "  Qubits: %d  |  Gates: %d" bellState.QubitCount (List.length bellState.Gates)
+    pr "  Depth: 2 (H followed by CNOT)"
+    pr ""
+    pr "OpenQASM Output:"
+    pr "%s" qasm
 
-
-// ============================================================================
-// EXAMPLE 2: GHZ State (Multi-Qubit Entanglement with Loop)
-// ============================================================================
-// Creates an n-qubit GHZ state: |GHZ⟩ = (|00...0⟩ + |11...1⟩) / √2
-// Demonstrates the power of `for` loops in circuit construction
-
-printfn "=== Example 2: GHZ State (5 qubits) ==="
-printfn ""
-
-let ghzState = circuit {
-    qubits 5
-    H 0  // Hadamard on first qubit
-    
-    // Chain of CNOTs to propagate entanglement
-    // NOTE: Custom operations don't work inside for loops (F# limitation)
-    // Use yield! with singleGate() helper for loops
-    for i in [0..3] do
-        yield! singleGate (Gate.CNOT (i, i+1))
-}
-
-printfn "GHZ State Circuit:"
-printfn "  Qubits: %d" ghzState.QubitCount
-printfn "  Gates:  %d (1 H + 4 CNOTs)" (List.length ghzState.Gates)
-printfn ""
-
+    record
+        { Name = "bell"
+          Label = "Bell State"
+          Qubits = bellState.QubitCount
+          Gates = List.length bellState.Gates
+          Note = "Maximally entangled pair |00>+|11>"
+          Qasm = Some qasm }
 
 // ============================================================================
-// EXAMPLE 3: Quantum Fourier Transform (QFT) - 3 Qubits
+// EXAMPLE 2: GHZ State
 // ============================================================================
-// Implements the Quantum Fourier Transform, a key subroutine in
-// many quantum algorithms (Shor's algorithm, phase estimation, etc.)
 
-printfn "=== Example 3: Quantum Fourier Transform (3 qubits) ==="
-printfn ""
+if shouldRun "ghz" then
+    pr "=== Example 2: GHZ State (%d qubits) ===" ghzQubits
+    pr ""
 
-let qft3 = circuit {
-    qubits 3
-    
-    // QFT on qubit 0
-    H 0
-    CP (1, 0, Math.PI / 2.0)
-    CP (2, 0, Math.PI / 4.0)
-    
-    // QFT on qubit 1
-    H 1
-    CP (2, 1, Math.PI / 2.0)
-    
-    // QFT on qubit 2
-    H 2
-    
-    // SWAP for bit-reversal
-    SWAP (0, 2)
-}
+    let ghzState = circuit {
+        qubits ghzQubits
+        H 0
+        for i in [0..ghzQubits-2] do
+            yield! singleGate (Gate.CNOT (i, i+1))
+    }
 
-printfn "QFT-3 Circuit:"
-printfn "  Qubits: %d" qft3.QubitCount
-printfn "  Gates:  %d" (List.length qft3.Gates)
-printfn "  Structure: H + CP gates + final SWAP"
-printfn ""
+    pr "  Qubits: %d  |  Gates: %d (1 H + %d CNOTs)" ghzState.QubitCount (List.length ghzState.Gates) (ghzQubits - 1)
+    pr ""
 
+    record
+        { Name = "ghz"
+          Label = sprintf "GHZ State (%d qubits)" ghzQubits
+          Qubits = ghzState.QubitCount
+          Gates = List.length ghzState.Gates
+          Note = sprintf "|00...0>+|11...1> over %d qubits" ghzQubits
+          Qasm = None }
 
 // ============================================================================
-// EXAMPLE 4: Superposition of All Qubits (Loop Demonstration)
+// EXAMPLE 3: Quantum Fourier Transform (3 qubits)
 // ============================================================================
-// Apply Hadamard to every qubit to create uniform superposition
-// |ψ⟩ = (1/√2ⁿ) Σ|x⟩ for all n-bit strings x
 
-printfn "=== Example 4: Uniform Superposition (8 qubits) ==="
-printfn ""
+if shouldRun "qft" then
+    pr "=== Example 3: Quantum Fourier Transform (3 qubits) ==="
+    pr ""
 
-let n = 8
-let superposition = circuit {
-    qubits n
-    
-    // Apply Hadamard to all qubits using a for loop
-    // Use yield! with singleGate() helper for loops
-    for q in [0..n-1] do
-        yield! singleGate (Gate.H q)
-}
+    let qft3 = circuit {
+        qubits 3
+        H 0
+        CP (1, 0, Math.PI / 2.0)
+        CP (2, 0, Math.PI / 4.0)
+        H 1
+        CP (2, 1, Math.PI / 2.0)
+        H 2
+        SWAP (0, 2)
+    }
 
-printfn "Superposition Circuit:"
-printfn "  Qubits: %d" superposition.QubitCount
-printfn "  Gates:  %d Hadamards" (List.length superposition.Gates)
-printfn "  Result: Uniform superposition over 2^%d = %d basis states" n (pown 2 n)
-printfn ""
+    pr "  Qubits: %d  |  Gates: %d" qft3.QubitCount (List.length qft3.Gates)
+    pr "  Structure: H + CP gates + final SWAP"
+    pr ""
 
-
-// ============================================================================
-// EXAMPLE 5: Quantum Phase Kickback (Controlled Operations)
-// ============================================================================
-// Demonstrates phase kickback mechanism used in many quantum algorithms
-
-printfn "=== Example 5: Phase Kickback Demo ==="
-printfn ""
-
-let phaseKickback = circuit {
-    qubits 2
-    
-    // Prepare control qubit in superposition
-    H 0
-    
-    // Prepare target qubit in |1⟩ (eigenstate of X)
-    X 1
-    H 1
-    
-    // Controlled-Z creates phase kickback
-    CZ (0, 1)
-    
-    // Measure effect on control qubit
-    H 0
-}
-
-printfn "Phase Kickback Circuit:"
-printfn "  Qubits: %d" phaseKickback.QubitCount
-printfn "  Gates:  %d" (List.length phaseKickback.Gates)
-printfn "  Purpose: Demonstrates phase kickback mechanism"
-printfn ""
-
+    record
+        { Name = "qft"
+          Label = "QFT-3"
+          Qubits = qft3.QubitCount
+          Gates = List.length qft3.Gates
+          Note = "Quantum Fourier Transform with bit-reversal"
+          Qasm = None }
 
 // ============================================================================
-// EXAMPLE 6: Toffoli Gate Usage (CCX - 3-Qubit Gate)
+// EXAMPLE 4: Uniform Superposition
 // ============================================================================
-// Toffoli (CCNOT) is universal for classical reversible computation
 
-printfn "=== Example 6: Toffoli Gate (CCX) ==="
-printfn ""
+if shouldRun "super" then
+    pr "=== Example 4: Uniform Superposition (%d qubits) ===" superQubits
+    pr ""
 
-let toffoliDemo = circuit {
-    qubits 3
-    
-    // Prepare control qubits in |11⟩ state
-    X 0
-    X 1
-    
-    // Toffoli flips target if both controls are |1⟩
-    CCX (0, 1, 2)
-}
+    let superposition = circuit {
+        qubits superQubits
+        for q in [0..superQubits-1] do
+            yield! singleGate (Gate.H q)
+    }
 
-printfn "Toffoli Circuit:"
-printfn "  Qubits: %d" toffoliDemo.QubitCount
-printfn "  Gates:  %d" (List.length toffoliDemo.Gates)
-printfn "  Effect: Target qubit flipped only if both controls are |1⟩"
-printfn ""
+    pr "  Qubits: %d  |  Gates: %d Hadamards" superposition.QubitCount (List.length superposition.Gates)
+    pr "  Result: Uniform superposition over 2^%d = %d basis states" superQubits (pown 2 superQubits)
+    pr ""
 
+    record
+        { Name = "super"
+          Label = sprintf "Superposition (%d qubits)" superQubits
+          Qubits = superposition.QubitCount
+          Gates = List.length superposition.Gates
+          Note = sprintf "Uniform over %d basis states" (pown 2 superQubits)
+          Qasm = None }
+
+// ============================================================================
+// EXAMPLE 5: Phase Kickback
+// ============================================================================
+
+if shouldRun "kickback" then
+    pr "=== Example 5: Phase Kickback Demo ==="
+    pr ""
+
+    let phaseKickback = circuit {
+        qubits 2
+        H 0
+        X 1
+        H 1
+        CZ (0, 1)
+        H 0
+    }
+
+    pr "  Qubits: %d  |  Gates: %d" phaseKickback.QubitCount (List.length phaseKickback.Gates)
+    pr "  Purpose: Demonstrates phase kickback mechanism"
+    pr ""
+
+    record
+        { Name = "kickback"
+          Label = "Phase Kickback"
+          Qubits = phaseKickback.QubitCount
+          Gates = List.length phaseKickback.Gates
+          Note = "Phase kickback via controlled-Z"
+          Qasm = None }
+
+// ============================================================================
+// EXAMPLE 6: Toffoli Gate (CCX)
+// ============================================================================
+
+if shouldRun "toffoli" then
+    pr "=== Example 6: Toffoli Gate (CCX) ==="
+    pr ""
+
+    let toffoliDemo = circuit {
+        qubits 3
+        X 0
+        X 1
+        CCX (0, 1, 2)
+    }
+
+    pr "  Qubits: %d  |  Gates: %d" toffoliDemo.QubitCount (List.length toffoliDemo.Gates)
+    pr "  Effect: Target qubit flipped only if both controls are |1>"
+    pr ""
+
+    record
+        { Name = "toffoli"
+          Label = "Toffoli (CCX)"
+          Qubits = toffoliDemo.QubitCount
+          Gates = List.length toffoliDemo.Gates
+          Note = "Universal for classical reversible computation"
+          Qasm = None }
 
 // ============================================================================
 // EXAMPLE 7: Circuit Optimization
 // ============================================================================
-// The circuit builder includes automatic optimization to reduce gate count
 
-printfn "=== Example 7: Circuit Optimization ==="
-printfn ""
+if shouldRun "optimize" then
+    pr "=== Example 7: Circuit Optimization ==="
+    pr ""
 
-let unoptimized = circuit {
-    qubits 2
-    H 0
-    H 0  // Double H cancels out
-    X 1
-    X 1  // Double X cancels out
-    S 0
-    SDG 0  // S followed by S† cancels out
-}
-
-let optimized = optimize unoptimized
-
-printfn "Before optimization: %d gates" (List.length unoptimized.Gates)
-printfn "After optimization:  %d gates" (List.length optimized.Gates)
-printfn ""
-printfn "Optimization removes inverse gate pairs (H-H, X-X, S-SDG)"
-printfn ""
-
-
-// ============================================================================
-// EXAMPLE 8: Error Handling - Invalid Circuit Detection
-// ============================================================================
-// The CE builder validates circuits automatically
-
-printfn "=== Example 8: Automatic Validation ==="
-printfn ""
-
-try
-    // This will fail: qubit index out of bounds
-    let invalid = circuit {
+    let unoptimized = circuit {
         qubits 2
-        H 5  // ERROR: Only 2 qubits (indices 0-1), but trying to use qubit 5
+        H 0
+        H 0    // Double H cancels
+        X 1
+        X 1    // Double X cancels
+        S 0
+        SDG 0  // S followed by S-dagger cancels
     }
-    printfn "Should not reach here!"
-with ex ->
-    printfn "✓ Caught invalid circuit error (as expected):"
-    printfn "  %s" ex.Message
-    printfn ""
 
+    let optimized = optimize unoptimized
+
+    let beforeGates = List.length unoptimized.Gates
+    let afterGates = List.length optimized.Gates
+
+    pr "  Before optimization: %d gates" beforeGates
+    pr "  After optimization:  %d gates" afterGates
+    pr "  Removed: %d inverse gate pairs (H-H, X-X, S-SDG)" (beforeGates - afterGates)
+    pr ""
+
+    record
+        { Name = "optimize"
+          Label = "Circuit Optimization"
+          Qubits = unoptimized.QubitCount
+          Gates = beforeGates
+          Note = sprintf "Reduced from %d to %d gates" beforeGates afterGates
+          Qasm = None }
 
 // ============================================================================
-// SUMMARY
+// EXAMPLE 8: Validation (Invalid Circuit Detection)
 // ============================================================================
 
-printfn ""
-printfn "=== Summary of New CE Features ==="
-printfn ""
-printfn "✓ Declarative circuit construction with circuit { } syntax"
-printfn "✓ Support for 'for' loops to apply gates to multiple qubits"
-printfn "✓ Automatic validation prevents invalid circuits"
-printfn "✓ All standard gates available as custom operations"
-printfn "✓ Clean, readable quantum algorithm implementations"
-printfn "✓ Idiomatic F# - uses Seq.fold and functional composition"
-printfn ""
-printfn "This makes quantum circuit construction as natural as:"
-printfn "  - async { } for asynchronous workflows"
-printfn "  - seq { } for sequences"
-printfn "  - query { } for LINQ queries"
-printfn ""
+if shouldRun "validate" then
+    pr "=== Example 8: Automatic Validation ==="
+    pr ""
+
+    let validationResult =
+        try
+            let _invalid = circuit {
+                qubits 2
+                H 5  // Out of bounds: only qubits 0-1
+            }
+            Error "Expected validation error but circuit was accepted"
+        with ex ->
+            pr "  [OK] Caught invalid circuit error (as expected):"
+            pr "  %s" ex.Message
+            Ok ex.Message
+
+    pr ""
+
+    let note =
+        match validationResult with
+        | Ok msg -> sprintf "Caught: %s" (msg.Substring(0, min 60 msg.Length))
+        | Error msg -> msg
+
+    record
+        { Name = "validate"
+          Label = "Circuit Validation"
+          Qubits = 2
+          Gates = 0
+          Note = note
+          Qasm = None }
+
+// --- JSON output ---
+
+outputPath
+|> Option.iter (fun path ->
+    let payload =
+        jsonResults
+        |> List.map (fun r ->
+            dict [
+                "name", box r.Name
+                "label", box r.Label
+                "qubits", box r.Qubits
+                "gates", box r.Gates
+                "note", box r.Note
+                yield! match r.Qasm with Some q -> [ "qasm", box q ] | None -> [] ])
+    Reporting.writeJson path payload)
+
+// --- CSV output ---
+
+csvPath
+|> Option.iter (fun path ->
+    let header = [ "name"; "label"; "qubits"; "gates"; "note" ]
+    Reporting.writeCsv path header csvRows)
+
+// --- Summary ---
+
+if not quiet then
+    pr ""
+    pr "=== Summary ==="
+    pr "  Ran %d example(s)" (List.length jsonResults)
+    jsonResults
+    |> List.iter (fun r ->
+        pr "  [OK] %-25s %d qubits, %d gates" r.Label r.Qubits r.Gates)
+    pr ""
+
+if not quiet && outputPath.IsNone && csvPath.IsNone && (argv |> Array.isEmpty) then
+    pr "Tip: Use --output results.json or --csv results.csv to export data."
+    pr "     Use --example bell to run a single example."
+    pr "     Run with --help for all options."

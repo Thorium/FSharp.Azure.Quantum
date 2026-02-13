@@ -1,30 +1,25 @@
-// ============================================================================
+// ==============================================================================
 // Quantum Pattern Matcher Examples - FSharp.Azure.Quantum
-// ============================================================================
+// ==============================================================================
+// Demonstrates the Quantum Pattern Matcher API using Grover's algorithm to
+// find items matching a pattern in large search spaces:
 //
-// This script demonstrates the Quantum Pattern Matcher API using Grover's
-// algorithm to find items matching a pattern in large search spaces:
-//
-// 1. System Configuration Optimization
+// 1. System Configuration Optimization (database tuning)
 // 2. Machine Learning Hyperparameter Tuning
 // 3. Feature Selection for ML Models
 //
-// WHAT IS PATTERN MATCHING SEARCH:
-// Find items in a search space that satisfy a pattern predicate (expensive
-// evaluation). Uses quantum search to accelerate exploration when evaluation
-// is computationally expensive.
-//
-// WHY USE QUANTUM:
-// - Grover's algorithm provides O(√N) speedup over classical search
-// - Ideal when evaluation is expensive (10+ seconds per config)
-// - Quadratic speedup for exploring configuration spaces
-// - Find top-N best matches efficiently
-//
-// ============================================================================
+// Usage:
+//   dotnet fsi ConfigurationOptimizer.fsx
+//   dotnet fsi ConfigurationOptimizer.fsx -- --example db
+//   dotnet fsi ConfigurationOptimizer.fsx -- --quiet --output results.json --csv results.csv
+//   dotnet fsi ConfigurationOptimizer.fsx -- --help
+// ==============================================================================
 
-//#r "nuget: FSharp.Azure.Quantum"
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
-
+#load "../_common/Cli.fs"
+#load "../_common/Data.fs"
+#load "../_common/Reporting.fs"
+open FSharp.Azure.Quantum.Examples.Common
 
 open System
 open FSharp.Azure.Quantum
@@ -32,431 +27,276 @@ open FSharp.Azure.Quantum.QuantumPatternMatcher
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.Backends.LocalBackend
 
-// ============================================================================
-// BACKEND CONFIGURATION
-// ============================================================================
+// --- CLI ---
+let argv = fsi.CommandLineArgs |> Array.skip 1
+let args = Cli.parse argv
+Cli.exitIfHelp "ConfigurationOptimizer.fsx" "Quantum pattern matching for configuration search" [
+    { Name = "example"; Description = "Which example: all, db, ml, feature"; Default = Some "all" }
+    { Name = "shots"; Description = "Measurement shots per search"; Default = Some "1000" }
+    { Name = "output"; Description = "Write results to JSON file"; Default = None }
+    { Name = "csv"; Description = "Write results to CSV file"; Default = None }
+    { Name = "quiet"; Description = "Suppress printed output"; Default = None }
+] args
 
-// Create local quantum simulator (fast, for development/testing)
-let localBackend = LocalBackend() :> IQuantumBackend
+let exampleChoice = Cli.getOr "example" "all" args
+let cliShots = Cli.getIntOr "shots" 1000 args
+let quiet = Cli.hasFlag "quiet" args
+let outputPath = Cli.tryGet "output" args
+let csvPath = Cli.tryGet "csv" args
 
-// For cloud execution, use IonQ or Rigetti backend:
-// let cloudBackend = IonQBackend(workspace, resourceId) :> IQuantumBackend
-// let cloudBackend = RigettiBackend(workspace, resourceId) :> IQuantumBackend
+let pr fmt = Printf.ksprintf (fun s -> if not quiet then printfn "%s" s) fmt
 
-// ============================================================================
+// ==============================================================================
+// Backend (Rule 1: explicit IQuantumBackend)
+// ==============================================================================
+
+let quantumBackend = LocalBackend() :> IQuantumBackend
+
+pr "=== Quantum Pattern Matcher: Configuration Optimizer ==="
+pr "Backend: %s" quantumBackend.Name
+pr ""
+
+// Accumulators for output
+let mutable jsonResults: (string * obj) list = []
+let mutable csvRows: string list list = []
+
+// ==============================================================================
 // EXAMPLE 1: Database Configuration Optimization
-// ============================================================================
-//
-// PROBLEM: Find optimal database configurations from 256 possible combinations
-// that achieve:
-// - Throughput > 10,000 queries/second
-// - Latency < 50 milliseconds
-// - CPU usage < 80%
-//
-// REAL-WORLD IMPACT:
-// - Database tuning requires expensive benchmarks (30-60 seconds each)
-// - Classical search: 256 benchmarks × 45 seconds = 192 minutes
-// - Quantum search: √256 = 16 evaluations × 45 seconds = 12 minutes
-// - 16× speedup saves hours of testing time
-//
-printfn "========================================="
-printfn "EXAMPLE 1: Database Configuration"
-printfn "========================================="
-printfn ""
+// ==============================================================================
 
-// Configuration parameters (8 bits = 256 combinations)
 type DbConfig = {
-    CacheSize: int        // 2 bits: 64/128/256/512 MB
-    PoolSize: int         // 2 bits: 10/50/100/200 connections
-    QueryTimeout: int     // 2 bits: 5/10/30/60 seconds
-    LogLevel: string      // 2 bits: Debug/Info/Warn/Error
+    CacheSize: int
+    PoolSize: int
+    QueryTimeout: int
+    LogLevel: string
 }
 
-// Decode 8-bit index to configuration
 let decodeDbConfig (index: int) : DbConfig =
     let cacheSizes = [| 64; 128; 256; 512 |]
     let poolSizes = [| 10; 50; 100; 200 |]
     let timeouts = [| 5; 10; 30; 60 |]
     let logLevels = [| "Debug"; "Info"; "Warn"; "Error" |]
-    
-    {
-        CacheSize = cacheSizes.[(index >>> 6) &&& 0b11]
-        PoolSize = poolSizes.[(index >>> 4) &&& 0b11]
-        QueryTimeout = timeouts.[(index >>> 2) &&& 0b11]
-        LogLevel = logLevels.[index &&& 0b11]
-    }
+    { CacheSize = cacheSizes.[(index >>> 6) &&& 0b11]
+      PoolSize = poolSizes.[(index >>> 4) &&& 0b11]
+      QueryTimeout = timeouts.[(index >>> 2) &&& 0b11]
+      LogLevel = logLevels.[index &&& 0b11] }
 
-printfn "Search Space: 256 configurations (4 parameters × 4 values each)"
-printfn ""
-printfn "Parameters:"
-printfn "  - Cache Size:    64/128/256/512 MB"
-printfn "  - Pool Size:     10/50/100/200 connections"
-printfn "  - Query Timeout: 5/10/30/60 seconds"
-printfn "  - Log Level:     Debug/Info/Warn/Error"
-printfn ""
-
-// Simulate expensive benchmark (normally 30-60 seconds, here simplified)
 let benchmarkDatabase (config: DbConfig) =
-    // Real benchmark would: setup DB, load data, run queries, measure metrics
-    // Here: simplified scoring based on parameter balance
-    
-    let cacheScore = 
-        match config.CacheSize with
-        | 256 | 512 -> 100.0  // Good cache
-        | 128 -> 70.0
-        | _ -> 40.0
-    
-    let poolScore = 
-        match config.PoolSize with
-        | 100 | 200 -> 100.0  // Good pool size
-        | 50 -> 60.0
-        | _ -> 30.0
-    
-    let timeoutScore = 
-        match config.QueryTimeout with
-        | 30 | 60 -> 100.0  // Reasonable timeouts
-        | 10 -> 50.0
-        | _ -> 20.0
-    
-    let logScore = 
-        match config.LogLevel with
-        | "Info" | "Warn" -> 100.0  // Production-ready
-        | "Error" -> 80.0
-        | _ -> 40.0  // Debug too verbose
-    
-    let throughput = (cacheScore + poolScore) * 50.0  // queries/sec
-    let latency = 100.0 - (cacheScore + poolScore) / 4.0  // milliseconds
-    let cpuUsage = 
-        if config.LogLevel = "Debug" then 85.0  // Too high
-        else 75.0 - poolScore / 10.0
-    
+    let cacheScore = match config.CacheSize with | 512 -> 100.0 | 256 -> 80.0 | 128 -> 55.0 | _ -> 30.0
+    let poolScore = match config.PoolSize with | 100 -> 95.0 | 200 -> 85.0 | 50 -> 60.0 | _ -> 25.0
+    let timeoutScore = match config.QueryTimeout with | 30 -> 100.0 | 60 -> 80.0 | 10 -> 50.0 | _ -> 20.0
+    // Throughput: queries/sec (weighted combination of cache + pool + timeout)
+    let throughput = cacheScore * 50.0 + poolScore * 40.0 + timeoutScore * 10.0
+    // Latency: ms response time (lower is better, 20-100 range)
+    let latency = 100.0 - cacheScore * 0.4 - poolScore * 0.3 - timeoutScore * 0.1
+    // CPU: % utilization (lower is better)
+    let cpuUsage = 40.0 + (if config.LogLevel = "Debug" then 25.0 else 0.0)
+                        + (if config.PoolSize >= 200 then 10.0 else 0.0)
+                        + (if config.CacheSize <= 64 then 15.0 else 0.0)
     (throughput, latency, cpuUsage)
 
-// Pattern: High-performance configuration
 let isGoodConfig (index: int) : bool =
     let config = decodeDbConfig index
     let (throughput, latency, cpuUsage) = benchmarkDatabase config
-    
-    // Performance criteria
-    throughput > 10000.0 && latency < 50.0 && cpuUsage < 80.0
+    throughput >= 9500.0 && latency < 25.0 && cpuUsage <= 40.0 && config.LogLevel <> "Debug"
 
-// Build pattern matcher problem
-let dbOptimizationProblem = patternMatcher {
-    searchSpaceSize 256  // All possible configs (use searchSpaceSize for integer)
-    matchPattern isGoodConfig
-    findTop 5  // Find top 5 configurations
-    
-    // Use local quantum simulator
-    backend localBackend
-    shots 1000  // Number of measurements
-}
+if exampleChoice = "all" || exampleChoice = "db" then
+    pr "--- Example 1: Database Configuration ---"
+    pr "Search Space: 256 configs (4 params x 4 values)"
+    pr "  Cache Size:    64/128/256/512 MB"
+    pr "  Pool Size:     10/50/100/200 connections"
+    pr "  Query Timeout: 5/10/30/60 seconds"
+    pr "  Log Level:     Debug/Info/Warn/Error"
+    pr ""
 
-printfn "Searching for optimal configurations..."
-printfn "(Using Grover's algorithm for √N speedup)"
-printfn ""
-
-match solve dbOptimizationProblem with
-| Ok result ->
-    printfn "✅ FOUND %d MATCHING CONFIGURATIONS!" result.Matches.Length
-    printfn ""
-    
-    printfn "  Top Configurations:"
-    result.Matches 
-    |> List.iteri (fun i index ->
-        let config = decodeDbConfig index
-        let (throughput, latency, cpuUsage) = benchmarkDatabase config
-        
-        printfn "    #%d - Config Index %d:" (i+1) index
-        printfn "       Cache:      %d MB" config.CacheSize
-        printfn "       Pool:       %d connections" config.PoolSize
-        printfn "       Timeout:    %d seconds" config.QueryTimeout
-        printfn "       Log Level:  %s" config.LogLevel
-        printfn "       Performance:"
-        printfn "         Throughput: %.0f queries/sec" throughput
-        printfn "         Latency:    %.1f ms" latency
-        printfn "         CPU Usage:  %.1f%%" cpuUsage
-        printfn ""
-    )
-    
-    printfn "  Quantum Resources:"
-    printfn "    Search space: 256 configurations"
-    printfn "    Quantum advantage: √256 = 16× fewer benchmarks"
-    printfn "    Time saved: 256 → 16 evaluations (16× speedup)"
-
-| Error err ->
-    printfn "❌ Error: %s" err.Message
-
-printfn ""
-printfn ""
-
-// ============================================================================
-// EXAMPLE 2: Machine Learning Hyperparameter Tuning
-// ============================================================================
-//
-// PROBLEM: Find optimal hyperparameters for neural network training from
-// 128 combinations that achieve >95% validation accuracy.
-//
-// REAL-WORLD IMPACT:
-// - Training each config takes 5-30 minutes
-// - Classical grid search: 128 × 15 min = 32 hours
-// - Quantum search: √128 ≈ 11 evaluations × 15 min = 2.75 hours
-// - 11× speedup saves days of GPU time
-//
-printfn "========================================="
-printfn "EXAMPLE 2: ML Hyperparameter Tuning"
-printfn "========================================="
-printfn ""
-
-// Hyperparameter space (7 bits = 128 combinations)
-type MLConfig = {
-    LearningRate: float     // 2 bits: 0.001/0.01/0.1/1.0
-    BatchSize: int          // 2 bits: 16/32/64/128
-    Layers: int             // 2 bits: 1/2/3/4 hidden layers
-    DropoutRate: float      // 1 bit: 0.0/0.5
-}
-
-let decodeMLConfig (index: int) : MLConfig =
-    let learningRates = [| 0.001; 0.01; 0.1; 1.0 |]
-    let batchSizes = [| 16; 32; 64; 128 |]
-    let layerCounts = [| 1; 2; 3; 4 |]
-    
-    {
-        LearningRate = learningRates.[(index >>> 5) &&& 0b11]
-        BatchSize = batchSizes.[(index >>> 3) &&& 0b11]
-        Layers = layerCounts.[(index >>> 1) &&& 0b11]
-        DropoutRate = if (index &&& 0b1) = 1 then 0.5 else 0.0
+    let dbProblem = patternMatcher {
+        searchSpaceSize 256
+        matchPattern isGoodConfig
+        findTop 5
+        backend quantumBackend
+        shots cliShots
     }
 
-printfn "Search Space: 128 hyperparameter combinations"
-printfn ""
-printfn "Parameters:"
-printfn "  - Learning Rate: 0.001/0.01/0.1/1.0"
-printfn "  - Batch Size:    16/32/64/128"
-printfn "  - Hidden Layers: 1/2/3/4"
-printfn "  - Dropout:       0.0/0.5"
-printfn ""
+    match solve dbProblem with
+    | Ok result ->
+        pr "Found %d matching configurations" result.Matches.Length
+        pr ""
+        result.Matches
+        |> List.iteri (fun i index ->
+            let config = decodeDbConfig index
+            let (throughput, latency, cpuUsage) = benchmarkDatabase config
+            pr "  #%d - Config %d: Cache=%dMB Pool=%d Timeout=%ds Log=%s => TP=%.0f q/s Lat=%.1fms CPU=%.0f%%"
+                (i + 1) index config.CacheSize config.PoolSize config.QueryTimeout config.LogLevel throughput latency cpuUsage
+            csvRows <- [
+                "db"; string index; sprintf "%d" config.CacheSize; sprintf "%d" config.PoolSize
+                config.LogLevel; sprintf "%.0f" throughput; sprintf "%.1f" latency; sprintf "%.1f" cpuUsage
+            ] :: csvRows
+        )
+        pr "  Quantum advantage: sqrt(256) = 16x fewer evaluations"
+        pr ""
+        jsonResults <- ("db", box {| matches = result.Matches.Length; searchSpace = 256; qubits = result.QubitsRequired; iterations = result.IterationsUsed |}) :: jsonResults
+    | Error err ->
+        pr "Error: %s" err.Message
 
-// Simulate expensive model training
-let trainModel (config: MLConfig) : float =
-    // Real training would: build network, train epochs, validate
-    // Here: simplified accuracy scoring
-    
-    let lrScore = 
-        match config.LearningRate with
-        | 0.01 | 0.1 -> 95.0  // Good learning rates
-        | 0.001 -> 85.0
-        | _ -> 60.0  // Too high
-    
-    let batchScore = 
-        match config.BatchSize with
-        | 32 | 64 -> 95.0  // Good batch sizes
-        | 16 -> 88.0
-        | _ -> 75.0
-    
-    let layerScore = 
-        match config.Layers with
-        | 2 | 3 -> 95.0  // Good depth
-        | 1 -> 82.0
-        | _ -> 70.0  // Too deep, overfits
-    
-    let dropoutBonus = if config.DropoutRate > 0.0 then 5.0 else 0.0
-    
-    // Validation accuracy
-    (lrScore + batchScore + layerScore) / 3.0 + dropoutBonus
+if exampleChoice = "all" || exampleChoice = "ml" then
+    // ==============================================================================
+    // EXAMPLE 2: ML Hyperparameter Tuning
+    // ==============================================================================
 
-// Pattern: High-accuracy model
-let isGoodModel (index: int) : bool =
-    let config = decodeMLConfig index
-    let accuracy = trainModel config
-    accuracy > 95.0
+    pr "--- Example 2: ML Hyperparameter Tuning ---"
+    pr "Search Space: 128 combinations (LR x Batch x Layers x Dropout)"
+    pr ""
 
-let mlTuningProblem = patternMatcher {
-    searchSpaceSize 128  // Use searchSpaceSize for integer
-    matchPattern isGoodModel
-    findTop 3  // Top 3 best models
-    
-    // Use local quantum simulator
-    backend localBackend
-    shots 1000
-}
+    let decodeMLConfig (index: int) =
+        let learningRates = [| 0.001; 0.01; 0.1; 1.0 |]
+        let batchSizes = [| 16; 32; 64; 128 |]
+        let layerCounts = [| 1; 2; 3; 4 |]
+        {| LearningRate = learningRates.[(index >>> 5) &&& 0b11]
+           BatchSize = batchSizes.[(index >>> 3) &&& 0b11]
+           Layers = layerCounts.[(index >>> 1) &&& 0b11]
+           DropoutRate = if (index &&& 0b1) = 1 then 0.5 else 0.0 |}
 
-printfn "Searching for optimal hyperparameters..."
-printfn ""
-
-match solve mlTuningProblem with
-| Ok result ->
-    printfn "✅ FOUND %d HIGH-ACCURACY CONFIGURATIONS!" result.Matches.Length
-    printfn ""
-    
-    printfn "  Top Model Configurations:"
-    result.Matches 
-    |> List.iteri (fun i index ->
+    let trainModel (index: int) : float =
         let config = decodeMLConfig index
-        let accuracy = trainModel config
-        
-        printfn "    #%d - Config Index %d:" (i+1) index
-        printfn "       Learning Rate: %.3f" config.LearningRate
-        printfn "       Batch Size:    %d" config.BatchSize
-        printfn "       Hidden Layers: %d" config.Layers
-        printfn "       Dropout Rate:  %.1f" config.DropoutRate
-        printfn "       Val Accuracy:  %.2f%%" accuracy
-        printfn ""
-    )
-    
-    printfn "  Quantum Resources:"
-    printfn "    Search space: 128 configurations"
-    printfn "    Quantum advantage: √128 ≈ 11× fewer training runs"
+        let lrScore =
+            match config.LearningRate with
+            | 0.01 | 0.1 -> 95.0
+            | 0.001 -> 85.0
+            | _ -> 60.0
+        let batchScore =
+            match config.BatchSize with
+            | 32 | 64 -> 95.0
+            | 16 -> 88.0
+            | _ -> 75.0
+        let layerScore =
+            match config.Layers with
+            | 2 | 3 -> 95.0
+            | 1 -> 82.0
+            | _ -> 70.0
+        let dropoutBonus = if config.DropoutRate > 0.0 then 5.0 else 0.0
+        (lrScore + batchScore + layerScore) / 3.0 + dropoutBonus
 
-| Error err ->
-    printfn "❌ Error: %s" err.Message
+    let isGoodModel (index: int) : bool = trainModel index > 95.0
 
-printfn ""
-printfn ""
+    let mlProblem = patternMatcher {
+        searchSpaceSize 128
+        matchPattern isGoodModel
+        findTop 3
+        backend quantumBackend
+        shots cliShots
+    }
 
-// ============================================================================
-// EXAMPLE 3: Feature Selection for ML
-// ============================================================================
-//
-// PROBLEM: Select best subset of 8 features (256 combinations) that achieves
-// high model accuracy while minimizing feature count (simpler model).
-//
-// REAL-WORLD IMPACT:
-// - Each feature subset requires full model training
-// - Fewer features = faster inference, lower costs
-// - Quantum search finds optimal subsets 16× faster
-//
-printfn "========================================="
-printfn "EXAMPLE 3: Feature Selection"
-printfn "========================================="
-printfn ""
+    match solve mlProblem with
+    | Ok result ->
+        pr "Found %d high-accuracy configurations" result.Matches.Length
+        pr ""
+        result.Matches
+        |> List.iteri (fun i index ->
+            let config = decodeMLConfig index
+            let accuracy = trainModel index
+            pr "  #%d - Config %d: LR=%.3f Batch=%d Layers=%d Dropout=%.1f => Acc=%.2f%%"
+                (i + 1) index config.LearningRate config.BatchSize config.Layers config.DropoutRate accuracy
+            csvRows <- [
+                "ml"; string index; sprintf "%.3f" config.LearningRate; sprintf "%d" config.BatchSize
+                sprintf "%d" config.Layers; sprintf "%.1f" config.DropoutRate; sprintf "%.2f" accuracy; ""
+            ] :: csvRows
+        )
+        pr "  Quantum advantage: sqrt(128) ~ 11x fewer training runs"
+        pr ""
+        jsonResults <- ("ml", box {| matches = result.Matches.Length; searchSpace = 128; qubits = result.QubitsRequired; iterations = result.IterationsUsed |}) :: jsonResults
+    | Error err ->
+        pr "Error: %s" err.Message
 
-let features = [|
-    "Age"; "Income"; "CreditScore"; "Education"
-    "Employment"; "LoanHistory"; "Assets"; "Debt"
-|]
+if exampleChoice = "all" || exampleChoice = "feature" then
+    // ==============================================================================
+    // EXAMPLE 3: Feature Selection for ML
+    // ==============================================================================
 
-printfn "Feature Pool: %d features" features.Length
-printfn "Features: %s" (String.concat ", " features)
-printfn ""
-printfn "Goal: Select features achieving >90%% accuracy with minimal count"
-printfn ""
+    pr "--- Example 3: Feature Selection ---"
 
-// Decode bit pattern to feature subset
-let decodeFeatureSet (index: int) : string list =
-    features 
-    |> Array.mapi (fun i feature -> 
-        if (index &&& (1 <<< i)) <> 0 then Some feature else None
-    )
-    |> Array.choose id
-    |> Array.toList
+    let features = [| "Age"; "Income"; "CreditScore"; "Education"; "Employment"; "LoanHistory"; "Assets"; "Debt" |]
+    pr "Feature Pool: %d features (%s)" features.Length (String.concat ", " features)
+    pr "Goal: Select features achieving >93%% accuracy with 3-5 features"
+    pr ""
 
-// Simulate model training with feature subset
-let evaluateFeatureSet (featureSet: string list) : (float * int) =
-    // Real evaluation: train model with subset, measure accuracy
-    // Here: simplified scoring
-    
-    // Key features
-    let hasIncome = featureSet |> List.contains "Income"
-    let hasCreditScore = featureSet |> List.contains "CreditScore"
-    let hasLoanHistory = featureSet |> List.contains "LoanHistory"
-    
-    let baseAccuracy = 
-        match (hasIncome, hasCreditScore, hasLoanHistory) with
-        | (true, true, true) -> 94.0   // All key features
-        | (true, true, false) -> 91.0  // Missing loan history
-        | (true, false, true) -> 88.0
-        | _ -> 75.0  // Missing too many
-    
-    // Penalty for too many features (overfitting)
-    let featureCount = featureSet.Length
-    let penalty = 
-        if featureCount > 5 then float (featureCount - 5) * 2.0
-        else 0.0
-    
-    let finalAccuracy = baseAccuracy - penalty
-    
-    (finalAccuracy, featureCount)
+    let decodeFeatureSet (index: int) : string list =
+        features
+        |> Array.mapi (fun i f -> if (index &&& (1 <<< i)) <> 0 then Some f else None)
+        |> Array.choose id
+        |> Array.toList
 
-// Pattern: Good accuracy with reasonable feature count
-let isGoodFeatureSet (index: int) : bool =
-    let featureSet = decodeFeatureSet index
-    let (accuracy, count) = evaluateFeatureSet featureSet
-    
-    // Criteria: >90% accuracy, 3-6 features
-    accuracy > 90.0 && count >= 3 && count <= 6
+    let evaluateFeatureSet (featureSet: string list) : (float * int) =
+        let hasIncome = featureSet |> List.contains "Income"
+        let hasCreditScore = featureSet |> List.contains "CreditScore"
+        let hasLoanHistory = featureSet |> List.contains "LoanHistory"
+        let hasAssets = featureSet |> List.contains "Assets"
+        let baseAccuracy =
+            match (hasIncome, hasCreditScore, hasLoanHistory) with
+            | (true, true, true) -> 94.0
+            | (true, true, false) -> 89.0
+            | (true, false, true) -> 85.0
+            | _ -> 72.0
+        let bonus = if hasAssets && hasCreditScore then 2.0 else 0.0
+        let featureCount = featureSet.Length
+        let penalty = if featureCount > 4 then float (featureCount - 4) * 3.0 else 0.0
+        (baseAccuracy + bonus - penalty, featureCount)
 
-let featureSelectionProblem = patternMatcher {
-    searchSpaceSize 256  // 2^8 = 256 subsets (use searchSpaceSize for integer)
-    matchPattern isGoodFeatureSet
-    findTop 5
-    
-    // Use local quantum simulator
-    backend localBackend
-    shots 1000
-}
-
-printfn "Searching for optimal feature subsets..."
-printfn ""
-
-match solve featureSelectionProblem with
-| Ok result ->
-    printfn "✅ FOUND %d OPTIMAL FEATURE SUBSETS!" result.Matches.Length
-    printfn ""
-    
-    printfn "  Top Feature Combinations:"
-    result.Matches 
-    |> List.iteri (fun i index ->
+    let isGoodFeatureSet (index: int) : bool =
         let featureSet = decodeFeatureSet index
         let (accuracy, count) = evaluateFeatureSet featureSet
-        
-        printfn "    #%d - Subset Index %d:" (i+1) index
-        printfn "       Features (%d): %s" count (String.concat ", " featureSet)
-        printfn "       Accuracy:      %.2f%%" accuracy
-        printfn "       Complexity:    %s" 
-            (if count <= 4 then "Simple" else "Moderate")
-        printfn ""
-    )
-    
-    printfn "  Quantum Resources:"
-    printfn "    Search space: 256 feature subsets"
-    printfn "    Quantum advantage: √256 = 16× fewer model trainings"
+        accuracy > 93.0 && count >= 3 && count <= 5
 
-| Error err ->
-    printfn "❌ Error: %s" err.Message
+    let featureProblem = patternMatcher {
+        searchSpaceSize 256
+        matchPattern isGoodFeatureSet
+        findTop 5
+        backend quantumBackend
+        shots cliShots
+    }
 
-printfn ""
-printfn ""
+    match solve featureProblem with
+    | Ok result ->
+        pr "Found %d optimal feature subsets" result.Matches.Length
+        pr ""
+        result.Matches
+        |> List.iteri (fun i index ->
+            let featureSet = decodeFeatureSet index
+            let (accuracy, count) = evaluateFeatureSet featureSet
+            pr "  #%d - Subset %d: [%s] (%d features, %.2f%% acc)"
+                (i + 1) index (String.concat ", " featureSet) count accuracy
+            csvRows <- [
+                "feature"; string index; String.concat "|" featureSet; sprintf "%d" count
+                sprintf "%.2f" accuracy; ""; ""; ""
+            ] :: csvRows
+        )
+        pr "  Quantum advantage: sqrt(256) = 16x fewer model trainings"
+        pr ""
+        jsonResults <- ("feature", box {| matches = result.Matches.Length; searchSpace = 256; qubits = result.QubitsRequired; iterations = result.IterationsUsed |}) :: jsonResults
+    | Error err ->
+        pr "Error: %s" err.Message
 
-// ============================================================================
-// SUMMARY: When to Use Quantum Pattern Matcher
-// ============================================================================
+// ==============================================================================
+// Output
+// ==============================================================================
 
-printfn "========================================="
-printfn "WHEN TO USE QUANTUM PATTERN MATCHER"
-printfn "========================================="
-printfn ""
-printfn "✅ GOOD FITS:"
-printfn "  - Configuration optimization (databases, compilers, systems)"
-printfn "  - Hyperparameter tuning (ML, simulation parameters)"
-printfn "  - Feature selection (ML feature engineering)"
-printfn "  - A/B testing at scale (find best variants)"
-printfn "  - Search spaces: 100-10,000 candidates"
-printfn "  - Expensive evaluation (10+ seconds per candidate)"
-printfn ""
-printfn "❌ NOT SUITABLE FOR:"
-printfn "  - Fast evaluations (<1 second) - classical is better"
-printfn "  - Very small search spaces (<50 items)"
-printfn "  - Problems with known structure (use domain-specific)"
-printfn "  - Need exact optimum (use optimization algorithms)"
-printfn ""
-printfn "🚀 QUANTUM ADVANTAGE:"
-printfn "  - Grover's algorithm: O(√N) vs O(N) classical"
-printfn "  - Best for: expensive evaluation + large search space"
-printfn "  - Example: 256 configs × 60 sec = 4 hours → 16 × 60 sec = 16 min"
-printfn "  - 15× speedup saves hours of compute time"
-printfn ""
-printfn "📚 RELATED BUILDERS:"
-printfn "  - Constraint satisfaction: QuantumConstraintSolverBuilder"
-printfn "  - Tree search problems: QuantumTreeSearchBuilder"
-printfn "  - Graph problems: GraphColoringBuilder"
-printfn ""
+outputPath |> Option.iter (fun path ->
+    let payload =
+        {| backend = quantumBackend.Name
+           shotsPerSearch = cliShots
+           examples = jsonResults |> List.rev |> List.map (fun (name, data) -> {| example = name; results = data |}) |}
+    Reporting.writeJson path payload
+    pr "JSON written to %s" path
+)
+
+csvPath |> Option.iter (fun path ->
+    let header = ["Example"; "Index"; "Param1"; "Param2"; "Param3"; "Metric1"; "Metric2"; "Metric3"]
+    Reporting.writeCsv path header (csvRows |> List.rev)
+    pr "CSV written to %s" path
+)
+
+if not quiet && outputPath.IsNone && csvPath.IsNone then
+    pr "---"
+    pr "Tip: Use --example db|ml|feature to run a single example."
+    pr "     Use --shots N to change measurement count (default 1000)."
+    pr "     Use --output results.json or --csv results.csv to export."
+    pr "     Use --help for all options."

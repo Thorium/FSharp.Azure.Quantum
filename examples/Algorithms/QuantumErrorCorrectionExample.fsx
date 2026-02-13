@@ -1,20 +1,11 @@
-/// Quantum Error Correction Example
-/// 
-/// Demonstrates four standard quantum error correction codes:
-///   1. **BitFlip** [[3,1,1]]: Corrects single X errors
-///   2. **PhaseFlip** [[3,1,1]]: Corrects single Z errors
-///   3. **Shor** [[9,1,3]]: Corrects any single-qubit error
-///   4. **Steane** [[7,1,3]]: CSS code correcting any single-qubit error
-/// 
-/// **Key Insight**: Quantum errors are continuous, but the discretization
-/// theorem shows that correcting X, Z, and Y (= iXZ) suffices to correct
-/// ALL single-qubit errors, including arbitrary rotations.
-/// 
-/// **Production Use Cases**:
-/// - Fault-tolerant quantum computation
-/// - Quantum memory (preserving quantum states)
-/// - Quantum communication (channel error correction)
-/// - Benchmarking quantum hardware
+// Quantum Error Correction Example
+// Demonstrates four standard QEC codes with round-trip error correction
+//
+// Usage:
+//   dotnet fsi QuantumErrorCorrectionExample.fsx
+//   dotnet fsi QuantumErrorCorrectionExample.fsx -- --help
+//   dotnet fsi QuantumErrorCorrectionExample.fsx -- --code shor --error-qubit 4
+//   dotnet fsi QuantumErrorCorrectionExample.fsx -- --quiet --output results.json --csv results.csv
 
 (*
 ===============================================================================
@@ -31,219 +22,316 @@ The breakthrough insight is that by encoding logical qubits into entangled
 multi-qubit states, we can extract error *syndromes* without measuring the
 encoded information, and then apply corrections.
 
-Notation:
-  [[n,k,d]] = n physical qubits, k logical qubits, d code distance
-  Code distance d corrects floor((d-1)/2) errors
+Notation: [[n,k,d]] = n physical qubits, k logical qubits, d code distance
+Code distance d corrects floor((d-1)/2) errors.
+
+Four codes demonstrated:
+  1. BitFlip   [[3,1,1]]: Corrects single X errors
+  2. PhaseFlip [[3,1,1]]: Corrects single Z errors
+  3. Shor      [[9,1,3]]: Corrects any single-qubit error (first QEC code, 1995)
+  4. Steane    [[7,1,3]]: CSS code, 7 qubits with transversal gates
+
+Key Insight: The discretization theorem shows that correcting X, Z, and Y
+(= iXZ) suffices to correct ALL single-qubit errors including arbitrary rotations.
+
+Production Use Cases:
+  - Fault-tolerant quantum computation
+  - Quantum memory (preserving quantum states)
+  - Quantum communication (channel error correction)
+  - Benchmarking quantum hardware
 
 References:
   [1] Shor, "Scheme for reducing decoherence in quantum computer memory",
       Phys. Rev. A 52, R2493 (1995).
   [2] Steane, "Error Correcting Codes in Quantum Theory",
       Phys. Rev. Lett. 77, 793 (1996).
-  [3] Calderbank & Shor, "Good quantum error-correcting codes exist",
-      Phys. Rev. A 54, 1098 (1996).
-  [4] Nielsen & Chuang, "Quantum Computation and Quantum Information",
+  [3] Nielsen & Chuang, "Quantum Computation and Quantum Information",
       Cambridge University Press (2010), Chapter 10.
-  [5] Wikipedia: Quantum error correction
+  [4] Wikipedia: Quantum error correction
       https://en.wikipedia.org/wiki/Quantum_error_correction
 *)
 
-//#r "nuget: FSharp.Azure.Quantum"
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
+#load "../_common/Cli.fs"
+#load "../_common/Data.fs"
+#load "../_common/Reporting.fs"
 
 open FSharp.Azure.Quantum.Algorithms.QuantumErrorCorrection
 open FSharp.Azure.Quantum.Backends.LocalBackend
 open FSharp.Azure.Quantum.Core.BackendAbstraction
-
-printfn "================================================================"
-printfn "  Quantum Error Correction - Four Code Demo"
-printfn "================================================================"
-printfn ""
-
-// Create a local quantum backend (noise-free simulator)
-let backend : IQuantumBackend = LocalBackend() :> IQuantumBackend
-
-printfn "Backend: %s" backend.Name
-printfn ""
+open FSharp.Azure.Quantum.Examples.Common
 
 // ============================================================================
-// DEMO 1: Code Parameters
+// CLI Setup
 // ============================================================================
 
-printfn "--- Demo 1: Code Parameters ---"
-printfn ""
+let argv = fsi.CommandLineArgs |> Array.skip 1
+let args = Cli.parse argv
+
+Cli.exitIfHelp "QuantumErrorCorrectionExample.fsx" "QEC codes: encode, inject error, measure syndrome, correct, verify." [
+    { Name = "code"; Description = "Code to test (bitflip/phaseflip/shor/steane/all)"; Default = Some "all" }
+    { Name = "error-qubit"; Description = "Qubit index for error injection (default varies by code)"; Default = None }
+    { Name = "logical-bit"; Description = "Logical bit to encode (0 or 1)"; Default = Some "0" }
+    { Name = "output"; Description = "Write results to JSON file"; Default = None }
+    { Name = "csv"; Description = "Write results to CSV file"; Default = None }
+    { Name = "quiet"; Description = "Suppress informational output"; Default = None }
+] args
+
+let codeArg = Cli.getOr "code" "all" args
+let errorQubitOverride = Cli.tryGet "error-qubit" args |> Option.map int
+let logicalBit = Cli.getIntOr "logical-bit" 0 args
+let quiet = Cli.hasFlag "quiet" args
+let outputPath = Cli.tryGet "output" args
+let csvPath = Cli.tryGet "csv" args
+
+let runCode name = codeArg = "all" || codeArg = name
+
+// ============================================================================
+// Quantum Backend
+// ============================================================================
+
+let backend = LocalBackend() :> IQuantumBackend
+
+// ============================================================================
+// Result Collection
+// ============================================================================
+
+let results = System.Collections.Generic.List<Map<string, string>>()
+
+let addRoundTripResult (codeName: string) (errorType: string) (errorQubit: int) (r: RoundTripResult) =
+    results.Add(
+        [ "code", codeName
+          "logical_bit", string r.LogicalBit
+          "error_type", errorType
+          "error_qubit", string errorQubit
+          "syndrome", (r.Syndrome.SyndromeBits |> List.map string |> String.concat ",")
+          "correction_applied", string r.CorrectionApplied
+          "decoded_bit", string r.DecodedBit
+          "success", string r.Success
+          "backend", r.BackendName ]
+        |> Map.ofList)
+
+// ============================================================================
+// Scenario 1: Code Parameters
+// ============================================================================
+
+if not quiet then
+    printfn "=== Quantum Error Correction ==="
+    printfn ""
+    printfn "BUSINESS SCENARIO:"
+    printfn "Protect quantum information from noise and decoherence using"
+    printfn "multi-qubit encoding with syndrome-based error correction."
+    printfn ""
+    printfn "Backend: %s" backend.Name
+    printfn ""
+    printfn "--- Code Parameters ---"
+    printfn ""
 
 let codes = [ BitFlipCode3; PhaseFlipCode3; ShorCode9; SteaneCode7 ]
 
 for code in codes do
-    printfn "  %s" (formatCodeParameters code)
-
-printfn ""
-
-// ============================================================================
-// DEMO 2: 3-Qubit Bit-Flip Code
-// ============================================================================
-
-printfn "--- Demo 2: 3-Qubit Bit-Flip Code [[3,1,1]] ---"
-printfn ""
-printfn "  Encoding: |0> -> |000>,  |1> -> |111>"
-printfn "  Corrects: Single X (bit-flip) errors"
-printfn ""
-
-// Test with no error
-match BitFlip.roundTrip backend 0 None with
-| Error err -> printfn "  ERROR: %A" err
-| Ok result ->
-    printfn "  No error:   encoded |%d> -> decoded |%d>  (success=%b)"
-        result.LogicalBit result.DecodedBit result.Success
-
-// Test with error on each data qubit
-for q in 0..2 do
-    for logicalBit in [0; 1] do
-        match BitFlip.roundTrip backend logicalBit (Some q) with
-        | Error err -> printfn "  ERROR: %A" err
-        | Ok result ->
-            printfn "  X on q%d:    encoded |%d> -> syndrome %A -> decoded |%d>  (success=%b)"
-                q result.LogicalBit result.Syndrome.SyndromeBits
-                result.DecodedBit result.Success
-
-printfn ""
-
-// ============================================================================
-// DEMO 3: 3-Qubit Phase-Flip Code
-// ============================================================================
-
-printfn "--- Demo 3: 3-Qubit Phase-Flip Code [[3,1,1]] ---"
-printfn ""
-printfn "  Encoding: |0> -> |+++>,  |1> -> |--->"
-printfn "  Corrects: Single Z (phase-flip) errors"
-printfn ""
-
-for q in 0..2 do
-    match PhaseFlip.roundTrip backend 0 (Some q) with
-    | Error err -> printfn "  ERROR: %A" err
-    | Ok result ->
-        printfn "  Z on q%d:    encoded |%d> -> syndrome %A -> decoded |%d>  (success=%b)"
-            q result.LogicalBit result.Syndrome.SyndromeBits
-            result.DecodedBit result.Success
-
-// Encoding logical 1
-match PhaseFlip.roundTrip backend 1 (Some 1) with
-| Error err -> printfn "  ERROR: %A" err
-| Ok result ->
-    printfn "  Z on q1:    encoded |%d> -> syndrome %A -> decoded |%d>  (success=%b)"
-        result.LogicalBit result.Syndrome.SyndromeBits
-        result.DecodedBit result.Success
-
-printfn ""
-
-// ============================================================================
-// DEMO 4: Shor 9-Qubit Code
-// ============================================================================
-
-printfn "--- Demo 4: Shor 9-Qubit Code [[9,1,3]] ---"
-printfn ""
-printfn "  First QEC code ever discovered (Shor, 1995)."
-printfn "  Concatenation of phase-flip (outer) and bit-flip (inner) codes."
-printfn "  Corrects ANY single-qubit error: X, Z, or Y = iXZ."
-printfn ""
-
-// Bit-flip error
-match Shor.roundTrip backend 0 BitFlipError 1 with
-| Error err -> printfn "  ERROR: %A" err
-| Ok result ->
-    printfn "  X on q1:    encoded |%d> -> decoded |%d>  (success=%b)"
-        result.LogicalBit result.DecodedBit result.Success
-
-// Phase-flip error
-match Shor.roundTrip backend 0 PhaseFlipError 0 with
-| Error err -> printfn "  ERROR: %A" err
-| Ok result ->
-    printfn "  Z on q0:    encoded |%d> -> decoded |%d>  (success=%b)"
-        result.LogicalBit result.DecodedBit result.Success
-
-// Combined (Y) error
-match Shor.roundTrip backend 1 CombinedError 4 with
-| Error err -> printfn "  ERROR: %A" err
-| Ok result ->
-    printfn "  Y on q4:    encoded |%d> -> decoded |%d>  (success=%b)"
-        result.LogicalBit result.DecodedBit result.Success
-
-printfn ""
-
-// ============================================================================
-// DEMO 5: Steane 7-Qubit Code
-// ============================================================================
-
-printfn "--- Demo 5: Steane 7-Qubit Code [[7,1,3]] ---"
-printfn ""
-printfn "  CSS code based on classical [7,4,3] Hamming code."
-printfn "  Uses only 7 qubits (vs 9 for Shor) with same error correction."
-printfn "  Supports transversal gates for fault-tolerant computation."
-printfn ""
-
-// Bit-flip error
-match Steane.roundTrip backend 0 BitFlipError 3 with
-| Error err -> printfn "  ERROR: %A" err
-| Ok result ->
-    printfn "  X on q3:    encoded |%d> -> decoded |%d>  (success=%b)"
-        result.LogicalBit result.DecodedBit result.Success
-
-// Phase-flip error
-match Steane.roundTrip backend 0 PhaseFlipError 5 with
-| Error err -> printfn "  ERROR: %A" err
-| Ok result ->
-    printfn "  Z on q5:    encoded |%d> -> decoded |%d>  (success=%b)"
-        result.LogicalBit result.DecodedBit result.Success
-
-// Combined error
-match Steane.roundTrip backend 1 CombinedError 2 with
-| Error err -> printfn "  ERROR: %A" err
-| Ok result ->
-    printfn "  Y on q2:    encoded |%d> -> decoded |%d>  (success=%b)"
-        result.LogicalBit result.DecodedBit result.Success
-
-printfn ""
-
-// ============================================================================
-// DEMO 6: Formatted Round-Trip Output
-// ============================================================================
-
-printfn "--- Demo 6: Detailed Round-Trip Report ---"
-printfn ""
-
-match Shor.roundTrip backend 1 CombinedError 7 with
-| Error err -> printfn "  ERROR: %A" err
-| Ok result -> printfn "%s" (formatRoundTrip result)
-
-// ============================================================================
-// DEMO 7: Code Comparison
-// ============================================================================
-
-printfn "--- Demo 7: Code Comparison ---"
-printfn ""
-printfn "  %-20s  %-10s  %-10s  %-8s  %-12s" "Code" "Qubits" "Distance" "Corrects" "Error Types"
-printfn "  %-20s  %-10s  %-10s  %-8s  %-12s" "--------------------" "----------" "----------" "--------" "------------"
-
-let codeInfo = [
-    (BitFlipCode3,   "X only")
-    (PhaseFlipCode3, "Z only")
-    (ShorCode9,      "X, Z, Y")
-    (SteaneCode7,    "X, Z, Y")
-]
-
-for (code, errorTypes) in codeInfo do
     let p = codeParameters code
-    let name =
+    let codeName =
         match code with
-        | BitFlipCode3 -> "Bit-Flip [[3,1,1]]"
-        | PhaseFlipCode3 -> "Phase-Flip [[3,1,1]]"
-        | ShorCode9 -> "Shor [[9,1,3]]"
-        | SteaneCode7 -> "Steane [[7,1,3]]"
-    printfn "  %-20s  %-10d  %-10d  %-8d  %-12s"
-        name p.PhysicalQubits p.Distance p.CorrectableErrors errorTypes
+        | BitFlipCode3 -> "BitFlip"
+        | PhaseFlipCode3 -> "PhaseFlip"
+        | ShorCode9 -> "Shor"
+        | SteaneCode7 -> "Steane"
 
-printfn ""
-printfn "================================================================"
-printfn "  Quantum Error Correction Demo Complete"
-printfn "================================================================"
+    if not quiet then
+        printfn "  %s" (formatCodeParameters code)
+
+    results.Add(
+        [ "scenario", "parameters"
+          "code", codeName
+          "physical_qubits", string p.PhysicalQubits
+          "logical_qubits", string p.LogicalQubits
+          "distance", string p.Distance
+          "correctable_errors", string p.CorrectableErrors ]
+        |> Map.ofList)
+
+if not quiet then printfn ""
+
+// ============================================================================
+// Scenario 2: Bit-Flip Code [[3,1,1]]
+// ============================================================================
+
+if runCode "bitflip" then
+    if not quiet then
+        printfn "--- Bit-Flip Code [[3,1,1]] ---"
+        printfn "  Encoding: |0> -> |000>,  |1> -> |111>"
+        printfn "  Corrects: Single X (bit-flip) errors"
+        printfn ""
+
+    // No error
+    match BitFlip.roundTrip backend logicalBit None with
+    | Error err ->
+        if not quiet then printfn "  ERROR: %A" err
+    | Ok r ->
+        if not quiet then
+            printfn "  No error:   encoded |%d> -> decoded |%d>  [%s]"
+                r.LogicalBit r.DecodedBit (if r.Success then "OK" else "FAIL")
+        addRoundTripResult "BitFlip" "none" -1 r
+
+    // Error on each data qubit
+    let testQubits = match errorQubitOverride with Some q -> [q] | None -> [0; 1; 2]
+    for q in testQubits do
+        for lb in [0; 1] do
+            match BitFlip.roundTrip backend lb (Some q) with
+            | Error err ->
+                if not quiet then printfn "  ERROR: %A" err
+            | Ok r ->
+                if not quiet then
+                    printfn "  X on q%d:    encoded |%d> -> syndrome %A -> decoded |%d>  [%s]"
+                        q r.LogicalBit r.Syndrome.SyndromeBits r.DecodedBit
+                        (if r.Success then "OK" else "FAIL")
+                addRoundTripResult "BitFlip" "X" q r
+
+    if not quiet then printfn ""
+
+// ============================================================================
+// Scenario 3: Phase-Flip Code [[3,1,1]]
+// ============================================================================
+
+if runCode "phaseflip" then
+    if not quiet then
+        printfn "--- Phase-Flip Code [[3,1,1]] ---"
+        printfn "  Encoding: |0> -> |+++>,  |1> -> |--->"
+        printfn "  Corrects: Single Z (phase-flip) errors"
+        printfn ""
+
+    let testQubits = match errorQubitOverride with Some q -> [q] | None -> [0; 1; 2]
+    for q in testQubits do
+        for lb in [0; 1] do
+            match PhaseFlip.roundTrip backend lb (Some q) with
+            | Error err ->
+                if not quiet then printfn "  ERROR: %A" err
+            | Ok r ->
+                if not quiet then
+                    printfn "  Z on q%d:    encoded |%d> -> syndrome %A -> decoded |%d>  [%s]"
+                        q r.LogicalBit r.Syndrome.SyndromeBits r.DecodedBit
+                        (if r.Success then "OK" else "FAIL")
+                addRoundTripResult "PhaseFlip" "Z" q r
+
+    if not quiet then printfn ""
+
+// ============================================================================
+// Scenario 4: Shor 9-Qubit Code [[9,1,3]]
+// ============================================================================
+
+if runCode "shor" then
+    if not quiet then
+        printfn "--- Shor 9-Qubit Code [[9,1,3]] ---"
+        printfn "  First QEC code (Shor, 1995). Concatenation of phase-flip"
+        printfn "  (outer) and bit-flip (inner) codes."
+        printfn "  Corrects ANY single-qubit error: X, Z, or Y = iXZ."
+        printfn ""
+
+    let errQubit = errorQubitOverride |> Option.defaultValue 1
+
+    for (errType, errLabel) in [(BitFlipError, "X"); (PhaseFlipError, "Z"); (CombinedError, "Y")] do
+        for lb in [0; 1] do
+            match Shor.roundTrip backend lb errType errQubit with
+            | Error err ->
+                if not quiet then printfn "  ERROR: %A" err
+            | Ok r ->
+                if not quiet then
+                    printfn "  %s on q%d:    encoded |%d> -> decoded |%d>  [%s]"
+                        errLabel errQubit r.LogicalBit r.DecodedBit
+                        (if r.Success then "OK" else "FAIL")
+                addRoundTripResult "Shor" errLabel errQubit r
+
+    if not quiet then printfn ""
+
+// ============================================================================
+// Scenario 5: Steane 7-Qubit Code [[7,1,3]]
+// ============================================================================
+
+if runCode "steane" then
+    if not quiet then
+        printfn "--- Steane 7-Qubit Code [[7,1,3]] ---"
+        printfn "  CSS code based on classical [7,4,3] Hamming code."
+        printfn "  Uses only 7 qubits (vs 9 for Shor) with transversal gates."
+        printfn ""
+
+    let errQubit = errorQubitOverride |> Option.defaultValue 3
+
+    for (errType, errLabel) in [(BitFlipError, "X"); (PhaseFlipError, "Z"); (CombinedError, "Y")] do
+        for lb in [0; 1] do
+            match Steane.roundTrip backend lb errType errQubit with
+            | Error err ->
+                if not quiet then printfn "  ERROR: %A" err
+            | Ok r ->
+                if not quiet then
+                    printfn "  %s on q%d:    encoded |%d> -> decoded |%d>  [%s]"
+                        errLabel errQubit r.LogicalBit r.DecodedBit
+                        (if r.Success then "OK" else "FAIL")
+                addRoundTripResult "Steane" errLabel errQubit r
+
+    if not quiet then printfn ""
+
+// ============================================================================
+// Summary: Code Comparison
+// ============================================================================
+
+if not quiet then
+    printfn "--- Code Comparison ---"
+    printfn ""
+    printfn "  %-20s  %-8s  %-8s  %-10s  %-12s" "Code" "Qubits" "Dist." "Corrects" "Error Types"
+    printfn "  %-20s  %-8s  %-8s  %-10s  %-12s" "--------------------" "--------" "--------" "----------" "------------"
+
+    let codeInfo = [
+        (BitFlipCode3,   "X only")
+        (PhaseFlipCode3, "Z only")
+        (ShorCode9,      "X, Z, Y")
+        (SteaneCode7,    "X, Z, Y")
+    ]
+
+    for (code, errorTypes) in codeInfo do
+        let p = codeParameters code
+        let name =
+            match code with
+            | BitFlipCode3 -> "Bit-Flip [[3,1,1]]"
+            | PhaseFlipCode3 -> "Phase-Flip [[3,1,1]]"
+            | ShorCode9 -> "Shor [[9,1,3]]"
+            | SteaneCode7 -> "Steane [[7,1,3]]"
+        printfn "  %-20s  %-8d  %-8d  %-10d  %-12s"
+            name p.PhysicalQubits p.Distance p.CorrectableErrors errorTypes
+
+    printfn ""
+    printfn "  Key insight: Correcting {X, Z, Y} covers ALL single-qubit errors"
+    printfn "  (discretization theorem). Shor and Steane codes achieve this."
+    printfn ""
+
+// ============================================================================
+// Structured Output
+// ============================================================================
+
+let resultsList = results |> Seq.toList
+
+match outputPath with
+| Some path -> Reporting.writeJson path resultsList
+| None -> ()
+
+match csvPath with
+| Some path ->
+    let allKeys =
+        resultsList
+        |> List.collect (fun m -> m |> Map.toList |> List.map fst)
+        |> List.distinct
+    let rows =
+        resultsList
+        |> List.map (fun m -> allKeys |> List.map (fun k -> m |> Map.tryFind k |> Option.defaultValue ""))
+    Reporting.writeCsv path allKeys rows
+| None -> ()
+
+// ============================================================================
+// Usage Hints
+// ============================================================================
+
+if not quiet && outputPath.IsNone && csvPath.IsNone && argv.Length = 0 then
+    printfn "Hint: Customize this run with CLI options:"
+    printfn "  dotnet fsi QuantumErrorCorrectionExample.fsx -- --code shor --error-qubit 4"
+    printfn "  dotnet fsi QuantumErrorCorrectionExample.fsx -- --code steane --logical-bit 1"
+    printfn "  dotnet fsi QuantumErrorCorrectionExample.fsx -- --quiet --output results.json --csv results.csv"
+    printfn "  dotnet fsi QuantumErrorCorrectionExample.fsx -- --help"

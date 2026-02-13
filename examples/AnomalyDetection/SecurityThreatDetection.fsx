@@ -9,7 +9,7 @@ One-class quantum machine learning for detecting unusual patterns.
 ===============================================================================
 
 Anomaly detection identifies data points that deviate significantly from "normal"
-behavior—critical for security (intrusion detection), fraud prevention, and
+behavior -- critical for security (intrusion detection), fraud prevention, and
 quality control. Unlike binary classification, anomaly detection trains only on
 normal examples, learning a boundary that separates normal from everything else.
 This "one-class classification" approach is essential when anomalies are rare,
@@ -18,17 +18,17 @@ diverse, or unknown (zero-day attacks, novel fraud schemes).
 Quantum approaches to anomaly detection leverage high-dimensional feature spaces
 and quantum kernel methods. The quantum one-class SVM encodes normal data into
 quantum states and learns a decision boundary in Hilbert space. For n qubits,
-the feature space is 2ⁿ-dimensional, potentially capturing complex patterns
-invisible to classical methods. The quantum kernel K(x,x') = |⟨ψ(x)|ψ(x')⟩|²
+the feature space is 2^n-dimensional, potentially capturing complex patterns
+invisible to classical methods. The quantum kernel K(x,x') = |<psi(x)|psi(x')>|^2
 measures similarity between data points, with anomalies having low similarity
 to the normal training set.
 
 Key Equations:
-  - One-class SVM objective: min ½||w||² - ρ + (1/νm)Σᵢξᵢ  s.t. w·φ(xᵢ) ≥ ρ - ξᵢ
-  - Quantum kernel: K(x,x') = |⟨ψ(x)|ψ(x')⟩|² (overlap of quantum states)
-  - Anomaly score: s(x) = -⟨ψ(x)|ρ_normal|ψ(x)⟩ (distance from normal density)
-  - Decision boundary: f(x) = sign(Σᵢ αᵢK(xᵢ,x) - ρ) where αᵢ are SVM coefficients
-  - Reconstruction error: ||x - D(E(x))||² for quantum autoencoder approach
+  - One-class SVM objective: min 1/2||w||^2 - rho + (1/nu*m) Sum_i xi_i  s.t. w*phi(x_i) >= rho - xi_i
+  - Quantum kernel: K(x,x') = |<psi(x)|psi(x')>|^2 (overlap of quantum states)
+  - Anomaly score: s(x) = -<psi(x)|rho_normal|psi(x)> (distance from normal density)
+  - Decision boundary: f(x) = sign(Sum_i alpha_i K(x_i,x) - rho)
+  - Reconstruction error: ||x - D(E(x))||^2 for quantum autoencoder approach
 
 Quantum Advantage:
   Quantum anomaly detection can identify subtle patterns in high-dimensional data
@@ -69,22 +69,13 @@ Identify security threats from network traffic:
 Train on normal network traffic only. The quantum detector learns what "normal" 
 looks like, then flags anything unusual. No need for labeled attack data!
 
-### Key Features
+### Usage
 
-- One-class classification (normal examples only)
-- Sensitivity level tuning
-- Real-time threat monitoring
-- Explainability (why is it anomalous?)
-- Production integration patterns
-
-### Common Use Cases
-
-- Security: Detect intrusions, unauthorized access, suspicious network traffic
-- Fraud Detection: Spot unusual transaction patterns
-- Quality Control: Find defective products in manufacturing
-- System Monitoring: Detect performance issues, failures
-- Network Security: Identify DDoS attacks, port scanning, data exfiltration
-- IoT/Sensors: Detect equipment failures, sensor malfunctions
+    dotnet fsi SecurityThreatDetection.fsx                                    (defaults)
+    dotnet fsi SecurityThreatDetection.fsx -- --help                          (show options)
+    dotnet fsi SecurityThreatDetection.fsx -- --example 3 --sensitivity high
+    dotnet fsi SecurityThreatDetection.fsx -- --quiet --output results.json
+    dotnet fsi SecurityThreatDetection.fsx -- --example all --csv results.csv
 *)
 
 /// Anomaly Detection Example: Security Threat Detection
@@ -93,9 +84,52 @@ looks like, then flags anything unusual. No need for labeled attack data!
 //#r "nuget: FSharp.Azure.Quantum"
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 
+#load "../_common/Cli.fs"
+#load "../_common/Data.fs"
+#load "../_common/Reporting.fs"
+
 open System
 open FSharp.Azure.Quantum.Business
 open FSharp.Azure.Quantum.Business.AnomalyDetector
+open FSharp.Azure.Quantum.Core.BackendAbstraction
+open FSharp.Azure.Quantum.Backends.LocalBackend
+open FSharp.Azure.Quantum.Examples.Common
+
+// ==============================================================================
+// CLI ARGUMENT PARSING
+// ==============================================================================
+
+let argv = fsi.CommandLineArgs |> Array.skip 1
+let args = Cli.parse argv
+
+Cli.exitIfHelp
+    "SecurityThreatDetection.fsx"
+    "Anomaly detection for network security using quantum one-class classification."
+    [ { Cli.OptionSpec.Name = "example";      Description = "Example to run (1-5 or all)";        Default = Some "all" }
+      { Cli.OptionSpec.Name = "sensitivity";  Description = "Detection sensitivity (low/medium/high)"; Default = Some "medium" }
+      { Cli.OptionSpec.Name = "output";       Description = "Write results to JSON file";          Default = None }
+      { Cli.OptionSpec.Name = "csv";          Description = "Write results to CSV file";           Default = None }
+      { Cli.OptionSpec.Name = "quiet";        Description = "Suppress informational output";       Default = None } ]
+    args
+
+let quiet = Cli.hasFlag "quiet" args
+let outputPath = Cli.tryGet "output" args
+let csvPath = Cli.tryGet "csv" args
+let exampleFilter = Cli.getOr "example" "all" args
+let cliSensitivity =
+    match (Cli.getOr "sensitivity" "medium" args).ToLowerInvariant() with
+    | "low" -> Low
+    | "high" -> High
+    | _ -> Medium
+
+let shouldRun ex =
+    exampleFilter = "all" || exampleFilter = string ex
+
+/// Explicit quantum backend (Rule 1: all code depends on IQuantumBackend)
+let quantumBackend = LocalBackend() :> IQuantumBackend
+
+// Accumulate results for JSON/CSV output
+let results = ResizeArray<{| Example: string; Status: string; Details: Map<string, obj> |}>()
 
 // ============================================================================
 // SAMPLE DATA - Network Traffic Patterns
@@ -125,264 +159,334 @@ let generateNormalTraffic () =
     |]
 
 let generateAnomalousTraffic () =
-    let random = Random(123)
-    
-    // Suspicious patterns
     [|
         // Pattern 1: Port scanning (potential reconnaissance)
         [| 1000.0; 500.0; 50.0; 0.0; 100.0; 50.0; 14.0; 2.0 |]
-        
         // Pattern 2: Brute force attack (many failed logins)
         [| 500.0; 300.0; 30.0; 50.0; 5.0; 20.0; 3.0; 1.0 |]
-        
         // Pattern 3: Data exfiltration (huge outbound transfer)
         [| 50000.0; 1000.0; 5.0; 0.0; 1.0; 5000.0; 2.0; 4.0 |]
-        
         // Pattern 4: DDoS (massive connection attempts)
         [| 2000.0; 1500.0; 500.0; 10.0; 20.0; 1000.0; 12.0; 5.0 |]
-        
         // Pattern 5: Unusual time + location (off-hours foreign access)
         [| 800.0; 600.0; 8.0; 5.0; 3.0; 8000.0; 3.0; 1.0 |]
     |]
+
+let normalTraffic = generateNormalTraffic()
 
 // ============================================================================
 // EXAMPLE 1: Basic Security Monitoring
 // ============================================================================
 
-printfn "=== Example 1: Security Threat Detection (Basic) ===\n"
+// Store production detector for examples 3-5
+let mutable productionDetectorResult : Result<AnomalyDetector.Detector, FSharp.Azure.Quantum.Core.QuantumError> = Error (FSharp.Azure.Quantum.Core.QuantumError.Other "not trained")
 
-let normalTraffic = generateNormalTraffic()
+if shouldRun 1 then
+    if not quiet then
+        printfn "=== Example 1: Security Threat Detection (Basic) ===\n"
+        printfn "Training on %d normal network sessions..." normalTraffic.Length
+        printfn "Learning patterns of legitimate traffic...\n"
 
-printfn "Training on %d normal network sessions..." normalTraffic.Length
-printfn "Learning patterns of legitimate traffic...\n"
+    // Train detector on normal traffic only
+    let result1 = anomalyDetection {
+        trainOnNormalData normalTraffic
+        sensitivity cliSensitivity
+        backend quantumBackend
+    }
 
-// Train detector on normal traffic only
-let result1 = anomalyDetection {
-    trainOnNormalData normalTraffic
-    sensitivity Medium
-}
+    match result1 with
+    | Error err ->
+        if not quiet then printfn "Training failed: %s" err.Message
+        results.Add({| Example = "1-basic"; Status = "error"; Details = Map.ofList ["error", box err.Message] |})
 
-match result1 with
-| Error err ->
-    printfn "❌ Training failed: %s" err.Message
+    | Ok detector ->
+        if not quiet then
+            printfn "Detector trained!"
+            printfn "  Training time: %A\n" detector.Metadata.TrainingTime
 
-| Ok detector ->
-    printfn "✅ Detector trained!"
-    printfn "  Training time: %A\n" detector.Metadata.TrainingTime
-    
-    // Test on known anomalies
-    let threats = generateAnomalousTraffic()
-    let threatNames = [|
-        "Port Scanning"
-        "Brute Force Attack"
-        "Data Exfiltration"
-        "DDoS Attack"
-        "Suspicious Access"
-    |]
-    
-    printfn "Checking suspicious activities:\n"
-    
-    threats
-    |> Array.iteri (fun i traffic ->
-        match AnomalyDetector.check traffic detector with
-        | Ok result ->
-            let status = if result.IsAnomaly then "🚨 THREAT" else "✅ OK"
-            printfn "%s: %s" threatNames.[i] status
-            printfn "  Anomaly Score: %.2f (%.0f%% confidence)" 
-                result.AnomalyScore (result.Confidence * 100.0)
-            
-            if result.IsAnomaly then
-                printfn "  ⚠️  Action: %s" 
-                    (if result.AnomalyScore > 0.8 then "BLOCK IMMEDIATELY"
-                     else "FLAG FOR INVESTIGATION")
-            printfn ""
+        // Test on known anomalies
+        let threats = generateAnomalousTraffic()
+        let threatNames = [| "Port Scanning"; "Brute Force Attack"; "Data Exfiltration"; "DDoS Attack"; "Suspicious Access" |]
         
-        | Error err ->
-            printfn "❌ %s: Check failed - %s\n" threatNames.[i] err.Message
-    )
+        if not quiet then printfn "Checking suspicious activities:\n"
+        
+        let threatResults = ResizeArray<{| Name: string; IsAnomaly: bool; Score: float; Confidence: float |}>()
+        
+        threats
+        |> Array.iteri (fun i traffic ->
+            match AnomalyDetector.check traffic detector with
+            | Ok result ->
+                threatResults.Add({| Name = threatNames.[i]; IsAnomaly = result.IsAnomaly; Score = result.AnomalyScore; Confidence = result.Confidence |})
+                if not quiet then
+                    let status = if result.IsAnomaly then "THREAT" else "OK"
+                    printfn "%s: %s" threatNames.[i] status
+                    printfn "  Anomaly Score: %.2f (%.0f%% confidence)" 
+                        result.AnomalyScore (result.Confidence * 100.0)
+                    if result.IsAnomaly then
+                        printfn "  Action: %s" 
+                            (if result.AnomalyScore > 0.8 then "BLOCK IMMEDIATELY"
+                             else "FLAG FOR INVESTIGATION")
+                    printfn ""
+            | Error err ->
+                if not quiet then printfn "%s: Check failed - %s\n" threatNames.[i] err.Message
+        )
+        
+        results.Add({|
+            Example = "1-basic"
+            Status = "ok"
+            Details = Map.ofList [
+                "threats_checked", box threats.Length
+                "threat_results", box (threatResults |> Seq.toArray)
+            ]
+        |})
 
 // ============================================================================
 // EXAMPLE 2: Sensitivity Levels
 // ============================================================================
 
-printfn "\n=== Example 2: Adjusting Sensitivity ===\n"
+if shouldRun 2 then
+    if not quiet then printfn "\n=== Example 2: Adjusting Sensitivity ===\n"
 
-let testSensitivity sens sensName =
-    printfn "Testing with %s sensitivity..." sensName
-    
-    match anomalyDetection { trainOnNormalData normalTraffic; sensitivity sens } with
-    | Ok detector ->
-        let testTraffic = Array.append (normalTraffic |> Array.take 10) (generateAnomalousTraffic())
+    let sensLevels = [| (Low, "LOW"); (Medium, "MEDIUM"); (High, "HIGH") |]
+    let sensResults = ResizeArray<{| Level: string; Anomalies: int; Rate: float |}>()
+
+    for (sens, sensName) in sensLevels do
+        if not quiet then printfn "Testing with %s sensitivity..." sensName
         
-        match AnomalyDetector.checkBatch testTraffic detector with
-        | Ok batch ->
-            printfn "  Checked %d samples" batch.TotalItems
-            printfn "  Detected %d anomalies (%.1f%%)" 
-                batch.AnomaliesDetected (batch.AnomalyRate * 100.0)
-            printfn ""
+        match anomalyDetection { trainOnNormalData normalTraffic; sensitivity sens; backend quantumBackend } with
+        | Ok detector ->
+            let testTraffic = Array.append (normalTraffic |> Array.take 10) (generateAnomalousTraffic())
+            
+            match AnomalyDetector.checkBatch testTraffic detector with
+            | Ok batch ->
+                sensResults.Add({| Level = sensName; Anomalies = batch.AnomaliesDetected; Rate = batch.AnomalyRate |})
+                if not quiet then
+                    printfn "  Checked %d samples" batch.TotalItems
+                    printfn "  Detected %d anomalies (%.1f%%)\n" 
+                        batch.AnomaliesDetected (batch.AnomalyRate * 100.0)
+            | Error err ->
+                if not quiet then printfn "  Batch check failed: %s\n" err.Message
         | Error err ->
-            printfn "  ❌ Batch check failed: %s\n" err.Message
-    | Error err ->
-        printfn "  ❌ Training failed: %s\n" err.Message
+            if not quiet then printfn "  Training failed: %s\n" err.Message
 
-testSensitivity Low "LOW"
-testSensitivity Medium "MEDIUM"
-testSensitivity High "HIGH"
+    results.Add({|
+        Example = "2-sensitivity"
+        Status = "ok"
+        Details = Map.ofList [
+            "sensitivity_results", box (sensResults |> Seq.toArray)
+        ]
+    |})
 
 // ============================================================================
 // EXAMPLE 3: Production Deployment
 // ============================================================================
 
-printfn "\n=== Example 3: Production Security Monitoring ===\n"
+if shouldRun 3 then
+    if not quiet then printfn "\n=== Example 3: Production Security Monitoring ===\n"
 
-let productionDetector = anomalyDetection {
-    trainOnNormalData normalTraffic
-    
-    // Production settings
-    sensitivity High              // Don't miss threats
-    contaminationRate 0.02        // Assume 2% training data may be bad
-    
-    // Enable logging
-    verbose true
-    
-    // Save for deployment
-    note "Network security threat detector - trained on Q4 2024 traffic"
-}
-
-match productionDetector with
-| Error err ->
-    printfn "❌ Production detector failed: %s" err.Message
-
-| Ok detector ->
-    printfn "\n✅ Production detector ready\n"
-    
-    // Simulate real-time monitoring
-    printfn "=== Real-Time Monitoring Simulation ===\n"
-    
-    let monitoredSessions = [|
-        ("Normal User Login", [| 800.0; 1500.0; 3.0; 0.0; 2.0; 50.0; 9.0; 1.0 |])
-        ("Port Scan Attempt", [| 1000.0; 500.0; 50.0; 0.0; 100.0; 50.0; 14.0; 2.0 |])
-        ("Regular File Download", [| 2000.0; 5000.0; 2.0; 0.0; 1.0; 20.0; 10.0; 1.0 |])
-        ("Brute Force Attack", [| 500.0; 300.0; 30.0; 50.0; 5.0; 20.0; 3.0; 1.0 |])
-        ("Normal Email Send", [| 1200.0; 800.0; 5.0; 0.0; 1.0; 30.0; 11.0; 1.0 |])
-    |]
-    
-    monitoredSessions
-    |> Array.iter (fun (name, traffic) ->
-        match AnomalyDetector.check traffic detector with
-        | Ok result ->
-            printfn "[%s] %s" 
-                (DateTime.Now.ToString("HH:mm:ss")) 
-                name
-            
-            if result.IsAnomaly then
-                printfn "  🚨 SECURITY ALERT"
-                printfn "  Threat Level: %.0f%%" (result.AnomalyScore * 100.0)
-                printfn "  Recommended Action: %s"
-                    (if result.AnomalyScore > 0.8 then 
-                        "BLOCK IP + ALERT SECURITY TEAM"
-                     elif result.AnomalyScore > 0.5 then
-                        "FLAG + INCREASE MONITORING"
-                     else
-                        "LOG FOR REVIEW")
-            else
-                printfn "  ✅ Normal traffic"
-            
-            printfn ""
+    let prodResult = anomalyDetection {
+        trainOnNormalData normalTraffic
+        backend quantumBackend
         
-        | Error err ->
-            printfn "  ⚠️  Monitoring error: %s\n" err.Message
-    )
+        // Production settings
+        sensitivity High              // Don't miss threats
+        contaminationRate 0.02        // Assume 2% training data may be bad
+        
+        // Enable logging
+        verbose (not quiet)
+        
+        // Save for deployment
+        note "Network security threat detector - trained on Q4 2024 traffic"
+    }
+
+    productionDetectorResult <- prodResult
+
+    match prodResult with
+    | Error err ->
+        if not quiet then printfn "Production detector failed: %s" err.Message
+        results.Add({| Example = "3-production"; Status = "error"; Details = Map.ofList ["error", box err.Message] |})
+
+    | Ok detector ->
+        if not quiet then printfn "\nProduction detector ready\n"
+        
+        // Simulate real-time monitoring
+        if not quiet then printfn "=== Real-Time Monitoring Simulation ===\n"
+        
+        let monitoredSessions = [|
+            ("Normal User Login", [| 800.0; 1500.0; 3.0; 0.0; 2.0; 50.0; 9.0; 1.0 |])
+            ("Port Scan Attempt", [| 1000.0; 500.0; 50.0; 0.0; 100.0; 50.0; 14.0; 2.0 |])
+            ("Regular File Download", [| 2000.0; 5000.0; 2.0; 0.0; 1.0; 20.0; 10.0; 1.0 |])
+            ("Brute Force Attack", [| 500.0; 300.0; 30.0; 50.0; 5.0; 20.0; 3.0; 1.0 |])
+            ("Normal Email Send", [| 1200.0; 800.0; 5.0; 0.0; 1.0; 30.0; 11.0; 1.0 |])
+        |]
+        
+        let monitorResults = ResizeArray<{| Name: string; IsAnomaly: bool; Score: float |}>()
+        
+        monitoredSessions
+        |> Array.iter (fun (name, traffic) ->
+            match AnomalyDetector.check traffic detector with
+            | Ok result ->
+                monitorResults.Add({| Name = name; IsAnomaly = result.IsAnomaly; Score = result.AnomalyScore |})
+                if not quiet then
+                    printfn "[%s] %s" (DateTime.Now.ToString("HH:mm:ss")) name
+                    if result.IsAnomaly then
+                        printfn "  SECURITY ALERT"
+                        printfn "  Threat Level: %.0f%%" (result.AnomalyScore * 100.0)
+                        printfn "  Recommended Action: %s"
+                            (if result.AnomalyScore > 0.8 then "BLOCK IP + ALERT SECURITY TEAM"
+                             elif result.AnomalyScore > 0.5 then "FLAG + INCREASE MONITORING"
+                             else "LOG FOR REVIEW")
+                    else
+                        printfn "  Normal traffic"
+                    printfn ""
+            | Error err ->
+                if not quiet then printfn "  Monitoring error: %s\n" err.Message
+        )
+        
+        results.Add({|
+            Example = "3-production"
+            Status = "ok"
+            Details = Map.ofList [
+                "monitor_results", box (monitorResults |> Seq.toArray)
+            ]
+        |})
 
 // ============================================================================
 // EXAMPLE 4: Explainability - Why is it anomalous?
 // ============================================================================
 
-printfn "\n=== Example 4: Explaining Anomalies ===\n"
+if shouldRun 4 then
+    if not quiet then printfn "\n=== Example 4: Explaining Anomalies ===\n"
 
-match productionDetector with
-| Ok detector ->
-    // Investigate the port scanning attempt
-    let portScan = [| 1000.0; 500.0; 50.0; 0.0; 100.0; 50.0; 14.0; 2.0 |]
-    
-    printfn "Analyzing suspicious port scanning activity...\n"
-    
-    match AnomalyDetector.explain portScan detector normalTraffic with
-    | Ok contributions ->
-        printfn "Top factors contributing to anomaly score:\n"
+    // Use production detector if available, otherwise train fresh
+    let detectorForExplain =
+        match productionDetectorResult with
+        | Ok d -> Ok d
+        | Error _ ->
+            anomalyDetection {
+                trainOnNormalData normalTraffic
+                sensitivity High
+                backend quantumBackend
+                verbose false
+            }
+
+    match detectorForExplain with
+    | Ok detector ->
+        // Investigate the port scanning attempt
+        let portScan = [| 1000.0; 500.0; 50.0; 0.0; 100.0; 50.0; 14.0; 2.0 |]
         
-        contributions
-        |> Array.take (min 5 contributions.Length)
-        |> Array.iteri (fun i (feature, score) ->
-            printfn "%d. %s: %.2f standard deviations from normal" 
-                (i+1) feature score
-        )
+        if not quiet then printfn "Analyzing suspicious port scanning activity...\n"
         
-        printfn "\nInterpretation:"
-        printfn "  - This traffic is scanning many ports (Feature_5)"
-        printfn "  - Much higher connection rate than normal (Feature_3)"
-        printfn "  - Pattern consistent with network reconnaissance"
-    
+        match AnomalyDetector.explain portScan detector normalTraffic with
+        | Ok contributions ->
+            if not quiet then
+                printfn "Top factors contributing to anomaly score:\n"
+                contributions
+                |> Array.take (min 5 contributions.Length)
+                |> Array.iteri (fun i (feature, score) ->
+                    printfn "%d. %s: %.2f standard deviations from normal" (i+1) feature score
+                )
+                printfn "\nInterpretation:"
+                printfn "  - This traffic is scanning many ports (Feature_5)"
+                printfn "  - Much higher connection rate than normal (Feature_3)"
+                printfn "  - Pattern consistent with network reconnaissance"
+                printfn ""
+            
+            results.Add({|
+                Example = "4-explainability"
+                Status = "ok"
+                Details = Map.ofList [
+                    "top_factors", box (contributions |> Array.take (min 5 contributions.Length))
+                ]
+            |})
+        
+        | Error err ->
+            if not quiet then printfn "Explanation failed: %s" err.Message
+            results.Add({| Example = "4-explainability"; Status = "error"; Details = Map.ofList ["error", box err.Message] |})
+
     | Error err ->
-        printfn "❌ Explanation failed: %s" err.Message
-
-| Error _ -> ()
+        if not quiet then printfn "Detector not available: %s" err.Message
+        results.Add({| Example = "4-explainability"; Status = "skipped"; Details = Map.ofList ["reason", box "No detector available"] |})
 
 // ============================================================================
 // EXAMPLE 5: Batch Analysis for Daily Reports
 // ============================================================================
 
-printfn "\n\n=== Example 5: Daily Security Report ===\n"
+if shouldRun 5 then
+    if not quiet then printfn "\n=== Example 5: Daily Security Report ===\n"
 
-match productionDetector with
-| Ok detector ->
-    
-    // Simulate 24 hours of traffic
-    let dailyTraffic = 
-        Array.append 
-            (generateNormalTraffic())  // 100 normal sessions
-            (Array.replicate 10 (generateAnomalousTraffic()) |> Array.concat)  // 50 attacks
-    
-    printfn "Analyzing %d network sessions from past 24 hours...\n" dailyTraffic.Length
-    
-    match AnomalyDetector.checkBatch dailyTraffic detector with
-    | Ok batch ->
-        printfn "=== Daily Security Report ==="
-        printfn "Date: %s\n" (DateTime.Now.ToString("yyyy-MM-dd"))
+    // Use production detector if available, otherwise train fresh
+    let detectorForBatch =
+        match productionDetectorResult with
+        | Ok d -> Ok d
+        | Error _ ->
+            anomalyDetection {
+                trainOnNormalData normalTraffic
+                sensitivity High
+                backend quantumBackend
+                verbose false
+            }
+
+    match detectorForBatch with
+    | Ok detector ->
+        // Simulate 24 hours of traffic
+        let dailyTraffic = 
+            Array.append 
+                (generateNormalTraffic())
+                (Array.replicate 10 (generateAnomalousTraffic()) |> Array.concat)
         
-        printfn "Summary:"
-        printfn "  Total Sessions: %d" batch.TotalItems
-        printfn "  Anomalies Detected: %d" batch.AnomaliesDetected
-        printfn "  Anomaly Rate: %.2f%%\n" (batch.AnomalyRate * 100.0)
+        if not quiet then printfn "Analyzing %d network sessions from past 24 hours...\n" dailyTraffic.Length
         
-        printfn "Risk Assessment: %s"
-            (if batch.AnomalyRate > 0.2 then "🔴 HIGH - Possible ongoing attack"
-             elif batch.AnomalyRate > 0.1 then "🟡 MEDIUM - Increased suspicious activity"
-             else "🟢 LOW - Normal levels")
+        match AnomalyDetector.checkBatch dailyTraffic detector with
+        | Ok batch ->
+            if not quiet then
+                printfn "=== Daily Security Report ==="
+                printfn "Date: %s\n" (DateTime.Now.ToString("yyyy-MM-dd"))
+                printfn "Summary:"
+                printfn "  Total Sessions: %d" batch.TotalItems
+                printfn "  Anomalies Detected: %d" batch.AnomaliesDetected
+                printfn "  Anomaly Rate: %.2f%%\n" (batch.AnomalyRate * 100.0)
+                
+                printfn "Risk Assessment: %s"
+                    (if batch.AnomalyRate > 0.2 then "HIGH - Possible ongoing attack"
+                     elif batch.AnomalyRate > 0.1 then "MEDIUM - Increased suspicious activity"
+                     else "LOW - Normal levels")
+                
+                printfn "\nTop 5 Most Suspicious Sessions:"
+                batch.TopAnomalies
+                |> Array.take (min 5 batch.TopAnomalies.Length)
+                |> Array.iteri (fun i (idx, score) ->
+                    printfn "  %d. Session #%d - Score: %.2f" (i+1) idx score
+                )
+                printfn ""
+            
+            results.Add({|
+                Example = "5-daily-report"
+                Status = "ok"
+                Details = Map.ofList [
+                    "total_sessions", box batch.TotalItems
+                    "anomalies_detected", box batch.AnomaliesDetected
+                    "anomaly_rate", box (batch.AnomalyRate * 100.0)
+                ]
+            |})
         
-        printfn "\nTop 5 Most Suspicious Sessions:"
-        batch.TopAnomalies
-        |> Array.take (min 5 batch.TopAnomalies.Length)
-        |> Array.iteri (fun i (idx, score) ->
-            printfn "  %d. Session #%d - Score: %.2f" (i+1) idx score
-        )
-        
-        printfn "\n✅ Report complete - %d sessions flagged for investigation" 
-            batch.AnomaliesDetected
-    
+        | Error err ->
+            if not quiet then printfn "Batch analysis failed: %s" err.Message
+            results.Add({| Example = "5-daily-report"; Status = "error"; Details = Map.ofList ["error", box err.Message] |})
+
     | Error err ->
-        printfn "❌ Batch analysis failed: %s" err.Message
-
-| Error _ -> ()
+        if not quiet then printfn "Detector not available: %s" err.Message
+        results.Add({| Example = "5-daily-report"; Status = "skipped"; Details = Map.ofList ["reason", box "No detector available"] |})
 
 // ============================================================================
 // INTEGRATION PATTERNS
 // ============================================================================
 
-printfn "\n\n=== Integration Patterns ===\n"
+if not quiet && exampleFilter = "all" then
+    printfn "\n=== Integration Patterns ===\n"
 
-printfn "Real-time Network Monitoring:"
-printfn """
+    printfn "Real-time Network Monitoring:"
+    printfn """
 // SIEM Integration
 let monitorNetworkTraffic() =
     async {
@@ -392,79 +496,67 @@ let monitorNetworkTraffic() =
             
             match detector.Check(features) with
             | result when result.IsAnomaly && result.AnomalyScore > 0.8 ->
-                // High threat - block immediately
                 await firewall.BlockIP(traffic.SourceIP)
                 await siem.RaiseAlert(AlertLevel.Critical, traffic)
-                await securityTeam.NotifyImmediate(traffic)
-            
-            | result when result.IsAnomaly && result.AnomalyScore > 0.5 ->
-                // Medium threat - increase monitoring
-                await siem.RaiseAlert(AlertLevel.Warning, traffic)
-                await firewall.IncreasedMonitoring(traffic.SourceIP)
-            
             | result when result.IsAnomaly ->
-                // Low threat - log for review
-                await siem.LogSuspicious(traffic)
+                await siem.RaiseAlert(AlertLevel.Warning, traffic)
+            | _ -> ()
             
-            | _ ->
-                // Normal traffic
-                ()
-            
-            do! Async.Sleep(1000)  // Check every second
+            do! Async.Sleep(1000)
     }
 """
 
-printfn "\nDaily Batch Analysis:"
-printfn """
-// Scheduled job for daily security reports
-[<Function("DailySecurityReport")>]
-let generateDailyReport([<TimerTrigger("0 0 6 * * *")>] timer) =
-    async {
-        let yesterday = DateTime.UtcNow.AddDays(-1.0)
-        let! traffic = database.GetTrafficSince(yesterday)
-        
-        let features = traffic |> Array.map extractFeatures
-        let batch = detector.CheckBatch(features)
-        
-        let report = {
-            Date = yesterday
-            TotalSessions = batch.TotalItems
-            AnomaliesDetected = batch.AnomaliesDetected
-            AnomalyRate = batch.AnomalyRate
-            TopThreats = batch.TopAnomalies
-        }
-        
-        // Email to security team
-        await email.SendReport(report, "security@company.com")
-        
-        // Store in database
-        await database.SaveDailyReport(report)
-    }
-"""
-
-printfn "\nAdaptive Learning:"
-printfn """
+    printfn "Adaptive Learning:"
+    printfn """
 // Retrain weekly with latest normal traffic
-[<Function("RetrainDetector")>]
-let retrainWeekly([<TimerTrigger("0 0 0 * * 0")>] timer) =
+let retrainWeekly() =
     async {
-        // Get last week's verified normal traffic
         let! normalTraffic = database.GetVerifiedNormalTraffic(days = 7)
-        
-        // Retrain detector
         let! newDetector = 
             AnomalyDetectionBuilder()
                 .TrainOnNormalData(normalTraffic)
                 .WithSensitivity(Sensitivity.High)
                 .Build()
         
-        // A/B test before deploying
         let! testResults = validator.Compare(currentDetector, newDetector)
-        
         if testResults.NewDetectorBetter then
-            newDetector.SaveTo("production_detector_v{version}.model")
-            await deploymentService.Deploy(newDetector)
+            newDetector.SaveTo("production_detector.model")
     }
 """
 
-printfn "\n✅ Example complete! See code for integration patterns."
+// ============================================================================
+// OUTPUT
+// ============================================================================
+
+if outputPath.IsSome then
+    let payload = {| script = "SecurityThreatDetection.fsx"; timestamp = DateTime.UtcNow; results = results |> Seq.toArray |}
+    Reporting.writeJson outputPath.Value payload
+    if not quiet then printfn "Results written to %s" outputPath.Value
+
+if csvPath.IsSome then
+    let header = ["example"; "status"; "detail"]
+    let rows =
+        results
+        |> Seq.map (fun r ->
+            let detail =
+                r.Details
+                |> Map.toList
+                |> List.map (fun (k, v) -> sprintf "%s=%O" k v)
+                |> String.concat "; "
+            [r.Example; r.Status; detail])
+        |> Seq.toList
+    Reporting.writeCsv csvPath.Value header rows
+    if not quiet then printfn "CSV written to %s" csvPath.Value
+
+// ============================================================================
+// USAGE HINTS
+// ============================================================================
+
+if not quiet && argv.Length = 0 && outputPath.IsNone && csvPath.IsNone then
+    printfn "Example complete!"
+    printfn ""
+    printfn "Try these options:"
+    printfn "  dotnet fsi SecurityThreatDetection.fsx -- --help"
+    printfn "  dotnet fsi SecurityThreatDetection.fsx -- --example 2 --sensitivity high"
+    printfn "  dotnet fsi SecurityThreatDetection.fsx -- --quiet --output results.json"
+    printfn "  dotnet fsi SecurityThreatDetection.fsx -- --example all --csv results.csv"

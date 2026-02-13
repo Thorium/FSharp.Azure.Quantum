@@ -1,112 +1,189 @@
 // RSA Encryption Example - Quantum Arithmetic for Cryptography
 // Demonstrates modular exponentiation using quantum circuits (QFT-based)
 
-// Reference local build (use this for development/testing)
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
+#load "../_common/Cli.fs"
+#load "../_common/Data.fs"
+#load "../_common/Reporting.fs"
 
-// Or use published NuGet package (uncomment when package is published):
-// #r "nuget: FSharp.Azure.Quantum"
-
+open FSharp.Azure.Quantum.Examples.Common
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.QuantumArithmeticOps
+open FSharp.Azure.Quantum.Backends.LocalBackend
+open FSharp.Azure.Quantum.Core.BackendAbstraction
 
-printfn "=== RSA Encryption Demo (Toy Example) ==="
-printfn ""
-printfn "BUSINESS SCENARIO:"
-printfn "A secure messaging application needs to encrypt messages using RSA."
-printfn "This demonstrates the core RSA operation: m^e mod n"
-printfn ""
+// ---------------------------------------------------------------------------
+// CLI
+// ---------------------------------------------------------------------------
 
-// ============================================================================
-// RSA KEY SETUP (Toy Example - Real RSA uses 2048+ bit keys)
-// ============================================================================
+let argv = fsi.CommandLineArgs |> Array.skip 1
+let args = Cli.parse argv
 
-printfn "--- Step 1: RSA Key Setup ---"
-let p = 3  // Prime 1 (toy example)
-let q = 11 // Prime 2 (toy example)
-let n = p * q  // RSA modulus n = 33
-let phi = (p - 1) * (q - 1)  // φ(n) = 20
+Cli.exitIfHelp "RSAEncryption.fsx"
+    "Toy RSA encryption demo using quantum modular exponentiation (m^e mod n)."
+    [ { Name = "message";  Description = "Plaintext integer to encrypt (0 < m < n)"; Default = Some "5" }
+      { Name = "p";        Description = "First RSA prime";                          Default = Some "3" }
+      { Name = "q";        Description = "Second RSA prime";                         Default = Some "11" }
+      { Name = "e";        Description = "Public exponent (must be coprime to phi)"; Default = Some "3" }
+      { Name = "qubits";   Description = "Qubits for quantum circuit";              Default = Some "8" }
+      { Name = "output";   Description = "Write results to JSON file";              Default = None }
+      { Name = "csv";      Description = "Write results to CSV file";               Default = None }
+      { Name = "quiet";    Description = "Suppress console output";                 Default = None } ]
+    args
 
-// Public key exponent (commonly e = 65537 in real RSA, but we use e = 3)
-let e = 3
+let quiet     = Cli.hasFlag "quiet" args
+let pr fmt    = Printf.ksprintf (fun s -> if not quiet then printfn "%s" s) fmt
 
-printfn "RSA Modulus (n):        %d (public)" n
-printfn "Public Exponent (e):    %d (public)" e
-printfn "Factorization (p, q):   %d, %d (private - must stay secret!)" p q
-printfn ""
+let message   = Cli.getIntOr "message" 5 args
+let p         = Cli.getIntOr "p" 3 args
+let q         = Cli.getIntOr "q" 11 args
+let pubExp    = Cli.getIntOr "e" 3 args
+let nQubits   = Cli.getIntOr "qubits" 8 args
+let outputPath = Cli.tryGet "output" args
+let csvPath    = Cli.tryGet "csv" args
 
-// ============================================================================
-// ENCRYPT MESSAGE USING QUANTUM ARITHMETIC
-// ============================================================================
+// ---------------------------------------------------------------------------
+// Rule 1: Explicit IQuantumBackend
+// ---------------------------------------------------------------------------
 
-printfn "--- Step 2: Encrypt Message ---"
+let quantumBackend = LocalBackend() :> IQuantumBackend
 
-let message = 5  // Message to encrypt (plaintext)
-printfn "Original Message (m):   %d" message
-printfn "Encryption Formula:     c = m^e mod n"
-printfn "                        c = %d^%d mod %d" message e n
-printfn ""
+// ---------------------------------------------------------------------------
+// RSA Key Setup
+// ---------------------------------------------------------------------------
 
-// Use quantum arithmetic builder for modular exponentiation
+let n   = p * q
+let phi = (p - 1) * (q - 1)
+
+pr "=== RSA Encryption Demo (Toy Example) ==="
+pr ""
+pr "--- Step 1: RSA Key Setup ---"
+pr "RSA Modulus (n):        %d (public)" n
+pr "Public Exponent (e):    %d (public)" pubExp
+pr "Factorization (p, q):   %d, %d (private - must stay secret!)" p q
+pr ""
+
+// ---------------------------------------------------------------------------
+// Encrypt using quantum arithmetic
+// ---------------------------------------------------------------------------
+
+pr "--- Step 2: Encrypt Message ---"
+pr "Original Message (m):   %d" message
+pr "Encryption Formula:     c = m^e mod n"
+pr "                        c = %d^%d mod %d" message pubExp n
+pr ""
+
 let encryptOperation = quantumArithmetic {
-    operands message e      // base = message, exponent = e
+    operands message pubExp
     operation ModularExponentiate
-    modulus n               // RSA modulus
-    qubits 8                // 8 qubits sufficient for n = 33
+    modulus n
+    qubits nQubits
+    backend quantumBackend
 }
 
-printfn "Executing quantum circuit..."
+let mutable jsonResults : Map<string, string> list = []
+let mutable csvRows : string list list = []
+
+pr "Executing quantum circuit..."
+
 match encryptOperation with
 | Ok op ->
     match execute op with
     | Ok result ->
         let ciphertext = result.Value
-        printfn "✅ Encrypted Message (c): %d" ciphertext
-        printfn ""
-        printfn "CIRCUIT STATISTICS:"
-        printfn "  Qubits Used:     %d" result.QubitsUsed
-        printfn "  Gate Count:      %d" result.GateCount
-        printfn "  Circuit Depth:   %d" result.CircuitDepth
-        printfn ""
-        
-        // ============================================================================
-        // DECRYPT MESSAGE (Classical for comparison)
-        // ============================================================================
-        
-        printfn "--- Step 3: Decrypt Message (Classical) ---"
-        
-        // Calculate private exponent d where (e * d) mod φ(n) = 1
-        let d = 7  // Precomputed: 3 * 7 = 21 ≡ 1 (mod 20)
-        
-        printfn "Private Exponent (d):   %d (secret)" d
-        printfn "Decryption Formula:     m = c^d mod n"
-        printfn "                        m = %d^%d mod %d" ciphertext d n
-        
-        // Classical modular exponentiation for decryption
-        let decrypted = 
-            let mutable result = 1
-            for _ in 1..d do
-                result <- (result * ciphertext) % n
-            result
-        
-        printfn "Decrypted Message:      %d" decrypted
-        printfn ""
-        
-        if decrypted = message then
-            printfn "✅ SUCCESS: Decryption matches original message!"
+
+        pr "[OK] Encrypted Message (c): %d" ciphertext
+        pr ""
+        pr "CIRCUIT STATISTICS:"
+        pr "  Qubits Used:     %d" result.QubitsUsed
+        pr "  Gate Count:      %d" result.GateCount
+        pr "  Circuit Depth:   %d" result.CircuitDepth
+        pr ""
+
+        // ------------------------------------------------------------------
+        // Decrypt (classical) for verification
+        // ------------------------------------------------------------------
+
+        pr "--- Step 3: Decrypt Message (Classical) ---"
+
+        // Private exponent d where (e * d) mod phi = 1
+        // Simple brute-force search (toy sizes only)
+        let d =
+            seq { 1 .. phi - 1 }
+            |> Seq.find (fun d -> (pubExp * d) % phi = 1)
+
+        pr "Private Exponent (d):   %d (secret)" d
+        pr "Decryption Formula:     m = c^d mod n"
+        pr "                        m = %d^%d mod %d" ciphertext d n
+
+        // Idiomatic modular exponentiation via fold
+        let decrypted =
+            List.init d (fun _ -> ciphertext)
+            |> List.fold (fun acc x -> (acc * x) % n) 1
+
+        pr "Decrypted Message:      %d" decrypted
+        pr ""
+
+        let success = decrypted = message
+        if success then
+            pr "[OK] SUCCESS: Decryption matches original message!"
         else
-            printfn "❌ ERROR: Decryption failed!"
-        
-        printfn ""
-        printfn "=== Key Takeaways ==="
-        printfn "• RSA security relies on difficulty of factoring n = p × q"
-        printfn "• Quantum computers (Shor's algorithm) can break RSA efficiently"
-        printfn "• This example uses quantum circuits for the encryption operation m^e mod n"
-        printfn "• Real RSA uses 2048+ bit keys (requires ~4096+ qubits on quantum hardware)"
-        printfn "• Current NISQ hardware limited to ~100 qubits, so only toy examples work"
+            pr "[FAIL] ERROR: Decryption failed!"
+
+        pr ""
+        pr "=== Key Takeaways ==="
+        pr "  * RSA security relies on difficulty of factoring n = p * q"
+        pr "  * Quantum computers (Shor's algorithm) can break RSA efficiently"
+        pr "  * This example uses quantum circuits for the encryption operation m^e mod n"
+        pr "  * Real RSA uses 2048+ bit keys (requires ~4096+ qubits)"
+        pr "  * Current NISQ hardware limited to ~100 qubits, so only toy examples work"
+
+        // Collect results
+        let row = Map.ofList [
+            "message",     string message
+            "p",           string p
+            "q",           string q
+            "n",           string n
+            "e",           string pubExp
+            "d",           string d
+            "ciphertext",  string ciphertext
+            "decrypted",   string decrypted
+            "match",       string success
+            "qubits_used", string result.QubitsUsed
+            "gate_count",  string result.GateCount
+            "circuit_depth", string result.CircuitDepth
+        ]
+        jsonResults <- [ row ]
+        csvRows <- [ [ string message; string p; string q; string n
+                       string pubExp; string d; string ciphertext
+                       string decrypted; string success
+                       string result.QubitsUsed; string result.GateCount
+                       string result.CircuitDepth ] ]
 
     | Error err ->
-        printfn "❌ Execution Error: %s" err.Message
+        pr "[FAIL] Execution Error: %s" err.Message
 
 | Error err ->
-    printfn "❌ Builder Error: %s" err.Message
+    pr "[FAIL] Builder Error: %s" err.Message
+
+// ---------------------------------------------------------------------------
+// Structured output
+// ---------------------------------------------------------------------------
+
+outputPath |> Option.iter (fun path -> Reporting.writeJson path jsonResults)
+csvPath    |> Option.iter (fun path ->
+    Reporting.writeCsv path
+        [ "message"; "p"; "q"; "n"; "e"; "d"; "ciphertext"; "decrypted";
+          "match"; "qubits_used"; "gate_count"; "circuit_depth" ]
+        csvRows)
+
+// ---------------------------------------------------------------------------
+// Usage hints
+// ---------------------------------------------------------------------------
+
+if argv.Length = 0 && outputPath.IsNone && csvPath.IsNone then
+    pr ""
+    pr "Tip: run with arguments for custom parameters:"
+    pr "  dotnet fsi RSAEncryption.fsx -- --message 7 --p 3 --q 11 --e 3"
+    pr "  dotnet fsi RSAEncryption.fsx -- --quiet --output results.json --csv results.csv"
+    pr "  dotnet fsi RSAEncryption.fsx -- --help"

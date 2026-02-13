@@ -1,288 +1,326 @@
-#!/usr/bin/env dotnet fsi
-// ============================================================================
-// Kauffman Bracket and Jones Polynomial Examples
-// ============================================================================
-// This script demonstrates knot invariant calculations using the Kauffman
-// bracket and Jones polynomial, following Steven Simon's "Topological Quantum"
-// (Chapter 2, pages 14-33).
-//
-// Key concepts:
-// - Kauffman bracket: A polynomial invariant of framed knots/links
-// - Jones polynomial: Normalized Kauffman bracket with writhe correction
-// - TQFT evaluations: Special A values for topological field theories
-// ============================================================================
+(*
+    Kauffman Bracket & Jones Polynomial -- Topological Quantum Computing
+    =====================================================================
 
-#r "nuget: FSharp.Azure.Quantum"
-#load "../../src/FSharp.Azure.Quantum.Topological/KauffmanBracket.fs"
+    Knot invariant calculations using the Kauffman bracket and Jones
+    polynomial, following Steven Simon's "Topological Quantum" (Ch. 2).
+
+    Examples:
+      1  Unknot (simplest case)
+      2  Trefoil (right-handed, simplest non-trivial)
+      3  Mirror symmetry (left vs right trefoil -- chirality)
+      4  Figure-eight (achiral knot)
+      5  Hopf link (simplest non-trivial link)
+      6  TQFT evaluations (Ising / Fibonacci / Jones@-1)
+      7  Knot comparison table
+      8  Custom knot construction
+
+    Run with: dotnet fsi KauffmanJones.fsx
+              dotnet fsi KauffmanJones.fsx -- --example 6
+              dotnet fsi KauffmanJones.fsx -- --quiet --output r.json --csv r.csv
+*)
+
+#r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
+#r "../../src/FSharp.Azure.Quantum.Topological/bin/Debug/net10.0/FSharp.Azure.Quantum.Topological.dll"
+#load "../_common/Cli.fs"
+#load "../_common/Data.fs"
+#load "../_common/Reporting.fs"
 
 open System
 open System.Numerics
 open FSharp.Azure.Quantum.Topological.KauffmanBracket
+open FSharp.Azure.Quantum.Core.BackendAbstraction
+open FSharp.Azure.Quantum.Topological
+open FSharp.Azure.Quantum.Examples.Common
 
-// ============================================================================
-// Constants
-// ============================================================================
+// ---------------------------------------------------------------------------
+// CLI
+// ---------------------------------------------------------------------------
+let argv = fsi.CommandLineArgs |> Array.skip 1
+let args = Cli.parse argv
 
-/// Standard A value for Kauffman bracket calculations
-/// Using A = exp(2πi/5) which gives non-trivial values
-/// This corresponds to the Jones polynomial at q = exp(πi/5)
+Cli.exitIfHelp "KauffmanJones.fsx" "Kauffman bracket and Jones polynomial knot invariants"
+    [ { Name = "example";    Description = "Which example: 1-8|all"; Default = Some "all" }
+      { Name = "crossings";  Description = "Custom crossing list (e.g. P,P,N,P)"; Default = None }
+      { Name = "output";     Description = "Write results to JSON file"; Default = None }
+      { Name = "csv";        Description = "Write results to CSV file";  Default = None }
+      { Name = "quiet";      Description = "Suppress console output";    Default = None } ] args
+
+let quiet      = Cli.hasFlag "quiet" args
+let outputPath = Cli.tryGet "output" args
+let csvPath    = Cli.tryGet "csv" args
+let exChoice   = Cli.getOr "example" "all" args
+let customCrossingsOpt = Cli.tryGet "crossings" args
+
+let pr fmt = Printf.ksprintf (fun s -> if not quiet then printfn "%s" s) fmt
+let shouldRun ex = exChoice = "all" || exChoice = string ex
+let separator () = pr "%s" (String.replicate 70 "=")
+
+// ---------------------------------------------------------------------------
+// Quantum backend (Rule 1) -- available for downstream execution
+// ---------------------------------------------------------------------------
+let quantumBackend = TopologicalUnifiedBackendFactory.createIsing 10
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 let standardA = Complex.FromPolarCoordinates(1.0, 2.0 * Math.PI / 5.0)
 
-// ============================================================================
-// Helper Functions
-// ============================================================================
-
-let printComplex (name: string) (value: Complex) =
-    if Math.Abs(value.Imaginary) < 1e-10 then
-        printfn "%s = %.6f" name value.Real
+let fmtComplex (c: Complex) =
+    if Math.Abs(c.Imaginary) < 1e-10 then
+        sprintf "%.6f" c.Real
     else
-        let sign = if value.Imaginary >= 0.0 then "+" else ""
-        printfn "%s = %.6f %s %.6fi" name value.Real sign value.Imaginary
+        let sign = if c.Imaginary >= 0.0 then "+" else ""
+        sprintf "%.6f %s%.6fi" c.Real sign c.Imaginary
 
-let printSeparator () =
-    printfn "%s" (String.replicate 70 "=")
+let printComplex name (c: Complex) =
+    pr "  %s = %s" name (fmtComplex c)
 
-// ============================================================================
-// Example 1: Unknot - The Simplest Case
-// ============================================================================
+let parseCrossings (s: string) =
+    s.Split(',')
+    |> Array.map (fun t ->
+        match t.Trim().ToUpperInvariant() with
+        | "P" | "POSITIVE" | "+" -> Positive
+        | "N" | "NEGATIVE" | "-" -> Negative
+        | x -> failwithf "Unknown crossing '%s'. Use P or N." x)
+    |> Array.toList
 
-printfn "Example 1: Unknot (Simple Loop)"
-printSeparator ()
+// Results accumulators
+let mutable jsonResults : (string * obj) list = []
+let mutable csvRows     : string list list    = []
 
-let unknotDiagram = unknot
-printfn "Diagram: %A" unknotDiagram
-printfn "Number of crossings: %d" (List.length unknotDiagram)
+// ---------------------------------------------------------------------------
+// Example 1 -- Unknot
+// ---------------------------------------------------------------------------
+if shouldRun 1 then
+    separator ()
+    pr "EXAMPLE 1: Unknot (Simple Loop)"
+    separator ()
 
-let a1 = standardA
-printfn "\nUsing standard A value:"
-printComplex "A" a1
-
-let unknotBracket = evaluateBracket unknotDiagram a1
-printComplex "Kauffman bracket" unknotBracket
-
-let unknotWrithe = writhe unknotDiagram
-printfn "Writhe: %d" unknotWrithe
-
-let unknotJones = jonesPolynomial unknotDiagram a1
-printComplex "Jones polynomial" unknotJones
-
-printfn "\nExpected: Jones(unknot) = 1.0"
-printfn ""
-
-// ============================================================================
-// Example 2: Trefoil Knot - Simplest Non-Trivial Knot
-// ============================================================================
-
-printfn "Example 2: Trefoil Knot (Right-Handed)"
-printSeparator ()
-
-let trefoilRight = trefoil true
-printfn "Diagram: %A" trefoilRight
-printfn "Number of crossings: %d" (List.length trefoilRight)
-
-printfn "\nUsing standard A value:"
-printComplex "A" a1
-
-let trefoilBracket = evaluateBracket trefoilRight a1
-printComplex "Kauffman bracket" trefoilBracket
-
-let trefoilWrithe = writhe trefoilRight
-printfn "Writhe: %d" trefoilWrithe
-
-let trefoilJones = jonesPolynomial trefoilRight a1
-printComplex "Jones polynomial" trefoilJones
-
-printfn "\nNote: Trefoil has writhe +3, all positive crossings"
-printfn ""
-
-// ============================================================================
-// Example 3: Mirror Symmetry - Left vs Right Trefoil
-// ============================================================================
-
-printfn "Example 3: Mirror Symmetry (Chirality)"
-printSeparator ()
-
-let trefoilLeft = trefoil false
-printfn "Left-handed trefoil: %A" trefoilLeft
-printfn "Right-handed trefoil: %A" trefoilRight
-
-let leftBracket = evaluateBracket trefoilLeft a1
-let rightBracket = evaluateBracket trefoilRight a1
-
-printComplex "Left Kauffman bracket" leftBracket
-printComplex "Right Kauffman bracket" rightBracket
-
-let leftJones = jonesPolynomial trefoilLeft a1
-let rightJones = jonesPolynomial trefoilRight a1
-
-printComplex "Left Jones polynomial" leftJones
-printComplex "Right Jones polynomial" rightJones
-
-printfn "\nNote: Mirror knots have different invariants (trefoil is chiral)"
-printfn ""
-
-// ============================================================================
-// Example 4: Figure-Eight Knot - Achiral Knot
-// ============================================================================
-
-printfn "Example 4: Figure-Eight Knot"
-printSeparator ()
-
-let figureEight = figureEight
-printfn "Diagram: %A" figureEight
-printfn "Number of crossings: %d" (List.length figureEight)
-
-let fig8Writhe = writhe figureEight
-printfn "Writhe: %d" fig8Writhe
-
-let fig8Bracket = evaluateBracket figureEight a1
-printComplex "Kauffman bracket" fig8Bracket
-
-let fig8Jones = jonesPolynomial figureEight a1
-printComplex "Jones polynomial" fig8Jones
-
-printfn "\nNote: Figure-eight has writhe 0 (alternating positive/negative crossings)"
-printfn "This knot is achiral (identical to its mirror image)"
-printfn ""
-
-// ============================================================================
-// Example 5: Hopf Link - Simplest Non-Trivial Link
-// ============================================================================
-
-printfn "Example 5: Hopf Link (Two Components)"
-printSeparator ()
-
-let hopf = hopfLink
-printfn "Diagram: %A" hopf
-printfn "Number of crossings: %d" (List.length hopf)
-
-let hopfWrithe = writhe hopf
-printfn "Writhe: %d" hopfWrithe
-
-let hopfBracket = evaluateBracket hopf a1
-printComplex "Kauffman bracket" hopfBracket
-
-let hopfJones = jonesPolynomial hopf a1
-printComplex "Jones polynomial" hopfJones
-
-printfn "\nNote: Hopf link has 2 components linked together"
-printfn ""
-
-// ============================================================================
-// Example 6: TQFT Evaluations - Topological Field Theory Applications
-// ============================================================================
-
-printfn "Example 6: TQFT Special Values"
-printSeparator ()
-
-// Ising TQFT: A = exp(iπ/4)
-printfn "\n--- Ising Anyon Theory (A = e^(iπ/4)) ---"
-let isingA = Complex.FromPolarCoordinates(1.0, Math.PI / 4.0)
-printComplex "A" isingA
-
-let isingUnknot = evaluateIsing unknotDiagram
-let isingTrefoil = evaluateIsing trefoilRight
-let isingFig8 = evaluateIsing figureEight
-
-printComplex "Ising(unknot)" isingUnknot
-printComplex "Ising(trefoil)" isingTrefoil
-printComplex "Ising(figure-eight)" isingFig8
-
-// Fibonacci TQFT: A = exp(4πi/5)
-printfn "\n--- Fibonacci Anyon Theory (A = e^(4πi/5)) ---"
-let fibA = Complex.FromPolarCoordinates(1.0, 4.0 * Math.PI / 5.0)
-printComplex "A" fibA
-
-let fibUnknot = evaluateFibonacci unknotDiagram
-let fibTrefoil = evaluateFibonacci trefoilRight
-let fibFig8 = evaluateFibonacci figureEight
-
-printComplex "Fibonacci(unknot)" fibUnknot
-printComplex "Fibonacci(trefoil)" fibTrefoil
-printComplex "Fibonacci(figure-eight)" fibFig8
-
-// Jones at t = -1
-printfn "\n--- Jones Polynomial at t = -1 ---"
-let unknotMinusOne = evaluateJonesAtMinusOne unknotDiagram
-let trefoilMinusOne = evaluateJonesAtMinusOne trefoilRight
-let fig8MinusOne = evaluateJonesAtMinusOne figureEight
-
-printComplex "J(unknot, -1)" unknotMinusOne
-printComplex "J(trefoil, -1)" trefoilMinusOne
-printComplex "J(figure-eight, -1)" fig8MinusOne
-
-printfn "\nNote: These special TQFT values are used in:"
-printfn "  - Ising: Topological superconductors"
-printfn "  - Fibonacci: Non-abelian anyons (quantum computing)"
-printfn "  - Jones at -1: Connection to quantum dimensions"
-printfn ""
-
-// ============================================================================
-// Example 7: Knot Comparison Table
-// ============================================================================
-
-printfn "Example 7: Knot Invariant Comparison Table"
-printSeparator ()
-
-let knots = [
-    ("Unknot", unknot)
-    ("Right Trefoil", trefoil true)
-    ("Left Trefoil", trefoil false)
-    ("Figure-Eight", figureEight)
-    ("Hopf Link", hopfLink)
-]
-
-printfn "%-20s %10s %15s %15s" "Knot" "Crossings" "Writhe" "Jones@std"
-printfn "%s" (String.replicate 70 "-")
-
-for (name, diagram) in knots do
-    let crossings = List.length diagram
+    let diagram = unknot
+    let bracket = evaluateBracket diagram standardA
     let w = writhe diagram
     let jones = jonesPolynomial diagram standardA
-    let jonesStr = 
-        if Math.Abs(jones.Imaginary) < 1e-10 then
-            sprintf "%.4f" jones.Real
-        else
-            sprintf "%.4f%+.4fi" jones.Real jones.Imaginary
-    printfn "%-20s %10d %15d %15s" name crossings w jonesStr
 
-printfn ""
+    pr "  Crossings: %d   Writhe: %d" diagram.Length w
+    printComplex "Kauffman bracket" bracket
+    printComplex "Jones polynomial" jones
+    pr "  Expected Jones(unknot) = 1.0"
 
-// ============================================================================
-// Example 8: Custom Knot Diagram
-// ============================================================================
+    jsonResults <- ("1_unknot", box {| crossings = diagram.Length; writhe = w; jones = fmtComplex jones |}) :: jsonResults
+    csvRows <- [ "1_unknot"; string diagram.Length; string w; fmtComplex jones ] :: csvRows
 
-printfn "Example 8: Custom Knot Construction"
-printSeparator ()
+// ---------------------------------------------------------------------------
+// Example 2 -- Trefoil
+// ---------------------------------------------------------------------------
+if shouldRun 2 then
+    separator ()
+    pr "EXAMPLE 2: Trefoil Knot (Right-Handed)"
+    separator ()
 
-// Create a custom knot with mixed crossings
-let customKnot = [Positive; Positive; Negative; Positive; Negative]
-printfn "Custom diagram: %A" customKnot
-printfn "Number of crossings: %d" (List.length customKnot)
+    let diagram = trefoil true
+    let bracket = evaluateBracket diagram standardA
+    let w = writhe diagram
+    let jones = jonesPolynomial diagram standardA
 
-let customWrithe = writhe customKnot
-printfn "Writhe: %d" customWrithe
+    pr "  Crossings: %d   Writhe: %d" diagram.Length w
+    printComplex "Kauffman bracket" bracket
+    printComplex "Jones polynomial" jones
+    pr "  All positive crossings, writhe = +3"
 
-let customBracket = evaluateBracket customKnot standardA
-printComplex "Kauffman bracket" customBracket
+    jsonResults <- ("2_trefoil", box {| crossings = diagram.Length; writhe = w; jones = fmtComplex jones |}) :: jsonResults
+    csvRows <- [ "2_trefoil"; string diagram.Length; string w; fmtComplex jones ] :: csvRows
 
-let customJones = jonesPolynomial customKnot standardA
-printComplex "Jones polynomial" customJones
+// ---------------------------------------------------------------------------
+// Example 3 -- Mirror symmetry
+// ---------------------------------------------------------------------------
+if shouldRun 3 then
+    separator ()
+    pr "EXAMPLE 3: Mirror Symmetry (Chirality)"
+    separator ()
 
-printfn "\nNote: Custom knots can be constructed using [Positive; Negative; ...]"
-printfn ""
+    let left = trefoil false
+    let right = trefoil true
+    let leftJ = jonesPolynomial left standardA
+    let rightJ = jonesPolynomial right standardA
 
-// ============================================================================
+    printComplex "Left  Jones" leftJ
+    printComplex "Right Jones" rightJ
+    pr "  Mirror knots differ -> trefoil is chiral"
+
+    jsonResults <- ("3_mirror", box {| leftJones = fmtComplex leftJ; rightJones = fmtComplex rightJ |}) :: jsonResults
+    csvRows <- [ "3_mirror"; fmtComplex leftJ; fmtComplex rightJ ] :: csvRows
+
+// ---------------------------------------------------------------------------
+// Example 4 -- Figure-eight
+// ---------------------------------------------------------------------------
+if shouldRun 4 then
+    separator ()
+    pr "EXAMPLE 4: Figure-Eight Knot"
+    separator ()
+
+    let diagram = figureEight
+    let w = writhe diagram
+    let bracket = evaluateBracket diagram standardA
+    let jones = jonesPolynomial diagram standardA
+
+    pr "  Crossings: %d   Writhe: %d" diagram.Length w
+    printComplex "Kauffman bracket" bracket
+    printComplex "Jones polynomial" jones
+    pr "  Achiral: identical to its mirror image"
+
+    jsonResults <- ("4_figure_eight", box {| crossings = diagram.Length; writhe = w; jones = fmtComplex jones |}) :: jsonResults
+    csvRows <- [ "4_figure_eight"; string diagram.Length; string w; fmtComplex jones ] :: csvRows
+
+// ---------------------------------------------------------------------------
+// Example 5 -- Hopf link
+// ---------------------------------------------------------------------------
+if shouldRun 5 then
+    separator ()
+    pr "EXAMPLE 5: Hopf Link (Two Components)"
+    separator ()
+
+    let diagram = hopfLink
+    let w = writhe diagram
+    let bracket = evaluateBracket diagram standardA
+    let jones = jonesPolynomial diagram standardA
+
+    pr "  Crossings: %d   Writhe: %d" diagram.Length w
+    printComplex "Kauffman bracket" bracket
+    printComplex "Jones polynomial" jones
+    pr "  Two components linked together"
+
+    jsonResults <- ("5_hopf_link", box {| crossings = diagram.Length; writhe = w; jones = fmtComplex jones |}) :: jsonResults
+    csvRows <- [ "5_hopf_link"; string diagram.Length; string w; fmtComplex jones ] :: csvRows
+
+// ---------------------------------------------------------------------------
+// Example 6 -- TQFT evaluations
+// ---------------------------------------------------------------------------
+if shouldRun 6 then
+    separator ()
+    pr "EXAMPLE 6: TQFT Special Values"
+    separator ()
+
+    let knots = [ ("unknot", unknot); ("trefoil", trefoil true); ("figure-eight", figureEight) ]
+
+    pr ""
+    pr "--- Ising Anyon Theory (A = e^(ipi/4)) ---"
+    for (name, diagram) in knots do
+        let v = evaluateIsing diagram
+        printComplex (sprintf "Ising(%s)" name) v
+
+    pr ""
+    pr "--- Fibonacci Anyon Theory (A = e^(4pi*i/5)) ---"
+    for (name, diagram) in knots do
+        let v = evaluateFibonacci diagram
+        printComplex (sprintf "Fibonacci(%s)" name) v
+
+    pr ""
+    pr "--- Jones Polynomial at t = -1 ---"
+    for (name, diagram) in knots do
+        let v = evaluateJonesAtMinusOne diagram
+        printComplex (sprintf "J(%s,-1)" name) v
+
+    pr ""
+    pr "  Ising: Topological superconductors"
+    pr "  Fibonacci: Non-abelian anyons (universal QC)"
+    pr "  Jones at -1: Connection to quantum dimensions"
+
+    let isingVals = knots |> List.map (fun (n,d) -> (n, fmtComplex (evaluateIsing d)))
+    jsonResults <- ("6_tqft", box {| ising = isingVals |}) :: jsonResults
+    csvRows <- ("6_tqft" :: (isingVals |> List.map snd)) :: csvRows
+
+// ---------------------------------------------------------------------------
+// Example 7 -- Comparison table
+// ---------------------------------------------------------------------------
+if shouldRun 7 then
+    separator ()
+    pr "EXAMPLE 7: Knot Invariant Comparison Table"
+    separator ()
+
+    let knots = [
+        ("Unknot",        unknot)
+        ("Right Trefoil", trefoil true)
+        ("Left Trefoil",  trefoil false)
+        ("Figure-Eight",  figureEight)
+        ("Hopf Link",     hopfLink)
+    ]
+
+    pr "%-20s %10s %8s %20s" "Knot" "Crossings" "Writhe" "Jones@std"
+    pr "%s" (String.replicate 62 "-")
+
+    let tableRows =
+        knots |> List.map (fun (name, diagram) ->
+            let c = diagram.Length
+            let w = writhe diagram
+            let j = jonesPolynomial diagram standardA
+            let js = fmtComplex j
+            pr "%-20s %10d %8d %20s" name c w js
+            [ name; string c; string w; js ])
+
+    jsonResults <- ("7_table", box {| rows = tableRows.Length |}) :: jsonResults
+    csvRows <- csvRows @ tableRows
+
+// ---------------------------------------------------------------------------
+// Example 8 -- Custom knot
+// ---------------------------------------------------------------------------
+if shouldRun 8 then
+    separator ()
+    pr "EXAMPLE 8: Custom Knot Construction"
+    separator ()
+
+    let customKnot =
+        match customCrossingsOpt with
+        | Some spec -> parseCrossings spec
+        | None -> [ Positive; Positive; Negative; Positive; Negative ]
+
+    pr "  Diagram: %A" customKnot
+    pr "  Crossings: %d   Writhe: %d" customKnot.Length (writhe customKnot)
+
+    let bracket = evaluateBracket customKnot standardA
+    let jones = jonesPolynomial customKnot standardA
+    printComplex "Kauffman bracket" bracket
+    printComplex "Jones polynomial" jones
+    pr "  Tip: --crossings P,P,N,P,N to specify your own"
+
+    jsonResults <- ("8_custom", box {| crossings = customKnot.Length; writhe = writhe customKnot; jones = fmtComplex jones |}) :: jsonResults
+    csvRows <- [ "8_custom"; string customKnot.Length; string (writhe customKnot); fmtComplex jones ] :: csvRows
+
+// ---------------------------------------------------------------------------
 // Summary
-// ============================================================================
+// ---------------------------------------------------------------------------
+if not quiet then
+    separator ()
+    pr "Summary:"
+    pr "  Kauffman bracket via skein relations"
+    pr "  Jones poly = (-A^3)^(-writhe) * bracket"
+    pr "  TQFT evaluations: Ising, Fibonacci, Jones@-1"
+    pr "  All calculations follow Steven Simon Ch. 2"
+    separator ()
 
-printSeparator ()
-printfn "Summary:"
-printfn "  - Implemented Kauffman bracket using skein relations"
-printfn "  - Jones polynomial = (-A^3)^(-writhe) * Kauffman bracket"
-printfn "  - Standard knots: unknot, trefoil, figure-eight, Hopf link"
-printfn "  - TQFT evaluations: Ising, Fibonacci, Jones at t=-1"
-printfn "  - All calculations follow Steven Simon Chapter 2"
-printSeparator ()
+// ---------------------------------------------------------------------------
+// Output
+// ---------------------------------------------------------------------------
+if outputPath.IsSome then
+    let payload =
+        {| script    = "KauffmanJones.fsx"
+           backend   = quantumBackend.Name
+           timestamp = DateTime.UtcNow.ToString("o")
+           example   = exChoice
+           results   = jsonResults |> List.rev |> List.map (fun (k,v) -> {| key = k; value = v |}) |}
+    Reporting.writeJson outputPath.Value payload
 
-printfn "\nExample script completed successfully! ✓"
+if csvPath.IsSome then
+    let header = [ "example"; "detail1"; "detail2"; "detail3" ]
+    Reporting.writeCsv csvPath.Value header (csvRows |> List.rev)
+
+// ---------------------------------------------------------------------------
+// Usage hints
+// ---------------------------------------------------------------------------
+if not quiet && argv.Length = 0 then
+    pr ""
+    pr "Usage hints:"
+    pr "  dotnet fsi KauffmanJones.fsx -- --example 6"
+    pr "  dotnet fsi KauffmanJones.fsx -- --crossings P,P,N,N,P"
+    pr "  dotnet fsi KauffmanJones.fsx -- --quiet --output r.json --csv r.csv"
+    pr "  dotnet fsi KauffmanJones.fsx -- --help"
