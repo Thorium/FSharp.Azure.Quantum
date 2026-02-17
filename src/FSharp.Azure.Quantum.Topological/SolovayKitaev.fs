@@ -485,3 +485,205 @@ module SolovayKitaev =
     let approximatePauliYTopological (epsilon: float) : ApproximationResult =
         let yMatrix = gateToMatrix Y
         approximateGateTopological yMatrix epsilon 4 12
+    
+    // ========================================================================
+    // FIBONACCI ANYON BRAID COMPILATION
+    // ========================================================================
+    
+    // For Fibonacci anyons, braiding of τ anyons is dense in SU(2).
+    // A single qubit is encoded in a τ-pair: τ × τ → {1, τ}.
+    // The computational space is 2D with basis {|1⟩, |τ⟩}.
+    //
+    // For a single τ-pair, the exchange σ₁ gives a diagonal R-matrix phase.
+    // This alone is NOT universal (only diagonal gates).
+    //
+    // To get off-diagonal operations (H, X, Y), we need an auxiliary τ-pair
+    // and braiding between pairs (σ₂ generator). The σ₂ generator acts on
+    // the boundary between the two τ-pairs and involves F-matrix basis changes,
+    // producing a non-diagonal SU(2) matrix on the qubit space.
+    //
+    // Standard approach (Bonesteel et al. 2005):
+    //   - σ₁: Exchange within first τ-pair → diagonal R-matrix
+    //   - σ₂: Exchange across τ-pair boundary → involves F-move, non-diagonal
+    //   - {σ₁, σ₂} generate a dense subgroup of SU(2) → universal
+    //
+    // Mathematical formulas:
+    //   φ = (1 + √5) / 2 (golden ratio)
+    //   
+    //   σ₁ in qubit basis = diag(e^{4πi/5}, e^{-3πi/5})
+    //   
+    //   σ₂ in qubit basis = F⁻¹ · R · F where:
+    //     R = diag(e^{4πi/5}, e^{-3πi/5})
+    //     F = F^{τττ}_τ = [[φ⁻¹, φ⁻¹/²], [φ⁻¹/², -φ⁻¹]]
+    //
+    // References:
+    //   - Bonesteel, Hormozi, Zikos, Simon (2005): "Braid topologies for quantum computation"
+    //   - Hormozi, Zikos, Bonesteel, Simon (2007): "Topological quantum compiling"
+    //   - Nayak, Simon, Stern, Freedman, Das Sarma (2008): "Non-Abelian anyons and TQC" Rev. Mod. Phys.
+    
+    /// SU(2) matrix for Fibonacci braid generator σ₁ (exchange within first τ-pair).
+    /// Acts diagonally in the qubit basis {|1⟩, |τ⟩}:
+    ///   σ₁ = diag(R^1_ττ, R^τ_ττ) = diag(e^{4πi/5}, e^{-3πi/5})
+    let fibonacciSigma1 : SU2Matrix =
+        let i = Complex.ImaginaryOne
+        let r1 = Complex.Exp(i * 4.0 * Math.PI / 5.0)    // R^1_ττ = e^{4πi/5}
+        let rTau = Complex.Exp(-i * 3.0 * Math.PI / 5.0)  // R^τ_ττ = e^{-3πi/5}
+        { A = r1; B = Complex.Zero; C = Complex.Zero; D = rTau }
+    
+    /// SU(2) matrix for Fibonacci braid generator σ₂ (exchange across τ-pair boundary).
+    /// Involves F-matrix basis change:
+    ///   σ₂ = F⁻¹ · R · F
+    /// where F = F^{τττ}_τ and R = diag(R^1_ττ, R^τ_ττ)
+    let fibonacciSigma2 : SU2Matrix =
+        let phi = (1.0 + sqrt 5.0) / 2.0   // Golden ratio φ ≈ 1.618
+        let sqrtPhi = sqrt phi
+        
+        // F-matrix: F^{τττ}_τ = [[φ⁻¹, φ⁻¹/²], [φ⁻¹/², -φ⁻¹]]
+        let f11 = 1.0 / phi
+        let f12 = 1.0 / sqrtPhi
+        let f21 = 1.0 / sqrtPhi
+        let f22 = -1.0 / phi
+        
+        // R-matrix eigenvalues
+        let i = Complex.ImaginaryOne
+        let r1 = Complex.Exp(i * 4.0 * Math.PI / 5.0)
+        let rTau = Complex.Exp(-i * 3.0 * Math.PI / 5.0)
+        
+        // Compute F⁻¹ · R · F
+        // First: R · F (diagonal R times F)
+        let rf11 = r1 * Complex(f11, 0.0)
+        let rf12 = r1 * Complex(f12, 0.0)
+        let rf21 = rTau * Complex(f21, 0.0)
+        let rf22 = rTau * Complex(f22, 0.0)
+        
+        // F⁻¹ = adj(F) / det(F) where adj(F) = [[f22, -f12], [-f21, f11]]
+        // det(F) = f11*f22 - f12*f21 = (1/φ)(-1/φ) - (1/√φ)(1/√φ) = -1/φ² - 1/φ = -(1/φ² + 1/φ) = -1
+        // So F⁻¹ = [[-1/φ, -1/√φ], [-1/√φ, 1/φ]] / (-1) = [[1/φ, 1/√φ], [1/√φ, -1/φ]] = F
+        // F is an involution (F² = I) for the Fibonacci F-matrix.
+        
+        // F⁻¹ · (R · F)  (since F⁻¹ = F, we use F directly)
+        let a = Complex(f11, 0.0) * rf11 + Complex(f12, 0.0) * rf21
+        let b = Complex(f11, 0.0) * rf12 + Complex(f12, 0.0) * rf22
+        let c = Complex(f21, 0.0) * rf11 + Complex(f22, 0.0) * rf21
+        let d = Complex(f21, 0.0) * rf12 + Complex(f22, 0.0) * rf22
+        
+        // The result should be in SU(2) (or PSU(2))
+        { A = a; B = b; C = c; D = d }
+    
+    /// SU(2) matrix for inverse Fibonacci braid generator σ₁⁻¹
+    let fibonacciSigma1Inv : SU2Matrix = dagger fibonacciSigma1
+    
+    /// SU(2) matrix for inverse Fibonacci braid generator σ₂⁻¹
+    let fibonacciSigma2Inv : SU2Matrix = dagger fibonacciSigma2
+    
+    /// Elementary Fibonacci braid operations for base set construction.
+    /// These are the building blocks: {σ₁, σ₁⁻¹, σ₂, σ₂⁻¹}
+    type FibonacciBraidOp =
+        | Sigma1         // σ₁: exchange within first τ-pair (clockwise)
+        | Sigma1Inv      // σ₁⁻¹: counter-clockwise
+        | Sigma2         // σ₂: exchange across τ-pair boundary (clockwise)
+        | Sigma2Inv      // σ₂⁻¹: counter-clockwise
+    
+    /// Get SU(2) matrix for a Fibonacci braid operation
+    let fibonacciBraidMatrix (op: FibonacciBraidOp) : SU2Matrix =
+        match op with
+        | Sigma1 -> fibonacciSigma1
+        | Sigma1Inv -> fibonacciSigma1Inv
+        | Sigma2 -> fibonacciSigma2
+        | Sigma2Inv -> fibonacciSigma2Inv
+    
+    /// Compute SU(2) matrix for a sequence of Fibonacci braid operations
+    let fibonacciBraidSequenceMatrix (ops: FibonacciBraidOp list) : SU2Matrix =
+        ops
+        |> List.map fibonacciBraidMatrix
+        |> List.fold multiply identity
+    
+    /// Memoization cache for Fibonacci braid base sets
+    let private fibBaseSetCache = System.Collections.Concurrent.ConcurrentDictionary<int, (FibonacciBraidOp list * SU2Matrix) list>()
+    
+    /// Build Fibonacci braid base set: all braid words up to given length
+    /// using generators {σ₁, σ₁⁻¹, σ₂, σ₂⁻¹}.
+    ///
+    /// Since Fibonacci braiding is dense in SU(2), longer words fill out
+    /// SU(2) more densely, enabling better approximations via Solovay-Kitaev.
+    let buildFibonacciBaseSet (maxLength: int) : (FibonacciBraidOp list * SU2Matrix) list =
+        fibBaseSetCache.GetOrAdd(maxLength, fun _ ->
+            let generators = [Sigma1; Sigma1Inv; Sigma2; Sigma2Inv]
+            
+            let rec generate (length: int) : FibonacciBraidOp list list =
+                if length = 0 then
+                    [[]]
+                else
+                    let shorter = generate (length - 1)
+                    shorter
+                    |> List.collect (fun seq ->
+                        generators |> List.map (fun g -> g :: seq))
+            
+            // Generate all sequences from length 1 to maxLength
+            [ for len in 1 .. maxLength do
+                yield! generate len ]
+            |> List.map (fun seq -> (seq, fibonacciBraidSequenceMatrix seq))
+            |> List.distinctBy (fun (_, matrix) ->
+                let round (c: Complex) =
+                    (round (c.Real * 1e10) / 1e10, round (c.Imaginary * 1e10) / 1e10)
+                (round matrix.A, round matrix.B, round matrix.C, round matrix.D)))
+    
+    /// Approximate arbitrary SU(2) gate for Fibonacci anyon compilation.
+    ///
+    /// Unlike Ising anyons (where T is exact and H needs S-K approximation),
+    /// Fibonacci anyons can approximate ANY gate directly via braiding.
+    /// The {σ₁, σ₂} generators are dense in SU(2).
+    ///
+    /// Algorithm: Iterative refinement using brute-force search.
+    /// 1. Find best braid word U₀ in base set: U₀ ≈ target
+    /// 2. Compute residual: Δ = target · U₀†
+    /// 3. Find best correction C₁ in base set: C₁ ≈ Δ
+    /// 4. New approximation: C₁ · U₀ ≈ target
+    /// 5. Repeat until error < epsilon or maxDepth reached
+    ///
+    /// Returns: (braidOps, error) where braidOps is the Fibonacci braid sequence
+    /// and error is the operator norm distance from target.
+    let approximateGateFibonacci
+        (target: SU2Matrix)
+        (epsilon: float)
+        (baseSetLength: int)
+        (maxDepth: int)
+        : FibonacciBraidOp list * float =
+        
+        // Build the Fibonacci braid base set
+        let fibBaseSet = buildFibonacciBaseSet baseSetLength
+        
+        // Find closest braid word in base set to a given target
+        let findClosest (tgt: SU2Matrix) : FibonacciBraidOp list * SU2Matrix * float =
+            fibBaseSet
+            |> List.map (fun (ops, matrix) ->
+                let dist = operatorDistance tgt matrix
+                (ops, matrix, dist))
+            |> List.minBy (fun (_, _, dist) -> dist)
+        
+        // Iterative refinement: keep prepending correction braid words
+        let rec refine (currentOps: FibonacciBraidOp list) (currentMatrix: SU2Matrix) (currentError: float) (depth: int) =
+            if currentError < epsilon || depth >= maxDepth then
+                (currentOps, currentError)
+            else
+                // Compute residual: Δ = target · current†
+                let currentDag = dagger currentMatrix
+                let residual = multiply target currentDag
+                
+                // Find best correction for the residual
+                let (corrOps, corrMatrix, _) = findClosest residual
+                
+                // New approximation: correction · current
+                let newMatrix = multiply corrMatrix currentMatrix
+                let newError = operatorDistance target newMatrix
+                let newOps = corrOps @ currentOps
+                
+                // Only continue if we made progress
+                if newError >= currentError then
+                    (currentOps, currentError)
+                else
+                    refine newOps newMatrix newError (depth + 1)
+        
+        // Start with best single braid word
+        let (initOps, initMatrix, initError) = findClosest target
+        refine initOps initMatrix initError 0

@@ -90,6 +90,8 @@ module BraidToGate =
         | CircuitBuilder.Gate.S _ -> "S"
         | CircuitBuilder.Gate.SDG _ -> "Sdg"
         | CircuitBuilder.Gate.RZ _ -> "Rz"
+        | CircuitBuilder.Gate.RX _ -> "Rx"
+        | CircuitBuilder.Gate.RY _ -> "Ry"
         | CircuitBuilder.Gate.U3 _ -> "U3"
         | _ -> "Other"  // For other gate types not mapped
     

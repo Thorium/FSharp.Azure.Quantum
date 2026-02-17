@@ -294,8 +294,8 @@ module GateToBraidTests =
         Assert.True(compilation.TotalError > 0.0)
     
     [<Fact>]
-    let ``Fibonacci anyon compilation returns NotImplemented`` () =
-        // Business meaning: Currently only Ising anyons supported
+    let ``Fibonacci anyon compilation succeeds for T gate`` () =
+        // Business meaning: Fibonacci anyons are now supported with braid approximation
         let gateSeq = {
             BraidToGate.GateSequence.Gates = [CircuitBuilder.Gate.T 0]
             NumQubits = 2
@@ -304,12 +304,13 @@ module GateToBraidTests =
             TCount = 1
         }
         
-        let result = GateToBraid.compileGateSequence gateSeq 1e-10 AnyonSpecies.AnyonType.Fibonacci
+        let result = GateToBraid.compileGateSequence gateSeq 0.5 AnyonSpecies.AnyonType.Fibonacci
         
         match result with
-        | Error (TopologicalError.NotImplemented msg) ->
-            Assert.Contains("Ising", msg)
-        | _ -> failwith "Expected NotImplemented for non-Ising anyons"
+        | Ok compilation ->
+            Assert.Equal(AnyonSpecies.AnyonType.Fibonacci, compilation.AnyonType)
+            Assert.True(compilation.CompiledBraids.Length > 0)
+        | Error err -> failwith $"Fibonacci compilation should succeed, got error: {err}"
 
     // ========================================================================
     // ROUND-TRIP TESTS (Gate → Braid → Gate)

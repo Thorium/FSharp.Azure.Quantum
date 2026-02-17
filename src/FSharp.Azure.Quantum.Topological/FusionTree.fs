@@ -296,6 +296,11 @@ module FusionTree =
     /// - **Ising (σ anyons)**: uses 2*(n+1) sigma anyons:
     ///     - n pairs encode n logical qubits (each pair fuses to 1/ψ)
     ///     - 1 extra parity pair enforces total charge vacuum
+    ///     - Formula: (anyonCount / 2) - 1
+    /// - **Fibonacci (τ anyons)**: uses 2*n tau anyons:
+    ///     - n pairs encode n logical qubits (each pair fuses to 1/τ)
+    ///     - No parity pair needed (Fibonacci has no fermion parity constraint)
+    ///     - Formula: anyonCount / 2
     /// - Other anyon types keep legacy heuristics.
     let numQubits (tree: Tree) : int =
         let anyonCount = size tree
@@ -306,8 +311,13 @@ module FusionTree =
         if isAllSigma && anyonCount >= 4 && anyonCount % 2 = 0 then
             max 0 ((anyonCount / 2) - 1)
         else
-            // Legacy fallback
-            max 0 (anyonCount - 1)
+            // Fibonacci τ-pair encoding: 2*n τ anyons (no parity pair)
+            let isAllTau = leavesList |> List.forall ((=) AnyonSpecies.Particle.Tau)
+            if isAllTau && anyonCount >= 2 && anyonCount % 2 = 0 then
+                anyonCount / 2
+            else
+                // Legacy fallback
+                max 0 (anyonCount - 1)
     
     /// Convert computational basis bitstring to fusion tree
     /// 

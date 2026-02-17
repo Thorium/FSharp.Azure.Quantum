@@ -24,6 +24,7 @@
     <Compile Include="CircuitOptimizationTests.fs" />
     <Compile Include="ErrorPropagationTests.fs" />
     <Compile Include="NoiseModelsTests.fs" />
+    <Compile Include="FibonacciCompilationTests.fs" />
     <Compile Include="GateToBraidCorrectionTests.fs" />
     <Compile Include="ToricCodeTests.fs" />
     <Compile Include="TopologicalBackendTests.fs" />
