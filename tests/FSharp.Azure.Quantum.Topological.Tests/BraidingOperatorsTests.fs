@@ -39,26 +39,26 @@ module BraidingOperatorsTests =
     // ============================================================================
     
     [<Fact>]
-    let ``R-matrix: Ising Sigma × Sigma → Vacuum gives e^(iπ/8)`` () =
+    let ``R-matrix: Ising Sigma × Sigma → Vacuum gives e^(-iπ/8)`` () =
         match BraidingOperators.element 
                     AnyonSpecies.Particle.Sigma 
                     AnyonSpecies.Particle.Sigma 
                     AnyonSpecies.Particle.Vacuum 
                     AnyonSpecies.AnyonType.Ising with
         | Ok r ->
-            let expected = expI (π / 8.0)
+            let expected = expI (-π / 8.0)
             assertComplexEqual expected r 1e-10
         | Error err -> Assert.Fail($"Expected Ok but got Error: {err.Message}")
     
     [<Fact>]
-    let ``R-matrix: Ising Sigma × Sigma → Psi gives e^(-3iπ/8)`` () =
+    let ``R-matrix: Ising Sigma × Sigma → Psi gives e^(3iπ/8)`` () =
         match BraidingOperators.element 
                     AnyonSpecies.Particle.Sigma 
                     AnyonSpecies.Particle.Sigma 
                     AnyonSpecies.Particle.Psi 
                     AnyonSpecies.AnyonType.Ising with
         | Ok r ->
-            let expected = expI (-3.0 * π / 8.0)
+            let expected = expI (3.0 * π / 8.0)
             assertComplexEqual expected r 1e-10
         | Error err -> Assert.Fail($"Expected Ok but got Error: {err.Message}")
     
@@ -143,12 +143,12 @@ module BraidingOperatorsTests =
                     AnyonSpecies.Particle.Sigma 
                     AnyonSpecies.AnyonType.Ising with
         | Ok r ->
-            // R-matrix for Ising σ×σ is diagonal with entries [e^(iπ/8), e^(-3iπ/8)]
+            // R-matrix for Ising σ×σ is diagonal with entries [e^(-iπ/8), e^(3iπ/8)]
             Assert.Equal(Complex.Zero, r.[0,1])
             Assert.Equal(Complex.Zero, r.[1,0])
             
-            assertComplexEqual (expI (π / 8.0)) r.[0,0] 1e-10
-            assertComplexEqual (expI (-3.0 * π / 8.0)) r.[1,1] 1e-10
+            assertComplexEqual (expI (-π / 8.0)) r.[0,0] 1e-10
+            assertComplexEqual (expI (3.0 * π / 8.0)) r.[1,1] 1e-10
         | Error err -> Assert.Fail($"Expected Ok but got Error: {err.Message}")
     
     [<Fact>]

@@ -39,9 +39,9 @@ module BraidingOperators =
     /// - R^c_ab = phase accumulated when anyon 'a' crosses over anyon 'b' clockwise
     /// - Counterclockwise braid: (R^c_ab)^(-1) = (R^c_ab)*
     /// 
-    /// For Ising anyons:
-    /// - R^1_σσ = exp(iπ/8) (braiding two Majoranas to vacuum)
-    /// - R^ψ_σσ = exp(-3iπ/8) (braiding two Majoranas to fermion)
+    /// For Ising anyons (Kitaev 2006 convention):
+    /// - R^1_σσ = exp(-iπ/8) (braiding two Majoranas to vacuum)
+    /// - R^ψ_σσ = exp(3iπ/8) (braiding two Majoranas to fermion)
     /// 
     /// For Fibonacci anyons:
     /// - R^1_ττ = exp(4πi/5)
@@ -70,18 +70,18 @@ module BraidingOperators =
         | AnyonSpecies.AnyonType.Ising, x, AnyonSpecies.Particle.Vacuum, _ when c = x ->
             Ok Complex.One
         
-        // σ × σ → 1: R^1_σσ = e^(iπ/8)
+        // σ × σ → 1: R^1_σσ = e^(-iπ/8) (Kitaev convention)
         | AnyonSpecies.AnyonType.Ising, AnyonSpecies.Particle.Sigma, AnyonSpecies.Particle.Sigma, AnyonSpecies.Particle.Vacuum ->
-            Ok (expI (π / 8.0))
+            Ok (expI (-π / 8.0))
         
-        // σ × σ → ψ: R^ψ_σσ = e^(-3iπ/8)
+        // σ × σ → ψ: R^ψ_σσ = e^(3iπ/8)
         | AnyonSpecies.AnyonType.Ising, AnyonSpecies.Particle.Sigma, AnyonSpecies.Particle.Sigma, AnyonSpecies.Particle.Psi ->
-            Ok (expI (-3.0 * π / 8.0))
+            Ok (expI (3.0 * π / 8.0))
         
-        // σ × ψ → σ: R^σ_σψ = e^(iπ/4)
+        // σ × ψ → σ: R^σ_σψ = e^(-iπ/2) = -i
         | AnyonSpecies.AnyonType.Ising, AnyonSpecies.Particle.Sigma, AnyonSpecies.Particle.Psi, AnyonSpecies.Particle.Sigma 
         | AnyonSpecies.AnyonType.Ising, AnyonSpecies.Particle.Psi, AnyonSpecies.Particle.Sigma, AnyonSpecies.Particle.Sigma ->
-            Ok (expI (π / 4.0))
+            Ok (expI (-π / 2.0))
         
         // ψ × ψ → 1: R^1_ψψ = -1 (fermion statistics!)
         | AnyonSpecies.AnyonType.Ising, AnyonSpecies.Particle.Psi, AnyonSpecies.Particle.Psi, AnyonSpecies.Particle.Vacuum ->

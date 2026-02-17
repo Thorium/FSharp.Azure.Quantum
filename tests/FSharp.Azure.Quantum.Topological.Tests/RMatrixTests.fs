@@ -54,31 +54,31 @@ module RMatrixTests =
         Assert.True(data.RSymbols.Count > 0, "Should have non-trivial R-symbols")
     
     [<Fact>]
-    let ``Ising R[σ,σ;1] equals exp(iπ/8) for Majorana Berry phase`` () =
+    let ``Ising R[σ,σ;1] equals exp(-iπ/8) per Kitaev (2006) convention`` () =
         // Business meaning: When two Majorana modes braid and fuse to vacuum,
-        // they accumulate a topological Berry phase of π/8. This is the fundamental
-        // non-Abelian signature of Majorana zero modes in topological superconductors.
+        // they accumulate a topological Berry phase of -π/8 (Kitaev 2006, conformal
+        // weight formula R^{ab}_c = exp(πi(h_c - h_a - h_b)) with h_σ=1/16).
         let data = computeRMatrixOrFail AnyonSpecies.AnyonType.Ising
         let sigma = AnyonSpecies.Particle.Sigma
         let vacuum = AnyonSpecies.Particle.Vacuum
         
         let value = getRSymbolOrFail data (rIndex sigma sigma vacuum) "R[σ,σ;1]"
-        let expected = TopologicalHelpers.expI (System.Math.PI / 8.0)
+        let expected = TopologicalHelpers.expI (-System.Math.PI / 8.0)
         
         assertComplexEquals expected value
         assertOnUnitCircle value
     
     [<Fact>]
-    let ``Ising R[σ,σ;ψ] equals exp(-3iπ/8) for fermion fusion channel`` () =
+    let ``Ising R[σ,σ;ψ] equals exp(3iπ/8) per Kitaev (2006) convention`` () =
         // Business meaning: When Majoranas braid and fuse to a fermion (ψ),
-        // the accumulated phase is different (-3π/8), reflecting the different
-        // fusion topology. This phase difference is essential for quantum computation.
+        // the accumulated phase is 3π/8 (Kitaev 2006). The phase difference between
+        // vacuum and fermion channels is essential for quantum computation.
         let data = computeRMatrixOrFail AnyonSpecies.AnyonType.Ising
         let sigma = AnyonSpecies.Particle.Sigma
         let psi = AnyonSpecies.Particle.Psi
         
         let value = getRSymbolOrFail data (rIndex sigma sigma psi) "R[σ,σ;ψ]"
-        let expected = TopologicalHelpers.expI (-3.0 * System.Math.PI / 8.0)
+        let expected = TopologicalHelpers.expI (3.0 * System.Math.PI / 8.0)
         
         assertComplexEquals expected value
         assertOnUnitCircle value
@@ -97,14 +97,15 @@ module RMatrixTests =
         assertOnUnitCircle value
     
     [<Fact>]
-    let ``Ising R[σ,ψ;σ] equals exp(iπ/4) for Majorana-fermion braiding`` () =
-        // Business meaning: Braiding a Majorana with a fermion accumulates π/4 phase.
+    let ``Ising R[σ,ψ;σ] equals exp(-iπ/2) = -i per Kitaev (2006) convention`` () =
+        // Business meaning: Braiding a Majorana with a fermion accumulates -π/2 phase
+        // (Kitaev 2006, conformal weight formula: h_σ - h_σ - h_ψ = 1/16 - 1/16 - 1/2 = -1/2).
         let data = computeRMatrixOrFail AnyonSpecies.AnyonType.Ising
         let sigma = AnyonSpecies.Particle.Sigma
         let psi = AnyonSpecies.Particle.Psi
         
         let value = getRSymbolOrFail data (rIndex sigma psi sigma) "R[σ,ψ;σ]"
-        let expected = TopologicalHelpers.expI (System.Math.PI / 4.0)
+        let expected = TopologicalHelpers.expI (-System.Math.PI / 2.0)
         
         assertComplexEquals expected value
         assertOnUnitCircle value

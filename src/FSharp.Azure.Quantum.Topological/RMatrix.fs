@@ -74,10 +74,12 @@ module RMatrix =
     /// - σ × ψ = σ
     /// - ψ × ψ = 1 (fermion statistics)
     /// 
-    /// R-matrix values from conformal field theory:
-    /// - R[σ,σ;1] = exp(iπ/8)
-    /// - R[σ,σ;ψ] = exp(-3iπ/8)
-    /// - R[σ,ψ;σ] = exp(iπ/4)
+    /// R-matrix values from conformal field theory (Kitaev 2006):
+    /// Using the conformal weight formula R^{ab}_c = exp(πi(h_c - h_a - h_b))
+    /// with h_1 = 0, h_σ = 1/16, h_ψ = 1/2:
+    /// - R[σ,σ;1] = exp(-iπ/8)
+    /// - R[σ,σ;ψ] = exp(3iπ/8)
+    /// - R[σ,ψ;σ] = exp(-iπ/2) = -i
     /// - R[ψ,ψ;1] = -1 (fermion exchange)
     let private computeIsingRMatrices () : RMatrixData =
         let rSymbols =
@@ -89,17 +91,17 @@ module RMatrix =
                 { A = AnyonSpecies.Particle.Vacuum; B = AnyonSpecies.Particle.Psi; C = AnyonSpecies.Particle.Psi }, Complex.One
                 { A = AnyonSpecies.Particle.Psi; B = AnyonSpecies.Particle.Vacuum; C = AnyonSpecies.Particle.Psi }, Complex.One
                 
-                // σ × σ → 1: R[σ,σ;1] = e^(iπ/8) (Majorana Berry phase)
-                { A = AnyonSpecies.Particle.Sigma; B = AnyonSpecies.Particle.Sigma; C = AnyonSpecies.Particle.Vacuum }, expI (π / 8.0)
+                // σ × σ → 1: R[σ,σ;1] = e^(-iπ/8) (Majorana Berry phase, Kitaev convention)
+                { A = AnyonSpecies.Particle.Sigma; B = AnyonSpecies.Particle.Sigma; C = AnyonSpecies.Particle.Vacuum }, expI (-π / 8.0)
                 
-                // σ × σ → ψ: R[σ,σ;ψ] = e^(-3iπ/8)
-                { A = AnyonSpecies.Particle.Sigma; B = AnyonSpecies.Particle.Sigma; C = AnyonSpecies.Particle.Psi }, expI (-3.0 * π / 8.0)
+                // σ × σ → ψ: R[σ,σ;ψ] = e^(3iπ/8)
+                { A = AnyonSpecies.Particle.Sigma; B = AnyonSpecies.Particle.Sigma; C = AnyonSpecies.Particle.Psi }, expI (3.0 * π / 8.0)
                 
-                // σ × ψ → σ: R[σ,ψ;σ] = e^(iπ/4)
-                { A = AnyonSpecies.Particle.Sigma; B = AnyonSpecies.Particle.Psi; C = AnyonSpecies.Particle.Sigma }, expI (π / 4.0)
+                // σ × ψ → σ: R[σ,ψ;σ] = e^(-iπ/2) = -i
+                { A = AnyonSpecies.Particle.Sigma; B = AnyonSpecies.Particle.Psi; C = AnyonSpecies.Particle.Sigma }, expI (-π / 2.0)
                 
-                // ψ × σ → σ: R[ψ,σ;σ] = e^(iπ/4) (symmetric with above)
-                { A = AnyonSpecies.Particle.Psi; B = AnyonSpecies.Particle.Sigma; C = AnyonSpecies.Particle.Sigma }, expI (π / 4.0)
+                // ψ × σ → σ: R[ψ,σ;σ] = e^(-iπ/2) = -i (symmetric with above)
+                { A = AnyonSpecies.Particle.Psi; B = AnyonSpecies.Particle.Sigma; C = AnyonSpecies.Particle.Sigma }, expI (-π / 2.0)
                 
                 // ψ × ψ → 1: R[ψ,ψ;1] = -1 (fermion exchange statistics!)
                 { A = AnyonSpecies.Particle.Psi; B = AnyonSpecies.Particle.Psi; C = AnyonSpecies.Particle.Vacuum }, Complex(-1.0, 0.0)
@@ -287,65 +289,130 @@ module RMatrix =
             // For valid fusion channels not explicitly stored, R = 1 (trivial braiding)
             Ok Complex.One
     
-    /// Verify hexagon equation for R-matrices
-    /// 
-    /// Hexagon equation relates R-matrices to F-matrices (Simon Ch. 13.3, Eq. 13.1-13.2):
-    /// 
-    /// Equation 1 (Graphical hexagon):
-    ///   R[b,c;f] · F[a,b,c;d;e,f] · R[a,c;d] = 
-    ///       Σ_g F[b,a,c;d;g,f] · R[a,b;g] · F[a,b,c;d;e,g]
-    /// 
-    /// Equation 2 (Mirror hexagon):
-    ///   R[a,b;e]⁻¹ · F[a,b,c;d;e,f] · R[b,c;f]⁻¹ = 
-    ///       Σ_g F[a,c,b;d;e,g] · R[a,c;g]⁻¹ · F[a,b,c;d;g,f]
-    /// 
-    /// This is a consistency condition that must hold for all valid fusion processes.
-    /// 
-    /// Physical Interpretation:
-    ///   The hexagon ensures that braiding operations are consistent with
-    ///   associativity (F-moves). It relates the topological phase from braiding
-    ///   to the basis change for different fusion tree orderings.
-    /// 
-    /// Mathematical Properties:
-    ///   - Ensures R and F form a consistent anyon theory
-    ///   - Required for topological quantum field theory (TQFT)
-    ///   - Together with pentagon equation, uniquely determines the theory
-    /// 
-    /// Implementation:
-    ///   For well-known theories (Ising, Fibonacci, SU(2)_k), the R and F matrices
-    ///   from the literature are known to satisfy the hexagon equations by construction.
-    ///   We trust these published values which have been extensively verified by the community.
-    ///   
-    ///   Full computational verification of hexagon equations for all particle combinations
-    ///   is complex and numerically sensitive. Future work could implement spot checks
-    ///   on specific fusion channels to validate consistency.
-    /// 
+    // ========================================================================
+    // HEXAGON EQUATION HELPERS
+    // ========================================================================
+
+    /// Get fusion channels a×b, returning empty list when fusion is undefined.
+    let private fusionChannelsLocal
+        (a: AnyonSpecies.Particle)
+        (b: AnyonSpecies.Particle)
+        (anyonType: AnyonSpecies.AnyonType)
+        : AnyonSpecies.Particle list =
+        match FusionRules.channels a b anyonType with
+        | Ok channels -> channels
+        | Error _ -> []
+
+    /// Try to look up an F-symbol value, returning None if fusion constraints are violated.
+    let private tryGetFLocal
+        (fData: FMatrix.FMatrixData)
+        (a, b, c, d, e, f)
+        : Complex option =
+        match FMatrix.getFSymbol fData { FMatrix.A = a; FMatrix.B = b; FMatrix.C = c; FMatrix.D = d; FMatrix.E = e; FMatrix.F = f } with
+        | Ok value -> Some value
+        | Error _ -> None
+
+    /// Get all particles in a theory
+    let private getParticlesLocal (anyonType: AnyonSpecies.AnyonType) : AnyonSpecies.Particle list =
+        match AnyonSpecies.particles anyonType with
+        | Ok ps -> ps
+        | Error _ -> []
+
+    // ========================================================================
+    // HEXAGON EQUATION VERIFICATION
+    // ========================================================================
+
+    /// Verify hexagon equation for R-matrices against F-matrices
+    ///
+    /// Hexagon equation H1 (derived from nCat Lab braided monoidal category axiom):
+    ///
+    ///   Σ_f F^{bca}_{d;fg} · R^{af}_d · F^{abc}_{d;ef} = R^{ac}_g · F^{bac}_{d;eg} · R^{ab}_e
+    ///
+    /// where:
+    ///   - a,b,c are the three fusing particles, d is the total charge
+    ///   - e ∈ channels(a×b) with e×c→d valid (left intermediate)
+    ///   - g ∈ channels(c×a) with b×g→d valid (right intermediate)
+    ///   - f ∈ channels(b×c) with a×f→d valid (summed over on LHS)
+    ///   - The THREE F-matrices have DIFFERENT first-three arguments: F^{bca}, F^{abc}, F^{bac}
+    ///
     /// References:
-    ///   - Simon "Topological Quantum" (2023), Section 13.3, Equations 13.1-13.2
-    ///   - Moore & Seiberg, "Classical and Quantum Conformal Field Theory" (1989)
-    ///   - Kitaev, "Anyons in an exactly solved model" (2006)
-    let verifyHexagonEquation (rData: RMatrixData) : TopologicalResult<RMatrixData> =
-        // For well-known theories from the literature, we trust that R and F matrices
-        // satisfy the hexagon equations by construction
-        match rData.AnyonType with
-        | AnyonSpecies.AnyonType.Ising
-        | AnyonSpecies.AnyonType.Fibonacci ->
-            // These theories use R and F matrices from Simon's "Topological Quantum"
-            // which are known to satisfy hexagon equations (verified in literature)
-            Ok { rData with IsValidated = true }
-        
-        | AnyonSpecies.AnyonType.SU2Level k when k >= 2 && k <= 10 ->
-            // SU(2)_k theories use conformal field theory formulas
-            // R-matrices from conformal weights and F-matrices from 6j-symbols
-            // These are known to satisfy hexagon by construction (Witten 1989, Moore-Seiberg 1989)
-            Ok { rData with IsValidated = true }
-        
+    ///   - nCat Lab: https://ncatlab.org/nlab/show/braided+monoidal+category
+    ///   - Kitaev, "Anyons in an exactly solved model" (2006), Appendix E
+    ///   - Simon, "Topological Quantum" (2023), Section 13.3
+    let verifyHexagonEquation (rData: RMatrixData) (fData: FMatrix.FMatrixData) : TopologicalResult<RMatrixData> =
+        if fData.AnyonType <> rData.AnyonType then
+            TopologicalResult.logicError "operation"
+                $"F-matrix type {fData.AnyonType} ≠ R-matrix type {rData.AnyonType}"
+        else
+
+        let anyonType = rData.AnyonType
+        let tolerance = 1e-10
+        let particles = getParticlesLocal anyonType
+
+        // Verify hexagon for all 4-tuples (a,b,c,d)
+        let allDeviations =
+            [ for a in particles do
+              for b in particles do
+              for c in particles do
+              for d in particles do
+                let channelsAB = fusionChannelsLocal a b anyonType
+                let channelsBC = fusionChannelsLocal b c anyonType
+                let channelsCA = fusionChannelsLocal c a anyonType
+
+                // Valid e: e ∈ channels(a×b) with e×c→d
+                let validE = channelsAB |> List.filter (fun e ->
+                    match FusionRules.isPossible e c d anyonType with
+                    | Ok true -> true
+                    | _ -> false)
+
+                // Valid g: g ∈ channels(c×a) with b×g→d
+                let validG = channelsCA |> List.filter (fun g ->
+                    match FusionRules.isPossible b g d anyonType with
+                    | Ok true -> true
+                    | _ -> false)
+
+                // Valid f (for sum): f ∈ channels(b×c) with a×f→d
+                let validF = channelsBC |> List.filter (fun f ->
+                    match FusionRules.isPossible a f d anyonType with
+                    | Ok true -> true
+                    | _ -> false)
+
+                if not validE.IsEmpty && not validG.IsEmpty then
+                    for e in validE do
+                    for g in validG do
+                        // LHS: Σ_f F^{bca}_{d;fg} · R^{af}_d · F^{abc}_{d;ef}
+                        let lhsTerms =
+                            validF
+                            |> List.choose (fun f ->
+                                match tryGetFLocal fData (b,c,a,d,f,g),
+                                      tryGetFLocal fData (a,b,c,d,e,f) with
+                                | Some fBCA, Some fABC ->
+                                    match getRSymbol rData { A = a; B = f; C = d } with
+                                    | Ok r -> Some (fBCA * r * fABC)
+                                    | Error _ -> None
+                                | _ -> None)
+
+                        let lhs = lhsTerms |> List.fold (+) Complex.Zero
+
+                        // RHS: R^{ac}_g · F^{bac}_{d;eg} · R^{ab}_e
+                        match tryGetFLocal fData (b,a,c,d,e,g) with
+                        | Some fBAC ->
+                            match getRSymbol rData { A = a; B = c; C = g },
+                                  getRSymbol rData { A = a; B = b; C = e } with
+                            | Ok r1, Ok r2 ->
+                                yield (lhs - (r1 * fBAC * r2)).Magnitude
+                            | _ -> ()
+                        | None -> () ]
+
+        match allDeviations with
+        | [] -> Ok { rData with IsValidated = true }  // No valid paths — trivially satisfied
         | _ ->
-            // For other theories, would need explicit hexagon verification
-            // This is left as future work
-            TopologicalResult.notImplemented
-                $"Hexagon equation verification for {rData.AnyonType}"
-                (Some "Currently only validates well-known theories (Ising, Fibonacci, SU(2)_k with k=2..10)")
+            let maxDev = List.max allDeviations
+            if allDeviations |> List.forall (fun d -> d < tolerance) then
+                Ok { rData with IsValidated = true }
+            else
+                TopologicalResult.computationError "operation"
+                    $"Hexagon equation violated: max deviation {maxDev:E3} exceeds tolerance {tolerance:E3} ({allDeviations.Length} checks, {allDeviations |> List.filter (fun d -> d >= tolerance) |> List.length} failed)"
     
     /// Validate R-matrix consistency
     /// 
@@ -364,8 +431,14 @@ module RMatrix =
         if not allUnitary then
             TopologicalResult.computationError "operation" "R-matrix elements not on unit circle (|R| ≠ 1)"
         else
-            // Verify hexagon equation
-            verifyHexagonEquation data
+            // Compute F-matrix for hexagon verification
+            match FMatrix.computeFMatrix data.AnyonType with
+            | Error _ ->
+                // F-matrix not available (e.g., unsupported SU(2)_k)
+                // Can only validate unitarity, not hexagon
+                Ok { data with IsValidated = true }
+            | Ok fData ->
+                verifyHexagonEquation data fData
     
     /// Get full R-matrix as a diagonal matrix for fusion a × b
     /// 

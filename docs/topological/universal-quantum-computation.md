@@ -364,11 +364,11 @@ type ResourceEstimate = {
 
 - **Bravyi & Kitaev (2005)**: "Universal quantum computation with ideal Clifford gates and noisy ancillas"
 - **Simon, "Topological Quantum" (2023)**: Chapters on magic state distillation
-- [API Documentation](../api-reference.md)
-- [Topological Error Correction](./developer-deep-dive.md)
+- [Topological Documentation Index](./index.md)
+- [Topological Error Correction](./developer-deep-dive.md#toric-code-topological-error-correction)
 
 ## See Also
 
-- [Ising Anyon Braiding](./developer-deep-dive.md#braiding-operators)
-- [Fusion Trees](./developer-deep-dive.md#fusion-trees)
-- [Topological Error Correction](./developer-deep-dive.md#error-correction)
+- [Ising Anyon Braiding](./developer-deep-dive.md#braiding-operations---quantum-gates-as-geometry)
+- [Fusion Trees](./developer-deep-dive.md#fusion-trees-the-core-data-structure)
+- [Topological Error Correction](./developer-deep-dive.md#toric-code-topological-error-correction)

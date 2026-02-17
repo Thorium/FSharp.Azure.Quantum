@@ -3037,8 +3037,10 @@ See `examples/Topological/` for complete examples:
 
 ### Documentation
 
+- **Getting Started**: `docs/topological/getting-started.md` (install, build, first computation)
+- **Documentation Index**: `docs/topological/index.md` (full guide with learning paths)
 - **Library README**: `src/FSharp.Azure.Quantum.Topological/README.md`
-- **Examples**: `examples/TopologicalSimulator/README.md`
+- **Examples**: `examples/Topological/` (10 runnable `.fsx` scripts)
 - **Format Spec**: `docs/topological-format-spec.md` (import/export)
 
 ---

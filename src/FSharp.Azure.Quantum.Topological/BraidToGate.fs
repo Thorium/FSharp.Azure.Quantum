@@ -132,24 +132,24 @@ module BraidToGate =
     /// by the anyon type's R-matrix. This is the phase acquired by the anyon state
     /// under exchange, distinct from the relative phase applied by gate decomposition.
     ///
-    /// - **Ising**: σ_i → exp(iπ/8), σ_i⁻¹ → exp(-iπ/8)
-    ///   (from R[σ,σ;1] = exp(iπ/8), the Majorana Berry phase)
+    /// - **Ising**: σ_i → exp(-iπ/8), σ_i⁻¹ → exp(iπ/8)
+    ///   (from R[σ,σ;1] = exp(-iπ/8), Kitaev 2006 convention)
     /// - **Fibonacci**: σ_i → exp(4πi/5), σ_i⁻¹ → exp(-4πi/5)
     ///   (from R[τ,τ;1] = exp(4πi/5))
-    /// - **Other**: σ_i → exp(iπ/8), σ_i⁻¹ → exp(-iπ/8)  (default, same as Ising)
+    /// - **Other**: σ_i → exp(-iπ/8), σ_i⁻¹ → exp(iπ/8)  (default, same as Ising)
     let braidingPhase (anyonType: AnyonSpecies.AnyonType) (isClockwise: bool) : Complex =
         let angle =
             match anyonType with
             | AnyonSpecies.AnyonType.Ising ->
-                if isClockwise then Math.PI / 8.0
-                else -Math.PI / 8.0
+                if isClockwise then -Math.PI / 8.0
+                else Math.PI / 8.0
             | AnyonSpecies.AnyonType.Fibonacci ->
                 if isClockwise then 4.0 * Math.PI / 5.0
                 else -4.0 * Math.PI / 5.0
             | _ ->
                 // Default: use Ising-like phase
-                if isClockwise then Math.PI / 8.0
-                else -Math.PI / 8.0
+                if isClockwise then -Math.PI / 8.0
+                else Math.PI / 8.0
         Complex(cos angle, sin angle)
 
     /// Compute the total accumulated braiding phase for a sequence of generators.
@@ -168,13 +168,15 @@ module BraidToGate =
     
     /// Map Ising anyon braiding phase to gate decomposition.
     /// 
-    /// For Ising anyons (Majorana modes), braiding σ×σ produces phase exp(iπ/8).
-    /// This is precisely the T gate! This is why Majoranas are so important
-    /// for fault-tolerant quantum computing.
+    /// For Ising anyons (Majorana modes), the braiding matrix in the
+    /// computational basis {|1⟩, |ψ⟩} is diag(e^{-iπ/8}, e^{3iπ/8}).
+    /// Up to global phase, this implements a relative phase gate.
+    /// By convention, clockwise braiding maps to T gate and
+    /// counter-clockwise to T† gate.
     let isingBraidingToGates (generatorIndex: int) (isClockwise: bool) : CircuitBuilder.Gate list =
         // Ising: σ_i braiding on qubits i and i+1
-        // Clockwise σ_i produces exp(iπ/8) = T gate
-        // Counter-clockwise produces exp(-iπ/8) = T† gate
+        // Clockwise σ_i → T gate (by encoding convention)
+        // Counter-clockwise σ_i⁻¹ → T† gate
         if isClockwise then 
             [CircuitBuilder.Gate.T generatorIndex]
         else 
@@ -313,9 +315,9 @@ module BraidToGate =
             // For other anyon types, use generic phase gate
             let phase = 
                 if gen.IsClockwise then
-                    Math.PI / 8.0  // Default
+                    -Math.PI / 8.0  // Default: Ising-like phase
                 else
-                    -Math.PI / 8.0
+                    Math.PI / 8.0
             [CircuitBuilder.Gate.RZ (gen.Index, phase)]
     
     /// Compile full braid to gate sequence
@@ -342,7 +344,7 @@ module BraidToGate =
             // Accumulated global phase from the braid generators.
             // Computed from the R-matrix phases before gate optimization,
             // since gate cancellation (e.g. T·T† → I) corresponds to
-            // phase cancellation (exp(iπ/8)·exp(-iπ/8) = 1).
+            // phase cancellation (exp(-iπ/8)·exp(iπ/8) = 1).
             let totalPhase = accumulateBraidingPhase braid.Generators anyonType
             
             let sequence = {

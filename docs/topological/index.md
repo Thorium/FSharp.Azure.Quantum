@@ -12,18 +12,37 @@ This directory contains comprehensive documentation for the **FSharp.Azure.Quant
 
 **New to topological quantum computing?** Start here:
 
-1. **[Architecture Guide](./architecture.md)** - Start here!  
+1. **[Getting Started Guide](./getting-started.md)** - Start here!  
+   Install, build, and run your first topological computation in 5 minutes.
+
+2. **[Architecture Guide](./architecture.md)**  
    Understand the library's layered architecture, from mathematical foundations to high-level algorithms.
    
-2. **[Developer Deep Dive](./developer-deep-dive.md)**  
-   Comprehensive guide for F# developers: paradigm shift from gate-based QC, anyons, braiding, and practical patterns.
+3. **[Developer Deep Dive](./developer-deep-dive.md)**  
+   Comprehensive guide for F# developers: paradigm shift, practical F# patterns, anyons, braiding, and advanced topics.
 
-3. **[Universal Quantum Computation](./universal-quantum-computation.md)**  
+4. **[Universal Quantum Computation](./universal-quantum-computation.md)**  
    Learn how to achieve universal quantum computation using Ising anyons and magic state distillation.
 
 ---
 
 ## Documentation Files
+
+### [getting-started.md](./getting-started.md)
+**Purpose:** Quick-start guide to install, build, and run your first topological computation  
+**Audience:** Any developer new to this library  
+**Reading Time:** 5 minutes
+
+**Contents:**
+- Prerequisites and build instructions
+- Three "first computation" options (computation expression, backend API, pure math)
+- Key concepts mapped to library types
+- Running the 10 built-in example scripts
+- Error handling overview (railway-oriented `Result<'T, TopologicalError>`)
+
+**Key Takeaway:** You can run a topological quantum computation in under 10 lines of F# using the `topological backend { }` computation expression builder.
+
+---
 
 ### [architecture.md](./architecture.md)
 **Purpose:** Library architecture and design principles  
@@ -47,11 +66,11 @@ This directory contains comprehensive documentation for the **FSharp.Azure.Quant
 **Reading Time:** 30-45 minutes (initial read), reference thereafter
 
 **Contents:**
-- **Page 1:** Paradigm shift from matrices to topology
-- **Page 2:** Anyons - particles with memory (Ising, Fibonacci)
-- **Page 3:** Braiding operations as quantum gates (geometry, not matrices)
-- **Page 4:** Library architecture and practical F# patterns
-- **Page 5:** Advanced topics and production readiness
+- **Section 1:** Paradigm shift from matrices to topology
+- **Section 2:** Library architecture and practical F# patterns
+- **Section 3:** Anyons - particles with memory (Ising, Fibonacci)
+- **Section 4:** Braiding operations as quantum gates (geometry, not matrices)
+- **Section 5:** Advanced topics and production readiness
 
 **Key Takeaway:** Topological QC stores information in *how* particles are braided in spacetime, not in quantum amplitudes. This provides exponential error suppression.
 
@@ -91,17 +110,17 @@ This directory contains comprehensive documentation for the **FSharp.Azure.Quant
 ### By Learning Path
 
 **Beginner** (First time learning topological QC):
-1. [Architecture Guide](./architecture.md) - Get the big picture
-2. [Developer Deep Dive - Page 1-2](./developer-deep-dive.md) - Core concepts
-3. [Universal Quantum Computation - Quick Start](./universal-quantum-computation.md#quick-start-example)
+1. [Getting Started Guide](./getting-started.md) - Install, build, run your first computation
+2. [Architecture Guide](./architecture.md) - Get the big picture
+3. [Developer Deep Dive - Paradigm Shift](./developer-deep-dive.md#the-paradigm-shift---from-matrices-to-topology) - Core concepts
 
 **Intermediate** (Know basic topological QC concepts):
-1. [Developer Deep Dive - Page 3-4](./developer-deep-dive.md) - Braiding and library patterns
-2. [Universal Quantum Computation](./universal-quantum-computation.md) - Magic state distillation
-3. [Architecture Guide - Advanced](./architecture.md) - Module dependencies
+1. [Developer Deep Dive - Library Patterns](./developer-deep-dive.md#library-architecture-and-practical-patterns) - F# patterns and usage
+2. [Developer Deep Dive - Braiding](./developer-deep-dive.md#braiding-operations---quantum-gates-as-geometry) - Braiding operations
+3. [Universal Quantum Computation](./universal-quantum-computation.md) - Magic state distillation
 
 **Advanced** (Building algorithms or contributing):
-1. [Developer Deep Dive - Page 5](./developer-deep-dive.md) - Production patterns
+1. [Developer Deep Dive - Advanced Topics](./developer-deep-dive.md#advanced-topics-and-production-readiness) - Production patterns
 2. [Universal Quantum Computation - Resource Estimation](./universal-quantum-computation.md#resource-estimation)
 3. [Architecture Guide](./architecture.md) - Full layered design
 
@@ -110,19 +129,21 @@ This directory contains comprehensive documentation for the **FSharp.Azure.Quant
 ### By Role
 
 **Software Engineer** (Implementing features):
+- [Getting Started Guide](./getting-started.md) → Quick setup and first computation
 - [Architecture Guide](./architecture.md) → Understand module structure
-- [Developer Deep Dive - Page 4](./developer-deep-dive.md) → F# patterns
+- [Developer Deep Dive - Library Patterns](./developer-deep-dive.md#library-architecture-and-practical-patterns) → F# patterns and usage
 - [Universal Quantum Computation - API Reference](./universal-quantum-computation.md#api-reference) → Function signatures
 
 **Algorithm Developer** (Writing quantum algorithms):
-- [Developer Deep Dive - Page 2-3](./developer-deep-dive.md) → Anyons and braiding
+- [Developer Deep Dive - Anyons](./developer-deep-dive.md#anyons---the-particles-with-memory) → Anyon theory
+- [Developer Deep Dive - Braiding](./developer-deep-dive.md#braiding-operations---quantum-gates-as-geometry) → Braiding operations
 - [Universal Quantum Computation](./universal-quantum-computation.md) → T-gate implementation
 - [Architecture Guide - Layer 4](./architecture.md) → Algorithm patterns
 
 **Researcher** (Exploring topological QC):
-- [Developer Deep Dive - Page 1](./developer-deep-dive.md) → Why topology matters
+- [Developer Deep Dive - Paradigm Shift](./developer-deep-dive.md#the-paradigm-shift---from-matrices-to-topology) → Why topology matters
 - [Universal Quantum Computation - Theory](./universal-quantum-computation.md#how-magic-state-distillation-works)
-- [Developer Deep Dive - Page 5](./developer-deep-dive.md) → Error correction
+- [Developer Deep Dive - Advanced Topics](./developer-deep-dive.md#advanced-topics-and-production-readiness) → Error correction and production readiness
 
 ---
 

@@ -151,18 +151,19 @@ let calculateKnot backend braidPattern = task {
 - `TopologicalProgramBuilder` - Computation expression for topological programs
 
 **Design Principles:**
-- ✅ Familiar F# syntax (computation expressions)
-- ✅ Type-safe composition
-- ✅ Automatic resource management
-- ✅ Clear error messages
+- Familiar F# syntax (computation expressions)
+- Type-safe composition
+- Automatic resource management
+- Clear error messages
 
 **Example:**
 ```fsharp
-let program = topological {
-    let! state = initialize 4
-    let! evolved = braid 0 state
-    let! result = measure evolved
-    return result
+let program = topological backend {
+    let! qubit = initialize Ising 4
+    do! braid 0 qubit
+    do! braid 2 qubit
+    let! outcome = measure 0 qubit
+    return outcome
 }
 ```
 

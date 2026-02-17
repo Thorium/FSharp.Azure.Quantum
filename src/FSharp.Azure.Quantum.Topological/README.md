@@ -2,29 +2,36 @@
 
 **Topological Quantum Computing Library for F#**
 
-A standalone library for topological quantum computing, implementing anyon models, fusion rules, and braiding operators. This project is architecturally independent from the gate-based quantum computing library (`FSharp.Azure.Quantum`), as topological quantum computing is fundamentally different - like combining airplanes and submarines.
+A standalone library for topological quantum computing, implementing anyon models, fusion rules, and braiding operators. This project is architecturally independent from the gate-based quantum computing library (`FSharp.Azure.Quantum`), as topological quantum computing is a fundamentally different paradigm -- information is encoded in the topology of anyon worldlines rather than in quantum amplitudes.
 
-## 🎯 Features
+## Features
 
-### Anyon Species (`AnyonSpecies.fs`)
-- **Particle Types**: Vacuum, Sigma (Ising), Psi (Ising), Tau (Fibonacci)
-- **Anyon Theories**: Ising (Microsoft Majorana), Fibonacci, SU(2)_k
-- **Quantum Dimensions**: φ (golden ratio) for Fibonacci, √2 for Sigma
-- **Anti-particles & Frobenius-Schur Indicators**
+### Mathematical Foundation (Layer 1)
+- **Anyon Species**: Ising (Majorana), Fibonacci, and SU(2)_k particle types with quantum dimensions
+- **Fusion Rules**: Non-abelian fusion algebra (e.g., sigma x sigma = 1 + psi)
+- **Braiding Operators**: R-matrices (braiding phases) and F-matrices (fusion basis changes)
+- **Modular Data**: S-matrix, T-matrix, topological central charge
+- **Knot Invariants**: Kauffman bracket and Jones polynomial via `KauffmanBracket`
+- **Consistency Verification**: Pentagon and hexagon equation checks
 
-### Fusion Rules (`FusionRules.fs`)
-- **Ising Fusion**: σ × σ = 1 + ψ (non-abelian, qubit encoding)
-- **Fibonacci Fusion**: τ × τ = 1 + τ (universal braiding)
-- **Fusion Algebra**: Multiplicity, channels, tensor representation
-- **Axiom Verification**: Identity, commutativity, anti-particle
+### Backends and Operations (Layers 2-3)
+- **ITopologicalBackend**: Backend interface with `SimulatorBackend` implementation
+- **Fusion Trees**: Quantum state representation as recursive tree structures
+- **TopologicalOperations**: Braiding, fusion measurement, superposition management
 
-### Braiding Operators (`BraidingOperators.fs`)
-- **R-matrices**: Braiding phases (e.g., e^(iπ/8) for Ising)
-- **F-matrices**: Fusion basis transformations
-- **Unitarity**: All operators preserve quantum information
-- **Pentagon & Hexagon Equations**: Mathematical consistency
+### Algorithms and Compilation (Layers 4-5)
+- **Magic State Distillation**: 15-to-1 protocol for Ising anyon universality
+- **Toric Code**: Topological error correction with syndrome detection
+- **Gate-to-Braid Compilation**: Translate gate-based circuits to braid sequences (21 gate types)
+- **Solovay-Kitaev**: Gate approximation for efficient braid decomposition
 
-## 📦 Installation
+### Developer Experience (Layer 6)
+- **Computation Expressions**: `topological backend { ... }` builder for composing programs
+- **TopologicalFormat**: Import/export `.tqp` files (human-readable format)
+- **Noise Models**: Configurable noise simulation for realistic error modelling
+- **Visualization**: State visualization and debugging utilities
+
+## Installation
 
 ```bash
 # Build the library
@@ -34,7 +41,9 @@ dotnet build src/FSharp.Azure.Quantum.Topological/FSharp.Azure.Quantum.Topologic
 dotnet test tests/FSharp.Azure.Quantum.Topological.Tests/FSharp.Azure.Quantum.Topological.Tests.fsproj
 ```
 
-## 🚀 Quick Start
+## Quick Start
+
+### Low-level API: Fusion and braiding primitives
 
 ```fsharp
 open FSharp.Azure.Quantum.Topological
@@ -45,270 +54,151 @@ let ising = AnyonSpecies.AnyonType.Ising
 
 // Fuse two sigma anyons (non-abelian!)
 let outcomes = FusionRules.fuse sigma sigma ising
-// Result: [Vacuum; Psi] - two possible outcomes!
+// Result: [Vacuum; Psi] - two possible outcomes encode a qubit
 
 // Get braiding phase
 let R = BraidingOperators.element sigma sigma AnyonSpecies.Particle.Vacuum ising
-// Result: e^(iπ/8) - topological phase from braiding
+// Result: e^(i*pi/8) - topological phase from braiding
 
 // Check quantum dimension
 let d = AnyonSpecies.quantumDimension sigma
-// Result: √2 ≈ 1.414
+// Result: sqrt(2) ~ 1.414
 ```
 
-## 🧪 Test Coverage
+### Computation expression: Backend-agnostic programs
 
-**166 unit tests** covering:
-- ✅ Quantum dimension calculations (AnyonSpecies - 30 tests)
-- ✅ Fusion algebra axioms (FusionRules - 28 tests)
-- ✅ R-matrix unitarity (BraidingOperators - 24 tests)
-- ✅ F-matrix Pentagon equation (FusionTree - 22 tests)
-- ✅ Braiding operations (TopologicalOperations - 18 tests)
-- ✅ Backend execution (TopologicalBackend - 27 tests)
-- ✅ Computation expressions (TopologicalBuilder - 3 tests)
-- ✅ Format parsing/serialization (TopologicalFormat - 14 tests)
-- ✅ Mathematical consistency across all modules
+```fsharp
+open FSharp.Azure.Quantum.Topological
+
+let program backend = topological backend {
+    let! ctx = initialize Ising 4       // Create 4 sigma anyons
+    let! ctx = braid 0 ctx              // Braid anyons 0 and 1
+    let! ctx = braid 2 ctx              // Braid anyons 2 and 3
+    let! (outcome, ctx) = measure 0 ctx // Measure fusion of pair 0
+    return outcome
+}
+```
+
+### Railway-oriented composition
+
+```fsharp
+let backend = TopologicalBackend.createSimulator AnyonType.Ising 10
+
+backend.Initialize AnyonType.Ising 6
+|> TaskResult.bind (backend.Braid 0)
+|> TaskResult.bind (backend.Braid 2)
+|> TaskResult.bind (fun state ->
+    backend.Execute state [
+        TopologicalBackend.Measure 0
+        TopologicalBackend.Braid 2
+        TopologicalBackend.Measure 2
+    ]
+)
+```
+
+## Test Coverage
+
+**770 unit tests** covering all 27 modules across 6 architectural layers:
 
 ```bash
-# Run tests
 dotnet test tests/FSharp.Azure.Quantum.Topological.Tests/
-
-# Expected output:
-# Passed!  - Failed:     0, Passed:   166, Skipped:     0, Total:   166
 ```
 
-## 🏗️ Architecture
+Tests validate mathematical consistency (Pentagon/Hexagon equations, unitarity, fusion axioms), backend operations, computation expressions, format parsing, knot invariants, magic state distillation, and more.
 
-### System Overview
+## Architecture
 
-```mermaid
-graph TB
-    subgraph "User Layer"
-        User["👤 User Code"]
-        Builder["TopologicalBuilder<br/>(Computation Expression)"]
-        Format["TopologicalFormat<br/>(.tqp Parser/Serializer)"]
-    end
-    
-    subgraph "Execution Layer"
-        Backend["ITopologicalBackend<br/>(Interface)"]
-        Simulator["SimulatorBackend<br/>(Implementation)"]
-        Future["Future Backends<br/>(Azure Quantum Majorana)"]
-    end
-    
-    subgraph "Operations Layer"
-        Operations["TopologicalOperations<br/>(Braiding, Measurement, F-moves)"]
-        FusionTree["FusionTree<br/>(State Representation)"]
-    end
-    
-    subgraph "Mathematical Foundation"
-        Anyon["AnyonSpecies<br/>(Ising, Fibonacci, SU(2)_k)"]
-        Fusion["FusionRules<br/>(σ×σ = 1+ψ, τ×τ = 1+τ)"]
-        Braiding["BraidingOperators<br/>(R-matrices, F-matrices)"]
-    end
-    
-    subgraph "Error Handling"
-        Result["TopologicalResult<T><br/>(Result<T, TopologicalError>)"]
-        Error["TopologicalError<br/>(Categorized Errors)"]
-    end
-    
-    User --> Builder
-    User --> Format
-    Builder --> Backend
-    Format --> Backend
-    Backend --> Simulator
-    Backend -.-> Future
-    Simulator --> Operations
-    Operations --> FusionTree
-    FusionTree --> Fusion
-    FusionTree --> Anyon
-    Operations --> Braiding
-    Fusion --> Anyon
-    Braiding --> Anyon
-    Backend --> Result
-    Result --> Error
-    
-    style User fill:#e1f5ff
-    style Builder fill:#fff4e1
-    style Format fill:#fff4e1
-    style Backend fill:#ffe1f5
-    style Simulator fill:#f5e1ff
-    style Operations fill:#e1ffe1
-    style FusionTree fill:#e1ffe1
-    style Anyon fill:#ffe1e1
-    style Fusion fill:#ffe1e1
-    style Braiding fill:#ffe1e1
-    style Result fill:#f0f0f0
-    style Error fill:#f0f0f0
+The library follows a strictly layered architecture that mirrors the gate-based library's structure but is fundamentally separate:
+
 ```
-
-### Architecture Layers Explained
-
-**1. User Layer** (How users interact)
-- **TopologicalBuilder**: F# computation expression for readable quantum programs
-- **TopologicalFormat**: Import/export `.tqp` files (human-readable format)
-
-**2. Execution Layer** (Backends)
-- **ITopologicalBackend**: Interface with `Initialize`, `Braid`, `Measure`, `Execute` methods
-- **SimulatorBackend**: Classical simulator for Ising/Fibonacci anyons
-- **Future Backends**: Azure Quantum Majorana hardware (when available)
-
-**3. Operations Layer** (Quantum operations)
-- **TopologicalOperations**: High-level operations (braiding, measurement, F-moves)
-- **FusionTree**: Quantum state representation as fusion tree structures
-
-**4. Mathematical Foundation** (Theory)
-- **AnyonSpecies**: Particle types and quantum dimensions
-- **FusionRules**: Fusion algebra (σ×σ = 1+ψ, τ×τ = 1+τ)
-- **BraidingOperators**: R-matrices (phases) and F-matrices (basis changes)
-
-**5. Error Handling** (Type-safe errors)
-- **TopologicalResult<T>**: Railway-oriented programming with `Result<T, TopologicalError>`
-- **TopologicalError**: Categorized errors (Validation, Backend, Simulation, NotImplemented)
-
-### Data Flow Example: Bell State Creation
-
-```mermaid
-sequenceDiagram
-    participant User
-    participant Builder as TopologicalBuilder
-    participant Backend as SimulatorBackend
-    participant Operations as TopologicalOperations
-    participant FusionTree
-    participant Fusion as FusionRules
-    
-    User->>Builder: topological { ... }
-    Builder->>Backend: Initialize(Ising, 4)
-    Backend->>FusionTree: create(4 sigma anyons)
-    FusionTree->>Fusion: validate fusion rules
-    Fusion-->>FusionTree: Ok(valid)
-    FusionTree-->>Backend: Ok(initialState)
-    Backend-->>Builder: Ok(state)
-    
-    Builder->>Backend: Braid(0)
-    Backend->>Operations: braidAdjacentAnyons(0, state)  // returns Superposition
-    Operations->>Fusion: get fusion channels
-    Fusion-->>Operations: [Vacuum, Psi]
-    Operations-->>Backend: Ok(braidedState)
-    Backend-->>Builder: Ok(state)
-    
-    Builder->>Backend: Measure(1)
-    Backend->>Operations: measureFusion(1, state)
-    Operations->>Fusion: fuse sigma × sigma
-    Fusion-->>Operations: [(Vacuum, 0.5), (Psi, 0.5)]
-    Operations-->>Backend: Ok(outcome, collapsedState)
-    Backend-->>Builder: Ok(result)
-    Builder-->>User: Bell state created!
+Layer 6: Builders & Formats      TopologicalBuilder, TopologicalFormat, Visualization
+Layer 5: Compilation              GateToBraid, BraidToGate, SolovayKitaev, CircuitOptimization
+Layer 4: Algorithms               MagicStateDistillation, ToricCode, ErrorPropagation
+Layer 3: Operations               TopologicalOperations, FusionTree
+Layer 2: Backends                 ITopologicalBackend, SimulatorBackend
+Layer 1: Mathematical Foundation  AnyonSpecies, FusionRules, BraidingOperators, FMatrix,
+                                  RMatrix, ModularData, BraidGroup, BraidingConsistency,
+                                  EntanglementEntropy, KauffmanBracket
 ```
 
 ### Why a Separate Project?
 
-Topological quantum computing is **fundamentally different** from gate-based quantum computing:
-
 | Gate-Based (FSharp.Azure.Quantum) | Topological (This Library) |
 |-----------------------------------|----------------------------|
 | Qubits, gates, circuits | Anyons, braiding, fusion |
-| Hamiltonian evolution | Topological invariants |
+| Amplitude vectors | Fusion trees |
+| Z-basis measurement | Fusion outcome measurement |
 | Error-prone (needs QEC) | Topologically protected |
-| Azure Quantum integration | Standalone mathematical foundation |
+| Azure Quantum integration | Standalone simulator (hardware-ready) |
 
 ### Namespace Structure
 
 ```
 FSharp.Azure.Quantum.Topological
-├── AnyonSpecies           (RequireQualifiedAccess)
-├── FusionRules            (RequireQualifiedAccess)
-├── BraidingOperators      (public module)
-├── FusionTree             (RequireQualifiedAccess)
-├── TopologicalOperations  (RequireQualifiedAccess)
-├── TopologicalBackend     (ITopologicalBackend + SimulatorBackend)
-├── TopologicalBuilder     (Computation Expression)
-└── TopologicalFormat      (Parser/Serializer)
+  Layer 1: AnyonSpecies, FusionRules, BraidingOperators, FMatrix, RMatrix,
+           ModularData, BraidGroup, BraidingConsistency, EntanglementEntropy,
+           KauffmanBracket
+  Layer 2: TopologicalBackend (ITopologicalBackend + SimulatorBackend)
+  Layer 3: FusionTree, TopologicalOperations
+  Layer 4: MagicStateDistillation, ToricCode, ErrorPropagation
+  Layer 5: GateToBraid, BraidToGate, SolovayKitaev, CircuitOptimization
+  Layer 6: TopologicalBuilder, TopologicalFormat, NoiseModels, Visualization,
+           TopologicalError
 ```
 
-**No name conflicts** with gate-based library - clean separation of concerns.
+## Examples
 
-## 📚 Background: Topological Quantum Computing
+Working examples are in [`examples/Topological/`](../../examples/Topological/):
+
+| Example | Description |
+|---------|-------------|
+| `BasicFusion.fsx` | Fusion rules and anyon properties |
+| `BellState.fsx` | Topological Bell state preparation |
+| `BackendComparison.fsx` | Compare simulator backends |
+| `FormatDemo.fsx` | `.tqp` format import/export |
+| `MagicStateDistillation.fsx` | T-gate via 15-to-1 distillation |
+| `ModularDataExample.fsx` | S/T matrices and modular invariants |
+| `KauffmanJones.fsx` | Knot invariants from braiding |
+| `TopologicalExample.fsx` | General topological operations |
+| `TopologicalVisualization.fsx` | State visualization |
+| `ToricCodeExample.fsx` | Toric code error correction |
+| `bell-state.tqp` | Sample `.tqp` program file |
+
+## Documentation
+
+- **[Architecture Guide](../../docs/topological/architecture.md)** -- Layered design, module dependencies, design principles
+- **[Developer Deep Dive](../../docs/topological/developer-deep-dive.md)** -- Comprehensive guide: paradigm shift, anyons, braiding, practical F# patterns
+- **[Universal Quantum Computation](../../docs/topological/universal-quantum-computation.md)** -- Magic state distillation for Ising anyon universality
+- **[Format Specification](../../docs/topological-format-spec.md)** -- `.tqp` file format reference
+
+## Background: Topological Quantum Computing
 
 ### What are Anyons?
 
-Anyons are quasiparticles in 2D systems with **exotic exchange statistics** - neither bosonic nor fermionic. When you braid anyons around each other, the quantum state accumulates a **topological phase** that depends only on the braid pattern, not the specific path.
+Anyons are quasiparticles in 2D systems with exotic exchange statistics -- neither bosonic nor fermionic. When you braid anyons around each other, the quantum state accumulates a topological phase that depends only on the braid pattern, not the specific path. This topological protection makes the stored quantum information exponentially resistant to local noise.
 
-### Key Theories Implemented
+### Implemented Anyon Theories
 
-1. **Ising Anyons (SU(2)₂)**
-   - Microsoft's Majorana zero mode approach
-   - Particles: {1, σ, ψ}
-   - Clifford gates only (needs magic states for universality)
-   - Physically realizable!
+1. **Ising Anyons (SU(2)_2)** -- Microsoft's Majorana zero mode approach. Particles: {1, sigma, psi}. Supports Clifford gates natively; needs magic state distillation for universality. Physically realizable.
 
-2. **Fibonacci Anyons**
-   - Universal for quantum computation
-   - Particles: {1, τ}
-   - Golden ratio φ appears everywhere
-   - Not yet physically realized
+2. **Fibonacci Anyons** -- Universal for quantum computation via braiding alone. Particles: {1, tau}. Golden ratio phi appears throughout. Not yet physically realized.
 
-### Fusion vs. Measurement
+3. **SU(2)_k (General)** -- Framework for arbitrary Chern-Simons levels. k=2 (Ising) and k=3 are tested.
 
-In topological QC:
-- **Fusion** ≈ Measurement (collapses superposition)
-- **Braiding** ≈ Gate operation (unitary evolution)
-- **Topological protection** ≈ Natural error correction
+## Future Work
 
-## ✅ Implemented Features
+- **Azure Quantum Majorana**: Hardware backend integration (when available)
+- **Surface Code Variants**: Planar codes, color codes
+- **Performance**: GPU acceleration, sparse matrices, parallel braiding
+- **Noise Models**: Thermal excitation, braiding imprecision
 
-### Core Functionality (Complete)
-- ✅ **Fusion Trees**: State representation for topological qubits
-- ✅ **Topological Backend**: `ITopologicalBackend` interface with SimulatorBackend
-- ✅ **Computation Expression**: `topological { ... }` builder for readable programs
-- ✅ **Import/Export**: `.tqp` file format (Parser/Serializer)
-- ✅ **Error Handling**: Railway-oriented programming with `TopologicalResult<T>`
-- ✅ **Examples**: 4 working examples (BasicFusion, BellState, BackendComparison, FormatDemo)
+## References
 
-### Documentation (Complete)
-- ✅ **Format Specification**: `docs/topological-format-spec.md`
-- ✅ **Examples README**: `examples/TopologicalSimulator/README.md`
-- ✅ **Test Suite**: 166 comprehensive unit tests
+1. **Topological Quantum** by Steven H. Simon (2023) -- Chapters 8-11
+2. **Anyons in an exactly solved model and beyond** -- Kitaev (2006)
+3. **Non-Abelian Anyons and Topological Quantum Computation** -- Nayak et al. (2008)
+4. **Microsoft Quantum Documentation** -- Majorana-based quantum computing
 
-## 🔬 Future Work
+## License
 
-### Next Implementations
-- **Magic State Distillation**: Achieve universality for Ising anyons
-- **Azure Quantum Majorana**: Hardware integration (when available)
-- **Circuit Optimization**: Braiding sequence optimization
-- **Visualization**: Braiding diagram generation
-- **JSON Format**: Machine-to-machine `.tqp` alternative
-
-### Research Extensions
-- SU(2)_k for k > 2 (currently supports k=2 Ising only)
-- Metaplectic anyons
-- Doubled theories (Drinfeld center)
-- Modular tensor categories
-- Quantum algorithm library (Shor's, Grover's in topological form)
-
-## 📖 References
-
-1. **Topological Quantum** by Steven H. Simon (Chapters 9-10)
-2. **Anyons in an exactly solved model and beyond** - Kitaev (2006)
-3. **Non-Abelian Anyons and Topological Quantum Computation** - Nayak et al. (2008)
-4. **Microsoft Quantum Documentation** - Majorana-based quantum computing
-
-## 📄 License
-
-Same as parent project (FSharp.Azure.Quantum)
-
-## 🤝 Contributing
-
-Since this is a **separate project** with isolated tests:
-- Fast iteration (no need to rebuild entire Azure Quantum library)
-- Independent versioning
-- Clear architectural boundaries
-- Easy to test in isolation
-
-Run tests frequently:
-```bash
-dotnet test tests/FSharp.Azure.Quantum.Topological.Tests/ --verbosity minimal
-```
-
----
-
-**Built with F# for mathematical elegance and type safety in quantum computing** ⚛️
+Same as parent project (FSharp.Azure.Quantum).

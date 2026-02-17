@@ -280,36 +280,93 @@ module FMatrix =
     // PENTAGON EQUATION VERIFICATION
     // ========================================================================
     
-    /// Verify pentagon equation for a specific set of anyons
-    /// 
-    /// The pentagon equation ensures consistency of F-symbols.
-    /// This is a placeholder - full implementation requires correct index handling.
-    /// 
-    /// For now, returns true for well-known theories (Ising, Fibonacci).
-    let verifyPentagonEquation 
+    /// Get fusion channels a×b, returning empty list when fusion is undefined.
+    ///
+    /// Returning [] on Error is correct: undefined fusion paths contribute
+    /// zero terms to the verification sums, matching the mathematical convention.
+    let private fusionChannelsLocal
+        (a: AnyonSpecies.Particle)
+        (b: AnyonSpecies.Particle)
+        (anyonType: AnyonSpecies.AnyonType)
+        : AnyonSpecies.Particle list =
+        match FusionRules.channels a b anyonType with
+        | Ok channels -> channels
+        | Error _ -> []
+
+    /// Try to look up an F-symbol value, returning None if fusion constraints are violated.
+    let private tryGetFLocal
+        (data: FMatrixData)
+        (a, b, c, d, e, f)
+        : Complex option =
+        match getFSymbol data { A = a; B = b; C = c; D = d; E = e; F = f } with
+        | Ok value -> Some value
+        | Error _ -> None
+
+    /// Verify pentagon equation for four fusing anyons (a,b,c,d) with total charge e.
+    ///
+    /// The pentagon identity (Kitaev 2006, Appendix C) states that two distinct
+    /// sequences of F-moves relating fusion trees of four anyons must agree:
+    ///
+    ///   F^{fcd}_{e;gl} · F^{abl}_{e;fh} = Σ_k F^{abc}_{g;fk} · F^{akd}_{e;gh} · F^{bcd}_{h;kl}
+    ///
+    /// In our FSymbolIndex convention F[A,B,C,D;E,F] = F^{ABC}_{D;EF}, where
+    /// (A×B)→E is the left intermediate channel and (B×C)→F the right intermediate.
+    ///
+    /// Free indices: f ∈ a×b, g ∈ f×c, l ∈ c×d, h ∈ b×l.
+    /// Summed index: k ∈ b×c.
+    let verifyPentagonEquation
         (data: FMatrixData)
         (a: AnyonSpecies.Particle)
-        (b: AnyonSpecies.Particle) 
+        (b: AnyonSpecies.Particle)
         (c: AnyonSpecies.Particle)
         (d: AnyonSpecies.Particle)
         (e: AnyonSpecies.Particle)
-        (f: AnyonSpecies.Particle)
-        (g: AnyonSpecies.Particle)
         : TopologicalResult<bool> =
-        
-        // Pentagon equation verification is complex and requires careful
-        // enumeration of all intermediate states and proper index handling.
-        // For production use with well-known theories (Ising, Fibonacci),
-        // we trust the published F-symbols from the literature.
-        
-        match data.AnyonType with
-        | AnyonSpecies.AnyonType.Ising
-        | AnyonSpecies.AnyonType.Fibonacci ->
-            Ok true  // Trust published F-symbols from Simon's textbook
-        | AnyonSpecies.AnyonType.SU2Level k ->
-            TopologicalResult.notImplemented 
-                $"Pentagon equation verification for SU(2)_{k}" 
-                (Some "Would require validating 6j-symbol identities")
+
+        let anyonType = data.AnyonType
+        let tolerance = 1e-10
+
+        let channelsAB = fusionChannelsLocal a b anyonType
+        let channelsBC = fusionChannelsLocal b c anyonType
+        let channelsCD = fusionChannelsLocal c d anyonType
+
+        // For each valid combination of free indices (f,g,l,h), compare LHS and RHS
+        let deviations =
+            [ for f in channelsAB do
+                for g in fusionChannelsLocal f c anyonType do
+                    for l in channelsCD do
+                        for h in fusionChannelsLocal b l anyonType do
+                            // LHS: F[f,c,d,e; g,l] · F[a,b,l,e; f,h]
+                            match tryGetFLocal data (f,c,d,e,g,l), tryGetFLocal data (a,b,l,e,f,h) with
+                            | Some lhs1, Some lhs2 ->
+                                let lhs = lhs1 * lhs2
+
+                                // RHS: Σ_k F[a,b,c,g; f,k] · F[a,k,d,e; g,h] · F[b,c,d,h; k,l]
+                                let rhs =
+                                    channelsBC
+                                    |> List.choose (fun k ->
+                                        match tryGetFLocal data (a,b,c,g,f,k),
+                                              tryGetFLocal data (a,k,d,e,g,h),
+                                              tryGetFLocal data (b,c,d,h,k,l) with
+                                        | Some v1, Some v2, Some v3 -> Some (v1 * v2 * v3)
+                                        | _ -> None)
+                                    |> List.fold (+) Complex.Zero
+
+                                (lhs - rhs).Magnitude
+                            // F-symbol lookup returned None — the index combination violates
+                            // fusion constraints and does not correspond to a valid fusion tree.
+                            // Skipping is correct: absent paths contribute nothing to the equation.
+                            | _ -> () ]
+
+        match deviations with
+        | [] -> Ok true  // No valid fusion paths — trivially satisfied
+        | _ ->
+            let maxDev = List.max deviations
+            if deviations |> List.forall (fun d -> d < tolerance) then
+                Ok true
+            else
+                Error (TopologicalError.Other
+                    $"Pentagon equation violated for ({a},{b},{c},{d};{e}): max deviation {maxDev:E3} exceeds tolerance {tolerance:E3}")
     
     // ========================================================================
     // UNITARITY VERIFICATION
@@ -409,47 +466,66 @@ module FMatrix =
         : TopologicalResult<AnyonSpecies.Particle list> =
         AnyonSpecies.particles anyonType
     
-    /// Validate all F-symbols by checking pentagon equations
-    /// 
+    /// Validate all F-symbols by checking pentagon equations and unitarity.
+    ///
+    /// For Ising and Fibonacci theories, verifies all particle 5-tuples
+    /// against the pentagon equation and checks F-matrix unitarity for
+    /// the non-trivial fusion sector.
+    ///
     /// Returns Error if any pentagon equation is violated.
     /// Returns Ok with validated data if all checks pass.
-    let validateFMatrix (data: FMatrixData) 
+    let validateFMatrix (data: FMatrixData)
         : TopologicalResult<FMatrixData> =
-        
-        // For well-known theories (Ising, Fibonacci), trust the literature values
-        // but still perform spot checks
+
         match data.AnyonType with
-        | AnyonSpecies.AnyonType.Ising 
+        | AnyonSpecies.AnyonType.Ising
         | AnyonSpecies.AnyonType.Fibonacci ->
-            // Perform a few spot checks of pentagon equations
             getAllParticles data.AnyonType
             |> Result.bind (fun particles ->
-                // Check a sampling of pentagon equations
-                // For production: would check all combinations
-                let sigma = AnyonSpecies.Particle.Sigma
-                let vacuum = AnyonSpecies.Particle.Vacuum
-                let psi = AnyonSpecies.Particle.Psi
-                
-                match data.AnyonType with
-                | AnyonSpecies.AnyonType.Ising ->
-                    // Spot check: pentagon for σ,σ,σ,σ
-                    verifyPentagonEquation data sigma sigma sigma sigma sigma sigma sigma
-                    |> Result.bind (fun valid ->
-                        if valid then 
-                            Ok { data with IsValidated = true }
-                        else 
-                            // Built-in Ising theory data is corrupt - this should never happen
-                            Error (TopologicalError.Other
-                                "Pentagon equation violated for built-in Ising theory! ModularData is corrupted.")
-                    )
-                | _ ->
-                    Ok { data with IsValidated = true }
+                // Verify pentagon equation for all 5-tuples (a,b,c,d,e)
+                let pentagonResults =
+                    [ for a in particles do
+                      for b in particles do
+                      for c in particles do
+                      for d in particles do
+                      for e in particles ->
+                          verifyPentagonEquation data a b c d e ]
+
+                // Collect any errors
+                let firstError =
+                    pentagonResults
+                    |> List.tryPick (function Error e -> Some e | Ok _ -> None)
+
+                match firstError with
+                | Some err -> Error err
+                | None ->
+                    let allPassed = pentagonResults |> List.forall (function Ok true -> true | _ -> false)
+                    if allPassed then
+                        // Also spot-check unitarity for the non-trivial sector
+                        let spotCheck =
+                            match data.AnyonType with
+                            | AnyonSpecies.AnyonType.Ising ->
+                                let sigma = AnyonSpecies.Particle.Sigma
+                                verifyFMatrixUnitarity data sigma sigma sigma sigma
+                            | AnyonSpecies.AnyonType.Fibonacci ->
+                                let tau = AnyonSpecies.Particle.Tau
+                                verifyFMatrixUnitarity data tau tau tau tau
+                            | _ -> Ok true
+                        spotCheck
+                        |> Result.bind (fun unitary ->
+                            if unitary then
+                                Ok { data with IsValidated = true }
+                            else
+                                Error (TopologicalError.Other
+                                    $"F-matrix unitarity check failed for {data.AnyonType}"))
+                    else
+                        Error (TopologicalError.Other
+                            $"Pentagon equation violated for {data.AnyonType}")
             )
-        
+
         | _ ->
-            // For other theories, would need to verify all pentagon equations
-            TopologicalResult.notImplemented 
-                "Pentagon equation verification for custom theories" 
+            TopologicalResult.notImplemented
+                "Pentagon equation verification for custom theories"
                 (Some "Currently only Ising and Fibonacci are supported")
     
     // ========================================================================

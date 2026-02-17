@@ -184,13 +184,25 @@ module BraidingConsistency =
     // HEXAGON EQUATION VERIFICATION
     // ========================================================================
     
-    /// Verify hexagon equation for specific particles (a,b,c,d)
+    /// Verify hexagon equation H1 for specific particles (a,b,c,d).
     ///
-    /// Hexagon equation:
-    /// R[b,c;f] · F[a,b,c;d;e,f] · R[a,c;d] = 
-    ///     Σ_g F[b,a,c;d;g,f] · R[a,b;g] · F[a,b,c;d;e,g]
+    /// Correct hexagon H1 (derived from nCat Lab braided monoidal category axiom):
     ///
-    /// This ensures braiding and fusion commute properly.
+    ///   Σ_f F^{bca}_{d;fg} · R^{af}_d · F^{abc}_{d;ef} = R^{ac}_g · F^{bac}_{d;eg} · R^{ab}_e
+    ///
+    /// where:
+    ///   - a,b,c are the three fusing particles, d is the total charge
+    ///   - e ∈ channels(a×b) with e×c→d valid (left intermediate of F^{abc})
+    ///   - g ∈ channels(c×a) with b×g→d valid (right intermediate of F^{bca})
+    ///   - f ∈ channels(b×c) with a×f→d valid (summed over on LHS)
+    ///   - The THREE F-matrices have DIFFERENT first-three arguments: F^{bca}, F^{abc}, F^{bac}
+    ///   - R^{af}_d is the R-symbol for braiding a past f with fusion channel d
+    ///   - R^{ac}_g and R^{ab}_e appear unsummed on the RHS
+    ///
+    /// References:
+    ///   - nCat Lab: https://ncatlab.org/nlab/show/braided+monoidal+category
+    ///   - Kitaev, "Anyons in an exactly solved model" (2006), Appendix E
+    ///   - Simon, "Topological Quantum" (2023), Section 13.3
     let verifyHexagonForParticles
         (fData: FMatrix.FMatrixData)
         (rData: RMatrix.RMatrixData)
@@ -206,24 +218,30 @@ module BraidingConsistency =
         // Get possible intermediate fusion channels
         let channelsAB = fusionChannels a b anyonType
         let channelsBC = fusionChannels b c anyonType
+        let channelsCA = fusionChannels c a anyonType
         
-        // For multiplicity-free theories (Ising, Fibonacci), hexagon simplifies
-        // We need to check: R[b,c] · F[a,b,c;d] · R[a,c] = F'[b,a,c;d] · R[a,b] · F[a,b,c;d]
-        
-        // Get fusion outcomes for a×b→e and b×c→f
+        // Valid e: e ∈ channels(a×b) with e×c→d
         let validE = channelsAB |> List.filter (fun e ->
             match FusionRules.isPossible e c d anyonType with
             | Ok true -> true
             | _ -> false
         )
         
+        // Valid g: g ∈ channels(c×a) with b×g→d
+        let validG = channelsCA |> List.filter (fun g ->
+            match FusionRules.isPossible b g d anyonType with
+            | Ok true -> true
+            | _ -> false
+        )
+        
+        // Valid f (for sum): f ∈ channels(b×c) with a×f→d
         let validF = channelsBC |> List.filter (fun f ->
             match FusionRules.isPossible a f d anyonType with
             | Ok true -> true
             | _ -> false
         )
         
-        if validE.IsEmpty || validF.IsEmpty then
+        if validE.IsEmpty || validG.IsEmpty then
             // No valid fusion paths - equation trivially satisfied
             {
                 Equation = $"Hexagon: {a},{b},{c}→{d}"
@@ -232,42 +250,45 @@ module BraidingConsistency =
                 Details = "No valid fusion paths"
             }
         else
-            // For multiplicity-free case, compute both sides
             let deviations =
                 [
                     for e in validE do
-                    for f in validF do
-                        // Left side: R[b,c;f] · F[a,b,c;d;e,f] · R[a,c;d]
-                        let rbcf = RMatrix.getRSymbol rData { RMatrix.A = b; RMatrix.B = c; RMatrix.C = f }
-                        let fabc = FMatrix.getFSymbol fData { FMatrix.A = a; FMatrix.B = b; FMatrix.C = c; FMatrix.D = d; FMatrix.E = e; FMatrix.F = f }
-                        let racd = RMatrix.getRSymbol rData { RMatrix.A = a; RMatrix.B = c; RMatrix.C = d }
+                    for g in validG do
+                        // LHS: Σ_f F^{bca}_{d;fg} · R^{af}_d · F^{abc}_{d;ef}
+                        let lhsTerms =
+                            validF
+                            |> List.choose (fun f ->
+                                match tryGetF fData (b,c,a,d,f,g),
+                                      tryGetF fData (a,b,c,d,e,f) with
+                                | Some fBCA, Some fABC ->
+                                    let rAF_D = RMatrix.getRSymbol rData { RMatrix.A = a; RMatrix.B = f; RMatrix.C = d }
+                                    match rAF_D with
+                                    | Ok r -> Some (fBCA * r * fABC)
+                                    | Error _ -> None
+                                | _ -> None)
                         
-                        match rbcf, fabc, racd with
-                        | Ok r1, Ok fVal, Ok r2 ->
-                            let leftSide = r1 * fVal * r2
-                            
-                            // Right side: Σ_g F[b,a,c;d;g,f] · R[a,b;g] · F[a,b,c;d;e,g]
-                            // For multiplicity-free, sum over possible g (intermediate channels from a×b)
-                            let rightSide =
-                                channelsAB
-                                |> List.map (fun g ->
-                                    let fbac = FMatrix.getFSymbol fData { FMatrix.A = b; FMatrix.B = a; FMatrix.C = c; FMatrix.D = d; FMatrix.E = g; FMatrix.F = f }
-                                    let rabg = RMatrix.getRSymbol rData { RMatrix.A = a; RMatrix.B = b; RMatrix.C = g }
-                                    let fabc2 = FMatrix.getFSymbol fData { FMatrix.A = a; FMatrix.B = b; FMatrix.C = c; FMatrix.D = d; FMatrix.E = e; FMatrix.F = g }
-                                    
-                                    match fbac, rabg, fabc2 with
-                                    | Ok f1, Ok r, Ok f2 -> Some (f1 * r * f2)
-                                    | _ -> None
-                                )
-                                |> List.choose id
-                                |> List.fold (+) Complex.Zero
-                            
-                            let deviation = (leftSide - rightSide).Magnitude
+                        let lhs = lhsTerms |> List.fold (+) Complex.Zero
+                        
+                        // RHS: R^{ac}_g · F^{bac}_{d;eg} · R^{ab}_e
+                        let rhsOpt =
+                            match tryGetF fData (b,a,c,d,e,g) with
+                            | Some fBAC ->
+                                let rAC_G = RMatrix.getRSymbol rData { RMatrix.A = a; RMatrix.B = c; RMatrix.C = g }
+                                let rAB_E = RMatrix.getRSymbol rData { RMatrix.A = a; RMatrix.B = b; RMatrix.C = e }
+                                match rAC_G, rAB_E with
+                                | Ok r1, Ok r2 -> Some (r1 * fBAC * r2)
+                                | _ -> None
+                            | None -> None
+                        
+                        match rhsOpt with
+                        | Some rhs ->
+                            let deviation = (lhs - rhs).Magnitude
                             yield deviation
-                        // R-symbol or F-symbol lookup failed — the index combination
-                        // violates fusion constraints and is not a valid braiding path.
-                        // Skipping is correct: absent paths contribute nothing to the equation.
-                        | _ -> ()
+                        | None ->
+                            // F-symbol or R-symbol lookup failed — the index combination
+                            // violates fusion constraints and is not a valid braiding path.
+                            // Skipping is correct: absent paths contribute nothing.
+                            ()
                 ]
             
             let maxDeviation = if deviations.IsEmpty then 0.0 else List.max deviations

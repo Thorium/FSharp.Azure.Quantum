@@ -446,32 +446,32 @@ module BraidToGateTests =
         Assert.Equal(0.0, sequence.TotalPhase.Imaginary, 10)
 
     [<Fact>]
-    let ``Single Ising clockwise braid has phase exp(i*pi/8)`` () =
-        // Business meaning: Majorana exchange produces Berry phase exp(ipi/8)
+    let ``Single Ising clockwise braid has phase exp(-i*pi/8)`` () =
+        // Business meaning: Majorana exchange produces Berry phase exp(-iπ/8) (Kitaev 2006)
         let braid = braidFromGensOrFail 2 [BraidGroup.sigma 0] "Single s_0"
         let sequence =
             compileOrFail braid AnyonSpecies.AnyonType.Ising
                 BraidToGate.defaultOptions "Ising phase"
-
-        let expectedAngle = System.Math.PI / 8.0
-        Assert.Equal(cos expectedAngle, sequence.TotalPhase.Real, 10)
-        Assert.Equal(sin expectedAngle, sequence.TotalPhase.Imaginary, 10)
-
-    [<Fact>]
-    let ``Single Ising counter-clockwise braid has phase exp(-i*pi/8)`` () =
-        // Business meaning: Inverse braiding produces conjugate phase
-        let braid = braidFromGensOrFail 2 [BraidGroup.sigmaInv 0] "s_0^-1"
-        let sequence =
-            compileOrFail braid AnyonSpecies.AnyonType.Ising
-                BraidToGate.defaultOptions "Ising inv phase"
 
         let expectedAngle = -System.Math.PI / 8.0
         Assert.Equal(cos expectedAngle, sequence.TotalPhase.Real, 10)
         Assert.Equal(sin expectedAngle, sequence.TotalPhase.Imaginary, 10)
 
     [<Fact>]
-    let ``Two Ising clockwise braids accumulate phase exp(i*pi/4)`` () =
-        // Business meaning: Phase accumulates multiplicatively (S gate = T^2)
+    let ``Single Ising counter-clockwise braid has phase exp(i*pi/8)`` () =
+        // Business meaning: Inverse braiding produces conjugate phase
+        let braid = braidFromGensOrFail 2 [BraidGroup.sigmaInv 0] "s_0^-1"
+        let sequence =
+            compileOrFail braid AnyonSpecies.AnyonType.Ising
+                BraidToGate.defaultOptions "Ising inv phase"
+
+        let expectedAngle = System.Math.PI / 8.0
+        Assert.Equal(cos expectedAngle, sequence.TotalPhase.Real, 10)
+        Assert.Equal(sin expectedAngle, sequence.TotalPhase.Imaginary, 10)
+
+    [<Fact>]
+    let ``Two Ising clockwise braids accumulate phase exp(-i*pi/4)`` () =
+        // Business meaning: Phase accumulates multiplicatively
         let braid =
             braidFromGensOrFail 2
                 [BraidGroup.sigma 0; BraidGroup.sigma 0]
@@ -481,8 +481,8 @@ module BraidToGateTests =
                 { BraidToGate.defaultOptions with OptimizationLevel = 0 }
                 "Two Ising phase"
 
-        // exp(ipi/8) * exp(ipi/8) = exp(ipi/4)
-        let expectedAngle = System.Math.PI / 4.0
+        // exp(-iπ/8) * exp(-iπ/8) = exp(-iπ/4)
+        let expectedAngle = -System.Math.PI / 4.0
         Assert.Equal(cos expectedAngle, sequence.TotalPhase.Real, 10)
         Assert.Equal(sin expectedAngle, sequence.TotalPhase.Imaginary, 10)
 
@@ -529,7 +529,7 @@ module BraidToGateTests =
     [<Fact>]
     let ``Multi-generator Ising phase is product of individual phases`` () =
         // Business meaning: Total phase = product of per-generator R-matrix phases
-        // 3 clockwise + 1 counter-clockwise = net 2 clockwise = exp(2*ipi/8) = exp(ipi/4)
+        // 3 clockwise + 1 counter-clockwise = net 2 clockwise = exp(2*(-iπ/8)) = exp(-iπ/4)
         let braid =
             braidFromGensOrFail 3
                 [ BraidGroup.sigma 0
@@ -542,8 +542,8 @@ module BraidToGateTests =
                 { BraidToGate.defaultOptions with OptimizationLevel = 0 }
                 "Multi-gen phase"
 
-        // 3 * (pi/8) + 1 * (-pi/8) = 2pi/8 = pi/4
-        let expectedAngle = System.Math.PI / 4.0
+        // 3 * (-π/8) + 1 * (π/8) = -2π/8 = -π/4
+        let expectedAngle = -System.Math.PI / 4.0
         Assert.Equal(cos expectedAngle, sequence.TotalPhase.Real, 10)
         Assert.Equal(sin expectedAngle, sequence.TotalPhase.Imaginary, 10)
 
@@ -569,10 +569,10 @@ module BraidToGateTests =
         let cw = BraidToGate.braidingPhase AnyonSpecies.AnyonType.Ising true
         let ccw = BraidToGate.braidingPhase AnyonSpecies.AnyonType.Ising false
 
-        // Clockwise: exp(ipi/8)
-        Assert.Equal(cos (System.Math.PI / 8.0), cw.Real, 10)
-        Assert.Equal(sin (System.Math.PI / 8.0), cw.Imaginary, 10)
+        // Clockwise: exp(-iπ/8) per Kitaev (2006) convention
+        Assert.Equal(cos (-System.Math.PI / 8.0), cw.Real, 10)
+        Assert.Equal(sin (-System.Math.PI / 8.0), cw.Imaginary, 10)
 
-        // Counter-clockwise: exp(-ipi/8) = conjugate
+        // Counter-clockwise: exp(iπ/8) = conjugate
         Assert.Equal(cw.Real, ccw.Real, 10)
         Assert.Equal(-cw.Imaginary, ccw.Imaginary, 10)

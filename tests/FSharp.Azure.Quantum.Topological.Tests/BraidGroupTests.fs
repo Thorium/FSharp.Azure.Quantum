@@ -309,14 +309,14 @@ module BraidGroupTests =
     [<Fact>]
     let ``Braiding Ising σ×σ→1 accumulates R-matrix phase`` () =
         // Business meaning: Braiding two Ising Majorana modes (σ anyons) that
-        // fuse to vacuum accumulates the topological Berry phase exp(iπ/8).
+        // fuse to vacuum accumulates the topological Berry phase exp(-iπ/8) (Kitaev 2006).
         let braid = braidFromGensOrFail 2 [BraidGroup.sigma 0] "Single σ_0"
         let anyons = [AnyonSpecies.Particle.Sigma; AnyonSpecies.Particle.Sigma]
         let channel = AnyonSpecies.Particle.Vacuum
         
         let result = applyBraidOrFail braid anyons channel AnyonSpecies.AnyonType.Ising "σ×σ→1"
         
-        let expectedPhase = TopologicalHelpers.expI (System.Math.PI / 8.0)
+        let expectedPhase = TopologicalHelpers.expI (-System.Math.PI / 8.0)
         assertPhaseEquals expectedPhase result.Phase
         assertOnUnitCircle result.Phase
     
