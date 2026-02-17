@@ -211,30 +211,36 @@ module UnifiedBackendTests =
         let state = QuantumState.StateVector sv
         
         match QuantumStateConversion.convert QuantumStateType.GateBased state with
-        | QuantumState.StateVector sv2 ->
+        | Ok (QuantumState.StateVector sv2) ->
             Assert.Equal(StateVector.numQubits sv, StateVector.numQubits sv2)
-        | _ ->
+        | Ok _ ->
             Assert.True(false, "Conversion returned wrong type")
+        | Error err ->
+            Assert.True(false, $"Conversion failed: {err}")
     
     [<Fact>]
     let ``Convert StateVector to FusionSuperposition`` () =
         let sv = StateVector.init 2
         let state = QuantumState.StateVector sv
         
-        // Note: QuantumStateConversion.convert returns state unchanged for topological conversions
-        // Actual conversion should be done by the Topological package
+        // QuantumStateConversion.convert now returns Error for topological conversions
+        // since the Topological package is required for that conversion path
         let converted = QuantumStateConversion.convert QuantumStateType.TopologicalBraiding state
         
         match converted with
-        | QuantumState.StateVector _ ->
-            // Expected: conversion returns original state unchanged
-            Assert.True(true, "Conversion correctly returns unchanged state")
-        | QuantumState.FusionSuperposition fs ->
+        | Error (QuantumError.NotImplemented _) ->
+            // Expected: conversion to topological requires the Topological package
+            Assert.True(true, "Correctly returns NotImplemented for topological conversion")
+        | Ok (QuantumState.StateVector _) ->
+            Assert.True(false, "Should not silently return unchanged state")
+        | Ok (QuantumState.FusionSuperposition fs) ->
             // If topological package implements conversion, this would work
             let fusion = TopologicalOperations.fromInterface fs |> Option.get
             Assert.NotEmpty(fusion.Terms)
-        | _ ->
+        | Ok _ ->
             Assert.True(false, "Unexpected state type")
+        | Error err ->
+            Assert.True(false, $"Unexpected error: {err}")
     
     [<Fact>]
     let ``Round-trip conversion StateVector → Fusion → StateVector is lossless`` () =
@@ -242,24 +248,31 @@ module UnifiedBackendTests =
         let sv = StateVector.init 2
         let state = QuantumState.StateVector sv
         
-        // Note: Since topological conversion returns state unchanged,
-        // this is effectively a no-op test. Real conversion would be done by Topological package.
-        let fusionState = QuantumStateConversion.convert QuantumStateType.TopologicalBraiding state
-        let backToStateVector = QuantumStateConversion.convert QuantumStateType.GateBased fusionState
+        // Topological conversion now correctly returns Error since the Core package
+        // cannot perform this conversion — the Topological package is required.
+        let fusionResult = QuantumStateConversion.convert QuantumStateType.TopologicalBraiding state
         
-        match backToStateVector with
-        | QuantumState.StateVector sv2 ->
-            // Check amplitudes match (should be identical since no actual conversion happened)
-            let n = StateVector.numQubits sv
-            let dim = 1 <<< n
-            
-            for i in 0 .. dim - 1 do
-                let amp1 = StateVector.getAmplitude i sv
-                let amp2 = StateVector.getAmplitude i sv2
-                let diff = Complex.Abs(amp1 - amp2)
-                Assert.True(diff < 1e-10, $"Amplitude {i} differs: {diff}")
-        | _ ->
-            Assert.True(false, "Expected StateVector after round-trip")
+        match fusionResult with
+        | Error (QuantumError.NotImplemented _) ->
+            // Expected: round-trip cannot be tested without the Topological conversion implementation
+            Assert.True(true, "Correctly returns NotImplemented for topological conversion")
+        | Ok fusionState ->
+            // If topological package implements conversion, test round-trip
+            match QuantumStateConversion.convert QuantumStateType.GateBased fusionState with
+            | Ok (QuantumState.StateVector sv2) ->
+                let n = StateVector.numQubits sv
+                let dim = 1 <<< n
+                for i in 0 .. dim - 1 do
+                    let amp1 = StateVector.getAmplitude i sv
+                    let amp2 = StateVector.getAmplitude i sv2
+                    let diff = Complex.Abs(amp1 - amp2)
+                    Assert.True(diff < 1e-10, $"Amplitude {i} differs: {diff}")
+            | Ok _ ->
+                Assert.True(false, "Expected StateVector after round-trip")
+            | Error err ->
+                Assert.True(false, $"Back-conversion failed: {err}")
+        | Error err ->
+            Assert.True(false, $"Unexpected error: {err}")
     
     [<Fact>]
     let ``Round-trip conversion on superposition state is lossless`` () =
@@ -271,21 +284,27 @@ module UnifiedBackendTests =
         let sv = StateVector.create amplitudes
         let state = QuantumState.StateVector sv
         
-        // Round-trip: StateVector → Fusion → StateVector
-        // Note: Returns state unchanged since topological conversion is not implemented in Core
-        let fusionState = QuantumStateConversion.convert QuantumStateType.TopologicalBraiding state
-        let result = QuantumStateConversion.convert QuantumStateType.GateBased fusionState
+        // Topological conversion now correctly returns Error since Core cannot do this
+        let fusionResult = QuantumStateConversion.convert QuantumStateType.TopologicalBraiding state
         
-        match result with
-        | QuantumState.StateVector sv2 ->
-            // Check amplitudes match
-            for i in 0 .. 1 do
-                let amp1 = StateVector.getAmplitude i sv
-                let amp2 = StateVector.getAmplitude i sv2
-                let diff = Complex.Abs(amp1 - amp2)
-                Assert.True(diff < 1e-10, $"Amplitude {i} differs: {diff}")
-        | _ ->
-            Assert.True(false, "Expected StateVector after round-trip")
+        match fusionResult with
+        | Error (QuantumError.NotImplemented _) ->
+            // Expected: round-trip cannot be tested without the Topological conversion implementation
+            Assert.True(true, "Correctly returns NotImplemented for topological conversion")
+        | Ok fusionState ->
+            match QuantumStateConversion.convert QuantumStateType.GateBased fusionState with
+            | Ok (QuantumState.StateVector sv2) ->
+                for i in 0 .. 1 do
+                    let amp1 = StateVector.getAmplitude i sv
+                    let amp2 = StateVector.getAmplitude i sv2
+                    let diff = Complex.Abs(amp1 - amp2)
+                    Assert.True(diff < 1e-10, $"Amplitude {i} differs: {diff}")
+            | Ok _ ->
+                Assert.True(false, "Expected StateVector after round-trip")
+            | Error err ->
+                Assert.True(false, $"Back-conversion failed: {err}")
+        | Error err ->
+            Assert.True(false, $"Unexpected error: {err}")
     
     // ========================================================================
     // Backend Interoperability Tests
@@ -299,18 +318,20 @@ module UnifiedBackendTests =
         match localBackend.ExecuteToState circuit with
         | Ok state ->
             // Convert to topological representation
-            // Note: Returns state unchanged since topological conversion not implemented in Core
+            // Now correctly returns Error since Core cannot do topological conversion
             let converted = QuantumStateConversion.convert QuantumStateType.TopologicalBraiding state
             match converted with
-            | QuantumState.StateVector _ ->
-                // Expected: state unchanged
-                Assert.True(true, "Conversion correctly returns unchanged state")
-            | QuantumState.FusionSuperposition fs ->
+            | Error (QuantumError.NotImplemented _) ->
+                // Expected: topological conversion requires the Topological package
+                Assert.True(true, "Correctly returns NotImplemented for topological conversion")
+            | Ok (QuantumState.FusionSuperposition fs) ->
                 // If topological package implements conversion, this would work
                 let fusion = TopologicalOperations.fromInterface fs |> Option.get
                 Assert.NotEmpty(fusion.Terms)
-            | _ ->
+            | Ok _ ->
                 Assert.True(false, "Unexpected state type")
+            | Error err ->
+                Assert.True(false, $"Unexpected error: {err}")
         | Error err ->
             Assert.True(false, $"Execution failed: {err}")
     

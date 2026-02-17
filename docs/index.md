@@ -382,7 +382,7 @@ match solveQuantum backend problem with
 - [Business Problem Builders](business-problem-builders) - AutoML, Fraud Detection, Anomaly Detection, Predictive Modeling
 - [Error Mitigation](error-mitigation) - ZNE, PEC, REM strategies for NISQ hardware
 - [Advanced Quantum Builders](advanced-quantum-builders) - Tree Search, Constraint Solver, Pattern Matcher, Shor's Algorithm, Phase Estimation
-- [D-Wave Integration Guide](dwave-integration) - Using D-Wave quantum annealers (coming soon)
+- [D-Wave Integration Guide](dwave-integration) - Using D-Wave quantum annealers (not yet available)
 - [FAQ](faq) - Frequently asked questions and troubleshooting
 
 ### 🎯 Problem-Specific API Guides

@@ -219,39 +219,40 @@ module ErrorPropagation =
     
     /// Suggest optimizations to meet error budget
     let suggestOptimizations (accumulation: ErrorAccumulation) (budget: ErrorBudget) : string list =
-        let mutable suggestions = []
+        let overBudget =
+            if accumulation.TotalError > budget.MaxTotalError then
+                [ "Warning: Circuit exceeds error budget" ]
+                @ (if accumulation.ApproximateGateCount > 0 then
+                       [ "- Increase Solovay-Kitaev precision (smaller epsilon)"
+                         "- Use larger base set (n=5 instead of n=4)" ]
+                   else [])
+            else []
         
-        // Check if over budget
-        if accumulation.TotalError > budget.MaxTotalError then
-            suggestions <- "⚠️ Circuit exceeds error budget" :: suggestions
-            
-            // Suggest increasing Solovay-Kitaev precision
-            if accumulation.ApproximateGateCount > 0 then
-                suggestions <- "• Increase Solovay-Kitaev precision (smaller ε)" :: suggestions
-                suggestions <- "• Use larger base set (n=5 instead of n=4)" :: suggestions
+        let singleGate =
+            if accumulation.MaxSingleError > budget.MaxSingleGateError then
+                [ "Warning: Individual gate(s) exceed single-gate error budget"
+                  "- Tighten approximation tolerance for H, X, Y gates" ]
+            else []
         
-        // Check for single gates exceeding budget
-        if accumulation.MaxSingleError > budget.MaxSingleGateError then
-            suggestions <- "⚠️ Individual gate(s) exceed single-gate error budget" :: suggestions
-            suggestions <- "• Tighten approximation tolerance for H, X, Y gates" :: suggestions
+        let circuitOpt =
+            if accumulation.ApproximateGateCount > 10 then
+                [ "- Apply circuit optimization to reduce gate count"
+                  "- Use template matching to simplify gate sequences" ]
+            else []
         
-        // Suggest circuit optimization
-        if accumulation.ApproximateGateCount > 10 then
-            suggestions <- "• Apply circuit optimization to reduce gate count" :: suggestions
-            suggestions <- "• Use template matching to simplify gate sequences" :: suggestions
+        let modelSuggestion =
+            match budget.Model with
+            | DiamondNorm ->
+                [ "Info: Using conservative diamond norm model"
+                  "- Consider quadratic model for tighter error bounds" ]
+            | _ -> []
         
-        // Suggest different error model
-        match budget.Model with
-        | DiamondNorm ->
-            suggestions <- "ℹ️ Using conservative diamond norm model" :: suggestions
-            suggestions <- "• Consider quadratic model for tighter error bounds" :: suggestions
-        | _ -> ()
+        let suggestions = overBudget @ singleGate @ circuitOpt @ modelSuggestion
         
-        // If no issues, provide positive feedback
         if List.isEmpty suggestions then
-            suggestions <- ["✅ Circuit meets error budget with room to spare"]
-        
-        suggestions
+            [ "Circuit meets error budget with room to spare" ]
+        else
+            suggestions
     
     // ========================================================================
     // DISPLAY UTILITIES

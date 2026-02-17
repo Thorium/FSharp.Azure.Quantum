@@ -31,8 +31,8 @@ module Types =
         /// Task identifier (must be unique)
         Id: string
         
-        /// Task payload/value
-        Value: 'T
+        /// Optional task payload/value (None when created via CE builder without explicit value)
+        Value: 'T option
         
         /// Task duration in time units (minutes)
         Duration: float
@@ -58,8 +58,8 @@ module Types =
         /// Resource identifier
         Id: string
         
-        /// Resource payload/value
-        Value: 'T
+        /// Optional resource payload/value (None when created via CE builder without explicit value)
+        Value: 'T option
         
         /// Maximum units available
         Capacity: float

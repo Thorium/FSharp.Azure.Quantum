@@ -90,6 +90,16 @@ module LocalBackend =
             // Measurement - should not appear in circuit execution
             | CircuitBuilder.Measure q ->
                 failwith "Measurement gates should be handled separately"
+            
+            // Reset - resets qubit to |0⟩ by measuring and conditionally flipping
+            | CircuitBuilder.Reset q ->
+                let rng = Random()
+                let outcome = Measurement.measureSingleQubit rng q state
+                let collapsed = Measurement.collapseAfterMeasurement q outcome state
+                if outcome = 1 then Gates.applyX q collapsed else collapsed
+            
+            // Barrier - synchronization directive, no physical effect on simulation
+            | CircuitBuilder.Barrier _ -> state
         
         /// Execute circuit on state vector
         let executeCircuit (circuit: CircuitBuilder.Circuit) (numQubits: int) : Result<StateVector.StateVector, QuantumError> =
@@ -356,9 +366,14 @@ module LocalBackend =
                               // are applied. QPE can also omit swaps and undo bit order classically.
                              if intent.CountingQubits <= 0 then
                                  Error (QuantumError.ValidationError ("CountingQubits", "must be positive"))
-                             elif intent.TargetQubits <> 1 then
-                                 Error (QuantumError.ValidationError ("TargetQubits", "only TargetQubits = 1 is supported by QPE intent"))
-                             else
+                              elif intent.TargetQubits <> 1 then
+                                  Error (QuantumError.ValidationError ("TargetQubits", "only TargetQubits = 1 is supported by QPE intent"))
+                              elif (match intent.Unitary with QpeUnitary.ModularExponentiation _ -> true | _ -> false) then
+                                  Error (QuantumError.OperationError (
+                                      "LocalBackend",
+                                      "ModularExponentiation QPE cannot be executed via LocalBackend's native QPE handler. " +
+                                      "Use Shor.estimateModExpPhase which orchestrates the full Beauregard arithmetic circuit."))
+                              else
                                  let totalQubits = intent.CountingQubits + intent.TargetQubits
                                  let targetQubit = intent.CountingQubits
 
@@ -387,9 +402,16 @@ module LocalBackend =
                                          | QpeUnitary.SGate ->
                                              let totalTheta = float applications * Math.PI / 2.0
                                              QuantumOperation.Gate (CircuitBuilder.CP (j, targetQubit, totalTheta))
-                                         | QpeUnitary.RotationZ theta ->
-                                             let totalTheta = float applications * theta
-                                             QuantumOperation.Gate (CircuitBuilder.CRZ (j, targetQubit, totalTheta)))
+                                          | QpeUnitary.RotationZ theta ->
+                                              let totalTheta = float applications * theta
+                                              QuantumOperation.Gate (CircuitBuilder.CRZ (j, targetQubit, totalTheta))
+                                          | QpeUnitary.ModularExponentiation _ ->
+                                              // ModularExponentiation requires multi-qubit Beauregard circuits
+                                              // that cannot be expressed as single controlled gate ops.
+                                              // This case is unreachable when going through QPE.plan() which
+                                              // rejects ModularExponentiation early, but we handle it for
+                                              // exhaustive matching if the intent is constructed directly.
+                                              failwith "ModularExponentiation QPE cannot be executed via LocalBackend's native QPE handler. Use Shor.estimateModExpPhase instead.")
 
                                  // Inverse QFT on counting register.
                                  // Important: inverse processes from n-1 down to 0, phases first then H.
@@ -466,12 +488,13 @@ module LocalBackend =
                 
                 | _ ->
                     // State is not in native format - try conversion
-                    let converted = QuantumStateConversion.convert QuantumStateType.GateBased state
-                    match converted with
-                    | QuantumState.StateVector sv ->
+                    match QuantumStateConversion.convert QuantumStateType.GateBased state with
+                    | Ok (QuantumState.StateVector sv) ->
                         (self :> IQuantumBackend).ApplyOperation operation (QuantumState.StateVector sv)
-                    | _ ->
-                        Error (QuantumError.OperationError ("LocalBackend", "State conversion failed unexpectedly"))
+                    | Ok _ ->
+                        Error (QuantumError.OperationError ("LocalBackend", "State conversion returned non-StateVector type"))
+                    | Error e ->
+                        Error e
             
              member _.SupportsOperation (operation: QuantumOperation) : bool =
                  match operation with

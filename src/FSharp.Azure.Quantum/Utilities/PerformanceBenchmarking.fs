@@ -2,6 +2,8 @@ namespace FSharp.Azure.Quantum
 
 open System
 open FSharp.Azure.Quantum
+open FSharp.Azure.Quantum.Core
+open Microsoft.Extensions.Logging
 
 /// Performance Benchmarking Suite
 /// Provides comprehensive performance measurement and comparison
@@ -122,6 +124,7 @@ module PerformanceBenchmarking =
     let benchmarkClassicalTSP 
         (cities: (string * float * float) array) 
         (repetitions: int) 
+        (logger: ILogger option)
         : Async<BenchmarkResult> =
         
         async {
@@ -142,7 +145,7 @@ module PerformanceBenchmarking =
                     | Ok tour -> yield (sw.Elapsed.TotalMilliseconds, tour.TotalDistance)
                     | Error err -> 
                         // Log error but continue - some runs might succeed
-                        eprintfn "TSP solve failed: %s" err.Message
+                        logWarning logger $"TSP solve failed: {err.Message}"
             ]
             
             // Ensure we got at least one successful result
@@ -176,6 +179,7 @@ module PerformanceBenchmarking =
         (assets: (string * float * float * float) list) 
         (budget: float) 
         (repetitions: int) 
+        (logger: ILogger option)
         : Async<BenchmarkResult> =
         
         async {
@@ -198,7 +202,7 @@ module PerformanceBenchmarking =
                     | Ok allocation -> yield (sw.Elapsed.TotalMilliseconds, allocation.ExpectedReturn)
                     | Error err -> 
                         // Log error but continue - some runs might succeed
-                        eprintfn "Portfolio solve failed: %s" err.Message
+                        logWarning logger $"Portfolio solve failed: {err.Message}"
             ]
             
             // Ensure we got at least one successful result
@@ -235,7 +239,7 @@ module PerformanceBenchmarking =
                 |> List.map (fun size ->
                     async {
                         let cities = generateRandomCities size (Some (size * 42))  // Deterministic seed
-                        return! benchmarkClassicalTSP (cities) config.Repetitions
+                        return! benchmarkClassicalTSP (cities) config.Repetitions None
                     })
                 |> Async.Parallel
             
@@ -250,7 +254,7 @@ module PerformanceBenchmarking =
                 |> List.map (fun size ->
                     async {
                         let assets = generateRandomAssets size (Some (size * 37))  // Deterministic seed
-                        return! benchmarkClassicalPortfolio assets budget config.Repetitions
+                        return! benchmarkClassicalPortfolio assets budget config.Repetitions None
                     })
                 |> Async.Parallel
             

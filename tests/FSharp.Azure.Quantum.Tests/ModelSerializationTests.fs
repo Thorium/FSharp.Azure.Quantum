@@ -215,7 +215,7 @@ module ModelSerializationTests =
                 | Error e -> Assert.Fail($"Save failed: {e}")
                 | Ok () ->
                     
-                    match ModelSerialization.printVQCModelInfo testFile with
+                    match ModelSerialization.printVQCModelInfo testFile None with
                     | Error e -> Assert.Fail($"Print info failed: {e}")
                     | Ok () ->
                         Assert.True(true, "Print should succeed")

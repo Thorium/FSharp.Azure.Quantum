@@ -11,6 +11,7 @@ namespace FSharp.Azure.Quantum.MachineLearning
 open System
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.BackendAbstraction
+open Microsoft.Extensions.Logging
 
 module QuantumKernelSVM =
     
@@ -32,6 +33,9 @@ module QuantumKernelSVM =
         
         /// Verbose output
         Verbose: bool
+        
+        /// Optional logger for structured logging
+        Logger: ILogger option
     }
     
     /// Trained SVM model
@@ -74,6 +78,7 @@ module QuantumKernelSVM =
         Tolerance = 1e-3
         MaxIterations = 100
         Verbose = false
+        Logger = None
     }
     
     // ========================================================================
@@ -217,7 +222,7 @@ module QuantumKernelSVM =
             else state.ExamineAll
         
         if config.Verbose && (newState.Iteration + 1) % 10 = 0 then
-            printfn "SMO iteration %d: %d alphas changed" (newState.Iteration + 1) newState.NumChanged
+            logInfo config.Logger (sprintf "SMO iteration %d: %d alphas changed" (newState.Iteration + 1) newState.NumChanged)
         
         { newState with 
             Iteration = newState.Iteration + 1
@@ -274,8 +279,8 @@ module QuantumKernelSVM =
                 finalState.Alphas 
                 |> Array.filter (fun a -> a > 1e-6) 
                 |> Array.length
-            printfn "Training complete after %d iterations" finalState.Iteration
-            printfn "Support vectors: %d / %d" numSupportVectors n
+            logInfo config.Logger (sprintf "Training complete after %d iterations" finalState.Iteration)
+            logInfo config.Logger (sprintf "Support vectors: %d / %d" numSupportVectors n)
         
         Ok (finalState.Alphas, finalState.Bias)
     
@@ -322,14 +327,14 @@ module QuantumKernelSVM =
                 Error (QuantumError.ValidationError ("Input", "Labels must be 0 or 1"))
             else
                 if config.Verbose then
-                    printfn "Computing quantum kernel matrix..."
+                    logInfo config.Logger "Computing quantum kernel matrix..."
                 
                 // Compute kernel matrix and train SVM
                 QuantumKernels.computeKernelMatrix backend featureMap trainData shots
                 |> Result.mapError (fun e -> QuantumError.ValidationError ("Input", $"Kernel matrix computation failed: {e}"))
                 |> Result.bind (fun kernelMatrix ->
                     if config.Verbose then
-                        printfn "Training SVM with SMO algorithm..."
+                        logInfo config.Logger "Training SVM with SMO algorithm..."
                     
                     // Train SVM using SMO
                     trainSMO kernelMatrix trainLabels config

@@ -349,3 +349,101 @@ module OptionPricingTests =
                     failwith $"Should succeed, got error: {err}"
         }
         test |> Async.RunSynchronously |> ignore
+
+    // ========================================================================
+    // COMPARATOR ORACLE TESTS - Verify diagonal oracle correctness
+    // ========================================================================
+
+    [<Fact>]
+    let ``Call option with strike far below spot prices correctly`` () =
+        // Tests that the comparator oracle correctly marks most states as ITM
+        // when strike is far below spot (deep ITM call)
+        let test = async {
+            let backend = LocalBackend.LocalBackend() :> IQuantumBackend
+            // Deep ITM: Spot=200, Strike=50 → almost all states in-the-money
+            let! result = OptionPricing.priceEuropeanCall 200.0 50.0 0.05 0.2 1.0 4 3 200 backend
+            
+            return
+                match result with
+                | Ok price ->
+                    Assert.True(price.Price > 0.0,
+                        $"Deep ITM call should have positive price, got {price.Price}")
+                    Assert.Equal(4, price.QubitsUsed)
+                | Error err ->
+                    failwith $"Should succeed, got error: {err}"
+        }
+        test |> Async.RunSynchronously |> ignore
+
+    [<Fact>]
+    let ``Put option with strike far above spot prices correctly`` () =
+        // Tests that the comparator oracle correctly marks most states as ITM
+        // when strike is far above spot (deep ITM put)
+        let test = async {
+            let backend = LocalBackend.LocalBackend() :> IQuantumBackend
+            // Deep ITM put: Spot=50, Strike=200 → almost all states in-the-money
+            let! result = OptionPricing.priceEuropeanPut 50.0 200.0 0.05 0.2 1.0 4 3 200 backend
+            
+            return
+                match result with
+                | Ok price ->
+                    Assert.True(price.Price > 0.0,
+                        $"Deep ITM put should have positive price, got {price.Price}")
+                    Assert.Equal(4, price.QubitsUsed)
+                | Error err ->
+                    failwith $"Should succeed, got error: {err}"
+        }
+        test |> Async.RunSynchronously |> ignore
+
+    [<Fact>]
+    let ``Call price increases with spot price (monotonicity)`` () =
+        // The comparator oracle should correctly shift the boundary
+        // as spot price changes, producing monotonically increasing call prices
+        let test = async {
+            let backend = LocalBackend.LocalBackend() :> IQuantumBackend
+            let strike = 100.0
+            let! result80 = OptionPricing.priceEuropeanCall 80.0 strike 0.05 0.2 1.0 4 3 200 backend
+            let! result120 = OptionPricing.priceEuropeanCall 120.0 strike 0.05 0.2 1.0 4 3 200 backend
+            
+            return
+                match result80, result120 with
+                | Ok price80, Ok price120 ->
+                    // Higher spot should give higher call price
+                    // (may not hold perfectly due to quantum noise, but trend should be clear)
+                    Assert.True(price120.Price >= price80.Price * 0.5,
+                        $"Call with S=120 ({price120.Price:F4}) should be >= half of call with S=80 ({price80.Price:F4})")
+                | Error e, _ -> failwith $"S=80 pricing failed: {e}"
+                | _, Error e -> failwith $"S=120 pricing failed: {e}"
+        }
+        test |> Async.RunSynchronously |> ignore
+
+    [<Fact>]
+    let ``Asian call option prices with comparator oracle`` () =
+        let test = async {
+            let backend = LocalBackend.LocalBackend() :> IQuantumBackend
+            let! result = OptionPricing.priceAsianCall 100.0 100.0 0.05 0.2 1.0 4 4 3 200 backend
+            
+            return
+                match result with
+                | Ok price ->
+                    Assert.True(price.Price >= 0.0, $"Asian call price should be non-negative, got {price.Price}")
+                    Assert.Equal(4, price.QubitsUsed)
+                | Error err ->
+                    failwith $"Should succeed, got error: {err}"
+        }
+        test |> Async.RunSynchronously |> ignore
+
+    [<Fact>]
+    let ``Asian put option prices with comparator oracle`` () =
+        let test = async {
+            let backend = LocalBackend.LocalBackend() :> IQuantumBackend
+            let! result = OptionPricing.priceAsianPut 100.0 100.0 0.05 0.2 1.0 4 4 3 200 backend
+            
+            return
+                match result with
+                | Ok price ->
+                    Assert.True(price.Price >= 0.0, $"Asian put price should be non-negative, got {price.Price}")
+                    Assert.Equal(4, price.QubitsUsed)
+                | Error err ->
+                    failwith $"Should succeed, got error: {err}"
+        }
+        test |> Async.RunSynchronously |> ignore

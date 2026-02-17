@@ -64,7 +64,13 @@ module BraidingConsistency =
             getParticles AnyonSpecies.AnyonType.Ising
         | _ -> []
     
-    /// Get fusion channels a×b, returning empty list on error
+    /// Get fusion channels a×b, returning empty list when fusion is undefined.
+    ///
+    /// Returning [] on Error is intentional: FusionRules.channels returns Error for
+    /// particle/type combinations where fusion is not defined (e.g., unsupported anyon
+    /// types). In the verification loops, this correctly causes the combination to
+    /// contribute zero terms — matching the mathematical convention that undefined
+    /// fusion paths are absent from the sum.
     let private fusionChannels
         (a: AnyonSpecies.Particle)
         (b: AnyonSpecies.Particle)
@@ -138,6 +144,9 @@ module BraidingConsistency =
                                     |> List.fold (+) Complex.Zero
                                 
                                 (lhs - rhs).Magnitude
+                            // F-symbol lookup returned None — the index combination violates
+                            // fusion constraints and does not correspond to a valid fusion tree.
+                            // Skipping is correct: absent paths contribute nothing to the equation.
                             | _ -> () ]
         
         let label = $"Pentagon({a},{b},{c},{d};{e})"
@@ -255,6 +264,9 @@ module BraidingConsistency =
                             
                             let deviation = (leftSide - rightSide).Magnitude
                             yield deviation
+                        // R-symbol or F-symbol lookup failed — the index combination
+                        // violates fusion constraints and is not a valid braiding path.
+                        // Skipping is correct: absent paths contribute nothing to the equation.
                         | _ -> ()
                 ]
             

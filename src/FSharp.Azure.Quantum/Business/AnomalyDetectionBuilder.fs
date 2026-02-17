@@ -11,6 +11,7 @@ open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum.MachineLearning
 open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum
+open Microsoft.Extensions.Logging
 
 /// High-Level Anomaly Detection Builder - Business-First API
 /// 
@@ -88,6 +89,10 @@ module AnomalyDetector =
         
         /// Verbose logging
         Verbose: bool
+        
+        /// Optional structured logger. When provided, verbose output is sent to this
+        /// ILogger instead of being discarded.
+        Logger: ILogger option
         
         /// Path to save trained model
         SavePath: string option
@@ -336,13 +341,15 @@ module AnomalyDetector =
                 Tolerance = 0.001
                 MaxIterations = 1000
                 Verbose = problem.Verbose
+                Logger = problem.Logger
             }
             
             if problem.Verbose then
-                printfn "Training anomaly detector..."
-                printfn "  Normal samples: %d" problem.NormalData.Length
-                printfn "  Features: %d" numFeatures
-                printfn "  Sensitivity: %A (nu=%.3f)" problem.Sensitivity nu
+                let log = logInfo problem.Logger
+                log "Training anomaly detector..."
+                log $"  Normal samples: {problem.NormalData.Length}"
+                log $"  Features: {numFeatures}"
+                log $"  Sensitivity: {problem.Sensitivity} (nu={nu:F3})"
             
             QuantumKernelSVM.train backend featureMap problem.NormalData labels svmConfig problem.Shots
             |> Result.mapError (fun e -> QuantumError.ValidationError ("Input", $"Training failed: {e}"))
@@ -366,7 +373,7 @@ module AnomalyDetector =
                 }
                 
                 if problem.Verbose then
-                    printfn "✅ Training complete in %A" (endTime - startTime)
+                    logInfo problem.Logger $"[OK] Training complete in {endTime - startTime}"
                 
                 // Save if requested
                 match problem.SavePath with
@@ -376,10 +383,10 @@ module AnomalyDetector =
                     match saveDetector detector path with
                     | Ok () ->
                         if problem.Verbose then
-                            printfn "✅ Detector saved to: %s" path
+                            logInfo problem.Logger $"[OK] Detector saved to: {path}"
                     | Error msg ->
                         if problem.Verbose then
-                            printfn "⚠️  Warning: Failed to save detector: %s" msg.Message
+                            logWarning problem.Logger $"[WARN] Failed to save detector: {msg.Message}"
                         // Don't fail the entire training just because save failed
                 
                 detector))
@@ -505,11 +512,11 @@ module AnomalyDetector =
     
     /// Save detector to file
     let save (path: string) (detector: Detector) : QuantumResult<unit> =
-        Error (QuantumError.Other "Detector persistence not yet implemented")
+        saveDetector detector path
     
     /// Load detector from file
     let load (path: string) : QuantumResult<Detector> =
-        Error (QuantumError.Other "Detector loading not yet implemented")
+        loadDetector path
     
     // ========================================================================
     // COMPUTATION EXPRESSION BUILDER
@@ -526,6 +533,7 @@ module AnomalyDetector =
                 Backend = None
                 Shots = 1000
                 Verbose = false
+                Logger = None
                 SavePath = None
                 Note = None
                 ProgressReporter = None
@@ -551,6 +559,7 @@ module AnomalyDetector =
                 Backend = None
                 Shots = 1000
                 Verbose = false
+                Logger = None
                 SavePath = None
                 Note = None
                 ProgressReporter = None

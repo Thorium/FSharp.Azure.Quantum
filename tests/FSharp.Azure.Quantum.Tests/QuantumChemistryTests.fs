@@ -1541,6 +1541,7 @@ module VQEErrorMitigationTests =
             Backend = testBackend
             MaxCostUSD = Some 50.0
             RequiredAccuracy = None
+            Calibration = None
         }
         
         let strategy = ErrorMitigationStrategy.selectStrategy criteria
@@ -1605,6 +1606,7 @@ module VQEErrorMitigationTests =
             Backend = testBackend
             MaxCostUSD = Some 1.0  // Low budget forces readout-only
             RequiredAccuracy = None
+            Calibration = None
         }
         let strategy = ErrorMitigationStrategy.selectStrategy criteria
         
@@ -1642,11 +1644,11 @@ module VQEErrorMitigationTests =
         // Test different scenarios
         let scenarios : ErrorMitigationStrategy.SelectionCriteria list = [
             // Shallow circuit, low budget
-            { CircuitDepth = 5; QubitCount = 4; Backend = testBackend; MaxCostUSD = Some 0.5; RequiredAccuracy = None }
+            { CircuitDepth = 5; QubitCount = 4; Backend = testBackend; MaxCostUSD = Some 0.5; RequiredAccuracy = None; Calibration = None }
             // Medium circuit, medium budget
-            { CircuitDepth = 30; QubitCount = 6; Backend = testBackend; MaxCostUSD = Some 50.0; RequiredAccuracy = None }
+            { CircuitDepth = 30; QubitCount = 6; Backend = testBackend; MaxCostUSD = Some 50.0; RequiredAccuracy = None; Calibration = None }
             // Deep circuit, high budget, high accuracy requirement
-            { CircuitDepth = 100; QubitCount = 10; Backend = testBackend; MaxCostUSD = Some 500.0; RequiredAccuracy = Some 0.95 }
+            { CircuitDepth = 100; QubitCount = 10; Backend = testBackend; MaxCostUSD = Some 500.0; RequiredAccuracy = Some 0.95; Calibration = None }
         ]
         
         // Act & Assert
@@ -1682,6 +1684,7 @@ module VQEErrorMitigationTests =
             Backend = testBackend
             MaxCostUSD = Some 10.0
             RequiredAccuracy = None
+            Calibration = None
         }
         let strategy = ErrorMitigationStrategy.selectStrategy criteria
         

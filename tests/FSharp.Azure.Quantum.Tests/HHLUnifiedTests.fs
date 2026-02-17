@@ -59,7 +59,7 @@ module HHLUnifiedTests =
                 | QuantumOperation.Gate gate ->
                     match gate with
                     | X _ | Y _ | Z _ | H _ | RX _ | RY _ | RZ _ | CNOT _ | CZ _ | SWAP _ -> true
-                    | S _ | SDG _ | T _ | TDG _ | P _ | CP _ | CRX _ | CRY _ | CRZ _ | MCZ _ | CCX _ | Measure _ | U3 _ -> false
+                    | S _ | SDG _ | T _ | TDG _ | P _ | CP _ | CRX _ | CRY _ | CRZ _ | MCZ _ | CCX _ | Measure _ | U3 _ | Reset _ | Barrier _ -> false
                 | QuantumOperation.Extension _ 
                 | QuantumOperation.Braid _ 
                 | QuantumOperation.Measure _ 

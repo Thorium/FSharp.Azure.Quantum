@@ -414,7 +414,7 @@ x q[0];
     [<Fact>]
     let ``parse invalid version should fail`` () =
         let qasm = """
-OPENQASM 3.0;
+OPENQASM 99.0;
 include "qelib1.inc";
 qreg q[1];
 x q[0];

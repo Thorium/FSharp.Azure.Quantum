@@ -716,7 +716,7 @@ let ``displayCostDashboard shows spending summary`` () =
     ]
     
     // Act - should not throw exception
-    displayCostDashboard records
+    displayCostDashboard records None
     
     // Assert - if we get here without exception, test passes
     Assert.True(true)
@@ -727,7 +727,7 @@ let ``displayCostDashboard handles empty records`` () =
     let records = []
     
     // Act - should not throw exception
-    displayCostDashboard records
+    displayCostDashboard records None
     
     // Assert
     Assert.True(true)

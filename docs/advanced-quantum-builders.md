@@ -804,7 +804,11 @@ assessQuantumThreat 4096  // High-security RSA key
 
 ### See Working Examples
 
-- [`examples/CryptographicAnalysis/RSAFactorization.fsx`](../examples/CryptographicAnalysis/RSAFactorization.fsx) - Shor's algorithm demo
+- [`examples/CryptographicAnalysis/RSAFactorization.fsx`](../examples/CryptographicAnalysis/RSAFactorization.fsx) - Shor's algorithm for RSA factorization
+- [`examples/CryptographicAnalysis/DiscreteLogAttack.fsx`](../examples/CryptographicAnalysis/DiscreteLogAttack.fsx) - Quantum discrete logarithm attack
+- [`examples/CryptographicAnalysis/GroverAESThreat.fsx`](../examples/CryptographicAnalysis/GroverAESThreat.fsx) - Grover's algorithm threat to AES
+- [`examples/CryptographicAnalysis/ECCBitcoinThreat.fsx`](../examples/CryptographicAnalysis/ECCBitcoinThreat.fsx) - Quantum ECDLP threat to Bitcoin/ECC
+- [`examples/CryptographicAnalysis/QuantumMining.fsx`](../examples/CryptographicAnalysis/QuantumMining.fsx) - Quantum PoW mining with Grover's algorithm vs Bitcoin
 
 ---
 

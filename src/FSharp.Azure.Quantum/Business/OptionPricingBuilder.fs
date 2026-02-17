@@ -30,7 +30,7 @@ open FSharp.Azure.Quantum.Algorithms
 ///   f = payoff function (e.g., max(S-K, 0) for European call)
 /// 
 /// LIMITATIONS (documented for production use):
-/// 1. Payoff oracle uses MSB threshold approximation (not exact comparison)
+/// 1. Payoff oracle uses diagonal comparator (O(2^n) gates, tractable for n ≤ 10)
 /// 2. Requires 2^n qubits for n-bit price discretization
 /// 3. Accuracy depends on number of Grover iterations
 /// 
@@ -158,50 +158,78 @@ module OptionPricing =
     // PRIVATE - Payoff Oracle
     // ========================================================================
     
-    /// Encode option payoff as quantum oracle
+    /// Encode option payoff as quantum oracle using diagonal comparator
     /// 
-    /// **CURRENT IMPLEMENTATION**: MSB threshold approximation
+    /// Marks states where option is "in-the-money" by applying phase flips:
+    /// - For calls: S_T > K (price level > strike)
+    /// - For puts: S_T < K (price level < strike)
     /// 
-    /// Marks states where option is "in-the-money":
-    /// - For calls: S_T > K (price > strike)
-    /// - For puts: S_T < K (price < strike)
+    /// **IMPLEMENTATION**: Diagonal oracle that computes the exact strike index
+    /// from the discretized price grid and applies multi-controlled Z gates
+    /// to flip the phase of each in-the-money basis state.
     /// 
-    /// **LIMITATION**: Uses most significant bit (MSB) as threshold
-    /// This is a simplified approximation! Exact implementation would require
-    /// multi-qubit comparator circuits from QuantumArithmetic module.
-    /// 
-    /// **ACCURACY**: Works well when strike price is near middle of price range.
-    /// For strikes far from median, consider:
-    /// 1. Adjusting qubit count
-    /// 2. Using exact comparator oracle (future enhancement)
-    /// 3. Black-Scholes for validation
+    /// Gate cost: O(2^n) in the worst case, but n ≤ 10 (validation limit),
+    /// so the circuit is always tractable for simulation.
     let private encodePayoffOracle 
         (optionType: OptionType)
         (marketParams: MarketParameters)
         (numQubits: int)
         : CircuitBuilder.Circuit =
         
-        let circuit = CircuitBuilder.empty numQubits
-        
-        // **MVP IMPLEMENTATION**: Mark upper/lower half based on MSB
-        // This approximates in-the-money detection
         if numQubits = 0 then
-            circuit
+            CircuitBuilder.empty 0
         else
-            let msb = numQubits - 1
-            match optionType with
-            | EuropeanCall | AsianCall _ ->
-                // For calls: mark states where price > strike (approximated as upper half)
-                // Apply Z gate to MSB (flips phase for MSB=1)
-                circuit |> CircuitBuilder.addGate (CircuitBuilder.Z msb)
-            
-            | EuropeanPut | AsianPut _ ->
-                // For puts: mark states where price < strike (approximated as lower half)
-                // Apply X-Z-X to MSB (flips phase for MSB=0)
-                circuit
-                |> CircuitBuilder.addGate (CircuitBuilder.X msb)
-                |> CircuitBuilder.addGate (CircuitBuilder.Z msb)
-                |> CircuitBuilder.addGate (CircuitBuilder.X msb)
+            let numLevels = 1 <<< numQubits
+
+            // Discretize the same log-normal distribution used by encodeGBMDistribution
+            let mu = marketParams.RiskFreeRate - 0.5 * marketParams.Volatility * marketParams.Volatility
+            let sigma = marketParams.Volatility * sqrt marketParams.TimeToExpiry
+            let priceLevels =
+                StatisticalDistributions.discretizeLogNormal
+                    (log marketParams.SpotPrice + mu * marketParams.TimeToExpiry)
+                    sigma
+                    numLevels
+
+            // Determine which basis states are in-the-money
+            let isInTheMoney =
+                match optionType with
+                | EuropeanCall | AsianCall _ ->
+                    fun i -> fst priceLevels.[i] > marketParams.StrikePrice
+                | EuropeanPut | AsianPut _ ->
+                    fun i -> fst priceLevels.[i] < marketParams.StrikePrice
+
+            let itmIndices =
+                [| 0 .. numLevels - 1 |]
+                |> Array.filter isInTheMoney
+
+            // Build circuit: for each ITM basis state, flip its phase.
+            // To flip the phase of |i⟩, apply X gates to qubits where bit is 0,
+            // then MCZ (all qubits as controls except last, last as target),
+            // then undo X gates.  This is the standard "mark a single basis state" pattern.
+            let mutable circuit = CircuitBuilder.empty numQubits
+
+            for idx in itmIndices do
+                // X gates to make the target state map to |11...1⟩
+                let xGates =
+                    [ 0 .. numQubits - 1 ]
+                    |> List.filter (fun bit -> (idx >>> bit) &&& 1 = 0)
+
+                for q in xGates do
+                    circuit <- circuit |> CircuitBuilder.addGate (CircuitBuilder.X q)
+
+                // Apply phase flip to |11...1⟩ state
+                if numQubits = 1 then
+                    circuit <- circuit |> CircuitBuilder.addGate (CircuitBuilder.Z 0)
+                else
+                    let controls = [ 0 .. numQubits - 2 ]
+                    let target = numQubits - 1
+                    circuit <- circuit |> CircuitBuilder.addGate (CircuitBuilder.MCZ (controls, target))
+
+                // Undo X gates
+                for q in xGates do
+                    circuit <- circuit |> CircuitBuilder.addGate (CircuitBuilder.X q)
+
+            circuit
     
     // ========================================================================
     // PUBLIC - Quantum Option Pricing (RULE1: backend required)
@@ -215,13 +243,13 @@ module OptionPricing =
     /// 
     /// ALGORITHM:
     /// 1. Encode GBM distribution using Möttönen (exact amplitude encoding)
-    /// 2. Encode payoff function as oracle (MSB threshold approximation)
+    /// 2. Encode payoff function as oracle (diagonal comparator)
     /// 3. Run Quantum Monte Carlo with Grover iterations
     /// 4. Extract option price from amplitude estimate
     /// 5. Discount to present value
     /// 
     /// LIMITATIONS:
-    /// - Payoff oracle uses MSB approximation (see encodePayoffOracle documentation)
+    /// - Payoff oracle is diagonal (O(2^n) gates); tractable for n ≤ 10
     /// - Requires careful selection of numQubits based on price range
     /// - groverIterations affects accuracy: more iterations = higher precision
     let priceWithCancellation
@@ -586,9 +614,11 @@ module OptionPricing =
                     if not (List.isEmpty errors) then
                         return Error (List.head errors) // Return first error
                     else
-                        // Unsafe extract (we checked for errors)
+                        // Extract prices - all validated above, so Error is unreachable
                         let getPrice (res: QuantumResult<OptionPrice>) = 
-                            match res with Ok p -> p.Price | _ -> 0.0
+                            match res with 
+                            | Ok p -> p.Price 
+                            | Error _ -> failwith "Unreachable: pricing failed after validation"
                         
                         let P = basePrice.Price
                         let P_Sup = getPrice res_Sup

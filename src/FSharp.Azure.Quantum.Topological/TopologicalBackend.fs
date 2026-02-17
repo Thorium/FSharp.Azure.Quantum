@@ -66,7 +66,10 @@ module TopologicalUnifiedBackend =
         let sampleMeasurements (state: TopologicalOperations.Superposition) (numQubits: int) (numShots: int) : Result<int[][], string> =
             // Convert to state vector for measurement sampling
             let stateInterface = TopologicalOperations.toInterface state
-            let stateVector = QuantumStateConversion.convert QuantumStateType.GateBased (QuantumState.FusionSuperposition stateInterface)
+            match QuantumStateConversion.convert QuantumStateType.GateBased (QuantumState.FusionSuperposition stateInterface) with
+            | Error e ->
+                Error $"Failed to convert FusionSuperposition to StateVector for measurement sampling: {e}"
+            | Ok stateVector ->
             
             match stateVector with
             | QuantumState.StateVector sv ->
@@ -74,8 +77,8 @@ module TopologicalUnifiedBackend =
                         yield LocalSimulator.Measurement.measureAll sv
                     |]
             | _ ->
-                // Conversion failed - propagate error
-                Error $"Failed to convert FusionSuperposition to StateVector for measurement sampling (got {stateVector.GetType().Name})"
+                // Conversion succeeded but returned unexpected type
+                Error $"Conversion returned unexpected state type instead of StateVector (got {stateVector.GetType().Name})"
         
         /// Measure all qubits in FusionSuperposition state
         /// 
@@ -211,6 +214,9 @@ module TopologicalUnifiedBackend =
             let gateSequence: BraidToGate.GateSequence =
                 { NumQubits = numQubits
                   Gates = [ gate ]
+                  // TotalPhase = Complex.One is correct here: this is *input* metadata
+                  // for the gate sequence before compilation. The braiding phases are
+                  // applied by braidSuperpositionDirected during state evolution below.
                   TotalPhase = Complex.One
                   Depth = 1
                   TCount = 0 }
@@ -263,24 +269,28 @@ module TopologicalUnifiedBackend =
         /// Apply measurement operation
         member private this.ApplyMeasure (anyonIndex: int) (fusionState: TopologicalOperations.Superposition) : Result<QuantumState, QuantumError> =
             try
-                let newTerms =
+                let termResults =
                     fusionState.Terms
-                    |> List.collect (fun (amp, state) ->
+                    |> List.map (fun (amp, state) ->
                         match TopologicalOperations.measureFusion anyonIndex state |> toResult with
                         | Ok outcomes ->
-                            outcomes |> List.map (fun (prob, opResult) ->
+                            Ok (outcomes |> List.map (fun (prob, opResult) ->
                                 let newAmp = amp * Complex(sqrt prob, 0.0)
-                                (newAmp, opResult.State)
-                            )
-                        | Error _ -> []
-                    )
+                                (newAmp, opResult.State)))
+                        | Error e -> Error (QuantumError.OperationError ("TopologicalMeasure", e)))
                 
-                let newSuperposition : TopologicalOperations.Superposition = {
-                    Terms = newTerms
-                    AnyonType = fusionState.AnyonType
-                }
-                
-                Ok (QuantumState.FusionSuperposition (TopologicalOperations.toInterface newSuperposition))
+                let firstError = termResults |> List.tryPick (function Error e -> Some e | Ok _ -> None)
+                match firstError with
+                | Some err -> Error err
+                | None ->
+                    let newTerms = termResults |> List.collect (function Ok terms -> terms | Error _ -> failwith "Unreachable: all errors were checked above")
+                    
+                    let newSuperposition : TopologicalOperations.Superposition = {
+                        Terms = newTerms
+                        AnyonType = fusionState.AnyonType
+                    }
+                    
+                    Ok (QuantumState.FusionSuperposition (TopologicalOperations.toInterface newSuperposition))
             with
             | ex -> Error (QuantumError.OperationError ("TopologicalBackend", ex.Message))
         
@@ -382,8 +392,13 @@ module TopologicalUnifiedBackend =
                                  if intent.CountingQubits <= 0 then
                                      Error (QuantumError.ValidationError ("CountingQubits", "must be positive"))
                                  elif intent.TargetQubits <> 1 then
-                                     Error (QuantumError.ValidationError ("TargetQubits", "only TargetQubits = 1 is supported by QPE intent"))
-                                 elif QuantumState.numQubits state <> (intent.CountingQubits + intent.TargetQubits) then
+                                      Error (QuantumError.ValidationError ("TargetQubits", "only TargetQubits = 1 is supported by QPE intent"))
+                                  elif (match intent.Unitary with QpeUnitary.ModularExponentiation _ -> true | _ -> false) then
+                                      Error (QuantumError.OperationError (
+                                          "TopologicalBackend",
+                                          "ModularExponentiation QPE cannot be executed via TopologicalBackend's native QPE handler. " +
+                                          "Use Shor.estimateModExpPhase which orchestrates the full Beauregard arithmetic circuit."))
+                                  elif QuantumState.numQubits state <> (intent.CountingQubits + intent.TargetQubits) then
                                      Error (QuantumError.ValidationError ("state", "state qubit count does not match QPE intent"))
                                  else
                                      let targetQubit = intent.CountingQubits
@@ -414,8 +429,11 @@ module TopologicalUnifiedBackend =
                                                  let totalTheta = float applications * Math.PI / 2.0
                                                  QuantumOperation.Gate (CircuitBuilder.CP (j, targetQubit, totalTheta))
                                              | QpeUnitary.RotationZ theta ->
-                                                 let totalTheta = float applications * theta
-                                                 QuantumOperation.Gate (CircuitBuilder.CRZ (j, targetQubit, totalTheta)))
+                                                  let totalTheta = float applications * theta
+                                                  QuantumOperation.Gate (CircuitBuilder.CRZ (j, targetQubit, totalTheta))
+                                              | QpeUnitary.ModularExponentiation _ ->
+                                                  // Unreachable: guarded by elif check above.
+                                                  failwith "ModularExponentiation QPE cannot be executed via TopologicalBackend. Use Shor.estimateModExpPhase.")
  
                                      let inverseQftOps =
                                          [(intent.CountingQubits - 1) .. -1 .. 0]
@@ -512,12 +530,13 @@ module TopologicalUnifiedBackend =
                 
                 | _ ->
                     // State is not in native format - try conversion
-                    let convertedState = QuantumStateConversion.convert QuantumStateType.TopologicalBraiding state
-                    match convertedState with
-                    | QuantumState.FusionSuperposition fs ->
+                    match QuantumStateConversion.convert QuantumStateType.TopologicalBraiding state with
+                    | Ok (QuantumState.FusionSuperposition fs) ->
                         (this :> IQuantumBackend).ApplyOperation operation (QuantumState.FusionSuperposition fs)
-                    | _ ->
-                        Error (QuantumError.OperationError ("TopologicalBackend", "State conversion failed or returned non-fusion state"))
+                    | Ok _ ->
+                        Error (QuantumError.OperationError ("TopologicalBackend", "State conversion returned non-fusion state"))
+                    | Error e ->
+                        Error e
             
             member this.SupportsOperation (operation: QuantumOperation) : bool =
                 match operation with
@@ -568,6 +587,10 @@ module TopologicalUnifiedBackend =
                         | CircuitBuilder.CCX (c1, c2, t) -> max c1 (max c2 t) + 1
                         | CircuitBuilder.MCZ (controls, target) ->
                             (target :: controls) |> List.max |> fun q -> q + 1
+                        | CircuitBuilder.Reset q -> q + 1
+                        | CircuitBuilder.Barrier qubits ->
+                            if List.isEmpty qubits then 0
+                            else (List.max qubits) + 1
 
                     try
                         let requiredAnyons =

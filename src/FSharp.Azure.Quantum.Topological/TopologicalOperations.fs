@@ -566,17 +566,135 @@ module TopologicalOperations =
     // COMPOSITE GATES
     // ========================================================================
     
-    /// Hadamard-like gate for topological qubits
+    /// Hadamard gate for topological qubits
     /// 
-    /// Creates superposition: |0⟩ → (|0⟩ + |1⟩)/√2
+    /// Creates superposition: |0⟩ → (|0⟩ + |1⟩)/√2, |1⟩ → (|0⟩ - |1⟩)/√2
     /// 
-    /// In topological QC, this requires a sequence of F-moves and braidings.
-    /// Ising anyons need ancilla qubits and magic state distillation.
-    /// Fibonacci anyons need a braid sequence approximation (see SolovayKitaev).
+    /// Operates at the amplitude level by transforming σ-pair fusion channels
+    /// (Vacuum ↔ Psi) with the standard Hadamard matrix coefficients.
+    ///
+    /// Note: TopologicalBackend.ApplyGate handles braiding-faithful H compilation
+    /// via GateToBraid + SolovayKitaev. This function provides the exact mathematical
+    /// result for direct simulation use.
+    /// Replace the fusion channel for a specific qubit's σ-pair within a tree,
+    /// returning the new tree. The qubit's pair is at depth-first σ-pair index
+    /// `qubitIndex` (0-based). Returns None if the qubit pair cannot be found.
+    let private replaceQubitChannel
+        (qubitIndex: int)
+        (newChannel: AnyonSpecies.Particle)
+        (tree: FusionTree.Tree)
+        : FusionTree.Tree option =
+
+        // In the σ-pair encoding, the tree is a left-associated chain of σ-pairs:
+        //   (((pair0 × pair1 → ch01) × pair2 → ch012) × ... × parityPair → Vacuum)
+        // Each pairN = Fusion(Leaf σ, Leaf σ, channel_N)
+        //
+        // We flatten to a list of pairs, replace the channel for the target qubit,
+        // and reconstruct.
+        let rec collectPairs (t: FusionTree.Tree) : (AnyonSpecies.Particle * FusionTree.Tree) list option =
+            match t with
+            | FusionTree.Fusion (FusionTree.Leaf _, FusionTree.Leaf _, _) ->
+                // Single pair — base case
+                Some [(AnyonSpecies.Particle.Vacuum, t)]  // channel placeholder, we'll use the tree directly
+            | FusionTree.Fusion (left, right, outerChannel) ->
+                match collectPairs left with
+                | Some leftPairs ->
+                    // right should be a leaf-pair
+                    Some (leftPairs @ [(outerChannel, right)])
+                | None -> None
+            | FusionTree.Leaf _ -> None
+
+        // Simpler approach: directly modify the tree by navigating to the target pair
+        let rec replaceAtPairIndex (idx: int) (currentPairIdx: int) (t: FusionTree.Tree) : (int * FusionTree.Tree) option =
+            match t with
+            | FusionTree.Fusion (FusionTree.Leaf a, FusionTree.Leaf b, _ch) ->
+                // This is a σ-pair (leaf pair)
+                if currentPairIdx = idx then
+                    Some (currentPairIdx + 1, FusionTree.Fusion (FusionTree.Leaf a, FusionTree.Leaf b, newChannel))
+                else
+                    Some (currentPairIdx + 1, t)  // not our target, keep unchanged
+            | FusionTree.Fusion (left, right, ch) ->
+                match replaceAtPairIndex idx currentPairIdx left with
+                | Some (nextIdx, newLeft) ->
+                    match replaceAtPairIndex idx nextIdx right with
+                    | Some (finalIdx, newRight) ->
+                        Some (finalIdx, FusionTree.Fusion (newLeft, newRight, ch))
+                    | None -> None
+                | None -> None
+            | FusionTree.Leaf _ -> Some (currentPairIdx, t)
+
+        replaceAtPairIndex qubitIndex 0 tree |> Option.map snd
+
+    /// Get the fusion channel for a specific qubit's σ-pair.
+    /// Returns the channel (Vacuum = |0⟩, Psi = |1⟩) for the qubit at the given index.
+    let private getQubitChannel (qubitIndex: int) (tree: FusionTree.Tree) : AnyonSpecies.Particle option =
+        let rec findAtPairIndex (idx: int) (currentPairIdx: int) (t: FusionTree.Tree) : (int * AnyonSpecies.Particle option) =
+            match t with
+            | FusionTree.Fusion (FusionTree.Leaf _, FusionTree.Leaf _, ch) ->
+                if currentPairIdx = idx then (currentPairIdx + 1, Some ch)
+                else (currentPairIdx + 1, None)
+            | FusionTree.Fusion (left, right, _) ->
+                match findAtPairIndex idx currentPairIdx left with
+                | (nextIdx, Some ch) -> (nextIdx, Some ch)
+                | (nextIdx, None) -> findAtPairIndex idx nextIdx right
+            | FusionTree.Leaf _ -> (currentPairIdx, None)
+
+        findAtPairIndex qubitIndex 0 tree |> snd
+
     let hadamard (qubitIndex: int) (superposition: Superposition) : TopologicalResult<Superposition> =
-        TopologicalResult.notImplemented
-            "Hadamard gate"
-            (Some "Ising anyons require ancilla + magic state distillation; Fibonacci anyons require braid sequence approximation via SolovayKitaev")
+        // Validate qubit index
+        let numQubits =
+            match superposition.Terms with
+            | [] -> 0
+            | (_, state) :: _ -> FusionTree.numQubits state.Tree
+
+        if qubitIndex < 0 || qubitIndex >= numQubits then
+            TopologicalResult.validationError
+                "qubitIndex"
+                $"Invalid qubit index {qubitIndex} for {numQubits}-qubit system"
+        else
+            // Apply H at the amplitude level:
+            //   H|0⟩ = (|0⟩ + |1⟩)/√2
+            //   H|1⟩ = (|0⟩ - |1⟩)/√2
+            //
+            // For each term (amp, state) in the superposition, read the qubit's
+            // fusion channel (Vacuum=0, Psi=1), produce two new terms with
+            // channels swapped per the Hadamard matrix, and combine.
+            let invSqrt2 = 1.0 / sqrt 2.0
+
+            let newTerms =
+                superposition.Terms
+                |> List.collect (fun (amp, state) ->
+                    match getQubitChannel qubitIndex state.Tree with
+                    | Some channel ->
+                        let isZero = (channel = AnyonSpecies.Particle.Vacuum)
+                        // H|0⟩ = (|0⟩ + |1⟩)/√2  →  amp/√2 for both |0⟩ and |1⟩
+                        // H|1⟩ = (|0⟩ - |1⟩)/√2  →  amp/√2 for |0⟩, -amp/√2 for |1⟩
+                        let amp0 = amp * Complex(invSqrt2, 0.0)
+                        let amp1 =
+                            if isZero then amp * Complex(invSqrt2, 0.0)
+                            else amp * Complex(-invSqrt2, 0.0)
+
+                        let tree0 = replaceQubitChannel qubitIndex AnyonSpecies.Particle.Vacuum state.Tree
+                        let tree1 = replaceQubitChannel qubitIndex AnyonSpecies.Particle.Psi state.Tree
+
+                        match tree0, tree1 with
+                        | Some t0, Some t1 ->
+                            [ (amp0, FusionTree.create t0 state.AnyonType)
+                              (amp1, FusionTree.create t1 state.AnyonType) ]
+                        | _ ->
+                            // If tree replacement fails, keep the original term unchanged
+                            // (shouldn't happen for well-formed σ-pair trees)
+                            [ (amp, state) ]
+                    | None ->
+                        // Qubit channel not found — keep term unchanged
+                        [ (amp, state) ]
+                )
+
+            { superposition with Terms = newTerms }
+            |> combineLikeTerms
+            |> normalize
+            |> Ok
     
     /// Controlled-NOT gate for topological qubits
     /// 

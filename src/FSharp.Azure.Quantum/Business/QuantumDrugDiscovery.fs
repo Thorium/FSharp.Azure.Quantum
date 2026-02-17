@@ -14,10 +14,6 @@ open FSharp.Azure.Quantum.Quantum
 type ScreeningMethod =
     /// Quantum Kernel SVM - Uses quantum feature maps for kernel-based classification
     | QuantumKernelSVM
-    /// VQE Binding Affinity - Uses Variational Quantum Eigensolver (requires molecular Hamiltonians)
-    | VQEBindingAffinity
-    /// Quantum GNN - Quantum Graph Neural Network (not yet implemented)
-    | QuantumGNN
     /// Variational Quantum Classifier - Uses parameterized quantum circuits for classification
     | VQCClassifier
     /// QAOA Diverse Selection - Uses QAOA to select diverse, high-value compounds within budget
@@ -333,11 +329,7 @@ type QuantumDrugDiscoveryBuilder() =
                 match state.Backend with
                 | None -> Error (QuantumError.ValidationError ("Backend", "No backend provided. Use 'backend'."))
                 | Some backend ->
-                    this.RunQAOADiverseSelection backend features labelsOpt state
-            | VQEBindingAffinity ->
-                Error (QuantumError.OperationError ("NotImplemented", "VQEBindingAffinity requires molecular Hamiltonian construction which is not yet fully implemented."))
-            | QuantumGNN ->
-                Error (QuantumError.OperationError ("NotImplemented", "QuantumGNN requires quantum graph neural network infrastructure which is not yet implemented.")))
+                    this.RunQAOADiverseSelection backend features labelsOpt state)
 
     member this.Run(f: unit -> DrugDiscoveryConfiguration) : QuantumResult<ScreeningResult> =
         this.Run(f())

@@ -94,7 +94,10 @@ type QuantumState =
     /// - Large sparse states
     /// - Stabilizer simulation
     /// 
-    /// Note: Not yet implemented - placeholder for future
+    /// Status: Read/analysis operations supported (numQubits, measure, probability,
+    /// isNormalized, toString). Conversion to/from StateVector available via
+    /// QuantumStateConversion. Gate application and backend initialization not yet
+    /// available -- states can be constructed directly or via conversion.
     | SparseState of amplitudes: Map<int, Complex> * numQubits: int
     
     /// Density matrix (mixed quantum states)
@@ -117,7 +120,9 @@ type QuantumState =
     /// - Quantum error correction studies
     /// - Realistic hardware modeling
     /// 
-    /// Note: Not yet implemented - placeholder for future
+    /// Status: Read/analysis operations supported (numQubits, measure, probability,
+    /// isNormalized, toString). Gate application and backend initialization not yet
+    /// available -- states can be constructed directly.
     | DensityMatrix of matrix: Complex[,] * numQubits: int
     
     /// Ising model state (quantum annealing / D-Wave)

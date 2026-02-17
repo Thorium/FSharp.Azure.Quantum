@@ -121,7 +121,47 @@ module BraidToGate =
         |> List.length
 
     // ========================================================================
-    // BRAIDING TO PHASE MAPPING
+    // BRAIDING GLOBAL PHASE COMPUTATION
+    // ========================================================================
+
+    /// Compute the global braiding phase for a single braid generator.
+    ///
+    /// Each elementary braid σ_i (or σ_i⁻¹) contributes a global phase determined
+    /// by the anyon type's R-matrix. This is the phase acquired by the anyon state
+    /// under exchange, distinct from the relative phase applied by gate decomposition.
+    ///
+    /// - **Ising**: σ_i → exp(iπ/8), σ_i⁻¹ → exp(-iπ/8)
+    ///   (from R[σ,σ;1] = exp(iπ/8), the Majorana Berry phase)
+    /// - **Fibonacci**: σ_i → exp(4πi/5), σ_i⁻¹ → exp(-4πi/5)
+    ///   (from R[τ,τ;1] = exp(4πi/5))
+    /// - **Other**: σ_i → exp(iπ/8), σ_i⁻¹ → exp(-iπ/8)  (default, same as Ising)
+    let braidingPhase (anyonType: AnyonSpecies.AnyonType) (isClockwise: bool) : Complex =
+        let angle =
+            match anyonType with
+            | AnyonSpecies.AnyonType.Ising ->
+                if isClockwise then Math.PI / 8.0
+                else -Math.PI / 8.0
+            | AnyonSpecies.AnyonType.Fibonacci ->
+                if isClockwise then 4.0 * Math.PI / 5.0
+                else -4.0 * Math.PI / 5.0
+            | _ ->
+                // Default: use Ising-like phase
+                if isClockwise then Math.PI / 8.0
+                else -Math.PI / 8.0
+        Complex(cos angle, sin angle)
+
+    /// Compute the total accumulated braiding phase for a sequence of generators.
+    /// The total phase is the product of individual generator phases.
+    let accumulateBraidingPhase
+        (generators: BraidGroup.BraidGenerator list)
+        (anyonType: AnyonSpecies.AnyonType) : Complex =
+        generators
+        |> List.fold (fun (acc: Complex) gen ->
+            acc * braidingPhase anyonType gen.IsClockwise
+        ) Complex.One
+
+    // ========================================================================
+    // BRAIDING TO GATE MAPPING
     // ========================================================================
     
     /// Map Ising anyon braiding phase to gate decomposition.
@@ -297,8 +337,11 @@ module BraidToGate =
             let depth = calculateDepth optimizedGates numQubits
             let tCount = countTGates optimizedGates
             
-            // Total phase from braiding (would need to apply to anyon state)
-            let totalPhase = Complex(1.0, 0.0)  // Placeholder
+            // Accumulated global phase from the braid generators.
+            // Computed from the R-matrix phases before gate optimization,
+            // since gate cancellation (e.g. T·T† → I) corresponds to
+            // phase cancellation (exp(iπ/8)·exp(-iπ/8) = 1).
+            let totalPhase = accumulateBraidingPhase braid.Generators anyonType
             
             let sequence = {
                 Gates = optimizedGates

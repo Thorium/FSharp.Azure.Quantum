@@ -12,7 +12,7 @@ title: Switching Between Local and Azure Backends
 FSharp.Azure.Quantum provides a **unified API** through the `QuantumBackend` module that works with both:
 
 1. **Local Simulator** - Fast, free, offline simulation (up to 20 qubits)
-2. **Azure Quantum** - Scalable cloud execution with real quantum hardware access (coming soon)
+2. **Azure Quantum** - Scalable cloud execution with real quantum hardware access (requires Azure subscription and workspace configuration)
 
 **Key Feature:** The same `QaoaCircuit` type is used for both backends, making backend switching a **one-line code change**.
 

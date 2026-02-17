@@ -84,16 +84,14 @@ module Batching =
         
         /// Atomically drain up to maxCount items from the queue
         let drainQueue(maxCount: int option) =
-            let items = ResizeArray<'T>()
-            let mutable item = Unchecked.defaultof<'T>
-            let mutable count = 0
             let limit = defaultArg maxCount System.Int32.MaxValue
-            
-            while count < limit && queue.TryDequeue(&item) do
-                items.Add(item)
-                count <- count + 1
-            
-            items |> List.ofSeq
+            let rec drain acc count =
+                if count >= limit then List.rev acc
+                else
+                    match queue.TryDequeue() with
+                    | true, item -> drain (item :: acc) (count + 1)
+                    | false, _ -> List.rev acc
+            drain [] 0
         
         /// Add an item to the batch
         /// 

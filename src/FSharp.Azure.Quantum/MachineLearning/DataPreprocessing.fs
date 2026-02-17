@@ -321,35 +321,32 @@ module DataPreprocessing =
                 | Some s -> Random(s)
                 | None -> Random()
             
-            // Split each class separately
-            let trainIndicesList = ResizeArray<int>()
-            let testIndicesList = ResizeArray<int>()
+            // Split each class separately, collecting train/test indices
+            let splits =
+                classSamples
+                |> Array.map (fun (_classLabel, classIndices) ->
+                    let n = classIndices.Length
+                    let numTest = max 1 (int (float n * testSize))  // At least 1 sample per class in test
+                    let numTrain = n - numTest
+                    
+                    // Shuffle class indices using functional Fisher-Yates
+                    let shuffled =
+                        Array.copy classIndices
+                        |> Array.fold (fun (arr : int array, remaining) _ ->
+                            if remaining = 0 then (arr, 0)
+                            else
+                                let j = rng.Next(remaining + 1)
+                                let temp = arr.[remaining]
+                                arr.[remaining] <- arr.[j]
+                                arr.[j] <- temp
+                                (arr, remaining - 1)
+                        ) (Array.copy classIndices, n - 1)
+                        |> fst
+                    
+                    (shuffled.[0 .. numTrain - 1], shuffled.[numTrain .. n - 1]))
             
-            for (classLabel, classIndices) in classSamples do
-                let n = classIndices.Length
-                let numTest = max 1 (int (float n * testSize))  // At least 1 sample per class in test
-                let numTrain = n - numTest
-                
-                // Shuffle class indices using functional Fisher-Yates
-                let shuffled =
-                    Array.copy classIndices
-                    |> Array.fold (fun (arr : int array, remaining) _ ->
-                        if remaining = 0 then (arr, 0)
-                        else
-                            let j = rng.Next(remaining + 1)
-                            let temp = arr.[remaining]
-                            arr.[remaining] <- arr.[j]
-                            arr.[j] <- temp
-                            (arr, remaining - 1)
-                    ) (Array.copy classIndices, n - 1)
-                    |> fst
-                
-                // Split
-                trainIndicesList.AddRange(shuffled.[0 .. numTrain - 1])
-                testIndicesList.AddRange(shuffled.[numTrain .. n - 1])
-            
-            let trainIndices = trainIndicesList.ToArray()
-            let testIndices = testIndicesList.ToArray()
+            let trainIndices = splits |> Array.collect fst
+            let testIndices = splits |> Array.collect snd
             
             // Extract data
             let trainData = trainIndices |> Array.map (fun i -> data.[i])

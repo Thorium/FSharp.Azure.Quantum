@@ -10,6 +10,7 @@ open FSharp.Azure.Quantum.Core
 open System
 open System.IO
 open System.Text.Json
+open Microsoft.Extensions.Logging
 
 module HHLModelSerialization =
     
@@ -148,26 +149,27 @@ module HHLModelSerialization =
                 ConditionNumber = model.ConditionNumber
             })
     
-    /// Print HHL model information to console
+    /// Print HHL model information via ILogger
     let printHHLModelInfo
         (filePath: string)
+        (logger: ILogger option)
         : QuantumResult<unit> =
         
         loadHHLModel filePath
         |> Result.map (fun model ->
-            printfn "=== HHL Regression Model Information ==="
-            printfn "File: %s" filePath
-            printfn "Saved at: %s" model.SavedAt
-            printfn "Features: %d" model.NumFeatures
-            printfn "Samples: %d" model.NumSamples
-            printfn "Weights: %d (intercept=%b)" model.Weights.Length model.HasIntercept
-            printfn "R² Score: %.6f" model.RSquared
-            printfn "MSE: %.6f" model.MSE
-            printfn "Success Probability: %.6f" model.SuccessProbability
+            logInfo logger "=== HHL Regression Model Information ==="
+            logInfo logger (sprintf "File: %s" filePath)
+            logInfo logger (sprintf "Saved at: %s" model.SavedAt)
+            logInfo logger (sprintf "Features: %d" model.NumFeatures)
+            logInfo logger (sprintf "Samples: %d" model.NumSamples)
+            logInfo logger (sprintf "Weights: %d (intercept=%b)" model.Weights.Length model.HasIntercept)
+            logInfo logger (sprintf "R2 Score: %.6f" model.RSquared)
+            logInfo logger (sprintf "MSE: %.6f" model.MSE)
+            logInfo logger (sprintf "Success Probability: %.6f" model.SuccessProbability)
             match model.ConditionNumber with
-            | Some cn -> printfn "Condition Number: %.6f" cn
-            | None -> printfn "Condition Number: N/A"
+            | Some cn -> logInfo logger (sprintf "Condition Number: %.6f" cn)
+            | None -> logInfo logger "Condition Number: N/A"
             match model.Note with
-            | Some note -> printfn "Note: %s" note
+            | Some note -> logInfo logger (sprintf "Note: %s" note)
             | None -> ()
-            printfn "========================================")
+            logInfo logger "========================================")

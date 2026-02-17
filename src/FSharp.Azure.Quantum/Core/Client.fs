@@ -291,25 +291,9 @@ module Client =
                         let target = root.GetProperty("target").GetString()
                         let creationTime = root.GetProperty("creationTime").GetDateTimeOffset()
 
-                        let mutable element = Unchecked.defaultof<JsonElement>
-
-                        let beginExecutionTime =
-                            if root.TryGetProperty("beginExecutionTime", &element) then
-                                Some(element.GetDateTimeOffset())
-                            else
-                                None
-
-                        let endExecutionTime =
-                            if root.TryGetProperty("endExecutionTime", &element) then
-                                Some(element.GetDateTimeOffset())
-                            else
-                                None
-
-                        let cancellationTime =
-                            if root.TryGetProperty("cancellationTime", &element) then
-                                Some(element.GetDateTimeOffset())
-                            else
-                                None
+                        let beginExecutionTime = tryGetJsonDateTimeOffset "beginExecutionTime" root
+                        let endExecutionTime = tryGetJsonDateTimeOffset "endExecutionTime" root
+                        let cancellationTime = tryGetJsonDateTimeOffset "cancellationTime" root
 
                         let status = JobStatus.Parse(statusStr, None, None)
 
@@ -414,30 +398,18 @@ module Client =
                             return Error(QuantumError.AzureError(AzureQuantumError.UnknownError(400, "Job has not completed yet")))
                         else
                             // Check if job has results
-                            let mutable element = Unchecked.defaultof<JsonElement>
-
-                            if not (root.TryGetProperty("outputData", &element)) then
+                            match tryGetJsonProperty "outputData" root with
+                            | None ->
                                 return Error(QuantumError.AzureError(AzureQuantumError.UnknownError(400, "Job does not have output data")))
-                            else
-                                let outputData = element
-
-                                let outputDataFormat =
-                                    if root.TryGetProperty("outputDataFormat", &element) then
-                                        element.GetString()
-                                    else
-                                        "unknown"
+                            | Some outputData ->
+                                let outputDataFormat = getJsonStringOrDefault "outputDataFormat" "unknown" root
 
                                 let executionTime =
-                                    if root.TryGetProperty("executionTime", &element) then
+                                    tryGetJsonString "executionTime" root
+                                    |> Option.bind (fun durationStr ->
                                         // Parse ISO 8601 duration format (PT1.5S)
-                                        let durationStr = element.GetString()
-
-                                        try
-                                            Some(System.Xml.XmlConvert.ToTimeSpan(durationStr))
-                                        with _ ->
-                                            None
-                                    else
-                                        None
+                                        try Some(System.Xml.XmlConvert.ToTimeSpan(durationStr))
+                                        with _ -> None)
 
                                 let jobResult =
                                     { JobId = jobIdResult

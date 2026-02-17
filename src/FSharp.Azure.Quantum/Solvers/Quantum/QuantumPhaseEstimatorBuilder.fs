@@ -333,6 +333,7 @@ module QuantumPhaseEstimator =
                         | SGate -> "S Gate (phase gate)"
                         | PhaseGate theta -> sprintf "Phase Gate (θ=%.4f)" theta
                         | RotationZ theta -> sprintf "Rz Gate (θ=%.4f)" theta
+                        | ModularExponentiation (baseNum, modulus) -> sprintf "Modular Exponentiation (a=%d, N=%d)" baseNum modulus
                     
                     // Build result from QPE result
                     let builderResult = {

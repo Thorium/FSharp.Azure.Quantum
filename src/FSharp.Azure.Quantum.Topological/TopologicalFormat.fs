@@ -184,23 +184,17 @@ module TopologicalFormat =
         
         /// Serialize program to .tqp format
         let serializeProgram (program: Program) : string =
-            let lines = ResizeArray<string>()
-            
-            // Header comment
-            lines.Add("# Topological Quantum Program")
             let timestamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss")
-            lines.Add($"# Generated: {timestamp}")
-            lines.Add("")
+            let headerLines =
+                [ "# Topological Quantum Program"
+                  $"# Generated: {timestamp}"
+                  ""
+                  $"ANYON {serializeAnyonType program.AnyonType}"
+                  "" ]
+            let operationLines =
+                program.Operations |> List.map serializeOperation
             
-            // Anyon declaration
-            lines.Add($"ANYON {serializeAnyonType program.AnyonType}")
-            lines.Add("")
-            
-            // Operations
-            program.Operations
-            |> List.iter (fun op -> lines.Add(serializeOperation op))
-            
-            String.Join("\n", lines)
+            headerLines @ operationLines |> String.concat "\n"
         
         /// Serialize program to file
         let serializeToFile (program: Program) (filePath: string) : Result<unit, string> =

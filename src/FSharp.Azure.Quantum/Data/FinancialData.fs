@@ -305,34 +305,38 @@ module FinancialData =
                 | None, _ -> Error (QuantumError.ValidationError ("dateColumn", sprintf "Column '%s' not found" dateColumn))
                 | _, None -> Error (QuantumError.ValidationError ("closeColumn", sprintf "Column '%s' not found" closeColumn))
                 | Some dIdx, Some cIdx ->
-                    let prices = ResizeArray<PriceBar>()
+                    let dataLines = lines.[1..]
                     
-                    for i in 1 .. lines.Length - 1 do
-                        let fields = lines.[i].Split(',') |> Array.map (fun s -> s.Trim().Trim('"'))
-                        
-                        match parseDate fields.[dIdx], parseFloat fields.[cIdx] with
-                        | Some date, Some close ->
-                            let openPrice = openIdx |> Option.bind (fun idx -> parseFloat fields.[idx]) |> Option.defaultValue close
-                            let highPrice = highIdx |> Option.bind (fun idx -> parseFloat fields.[idx]) |> Option.defaultValue close
-                            let lowPrice = lowIdx |> Option.bind (fun idx -> parseFloat fields.[idx]) |> Option.defaultValue close
-                            let volume = volumeIdx |> Option.bind (fun idx -> parseFloat fields.[idx]) |> Option.defaultValue 0.0
-                            let adjClose = adjCloseIdx |> Option.bind (fun idx -> parseFloat fields.[idx])
-                            
-                            prices.Add({
-                                Date = date
-                                Open = openPrice
-                                High = highPrice
-                                Low = lowPrice
-                                Close = close
-                                Volume = volume
-                                AdjustedClose = adjClose
-                            })
-                        | _ -> ()
+                    let prices =
+                        dataLines
+                        |> Array.choose (fun line ->
+                            let fields = line.Split(',') |> Array.map (fun s -> s.Trim().Trim('"'))
+                            match parseDate fields.[dIdx], parseFloat fields.[cIdx] with
+                            | Some date, Some close ->
+                                let openPrice = openIdx |> Option.bind (fun idx -> parseFloat fields.[idx]) |> Option.defaultValue close
+                                let highPrice = highIdx |> Option.bind (fun idx -> parseFloat fields.[idx]) |> Option.defaultValue close
+                                let lowPrice = lowIdx |> Option.bind (fun idx -> parseFloat fields.[idx]) |> Option.defaultValue close
+                                let volume = volumeIdx |> Option.bind (fun idx -> parseFloat fields.[idx]) |> Option.defaultValue 0.0
+                                let adjClose = adjCloseIdx |> Option.bind (fun idx -> parseFloat fields.[idx])
+                                
+                                Some {
+                                    Date = date
+                                    Open = openPrice
+                                    High = highPrice
+                                    Low = lowPrice
+                                    Close = close
+                                    Volume = volume
+                                    AdjustedClose = adjClose
+                                }
+                            | _ -> None)
                     
-                    // Sort by date ascending
-                    let sortedPrices = 
-                        prices.ToArray() 
-                        |> Array.sortBy (fun p -> p.Date)
+                    if prices.Length = 0 then
+                        Error (QuantumError.ValidationError (
+                            "csv",
+                            sprintf "All %d data rows failed to parse (no valid date/close pairs found)" dataLines.Length))
+                    else
+                    
+                    let sortedPrices = prices |> Array.sortBy (fun p -> p.Date)
                     
                     Ok {
                         Symbol = symbol
@@ -798,41 +802,39 @@ module FinancialData =
                 
                 match symbolIdx, quantityIdx, priceIdx with
                 | Some sIdx, Some qIdx, Some pIdx ->
-                    let positions = ResizeArray<Position>()
-                    
-                    for i in 1 .. lines.Length - 1 do
-                        let fields = lines.[i].Split(',') |> Array.map (fun s -> s.Trim().Trim('"'))
-                        
-                        let symbol = fields.[sIdx]
-                        let quantity = parseFloat fields.[qIdx] |> Option.defaultValue 0.0
-                        let price = parseFloat fields.[pIdx] |> Option.defaultValue 0.0
-                        
-                        let assetClass =
-                            assetClassIdx
-                            |> Option.map (fun idx -> 
-                                match fields.[idx].ToLower() with
-                                | "equity" | "stock" -> Equity
-                                | "fixed_income" | "bond" -> FixedIncome
-                                | "commodity" -> Commodity
-                                | "currency" | "fx" -> Currency
-                                | "derivative" -> Derivative
-                                | "alternative" -> Alternative
-                                | "cash" -> Cash
-                                | _ -> Equity)
-                            |> Option.defaultValue Equity
-                        
-                        let sector = sectorIdx |> Option.map (fun idx -> fields.[idx])
-                        
-                        positions.Add({
-                            Symbol = symbol
-                            Quantity = quantity
-                            CurrentPrice = price
-                            MarketValue = quantity * price
-                            AssetClass = assetClass
-                            Sector = sector
-                        })
-                    
-                    let posArray = positions.ToArray()
+                    let posArray =
+                        lines.[1..]
+                        |> Array.map (fun line ->
+                            let fields = line.Split(',') |> Array.map (fun s -> s.Trim().Trim('"'))
+                            
+                            let symbol = fields.[sIdx]
+                            let quantity = parseFloat fields.[qIdx] |> Option.defaultValue 0.0
+                            let price = parseFloat fields.[pIdx] |> Option.defaultValue 0.0
+                            
+                            let assetClass =
+                                assetClassIdx
+                                |> Option.map (fun idx -> 
+                                    match fields.[idx].ToLower() with
+                                    | "equity" | "stock" -> Equity
+                                    | "fixed_income" | "bond" -> FixedIncome
+                                    | "commodity" -> Commodity
+                                    | "currency" | "fx" -> Currency
+                                    | "derivative" -> Derivative
+                                    | "alternative" -> Alternative
+                                    | "cash" -> Cash
+                                    | _ -> Equity)
+                                |> Option.defaultValue Equity
+                            
+                            let sector = sectorIdx |> Option.map (fun idx -> fields.[idx])
+                            
+                            {
+                                Symbol = symbol
+                                Quantity = quantity
+                                CurrentPrice = price
+                                MarketValue = quantity * price
+                                AssetClass = assetClass
+                                Sector = sector
+                            })
                     let totalValue = posArray |> Array.sumBy (fun p -> p.MarketValue)
                     
                     Ok {
@@ -1103,6 +1105,7 @@ module FinancialData =
             let peaks = 
                 cumReturns 
                 |> Array.scan max (cumReturns.[0])
+                |> Array.tail
             let drawdowns = Array.zip peaks cumReturns |> Array.map (fun (p, c) -> c - p)
             let maxDrawdown = drawdowns |> Array.min |> abs
             

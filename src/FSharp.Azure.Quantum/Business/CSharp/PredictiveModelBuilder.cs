@@ -246,6 +246,7 @@ namespace FSharp.Azure.Quantum.Business.CSharp
                 _backend != null ? FSharpOption<IQuantumBackend>.Some(_backend) : FSharpOption<IQuantumBackend>.None,
                 _shots,
                 _verbose,
+                FSharpOption<Microsoft.Extensions.Logging.ILogger>.None,
                 _savePath != null ? FSharpOption<string>.Some(_savePath) : FSharpOption<string>.None,
                 _note != null ? FSharpOption<string>.Some(_note) : FSharpOption<string>.None,
                 FSharpOption<Core.Progress.IProgressReporter>.None,

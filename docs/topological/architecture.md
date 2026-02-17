@@ -77,9 +77,7 @@ let channels = FusionRules.channels sigma sigma Ising
 - `ITopologicalBackend` - Unified interface for all backends
 
 **Implementations:**
-- `SimulatorBackend` - Classical simulation
-- (Future) `MicrosoftMajoranaBackend` - Microsoft Majorana Gen 1 hardware
-- (Future) `IBMTopologicalBackend` - IBM topological experiments
+- `SimulatorBackend` - Classical simulation of topological quantum operations
 
 **Design Principles:**
 - ✅ Interface-based design (dependency inversion)

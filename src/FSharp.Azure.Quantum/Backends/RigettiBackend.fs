@@ -351,8 +351,8 @@ module RigettiBackend =
             let root = doc.RootElement
             
             // Extract histogram
-            let mutable histogramElement = Unchecked.defaultof<JsonElement>
-            if root.TryGetProperty("histogram", &histogramElement) then
+            match tryGetJsonProperty "histogram" root with
+            | Some histogramElement ->
                 // Convert to F# Map
                 let histogram = 
                     histogramElement.EnumerateObject()
@@ -360,7 +360,7 @@ module RigettiBackend =
                     |> Map.ofSeq
                 
                 Ok histogram
-            else
+            | None ->
                 Error (QuantumError.AzureError (AzureQuantumError.UnknownError(0, "Missing 'histogram' field in Rigetti response")))
         with
         | :? JsonException as ex ->

@@ -184,6 +184,11 @@ module CircuitAbstraction =
                 // Measurements are handled separately by the backend
                 // Don't include in gate sequence
                 []
+            | CircuitBuilder.Reset _ ->
+                failwith "Reset gate cannot be converted to QAOA gates (not unitary)"
+            | CircuitBuilder.Barrier _ ->
+                // Barrier is a synchronization directive with no physical effect
+                []
         
         // ========================================================================
         // CONVERSION: CircuitBuilder.Circuit → QaoaCircuit
@@ -203,11 +208,12 @@ module CircuitAbstraction =
                 |> List.rev
                 |> List.collect circuitBuilderGateToQaoaGate
             
-            // Check if any non-measurement gates failed to convert
+            // Check if any non-measurement/non-barrier gates failed to convert
             // Measure gates intentionally return [] (handled separately by the backend)
+            // Barrier gates intentionally return [] (synchronization directive, no physical effect)
             let unconvertedCount = 
                 circuit.Gates 
-                |> List.filter (fun gate -> match gate with CircuitBuilder.Measure _ -> false | _ -> true)
+                |> List.filter (fun gate -> match gate with CircuitBuilder.Measure _ | CircuitBuilder.Barrier _ -> false | _ -> true)
                 |> List.map circuitBuilderGateToQaoaGate 
                 |> List.filter (fun gates -> gates.IsEmpty)
                 |> List.length

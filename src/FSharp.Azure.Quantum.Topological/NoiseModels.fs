@@ -433,7 +433,10 @@ module NoiseModels =
         ]
         |> String.concat "\n"
     
-    /// Calculate effective error rate combining all noise sources
+    /// Calculate effective error rate combining all noise sources.
+    /// When decoherence or gate error models are not configured (None),
+    /// a 0.0 error rate is used for that component, representing the ideal case
+    /// where no noise model has been specified (not a claim of zero physical error).
     let effectiveErrorRate (model: NoiseModel) (operationTime: float) : float =
         // Functional error accumulation (idiomatic F#) - no mutable!
         let decoherenceError =
@@ -442,12 +445,12 @@ module NoiseModels =
                 let t1Error = 1.0 - exp (-operationTime / d.T1)
                 let t2Error = 1.0 - exp (-operationTime / d.T2)
                 max t1Error t2Error
-            | None -> 0.0
+            | None -> 0.0  // No decoherence model configured; ideal case
         
         let gateError =
             match model.GateErrors with
             | Some g -> g.TwoQubitErrorRate
-            | None -> 0.0
+            | None -> 0.0  // No gate error model configured; ideal case
         
         // Combine errors (approximate)
         min 1.0 (decoherenceError + gateError)

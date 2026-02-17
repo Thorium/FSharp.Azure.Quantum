@@ -30,6 +30,7 @@ module QuantumRegressionHHLTests =
             Shots = 1000
             FitIntercept = true
             Verbose = false
+            Logger = None
         }
         
         match train config with
@@ -48,6 +49,7 @@ module QuantumRegressionHHLTests =
             Shots = 1000
             FitIntercept = true
             Verbose = false
+            Logger = None
         }
         
         match train config with
@@ -66,6 +68,7 @@ module QuantumRegressionHHLTests =
             Shots = 1000
             FitIntercept = true
             Verbose = false
+            Logger = None
         }
         
         match train config with
@@ -131,6 +134,7 @@ module QuantumRegressionHHLTests =
             Shots = 1000
             FitIntercept = false  // No intercept for simplicity
             Verbose = true
+            Logger = None
         }
         
         match train config with
@@ -163,6 +167,7 @@ module QuantumRegressionHHLTests =
             Shots = 500
             FitIntercept = true  // Enable intercept
             Verbose = false
+            Logger = None
         }
         
         match train config with
@@ -238,6 +243,7 @@ module QuantumRegressionHHLTests =
             Shots = 5000  // More shots for accuracy
             FitIntercept = true
             Verbose = false
+            Logger = None
         }
         
         match train config with
@@ -262,6 +268,7 @@ module QuantumRegressionHHLTests =
             Shots = 10000
             FitIntercept = true
             Verbose = false
+            Logger = None
         }
         
         match train config with
@@ -295,6 +302,7 @@ module QuantumRegressionHHLTests =
             Shots = 5000
             FitIntercept = true
             Verbose = false
+            Logger = None
         }
         
         match train config with
@@ -320,6 +328,7 @@ module QuantumRegressionHHLTests =
             Shots = 5000
             FitIntercept = false
             Verbose = false
+            Logger = None
         }
         
         let results = 
@@ -350,6 +359,7 @@ module QuantumRegressionHHLTests =
             Shots = 1000
             FitIntercept = false
             Verbose = false
+            Logger = None
         }
         
         match train config with
@@ -370,6 +380,7 @@ module QuantumRegressionHHLTests =
             Shots = 100  // Too few shots
             FitIntercept = false
             Verbose = false
+            Logger = None
         }
         
         match train config with

@@ -77,6 +77,12 @@ module QuantumArithmeticTests =
                 // Perform realistic measurement with state collapse
                 let outcome = Measurement.measureSingleQubit rng q state
                 Measurement.collapseAfterMeasurement q outcome state
+            | Reset q ->
+                // Reset to |0⟩: measure, if 1 apply X to flip back
+                let outcome = Measurement.measureSingleQubit rng q state
+                let collapsed = Measurement.collapseAfterMeasurement q outcome state
+                if outcome = 1 then Gates.applyX q collapsed else collapsed
+            | Barrier _ -> state
         
         // Apply all gates using functional fold
         gates |> List.fold applyGate initialState

@@ -120,6 +120,7 @@
     <!-- Builders Layer (depends on Types, LocalSimulator) -->
     <Compile Include="Builders\CircuitBuilder.fs" />
     <Compile Include="Builders\GateTranspiler.fs" />
+    <Compile Include="Builders\OpenQasmVersion.fs" />
     <Compile Include="Builders\OpenQasmExport.fs" />
     <Compile Include="Builders\OpenQasmImport.fs" />
     <Compile Include="Builders\QuboEncoding.fs" />
@@ -156,15 +157,17 @@
     <Compile Include="Algorithms\TreeSearch.fs" />
     <Compile Include="Algorithms\QFT.fs" />
     <Compile Include="Algorithms\QPE.fs" />
+    
+    <!-- Unified Quantum Arithmetic (state-based, works with IQuantumBackend) -->
+    <!-- ✅ Migration Complete: All modular arithmetic functions implemented (Dec 11, 2024) -->
+    <!-- Must come before Shor.fs: Shor's controlledModularMultiplication calls Arithmetic module -->
+    <Compile Include="Algorithms\QuantumArithmetic.fs" />
+    
     <Compile Include="Algorithms\Shor.fs" />
     <Compile Include="Algorithms\TrotterSuzuki.fs" />
     <Compile Include="Algorithms\QuantumErrorCorrection.fs" />
     <Compile Include="Algorithms\HHLTypes.fs" />
     <Compile Include="Algorithms\HHL.fs" />
-    
-    <!-- Unified Quantum Arithmetic (state-based, works with IQuantumBackend) -->
-    <!-- ✅ Migration Complete: All modular arithmetic functions implemented (Dec 11, 2024) -->
-    <Compile Include="Algorithms\QuantumArithmetic.fs" />
 
     <!-- Statistical distributions for quantum algorithms (option pricing, ML, etc.) -->
     <Compile Include="Algorithms\StatisticalDistributions.fs" />

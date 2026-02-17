@@ -352,7 +352,15 @@ module Shor =
     /// Full implementation requires quantum adder circuits and modular reduction.
     /// Currently supports only small N (N ≤ 100) using lookup tables.
     /// </remarks>
-    let private controlledModularMultiplication
+    /// Controlled modular multiplication using Beauregard (2003) quantum arithmetic.
+    /// 
+    /// Performs: C|y⟩ → C|ay mod N⟩ (in-place, when control=|1⟩)
+    /// 
+    /// Allocates temp qubits above the highest existing qubit index.
+    /// The caller must provide a state with enough qubits (2n + 5 where n = |targetQubits|).
+    /// 
+    /// Internal visibility for testing; not part of the public API.
+    let internal controlledModularMultiplication
         (controlQubit: int)
         (targetQubits: int list)
         (a: int)
@@ -360,17 +368,56 @@ module Shor =
         (backend: IQuantumBackend)
         (state: QuantumState) : Result<QuantumState, QuantumError> =
         
-        // NOTE: Full modular multiplication circuit is not implemented in this educational version.
-        // Rationale: Implementing efficient modular multiplication requires advanced quantum circuit
-        // techniques (e.g., carry-save adders, modular reduction) that are beyond the scope of this
-        // educational implementation. For factoring larger numbers, use classical pre-processing or
-        // specialized quantum hardware with optimized modular arithmetic implementations.
+        // Wire to the Beauregard (2003) modular multiplication circuit
+        // from QuantumArithmetic. This performs:
+        //   C|y⟩ → C|ay mod N⟩  (in-place, when control=|1⟩)
         //
-        // Recommended alternatives:
-        // 1. Use factor15() for the classic N=15 example (pre-computed period)
-        // 2. For larger numbers, implement classical modular exponentiation
-        // 3. For production use, await hardware with native modular arithmetic support
-        Error (QuantumError.NotImplemented ("Modular multiplication circuit", Some "This educational implementation is limited to small examples like factor15(). For larger factorizations, specialized quantum hardware with optimized modular arithmetic is required."))
+        // Qubit layout (for n = |targetQubits|):
+        //   controlQubit:  1 qubit
+        //   targetQubits:  n qubits (register to multiply in-place)
+        //   tempQubits:    n qubits (workspace, must start as |0⟩)
+        //   Internal ancilla chain (allocated by Arithmetic module):
+        //     - andAncilla (doublyControlledAddConstantModN): 1 qubit
+        //     - overflow (controlledAddConstantModN → Beauregard): 1 qubit
+        //     - flag (controlledAddConstantModN → Beauregard): 1 qubit
+        //     - dcAdd ancilla (doublyControlledAddConstant inside Beauregard): 1 qubit
+        //   Total: 2n + 5 qubits
+        //
+        // For educational Shor's (N ≤ 100): n ≤ 7 bits, total ≤ 19 qubits (within 20-qubit limit).
+        //
+        // The caller must provide a state with enough qubits to accommodate
+        // targetQubits + tempQubits + internal ancilla chain.
+        
+        let numBits = List.length targetQubits
+        
+        // Allocate temp qubits above all existing qubits in use
+        let maxExistingQubit = max controlQubit (List.max targetQubits)
+        let tempQubits = [ maxExistingQubit + 1 .. maxExistingQubit + numBits ]
+        
+        // The full ancilla chain inside the Arithmetic module:
+        //   doublyControlledAddConstantModN allocates andAncilla = max + 1
+        //   controlledAddConstantModN allocates overflow = andAncilla + 1, flag = andAncilla + 2
+        //   doublyControlledAddConstant (inside Beauregard step 4) allocates dcAncilla = flag + 1
+        // Total required: max(tempQubits) + 4 + 1 = maxExistingQubit + numBits + 5
+        let totalQubitsRequired = maxExistingQubit + numBits + 5
+        
+        let currentQubits =
+            match state with
+            | QuantumState.StateVector sv -> FSharp.Azure.Quantum.LocalSimulator.StateVector.numQubits sv
+            | _ -> totalQubitsRequired  // Non-local backends manage their own qubits
+        
+        if currentQubits < totalQubitsRequired then
+            Error (QuantumError.ValidationError (
+                "state",
+                $"State has {currentQubits} qubits but controlledModularMultiplication requires at least {totalQubitsRequired} (register={numBits}, temp={numBits}, ancilla=3, control=1). Initialize state with enough qubits."))
+        else
+            result {
+                let! arithmeticResult =
+                    Arithmetic.controlledMultiplyConstantModNInPlace
+                        controlQubit targetQubits tempQubits a n state backend
+                
+                return arithmeticResult.State
+            }
     
     /// <summary>
     /// Controlled modular exponentiation: C-U^k|x⟩ = |a^k x mod N⟩ if control=1, else |x⟩.
@@ -384,7 +431,9 @@ module Shor =
     /// <param name="backend">Quantum backend</param>
     /// <param name="state">Current quantum state</param>
     /// <returns>New quantum state after controlled modular exponentiation, or error</returns>
-    let private controlledModularExponentiation
+    /// Controlled modular exponentiation: C-U^k|x⟩ = |a^k x mod N⟩ if control=1.
+    /// Internal visibility for testing; not part of the public API.
+    let internal controlledModularExponentiation
         (controlQubit: int)
         (targetQubits: int list)
         (a: int)
@@ -714,3 +763,167 @@ module Shor =
         }
         
         executeWith config QPE.Exactness.Exact backend
+
+    // ========================================================================
+    // FULL QUANTUM MODULAR-EXPONENTIATION QPE
+    // ========================================================================
+
+    /// Result of modular-exponentiation phase estimation.
+    type ModExpPhaseResult = {
+        /// Estimated phase φ = s/r where a^r ≡ 1 (mod N).
+        EstimatedPhase: float
+        /// Raw measurement outcome from counting register.
+        MeasurementOutcome: int
+        /// Number of counting (precision) qubits used.
+        CountingQubits: int
+        /// Total qubits allocated (counting + 2n + 4).
+        TotalQubits: int
+        /// Number of controlled modular multiplications applied.
+        ModularMultiplications: int
+    }
+
+    /// Estimate the phase of modular exponentiation U_a: |x⟩ → |ax mod N⟩
+    /// using full Beauregard (2003) quantum arithmetic circuits.
+    ///
+    /// This is the core quantum subroutine of Shor's algorithm, performing QPE
+    /// with the actual multi-qubit controlled modular multiplication circuit
+    /// (not the classical-assisted demonstration used by `findPeriod`).
+    ///
+    /// Algorithm:
+    /// 1. Allocate counting register + target register + workspace qubits
+    /// 2. Apply H to all counting qubits (superposition)
+    /// 3. Prepare target register in |1⟩ (eigenvector of modular multiplication)
+    /// 4. For each counting qubit j: apply controlled U_a^(2^j) where U_a|x⟩ = |a^(2^j) · x mod N⟩
+    /// 5. Apply inverse QFT to counting register
+    /// 6. Measure counting register and extract phase
+    ///
+    /// Qubit layout (n = ceil(log₂(N))):
+    ///   [0..c-1]         = counting qubits (c = countingQubits)
+    ///   [c..c+n-1]       = target register (n-bit number register)
+    ///   [c+n..c+2n+3]    = workspace (temp + ancilla, allocated by controlledModularMultiplication)
+    ///   Total: c + 2n + 4 qubits
+    ///
+    /// Constraints:
+    /// - N must be > 1 and composite (not checked here; caller's responsibility)
+    /// - a must be coprime to N and 1 < a < N
+    /// - Total qubits must not exceed backend limit (20 for LocalBackend)
+    let estimateModExpPhase
+        (baseNum: int)
+        (modulus: int)
+        (countingQubits: int)
+        (backend: IQuantumBackend)
+        : Result<ModExpPhaseResult, QuantumError> =
+
+        // Validation
+        let n = int (Math.Ceiling(Math.Log(float modulus, 2.0)))
+
+        if modulus < 2 then
+            Error (QuantumError.ValidationError ("modulus", "must be ≥ 2"))
+        elif baseNum < 2 || baseNum >= modulus then
+            Error (QuantumError.ValidationError ("baseNum", $"must be in range [2, {modulus - 1}]"))
+        elif gcd baseNum modulus <> 1 then
+            Error (QuantumError.ValidationError ("baseNum", $"{baseNum} is not coprime to {modulus}"))
+        elif countingQubits <= 0 then
+            Error (QuantumError.ValidationError ("countingQubits", "must be positive"))
+        elif countingQubits > 16 then
+            Error (QuantumError.ValidationError ("countingQubits", "must be ≤ 16 for local simulation"))
+        else
+            // Qubit allocation:
+            //   counting:  [0 .. countingQubits-1]
+            //   target:    [countingQubits .. countingQubits+n-1]
+            //   workspace: allocated dynamically by controlledModularMultiplication
+            // Total: countingQubits + 2n + 4
+            let totalQubits = countingQubits + 2 * n + 4
+
+            if totalQubits > 20 then
+                Error (QuantumError.ValidationError (
+                    "totalQubits",
+                    $"Requires {totalQubits} qubits (counting={countingQubits}, register={n}, workspace={n + 4}) " +
+                    $"but LocalBackend supports at most 20. Reduce countingQubits to ≤ {20 - 2 * n - 4}."))
+            else
+                result {
+                    // Step 1: Initialize all qubits to |0⟩
+                    let! initialState = backend.InitializeState totalQubits
+
+                    // Step 2: Apply Hadamard to all counting qubits
+                    let hadamardOps =
+                        [0 .. countingQubits - 1]
+                        |> List.map (fun q -> QuantumOperation.Gate (CircuitBuilder.H q))
+
+                    let! stateAfterH =
+                        UnifiedBackend.applySequence backend hadamardOps initialState
+
+                    // Step 3: Prepare target register in |1⟩ (least significant bit)
+                    // Target register is qubits [countingQubits .. countingQubits+n-1]
+                    // |1⟩ means the LSB (qubit countingQubits) is |1⟩
+                    let targetLsb = countingQubits
+                    let! stateAfterEigenPrep =
+                        backend.ApplyOperation (QuantumOperation.Gate (CircuitBuilder.X targetLsb)) stateAfterH
+
+                    // Step 4: Apply controlled modular multiplications
+                    // For each counting qubit j, apply controlled-U^(2^j) where U|x⟩ = |a^(2^j) · x mod N⟩
+                    let targetQubits = [ countingQubits .. countingQubits + n - 1 ]
+
+                    let! stateAfterModMul =
+                        [0 .. countingQubits - 1]
+                        |> List.fold (fun stateResult j ->
+                            result {
+                                let! currentState = stateResult
+                                let controlQubit = j
+                                // a^(2^j) mod N — computed classically
+                                let power = 1 <<< j
+                                let aToThePower = modPow baseNum power modulus
+
+                                // Apply controlled modular multiplication
+                                return!
+                                    controlledModularMultiplication
+                                        controlQubit targetQubits aToThePower modulus
+                                        backend currentState
+                            }
+                        ) (Ok stateAfterEigenPrep)
+
+                    // Step 5: Apply inverse QFT to counting register
+                    // Build inverse QFT ops manually (same approach as QPE.buildLoweringOps)
+                    // Inverse QFT processes qubits from (c-1) down to 0
+                    let inverseQftOps =
+                        [(countingQubits - 1) .. -1 .. 0]
+                        |> List.collect (fun targetQubit ->
+                            let controlledPhaseOps =
+                                [targetQubit + 1 .. countingQubits - 1]
+                                |> List.map (fun k ->
+                                    let power = k - targetQubit + 1
+                                    let angle = -2.0 * Math.PI / float (1 <<< power)
+                                    QuantumOperation.Gate (CircuitBuilder.CP (k, targetQubit, angle)))
+
+                            let hadamardOp = QuantumOperation.Gate (CircuitBuilder.H targetQubit)
+                            controlledPhaseOps @ [ hadamardOp ])
+
+                    let! stateAfterQft =
+                        UnifiedBackend.applySequence backend inverseQftOps stateAfterModMul
+
+                    // Step 6: Measure counting register and extract phase
+                    let measurements = UnifiedBackend.measureState stateAfterQft 1000
+
+                    // Extract counting register bits (qubits 0..c-1)
+                    // Inverse QFT without bit-reversal swaps produces bit-reversed output;
+                    // reverse classically to get canonical order.
+                    let measuredCountingBits =
+                        measurements.[0]
+                        |> Array.take countingQubits
+                        |> Array.rev  // undo bit-reversal (no swaps applied)
+
+                    let measurementOutcome =
+                        measuredCountingBits
+                        |> Array.indexed
+                        |> Array.fold (fun acc (i, bit) -> acc + (bit <<< i)) 0
+
+                    let estimatedPhase = float measurementOutcome / float (1 <<< countingQubits)
+
+                    return {
+                        EstimatedPhase = estimatedPhase
+                        MeasurementOutcome = measurementOutcome
+                        CountingQubits = countingQubits
+                        TotalQubits = totalQubits
+                        ModularMultiplications = countingQubits
+                    }
+                }

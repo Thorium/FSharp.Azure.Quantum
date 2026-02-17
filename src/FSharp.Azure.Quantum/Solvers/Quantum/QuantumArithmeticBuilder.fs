@@ -1,25 +1,22 @@
 namespace FSharp.Azure.Quantum
 
 open FSharp.Azure.Quantum.Core
+open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.Algorithms
 
 /// High-level Quantum Arithmetic Builder - QFT-Based Arithmetic Operations
 /// 
-/// ⚠️ CURRENT IMPLEMENTATION STATUS (MVP):
-/// This builder currently uses CLASSICAL SIMULATION to compute arithmetic results
-/// for educational and testing purposes. Full QFT circuit execution on backends
-/// is planned for future releases. The builder DOES accept IQuantumBackend parameters
-/// (Rule 1 compliant) but does not yet execute actual quantum circuits.
-/// 
-/// For production quantum arithmetic circuits, use the QuantumArithmetic module directly.
+/// Executes real QFT-based quantum arithmetic circuits via the Arithmetic module
+/// (Draper adder). All operations run on IQuantumBackend (defaults to LocalBackend
+/// for simulation). For algorithm-level control, use the Arithmetic module directly.
 /// 
 /// DESIGN PHILOSOPHY:
 /// This is a BUSINESS DOMAIN API for quantum arithmetic operations
 /// without understanding QFT internals (phase rotations, controlled gates, inverse QFT).
 /// 
-/// QFT-BASED (PLANNED):
-/// - Will use Quantum Fourier Transform for arithmetic circuits (Draper adder)
-/// - Backend parameter accepted for future cloud quantum hardware support (IonQ, Rigetti)
+/// QFT-BASED:
+/// - Uses Quantum Fourier Transform for arithmetic circuits (Draper adder)
+/// - Backend parameter accepted for cloud quantum hardware support (IonQ, Rigetti)
 /// - For algorithm-level control, use QuantumArithmetic module directly
 /// 
 /// WHAT IS QUANTUM ARITHMETIC:
@@ -30,7 +27,7 @@ open FSharp.Azure.Quantum.Algorithms
 /// - Educational demonstrations of quantum arithmetic concepts
 /// - Testing and validation of arithmetic logic
 /// - Prototyping quantum algorithms requiring arithmetic
-/// - (Future) Modular arithmetic for cryptographic operations on quantum hardware
+/// - Modular arithmetic for cryptographic operations on quantum hardware
 /// 
 /// EXAMPLE USAGE:
 ///   // Simple addition
@@ -112,6 +109,20 @@ module QuantumArithmeticOps =
     // VALIDATION HELPERS
     // ============================================================================
     
+    /// Compute the actual total qubits required for a given operation and register size.
+    /// Different operations expand the user-specified register size by different amounts
+    /// for ancilla, temp registers, overflow/flag qubits, etc.
+    let private computeTotalQubits (n: int) (opType: OperationType) : int =
+        match opType with
+        | Add -> n
+        | Multiply -> n
+        | ModularAdd -> n + 2  // overflow + flag for Beauregard
+        | ModularMultiply -> 2 * n + 3  // input + output + overflow + flag + AND-ancilla
+        | ModularExponentiate -> 2 * n + 5  // result + temp + control + AND + overflow + flag + AND
+
+    /// Maximum total qubits supported by LocalBackend simulation
+    let private maxSimulationQubits = 20
+
     /// <summary>
     /// Validates an arithmetic operation specification.
     /// </summary>
@@ -125,38 +136,42 @@ module QuantumArithmeticOps =
         // Check qubits
         elif operation.Qubits < 2 then
             Error (QuantumError.ValidationError ("Qubits", "at least 2 qubits are required"))
-        elif operation.Qubits > 16 then
-            Error (QuantumError.ValidationError ("Qubits", $"qubit count {operation.Qubits} exceeds maximum (16 qubits for NISQ devices)"))
-        
-        // Check modulus for modular operations
-        elif match operation.Operation with
-             | ModularAdd | ModularMultiply | ModularExponentiate -> operation.Modulus.IsNone
-             | _ -> false
-        then
-            Error (QuantumError.ValidationError ("Modulus", "modulus is required for modular arithmetic operations"))
-        
-        // Check modulus is positive
-        elif operation.Modulus.IsSome && operation.Modulus.Value <= 0 then
-            Error (QuantumError.ValidationError ("Modulus", "modulus must be positive"))
-        
-        // Check modulus is larger than operands
-        elif match operation.Operation with
-             | ModularAdd | ModularMultiply when operation.Modulus.IsSome ->
-                 operation.OperandA >= operation.Modulus.Value || operation.OperandB >= operation.Modulus.Value
-             | _ -> false
-        then
-            Error (QuantumError.ValidationError ("Operands", "operands must be smaller than modulus for modular arithmetic"))
-        
-        // Check operand A fits in qubit count
-        elif operation.OperandA >= (1 <<< operation.Qubits) then
-            Error (QuantumError.ValidationError ("OperandA", $"operandA ({operation.OperandA}) requires more than {operation.Qubits} qubits"))
-        
-        // Check operand B fits in qubit count (except for exponentiation where B is exponent)
-        elif operation.Operation <> ModularExponentiate && operation.OperandB >= (1 <<< operation.Qubits) then
-            Error (QuantumError.ValidationError ("OperandB", $"operandB ({operation.OperandB}) requires more than {operation.Qubits} qubits"))
-        
         else
-            Ok ()
+            // Validate actual total qubits required for the specific operation
+            let totalQubits = computeTotalQubits operation.Qubits operation.Operation
+            if totalQubits > maxSimulationQubits then
+                Error (QuantumError.ValidationError ("Qubits",
+                    $"register size {operation.Qubits} requires {totalQubits} total qubits for {operation.Operation} (max {maxSimulationQubits} for simulation)"))
+            
+            // Check modulus for modular operations
+            elif match operation.Operation with
+                 | ModularAdd | ModularMultiply | ModularExponentiate -> operation.Modulus.IsNone
+                 | _ -> false
+            then
+                Error (QuantumError.ValidationError ("Modulus", "modulus is required for modular arithmetic operations"))
+            
+            // Check modulus is positive
+            elif operation.Modulus.IsSome && operation.Modulus.Value <= 0 then
+                Error (QuantumError.ValidationError ("Modulus", "modulus must be positive"))
+            
+            // Check modulus is larger than operands
+            elif match operation.Operation with
+                 | ModularAdd | ModularMultiply when operation.Modulus.IsSome ->
+                     operation.OperandA >= operation.Modulus.Value || operation.OperandB >= operation.Modulus.Value
+                 | _ -> false
+            then
+                Error (QuantumError.ValidationError ("Operands", "operands must be smaller than modulus for modular arithmetic"))
+            
+            // Check operand A fits in qubit count
+            elif operation.OperandA >= (1 <<< operation.Qubits) then
+                Error (QuantumError.ValidationError ("OperandA", $"operandA ({operation.OperandA}) requires more than {operation.Qubits} qubits"))
+            
+            // Check operand B fits in qubit count (except for exponentiation where B is exponent)
+            elif operation.Operation <> ModularExponentiate && operation.OperandB >= (1 <<< operation.Qubits) then
+                Error (QuantumError.ValidationError ("OperandB", $"operandB ({operation.OperandB}) requires more than {operation.Qubits} qubits"))
+            
+            else
+                Ok ()
     
     // ============================================================================
     // COMPUTATION EXPRESSION BUILDER
@@ -245,10 +260,58 @@ module QuantumArithmeticOps =
     let quantumArithmetic = QuantumArithmeticBuilder()
     
     // ============================================================================
+    // QUANTUM STATE HELPERS
+    // ============================================================================
+    
+    /// Encode a classical integer into a quantum register by applying X gates
+    /// to qubits corresponding to set bits (LSB-first convention).
+    let private encodeInteger
+        (registerQubits: int list)
+        (value: int)
+        (state: QuantumState)
+        (backend: BackendAbstraction.IQuantumBackend) : Result<QuantumState, QuantumError> =
+        
+        let rec applyBits currentState bitIndex =
+            if bitIndex >= List.length registerQubits then
+                Ok currentState
+            else
+                let bit = (value >>> bitIndex) &&& 1
+                if bit = 1 then
+                    match backend.ApplyOperation (QuantumOperation.Gate (CircuitBuilder.X registerQubits.[bitIndex])) currentState with
+                    | Error err -> Error err
+                    | Ok nextState -> applyBits nextState (bitIndex + 1)
+                else
+                    applyBits currentState (bitIndex + 1)
+        applyBits state 0
+    
+    /// Extract the integer value from a quantum register by measuring and interpreting
+    /// the most common bitstring (LSB-first convention).
+    let private extractRegisterValue
+        (registerQubits: int list)
+        (state: QuantumState)
+        (shots: int) : int =
+        
+        let measurements = QuantumState.measure state shots
+        // For deterministic circuits, all measurements should agree.
+        // Take majority vote: count occurrences of each extracted value.
+        measurements
+        |> Array.map (fun bitstring ->
+            registerQubits
+            |> List.mapi (fun pos q -> bitstring.[q] <<< pos)
+            |> List.sum)
+        |> Array.countBy id
+        |> Array.maxBy snd
+        |> fst
+    
+    // ============================================================================
     // EXECUTION FUNCTION
     // ============================================================================
     
-    /// Execute quantum arithmetic operation
+    /// Execute quantum arithmetic operation using real QFT-based circuits
+    /// 
+    /// All operations are executed as genuine quantum circuits using the
+    /// Arithmetic module (Draper QFT-based adder). If no backend is specified,
+    /// a LocalBackend simulator is used.
     /// 
     /// Example:
     ///   let operation = quantumArithmetic {
@@ -270,77 +333,213 @@ module QuantumArithmeticOps =
                     operation.Backend 
                     |> Option.defaultValue (Backends.LocalBackend.LocalBackend() :> Core.BackendAbstraction.IQuantumBackend)
                 
-                // ========================================================================
-                // ⚠️ MVP IMPLEMENTATION - CLASSICAL SIMULATION
-                // ========================================================================
-                // This builder currently computes results classically for educational
-                // and testing purposes. Full QFT circuit execution on backends is planned.
-                //
-                // FUTURE WORK:
-                // 1. Create QuantumArithmeticBackendAdapter module
-                // 2. Build QFT-based arithmetic circuits (Draper adder, modular ops)
-                // 3. Execute circuits via actualBackend.Execute(circuit, shots)
-                // 4. Extract results from measurement histograms
-                //
-                // For production quantum arithmetic, use QuantumArithmetic module directly.
-                // ========================================================================
-                
-                let result =
-                    match operation.Operation with
-                    | Add -> 
-                        operation.OperandA + operation.OperandB
-                    
-                    | Multiply ->
-                        operation.OperandA * operation.OperandB
-                    
-                    | ModularAdd ->
-                        let modulus = operation.Modulus.Value
-                        (operation.OperandA + operation.OperandB) % modulus
-                    
-                    | ModularMultiply ->
-                        let modulus = operation.Modulus.Value
-                        (operation.OperandA * operation.OperandB) % modulus
-                    
-                    | ModularExponentiate ->
-                        let modulus = operation.Modulus.Value
-                        let rec modPow b e m acc =
-                            if e = 0 then acc
-                            elif e % 2 = 0 then modPow ((b * b) % m) (e / 2) m acc
-                            else modPow b (e - 1) m ((acc * b) % m)
-                        modPow operation.OperandA operation.OperandB modulus 1
-                
-                // Estimate circuit metrics
-                let gateCount = 
-                    match operation.Operation with
-                    | Add | ModularAdd -> operation.Qubits * operation.Qubits  // QFT gates
-                    | Multiply | ModularMultiply -> operation.Qubits * operation.Qubits * 2
-                    | ModularExponentiate -> operation.Qubits * operation.Qubits * operation.OperandB
-                
-                let circuitDepth =
-                    match operation.Operation with
-                    | Add | ModularAdd -> operation.Qubits * 2
-                    | Multiply | ModularMultiply -> operation.Qubits * 3
-                    | ModularExponentiate -> operation.Qubits * operation.OperandB
-                
-                let backendName = 
-                    match operation.Backend with
-                    | Some backend -> backend.GetType().Name
-                    | None -> "LocalBackend (Simulation)"
+                let n = operation.Qubits
+                let shots = operation.Shots |> Option.defaultValue 100
                 
                 let isModular =
                     match operation.Operation with
                     | ModularAdd | ModularMultiply | ModularExponentiate -> true
                     | _ -> false
                 
-                Ok {
-                    Value = result
-                    QubitsUsed = operation.Qubits
-                    GateCount = gateCount
-                    CircuitDepth = circuitDepth
-                    OperationType = operation.Operation
-                    BackendName = backendName
-                    IsModular = isModular
-                }
+                let backendName = actualBackend.GetType().Name
+                
+                match operation.Operation with
+                
+                // ================================================================
+                // ADD: |0⟩ → encode OperandA → addConstant OperandB → measure
+                // ================================================================
+                | Add ->
+                    result {
+                        let registerQubits = [ 0 .. n - 1 ]
+                        let! state0 = actualBackend.InitializeState n
+                        let! prepared = encodeInteger registerQubits operation.OperandA state0 actualBackend
+                        let! addResult = Arithmetic.addConstant registerQubits operation.OperandB prepared actualBackend
+                        let value = extractRegisterValue registerQubits addResult.State shots
+                        return {
+                            Value = value
+                            QubitsUsed = n
+                            GateCount = addResult.OperationCount
+                            CircuitDepth = n * 2
+                            OperationType = Add
+                            BackendName = backendName
+                            IsModular = false
+                        }
+                    }
+                
+                // ================================================================
+                // MULTIPLY: Shift-and-add using QFT adder
+                // Encode OperandA in output register, add shifted copies for
+                // each set bit of OperandB (classical decomposition, quantum additions)
+                // ================================================================
+                | Multiply ->
+                    result {
+                        // Output register holds the accumulated result
+                        let outputQubits = [ 0 .. n - 1 ]
+                        let! state0 = actualBackend.InitializeState n
+                        
+                        // Shift-and-add: for each set bit k of OperandB,
+                        // add (OperandA << k) mod 2^n to the output register
+                        let rec shiftAndAdd currentState bitIndex totalOps =
+                            if bitIndex >= n then
+                                Ok (currentState, totalOps)
+                            else
+                                let bit = (operation.OperandB >>> bitIndex) &&& 1
+                                if bit = 1 then
+                                    let addend = (operation.OperandA <<< bitIndex) &&& ((1 <<< n) - 1)
+                                    if addend > 0 then
+                                        result {
+                                            let! addResult = Arithmetic.addConstant outputQubits addend currentState actualBackend
+                                            return! shiftAndAdd addResult.State (bitIndex + 1) (totalOps + addResult.OperationCount)
+                                        }
+                                    else
+                                        shiftAndAdd currentState (bitIndex + 1) totalOps
+                                else
+                                    shiftAndAdd currentState (bitIndex + 1) totalOps
+                        
+                        let! (finalState, opCount) = shiftAndAdd state0 0 0
+                        let value = extractRegisterValue outputQubits finalState shots
+                        return {
+                            Value = value
+                            QubitsUsed = n
+                            GateCount = opCount
+                            CircuitDepth = n * 3
+                            OperationType = Multiply
+                            BackendName = backendName
+                            IsModular = false
+                        }
+                    }
+                
+                // ================================================================
+                // MODULAR ADD: |0⟩ → encode OperandA → addConstantModN OperandB → measure
+                // Uses quantum Beauregard modular addition (proper mod reduction in Fourier basis)
+                // ================================================================
+                | ModularAdd ->
+                    let modulus = operation.Modulus.Value
+                    result {
+                        let registerQubits = [ 0 .. n - 1 ]
+                        // Beauregard modular addition needs 2 ancilla qubits (overflow + flag)
+                        let totalQubits = n + 2
+                        let! state0 = actualBackend.InitializeState totalQubits
+                        let! prepared = encodeInteger registerQubits operation.OperandA state0 actualBackend
+                        let! addResult = Arithmetic.addConstantModN registerQubits operation.OperandB modulus prepared actualBackend
+                        let value = extractRegisterValue registerQubits addResult.State shots
+                        return {
+                            Value = value
+                            QubitsUsed = totalQubits
+                            GateCount = addResult.OperationCount
+                            CircuitDepth = n * 2
+                            OperationType = ModularAdd
+                            BackendName = backendName
+                            IsModular = true
+                        }
+                    }
+                
+                // ================================================================
+                // MODULAR MULTIPLY: |x⟩|0⟩ → |x⟩|ax mod N⟩
+                // Uses quantum modular multiplication (Beauregard algorithm with
+                // controlled modular additions that keep accumulator in [0,N))
+                // ================================================================
+                | ModularMultiply ->
+                    let modulus = operation.Modulus.Value
+                    result {
+                        let inputQubits = [ 0 .. n - 1 ]
+                        let outputQubits = [ n .. 2 * n - 1 ]
+                        // controlledAddConstantModN needs ancilla chain:
+                        //   control=inputQubit (max n-1), register=outputQubits (max 2n-1)
+                        //   overflow = 2n, flag = 2n+1
+                        //   doublyControlledAddConstant AND-ancilla = 2n+2
+                        let totalQubits = 2 * n + 3
+                        let! state0 = actualBackend.InitializeState totalQubits
+                        let! prepared = encodeInteger inputQubits operation.OperandB state0 actualBackend
+                        let! mulResult = Arithmetic.multiplyConstantModN inputQubits outputQubits operation.OperandA modulus prepared actualBackend
+                        let value = extractRegisterValue outputQubits mulResult.State shots
+                        return {
+                            Value = value
+                            QubitsUsed = totalQubits
+                            GateCount = mulResult.OperationCount
+                            CircuitDepth = n * 3
+                            OperationType = ModularMultiply
+                            BackendName = backendName
+                            IsModular = true
+                        }
+                    }
+                
+                // ================================================================
+                // MODULAR EXPONENTIATE: a^e mod N
+                // Uses controlledMultiplyConstantModNInPlace in square-and-multiply
+                // ================================================================
+                | ModularExponentiate ->
+                    let modulus = operation.Modulus.Value
+                    let baseVal = operation.OperandA
+                    let exponent = operation.OperandB
+                    result {
+                        // Register layout:
+                        // [0..n-1]     = result register (initialized to 1)
+                        // [n..2n-1]    = temp register for in-place multiply
+                        // [2n]         = control qubit (used for conditional multiply)
+                        // Ancilla chain (dynamically allocated by nested functions):
+                        //   [2n+1]     = AND-ancilla for doublyControlledAddConstantModN
+                        //   [2n+2]     = overflow qubit for controlledAddConstantModN (Beauregard)
+                        //   [2n+3]     = flag qubit for controlledAddConstantModN (Beauregard)
+                        //   [2n+4]     = AND-ancilla for doublyControlledAddConstant (inside Beauregard step 4)
+                        let registerQubits = [ 0 .. n - 1 ]
+                        let tempQubits = [ n .. 2 * n - 1 ]
+                        let controlQubit = 2 * n
+                        let totalQubits = 2 * n + 5
+                        
+                        let! state0 = actualBackend.InitializeState totalQubits
+                        
+                        // Initialize result register to 1 (set qubit 0)
+                        let! stateWith1 = encodeInteger registerQubits 1 state0 actualBackend
+                        
+                        // Square-and-multiply: for each bit of exponent,
+                        // if bit is set, multiply result by base^(2^k) mod N
+                        // Precompute powers: base^(2^0), base^(2^1), ...
+                        let rec squareAndMultiply currentState bitIndex currentPower totalOps =
+                            if bitIndex >= 32 || (1 <<< bitIndex) > exponent then
+                                Ok (currentState, totalOps)
+                            else
+                                let bit = (exponent >>> bitIndex) &&& 1
+                                if bit = 1 then
+                                    result {
+                                        // Set control qubit to |1⟩ to enable the multiply
+                                        let! withControl =
+                                            actualBackend.ApplyOperation
+                                                (QuantumOperation.Gate (CircuitBuilder.X controlQubit))
+                                                currentState
+                                        
+                                        // In-place multiply: result = result * currentPower mod N
+                                        let! mulResult =
+                                            Arithmetic.controlledMultiplyConstantModNInPlace
+                                                controlQubit registerQubits tempQubits
+                                                currentPower modulus
+                                                withControl actualBackend
+                                        
+                                        // Reset control qubit back to |0⟩
+                                        let! withoutControl =
+                                            actualBackend.ApplyOperation
+                                                (QuantumOperation.Gate (CircuitBuilder.X controlQubit))
+                                                mulResult.State
+                                        
+                                        let nextPower = (currentPower * currentPower) % modulus
+                                        return! squareAndMultiply withoutControl (bitIndex + 1) nextPower (totalOps + mulResult.OperationCount + 2)
+                                    }
+                                else
+                                    let nextPower = (currentPower * currentPower) % modulus
+                                    squareAndMultiply currentState (bitIndex + 1) nextPower totalOps
+                        
+                        let! (finalState, opCount) = squareAndMultiply stateWith1 0 (baseVal % modulus) 0
+                        let value = extractRegisterValue registerQubits finalState shots
+                        return {
+                            Value = value
+                            QubitsUsed = totalQubits
+                            GateCount = opCount
+                            CircuitDepth = n * exponent
+                            OperationType = ModularExponentiate
+                            BackendName = backendName
+                            IsModular = true
+                        }
+                    }
         with
         | ex -> Error (QuantumError.OperationError ("quantum arithmetic execution", ex.Message))
     

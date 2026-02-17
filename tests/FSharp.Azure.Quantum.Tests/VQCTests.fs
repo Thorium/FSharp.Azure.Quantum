@@ -52,6 +52,7 @@ module VQCTests =
         Verbose = false
         Optimizer = VQC.SGD
         ProgressReporter = None
+        Logger = None
     }
     
     // ========================================================================

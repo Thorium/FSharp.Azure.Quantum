@@ -643,8 +643,7 @@ Virtual screening of molecular candidates using quantum machine learning and opt
 | **QuantumKernelSVM** | Quantum kernel-based SVM classification | Binary activity classification |
 | **VQCClassifier** | Variational Quantum Classifier | Multi-label molecular classification |
 | **QAOADiverseSelection** | QAOA-based diverse subset selection | Select diverse, high-value compounds within budget |
-| **VQEBindingAffinity** | VQE for binding affinity (planned) | Quantum chemistry calculations |
-| **QuantumGNN** | Quantum Graph Neural Networks (planned) | Molecular graph learning |
+
 
 ### API Reference
 

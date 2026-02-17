@@ -215,7 +215,7 @@ module ReadoutErrorMitigationTests =
         }
         
         // Act: Invert
-        let result = ReadoutErrorMitigation.invertCalibrationMatrix calibration
+        let result = ReadoutErrorMitigation.invertCalibrationMatrix calibration None
         
         // Assert: Should succeed and produce reasonable inverse
         match result with
@@ -242,7 +242,7 @@ module ReadoutErrorMitigationTests =
         }
         
         // Act
-        let result = ReadoutErrorMitigation.invertCalibrationMatrix calibration
+        let result = ReadoutErrorMitigation.invertCalibrationMatrix calibration None
         
         // Assert: Should fail with singularity error
         match result with
@@ -266,8 +266,8 @@ module ReadoutErrorMitigationTests =
             CalibrationShots = 1000
         }
         
-        // Act: Should succeed but warn (warning goes to stdout via printfn)
-        let result = ReadoutErrorMitigation.invertCalibrationMatrix calibration
+        // Act: Should succeed but warn (warning goes to logger if provided)
+        let result = ReadoutErrorMitigation.invertCalibrationMatrix calibration None
         
         // Assert: Should succeed despite warning
         match result with
@@ -639,6 +639,11 @@ module ReadoutErrorMitigationTests =
                                 // Perform realistic measurement with state collapse
                                 let outcome = LocalSimulator.Measurement.measureSingleQubit rng q state
                                 LocalSimulator.Measurement.collapseAfterMeasurement q outcome state
+                            | CircuitBuilder.Reset q ->
+                                let outcome = LocalSimulator.Measurement.measureSingleQubit rng q state
+                                let collapsed = LocalSimulator.Measurement.collapseAfterMeasurement q outcome state
+                                if outcome = 1 then LocalSimulator.Gates.applyX q collapsed else collapsed
+                            | CircuitBuilder.Barrier _ -> state
                     
                     // Measure multiple times to get histogram
                     let measurements =

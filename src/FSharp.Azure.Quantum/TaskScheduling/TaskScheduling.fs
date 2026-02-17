@@ -116,7 +116,7 @@ module Scheduling =
     let task (id: string) (value: 'T) (duration: float) : ScheduledTask<'T> =
         {
             Id = id
-            Value = value
+            Value = Some value
             Duration = duration
             EarliestStart = None
             Deadline = None
@@ -129,7 +129,7 @@ module Scheduling =
     let taskWithRequirements (id: string) (value: 'T) (duration: float) (requirements: (string * float) list) : ScheduledTask<'T> =
         {
             Id = id
-            Value = value
+            Value = Some value
             Duration = duration
             EarliestStart = None
             Deadline = None

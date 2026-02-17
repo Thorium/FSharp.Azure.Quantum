@@ -57,7 +57,8 @@ module ASCIIRenderer =
             // Single-qubit gates (no parameters)
             | CircuitBuilder.X qubit | CircuitBuilder.Y qubit | CircuitBuilder.Z qubit 
             | CircuitBuilder.H qubit | CircuitBuilder.S qubit | CircuitBuilder.SDG qubit 
-            | CircuitBuilder.T qubit | CircuitBuilder.TDG qubit | CircuitBuilder.Measure qubit ->
+            | CircuitBuilder.T qubit | CircuitBuilder.TDG qubit | CircuitBuilder.Measure qubit
+            | CircuitBuilder.Reset qubit ->
                 let label = 
                     match g with
                     | CircuitBuilder.X _ -> "X"
@@ -69,6 +70,7 @@ module ASCIIRenderer =
                     | CircuitBuilder.T _ -> "T"
                     | CircuitBuilder.TDG _ -> "T†"
                     | CircuitBuilder.Measure _ -> "M"
+                    | CircuitBuilder.Reset _ -> "|0⟩"
                     | _ -> "?"
                 
                 let box = gateBox label
@@ -231,6 +233,14 @@ module ASCIIRenderer =
                         wire @ [vLine] @ List.replicate 3 BoxChars.horizontal
                     else
                         wire @ [String.replicate box.Width BoxChars.horizontal] @ List.replicate 3 BoxChars.horizontal)
+            
+            // Barrier gate from CircuitBuilder
+            | CircuitBuilder.Barrier qubits ->
+                wires'
+                |> List.mapi (fun i wire ->
+                    if List.contains i qubits
+                    then wire @ [BoxChars.barrier; BoxChars.barrier; BoxChars.barrier]
+                    else wire @ List.replicate 3 BoxChars.horizontal)
         
         // Barrier (visualization-only)
         | Barrier qubits ->

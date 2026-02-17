@@ -6,6 +6,7 @@ open System
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.MachineLearning
 open FSharp.Azure.Quantum
+open Microsoft.Extensions.Logging
 
 /// High-Level Binary Classification Builder - Business-First API
 /// 
@@ -105,6 +106,9 @@ module BinaryClassifier =
         
         /// Optional cancellation token for early termination
         CancellationToken: System.Threading.CancellationToken option
+        
+        /// Optional structured logger
+        Logger: ILogger option
     }
     
     /// Trained binary classifier
@@ -223,6 +227,7 @@ module BinaryClassifier =
                 Epsilon = 1e-8
             }
             VQC.ProgressReporter = config.ProgressReporter
+            VQC.Logger = None
         }
         
         // Train VQC (initialize parameters randomly)
@@ -261,7 +266,11 @@ module BinaryClassifier =
                 
                 match ModelSerialization.saveVQCTrainingResult 
                         path result numQubits "ZZFeatureMap" 2 "RealAmplitudes" 2 note with
-                | Error e -> printfn "Warning: Failed to save model: %s" e.Message
+                | Error _e ->
+                    // Model save failure is non-fatal: the trained classifier is still valid.
+                    // Callers who need durable persistence should use BinaryClassifier.save explicitly
+                    // and handle the Result. We do not use printfn in library code.
+                    ()
                 | Ok () -> ()
             
             classifier)
@@ -286,36 +295,42 @@ module BinaryClassifier =
             Tolerance = 0.001
             MaxIterations = 1000
             Verbose = config.Verbose
+            Logger = config.Logger
         }
         
         QuantumKernelSVM.train backend featureMap features labels svmConfig config.Shots
         |> Result.mapError (fun e -> QuantumError.ValidationError ("Input", $"Hybrid training failed: {e}"))
-        |> Result.map (fun model ->
+        |> Result.bind (fun model ->
             
             let endTime = DateTime.UtcNow
             
-            // Compute training accuracy
-            let predictions = features |> Array.map (fun x -> 
-                match QuantumKernelSVM.predict backend model x config.Shots with
-                | Ok pred -> pred.Label
-                | Error _ -> 0)
+            // Compute training accuracy - propagate prediction errors
+            let predictionResults = features |> Array.map (fun x -> 
+                QuantumKernelSVM.predict backend model x config.Shots
+                |> Result.map (fun pred -> pred.Label))
             
-            let correct = Array.zip predictions labels |> Array.filter (fun (p, l) -> p = l) |> Array.length
-            let accuracy = float correct / float labels.Length
-            
-            {
-                Model = SVMModel (model, numQubits)
-                Metadata = {
-                    Architecture = Hybrid
-                    TrainingAccuracy = accuracy
-                    TrainingTime = endTime - startTime
-                    NumFeatures = numFeatures
-                    NumSamples = features.Length
-                    CreatedAt = startTime
-                    Note = config.Note
-                }
-                Backend = backend
-            })
+            let firstError = predictionResults |> Array.tryPick (function Error e -> Some e | Ok _ -> None)
+            match firstError with
+            | Some err ->
+                Error (QuantumError.ValidationError ("Training", $"Prediction failed during accuracy computation: {err}"))
+            | None ->
+                let predictions = predictionResults |> Array.map (function Ok l -> l | Error _ -> 0) // safe: no errors remain
+                let correct = Array.zip predictions labels |> Array.filter (fun (p, l) -> p = l) |> Array.length
+                let accuracy = float correct / float labels.Length
+                
+                Ok {
+                    Model = SVMModel (model, numQubits)
+                    Metadata = {
+                        Architecture = Hybrid
+                        TrainingAccuracy = accuracy
+                        TrainingTime = endTime - startTime
+                        NumFeatures = numFeatures
+                        NumSamples = features.Length
+                        CreatedAt = startTime
+                        Note = config.Note
+                    }
+                    Backend = backend
+                })
     
     /// Train classifier based on architecture choice
     let train (problem: ClassificationProblem) : QuantumResult<Classifier> =
@@ -331,7 +346,7 @@ module BinaryClassifier =
             match problem.Architecture with
             | Quantum -> trainQuantum backend problem.TrainFeatures problem.TrainLabels problem
             | Hybrid -> trainHybrid backend problem.TrainFeatures problem.TrainLabels problem
-            | Classical -> Error (QuantumError.NotImplemented ("Classical architecture", None)))
+            | Classical -> Error (QuantumError.NotImplemented ("Classical architecture", Some "Use PredictiveModelBuilder for classical baselines, or use Hybrid architecture for quantum-classical classification")))
     
     // ========================================================================
     // PREDICTION
@@ -364,7 +379,7 @@ module BinaryClassifier =
                 })
         
         | ClassicalModel _ ->
-            Error (QuantumError.Other "Classical model prediction not implemented")
+            Error (QuantumError.NotImplemented ("Classical model prediction", Some "Use PredictiveModelBuilder for classical baselines"))
     
     /// Evaluate classifier on test set
     let evaluate 
@@ -376,36 +391,42 @@ module BinaryClassifier =
         if testFeatures.Length <> testLabels.Length then
             Error (QuantumError.ValidationError ("Input", "Test features and labels must have same length"))
         else
-            // Make predictions
-            let predictions = 
+            // Make predictions - propagate errors instead of silently defaulting to 0
+            let predictionResults = 
                 testFeatures 
                 |> Array.map (fun x -> 
-                    match predict x classifier with
-                    | Ok pred -> pred.Label
-                    | Error _ -> 0)
+                    predict x classifier
+                    |> Result.map (fun pred -> pred.Label))
             
-            // Compute confusion matrix
-            let tp = Array.zip predictions testLabels |> Array.filter (fun (p, l) -> p = 1 && l = 1) |> Array.length
-            let tn = Array.zip predictions testLabels |> Array.filter (fun (p, l) -> p = 0 && l = 0) |> Array.length
-            let fp = Array.zip predictions testLabels |> Array.filter (fun (p, l) -> p = 1 && l = 0) |> Array.length
-            let fn = Array.zip predictions testLabels |> Array.filter (fun (p, l) -> p = 0 && l = 1) |> Array.length
-            
-            // Compute metrics
-            let accuracy = float (tp + tn) / float testLabels.Length
-            let precision = if (tp + fp) = 0 then 0.0 else float tp / float (tp + fp)
-            let recall = if (tp + fn) = 0 then 0.0 else float tp / float (tp + fn)
-            let f1 = if (precision + recall) = 0.0 then 0.0 else 2.0 * precision * recall / (precision + recall)
-            
-            Ok {
-                Accuracy = accuracy
-                Precision = precision
-                Recall = recall
-                F1Score = f1
-                TruePositives = tp
-                TrueNegatives = tn
-                FalsePositives = fp
-                FalseNegatives = fn
-            }
+            let firstError = predictionResults |> Array.tryPick (function Error e -> Some e | Ok _ -> None)
+            match firstError with
+            | Some err ->
+                Error err
+            | None ->
+                let predictions = predictionResults |> Array.map (function Ok l -> l | Error _ -> 0) // safe: no errors remain
+                
+                // Compute confusion matrix
+                let tp = Array.zip predictions testLabels |> Array.filter (fun (p, l) -> p = 1 && l = 1) |> Array.length
+                let tn = Array.zip predictions testLabels |> Array.filter (fun (p, l) -> p = 0 && l = 0) |> Array.length
+                let fp = Array.zip predictions testLabels |> Array.filter (fun (p, l) -> p = 1 && l = 0) |> Array.length
+                let fn = Array.zip predictions testLabels |> Array.filter (fun (p, l) -> p = 0 && l = 1) |> Array.length
+                
+                // Compute metrics
+                let accuracy = float (tp + tn) / float testLabels.Length
+                let precision = if (tp + fp) = 0 then 0.0 else float tp / float (tp + fp)
+                let recall = if (tp + fn) = 0 then 0.0 else float tp / float (tp + fn)
+                let f1 = if (precision + recall) = 0.0 then 0.0 else 2.0 * precision * recall / (precision + recall)
+                
+                Ok {
+                    Accuracy = accuracy
+                    Precision = precision
+                    Recall = recall
+                    F1Score = f1
+                    TruePositives = tp
+                    TrueNegatives = tn
+                    FalsePositives = fp
+                    FalseNegatives = fn
+                }
     
     // ========================================================================
     // PERSISTENCE
@@ -426,7 +447,7 @@ module BinaryClassifier =
             ModelSerialization.saveSVMModel path svmModel numQubits classifier.Metadata.Note
         
         | ClassicalModel _ ->
-            Error (QuantumError.Other "Classical model persistence not yet implemented")
+            Error (QuantumError.NotImplemented ("Classical model persistence", Some "Use PredictiveModelBuilder for classical baselines"))
     
     /// Load classifier from file
     let load (path: string) : QuantumResult<Classifier> =
@@ -516,6 +537,7 @@ module BinaryClassifier =
                 Note = None
                 ProgressReporter = None
                 CancellationToken = None
+                Logger = None
             }
         
         member _.Delay(f: unit -> ClassificationProblem) = f
@@ -545,6 +567,7 @@ module BinaryClassifier =
                 Note = None
                 ProgressReporter = None
                 CancellationToken = None
+                Logger = None
             }
         
         /// <summary>Set the training data with features and binary labels.</summary>

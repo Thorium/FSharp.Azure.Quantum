@@ -11,6 +11,7 @@ open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum.MachineLearning.QuantumRegressionHHL
 open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum
+open Microsoft.Extensions.Logging
 
 /// High-Level Predictive Model Builder - Business-First API
 /// 
@@ -107,6 +108,12 @@ module PredictiveModel =
         
         /// Verbose logging
         Verbose: bool
+        
+        /// Optional structured logger. When provided, verbose output is sent to this
+        /// ILogger instead of being discarded. Use ``Verbose = true`` to enable logging,
+        /// and ``Logger = Some myLogger`` to direct output to a specific sink.
+        /// When None, verbose output uses printfn as a no-op (output is suppressed).
+        Logger: ILogger option
         
         /// Path to save trained model
         SavePath: string option
@@ -455,12 +462,12 @@ module PredictiveModel =
     // ========================================================================
     
     /// Helper: Save model if save path provided, with optional verbose output
-    let private saveModelIfRequested (savePath: string option) (verbose: bool) (model: Model) =
+    let private saveModelIfRequested (savePath: string option) (verbose: bool) (logger: ILogger option) (model: Model) =
         match savePath with
         | Some path ->
             match save path model with
-            | Ok () -> if verbose then printfn $"✓ Model saved to: {path}"
-            | Error e -> if verbose then printfn $"⚠️ Failed to save model: {e}"
+            | Ok () -> if verbose then logInfo logger $"[OK] Model saved to: {path}"
+            | Error e -> if verbose then logWarning logger $"[WARN] Failed to save model: {e}"
         | None -> ()
         model
     
@@ -477,10 +484,11 @@ module PredictiveModel =
             
             
             if problem.Verbose then
-                printfn "🚀 Training Predictive Model..."
-                printfn $"   Problem: {problem.ProblemType}"
-                printfn $"   Architecture: {problem.Architecture}"
-                printfn $"   Samples: {numSamples}, Features: {numFeatures}"
+                let log = logInfo problem.Logger
+                log "Training Predictive Model..."
+                log $"   Problem: {problem.ProblemType}"
+                log $"   Architecture: {problem.Architecture}"
+                log $"   Samples: {numSamples}, Features: {numFeatures}"
             
             try
                 match problem.Architecture, problem.ProblemType with
@@ -492,8 +500,9 @@ module PredictiveModel =
                     // Strategy: Try HHL first (fast for linear), fall back to VQC (handles non-linear)
                     
                     if problem.Verbose then
-                        printfn "Training Quantum Regression..."
-                        printfn "  Samples: %d, Features: %d" problem.TrainFeatures.Length problem.TrainFeatures.[0].Length
+                        let log = logInfo problem.Logger
+                        log "Training Quantum Regression..."
+                        log $"  Samples: {problem.TrainFeatures.Length}, Features: {problem.TrainFeatures.[0].Length}"
                     
                     // Try HHL first for linear regression (exponential speedup!)
                     let hhlConfig : RegressionConfig = {
@@ -505,13 +514,14 @@ module PredictiveModel =
                         Shots = problem.Shots
                         FitIntercept = true
                         Verbose = problem.Verbose
+                        Logger = problem.Logger
                     }
                     
                     match train hhlConfig with
                     | Ok hhlResult when hhlResult.RSquared > 0.85 ->
                         // HHL worked well (linear relationship detected)
                         if problem.Verbose then
-                            printfn "✓ HHL successful! R² = %.4f (linear regression)" hhlResult.RSquared
+                            logInfo problem.Logger $"[OK] HHL successful! R-squared = {hhlResult.RSquared:F4} (linear regression)"
                         
                         let model = {
                             InternalModel = HHLRegressor hhlResult
@@ -527,12 +537,12 @@ module PredictiveModel =
                             }
                         }
                         
-                        Ok (saveModelIfRequested problem.SavePath problem.Verbose model)
+                        Ok (saveModelIfRequested problem.SavePath problem.Verbose problem.Logger model)
                     
                     | _ ->
                         // HHL failed or poor fit → Try VQC (can handle non-linear)
                         if problem.Verbose then
-                            printfn "⚠ HHL not suitable, trying VQC (variational) regression..."
+                            logWarning problem.Logger "[WARN] HHL not suitable, trying VQC (variational) regression..."
                         
                         let featureMap = FeatureMapType.ZZFeatureMap 2
                         let varFormDepth = 3
@@ -549,6 +559,7 @@ module PredictiveModel =
                             ConvergenceThreshold = problem.ConvergenceThreshold
                             Shots = problem.Shots
                             Verbose = problem.Verbose
+                            Logger = problem.Logger
                             Optimizer = VQC.SGD
                             ProgressReporter = problem.ProgressReporter
                         }
@@ -557,8 +568,9 @@ module PredictiveModel =
                         |> Result.mapError (fun e -> QuantumError.ValidationError ("Input", $"Both HHL and VQC regression failed: {e}"))
                         |> Result.map (fun vqcResult ->
                             if problem.Verbose then
-                                printfn "✓ VQC training complete!"
-                                printfn "  R² Score: %.4f (non-linear regression)" vqcResult.TrainRSquared
+                                let log = logInfo problem.Logger
+                                log "[OK] VQC training complete!"
+                                log $"  R-squared Score: {vqcResult.TrainRSquared:F4} (non-linear regression)"
                             
                             let model = {
                                 InternalModel = RegressionVQC (vqcResult, featureMap, varForm, numQubits)
@@ -574,7 +586,7 @@ module PredictiveModel =
                                 }
                             }
                             
-                            saveModelIfRequested problem.SavePath problem.Verbose model)
+                            saveModelIfRequested problem.SavePath problem.Verbose problem.Logger model)
                 
                 // =================================================================
                 // HYBRID REGRESSION (HHL with fallback capability)
@@ -592,16 +604,18 @@ module PredictiveModel =
                         Shots = problem.Shots
                         FitIntercept = true
                         Verbose = problem.Verbose
+                        Logger = problem.Logger
                     }
                     
                     if problem.Verbose then
-                        printfn "Training Hybrid Regression (HHL-based)..."
+                        logInfo problem.Logger "Training Hybrid Regression (HHL-based)..."
                     
                     train hhlConfig
                     |> Result.map (fun hhlResult ->
                         if problem.Verbose then
-                            printfn "✓ Hybrid HHL training succeeded!"
-                            printfn "  R² Score: %.4f" hhlResult.RSquared
+                            let log = logInfo problem.Logger
+                            log "[OK] Hybrid HHL training succeeded!"
+                            log $"  R-squared Score: {hhlResult.RSquared:F4}"
                         
                         let model = {
                             InternalModel = HHLRegressor hhlResult
@@ -617,11 +631,11 @@ module PredictiveModel =
                             }
                         }
                         
-                        saveModelIfRequested problem.SavePath problem.Verbose model)
+                        saveModelIfRequested problem.SavePath problem.Verbose problem.Logger model)
                     |> Result.orElseWith (fun e ->
                         // Fallback to classical regression if HHL fails
                         if problem.Verbose then
-                            printfn "⚠ HHL failed (%s), falling back to classical..." e.Message
+                            logWarning problem.Logger $"[WARN] HHL failed ({e.Message}), falling back to classical..."
                         
                         // Use classical regression as fallback
                         let X = problem.TrainFeatures
@@ -643,14 +657,58 @@ module PredictiveModel =
                                 [0 .. n - 1] |> List.sumBy (fun k -> XWithIntercept.[k].[i] * y.[k])
                             )
                         
-                        // Simple Gaussian elimination (for small problems)
-                        let weights = 
-                            try
-                                // Solve linear system classically
-                                let solution = Array.create (m + 1) 0.0
-                                // ... simplified: use pseudo-inverse approach
-                                Xty  // Placeholder - real impl would solve XtX * w = Xty
-                            with _ -> Array.create (m + 1) 0.0
+                        // Solve XtX * w = Xty via Gaussian elimination with partial pivoting.
+                        // Represented as a fold over columns, each step producing an updated
+                        // augmented matrix (array of row arrays) — no mutable state.
+                        let weights =
+                            let dim = m + 1
+                            // Augmented matrix [XtX | Xty] as array of row arrays
+                            let aug0 =
+                                Array.init dim (fun i ->
+                                    Array.init (dim + 1) (fun j ->
+                                        if j < dim then XtX.[i, j] else Xty.[i]))
+                            
+                            // Forward elimination: fold over pivot columns
+                            let augReduced =
+                                (aug0, [0 .. dim - 1])
+                                ||> List.fold (fun (aug: float[][]) col ->
+                                    // Partial pivoting: find row with max absolute value in this column
+                                    let pivotRow =
+                                        aug.[col .. dim - 1]
+                                        |> Array.mapi (fun i row -> (col + i, abs row.[col]))
+                                        |> Array.maxBy snd
+                                        |> fst
+                                    
+                                    // Swap pivot row into position
+                                    let swapped =
+                                        aug |> Array.mapi (fun i row ->
+                                            if i = col then aug.[pivotRow]
+                                            elif i = pivotRow then aug.[col]
+                                            else row)
+                                    
+                                    let pivotVal = swapped.[col].[col]
+                                    if abs pivotVal < 1e-12 then
+                                        failwith $"Singular matrix in normal equations: pivot at column {col} is near-zero"
+                                    
+                                    // Eliminate rows below pivot
+                                    swapped |> Array.mapi (fun i row ->
+                                        if i <= col then row
+                                        else
+                                            let factor = row.[col] / pivotVal
+                                            row |> Array.mapi (fun j v -> v - factor * swapped.[col].[j])))
+                            
+                            // Back substitution: fold from last row to first
+                            let solution =
+                                (Array.create dim 0.0, [dim - 1 .. -1 .. 0])
+                                ||> List.fold (fun sol row ->
+                                    let rhs = augReduced.[row].[dim]
+                                    let sumAbove =
+                                        [row + 1 .. dim - 1]
+                                        |> List.sumBy (fun j -> augReduced.[row].[j] * sol.[j])
+                                    let value = (rhs - sumAbove) / augReduced.[row].[row]
+                                    sol |> Array.mapi (fun i v -> if i = row then value else v))
+                            
+                            solution
                         
                         // Calculate training accuracy
                         let predictions = 
@@ -677,14 +735,14 @@ module PredictiveModel =
                             }
                         }
                         
-                        Ok (saveModelIfRequested problem.SavePath problem.Verbose model))
+                        Ok (saveModelIfRequested problem.SavePath problem.Verbose problem.Logger model))
                 
                 // =================================================================
                 // QUANTUM MULTI-CLASS (VQC One-vs-Rest)
                 // =================================================================
                 | Quantum, MultiClass numClasses ->
                     if problem.Verbose then
-                        printfn "Training Quantum Multi-Class (VQC One-vs-Rest)..."
+                        logInfo problem.Logger "Training Quantum Multi-Class (VQC One-vs-Rest)..."
                     
                     let featureMap = FeatureMapType.ZZFeatureMap 2
                     let varFormDepth = 3
@@ -703,6 +761,7 @@ module PredictiveModel =
                         ConvergenceThreshold = problem.ConvergenceThreshold
                         Shots = problem.Shots
                         Verbose = problem.Verbose
+                        Logger = problem.Logger
                         Optimizer = VQC.SGD
                         ProgressReporter = problem.ProgressReporter
                     }
@@ -711,8 +770,9 @@ module PredictiveModel =
                     |> Result.mapError (fun e -> QuantumError.ValidationError ("Input", $"VQC multi-class training failed: {e}"))
                     |> Result.map (fun multiClassResult ->
                         if problem.Verbose then
-                            printfn "✓ VQC multi-class training complete!"
-                            printfn "  Accuracy: %.4f" multiClassResult.TrainAccuracy
+                            let log = logInfo problem.Logger
+                            log "[OK] VQC multi-class training complete!"
+                            log $"  Accuracy: {multiClassResult.TrainAccuracy:F4}"
                         
                         let model = {
                             InternalModel = MultiClassVQC (multiClassResult, featureMap, varForm, numQubits)
@@ -728,7 +788,7 @@ module PredictiveModel =
                             }
                         }
                         
-                        saveModelIfRequested problem.SavePath problem.Verbose model)
+                        saveModelIfRequested problem.SavePath problem.Verbose problem.Logger model)
                 
                 // =================================================================
                 // HYBRID MULTI-CLASS (Quantum Kernel SVM)
@@ -743,6 +803,7 @@ module PredictiveModel =
                         Tolerance = 0.001
                         MaxIterations = 1000
                         Verbose = problem.Verbose
+                        Logger = problem.Logger
                     }
                     
                     MultiClassSVM.train backend featureMap problem.TrainFeatures labels svmConfig problem.Shots
@@ -773,7 +834,7 @@ module PredictiveModel =
                             }
                         }
                         
-                        saveModelIfRequested problem.SavePath problem.Verbose model)
+                        saveModelIfRequested problem.SavePath problem.Verbose problem.Logger model)
                 
                 // =================================================================
                 // CLASSICAL REGRESSION (Baseline)
@@ -812,7 +873,7 @@ module PredictiveModel =
                         }
                     }
                     
-                    Ok (saveModelIfRequested problem.SavePath problem.Verbose model)
+                    Ok (saveModelIfRequested problem.SavePath problem.Verbose problem.Logger model)
                 
                 // =================================================================
                 // CLASSICAL MULTI-CLASS (Baseline)
@@ -856,7 +917,7 @@ module PredictiveModel =
                         }
                     }
                     
-                    Ok (saveModelIfRequested problem.SavePath problem.Verbose model)
+                    Ok (saveModelIfRequested problem.SavePath problem.Verbose problem.Logger model)
                 
             with ex ->
                 Error (QuantumError.ValidationError ("Input", $"Training failed: {ex.Message}"))
@@ -1136,6 +1197,7 @@ module PredictiveModel =
                 Backend = None
                 Shots = 1000
                 Verbose = false
+                Logger = None
                 SavePath = None
                 Note = None
                 ProgressReporter = None
@@ -1166,6 +1228,7 @@ module PredictiveModel =
                 Backend = None
                 Shots = 1000
                 Verbose = false
+                Logger = None
                 SavePath = None
                 Note = None
                 ProgressReporter = None

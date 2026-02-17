@@ -1,6 +1,8 @@
 namespace FSharp.Azure.Quantum
 
 open System
+open Microsoft.Extensions.Logging
+open FSharp.Azure.Quantum.Core
 
 /// Readout Error Mitigation (REM) module.
 /// 
@@ -230,7 +232,7 @@ module ReadoutErrorMitigation =
     /// Returns M^-1 for applying correction: corrected = M^-1 × measured
     /// 
     /// Checks condition number to warn about poorly-conditioned matrices.
-    let invertCalibrationMatrix (calibration: CalibrationMatrix) : Result<float[,], string> =
+    let invertCalibrationMatrix (calibration: CalibrationMatrix) (logger: ILogger option) : Result<float[,], string> =
         try
             // Convert to MathNet matrix
             let matrix = MathNet.Numerics.LinearAlgebra.DenseMatrix.ofArray2 calibration.Matrix
@@ -244,7 +246,7 @@ module ReadoutErrorMitigation =
                 let conditionNumber = matrix.ConditionNumber()
                 if conditionNumber > 1000.0 then
                     // Warning: High condition number means inversion may amplify errors
-                    printfn "⚠️  High condition number (%.1f) - inversion may be unstable" conditionNumber
+                    logWarning logger (sprintf "[WARN] High condition number (%.1f) - inversion may be unstable" conditionNumber)
                 
                 // Invert using LU decomposition (numerically stable)
                 let inverse = matrix.Inverse()
@@ -275,7 +277,7 @@ module ReadoutErrorMitigation =
         : Result<CorrectedResults, string> =
         
         // Step 1: Invert calibration matrix
-        match invertCalibrationMatrix calibration with
+        match invertCalibrationMatrix calibration None with
         | Error err -> Error err
         | Ok inverse ->
             try

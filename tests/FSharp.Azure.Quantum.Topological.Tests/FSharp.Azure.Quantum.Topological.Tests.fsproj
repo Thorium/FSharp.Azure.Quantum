@@ -21,6 +21,9 @@
     <Compile Include="KauffmanBracketV3Tests.fs" />
     <Compile Include="BraidToGateTests.fs" />
     <Compile Include="SolovayKitaevTests.fs" />
+    <Compile Include="CircuitOptimizationTests.fs" />
+    <Compile Include="ErrorPropagationTests.fs" />
+    <Compile Include="NoiseModelsTests.fs" />
     <Compile Include="GateToBraidCorrectionTests.fs" />
     <Compile Include="ToricCodeTests.fs" />
     <Compile Include="TopologicalBackendTests.fs" />

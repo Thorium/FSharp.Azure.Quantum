@@ -19,6 +19,8 @@
     <Compile Include="OpenQasmExportTests.fs" />
     <Compile Include="OpenQasmImportTests.fs" />
     <Compile Include="OpenQasmIntegrationTests.fs" />
+    <Compile Include="OpenQasmVersionTests.fs" />
+    <Compile Include="ResetBarrierTests.fs" />
     <Compile Include="GroverSearchTests.fs" />
     <!-- AmplitudeAmplificationTests.fs temporarily disabled - needs rewriting for backend adapter approach -->
     <!-- See AmplitudeAmplificationTests.fs.bak for original tests -->
@@ -31,6 +33,21 @@
     <Compile Include="SuperdenseCodingTests.fs" />
     <Compile Include="HHLTests.fs" />
     <Compile Include="ShorsTests.fs" />
+    <Compile Include="GroverOracleTests.fs" />
+    <Compile Include="MottonenStatePreparationTests.fs" />
+    <Compile Include="TrotterSuzukiTests.fs" />
+    <Compile Include="ResultBuilderTests.fs" />
+    <Compile Include="ValidationTests.fs" />
+    <Compile Include="QuantumStateConversionTests.fs" />
+    <Compile Include="RetryTests.fs" />
+    <Compile Include="ProgressTests.fs" />
+    <Compile Include="FeatureMapTests.fs" />
+    <Compile Include="QuantumMonteCarloTests.fs" />
+    <Compile Include="QuantumDistributionsTests.fs" />
+    <Compile Include="ASCIIRendererTests.fs" />
+    <Compile Include="CircuitExtensionsTests.fs" />
+    <Compile Include="FinancialDataTests.fs" />
+    <Compile Include="MolecularDataTests.fs" />
     <Compile Include="QuantumArithmeticTests.fs" />
     <Compile Include="QaoaSimulatorTests.fs" />
     <Compile Include="MeasurementTests.fs" />
@@ -113,6 +130,8 @@
     <Compile Include="GroverUnifiedTests.fs" />
     <Compile Include="AmplitudeAmplificationUnifiedTests.fs" />
     <Compile Include="ShorsUnifiedTests.fs" />
+    <Compile Include="ShorArithmeticIntegrationTests.fs" />
+    <Compile Include="ModExpPhaseTests.fs" />
 
     <Compile Include="HHLUnifiedTests.fs" />
     
@@ -122,6 +141,15 @@
     
     <!-- Drug Discovery Quantum Solvers Tests -->
     <Compile Include="DrugDiscoverySolversTests.fs" />
+    
+    <!-- Business Module Tests -->
+    <Compile Include="QuantumRiskEngineTests.fs" />
+    <Compile Include="SocialNetworkAnalyzerTests.fs" />
+    <Compile Include="AnomalyDetectionBuilderTests.fs" />
+    <Compile Include="BinaryClassificationBuilderTests.fs" />
+    <Compile Include="SimilaritySearchBuilderTests.fs" />
+    <Compile Include="AutoMLBuilderTests.fs" />
+    <Compile Include="PredictiveModelBuilderTests.fs" />
     
     <Compile Include="IntegrationTests.fs" />
   </ItemGroup>

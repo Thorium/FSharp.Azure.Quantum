@@ -12,6 +12,7 @@ open FSharp.Azure.Quantum.CircuitBuilder
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.Core.CircuitAbstraction
 open FSharp.Azure.Quantum.Core
+open Microsoft.Extensions.Logging
 
 module VQC =
     
@@ -46,6 +47,9 @@ module VQC =
         
         /// Progress reporter for long-running training
         ProgressReporter: Progress.IProgressReporter option
+        
+        /// Structured logger (replaces Verbose printfn output)
+        Logger: ILogger option
     }
     
     /// Training result
@@ -288,15 +292,16 @@ module VQC =
             
             if config.Verbose then
                 let optimizerName = match config.Optimizer with | SGD -> "SGD" | Adam _ -> "Adam"
-                printfn "Starting VQC training..."
-                printfn "  Features: %d samples" trainFeatures.Length
+                let log = logInfo config.Logger
+                log "Starting VQC training..."
+                log $"  Features: {trainFeatures.Length} samples"
                 if trainFeatures.Length > 0 then
-                    printfn "            %d dimensions" trainFeatures.[0].Length
-                printfn "  Parameters: %d" initialParameters.Length
-                printfn "  Optimizer: %s" optimizerName
-                printfn "  Learning rate: %.4f" config.LearningRate
-                printfn "  Max epochs: %d" config.MaxEpochs
-                printfn ""
+                    log $"            {trainFeatures.[0].Length} dimensions"
+                log $"  Parameters: {initialParameters.Length}"
+                log $"  Optimizer: {optimizerName}"
+                log $"  Learning rate: {config.LearningRate:F4}"
+                log $"  Max epochs: {config.MaxEpochs}"
+                log ""
             
             // Report progress: Training started
             config.ProgressReporter
@@ -322,7 +327,7 @@ module VQC =
                             reporter.Report(Progress.IterationUpdate(state.Epoch, config.MaxEpochs, Some loss)))
                         
                         if config.Verbose then
-                            printfn "Epoch %3d: Loss = %.6f" state.Epoch loss
+                            logInfo config.Logger $"Epoch %3d{state.Epoch}: Loss = {loss:F6}"
                         
                         // Check convergence
                         let converged =
@@ -332,7 +337,7 @@ module VQC =
                                 
                                 if lossChange < config.ConvergenceThreshold then
                                     if config.Verbose then
-                                        printfn "  Converged! (loss change: %.6f < %.6f)" lossChange config.ConvergenceThreshold
+                                        logInfo config.Logger $"  Converged! (loss change: {lossChange:F6} < {config.ConvergenceThreshold:F6})"
                                     true
                                 else
                                     false
@@ -397,13 +402,14 @@ module VQC =
                     |> Result.mapError (fun e -> QuantumError.ValidationError ("Input", $"Final evaluation failed: {e.Message}"))
                 
                 if config.Verbose then
-                    printfn ""
-                    printfn "Training complete!"
-                    printfn "  Epochs: %d" finalState.Epoch
+                    let log = logInfo config.Logger
+                    log ""
+                    log "Training complete!"
+                    log $"  Epochs: {finalState.Epoch}"
                     // LossHistory should never be empty here (training loop adds losses), but safe access
-                    printfn "  Final loss: %.6f" (List.tryHead finalState.LossHistory |> Option.defaultValue 0.0)
-                    printfn "  Train accuracy: %.2f%%" (accuracy * 100.0)
-                    printfn "  Converged: %b" finalState.Converged
+                    log $"  Final loss: {(List.tryHead finalState.LossHistory |> Option.defaultValue 0.0):F6}"
+                    log $"  Train accuracy: {(accuracy * 100.0):F2}%%"
+                    log $"  Converged: {finalState.Converged}"
                 
                 return {
                     Parameters = finalState.Parameters
@@ -482,6 +488,7 @@ module VQC =
         Verbose = true
         Optimizer = SGD
         ProgressReporter = None
+        Logger = None
     }
     
     /// Create training configuration with Adam optimizer
@@ -492,6 +499,7 @@ module VQC =
         Shots = 1024
         Verbose = true
         ProgressReporter = None
+        Logger = None
         Optimizer = Adam AdamOptimizer.defaultConfig
     }
     
@@ -748,16 +756,17 @@ module VQC =
             
             if config.Verbose then
                 let optimizerName = match config.Optimizer with | SGD -> "SGD" | Adam _ -> "Adam"
-                printfn "Starting VQC Regression training..."
-                printfn "  Features: %d samples" trainFeatures.Length
+                let log = logInfo config.Logger
+                log "Starting VQC Regression training..."
+                log $"  Features: {trainFeatures.Length} samples"
                 if trainFeatures.Length > 0 then
-                    printfn "            %d dimensions" trainFeatures.[0].Length
-                printfn "  Target range: [%.2f, %.2f]" minTarget maxTarget
-                printfn "  Parameters: %d" initialParameters.Length
-                printfn "  Optimizer: %s" optimizerName
-                printfn "  Learning rate: %.4f" config.LearningRate
-                printfn "  Max epochs: %d" config.MaxEpochs
-                printfn ""
+                    log $"            {trainFeatures.[0].Length} dimensions"
+                log $"  Target range: [{minTarget:F2}, {maxTarget:F2}]"
+                log $"  Parameters: {initialParameters.Length}"
+                log $"  Optimizer: {optimizerName}"
+                log $"  Learning rate: {config.LearningRate:F4}"
+                log $"  Max epochs: {config.MaxEpochs}"
+                log ""
             
             // Recursive training loop
             let rec trainLoop (state: TrainingState) : QuantumResult<TrainingState> =
@@ -771,7 +780,7 @@ module VQC =
                         let newLossHistory = loss :: state.LossHistory
                         
                         if config.Verbose then
-                            printfn "Epoch %3d: MSE = %.6f" state.Epoch loss
+                            logInfo config.Logger $"Epoch %3d{state.Epoch}: MSE = {loss:F6}"
                         
                         // Check convergence
                         let converged =
@@ -781,7 +790,7 @@ module VQC =
                                 
                                 if lossChange < config.ConvergenceThreshold then
                                     if config.Verbose then
-                                        printfn "  Converged! (loss change: %.6f < %.6f)" lossChange config.ConvergenceThreshold
+                                        logInfo config.Logger $"  Converged! (loss change: {lossChange:F6} < {config.ConvergenceThreshold:F6})"
                                     true
                                 else
                                     false
@@ -854,12 +863,13 @@ module VQC =
                 let finalRSquared = calculateRSquared trainTargets predictions
                 
                 if config.Verbose then
-                    printfn ""
-                    printfn "Training complete!"
-                    printfn "  Epochs: %d" finalState.Epoch
-                    printfn "  Final MSE: %.6f" finalMSE
-                    printfn "  R² score: %.4f" finalRSquared
-                    printfn "  Converged: %b" finalState.Converged
+                    let log = logInfo config.Logger
+                    log ""
+                    log "Training complete!"
+                    log $"  Epochs: {finalState.Epoch}"
+                    log $"  Final MSE: {finalMSE:F6}"
+                    log $"  R^2 score: {finalRSquared:F4}"
+                    log $"  Converged: {finalState.Converged}"
                 
                 Ok {
                     Parameters = finalState.Parameters
@@ -938,17 +948,18 @@ module VQC =
                     }
             else
                 if config.Verbose then
-                    printfn "Starting VQC multi-class training (one-vs-rest)..."
-                    printfn "  Classes: %d" numClasses
-                    printfn "  Samples: %d" trainFeatures.Length
-                    printfn ""
+                    let log = logInfo config.Logger
+                    log "Starting VQC multi-class training (one-vs-rest)..."
+                    log $"  Classes: {numClasses}"
+                    log $"  Samples: {trainFeatures.Length}"
+                    log ""
                 
                 // Train one binary classifier per class
                 let classifierResults = 
                     classLabels 
                     |> Array.mapi (fun i classLabel ->
                         if config.Verbose then
-                            printfn "Training classifier %d/%d (class %d)..." (i + 1) numClasses classLabel
+                            logInfo config.Logger $"Training classifier {i + 1}/{numClasses} (class {classLabel})..."
                         
                         // Create binary labels: 1 for current class, 0 for others
                         let binaryLabels = 
@@ -960,8 +971,8 @@ module VQC =
                         | Error e -> Error (QuantumError.ValidationError ("Input", $"Classifier for class {classLabel} failed: {e}"))
                         | Ok result ->
                             if config.Verbose then
-                                printfn "  Class %d accuracy: %.4f" classLabel result.TrainAccuracy
-                                printfn ""
+                                logInfo config.Logger $"  Class {classLabel} accuracy: {result.TrainAccuracy:F4}"
+                                logInfo config.Logger ""
                             Ok result
                     )
                 
@@ -972,37 +983,45 @@ module VQC =
                     let classifiers = classifierResults |> Array.choose (function Ok r -> Some r | _ -> None)
                     
                     // Compute overall training accuracy using one-vs-rest prediction
-                    let correctCount =
+                    // Collect all scores as Results; fail if any classifier errors
+                    let sampleResults =
                         trainFeatures
                         |> Array.mapi (fun i features ->
                             // Get scores from all classifiers
-                            let scores = 
+                            let scoreResults = 
                                 classifiers 
                                 |> Array.map (fun classifier ->
-                                    match predict backend featureMap variationalForm classifier.Parameters features config.Shots with
-                                    | Ok pred -> pred.Probability
-                                    | Error _ -> 0.0
-                                )
+                                    predict backend featureMap variationalForm classifier.Parameters features config.Shots
+                                    |> Result.map (fun pred -> pred.Probability))
                             
-                            // Predicted class is the one with highest score
-                            let predictedClassIdx = scores |> Array.mapi (fun idx s -> (idx, s)) |> Array.maxBy snd |> fst
-                            let predictedClass = classLabels.[predictedClassIdx]
-                            
-                            if predictedClass = trainLabels.[i] then 1 else 0)
-                        |> Array.sum
+                            let firstError = scoreResults |> Array.tryPick (function Error e -> Some e | Ok _ -> None)
+                            match firstError with
+                            | Some err -> Error err
+                            | None ->
+                                let scores = scoreResults |> Array.map (function Ok s -> s | Error _ -> 0.0) // safe: no errors remain
+                                // Predicted class is the one with highest score
+                                let predictedClassIdx = scores |> Array.mapi (fun idx s -> (idx, s)) |> Array.maxBy snd |> fst
+                                let predictedClass = classLabels.[predictedClassIdx]
+                                Ok (if predictedClass = trainLabels.[i] then 1 else 0))
                     
-                    let accuracy = float correctCount / float trainFeatures.Length
+                    let firstSampleError = sampleResults |> Array.tryPick (function Error e -> Some e | Ok _ -> None)
+                    match firstSampleError with
+                    | Some err -> Error (QuantumError.ValidationError ("Training", $"Prediction failed during multi-class accuracy computation: {err}"))
+                    | None ->
+                        let correctCount = sampleResults |> Array.sumBy (function Ok n -> n | Error _ -> 0)
                     
-                    if config.Verbose then
-                        printfn "Multi-class training complete!"
-                        printfn "  Overall accuracy: %.4f" accuracy
-                    
-                    Ok {
-                        Classifiers = classifiers
-                        ClassLabels = classLabels
-                        TrainAccuracy = accuracy
-                        NumClasses = numClasses
-                    }
+                        let accuracy = float correctCount / float trainFeatures.Length
+                        
+                        if config.Verbose then
+                            logInfo config.Logger "Multi-class training complete!"
+                            logInfo config.Logger $"  Overall accuracy: {accuracy:F4}"
+                        
+                        Ok {
+                            Classifiers = classifiers
+                            ClassLabels = classLabels
+                            TrainAccuracy = accuracy
+                            NumClasses = numClasses
+                        }
     
     /// Predict class for multi-class VQC (one-vs-rest)
     let predictMultiClass

@@ -20,6 +20,7 @@ module QaoaParameterOptimizer =
     open FSharp.Azure.Quantum.Core.CircuitAbstraction
     open FSharp.Azure.Quantum.Core.BackendAbstraction
     open FSharp.Azure.Quantum.Core.QaoaOptimizer
+    open Microsoft.Extensions.Logging
     
     
     // ============================================================================
@@ -65,6 +66,9 @@ module QaoaParameterOptimizer =
         
         /// Progress reporter for long-running optimization
         ProgressReporter: Progress.IProgressReporter option
+        
+        /// Optional logger for structured logging (replaces console output)
+        Logger: ILogger option
     }
     
     /// Result of QAOA parameter optimization
@@ -99,6 +103,7 @@ module QaoaParameterOptimizer =
         RandomSeed = None
         ParameterBounds = (0.0, Math.PI, 0.0, Math.PI / 2.0)
         ProgressReporter = None
+        Logger = None
     }
     
     // ============================================================================
@@ -173,7 +178,8 @@ module QaoaParameterOptimizer =
         (problemHam: ProblemHamiltonian)
         (mixerHam: MixerHamiltonian)
         (backend: IQuantumBackend)
-        (numShots: int) : (float[] -> float) =
+        (numShots: int)
+        (logger: ILogger option) : (float[] -> float) =
         
         fun (parameters: float[]) ->
             // Convert flat array to (γ, β) pairs
@@ -193,7 +199,7 @@ module QaoaParameterOptimizer =
             match backend.ExecuteToState circuitWrapper with
             | Error e -> 
                 // On error, return large penalty
-                printfn $"Warning: Circuit execution failed: {e}"
+                logWarning logger $"Circuit execution failed: {e}"
                 1e10
             | Ok state ->
                 // Measure state to get bitstrings
@@ -290,9 +296,10 @@ module QaoaParameterOptimizer =
         (numStarts: int)
         (maxIter: int)
         (tol: float)
-        (progressReporter: Progress.IProgressReporter option) : OptimizationResult * (float[] * float) list =
+        (progressReporter: Progress.IProgressReporter option)
+        (logger: ILogger option) : OptimizationResult * (float[] * float) list =
         
-        printfn $"Multi-start optimization: {numStarts} starts"
+        logInfo logger $"Multi-start optimization: {numStarts} starts"
         
         progressReporter
         |> Option.iter (fun r -> 
@@ -303,14 +310,14 @@ module QaoaParameterOptimizer =
             |> List.map (fun i ->
                 let seedForRun = seed |> Option.map (fun s -> s + i)
                 let initialParams = initializeParameters p strategy seedForRun
-                printfn $"  Start {i}/{numStarts}: Initial energy = {objectiveFunc (initialParams |> Array.collect (fun (g, b) -> [| g; b |])):F4}|{objectiveFunc (initialParams |> Array.collect (fun (g, b) -> [| g; b |])):F4}"
+                logInfo logger $"  Start {i}/{numStarts}: Initial energy = {objectiveFunc (initialParams |> Array.collect (fun (g, b) -> [| g; b |])):F4}|{objectiveFunc (initialParams |> Array.collect (fun (g, b) -> [| g; b |])):F4}"
                 
                 progressReporter
                 |> Option.iter (fun r -> 
                     r.Report(Progress.PhaseChanged("QAOA Multi-Start", Some $"Start {i}/{numStarts}")))
                 
                 let (result, history) = optimizeSingleRun objectiveFunc initialParams bounds maxIter tol progressReporter
-                printfn $"  Start {i}/{numStarts}: Final energy = {result.FinalObjectiveValue:F4}, Converged = {result.Converged}"
+                logInfo logger $"  Start {i}/{numStarts}: Final energy = {result.FinalObjectiveValue:F4}, Converged = {result.Converged}"
                 (result, history)
             )
         
@@ -319,7 +326,7 @@ module QaoaParameterOptimizer =
             results
             |> List.minBy (fun (res, _) -> res.FinalObjectiveValue)
         
-        printfn $"Best result: Energy = {bestResult.FinalObjectiveValue:F4}"
+        logInfo logger $"Best result: Energy = {bestResult.FinalObjectiveValue:F4}"
         (bestResult, bestHistory)
     
     /// Layer-by-layer optimization: Optimize one layer at a time
@@ -331,15 +338,16 @@ module QaoaParameterOptimizer =
         (bounds: float * float * float * float)
         (maxIter: int)
         (tol: float)
-        (progressReporter: Progress.IProgressReporter option) : OptimizationResult * (float[] * float) list =
+        (progressReporter: Progress.IProgressReporter option)
+        (logger: ILogger option) : OptimizationResult * (float[] * float) list =
         
-        printfn $"Layer-by-layer optimization: {p} layers"
+        logInfo logger $"Layer-by-layer optimization: {p} layers"
         
         // Use fold to accumulate optimized layers
         let (finalParams, allHistory) =
             [0 .. p - 1]
             |> List.fold (fun (accParams, accHistory) layerIdx ->
-                printfn $"  Optimizing layer {layerIdx + 1}/{p}..."
+                logInfo logger $"  Optimizing layer {layerIdx + 1}/{p}..."
                 
                 // Initialize this layer
                 let layerParams = initializeParameters 1 strategy (seed |> Option.map (fun s -> s + layerIdx + 1))
@@ -370,7 +378,7 @@ module QaoaParameterOptimizer =
                 | [| gamma; beta |] ->
                     updatedParams.[layerIdx] <- (gamma, beta)
                     let energy = result.FinalObjectiveValue
-                    printfn $"    Layer {layerIdx + 1} optimized: γ = {gamma:F4}, β = {beta:F4}, Energy = {energy:F4}"
+                    logInfo logger $"    Layer {layerIdx + 1} optimized: gamma = {gamma:F4}, beta = {beta:F4}, Energy = {energy:F4}"
                     (updatedParams, accHistory @ history)
                 | _ -> failwith "Optimization result should have exactly 2 parameters"
             ) (Array.init p (fun _ -> (0.0, 0.0)), [])
@@ -386,7 +394,7 @@ module QaoaParameterOptimizer =
             Iterations = List.length allHistory
         }
         
-        printfn $"Layer-by-layer complete: Final energy = {finalEnergy:F4}"
+        logInfo logger $"Layer-by-layer complete: Final energy = {finalEnergy:F4}"
         (finalResult, allHistory)
     
     /// Adaptive optimization: Adjust strategy based on convergence
@@ -398,9 +406,10 @@ module QaoaParameterOptimizer =
         (bounds: float * float * float * float)
         (maxIter: int)
         (tol: float)
-        (progressReporter: Progress.IProgressReporter option) : OptimizationResult * (float[] * float) list =
+        (progressReporter: Progress.IProgressReporter option)
+        (logger: ILogger option) : OptimizationResult * (float[] * float) list =
         
-        printfn "Adaptive optimization: adjusting based on convergence"
+        logInfo logger "Adaptive optimization: adjusting based on convergence"
         
         progressReporter
         |> Option.iter (fun r -> 
@@ -410,20 +419,20 @@ module QaoaParameterOptimizer =
         let initialParams = initializeParameters p strategy seed
         let (result1, history1) = optimizeSingleRun objectiveFunc initialParams bounds (maxIter / 2) tol progressReporter
         
-        printfn $"  Initial run: Energy = {result1.FinalObjectiveValue:F4}, Converged = {result1.Converged}"
+        logInfo logger $"  Initial run: Energy = {result1.FinalObjectiveValue:F4}, Converged = {result1.Converged}"
         
         if result1.Converged then
             // Converged quickly, return result
-            printfn "  Converged on first attempt"
+            logInfo logger "  Converged on first attempt"
             (result1, history1)
         else
             // Not converged, try multi-start with 3 starts
-            printfn "  Not converged, trying multi-start..."
+            logInfo logger "  Not converged, trying multi-start..."
             progressReporter
             |> Option.iter (fun r -> 
                 r.Report(Progress.PhaseChanged("QAOA Adaptive", Some "Switching to multi-start strategy...")))
             
-            let (result2, history2) = optimizeMultiStart objectiveFunc p strategy seed bounds 3 (maxIter / 2) tol progressReporter
+            let (result2, history2) = optimizeMultiStart objectiveFunc p strategy seed bounds 3 (maxIter / 2) tol progressReporter logger
             
             // Combine histories
             let combinedHistory = history1 @ history2
@@ -452,13 +461,10 @@ module QaoaParameterOptimizer =
         (backend: IQuantumBackend)
         (config: QaoaOptimizationConfig) : QaoaOptimizationResult =
         
-        printfn "╔═══════════════════════════════════════════════════════╗"
-        printfn "║  QAOA Parameter Optimization                          ║"
-        printfn "╚═══════════════════════════════════════════════════════╝"
-        printfn $"Problem: {problemHam.NumQubits} qubits, {problemHam.Terms.Length} terms"
-        printfn $"Layers: p={p}"
-        printfn $"Strategy: {config.OptStrategy}"
-        printfn ""
+        logInfo config.Logger "=== QAOA Parameter Optimization ==="
+        logInfo config.Logger $"Problem: {problemHam.NumQubits} qubits, {problemHam.Terms.Length} terms"
+        logInfo config.Logger $"Layers: p={p}"
+        logInfo config.Logger $"Strategy: {config.OptStrategy}"
         
         // Report optimization start
         config.ProgressReporter
@@ -469,7 +475,7 @@ module QaoaParameterOptimizer =
         let mixerHam = MixerHamiltonian.create problemHam.NumQubits
         
         // Create objective function
-        let objectiveFunc = createObjectiveFunction problemHam mixerHam backend config.NumShots
+        let objectiveFunc = createObjectiveFunction problemHam mixerHam backend config.NumShots config.Logger
         
         // Run optimization based on strategy
         let (result, history) =
@@ -479,13 +485,13 @@ module QaoaParameterOptimizer =
                 optimizeSingleRun objectiveFunc initialParams config.ParameterBounds config.MaxIterations config.Tolerance config.ProgressReporter
             
             | MultiStart numStarts ->
-                optimizeMultiStart objectiveFunc p config.InitStrategy config.RandomSeed config.ParameterBounds numStarts config.MaxIterations config.Tolerance config.ProgressReporter
+                optimizeMultiStart objectiveFunc p config.InitStrategy config.RandomSeed config.ParameterBounds numStarts config.MaxIterations config.Tolerance config.ProgressReporter config.Logger
             
             | LayerByLayer ->
-                optimizeLayerByLayer objectiveFunc p config.InitStrategy config.RandomSeed config.ParameterBounds config.MaxIterations config.Tolerance config.ProgressReporter
+                optimizeLayerByLayer objectiveFunc p config.InitStrategy config.RandomSeed config.ParameterBounds config.MaxIterations config.Tolerance config.ProgressReporter config.Logger
             
             | Adaptive ->
-                optimizeAdaptive objectiveFunc p config.InitStrategy config.RandomSeed config.ParameterBounds config.MaxIterations config.Tolerance config.ProgressReporter
+                optimizeAdaptive objectiveFunc p config.InitStrategy config.RandomSeed config.ParameterBounds config.MaxIterations config.Tolerance config.ProgressReporter config.Logger
         
         // Convert flat parameters back to (γ, β) pairs
         let optimizedParams =
@@ -495,16 +501,14 @@ module QaoaParameterOptimizer =
                 (gamma, beta)
             )
         
-        printfn ""
-        printfn "Optimization Complete!"
-        printfn $"Final Energy: {result.FinalObjectiveValue:F6}"
-        printfn $"Converged: {result.Converged}"
-        printfn $"Iterations: {result.Iterations}"
-        printfn "Optimized Parameters:"
+        logInfo config.Logger "Optimization Complete!"
+        logInfo config.Logger $"Final Energy: {result.FinalObjectiveValue:F6}"
+        logInfo config.Logger $"Converged: {result.Converged}"
+        logInfo config.Logger $"Iterations: {result.Iterations}"
+        logInfo config.Logger "Optimized Parameters:"
         for i in 0 .. p - 1 do
             let (gamma, beta) = optimizedParams.[i]
-            printfn $"  Layer {i + 1}: γ = {gamma:F4}, β = {beta:F4}"
-        printfn ""
+            logInfo config.Logger $"  Layer {i + 1}: gamma = {gamma:F4}, beta = {beta:F4}"
         
         // Report completion
         let statusMsg = if result.Converged then "converged" else "max iterations"

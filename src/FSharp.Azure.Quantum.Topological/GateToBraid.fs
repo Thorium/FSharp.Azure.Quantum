@@ -660,6 +660,22 @@ module GateToBraid =
                 ApproximationError = 0.0
                 DecompositionNotes = Some "Measurement handled by topological backend fusion protocol (not a braid operation)"
             }
+        
+        // RESET - Not supported in topological quantum computing
+        | CircuitBuilder.Gate.Reset _ ->
+            Error (TopologicalError.LogicError 
+                ("Reset gate compilation",
+                 "Reset gate is not supported in topological quantum computing — requires measurement and conditional feedback incompatible with braiding"))
+        
+        // BARRIER - Synchronization directive with no physical effect
+        | CircuitBuilder.Gate.Barrier qubits ->
+            Ok {
+                GateName = "Barrier"
+                Qubits = qubits
+                BraidSequence = []
+                ApproximationError = 0.0
+                DecompositionNotes = Some "Barrier is a synchronization directive with no physical effect — no braiding needed"
+            }
     
     /// Compile gate sequence to braiding operations
     /// 

@@ -43,6 +43,12 @@ module ErrorMitigationStrategy =
         
         /// Required accuracy target 0.0-1.0 (None = best effort)
         RequiredAccuracy: float option
+        
+        /// User-supplied calibration matrix from actual hardware characterization.
+        /// When None, a default placeholder (98% readout fidelity) is used for strategy
+        /// selection heuristics. For production use, supply real calibration data measured
+        /// via ReadoutErrorMitigation.measureCalibrationMatrix.
+        Calibration: ReadoutErrorMitigation.CalibrationMatrix option
     }
     
     /// Recommended mitigation strategy with reasoning and estimates.
@@ -148,7 +154,9 @@ module ErrorMitigationStrategy =
         }
     
     /// Create default calibration matrix for readout error mitigation.
-    /// Note: In real implementation, this would be measured from backend.
+    /// WARNING: This uses a fabricated 98%/2% readout fidelity model for strategy
+    /// selection heuristics ONLY. For actual error correction, supply real calibration
+    /// data measured via ReadoutErrorMitigation.measureCalibrationMatrix.
     let private createDefaultCalibration (backend: Types.Backend) (qubits: int) : ReadoutErrorMitigation.CalibrationMatrix =
         // For strategy selection, use placeholder calibration
         // Real calibration would be measured via ReadoutErrorMitigation.measureCalibrationMatrix
@@ -175,7 +183,9 @@ module ErrorMitigationStrategy =
         
         let zneConfig = createDefaultZNEConfig criteria.Backend
         let pecConfig = createDefaultPECConfig criteria.Backend
-        let calibration = createDefaultCalibration criteria.Backend criteria.QubitCount
+        let calibration = 
+            criteria.Calibration
+            |> Option.defaultWith (fun () -> createDefaultCalibration criteria.Backend criteria.QubitCount)
         
         // Decision tree based on cost-benefit analysis
         match criteria with

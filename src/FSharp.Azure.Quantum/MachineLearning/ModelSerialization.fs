@@ -11,6 +11,7 @@ open FSharp.Azure.Quantum.Core
 open System
 open System.IO
 open System.Text.Json
+open Microsoft.Extensions.Logging
 
 module ModelSerialization =
     
@@ -427,25 +428,26 @@ module ModelSerialization =
              model.FinalLoss,
              model.SavedAt))
     
-    /// Print model information to console
+    /// Print model information via ILogger
     let printVQCModelInfo
         (filePath: string)
+        (logger: ILogger option)
         : QuantumResult<unit> =
         
         loadVQCModel filePath
         |> Result.map (fun model ->
-            printfn "=== VQC Model Information ==="
-            printfn "File: %s" filePath
-            printfn "Saved at: %s" model.SavedAt
-            printfn "Qubits: %d" model.NumQubits
-            printfn "Parameters: %d" model.Parameters.Length
-            printfn "Final Loss: %.6f" model.FinalLoss
-            printfn "Feature Map: %s (depth=%d)" model.FeatureMapType model.FeatureMapDepth
-            printfn "Variational Form: %s (depth=%d)" model.VariationalFormType model.VariationalFormDepth
+            logInfo logger "=== VQC Model Information ==="
+            logInfo logger (sprintf "File: %s" filePath)
+            logInfo logger (sprintf "Saved at: %s" model.SavedAt)
+            logInfo logger (sprintf "Qubits: %d" model.NumQubits)
+            logInfo logger (sprintf "Parameters: %d" model.Parameters.Length)
+            logInfo logger (sprintf "Final Loss: %.6f" model.FinalLoss)
+            logInfo logger (sprintf "Feature Map: %s (depth=%d)" model.FeatureMapType model.FeatureMapDepth)
+            logInfo logger (sprintf "Variational Form: %s (depth=%d)" model.VariationalFormType model.VariationalFormDepth)
             match model.Note with
-            | Some note -> printfn "Note: %s" note
+            | Some note -> logInfo logger (sprintf "Note: %s" note)
             | None -> ()
-            printfn "============================")
+            logInfo logger "============================")
     
     // ========================================================================
     // BATCH OPERATIONS
@@ -950,34 +952,35 @@ module ModelSerialization =
              solution.BackendName,
              solution.SavedAt))
     
-    /// Print portfolio solution information to console
+    /// Print portfolio solution information via ILogger
     let printPortfolioSolutionInfo
         (filePath: string)
+        (logger: ILogger option)
         : QuantumResult<unit> =
         
         loadPortfolioSolution filePath
         |> Result.map (fun solution ->
-            printfn "=== Portfolio Solution Information ==="
-            printfn "File: %s" filePath
-            printfn "Saved at: %s" solution.SavedAt
-            printfn "Backend: %s" solution.BackendName
-            printfn "Total Value: $%.2f" solution.TotalValue
-            printfn "Expected Return: %.2f%%" (solution.ExpectedReturn * 100.0)
-            printfn "Risk: %.2f%%" (solution.Risk * 100.0)
-            printfn "Sharpe Ratio: %.4f" solution.SharpeRatio
-            printfn "QAOA Parameters: gamma=%.4f, beta=%.4f" solution.QaoaGamma solution.QaoaBeta
-            printfn "Risk Aversion: %.2f" solution.RiskAversion
-            printfn "Budget: $%.2f" solution.Budget
-            printfn "Best Energy: %.4f" solution.BestEnergy
-            printfn "Num Shots: %d" solution.NumShots
-            printfn "Elapsed: %.2fms" solution.ElapsedMs
-            printfn ""
-            printfn "Allocations (%d assets):" solution.Allocations.Length
+            logInfo logger "=== Portfolio Solution Information ==="
+            logInfo logger (sprintf "File: %s" filePath)
+            logInfo logger (sprintf "Saved at: %s" solution.SavedAt)
+            logInfo logger (sprintf "Backend: %s" solution.BackendName)
+            logInfo logger (sprintf "Total Value: $%.2f" solution.TotalValue)
+            logInfo logger (sprintf "Expected Return: %.2f%%" (solution.ExpectedReturn * 100.0))
+            logInfo logger (sprintf "Risk: %.2f%%" (solution.Risk * 100.0))
+            logInfo logger (sprintf "Sharpe Ratio: %.4f" solution.SharpeRatio)
+            logInfo logger (sprintf "QAOA Parameters: gamma=%.4f, beta=%.4f" solution.QaoaGamma solution.QaoaBeta)
+            logInfo logger (sprintf "Risk Aversion: %.2f" solution.RiskAversion)
+            logInfo logger (sprintf "Budget: $%.2f" solution.Budget)
+            logInfo logger (sprintf "Best Energy: %.4f" solution.BestEnergy)
+            logInfo logger (sprintf "Num Shots: %d" solution.NumShots)
+            logInfo logger (sprintf "Elapsed: %.2fms" solution.ElapsedMs)
+            logInfo logger ""
+            logInfo logger (sprintf "Allocations (%d assets):" solution.Allocations.Length)
             solution.Allocations
             |> List.iter (fun alloc ->
-                printfn "  %s: %.2f shares @ $%.2f = $%.2f (%.1f%%)" 
-                    alloc.Symbol alloc.Shares alloc.Price alloc.Value (alloc.Percentage * 100.0))
+                logInfo logger (sprintf "  %s: %.2f shares @ $%.2f = $%.2f (%.1f%%)" 
+                    alloc.Symbol alloc.Shares alloc.Price alloc.Value (alloc.Percentage * 100.0)))
             match solution.Note with
-            | Some note -> printfn "Note: %s" note
+            | Some note -> logInfo logger (sprintf "Note: %s" note)
             | None -> ()
-            printfn "======================================")
+            logInfo logger "======================================")

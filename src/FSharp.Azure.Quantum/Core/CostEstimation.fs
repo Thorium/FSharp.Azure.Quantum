@@ -1,6 +1,7 @@
 namespace FSharp.Azure.Quantum.Core
 
 open System
+open Microsoft.Extensions.Logging
 
 /// Complete cost estimation module for Azure Quantum backends
 /// ALL cost estimation code consolidated in this single file for AI context optimization
@@ -703,12 +704,13 @@ module CostEstimation =
     // CLI COST DASHBOARD
     // ============================================================================
     
-    /// Display cost dashboard to console
-    let displayCostDashboard (records: CostTrackingRecord list) : unit =
-        printfn "\n=== Cost Dashboard ==="
+    /// Format cost dashboard as a string for display or logging
+    let formatCostDashboard (records: CostTrackingRecord list) : string =
+        let sb = System.Text.StringBuilder()
+        sb.AppendLine("\n=== Cost Dashboard ===") |> ignore
         
         if records.IsEmpty then
-            printfn "\nNo cost records to display."
+            sb.AppendLine("\nNo cost records to display.") |> ignore
         else
             // Helper to convert USD to float for display
             let usdFloat (cost: decimal<USD>) = float (cost / 1.0M<USD>)
@@ -723,7 +725,7 @@ module CostEstimation =
                 todayRecords
                 |> List.sumBy (fun r -> r.ActualCost |> Option.defaultValue r.EstimatedCost)
             
-            printfn "\n📅 Today: $%.2f (%d jobs)" (usdFloat todaySpend) todayRecords.Length
+            sb.AppendLine(sprintf "\n[Today] $%.2f (%d jobs)" (usdFloat todaySpend) todayRecords.Length) |> ignore
             
             // This month's spending
             let thisMonth = DateTimeOffset.UtcNow.Year, DateTimeOffset.UtcNow.Month
@@ -735,24 +737,24 @@ module CostEstimation =
                 monthlyRecords
                 |> List.sumBy (fun r -> r.ActualCost |> Option.defaultValue r.EstimatedCost)
             
-            printfn "📆 This Month: $%.2f (%d jobs)" (usdFloat monthlySpend) monthlyRecords.Length
+            sb.AppendLine(sprintf "[This Month] $%.2f (%d jobs)" (usdFloat monthlySpend) monthlyRecords.Length) |> ignore
             
             // Total spending
             let totalSpend = 
                 records 
                 |> List.sumBy (fun r -> r.ActualCost |> Option.defaultValue r.EstimatedCost)
             
-            printfn "💰 Total: $%.2f (%d jobs)" (usdFloat totalSpend) records.Length
+            sb.AppendLine(sprintf "[Total] $%.2f (%d jobs)" (usdFloat totalSpend) records.Length) |> ignore
             
             // Breakdown by backend
-            printfn "\n📊 Spending by Backend:"
+            sb.AppendLine("\n[Spending by Backend]") |> ignore
             records
             |> List.groupBy (fun r -> r.Backend)
             |> List.sortByDescending (fun (_, recs) -> 
                 recs |> List.sumBy (fun r -> r.ActualCost |> Option.defaultValue r.EstimatedCost))
             |> List.iter (fun (backend, recs) ->
                 let total = recs |> List.sumBy (fun r -> r.ActualCost |> Option.defaultValue r.EstimatedCost)
-                printfn "  %s: $%.2f (%d jobs)" (formatBackendName backend) (usdFloat total) recs.Length)
+                sb.AppendLine(sprintf "  %s: $%.2f (%d jobs)" (formatBackendName backend) (usdFloat total) recs.Length) |> ignore)
             
             // Estimate accuracy
             let recordsWithActual = 
@@ -768,7 +770,14 @@ module CostEstimation =
                         abs(float ((actual - estimated) / actual)))
                 
                 let avgError = (List.average accuracyErrors) * 100.0
-                printfn "\n📈 Estimate Accuracy: %.1f%% average error" avgError
+                sb.AppendLine(sprintf "\n[Estimate Accuracy] %.1f%% average error" avgError) |> ignore
+        
+        sb.ToString()
+
+    /// Display cost dashboard, directing output to ILogger if provided
+    let displayCostDashboard (records: CostTrackingRecord list) (logger: ILogger option) : unit =
+        let dashboard = formatCostDashboard records
+        logInfo logger dashboard
     
     // ============================================================================
     // AZURE QUANTUM METADATA PARSING (for Azure job cost info)
@@ -871,27 +880,16 @@ module CostEstimation =
                 use doc = System.Text.Json.JsonDocument.Parse(json)
                 let root = doc.RootElement
                 
-                let mutable element = Unchecked.defaultof<System.Text.Json.JsonElement>
-                
                 let cost =
-                    if root.TryGetProperty("estimated", &element) then
-                        Some(decimal (element.GetDouble()) * 1.0M<USD>)
-                    elif root.TryGetProperty("actual", &element) then
-                        Some(decimal (element.GetDouble()) * 1.0M<USD>)
-                    else
-                        None
+                    match tryGetJsonDouble "estimated" root with
+                    | Some v -> Some(decimal v * 1.0M<USD>)
+                    | None ->
+                        match tryGetJsonDouble "actual" root with
+                        | Some v -> Some(decimal v * 1.0M<USD>)
+                        | None -> None
                 
-                let currency =
-                    if root.TryGetProperty("currency", &element) then
-                        element.GetString()
-                    else
-                        "USD"
-                
-                let billingStatus =
-                    if root.TryGetProperty("billingStatus", &element) then
-                        Some(element.GetString())
-                    else
-                        None
+                let currency = getJsonStringOrDefault "currency" "USD" root
+                let billingStatus = tryGetJsonString "billingStatus" root
                 
                 Some {
                     JobId = ""  // Will be set by caller

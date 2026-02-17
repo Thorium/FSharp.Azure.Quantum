@@ -135,7 +135,7 @@ module QuantumTreeSearchBuilderTests =
         }
         
         // Assert - if we got here, validation passed
-        Assert.Equal(0, problem.InitialState)
+        Assert.Equal(Some 0, problem.InitialState)
         Assert.Equal(3, problem.MaxDepth)
         Assert.Equal(4, problem.BranchingFactor)
     
@@ -156,7 +156,7 @@ module QuantumTreeSearchBuilderTests =
         }
         
         // Assert
-        Assert.Equal(1, problem.InitialState)
+        Assert.Equal(Some 1, problem.InitialState)
         Assert.Equal(3, problem.MaxDepth)
         Assert.Equal(4, problem.BranchingFactor)
         Assert.Equal(0.15, problem.TopPercentile)
@@ -214,7 +214,7 @@ module QuantumTreeSearchBuilderTests =
         let problem = QuantumTreeSearch.simple 1 simpleEval simpleMoveGen
         
         // Assert
-        Assert.Equal(1, problem.InitialState)
+        Assert.Equal(Some 1, problem.InitialState)
         Assert.Equal(3, problem.MaxDepth)
         Assert.Equal(16, problem.BranchingFactor)
         Assert.Equal(0.2, problem.TopPercentile)
@@ -231,7 +231,7 @@ module QuantumTreeSearchBuilderTests =
         let problem = QuantumTreeSearch.forGameAI board depth branching simpleEval simpleMoveGen
         
         // Assert
-        Assert.Equal(0, problem.InitialState)
+        Assert.Equal(Some 0, problem.InitialState)
         Assert.Equal(4, problem.MaxDepth)
         Assert.Equal(8, problem.BranchingFactor)
         Assert.Equal(0.2, problem.TopPercentile)
@@ -247,7 +247,7 @@ module QuantumTreeSearchBuilderTests =
         let problem = QuantumTreeSearch.forDecisionProblem initialDecision steps optionsPerStep simpleEval simpleMoveGen
         
         // Assert
-        Assert.Equal(5, problem.InitialState)
+        Assert.Equal(Some 5, problem.InitialState)
         Assert.Equal(3, problem.MaxDepth)
         Assert.Equal(4, problem.BranchingFactor)
         Assert.Equal(0.15, problem.TopPercentile)  // More selective for decision problems
@@ -472,7 +472,7 @@ module QuantumTreeSearchBuilderTests =
     let ``QuantumTreeSearch.solve should return error for invalid problem`` () =
         // Arrange - Create problem with manual record (bypass builder validation for testing)
         let problem : QuantumTreeSearch.TreeSearchProblem<int> = {
-            InitialState = 1
+            InitialState = Some 1
             MaxDepth = 20  // Way too deep
             BranchingFactor = 256
             EvaluationFunction = simpleEval

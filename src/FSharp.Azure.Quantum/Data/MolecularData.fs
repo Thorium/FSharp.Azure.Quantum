@@ -190,7 +190,7 @@ module MolecularData =
         else
             // Organic subset: B, C, N, O, P, S, F, Cl, Br, I
             // Lowercase = aromatic: b, c, n, o, p, s
-            let organicSubset = Regex(@"^([BCNOPSFIbcnops]|Cl|Br)")
+            let organicSubset = Regex(@"^(Cl|Br|[BCNOPSFIbcnops])")
             let bracketAtom = Regex(@"^\[(\d*)([A-Z][a-z]?)([H]?)(\d*)([+-]?\d*)\]")
             
             let matchOrganic = organicSubset.Match(smilesFragment)
@@ -601,30 +601,38 @@ module MolecularData =
                 | Some sIdx ->
                     let dataLines = lines.[1..]
                     
-                    let molecules = ResizeArray<Molecule>()
-                    let labels = ResizeArray<int>()
+                    let parsed =
+                        dataLines
+                        |> Array.choose (fun line ->
+                            let fields = line.Split(',') |> Array.map (fun s -> s.Trim().Trim('"'))
+                            if fields.Length > sIdx then
+                                match parseSmiles fields.[sIdx] with
+                                | Ok mol ->
+                                    let label =
+                                        match labelIdx with
+                                        | Some lIdx when fields.Length > lIdx ->
+                                            match Int32.TryParse(fields.[lIdx]) with
+                                            | true, v -> Some v
+                                            | false, _ -> Some 0
+                                        | _ -> None
+                                    Some (mol, label)
+                                | Error _ -> None
+                            else None)
                     
-                    for line in dataLines do
-                        let fields = line.Split(',') |> Array.map (fun s -> s.Trim().Trim('"'))
-                        if fields.Length > sIdx then
-                            match parseSmiles fields.[sIdx] with
-                            | Ok mol -> 
-                                molecules.Add(mol)
-                                match labelIdx with
-                                | Some lIdx when fields.Length > lIdx ->
-                                    match Int32.TryParse(fields.[lIdx]) with
-                                    | true, v -> labels.Add(v)
-                                    | false, _ -> labels.Add(0)
-                                | _ -> ()
-                            | Error _ -> ()
-                    
-                    Ok {
-                        Molecules = molecules.ToArray()
-                        Descriptors = None
-                        Fingerprints = None
-                        Labels = if labels.Count > 0 then Some (labels.ToArray()) else None
-                        LabelColumn = labelColumn
-                    }
+                    if parsed.Length = 0 then
+                        Error (QuantumError.ValidationError (
+                            "csv",
+                            sprintf "All %d data rows failed to parse (no valid SMILES found in column '%s')" dataLines.Length smilesColumn))
+                    else
+                        let molecules = parsed |> Array.map fst
+                        let labels = parsed |> Array.choose snd
+                        Ok {
+                            Molecules = molecules
+                            Descriptors = None
+                            Fingerprints = None
+                            Labels = if labels.Length > 0 then Some labels else None
+                            LabelColumn = labelColumn
+                        }
         with ex ->
             Error (QuantumError.Other (sprintf "Failed to read CSV: %s" ex.Message))
     

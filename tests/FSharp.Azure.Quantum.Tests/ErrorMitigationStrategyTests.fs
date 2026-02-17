@@ -27,6 +27,7 @@ module ErrorMitigationStrategyTests =
             Backend = createTestBackend ()
             MaxCostUSD = None
             RequiredAccuracy = None
+            Calibration = None
         }
     
     // ============================================================================

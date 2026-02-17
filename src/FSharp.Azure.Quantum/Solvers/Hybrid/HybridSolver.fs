@@ -172,22 +172,22 @@ module HybridSolver =
     // ================================================================================
 
     /// Execute TSP problem on quantum backend using QAOA
-    /// Note: Full quantum hardware integration requires circuit compilation and backend submission.
+    ///
+    /// Returns Error because the full QUBO-to-circuit workflow is not implemented:
+    /// 1. Convert TSP to QUBO matrix (GraphOptimization.toQubo)
+    /// 2. Generate QAOA circuit (QaoaCircuit.fromQubo)
+    /// 3. Submit to quantum backend (IonQ/Rigetti)
+    /// 4. Decode measurement results to tour
+    ///
+    /// Use solveTspWithBackend for unified-backend execution when available.
     let private executeQuantumTsp
-        (distances: float[,])
-        (quantumConfig: QuantumExecutionConfig)
+        (_distances: float[,])
+        (_quantumConfig: QuantumExecutionConfig)
         : Async<QuantumResult<TspSolver.TspSolution>> =
         async {
-            // Use classical TSP solver as backend
-            // Full QUBO-to-circuit workflow:
-            // 1. Convert TSP to QUBO matrix (GraphOptimization.toQubo)
-            // 2. Generate QAOA circuit (QaoaCircuit.fromQubo)
-            // 3. Submit to quantum backend (IonQ/Rigetti)
-            // 4. Decode measurement results to tour
-            // For now, use optimized classical solver
-            let config = TspSolver.defaultConfig
-            let solution = TspSolver.solveWithDistances distances config
-            return Ok solution
+            return Error (QuantumError.NotImplemented (
+                "Quantum TSP via QAOA circuit execution",
+                Some "QUBO-to-circuit compilation and backend submission are not yet implemented. Use solveTspWithBackend or force Classical method."))
         }
 
     // ================================================================================

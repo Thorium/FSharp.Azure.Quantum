@@ -486,10 +486,10 @@ module ConstraintScheduler =
                     Ok (Some schedule)
     
     /// Find schedule using classical algorithm (baseline)
-    let private optimizeClassical (problem: SchedulingProblem) : Schedule option =
-        // Classical constraint solving (NP-hard)
-        // This is a placeholder - production would implement backtracking or local search
-        None
+    let private optimizeClassical (_problem: SchedulingProblem) : Schedule option =
+        failwith
+            "Classical constraint scheduling is not implemented. \
+             Provide a quantum backend via SchedulingProblem.Backend."
     
     /// Execute scheduling optimization
     let solve (problem: SchedulingProblem) : QuantumResult<SchedulingResult> =
@@ -504,33 +504,31 @@ module ConstraintScheduler =
             let bestSchedule =
                 match problem.Backend with
                 | Some backend ->
-                    // Use quantum algorithm based on optimization goal
                     match problem.Goal with
                     | MinimizeCost | Balanced ->
-                        // Use Weighted Graph Coloring for cost optimization
                         match optimizeQuantumColoring backend problem with
-                        | Ok sched -> sched
-                        | Error _ -> optimizeClassical problem  // Fallback
+                        | Ok sched -> Ok sched
+                        | Error e -> Error e
                     
                     | MaximizeSatisfaction ->
-                        // Use Max-SAT for constraint satisfaction
                         match optimizeQuantumSat backend problem with
-                        | Ok sched -> sched
-                        | Error _ -> optimizeClassical problem  // Fallback
+                        | Ok sched -> Ok sched
+                        | Error e -> Error e
                 
                 | None ->
-                        // Use classical algorithm
-                        optimizeClassical problem
+                    Error (QuantumError.NotImplemented (
+                        "Classical constraint scheduling",
+                        Some "Provide a quantum backend via SchedulingProblem.Backend."))
+            
+            match bestSchedule with
+            | Error e -> Error e
+            | Ok schedule ->
 
-            // If quantum failed and classical failed (or wasn't fully implemented), 
-            // try a simple greedy fallback to ensure tests pass if a valid solution exists
-            // This is critical for robust behavior when quantum algorithms are probabilistic
+            // If quantum returned None (no solution found), try greedy fallback for small problems
             let finalSchedule = 
-                match bestSchedule with
-                | Some _ -> bestSchedule
+                match schedule with
+                | Some _ -> schedule
                 | None -> 
-                     // Simple greedy fallback for small problems
-                     // Try all permutations for very small problems (brute force)
                      if problem.Tasks.Length <= 5 then
                          // Recursive permutation generator using List.collect (idiomatic F#)
                          let rec permutations = function

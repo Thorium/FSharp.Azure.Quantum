@@ -252,6 +252,24 @@ Examples are categorized into **4 levels** based on business utility and technic
   Shor's algorithm for RSA factorization  
   **Security Implication:** Breaks RSA-2048 (with 4096+ qubits)
 
+- **[CryptographicAnalysis/DiscreteLogAttack.fsx](CryptographicAnalysis/DiscreteLogAttack.fsx)**  
+  Quantum discrete logarithm attack using Shor's algorithm  
+  **Security Implication:** Breaks Diffie-Hellman and DSA key exchange
+
+- **[CryptographicAnalysis/GroverAESThreat.fsx](CryptographicAnalysis/GroverAESThreat.fsx)**  
+  Grover's algorithm threat to AES symmetric encryption  
+  **Security Implication:** Halves AES key strength (AES-128 → 64-bit security)
+
+- **[CryptographicAnalysis/ECCBitcoinThreat.fsx](CryptographicAnalysis/ECCBitcoinThreat.fsx)**  
+  Quantum ECDLP threat to Bitcoin/cryptocurrency elliptic curve cryptography  
+  **Security Implication:** Breaks secp256k1 (~2,330 logical qubits needed)  
+  Uses NBitcoin for real secp256k1 key pairs, addresses, and ECDSA signatures
+
+- **[CryptographicAnalysis/QuantumMining.fsx](CryptographicAnalysis/QuantumMining.fsx)**  
+  Quantum Proof-of-Work mining using Grover's algorithm to break simplified Bitcoin-like puzzles  
+  **Security Implication:** Quadratic speedup for mining (2^70 → 2^35), but not near-term feasible  
+  Uses SHA-256 hashing with NBitcoin for real Bitcoin block structure comparison
+
 ### Quantum Phase Estimation
 - **[PhaseEstimation/MolecularEnergy.fsx](PhaseEstimation/MolecularEnergy.fsx)**  
   QPE (Quantum Phase Estimation) for molecular energies
@@ -474,7 +492,7 @@ dotnet fsi test-all-examples.fsx
 1. CircuitBuilder/ - Low-level circuits
 2. AzureQuantumWorkspace/ - Cloud infrastructure
 3. Topological/ - Exotic quantum models
-4. CryptographicAnalysis/ - Shor's algorithm
+4. CryptographicAnalysis/ - Quantum cryptographic attacks (RSA, ECC, AES, discrete log)
 
 ---
 

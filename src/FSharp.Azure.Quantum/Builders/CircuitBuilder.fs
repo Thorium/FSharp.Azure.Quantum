@@ -43,6 +43,10 @@ module CircuitBuilder =
         
         // Measurement
         | Measure of int              // Measurement of qubit in computational basis
+        
+        // Reset and synchronization
+        | Reset of int                // Reset qubit to |0⟩ state (measure + conditional X)
+        | Barrier of int list         // Synchronization barrier across specified qubits (no physical effect)
 
     /// Represents a quantum circuit with gates and qubit count
     type Circuit = {
@@ -160,6 +164,10 @@ module CircuitBuilder =
         | RZ (q, angle) -> $"rz({angle}) q[{q}];"
         | U3 (q, theta, phi, lambda) -> $"u3({theta},{phi},{lambda}) q[{q}];"
         | Measure q -> $"measure q[{q}];"
+        | Reset q -> $"reset q[{q}];"
+        | Barrier qubits ->
+            let qubitList = qubits |> List.map (fun q -> $"q[{q}]") |> String.concat ","
+            $"barrier {qubitList};"
 
     /// Converts a circuit to OpenQASM 2.0 format for Azure Quantum submission
     let toOpenQASM (circuit: Circuit) : string =
@@ -196,6 +204,8 @@ module CircuitBuilder =
         | CCX _ -> "CCX"
         | MCZ _ -> "MCZ"
         | Measure _ -> "Measure"
+        | Reset _ -> "Reset"
+        | Barrier _ -> "Barrier"
     
     /// Validates a circuit for correctness (qubit bounds, gate compatibility)
     let validate (circuit: Circuit) : Validation.ValidationResult =
@@ -209,7 +219,7 @@ module CircuitBuilder =
 
         let validateGate (gate: Gate) : string list =
             match gate with
-            | X q | Y q | Z q | H q | S q | SDG q | T q | TDG q | Measure q ->
+            | X q | Y q | Z q | H q | S q | SDG q | T q | TDG q | Measure q | Reset q ->
                 validateQubit q |> Option.toList
             | RX (q, _) | RY (q, _) | RZ (q, _) | P (q, _) | U3 (q, _, _, _) ->
                 validateQubit q |> Option.toList
@@ -286,6 +296,25 @@ module CircuitBuilder =
                 let errors = 
                     if List.length allQubits <> (Set.ofList allQubits |> Set.count) then
                         "MCZ control and target qubits must all be distinct" :: errors
+                    else
+                        errors
+                List.rev errors
+            | Barrier qubits ->
+                let errors = 
+                    if List.isEmpty qubits then
+                        ["Barrier must specify at least one qubit"]
+                    else
+                        []
+                let errors =
+                    qubits
+                    |> List.fold (fun acc q ->
+                        match validateQubit q with
+                        | Some err -> err :: acc
+                        | None -> acc
+                    ) errors
+                let errors =
+                    if List.length qubits <> (Set.ofList qubits |> Set.count) then
+                        "Barrier qubits must be distinct" :: errors
                     else
                         errors
                 List.rev errors
@@ -551,6 +580,25 @@ module CircuitBuilder =
         [<CustomOperation("gate")>]
         member _.Gate(circuit: Circuit, g: Gate) : Circuit =
             { circuit with Gates = g :: circuit.Gates }
+        
+        // ========================================================================
+        // MEASUREMENT, RESET, AND SYNCHRONIZATION
+        // ========================================================================
+        
+        /// Measure qubit in computational basis
+        [<CustomOperation("Measure")>]
+        member _.Measure(circuit: Circuit, qubit: int) : Circuit =
+            { circuit with Gates = (Measure qubit) :: circuit.Gates }
+        
+        /// Reset qubit to |0⟩ state (measure + conditional X)
+        [<CustomOperation("Reset")>]
+        member _.Reset(circuit: Circuit, qubit: int) : Circuit =
+            { circuit with Gates = (Reset qubit) :: circuit.Gates }
+        
+        /// Insert synchronization barrier across specified qubits (no physical effect)
+        [<CustomOperation("Barrier")>]
+        member _.Barrier(circuit: Circuit, qubits: int list) : Circuit =
+            { circuit with Gates = (Barrier qubits) :: circuit.Gates }
     
     /// Global computation expression instance for circuit construction
     let circuit = CircuitBuilderCE()
@@ -630,6 +678,12 @@ module CircuitBuilder =
     
     /// Creates an MCZ (multi-controlled Z) gate - for use in for loops
     let mcz controls target = MCZ (controls, target)
+    
+    /// Creates a Reset gate - for use in for loops
+    let reset q = Reset q
+    
+    /// Creates a Barrier gate - for use in for loops
+    let barrier qubits = Barrier qubits
     
     // ========================================================================
     // COMPOSITION OPERATORS (Functional Extensions)
@@ -711,6 +765,12 @@ module CircuitBuilder =
             
             // Measurement not reversible (approximate as identity)
             | Measure q -> Measure q
+            
+            // Reset is not reversible (like Measure, involves decoherence)
+            | Reset q -> Reset q
+            
+            // Barrier is a synchronization directive — stays in place
+            | Barrier qubits -> Barrier qubits
         
         // Gates are stored in reverse chronological order internally.
         // Adjoint of [A, B, C] (forward) is [C†, B†, A†] (forward).
@@ -842,6 +902,8 @@ module CircuitBuilder =
         | CCX (c1, c2, t) -> [c1; c2; t]
         | MCZ (controls, target) -> controls @ [target]
         | Measure q -> [q]
+        | Reset q -> [q]
+        | Barrier qubits -> qubits
     
     /// Check if two gates act on disjoint qubits (always commute)
     let private areDisjoint (gate1: Gate) (gate2: Gate) : bool =

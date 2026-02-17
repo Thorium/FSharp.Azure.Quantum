@@ -15,7 +15,7 @@ module Builders =
         member _.Yield(_) : ScheduledTask<'T> =
             {
                 Id = ""
-                Value = Unchecked.defaultof<'T>
+                Value = None
                 Duration = 0.0
                 EarliestStart = None
                 Deadline = None
@@ -30,7 +30,7 @@ module Builders =
         member _.Zero() : ScheduledTask<'T> =
             {
                 Id = ""
-                Value = Unchecked.defaultof<'T>
+                Value = None
                 Duration = 0.0
                 EarliestStart = None
                 Deadline = None
@@ -43,7 +43,7 @@ module Builders =
             // For tasks, combine by taking non-default values from task2
             {
                 Id = if System.String.IsNullOrEmpty task2.Id then task1.Id else task2.Id
-                Value = task2.Value
+                Value = match task2.Value with | Some _ -> task2.Value | None -> task1.Value
                 Duration = if task2.Duration = 0.0 then task1.Duration else task2.Duration
                 EarliestStart = match task2.EarliestStart with | Some _ -> task2.EarliestStart | None -> task1.EarliestStart
                 Deadline = match task2.Deadline with | Some _ -> task2.Deadline | None -> task1.Deadline
@@ -66,7 +66,7 @@ module Builders =
         /// Set task identifier (required)
         [<CustomOperation("taskId")>]
         member _.TaskId(task: ScheduledTask<'T>, id: string) =
-            { task with Id = id; Value = Unchecked.defaultof<'T> }
+            { task with Id = id }
 
         /// Set task duration (required)
         [<CustomOperation("duration")>]
@@ -131,7 +131,7 @@ module Builders =
         member _.Yield(_) : Resource<'T> =
             {
                 Id = ""
-                Value = Unchecked.defaultof<'T>
+                Value = None
                 Capacity = 0.0
                 AvailableWindows = [(0.0, System.Double.MaxValue)]
                 CostPerUnit = 0.0
@@ -144,7 +144,7 @@ module Builders =
         member _.Zero() : Resource<'T> =
             {
                 Id = ""
-                Value = Unchecked.defaultof<'T>
+                Value = None
                 Capacity = 0.0
                 AvailableWindows = [(0.0, System.Double.MaxValue)]
                 CostPerUnit = 0.0
@@ -155,7 +155,7 @@ module Builders =
             // For resources, combine by taking non-default values from res2
             {
                 Id = if System.String.IsNullOrEmpty res2.Id then res1.Id else res2.Id
-                Value = res2.Value
+                Value = match res2.Value with | Some _ -> res2.Value | None -> res1.Value
                 Capacity = if res2.Capacity = 0.0 then res1.Capacity else res2.Capacity
                 AvailableWindows = if res2.AvailableWindows = [(0.0, System.Double.MaxValue)] then res1.AvailableWindows else res2.AvailableWindows
                 CostPerUnit = if res2.CostPerUnit = 0.0 then res1.CostPerUnit else res2.CostPerUnit
@@ -176,7 +176,7 @@ module Builders =
         /// Set resource identifier (required)
         [<CustomOperation("resourceId")>]
         member _.ResourceId(resource: Resource<'T>, id: string) =
-            { resource with Id = id; Value = Unchecked.defaultof<'T> }
+            { resource with Id = id }
 
         /// Set resource capacity (required)
         [<CustomOperation("capacity")>]
@@ -200,7 +200,7 @@ module Builders =
     let crew (id: string) (capacity: float) (costPerUnit: float) : Resource<string> =
         {
             Id = id
-            Value = id
+            Value = Some id
             Capacity = capacity
             AvailableWindows = [(0.0, System.Double.MaxValue)]
             CostPerUnit = costPerUnit

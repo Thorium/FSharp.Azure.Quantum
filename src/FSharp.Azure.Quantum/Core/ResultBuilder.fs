@@ -242,3 +242,66 @@ module Result =
         items
         |> Array.map f
         |> sequenceArray
+
+
+/// Structured logging helpers for Microsoft.Extensions.Logging.ILogger.
+///
+/// Provides idiomatic F# functions that accept ILogger option, so callers
+/// can pass None when logging is disabled. Replaces raw printfn calls
+/// throughout the library with structured, configurable logging.
+[<AutoOpen>]
+module QuantumLogger =
+
+    open Microsoft.Extensions.Logging
+
+    /// Log an informational message if a logger is provided.
+    let logInfo (logger: ILogger option) (message: string) =
+        logger |> Option.iter (fun l -> l.LogInformation(message))
+
+    /// Log a warning message if a logger is provided.
+    let logWarning (logger: ILogger option) (message: string) =
+        logger |> Option.iter (fun l -> l.LogWarning(message))
+
+    /// Log an error message if a logger is provided.
+    let logError (logger: ILogger option) (message: string) =
+        logger |> Option.iter (fun l -> l.LogError(message))
+
+    /// Log a debug message if a logger is provided.
+    let logDebug (logger: ILogger option) (message: string) =
+        logger |> Option.iter (fun l -> l.LogDebug(message))
+
+
+/// Idiomatic F# helpers for System.Text.Json.JsonElement property access.
+///
+/// System.Text.Json requires outref parameters for TryGetProperty, which forces
+/// mutable + Unchecked.defaultof in F#. These helpers encapsulate that pattern
+/// once, providing clean Option-returning functions for all call sites.
+[<AutoOpen>]
+module JsonHelpers =
+
+    open System.Text.Json
+
+    /// Try to get a property from a JsonElement, returning Option.
+    /// Encapsulates the mutable + Unchecked.defaultof pattern required by System.Text.Json.
+    let tryGetJsonProperty (name: string) (element: JsonElement) : JsonElement option =
+        let mutable prop = Unchecked.defaultof<JsonElement>
+        if element.TryGetProperty(name, &prop) && prop.ValueKind <> JsonValueKind.Null then
+            Some prop
+        else
+            None
+
+    /// Try to get a string property from a JsonElement.
+    let tryGetJsonString (name: string) (element: JsonElement) : string option =
+        tryGetJsonProperty name element |> Option.map (fun e -> e.GetString())
+
+    /// Try to get a double property from a JsonElement.
+    let tryGetJsonDouble (name: string) (element: JsonElement) : float option =
+        tryGetJsonProperty name element |> Option.map (fun e -> e.GetDouble())
+
+    /// Try to get a DateTimeOffset property from a JsonElement.
+    let tryGetJsonDateTimeOffset (name: string) (element: JsonElement) : System.DateTimeOffset option =
+        tryGetJsonProperty name element |> Option.map (fun e -> e.GetDateTimeOffset())
+
+    /// Get a string property, returning a default if missing or null.
+    let getJsonStringOrDefault (name: string) (defaultValue: string) (element: JsonElement) : string =
+        tryGetJsonString name element |> Option.defaultValue defaultValue

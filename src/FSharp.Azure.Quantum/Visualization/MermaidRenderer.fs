@@ -45,6 +45,16 @@ module MermaidRenderer =
                     [ $"    Note over q{qubit}: Measure"
                       $"    q{qubit}->>q{qubit}: Measure → Classical" ]
                 
+                // Reset gate
+                | CircuitBuilder.Reset qubit ->
+                    [ $"    Note over q{qubit}: Reset |0⟩"
+                      $"    q{qubit}->>q{qubit}: Reset to |0⟩" ]
+                
+                // Barrier gate
+                | CircuitBuilder.Barrier qubits ->
+                    let qubitList = qubits |> List.map (fun q -> $"q{q}") |> String.concat ","
+                    [ $"    Note over {qubitList}: Barrier" ]
+                
                 // Rotation gates
                 | CircuitBuilder.RX (qubit, angle) ->
                     [ $"    Note over q{qubit}: RX({angle:F2})"
@@ -173,6 +183,8 @@ module MermaidRenderer =
             | CircuitBuilder.CCX _ -> "CCX/Toffoli"
             | CircuitBuilder.MCZ _ -> "MCZ"
             | CircuitBuilder.Measure _ -> "Measure"
+            | CircuitBuilder.Reset _ -> "Reset |0⟩"
+            | CircuitBuilder.Barrier _ -> "Barrier"
         
         let private processGate (currentId, qubitStates: QubitState, lines) gate =
             match gate with
@@ -345,6 +357,21 @@ module MermaidRenderer =
                           $"    n{prevId} --> n{mIdVal}" ]
                     
                     (nextId mId, qubitStates, lines @ newLines)
+                
+                | CircuitBuilder.Reset qubit ->
+                    let rId = currentId
+                    let (NodeId prevId) = qubitStates.[qubit]
+                    let (NodeId rIdVal) = rId
+                    
+                    let newLines =
+                        [ $"    n{rIdVal}[🔄 Reset |0⟩]"
+                          $"    n{prevId} --> n{rIdVal}" ]
+                    
+                    (nextId rId, qubitStates, lines @ newLines)
+                
+                | CircuitBuilder.Barrier _ ->
+                    // Barrier has no effect on data flow
+                    (currentId, qubitStates, lines)
             
             | Barrier _ ->
                 // Skip barriers in flowchart (doesn't affect data flow)

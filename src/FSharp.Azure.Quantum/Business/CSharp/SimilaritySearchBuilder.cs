@@ -185,7 +185,8 @@ namespace FSharp.Azure.Quantum.Business.CSharp
                 savePath: _savePath != null ? FSharpOption<string>.Some(_savePath) : FSharpOption<string>.None,
                 note: _note != null ? FSharpOption<string>.Some(_note) : FSharpOption<string>.None,
                 progressReporter: FSharpOption<Progress.IProgressReporter>.None,
-                cancellationToken: FSharpOption<System.Threading.CancellationToken>.None);
+                cancellationToken: FSharpOption<System.Threading.CancellationToken>.None,
+                logger: FSharpOption<Microsoft.Extensions.Logging.ILogger>.None);
 
             // Build index
             var result = SimilaritySearch.build(problem);

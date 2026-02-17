@@ -10,6 +10,7 @@ open FSharp.Azure.Quantum.Core
 open System
 open System.IO
 open System.Text.Json
+open Microsoft.Extensions.Logging
 
 module SVMModelSerialization =
     
@@ -175,9 +176,10 @@ module SVMModelSerialization =
         : QuantumResult<QuantumKernelSVM.SVMModel> =
         loadSVMModelAsync filePath |> Async.RunSynchronously
     
-    /// Print binary SVM model information
+    /// Print binary SVM model information via ILogger
     let printSVMModelInfo
         (filePath: string)
+        (logger: ILogger option)
         : QuantumResult<unit> =
         
         try
@@ -187,21 +189,21 @@ module SVMModelSerialization =
                 let json = File.ReadAllText(filePath)
                 let model = JsonSerializer.Deserialize<SerializableSVMModel>(json)
                 
-                printfn "=== Binary SVM Model Information ==="
-                printfn "File: %s" filePath
-                printfn "Saved at: %s" model.SavedAt
-                printfn "Support Vectors: %d" model.SupportVectorIndices.Length
-                printfn "Training Samples: %d" model.TrainData.Length
-                printfn "Features: %d" (if model.TrainData.Length > 0 then model.TrainData.[0].Length else 0)
-                printfn "Bias: %.6f" model.Bias
-                printfn "Feature Map: %s" model.FeatureMap.Type
+                logInfo logger "=== Binary SVM Model Information ==="
+                logInfo logger (sprintf "File: %s" filePath)
+                logInfo logger (sprintf "Saved at: %s" model.SavedAt)
+                logInfo logger (sprintf "Support Vectors: %d" model.SupportVectorIndices.Length)
+                logInfo logger (sprintf "Training Samples: %d" model.TrainData.Length)
+                logInfo logger (sprintf "Features: %d" (if model.TrainData.Length > 0 then model.TrainData.[0].Length else 0))
+                logInfo logger (sprintf "Bias: %.6f" model.Bias)
+                logInfo logger (sprintf "Feature Map: %s" model.FeatureMap.Type)
                 match model.FeatureMap.Depth with
-                | Some d -> printfn "  Depth: %d" d
+                | Some d -> logInfo logger (sprintf "  Depth: %d" d)
                 | None -> ()
                 match model.Note with
-                | Some note -> printfn "Note: %s" note
+                | Some note -> logInfo logger (sprintf "Note: %s" note)
                 | None -> ()
-                printfn "===================================="
+                logInfo logger "===================================="
                 Ok ()
         with ex ->
             Error (QuantumError.ValidationError ("Input", $"Failed to print SVM model info: {ex.Message}"))
@@ -310,9 +312,10 @@ module SVMModelSerialization =
         : QuantumResult<MultiClassSVM.MultiClassModel> =
         loadMultiClassSVMModelAsync filePath |> Async.RunSynchronously
     
-    /// Print multi-class SVM model information
+    /// Print multi-class SVM model information via ILogger
     let printMultiClassSVMModelInfo
         (filePath: string)
+        (logger: ILogger option)
         : QuantumResult<unit> =
         
         try
@@ -322,24 +325,24 @@ module SVMModelSerialization =
                 let json = File.ReadAllText(filePath)
                 let model = JsonSerializer.Deserialize<SerializableMultiClassSVMModel>(json)
                 
-                printfn "=== Multi-Class SVM Model Information ==="
-                printfn "File: %s" filePath
-                printfn "Saved at: %s" model.SavedAt
-                printfn "Number of Classes: %d" model.NumClasses
-                printfn "Class Labels: %A" model.ClassLabels
-                printfn "Binary Models: %d" model.BinaryModels.Length
+                logInfo logger "=== Multi-Class SVM Model Information ==="
+                logInfo logger (sprintf "File: %s" filePath)
+                logInfo logger (sprintf "Saved at: %s" model.SavedAt)
+                logInfo logger (sprintf "Number of Classes: %d" model.NumClasses)
+                logInfo logger (sprintf "Class Labels: %A" model.ClassLabels)
+                logInfo logger (sprintf "Binary Models: %d" model.BinaryModels.Length)
                 
                 for i in 0 .. model.BinaryModels.Length - 1 do
                     let bm = model.BinaryModels.[i]
-                    printfn "  Class %d vs Rest:" model.ClassLabels.[i]
-                    printfn "    Support Vectors: %d" bm.SupportVectorIndices.Length
-                    printfn "    Bias: %.6f" bm.Bias
-                    printfn "    Feature Map: %s" bm.FeatureMap.Type
+                    logInfo logger (sprintf "  Class %d vs Rest:" model.ClassLabels.[i])
+                    logInfo logger (sprintf "    Support Vectors: %d" bm.SupportVectorIndices.Length)
+                    logInfo logger (sprintf "    Bias: %.6f" bm.Bias)
+                    logInfo logger (sprintf "    Feature Map: %s" bm.FeatureMap.Type)
                 
                 match model.Note with
-                | Some note -> printfn "Note: %s" note
+                | Some note -> logInfo logger (sprintf "Note: %s" note)
                 | None -> ()
-                printfn "=========================================="
+                logInfo logger "=========================================="
                 Ok ()
         with ex ->
             Error (QuantumError.ValidationError ("Input", $"Failed to print multi-class SVM model info: {ex.Message}"))

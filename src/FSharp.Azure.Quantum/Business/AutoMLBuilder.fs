@@ -9,6 +9,7 @@ open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum.MachineLearning
 open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum
+open Microsoft.Extensions.Logging
 
 /// Automated Machine Learning Builder - Zero-Config ML
 /// 
@@ -161,6 +162,10 @@ module AutoML =
         /// Verbose logging
         Verbose: bool
         
+        /// Optional structured logger. When provided, verbose output is sent to this
+        /// ILogger instead of being discarded.
+        Logger: ILogger option
+        
         /// Path to save best model
         SavePath: string option
         
@@ -312,6 +317,7 @@ module AutoML =
             Note = None
             ProgressReporter = None
             CancellationToken = None
+            Logger = None
         }
         
         BinaryClassifier.train problem
@@ -336,6 +342,7 @@ module AutoML =
             Backend = backend
             Shots = hyperparams.Shots
             Verbose = false
+            Logger = None
             SavePath = None
             Note = None
             ProgressReporter = None
@@ -364,6 +371,7 @@ module AutoML =
             Backend = backend
             Shots = hyperparams.Shots
             Verbose = false
+            Logger = None
             SavePath = None
             Note = None
             ProgressReporter = None
@@ -384,6 +392,7 @@ module AutoML =
             Backend = backend
             Shots = hyperparams.Shots
             Verbose = false
+            Logger = None
             SavePath = None
             Note = None
             ProgressReporter = None
@@ -411,6 +420,7 @@ module AutoML =
             Note = None
             ProgressReporter = None
             CancellationToken = None
+            Logger = None
         }
         
         SimilaritySearch.build problem
@@ -501,12 +511,12 @@ module AutoML =
                 r.Report(Core.Progress.PhaseChanged("AutoML Search", Some "Initializing search")))
             
             if problem.Verbose then
-                printfn "🚀 Starting AutoML Search..."
-                printfn $"   Samples: {problem.TrainFeatures.Length}"
-                printfn $"   Features: {problem.TrainFeatures.[0].Length}"
-                printfn $"   Max Trials: {problem.MaxTrials}"
-                printfn $"   Architectures: {problem.TryArchitectures.Length}"
-                printfn ""
+                logInfo problem.Logger "[Start] Starting AutoML Search..."
+                logInfo problem.Logger $"   Samples: {problem.TrainFeatures.Length}"
+                logInfo problem.Logger $"   Features: {problem.TrainFeatures.[0].Length}"
+                logInfo problem.Logger $"   Max Trials: {problem.MaxTrials}"
+                logInfo problem.Logger $"   Architectures: {problem.TryArchitectures.Length}"
+                logInfo problem.Logger ""
             
             // Split data into train/validation
             let splitIndex = int (float problem.TrainFeatures.Length * (1.0 - problem.ValidationSplit))
@@ -516,14 +526,14 @@ module AutoML =
             let valY = problem.TrainLabels.[splitIndex..]
             
             if problem.Verbose then
-                printfn $"Train/Val Split: {trainX.Length}/{valX.Length} samples\n"
+                logInfo problem.Logger $"Train/Val Split: {trainX.Length}/{valX.Length} samples\n"
             
             // Generate hyperparameter configurations and trials
             let hyperparamConfigs = generateHyperparameterConfigs problem.RandomSeed
             let trials = generateTrials problem hyperparamConfigs
             
             if problem.Verbose then
-                printfn $"Generated {trials.Length} trials to execute\n"
+                logInfo problem.Logger $"Generated {trials.Length} trials to execute\n"
             
             // Check if time budget exceeded
             let isTimeBudgetExceeded () =
@@ -544,14 +554,14 @@ module AutoML =
                 // Check cancellation first
                 if isCancellationRequested() then
                     if problem.Verbose then
-                        printfn "🛑 Search cancelled by user"
+                        logInfo problem.Logger "[Stop] Search cancelled by user"
                     reporter |> Option.iter (fun r ->
                         r.Report(Core.Progress.ProgressUpdate(0.0, "Search cancelled by user")))
                     None
                 elif isTimeBudgetExceeded() then
                     if problem.Verbose then
                         let elapsed = (DateTime.UtcNow - startTime).TotalMinutes
-                        printfn $"⏱️  Time budget exceeded ({elapsed:F1} minutes)"
+                        logInfo problem.Logger $"[Timeout] Time budget exceeded ({elapsed:F1} minutes)"
                     None
                 else
                     let trialStart = DateTime.UtcNow
@@ -562,7 +572,7 @@ module AutoML =
                         r.Report(Core.Progress.TrialStarted(trial.Id + 1, trials.Length, modelTypeStr)))
                     
                     if problem.Verbose then
-                        printfn $"Trial {trial.Id + 1}/{List.length trials}: {trial.ModelType} with {trial.Architecture}..."
+                        logInfo problem.Logger $"Trial {trial.Id + 1}/{List.length trials}: {trial.ModelType} with {trial.Architecture}..."
                     
                     let createFailureResult errorMsg =
                         ({
@@ -604,7 +614,7 @@ module AutoML =
                                          let score = metrics.Accuracy
                                          let elapsed = (DateTime.UtcNow - trialStart).TotalSeconds
                                          if problem.Verbose then
-                                             printfn $"  ✅ Score: {score * 100.0:F2}%% (time: {elapsed:F1}s)"
+                                              logInfo problem.Logger $"  [OK] Score: {score * 100.0:F2}%% (time: {elapsed:F1}s)"
                                          
                                          // Report trial completion
                                          reporter |> Option.iter (fun r ->
@@ -614,7 +624,7 @@ module AutoML =
                                 |> Result.map (fun (score, model) -> createSuccessResult score model)
                                 |> Result.orElseWith (fun e ->
                                     if problem.Verbose then
-                                        printfn $"  ❌ Failed: {e}"
+                                        logWarning problem.Logger $"  [FAIL] Failed: {e}"
                                     
                                     // Report trial failure
                                     reporter |> Option.iter (fun r ->
@@ -633,12 +643,12 @@ module AutoML =
                                     |> Result.map (fun metrics ->
                                         let score = metrics.Accuracy
                                         if problem.Verbose then
-                                            printfn $"  ✅ Score: {score * 100.0:F2}%% (time: {(DateTime.UtcNow - trialStart).TotalSeconds:F1}s)"
+                                            logInfo problem.Logger $"  [OK] Score: {score * 100.0:F2}%% (time: {(DateTime.UtcNow - trialStart).TotalSeconds:F1}s)"
                                         (score, model)))
                                 |> Result.map (fun (score, model) -> createSuccessResult score model)
                                 |> Result.orElseWith (fun e ->
                                     if problem.Verbose then
-                                        printfn $"  ❌ Failed: {e}"
+                                        logWarning problem.Logger $"  [FAIL] Failed: {e}"
                                     Ok (createFailureResult e.Message))
                             
                             // Regression
@@ -649,12 +659,12 @@ module AutoML =
                                     |> Result.map (fun metrics ->
                                         let score = max 0.0 metrics.RSquared  // R² can be negative
                                         if problem.Verbose then
-                                            printfn $"  ✅ R² Score: {score:F4} (time: {(DateTime.UtcNow - trialStart).TotalSeconds:F1}s)"
+                                            logInfo problem.Logger $"  [OK] R2 Score: {score:F4} (time: {(DateTime.UtcNow - trialStart).TotalSeconds:F1}s)"
                                         (score, model)))
                                 |> Result.map (fun (score, model) -> createSuccessResult score model)
                                 |> Result.orElseWith (fun e ->
                                     if problem.Verbose then
-                                        printfn $"  ❌ Failed: {e}"
+                                        logWarning problem.Logger $"  [FAIL] Failed: {e}"
                                     Ok (createFailureResult e.Message))
                             
                             // Anomaly Detection
@@ -680,13 +690,13 @@ module AutoML =
                                         else 0.0
                                     
                                     if problem.Verbose then
-                                        printfn $"  ✅ Heuristic Score: {score:F2} (time: {(DateTime.UtcNow - trialStart).TotalSeconds:F1}s)"
+                                        logInfo problem.Logger $"  [OK] Heuristic Score: {score:F2} (time: {(DateTime.UtcNow - trialStart).TotalSeconds:F1}s)"
                                     
                                     (score, detector))
                                 |> Result.map (fun (score, detector) -> createSuccessResult score detector)
                                 |> Result.orElseWith (fun e ->
                                     if problem.Verbose then
-                                        printfn $"  ❌ Failed: {e}"
+                                        logWarning problem.Logger $"  [FAIL] Failed: {e}"
                                     Ok (createFailureResult e.Message))
                             
                             // Similarity Search
@@ -704,18 +714,18 @@ module AutoML =
                                             0.3
                                     
                                     if problem.Verbose then
-                                        printfn $"  ✅ Search Quality Score: {score:F2} (time: {(DateTime.UtcNow - trialStart).TotalSeconds:F1}s)"
+                                        logInfo problem.Logger $"  [OK] Search Quality Score: {score:F2} (time: {(DateTime.UtcNow - trialStart).TotalSeconds:F1}s)"
                                     
                                     (score, searchIndex))
                                 |> Result.map (fun (score, searchIndex) -> createSuccessResult score searchIndex)
                                 |> Result.orElseWith (fun e ->
                                     if problem.Verbose then
-                                        printfn $"  ❌ Failed: {e}"
+                                        logWarning problem.Logger $"  [FAIL] Failed: {e}"
                                     Ok (createFailureResult e.Message))
                             
                         with ex ->
                             if problem.Verbose then
-                                printfn $"  ❌ Exception: {ex.Message}"
+                                logError problem.Logger $"  [ERROR] Exception: {ex.Message}"
                             Ok (createFailureResult ex.Message)
                     
                     match result with
@@ -784,13 +794,13 @@ module AutoML =
                 }
                 
                 if problem.Verbose then
-                    printfn ""
-                    printfn "✅ AutoML Search Complete!"
-                    printfn $"   Best Model: {result.BestModelType}"
-                    printfn $"   Best Architecture: {result.BestArchitecture}"
-                    printfn $"   Best Score: {result.Score * 100.0:F2}%%"
-                    printfn $"   Successful Trials: {result.SuccessfulTrials}/{results.Length}"
-                    printfn $"   Total Time: {result.TotalSearchTime.TotalSeconds:F1}s"
+                    logInfo problem.Logger ""
+                    logInfo problem.Logger "[OK] AutoML Search Complete!"
+                    logInfo problem.Logger $"   Best Model: {result.BestModelType}"
+                    logInfo problem.Logger $"   Best Architecture: {result.BestArchitecture}"
+                    logInfo problem.Logger $"   Best Score: {result.Score * 100.0:F2}%%"
+                    logInfo problem.Logger $"   Successful Trials: {result.SuccessfulTrials}/{results.Length}"
+                    logInfo problem.Logger $"   Total Time: {result.TotalSearchTime.TotalSeconds:F1}s"
                 
                 Ok result
             
@@ -866,6 +876,7 @@ module AutoML =
                 ValidationSplit = 0.2
                 Backend = None
                 Verbose = false
+                Logger = None
                 SavePath = None
                 RandomSeed = None
                 ProgressReporter = None
@@ -899,6 +910,7 @@ module AutoML =
                 ValidationSplit = 0.2
                 Backend = None
                 Verbose = false
+                Logger = None
                 SavePath = None
                 RandomSeed = None
                 ProgressReporter = None

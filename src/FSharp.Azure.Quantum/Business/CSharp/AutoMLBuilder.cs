@@ -276,6 +276,7 @@ namespace FSharp.Azure.Quantum.Business.CSharp
                 _validationSplit,
                 _backend != null ? FSharpOption<IQuantumBackend>.Some(_backend) : FSharpOption<IQuantumBackend>.None,
                 _verbose,
+                FSharpOption<Microsoft.Extensions.Logging.ILogger>.None,
                 _savePath != null ? FSharpOption<string>.Some(_savePath) : FSharpOption<string>.None,
                 _randomSeed.HasValue ? FSharpOption<int>.Some(_randomSeed.Value) : FSharpOption<int>.None,
                 FSharpOption<Core.Progress.IProgressReporter>.None,

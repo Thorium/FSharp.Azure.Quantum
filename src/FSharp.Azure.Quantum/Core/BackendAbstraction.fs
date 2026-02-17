@@ -55,8 +55,8 @@ module BackendAbstraction =
     /// Minimal unitary family supported by QPE intent.
     ///
     /// This intentionally covers the common "single-qubit phase" cases used throughout
-    /// the codebase (T, S, and phase/rotation gates). More general unitaries can be
-    /// added later without forcing the algorithm implementation to be gate-native.
+    /// the codebase (T, S, and phase/rotation gates), plus modular exponentiation for
+    /// Shor's period-finding algorithm.
     [<RequireQualifiedAccess>]
     type QpeUnitary =
         /// U|1⟩ = e^(iθ)|1⟩ (implemented via CP in the controlled case).
@@ -73,13 +73,25 @@ module BackendAbstraction =
         /// Controlled variant uses CRZ.
         | RotationZ of theta: float
 
+        /// Modular exponentiation U_a: |x⟩ → |ax mod N⟩.
+        ///
+        /// Used in Shor's period-finding: QPE estimates the phase of U_a to find
+        /// the period r such that a^r ≡ 1 (mod N).
+        ///
+        /// Unlike single-qubit unitaries above, this requires multi-qubit target
+        /// registers and Beauregard (2003) arithmetic circuits. Cannot be lowered
+        /// to simple gate operations by the backend's native QPE handler; execution
+        /// is handled by the Shor algorithm module (which compiles after Arithmetic).
+        | ModularExponentiation of baseNum: int * modulus: int
+
     type QpeIntent = {
         /// Number of counting (precision) qubits.
         CountingQubits: int
  
         /// Number of target qubits.
         ///
-        /// Current intent implementation supports only `TargetQubits = 1`.
+        /// For single-qubit unitaries (PhaseGate, TGate, SGate, RotationZ): use 1.
+        /// For ModularExponentiation: use ceil(log₂(N)) bits for the target register.
         TargetQubits: int
  
         /// Unitary whose phase is estimated.
@@ -452,9 +464,9 @@ module BackendAbstraction =
                 // Optimal: No conversion needed
                 backend.ApplyOperation operation state
             else
-                // Convert to backend's native type
-                let converted = QuantumStateConversion.convert nativeType state
-                backend.ApplyOperation operation converted
+                // Convert to backend's native type, then apply
+                QuantumStateConversion.convert nativeType state
+                |> Result.bind (fun converted -> backend.ApplyOperation operation converted)
         
         /// Apply sequence of operations efficiently
         /// 
@@ -481,17 +493,17 @@ module BackendAbstraction =
                 let nativeType = backend.NativeStateType
                 let stateType = QuantumState.stateType initialState
                 
-                let convertedState =
+                let convertedResult =
                     if stateType <> nativeType then
                         QuantumStateConversion.convert nativeType initialState
                     else
-                        initialState
+                        Ok initialState
                 
                 // Apply operations sequentially (fold with short-circuit on error)
                 operations
                 |> List.fold (fun stateResult op ->
                     stateResult |> Result.bind (fun s -> backend.ApplyOperation op s)
-                ) (Ok convertedState)
+                ) convertedResult
         
         /// Measure state and return classical outcomes
         /// 

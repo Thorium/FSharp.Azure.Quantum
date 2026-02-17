@@ -577,7 +577,7 @@ match result with
 **Validation Checks:**
 - All tasks have non-empty unique IDs
 - All dependencies reference existing tasks
-- No circular dependencies (TODO: not yet implemented)
+- No circular dependencies (detected at solve-time via topological sort; not yet validated upfront)
 
 ---
 
@@ -1189,7 +1189,7 @@ let taskB = scheduledTask {
 
 ### Issue: Tasks not serializing with resource constraints
 
-**Status:** Resource allocation in classical solver is a work-in-progress (TKT-91).
+**Status:** Resource allocation constraints are enforced by the quantum solver. The classical solver uses priority-based scheduling and may not fully respect resource capacity limits.
 
 **Workaround:** Use explicit dependencies to force serialization:
 

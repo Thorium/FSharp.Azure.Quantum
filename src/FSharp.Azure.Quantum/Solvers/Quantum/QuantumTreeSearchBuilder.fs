@@ -59,8 +59,8 @@ module QuantumTreeSearch =
     /// Complete quantum tree search problem specification.
     /// </summary>
     type TreeSearchProblem<'T> = {
-        /// Initial game/decision state to search from
-        InitialState: 'T
+        /// Initial game/decision state to search from (None if not yet set)
+        InitialState: 'T option
         /// Maximum depth to explore in the tree
         MaxDepth: int
         /// Expected branching factor (moves per position)
@@ -116,7 +116,9 @@ module QuantumTreeSearch =
     /// Validates a quantum tree search problem specification.
     /// </summary>
     let validate (problem: TreeSearchProblem<'T>) : Result<unit, QuantumError> =
-        if problem.MaxDepth < 1 then
+        if Option.isNone problem.InitialState then
+            Error (QuantumError.ValidationError ("InitialState", "must be provided via 'initialState' in the builder"))
+        elif problem.MaxDepth < 1 then
             Error (QuantumError.ValidationError ("MaxDepth", "must be at least 1"))
         elif problem.MaxDepth > 8 then
             Error (QuantumError.ValidationError ("MaxDepth", "exceeds 8 (would require too many qubits for NISQ devices)"))
@@ -144,7 +146,7 @@ module QuantumTreeSearch =
         
         member _.Yield(_) : TreeSearchProblem<'T> =
             {
-                InitialState = Unchecked.defaultof<'T>
+                InitialState = None
                 MaxDepth = 3
                 BranchingFactor = 16
                 EvaluationFunction = fun _ -> 0.0
@@ -171,7 +173,7 @@ module QuantumTreeSearch =
             // Idiomatic F#: Use Seq.fold for functional accumulation
             // Returns the last problem state (typical for configuration-style CEs)
             let zero = {
-                InitialState = Unchecked.defaultof<'T>
+                InitialState = None
                 MaxDepth = 3
                 BranchingFactor = 16
                 EvaluationFunction = fun _ -> 0.0
@@ -198,7 +200,7 @@ module QuantumTreeSearch =
         /// <param name="state">Initial state</param>
         [<CustomOperation("initialState")>]
         member _.InitialState(problem: TreeSearchProblem<'T>, state: 'T) : TreeSearchProblem<'T> =
-            { problem with InitialState = state }
+            { problem with InitialState = Some state }
         
         /// <summary>Set the maximum depth for tree search.</summary>
         /// <param name="depth">Maximum search depth</param>
@@ -327,6 +329,12 @@ module QuantumTreeSearch =
             | Error err -> Error err
             | Ok () ->
                 
+                // Unwrap InitialState (validated as Some above)
+                let initialState =
+                    match problem.InitialState with
+                    | Some s -> s
+                    | None -> failwith "InitialState must be set (should have been caught by validation)"
+                
                 // Use provided backend or create LocalBackend for simulation
                 let actualBackend = 
                     problem.Backend 
@@ -348,7 +356,7 @@ module QuantumTreeSearch =
                 
                 // Call quantum tree search algorithm with user-provided parameters (including maxPaths)
                 match GroverSearch.TreeSearch.searchGameTree 
-                        problem.InitialState 
+                        initialState 
                         config 
                         actualBackend 
                         problem.TopPercentile 
@@ -389,7 +397,7 @@ module QuantumTreeSearch =
     /// Quick helper to create a simple tree search with common defaults
     let simple (initialState: 'T) (evalFunc: 'T -> float) (moveGen: 'T -> 'T list) : TreeSearchProblem<'T> =
         {
-            InitialState = initialState
+            InitialState = Some initialState
             MaxDepth = 3
             BranchingFactor = 16
             EvaluationFunction = evalFunc
@@ -471,7 +479,7 @@ Qubits Required: %d%s"""
         (legalMoves: 'T -> 'T list) 
         : TreeSearchProblem<'T> =
         {
-            InitialState = board
+            InitialState = Some board
             MaxDepth = depth
             BranchingFactor = branching
             EvaluationFunction = evaluator
@@ -495,7 +503,7 @@ Qubits Required: %d%s"""
         (nextOptions: 'T -> 'T list) 
         : TreeSearchProblem<'T> =
         {
-            InitialState = initialDecision
+            InitialState = Some initialDecision
             MaxDepth = steps
             BranchingFactor = optionsPerStep
             EvaluationFunction = scorer

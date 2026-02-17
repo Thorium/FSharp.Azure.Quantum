@@ -6,6 +6,7 @@ open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.Algorithms.HHLTypes
 open FSharp.Azure.Quantum.Algorithms
+open Microsoft.Extensions.Logging
 
 /// Quantum Linear Regression via HHL Algorithm Module
 /// 
@@ -84,6 +85,9 @@ module QuantumRegressionHHL =
         
         /// Verbose logging
         Verbose: bool
+        
+        /// Optional logger for structured logging
+        Logger: ILogger option
     }
     
     /// Result of quantum regression training
@@ -299,9 +303,9 @@ module QuantumRegressionHHL =
                 let nFeatures = config.TrainX[0].Length
                 
                 if config.Verbose then
-                    printfn "🚀 Quantum Linear Regression via HHL"
-                    printfn $"   Samples: {nSamples}, Features: {nFeatures}"
-                    printfn $"   Fit intercept: {config.FitIntercept}"
+                    logInfo config.Logger "[Start] Quantum Linear Regression via HHL"
+                    logInfo config.Logger $"   Samples: {nSamples}, Features: {nFeatures}"
+                    logInfo config.Logger $"   Fit intercept: {config.FitIntercept}"
                 
                 // Step 1: Add intercept column if needed
                 let X = 
@@ -314,13 +318,13 @@ module QuantumRegressionHHL =
                 
                 // Step 2: Compute Gram matrix A = X^T X
                 if config.Verbose then
-                    printfn "   Computing Gram matrix (X^T X)..."
+                    logInfo config.Logger "   Computing Gram matrix (X^T X)..."
                 
                 let gramMatrix = computeGramMatrix X
                 
                 // Step 3: Compute moment vector b = X^T y
                 if config.Verbose then
-                    printfn "   Computing moment vector (X^T y)..."
+                    logInfo config.Logger "   Computing moment vector (X^T y)..."
                 
                 let momentVector = computeMomentVector X config.TrainY
                 
@@ -330,7 +334,7 @@ module QuantumRegressionHHL =
                 let paddedDim = Array2D.length1 paddedGram
                 
                 if config.Verbose then
-                    printfn $"   Padded dimension: {actualFeatures} → {paddedDim}"
+                    logInfo config.Logger $"   Padded dimension: {actualFeatures} -> {paddedDim}"
                 
                 // Step 5: Convert to complex and create HHL problem
                 let complexGram = toComplexMatrix paddedGram
@@ -361,15 +365,15 @@ module QuantumRegressionHHL =
                         // - explicit gate-level lowering + backend transpilation for general Hermitian matrices
                         
                         if config.Verbose then
-                            printfn $"   Solving via HHL algorithm..."
-                            printfn $"   Total qubits: {config.EigenvalueQubits + hhlConfig.SolutionQubits + 1}"
+                            logInfo config.Logger $"   Solving via HHL algorithm..."
+                            logInfo config.Logger $"   Total qubits: {config.EigenvalueQubits + hhlConfig.SolutionQubits + 1}"
                         
                         // Execute HHL with new unified API
                         match HHL.execute hhlConfig config.Backend with
                         | Error err -> Error err
                         | Ok hhlResult ->
                             if config.Verbose then
-                                printfn $"   HHL success probability: {hhlResult.SuccessProbability:F4}"
+                                logInfo config.Logger $"   HHL success probability: {hhlResult.SuccessProbability:F4}"
 
                             // HHL.execute returns the solution-register amplitudes directly (simulator path).
                             // These are proportional to the regression weights, up to an unknown global scale.
@@ -408,8 +412,8 @@ module QuantumRegressionHHL =
                             let mse = calculateMSE config.TrainY predictions
                             
                             if config.Verbose then
-                                printfn $"   R² score: {rSquared:F4}"
-                                printfn $"   MSE: {mse:F6}"
+                                logInfo config.Logger $"   R2 score: {rSquared:F4}"
+                                logInfo config.Logger $"   MSE: {mse:F6}"
                             
                             Ok {
                                 Weights = weights

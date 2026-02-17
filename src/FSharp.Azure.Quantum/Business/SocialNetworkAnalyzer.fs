@@ -191,10 +191,10 @@ module SocialNetworkAnalyzer =
                     Ok communities
     
     /// Find communities using classical algorithm (baseline)
-    let private findCommunitiesClassical (problem: SocialNetworkProblem) : Community list =
-        // Classical clique finding (exponential time for exact)
-        // This is a placeholder - production would implement Bron-Kerbosch algorithm
-        []
+    let private findCommunitiesClassical (_problem: SocialNetworkProblem) : Community list =
+        failwith
+            "Classical community detection is not implemented. \
+             Provide a quantum backend via SocialNetworkProblem.Backend."
     
     /// Execute social network analysis
     let solve (problem: SocialNetworkProblem) : QuantumResult<SocialNetworkResult> =
@@ -203,29 +203,26 @@ module SocialNetworkAnalyzer =
         elif problem.People.Length > 100 then
             Error (QuantumError.ValidationError ("People", $"network too large ({problem.People.Length}), maximum is 100"))
         else
-            // Infer quantum vs classical from backend presence
-            let communities =
-                match problem.Backend with
-                | Some backend ->
-                    // Use quantum algorithm
-                    match findCommunitiesQuantum backend problem with
-                    | Ok comms -> comms
-                    | Error _ -> findCommunitiesClassical problem  // Fallback to classical
-                
-                | None ->
-                    // Use classical algorithm
-                    findCommunitiesClassical problem
+            match problem.Backend with
+            | Some backend ->
+                match findCommunitiesQuantum backend problem with
+                | Ok communities ->
+                    Ok {
+                        Communities = communities
+                        TotalPeople = problem.People.Length
+                        TotalConnections = problem.Connections.Length
+                        Message = 
+                            if communities.IsEmpty then
+                                "No communities found with the specified criteria"
+                            else
+                                $"Found {communities.Length} communities"
+                    }
+                | Error e -> Error e
             
-            Ok {
-                Communities = communities
-                TotalPeople = problem.People.Length
-                TotalConnections = problem.Connections.Length
-                Message = 
-                    if communities.IsEmpty then
-                        "No communities found with the specified criteria"
-                    else
-                        $"Found {communities.Length} communities"
-            }
+            | None ->
+                Error (QuantumError.NotImplemented (
+                    "Classical community detection",
+                    Some "Provide a quantum backend via SocialNetworkProblem.Backend."))
     
     // ========================================================================
     // COMPUTATION EXPRESSION BUILDER

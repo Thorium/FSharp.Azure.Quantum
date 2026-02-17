@@ -101,32 +101,36 @@ module VisualizationExtensions =
             // Helper to get anyon names
             let getAnyonName i = sprintf "Anyon%d" i
             
-            // Process history
-            let mutable anyonCount = 0
-            
-            for op in history do
-                match op with
-                | TopologicalBuilder.Init (anyonType, count) ->
-                    anyonCount <- count
-                    sb.AppendLine(sprintf "    Note over %s,%s: Initialize %d %A Anyons" 
-                        (getAnyonName 0) (getAnyonName (count-1)) count anyonType) |> ignore
+            // Process history using fold to thread anyonCount state
+            let _finalAnyonCount =
+                history
+                |> List.fold (fun anyonCount op ->
+                    match op with
+                    | TopologicalBuilder.Init (anyonType, count) ->
+                        sb.AppendLine(sprintf "    Note over %s,%s: Initialize %d %A Anyons" 
+                            (getAnyonName 0) (getAnyonName (count-1)) count anyonType) |> ignore
+                        count
+                            
+                    | TopologicalBuilder.Braid index ->
+                        let left = getAnyonName index
+                        let right = getAnyonName (index + 1)
+                        sb.AppendLine(sprintf "    %s->>%s: Braid σ%d" left right index) |> ignore
+                        sb.AppendLine(sprintf "    %s->>%s: Swap" right left) |> ignore
+                        anyonCount
                         
-                | TopologicalBuilder.Braid index ->
-                    let left = getAnyonName index
-                    let right = getAnyonName (index + 1)
-                    sb.AppendLine(sprintf "    %s->>%s: Braid σ%d" left right index) |> ignore
-                    sb.AppendLine(sprintf "    %s->>%s: Swap" right left) |> ignore
-                    
-                | TopologicalBuilder.Measure (index, outcome, prob) ->
-                    let left = getAnyonName index
-                    let right = getAnyonName (index + 1)
-                    sb.AppendLine(sprintf "    Note over %s,%s: Measure Fusion" left right) |> ignore
-                    sb.AppendLine(sprintf "    %s-->>%s: Result: %A (P=%.2f)" left right outcome prob) |> ignore
-                    
-                | TopologicalBuilder.Comment msg ->
-                    if anyonCount > 0 then
-                        sb.AppendLine(sprintf "    Note over %s,%s: %s" 
-                            (getAnyonName 0) (getAnyonName (anyonCount-1)) msg) |> ignore
+                    | TopologicalBuilder.Measure (index, outcome, prob) ->
+                        let left = getAnyonName index
+                        let right = getAnyonName (index + 1)
+                        sb.AppendLine(sprintf "    Note over %s,%s: Measure Fusion" left right) |> ignore
+                        sb.AppendLine(sprintf "    %s-->>%s: Result: %A (P=%.2f)" left right outcome prob) |> ignore
+                        anyonCount
+                        
+                    | TopologicalBuilder.Comment msg ->
+                        if anyonCount > 0 then
+                            sb.AppendLine(sprintf "    Note over %s,%s: %s" 
+                                (getAnyonName 0) (getAnyonName (anyonCount-1)) msg) |> ignore
+                        anyonCount
+                ) 0
             
             sb.AppendLine("```") |> ignore
             sb.ToString()

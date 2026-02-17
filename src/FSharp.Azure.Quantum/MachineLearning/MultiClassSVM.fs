@@ -10,6 +10,7 @@ namespace FSharp.Azure.Quantum.MachineLearning
 open System
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.BackendAbstraction
+open Microsoft.Extensions.Logging
 
 module MultiClassSVM =
     
@@ -107,14 +108,14 @@ module MultiClassSVM =
                 Error (QuantumError.Other "For binary classification, use QuantumKernelSVM.train directly")
             else
                 if config.Verbose then
-                    printfn "Training One-vs-Rest multi-class SVM..."
-                    printfn "  Classes: %d (%A)" numClasses uniqueClasses
+                    logInfo config.Logger "Training One-vs-Rest multi-class SVM..."
+                    logInfo config.Logger (sprintf "  Classes: %d (%A)" numClasses uniqueClasses)
                 
                 // Train one binary classifier per class (functional)
                 uniqueClasses
                 |> Array.map (fun classLabel ->
                     if config.Verbose then
-                        printfn "  Training classifier for class %d vs rest..." classLabel
+                        logInfo config.Logger (sprintf "  Training classifier for class %d vs rest..." classLabel)
                     
                     // Create binary labels (class vs. rest)
                     let binaryLabels = createBinaryLabels trainLabels classLabel
@@ -125,7 +126,7 @@ module MultiClassSVM =
                 |> traverseResult
                 |> Result.map (fun binaryModels ->
                     if config.Verbose then
-                        printfn "Multi-class training complete!"
+                        logInfo config.Logger "Multi-class training complete!"
                     
                     {
                         BinaryModels = binaryModels

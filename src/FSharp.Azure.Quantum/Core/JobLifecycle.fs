@@ -153,11 +153,7 @@ module JobLifecycle =
                     
                     // Helper to safely get optional string property
                     let tryGetStringProperty (name: string) =
-                        let mutable prop = Unchecked.defaultof<JsonElement>
-                        if root.TryGetProperty(name, &prop) && prop.ValueKind <> JsonValueKind.Null then
-                            Some (prop.GetString())
-                        else
-                            None
+                        tryGetJsonString name root
                     
                     // Extract optional timestamp fields
                     let beginExecutionTime = tryGetStringProperty "beginExecutionTime"
@@ -167,18 +163,12 @@ module JobLifecycle =
                     
                     // Extract error data if present
                     let (errorCode, errorMessage) =
-                        let mutable errorData = Unchecked.defaultof<JsonElement>
-                        if root.TryGetProperty("errorData", &errorData) && errorData.ValueKind <> JsonValueKind.Null then
-                            // Safely extract nested error properties
-                            let getErrorString (prop: string) =
-                                let elem = errorData.GetProperty(prop)
-                                if elem.ValueKind = JsonValueKind.Null then None
-                                else Some (elem.GetString())
-                            
-                            let code = getErrorString "code"
-                            let message = getErrorString "message"
+                        match tryGetJsonProperty "errorData" root with
+                        | Some errorData ->
+                            let code = tryGetJsonString "code" errorData
+                            let message = tryGetJsonString "message" errorData
                             (code, message)
-                        else
+                        | None ->
                             (None, None)
                     
                     // Parse job status
@@ -336,11 +326,8 @@ module JobLifecycle =
                         try
                             use jsonDoc = JsonDocument.Parse(resultJson)
                             let root = jsonDoc.RootElement
-                            let mutable idProp = Unchecked.defaultof<JsonElement>
-                            if root.TryGetProperty("jobId", &idProp) && idProp.ValueKind <> JsonValueKind.Null then
-                                idProp.GetString()
-                            else
-                                "unknown"
+                            tryGetJsonString "jobId" root
+                            |> Option.defaultValue "unknown"
                         with
                         | _ -> "unknown"
                     

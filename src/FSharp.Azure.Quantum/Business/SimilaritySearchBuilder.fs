@@ -11,6 +11,7 @@ open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum.MachineLearning
 open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum
+open Microsoft.Extensions.Logging
 
 /// High-Level Similarity Search Builder - Business-First API
 /// 
@@ -96,6 +97,9 @@ module SimilaritySearch =
         
         /// Optional cancellation token for early termination
         CancellationToken: System.Threading.CancellationToken option
+        
+        /// Optional logger for structured logging
+        Logger: ILogger option
     }
     
     /// Trained similarity search index
@@ -233,10 +237,10 @@ module SimilaritySearch =
             let numFeatures = snd problem.Items.[0] |> Array.length
             
             if problem.Verbose then
-                printfn "Building similarity index..."
-                printfn "  Items: %d" problem.Items.Length
-                printfn "  Features: %d" numFeatures
-                printfn "  Metric: %A" problem.Metric
+                logInfo problem.Logger "Building similarity index..."
+                logInfo problem.Logger (sprintf "  Items: %d" problem.Items.Length)
+                logInfo problem.Logger (sprintf "  Features: %d" numFeatures)
+                logInfo problem.Logger (sprintf "  Metric: %A" problem.Metric)
             
             // Precompute kernel matrix if using quantum kernel
             let kernelMatrix =
@@ -254,14 +258,14 @@ module SimilaritySearch =
                     let features = problem.Items |> Array.map snd
                     
                     if problem.Verbose then
-                        printfn "  Computing quantum kernel matrix..."
+                        logInfo problem.Logger "  Computing quantum kernel matrix..."
                     
                     match QuantumKernels.computeKernelMatrix backend featureMap features problem.Shots with
                     | Ok matrix -> Some matrix
                     | Error e ->
                         if problem.Verbose then
-                            printfn "  ⚠️  Warning: Kernel computation failed: %s" e.Message
-                            printfn "  Falling back to cosine similarity"
+                            logWarning problem.Logger (sprintf "  [WARN] Kernel computation failed: %s" e.Message)
+                            logWarning problem.Logger "  Falling back to cosine similarity"
                         None
                 
                 | _ -> None
@@ -269,7 +273,7 @@ module SimilaritySearch =
             let endTime = DateTime.UtcNow
             
             if problem.Verbose then
-                printfn "✅ Index built in %A" (endTime - startTime)
+                logInfo problem.Logger (sprintf "[OK] Index built in %A" (endTime - startTime))
             
             let index = {
                 Items = problem.Items
@@ -697,6 +701,7 @@ module SimilaritySearch =
                 Note = None
                 ProgressReporter = None
                 CancellationToken = None
+                Logger = None
             }
         
         member _.Delay(f: unit -> SearchProblem<'T>) = f
@@ -722,6 +727,7 @@ module SimilaritySearch =
                 Note = None
                 ProgressReporter = None
                 CancellationToken = None
+                Logger = None
             }
         
         /// <summary>Set the items to index for similarity search.</summary>

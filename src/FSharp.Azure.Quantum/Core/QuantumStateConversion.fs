@@ -54,55 +54,56 @@ module QuantumStateConversion =
     // GENERIC CONVERSION DISPATCHER
     // ========================================================================
     
-    /// Convert between any two QuantumState types
+    /// Convert between any two QuantumState types.
+    /// Returns Result.Error for unsupported conversion paths.
     let convert 
         (targetType: QuantumStateType) 
         (state: QuantumState) 
-        : QuantumState =
+        : Result<QuantumState, QuantumError> =
         
         let sourceType = QuantumState.stateType state
         
         if sourceType = targetType then
-            state
+            Ok state
         else
             match (sourceType, targetType, state) with
             // StateVector ↔ SparseState
             | (QuantumStateType.GateBased, QuantumStateType.Sparse, QuantumState.StateVector sv) ->
                 let (amps, n) = stateVectorToSparse sv
-                QuantumState.SparseState (amps, n)
+                Ok (QuantumState.SparseState (amps, n))
             
             | (QuantumStateType.Sparse, QuantumStateType.GateBased, QuantumState.SparseState (amps, n)) ->
                 let sv = sparseToStateVector amps n
-                QuantumState.StateVector sv
+                Ok (QuantumState.StateVector sv)
             
             // FusionSuperposition conversions require Topological package
-            // Return state unchanged - let the calling backend handle this
             | (QuantumStateType.TopologicalBraiding, _, _)
             | (_, QuantumStateType.TopologicalBraiding, _) ->
-                // Note: Topological conversions should be implemented in the Topological package
-                // For now, return the state unchanged and let caller decide
-                state
+                Error (QuantumError.NotImplemented (
+                    $"Conversion between {sourceType} and {targetType}",
+                    Some "Requires the FSharp.Azure.Quantum.Topological package"))
             
-            // Unimplemented conversions - return state unchanged
+            // Unsupported conversions
             | _ ->
-                // For unsupported conversions, return original state
-                // Backends should check if conversion succeeded via type matching
-                state
+                Error (QuantumError.NotImplemented (
+                    $"Conversion from {sourceType} to {targetType}",
+                    None))
     
-    /// Smart conversion: Only convert if necessary, prefer native type
+    /// Smart conversion: Only convert if necessary, prefer native type.
+    /// Returns Result.Error for unsupported conversion paths.
     let convertSmart 
         (preferredType: QuantumStateType) 
         (state: QuantumState) 
-        : QuantumState =
+        : Result<QuantumState, QuantumError> =
         
         let currentType = QuantumState.stateType state
         
         // If already in preferred type, no conversion needed
         if currentType = preferredType then
-            state
+            Ok state
         // If mixed backend, state type doesn't matter
         elif preferredType = QuantumStateType.Mixed then
-            state
+            Ok state
         // Otherwise, convert to preferred type
         else
             convert preferredType state

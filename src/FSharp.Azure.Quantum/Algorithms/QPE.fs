@@ -64,6 +64,14 @@ module QPE =
         /// General rotation gate: U = Rz(θ) = [[e^(-iθ/2), 0], [0, e^(iθ/2)]]
         /// Eigenvalue (for |1⟩): e^(iθ/2) → phase φ = θ/(4π)
         | RotationZ of theta: float
+        
+        /// Modular exponentiation: U_a|x⟩ = |ax mod N⟩
+        /// Used in Shor's period-finding: estimates phase φ = s/r where a^r ≡ 1 (mod N).
+        ///
+        /// Cannot be lowered to simple gate operations by QPE's built-in lowering;
+        /// requires multi-qubit Beauregard (2003) arithmetic circuits.
+        /// Execution is handled by Shor.estimateModExpPhase in the Shor module.
+        | ModularExponentiation of baseNum: int * modulus: int
     
     /// Configuration for Quantum Phase Estimation
     type QPEConfig = {
@@ -142,6 +150,7 @@ module QPE =
         | UnitaryOperator.TGate -> QpeUnitary.TGate
         | UnitaryOperator.SGate -> QpeUnitary.SGate
         | UnitaryOperator.RotationZ theta -> QpeUnitary.RotationZ theta
+        | UnitaryOperator.ModularExponentiation (baseNum, modulus) -> QpeUnitary.ModularExponentiation (baseNum, modulus)
 
     /// QPE does not require bit-reversal SWAPs; we can post-process classically.
     let private defaultApplyBitReversalSwaps = false
@@ -218,7 +227,10 @@ module QPE =
                     QuantumOperation.Gate (CircuitBuilder.CP (j, config.CountingQubits, totalTheta))
                 | RotationZ theta ->
                     let totalTheta = float applications * theta
-                    QuantumOperation.Gate (CircuitBuilder.CRZ (j, config.CountingQubits, totalTheta)))
+                    QuantumOperation.Gate (CircuitBuilder.CRZ (j, config.CountingQubits, totalTheta))
+                | ModularExponentiation _ ->
+                    // Unreachable: plan() rejects ModularExponentiation before buildLoweringOps is called.
+                    failwith "ModularExponentiation cannot be lowered to gate ops; use Shor.estimateModExpPhase")
 
         // Step 5: Apply inverse QFT to counting register manually
         // CRITICAL: Inverse QFT processes qubits in REVERSE order (n-1 down to 0)
@@ -267,17 +279,27 @@ module QPE =
                 | Approximate epsilon when epsilon <= 0.0 ->
                     Error (QuantumError.ValidationError ("Exactness", "epsilon must be positive"))
                 | _ ->
-                    let coreIntent = toCoreIntent intent
-                    let nativeOp = QuantumOperation.Algorithm (AlgorithmOperation.QPE coreIntent)
+                    // ModularExponentiation cannot be lowered to simple gate ops by QPE;
+                    // it requires multi-qubit Beauregard circuits from the Arithmetic module
+                    // which compiles after QPE. Use Shor.estimateModExpPhase instead.
+                    match intent.Config.UnitaryOperator with
+                    | ModularExponentiation _ ->
+                        Error (QuantumError.OperationError (
+                            "QPE",
+                            "ModularExponentiation cannot be executed via QPE's built-in lowering. " +
+                            "Use Shor.estimateModExpPhase which has access to the Beauregard arithmetic circuits."))
+                    | _ ->
+                        let coreIntent = toCoreIntent intent
+                        let nativeOp = QuantumOperation.Algorithm (AlgorithmOperation.QPE coreIntent)
 
-                    if backend.SupportsOperation nativeOp then
-                        Ok (QpePlan.ExecuteNatively (coreIntent, intent.Exactness))
-                    else
-                        let lowerOps = buildLoweringOps intent
-                        if lowerOps |> List.forall backend.SupportsOperation then
-                            Ok (QpePlan.ExecuteViaOps (lowerOps, intent.Exactness))
+                        if backend.SupportsOperation nativeOp then
+                            Ok (QpePlan.ExecuteNatively (coreIntent, intent.Exactness))
                         else
-                            Error (QuantumError.OperationError ("QPE", $"Backend '{backend.Name}' does not support required operations for QPE"))
+                            let lowerOps = buildLoweringOps intent
+                            if lowerOps |> List.forall backend.SupportsOperation then
+                                Ok (QpePlan.ExecuteViaOps (lowerOps, intent.Exactness))
+                            else
+                                Error (QuantumError.OperationError ("QPE", $"Backend '{backend.Name}' does not support required operations for QPE"))
 
     let private executePlan
         (backend: IQuantumBackend)
@@ -363,56 +385,64 @@ module QPE =
             elif config.CountingQubits > 16 then
                 return! Error (QuantumError.ValidationError ("CountingQubits", "more than 16 is not practical for local simulation"))
             elif config.EigenVector.IsSome then
-                return! Error (QuantumError.ValidationError ("EigenVector", "custom eigenvector not yet supported"))
+                return! Error (QuantumError.ValidationError ("EigenVector", "custom eigenvector preparation not yet supported; currently only the default |1> eigenvector is used for phase estimation"))
             else
-                let totalQubits = config.CountingQubits + config.TargetQubits
+                match config.UnitaryOperator with
+                | ModularExponentiation (baseNum, modulus) ->
+                    return! Error (QuantumError.OperationError (
+                        "QPE",
+                        $"ModularExponentiation(base={baseNum}, N={modulus}) cannot be executed via QPE.execute. " +
+                        "Use Shor.estimateModExpPhase which orchestrates the full Beauregard arithmetic circuit."))
+                | _ ->
 
-                // Step 1: Initialize state |0⟩^(⊗(n+m))
-                let! initialState = backend.InitializeState totalQubits
+                    let totalQubits = config.CountingQubits + config.TargetQubits
 
-                // Step 2: Build intent, plan execution strategy, execute plan.
-                let executionIntent: QpeExecutionIntent =
-                    {
-                        ApplyBitReversalSwaps = applyBitReversalSwaps
+                    // Step 1: Initialize state |0⟩^(⊗(n+m))
+                    let! initialState = backend.InitializeState totalQubits
+
+                    // Step 2: Build intent, plan execution strategy, execute plan.
+                    let executionIntent: QpeExecutionIntent =
+                        {
+                            ApplyBitReversalSwaps = applyBitReversalSwaps
+                            Config = config
+                            Exactness = exactness
+                        }
+
+                    let! (preparedState, gateCount) =
+                        executePlanned backend executionIntent initialState
+
+                    // Step 3: Measure final state (all qubits)
+                    let measurements = UnifiedBackend.measureState preparedState 1000
+
+                    // Extract phase from measurement outcome of counting qubits.
+                    //
+                    // When we omit the final bit-reversal SWAPs, the measured register is in bit-reversed
+                    // order; compensate classically before converting to an integer.
+                    let measuredCountingBits =
+                        measurements.[0]
+                        |> Array.take config.CountingQubits
+
+                    let canonicalCountingBits =
+                        if applyBitReversalSwaps then
+                            measuredCountingBits
+                        else
+                            Array.rev measuredCountingBits
+
+                    let measurementOutcome =
+                        canonicalCountingBits
+                        |> Array.indexed
+                        |> Array.fold (fun acc (i, bit) -> acc + (bit <<< i)) 0
+
+                    let estimatedPhase = float measurementOutcome / float (1 <<< config.CountingQubits)
+
+                    return {
+                        EstimatedPhase = estimatedPhase
+                        MeasurementOutcome = measurementOutcome
+                        Precision = config.CountingQubits
+                        FinalState = preparedState
+                        GateCount = gateCount
                         Config = config
-                        Exactness = exactness
                     }
-
-                let! (preparedState, gateCount) =
-                    executePlanned backend executionIntent initialState
-
-                // Step 3: Measure final state (all qubits)
-                let measurements = UnifiedBackend.measureState preparedState 1000
-
-                // Extract phase from measurement outcome of counting qubits.
-                //
-                // When we omit the final bit-reversal SWAPs, the measured register is in bit-reversed
-                // order; compensate classically before converting to an integer.
-                let measuredCountingBits =
-                    measurements.[0]
-                    |> Array.take config.CountingQubits
-
-                let canonicalCountingBits =
-                    if applyBitReversalSwaps then
-                        measuredCountingBits
-                    else
-                        Array.rev measuredCountingBits
-
-                let measurementOutcome =
-                    canonicalCountingBits
-                    |> Array.indexed
-                    |> Array.fold (fun acc (i, bit) -> acc + (bit <<< i)) 0
-
-                let estimatedPhase = float measurementOutcome / float (1 <<< config.CountingQubits)
-
-                return {
-                    EstimatedPhase = estimatedPhase
-                    MeasurementOutcome = measurementOutcome
-                    Precision = config.CountingQubits
-                    FinalState = preparedState
-                    GateCount = gateCount
-                    Config = config
-                }
         }
 
     let executeWith (config: QPEConfig) (backend: IQuantumBackend) (applyBitReversalSwaps: bool) : Result<QPEResult, QuantumError> =

@@ -550,10 +550,10 @@ module HHL =
 
                      loop intent.EigenvalueQubits value 0
 
-                 let angles =
+                 let angleResults =
                      Array.init eigenRegisterSize (fun k ->
                          if k = 0 then
-                             0.0
+                             Ok 0.0
                          else
                              let canonicalK = bitReverse k
                              let lambdaEst = (float canonicalK / float eigenRegisterSize) * phaseScale
@@ -565,9 +565,15 @@ module HHL =
                                  | EigenvalueInversionMethod.LinearApproximation c -> EigenvalueInversionMethod.LinearApproximation (min c lambdaEst)
                                  | EigenvalueInversionMethod.PiecewiseLinear _ -> intent.InversionMethod
 
-                             match inversionRotationAngle safeMethod lambdaEst intent.MinEigenvalue with
-                             | Ok theta -> theta
-                             | Error _ -> 0.0)
+                             inversionRotationAngle safeMethod lambdaEst intent.MinEigenvalue)
+
+                 let firstAngleError = angleResults |> Array.tryPick (function Error e -> Some e | Ok _ -> None)
+                 match firstAngleError with
+                 | Some err ->
+                     return! Error err
+                 | None ->
+
+                 let angles = angleResults |> Array.map (function Ok theta -> theta | Error _ -> 0.0) // safe: no errors remain
 
                  let multiControlledXGates (controls: int list) (target: int) : CircuitBuilder.Gate list =
                      match controls with

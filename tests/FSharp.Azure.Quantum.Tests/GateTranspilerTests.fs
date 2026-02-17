@@ -169,7 +169,7 @@ module GateTranspilerTests =
             match gate with
             | X _ | Y _ | Z _ | H _ | RX _ | RY _ | RZ _ | CNOT _ | SWAP _ -> ()
             | U3 _ -> failwith "U3 should decompose to RZ-RY-RZ"
-            | S _ | SDG _ | T _ | TDG _ | P _ | CP _ | CRX _ | CRY _ | CRZ _ | CZ _ | MCZ _ | CCX _ | Measure _ -> 
+            | S _ | SDG _ | T _ | TDG _ | P _ | CP _ | CRX _ | CRY _ | CRZ _ | CZ _ | MCZ _ | CCX _ | Measure _ | Reset _ | Barrier _ -> 
                 failwith $"Unsupported gate for IonQ: {gate}")
     
     [<Fact>]
@@ -189,7 +189,7 @@ module GateTranspilerTests =
             match gate with
             | X _ | Y _ | Z _ | H _ | RX _ | RY _ | RZ _ | CNOT _ | CZ _ | SWAP _ -> ()
             | U3 _ -> failwith "U3 should decompose to RZ-RY-RZ"
-            | S _ | SDG _ | T _ | TDG _ | P _ | CP _ | CRX _ | CRY _ | CRZ _ | MCZ _ | CCX _ | Measure _ -> 
+            | S _ | SDG _ | T _ | TDG _ | P _ | CP _ | CRX _ | CRY _ | CRZ _ | MCZ _ | CCX _ | Measure _ | Reset _ | Barrier _ -> 
                 failwith $"Unsupported gate for Rigetti: {gate}")
     
     // ========================================================================

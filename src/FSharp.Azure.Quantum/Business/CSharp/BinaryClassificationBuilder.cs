@@ -192,7 +192,8 @@ namespace FSharp.Azure.Quantum.Business.CSharp
                 _savePath != null ? FSharpOption<string>.Some(_savePath) : FSharpOption<string>.None,
                 _note != null ? FSharpOption<string>.Some(_note) : FSharpOption<string>.None,
                 FSharpOption<Core.Progress.IProgressReporter>.None,
-                FSharpOption<System.Threading.CancellationToken>.None);
+                FSharpOption<System.Threading.CancellationToken>.None,
+                FSharpOption<Microsoft.Extensions.Logging.ILogger>.None);
 
             // Train classifier
             var result = BinaryClassifier.train(problem);

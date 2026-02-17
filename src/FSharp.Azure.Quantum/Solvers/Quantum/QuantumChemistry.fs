@@ -1566,9 +1566,10 @@ module FermionMapping =
                     (Ok [])
         
         /// Ansatz type for VQE
+        ///
+        /// For hardware-efficient ansatz (HEA), use the general-purpose VQE module directly.
+        /// This chemistry-specific VQE focuses on UCCSD, which guarantees chemical accuracy.
         type AnsatzType =
-            /// Hardware-efficient ansatz (generic, not chemistry-aware)
-            | HardwareEfficient of layers: int
             /// UCCSD ansatz (chemistry-aware, guarantees chemical accuracy)
             | UCCSD of numElectrons: int * numOrbitals: int
         
@@ -1576,7 +1577,7 @@ module FermionMapping =
         type ChemistryVQEConfig = {
             /// Hamiltonian to optimize
             Hamiltonian: QubitHamiltonian
-            /// Ansatz type (HEA or UCCSD)
+            /// Ansatz type (UCCSD for chemistry-aware optimization)
             Ansatz: AnsatzType
             /// Maximum optimization iterations
             MaxIterations: int
@@ -1966,9 +1967,6 @@ module FermionMapping =
                     }
                     
                     return optimizeLoop initialOptState
-                
-                | HardwareEfficient layers ->
-                    return Error (QuantumError.NotImplemented("HardwareEfficient", Some "Use existing VQE module for HEA"))
             }
 
 // ============================================================================  
@@ -2479,31 +2477,27 @@ module MolecularHamiltonian =
                 else
                     Ok ()
             
-            // Build Hamiltonian terms (imperative code with do)
-            let terms = ResizeArray<QaoaCircuit.HamiltonianTerm>()
-            
+            // Build Hamiltonian terms
             // One-electron terms (Z operators)
-            do for i in 0 .. numQubits - 1 do
-                terms.Add {
-                    Coefficient = oneElectronCoeff
-                    QubitsIndices = [| i |]
-                    PauliOperators = [| QaoaCircuit.PauliZ |]
-                }
+            let oneElectronTerms =
+                [| for i in 0 .. numQubits - 1 ->
+                    { Coefficient = oneElectronCoeff
+                      QubitsIndices = [| i |]
+                      PauliOperators = [| QaoaCircuit.PauliZ |] } : QaoaCircuit.HamiltonianTerm |]
             
             // Two-electron terms (ZZ operators)
-            do for i in 0 .. numQubits - 2 do
-                for j in i + 1 .. numQubits - 1 do
-                    terms.Add {
-                        Coefficient = twoElectronCoeff
-                        QubitsIndices = [| i; j |]
-                        PauliOperators = [| QaoaCircuit.PauliZ
-                                            QaoaCircuit.PauliZ |]
-                    }
+            let twoElectronTerms =
+                [| for i in 0 .. numQubits - 2 do
+                    for j in i + 1 .. numQubits - 1 ->
+                        { Coefficient = twoElectronCoeff
+                          QubitsIndices = [| i; j |]
+                          PauliOperators = [| QaoaCircuit.PauliZ
+                                              QaoaCircuit.PauliZ |] } : QaoaCircuit.HamiltonianTerm |]
             
             // Return the constructed hamiltonian
             return {
                 QaoaCircuit.NumQubits = numQubits
-                QaoaCircuit.Terms = terms.ToArray()
+                QaoaCircuit.Terms = Array.append oneElectronTerms twoElectronTerms
             }
         }
 

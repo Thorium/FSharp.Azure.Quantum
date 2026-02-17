@@ -835,117 +835,107 @@ module ChemistryDataProviders =
                                     |]
                                 
                                 // Parse properties block (M  CHG, etc.) and find M  END
-                                let mutable charges = []
-                                let mutable currentLine = endLine
-                                let mutable foundEnd = false
+                                let rec parseProperties lineIdx chargesAcc =
+                                    if lineIdx >= lines.Length then
+                                        (List.rev chargesAcc, lineIdx)
+                                    else
+                                        let line = lines.[lineIdx]
+                                        if line.StartsWith("M  END") then
+                                            (List.rev chargesAcc, lineIdx + 1)
+                                        elif line.StartsWith("M  CHG") then
+                                            // Format: M  CHG  n  aaa vvv  aaa vvv ...
+                                            let parts = line.Substring(6).Trim().Split([|' '|], StringSplitOptions.RemoveEmptyEntries)
+                                            let newCharges =
+                                                if parts.Length >= 3 then
+                                                    let count = Int32.Parse parts.[0]
+                                                    [ for i in 0 .. count - 1 do
+                                                        if parts.Length > 1 + i * 2 + 1 then
+                                                            yield (Int32.Parse parts.[1 + i * 2], Int32.Parse parts.[2 + i * 2]) ]
+                                                else
+                                                    []
+                                            parseProperties (lineIdx + 1) (List.rev newCharges @ chargesAcc)
+                                        else
+                                            parseProperties (lineIdx + 1) chargesAcc
                                 
-                                while currentLine < lines.Length && not foundEnd do
-                                    let line = lines.[currentLine]
-                                    if line.StartsWith("M  END") then
-                                        foundEnd <- true
-                                    elif line.StartsWith("M  CHG") then
-                                        // Format: M  CHG  n  aaa vvv  aaa vvv ...
-                                        let parts = line.Substring(6).Trim().Split([|' '|], StringSplitOptions.RemoveEmptyEntries)
-                                        if parts.Length >= 3 then
-                                            let count = Int32.Parse parts.[0]
-                                            for i in 0 .. count - 1 do
-                                                if parts.Length > 1 + i * 2 + 1 then
-                                                    let atomIdx = Int32.Parse parts.[1 + i * 2]
-                                                    let charge = Int32.Parse parts.[2 + i * 2]
-                                                    charges <- (atomIdx, charge) :: charges
-                                    currentLine <- currentLine + 1
-                                
-                                let linesConsumed = if foundEnd then currentLine else endLine
+                                let (charges, linesConsumed) = parseProperties endLine []
                                 
                                 Ok ({ Name = name
                                       Comment = comment
                                       Atoms = atoms
                                       Bonds = bonds
-                                      Charges = charges |> List.rev
+                                      Charges = charges
                                       Properties = Map.empty }, linesConsumed)
             with
             | ex -> Error $"Failed to parse MOL block: {ex.Message}"
 
         /// Parse associated data fields from SDF format
         let parseDataFields (lines: string array) (startLine: int) : Map<string, string> * int =
-            let mutable properties = Map.empty
-            let mutable currentLine = startLine
-            let mutable currentField = None
-            let mutable currentValue = System.Text.StringBuilder()
+            let saveField props fieldOpt (valueBuilder: System.Text.StringBuilder) =
+                match fieldOpt with
+                | Some fieldName -> props |> Map.add fieldName (valueBuilder.ToString().Trim())
+                | None -> props
             
-            while currentLine < lines.Length && not (lines.[currentLine].StartsWith("$$$$")) do
-                let line = lines.[currentLine]
-                
-                if line.StartsWith("> ") || line.StartsWith(">  ") then
-                    // Save previous field if exists
-                    match currentField with
-                    | Some fieldName ->
-                        properties <- properties.Add(fieldName, currentValue.ToString().Trim())
-                    | None -> ()
-                    
-                    // Parse new field name: >  <FieldName>
-                    let fieldMatch = Regex.Match(line, @">\s*<([^>]+)>")
-                    if fieldMatch.Success then
-                        currentField <- Some fieldMatch.Groups.[1].Value
-                        currentValue <- System.Text.StringBuilder()
+            let rec loop lineIdx props currentField (currentValue: System.Text.StringBuilder) =
+                if lineIdx >= lines.Length || lines.[lineIdx].StartsWith("$$$$") then
+                    // Save last field and skip $$$$ delimiter
+                    let finalProps = saveField props currentField currentValue
+                    let finalLine = if lineIdx < lines.Length && lines.[lineIdx].StartsWith("$$$$") then lineIdx + 1 else lineIdx
+                    (finalProps, finalLine)
+                else
+                    let line = lines.[lineIdx]
+                    if line.StartsWith("> ") || line.StartsWith(">  ") then
+                        // Save previous field, start new one
+                        let updatedProps = saveField props currentField currentValue
+                        let fieldMatch = Regex.Match(line, @">\s*<([^>]+)>")
+                        if fieldMatch.Success then
+                            loop (lineIdx + 1) updatedProps (Some fieldMatch.Groups.[1].Value) (System.Text.StringBuilder())
+                        else
+                            loop (lineIdx + 1) updatedProps None (System.Text.StringBuilder())
+                    elif currentField.IsSome && line.Trim().Length > 0 then
+                        if currentValue.Length > 0 then
+                            currentValue.AppendLine() |> ignore
+                        currentValue.Append(line.Trim()) |> ignore
+                        loop (lineIdx + 1) props currentField currentValue
                     else
-                        currentField <- None
-                elif currentField.IsSome && line.Trim().Length > 0 then
-                    if currentValue.Length > 0 then
-                        currentValue.AppendLine() |> ignore
-                    currentValue.Append(line.Trim()) |> ignore
-                
-                currentLine <- currentLine + 1
+                        loop (lineIdx + 1) props currentField currentValue
             
-            // Save last field
-            match currentField with
-            | Some fieldName ->
-                properties <- properties.Add(fieldName, currentValue.ToString().Trim())
-            | None -> ()
-            
-            // Skip the $$$$ delimiter if present
-            if currentLine < lines.Length && lines.[currentLine].StartsWith("$$$$") then
-                currentLine <- currentLine + 1
-            
-            (properties, currentLine)
+            loop startLine Map.empty None (System.Text.StringBuilder())
 
         /// Parse a complete SDF file (multiple MOL records with data)
         let parseSdfFile (content: string) : Result<MolRecord array, string> =
             let lines = content.Replace("\r\n", "\n").Split('\n')
-            let mutable records = []
-            let mutable currentLine = 0
-            let mutable errors = []
             
-            while currentLine < lines.Length do
-                // Skip empty lines
-                while currentLine < lines.Length && lines.[currentLine].Trim().Length = 0 do
-                    currentLine <- currentLine + 1
-                
-                if currentLine < lines.Length then
-                    // Try to parse a MOL block
-                    let remainingLines = lines.[currentLine..]
+            let rec skipEmpty lineIdx =
+                if lineIdx >= lines.Length || lines.[lineIdx].Trim().Length > 0 then lineIdx
+                else skipEmpty (lineIdx + 1)
+            
+            let rec skipToDelimiter lineIdx =
+                if lineIdx >= lines.Length || lines.[lineIdx].StartsWith("$$$$") then
+                    if lineIdx < lines.Length then lineIdx + 1 else lineIdx
+                else skipToDelimiter (lineIdx + 1)
+            
+            let rec loop lineIdx recordsAcc errorsAcc =
+                let lineIdx = skipEmpty lineIdx
+                if lineIdx >= lines.Length then
+                    (List.rev recordsAcc, List.rev errorsAcc)
+                else
+                    let remainingLines = lines.[lineIdx..]
                     match parseMolBlock remainingLines with
                     | Ok (record, linesConsumed) ->
-                        let nextLine = currentLine + linesConsumed
-                        
-                        // Parse associated data fields
+                        let nextLine = lineIdx + linesConsumed
                         let (properties, finalLine) = parseDataFields lines nextLine
                         let recordWithProps = { record with Properties = properties }
-                        
-                        records <- recordWithProps :: records
-                        currentLine <- finalLine
+                        loop finalLine (recordWithProps :: recordsAcc) errorsAcc
                     | Error e ->
-                        // Skip to next $$$$ or end
-                        errors <- e :: errors
-                        while currentLine < lines.Length && not (lines.[currentLine].StartsWith("$$$$")) do
-                            currentLine <- currentLine + 1
-                        if currentLine < lines.Length then
-                            currentLine <- currentLine + 1
+                        let nextLine = skipToDelimiter lineIdx
+                        loop nextLine recordsAcc (e :: errorsAcc)
+            
+            let (records, errors) = loop 0 [] []
             
             if records.IsEmpty && not errors.IsEmpty then
                 Error (String.concat "; " errors)
             else
-                Ok (records |> List.rev |> List.toArray)
+                Ok (records |> List.toArray)
 
         /// Parse a single MOL file
         let parseMolFile (content: string) : Result<MolRecord, string> =
@@ -1643,65 +1633,73 @@ module ChemistryDataProviders =
               ResidueFilter = []
               FirstModelOnly = true }
 
+        /// Internal state for PDB line-by-line fold parsing.
+        type private PdbParseState =
+            { Atoms: PdbAtom list
+              PdbId: string option
+              Title: string option
+              InModel: bool
+              ModelNumber: int option
+              FirstModelEnded: bool }
+
         /// Parse PDB content with options.
         let parseWithOptions (options: PdbParseOptions) (content: string) : Result<PdbStructure, string> =
             let lines = content.Replace("\r\n", "\n").Split('\n')
-            let mutable atoms: PdbAtom list = []
-            let mutable pdbId = None
-            let mutable title = None
-            let mutable inModel = false
-            let mutable modelNumber = None
-            let mutable firstModelEnded = false
-            
             let waterNames = set ["HOH"; "WAT"; "H2O"; "DOD"; "DIS"]
             
-            for line in lines do
-                if line.Length >= 6 then
-                    let recordType = line.[0..5].TrimEnd()
-                    
-                    match recordType with
-                    | "HEADER" when line.Length >= 66 ->
-                        pdbId <- Some (line.[62..65].Trim())
-                    | "TITLE" when line.Length > 10 ->
-                        let titlePart = line.[10..].Trim()
-                        title <- match title with
-                                 | Some t -> Some (t + " " + titlePart)
-                                 | None -> Some titlePart
-                    | "MODEL" ->
-                        if not inModel then
-                            inModel <- true
-                            modelNumber <- 
-                                if line.Length >= 14 then
-                                    match Int32.TryParse(line.[10..13].Trim()) with
-                                    | true, n -> Some n
-                                    | _ -> Some 1
-                                else Some 1
-                    | "ENDMDL" ->
-                        inModel <- false
-                        if options.FirstModelOnly then
-                            firstModelEnded <- true
-                    | "ATOM" when options.IncludeAtom && not firstModelEnded ->
-                        match parseAtomLine line false with
-                        | Some atom -> atoms <- atom :: atoms
-                        | None -> ()
-                    | "HETATM" when options.IncludeHetatm && not firstModelEnded ->
-                        match parseAtomLine line true with
-                        | Some atom ->
-                            let shouldInclude =
-                                // Check water exclusion
-                                (not options.ExcludeWater || not (waterNames.Contains atom.ResName)) &&
-                                // Check residue filter
-                                (options.ResidueFilter.IsEmpty || 
-                                 options.ResidueFilter |> List.exists (fun r -> 
-                                     r.Equals(atom.ResName, StringComparison.OrdinalIgnoreCase)))
-                            if shouldInclude then
-                                atoms <- atom :: atoms
-                        | None -> ()
-                    | _ -> ()
+            let initialState : PdbParseState = 
+                { Atoms = []; PdbId = None; Title = None; InModel = false; ModelNumber = None; FirstModelEnded = false }
+            
+            let finalState =
+                lines
+                |> Array.fold (fun (state: PdbParseState) line ->
+                    if line.Length < 6 || state.FirstModelEnded && (line.[0..4] = "ATOM " || line.[0..5] = "HETATM") then
+                        state
+                    else
+                        let recordType = line.[0..5].TrimEnd()
+                        match recordType with
+                        | "HEADER" when line.Length >= 66 ->
+                            { state with PdbId = Some (line.[62..65].Trim()) }
+                        | "TITLE" when line.Length > 10 ->
+                            let titlePart = line.[10..].Trim()
+                            let newTitle = match state.Title with
+                                           | Some t -> Some (t + " " + titlePart)
+                                           | None -> Some titlePart
+                            { state with Title = newTitle }
+                        | "MODEL" ->
+                            if not state.InModel then
+                                let modelNum = 
+                                    if line.Length >= 14 then
+                                        match Int32.TryParse(line.[10..13].Trim()) with
+                                        | true, n -> Some n
+                                        | _ -> Some 1
+                                    else Some 1
+                                { state with InModel = true; ModelNumber = modelNum }
+                            else state
+                        | "ENDMDL" ->
+                            { state with InModel = false; FirstModelEnded = options.FirstModelOnly }
+                        | "ATOM" when options.IncludeAtom && not state.FirstModelEnded ->
+                            match parseAtomLine line false with
+                            | Some atom -> { state with Atoms = atom :: state.Atoms }
+                            | None -> state
+                        | "HETATM" when options.IncludeHetatm && not state.FirstModelEnded ->
+                            match parseAtomLine line true with
+                            | Some atom ->
+                                let shouldInclude =
+                                    (not options.ExcludeWater || not (waterNames.Contains atom.ResName)) &&
+                                    (options.ResidueFilter.IsEmpty || 
+                                     options.ResidueFilter |> List.exists (fun r -> 
+                                         r.Equals(atom.ResName, StringComparison.OrdinalIgnoreCase)))
+                                if shouldInclude then
+                                    { state with Atoms = atom :: state.Atoms }
+                                else state
+                            | None -> state
+                        | _ -> state
+                ) initialState
             
             // Group atoms into residues
             let residues =
-                atoms
+                finalState.Atoms
                 |> List.rev
                 |> List.groupBy (fun a -> (a.ResName, a.ChainId, a.ResSeq))
                 |> List.map (fun ((resName, chainId, resSeq), resAtoms) ->
@@ -1713,10 +1711,10 @@ module ChemistryDataProviders =
                 |> List.toArray
             
             Ok {
-                PdbId = pdbId
-                Title = title
+                PdbId = finalState.PdbId
+                Title = finalState.Title
                 Residues = residues
-                ModelNumber = modelNumber
+                ModelNumber = finalState.ModelNumber
                 SourcePath = None
             }
 
