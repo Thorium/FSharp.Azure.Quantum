@@ -433,3 +433,280 @@ module TopologicalOperationsTests =
 
             Assert.True(distinctTrees.Length >= 2)
 
+    // ========================================================================
+    // HADAMARD GATE
+    // ========================================================================
+
+    /// Helper: create an n-qubit computational basis state as a Superposition
+    let private mkBasisState (bits: int list) =
+        match FusionTree.fromComputationalBasis bits AnyonSpecies.AnyonType.Ising with
+        | Ok tree ->
+            let state = FusionTree.create tree AnyonSpecies.AnyonType.Ising
+            TopologicalOperations.pureState state
+        | Error err -> failwith $"Failed to create basis state {bits}: {err.Message}"
+
+    /// Helper: read the computational basis bits from every term in a superposition
+    let private readTermBits (sup: TopologicalOperations.Superposition) =
+        sup.Terms
+        |> List.map (fun (amp, st) -> (amp, FusionTree.toComputationalBasis st.Tree))
+
+    [<Fact>]
+    let ``Hadamard on |0⟩ produces equal superposition (|0⟩ + |1⟩)/√2`` () =
+        let sup0 = mkBasisState [0]
+
+        match TopologicalOperations.hadamard 0 sup0 with
+        | Error err -> Assert.Fail($"Hadamard should succeed: {err.Message}")
+        | Ok result ->
+            // Should have two terms
+            Assert.Equal(2, result.Terms.Length)
+
+            // Read bits for each term
+            let termBits = readTermBits result
+            let amp0 = termBits |> List.find (fun (_, bits) -> bits = [0]) |> fst
+            let amp1 = termBits |> List.find (fun (_, bits) -> bits = [1]) |> fst
+
+            let invSqrt2 = 1.0 / sqrt 2.0
+
+            // H|0⟩ = (|0⟩ + |1⟩)/√2 — both amplitudes positive and equal
+            Assert.Equal(invSqrt2, amp0.Real, 10)
+            Assert.Equal(0.0, amp0.Imaginary, 10)
+            Assert.Equal(invSqrt2, amp1.Real, 10)
+            Assert.Equal(0.0, amp1.Imaginary, 10)
+
+            Assert.True(TopologicalOperations.isNormalized result)
+
+    [<Fact>]
+    let ``Hadamard on |1⟩ produces (|0⟩ - |1⟩)/√2`` () =
+        let sup1 = mkBasisState [1]
+
+        match TopologicalOperations.hadamard 0 sup1 with
+        | Error err -> Assert.Fail($"Hadamard should succeed: {err.Message}")
+        | Ok result ->
+            Assert.Equal(2, result.Terms.Length)
+
+            let termBits = readTermBits result
+            let amp0 = termBits |> List.find (fun (_, bits) -> bits = [0]) |> fst
+            let amp1 = termBits |> List.find (fun (_, bits) -> bits = [1]) |> fst
+
+            let invSqrt2 = 1.0 / sqrt 2.0
+
+            // H|1⟩ = (|0⟩ - |1⟩)/√2 — |0⟩ positive, |1⟩ negative
+            Assert.Equal(invSqrt2, amp0.Real, 10)
+            Assert.Equal(0.0, amp0.Imaginary, 10)
+            Assert.Equal(-invSqrt2, amp1.Real, 10)
+            Assert.Equal(0.0, amp1.Imaginary, 10)
+
+            Assert.True(TopologicalOperations.isNormalized result)
+
+    [<Fact>]
+    let ``Hadamard is an involution (HH = I)`` () =
+        // Apply H twice to |0⟩ → should return to |0⟩
+        let sup0 = mkBasisState [0]
+
+        match TopologicalOperations.hadamard 0 sup0 with
+        | Error err -> Assert.Fail($"First H should succeed: {err.Message}")
+        | Ok afterFirstH ->
+            match TopologicalOperations.hadamard 0 afterFirstH with
+            | Error err -> Assert.Fail($"Second H should succeed: {err.Message}")
+            | Ok afterSecondH ->
+                // Should be back to |0⟩ (single term)
+                let termBits = readTermBits afterSecondH
+                // After combineLikeTerms, zero-amplitude terms should be eliminated
+                let nonZeroTerms =
+                    termBits |> List.filter (fun (amp, _) -> Complex.Abs amp > 1e-10)
+
+                Assert.Equal(1, nonZeroTerms.Length)
+                let (amp, bits) = nonZeroTerms.[0]
+                Assert.Equal<int list>([0], bits)
+                Assert.Equal(1.0, amp.Real, 10)
+                Assert.Equal(0.0, amp.Imaginary, 10)
+
+    [<Fact>]
+    let ``Hadamard is an involution on |1⟩ (HH|1⟩ = |1⟩)`` () =
+        let sup1 = mkBasisState [1]
+
+        match TopologicalOperations.hadamard 0 sup1 with
+        | Error err -> Assert.Fail($"First H should succeed: {err.Message}")
+        | Ok afterFirstH ->
+            match TopologicalOperations.hadamard 0 afterFirstH with
+            | Error err -> Assert.Fail($"Second H should succeed: {err.Message}")
+            | Ok afterSecondH ->
+                let termBits = readTermBits afterSecondH
+                let nonZeroTerms =
+                    termBits |> List.filter (fun (amp, _) -> Complex.Abs amp > 1e-10)
+
+                Assert.Equal(1, nonZeroTerms.Length)
+                let (amp, bits) = nonZeroTerms.[0]
+                Assert.Equal<int list>([1], bits)
+                Assert.Equal(1.0, amp.Real, 10)
+                Assert.Equal(0.0, amp.Imaginary, 10)
+
+    [<Fact>]
+    let ``Hadamard on qubit 0 of 2-qubit |00⟩ only affects qubit 0`` () =
+        let sup00 = mkBasisState [0; 0]
+
+        match TopologicalOperations.hadamard 0 sup00 with
+        | Error err -> Assert.Fail($"Hadamard should succeed: {err.Message}")
+        | Ok result ->
+            // Should have 2 terms: |00⟩ and |10⟩ (qubit 0 in superposition, qubit 1 still 0)
+            Assert.Equal(2, result.Terms.Length)
+
+            let termBits = readTermBits result
+            let bits0 = termBits |> List.find (fun (_, bits) -> bits = [0; 0]) |> fst
+            let bits1 = termBits |> List.find (fun (_, bits) -> bits = [1; 0]) |> fst
+
+            let invSqrt2 = 1.0 / sqrt 2.0
+            Assert.Equal(invSqrt2, Complex.Abs bits0, 10)
+            Assert.Equal(invSqrt2, Complex.Abs bits1, 10)
+
+            // Qubit 1 is always 0 in both terms
+            termBits |> List.iter (fun (_, bits) ->
+                Assert.Equal(0, bits.[1])
+            )
+
+            Assert.True(TopologicalOperations.isNormalized result)
+
+    [<Fact>]
+    let ``Hadamard on qubit 1 of 2-qubit |00⟩ only affects qubit 1`` () =
+        let sup00 = mkBasisState [0; 0]
+
+        match TopologicalOperations.hadamard 1 sup00 with
+        | Error err -> Assert.Fail($"Hadamard should succeed: {err.Message}")
+        | Ok result ->
+            // Should have 2 terms: |00⟩ and |01⟩ (qubit 0 still 0, qubit 1 in superposition)
+            Assert.Equal(2, result.Terms.Length)
+
+            let termBits = readTermBits result
+            let bits0 = termBits |> List.find (fun (_, bits) -> bits = [0; 0]) |> fst
+            let bits1 = termBits |> List.find (fun (_, bits) -> bits = [0; 1]) |> fst
+
+            let invSqrt2 = 1.0 / sqrt 2.0
+            Assert.Equal(invSqrt2, Complex.Abs bits0, 10)
+            Assert.Equal(invSqrt2, Complex.Abs bits1, 10)
+
+            // Qubit 0 is always 0 in both terms
+            termBits |> List.iter (fun (_, bits) ->
+                Assert.Equal(0, bits.[0])
+            )
+
+            Assert.True(TopologicalOperations.isNormalized result)
+
+    [<Fact>]
+    let ``Hadamard preserves normalization`` () =
+        // Test with various initial states
+        let states = [
+            mkBasisState [0]
+            mkBasisState [1]
+            mkBasisState [0; 0]
+            mkBasisState [1; 1]
+            mkBasisState [0; 1; 0]
+        ]
+
+        states |> List.iteri (fun i sup ->
+            match TopologicalOperations.hadamard 0 sup with
+            | Error err -> Assert.Fail($"Hadamard on state {i} should succeed: {err.Message}")
+            | Ok result ->
+                Assert.True(
+                    TopologicalOperations.isNormalized result,
+                    $"State {i} should be normalized after Hadamard"
+                )
+        )
+
+    [<Fact>]
+    let ``Hadamard with negative qubit index returns ValidationError`` () =
+        let sup = mkBasisState [0]
+
+        match TopologicalOperations.hadamard -1 sup with
+        | Ok _ -> Assert.Fail("Should return error for negative index")
+        | Error (TopologicalError.ValidationError (field, _)) ->
+            Assert.Equal("qubitIndex", field)
+        | Error err -> Assert.Fail($"Expected ValidationError but got {err.Category}")
+
+    [<Fact>]
+    let ``Hadamard with out-of-range qubit index returns ValidationError`` () =
+        let sup = mkBasisState [0]  // 1-qubit state, valid index is 0 only
+
+        match TopologicalOperations.hadamard 1 sup with
+        | Ok _ -> Assert.Fail("Should return error for out-of-range index")
+        | Error (TopologicalError.ValidationError (field, reason)) ->
+            Assert.Equal("qubitIndex", field)
+            Assert.Contains("1", reason)  // mentions the invalid index
+        | Error err -> Assert.Fail($"Expected ValidationError but got {err.Category}")
+
+    [<Fact>]
+    let ``Hadamard with large out-of-range index returns ValidationError`` () =
+        let sup = mkBasisState [0; 1]  // 2-qubit state, valid indices 0 and 1
+
+        match TopologicalOperations.hadamard 5 sup with
+        | Ok _ -> Assert.Fail("Should return error for index 5 on 2-qubit state")
+        | Error (TopologicalError.ValidationError _) -> ()
+        | Error err -> Assert.Fail($"Expected ValidationError but got {err.Category}")
+
+    [<Fact>]
+    let ``Hadamard on (|0⟩ + |1⟩)/√2 returns |0⟩ (H undoes plus state)`` () =
+        // H|+⟩ = H·(|0⟩+|1⟩)/√2 = |0⟩
+        // First create |+⟩ by applying H to |0⟩
+        let sup0 = mkBasisState [0]
+
+        match TopologicalOperations.hadamard 0 sup0 with
+        | Error err -> Assert.Fail($"Creating |+⟩ should succeed: {err.Message}")
+        | Ok plusState ->
+            // Now apply H again: should get |0⟩
+            match TopologicalOperations.hadamard 0 plusState with
+            | Error err -> Assert.Fail($"H on |+⟩ should succeed: {err.Message}")
+            | Ok result ->
+                let termBits = readTermBits result
+                let nonZeroTerms =
+                    termBits |> List.filter (fun (amp, _) -> Complex.Abs amp > 1e-10)
+
+                Assert.Equal(1, nonZeroTerms.Length)
+                let (_, bits) = nonZeroTerms.[0]
+                Assert.Equal<int list>([0], bits)
+
+    [<Fact>]
+    let ``Hadamard on (|0⟩ - |1⟩)/√2 returns |1⟩ (H undoes minus state)`` () =
+        // H|−⟩ = H·(|0⟩-|1⟩)/√2 = |1⟩
+        // Create |−⟩ by applying H to |1⟩
+        let sup1 = mkBasisState [1]
+
+        match TopologicalOperations.hadamard 0 sup1 with
+        | Error err -> Assert.Fail($"Creating |−⟩ should succeed: {err.Message}")
+        | Ok minusState ->
+            match TopologicalOperations.hadamard 0 minusState with
+            | Error err -> Assert.Fail($"H on |−⟩ should succeed: {err.Message}")
+            | Ok result ->
+                let termBits = readTermBits result
+                let nonZeroTerms =
+                    termBits |> List.filter (fun (amp, _) -> Complex.Abs amp > 1e-10)
+
+                Assert.Equal(1, nonZeroTerms.Length)
+                let (_, bits) = nonZeroTerms.[0]
+                Assert.Equal<int list>([1], bits)
+
+    [<Fact>]
+    let ``Hadamard on qubit 0 then qubit 1 of |00⟩ creates full superposition`` () =
+        // H₀ H₁ |00⟩ = (|0⟩+|1⟩)/√2 ⊗ (|0⟩+|1⟩)/√2 = (|00⟩+|01⟩+|10⟩+|11⟩)/2
+        let sup00 = mkBasisState [0; 0]
+
+        match TopologicalOperations.hadamard 0 sup00 with
+        | Error err -> Assert.Fail($"H on qubit 0 should succeed: {err.Message}")
+        | Ok afterH0 ->
+            match TopologicalOperations.hadamard 1 afterH0 with
+            | Error err -> Assert.Fail($"H on qubit 1 should succeed: {err.Message}")
+            | Ok result ->
+                // Should have 4 terms with equal amplitude 1/2
+                Assert.Equal(4, result.Terms.Length)
+
+                let termBits = readTermBits result
+                let allBitPatterns =
+                    termBits |> List.map snd |> List.sort
+
+                Assert.Equal<int list list>([[0;0]; [0;1]; [1;0]; [1;1]], allBitPatterns)
+
+                // Each amplitude should be 1/2
+                termBits |> List.iter (fun (amp, _) ->
+                    Assert.Equal(0.5, Complex.Abs amp, 10)
+                )
+
+                Assert.True(TopologicalOperations.isNormalized result)
+

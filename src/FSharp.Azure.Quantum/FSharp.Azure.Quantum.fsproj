@@ -6,25 +6,13 @@
     <GenerateProgramFile>false</GenerateProgramFile>
 
     <!-- Package Metadata -->
-    <Version>1.3.6</Version>
+    <Version>1.3.7</Version>
     <PackageId>FSharp.Azure.Quantum</PackageId>
     <Title>FSharp.Azure.Quantum</Title>
     <Description>F# library for Azure Quantum with quantum-first optimization (Graph Coloring, TSP, MaxCut, Knapsack, Network Flow, Portfolio), Azure Quantum backend integration (IonQ, Rigetti, Quantinuum, Atom Computing), extensible circuit validation, local quantum simulation, QAOA with automatic parameter optimization (Nelder-Mead), OpenQASM 2.0 support, error mitigation techniques (ZNE, PEC, REM), Quantum Random Number Generation (QRNG), and educational quantum algorithms (Grover, QFT, Amplitude Amplification) with cloud backend execution. Multi-provider architecture supports IonQ, Rigetti, Quantinuum, Atom Computing, IBM, Amazon Braket, and Google Cirq.</Description>
     <Summary>F# library for Azure Quantum with quantum-first optimization, quantum backends (IonQ, Rigetti, Quantinuum, Atom Computing), QAOA with automatic parameter tuning, QRNG, and educational algorithms with cloud execution</Summary>
-    <PackageReleaseNotes>v1.3.6: Feature Release
-- NEW: Ekert QKD (E91) protocol implementation with entanglement-based key distribution
-- NEW: Superdense Coding algorithm for 2-classical-bit quantum channel communication
-- NEW: Quantum Error Correction with Shor 9-qubit, Steane 7-qubit, and 5-qubit codes
-- NEW: Drone swarm collision avoidance, dynamic behavior, and MAVLink/Crazyflie export
-- IMPROVED: CircuitBuilder enhanced with additional gate support and optimizations
-- IMPROVED: LocalBackend expanded with improved state management and gate coverage
-- IMPROVED: Machine learning modules (FeatureMap, QuantumKernel, VQC) refined
-- IMPROVED: Topological module refactored with helpers, improved braiding and noise models
-- IMPROVED: Examples significantly refactored with parameters, better structure, and new examples
-- IMPROVED: Code review and audit updates across the codebase
-- FIXED: RateLimiting, Retry, and JobLifecycle reliability improvements
-- FIXED: HHL types and backend abstraction edge cases resolved
-- Status: Production-ready, 1913+ tests passing</PackageReleaseNotes>
+    <PackageReleaseNotes>v1.3.7: Release
+- Status: Production-ready</PackageReleaseNotes>
     
     <!-- Repository Info -->
     <RepositoryUrl>https://github.com/thorium/FSharp.Azure.Quantum</RepositoryUrl>

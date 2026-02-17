@@ -6,21 +6,14 @@
     <GenerateProgramFile>false</GenerateProgramFile>
 
     <!-- Package Metadata -->
-    <Version>0.3.6</Version>
+    <Version>0.3.7</Version>
     <PackageId>FSharp.Azure.Quantum.Topological</PackageId>
     <Title>FSharp.Azure.Quantum.Topological</Title>
-    <Description>Topological quantum computing plugin for FSharp.Azure.Quantum. Provides anyon theory (Ising/Fibonacci/SU(2)_k), braiding compilation, gate-to-braid conversion, Majorana hardware simulator, noise models, and topological file format (.tqp). Seamlessly integrates with main package algorithms (Grover, QFT, QAOA) via IQuantumBackend interface. Requires FSharp.Azure.Quantum v1.3.6+.</Description>
+    <Description>Topological quantum computing plugin for FSharp.Azure.Quantum. Provides anyon theory (Ising/Fibonacci/SU(2)_k), braiding compilation, gate-to-braid conversion, Majorana hardware simulator, noise models, and topological file format (.tqp). Seamlessly integrates with main package algorithms (Grover, QFT, QAOA) via IQuantumBackend interface. Requires FSharp.Azure.Quantum v1.3.7+.</Description>
     <Summary>F# topological quantum computing plugin with anyon models, braiding compilation, noise models, and seamless integration with FSharp.Azure.Quantum algorithms</Summary>
-    <PackageReleaseNotes>v0.3.6: Feature Release
-- UPDATED: Compatibility with FSharp.Azure.Quantum v1.3.6
-- IMPROVED: TopologicalHelpers module added with shared utility functions
-- IMPROVED: BraidingOperators, FusionRules, and FusionTree modules refactored
-- IMPROVED: BraidingConsistency enhanced with additional validation
-- IMPROVED: FMatrix, RMatrix, and ModularData computation improvements
-- IMPROVED: NoiseModels refined with expanded error model support
-- IMPROVED: GateToBraid and BraidToGate conversion accuracy improvements
-- IMPROVED: CircuitOptimization and SolovayKitaev decomposition updates
-- Status: 535+ tests passing, ready for Azure Quantum Majorana hardware (when API available)</PackageReleaseNotes>
+    <PackageReleaseNotes>v0.3.7: Release
+- UPDATED: Compatibility with FSharp.Azure.Quantum v1.3.7
+- Status: Ready for Azure Quantum Majorana hardware (when API available)</PackageReleaseNotes>
     
     <!-- Repository Info -->
     <RepositoryUrl>https://github.com/thorium/FSharp.Azure.Quantum</RepositoryUrl>
