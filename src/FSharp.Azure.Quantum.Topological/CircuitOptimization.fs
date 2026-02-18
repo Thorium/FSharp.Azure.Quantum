@@ -91,16 +91,16 @@ module CircuitOptimization =
     /// Merge adjacent gates on same axis
     /// Example: T·T = S, Z·Z = I
     /// 
-    /// **Gate phase arithmetic** (T = diag(1, exp(iπ/8))):
-    ///   T² = S, T⁴ = S² = diag(1,i), T⁸ = S⁴ = Z, T¹⁶ = Z² = I
-    ///   S·S ≠ Z (S² = diag(1,i), not diag(1,-1))
+    /// **Gate phase arithmetic** (T = diag(1, exp(iπ/4))):
+    ///   T² = S, T⁴ = S² = Z, T⁸ = Z² = I
+    ///   S² = Z, S⁴ = I
     ///   T·S = T³ (no single-gate equivalent)
     let rec mergeAdjacentGates (gates: GateSequence) : GateSequence =
         match gates with
         | [] -> []
         | [g] -> [g]
         
-        // T·T = S (correct: exp(iπ/8)² = exp(iπ/4))
+        // T·T = S (correct: exp(iπ/4)² = exp(iπ/2))
         | T :: T :: rest -> mergeAdjacentGates (S :: rest)
         | TDagger :: TDagger :: rest -> mergeAdjacentGates (SDagger :: rest)
         
@@ -141,24 +141,26 @@ module CircuitOptimization =
     
     /// Recognize common patterns and replace with optimized equivalents
     /// 
-    /// **Verified identities** (T = diag(1, exp(iπ/8)), S = T²):
-    /// - T⁷ = T⁸·T⁻¹ = Z·T† (7 T gates → 1 T gate + 1 Clifford)
+    /// **Verified identities** (T = diag(1, exp(iπ/4)), S = T²):
+    /// - T⁷ = T⁸·T⁻¹ = T† (7 T gates → 1 T† gate) since T⁸ = I
+    /// - T⁵ = T⁴·T = Z·T (5 T gates → 1 T gate + 1 Clifford) since T⁴ = Z
     /// - T³ = T²·T = S·T (3 T gates → 1 T gate + 1 Clifford)
-    /// - S³ = S⁴·S⁻¹ = Z·S† (3 Cliffords → 2 Cliffords)
-    /// 
-    /// **Previous bugs fixed:**
-    /// - T⁷ → T† was WRONG (exp(i·7π/8) ≠ exp(-iπ/8))
-    /// - T³ → S†·T was WRONG (S†·T = T† ≠ T³)
-    /// - S³ → S† was WRONG (S⁴ = Z ≠ I, so S³ ≠ S⁻¹)
+    /// - S³ = S⁴·S⁻¹ = S† (3 Cliffords → 1 Clifford) since S⁴ = I
     let rec templateMatch (gates: GateSequence) : GateSequence * bool =
         match gates with
         | [] -> ([], false)
         | [g] -> ([g], false)
         
-        // Pattern: T⁷ = Z·T† (T⁸ = Z, so T⁷ = Z·T⁻¹)
+        // Pattern: T⁷ = T† (T⁸ = I, so T⁷ = T⁻¹)
         // Reduces T-count from 7 to 1
         | T :: T :: T :: T :: T :: T :: T :: rest ->
-            let (optimized, _) = templateMatch (Z :: TDagger :: rest)
+            let (optimized, _) = templateMatch (TDagger :: rest)
+            (optimized, true)
+        
+        // Pattern: T⁵ = Z·T (T⁴ = Z, so T⁵ = Z·T)
+        // Reduces T-count from 5 to 1
+        | T :: T :: T :: T :: T :: rest ->
+            let (optimized, _) = templateMatch (Z :: T :: rest)
             (optimized, true)
         
         // Pattern: T³ = S·T (T² = S, so T³ = S·T)
@@ -167,10 +169,10 @@ module CircuitOptimization =
             let (optimized, _) = templateMatch (S :: T :: rest)
             (optimized, true)
         
-        // Pattern: S³ = Z·S† (S⁴ = Z, so S³ = Z·S⁻¹)
-        // Reduces gate count from 3 to 2
+        // Pattern: S³ = S† (S⁴ = I, so S³ = S⁻¹)
+        // Reduces gate count from 3 to 1
         | S :: S :: S :: rest ->
-            let (optimized, _) = templateMatch (Z :: SDagger :: rest)
+            let (optimized, _) = templateMatch (SDagger :: rest)
             (optimized, true)
         
         | g :: rest ->

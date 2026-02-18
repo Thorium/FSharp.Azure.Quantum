@@ -41,11 +41,11 @@ module SolovayKitaev =
     
     /// Basic gate in the generating set
     type BasicGate =
-        | T          // exp(iπ/8) phase on |1⟩
-        | TDagger    // exp(-iπ/8) phase on |1⟩
+        | T          // exp(iπ/4) phase on |1⟩
+        | TDagger    // exp(-iπ/4) phase on |1⟩
         | H          // Hadamard
-        | S          // exp(iπ/4) phase on |1⟩ = T²
-        | SDagger    // exp(-iπ/4) phase on |1⟩
+        | S          // exp(iπ/2) phase on |1⟩ = T²
+        | SDagger    // exp(-iπ/2) phase on |1⟩
         | X          // Pauli X (bit flip)
         | Y          // Pauli Y
         | Z          // Pauli Z (phase flip)
@@ -175,23 +175,23 @@ module SolovayKitaev =
         | I -> identity
         
         | T ->
-            // T = diag(1, exp(iπ/8))
-            let t = Complex.Exp(i * Math.PI / 8.0)      // exp(iπ/8)
+            // T = diag(1, exp(iπ/4))
+            let t = Complex.Exp(i * Math.PI / 4.0)      // exp(iπ/4)
             createSU2 one zero zero t
         
         | TDagger ->
-            // T† = diag(1, exp(-iπ/8))
-            let t = Complex.Exp(-i * Math.PI / 8.0)
+            // T† = diag(1, exp(-iπ/4))
+            let t = Complex.Exp(-i * Math.PI / 4.0)
             createSU2 one zero zero t
         
         | S ->
-            // S = T² = diag(1, exp(iπ/4))
-            let s = Complex.Exp(i * Math.PI / 4.0)
+            // S = T² = diag(1, exp(iπ/2)) = diag(1, i)
+            let s = Complex.Exp(i * Math.PI / 2.0)
             createSU2 one zero zero s
         
         | SDagger ->
-            // S† = diag(1, exp(-iπ/4))
-            let s = Complex.Exp(-i * Math.PI / 4.0)
+            // S† = diag(1, exp(-iπ/2)) = diag(1, -i)
+            let s = Complex.Exp(-i * Math.PI / 2.0)
             createSU2 one zero zero s
         
         | H ->

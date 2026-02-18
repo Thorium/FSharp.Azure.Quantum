@@ -240,11 +240,11 @@ module CircuitOptimizationTests =
     // ========================================================================
 
     [<Fact>]
-    let ``Template match T^7 reduces to Z TDagger`` () =
+    let ``Template match T^7 reduces to TDagger`` () =
         let gates = List.replicate 7 T
         let (result, changed) = templateMatch gates
         Assert.True(changed)
-        Assert.Equal<BasicGate list>([ Z; TDagger ], result)
+        Assert.Equal<BasicGate list>([ TDagger ], result)
 
     [<Fact>]
     let ``Template match T^3 reduces to S T`` () =
@@ -254,11 +254,11 @@ module CircuitOptimizationTests =
         Assert.Equal<BasicGate list>([ S; T ], result)
 
     [<Fact>]
-    let ``Template match S^3 reduces to Z SDagger`` () =
+    let ``Template match S^3 reduces to SDagger`` () =
         let gates = [ S; S; S ]
         let (result, changed) = templateMatch gates
         Assert.True(changed)
-        Assert.Equal<BasicGate list>([ Z; SDagger ], result)
+        Assert.Equal<BasicGate list>([ SDagger ], result)
 
     [<Fact>]
     let ``Template match does not change short sequences`` () =
@@ -287,15 +287,15 @@ module CircuitOptimizationTests =
     [<Fact>]
     let ``TemplateMatchUntilStable fully reduces T^7`` () =
         let result = templateMatchUntilStable (List.replicate 7 T)
-        Assert.Equal<BasicGate list>([ Z; TDagger ], result)
+        Assert.Equal<BasicGate list>([ TDagger ], result)
 
     [<Fact>]
-    let ``TemplateMatchUntilStable reduces T^8 to Z TDagger T which template-matches again`` () =
-        // T^8 -> T^7 T -> (Z TDagger) T -> then TDagger T cancellation is NOT done by templateMatch
-        // templateMatch only matches T^7, T^3, S^3 patterns
-        // T^8 = T^7 :: T -> Z :: TDagger :: T
+    let ``TemplateMatchUntilStable reduces T^8 to TDagger T`` () =
+        // T^8 -> T^7 T -> (TDagger) T -> then TDagger T is NOT cancelled by templateMatch
+        // templateMatch only matches T^7, T^5, T^3, S^3 patterns
+        // T^8 = T^7 :: T -> TDagger :: T
         let result = templateMatchUntilStable (List.replicate 8 T)
-        Assert.Equal<BasicGate list>([ Z; TDagger; T ], result)
+        Assert.Equal<BasicGate list>([ TDagger; T ], result)
 
     // ========================================================================
     // COUNTING AND DEPTH TESTS

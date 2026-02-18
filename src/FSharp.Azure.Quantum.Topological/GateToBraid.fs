@@ -13,8 +13,8 @@ open FSharp.Azure.Quantum
 /// **CRITICAL MATHEMATICAL NOTES**:
 /// 
 /// 1. **Phase Conventions**: We use the convention where:
-///    - T = exp(iπ/8) (relative phase on |1⟩ state)
-///    - S = T² = exp(iπ/4)
+///    - T = exp(iπ/4) (relative phase on |1⟩ state)
+///    - S = T² = exp(iπ/2) = i
 ///    - Rz(θ) = diag(1, exp(iθ)) (relative Z-rotation)
 /// 
 /// 2. **Global vs Relative Phase**: Topological braiding produces GLOBAL phases,
@@ -98,9 +98,9 @@ module GateToBraid =
     /// Returns (error, numTGates) where numTGates can be negative (for counter-clockwise).
     /// 
     /// Uses signed angle to pick optimal direction:
-    ///   - Positive n → clockwise T gates (exp(+iπ/8) each)
-    ///   - Negative n → counter-clockwise T† gates (exp(-iπ/8) each)
-    /// This avoids e.g. Rz(-π/8) becoming 15 clockwise gates instead of 1 counter-clockwise.
+    ///   - Positive n → clockwise T gates (exp(+iπ/4) each)
+    ///   - Negative n → counter-clockwise T† gates (exp(-iπ/4) each)
+    /// This avoids e.g. Rz(-π/4) becoming 7 clockwise gates instead of 1 counter-clockwise.
     let private computeAngleError (targetAngle: float) (tPhase: float) : float * int =
         // Normalize to (-π, π] for shortest-path direction
         let twoPi = 2.0 * Math.PI
@@ -122,7 +122,7 @@ module GateToBraid =
     /// Decompose T gate into Ising anyon braiding.
     /// 
     /// This is THE key mapping for fault-tolerant quantum computation:
-    /// T gate = exp(iπ/8) = Majorana braiding σ_i (clockwise)
+    /// T gate = exp(iπ/4) = Majorana braiding σ_i (clockwise)
     /// 
     /// This is EXACT - no approximation needed!
     let tGateToBraid (qubitIndex: int) (numQubits: int) : Result<BraidGroup.BraidWord, TopologicalError> =
@@ -140,16 +140,16 @@ module GateToBraid =
     // CLIFFORD GATE DECOMPOSITION
     // ========================================================================
     
-    /// Decompose S gate (π/4 phase) into braiding.
+    /// Decompose S gate (π/2 phase) into braiding.
     /// S = T² (two T gates in sequence)
     let sGateToBraid (qubitIndex: int) (numQubits: int) : Result<BraidGroup.BraidWord, TopologicalError> =
-        // S = T² = exp(iπ/4)
+        // S = T² = exp(iπ/2)
         let gen : BraidGroup.BraidGenerator = { Index = qubitIndex; IsClockwise = true }
         BraidGroup.fromGenerators (numQubits + 1) [gen; gen]
     
     /// Decompose S† gate into braiding
     let sDaggerGateToBraid (qubitIndex: int) (numQubits: int) : Result<BraidGroup.BraidWord, TopologicalError> =
-        // S† = (T†)² = exp(-iπ/4)
+        // S† = (T†)² = exp(-iπ/2)
         let gen : BraidGroup.BraidGenerator = { Index = qubitIndex; IsClockwise = false }
         BraidGroup.fromGenerators (numQubits + 1) [gen; gen]
     
@@ -248,15 +248,15 @@ module GateToBraid =
     /// 
     /// **MATHEMATICAL NOTE**: 
     /// Rz(θ) = diag(1, exp(iθ)) is a RELATIVE phase gate.
-    /// T gates produce GLOBAL phases exp(iπ/8).
+    /// T gates produce phases of exp(iπ/4).
     /// 
     /// For topological QC, global phases don't matter, so:
-    /// Rz(θ) ≈ T^n where n = round(θ / (π/8))
+    /// Rz(θ) ≈ T^n where n = round(θ / (π/4))
     /// Positive n → clockwise T gates, negative n → counter-clockwise T† gates.
     /// 
-    /// This is an APPROXIMATION unless θ is an exact multiple of π/8.
+    /// This is an APPROXIMATION unless θ is an exact multiple of π/4.
     let rzGateToBraid (qubitIndex: int) (angle: float) (numQubits: int) (tolerance: float) : Result<BraidGroup.BraidWord, TopologicalError> =
-        let tPhase = Math.PI / 8.0
+        let tPhase = Math.PI / 4.0
         let (error, numTGates) = computeAngleError angle tPhase
         
         // Check if approximation is within tolerance
@@ -486,7 +486,7 @@ module GateToBraid =
             })
         
         | CircuitBuilder.Gate.RZ (qubit, angle) ->
-            let tPhase = Math.PI / 8.0
+            let tPhase = Math.PI / 4.0
             let (error, _) = computeAngleError angle tPhase
             
             rzGateToBraid qubit angle numQubits tolerance
@@ -497,12 +497,12 @@ module GateToBraid =
                 ApproximationError = error
                 DecompositionNotes = 
                     if error > 1e-10 then 
-                        Some $"Rz angle approximated to nearest π/8 multiple (error: {error:E6})"
+                        Some $"Rz angle approximated to nearest π/4 multiple (error: {error:E6})"
                     else None
             })
         
         | CircuitBuilder.Gate.P (qubit, angle) ->
-            let tPhase = Math.PI / 8.0
+            let tPhase = Math.PI / 4.0
             let (error, _) = computeAngleError angle tPhase
             
             phaseGateToBraid qubit angle numQubits tolerance
@@ -513,7 +513,7 @@ module GateToBraid =
                 ApproximationError = error
                 DecompositionNotes = 
                     if error > 1e-10 then 
-                        Some $"Phase angle approximated to nearest π/8 multiple (error: {error:E6})"
+                        Some $"Phase angle approximated to nearest π/4 multiple (error: {error:E6})"
                     else None
             })
         

@@ -44,13 +44,13 @@ module GateToBraidCorrectionTests =
     
     [<Fact>]
     let ``CORRECTED - Rz with negative angle uses counter-clockwise braiding`` () =
-        // Business meaning: Rz(-π/8) should produce 1 counter-clockwise T† gate
-        // instead of 15 clockwise gates. Signed angles pick optimal direction.
-        // BEFORE FIX: Would normalize to [0, 2π) and use 15 clockwise braids
+        // Business meaning: Rz(-π/4) should produce 1 counter-clockwise T† gate
+        // instead of many clockwise gates. Signed angles pick optimal direction.
+        // BEFORE FIX: Would normalize to [0, 2π) and use many clockwise braids
         // AFTER FIX: Uses signed angle → 1 counter-clockwise braid (T†)
         
-        let angleNeg = -Math.PI / 8.0
-        let anglePos = Math.PI / 8.0
+        let angleNeg = -Math.PI / 4.0
+        let anglePos = Math.PI / 4.0
         
         match GateToBraid.rzGateToBraid 0 angleNeg 2 1e-10, GateToBraid.rzGateToBraid 0 anglePos 2 1e-10 with
         | Ok braidNeg, Ok braidPos ->
@@ -89,18 +89,19 @@ module GateToBraidCorrectionTests =
     [<Fact>]
     let ``CORRECTED - Rz error is computed correctly with normalization`` () =
         // Business meaning: Error should be based on normalized angle
-        let angle = 0.5  // Not a multiple of π/8
+        let angle = 0.5  // Not a multiple of π/4
         let gate = CircuitBuilder.Gate.RZ (0, angle)
         
-        // Use tolerance 0.15 (larger than expected error ~0.107)
-        match GateToBraid.compileGateToBraid gate 2 0.15 with
+        // With tPhase=π/4≈0.785, nearest multiple is n=1, error ≈ |0.5-0.785| ≈ 0.285
+        // Use tolerance 0.3 (larger than expected error ~0.285)
+        match GateToBraid.compileGateToBraid gate 2 0.3 with
         | Error err -> failwith $"Unexpected error: {err.Message}"
         | Ok decomp ->
             // Error should be non-zero
             Assert.True(decomp.ApproximationError > 0.0)
             
-            // Error should be less than π/16 (half the distance between T gates)
-            Assert.True(decomp.ApproximationError < Math.PI / 16.0)
+            // Error should be less than π/8 (half the distance between T gates at π/4 spacing)
+            Assert.True(decomp.ApproximationError < Math.PI / 8.0)
     
     [<Fact>]
     let ``CORRECTED - Rz fails when error exceeds tolerance`` () =
@@ -117,13 +118,14 @@ module GateToBraidCorrectionTests =
         | Error _ -> failwith "Wrong error type"
     
     [<Fact>]
-    let ``CORRECTED - Exact Rz multiples of π/8 have zero error`` () =
+    let ``CORRECTED - Exact Rz multiples of π/4 have zero error`` () =
         // Business meaning: T-compatible angles should be exact
+        // With tPhase = π/4, exact angles are multiples of π/4
         let exactAngles = [
-            Math.PI / 8.0    // T
-            Math.PI / 4.0    // S
-            3.0 * Math.PI / 8.0
-            Math.PI / 2.0    // S²
+            Math.PI / 4.0    // T (1 × π/4)
+            Math.PI / 2.0    // S = T² (2 × π/4)
+            3.0 * Math.PI / 4.0  // T³ (3 × π/4)
+            Math.PI          // Z = T⁴ (4 × π/4)
         ]
         
         for angle in exactAngles do

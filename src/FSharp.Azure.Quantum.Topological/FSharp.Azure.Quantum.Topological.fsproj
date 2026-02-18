@@ -6,13 +6,17 @@
     <GenerateProgramFile>false</GenerateProgramFile>
 
     <!-- Package Metadata -->
-    <Version>0.3.7</Version>
+    <Version>0.3.8</Version>
     <PackageId>FSharp.Azure.Quantum.Topological</PackageId>
     <Title>FSharp.Azure.Quantum.Topological</Title>
     <Description>Topological quantum computing plugin for FSharp.Azure.Quantum. Provides anyon theory (Ising/Fibonacci/SU(2)_k), braiding compilation, gate-to-braid conversion, Majorana hardware simulator, noise models, and topological file format (.tqp). Seamlessly integrates with main package algorithms (Grover, QFT, QAOA) via IQuantumBackend interface. Requires FSharp.Azure.Quantum v1.3.7+.</Description>
     <Summary>F# topological quantum computing plugin with anyon models, braiding compilation, noise models, and seamless integration with FSharp.Azure.Quantum algorithms</Summary>
-    <PackageReleaseNotes>v0.3.7: Release
-- UPDATED: Compatibility with FSharp.Azure.Quantum v1.3.7
+    <PackageReleaseNotes>v0.3.8: T gate phase convention fix
+- FIXED: T gate phase corrected from exp(iπ/8) to exp(iπ/4) in SolovayKitaev and GateToBraid modules, aligning with standard convention (T²=S, T⁴=Z, T⁸=I)
+- FIXED: S gate phase corrected from exp(iπ/4) to exp(iπ/2) in SolovayKitaev for consistency
+- FIXED: CircuitOptimization template patterns updated for correct T⁸=I periodicity (was T¹⁶=I)
+- IMPROVED: GateToBraid discretization now uses π/4 multiples matching corrected T gate
+- UPDATED: Fibonacci brute-force gate approximation tolerances adjusted for new T gate matrix
 - Status: Ready for Azure Quantum Majorana hardware (when API available)</PackageReleaseNotes>
     
     <!-- Repository Info -->

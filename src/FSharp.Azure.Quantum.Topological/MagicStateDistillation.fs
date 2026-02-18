@@ -58,7 +58,7 @@ module MagicStateDistillation =
     /// For Ising anyons, this requires:
     /// 1. Initialize 4 sigma anyons (1 topological qubit)
     /// 2. Apply specific braiding sequence to create |+⟩ = (|0⟩ + |1⟩)/√2
-    /// 3. Rotate by π/8 to get |T⟩ (non-Clifford - requires approximation)
+    /// 3. Rotate by π/4 to get |T⟩ (non-Clifford - requires approximation)
     /// 
     /// The initial preparation has fidelity < 1 due to braiding imperfections.
     let prepareNoisyMagicState 

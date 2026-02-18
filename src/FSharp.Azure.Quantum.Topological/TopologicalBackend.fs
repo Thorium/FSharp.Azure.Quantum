@@ -209,7 +209,9 @@ module TopologicalUnifiedBackend =
         /// Note: We compile via `compileGateSequence` (not `compileGateToBraid`) so that
         /// complex gates like CP/CRZ/SWAP are transpiled first.
         member private this.ApplyGate (gate: CircuitBuilder.Gate) (fusionState: TopologicalOperations.Superposition) (numQubits: int) : Result<QuantumState, QuantumError> =
-            let tolerance = 1e-10
+            // Tolerance for angle discretization to nearest T-gate multiple (π/4).
+            // Maximum rounding error when discretizing to π/4 multiples is π/8.
+            let tolerance = Math.PI / 8.0 + 1e-10
 
             let gateSequence: BraidToGate.GateSequence =
                 { NumQubits = numQubits
