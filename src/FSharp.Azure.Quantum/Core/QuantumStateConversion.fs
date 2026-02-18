@@ -76,11 +76,22 @@ module QuantumStateConversion =
                 let sv = sparseToStateVector amps n
                 Ok (QuantumState.StateVector sv)
             
-            // FusionSuperposition conversions require Topological package
-            | (QuantumStateType.TopologicalBraiding, _, _)
+            // FusionSuperposition → GateBased: convert via amplitude vector
+            | (QuantumStateType.TopologicalBraiding, QuantumStateType.GateBased, QuantumState.FusionSuperposition fs) ->
+                let amplitudes = fs.GetAmplitudeVector()
+                Ok (QuantumState.StateVector (StateVector.create amplitudes))
+
+            // FusionSuperposition → Sparse: convert via amplitude vector then sparsify
+            | (QuantumStateType.TopologicalBraiding, QuantumStateType.Sparse, QuantumState.FusionSuperposition fs) ->
+                let amplitudes = fs.GetAmplitudeVector()
+                let sv = StateVector.create amplitudes
+                let (amps, n) = stateVectorToSparse sv
+                Ok (QuantumState.SparseState (amps, n))
+
+            // GateBased/Sparse → TopologicalBraiding requires the Topological package
             | (_, QuantumStateType.TopologicalBraiding, _) ->
                 Error (QuantumError.NotImplemented (
-                    $"Conversion between {sourceType} and {targetType}",
+                    $"Conversion from {sourceType} to TopologicalBraiding",
                     Some "Requires the FSharp.Azure.Quantum.Topological package"))
             
             // Unsupported conversions

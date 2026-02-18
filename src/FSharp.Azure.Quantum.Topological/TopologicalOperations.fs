@@ -947,6 +947,22 @@ module TopologicalOperations =
             
             member _.IsNormalized =
                 isNormalized superposition
+
+            member this.GetAmplitudeVector () =
+                let n = (this :> ITopologicalSuperposition).LogicalQubits
+                let dim = 1 <<< n
+                let amplitudes = Array.create dim Complex.Zero
+
+                let normalized = normalize superposition
+                for (amp, state) in normalized.Terms do
+                    let bits = FusionTree.toComputationalBasis state.Tree |> List.toArray
+                    // Convert bitstring to basis index (LSB-first: bit[q] = 2^q)
+                    // This matches the StateVector/Gates convention used throughout
+                    // the codebase: qubit q controls bit q of the array index.
+                    let idx = bits |> Array.mapi (fun q b -> b <<< q) |> Array.sum
+                    amplitudes.[idx] <- amplitudes.[idx] + amp
+
+                amplitudes
     
     /// Wrap a Superposition in an ITopologicalSuperposition interface
     let toInterface (superposition: Superposition) : ITopologicalSuperposition =

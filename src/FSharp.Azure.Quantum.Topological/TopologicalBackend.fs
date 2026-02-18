@@ -603,7 +603,17 @@ module TopologicalUnifiedBackend =
                         if requiredAnyons > maxAnyons then
                             false
                         else
-                            match GateToBraid.compileGateToBraid gate requiredQubits 1e-10 with
+                            // Use compileGateSequence (not compileGateToBraid) so that
+                            // complex gates like CZ, MCZ, SWAP, CCX are transpiled to
+                            // elementary gates before checking braid-compilability.
+                            // This matches the execution path in ApplyGate (line 226).
+                            let gateSequence: BraidToGate.GateSequence =
+                                { NumQubits = requiredQubits
+                                  Gates = [ gate ]
+                                  TotalPhase = Complex.One
+                                  Depth = 1
+                                  TCount = 0 }
+                            match GateToBraid.compileGateSequence gateSequence (Math.PI / 8.0 + 1e-10) anyonType with
                             | Ok _ -> true
                             | Error _ -> false
                     with

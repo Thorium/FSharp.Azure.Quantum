@@ -230,6 +230,29 @@ module HHL =
                 let newStateVec = StateVector.create normalized
                 Ok (QuantumState.StateVector newStateVec)
         
+        | QuantumState.FusionSuperposition fs ->
+            let amplitudeVec = fs.GetAmplitudeVector()
+            let dimension = amplitudeVec.Length
+            let ancillaMask = 1 <<< ancillaQubit
+
+            let newAmplitudes = Array.init dimension (fun i ->
+                let ancillaIs1 = (i &&& ancillaMask) <> 0
+                if ancillaIs1 then amplitudeVec.[i]
+                else Complex.Zero
+            )
+
+            let norm =
+                newAmplitudes
+                |> Array.sumBy (fun c -> c.Magnitude * c.Magnitude)
+                |> sqrt
+
+            if norm < 1e-10 then
+                Error (QuantumError.Other "Post-selection failed: ancilla never measured as |1⟩")
+            else
+                let normalized = newAmplitudes |> Array.map (fun c -> c / norm)
+                let newStateVec = StateVector.create normalized
+                Ok (QuantumState.StateVector newStateVec)
+
         | _ -> Error (QuantumError.Other "Post-selection only supported for StateVector representation")
     
     /// <summary>
@@ -280,6 +303,29 @@ module HHL =
             | _ ->
                 measuredProb
         
+        | QuantumState.FusionSuperposition fs ->
+            let amplitudeVec = fs.GetAmplitudeVector()
+            let dimension = amplitudeVec.Length
+            let ancillaMask = 1 <<< ancillaQubit
+
+            let measuredProb =
+                [0 .. dimension - 1]
+                |> List.sumBy (fun i ->
+                    let ancillaIs1 = (i &&& ancillaMask) <> 0
+                    if ancillaIs1 then
+                        let amp = amplitudeVec.[i]
+                        amp.Magnitude * amp.Magnitude
+                    else
+                        0.0
+                )
+
+            match conditionNumber with
+            | Some kappa when kappa > 1.0 ->
+                let theoreticalBound = 1.0 / (kappa * kappa)
+                sqrt (measuredProb * theoreticalBound)
+            | _ ->
+                measuredProb
+
         | _ -> 0.0  // Unknown for other representations
     
     // ========================================================================
@@ -320,6 +366,27 @@ module HHL =
             )
             |> Array.filter (fun lambda -> lambda > 0.0)
         
+        | QuantumState.FusionSuperposition fs ->
+            let amplitudeVec = fs.GetAmplitudeVector()
+            let dimension = amplitudeVec.Length
+            let eigenvalueRegisterSize = 1 <<< eigenvalueQubits
+
+            let eigenvalueCounts = Array.create eigenvalueRegisterSize 0.0
+
+            for i in 0 .. dimension - 1 do
+                let eigenvalueIndex = i &&& (eigenvalueRegisterSize - 1)
+                let amp = amplitudeVec.[i]
+                eigenvalueCounts[eigenvalueIndex] <- eigenvalueCounts[eigenvalueIndex] + (amp.Magnitude * amp.Magnitude)
+
+            eigenvalueCounts
+            |> Array.mapi (fun idx prob ->
+                if prob > 1e-6 then
+                    float idx / float eigenvalueRegisterSize
+                else
+                    0.0
+            )
+            |> Array.filter (fun lambda -> lambda > 0.0)
+
         | _ -> [||]  // Unknown for other representations
     
     /// <summary>
@@ -348,6 +415,21 @@ module HHL =
                  |> Map.ofList
 
              if Map.isEmpty amplitudes then None else Some amplitudes
+
+         | QuantumState.FusionSuperposition fs ->
+             let amplitudeVec = fs.GetAmplitudeVector()
+             let solutionDim = 1 <<< solutionQubits
+             let ancillaMask = 1 <<< ancillaQubit
+             let amplitudes =
+                 [0 .. solutionDim - 1]
+                 |> List.choose (fun i ->
+                     let basisIndex = (i <<< eigenvalueQubits) ||| ancillaMask
+                     let amp = amplitudeVec.[basisIndex]
+                     if amp.Magnitude > 1e-10 then Some (i, amp) else None)
+                 |> Map.ofList
+
+             if Map.isEmpty amplitudes then None else Some amplitudes
+
          | _ -> None
     
     // ========================================================================
@@ -767,6 +849,13 @@ module HHL =
                      Array.init solutionDim (fun i ->
                          let basisIndex = (i <<< intent.EigenvalueQubits) ||| ancillaMask
                          StateVector.getAmplitude basisIndex stateVec)
+                 | QuantumState.FusionSuperposition fs ->
+                     let amplitudeVec = fs.GetAmplitudeVector()
+                     let solutionDim = 1 <<< intent.SolutionQubits
+                     let ancillaMask = 1 <<< ancillaQubit
+                     Array.init solutionDim (fun i ->
+                         let basisIndex = (i <<< intent.EigenvalueQubits) ||| ancillaMask
+                         amplitudeVec.[basisIndex])
                  | _ ->
                      Array.create intent.Matrix.Dimension Complex.Zero
 

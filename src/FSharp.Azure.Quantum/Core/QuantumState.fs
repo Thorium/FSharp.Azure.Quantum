@@ -21,6 +21,15 @@ type ITopologicalSuperposition =
     /// Check if superposition is normalized
     abstract member IsNormalized : bool
 
+    /// Get the full amplitude vector in computational basis ordering.
+    ///
+    /// Returns an array of length 2^n (where n = LogicalQubits) containing the
+    /// complex amplitude for each computational basis state |i⟩.
+    /// This enables StateVector-equivalent post-processing (e.g., HHL solution
+    /// extraction, post-selection) on topological states without requiring a
+    /// circular dependency on the Topological package.
+    abstract member GetAmplitudeVector : unit -> Complex[]
+
 /// Unified quantum state representation supporting multiple backend types
 /// 
 /// Design rationale:
