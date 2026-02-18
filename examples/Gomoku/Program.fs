@@ -28,20 +28,30 @@ module Program =
             let pos =
                 match aiPlayer with
                 | Some ClassicalAI ->
-                    if debug then
-                        ConsoleRenderer.displayAIThinking "Classical Heuristic" 0 None
-                    let move = Classical.selectBestMove board
-                    if debug then
-                        AnsiConsole.WriteLine()
-                    move
+                    // Check for immediate threat first
+                    match ThreatDetection.getImmediateThreat board with
+                    | Some threatPos ->
+                        if debug then
+                            ConsoleRenderer.displayAIThinking "Classical Heuristic (threat)" 1 None
+                            AnsiConsole.WriteLine()
+                        Some threatPos
+                    | None ->
+                        let scored = Classical.evaluateMoves board board.CurrentPlayer
+                        if debug then
+                            ConsoleRenderer.displayAIThinking "Classical Heuristic" scored.Length None
+                            AnsiConsole.WriteLine()
+                        scored |> List.tryHead |> Option.map fst
                 
                 | Some LocalQuantumAI ->
-                    if debug then
-                        ConsoleRenderer.displayAIThinking "Local Quantum (Grover's Search)" 0 None
                     // Create local backend for quantum simulation
                     let backend = FSharp.Azure.Quantum.Backends.LocalBackendFactory.createUnified()
-                    let (move, iterations) = LocalQuantum.selectBestMove board backend None
+                    let candidates = Classical.getTopCandidates board 25
+                    let (move, iterations) = LocalQuantum.selectBestMove board backend (Some candidates)
                     if debug then
+                        let usedThreat = iterations = 0 && move.IsSome
+                        let count = if usedThreat then 1 else candidates.Length
+                        let label = if usedThreat then "Local Quantum (threat)" else "Local Quantum (Grover's Search)"
+                        ConsoleRenderer.displayAIThinking label count None
                         ConsoleRenderer.displayInfo $"Grover iterations: {iterations}"
                         AnsiConsole.WriteLine()
                     move
@@ -65,12 +75,15 @@ module Program =
                     metrics.Move
                 
                 | Some TopologicalQuantumAI ->
-                    if debug then
-                        ConsoleRenderer.displayAIThinking "Topological Quantum (Grover's Search)" 0 None
                     // Create topological backend (Ising encoding, 20 anyons → 9 logical qubits)
                     let backend = FSharp.Azure.Quantum.Topological.TopologicalUnifiedBackendFactory.createIsing 20
-                    let (move, iterations) = LocalQuantum.selectBestMove board backend None
+                    let candidates = Classical.getTopCandidates board 25
+                    let (move, iterations) = LocalQuantum.selectBestMove board backend (Some candidates)
                     if debug then
+                        let usedThreat = iterations = 0 && move.IsSome
+                        let count = if usedThreat then 1 else candidates.Length
+                        let label = if usedThreat then "Topological Quantum (threat)" else "Topological Quantum (Grover's Search)"
+                        ConsoleRenderer.displayAIThinking label count None
                         ConsoleRenderer.displayInfo $"Grover iterations (topological): {iterations}"
                         AnsiConsole.WriteLine()
                     move
