@@ -125,6 +125,7 @@ References:
 *)
 
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
+#r "../../src/FSharp.Azure.Quantum.Topological/bin/Debug/net10.0/FSharp.Azure.Quantum.Topological.dll"
 #load "../_common/Cli.fs"
 #load "../_common/Data.fs"
 #load "../_common/Reporting.fs"
@@ -135,6 +136,7 @@ open FSharp.Azure.Quantum.QuantumChemistry.QuantumChemistryBuilder
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.Backends.LocalBackend
+open FSharp.Azure.Quantum.Topological
 open FSharp.Azure.Quantum.Examples.Common
 
 // ==============================================================================
@@ -353,6 +355,10 @@ if not quiet then
 // ==============================================================================
 
 let backend = LocalBackend() :> IQuantumBackend
+// Alternative: TopologicalBackend (Ising, 22 anyons → 10 logical qubits)
+// Note: Topological is ~300x slower for VQE (e.g., 112s vs 0.4s per 8-qubit molecule).
+// Uncomment below and comment out LocalBackend above to use topological:
+// let backend = TopologicalUnifiedBackendFactory.createIsing 22 :> IQuantumBackend
 
 if not quiet then
     printfn "Quantum Backend"

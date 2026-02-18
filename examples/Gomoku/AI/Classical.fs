@@ -18,8 +18,8 @@ module Classical =
         | One = 10                // Single piece
         | None = 0
     
-    /// Count consecutive pieces in a line from a position
-    let private countConsecutive (board: Board) (pos: Position) (player: Cell) (dir: Direction) : int =
+    /// Count consecutive pieces in a line from a position, returning (forward, backward)
+    let private countConsecutiveDetail (board: Board) (pos: Position) (player: Cell) (dir: Direction) : int * int =
         let (rowDelta, colDelta) = 
             match dir with
             | Horizontal -> (0, 1)
@@ -36,10 +36,15 @@ module Classical =
         
         let forward = countDirection pos (rowDelta, colDelta)
         let backward = countDirection pos (-rowDelta, -colDelta)
-        forward + backward + 1  // +1 for the position itself
+        (forward, backward)
+    
+    /// Count consecutive pieces total (forward + backward + 1 for pos itself)
+    let private countConsecutive (board: Board) (pos: Position) (player: Cell) (dir: Direction) : int =
+        let (fwd, bwd) = countConsecutiveDetail board pos player dir
+        fwd + bwd + 1
     
     /// Check if both ends of a line are open
-    let private isOpenEnded (board: Board) (pos: Position) (dir: Direction) (length: int) : bool =
+    let private isOpenEnded (board: Board) (pos: Position) (dir: Direction) (player: Cell) : bool =
         let (rowDelta, colDelta) = 
             match dir with
             | Horizontal -> (0, 1)
@@ -47,8 +52,12 @@ module Classical =
             | DiagonalDown -> (1, 1)
             | DiagonalUp -> (1, -1)
         
-        let frontPos = { Row = pos.Row + rowDelta * length; Col = pos.Col + colDelta * length }
-        let backPos = { Row = pos.Row - rowDelta; Col = pos.Col - colDelta }
+        let (forward, backward) = countConsecutiveDetail board pos player dir
+        
+        // Front end: one step past the last piece in forward direction
+        let frontPos = { Row = pos.Row + rowDelta * (forward + 1); Col = pos.Col + colDelta * (forward + 1) }
+        // Back end: one step past the last piece in backward direction
+        let backPos = { Row = pos.Row - rowDelta * (backward + 1); Col = pos.Col - colDelta * (backward + 1) }
         
         let frontOpen = Board.isValidPosition board frontPos && Board.isEmpty board frontPos
         let backOpen = Board.isValidPosition board backPos && Board.isEmpty board backPos
@@ -60,18 +69,20 @@ module Classical =
         if not (Board.isEmpty board pos) then
             0.0  // Position already occupied
         else
-            // Simulate placing the piece
-            match Board.makeMove board pos with
+            // Simulate placing the piece AS the specified player
+            let boardAsPlayer = { board with CurrentPlayer = player }
+            match Board.makeMove boardAsPlayer pos with
             | Error _ -> 0.0
             | Ok newBoard ->
                 // Check all directions for threats using functional fold
                 let directions = [Horizontal; Vertical; DiagonalDown; DiagonalUp]
                 
-                let threatScore = 
+                // Collect per-direction threat info
+                let directionThreats =
                     directions
-                    |> List.fold (fun acc dir ->
+                    |> List.map (fun dir ->
                         let count = countConsecutive newBoard pos player dir
-                        let isOpen = isOpenEnded newBoard pos dir count
+                        let isOpen = isOpenEnded newBoard pos dir player
                         
                         let threat =
                             match count with
@@ -85,8 +96,38 @@ module Classical =
                             | 1 -> ThreatLevel.One
                             | _ -> ThreatLevel.None
                         
-                        acc + float (int threat)
-                    ) 0.0
+                        (dir, threat, count, isOpen))
+                
+                let threatScore = 
+                    directionThreats 
+                    |> List.sumBy (fun (_, threat, _, _) -> float (int threat))
+                
+                // Double-threat bonus: creating threats in multiple directions
+                // is disproportionately strong because opponent can only block one
+                let significantThreats =
+                    directionThreats
+                    |> List.filter (fun (_, threat, _, _) ->
+                        threat >= ThreatLevel.OpenTwo)  // OpenTwo or better
+                    |> List.length
+                
+                let openThreeOrBetter =
+                    directionThreats
+                    |> List.filter (fun (_, threat, _, _) ->
+                        threat >= ThreatLevel.OpenThree)  // OpenThree or better
+                    |> List.length
+                
+                let doubleThreatBonus =
+                    if openThreeOrBetter >= 2 then
+                        // Two open threes or better = virtually unblockable → forced win
+                        50000.0
+                    elif significantThreats >= 3 then
+                        // Three directions with open-two or better = strong strategic position
+                        5000.0
+                    elif significantThreats >= 2 then
+                        // Two directions with decent threats = good multi-threat position
+                        1000.0
+                    else
+                        0.0
                 
                 // Add positional bonus for center control
                 let centerRow = board.Config.Size / 2
@@ -95,7 +136,7 @@ module Classical =
                     abs (pos.Row - centerRow) + abs (pos.Col - centerCol)
                 let centerBonus = float (board.Config.Size - distFromCenter) * 2.0
                 
-                threatScore + centerBonus
+                threatScore + doubleThreatBonus + centerBonus
     
     /// Evaluate all legal moves and return scored list
     let evaluateMoves (board: Board) (player: Cell) : (Position * float) list =
@@ -119,9 +160,9 @@ module Classical =
             let offensiveScore = evaluatePosition board pos player
             let defensiveScore = evaluatePosition board pos (player.Opposite())
             
-            // Weigh defensive and offensive play
-            // INCREASE defensive weight significantly to prevent quick losses
-            let totalScore = offensiveScore * 1.0 + defensiveScore * 2.0  // Was 1.1, now 2.0!
+            // Weigh offensive play higher to encourage building winning threats
+            // Double-threat bonus in evaluatePosition makes offensive play decisive
+            let totalScore = offensiveScore * 2.0 + defensiveScore * 1.0
             
             (pos, totalScore))
         |> List.sortByDescending snd

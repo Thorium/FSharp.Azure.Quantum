@@ -12,6 +12,7 @@ module Program =
         | ClassicalAI
         | LocalQuantumAI
         | LocalHybridAI
+        | TopologicalQuantumAI
     
     /// Game result
     type GameResult = {
@@ -62,6 +63,17 @@ module Program =
                         AnsiConsole.WriteLine()
                     
                     metrics.Move
+                
+                | Some TopologicalQuantumAI ->
+                    if debug then
+                        ConsoleRenderer.displayAIThinking "Topological Quantum (Grover's Search)" 0 None
+                    // Create topological backend (Ising encoding, 20 anyons → 9 logical qubits)
+                    let backend = FSharp.Azure.Quantum.Topological.TopologicalUnifiedBackendFactory.createIsing 20
+                    let (move, iterations) = LocalQuantum.selectBestMove board backend None
+                    if debug then
+                        ConsoleRenderer.displayInfo $"Grover iterations (topological): {iterations}"
+                        AnsiConsole.WriteLine()
+                    move
                 
                 | None -> None
             
@@ -276,6 +288,7 @@ module Program =
                     | "classical" -> Some ClassicalAI
                     | "quantum" | "localquantum" -> Some LocalQuantumAI
                     | "hybrid" | "localhybrid" -> Some LocalHybridAI
+                    | "topological" | "topo" -> Some TopologicalQuantumAI
                     | _ -> None
                 
                 match parseAI ai1Name, parseAI ai2Name with
@@ -325,7 +338,7 @@ module Program =
                     0  // Success
                 
                 | _ ->
-                    ConsoleRenderer.displayError $"Invalid AI player names. Use: classical, quantum, or hybrid"
+                    ConsoleRenderer.displayError $"Invalid AI player names. Use: classical, quantum, hybrid, or topological"
                     AnsiConsole.WriteLine()
                     AnsiConsole.MarkupLine("[cyan]Usage:[/] Gomoku --ai-vs-ai <ai1> <ai2> [--debug]")
                     AnsiConsole.MarkupLine("[cyan]Example:[/] Gomoku --ai-vs-ai classical quantum")
@@ -341,13 +354,14 @@ module Program =
                 AnsiConsole.MarkupLine("  [yellow]Gomoku --help[/]                          - Show this help")
                 AnsiConsole.WriteLine()
                 AnsiConsole.MarkupLine("[bold cyan]AI Players:[/]")
-                AnsiConsole.MarkupLine("  [green]classical[/]    - Classical heuristic AI")
-                AnsiConsole.MarkupLine("  [green]quantum[/]      - Local Quantum AI (Grover's algorithm with local simulator)")
-                AnsiConsole.MarkupLine("  [green]hybrid[/]       - Local Hybrid AI (switches between classical and quantum)")
+                AnsiConsole.MarkupLine("  [green]classical[/]     - Classical heuristic AI")
+                AnsiConsole.MarkupLine("  [green]quantum[/]       - Local Quantum AI (Grover's algorithm with gate-based simulator)")
+                AnsiConsole.MarkupLine("  [green]hybrid[/]        - Local Hybrid AI (switches between classical and quantum)")
+                AnsiConsole.MarkupLine("  [green]topological[/]   - Topological Quantum AI (Grover's via Ising anyon braiding)")
                 AnsiConsole.WriteLine()
                 AnsiConsole.MarkupLine("[bold cyan]Examples:[/]")
                 AnsiConsole.MarkupLine("  Gomoku --ai-vs-ai classical quantum          # Quiet mode (default)")
-                AnsiConsole.MarkupLine("  Gomoku --ai-vs-ai quantum classical --debug  # Verbose debug output")
+                AnsiConsole.MarkupLine("  Gomoku --ai-vs-ai quantum topological --debug # Gate-based vs topological")
                 AnsiConsole.MarkupLine("  Gomoku --ai-vs-ai hybrid hybrid")
                 0
             

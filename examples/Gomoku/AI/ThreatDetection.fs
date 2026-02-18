@@ -63,7 +63,19 @@ module ThreatDetection =
         // Check if opponent would win by playing here
         isWinningPosition board pos opponent
     
+    /// Check if a position in a direction has an open end (empty cell beyond the line)
+    let private hasOpenEnd (board: Board) (pos: Position) (dir: Direction) (offset: int) : bool =
+        let (rowDelta, colDelta) = 
+            match dir with
+            | Horizontal -> (0, 1)
+            | Vertical -> (1, 0)
+            | DiagonalDown -> (1, 1)
+            | DiagonalUp -> (1, -1)
+        let endPos = { Row = pos.Row + rowDelta * offset; Col = pos.Col + colDelta * offset }
+        Board.isValidPosition board endPos && Board.getCell board endPos = Cell.Empty
+
     /// Check if position creates open-ended four (will win next move)
+    /// A true open four has 4 in a row with BOTH ends open — opponent cannot block both
     let private isOpenFour (board: Board) (pos: Position) (player: Cell) : bool =
         // Set the player as current player before simulating the move
         let boardWithPlayer = { board with CurrentPlayer = player }
@@ -75,9 +87,33 @@ module ThreatDetection =
             directions
             |> List.exists (fun dir ->
                 let (pieces, _) = countInDirectionWithGaps newBoard pos player dir 0
-                pieces + 1 >= 4)  // 4 in a row with no gaps = open four
+                let total = pieces + 1  // include the piece at pos
+                if total >= 4 then
+                    // Count how far forward/backward the line extends from pos
+                    let (fwd, _) = countInDirectionWithGaps newBoard pos player dir 0
+                    // fwd is forward count, we need to find the ends
+                    let (rowDelta, colDelta) = 
+                        match dir with
+                        | Horizontal -> (0, 1)
+                        | Vertical -> (1, 0)
+                        | DiagonalDown -> (1, 1)
+                        | DiagonalUp -> (1, -1)
+                    // Scan forward to find end of line
+                    let rec findEnd p d =
+                        let next = { Row = p.Row + fst d; Col = p.Col + snd d }
+                        if Board.isValidPosition newBoard next && Board.getCell newBoard next = player then
+                            findEnd next d
+                        else next
+                    let fwdEnd = findEnd pos (rowDelta, colDelta)
+                    let bwdEnd = findEnd pos (-rowDelta, -colDelta)
+                    // Both ends must be empty (open)
+                    let fwdOpen = Board.isValidPosition newBoard fwdEnd && Board.getCell newBoard fwdEnd = Cell.Empty
+                    let bwdOpen = Board.isValidPosition newBoard bwdEnd && Board.getCell newBoard bwdEnd = Cell.Empty
+                    fwdOpen && bwdOpen
+                else false)
     
-    /// Check if position creates dangerous three (can become four next move)
+    /// Check if position creates dangerous three (can become open four next move)
+    /// A dangerous three has 3 in a row with enough open space to reach 5
     let private isDangerousThree (board: Board) (pos: Position) (player: Cell) : bool =
         // Set the player as current player before simulating the move
         let boardWithPlayer = { board with CurrentPlayer = player }
@@ -89,10 +125,31 @@ module ThreatDetection =
             directions
             |> List.exists (fun dir ->
                 let (pieces, gaps) = countInDirectionWithGaps newBoard pos player dir 1
-                pieces + 1 >= 3 && gaps <= 1)
+                let total = pieces + 1  // include the piece at pos
+                if total >= 3 && gaps <= 1 then
+                    // Verify there's enough room to extend to 5
+                    let (rowDelta, colDelta) = 
+                        match dir with
+                        | Horizontal -> (0, 1)
+                        | Vertical -> (1, 0)
+                        | DiagonalDown -> (1, 1)
+                        | DiagonalUp -> (1, -1)
+                    let rec findEnd p d =
+                        let next = { Row = p.Row + fst d; Col = p.Col + snd d }
+                        if Board.isValidPosition newBoard next && Board.getCell newBoard next = player then
+                            findEnd next d
+                        else next
+                    let fwdEnd = findEnd pos (rowDelta, colDelta)
+                    let bwdEnd = findEnd pos (-rowDelta, -colDelta)
+                    // At least one end must be open for the three to be dangerous
+                    let fwdOpen = Board.isValidPosition newBoard fwdEnd && Board.getCell newBoard fwdEnd = Cell.Empty
+                    let bwdOpen = Board.isValidPosition newBoard bwdEnd && Board.getCell newBoard bwdEnd = Cell.Empty
+                    fwdOpen || bwdOpen
+                else false)
     
     /// Get immediate threat that must be addressed
-    /// Priority: Block opponent win > Take our win > Block opponent four > Create our four
+    /// Only handles truly urgent situations: winning moves and open fours
+    /// Threes and lower threats are handled by the scoring function for strategic balance
     let getImmediateThreat (board: Board) : Position option =
         let currentPlayer = board.CurrentPlayer
         let opponent = currentPlayer.Opposite()
@@ -109,46 +166,41 @@ module ThreatDetection =
             else
                 legalMoves
         
-        // Priority 1: Block opponent's immediate winning move (CRITICAL!)
-        let opponentWins = 
+        // Priority 1: Take our own winning move (if we can win, win immediately!)
+        let ourWins = 
             relevantMoves 
-            |> List.filter (fun pos -> isWinningPosition board pos opponent)
+            |> List.filter (fun pos -> isWinningPosition board pos currentPlayer)
         
-        match opponentWins with
+        match ourWins with
         | winPos :: _ -> Some winPos
         | [] ->
-            // Priority 2: Take our own winning move
-            let ourWins = 
+            // Priority 2: Block opponent's immediate winning move
+            let opponentWins = 
                 relevantMoves 
-                |> List.filter (fun pos -> isWinningPosition board pos currentPlayer)
+                |> List.filter (fun pos -> isWinningPosition board pos opponent)
             
-            match ourWins with
+            match opponentWins with
             | winPos :: _ -> Some winPos
             | [] ->
-                // Priority 3: Block opponent's open four (will win next turn)
-                let opponentFours = 
+                // Priority 3: Create our own open four (forces opponent to respond)
+                let ourFours = 
                     relevantMoves 
-                    |> List.filter (fun pos -> isOpenFour board pos opponent)
+                    |> List.filter (fun pos -> isOpenFour board pos currentPlayer)
                 
-                match opponentFours with
+                match ourFours with
                 | fourPos :: _ -> Some fourPos
                 | [] ->
-                    // Priority 4: Create our own open four
-                    let ourFours = 
+                    // Priority 4: Block opponent's open four (will win next turn)
+                    let opponentFours = 
                         relevantMoves 
-                        |> List.filter (fun pos -> isOpenFour board pos currentPlayer)
+                        |> List.filter (fun pos -> isOpenFour board pos opponent)
                     
-                    match ourFours with
+                    match opponentFours with
                     | fourPos :: _ -> Some fourPos
                     | [] ->
-                        // Priority 5: Block opponent's dangerous three
-                        let opponentThrees = 
-                            relevantMoves 
-                            |> List.filter (fun pos -> isDangerousThree board pos opponent)
-                        
-                        match opponentThrees with
-                        | threePos :: _ -> Some threePos
-                        | [] -> None
+                        // Threes and lower: handled by evaluateMoves scoring
+                        // This allows the AI to play strategically instead of always reacting
+                        None
     
     /// Get all threat positions sorted by urgency
     let getAllThreats (board: Board) : (Position * float) list =
@@ -160,10 +212,10 @@ module ThreatDetection =
         |> List.choose (fun pos ->
             // Score based on threat level
             let score =
-                if isWinningPosition board pos opponent then Some (pos, 100000.0)  // MUST BLOCK!
-                elif isWinningPosition board pos currentPlayer then Some (pos, 90000.0)  // WIN!
-                elif isOpenFour board pos opponent then Some (pos, 50000.0)  // Block four
-                elif isOpenFour board pos currentPlayer then Some (pos, 40000.0)  // Create four
+                if isWinningPosition board pos currentPlayer then Some (pos, 100000.0)  // WIN!
+                elif isWinningPosition board pos opponent then Some (pos, 90000.0)  // MUST BLOCK!
+                elif isOpenFour board pos currentPlayer then Some (pos, 50000.0)  // Create four
+                elif isOpenFour board pos opponent then Some (pos, 40000.0)  // Block four
                 elif isDangerousThree board pos opponent then Some (pos, 10000.0)  // Block three
                 elif isDangerousThree board pos currentPlayer then Some (pos, 8000.0)  // Create three
                 else None

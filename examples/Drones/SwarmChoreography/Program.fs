@@ -24,6 +24,7 @@ open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.Backends.LocalBackend
+open FSharp.Azure.Quantum.Topological
 
 open FSharp.Azure.Quantum.Examples.Common
 open FSharp.Azure.Quantum.Examples.Drones.Domain
@@ -400,6 +401,8 @@ module Program =
             printfn "║    --home-lat <deg>  Home latitude (MAVLink)     ║"
             printfn "║    --home-lon <deg>  Home longitude (MAVLink)    ║"
             printfn "║    --home-alt <m>    Home altitude (MAVLink)     ║"
+            printfn "║    --backend <type>  local or topological        ║"
+            printfn "║    --anyons <n>      Max anyons (topological)    ║"
             printfn "║    --help            Show this help              ║"
             printfn "╚══════════════════════════════════════════════════╝"
             printfn ""
@@ -441,7 +444,17 @@ module Program =
             printfn ""
             
             // Create quantum backend (RULE 1 COMPLIANT)
-            let backend = LocalBackend() :> IQuantumBackend
+            let backendType = Cli.getOr "backend" "local" args
+            let backend : IQuantumBackend =
+                match backendType.ToLower() with
+                | "topological" | "topo" ->
+                    // Ising encoding: 16 qubits needs 2*(16+1) = 34 anyons
+                    let maxAnyons = Cli.getOr "anyons" "34" args |> int
+                    printfn "Backend: Topological (Ising, %d anyons)" maxAnyons
+                    TopologicalUnifiedBackendFactory.createIsing maxAnyons
+                | _ ->
+                    printfn "Backend: LocalBackend (gate-based)"
+                    LocalBackend() :> IQuantumBackend
             
             // Define show sequence
             let formations = [|

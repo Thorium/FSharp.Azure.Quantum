@@ -24,5 +24,6 @@
     
     <!-- Azure Quantum (reference parent project) -->
     <ProjectReference Include="..\..\src\FSharp.Azure.Quantum\FSharp.Azure.Quantum.fsproj" />
+    <ProjectReference Include="..\..\src\FSharp.Azure.Quantum.Topological\FSharp.Azure.Quantum.Topological.fsproj" />
   </ItemGroup>
 </Project>

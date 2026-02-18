@@ -38,8 +38,8 @@ module LocalQuantum =
             // Evaluate defensive potential (blocking opponent threats)
             let defensiveScore = Classical.evaluatePosition board pos opponent
             
-            // Weigh defensive and offensive play
-            let totalScore = offensiveScore * 1.0 + defensiveScore * 2.0
+            // Weigh offensive play higher to encourage building winning threats
+            let totalScore = offensiveScore * 2.0 + defensiveScore * 1.0
             
             (pos, totalScore))
     
