@@ -169,6 +169,295 @@ module FMatrix =
         ]
     
     // ========================================================================
+    // GENERAL SU(2)_k F-SYMBOLS VIA QUANTUM 6j-SYMBOLS
+    // ========================================================================
+    
+    // The quantum 6j-symbol (q-Racah coefficient) for SU(2)_k with
+    // q = exp(iπ/(k+2)). All spin labels j are half-integers stored as
+    // j_doubled (integers 0..k), so actual spin = j_doubled / 2.
+    //
+    // Reference: Kirillov & Reshetikhin (1989), "Representations of the
+    // algebra U_q(sl(2)), q-orthogonal polynomials and invariants of links"
+    // Also: Simon "Topological Quantum", Chapter 18.6
+    
+    /// Quantum number [n]_q = sin(n * π / (k+2)) / sin(π / (k+2))
+    /// where q = exp(iπ/(k+2)).
+    ///
+    /// n is a non-negative integer. Returns a real number.
+    let private qNumber (n: int) (k: int) : float =
+        let denom = float (k + 2)
+        let sinDenom = sin (Math.PI / denom)
+        if abs sinDenom < 1e-15 then 0.0
+        else sin (float n * Math.PI / denom) / sinDenom
+    
+    /// Quantum factorial [n]_q! = [1]_q * [2]_q * ... * [n]_q
+    /// Returns the natural logarithm of |[n]_q!| and the sign (+1 or -1).
+    ///
+    /// Using log-space avoids overflow/underflow for large k.
+    /// [0]_q! = 1 by convention.
+    let private qFactorialLogSigned (n: int) (k: int) : float * float =
+        if n <= 0 then (0.0, 1.0)  // log(1) = 0, sign = +1
+        else
+            let mutable logMag = 0.0
+            let mutable sign = 1.0
+            for i in 1 .. n do
+                let qi = qNumber i k
+                if qi < 0.0 then
+                    sign <- -sign
+                    logMag <- logMag + log (abs qi)
+                elif qi > 0.0 then
+                    logMag <- logMag + log qi
+                else
+                    // [i]_q = 0 means the factorial is zero
+                    // Return -infinity to signal zero
+                    logMag <- -infinity
+                    sign <- 0.0
+            (logMag, sign)
+    
+    /// Check triangle inequality: can spins (a, b, c) form a valid triad?
+    /// All arguments are j_doubled values. Returns true if:
+    /// 1. |a - b| <= c <= a + b (triangle inequality)
+    /// 2. a + b + c is even (integer total spin)
+    /// 3. (a + b + c) / 2 <= k (truncation for SU(2)_k)
+    let private isValidTriad (a_d: int) (b_d: int) (c_d: int) (k: int) : bool =
+        let sum = a_d + b_d + c_d
+        sum % 2 = 0
+        && c_d >= abs (a_d - b_d)
+        && c_d <= a_d + b_d
+        && sum / 2 <= k
+    
+    /// Log of triangle coefficient Δ(a,b,c) squared.
+    /// Δ(a,b,c)² = [s-a]_q! * [s-b]_q! * [s-c]_q! / [s+1]_q!
+    /// where s = (a + b + c) / 2, and a,b,c are j_doubled values
+    /// converted to integer spin sums.
+    ///
+    /// Returns (log|Δ²|, sign).
+    let private triangleCoefficientLogSigned 
+        (a_d: int) (b_d: int) (c_d: int) (k: int) : float * float =
+        // s = (a_d + b_d + c_d) / 2 in j_doubled units 
+        // = total spin in integer units
+        let s = (a_d + b_d + c_d) / 2
+        // Arguments to q-factorials are in integer units
+        let (log1, sgn1) = qFactorialLogSigned (s - a_d) k   // [s - a]_q!
+        let (log2, sgn2) = qFactorialLogSigned (s - b_d) k   // [s - b]_q!
+        let (log3, sgn3) = qFactorialLogSigned (s - c_d) k   // [s - c]_q!
+        let (log4, sgn4) = qFactorialLogSigned (s + 1) k     // [s + 1]_q!
+        let logVal = log1 + log2 + log3 - log4
+        let sgnVal = sgn1 * sgn2 * sgn3 * sgn4
+        (logVal, sgnVal)
+    
+    /// Compute the quantum 6j-symbol { j1 j2 j3 } for SU(2)_k.
+    ///                                { j4 j5 j6 }
+    ///
+    /// All arguments are j_doubled values (integers 0..k).
+    /// The triads that must be valid are: (j1,j2,j3), (j1,j5,j6), 
+    /// (j4,j2,j6), (j4,j5,j3).
+    ///
+    /// Formula (q-deformed Racah):
+    ///   {6j} = Δ(j1,j2,j3) * Δ(j1,j5,j6) * Δ(j4,j2,j6) * Δ(j4,j5,j3)
+    ///          × Σ_z (-1)^z * [z+1]_q! / (product of 7 q-factorials)
+    ///
+    /// where z ranges over integers such that all factorial arguments 
+    /// are non-negative.
+    let private quantum6jSymbol
+        (j1_d: int) (j2_d: int) (j3_d: int)
+        (j4_d: int) (j5_d: int) (j6_d: int)
+        (k: int) : float =
+        
+        // Validate all four triads
+        if not (isValidTriad j1_d j2_d j3_d k) then 0.0
+        elif not (isValidTriad j1_d j5_d j6_d k) then 0.0
+        elif not (isValidTriad j4_d j2_d j6_d k) then 0.0
+        elif not (isValidTriad j4_d j5_d j3_d k) then 0.0
+        else
+        
+        // Half-sums of triads (in integer units, since j_doubled sums are even)
+        let s1 = (j1_d + j2_d + j3_d) / 2
+        let s2 = (j1_d + j5_d + j6_d) / 2
+        let s3 = (j4_d + j2_d + j6_d) / 2
+        let s4 = (j4_d + j5_d + j3_d) / 2
+        
+        // Triangle coefficients (log-space)
+        let (logD1, sgnD1) = triangleCoefficientLogSigned j1_d j2_d j3_d k
+        let (logD2, sgnD2) = triangleCoefficientLogSigned j1_d j5_d j6_d k
+        let (logD3, sgnD3) = triangleCoefficientLogSigned j4_d j2_d j6_d k
+        let (logD4, sgnD4) = triangleCoefficientLogSigned j4_d j5_d j3_d k
+        
+        // Prefactor = sqrt(Δ1² * Δ2² * Δ3² * Δ4²) = sqrt of product
+        let logDeltaProduct = logD1 + logD2 + logD3 + logD4
+        let sgnDeltaProduct = sgnD1 * sgnD2 * sgnD3 * sgnD4
+        
+        if sgnDeltaProduct = 0.0 || logDeltaProduct = -infinity then 0.0
+        else
+        
+        // z ranges: z must satisfy all 7 factorial arguments >= 0
+        // The 7 denominators are:
+        //   [z - s1]!, [z - s2]!, [z - s3]!, [z - s4]!,
+        //   [s1 + s2 + s3 - z - j3_d]! = [... - z]! (but let's use the standard form)
+        //
+        // Standard Racah formula denominators:
+        //   D1 = z - s1,  D2 = z - s2,  D3 = z - s3,  D4 = z - s4
+        //   D5 = s1 + s2 - j4_d - j5_d - z  (= j1_d + j2_d + j5_d + j6_d)/2 - z ... no)
+        //
+        // Using the standard parameterization with integer z:
+        //   z ranges from max(s1, s2, s3, s4) to min(s1+s2-j4_d-j5_d+j3_d+j6_d, ...)
+        //
+        // The 7 q-factorial arguments in the denominator are:
+        //   (z - s1), (z - s2), (z - s3), (z - s4),
+        //   (s1 + s2 - z) = (j1_d + j2_d + j5_d + j6_d)/2 - z,
+        //   (s1 + s3 - z) = (j1_d + j2_d + j4_d + j2_d + j6_d)/2 - z ... 
+        //
+        // Let me use the correct standard form. The upper limits come from:
+        //   A = (j1_d + j2_d + j4_d + j5_d) / 2  
+        //   B = (j2_d + j3_d + j5_d + j6_d) / 2
+        //   C = (j1_d + j3_d + j4_d + j6_d) / 2
+        // z_max = min(A, B, C)
+        
+        let bigA = (j1_d + j2_d + j4_d + j5_d) / 2
+        let bigB = (j2_d + j3_d + j5_d + j6_d) / 2
+        let bigC = (j1_d + j3_d + j4_d + j6_d) / 2
+        
+        let zMin = max (max s1 s2) (max s3 s4)
+        let zMax = min (min bigA bigB) bigC
+        
+        if zMin > zMax then 0.0
+        else
+        
+        // Sum over z in log-space, accumulating in linear space
+        // Each term: (-1)^z * [z+1]_q! / ([z-s1]! [z-s2]! [z-s3]! [z-s4]! [A-z]! [B-z]! [C-z]!)
+        let mutable sumReal = 0.0
+        
+        for z in zMin .. zMax do
+            let (logNum, sgnNum) = qFactorialLogSigned (z + 1) k
+            let (logD1z, sgnD1z) = qFactorialLogSigned (z - s1) k
+            let (logD2z, sgnD2z) = qFactorialLogSigned (z - s2) k
+            let (logD3z, sgnD3z) = qFactorialLogSigned (z - s3) k
+            let (logD4z, sgnD4z) = qFactorialLogSigned (z - s4) k
+            let (logD5z, sgnD5z) = qFactorialLogSigned (bigA - z) k
+            let (logD6z, sgnD6z) = qFactorialLogSigned (bigB - z) k
+            let (logD7z, sgnD7z) = qFactorialLogSigned (bigC - z) k
+            
+            let logDenom = logD1z + logD2z + logD3z + logD4z + logD5z + logD6z + logD7z
+            let sgnDenom = sgnD1z * sgnD2z * sgnD3z * sgnD4z * sgnD5z * sgnD6z * sgnD7z
+            
+            if sgnDenom <> 0.0 && sgnNum <> 0.0 then
+                let zSign = if z % 2 = 0 then 1.0 else -1.0
+                let termSign = zSign * sgnNum * sgnDenom
+                let termMag = exp (logNum - logDenom)
+                sumReal <- sumReal + termSign * termMag
+        
+        // Full result: prefactor * sum
+        // prefactor = sqrt(|Δ1² * Δ2² * Δ3² * Δ4²|) with overall sign
+        let prefactorMag = exp (logDeltaProduct / 2.0)
+        let prefactorSign = 
+            if sgnDeltaProduct >= 0.0 then 1.0 else -1.0
+        
+        prefactorSign * prefactorMag * sumReal
+    
+    /// Convert an F-symbol index (with external legs a,b,c,d and intermediates e,f)
+    /// to the quantum 6j-symbol convention.
+    ///
+    /// F^{abc}_{d;ef} relates fusion trees:
+    ///   Left:  ((a × b) → e) × c → d
+    ///   Right: a × ((b × c) → f) → d
+    ///
+    /// In the Turaev-Viro / TQFT convention, the unitary F-matrix is:
+    ///   F^{abc}_{d;ef} = (-1)^{(a+b+c+d)/2} * sqrt([2e+1]_q * [2f+1]_q) * { a  b  e }
+    ///                                                                        { c  d  f }
+    ///
+    /// The sqrt factors convert from the 6j-symbol (which is not unitary)
+    /// to the unitary F-matrix needed for anyon braiding. The phase factor
+    /// (-1)^{(a+b+c+d)/2} ensures correct signs for the pentagon equation,
+    /// particularly when half-integer spins are present.
+    
+    /// Extract j_doubled from a particle, returning 0 for Vacuum.
+    let private getJDoubled (p: AnyonSpecies.Particle) : int =
+        match p with
+        | AnyonSpecies.Particle.Vacuum -> 0
+        | AnyonSpecies.Particle.SpinJ (jd, _) -> jd
+        | _ -> 0  // Should not occur for SU(2)_k
+    
+    /// Compute all F-symbols for SU(2)_k using quantum 6j-symbols.
+    ///
+    /// Enumerates all valid 6-tuples (a,b,c,d,e,f) where:
+    ///   - a × b → e is a valid fusion
+    ///   - e × c → d is a valid fusion  
+    ///   - b × c → f is a valid fusion
+    ///   - a × f → d is a valid fusion
+    ///
+    /// The F-symbol is computed as:
+    ///   F^{abc}_{d;ef} = sqrt([2e+1]_q * [2f+1]_q) * { a  b  e }
+    ///                                                  { c  d  f }
+    ///
+    /// where the 6j-symbol uses j_doubled values internally.
+    let private computeSU2kFSymbols (k: int) : Map<FSymbolIndex, Complex> =
+        // Get all particles for this level
+        let particles = 
+            match AnyonSpecies.particles (AnyonSpecies.AnyonType.SU2Level k) with
+            | Ok ps -> ps
+            | Error _ -> []
+        
+        // For each particle, get fusion channels
+        let fusionChannels (p1: AnyonSpecies.Particle) (p2: AnyonSpecies.Particle) =
+            match FusionRules.channels p1 p2 (AnyonSpecies.AnyonType.SU2Level k) with
+            | Ok channels -> channels
+            | Error _ -> []
+        
+        // Build all valid F-symbol entries
+        let mutable symbols = Map.empty
+        
+        for a in particles do
+            for b in particles do
+                let eChannels = fusionChannels a b
+                for c in particles do
+                    let fChannels = fusionChannels b c
+                    for e in eChannels do
+                        let dFromEC = fusionChannels e c
+                        for f in fChannels do
+                            let dFromAF = fusionChannels a f
+                            // d must appear in both (e × c) and (a × f)
+                            let commonD = 
+                                Set.intersect (Set.ofList dFromEC) (Set.ofList dFromAF)
+                            for d in commonD do
+                                // Compute F-symbol via 6j-symbol
+                                let a_d = getJDoubled a
+                                let b_d = getJDoubled b
+                                let c_d = getJDoubled c
+                                let d_d = getJDoubled d
+                                let e_d = getJDoubled e
+                                let f_d = getJDoubled f
+                                
+                                // Quantum 6j-symbol
+                                // Convention: { a  b  e }
+                                //             { c  d  f }
+                                let sixJ = quantum6jSymbol a_d b_d e_d c_d d_d f_d k
+                                
+                                // Unitary normalization factor:
+                                // sqrt([2e+1]_q * [2f+1]_q)
+                                // [2j+1]_q = quantum dimension = [j_doubled + 1]_q
+                                let qDimE = qNumber (e_d + 1) k
+                                let qDimF = qNumber (f_d + 1) k
+                                let normFactor = sqrt (abs qDimE * abs qDimF)
+                                
+                                // Phase convention: (-1)^{(a+b+c+d)/2} where a,b,c,d are
+                                // the j_doubled values of the four external legs.
+                                // The sum a_d+b_d+c_d+d_d is always even (from triad
+                                // constraints), so the exponent is always an integer.
+                                // This phase is required for consistency with the pentagon
+                                // equations when half-integer spins are present.
+                                let phaseExp = (a_d + b_d + c_d + d_d) / 2
+                                let phase = if phaseExp % 2 = 0 then 1.0 else -1.0
+                                
+                                let value = phase * normFactor * sixJ
+                                
+                                let index = { 
+                                    A = a; B = b; C = c; D = d; E = e; F = f 
+                                }
+                                symbols <- symbols |> Map.add index (Complex(value, 0.0))
+        
+        symbols
+    
+    // ========================================================================
     // F-MATRIX COMPUTATION
     // ========================================================================
     
@@ -205,12 +494,13 @@ module FMatrix =
             }
         
         | AnyonSpecies.AnyonType.SU2Level k ->
-            // General SU(2)_k F-symbols require Racah-Wigner 6j-symbol computation
-            // Reference: Simon "Topological Quantum", Chapter 18.6
-            // This is a complex calculation involving representation theory
-            TopologicalResult.notImplemented 
-                $"F-matrix for SU(2)_{k}" 
-                (Some "Requires 6j-symbol computation from representation theory (future work)")
+            // General SU(2)_k F-symbols via quantum 6j-symbols (q-Racah coefficients)
+            // Reference: Kirillov & Reshetikhin (1989), Simon Chapter 18.6
+            Ok {
+                AnyonType = anyonType
+                FSymbols = computeSU2kFSymbols k
+                IsValidated = false
+            }
     
     // ========================================================================
     // HELPER FUNCTIONS
@@ -468,9 +758,9 @@ module FMatrix =
     
     /// Validate all F-symbols by checking pentagon equations and unitarity.
     ///
-    /// For Ising and Fibonacci theories, verifies all particle 5-tuples
-    /// against the pentagon equation and checks F-matrix unitarity for
-    /// the non-trivial fusion sector.
+    /// For Ising, Fibonacci, and SU(2)_k theories, verifies all particle
+    /// 5-tuples against the pentagon equation and checks F-matrix unitarity
+    /// for the non-trivial fusion sector.
     ///
     /// Returns Error if any pentagon equation is violated.
     /// Returns Ok with validated data if all checks pass.
@@ -479,7 +769,8 @@ module FMatrix =
 
         match data.AnyonType with
         | AnyonSpecies.AnyonType.Ising
-        | AnyonSpecies.AnyonType.Fibonacci ->
+        | AnyonSpecies.AnyonType.Fibonacci
+        | AnyonSpecies.AnyonType.SU2Level _ ->
             getAllParticles data.AnyonType
             |> Result.bind (fun particles ->
                 // Verify pentagon equation for all 5-tuples (a,b,c,d,e)
@@ -510,7 +801,11 @@ module FMatrix =
                             | AnyonSpecies.AnyonType.Fibonacci ->
                                 let tau = AnyonSpecies.Particle.Tau
                                 verifyFMatrixUnitarity data tau tau tau tau
-                            | _ -> Ok true
+                            | AnyonSpecies.AnyonType.SU2Level k ->
+                                // Spot-check unitarity for the fundamental representation
+                                // j=1/2 (j_doubled=1) fusing with itself
+                                let fundamental = AnyonSpecies.Particle.SpinJ(1, k)
+                                verifyFMatrixUnitarity data fundamental fundamental fundamental fundamental
                         spotCheck
                         |> Result.bind (fun unitary ->
                             if unitary then
@@ -522,11 +817,6 @@ module FMatrix =
                         Error (TopologicalError.Other
                             $"Pentagon equation violated for {data.AnyonType}")
             )
-
-        | _ ->
-            TopologicalResult.notImplemented
-                "Pentagon equation verification for custom theories"
-                (Some "Currently only Ising and Fibonacci are supported")
     
     // ========================================================================
     // UTILITY FUNCTIONS

@@ -22,30 +22,43 @@ module Program =
         FinalBoard: Board  // Added to preserve final board state
     }
     
+    /// Calculate adaptive candidate count for quantum AIs based on game phase
+    let private getQuantumCandidateCount (board: Board) : int =
+        let moveNumber = board.MoveHistory.Length
+        let boardSize = board.Config.Size
+        let totalCells = boardSize * boardSize
+        let occupancy = float moveNumber / float totalCells
+        
+        // Scale candidates: start small (15), grow in midgame (up to 50), shrink in endgame
+        if moveNumber < 6 then 15            // Early game: few relevant positions
+        elif occupancy < 0.15 then 25         // Early-mid: standard
+        elif occupancy < 0.30 then 40         // Midgame: more nuance needed
+        elif occupancy < 0.50 then 50         // Late-mid: peak complexity
+        else 35                               // Endgame: fewer open positions
+
     /// Play one turn (either player or AI)
-    let playTurn (board: Board) (isAI: bool) (aiPlayer: AIPlayer option) (debug: bool) : (Board option * bool) =
+    /// Returns (new board option, quit flag, optional hybrid metrics)
+    let playTurn (board: Board) (isAI: bool) (aiPlayer: AIPlayer option) (debug: bool) : (Board option * bool * LocalHybrid.MoveMetrics option) =
         if isAI then
-            let pos =
+            let pos, hybridMetrics =
                 match aiPlayer with
                 | Some ClassicalAI ->
-                    // Check for immediate threat first
-                    match ThreatDetection.getImmediateThreat board with
-                    | Some threatPos ->
-                        if debug then
-                            ConsoleRenderer.displayAIThinking "Classical Heuristic (threat)" 1 None
-                            AnsiConsole.WriteLine()
-                        Some threatPos
-                    | None ->
-                        let scored = Classical.evaluateMoves board board.CurrentPlayer
-                        if debug then
-                            ConsoleRenderer.displayAIThinking "Classical Heuristic" scored.Length None
-                            AnsiConsole.WriteLine()
-                        scored |> List.tryHead |> Option.map fst
+                    // Delegate fully to Classical.selectBestMove (includes threat check + randomness)
+                    let move = Classical.selectBestMove board
+                    if debug then
+                        let label =
+                            match ThreatDetection.getImmediateThreat board with
+                            | Some _ -> "Classical Heuristic (threat)"
+                            | None -> "Classical Heuristic"
+                        ConsoleRenderer.displayAIThinking label 1 None
+                        AnsiConsole.WriteLine()
+                    (move, None)
                 
                 | Some LocalQuantumAI ->
                     // Create local backend for quantum simulation
                     let backend = FSharp.Azure.Quantum.Backends.LocalBackendFactory.createUnified()
-                    let candidates = Classical.getTopCandidates board 25
+                    let candidateCount = getQuantumCandidateCount board
+                    let candidates = Classical.getTopCandidates board candidateCount
                     let (move, iterations) = LocalQuantum.selectBestMove board backend (Some candidates)
                     if debug then
                         let usedThreat = iterations = 0 && move.IsSome
@@ -54,7 +67,7 @@ module Program =
                         ConsoleRenderer.displayAIThinking label count None
                         ConsoleRenderer.displayInfo $"Grover iterations: {iterations}"
                         AnsiConsole.WriteLine()
-                    move
+                    (move, None)
                 
                 | Some LocalHybridAI ->
                     let metrics = LocalHybrid.selectBestMove board
@@ -72,12 +85,13 @@ module Program =
                         AnsiConsole.MarkupLine("[grey]{0}[/]", LocalHybrid.explainStrategy metrics)
                         AnsiConsole.WriteLine()
                     
-                    metrics.Move
+                    (metrics.Move, Some metrics)
                 
                 | Some TopologicalQuantumAI ->
                     // Create topological backend (Ising encoding, 20 anyons → 9 logical qubits)
                     let backend = FSharp.Azure.Quantum.Topological.TopologicalUnifiedBackendFactory.createIsing 20
-                    let candidates = Classical.getTopCandidates board 25
+                    let candidateCount = getQuantumCandidateCount board
+                    let candidates = Classical.getTopCandidates board candidateCount
                     let (move, iterations) = LocalQuantum.selectBestMove board backend (Some candidates)
                     if debug then
                         let usedThreat = iterations = 0 && move.IsSome
@@ -86,16 +100,16 @@ module Program =
                         ConsoleRenderer.displayAIThinking label count None
                         ConsoleRenderer.displayInfo $"Grover iterations (topological): {iterations}"
                         AnsiConsole.WriteLine()
-                    move
+                    (move, None)
                 
-                | None -> None
+                | None -> (None, None)
             
             match pos with
             | Some p -> 
                 match Board.makeMove board p with
-                | Ok newBoard -> (Some newBoard, false)
-                | Error _ -> (None, false)
-            | None -> (None, false)
+                | Ok newBoard -> (Some newBoard, false, hybridMetrics)
+                | Error _ -> (None, false, None)
+            | None -> (None, false, None)
         else
             // Human player
             let renderBoardWithCursor cursorPos = 
@@ -108,9 +122,9 @@ module Program =
             match InputHandler.getValidPlayerMove board renderBoardWithCursor with
             | InputHandler.Move pos -> 
                 match Board.makeMove board pos with
-                | Ok newBoard -> (Some newBoard, false)
-                | Error _ -> (None, false)
-            | InputHandler.Quit -> (None, true)  // Signal quit
+                | Ok newBoard -> (Some newBoard, false, None)
+                | Error _ -> (None, false, None)
+            | InputHandler.Quit -> (None, true, None)  // Signal quit
     
     /// Game loop for player vs AI
     let rec gameLoop (board: Board) (aiPlayer: AIPlayer) (playerIsBlack: bool) : GameResult option =
@@ -136,49 +150,88 @@ module Program =
                 ConsoleRenderer.displayTurn board.CurrentPlayer
             
             match playTurn board isAITurn (Some aiPlayer) false with
-            | (Some newBoard, false) -> gameLoop newBoard aiPlayer playerIsBlack
-            | (None, true) -> 
+            | (Some newBoard, false, _) -> gameLoop newBoard aiPlayer playerIsBlack
+            | (None, true, _) -> 
                 // Player quit
                 ConsoleRenderer.displayInfo "Game quit by player."
                 None
-            | (None, false) ->
+            | (None, false, _) ->
                 ConsoleRenderer.displayError "Invalid move!"
                 InputHandler.waitForKey()
                 gameLoop board aiPlayer playerIsBlack
-            | (Some _, true) -> 
+            | (Some _, true, _) -> 
                 // Shouldn't happen but handle it
                 None
     
+    /// Move log entry for debugging
+    type MoveLogEntry = {
+        MoveNumber: int
+        Player: Cell
+        Position: Position
+        Source: string  // "threat", "grover", "classical", "hybrid-classical", "hybrid-quantum"
+    }
+
     /// AI vs AI game for benchmarking
-    let rec aiVsAiLoop (board: Board) (ai1: AIPlayer) (ai2: AIPlayer) (metrics: LocalHybrid.MoveMetrics list) (debug: bool) : GameResult =
-        // Display current state only in debug mode
-        if debug then
-            AnsiConsole.MarkupLine($"[grey]Move {board.MoveHistory.Length + 1}... {board.CurrentPlayer}[/]")
-        
-        // Check game status FIRST
+    let rec aiVsAiLoop (board: Board) (ai1: AIPlayer) (ai2: AIPlayer) (metrics: LocalHybrid.MoveMetrics list) (moveLog: MoveLogEntry list) (debug: bool) : GameResult * MoveLogEntry list =
+        // Check game status FIRST (before printing next move)
         match Board.getGameStatus board with
         | Board.Won winner ->
-            { Winner = Some winner; TotalMoves = board.MoveHistory.Length; AIMetrics = metrics; FinalBoard = board }
+            ({ Winner = Some winner; TotalMoves = board.MoveHistory.Length; AIMetrics = metrics; FinalBoard = board }, List.rev moveLog)
         
         | Board.Draw ->
-            { Winner = None; TotalMoves = board.MoveHistory.Length; AIMetrics = metrics; FinalBoard = board }
+            ({ Winner = None; TotalMoves = board.MoveHistory.Length; AIMetrics = metrics; FinalBoard = board }, List.rev moveLog)
         
         | Board.InProgress ->
-            let currentAI = if board.CurrentPlayer = Black then ai1 else ai2
+            let moveNum = board.MoveHistory.Length + 1
+            let player = board.CurrentPlayer
+            
+            // Display current move only after confirming game is still in progress
+            if debug then
+                AnsiConsole.MarkupLine($"[grey]Move {moveNum}... {player}[/]")
+            
+            let currentAI = if player = Black then ai1 else ai2
+            
+            // Check if threat detection will fire (to log move source)
+            let threatMove = ThreatDetection.getImmediateThreat board
             
             match playTurn board true (Some currentAI) debug with
-            | (Some newBoard, _) -> 
-                // For hybrid AI, collect metrics
-                let newMetrics =
-                    if currentAI = LocalHybridAI then
-                        let m = LocalHybrid.selectBestMove board
-                        m :: metrics
-                    else
-                        metrics
+            | (Some newBoard, _, hybridMetrics) -> 
+                // Determine the move that was played (head of new board's history)
+                let playedPos = newBoard.MoveHistory.Head
                 
-                aiVsAiLoop newBoard ai1 ai2 newMetrics debug
-            | (None, _) ->
-                { Winner = None; TotalMoves = board.MoveHistory.Length; AIMetrics = metrics; FinalBoard = board }
+                // Determine move source
+                let source =
+                    match threatMove with
+                    | Some _ -> "threat"
+                    | None ->
+                        match currentAI with
+                        | ClassicalAI -> "classical"
+                        | LocalQuantumAI -> "grover"
+                        | TopologicalQuantumAI -> "grover"
+                        | LocalHybridAI ->
+                            match hybridMetrics with
+                            | Some m ->
+                                match m.Strategy with
+                                | LocalHybrid.Classical _ -> "hybrid-classical"
+                                | LocalHybrid.Quantum _ -> "hybrid-quantum"
+                            | None -> "hybrid"
+                
+                let entry = {
+                    MoveNumber = moveNum
+                    Player = player
+                    Position = playedPos
+                    Source = source
+                }
+                
+                // Collect metrics from the actual move (no redundant re-evaluation)
+                let newMetrics =
+                    match hybridMetrics with
+                    | Some m -> m :: metrics
+                    | None -> metrics
+                
+                aiVsAiLoop newBoard ai1 ai2 newMetrics (entry :: moveLog) debug
+            | (None, _, _) ->
+                ({ Winner = None; TotalMoves = board.MoveHistory.Length; AIMetrics = metrics; FinalBoard = board }, List.rev moveLog)
     
     /// Run player vs AI game
     let runPlayerVsAI (aiPlayer: AIPlayer) : unit =
@@ -245,7 +298,7 @@ module Program =
         AnsiConsole.WriteLine()
         
         let startTime = System.Diagnostics.Stopwatch.StartNew()
-        let result = aiVsAiLoop board ClassicalAI LocalQuantumAI [] true  // true = debug mode for interactive
+        let (result, _moveLog) = aiVsAiLoop board ClassicalAI LocalQuantumAI [] [] true  // true = debug mode for interactive
         startTime.Stop()
         
         // Display results
@@ -320,7 +373,7 @@ module Program =
                     let board = Board.create config
                     
                     let startTime = System.Diagnostics.Stopwatch.StartNew()
-                    let result = aiVsAiLoop board ai1 ai2 [] debug
+                    let (result, moveLog) = aiVsAiLoop board ai1 ai2 [] [] debug
                     startTime.Stop()
                     
                     // Display final board and results
@@ -347,6 +400,19 @@ module Program =
                     if debug then
                         AnsiConsole.MarkupLine($"[cyan]Game time:[/] {startTime.Elapsed.TotalSeconds:F2} seconds")
                         AnsiConsole.MarkupLine($"[cyan]Avg move time:[/] {startTime.Elapsed.TotalMilliseconds / float result.TotalMoves:F0} ms")
+                    
+                    // Always print move coordinate log
+                    AnsiConsole.WriteLine()
+                    AnsiConsole.MarkupLine("[bold cyan]Move Log (row,col):[/]")
+                    for entry in moveLog do
+                        let playerChar = if entry.Player = Black then "X" else "O"
+                        let sourceTag = 
+                            match entry.Source with
+                            | "threat" -> " [red]<THREAT>[/]"
+                            | "grover" -> " [magenta]<GROVER>[/]"
+                            | "classical" -> ""
+                            | s -> $" [grey]<{s}>[/]"
+                        AnsiConsole.MarkupLine($"  {entry.MoveNumber,3}. {playerChar} ({entry.Position.Row},{entry.Position.Col}){sourceTag}")
                     
                     0  // Success
                 

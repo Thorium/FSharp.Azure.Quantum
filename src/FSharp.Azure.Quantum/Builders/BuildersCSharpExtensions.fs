@@ -251,26 +251,50 @@ type CSharpBuilders private () =
         let itemList = items |> Array.map (fun struct(id, w, v) -> (id, w, v)) |> Array.toList
         Knapsack.createProblem itemList capacity
     
-    /// <summary>Find all valid combinations that sum exactly to capacity.</summary>
+    /// <summary>Find all valid combinations that sum exactly to capacity (classical fallback).</summary>
     /// <param name="problem">Knapsack problem</param>
     /// <returns>Tuple of (all combinations, union of all items, combination count)</returns>
-    /// <remarks>Useful for subset sum enumeration, exact constraint satisfaction, and combinatorial analysis.</remarks>
+    /// <remarks>Uses classical enumeration. For quantum execution, use the overload with backend parameter.</remarks>
     static member FindAllValidCombinations(problem: Knapsack.Problem) =
-        Knapsack.findAllValidCombinations problem
-    
-    /// <summary>Find all exact combinations that sum to capacity.</summary>
+        Knapsack.findAllValidCombinations problem None
+
+    /// <summary>Find all valid combinations that sum exactly to capacity using quantum backend.</summary>
+    /// <param name="problem">Knapsack problem</param>
+    /// <param name="backend">Quantum backend for QAOA execution</param>
+    /// <returns>Tuple of (all combinations, union of all items, combination count)</returns>
+    /// <remarks>Uses iterative QAOA with exclusion penalties to discover all subset-sum solutions.</remarks>
+    static member FindAllValidCombinations(problem: Knapsack.Problem, backend: BackendAbstraction.IQuantumBackend) =
+        Knapsack.findAllValidCombinations problem (Some backend)
+
+    /// <summary>Find all exact combinations that sum to capacity (classical fallback).</summary>
     /// <param name="problem">Knapsack problem</param>
     /// <returns>List of all valid combinations</returns>
-    /// <remarks>Returns all subsets where sum of weights equals capacity exactly.</remarks>
+    /// <remarks>Uses classical enumeration. For quantum execution, use the overload with backend parameter.</remarks>
     static member FindAllExactCombinations(problem: Knapsack.Problem) =
-        Knapsack.findAllExactCombinations problem
-    
-    /// <summary>Find union of all items across all exact combinations.</summary>
+        Knapsack.findAllExactCombinations problem None
+
+    /// <summary>Find all exact combinations that sum to capacity using quantum backend.</summary>
+    /// <param name="problem">Knapsack problem</param>
+    /// <param name="backend">Quantum backend for QAOA execution</param>
+    /// <returns>List of all valid combinations</returns>
+    /// <remarks>Uses iterative QAOA with exclusion penalties to discover all subset-sum solutions.</remarks>
+    static member FindAllExactCombinations(problem: Knapsack.Problem, backend: BackendAbstraction.IQuantumBackend) =
+        Knapsack.findAllExactCombinations problem (Some backend)
+
+    /// <summary>Find union of all items across all exact combinations (classical fallback).</summary>
     /// <param name="problem">Knapsack problem</param>
     /// <returns>List of all items that appear in at least one valid combination</returns>
-    /// <remarks>Returns distinct items that participate in any exact-sum solution.</remarks>
+    /// <remarks>Uses classical enumeration. For quantum execution, use the overload with backend parameter.</remarks>
     static member FindAllCapturedItems(problem: Knapsack.Problem) =
-        Knapsack.findAllCapturedItems problem
+        Knapsack.findAllCapturedItems problem None
+
+    /// <summary>Find union of all items across all exact combinations using quantum backend.</summary>
+    /// <param name="problem">Knapsack problem</param>
+    /// <param name="backend">Quantum backend for QAOA execution</param>
+    /// <returns>List of all items that appear in at least one valid combination</returns>
+    /// <remarks>Uses iterative QAOA with exclusion penalties to discover all subset-sum solutions.</remarks>
+    static member FindAllCapturedItems(problem: Knapsack.Problem, backend: BackendAbstraction.IQuantumBackend) =
+        Knapsack.findAllCapturedItems problem (Some backend)
     
     // ============================================================================
     // TSP BUILDER EXTENSIONS

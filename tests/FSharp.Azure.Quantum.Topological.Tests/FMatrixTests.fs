@@ -272,12 +272,14 @@ module FMatrixTests =
     // ========================================================================
     
     [<Fact>]
-    let ``Computing unsupported anyon types returns descriptive error message`` () =
-        // Business meaning: Not all anyon theories are implemented yet.
-        // The system should fail gracefully with clear error messages.
+    let ``Computing SU(2)_10 returns valid F-matrix with non-trivial symbols`` () =
+        // Business meaning: General SU(2)_k F-symbols are now computed via
+        // quantum 6j-symbols (q-Racah coefficients). SU(2)_10 has 6 particle
+        // types (j=0,1/2,1,...,5) with rich fusion structure.
         match FMatrix.computeFMatrix (AnyonSpecies.AnyonType.SU2Level 10) with
-        | Ok _ -> failwith "Should have rejected SU(2)_10 (not yet implemented)"
-        | Error err -> Assert.Contains("not yet implemented", err.Message)
+        | Error err -> failwith $"Should succeed for SU(2)_10: {err.Message}"
+        | Ok data ->
+            Assert.True(data.FSymbols.Count > 0, "SU(2)_10 should have non-trivial F-symbols")
     
     [<Fact>]
     let ``getFSymbol returns trivial value (1.0) for valid but unstored F-symbols`` () =
@@ -298,4 +300,75 @@ module FMatrixTests =
         match FMatrix.getFSymbol emptyData (fIndex psi sigma sigma psi sigma vacuum) with
         | Error _ -> failwith "Should succeed with trivial value for valid fusion"
         | Ok value ->
+            assertRealValue 1.0 value
+    
+    // ========================================================================
+    // SU(2)_k GENERAL THEORY TESTS (quantum 6j-symbols)
+    // ========================================================================
+    
+    [<Fact>]
+    let ``SU(2)_3 F-matrix for integer-spin sector reproduces Fibonacci F-symbols`` () =
+        // Business meaning: SU(2)_3 restricted to integer spins (j=0,1) is
+        // isomorphic to Fibonacci anyons. j=1 corresponds to τ.
+        // The F^{τττ}_τ 2×2 block should use the golden ratio.
+        let data = computeFMatrixOrFail (AnyonSpecies.AnyonType.SU2Level 3)
+        
+        let phi = (1.0 + sqrt 5.0) / 2.0
+        let j0 = AnyonSpecies.Particle.SpinJ(0, 3)  // Vacuum ≡ j=0
+        let j1 = AnyonSpecies.Particle.SpinJ(2, 3)  // j=1 ≡ τ in integer sector
+        
+        // F[j1,j1,j1,j1;j0,j0] should correspond to Fibonacci F[τ,τ,τ,τ;1,1] = φ⁻¹
+        let f_11_00 = getFSymbolOrFail data (fIndex j1 j1 j1 j1 j0 j0) "F[j1,j1,j1,j1;j0,j0]"
+        assertRealValue (1.0 / phi) f_11_00
+    
+    [<Fact>]
+    let ``SU(2)_3 F-matrix passes pentagon equation validation`` () =
+        // Business meaning: The quantum 6j-symbols computed for SU(2)_3
+        // must satisfy the pentagon consistency equation, verifying that
+        // our Racah formula implementation is correct.
+        let data = computeFMatrixOrFail (AnyonSpecies.AnyonType.SU2Level 3)
+        
+        match FMatrix.validateFMatrix data with
+        | Error err -> failwith $"SU(2)_3 pentagon validation failed: {err.Message}"
+        | Ok validated ->
+            Assert.True(validated.IsValidated, "SU(2)_3 F-matrix must pass pentagon + unitarity")
+    
+    [<Fact>]
+    let ``SU(2)_4 F-matrix passes pentagon equation validation`` () =
+        // Business meaning: k=4 is the first non-trivial level beyond Fibonacci.
+        // It has 5 particle types (j=0,1/2,1,3/2,2) and tests the general
+        // 6j-symbol computation with half-integer spins.
+        let data = computeFMatrixOrFail (AnyonSpecies.AnyonType.SU2Level 4)
+        
+        match FMatrix.validateFMatrix data with
+        | Error err -> failwith $"SU(2)_4 pentagon validation failed: {err.Message}"
+        | Ok validated ->
+            Assert.True(validated.IsValidated, "SU(2)_4 F-matrix must pass pentagon + unitarity")
+    
+    [<Fact>]
+    let ``SU(2)_5 F-matrix passes pentagon equation validation`` () =
+        // Business meaning: k=5 is the first universal level (k >= 3, k != 4).
+        // Pentagon validation here confirms our 6j-symbols are correct for
+        // a theory that can perform universal quantum computation via braiding.
+        let data = computeFMatrixOrFail (AnyonSpecies.AnyonType.SU2Level 5)
+        
+        match FMatrix.validateFMatrix data with
+        | Error err -> failwith $"SU(2)_5 pentagon validation failed: {err.Message}"
+        | Ok validated ->
+            Assert.True(validated.IsValidated, "SU(2)_5 F-matrix must pass pentagon + unitarity")
+    
+    [<Fact>]
+    let ``SU(2)_k F-matrix has correct vacuum F-symbols for all k`` () =
+        // Business meaning: Fusing with vacuum is trivial — F-symbols involving
+        // vacuum as external leg should be identity transformations (value = 1)
+        // for all valid fusion channels.
+        for k in [3; 4; 5; 6] do
+            let data = computeFMatrixOrFail (AnyonSpecies.AnyonType.SU2Level k)
+            let j0 = AnyonSpecies.Particle.SpinJ(0, k)
+            let j1 = AnyonSpecies.Particle.SpinJ(1, k)  // j = 1/2
+            
+            // F[j0, j1, j0, j1; j1, j1] should be trivial (= 1)
+            // Valid fusion: A×B→E: 0×½→½, E×C→D: ½×0→½, B×C→F: ½×0→½, A×F→D: 0×½→½
+            // Fusing with vacuum doesn't change anything, so this is identity.
+            let value = getFSymbolOrFail data (fIndex j0 j1 j0 j1 j1 j1) $"F[j0,j1,j0,j1;j1,j1] for k={k}"
             assertRealValue 1.0 value

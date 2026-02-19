@@ -119,6 +119,22 @@ module TopologicalBackendTests =
         Assert.True(backend.SupportsOperation (QuantumOperation.Gate (CircuitBuilder.CCX (0, 1, 2))))
 
     [<Fact>]
+    let ``ApplyOperation CCX gate executes on Ising backend via transpile-then-route`` () =
+        // CCX decomposes to {H, T, TDG, CNOT} elementary gates.
+        // On Ising, T/TDG/H/CNOT are amplitude-intercepted — they must NOT reach braid compilation.
+        // This test verifies the transpile-then-route fix in ApplyGate.
+        let backend = TopologicalUnifiedBackend.TopologicalUnifiedBackend(AnyonSpecies.AnyonType.Ising, 10) :> IQuantumBackend
+        match backend.InitializeState 3 with
+        | Error err -> Assert.Fail($"InitializeState failed: {err}")
+        | Ok state ->
+            // Apply CCX(0,1,2) — should succeed without "T† gate is not exact" error
+            match backend.ApplyOperation (QuantumOperation.Gate (CircuitBuilder.CCX (0, 1, 2))) state with
+            | Error err -> Assert.Fail($"CCX on Ising backend failed: {err}")
+            | Ok (QuantumState.FusionSuperposition fs) ->
+                Assert.True(fs.IsNormalized, "State should be normalized after CCX on |000⟩")
+            | Ok other -> Assert.Fail($"Expected FusionSuperposition, got {other}")
+
+    [<Fact>]
     let ``SupportsOperation returns true for elementary gates H X Z CNOT`` () =
         let backend = TopologicalUnifiedBackend.TopologicalUnifiedBackend(AnyonSpecies.AnyonType.Ising, 10) :> IQuantumBackend
         Assert.True(backend.SupportsOperation (QuantumOperation.Gate (CircuitBuilder.H 0)))

@@ -1,10 +1,14 @@
 namespace FSharp.Azure.Quantum.Examples.Gomoku.AI
 
 open FSharp.Azure.Quantum.Examples.Gomoku
+open System
 
 /// Simple classical AI for Gomoku using basic heuristics
 /// This is intentionally simplified - the quantum solver will provide the sophistication
 module Classical =
+    
+    /// Shared RNG for non-deterministic move selection
+    let private rng = Random()
     
     /// Simple threat level based on consecutive pieces
     type ThreatLevel =
@@ -118,23 +122,30 @@ module Classical =
                 
                 let doubleThreatBonus =
                     if openThreeOrBetter >= 2 then
-                        // Two open threes or better = virtually unblockable → forced win
-                        50000.0
+                        // Two open threes or better = virtually unblockable fork → forced win
+                        75000.0
                     elif significantThreats >= 3 then
                         // Three directions with open-two or better = strong strategic position
-                        5000.0
+                        8000.0
                     elif significantThreats >= 2 then
                         // Two directions with decent threats = good multi-threat position
-                        1000.0
+                        2000.0
                     else
                         0.0
                 
-                // Add positional bonus for center control
-                let centerRow = board.Config.Size / 2
-                let centerCol = board.Config.Size / 2
-                let distFromCenter = 
-                    abs (pos.Row - centerRow) + abs (pos.Col - centerCol)
-                let centerBonus = float (board.Config.Size - distFromCenter) * 2.0
+                // Center bonus: applied ONLY on the very first move (empty board)
+                // to steer the opening to center without polluting later scoring.
+                let centerBonus =
+                    if List.isEmpty board.MoveHistory then
+                        let centerRow = board.Config.Size / 2
+                        let centerCol = board.Config.Size / 2
+                        let distFromCenter = 
+                            abs (pos.Row - centerRow) + abs (pos.Col - centerCol)
+                        let maxDist = board.Config.Size
+                        let normalizedProximity = float (maxDist - distFromCenter) / float maxDist
+                        normalizedProximity * normalizedProximity * 50.0  // 0..50, quadratic
+                    else
+                        0.0
                 
                 threatScore + doubleThreatBonus + centerBonus
     
@@ -155,19 +166,31 @@ module Classical =
             else
                 legalMoves
         
+        let moveNumber = board.MoveHistory.Length + 1
+        
         relevantMoves
         |> List.map (fun pos ->
             let offensiveScore = evaluatePosition board pos player
             let defensiveScore = evaluatePosition board pos (player.Opposite())
             
-            // Weigh offensive play higher to encourage building winning threats
-            // Double-threat bonus in evaluatePosition makes offensive play decisive
-            let totalScore = offensiveScore * 2.0 + defensiveScore * 1.0
+            // Temporal asymmetry: White plays more defensively in the opening
+            // (first 50 moves), then matches Black's aggression. This simulates
+            // Gomoku's natural first-player advantage — Black builds structural
+            // pressure early while White focuses on blocking, then White ramps
+            // up once the positional advantage is established. Breaks defensive
+            // stalemates that cause 225-move draws.
+            let offenseMultiplier =
+                if player = White && moveNumber <= 50 then 1.1
+                else 1.5
+            let totalScore = offensiveScore * offenseMultiplier + defensiveScore * 1.0
             
             (pos, totalScore))
         |> List.sortByDescending snd
     
-    /// Select best move using classical heuristics
+    /// Select best move using classical heuristics with symmetry-aware tiebreaking.
+    /// Only randomizes between moves with effectively identical scores (within epsilon).
+    /// This means symmetric positions like _XX_ get random tiebreaking, but a move
+    /// that is clearly better always wins. Keeps games deterministic and easy to debug.
     let selectBestMove (board: Board) : Position option =
         let player = board.CurrentPlayer
         
@@ -176,9 +199,28 @@ module Classical =
         | Some threatPos -> Some threatPos
         | None ->
             // No immediate threat - proceed with normal evaluation
-            evaluateMoves board player
-            |> List.tryHead
-            |> Option.map fst
+            let scored = evaluateMoves board player
+            match scored with
+            | [] -> None
+            | [(pos, _)] -> Some pos
+            | topMoves ->
+                let bestScore = topMoves |> List.head |> snd
+                
+                // Symmetry-aware tiebreaking: only randomize when scores are
+                // effectively identical (epsilon = 0.01). This captures true
+                // symmetric positions (e.g. _XX_ endpoints) while ensuring
+                // any meaningful score difference is always respected.
+                let epsilon = 0.01
+                let candidates =
+                    topMoves
+                    |> List.filter (fun (_, score) -> abs (score - bestScore) < epsilon)
+                
+                match candidates with
+                | [] -> Some (fst topMoves.[0])
+                | [single] -> Some (fst single)
+                | tied ->
+                    let idx = rng.Next(tied.Length)
+                    Some (fst tied.[idx])
     
     /// Get top N candidate moves for further analysis
     let getTopCandidates (board: Board) (n: int) : Position list =

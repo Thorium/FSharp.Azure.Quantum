@@ -268,7 +268,7 @@ namespace KasinoExample
                 var problem = KnapsackProblem(tableCards, capacity: scenario.HandValue);
 
                 // Use NEW findAllValidCombinations to find ALL combinations
-                var (combinations, allCapturedItems, combinationCount) = Knapsack.findAllValidCombinations(problem);
+                var (combinations, allCapturedItems, combinationCount) = CSharpBuilders.FindAllValidCombinations(problem);
 
                 Console.WriteLine($"   🔍 Found {combinationCount} valid combination(s):");
 

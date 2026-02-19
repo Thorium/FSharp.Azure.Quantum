@@ -48,9 +48,8 @@ module BraidingConsistencyTests =
     [<Fact>]
     let ``Ising hexagon equations tested for braiding-fusion compatibility`` () =
         // Business meaning: The hexagon equation ensures that braiding and fusion
-        // operations commute properly. Full numerical verification is complex and
-        // we trust published F and R matrix values from literature. We verify that
-        // hexagon checks run and some pass (especially trivial vacuum cases).
+        // operations commute properly. Using Kitaev convention R-matrix phases,
+        // all non-trivial hexagon checks pass with negligible numerical deviation.
         let summary = verifyConsistencyOrFail AnyonSpecies.AnyonType.Ising
         
         Assert.NotEmpty(summary.HexagonChecks)
@@ -62,11 +61,11 @@ module BraidingConsistencyTests =
         
         Assert.NotEmpty(nonTrivialChecks)
         
-        // Some hexagon checks should pass (at least vacuum-related ones)
+        // All non-trivial hexagon checks must pass (R-matrix uses Kitaev convention)
         let passedCount = nonTrivialChecks |> List.filter (fun c -> c.IsSatisfied) |> List.length
         let totalCount = nonTrivialChecks.Length
-        let passRate = float passedCount / float totalCount
-        Assert.True(passRate > 0.3, $"Expected >30%% hexagon checks to pass, got {passedCount}/{totalCount}")
+        Assert.True((passedCount = totalCount),
+            $"All non-trivial hexagon checks must pass, got {passedCount}/{totalCount}")
     
     [<Fact>]
     let ``Ising pentagon equations have negligible deviation`` () =
@@ -84,8 +83,7 @@ module BraidingConsistencyTests =
     [<Fact>]
     let ``Ising consistency check completes for all particle combinations`` () =
         // Business meaning: With particles {1, σ, ψ}, we check all 3^4 = 81 possible
-        // 4-tuples. Hexagon verification is complex and we trust published literature
-        // values for F and R matrices. Pentagon checks should pass.
+        // 4-tuples. Both pentagon and hexagon equations must be fully satisfied.
         let summary = verifyConsistencyOrFail AnyonSpecies.AnyonType.Ising
         
         // Pentagon equations should be satisfied
@@ -94,16 +92,14 @@ module BraidingConsistencyTests =
             "Pentagon equations must be satisfied"
         )
         
-        // Hexagon is tested but complex - log status without failing
-        let hexagonPassRate = 
-            summary.HexagonChecks 
-            |> List.filter (fun c -> c.IsSatisfied)
-            |> List.length
-            |> fun passed -> float passed / float summary.HexagonChecks.Length
+        // All hexagon checks must pass (Kitaev convention R-matrix phases verified)
+        Assert.True(
+            summary.HexagonChecks |> List.forall (fun c -> c.IsSatisfied),
+            "All hexagon checks must be satisfied (including trivial vacuum cases)"
+        )
         
-        // At least some hexagons should pass (those with vacuum/trivial cases)
-        let percentStr = sprintf "%.0f%%" (hexagonPassRate * 100.0)
-        Assert.True(hexagonPassRate > 0.3, $"At least 30%% hexagon checks should pass, got {percentStr}")
+        // Overall consistency must hold
+        assertAllChecksPassed summary
     
     [<Fact>]
     let ``Ising consistency summary includes both pentagon and hexagon results`` () =
@@ -135,8 +131,8 @@ module BraidingConsistencyTests =
     [<Fact>]
     let ``Fibonacci hexagon equations tested for golden ratio phase compatibility`` () =
         // Business meaning: R-matrix phases (multiples of π/5) and F-matrix golden
-        // ratio values (φ^(-1)) should be compatible. Full numerical hexagon verification
-        // is complex and we document which cases pass with current implementation.
+        // ratio values (φ^(-1)) must be compatible. Full numerical hexagon verification
+        // passes for all non-trivial fusion paths.
         let summary = verifyConsistencyOrFail AnyonSpecies.AnyonType.Fibonacci
         
         let nonTrivialChecks = 
@@ -145,18 +141,16 @@ module BraidingConsistencyTests =
         
         Assert.NotEmpty(nonTrivialChecks)
         
-        // Log hexagon check results for diagnostic purposes
+        // All non-trivial hexagon checks must pass
         let passedCount = nonTrivialChecks |> List.filter (fun c -> c.IsSatisfied) |> List.length
         let totalCount = nonTrivialChecks.Length
-        
-        // Some hexagon checks should pass (at least vacuum cases)
-        Assert.True(passedCount > 0, $"Expected some hexagon checks to pass, got {passedCount}/{totalCount}")
+        Assert.True((passedCount = totalCount),
+            $"All non-trivial Fibonacci hexagon checks must pass, got {passedCount}/{totalCount}")
     
     [<Fact>]
     let ``Fibonacci consistency check completes for all valid fusion paths`` () =
         // Business meaning: With particles {1, τ}, we check all 2^4 = 16 possible
-        // 4-tuples. Hexagon verification requires careful treatment of golden ratio
-        // phases and we trust published literature values.
+        // 4-tuples. Both pentagon and hexagon equations must be fully satisfied.
         let summary = verifyConsistencyOrFail AnyonSpecies.AnyonType.Fibonacci
         
         // Pentagon equations should be satisfied
@@ -165,15 +159,14 @@ module BraidingConsistencyTests =
             "Pentagon equations must be satisfied"
         )
         
-        // Hexagon checks are performed but complex to verify numerically
-        let hexagonPassRate = 
-            summary.HexagonChecks 
-            |> List.filter (fun c -> c.IsSatisfied)
-            |> List.length
-            |> fun passed -> float passed / float summary.HexagonChecks.Length
+        // All hexagon checks must pass
+        Assert.True(
+            summary.HexagonChecks |> List.forall (fun c -> c.IsSatisfied),
+            "All Fibonacci hexagon checks must be satisfied"
+        )
         
-        let percentStr = sprintf "%.0f%%" (hexagonPassRate * 100.0)
-        Assert.True(hexagonPassRate > 0.2, $"At least 20%% hexagon checks should pass, got {percentStr}")
+        // Overall consistency must hold
+        assertAllChecksPassed summary
     
     [<Fact>]
     let ``Fibonacci pentagon equations have negligible deviation`` () =
@@ -355,13 +348,19 @@ module BraidingConsistencyTests =
     // ========================================================================
     
     [<Fact>]
-    let ``Consistency verification handles unsupported anyon types gracefully`` () =
-        // Business meaning: Attempting to verify consistency for unimplemented
-        // theories should fail early with clear error message.
-        match BraidingConsistency.verifyConsistency (AnyonSpecies.AnyonType.SU2Level 10) with
-        | Ok _ -> failwith "Should have rejected unsupported anyon type"
+    let ``Consistency verification succeeds for higher SU(2)_k levels`` () =
+        // Business meaning: SU(2)_k consistency verification works for all valid k,
+        // including k=5 which exercises the general 6j-symbol computation
+        // with correct zero-valued F-symbol storage and the phase convention fix.
+        // Pentagon equations (F-matrix only) must pass; hexagon equations
+        // (F+R matrices) are a separate verification area for general SU(2)_k.
+        match BraidingConsistency.verifyConsistency (AnyonSpecies.AnyonType.SU2Level 5) with
+        | Ok summary ->
+            Assert.NotEmpty(summary.PentagonChecks)
+            let allPentagonsPassed = summary.PentagonChecks |> List.forall (fun c -> c.IsSatisfied)
+            Assert.True(allPentagonsPassed, "SU(2)_5 pentagon equations should all be satisfied")
         | Error err ->
-            Assert.Contains("not yet implemented", err.Message)
+            failwith $"SU(2)_5 consistency check should succeed but got: {err.Message}"
     
     [<Fact>]
     let ``Consistency check results include equation names for diagnostics`` () =

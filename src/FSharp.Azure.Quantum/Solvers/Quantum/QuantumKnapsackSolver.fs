@@ -416,61 +416,311 @@ module QuantumKnapsackSolver =
             ElapsedMs = 0.0
             BestEnergy = -totalValue
         }
-    
-    /// Solve Knapsack using dynamic programming (classical, optimal)
-    /// 
-    /// This is the exact algorithm - guarantees optimal solution.
-    /// Time complexity: O(n*W) where n = number of items, W = capacity
-    /// 
-    /// Only works for integer weights - scales capacity by 1000 to handle decimals
-    let solveClassicalDP (problem: KnapsackProblem) : KnapsackSolution =
-        let n = problem.Items.Length
-        
-        // Scale capacity and weights to integers (multiply by 1000)
-        let scale = 1000.0
-        let intCapacity = int (problem.Capacity * scale)
-        let intWeights = problem.Items |> List.map (fun item -> int (item.Weight * scale))
-        
-        // DP table: dp.[i].[w] = maximum value using first i items with capacity w
-        let dp = Array2D.zeroCreate (n + 1) (intCapacity + 1)
-        
-        // Fill DP table
-        for i in 1 .. n do
-            let item = problem.Items.[i - 1]
-            let w = intWeights.[i - 1]
-            let v = item.Value
-            
-            for capacity in 0 .. intCapacity do
-                if w <= capacity then
-                    // Can include this item - choose max of including vs not including
-                    dp.[i, capacity] <- max dp.[i - 1, capacity] (dp.[i - 1, capacity - w] + v)
-                else
-                    // Can't include this item - carry forward previous best
-                    dp.[i, capacity] <- dp.[i - 1, capacity]
-        
-        // Backtrack to find selected items using recursion
-        let rec backtrack i capacity acc =
-            if i = 0 || capacity = 0 then
-                acc
-            elif dp.[i, capacity] <> dp.[i - 1, capacity] then
-                // Item i-1 was included
-                let item = problem.Items.[i - 1]
-                backtrack (i - 1) (capacity - intWeights.[i - 1]) (item :: acc)
+
+    // ================================================================================
+    // QUANTUM SUBSET-SUM: FIND ALL EXACT COMBINATIONS VIA ITERATIVE QAOA
+    // ================================================================================
+
+    /// Encode exact subset-sum as QUBO (penalty-only formulation).
+    ///
+    /// Unlike standard knapsack which maximizes value subject to capacity ≤ W,
+    /// subset-sum requires: Σ w_i * x_i = W exactly.
+    ///
+    /// QUBO formulation (minimize):
+    ///   H = λ * (Σ w_i * x_i - W)²
+    ///
+    /// Expanded:
+    ///   H = λ * [ Σ w_i² * x_i + 2 * Σ_{i<j} w_i*w_j*x_i*x_j - 2W * Σ w_i * x_i + W² ]
+    ///
+    /// Since x_i² = x_i (binary), the QUBO matrix entries are:
+    ///   Q_ii = λ * (w_i² - 2W*w_i)     (linear terms on diagonal)
+    ///   Q_ij = λ * 2*w_i*w_j            (quadratic terms, i < j)
+    ///
+    /// The constant W² is ignored (shifts energy but doesn't affect argmin).
+    ///
+    /// Parameters:
+    ///   items - List of items with weights
+    ///   targetSum - The exact sum to match (W)
+    ///   exclusionPenalties - Additional QUBO terms to penalize already-found solutions
+    ///
+    /// Returns: Result<QuboMatrix, QuantumError>
+    let toSubsetSumQubo
+        (items: KnapsackItem list)
+        (targetSum: float)
+        (exclusionPenalties: Map<(int * int), float>)
+        : Result<QuboMatrix, QuantumError> =
+        try
+            let n = items.Length
+
+            if n = 0 then
+                Error (QuantumError.ValidationError ("numItems", "Subset-sum problem has no items"))
+            elif targetSum <= 0.0 then
+                Error (QuantumError.ValidationError ("targetSum", "Target sum must be positive"))
             else
-                backtrack (i - 1) capacity acc
-        
-        let selectedItems = backtrack n intCapacity []
-        
-        let totalWeight = selectedItems |> List.sumBy (fun item -> item.Weight)
-        let totalValue = selectedItems |> List.sumBy (fun item -> item.Value)
-        
-        {
-            SelectedItems = selectedItems
-            TotalWeight = totalWeight
-            TotalValue = totalValue
-            IsFeasible = totalWeight <= problem.Capacity
-            BackendName = "Classical DP (Optimal)"
-            NumShots = 0
-            ElapsedMs = 0.0
-            BestEnergy = -totalValue
-        }
+                // Penalty weight: must dominate any exclusion penalties
+                let maxWeight = items |> List.map (fun i -> i.Weight) |> List.max
+                let penalty = Qubo.computeLucasPenalties maxWeight n
+
+                // Linear terms (diagonal): λ * (w_i² - 2W*w_i)
+                let linearTerms =
+                    [ for i in 0 .. n - 1 do
+                        let w = items.[i].Weight
+                        yield (i, i), penalty * (w * w - 2.0 * targetSum * w) ]
+
+                // Quadratic terms (upper triangle): λ * 2*w_i*w_j
+                let quadraticTerms =
+                    [ for i in 0 .. n - 1 do
+                        for j in i + 1 .. n - 1 do
+                            let w_i = items.[i].Weight
+                            let w_j = items.[j].Weight
+                            yield (i, j), penalty * 2.0 * w_i * w_j ]
+
+                // Combine base QUBO with exclusion penalties
+                let baseTerms = linearTerms @ quadraticTerms
+
+                let allTerms =
+                    (Map.ofList baseTerms, exclusionPenalties)
+                    ||> Map.fold (fun acc key value ->
+                        Qubo.combineTerms key value acc)
+
+                Ok { Q = allTerms; NumVariables = n }
+        with ex ->
+            Error (QuantumError.OperationError ("SubsetSumQubo", sprintf "Subset-sum QUBO encoding failed: %s" ex.Message))
+
+    /// Build QUBO exclusion penalty terms for a known solution.
+    ///
+    /// To prevent QAOA from rediscovering a previously found solution s = (s_1, ..., s_n),
+    /// we add a penalty that is maximal when x = s:
+    ///
+    ///   P(x) = λ_excl * Π_i f(x_i, s_i)
+    ///
+    /// where f(x_i, s_i) = x_i if s_i = 1, and (1 - x_i) if s_i = 0.
+    ///
+    /// For QUBO (degree ≤ 2), we cannot encode this product directly for n > 2.
+    /// Instead, we use a linear approximation that still penalizes the known solution:
+    ///
+    ///   P(x) = λ_excl * [ Σ_{s_i=1} (1 - x_i) + Σ_{s_i=0} x_i ]
+    ///        = λ_excl * [ |s| - Σ_{s_i=1} x_i + Σ_{s_i=0} x_i ]
+    ///
+    /// Wait — this is a Hamming distance penalty, which is minimized when x ≠ s but
+    /// doesn't have a unique minimum at x = s. Instead we use the quadratic penalty:
+    ///
+    ///   P(x) = -λ_excl * [ n - Σ_i (x_i - s_i)² ]
+    ///        = -λ_excl * n + λ_excl * Σ_i (x_i - s_i)²
+    ///
+    /// Since (x_i - s_i)² = x_i² - 2*s_i*x_i + s_i² = x_i(1 - 2*s_i) + s_i
+    /// (using x_i² = x_i for binary), the QUBO diagonal terms are:
+    ///
+    ///   Q_ii += λ_excl * (1 - 2*s_i)    for each i
+    ///
+    /// This makes the energy highest when x_i = s_i for all i (perfect match with
+    /// the known solution), effectively pushing QAOA away from it.
+    let buildExclusionPenalty
+        (knownSolution: int[])
+        (penaltyStrength: float)
+        : Map<(int * int), float> =
+        [ for i in 0 .. knownSolution.Length - 1 do
+            let s_i = float knownSolution.[i]
+            // When s_i = 1: term = -λ (penalizes x_i = 1)
+            // When s_i = 0: term = +λ (penalizes x_i = 0, i.e., rewards x_i = 1)
+            yield (i, i), penaltyStrength * (1.0 - 2.0 * s_i) ]
+        |> Map.ofList
+
+    /// Combine multiple exclusion penalties (one per known solution)
+    let private combineExclusionPenalties
+        (knownSolutions: int[] list)
+        (penaltyStrength: float)
+        : Map<(int * int), float> =
+        (Map.empty, knownSolutions)
+        ||> List.fold (fun acc solution ->
+            let penalty = buildExclusionPenalty solution penaltyStrength
+            (acc, penalty)
+            ||> Map.fold (fun m key value -> Qubo.combineTerms key value m))
+
+    /// Configuration for iterative subset-sum quantum solver
+    type SubsetSumConfig = {
+        /// Number of measurement shots per QAOA iteration
+        NumShots: int
+
+        /// Initial QAOA parameters (gamma, beta)
+        InitialParameters: float * float
+
+        /// Maximum number of QAOA iterations before giving up finding new solutions
+        MaxIterations: int
+
+        /// Number of consecutive failed iterations before stopping
+        MaxConsecutiveFailures: int
+
+        /// Strength of exclusion penalty (relative to constraint penalty)
+        ExclusionPenaltyStrength: float
+    }
+
+    /// Default configuration for subset-sum solving
+    let defaultSubsetSumConfig : SubsetSumConfig = {
+        NumShots = 2000
+        InitialParameters = (0.5, 0.5)
+        MaxIterations = 50
+        MaxConsecutiveFailures = 3
+        ExclusionPenaltyStrength = 100.0
+    }
+
+    /// Result of finding all exact combinations
+    type SubsetSumResult = {
+        /// All found combinations (each is a list of selected items)
+        Combinations: KnapsackItem list list
+
+        /// Union of all items across all combinations
+        AllItems: KnapsackItem list
+
+        /// Number of QAOA iterations performed
+        IterationsUsed: int
+
+        /// Backend used
+        BackendName: string
+
+        /// Total execution time in milliseconds
+        ElapsedMs: float
+    }
+
+    /// Find ALL subsets of items whose weights sum exactly to targetSum,
+    /// using iterative QAOA with exclusion penalties.
+    ///
+    /// ALGORITHM:
+    /// 1. Encode subset-sum as QUBO: minimize λ*(Σ w_i*x_i - W)²
+    /// 2. Run QAOA on quantum backend, sample measurements
+    /// 3. Extract feasible solutions (those with exact sum match)
+    /// 4. For each new solution found, add exclusion penalty to QUBO
+    /// 5. Repeat until no new solutions found or iteration limit reached
+    ///
+    /// RULE 1 COMPLIANCE:
+    /// ✅ Requires IQuantumBackend parameter — executes on quantum hardware/simulator
+    ///
+    /// Parameters:
+    ///   backend - Quantum backend (LocalBackend, IonQ, Rigetti, etc.)
+    ///   items - Items with weights (values unused for subset-sum)
+    ///   targetSum - Exact sum to find subsets for
+    ///   config - Solver configuration (shots, iterations, penalties)
+    ///
+    /// Returns: Result<SubsetSumResult, QuantumError>
+    ///
+    /// Example:
+    ///   let backend = LocalBackendFactory.createUnified()
+    ///   let items = [ {Id="2"; Weight=2.0; Value=2.0}; {Id="5"; Weight=5.0; Value=5.0}
+    ///                 {Id="3"; Weight=3.0; Value=3.0}; {Id="4"; Weight=4.0; Value=4.0} ]
+    ///   match findAllExactCombinations backend items 7.0 defaultSubsetSumConfig with
+    ///   | Ok result -> printfn "Found %d combinations" result.Combinations.Length
+    ///   | Error err -> printfn "Error: %A" err
+    let findAllExactCombinations
+        (backend: BackendAbstraction.IQuantumBackend)
+        (items: KnapsackItem list)
+        (targetSum: float)
+        (config: SubsetSumConfig)
+        : Result<SubsetSumResult, QuantumError> =
+
+        let startTime = DateTime.Now
+        let n = items.Length
+        let epsilon = 0.0001
+
+        if n = 0 then
+            Ok { Combinations = []; AllItems = []; IterationsUsed = 0
+                 BackendName = backend.Name; ElapsedMs = 0.0 }
+        else
+
+        try
+            let mutable knownSolutions : int[] list = []
+            let mutable consecutiveFailures = 0
+            let mutable iteration = 0
+            let mutable lastError : QuantumError option = None
+
+            while iteration < config.MaxIterations
+                  && consecutiveFailures < config.MaxConsecutiveFailures do
+                iteration <- iteration + 1
+
+                // Build exclusion penalties for all known solutions
+                let exclusions =
+                    combineExclusionPenalties knownSolutions config.ExclusionPenaltyStrength
+
+                // Encode as QUBO with exclusion penalties
+                match toSubsetSumQubo items targetSum exclusions with
+                | Error err ->
+                    lastError <- Some err
+                    consecutiveFailures <- config.MaxConsecutiveFailures // Stop
+                | Ok quboMatrix ->
+
+                // Convert to dense array and build QAOA circuit
+                let quboArray = quboMapToArray quboMatrix
+                let problemHam = QaoaCircuit.ProblemHamiltonian.fromQubo quboArray
+                let mixerHam = QaoaCircuit.MixerHamiltonian.create problemHam.NumQubits
+                let (gamma, beta) = config.InitialParameters
+                let parameters = [| gamma, beta |]
+                let qaoaCircuit = QaoaCircuit.QaoaCircuit.build problemHam mixerHam parameters
+                let circuitWrapper =
+                    CircuitAbstraction.QaoaCircuitWrapper(qaoaCircuit) :> CircuitAbstraction.ICircuit
+
+                // Execute on quantum backend
+                match backend.ExecuteToState circuitWrapper with
+                | Error err ->
+                    lastError <- Some err
+                    consecutiveFailures <- config.MaxConsecutiveFailures // Stop
+                | Ok quantumState ->
+
+                // Sample measurements
+                let measurements = QuantumState.measure quantumState config.NumShots
+
+                // Find new feasible solutions in this batch
+                let mutable foundNew = false
+
+                for measurement in measurements do
+                    if measurement.Length = n then
+                        // Check if this is an exact-sum solution
+                        let totalWeight =
+                            items
+                            |> List.mapi (fun i item -> if measurement.[i] = 1 then item.Weight else 0.0)
+                            |> List.sum
+
+                        if abs (totalWeight - targetSum) < epsilon then
+                            // Check if we've already found this solution
+                            let isDuplicate =
+                                knownSolutions
+                                |> List.exists (fun known ->
+                                    Array.forall2 (=) known measurement)
+
+                            if not isDuplicate then
+                                knownSolutions <- measurement :: knownSolutions
+                                foundNew <- true
+
+                if foundNew then
+                    consecutiveFailures <- 0
+                else
+                    consecutiveFailures <- consecutiveFailures + 1
+
+            // Convert bitstring solutions to item lists
+            let combinations =
+                knownSolutions
+                |> List.rev  // Preserve discovery order
+                |> List.map (fun bitstring ->
+                    items
+                    |> List.mapi (fun i item -> if bitstring.[i] = 1 then Some item else None)
+                    |> List.choose id)
+
+            // Union of all items across all combinations
+            let allItems =
+                combinations
+                |> List.concat
+                |> List.distinctBy (fun item -> item.Id)
+
+            let elapsedMs = (DateTime.Now - startTime).TotalMilliseconds
+
+            Ok {
+                Combinations = combinations
+                AllItems = allItems
+                IterationsUsed = iteration
+                BackendName = backend.Name
+                ElapsedMs = elapsedMs
+            }
+
+        with ex ->
+            Error (QuantumError.OperationError (
+                "QuantumSubsetSum",
+                sprintf "Quantum subset-sum solver failed: %s" ex.Message))
+

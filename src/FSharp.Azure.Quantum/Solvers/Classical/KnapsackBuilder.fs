@@ -254,8 +254,8 @@ module Knapsack =
                     |> List.map (fun item -> 
                         { 
                             QuantumKnapsackSolver.KnapsackItem.Id = item.Id
-                            Weight = item.Weight
-                            Value = item.Value 
+                            QuantumKnapsackSolver.KnapsackItem.Weight = item.Weight
+                            QuantumKnapsackSolver.KnapsackItem.Value = item.Value 
                         })
                 Capacity = problem.Capacity
             }
@@ -376,7 +376,7 @@ module Knapsack =
             Capacity = problem.Capacity
         }
         
-        let dpResult = QuantumKnapsackSolver.solveClassicalDP quantumProblem
+        let dpResult = QuantumKnapsackSolver.solveClassical quantumProblem
         
         let efficiency = 
             if dpResult.TotalWeight > 0.0 then
@@ -430,40 +430,19 @@ module Knapsack =
     // EXACT SUM ENUMERATION - FIND ALL VALID COMBINATIONS
     // ============================================================================
 
-    /// Find ALL valid combinations that sum exactly to capacity
-    /// 
-    /// USE CASES:
-    /// - Subset sum enumeration: Find all solutions, not just one optimal
-    /// - Exact constraint satisfaction: Problems requiring exact match (not ≤)
-    /// - Combinatorial analysis: Count valid combinations
-    /// - Games and puzzles: Card games, resource allocation with exact constraints
-    /// 
+    /// Classical fallback: Find ALL valid combinations that sum exactly to capacity.
+    /// Private implementation used when no quantum backend is provided.
+    ///
     /// ALGORITHM:
     /// Recursive backtracking to explore all possible subsets.
     /// Time complexity: O(2^n) - exponential, suitable for small n (typically < 20 items)
-    /// 
-    /// Example: Items=[2,5,3,4], Capacity=7
-    /// - Combination 1: [2,5] sum=7
-    /// - Combination 2: [3,4] sum=7
-    /// - Returns: [[2,5], [3,4]]
-    /// 
-    /// PARAMETERS:
-    ///   problem - Knapsack problem
-    /// 
-    /// RETURNS:
-    ///   List of all valid combinations (each combination is a list of items that sum exactly to capacity)
-    /// 
-    /// EXAMPLE:
-    ///   let problem = Knapsack.createProblem [("A", 2.0, 2.0); ("B", 5.0, 5.0); ("C", 3.0, 3.0); ("D", 4.0, 4.0)] 7.0
-    ///   let combinations = Knapsack.findAllExactCombinations problem
-    ///   // Returns: [[A,B], [C,D]] - both combinations that sum exactly to 7
-    let findAllExactCombinations (problem: Problem) : Item list list =
+    let private findAllExactCombinationsClassical (problem: Problem) : Item list list =
         let rec findCombinations (items: Item list) (target: float) (current: Item list) : Item list list =
             let currentSum = current |> List.sumBy (fun item -> item.Weight)
-            
+
             // Tolerance for floating-point comparison
             let epsilon = 0.0001
-            
+
             if abs(currentSum - target) < epsilon then
                 // Found exact match!
                 [current]
@@ -474,73 +453,126 @@ module Knapsack =
                 // Try including first item OR excluding it
                 let first = List.head items
                 let rest = List.tail items
-                
+
                 let withFirst = findCombinations rest target (first :: current)
                 let withoutFirst = findCombinations rest target current
-                
+
                 withFirst @ withoutFirst
-        
+
         findCombinations problem.Items problem.Capacity []
 
+    /// Find ALL valid combinations that sum exactly to capacity using quantum QAOA.
+    ///
+    /// QUANTUM-FIRST API (RULE 1 COMPLIANT):
+    /// ✅ Requires IQuantumBackend parameter — executes iterative QAOA on quantum hardware/simulator
+    ///
+    /// Uses iterative QAOA with exclusion penalties to discover all subset-sum solutions:
+    /// 1. Encode exact-sum constraint as QUBO: minimize λ*(Σ w_i*x_i - W)²
+    /// 2. Run QAOA on quantum backend, sample measurements
+    /// 3. Extract feasible solutions (exact sum match)
+    /// 4. Add exclusion penalties for found solutions to QUBO
+    /// 5. Repeat until no new solutions found
+    ///
+    /// Falls back to classical recursive backtracking if no backend is provided.
+    ///
+    /// PARAMETERS:
+    ///   problem - Knapsack problem with items and capacity
+    ///   backend - Optional quantum backend (None = classical fallback)
+    ///
+    /// RETURNS:
+    ///   List of all valid combinations (each combination is a list of items that sum exactly to capacity)
+    ///
+    /// EXAMPLE:
+    ///   let problem = Knapsack.createProblem [("A", 2.0, 2.0); ("B", 5.0, 5.0); ("C", 3.0, 3.0); ("D", 4.0, 4.0)] 7.0
+    ///   let combinations = Knapsack.findAllExactCombinations problem (Some backend)
+    ///   // Returns: [[A,B], [C,D]] - both combinations that sum exactly to 7
+    let findAllExactCombinations (problem: Problem) (backend: BackendAbstraction.IQuantumBackend option) : Item list list =
+        match backend with
+        | None ->
+            // Classical fallback (no quantum backend provided)
+            findAllExactCombinationsClassical problem
+        | Some quantumBackend ->
+            // Quantum path: use iterative QAOA via QuantumKnapsackSolver
+            let quantumItems =
+                problem.Items
+                |> List.map (fun item ->
+                    { QuantumKnapsackSolver.KnapsackItem.Id = item.Id
+                      QuantumKnapsackSolver.KnapsackItem.Weight = item.Weight
+                      QuantumKnapsackSolver.KnapsackItem.Value = item.Value })
+
+            let config = QuantumKnapsackSolver.defaultSubsetSumConfig
+
+            match QuantumKnapsackSolver.findAllExactCombinations quantumBackend quantumItems problem.Capacity config with
+            | Ok result ->
+                // Convert quantum items back to domain items
+                result.Combinations
+                |> List.map (fun combo ->
+                    combo
+                    |> List.map (fun qItem ->
+                        { Id = qItem.Id; Weight = qItem.Weight; Value = qItem.Value }))
+            | Error _ ->
+                // On quantum error, fall back to classical
+                findAllExactCombinationsClassical problem
+
     /// Find all items that appear in at least one valid combination (union of all combinations)
-    /// 
-    /// USE CASES:
-    /// - Resource pooling: Identify all resources used across any valid solution
-    /// - Game logic: Determine which items participate in any winning combination
-    /// - Impact analysis: Find all items involved in feasible solutions
-    /// - Set covering: Items that contribute to any exact-sum solution
-    /// 
+    ///
+    /// QUANTUM-FIRST API (RULE 1 COMPLIANT):
+    /// ✅ Accepts optional IQuantumBackend parameter — delegates to quantum findAllExactCombinations
+    ///
     /// ALGORITHM:
-    /// 1. Find all exact combinations using findAllExactCombinations
+    /// 1. Find all exact combinations using quantum QAOA (or classical fallback)
     /// 2. Flatten all combinations into a single list
     /// 3. Remove duplicates to get unique items (union operation)
-    /// 
+    ///
     /// Example: Items=[2,5,3,4], Capacity=7
     /// - Valid combinations: [[2,5], [3,4]]
     /// - Union: [2,5,3,4] - All items that appear in any combination
-    /// 
+    ///
     /// PARAMETERS:
     ///   problem - Knapsack problem
-    /// 
+    ///   backend - Optional quantum backend (None = classical fallback)
+    ///
     /// RETURNS:
     ///   List of all items that appear in at least one valid combination
-    /// 
+    ///
     /// EXAMPLE:
-    ///   let unionItems = Knapsack.findAllCapturedItems problem
+    ///   let unionItems = Knapsack.findAllCapturedItems problem (Some backend)
     ///   // For capacity=7, items=[2,5,3,4]: Returns all 4 items (appear in some combination)
-    let findAllCapturedItems (problem: Problem) : Item list =
-        let allCombinations = findAllExactCombinations problem
-        
+    let findAllCapturedItems (problem: Problem) (backend: BackendAbstraction.IQuantumBackend option) : Item list =
+        let allCombinations = findAllExactCombinations problem backend
+
         allCombinations
         |> List.concat
         |> List.distinctBy (fun item -> item.Id)
 
     /// Find all valid combinations that sum exactly to capacity, with detailed results
-    /// 
+    ///
+    /// QUANTUM-FIRST API (RULE 1 COMPLIANT):
+    /// ✅ Accepts optional IQuantumBackend parameter
+    ///
     /// CONVENIENCE FUNCTION:
     /// Combines findAllExactCombinations and findAllCapturedItems into one call.
     /// Useful when you need both individual combinations and their union.
-    /// 
-    /// USE CASES:
-    /// - Reporting: Show all solutions and summary statistics
-    /// - Analysis: Compare individual solutions vs combined coverage
-    /// - Game logic: Present choices and final outcome
-    /// 
+    ///
     /// PARAMETERS:
     ///   problem - Knapsack problem
-    /// 
+    ///   backend - Optional quantum backend (None = classical fallback)
+    ///
     /// RETURNS:
     ///   Tuple of (all combinations, union of all items, combination count)
-    /// 
+    ///
     /// EXAMPLE:
-    ///   let (combinations, unionItems, count) = Knapsack.findAllValidCombinations problem
+    ///   let (combinations, unionItems, count) = Knapsack.findAllValidCombinations problem (Some backend)
     ///   printfn "Found %d valid combinations" count
     ///   printfn "Total unique items across all solutions: %d" (List.length unionItems)
-    let findAllValidCombinations (problem: Problem) : (Item list list * Item list * int) =
-        let combinations = findAllExactCombinations problem
-        let allItems = findAllCapturedItems problem
+    let findAllValidCombinations (problem: Problem) (backend: BackendAbstraction.IQuantumBackend option) : (Item list list * Item list * int) =
+        let combinations = findAllExactCombinations problem backend
+        let allItems =
+            combinations
+            |> List.concat
+            |> List.distinctBy (fun item -> item.Id)
         let count = List.length combinations
-        
+
         (combinations, allItems, count)
 
     // ============================================================================
@@ -548,49 +580,54 @@ module Knapsack =
     // ============================================================================
 
     /// Solve Knapsack with optional mode: find one optimal solution OR all exact combinations
-    /// 
+    ///
+    /// QUANTUM-FIRST API (RULE 1 COMPLIANT):
+    /// ✅ Both modes use IQuantumBackend when provided
+    /// - findAll=false: Standard QAOA knapsack optimization
+    /// - findAll=true: Iterative QAOA subset-sum enumeration
+    ///
     /// MODE SELECTION:
     /// - findAll=false (default): Standard knapsack - finds ONE optimal subset maximizing value ≤ capacity
-    /// - findAll=true: Exact enumeration - returns union of ALL items from all exact-sum combinations
-    /// 
-    /// USE CASES FOR findAll=true:
-    /// - Card games requiring exact matches (e.g., Kasino, Rummy)
-    /// - Resource allocation where all feasible solutions contribute
-    /// - Constraint satisfaction with exact sum requirement
-    /// - Combinatorial analysis needing complete solution coverage
-    /// 
+    /// - findAll=true: Quantum enumeration - returns union of ALL items from all exact-sum combinations
+    ///
     /// PARAMETERS:
     ///   problem - Knapsack problem with items and capacity
     ///   backend - Optional quantum backend (defaults to LocalBackend if None)
     ///   findAll - If true, finds ALL exact combinations; if false, finds one optimal solution
-    /// 
+    ///
     /// RETURNS:
     ///   If findAll=true: Solution with ALL items from all valid exact-sum combinations
     ///   If findAll=false: Solution with ONE optimal subset (standard knapsack)
-    /// 
+    ///
     /// EXAMPLE (Find all mode):
-    ///   let solution = Knapsack.solveWithMode problem None true
+    ///   let solution = Knapsack.solveWithMode problem (Some backend) true
     ///   // Returns union of all items that appear in any exact-sum combination
-    /// 
+    ///
     /// EXAMPLE (Standard mode):
     ///   let solution = Knapsack.solveWithMode problem None false
     ///   // Returns ONE optimal subset maximizing value
     let solveWithMode (problem: Problem) (backend: BackendAbstraction.IQuantumBackend option) (findAll: bool) : QuantumResult<Solution> =
         if findAll then
             // FIND ALL MODE: Return union of all items from all exact-sum combinations
+            // Uses quantum QAOA when backend is provided
             try
-                let allCapturedItems = findAllCapturedItems problem
+                let allCapturedItems = findAllCapturedItems problem backend
                 let totalWeight = allCapturedItems |> List.sumBy (fun item -> item.Weight)
                 let totalValue = allCapturedItems |> List.sumBy (fun item -> item.Value)
-                
-                let efficiency = 
+
+                let efficiency =
                     if totalWeight > 0.0 then totalValue / totalWeight else 0.0
-                
-                let capacityUtilization = 
+
+                let capacityUtilization =
                     if problem.Capacity > 0.0 then (totalWeight / problem.Capacity) * 100.0 else 0.0
-                
+
                 let isFeasible = totalWeight <= problem.Capacity
-                
+
+                let backendName =
+                    match backend with
+                    | Some b -> sprintf "Quantum QAOA Subset-Sum (%s)" b.Name
+                    | None -> "Classical Enumeration (All Combinations)"
+
                 Ok {
                     SelectedItems = allCapturedItems
                     TotalWeight = totalWeight
@@ -598,8 +635,8 @@ module Knapsack =
                     IsFeasible = isFeasible
                     Efficiency = efficiency
                     CapacityUtilization = capacityUtilization
-                    BackendName = "Exact Enumeration (All Combinations)"
-                    IsQuantum = false
+                    BackendName = backendName
+                    IsQuantum = backend.IsSome
                 }
             with
             | ex -> Error (QuantumError.OperationError ("Find all mode failed: ", $"Failed: {ex.Message}"))

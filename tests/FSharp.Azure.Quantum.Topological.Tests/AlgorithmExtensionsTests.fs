@@ -250,3 +250,86 @@ module AlgorithmExtensionsTests =
             | Error err ->
                 Assert.Fail($"Unexpected error: {err}")
         | _ -> Assert.Fail("Failed to create HHL test data")
+
+    // ========================================================================
+    // SHOR estimateModExpPhase ON TOPOLOGICAL BACKEND (Gap 20)
+    // ========================================================================
+    //
+    // estimateModExpPhase bypasses the QPE handler entirely — it manually emits
+    // H, X, CP, and controlledModularMultiplication gates through ApplyOperation.
+    //
+    // For Ising anyons with amplitude intercepts:
+    //   - H, X, CNOT, SWAP: handled by amplitude-level shortcuts (exact)
+    //   - CP, RZ, P: compiled to braids (discretized to π/2 multiples)
+    //   - CCX: transpiled to Barenco decomposition (H + CNOT + T/TDG)
+    //   - T, TDG: amplitude-intercepted on Ising
+    //
+    // The error comes from angle discretization in CP/RZ gates (QFT rotations).
+    // Phases like π/4, π/8 etc. get discretized to nearest π/2 multiple,
+    // so QPE results will be approximate but should still yield valid phases.
+
+    module Shor = FSharp.Azure.Quantum.Algorithms.Shor
+
+    [<Fact>]
+    let ``estimateModExpPhase runs on Ising TopologicalBackend a=2 mod 3 c=1`` () =
+        // N=3, n=2 bits, workspace=8, total=9 qubits. Ising: 2*9+2=20 anyons.
+        // Minimal meaningful Shor circuit. With c=1 counting qubit, only 1 modular
+        // multiplication. Tests the full CCX→transpile→amplitude-intercept pipeline.
+        let topoBackend = TopologicalUnifiedBackendFactory.createIsing 24
+
+        match Shor.estimateModExpPhase 2 3 1 topoBackend with
+        | Ok result ->
+            Assert.True(result.EstimatedPhase >= 0.0 && result.EstimatedPhase < 1.0,
+                $"Phase {result.EstimatedPhase} out of range [0, 1)")
+            Assert.Equal(1, result.CountingQubits)
+            Assert.Equal(9, result.TotalQubits)
+            Assert.Equal(1, result.ModularMultiplications)
+        | Error err ->
+            Assert.Fail($"estimateModExpPhase on Ising TopologicalBackend failed: {err}")
+
+    [<Fact>]
+    let ``estimateModExpPhase returns error for non-coprime inputs on TopologicalBackend`` () =
+        // Verify that gcd check works on topological backend (fast, no circuit execution).
+        let topoBackend = TopologicalUnifiedBackendFactory.createIsing 24
+
+        match Shor.estimateModExpPhase 4 6 1 topoBackend with
+        | Error (QuantumError.ValidationError ("baseNum", msg)) ->
+            Assert.Contains("coprime", msg)
+        | other ->
+            Assert.Fail($"Expected coprime ValidationError, got: {other}")
+
+    [<Fact>]
+    let ``estimateModExpPhase result fields are consistent on TopologicalBackend`` () =
+        // Verify internal consistency: phase = measurementOutcome / 2^countingQubits
+        // Using minimal N=3, c=1 to keep test fast.
+        let topoBackend = TopologicalUnifiedBackendFactory.createIsing 24
+
+        match Shor.estimateModExpPhase 2 3 1 topoBackend with
+        | Ok result ->
+            let expectedPhase = float result.MeasurementOutcome / float (1 <<< result.CountingQubits)
+            Assert.Equal(expectedPhase, result.EstimatedPhase, 10)
+            Assert.True(result.MeasurementOutcome >= 0)
+            Assert.True(result.MeasurementOutcome < (1 <<< result.CountingQubits))
+        | Error err ->
+            Assert.Fail($"estimateModExpPhase on Ising TopologicalBackend failed: {err}")
+
+    [<Fact>]
+    let ``estimateModExpPhase validation works on TopologicalBackend`` () =
+        // Validation checks should work identically regardless of backend.
+        let topoBackend = TopologicalUnifiedBackendFactory.createIsing 30
+
+        // baseNum < 2
+        match Shor.estimateModExpPhase 1 7 2 topoBackend with
+        | Error (QuantumError.ValidationError ("baseNum", _)) -> ()
+        | other -> Assert.Fail($"Expected ValidationError for baseNum, got: {other}")
+
+        // modulus < 2
+        match Shor.estimateModExpPhase 2 1 2 topoBackend with
+        | Error (QuantumError.ValidationError ("modulus", _)) -> ()
+        | other -> Assert.Fail($"Expected ValidationError for modulus, got: {other}")
+
+        // non-coprime
+        match Shor.estimateModExpPhase 6 15 2 topoBackend with
+        | Error (QuantumError.ValidationError ("baseNum", msg)) ->
+            Assert.Contains("coprime", msg)
+        | other -> Assert.Fail($"Expected coprime ValidationError, got: {other}")

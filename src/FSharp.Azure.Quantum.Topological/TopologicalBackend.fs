@@ -242,8 +242,11 @@ module TopologicalUnifiedBackend =
             | Error errMsg -> Error (QuantumError.OperationError ("TopologicalBackend", errMsg))
         
         /// Apply gate operation. Gates identified by IsAmplitudeIntercepted are handled
-        /// via direct amplitude manipulation (simulator-only shortcut). All other gates
-        /// are compiled to physical braiding sequences via GateToBraid.
+        /// via direct amplitude manipulation (simulator-only shortcut). Complex gates
+        /// (CCX, CZ, CP, etc.) are first transpiled to elementary gates, then each
+        /// elementary gate is routed through this method recursively — ensuring sub-gates
+        /// like T/TDG are amplitude-intercepted on Ising rather than failing braid compilation.
+        /// Only truly elementary non-intercepted gates reach the braid compilation path.
         /// For Fibonacci anyons, ALL gates go through braid compilation (no intercepts).
         member private this.ApplyGate (gate: CircuitBuilder.Gate) (fusionState: TopologicalOperations.Superposition) (numQubits: int) : Result<QuantumState, QuantumError> =
             // Helper to convert TopologicalResult directly to QuantumState Result
@@ -286,44 +289,82 @@ module TopologicalUnifiedBackend =
                     Error (QuantumError.OperationError ("TopologicalBackend",
                         $"Gate {gate} marked as amplitude-intercepted but no implementation found"))
             else
-                // Braiding compilation path: compile gate to braid sequence via GateToBraid.
-                // Tolerance for angle discretization to nearest braid multiple (π/2 for Ising).
-                // Maximum rounding error when discretizing to π/2 multiples is π/4.
-                let tolerance = Math.PI / 4.0 + 1e-10
+                // Transpile-then-route path: decompose complex gates (CCX, CZ, CP, etc.)
+                // into elementary gates, then route each sub-gate back through ApplyGate.
+                // This ensures each elementary gate is checked against IsAmplitudeIntercepted,
+                // matching the two-level check that SupportsOperation already performs.
+                //
+                // Without this, a gate like CCX on Ising would decompose to {H, T, TDG, CNOT}
+                // inside compileGateSequence, but TDG would fail braid compilation even though
+                // it should be amplitude-intercepted.
+                let circuit : CircuitBuilder.Circuit = {
+                    QubitCount = numQubits
+                    Gates = [ gate ]
+                }
+                let rec transpileToFixpoint (remaining: int) (current: CircuitBuilder.Circuit) =
+                    if remaining <= 0 then current
+                    else
+                        let next = GateTranspiler.transpileForBackend "topological" current
+                        if next.Gates = current.Gates then next
+                        else transpileToFixpoint (remaining - 1) next
+                let transpiledCircuit = transpileToFixpoint 5 circuit
 
-                let gateSequence: BraidToGate.GateSequence =
-                    { NumQubits = numQubits
-                      Gates = [ gate ]
-                      // TotalPhase = Complex.One is correct here: this is *input* metadata
-                      // for the gate sequence before compilation. The braiding phases are
-                      // applied by braidSuperpositionDirected during state evolution below.
-                      TotalPhase = Complex.One
-                      Depth = 1
-                      TCount = 0 }
+                // If transpilation decomposed the gate into multiple sub-gates,
+                // route each one back through ApplyGate (which checks IsAmplitudeIntercepted).
+                if transpiledCircuit.Gates.Length > 1 || transpiledCircuit.Gates <> [ gate ] then
+                    transpiledCircuit.Gates
+                    |> List.fold (fun stateResult subGate ->
+                        stateResult |> Result.bind (fun currentState ->
+                            match currentState with
+                            | QuantumState.FusionSuperposition fs ->
+                                match TopologicalOperations.fromInterface fs with
+                                | None ->
+                                    Error (QuantumError.OperationError ("TopologicalBackend",
+                                        "FusionSuperposition does not contain a valid Superposition during gate decomposition"))
+                                | Some sup ->
+                                    this.ApplyGate subGate sup numQubits
+                            | _ ->
+                                Error (QuantumError.OperationError ("TopologicalBackend",
+                                    "Expected FusionSuperposition state during gate decomposition"))
+                        )
+                    ) (Ok (QuantumState.FusionSuperposition (TopologicalOperations.toInterface fusionState)))
+                else
+                    // Gate did not decompose — it's already elementary.
+                    // Compile directly to braid sequence via GateToBraid.
+                    // Tolerance for angle discretization to nearest braid multiple (π/2 for Ising).
+                    // Maximum rounding error when discretizing to π/2 multiples is π/4.
+                    let tolerance = Math.PI / 4.0 + 1e-10
 
-                match GateToBraid.compileGateSequence gateSequence tolerance anyonType with
-                | Ok compilation ->
-                    let braidSteps =
-                        compilation.CompiledBraids
-                        |> List.collect (fun bw -> bw.Generators)
-                        |> List.map (fun gen -> (gen.Index, gen.IsClockwise))
+                    let gateSequence: BraidToGate.GateSequence =
+                        { NumQubits = numQubits
+                          Gates = [ gate ]
+                          TotalPhase = Complex.One
+                          Depth = 1
+                          TCount = 0 }
 
-                    let finalResult =
-                        braidSteps
-                        |> List.fold (fun stateResult (braidIdx, isClockwise) ->
-                            stateResult |> Result.bind (fun currentState ->
-                                TopologicalOperations.braidSuperpositionDirected braidIdx isClockwise currentState
-                                |> toResult
-                                |> Result.mapError (fun err -> QuantumError.OperationError ("TopologicalBackend", err))
-                            )
-                        ) (Ok fusionState)
+                    match GateToBraid.compileGateSequence gateSequence tolerance anyonType with
+                    | Ok compilation ->
+                        let braidSteps =
+                            compilation.CompiledBraids
+                            |> List.collect (fun bw -> bw.Generators)
+                            |> List.map (fun gen -> (gen.Index, gen.IsClockwise))
 
-                    match finalResult with
-                    | Ok finalState -> Ok (QuantumState.FusionSuperposition (TopologicalOperations.toInterface finalState))
-                    | Error err -> Error err
+                        let finalResult =
+                            braidSteps
+                            |> List.fold (fun stateResult (braidIdx, isClockwise) ->
+                                stateResult |> Result.bind (fun currentState ->
+                                    TopologicalOperations.braidSuperpositionDirected braidIdx isClockwise currentState
+                                    |> toResult
+                                    |> Result.mapError (fun err -> QuantumError.OperationError ("TopologicalBackend", err))
+                                )
+                            ) (Ok fusionState)
 
-                | Error topErr ->
-                    Error (QuantumError.OperationError ("TopologicalBackend", $"Failed to compile gate {gate} to braiding: {topErr.Message}"))
+                        match finalResult with
+                        | Ok finalState -> Ok (QuantumState.FusionSuperposition (TopologicalOperations.toInterface finalState))
+                        | Error err -> Error err
+
+                    | Error topErr ->
+                        Error (QuantumError.OperationError ("TopologicalBackend", $"Failed to compile gate {gate} to braiding: {topErr.Message}"))
         
         /// Apply F-move operation
         member private this.ApplyFMove (direction: FMoveDirection) (depth: int) (fusionState: TopologicalOperations.Superposition) : Result<QuantumState, QuantumError> =
@@ -724,7 +765,9 @@ module TopologicalUnifiedBackend =
                             // Use compileGateSequence (not compileGateToBraid) so that
                             // complex gates like CZ, MCZ, SWAP, CCX are transpiled to
                             // elementary gates before checking braid-compilability.
-                            // This matches the execution path in ApplyGate (line 226).
+                            // This matches the execution path in ApplyGate which also
+                            // transpiles first, then routes each sub-gate through
+                            // IsAmplitudeIntercepted before falling through to braiding.
                             // After transpilation, check each elementary gate is either
                             // amplitude-intercepted (Ising only) or braid-compilable.
                             let circuit : CircuitBuilder.Circuit = {

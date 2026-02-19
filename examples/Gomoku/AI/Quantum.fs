@@ -31,6 +31,8 @@ module LocalQuantum =
         let player = board.CurrentPlayer
         let opponent = player.Opposite()
         
+        let moveNumber = board.MoveHistory.Length + 1
+        
         candidates
         |> List.map (fun pos -> 
             // Evaluate offensive potential (our threats)
@@ -38,8 +40,11 @@ module LocalQuantum =
             // Evaluate defensive potential (blocking opponent threats)
             let defensiveScore = Classical.evaluatePosition board pos opponent
             
-            // Weigh offensive play higher to encourage building winning threats
-            let totalScore = offensiveScore * 2.0 + defensiveScore * 1.0
+            // Temporal asymmetry to match Classical.evaluateMoves ratio
+            let offenseMultiplier =
+                if player = White && moveNumber <= 50 then 1.1
+                else 1.5
+            let totalScore = offensiveScore * offenseMultiplier + defensiveScore * 1.0
             
             (pos, totalScore))
     
