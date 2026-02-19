@@ -103,12 +103,10 @@ module TopologicalBackendTests =
     let ``SupportsOperation returns true for MCZ gate after transpilation fix`` () =
         // MCZ decomposes to H + CCX in first transpilation pass.
         // CCX requires a second transpilation pass to decompose to CNOT + T gates.
-        // compileGateSequence only does one pass, so MCZ currently fails.
-        // This test documents the known single-pass transpilation limitation.
-        // When multi-pass transpilation is implemented, change this to Assert.True.
+        // Multi-pass transpilation (transpileToFixpoint) now handles this correctly.
         let backend = TopologicalUnifiedBackend.TopologicalUnifiedBackend(AnyonSpecies.AnyonType.Ising, 10) :> IQuantumBackend
-        // MCZ is not yet supported due to single-pass transpilation
-        Assert.False(backend.SupportsOperation (QuantumOperation.Gate (CircuitBuilder.MCZ ([0; 1], 2))))
+        // MCZ is now supported via multi-pass transpilation
+        Assert.True(backend.SupportsOperation (QuantumOperation.Gate (CircuitBuilder.MCZ ([0; 1], 2))))
 
     [<Fact>]
     let ``SupportsOperation returns true for SWAP gate after transpilation fix`` () =

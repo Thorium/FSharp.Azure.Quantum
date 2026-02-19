@@ -922,8 +922,18 @@ module GateToBraid =
             Gates = gateSequence.Gates
         }
         
-        // Transpile for topological backend (decomposes CZ, CCX, MCZ, phase gates)
-        let transpiledCircuit = GateTranspiler.transpileForBackend "topological" circuit
+        // Transpile for topological backend (decomposes CZ, CCX, MCZ, phase gates).
+        // Some decompositions (e.g., MCZ → CCX → {H, T, TDG, CNOT}) require multiple
+        // passes because transpileForBackend is a single-pass transformation.
+        // Loop until the gate list stabilizes (fixpoint), bounded to prevent infinite loops.
+        let rec transpileToFixpoint (remaining: int) (current: CircuitBuilder.Circuit) =
+            if remaining <= 0 then current
+            else
+                let next = GateTranspiler.transpileForBackend "topological" current
+                if next.Gates = current.Gates then next
+                else transpileToFixpoint (remaining - 1) next
+
+        let transpiledCircuit = transpileToFixpoint 5 circuit
         
         // Step 2: Compile transpiled gates to braids using the selected compiler
         // Functional fold pattern - no mutable state

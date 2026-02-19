@@ -700,40 +700,222 @@ module TopologicalOperations =
     /// 
     /// Flips target qubit if control is |1⟩
     /// 
-    /// Implemented via braiding operations in topological QC.
+    /// Implemented as exact amplitude-level operation on σ-pair fusion channels.
+    /// If the control qubit's channel is Psi (|1⟩), the target qubit's channel
+    /// is flipped: Vacuum ↔ Psi. Otherwise the state is unchanged.
     ///
-    /// For Ising anyons (each qubit = 4 sigma anyons):
-    /// CNOT requires specific braiding sequence + measurements
+    /// This avoids the braiding-level CNOT decomposition (H * CZ * H) which
+    /// requires Solovay-Kitaev approximation for the Hadamard components.
     let cnot (controlIndex: int) (targetIndex: int) (superposition: Superposition) : TopologicalResult<Superposition> =
-        // CNOT in topological QC requires careful choreography of braidings
-        // This is one of the key advantages: gates are geometric, not algebraic!
-        
-        // For Ising anyons, CNOT protocol:
-        // 1. Apply braiding between control and target qubits
-        // 2. Use fusion measurement to entangle
-        // 3. Apply correction braiding based on measurement outcome
-        
-        // Simplified implementation:
-        // Each qubit is 4 anyons: control = indices [4*controlIndex..4*controlIndex+3]
-        //                        target = indices [4*targetIndex..4*targetIndex+3]
-        
-        let controlStartIdx = 4 * controlIndex
-        let targetStartIdx = 4 * targetIndex
-        
-        // Apply sequence of braidings to implement CNOT - using Result workflow
-        topologicalResult {
-            let! step1 = braidSuperposition (controlStartIdx + 1) superposition      // Braid within control
-            let! step2 = braidSuperposition (targetStartIdx + 1) step1               // Braid within target
-            let! step3 = braidSuperposition (controlStartIdx + 3) step2              // Cross-braid control-target
-            return step3
-        }
-        
-        // Note: Full topological CNOT requires:
-        // - F-moves to align fusion tree
-        // - Multiple braiding operations
-        // - Measurement and feedforward corrections
-        // This simplified version captures the essence but is not complete
-    
+        let numQubits =
+            match superposition.Terms with
+            | [] -> 0
+            | (_, state) :: _ -> FusionTree.numQubits state.Tree
+
+        if controlIndex < 0 || controlIndex >= numQubits then
+            TopologicalResult.validationError
+                "controlIndex"
+                $"Invalid control qubit index {controlIndex} for {numQubits}-qubit system"
+        elif targetIndex < 0 || targetIndex >= numQubits then
+            TopologicalResult.validationError
+                "targetIndex"
+                $"Invalid target qubit index {targetIndex} for {numQubits}-qubit system"
+        elif controlIndex = targetIndex then
+            TopologicalResult.validationError
+                "targetIndex"
+                "Control and target qubits must be different"
+        else
+            // CNOT: if control=|1⟩, flip target. Otherwise unchanged.
+            let newTerms =
+                superposition.Terms
+                |> List.choose (fun (amp, state) ->
+                    match getQubitChannel controlIndex state.Tree with
+                    | Some controlChannel ->
+                        if controlChannel = AnyonSpecies.Particle.Psi then
+                            // Control is |1⟩ — flip target channel
+                            match getQubitChannel targetIndex state.Tree with
+                            | Some targetChannel ->
+                                let flipped =
+                                    if targetChannel = AnyonSpecies.Particle.Vacuum then AnyonSpecies.Particle.Psi
+                                    else AnyonSpecies.Particle.Vacuum
+                                match replaceQubitChannel targetIndex flipped state.Tree with
+                                | Some newTree -> Some (amp, FusionTree.create newTree state.AnyonType)
+                                | None -> Some (amp, state)
+                            | None -> Some (amp, state)
+                        else
+                            // Control is |0⟩ — no change
+                            Some (amp, state)
+                    | None -> Some (amp, state)
+                )
+
+            { superposition with Terms = newTerms }
+            |> combineLikeTerms
+            |> normalize
+            |> Ok
+
+    /// Pauli-X gate (NOT gate) for topological qubits
+    ///
+    /// Flips the qubit: |0⟩ → |1⟩, |1⟩ → |0⟩
+    ///
+    /// In the σ-pair encoding: Vacuum (|0⟩) ↔ Psi (|1⟩)
+    /// This is exact — no approximation needed.
+    let pauliX (qubitIndex: int) (superposition: Superposition) : TopologicalResult<Superposition> =
+        let numQubits =
+            match superposition.Terms with
+            | [] -> 0
+            | (_, state) :: _ -> FusionTree.numQubits state.Tree
+
+        if qubitIndex < 0 || qubitIndex >= numQubits then
+            TopologicalResult.validationError
+                "qubitIndex"
+                $"Invalid qubit index {qubitIndex} for {numQubits}-qubit system"
+        else
+            // X|0⟩ = |1⟩, X|1⟩ = |0⟩
+            // Simply swap the fusion channel: Vacuum ↔ Psi
+            let newTerms =
+                superposition.Terms
+                |> List.choose (fun (amp, state) ->
+                    match getQubitChannel qubitIndex state.Tree with
+                    | Some channel ->
+                        let flipped =
+                            if channel = AnyonSpecies.Particle.Vacuum then AnyonSpecies.Particle.Psi
+                            else AnyonSpecies.Particle.Vacuum
+                        match replaceQubitChannel qubitIndex flipped state.Tree with
+                        | Some newTree -> Some (amp, FusionTree.create newTree state.AnyonType)
+                        | None -> Some (amp, state) // fallback: keep unchanged
+                    | None -> Some (amp, state)
+                )
+
+            { superposition with Terms = newTerms }
+            |> combineLikeTerms
+            |> normalize
+            |> Ok
+
+    /// Pauli-Y gate for topological qubits
+    ///
+    /// Y|0⟩ = i|1⟩, Y|1⟩ = -i|0⟩
+    ///
+    /// In the σ-pair encoding: flips the channel with appropriate ±i phases.
+    /// This is exact — no approximation needed.
+    let pauliY (qubitIndex: int) (superposition: Superposition) : TopologicalResult<Superposition> =
+        let numQubits =
+            match superposition.Terms with
+            | [] -> 0
+            | (_, state) :: _ -> FusionTree.numQubits state.Tree
+
+        if qubitIndex < 0 || qubitIndex >= numQubits then
+            TopologicalResult.validationError
+                "qubitIndex"
+                $"Invalid qubit index {qubitIndex} for {numQubits}-qubit system"
+        else
+            // Y|0⟩ = i|1⟩   → amplitude * i, channel Vacuum → Psi
+            // Y|1⟩ = -i|0⟩  → amplitude * (-i), channel Psi → Vacuum
+            let newTerms =
+                superposition.Terms
+                |> List.choose (fun (amp, state) ->
+                    match getQubitChannel qubitIndex state.Tree with
+                    | Some channel ->
+                        let isZero = (channel = AnyonSpecies.Particle.Vacuum)
+                        let newAmp =
+                            if isZero then amp * Complex(0.0, 1.0)   // * i
+                            else amp * Complex(0.0, -1.0)            // * (-i)
+                        let flipped =
+                            if isZero then AnyonSpecies.Particle.Psi
+                            else AnyonSpecies.Particle.Vacuum
+                        match replaceQubitChannel qubitIndex flipped state.Tree with
+                        | Some newTree -> Some (newAmp, FusionTree.create newTree state.AnyonType)
+                        | None -> Some (amp, state)
+                    | None -> Some (amp, state)
+                )
+
+            { superposition with Terms = newTerms }
+            |> combineLikeTerms
+            |> normalize
+            |> Ok
+
+    /// Pauli-Z gate for topological qubits
+    ///
+    /// Z|0⟩ = |0⟩, Z|1⟩ = -|1⟩
+    ///
+    /// Unlike the GateToBraid implementation which treats Z as global phase (identity),
+    /// this implementation correctly applies the relative phase. This matters in
+    /// multi-qubit systems where Z⊗I ≠ I⊗I.
+    let pauliZ (qubitIndex: int) (superposition: Superposition) : TopologicalResult<Superposition> =
+        let numQubits =
+            match superposition.Terms with
+            | [] -> 0
+            | (_, state) :: _ -> FusionTree.numQubits state.Tree
+
+        if qubitIndex < 0 || qubitIndex >= numQubits then
+            TopologicalResult.validationError
+                "qubitIndex"
+                $"Invalid qubit index {qubitIndex} for {numQubits}-qubit system"
+        else
+            // Z|0⟩ = |0⟩    → amplitude unchanged, channel unchanged
+            // Z|1⟩ = -|1⟩   → amplitude * (-1), channel unchanged
+            let newTerms =
+                superposition.Terms
+                |> List.map (fun (amp, state) ->
+                    match getQubitChannel qubitIndex state.Tree with
+                    | Some channel ->
+                        if channel = AnyonSpecies.Particle.Psi then
+                            (amp * Complex(-1.0, 0.0), state)  // -1 phase for |1⟩
+                        else
+                            (amp, state)  // unchanged for |0⟩
+                    | None -> (amp, state)
+                )
+
+            { superposition with Terms = newTerms }
+            |> combineLikeTerms
+            |> normalize
+            |> Ok
+
+    /// SWAP gate for topological qubits
+    ///
+    /// Exchanges the quantum states of two qubits:
+    /// SWAP|ab⟩ = |ba⟩
+    ///
+    /// In the σ-pair encoding, this swaps the fusion channels of two qubit pairs.
+    /// This is exact — no approximation needed (avoids 3×CNOT decomposition with
+    /// its accumulated Solovay-Kitaev approximation errors).
+    let swap (qubitIndex1: int) (qubitIndex2: int) (superposition: Superposition) : TopologicalResult<Superposition> =
+        let numQubits =
+            match superposition.Terms with
+            | [] -> 0
+            | (_, state) :: _ -> FusionTree.numQubits state.Tree
+
+        if qubitIndex1 < 0 || qubitIndex1 >= numQubits then
+            TopologicalResult.validationError
+                "qubitIndex1"
+                $"Invalid qubit index {qubitIndex1} for {numQubits}-qubit system"
+        elif qubitIndex2 < 0 || qubitIndex2 >= numQubits then
+            TopologicalResult.validationError
+                "qubitIndex2"
+                $"Invalid qubit index {qubitIndex2} for {numQubits}-qubit system"
+        elif qubitIndex1 = qubitIndex2 then
+            Ok superposition  // SWAP of same qubit is identity
+        else
+            // Read both channels, write each into the other's position
+            let newTerms =
+                superposition.Terms
+                |> List.choose (fun (amp, state) ->
+                    match getQubitChannel qubitIndex1 state.Tree, getQubitChannel qubitIndex2 state.Tree with
+                    | Some ch1, Some ch2 ->
+                        // Swap: put ch2 at position 1, ch1 at position 2
+                        match replaceQubitChannel qubitIndex1 ch2 state.Tree with
+                        | Some tree' ->
+                            match replaceQubitChannel qubitIndex2 ch1 tree' with
+                            | Some tree'' -> Some (amp, FusionTree.create tree'' state.AnyonType)
+                            | None -> Some (amp, state)
+                        | None -> Some (amp, state)
+                    | _ -> Some (amp, state)
+                )
+
+            { superposition with Terms = newTerms }
+            |> combineLikeTerms
+            |> normalize
+            |> Ok
+
     // ========================================================================
     // UTILITY FUNCTIONS
     // ========================================================================
