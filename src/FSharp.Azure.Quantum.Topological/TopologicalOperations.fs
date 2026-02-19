@@ -870,6 +870,81 @@ module TopologicalOperations =
             |> normalize
             |> Ok
 
+    /// T gate (π/8 gate) for topological qubits
+    ///
+    /// Applies: |0⟩ → |0⟩, |1⟩ → e^{iπ/4} |1⟩
+    ///
+    /// **PHYSICS**: The T gate CANNOT be realized exactly by Ising anyon braiding.
+    /// Ising braids only produce phases that are multiples of π/2 (Clifford gates).
+    /// T requires non-topological supplementation (e.g., magic state distillation).
+    /// This amplitude-level implementation provides exact T gate behavior.
+    let tGate (qubitIndex: int) (superposition: Superposition) : TopologicalResult<Superposition> =
+        let numQubits =
+            match superposition.Terms with
+            | [] -> 0
+            | (_, state) :: _ -> FusionTree.numQubits state.Tree
+
+        if qubitIndex < 0 || qubitIndex >= numQubits then
+            TopologicalResult.validationError
+                "qubitIndex"
+                $"Invalid qubit index {qubitIndex} for {numQubits}-qubit system"
+        else
+            // T|0⟩ = |0⟩    → amplitude unchanged, channel unchanged
+            // T|1⟩ = e^{iπ/4} |1⟩  → amplitude * e^{iπ/4}, channel unchanged
+            let tPhase = Complex.Exp(Complex(0.0, System.Math.PI / 4.0))  // e^{iπ/4}
+            let newTerms =
+                superposition.Terms
+                |> List.map (fun (amp, state) ->
+                    match getQubitChannel qubitIndex state.Tree with
+                    | Some channel ->
+                        if channel = AnyonSpecies.Particle.Psi then
+                            (amp * tPhase, state)  // e^{iπ/4} phase for |1⟩
+                        else
+                            (amp, state)  // unchanged for |0⟩
+                    | None -> (amp, state)
+                )
+
+            { superposition with Terms = newTerms }
+            |> combineLikeTerms
+            |> normalize
+            |> Ok
+
+    /// T† gate (inverse of T gate) for topological qubits
+    ///
+    /// Applies: |0⟩ → |0⟩, |1⟩ → e^{-iπ/4} |1⟩
+    ///
+    /// Like T, this cannot be realized by Ising anyon braiding alone.
+    let tDaggerGate (qubitIndex: int) (superposition: Superposition) : TopologicalResult<Superposition> =
+        let numQubits =
+            match superposition.Terms with
+            | [] -> 0
+            | (_, state) :: _ -> FusionTree.numQubits state.Tree
+
+        if qubitIndex < 0 || qubitIndex >= numQubits then
+            TopologicalResult.validationError
+                "qubitIndex"
+                $"Invalid qubit index {qubitIndex} for {numQubits}-qubit system"
+        else
+            // T†|0⟩ = |0⟩
+            // T†|1⟩ = e^{-iπ/4} |1⟩
+            let tDaggerPhase = Complex.Exp(Complex(0.0, -System.Math.PI / 4.0))  // e^{-iπ/4}
+            let newTerms =
+                superposition.Terms
+                |> List.map (fun (amp, state) ->
+                    match getQubitChannel qubitIndex state.Tree with
+                    | Some channel ->
+                        if channel = AnyonSpecies.Particle.Psi then
+                            (amp * tDaggerPhase, state)  // e^{-iπ/4} phase for |1⟩
+                        else
+                            (amp, state)  // unchanged for |0⟩
+                    | None -> (amp, state)
+                )
+
+            { superposition with Terms = newTerms }
+            |> combineLikeTerms
+            |> normalize
+            |> Ok
+
     /// SWAP gate for topological qubits
     ///
     /// Exchanges the quantum states of two qubits:

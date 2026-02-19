@@ -75,30 +75,30 @@ module BraidToGateTests =
     // ========================================================================
     
     [<Fact>]
-    let ``Ising clockwise braiding compiles to T gate`` () =
-        // Business meaning: Majorana braiding phase exp(iπ/8) IS the T gate!
-        // This is the deep connection between topological and gate-based QC.
+    let ``Ising clockwise braiding compiles to S gate`` () =
+        // Physics: Ising σ×σ relative phase = e^{iπ/2} per braid → S gate
+        // One CW braid = S gate (exact in Ising model)
         let braid = braidFromGensOrFail 2 [BraidGroup.sigma 0] "Single σ_0"
         let sequence = 
             compileOrFail braid AnyonSpecies.AnyonType.Ising 
                 BraidToGate.defaultOptions "Ising compilation"
         
         Assert.Equal(1, sequence.Gates.Length)
-        Assert.Equal(CircuitBuilder.Gate.T 0, sequence.Gates.[0])
+        Assert.Equal(CircuitBuilder.Gate.S 0, sequence.Gates.[0])
     
     [<Fact>]
-    let ``Ising counter-clockwise braiding compiles to T-dagger`` () =
-        // Business meaning: Inverse braiding gives conjugate phase exp(-iπ/8) = T†
+    let ``Ising counter-clockwise braiding compiles to S-dagger`` () =
+        // Physics: Inverse braiding gives conjugate phase e^{-iπ/2} = S†
         let braid = braidFromGensOrFail 2 [BraidGroup.sigmaInv 0] "Single σ_0^-1"
         let sequence = 
             compileOrFail braid AnyonSpecies.AnyonType.Ising 
                 BraidToGate.defaultOptions "Ising inverse"
         
         Assert.Equal(1, sequence.Gates.Length)
-        Assert.Equal(CircuitBuilder.Gate.TDG 0, sequence.Gates.[0])
+        Assert.Equal(CircuitBuilder.Gate.SDG 0, sequence.Gates.[0])
     
     [<Fact>]
-    let ``Multiple Ising braidings compile to sequence of T gates`` () =
+    let ``Multiple Ising braidings compile to sequence of S gates`` () =
         // Business meaning: Composing braids = composing gates
         let braid = 
             braidFromGensOrFail 3 
@@ -110,9 +110,9 @@ module BraidToGateTests =
                 BraidToGate.defaultOptions "Multiple braidings"
         
         Assert.Equal(3, sequence.Gates.Length)
-        Assert.Equal(CircuitBuilder.Gate.T 0, sequence.Gates.[0])
-        Assert.Equal(CircuitBuilder.Gate.T 1, sequence.Gates.[1])
-        Assert.Equal(CircuitBuilder.Gate.T 0, sequence.Gates.[2])
+        Assert.Equal(CircuitBuilder.Gate.S 0, sequence.Gates.[0])
+        Assert.Equal(CircuitBuilder.Gate.S 1, sequence.Gates.[1])
+        Assert.Equal(CircuitBuilder.Gate.S 0, sequence.Gates.[2])
     
     [<Fact>]
     let ``Ising identity braid compiles to empty gate sequence`` () =
@@ -307,6 +307,7 @@ module BraidToGateTests =
     [<Fact>]
     let ``Gate sequence reports correct T-count`` () =
         // Business meaning: T-count is critical metric for fault-tolerant cost
+        // With corrected Ising mapping: braids → S/SDG (Clifford), so T-count = 0
         let braid = 
             braidFromGensOrFail 3 
                 [BraidGroup.sigma 0; BraidGroup.sigmaInv 1; BraidGroup.sigma 0]
@@ -316,7 +317,7 @@ module BraidToGateTests =
             compileOrFail braid AnyonSpecies.AnyonType.Ising 
                 BraidToGate.defaultOptions "T-count test"
         
-        Assert.Equal(3, sequence.TCount)  // 2 T + 1 T†
+        Assert.Equal(0, sequence.TCount)  // S and SDG are Clifford, not counted as T
     
     [<Fact>]
     let ``Empty braid produces zero-depth circuit`` () =
@@ -391,7 +392,7 @@ module BraidToGateTests =
         
         Assert.Contains("Circuit Statistics", stats)
         Assert.Contains("Total gates", stats)
-        Assert.Contains("T:", stats)  // Gate type breakdown
+        Assert.Contains("S:", stats)  // Gate type breakdown (Ising braids produce S/SDG, not T)
         Assert.Contains("Clifford gates", stats)
         Assert.Contains("Non-Clifford gates", stats)
 

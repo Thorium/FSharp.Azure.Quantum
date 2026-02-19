@@ -15,7 +15,7 @@ open FSharp.Azure.Quantum.GroverSearch
 /// - Native FusionSuperposition representation (no gate compilation)
 /// - Supports braiding operations, F-moves, and topological measurements
 /// - Can compile gate-based circuits to braiding operations
-/// - Efficient for topological codes and Clifford+T circuits
+/// - Efficient for topological codes and Clifford circuits (Ising) or Clifford+T (Fibonacci)
 /// - Implements IQuantumBackend
 /// 
 /// Usage:
@@ -196,6 +196,43 @@ module TopologicalUnifiedBackend =
         // ====================================================================
         // Helper Functions for Operation Application
         // ====================================================================
+
+        /// Determines whether a gate has an amplitude-level intercept in ApplyGate
+        /// that bypasses braiding compilation entirely.
+        ///
+        /// **⚠️ SIMULATOR ONLY**: These intercepts are a local-simulator shortcut.
+        /// On real topological hardware, ALL gates must be implemented via physical
+        /// anyon braiding. Amplitude-level manipulation is not a physical operation.
+        ///
+        /// For **Ising** anyons: T, T†, H, X, Y, Z, CNOT, SWAP are intercepted.
+        ///   - T/T† because Ising braiding only produces S phases (not T).
+        ///   - H/X/Y because they are off-diagonal (Ising braid set {S,Z} is Clifford-only).
+        ///   - Z/CNOT/SWAP for performance (exact amplitude ops avoid S-K overhead).
+        ///   On real Ising hardware, T/H/X/Y would require magic state distillation or
+        ///   non-topological supplementation — these intercepts model the *ideal* result
+        ///   that such supplementation would achieve.
+        ///
+        /// For **Fibonacci** anyons: NO gates are intercepted.
+        ///   Fibonacci anyons are computationally universal via braiding alone — all gates
+        ///   (including T, H, CNOT) can be compiled to braid sequences to arbitrary precision.
+        ///   Using the full braid pipeline is physically faithful and demonstrates universality.
+        ///
+        /// **IMPORTANT**: This is the single source of truth for amplitude-intercepted gates.
+        /// The match arms in ApplyGate MUST be kept in sync with this function.
+        member private _.IsAmplitudeIntercepted (gate: CircuitBuilder.Gate) : bool =
+            match anyonType with
+            | AnyonSpecies.AnyonType.Fibonacci ->
+                // Fibonacci anyons are universal — all gates go through braid compilation.
+                // No simulator shortcuts needed.
+                false
+            | _ ->
+                // Ising (and unknown types): intercept gates that can't be braid-compiled
+                // or where amplitude-level ops are significantly faster.
+                match gate with
+                | CircuitBuilder.T _ | CircuitBuilder.TDG _
+                | CircuitBuilder.H _ | CircuitBuilder.X _ | CircuitBuilder.Y _ | CircuitBuilder.Z _
+                | CircuitBuilder.CNOT _ | CircuitBuilder.SWAP _ -> true
+                | _ -> false
         
         /// Apply braiding operation to fusion superposition
         member private this.ApplyBraid (anyonIndex: int) (fusionState: TopologicalOperations.Superposition) : Result<QuantumState, QuantumError> =
@@ -204,10 +241,10 @@ module TopologicalUnifiedBackend =
             | Ok braided -> Ok (QuantumState.FusionSuperposition (TopologicalOperations.toInterface braided))
             | Error errMsg -> Error (QuantumError.OperationError ("TopologicalBackend", errMsg))
         
-        /// Apply gate operation. For gates with exact amplitude-level implementations
-        /// in TopologicalOperations (H, CNOT), we use those directly to avoid the
-        /// Solovay-Kitaev approximation overhead. All other gates are compiled to
-        /// braiding sequences via GateToBraid.
+        /// Apply gate operation. Gates identified by IsAmplitudeIntercepted are handled
+        /// via direct amplitude manipulation (simulator-only shortcut). All other gates
+        /// are compiled to physical braiding sequences via GateToBraid.
+        /// For Fibonacci anyons, ALL gates go through braid compilation (no intercepts).
         member private this.ApplyGate (gate: CircuitBuilder.Gate) (fusionState: TopologicalOperations.Superposition) (numQubits: int) : Result<QuantumState, QuantumError> =
             // Helper to convert TopologicalResult directly to QuantumState Result
             let fromTopResult (tr: TopologicalResult<TopologicalOperations.Superposition>) =
@@ -215,35 +252,44 @@ module TopologicalUnifiedBackend =
                 | Ok sup -> Ok (QuantumState.FusionSuperposition (TopologicalOperations.toInterface sup))
                 | Error topErr -> Error (QuantumError.OperationError ("TopologicalBackend", topErr.Message))
 
-            // Gates with exact amplitude-level implementations bypass braiding compilation.
-            // This avoids Solovay-Kitaev approximation error for Ising anyons where the
-            // diagonal-only braid set {T, S, Z} cannot represent off-diagonal gates exactly.
-            // Also intercepts Z (which GateToBraid incorrectly treats as global phase/identity)
-            // and SWAP (which would require 3×CNOT each with S-K approximation).
-            match gate with
-            | CircuitBuilder.Gate.H qubitIndex ->
-                TopologicalOperations.hadamard qubitIndex fusionState
-                |> fromTopResult
-            | CircuitBuilder.Gate.X qubitIndex ->
-                TopologicalOperations.pauliX qubitIndex fusionState
-                |> fromTopResult
-            | CircuitBuilder.Gate.Y qubitIndex ->
-                TopologicalOperations.pauliY qubitIndex fusionState
-                |> fromTopResult
-            | CircuitBuilder.Gate.Z qubitIndex ->
-                TopologicalOperations.pauliZ qubitIndex fusionState
-                |> fromTopResult
-            | CircuitBuilder.Gate.CNOT (controlIndex, targetIndex) ->
-                TopologicalOperations.cnot controlIndex targetIndex fusionState
-                |> fromTopResult
-            | CircuitBuilder.Gate.SWAP (qubitIndex1, qubitIndex2) ->
-                TopologicalOperations.swap qubitIndex1 qubitIndex2 fusionState
-                |> fromTopResult
-            | _ ->
-                // All other gates: compile to braiding sequences via GateToBraid
-                // Tolerance for angle discretization to nearest T-gate multiple (π/4).
-                // Maximum rounding error when discretizing to π/4 multiples is π/8.
-                let tolerance = Math.PI / 8.0 + 1e-10
+            // Amplitude-level intercept path: exact operations bypassing braiding.
+            // Gate routing is controlled by IsAmplitudeIntercepted (single source of truth).
+            if this.IsAmplitudeIntercepted gate then
+                match gate with
+                | CircuitBuilder.Gate.T qubitIndex ->
+                    TopologicalOperations.tGate qubitIndex fusionState
+                    |> fromTopResult
+                | CircuitBuilder.Gate.TDG qubitIndex ->
+                    TopologicalOperations.tDaggerGate qubitIndex fusionState
+                    |> fromTopResult
+                | CircuitBuilder.Gate.H qubitIndex ->
+                    TopologicalOperations.hadamard qubitIndex fusionState
+                    |> fromTopResult
+                | CircuitBuilder.Gate.X qubitIndex ->
+                    TopologicalOperations.pauliX qubitIndex fusionState
+                    |> fromTopResult
+                | CircuitBuilder.Gate.Y qubitIndex ->
+                    TopologicalOperations.pauliY qubitIndex fusionState
+                    |> fromTopResult
+                | CircuitBuilder.Gate.Z qubitIndex ->
+                    TopologicalOperations.pauliZ qubitIndex fusionState
+                    |> fromTopResult
+                | CircuitBuilder.Gate.CNOT (controlIndex, targetIndex) ->
+                    TopologicalOperations.cnot controlIndex targetIndex fusionState
+                    |> fromTopResult
+                | CircuitBuilder.Gate.SWAP (qubitIndex1, qubitIndex2) ->
+                    TopologicalOperations.swap qubitIndex1 qubitIndex2 fusionState
+                    |> fromTopResult
+                | _ ->
+                    // Should not reach here — IsAmplitudeIntercepted returned true
+                    // but no match arm exists. This is a programming error.
+                    Error (QuantumError.OperationError ("TopologicalBackend",
+                        $"Gate {gate} marked as amplitude-intercepted but no implementation found"))
+            else
+                // Braiding compilation path: compile gate to braid sequence via GateToBraid.
+                // Tolerance for angle discretization to nearest braid multiple (π/2 for Ising).
+                // Maximum rounding error when discretizing to π/2 multiples is π/4.
+                let tolerance = Math.PI / 4.0 + 1e-10
 
                 let gateSequence: BraidToGate.GateSequence =
                     { NumQubits = numQubits
@@ -654,6 +700,18 @@ module TopologicalUnifiedBackend =
                             if List.isEmpty qubits then 0
                             else (List.max qubits) + 1
 
+                    // Gates with amplitude-level intercepts in ApplyGate bypass braiding entirely.
+                    // These are always supported regardless of braid-compilability.
+                    // Uses IsAmplitudeIntercepted (single source of truth, anyon-type-aware).
+                    if this.IsAmplitudeIntercepted gate then
+                        // Check only that we have enough anyons for the qubit requirement
+                        let hasEnoughAnyons =
+                            match FusionTree.fromComputationalBasis (List.replicate requiredQubits 0) anyonType with
+                            | Ok tree -> FusionTree.size tree <= maxAnyons
+                            | Error _ -> false
+                        hasEnoughAnyons
+                    else
+
                     try
                         let requiredAnyons =
                             match FusionTree.fromComputationalBasis (List.replicate requiredQubits 0) anyonType with
@@ -667,15 +725,37 @@ module TopologicalUnifiedBackend =
                             // complex gates like CZ, MCZ, SWAP, CCX are transpiled to
                             // elementary gates before checking braid-compilability.
                             // This matches the execution path in ApplyGate (line 226).
-                            let gateSequence: BraidToGate.GateSequence =
-                                { NumQubits = requiredQubits
-                                  Gates = [ gate ]
-                                  TotalPhase = Complex.One
-                                  Depth = 1
-                                  TCount = 0 }
-                            match GateToBraid.compileGateSequence gateSequence (Math.PI / 8.0 + 1e-10) anyonType with
-                            | Ok _ -> true
-                            | Error _ -> false
+                            // After transpilation, check each elementary gate is either
+                            // amplitude-intercepted (Ising only) or braid-compilable.
+                            let circuit : CircuitBuilder.Circuit = {
+                                QubitCount = requiredQubits
+                                Gates = [ gate ]
+                            }
+                            // Transpile to elementary gates (same fixpoint logic as compileGateSequence
+                            // in GateToBraid.fs line ~930). Duplicated here because this code runs inside
+                            // the IQuantumBackend interface implementation and cannot call private module functions.
+                            let rec transpileToFixpoint (remaining: int) (current: CircuitBuilder.Circuit) =
+                                if remaining <= 0 then current
+                                else
+                                    let next = GateTranspiler.transpileForBackend "topological" current
+                                    if next.Gates = current.Gates then next
+                                    else transpileToFixpoint (remaining - 1) next
+                            let transpiledCircuit = transpileToFixpoint 5 circuit
+                            // Check each elementary gate: either amplitude-intercepted or braid-compilable
+                            transpiledCircuit.Gates
+                            |> List.forall (fun g ->
+                                if this.IsAmplitudeIntercepted g then true
+                                else
+                                    let singleGateSeq: BraidToGate.GateSequence =
+                                        { NumQubits = requiredQubits
+                                          Gates = [ g ]
+                                          TotalPhase = Complex.One
+                                          Depth = 1
+                                          TCount = 0 }
+                                    match GateToBraid.compileGateSequence singleGateSeq (Math.PI / 4.0 + 1e-10) anyonType with
+                                    | Ok _ -> true
+                                    | Error _ -> false
+                            )
                     with
                     | _ -> false
             

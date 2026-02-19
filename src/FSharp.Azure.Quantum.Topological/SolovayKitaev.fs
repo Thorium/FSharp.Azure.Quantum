@@ -431,8 +431,10 @@ module SolovayKitaev =
     /// **Performance Optimization:** Memoized - topological base sets are cached separately
     let buildTopologicalBaseSet (n: int) : (GateSequence * SU2Matrix) list =
         baseSetCache.GetOrAdd((n, true), fun _ ->
-            // Only use gates that are exact in topological QC
-            let topologicalGates = [T; TDagger; S; SDagger; Z; I]
+            // Only use gates that are exact in Ising anyon braiding.
+            // T/T† are NOT exact (one braid = S, not T) — see Simon §11.2.4.
+            // The exact braid gates are: S (1 braid), S† (1 CCW braid), Z (2 braids), I.
+            let topologicalGates = [S; SDagger; Z; I]
             
             generateSequences n topologicalGates
             |> List.filter (fun seq -> seq.Length > 0)  // Exclude empty

@@ -568,20 +568,20 @@ module FibonacciCompilationTests =
     [<Fact>]
     let ``compileGateSequence with Ising still works (no regression)`` () =
         let gateSeq : BraidToGate.GateSequence = {
-            Gates = [CircuitBuilder.Gate.T 0]
+            Gates = [CircuitBuilder.Gate.S 0]
             NumQubits = 2
             TotalPhase = Complex(1.0, 0.0)
             Depth = 1
-            TCount = 1
+            TCount = 0
         }
         
         let result = GateToBraid.compileGateSequence gateSeq 1e-10 AnyonSpecies.AnyonType.Ising
-        let compilation = unwrapResult result "Ising gate sequence T"
+        let compilation = unwrapResult result "Ising gate sequence S"
         
         Assert.Equal(1, compilation.OriginalGateCount)
         Assert.True(compilation.CompiledBraids.Length > 0)
         Assert.Equal(AnyonSpecies.AnyonType.Ising, compilation.AnyonType)
-        Assert.True(compilation.IsExact, "Ising T should be exact")
+        Assert.True(compilation.IsExact, "Ising S should be exact")
 
     [<Fact>]
     let ``compileGateSequence with SU2Level returns descriptive error`` () =

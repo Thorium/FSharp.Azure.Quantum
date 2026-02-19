@@ -168,19 +168,19 @@ module BraidToGate =
     
     /// Map Ising anyon braiding phase to gate decomposition.
     /// 
-    /// For Ising anyons (Majorana modes), the braiding matrix in the
-    /// computational basis {|1⟩, |ψ⟩} is diag(e^{-iπ/8}, e^{3iπ/8}).
-    /// Up to global phase, this implements a relative phase gate.
-    /// By convention, clockwise braiding maps to T gate and
-    /// counter-clockwise to T† gate.
+    /// For Ising anyons, one exchange produces relative phase:
+    ///   e^{3iπ/8} / e^{-iπ/8} = e^{iπ/2} = i = S gate
+    /// (from R[σ,σ;Vacuum] = e^{-iπ/8}, R[σ,σ;Psi] = e^{3iπ/8})
+    /// 
+    /// Reference: Simon "Topological Quantum" Eq. 10.9-10.10
     let isingBraidingToGates (generatorIndex: int) (isClockwise: bool) : CircuitBuilder.Gate list =
-        // Ising: σ_i braiding on qubits i and i+1
-        // Clockwise σ_i → T gate (by encoding convention)
-        // Counter-clockwise σ_i⁻¹ → T† gate
+        // Ising: σ_i braiding on qubit i
+        // Clockwise σ_i → S gate (relative phase +π/2)
+        // Counter-clockwise σ_i⁻¹ → S† gate (relative phase -π/2)
         if isClockwise then 
-            [CircuitBuilder.Gate.T generatorIndex]
+            [CircuitBuilder.Gate.S generatorIndex]
         else 
-            [CircuitBuilder.Gate.TDG generatorIndex]
+            [CircuitBuilder.Gate.SDG generatorIndex]
     
     /// Map Fibonacci anyon braiding phase to gate approximation.
     /// 
@@ -202,7 +202,7 @@ module BraidToGate =
     // GATE SEQUENCE OPTIMIZATION
     // ========================================================================
     
-    /// Cancel adjacent inverse gates (e.g., T followed by T†)
+    /// Cancel adjacent inverse gates (e.g., S followed by S†)
     let cancelInverses (gates: CircuitBuilder.Gate list) : CircuitBuilder.Gate list =
         let rec loop acc remaining =
             match remaining with

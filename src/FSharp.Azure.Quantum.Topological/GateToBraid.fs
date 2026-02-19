@@ -95,12 +95,12 @@ module GateToBraid =
             |> Result.map List.rev
     
     /// Compute approximation error for angle discretization.
-    /// Returns (error, numTGates) where numTGates can be negative (for counter-clockwise).
+    /// Returns (error, numBraids) where numBraids can be negative (for counter-clockwise).
     /// 
     /// Uses signed angle to pick optimal direction:
-    ///   - Positive n → clockwise T gates (exp(+iπ/4) each)
-    ///   - Negative n → counter-clockwise T† gates (exp(-iπ/4) each)
-    /// This avoids e.g. Rz(-π/4) becoming 7 clockwise gates instead of 1 counter-clockwise.
+    ///   - Positive n → clockwise braids (exp(+iπ/2) each for Ising)
+    ///   - Negative n → counter-clockwise braids (exp(-iπ/2) each for Ising)
+    /// This avoids e.g. Rz(-π/2) becoming 3 clockwise braids instead of 1 counter-clockwise.
     let private computeAngleError (targetAngle: float) (tPhase: float) : float * int =
         // Normalize to (-π, π] for shortest-path direction
         let twoPi = 2.0 * Math.PI
@@ -110,10 +110,10 @@ module GateToBraid =
             elif normalized <= -Math.PI then normalized + twoPi
             else normalized
         // Round to nearest integer multiple of tPhase (signed)
-        let numTGates = int (Math.Round(normalized / tPhase))
-        let approximateAngle = float numTGates * tPhase
+        let numBraids = int (Math.Round(normalized / tPhase))
+        let approximateAngle = float numBraids * tPhase
         let error = abs(normalized - approximateAngle)
-        (error, numTGates)
+        (error, numBraids)
 
     // ========================================================================
     // T GATE DECOMPOSITION (Ising Anyons)
@@ -121,72 +121,71 @@ module GateToBraid =
     
     /// Decompose T gate into Ising anyon braiding.
     /// 
-    /// This is THE key mapping for fault-tolerant quantum computation:
-    /// T gate = exp(iπ/4) = Majorana braiding σ_i (clockwise)
+    /// **PHYSICS**: T = diag(1, e^{iπ/4}) requires a relative phase of π/4.
+    /// One Ising braid produces relative phase π/2 (S gate), so T is NOT exact.
+    /// Ising anyons can only produce Clifford gates by braiding (Simon §11.2.4).
     /// 
-    /// This is EXACT - no approximation needed!
+    /// T gate is handled via amplitude-level intercept in TopologicalBackend.ApplyGate.
+    /// This function returns an error to signal that T must be intercepted.
     let tGateToBraid (qubitIndex: int) (numQubits: int) : Result<BraidGroup.BraidWord, TopologicalError> =
-        // T gate on qubit i ↔ braiding σ_i (clockwise)
-        let gen : BraidGroup.BraidGenerator = { Index = qubitIndex; IsClockwise = true }
-        BraidGroup.fromGenerators (numQubits + 1) [gen]
+        // T gate cannot be realized exactly by Ising anyon braiding.
+        // One braid = S (π/2 phase), not T (π/4 phase).
+        // T gate must be handled by amplitude-level intercept or magic state distillation.
+        TopologicalResult.computationError "tGateToBraid" "T gate is not exact in Ising anyon braiding (requires non-topological supplementation)"
     
     /// Decompose T† gate into Ising anyon braiding
     let tDaggerGateToBraid (qubitIndex: int) (numQubits: int) : Result<BraidGroup.BraidWord, TopologicalError> =
-        // T† gate ↔ braiding σ_i^{-1} (counter-clockwise)
-        let gen : BraidGroup.BraidGenerator = { Index = qubitIndex; IsClockwise = false }
-        BraidGroup.fromGenerators (numQubits + 1) [gen]
+        // T† gate cannot be realized exactly by Ising anyon braiding.
+        TopologicalResult.computationError "tDaggerGateToBraid" "T† gate is not exact in Ising anyon braiding (requires non-topological supplementation)"
 
     // ========================================================================
     // CLIFFORD GATE DECOMPOSITION
     // ========================================================================
     
     /// Decompose S gate (π/2 phase) into braiding.
-    /// S = T² (two T gates in sequence)
+    /// S = one clockwise braid (EXACT for Ising anyons).
+    /// 
+    /// **PHYSICS**: One Ising anyon exchange produces relative phase:
+    ///   e^{3iπ/8} / e^{-iπ/8} = e^{iπ/2} = i = S gate
+    /// Reference: Simon "Topological Quantum" Eq. 10.9-10.10
     let sGateToBraid (qubitIndex: int) (numQubits: int) : Result<BraidGroup.BraidWord, TopologicalError> =
-        // S = T² = exp(iπ/2)
+        // S = one clockwise braid (exact)
         let gen : BraidGroup.BraidGenerator = { Index = qubitIndex; IsClockwise = true }
-        BraidGroup.fromGenerators (numQubits + 1) [gen; gen]
+        BraidGroup.fromGenerators (numQubits + 1) [gen]
     
     /// Decompose S† gate into braiding
     let sDaggerGateToBraid (qubitIndex: int) (numQubits: int) : Result<BraidGroup.BraidWord, TopologicalError> =
-        // S† = (T†)² = exp(-iπ/2)
+        // S† = one counter-clockwise braid (exact)
         let gen : BraidGroup.BraidGenerator = { Index = qubitIndex; IsClockwise = false }
-        BraidGroup.fromGenerators (numQubits + 1) [gen; gen]
+        BraidGroup.fromGenerators (numQubits + 1) [gen]
     
     /// Decompose Pauli Z gate into braiding.
+    /// Z = S² = two clockwise braids (EXACT for Ising anyons).
     /// 
-    /// **CRITICAL FIX**: Z = exp(iπ) requires special handling!
-    /// 
-    /// Z = -I (global phase times identity) but in topological QC:
-    /// - Option 1: Z = T^8 (but this gives exp(iπ) = -1 global phase, not relative!)
-    /// - Option 2: Measurement-based Z using fermion parity
-    /// - Option 3: Ignore global phase (Z = I topologically)
-    /// 
-    /// For now: Z is treated as identity (global phase ignored in topological QC)
+    /// **PHYSICS**: Two Ising anyon exchanges produce relative phase:
+    ///   (e^{iπ/2})² = e^{iπ} = -1 = Z gate
+    /// This is a relative phase (not global), so it IS physically meaningful.
     let zGateToBraid (qubitIndex: int) (numQubits: int) : Result<BraidGroup.BraidWord, TopologicalError> =
-        // Pauli Z in topological quantum computing:
-        // Z = exp(iπ)·I = -I (global phase)
-        // 
-        // Global phases don't affect measurement outcomes, so Z ≈ I topologically.
-        // For proper Z gate, need measurement-based approach or ancilla encoding.
-        //
-        // Return identity braid (empty generator list) with warning
-        BraidGroup.fromGenerators (numQubits + 1) []
+        // Z = S² = 2 clockwise braids (exact)
+        let gen : BraidGroup.BraidGenerator = { Index = qubitIndex; IsClockwise = true }
+        BraidGroup.fromGenerators (numQubits + 1) [gen; gen]
     
     // ========================================================================
     // SOLOVAY-KITAEV GATE APPROXIMATION
     // ========================================================================
     
     /// Convert single Solovay-Kitaev BasicGate to braiding
-    /// Only accepts T, S, Z gates - H/X/Y should never appear in topological S-K output
+    /// Only accepts S, Z gates - T/H/X/Y should never appear in topological S-K output
+    /// (T is not exact for Ising anyons; H/X/Y are off-diagonal)
     let basicGateToBraid (gate: SolovayKitaev.BasicGate) (qubitIndex: int) (numQubits: int) : Result<BraidGroup.BraidWord, TopologicalError> =
         match gate with
-        | SolovayKitaev.T -> tGateToBraid qubitIndex numQubits
-        | SolovayKitaev.TDagger -> tDaggerGateToBraid qubitIndex numQubits
         | SolovayKitaev.S -> sGateToBraid qubitIndex numQubits
         | SolovayKitaev.SDagger -> sDaggerGateToBraid qubitIndex numQubits
         | SolovayKitaev.Z -> zGateToBraid qubitIndex numQubits
         | SolovayKitaev.I -> BraidGroup.identity (numQubits + 1)
+        // T/T† are NOT exact for Ising anyons — should not appear in topological S-K output
+        | SolovayKitaev.T | SolovayKitaev.TDagger ->
+            TopologicalResult.computationError "gateConversion" $"Gate %A{gate} is not exact in Ising anyon braiding and should not appear in topological S-K output"
         // H/X/Y should NEVER appear in output when using topological-compatible base set
         | SolovayKitaev.H | SolovayKitaev.X | SolovayKitaev.Y ->
             TopologicalResult.computationError "gateConversion" $"Gate %A{gate} should not appear in Solovay-Kitaev output for topological systems"
@@ -248,24 +247,24 @@ module GateToBraid =
     /// 
     /// **MATHEMATICAL NOTE**: 
     /// Rz(θ) = diag(1, exp(iθ)) is a RELATIVE phase gate.
-    /// T gates produce phases of exp(iπ/4).
+    /// One Ising braid produces relative phase of exp(iπ/2) = S gate.
     /// 
-    /// For topological QC, global phases don't matter, so:
-    /// Rz(θ) ≈ T^n where n = round(θ / (π/4))
-    /// Positive n → clockwise T gates, negative n → counter-clockwise T† gates.
+    /// For topological QC with Ising anyons:
+    /// Rz(θ) ≈ (braid)^n where n = round(θ / (π/2))
+    /// Positive n → clockwise braids, negative n → counter-clockwise braids.
     /// 
-    /// This is an APPROXIMATION unless θ is an exact multiple of π/4.
+    /// This is EXACT when θ is a multiple of π/2, approximate otherwise.
     let rzGateToBraid (qubitIndex: int) (angle: float) (numQubits: int) (tolerance: float) : Result<BraidGroup.BraidWord, TopologicalError> =
-        let tPhase = Math.PI / 4.0
-        let (error, numTGates) = computeAngleError angle tPhase
+        let braidPhase = Math.PI / 2.0  // One Ising braid = S = π/2 relative phase
+        let (error, numBraids) = computeAngleError angle braidPhase
         
         // Check if approximation is within tolerance
         if error > tolerance then
             TopologicalResult.computationError "Rz gate approximation" $"Rz({angle}) approximation error {error:F6} exceeds tolerance {tolerance:F6}"
         else
             // Use sign to determine direction: positive → clockwise, negative → counter-clockwise
-            let isClockwise = numTGates >= 0
-            let absCount = abs numTGates
+            let isClockwise = numBraids >= 0
+            let absCount = abs numBraids
             let gens : BraidGroup.BraidGenerator list = 
                 List.init absCount (fun _ -> 
                     { Index = qubitIndex; IsClockwise = isClockwise })
@@ -436,22 +435,24 @@ module GateToBraid =
         
         match gate with
         | CircuitBuilder.Gate.T qubit ->
+            // T gate is NOT exact in Ising anyon braiding — must be intercepted
             tGateToBraid qubit numQubits
             |> Result.map (fun braid -> {
                 GateName = "T"
                 Qubits = [qubit]
                 BraidSequence = [braid]
-                ApproximationError = 0.0  // Exact!
+                ApproximationError = 0.0
                 DecompositionNotes = None
             })
         
         | CircuitBuilder.Gate.TDG qubit ->
+            // T† gate is NOT exact in Ising anyon braiding — must be intercepted
             tDaggerGateToBraid qubit numQubits
             |> Result.map (fun braid -> {
                 GateName = "T†"
                 Qubits = [qubit]
                 BraidSequence = [braid]
-                ApproximationError = 0.0  // Exact!
+                ApproximationError = 0.0
                 DecompositionNotes = None
             })
         
@@ -461,7 +462,7 @@ module GateToBraid =
                 GateName = "S"
                 Qubits = [qubit]
                 BraidSequence = [braid]
-                ApproximationError = 0.0  // Exact (S = T²)
+                ApproximationError = 0.0  // Exact: 1 clockwise braid
                 DecompositionNotes = None
             })
         
@@ -471,7 +472,7 @@ module GateToBraid =
                 GateName = "S†"
                 Qubits = [qubit]
                 BraidSequence = [braid]
-                ApproximationError = 0.0
+                ApproximationError = 0.0  // Exact: 1 counter-clockwise braid
                 DecompositionNotes = None
             })
         
@@ -481,13 +482,13 @@ module GateToBraid =
                 GateName = "Z"
                 Qubits = [qubit]
                 BraidSequence = [braid]
-                ApproximationError = 0.0
-                DecompositionNotes = Some "Z gate compiled as identity (global phase ignored in topological QC)"
+                ApproximationError = 0.0  // Exact: 2 clockwise braids (S²)
+                DecompositionNotes = None
             })
         
         | CircuitBuilder.Gate.RZ (qubit, angle) ->
-            let tPhase = Math.PI / 4.0
-            let (error, _) = computeAngleError angle tPhase
+            let braidPhase = Math.PI / 2.0
+            let (error, _) = computeAngleError angle braidPhase
             
             rzGateToBraid qubit angle numQubits tolerance
             |> Result.map (fun braid -> {
@@ -497,13 +498,13 @@ module GateToBraid =
                 ApproximationError = error
                 DecompositionNotes = 
                     if error > 1e-10 then 
-                        Some $"Rz angle approximated to nearest π/4 multiple (error: {error:E6})"
+                        Some $"Rz angle approximated to nearest π/2 multiple (error: {error:E6})"
                     else None
             })
         
         | CircuitBuilder.Gate.P (qubit, angle) ->
-            let tPhase = Math.PI / 4.0
-            let (error, _) = computeAngleError angle tPhase
+            let braidPhase = Math.PI / 2.0
+            let (error, _) = computeAngleError angle braidPhase
             
             phaseGateToBraid qubit angle numQubits tolerance
             |> Result.map (fun braid -> {
@@ -513,7 +514,7 @@ module GateToBraid =
                 ApproximationError = error
                 DecompositionNotes = 
                     if error > 1e-10 then 
-                        Some $"Phase angle approximated to nearest π/4 multiple (error: {error:E6})"
+                        Some $"Phase angle approximated to nearest π/2 multiple (error: {error:E6})"
                     else None
             })
         
@@ -894,7 +895,8 @@ module GateToBraid =
     /// **FULL PIPELINE**: Gate Sequence → Transpile → Gate-by-Gate Compile → Braid Words
     /// 
     /// Supports both Ising and Fibonacci anyon types:
-    /// - **Ising**: T gate = exact braid, H/X/Y via Solovay-Kitaev with {T,S,Z}
+    /// - **Ising**: S gate = exact braid (1 CW), Z = 2 braids. T gate via amplitude intercept
+    ///   in TopologicalBackend (not braid-compilable). H/X/Y via Solovay-Kitaev with {S,Z}
     /// - **Fibonacci**: ALL gates via Fibonacci braid search with {σ₁,σ₁⁻¹,σ₂,σ₂⁻¹}
     /// 
     /// This function automatically transpiles complex gates (CZ, CCX, MCZ) into elementary gates
