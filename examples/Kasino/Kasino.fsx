@@ -173,7 +173,7 @@ let findOptimalCapture (handCard: Card) (tableCards: Card list) (strategy: strin
         Some result
 
     | Error err ->
-        if not quiet then printfn "  Solver error: %A" err.Message
+        if not quiet then printfn "  Solver error: %s" err.Message
         None
 
 // ==============================================================================

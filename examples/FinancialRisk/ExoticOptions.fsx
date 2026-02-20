@@ -1,77 +1,24 @@
-// ============================================================================
+// ==============================================================================
 // Exotic Options Pricing with Quantum Monte Carlo
-// ============================================================================
-//
+// ==============================================================================
 // Path-dependent exotic options using quantum amplitude estimation.
-// Demonstrates barrier options and lookback options.
+// Compares barrier options and lookback options across configurable specs,
+// computing prices and Greeks via quantum Monte Carlo.
 //
-// QUANTUM ADVANTAGE:
-// - Quadratic speedup: O(1/ε) vs classical O(1/ε²)
-// - Path-dependent options require many simulation paths
-// - Quantum provides speedup for high-precision pricing
-//
-// USAGE:
-//   dotnet fsi ExoticOptions.fsx                                     (defaults)
-//   dotnet fsi ExoticOptions.fsx -- --help                           (show options)
+// Usage:
+//   dotnet fsi ExoticOptions.fsx                                  (defaults)
+//   dotnet fsi ExoticOptions.fsx -- --help                        (show options)
+//   dotnet fsi ExoticOptions.fsx -- --options up-out-call,lookback-float-call
 //   dotnet fsi ExoticOptions.fsx -- --spot 110 --barrier 130 --volatility 0.3
-//   dotnet fsi ExoticOptions.fsx -- --quiet --output results.json --csv results.csv
-// ============================================================================
-
-(*
-===============================================================================
- Background Theory
-===============================================================================
-
-Exotic options are derivative contracts with payoffs that depend on the entire
-price path, not just the final price. This path-dependence makes them 
-computationally expensive to price via Monte Carlo simulation.
-
-BARRIER OPTIONS condition their payoff on whether the underlying crosses a 
-predetermined price level (barrier) during the option's life:
-
-  - Up-and-Out: Worthless if price rises above barrier (cap on upside)
-  - Down-and-Out: Worthless if price falls below barrier (crash protection)
-  - Up-and-In: Activated only if price rises above barrier
-  - Down-and-In: Activated only if price falls below barrier
-
-The payoff for an Up-and-Out call is:
-    Payoff = max(S_T - K, 0) * 1_{max(S_t) < B}
-
-Where B is the barrier level, and the indicator function ensures the option
-survives (price never touched the barrier).
-
-LOOKBACK OPTIONS have payoffs based on the extreme values (max or min) of the
-underlying price during the option's life:
-
-  - Floating Strike Call: Payoff = S_T - min(S_t) (buy at the low)
-  - Floating Strike Put:  Payoff = max(S_t) - S_T (sell at the high)
-  - Fixed Strike Call:    Payoff = max(max(S_t) - K, 0)
-  - Fixed Strike Put:     Payoff = max(K - min(S_t), 0)
-
-Lookback options are always in-the-money (ITM) at expiration, making them 
-expensive but valuable for trend-following strategies.
-
-GREEKS measure option price sensitivity to market parameters:
-  - Delta: dV/dS - sensitivity to spot price
-  - Vega:  dV/dsigma - sensitivity to volatility
-  - Theta: dV/dt - time decay
-
-For path-dependent options, Greeks require repricing via Monte Carlo with
-bumped parameters, multiplying computational cost.
-
-Quantum Advantage:
-  Path-dependent options require simulating many price paths (N ~ 10,000+).
-  Classical Monte Carlo converges as O(1/sqrt(N)), so doubling precision
-  requires 4x the paths. Quantum amplitude estimation achieves O(1/N)
-  convergence - quadratic speedup. For Greeks requiring 6+ pricings, this
-  compounds to significant computational savings.
-
-References:
-  [1] Hull, J.C. "Options, Futures, and Other Derivatives" (2021) Ch. 26-27
-  [2] Rebentrost, P. et al. "Quantum computational finance" arXiv:1805.00109
-  [3] Wikipedia: Barrier_option (https://en.wikipedia.org/wiki/Barrier_option)
-  [4] Wikipedia: Lookback_option (https://en.wikipedia.org/wiki/Lookback_option)
-*)
+//   dotnet fsi ExoticOptions.fsx -- --input custom-options.csv
+//   dotnet fsi ExoticOptions.fsx -- --quiet --output results.json --csv out.csv
+//
+// References:
+//   [1] Hull, "Options, Futures, and Other Derivatives" (2021) Ch. 26-27
+//   [2] Rebentrost et al., "Quantum computational finance" arXiv:1805.00109
+//   [3] https://en.wikipedia.org/wiki/Barrier_option
+//   [4] https://en.wikipedia.org/wiki/Lookback_option
+// ==============================================================================
 
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 
@@ -98,18 +45,19 @@ let args = Cli.parse argv
 Cli.exitIfHelp
     "ExoticOptions.fsx"
     "Exotic options pricing (barrier & lookback) with quantum Monte Carlo."
-    [ { Cli.OptionSpec.Name = "spot";              Description = "Spot price";                          Default = Some "100" }
-      { Cli.OptionSpec.Name = "strike";            Description = "Strike price";                        Default = Some "100" }
-      { Cli.OptionSpec.Name = "rate";              Description = "Risk-free rate";                      Default = Some "0.05" }
-      { Cli.OptionSpec.Name = "volatility";        Description = "Volatility (annualized)";             Default = Some "0.2" }
-      { Cli.OptionSpec.Name = "expiry";            Description = "Time to expiry in years";             Default = Some "1.0" }
-      { Cli.OptionSpec.Name = "barrier";           Description = "Barrier level for barrier options";   Default = Some "120" }
-      { Cli.OptionSpec.Name = "maturity";          Description = "Alias for --expiry";                  Default = Some "1.0" }
-      { Cli.OptionSpec.Name = "qubits";            Description = "Qubits for amplitude estimation";     Default = Some "4" }
-      { Cli.OptionSpec.Name = "shots";             Description = "Quantum circuit shots";               Default = Some "1000" }
-      { Cli.OptionSpec.Name = "output";            Description = "Write results to JSON file";          Default = None }
-      { Cli.OptionSpec.Name = "csv";               Description = "Write results to CSV file";           Default = None }
-      { Cli.OptionSpec.Name = "quiet";             Description = "Suppress informational output";       Default = None } ]
+    [ { Cli.OptionSpec.Name = "options";           Description = "Comma-separated option keys to include";  Default = None }
+      { Cli.OptionSpec.Name = "input";             Description = "CSV file with custom option definitions";  Default = None }
+      { Cli.OptionSpec.Name = "spot";              Description = "Spot price";                               Default = Some "100" }
+      { Cli.OptionSpec.Name = "strike";            Description = "Strike price";                             Default = Some "100" }
+      { Cli.OptionSpec.Name = "rate";              Description = "Risk-free rate";                           Default = Some "0.05" }
+      { Cli.OptionSpec.Name = "volatility";        Description = "Volatility (annualized)";                  Default = Some "0.2" }
+      { Cli.OptionSpec.Name = "expiry";            Description = "Time to expiry in years";                  Default = Some "1.0" }
+      { Cli.OptionSpec.Name = "barrier";           Description = "Barrier level for barrier options";        Default = Some "120" }
+      { Cli.OptionSpec.Name = "qubits";            Description = "Qubits for amplitude estimation";          Default = Some "4" }
+      { Cli.OptionSpec.Name = "shots";             Description = "Quantum circuit shots";                    Default = Some "1000" }
+      { Cli.OptionSpec.Name = "output";            Description = "Write results to JSON file";               Default = None }
+      { Cli.OptionSpec.Name = "csv";               Description = "Write results to CSV file";                Default = None }
+      { Cli.OptionSpec.Name = "quiet";             Description = "Suppress informational output";            Default = None } ]
     args
 
 let quiet = Cli.hasFlag "quiet" args
@@ -124,63 +72,44 @@ let spotPrice = Cli.getFloatOr "spot" 100.0 args
 let strikePrice = Cli.getFloatOr "strike" 100.0 args
 let riskFreeRate = Cli.getFloatOr "rate" 0.05 args
 let volParam = Cli.getFloatOr "volatility" 0.2 args
-let timeToExpiry =
-    match Cli.tryGet "expiry" args with
-    | Some _ -> Cli.getFloatOr "expiry" 1.0 args
-    | None -> Cli.getFloatOr "maturity" 1.0 args
+let timeToExpiry = Cli.getFloatOr "expiry" 1.0 args
 let barrierLevel = Cli.getFloatOr "barrier" 120.0 args
 let numQubits = Cli.getIntOr "qubits" 4 args
 let shots = Cli.getIntOr "shots" 1000 args
 
-// Collect results for structured output
-let resultRows = System.Collections.Generic.List<Map<string, string>>()
+// ==============================================================================
+// DOMAIN TYPES
+// ==============================================================================
 
-// ============================================================================
-// Domain Types
-// ============================================================================
+type BarrierType = UpAndOut | UpAndIn | DownAndOut | DownAndIn
 
-/// Barrier option types
-type BarrierType =
-    | UpAndOut    // Knocked out if price rises above barrier
-    | UpAndIn     // Activated if price rises above barrier
-    | DownAndOut  // Knocked out if price falls below barrier
-    | DownAndIn   // Activated if price falls below barrier
+type LookbackType = FloatingStrike | FixedStrike
 
-/// Lookback option types
-type LookbackType =
-    | FloatingStrike  // Strike = min (call) or max (put) price over life
-    | FixedStrike     // Payoff based on max (call) or min (put) price
-
-/// Option direction
 type OptionDirection = Call | Put
 
-/// Market parameters
 type MarketParams = {
-    Spot: float           // Current price
-    Strike: float         // Strike price
-    RiskFreeRate: float   // Annual risk-free rate
-    Volatility: float     // Annual volatility
-    TimeToExpiry: float   // Years to expiration
-    DividendYield: float  // Continuous dividend yield
+    Spot: float
+    Strike: float
+    RiskFreeRate: float
+    Volatility: float
+    TimeToExpiry: float
+    DividendYield: float
 }
 
-/// Barrier option specification
 type BarrierOption = {
     Direction: OptionDirection
     BarrierType: BarrierType
     BarrierLevel: float
-    Rebate: float         // Payment if knocked out
-    MonitoringPoints: int // Number of barrier monitoring points
+    Rebate: float
+    MonitoringPoints: int
 }
 
-/// Lookback option specification
 type LookbackOption = {
     Direction: OptionDirection
     LookbackType: LookbackType
     ObservationPoints: int
 }
 
-/// Pricing result
 type ExoticPriceResult = {
     Price: float
     StandardError: float
@@ -188,342 +117,137 @@ type ExoticPriceResult = {
     Method: string
 }
 
-// ============================================================================
-// Path Simulation (Quantum-Enhanced)
-// ============================================================================
+/// Unified option specification for data-driven processing
+type ExoticOptionSpec =
+    | BarrierSpec of key: string * name: string * BarrierOption
+    | LookbackSpec of key: string * name: string * LookbackOption
 
-/// Generate GBM price paths encoded in quantum state
-let private generatePricePaths
-    (market: MarketParams)
-    (numPaths: int)
-    (numSteps: int)
-    (seed: int)
-    : float[][] =
+/// Per-option result including Greeks
+type OptionResult = {
+    Key: string
+    Name: string
+    OptionType: string
+    Price: float
+    StdError: float
+    Delta: float
+    Vega: float
+    Theta: float
+    HasQuantumFailure: bool
+}
 
-    let rng = Random(seed)
-    let dt = market.TimeToExpiry / float numSteps
-    let drift = (market.RiskFreeRate - market.DividendYield - 0.5 * market.Volatility ** 2.0) * dt
-    let diffusion = market.Volatility * sqrt dt
+// ==============================================================================
+// BUILT-IN OPTION PRESETS
+// ==============================================================================
 
-    [| for _ in 1 .. numPaths ->
-        let prices = Array.zeroCreate (numSteps + 1)
-        prices.[0] <- market.Spot
-        for t in 1 .. numSteps do
-            let z =
-                // Box-Muller transform
-                let u1 = rng.NextDouble()
-                let u2 = rng.NextDouble()
-                sqrt(-2.0 * log u1) * cos(2.0 * Math.PI * u2)
-            prices.[t] <- prices.[t-1] * exp(drift + diffusion * z)
-        prices
-    |]
+let private presetUpOutCall =
+    BarrierSpec(
+        "up-out-call", "Up-and-Out Barrier Call",
+        { Direction = Call; BarrierType = UpAndOut; BarrierLevel = barrierLevel
+          Rebate = 0.0; MonitoringPoints = 52 })
 
-// ============================================================================
-// Barrier Option Payoff
-// ============================================================================
+let private presetDownInPut =
+    BarrierSpec(
+        "down-in-put", "Down-and-In Barrier Put",
+        { Direction = Put; BarrierType = DownAndIn; BarrierLevel = max 1.0 (spotPrice * 0.8)
+          Rebate = 0.0; MonitoringPoints = 252 })
 
-/// Check if barrier was breached
-let private barrierBreached (barrierType: BarrierType) (barrier: float) (path: float[]) : bool =
-    match barrierType with
-    | UpAndOut | UpAndIn ->
-        path |> Array.exists (fun p -> p >= barrier)
-    | DownAndOut | DownAndIn ->
-        path |> Array.exists (fun p -> p <= barrier)
+let private presetLookbackFloatCall =
+    LookbackSpec(
+        "lookback-float-call", "Floating Strike Lookback Call",
+        { Direction = Call; LookbackType = FloatingStrike; ObservationPoints = 252 })
 
-/// Calculate barrier option payoff for a single path
-let private barrierPayoff (option: BarrierOption) (strike: float) (path: float[]) : float =
-    let finalPrice = path.[path.Length - 1]
-    let breached = barrierBreached option.BarrierType option.BarrierLevel path
+let private presetLookbackFixedPut =
+    LookbackSpec(
+        "lookback-fixed-put", "Fixed Strike Lookback Put",
+        { Direction = Put; LookbackType = FixedStrike; ObservationPoints = 52 })
 
-    let intrinsicValue =
-        match option.Direction with
-        | Call -> max 0.0 (finalPrice - strike)
-        | Put -> max 0.0 (strike - finalPrice)
+let private specKey = function
+    | BarrierSpec(k, _, _) -> k
+    | LookbackSpec(k, _, _) -> k
 
-    match option.BarrierType with
-    | UpAndOut | DownAndOut ->
-        if breached then option.Rebate else intrinsicValue
-    | UpAndIn | DownAndIn ->
-        if breached then intrinsicValue else option.Rebate
+let private builtInOptions =
+    [ presetUpOutCall; presetDownInPut; presetLookbackFloatCall; presetLookbackFixedPut ]
+    |> List.map (fun s -> (specKey s).ToLowerInvariant(), s)
+    |> Map.ofList
 
-// ============================================================================
-// Lookback Option Payoff
-// ============================================================================
+// ==============================================================================
+// CSV LOADING
+// ==============================================================================
 
-/// Calculate lookback option payoff for a single path
-let private lookbackPayoff (option: LookbackOption) (strike: float) (path: float[]) : float =
-    let finalPrice = path.[path.Length - 1]
-    let maxPrice = path |> Array.max
-    let minPrice = path |> Array.min
+let private parseDirection (s: string) =
+    match s.Trim().ToLowerInvariant() with
+    | "put" -> Put
+    | _ -> Call
 
-    match option.LookbackType, option.Direction with
-    | FloatingStrike, Call ->
-        // Call with floating strike: payoff = S_T - S_min
-        max 0.0 (finalPrice - minPrice)
-    | FloatingStrike, Put ->
-        // Put with floating strike: payoff = S_max - S_T
-        max 0.0 (maxPrice - finalPrice)
-    | FixedStrike, Call ->
-        // Call with fixed strike: payoff = max(S_max - K, 0)
-        max 0.0 (maxPrice - strike)
-    | FixedStrike, Put ->
-        // Put with fixed strike: payoff = max(K - S_min, 0)
-        max 0.0 (strike - minPrice)
+let private parseBarrierType (s: string) =
+    match s.Trim().ToLowerInvariant() with
+    | "upandout" | "up-and-out" | "up_out" -> UpAndOut
+    | "upandin" | "up-and-in" | "up_in" -> UpAndIn
+    | "downandout" | "down-and-out" | "down_out" -> DownAndOut
+    | "downandin" | "down-and-in" | "down_in" -> DownAndIn
+    | _ -> UpAndOut
 
-// ============================================================================
-// Quantum State Preparation for Path-Dependent Options
-// ============================================================================
+let private parseLookbackType (s: string) =
+    match s.Trim().ToLowerInvariant() with
+    | "fixed" | "fixedstrike" | "fixed_strike" -> FixedStrike
+    | _ -> FloatingStrike
 
-/// Build quantum circuit that encodes path distribution
-let private buildPathStatePreparation
-    (numQubits: int)
-    (payoffs: float[])
-    : CircuitBuilder.Circuit =
+let private loadOptionsFromCsv (filePath: string) : ExoticOptionSpec list =
+    let resolved = Data.resolveRelative __SOURCE_DIRECTORY__ filePath
+    let rows, errors = Data.readCsvWithHeaderWithErrors resolved
+    if not (List.isEmpty errors) then
+        eprintfn "WARNING: CSV parse errors in %s:" filePath
+        errors |> List.iter (eprintfn "  %s")
+    if rows.IsEmpty then failwithf "No valid rows in CSV %s" filePath
+    rows |> List.mapi (fun i row ->
+        let get key = row.Values |> Map.tryFind key |> Option.defaultValue ""
+        match get "preset" with
+        | p when not (String.IsNullOrWhiteSpace p) ->
+            match builtInOptions |> Map.tryFind (p.Trim().ToLowerInvariant()) with
+            | Some s -> s
+            | None -> failwithf "Unknown preset '%s' in CSV row %d" p (i + 1)
+        | _ ->
+            let key = let k = get "key" in if k = "" then sprintf "custom-%d" (i + 1) else k
+            let name = let n = get "name" in if n = "" then key else n
+            let optType = get "option_type"
+            match optType.Trim().ToLowerInvariant() with
+            | "lookback" ->
+                LookbackSpec(key, name,
+                    { Direction = get "direction" |> parseDirection
+                      LookbackType = get "lookback_type" |> parseLookbackType
+                      ObservationPoints = get "observation_points" |> fun s -> match Int32.TryParse s with true, v -> v | _ -> 252 })
+            | _ ->
+                BarrierSpec(key, name,
+                    { Direction = get "direction" |> parseDirection
+                      BarrierType = get "barrier_type" |> parseBarrierType
+                      BarrierLevel = get "barrier_level" |> fun s -> match Double.TryParse s with true, v -> v | _ -> barrierLevel
+                      Rebate = get "rebate" |> fun s -> match Double.TryParse s with true, v -> v | _ -> 0.0
+                      MonitoringPoints = get "monitoring_points" |> fun s -> match Int32.TryParse s with true, v -> v | _ -> 52 }))
 
-    let numStates = 1 <<< numQubits
+// ==============================================================================
+// OPTION SELECTION
+// ==============================================================================
 
-    // Normalize payoffs to create probability amplitudes
-    let totalPayoff = payoffs |> Array.sum
-    let amplitudes =
-        if totalPayoff > 0.0 then
-            payoffs |> Array.map (fun p -> sqrt (max 0.0 p / totalPayoff))
-        else
-            Array.create numStates (1.0 / sqrt (float numStates))
+let selectedOptions =
+    let base' =
+        match Cli.tryGet "input" args with
+        | Some csvFile -> loadOptionsFromCsv csvFile
+        | None -> builtInOptions |> Map.toList |> List.map snd
 
-    // Pad or truncate to match qubit count
-    let paddedAmplitudes =
-        if amplitudes.Length >= numStates then
-            amplitudes.[0 .. numStates - 1]
-        else
-            Array.append amplitudes (Array.create (numStates - amplitudes.Length) 0.0)
+    match Cli.getCommaSeparated "options" args with
+    | [] -> base'
+    | filter ->
+        let filterSet = filter |> List.map (fun s -> s.ToLowerInvariant()) |> Set.ofList
+        base' |> List.filter (fun s -> filterSet.Contains((specKey s).ToLowerInvariant()))
 
-    // Normalize
-    let norm = paddedAmplitudes |> Array.sumBy (fun a -> a * a) |> sqrt
-    let normalizedAmplitudes =
-        if norm > 0.0 then
-            paddedAmplitudes |> Array.map (fun a -> a / norm)
-        else
-            Array.create numStates (1.0 / sqrt (float numStates))
+if selectedOptions.IsEmpty then
+    eprintfn "ERROR: No options selected. Check --options filter or --input CSV."
+    exit 1
 
-    // Build state preparation circuit using rotation gates
-    let circuit = CircuitBuilder.empty numQubits
+// ==============================================================================
+// MARKET PARAMETERS
+// ==============================================================================
 
-    // Apply Hadamard to create superposition, then Ry rotations for amplitudes
-    let withHadamards =
-        [0 .. numQubits - 1]
-        |> List.fold (fun c q -> c |> CircuitBuilder.addGate (CircuitBuilder.H q)) circuit
-
-    // Apply amplitude-dependent rotations (simplified encoding)
-    let avgAmplitude = normalizedAmplitudes |> Array.average
-    let theta = 2.0 * asin avgAmplitude
-
-    withHadamards
-    |> CircuitBuilder.addGate (CircuitBuilder.RY(0, theta))
-
-/// Build oracle that marks profitable paths
-let private buildPayoffOracle (numQubits: int) : CircuitBuilder.Circuit =
-    let circuit = CircuitBuilder.empty numQubits
-    // Mark states in upper half (positive payoff approximation)
-    let msb = numQubits - 1
-    circuit |> CircuitBuilder.addGate (CircuitBuilder.Z msb)
-
-// ============================================================================
-// Quantum Monte Carlo Pricing (Quantum Compliant)
-// ============================================================================
-
-/// Price exotic option using quantum amplitude estimation
-let private priceWithQuantumMC
-    (payoffs: float[])
-    (discountFactor: float)
-    (numQubits: int)
-    (groverIterations: int)
-    (backend: IQuantumBackend)
-    : Async<Result<ExoticPriceResult, QuantumError>> =
-
-    async {
-        let statePrep = buildPathStatePreparation numQubits payoffs
-        let oracle = buildPayoffOracle numQubits
-
-        let config: QuantumMonteCarlo.QMCConfig = {
-            NumQubits = numQubits
-            StatePreparation = statePrep
-            Oracle = oracle
-            GroverIterations = groverIterations
-            Shots = shots
-        }
-
-        let! result = QuantumMonteCarlo.estimateExpectation config backend
-
-        return result |> Result.map (fun qmcResult ->
-            let avgPayoff = payoffs |> Array.average
-            let price = discountFactor * avgPayoff * qmcResult.ExpectationValue * float payoffs.Length
-            let stdError = discountFactor * qmcResult.StandardError * avgPayoff
-
-            {
-                Price = price
-                StandardError = stdError
-                PathsSimulated = payoffs.Length
-                Method = "Quantum Monte Carlo (Amplitude Estimation)"
-            }
-        )
-    }
-
-// ============================================================================
-// Public API - Barrier Options (Quantum Compliant)
-// ============================================================================
-
-/// Price a barrier option using quantum Monte Carlo
-let priceBarrierOption
-    (market: MarketParams)
-    (option: BarrierOption)
-    (backend: IQuantumBackend)
-    : Async<Result<ExoticPriceResult, QuantumError>> =
-
-    async {
-        // Validate inputs
-        if market.Spot <= 0.0 then
-            return Error (QuantumError.ValidationError("Spot", "Must be positive"))
-        elif market.Strike <= 0.0 then
-            return Error (QuantumError.ValidationError("Strike", "Must be positive"))
-        elif market.Volatility <= 0.0 then
-            return Error (QuantumError.ValidationError("Volatility", "Must be positive"))
-        elif market.TimeToExpiry <= 0.0 then
-            return Error (QuantumError.ValidationError("TimeToExpiry", "Must be positive"))
-        elif option.BarrierLevel <= 0.0 then
-            return Error (QuantumError.ValidationError("BarrierLevel", "Must be positive"))
-        else
-            let numPaths = 256  // 2^8 paths for quantum encoding
-            let numSteps = option.MonitoringPoints
-
-            // Generate paths and calculate payoffs
-            let paths = generatePricePaths market numPaths numSteps 42
-            let payoffs = paths |> Array.map (barrierPayoff option market.Strike)
-
-            // Discount factor
-            let discountFactor = exp(-market.RiskFreeRate * market.TimeToExpiry)
-
-            // Price using quantum MC
-            return! priceWithQuantumMC payoffs discountFactor numQubits 3 backend
-    }
-
-/// Price a lookback option using quantum Monte Carlo
-let priceLookbackOption
-    (market: MarketParams)
-    (option: LookbackOption)
-    (backend: IQuantumBackend)
-    : Async<Result<ExoticPriceResult, QuantumError>> =
-
-    async {
-        // Validate inputs
-        if market.Spot <= 0.0 then
-            return Error (QuantumError.ValidationError("Spot", "Must be positive"))
-        elif market.Strike <= 0.0 then
-            return Error (QuantumError.ValidationError("Strike", "Must be positive"))
-        elif market.Volatility <= 0.0 then
-            return Error (QuantumError.ValidationError("Volatility", "Must be positive"))
-        elif market.TimeToExpiry <= 0.0 then
-            return Error (QuantumError.ValidationError("TimeToExpiry", "Must be positive"))
-        else
-            let numPaths = 256
-            let numSteps = option.ObservationPoints
-
-            // Generate paths and calculate payoffs
-            let paths = generatePricePaths market numPaths numSteps 42
-            let payoffs = paths |> Array.map (lookbackPayoff option market.Strike)
-
-            // Discount factor
-            let discountFactor = exp(-market.RiskFreeRate * market.TimeToExpiry)
-
-            // Price using quantum MC
-            return! priceWithQuantumMC payoffs discountFactor numQubits 3 backend
-    }
-
-// ============================================================================
-// Greeks Calculation (Quantum Compliant)
-// ============================================================================
-
-/// Calculate Delta (price sensitivity to spot)
-let calculateDelta
-    (market: MarketParams)
-    (pricingFunc: MarketParams -> IQuantumBackend -> Async<Result<ExoticPriceResult, QuantumError>>)
-    (backend: IQuantumBackend)
-    : Async<Result<float, QuantumError>> =
-
-    async {
-        let bump = 0.01 * market.Spot  // 1% bump
-
-        let marketUp = { market with Spot = market.Spot + bump }
-        let marketDown = { market with Spot = market.Spot - bump }
-
-        let! priceUp = pricingFunc marketUp backend
-        let! priceDown = pricingFunc marketDown backend
-
-        match priceUp, priceDown with
-        | Ok up, Ok down ->
-            let delta = (up.Price - down.Price) / (2.0 * bump)
-            return Ok delta
-        | Error e, _ -> return Error e
-        | _, Error e -> return Error e
-    }
-
-/// Calculate Vega (price sensitivity to volatility)
-let calculateVega
-    (market: MarketParams)
-    (pricingFunc: MarketParams -> IQuantumBackend -> Async<Result<ExoticPriceResult, QuantumError>>)
-    (backend: IQuantumBackend)
-    : Async<Result<float, QuantumError>> =
-
-    async {
-        let bump = 0.01  // 1% vol bump
-
-        let marketUp = { market with Volatility = market.Volatility + bump }
-        let marketDown = { market with Volatility = market.Volatility - bump }
-
-        let! priceUp = pricingFunc marketUp backend
-        let! priceDown = pricingFunc marketDown backend
-
-        match priceUp, priceDown with
-        | Ok up, Ok down ->
-            let vega = (up.Price - down.Price) / (2.0 * bump)
-            return Ok vega
-        | Error e, _ -> return Error e
-        | _, Error e -> return Error e
-    }
-
-/// Calculate Theta (time decay per day)
-let calculateTheta
-    (market: MarketParams)
-    (pricingFunc: MarketParams -> IQuantumBackend -> Async<Result<ExoticPriceResult, QuantumError>>)
-    (backend: IQuantumBackend)
-    : Async<Result<float, QuantumError>> =
-
-    async {
-        let dayBump = 1.0 / 365.0  // 1 day
-
-        if market.TimeToExpiry <= dayBump then
-            return Ok 0.0
-        else
-            let marketLater = { market with TimeToExpiry = market.TimeToExpiry - dayBump }
-
-            let! priceNow = pricingFunc market backend
-            let! priceLater = pricingFunc marketLater backend
-
-            match priceNow, priceLater with
-            | Ok now, Ok later ->
-                let theta = later.Price - now.Price  // Negative = time decay
-                return Ok theta
-            | Error e, _ -> return Error e
-            | _, Error e -> return Error e
-    }
-
-// ============================================================================
-// Example Execution
-// ============================================================================
-
-// Initialize quantum backend
-let backend = LocalBackend.LocalBackend() :> IQuantumBackend
-
-// Market parameters (from CLI)
 let market = {
     Spot = spotPrice
     Strike = strikePrice
@@ -534,334 +258,317 @@ let market = {
 }
 
 if not quiet then
-    printfn "╔══════════════════════════════════════════════════════════════╗"
-    printfn "║   Exotic Options Pricing (Quantum Monte Carlo)              ║"
-    printfn "╚══════════════════════════════════════════════════════════════╝"
-    printfn ""
-    printfn "Quantum Backend: %s" backend.Name
-    printfn ""
-    printfn "Market Parameters:"
-    printfn "  Spot Price:     $%.2f" market.Spot
-    printfn "  Strike Price:   $%.2f" market.Strike
-    printfn "  Risk-Free Rate: %.1f%%" (market.RiskFreeRate * 100.0)
-    printfn "  Volatility:     %.1f%%" (market.Volatility * 100.0)
-    printfn "  Time to Expiry: %.1f years" market.TimeToExpiry
-    printfn "  Dividend Yield: %.1f%%" (market.DividendYield * 100.0)
+    printfn "Exotic Options Pricing (Quantum Monte Carlo)"
+    printfn "Options: %d  Spot: $%.2f  Strike: $%.2f  Vol: %.1f%%  Expiry: %.1fy"
+        selectedOptions.Length market.Spot market.Strike (market.Volatility * 100.0) market.TimeToExpiry
     printfn ""
 
-/// Helper to add a pricing result row
-let addResultRow (exampleName: string) (optionType: string) (result: Result<ExoticPriceResult, QuantumError>) =
-    match result with
-    | Ok r ->
-        resultRows.Add(
-            [ "example", exampleName
-              "option_type", optionType
-              "spot", sprintf "%.2f" market.Spot
-              "strike", sprintf "%.2f" market.Strike
-              "rate", sprintf "%.4f" market.RiskFreeRate
-              "volatility", sprintf "%.4f" market.Volatility
-              "expiry", sprintf "%.1f" market.TimeToExpiry
-              "price", sprintf "%.4f" r.Price
-              "std_error", sprintf "%.4f" r.StandardError
-              "paths", sprintf "%d" r.PathsSimulated
-              "method", r.Method
-              "error", "" ]
-            |> Map.ofList)
-    | Error err ->
-        resultRows.Add(
-            [ "example", exampleName
-              "option_type", optionType
-              "spot", sprintf "%.2f" market.Spot
-              "strike", sprintf "%.2f" market.Strike
-              "rate", sprintf "%.4f" market.RiskFreeRate
-              "volatility", sprintf "%.4f" market.Volatility
-              "expiry", sprintf "%.1f" market.TimeToExpiry
-              "price", ""
-              "std_error", ""
-              "paths", ""
-              "method", ""
-              "error", sprintf "%A" err ]
-            |> Map.ofList)
+// ==============================================================================
+// PATH SIMULATION
+// ==============================================================================
 
-// ============================================================================
-// Example 1: Up-and-Out Barrier Call
-// ============================================================================
+let private generatePricePaths (market: MarketParams) (numPaths: int) (numSteps: int) (seed: int) : float[][] =
+    let rng = Random(seed)
+    let dt = market.TimeToExpiry / float numSteps
+    let drift = (market.RiskFreeRate - market.DividendYield - 0.5 * market.Volatility ** 2.0) * dt
+    let diffusion = market.Volatility * sqrt dt
 
-if not quiet then
-    printfn "═══ Example 1: Up-and-Out Barrier Call ═══"
-    printfn ""
+    [| for _ in 1 .. numPaths ->
+        let prices = Array.zeroCreate (numSteps + 1)
+        prices.[0] <- market.Spot
+        for t in 1 .. numSteps do
+            let u1 = rng.NextDouble()
+            let u2 = rng.NextDouble()
+            let z = sqrt(-2.0 * log u1) * cos(2.0 * Math.PI * u2)
+            prices.[t] <- prices.[t-1] * exp(drift + diffusion * z)
+        prices
+    |]
 
-let upOutCall = {
-    Direction = Call
-    BarrierType = UpAndOut
-    BarrierLevel = barrierLevel  // Knocked out if price reaches barrier
-    Rebate = 0.0
-    MonitoringPoints = 52  // Weekly monitoring
-}
+// ==============================================================================
+// PAYOFF FUNCTIONS
+// ==============================================================================
 
-if not quiet then
-    printfn "Option Specification:"
-    printfn "  Type: Up-and-Out Call"
-    printfn "  Barrier: $%.2f (knocked out if price >= barrier)" upOutCall.BarrierLevel
-    printfn "  Rebate: $%.2f" upOutCall.Rebate
-    printfn "  Monitoring: %d points (weekly)" upOutCall.MonitoringPoints
-    printfn ""
+let private barrierBreached (barrierType: BarrierType) (barrier: float) (path: float[]) : bool =
+    match barrierType with
+    | UpAndOut | UpAndIn -> path |> Array.exists (fun p -> p >= barrier)
+    | DownAndOut | DownAndIn -> path |> Array.exists (fun p -> p <= barrier)
 
-let upOutResult =
-    priceBarrierOption market upOutCall backend
-    |> Async.RunSynchronously
+let private barrierPayoff (option: BarrierOption) (strike: float) (path: float[]) : float =
+    let finalPrice = path.[path.Length - 1]
+    let breached = barrierBreached option.BarrierType option.BarrierLevel path
+    let intrinsicValue =
+        match option.Direction with
+        | Call -> max 0.0 (finalPrice - strike)
+        | Put -> max 0.0 (strike - finalPrice)
+    match option.BarrierType with
+    | UpAndOut | DownAndOut -> if breached then option.Rebate else intrinsicValue
+    | UpAndIn | DownAndIn -> if breached then intrinsicValue else option.Rebate
 
-match upOutResult with
-| Ok result ->
-    if not quiet then
-        printfn "Pricing Result:"
-        printfn "  Price:          $%.4f" result.Price
-        printfn "  Std Error:      $%.4f" result.StandardError
-        printfn "  Paths:          %d" result.PathsSimulated
-        printfn "  Method:         %s" result.Method
-| Error err ->
-    if not quiet then printfn "Error: %A" err
+let private lookbackPayoff (option: LookbackOption) (strike: float) (path: float[]) : float =
+    let finalPrice = path.[path.Length - 1]
+    let maxPrice = path |> Array.max
+    let minPrice = path |> Array.min
+    match option.LookbackType, option.Direction with
+    | FloatingStrike, Call -> max 0.0 (finalPrice - minPrice)
+    | FloatingStrike, Put -> max 0.0 (maxPrice - finalPrice)
+    | FixedStrike, Call -> max 0.0 (maxPrice - strike)
+    | FixedStrike, Put -> max 0.0 (strike - minPrice)
 
-addResultRow "Up-and-Out Barrier Call" "Barrier" upOutResult
+// ==============================================================================
+// QUANTUM PRICING
+// ==============================================================================
+
+let backend = LocalBackend.LocalBackend() :> IQuantumBackend
+
+let private buildPathStatePreparation (numQubits: int) (payoffs: float[]) : CircuitBuilder.Circuit =
+    let numStates = 1 <<< numQubits
+    let totalPayoff = payoffs |> Array.sum
+    let amplitudes =
+        if totalPayoff > 0.0 then
+            payoffs |> Array.map (fun p -> sqrt (max 0.0 p / totalPayoff))
+        else
+            Array.create numStates (1.0 / sqrt (float numStates))
+    let paddedAmplitudes =
+        if amplitudes.Length >= numStates then amplitudes.[0 .. numStates - 1]
+        else Array.append amplitudes (Array.create (numStates - amplitudes.Length) 0.0)
+    let norm = paddedAmplitudes |> Array.sumBy (fun a -> a * a) |> sqrt
+    let normalizedAmplitudes =
+        if norm > 0.0 then paddedAmplitudes |> Array.map (fun a -> a / norm)
+        else Array.create numStates (1.0 / sqrt (float numStates))
+
+    let circuit = CircuitBuilder.empty numQubits
+    let withHadamards =
+        [0 .. numQubits - 1]
+        |> List.fold (fun c q -> c |> CircuitBuilder.addGate (CircuitBuilder.H q)) circuit
+    let avgAmplitude = normalizedAmplitudes |> Array.average
+    let theta = 2.0 * asin avgAmplitude
+    withHadamards |> CircuitBuilder.addGate (CircuitBuilder.RY(0, theta))
+
+let private buildPayoffOracle (numQubits: int) : CircuitBuilder.Circuit =
+    let circuit = CircuitBuilder.empty numQubits
+    let msb = numQubits - 1
+    circuit |> CircuitBuilder.addGate (CircuitBuilder.Z msb)
+
+let private priceWithQuantumMC
+    (payoffs: float[])
+    (discountFactor: float)
+    (numQubits: int)
+    (groverIterations: int)
+    (backend: IQuantumBackend)
+    : Async<Result<ExoticPriceResult, QuantumError>> =
+    async {
+        let statePrep = buildPathStatePreparation numQubits payoffs
+        let oracle = buildPayoffOracle numQubits
+        let config: QuantumMonteCarlo.QMCConfig = {
+            NumQubits = numQubits
+            StatePreparation = statePrep
+            Oracle = oracle
+            GroverIterations = groverIterations
+            Shots = shots
+        }
+        let! result = QuantumMonteCarlo.estimateExpectation config backend
+        return result |> Result.map (fun qmcResult ->
+            let avgPayoff = payoffs |> Array.average
+            let price = discountFactor * avgPayoff * qmcResult.ExpectationValue * float payoffs.Length
+            let stdError = discountFactor * qmcResult.StandardError * avgPayoff
+            { Price = price; StandardError = stdError
+              PathsSimulated = payoffs.Length
+              Method = "Quantum Monte Carlo (Amplitude Estimation)" })
+    }
+
+// ==============================================================================
+// PRICING FUNCTIONS (barrier / lookback)
+// ==============================================================================
+
+let private priceBarrierOption (market: MarketParams) (option: BarrierOption) (backend: IQuantumBackend)
+    : Async<Result<ExoticPriceResult, QuantumError>> =
+    async {
+        if market.Spot <= 0.0 then return Error (QuantumError.ValidationError("Spot", "Must be positive"))
+        elif market.Strike <= 0.0 then return Error (QuantumError.ValidationError("Strike", "Must be positive"))
+        elif market.Volatility <= 0.0 then return Error (QuantumError.ValidationError("Volatility", "Must be positive"))
+        elif market.TimeToExpiry <= 0.0 then return Error (QuantumError.ValidationError("TimeToExpiry", "Must be positive"))
+        elif option.BarrierLevel <= 0.0 then return Error (QuantumError.ValidationError("BarrierLevel", "Must be positive"))
+        else
+            let paths = generatePricePaths market 256 option.MonitoringPoints 42
+            let payoffs = paths |> Array.map (barrierPayoff option market.Strike)
+            let discountFactor = exp(-market.RiskFreeRate * market.TimeToExpiry)
+            return! priceWithQuantumMC payoffs discountFactor numQubits 3 backend
+    }
+
+let private priceLookbackOption (market: MarketParams) (option: LookbackOption) (backend: IQuantumBackend)
+    : Async<Result<ExoticPriceResult, QuantumError>> =
+    async {
+        if market.Spot <= 0.0 then return Error (QuantumError.ValidationError("Spot", "Must be positive"))
+        elif market.Strike <= 0.0 then return Error (QuantumError.ValidationError("Strike", "Must be positive"))
+        elif market.Volatility <= 0.0 then return Error (QuantumError.ValidationError("Volatility", "Must be positive"))
+        elif market.TimeToExpiry <= 0.0 then return Error (QuantumError.ValidationError("TimeToExpiry", "Must be positive"))
+        else
+            let paths = generatePricePaths market 256 option.ObservationPoints 42
+            let payoffs = paths |> Array.map (lookbackPayoff option market.Strike)
+            let discountFactor = exp(-market.RiskFreeRate * market.TimeToExpiry)
+            return! priceWithQuantumMC payoffs discountFactor numQubits 3 backend
+    }
+
+/// Unified pricing dispatch
+let private priceOption (spec: ExoticOptionSpec) (m: MarketParams) (b: IQuantumBackend) =
+    match spec with
+    | BarrierSpec(_, _, opt) -> priceBarrierOption m opt b
+    | LookbackSpec(_, _, opt) -> priceLookbackOption m opt b
+
+// ==============================================================================
+// GREEKS (finite difference via quantum pricing)
+// ==============================================================================
+
+let private calculateDelta (market: MarketParams) (spec: ExoticOptionSpec) (backend: IQuantumBackend) : Async<Result<float, QuantumError>> =
+    async {
+        let bump = 0.01 * market.Spot
+        let! priceUp = priceOption spec { market with Spot = market.Spot + bump } backend
+        let! priceDown = priceOption spec { market with Spot = market.Spot - bump } backend
+        match priceUp, priceDown with
+        | Ok up, Ok down -> return Ok ((up.Price - down.Price) / (2.0 * bump))
+        | Error e, _ | _, Error e -> return Error e
+    }
+
+let private calculateVega (market: MarketParams) (spec: ExoticOptionSpec) (backend: IQuantumBackend) : Async<Result<float, QuantumError>> =
+    async {
+        let bump = 0.01
+        let! priceUp = priceOption spec { market with Volatility = market.Volatility + bump } backend
+        let! priceDown = priceOption spec { market with Volatility = market.Volatility - bump } backend
+        match priceUp, priceDown with
+        | Ok up, Ok down -> return Ok ((up.Price - down.Price) / (2.0 * bump))
+        | Error e, _ | _, Error e -> return Error e
+    }
+
+let private calculateTheta (market: MarketParams) (spec: ExoticOptionSpec) (backend: IQuantumBackend) : Async<Result<float, QuantumError>> =
+    async {
+        let dayBump = 1.0 / 365.0
+        if market.TimeToExpiry <= dayBump then return Ok 0.0
+        else
+            let! priceNow = priceOption spec market backend
+            let! priceLater = priceOption spec { market with TimeToExpiry = market.TimeToExpiry - dayBump } backend
+            match priceNow, priceLater with
+            | Ok now, Ok later -> return Ok (later.Price - now.Price)
+            | Error e, _ | _, Error e -> return Error e
+    }
+
+// ==============================================================================
+// PER-OPTION PROCESSING
+// ==============================================================================
+
+if not quiet then printfn "Pricing %d exotic options with quantum Monte Carlo..." selectedOptions.Length
+
+let mutable anyQuantumFailure = false
+
+let optionResults =
+    selectedOptions
+    |> List.map (fun spec ->
+        let key = specKey spec
+        let name = match spec with BarrierSpec(_, n, _) -> n | LookbackSpec(_, n, _) -> n
+        let optType = match spec with BarrierSpec _ -> "Barrier" | LookbackSpec _ -> "Lookback"
+
+        // Price
+        let priceResult = priceOption spec market backend |> Async.RunSynchronously
+
+        match priceResult with
+        | Ok pr ->
+            // Greeks
+            let deltaR = calculateDelta market spec backend |> Async.RunSynchronously
+            let vegaR = calculateVega market spec backend |> Async.RunSynchronously
+            let thetaR = calculateTheta market spec backend |> Async.RunSynchronously
+            let delta = match deltaR with Ok d -> d | Error _ -> nan
+            let vega = match vegaR with Ok v -> v | Error _ -> nan
+            let theta = match thetaR with Ok t -> t | Error _ -> nan
+            if not quiet then
+                printfn "  [OK]   %-35s  Price: $%8.4f  Delta: %7.4f  Vega: %7.4f  Theta: %7.4f"
+                    name pr.Price delta vega theta
+            { Key = key; Name = name; OptionType = optType
+              Price = pr.Price; StdError = pr.StandardError
+              Delta = delta; Vega = vega; Theta = theta
+              HasQuantumFailure = false }
+        | Error err ->
+            anyQuantumFailure <- true
+            if not quiet then printfn "  [FAIL] %-35s  Error: %A" name err
+            { Key = key; Name = name; OptionType = optType
+              Price = nan; StdError = nan
+              Delta = nan; Vega = nan; Theta = nan
+              HasQuantumFailure = true })
+
 if not quiet then printfn ""
 
-// ============================================================================
-// Example 2: Down-and-In Barrier Put
-// ============================================================================
+// Sort by price descending (most expensive first)
+let sortedResults =
+    optionResults |> List.sortByDescending (fun r -> if Double.IsNaN r.Price then Double.MinValue else r.Price)
 
-if not quiet then
-    printfn "═══ Example 2: Down-and-In Barrier Put ═══"
+// ==============================================================================
+// COMPARISON TABLE (unconditional)
+// ==============================================================================
+
+let printTable () =
+    let divider = String('-', 110)
+    printfn ""
+    printfn "  Exotic Option Pricing Comparison (sorted by price)"
+    printfn "  %s" divider
+    printfn "  %-32s %8s %10s %8s %8s %8s %8s %8s" "Option" "Type" "Price" "StdErr" "Delta" "Vega" "Theta" "Status"
+    printfn "  %s" divider
+    for r in sortedResults do
+        let status = if r.HasQuantumFailure then "FAIL" else "OK"
+        let fmt v = if Double.IsNaN v then "—" else sprintf "%8.4f" v
+        let priceFmt = if Double.IsNaN r.Price then "       —" else sprintf "$%8.4f" r.Price
+        let errFmt = if Double.IsNaN r.StdError then "       —" else sprintf "$%7.4f" r.StdError
+        printfn "  %-32s %8s %10s %8s %8s %8s %8s %8s"
+            (if r.Name.Length > 32 then r.Name.[..31] else r.Name)
+            r.OptionType
+            priceFmt
+            errFmt
+            (fmt r.Delta)
+            (fmt r.Vega)
+            (fmt r.Theta)
+            status
+    printfn "  %s" divider
+    printfn ""
+    printfn "  Market: Spot=$%.2f  Strike=$%.2f  Rate=%.1f%%  Vol=%.1f%%  Expiry=%.1fy"
+        market.Spot market.Strike (market.RiskFreeRate * 100.0) (market.Volatility * 100.0) market.TimeToExpiry
     printfn ""
 
-let downInBarrier = max 1.0 (spotPrice * 0.8) // 80% of spot by default
-
-let downInPut = {
-    Direction = Put
-    BarrierType = DownAndIn
-    BarrierLevel = downInBarrier  // Activated if price falls to this level
-    Rebate = 0.0
-    MonitoringPoints = 252  // Daily monitoring
-}
-
-if not quiet then
-    printfn "Option Specification:"
-    printfn "  Type: Down-and-In Put"
-    printfn "  Barrier: $%.2f (activated if price <= barrier)" downInPut.BarrierLevel
-    printfn "  Rebate: $%.2f" downInPut.Rebate
-    printfn "  Monitoring: %d points (daily)" downInPut.MonitoringPoints
-    printfn ""
-
-let downInResult =
-    priceBarrierOption market downInPut backend
-    |> Async.RunSynchronously
-
-match downInResult with
-| Ok result ->
-    if not quiet then
-        printfn "Pricing Result:"
-        printfn "  Price:          $%.4f" result.Price
-        printfn "  Std Error:      $%.4f" result.StandardError
-        printfn "  Paths:          %d" result.PathsSimulated
-        printfn "  Method:         %s" result.Method
-| Error err ->
-    if not quiet then printfn "Error: %A" err
-
-addResultRow "Down-and-In Barrier Put" "Barrier" downInResult
-if not quiet then printfn ""
-
-// ============================================================================
-// Example 3: Floating Strike Lookback Call
-// ============================================================================
-
-if not quiet then
-    printfn "═══ Example 3: Floating Strike Lookback Call ═══"
-    printfn ""
-
-let floatingLookback = {
-    Direction = Call
-    LookbackType = FloatingStrike
-    ObservationPoints = 252  // Daily observations
-}
-
-if not quiet then
-    printfn "Option Specification:"
-    printfn "  Type: Floating Strike Lookback Call"
-    printfn "  Payoff: S_T - S_min (buy at lowest price)"
-    printfn "  Observations: %d points (daily)" floatingLookback.ObservationPoints
-    printfn ""
-
-let floatingResult =
-    priceLookbackOption market floatingLookback backend
-    |> Async.RunSynchronously
-
-match floatingResult with
-| Ok result ->
-    if not quiet then
-        printfn "Pricing Result:"
-        printfn "  Price:          $%.4f" result.Price
-        printfn "  Std Error:      $%.4f" result.StandardError
-        printfn "  Paths:          %d" result.PathsSimulated
-        printfn "  Method:         %s" result.Method
-| Error err ->
-    if not quiet then printfn "Error: %A" err
-
-addResultRow "Floating Strike Lookback Call" "Lookback" floatingResult
-if not quiet then printfn ""
-
-// ============================================================================
-// Example 4: Fixed Strike Lookback Put
-// ============================================================================
-
-if not quiet then
-    printfn "═══ Example 4: Fixed Strike Lookback Put ═══"
-    printfn ""
-
-let fixedLookback = {
-    Direction = Put
-    LookbackType = FixedStrike
-    ObservationPoints = 52  // Weekly observations
-}
-
-if not quiet then
-    printfn "Option Specification:"
-    printfn "  Type: Fixed Strike Lookback Put"
-    printfn "  Payoff: max(K - S_min, 0)"
-    printfn "  Observations: %d points (weekly)" fixedLookback.ObservationPoints
-    printfn ""
-
-let fixedResult =
-    priceLookbackOption market fixedLookback backend
-    |> Async.RunSynchronously
-
-match fixedResult with
-| Ok result ->
-    if not quiet then
-        printfn "Pricing Result:"
-        printfn "  Price:          $%.4f" result.Price
-        printfn "  Std Error:      $%.4f" result.StandardError
-        printfn "  Paths:          %d" result.PathsSimulated
-        printfn "  Method:         %s" result.Method
-| Error err ->
-    if not quiet then printfn "Error: %A" err
-
-addResultRow "Fixed Strike Lookback Put" "Lookback" fixedResult
-if not quiet then printfn ""
-
-// ============================================================================
-// Example 5: Greeks Calculation
-// ============================================================================
-
-if not quiet then
-    printfn "═══ Example 5: Greeks for Up-and-Out Call ═══"
-    printfn ""
-
-let barrierPricer m b = priceBarrierOption m upOutCall b
-
-let deltaResult = calculateDelta market barrierPricer backend |> Async.RunSynchronously
-let vegaResult = calculateVega market barrierPricer backend |> Async.RunSynchronously
-let thetaResult = calculateTheta market barrierPricer backend |> Async.RunSynchronously
-
-if not quiet then
-    printfn "Greeks (finite difference via quantum pricing):"
-    printfn ""
-
-    match deltaResult with
-    | Ok delta -> printfn "  Delta: %.4f (price change per $1 spot move)" delta
-    | Error _ -> printfn "  Delta: calculation failed"
-
-    match vegaResult with
-    | Ok vega -> printfn "  Vega:  %.4f (price change per 1%% vol move)" vega
-    | Error _ -> printfn "  Vega:  calculation failed"
-
-    match thetaResult with
-    | Ok theta -> printfn "  Theta: %.4f (daily time decay)" theta
-    | Error _ -> printfn "  Theta: calculation failed"
-
-    printfn ""
-
-// Add Greeks to results
-let deltaStr = match deltaResult with Ok d -> sprintf "%.6f" d | Error _ -> ""
-let vegaStr = match vegaResult with Ok v -> sprintf "%.6f" v | Error _ -> ""
-let thetaStr = match thetaResult with Ok t -> sprintf "%.6f" t | Error _ -> ""
-
-resultRows.Add(
-    [ "example", "Greeks (Up-and-Out Call)"
-      "option_type", "Greeks"
-      "spot", sprintf "%.2f" market.Spot
-      "strike", sprintf "%.2f" market.Strike
-      "rate", sprintf "%.4f" market.RiskFreeRate
-      "volatility", sprintf "%.4f" market.Volatility
-      "expiry", sprintf "%.1f" market.TimeToExpiry
-      "price", sprintf "delta=%s vega=%s theta=%s" deltaStr vegaStr thetaStr
-      "std_error", ""
-      "paths", ""
-      "method", "Finite Difference (Quantum)"
-      "error", "" ]
-    |> Map.ofList)
-
-// ============================================================================
-// Summary
-// ============================================================================
-
-if not quiet then
-    printfn "╔══════════════════════════════════════════════════════════════╗"
-    printfn "║                        Summary                               ║"
-    printfn "╚══════════════════════════════════════════════════════════════╝"
-    printfn ""
-    printfn "Exotic Options Demonstrated:"
-    printfn ""
-    printfn "  1. Barrier Options:"
-    printfn "     - Up-and-Out: Knocked out when price rises above barrier"
-    printfn "     - Down-and-In: Activated when price falls below barrier"
-    printfn "     - Also available: Up-and-In, Down-and-Out"
-    printfn ""
-    printfn "  2. Lookback Options:"
-    printfn "     - Floating Strike: Strike set to min (call) or max (put)"
-    printfn "     - Fixed Strike: Payoff based on path extremum"
-    printfn ""
-    printfn "  3. Greeks:"
-    printfn "     - Delta, Vega, Theta via finite difference"
-    printfn "     - Each bump requires quantum pricing"
-    printfn ""
-    printfn "Quantum Advantage:"
-    printfn "  - Path-dependent options require many MC paths"
-    printfn "  - Quantum amplitude estimation: O(1/e) vs classical O(1/e^2)"
-    printfn "  - Beneficial for high-precision exotic pricing"
-    printfn ""
+printTable ()
 
 // ==============================================================================
 // STRUCTURED OUTPUT (JSON / CSV)
 // ==============================================================================
 
-let results = resultRows |> Seq.toList
+let resultMaps : Map<string, string> list =
+    sortedResults
+    |> List.map (fun r ->
+        [ "key",                  r.Key
+          "name",                 r.Name
+          "option_type",          r.OptionType
+          "spot",                 sprintf "%.2f" market.Spot
+          "strike",               sprintf "%.2f" market.Strike
+          "rate",                 sprintf "%.4f" market.RiskFreeRate
+          "volatility",           sprintf "%.4f" market.Volatility
+          "expiry",               sprintf "%.2f" market.TimeToExpiry
+          "price",                if Double.IsNaN r.Price then "" else sprintf "%.4f" r.Price
+          "std_error",            if Double.IsNaN r.StdError then "" else sprintf "%.4f" r.StdError
+          "delta",                if Double.IsNaN r.Delta then "" else sprintf "%.6f" r.Delta
+          "vega",                 if Double.IsNaN r.Vega then "" else sprintf "%.6f" r.Vega
+          "theta",                if Double.IsNaN r.Theta then "" else sprintf "%.6f" r.Theta
+          "has_quantum_failure",  sprintf "%b" r.HasQuantumFailure ]
+        |> Map.ofList)
 
 match outputPath with
 | Some path ->
-    Reporting.writeJson path results
+    Reporting.writeJson path resultMaps
     if not quiet then printfn "Results written to %s" path
 | None -> ()
 
 match csvPath with
 | Some path ->
-    let header = [ "example"; "option_type"; "spot"; "strike"; "rate"; "volatility"; "expiry"; "price"; "std_error"; "paths"; "method"; "error" ]
+    let header =
+        [ "key"; "name"; "option_type"; "spot"; "strike"; "rate"; "volatility"; "expiry"
+          "price"; "std_error"; "delta"; "vega"; "theta"; "has_quantum_failure" ]
     let rows =
-        results |> List.map (fun m ->
+        resultMaps |> List.map (fun m ->
             header |> List.map (fun h -> m |> Map.tryFind h |> Option.defaultValue ""))
     Reporting.writeCsv path header rows
     if not quiet then printfn "Results written to %s" path
 | None -> ()
-
-// ==============================================================================
-// USAGE HINTS
-// ==============================================================================
-
-if not quiet && outputPath.IsNone && csvPath.IsNone && argv.Length = 0 then
-    printfn ""
-    printfn "Hint: Customize this run with CLI options:"
-    printfn "  dotnet fsi ExoticOptions.fsx -- --spot 110 --barrier 130 --volatility 0.3"
-    printfn "  dotnet fsi ExoticOptions.fsx -- --quiet --output results.json --csv results.csv"
-    printfn "  dotnet fsi ExoticOptions.fsx -- --help"
-
-if not quiet then
-    printfn ""
-    printfn "Example completed successfully!"

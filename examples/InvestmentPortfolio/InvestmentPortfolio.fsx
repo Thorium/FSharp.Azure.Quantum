@@ -1,76 +1,23 @@
 // ==============================================================================
-// Investment Portfolio Balancing Example
+// Investment Portfolio Optimization
 // ==============================================================================
-// Demonstrates portfolio optimization using HybridSolver with quantum-ready
-// optimization to balance risk and return across multiple assets.
-//
-// Business Context:
-// An investment advisor needs to allocate a portfolio across tech stocks,
-// maximizing expected returns while managing risk. The portfolio must
-// balance growth potential (high return) against volatility (risk).
+// Portfolio optimization using HybridSolver with quantum-ready optimization
+// to balance risk and return across multiple assets. Compares per-asset
+// allocation, contribution, and risk metrics.
 //
 // Usage:
 //   dotnet fsi InvestmentPortfolio.fsx                                   (defaults)
 //   dotnet fsi InvestmentPortfolio.fsx -- --help                         (show options)
-//   dotnet fsi InvestmentPortfolio.fsx -- --symbols AAPL,NVDA --budget 50000
-//   dotnet fsi InvestmentPortfolio.fsx -- --live --output portfolio.json --csv portfolio.csv
-//   dotnet fsi InvestmentPortfolio.fsx -- --quiet --output results.json  (pipeline mode)
+//   dotnet fsi InvestmentPortfolio.fsx -- --symbols AAPL,NVDA,MSFT       (select stocks)
+//   dotnet fsi InvestmentPortfolio.fsx -- --input custom-stocks.csv
+//   dotnet fsi InvestmentPortfolio.fsx -- --live --budget 50000
+//   dotnet fsi InvestmentPortfolio.fsx -- --quiet --output results.json --csv out.csv
 //
-// This example shows:
-// - Mean-variance portfolio optimization
-// - Risk-return trade-off analysis
-// - Sharpe ratio calculation (return per unit of risk)
-// - Diversification benefits
-// - Quantum-ready optimization via HybridSolver
+// References:
+//   [1] Markowitz, "Portfolio Selection", J. Finance 7(1), 77-91 (1952)
+//   [2] Orus et al., "Quantum computing for finance", Rev. Mod. Phys. 91 (2019)
+//   [3] https://en.wikipedia.org/wiki/Modern_portfolio_theory
 // ==============================================================================
-
-(*
-===============================================================================
- Background Theory
-===============================================================================
-
-Modern Portfolio Theory (MPT), introduced by Harry Markowitz in 1952, provides
-the mathematical framework for constructing portfolios that maximize expected
-return for a given level of risk. The key insight is that portfolio risk is not
-simply the weighted average of individual asset risks—correlations between assets
-allow for "diversification benefit" where combined volatility is lower than the
-sum of parts. This leads to the concept of the "efficient frontier": the set of
-portfolios offering maximum return for each risk level.
-
-The mean-variance optimization problem seeks to find optimal asset weights w that
-minimize portfolio variance σ²_p = w'Σw subject to achieving target return μ_p =
-w'μ and budget constraint Σwᵢ = 1. This is a quadratic programming problem that
-becomes computationally challenging as the number of assets grows (O(n³) for
-classical solvers with n assets). Real-world portfolios with thousands of assets
-and complex constraints (sector limits, ESG requirements, transaction costs)
-strain classical optimization.
-
-Key Equations:
-  - Expected portfolio return: μ_p = Σᵢ wᵢ·μᵢ = w'μ
-  - Portfolio variance: σ²_p = Σᵢ Σⱼ wᵢwⱼσᵢⱼ = w'Σw
-  - Sharpe ratio: S = (μ_p - r_f) / σ_p  (return per unit risk, r_f = risk-free rate)
-  - Efficient frontier: min w'Σw  s.t. w'μ ≥ μ_target, w'1 = 1, w ≥ 0
-
-Quantum Advantage:
-  Portfolio optimization maps naturally to QUBO (Quadratic Unconstrained Binary
-  Optimization), which can be solved using QAOA or quantum annealing. For large
-  portfolios (n > 50 assets), quantum approaches may offer speedup through:
-  (1) Parallel exploration of the 2ⁿ solution space via superposition
-  (2) Tunneling through local minima in complex constraint landscapes
-  (3) Potential quantum speedup for sampling from Boltzmann distributions
-  Current NISQ devices handle ~20-50 assets; fault-tolerant quantum computers
-  could enable real-time optimization of institutional portfolios.
-
-References:
-  [1] Markowitz, "Portfolio Selection", Journal of Finance 7(1), 77-91 (1952).
-      https://doi.org/10.2307/2975974
-  [2] Orus et al., "Quantum computing for finance: Overview and prospects",
-      Reviews of Modern Physics 91, 045001 (2019). https://doi.org/10.1103/RevModPhys.91.045001
-  [3] Egger et al., "Quantum Computing for Finance: State-of-the-Art and Future
-      Prospects", IEEE Trans. Quantum Eng. 1, 1-24 (2020). https://doi.org/10.1109/TQE.2020.3030314
-  [4] Wikipedia: Modern_portfolio_theory
-      https://en.wikipedia.org/wiki/Modern_portfolio_theory
-*)
 
 //#r "nuget: FSharp.Azure.Quantum"
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
@@ -88,29 +35,6 @@ open FSharp.Azure.Quantum.Data
 open FSharp.Azure.Quantum.Examples.Common
 
 // ==============================================================================
-// DOMAIN MODEL - Investment Portfolio Types
-// ==============================================================================
-
-/// Represents a stock with historical performance data
-type Stock = {
-    Symbol: string
-    Name: string
-    ExpectedReturn: float  // Annual return as decimal (e.g., 0.15 = 15%)
-    Volatility: float      // Annual volatility (standard deviation)
-    Price: float           // Current price per share
-}
-
-/// Portfolio allocation result with analysis
-type PortfolioAnalysis = {
-    Allocations: (string * float * float) list  // (symbol, shares, value)
-    TotalValue: float
-    ExpectedReturn: float
-    Risk: float
-    SharpeRatio: float
-    DiversificationScore: int  // Number of stocks held
-}
-
-// ==============================================================================
 // CLI ARGUMENT PARSING
 // ==============================================================================
 
@@ -120,7 +44,8 @@ let args = Cli.parse argv
 Cli.exitIfHelp
     "InvestmentPortfolio.fsx"
     "Portfolio optimization using HybridSolver with quantum-ready optimization."
-    [ { Cli.OptionSpec.Name = "symbols";  Description = "Comma-separated stock symbols to include"; Default = Some "AAPL,MSFT,GOOGL,AMZN,NVDA,META,TSLA,AMD" }
+    [ { Cli.OptionSpec.Name = "symbols";  Description = "Comma-separated stock symbols to include"; Default = None }
+      { Cli.OptionSpec.Name = "input";    Description = "CSV file with custom stock definitions";   Default = None }
       { Cli.OptionSpec.Name = "budget";   Description = "Investment budget in dollars";              Default = Some "100000" }
       { Cli.OptionSpec.Name = "live";     Description = "Fetch live data from Yahoo Finance";        Default = None }
       { Cli.OptionSpec.Name = "output";   Description = "Write results to JSON file";                Default = None }
@@ -132,77 +57,119 @@ let quiet = Cli.hasFlag "quiet" args
 let outputPath = Cli.tryGet "output" args
 let csvPath = Cli.tryGet "csv" args
 let budget = Cli.getFloatOr "budget" 100000.0 args
-let requestedSymbols = Cli.getCommaSeparated "symbols" args
 
 // ==============================================================================
-// STOCK DATA
+// DOMAIN TYPES
 // ==============================================================================
-//
-// This example can optionally fetch real Yahoo Finance history to compute:
-// - Current price (latest close)
-// - Expected return (annualized from log returns)
-// - Volatility (annualized standard deviation)
-//
-// If fetch fails (offline, rate limiting, etc.), we fall back to static 2024-ish
-// values so the example remains runnable.
 
-let allStaticStocks = [
-    { Symbol = "AAPL"; Name = "Apple Inc.";                 ExpectedReturn = 0.18; Volatility = 0.22; Price = 175.00 }
-    { Symbol = "MSFT"; Name = "Microsoft Corp.";            ExpectedReturn = 0.22; Volatility = 0.25; Price = 380.00 }
-    { Symbol = "GOOGL"; Name = "Alphabet Inc.";             ExpectedReturn = 0.16; Volatility = 0.28; Price = 140.00 }
-    { Symbol = "AMZN"; Name = "Amazon.com Inc.";            ExpectedReturn = 0.24; Volatility = 0.32; Price = 155.00 }
-    { Symbol = "NVDA"; Name = "NVIDIA Corp.";              ExpectedReturn = 0.35; Volatility = 0.45; Price = 485.00 }
-    { Symbol = "META"; Name = "Meta Platforms Inc.";       ExpectedReturn = 0.28; Volatility = 0.38; Price = 350.00 }
-    { Symbol = "TSLA"; Name = "Tesla Inc.";                ExpectedReturn = 0.30; Volatility = 0.55; Price = 245.00 }
-    { Symbol = "AMD";  Name = "Advanced Micro Devices";     ExpectedReturn = 0.26; Volatility = 0.42; Price = 125.00 }
-]
+/// A stock with historical performance data
+type StockInfo = {
+    Symbol: string
+    Name: string
+    ExpectedReturn: float
+    Volatility: float
+    Price: float
+}
 
-/// Filter static stocks by requested symbols (if provided via --symbols).
-let staticStocks =
-    if requestedSymbols.IsEmpty then
-        allStaticStocks
-    else
-        let symbolSet = requestedSymbols |> List.map (fun s -> s.ToUpperInvariant()) |> Set.ofList
-        let filtered = allStaticStocks |> List.filter (fun s -> symbolSet.Contains(s.Symbol))
-        if filtered.IsEmpty then
-            if not quiet then
-                printfn "[WARN] No known static data for symbols: %s; using all defaults"
-                    (requestedSymbols |> String.concat ", ")
-            allStaticStocks
-        else
-            if not quiet then
-                let unknown =
-                    symbolSet
-                    |> Set.filter (fun sym -> not (allStaticStocks |> List.exists (fun s -> s.Symbol = sym)))
-                if not unknown.IsEmpty then
-                    printfn "[WARN] No static data for: %s (ignored without --live)"
-                        (unknown |> Set.toList |> String.concat ", ")
-            filtered
+/// Per-stock result from portfolio optimization
+type StockResult = {
+    Stock: StockInfo
+    Shares: float
+    Value: float
+    PctOfPortfolio: float
+    SharpeRatio: float
+    PortfolioReturn: float
+    PortfolioRisk: float
+    PortfolioSharpe: float
+    SolverMethod: string
+    HasOptimizationFailure: bool
+}
 
-let useLiveYahoo =
-    let argEnabled = Cli.hasFlag "live" args
+// ==============================================================================
+// BUILT-IN STOCK PRESETS
+// ==============================================================================
 
-    let envEnabled =
-        Environment.GetEnvironmentVariable("INVESTMENTPORTFOLIO_LIVE_DATA")
-        |> Option.ofObj
-        |> Option.map (fun v -> v.Trim())
-        |> Option.exists (fun v -> v.Equals("1") || v.Equals("true", StringComparison.OrdinalIgnoreCase) || v.Equals("yes", StringComparison.OrdinalIgnoreCase))
+let private presetAapl  = { Symbol = "AAPL";  Name = "Apple Inc.";             ExpectedReturn = 0.18; Volatility = 0.22; Price = 175.00 }
+let private presetMsft  = { Symbol = "MSFT";  Name = "Microsoft Corp.";        ExpectedReturn = 0.22; Volatility = 0.25; Price = 380.00 }
+let private presetGoogl = { Symbol = "GOOGL"; Name = "Alphabet Inc.";          ExpectedReturn = 0.16; Volatility = 0.28; Price = 140.00 }
+let private presetAmzn  = { Symbol = "AMZN";  Name = "Amazon.com Inc.";        ExpectedReturn = 0.24; Volatility = 0.32; Price = 155.00 }
+let private presetNvda  = { Symbol = "NVDA";  Name = "NVIDIA Corp.";           ExpectedReturn = 0.35; Volatility = 0.45; Price = 485.00 }
+let private presetMeta  = { Symbol = "META";  Name = "Meta Platforms Inc.";    ExpectedReturn = 0.28; Volatility = 0.38; Price = 350.00 }
+let private presetTsla  = { Symbol = "TSLA";  Name = "Tesla Inc.";             ExpectedReturn = 0.30; Volatility = 0.55; Price = 245.00 }
+let private presetAmd   = { Symbol = "AMD";   Name = "Advanced Micro Devices"; ExpectedReturn = 0.26; Volatility = 0.42; Price = 125.00 }
 
-    argEnabled || envEnabled
+let private builtInStocks =
+    [ presetAapl; presetMsft; presetGoogl; presetAmzn; presetNvda; presetMeta; presetTsla; presetAmd ]
+    |> List.map (fun s -> s.Symbol.ToUpperInvariant(), s)
+    |> Map.ofList
 
-let yahooLookback = FinancialData.YahooHistoryRange.TwoYears
-let yahooInterval = FinancialData.YahooHistoryInterval.OneDay
+// ==============================================================================
+// CSV LOADING
+// ==============================================================================
 
-let private tryLoadLiveStock (httpClient: HttpClient) (cacheDir: string) (stock: Stock) : Stock option =
+let private loadStocksFromCsv (filePath: string) : StockInfo list =
+    let resolved = Data.resolveRelative __SOURCE_DIRECTORY__ filePath
+    let rows, errors = Data.readCsvWithHeaderWithErrors resolved
+    if not (List.isEmpty errors) then
+        eprintfn "WARNING: CSV parse errors in %s:" filePath
+        errors |> List.iter (eprintfn "  %s")
+    if rows.IsEmpty then failwithf "No valid rows in CSV %s" filePath
+    rows |> List.mapi (fun i row ->
+        let get key = row.Values |> Map.tryFind key |> Option.defaultValue ""
+        match get "preset" with
+        | p when not (String.IsNullOrWhiteSpace p) ->
+            match builtInStocks |> Map.tryFind (p.Trim().ToUpperInvariant()) with
+            | Some s -> s
+            | None -> failwithf "Unknown preset '%s' in CSV row %d" p (i + 1)
+        | _ ->
+            { Symbol         = let s = get "symbol" in if s = "" then failwithf "Missing symbol in CSV row %d" (i + 1) else s.ToUpperInvariant()
+              Name           = let n = get "name" in if n = "" then get "symbol" else n
+              ExpectedReturn = get "expected_return" |> fun s -> match Double.TryParse s with true, v -> v | _ -> 0.15
+              Volatility     = get "volatility"      |> fun s -> match Double.TryParse s with true, v -> v | _ -> 0.25
+              Price          = get "price"            |> fun s -> match Double.TryParse s with true, v -> v | _ -> 100.0 })
+
+// ==============================================================================
+// STOCK SELECTION
+// ==============================================================================
+
+let selectedStocks =
+    let base' =
+        match Cli.tryGet "input" args with
+        | Some csvFile -> loadStocksFromCsv csvFile
+        | None -> builtInStocks |> Map.toList |> List.map snd
+
+    match Cli.getCommaSeparated "symbols" args with
+    | [] -> base'
+    | filter ->
+        let filterSet = filter |> List.map (fun s -> s.ToUpperInvariant()) |> Set.ofList
+        base' |> List.filter (fun s -> filterSet.Contains(s.Symbol.ToUpperInvariant()))
+
+if selectedStocks.IsEmpty then
+    eprintfn "ERROR: No stocks selected. Check --symbols filter or --input CSV."
+    exit 1
+
+// ==============================================================================
+// LIVE DATA SUPPORT
+// ==============================================================================
+
+let liveDataEnabled =
+    Cli.hasFlag "live" args
+    || (match Environment.GetEnvironmentVariable("INVESTMENTPORTFOLIO_LIVE_DATA") with
+        | null -> false
+        | s ->
+            match s.Trim().ToLowerInvariant() with
+            | "1" | "true" | "yes" -> true
+            | _ -> false)
+
+let private tryLoadLiveStock (httpClient: HttpClient) (cacheDir: string) (stock: StockInfo) : StockInfo option =
     let req : FinancialData.YahooHistoryRequest = {
         Symbol = stock.Symbol
-        Range = yahooLookback
-        Interval = yahooInterval
+        Range = FinancialData.YahooHistoryRange.TwoYears
+        Interval = FinancialData.YahooHistoryInterval.OneDay
         IncludeAdjustedClose = true
         CacheDirectory = Some cacheDir
         CacheTtl = TimeSpan.FromHours 6.0
     }
-
     match FinancialData.fetchYahooHistory httpClient req with
     | Error _ -> None
     | Ok series ->
@@ -215,351 +182,151 @@ let private tryLoadLiveStock (httpClient: HttpClient) (cacheDir: string) (stock:
             Some { stock with ExpectedReturn = expectedReturn; Volatility = volatility; Price = price }
 
 let stocks =
-    if not useLiveYahoo then
-        if not quiet then printfn "[DATA] Live Yahoo Finance disabled"
-        staticStocks
+    if not liveDataEnabled then
+        if not quiet then printfn "Using static stock data (use --live for Yahoo Finance)"
+        selectedStocks
     else
-        use httpClient = new HttpClient()
         let cacheDir = Path.Combine(__SOURCE_DIRECTORY__, "output", "yahoo-cache")
         let _ = Directory.CreateDirectory(cacheDir) |> ignore
+        use httpClient = new HttpClient()
         if not quiet then
-            printfn "[DATA] Live Yahoo Finance enabled"
-            printfn "[DATA] Cache: %s" cacheDir
-
-        let live =
-            staticStocks
-            |> List.choose (fun s -> tryLoadLiveStock httpClient cacheDir s)
-
-        if live.Length = staticStocks.Length then
-            live
+            printfn "Fetching live data from Yahoo Finance..."
+            printfn "  Cache: %s" cacheDir
+        let live = selectedStocks |> List.choose (fun s -> tryLoadLiveStock httpClient cacheDir s)
+        if live.Length = selectedStocks.Length then live
         else
-            if not quiet then printfn "[DATA] Live fetch incomplete; falling back to static values"
-            staticStocks
+            if not quiet then printfn "  Live fetch incomplete; falling back to static values"
+            selectedStocks
 
 // ==============================================================================
-// CONFIGURATION
+// PORTFOLIO OPTIMIZATION
 // ==============================================================================
 
-// (budget is parsed from CLI above)
+if not quiet then
+    printfn "Optimizing portfolio: %d stocks, budget $%s"
+        stocks.Length (budget.ToString("N0"))
+    printfn ""
 
-// ==============================================================================
-// PURE FUNCTIONS - Portfolio calculations
-// ==============================================================================
+let (results, solverMethod, portfolioReturn, portfolioRisk, portfolioSharpe) =
+    let toAsset (s: StockInfo) : PortfolioSolver.Asset =
+        { Symbol = s.Symbol; ExpectedReturn = s.ExpectedReturn; Risk = s.Volatility; Price = s.Price }
+    let assets = stocks |> List.map toAsset
+    let constraints : PortfolioSolver.Constraints =
+        { Budget = budget; MinHolding = 0.0; MaxHolding = budget }
 
-/// Calculate return-to-risk ratio (simplified Sharpe ratio)
-let calculateSharpeRatio (expectedReturn: float) (risk: float) : float =
-    if risk = 0.0 then 0.0
-    else expectedReturn / risk
-
-/// Count number of assets in portfolio
-let countDiversification (allocations: (string * float * float) list) : int =
-    allocations |> List.length
-
-/// Format currency amount
-let formatCurrency (amount: float) : string =
-    sprintf "$%s" (amount.ToString("N2"))
-
-/// Format percentage
-let formatPercent (value: float) : string =
-    sprintf "%.2f%%" (value * 100.0)
-
-/// Create portfolio analysis from raw solution
-let createAnalysis 
-    (allocations: (string * float * float) list)
-    (totalValue: float)
-    (expectedReturn: float)
-    (risk: float)
-    : PortfolioAnalysis =
-    {
-        Allocations = allocations
-        TotalValue = totalValue
-        ExpectedReturn = expectedReturn
-        Risk = risk
-        SharpeRatio = calculateSharpeRatio expectedReturn risk
-        DiversificationScore = countDiversification allocations
-    }
-
-// ==============================================================================
-// PORTFOLIO OPTIMIZATION (Using HybridSolver for Quantum-Ready Optimization)
-// ==============================================================================
-
-/// Convert stock to Asset type for HybridSolver
-let stockToAsset (stock: Stock) : PortfolioSolver.Asset = {
-    Symbol = stock.Symbol
-    ExpectedReturn = stock.ExpectedReturn
-    Risk = stock.Volatility  // Note: Asset.Risk corresponds to Stock.Volatility
-    Price = stock.Price
-}
-
-/// Solve portfolio optimization problem using HybridSolver
-let optimizePortfolio (stocks: Stock list) (budget: float) : Result<PortfolioAnalysis * string, string> =
-    // Convert to Portfolio API format
-    let assets = stocks |> List.map stockToAsset
-    let constraints = {
-        PortfolioSolver.Constraints.Budget = budget
-        PortfolioSolver.Constraints.MinHolding = 0.0  // No minimum holding constraint
-        PortfolioSolver.Constraints.MaxHolding = budget  // Can invest entire budget in one asset if optimal
-    }
-    
-    // Use HybridSolver for automatic classical/quantum routing
-    // 
-    // ROUTING OPTIONS:
-    // 1. Automatic (None): Quantum Advisor analyzes and recommends Classical/Quantum
-    // 2. Force Classical (Some HybridSolver.SolverMethod.Classical): Use CPU-based greedy algorithm
-    // 3. Force Quantum (Some HybridSolver.SolverMethod.Quantum): Use QAOA on quantum backend
-    //
-    // For this 8-asset problem, Quantum Advisor will recommend Classical (fast, accurate).
-    // To test quantum solver, use: Some HybridSolver.SolverMethod.Quantum
-    //
-    // Note: Quantum portfolio optimization becomes advantageous for 50+ assets with
-    // complex correlation matrices and non-linear constraints.
     match HybridSolver.solvePortfolio assets constraints None None None with
     | Ok solution ->
-        // Extract allocations from solution
-        let allocations =
-            solution.Result.Allocations
-            |> List.map (fun alloc -> (alloc.Asset.Symbol, alloc.Shares, alloc.Value))
-        
-        let analysis = 
-            createAnalysis
-                allocations
-                solution.Result.TotalValue
-                solution.Result.ExpectedReturn
-                solution.Result.Risk
-        
-        Ok (analysis, solution.Reasoning)
-    
-    | Error err -> Error (sprintf "HybridSolver failed: %s" err.Message)
+        let method = sprintf "%A" solution.Method
+        let pReturn = solution.Result.ExpectedReturn
+        let pRisk = solution.Result.Risk
+        let pSharpe = solution.Result.SharpeRatio
+        let totalValue = solution.Result.TotalValue
+
+        let stockResults =
+            stocks |> List.map (fun stock ->
+                let alloc =
+                    solution.Result.Allocations
+                    |> List.tryFind (fun a -> a.Asset.Symbol = stock.Symbol)
+                let shares = alloc |> Option.map (fun a -> a.Shares) |> Option.defaultValue 0.0
+                let value = alloc |> Option.map (fun a -> a.Value) |> Option.defaultValue 0.0
+                let pct = if totalValue > 0.0 then value / totalValue * 100.0 else 0.0
+                let sharpe = if stock.Volatility > 0.0 then stock.ExpectedReturn / stock.Volatility else 0.0
+                { Stock = stock
+                  Shares = shares
+                  Value = value
+                  PctOfPortfolio = pct
+                  SharpeRatio = sharpe
+                  PortfolioReturn = pReturn
+                  PortfolioRisk = pRisk
+                  PortfolioSharpe = pSharpe
+                  SolverMethod = method
+                  HasOptimizationFailure = false })
+        (stockResults, method, pReturn, pRisk, pSharpe)
+
+    | Error err ->
+        if not quiet then eprintfn "Optimization failed: %A" err
+        let failResults =
+            stocks |> List.map (fun stock ->
+                let sharpe = if stock.Volatility > 0.0 then stock.ExpectedReturn / stock.Volatility else 0.0
+                { Stock = stock; Shares = 0.0; Value = 0.0; PctOfPortfolio = 0.0
+                  SharpeRatio = sharpe; PortfolioReturn = 0.0; PortfolioRisk = 0.0
+                  PortfolioSharpe = 0.0; SolverMethod = "Error"; HasOptimizationFailure = true })
+        (failResults, "Error", 0.0, 0.0, 0.0)
+
+// Sort: highest allocation value first
+let sortedResults = results |> List.sortByDescending (fun r -> r.Value)
 
 // ==============================================================================
-// REPORTING - Pure functions for output
+// COMPARISON TABLE (unconditional)
 // ==============================================================================
 
-/// Generate detailed allocation report
-let generateAllocationReport (stocks: Stock list) (analysis: PortfolioAnalysis) : string list =
-    [
-        "╔══════════════════════════════════════════════════════════════════════════════╗"
-        "║                       PORTFOLIO ALLOCATION REPORT                            ║"
-        "╚══════════════════════════════════════════════════════════════════════════════╝"
-        ""
-        "ASSETS SELECTED:"
-        "────────────────────────────────────────────────────────────────────────────────"
-        
-        yield! 
-            analysis.Allocations
-            |> List.mapi (fun i (symbol, shares, value) ->
-                let stock = stocks |> List.find (fun s -> s.Symbol = symbol)
-                let pct = (value / analysis.TotalValue) * 100.0
-                sprintf "  %d. %-6s | %6.2f shares @ %s = %s (%.1f%%)"
-                    (i + 1)
-                    symbol
-                    shares
-                    (formatCurrency stock.Price)
-                    (formatCurrency value)
-                    pct)
-        
-        ""
-        "PORTFOLIO SUMMARY:"
-        "────────────────────────────────────────────────────────────────────────────────"
-        sprintf "  Total Invested:        %s" (formatCurrency analysis.TotalValue)
-        sprintf "  Number of Holdings:    %d stocks" analysis.DiversificationScore
-        sprintf "  Expected Annual Return: %s" (formatPercent analysis.ExpectedReturn)
-        sprintf "  Portfolio Risk (σ):    %s" (formatPercent analysis.Risk)
-        sprintf "  Sharpe Ratio:          %.2f" analysis.SharpeRatio
-        ""
-    ]
+let printTable () =
+    let divider = String('-', 106)
+    printfn ""
+    printfn "  Portfolio Allocation (sorted by value, budget $%s)" (budget.ToString("N0"))
+    printfn "  %s" divider
+    printfn "  %-6s %-22s %6s %6s %8s %10s %7s %7s %8s"
+        "Symbol" "Name" "Return" "Vol" "Sharpe" "Value" "Shares" "Pct" "Status"
+    printfn "  %s" divider
+    for r in sortedResults do
+        let status = if r.HasOptimizationFailure then "FAIL" else "OK"
+        printfn "  %-6s %-22s %5.1f%% %5.1f%% %8.2f $%9s %7.2f %5.1f%% %8s"
+            r.Stock.Symbol
+            (if r.Stock.Name.Length > 22 then r.Stock.Name.[..21] else r.Stock.Name)
+            (r.Stock.ExpectedReturn * 100.0)
+            (r.Stock.Volatility * 100.0)
+            r.SharpeRatio
+            (r.Value.ToString("N0"))
+            r.Shares
+            r.PctOfPortfolio
+            status
+    printfn "  %s" divider
+    printfn ""
+    printfn "  Portfolio: Return=%.2f%%  Risk=%.2f%%  Sharpe=%.2f  Method=%s"
+        (portfolioReturn * 100.0) (portfolioRisk * 100.0) portfolioSharpe solverMethod
 
-/// Generate risk-return analysis report
-let generateRiskReturnAnalysis (stocks: Stock list) (analysis: PortfolioAnalysis) : string list =
-    [
-        "╔══════════════════════════════════════════════════════════════════════════════╗"
-        "║                      RISK-RETURN ANALYSIS                                    ║"
-        "╚══════════════════════════════════════════════════════════════════════════════╝"
-        ""
-        "INDIVIDUAL STOCK METRICS:"
-        "────────────────────────────────────────────────────────────────────────────────"
-        "  Symbol  | Expected Return | Volatility | Sharpe Ratio | Allocation"
-        "  --------|-----------------|------------|--------------|------------"
-        
-        yield!
-            stocks
-            |> List.map (fun stock ->
-                let sharpe = calculateSharpeRatio stock.ExpectedReturn stock.Volatility
-                let allocation = 
-                    analysis.Allocations 
-                    |> List.tryFind (fun (s, _, _) -> s = stock.Symbol)
-                let allocPct = 
-                    match allocation with
-                    | Some (_, _, value) -> sprintf "%.1f%%" ((value / analysis.TotalValue) * 100.0)
-                    | None -> "0.0%"
-                
-                sprintf "  %-7s | %14s | %9s | %12.2f | %10s"
-                    stock.Symbol
-                    (formatPercent stock.ExpectedReturn)
-                    (formatPercent stock.Volatility)
-                    sharpe
-                    allocPct)
-        
-        ""
-        "PORTFOLIO VS. INDIVIDUAL STOCKS:"
-        "────────────────────────────────────────────────────────────────────────────────"
-        
-        // Calculate average metrics for comparison
-        let avgReturn = stocks |> List.averageBy (fun s -> s.ExpectedReturn)
-        let avgVolatility = stocks |> List.averageBy (fun s -> s.Volatility)
-        let avgSharpe = calculateSharpeRatio avgReturn avgVolatility
-        
-        sprintf "  Average Stock Return:  %s" (formatPercent avgReturn)
-        sprintf "  Portfolio Return:      %s (%.1fx better)" 
-            (formatPercent analysis.ExpectedReturn)
-            (analysis.ExpectedReturn / avgReturn)
-        ""
-        sprintf "  Average Stock Risk:    %s" (formatPercent avgVolatility)
-        sprintf "  Portfolio Risk:        %s (%.1fx lower)" 
-            (formatPercent analysis.Risk)
-            (avgVolatility / analysis.Risk)
-        ""
-        sprintf "  Average Sharpe Ratio:  %.2f" avgSharpe
-        sprintf "  Portfolio Sharpe:      %.2f (%.1fx better)" 
-            analysis.SharpeRatio
-            (analysis.SharpeRatio / avgSharpe)
-        ""
-    ]
-
-/// Generate business impact report
-let generateBusinessImpact (analysis: PortfolioAnalysis) (budget: float) : string list =
-    let expectedGain = analysis.TotalValue * analysis.ExpectedReturn
-    let potentialRange = analysis.TotalValue * analysis.Risk
-    let bestCase = analysis.TotalValue + expectedGain + potentialRange
-    let worstCase = analysis.TotalValue + expectedGain - potentialRange
-    
-    [
-        "╔══════════════════════════════════════════════════════════════════════════════╗"
-        "║                          BUSINESS IMPACT ANALYSIS                            ║"
-        "╚══════════════════════════════════════════════════════════════════════════════╝"
-        ""
-        "PROJECTED ANNUAL OUTCOMES (1 Year):"
-        "────────────────────────────────────────────────────────────────────────────────"
-        sprintf "  Initial Investment:    %s" (formatCurrency budget)
-        sprintf "  Expected Return:       %s (%s gain)"
-            (formatCurrency expectedGain)
-            (formatPercent analysis.ExpectedReturn)
-        ""
-        "  SCENARIO ANALYSIS (95%% confidence interval):"
-        sprintf "  • Best Case:           %s (+%s)" 
-            (formatCurrency bestCase) 
-            (formatPercent ((bestCase - budget) / budget))
-        sprintf "  • Expected:            %s (+%s)" 
-            (formatCurrency (analysis.TotalValue + expectedGain))
-            (formatPercent (expectedGain / budget))
-        sprintf "  • Worst Case:          %s (%s)" 
-            (formatCurrency worstCase)
-            (formatPercent ((worstCase - budget) / budget))
-        ""
-        "KEY INSIGHTS:"
-        "────────────────────────────────────────────────────────────────────────────────"
-        sprintf "  ✓ Diversification across %d tech stocks reduces risk" analysis.DiversificationScore
-        sprintf "  ✓ Sharpe ratio of %.2f indicates efficient risk-adjusted returns" analysis.SharpeRatio
-        sprintf "  ✓ Expected to generate %s annually" (formatCurrency expectedGain)
-        "  ✓ Risk-managed approach balances growth and volatility"
-        ""
-    ]
+printTable ()
 
 // ==============================================================================
-// STRUCTURED OUTPUT HELPERS
+// STRUCTURED OUTPUT (JSON / CSV)
 // ==============================================================================
 
-/// Convert a portfolio analysis into a list of per-allocation maps for JSON/CSV.
-let allocationToMaps (analysis: PortfolioAnalysis) : Map<string, string> list =
-    analysis.Allocations
-    |> List.map (fun (symbol, shares, value) ->
-        [ "symbol", symbol
-          "shares", sprintf "%.4f" shares
-          "value", sprintf "%.2f" value
-          "pct_of_portfolio", sprintf "%.2f" ((value / analysis.TotalValue) * 100.0)
-          "portfolio_expected_return", sprintf "%.4f" analysis.ExpectedReturn
-          "portfolio_risk", sprintf "%.4f" analysis.Risk
-          "sharpe_ratio", sprintf "%.4f" analysis.SharpeRatio
-          "budget", sprintf "%.2f" budget ]
+let resultMaps : Map<string, string> list =
+    sortedResults
+    |> List.map (fun r ->
+        [ "symbol",                    r.Stock.Symbol
+          "name",                      r.Stock.Name
+          "expected_return",           sprintf "%.4f" r.Stock.ExpectedReturn
+          "volatility",                sprintf "%.4f" r.Stock.Volatility
+          "price",                     sprintf "%.2f" r.Stock.Price
+          "shares",                    sprintf "%.4f" r.Shares
+          "value",                     sprintf "%.2f" r.Value
+          "pct_of_portfolio",          sprintf "%.2f" r.PctOfPortfolio
+          "sharpe_ratio",              sprintf "%.4f" r.SharpeRatio
+          "portfolio_expected_return", sprintf "%.4f" r.PortfolioReturn
+          "portfolio_risk",            sprintf "%.4f" r.PortfolioRisk
+          "portfolio_sharpe",          sprintf "%.4f" r.PortfolioSharpe
+          "solver_method",             r.SolverMethod
+          "budget",                    sprintf "%.2f" budget
+          "has_optimization_failure",  sprintf "%b" r.HasOptimizationFailure ]
         |> Map.ofList)
 
-// ==============================================================================
-// MAIN EXECUTION
-// ==============================================================================
+match outputPath with
+| Some path ->
+    Reporting.writeJson path resultMaps
+    if not quiet then printfn "\nResults written to %s" path
+| None -> ()
 
-if not quiet then
-    printfn "╔══════════════════════════════════════════════════════════════════════════════╗"
-    printfn "║              INVESTMENT PORTFOLIO OPTIMIZATION EXAMPLE                       ║"
-    printfn "║              Using HybridSolver (Quantum-Ready Optimization)                 ║"
-    printfn "╚══════════════════════════════════════════════════════════════════════════════╝"
-    printfn ""
-
-    // Usage hints when running with defaults
-    if requestedSymbols.IsEmpty && outputPath.IsNone && csvPath.IsNone then
-        printfn "Hint: Customize this run with CLI options. Try --help for details."
-        printfn "  dotnet fsi InvestmentPortfolio.fsx -- --symbols AAPL,NVDA,MSFT --budget 50000 --output results.json"
-        printfn ""
-
-    printfn "Problem: Allocate %s across %d tech stocks" (formatCurrency budget) stocks.Length
-    printfn "Objective: Maximize returns while managing risk"
-    printfn ""
-    printfn "Running portfolio optimization with HybridSolver..."
-
-// Time the optimization
-let startTime = DateTime.UtcNow
-
-// Solve the optimization problem
-let result = optimizePortfolio stocks budget
-
-let endTime = DateTime.UtcNow
-let elapsed = (endTime - startTime).TotalMilliseconds
-
-if not quiet then
-    printfn "Completed in %.0f ms" elapsed
-    printfn ""
-
-// Display results
-match result with
-| Ok (analysis, reasoning) ->
-    if not quiet then
-        printfn "Solver Decision: %s" reasoning
-        printfn ""
-
-        // Generate reports
-        let allocationReport = generateAllocationReport stocks analysis
-        let riskReturnReport = generateRiskReturnAnalysis stocks analysis
-        let businessImpact = generateBusinessImpact analysis budget
-
-        // Print reports
-        allocationReport |> List.iter (printfn "%s")
-        riskReturnReport |> List.iter (printfn "%s")
-        businessImpact |> List.iter (printfn "%s")
-
-        printfn "╔══════════════════════════════════════════════════════════════════════════════╗"
-        printfn "║                     OPTIMIZATION SUCCESSFUL                                  ║"
-        printfn "╚══════════════════════════════════════════════════════════════════════════════╝"
-        printfn ""
-        printfn "Note: HybridSolver automatically routes between classical and quantum solvers"
-        printfn "   based on problem size and structure. For %d assets -> classical optimizer." stocks.Length
-        printfn "   For larger portfolios (50+ assets), quantum advantage may emerge."
-
-    // Structured output
-    let maps = allocationToMaps analysis
-
-    match outputPath with
-    | Some path ->
-        Reporting.writeJson path maps
-        if not quiet then printfn "\n[OUTPUT] JSON written to %s" path
-    | None -> ()
-
-    match csvPath with
-    | Some path ->
-        let header = [ "symbol"; "shares"; "value"; "pct_of_portfolio"; "portfolio_expected_return"; "portfolio_risk"; "sharpe_ratio"; "budget" ]
-        let rows = maps |> List.map (fun m -> header |> List.map (fun h -> m |> Map.tryFind h |> Option.defaultValue ""))
-        Reporting.writeCsv path header rows
-        if not quiet then printfn "[OUTPUT] CSV written to %s" path
-    | None -> ()
-
-| Error errMsg ->
-    eprintfn "Optimization failed: %s" errMsg
-    exit 1
+match csvPath with
+| Some path ->
+    let header =
+        [ "symbol"; "name"; "expected_return"; "volatility"; "price"
+          "shares"; "value"; "pct_of_portfolio"; "sharpe_ratio"
+          "portfolio_expected_return"; "portfolio_risk"; "portfolio_sharpe"
+          "solver_method"; "budget"; "has_optimization_failure" ]
+    let rows =
+        resultMaps |> List.map (fun m ->
+            header |> List.map (fun h -> m |> Map.tryFind h |> Option.defaultValue ""))
+    Reporting.writeCsv path header rows
+    if not quiet then printfn "Results written to %s" path
+| None -> ()

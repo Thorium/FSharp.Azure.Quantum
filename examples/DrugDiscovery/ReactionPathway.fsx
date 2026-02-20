@@ -1,123 +1,39 @@
 // ==============================================================================
-// Drug Metabolism Reaction Pathway Example
+// Drug Metabolism Reaction Pathway Comparison
 // ==============================================================================
-// Demonstrates VQE for calculating drug metabolism activation energies.
+// Compares CYP450 metabolic pathways by computing VQE activation energies.
 //
-// Business Context:
-// A pharmaceutical research team needs to predict how a drug is metabolized
-// by cytochrome P450 enzymes in the liver. The rate of metabolism determines:
-// - Drug half-life and dosing frequency
-// - Potential for toxic metabolite formation
-// - Drug-drug interactions
+// Accepts multiple metabolic pathways (built-in presets or --input CSV), runs
+// VQE on each pathway's reactant/TS/product molecules, and outputs a ranked
+// comparison table showing which pathway has the lowest activation barrier.
 //
-// Quantum chemistry calculates ACTIVATION ENERGY BARRIERS that determine
-// which metabolic pathway is preferred.
+// Background:
+// Cytochrome P450 enzymes catalyse the majority of Phase I drug metabolism.
+// The rate-determining step — typically C-H bond activation — has an activation
+// energy that controls drug half-life, dosing frequency, and toxic metabolite
+// formation. Quantum chemistry can calculate these barriers more accurately
+// than classical DFT, which systematically underestimates them by 5-10 kcal/mol.
 //
-// This example shows:
-// - Transition state theory for reaction kinetics
-// - VQE calculation of reactant, transition state, and product energies
-// - Activation energy barrier calculation
-// - Rate constant estimation (Eyring equation)
-//
-// Quantum Advantage:
-// Transition state energies require accurate electron correlation.
-// VQE provides this naturally. Classical DFT often underestimates barriers.
-//
-// CURRENT LIMITATIONS (NISQ era):
-// - Limited to small active spaces (~20 qubits)
-// - Transition state search is classical (geometry optimization)
-// - Full enzyme simulation requires fault-tolerant QC
+// IMPORTANT LIMITATION:
+// This example uses EMPIRICAL Hamiltonian coefficients (not molecular integrals).
+// Calculated energies are ILLUSTRATIVE. For production use, molecular integral
+// calculation (via PySCF, Psi4, or similar) would be needed.
+// See: https://qiskit.org/documentation/nature/
 //
 // Usage:
 //   dotnet fsi ReactionPathway.fsx
 //   dotnet fsi ReactionPathway.fsx -- --help
-//   dotnet fsi ReactionPathway.fsx -- --temperature 298.15
-//   dotnet fsi ReactionPathway.fsx -- --max-iterations 100 --tolerance 1e-6
+//   dotnet fsi ReactionPathway.fsx -- --pathways hydroxylation,n-dealkylation
+//   dotnet fsi ReactionPathway.fsx -- --input pathways.csv
 //   dotnet fsi ReactionPathway.fsx -- --output results.json --csv results.csv --quiet
 //
+// References:
+//   [1] Eyring, H. "The Activated Complex in Chemical Reactions" J. Chem. Phys. 3, 107 (1935)
+//   [2] Guengerich, F.P. "Mechanisms of Cytochrome P450" Chem. Res. Toxicol. (2001)
+//   [3] Reiher, M. et al. "Elucidating reaction mechanisms on quantum computers" PNAS (2017)
+//   [4] Harper's Illustrated Biochemistry, 28th Ed., Ch. 53: Metabolism of Xenobiotics
+//   [5] Wikipedia: Transition_state_theory
 // ==============================================================================
-
-(*
-Background Theory
------------------
-
-BIOCHEMISTRY FOUNDATION:
-This example builds on concepts from Harper's Illustrated Biochemistry
-(28th Edition, Murray et al.):
-  - Chapter 53: Metabolism of Xenobiotics - CYP450 enzymes, Phase I/II reactions
-  - Chapter 12: Biologic Oxidation - redox chemistry, cytochromes
-
-XENOBIOTIC METABOLISM (Harper's Ch.53):
-Foreign compounds (xenobiotics) including drugs undergo biotransformation
-primarily in the liver, converting lipophilic molecules to hydrophilic
-metabolites for excretion. This occurs in two phases:
-
-  PHASE I (Functionalization):
-    - Oxidation, reduction, hydrolysis
-    - Introduces or exposes functional groups (-OH, -NH2, -COOH)
-    - Cytochrome P450 enzymes are primary catalysts
-    - Creates reactive intermediates (sometimes toxic)
-
-  PHASE II (Conjugation):
-    - Glucuronidation, sulfation, glutathione conjugation, acetylation
-    - Greatly increases water solubility
-    - Usually detoxification (but not always)
-
-CYTOCHROME P450 ENZYMES (Harper's Ch.53):
-The P450 superfamily contains >6000 members (57 in humans). Key drug-metabolizing
-isoforms include:
-
-  | Enzyme  | % of Drug Metabolism | Notable Substrates      |
-  |---------|----------------------|-------------------------|
-  | CYP3A4  | ~50%                 | Most drugs              |
-  | CYP2D6  | ~25%                 | Codeine, tamoxifen      |
-  | CYP2C9  | ~15%                 | Warfarin, NSAIDs        |
-  | CYP1A2  | ~5%                  | Caffeine, theophylline  |
-
-The CYP450 catalytic cycle involves iron-oxo intermediates:
-  Fe(III) -> Fe(II) -> Fe(II)-O2 -> Fe(III)-OOH -> [Fe(IV)=O] -> Fe(III)
-                                                          |
-                                                  Hydrogen abstraction
-                                                  from substrate R-H
-
-TRANSITION STATE THEORY (TST), developed by Eyring, Polanyi, and Evans in 1935,
-provides the theoretical framework for understanding chemical reaction rates.
-The rate of a reaction depends on the ACTIVATION ENERGY (Ea) -- the energy
-barrier that must be overcome for reactants to become products.
-
-The reaction coordinate connects:
-  Reactants -> [Transition State] -> Products
-
-The ARRHENIUS EQUATION relates rate constant to activation energy:
-
-    k = A * exp(-Ea / RT)
-
-The EYRING EQUATION from TST gives the prefactor explicitly:
-
-    k = (kB * T / h) * exp(-dG_act / RT)
-
-Where dG_act = dH_act - T*dS_act includes entropy of activation.
-
-For DRUG METABOLISM, cytochrome P450 enzymes catalyze hydroxylation:
-
-    R-H + [Fe=O]2+ -> R-OH + Fe2+
-
-The rate-determining step (C-H bond activation) has Ea ~ 10-25 kcal/mol
-depending on the substrate and enzyme.
-
-Key Equations:
-  - Activation Energy: Ea = E_TS - E_reactants
-  - Arrhenius: k = A * exp(-Ea / RT)
-  - Eyring: k = (kB*T/h) * exp(-dG_act/RT)
-  - Half-life: t_1/2 = ln(2) / k
-
-References:
-  [1] Eyring, H. "The Activated Complex in Chemical Reactions" J. Chem. Phys. 3, 107 (1935)
-  [2] Guengerich, F.P. "Mechanisms of Cytochrome P450" Chem. Res. Toxicol. (2001)
-  [3] Wikipedia: Transition_state_theory
-  [4] Reiher, M. et al. "Elucidating reaction mechanisms on quantum computers" PNAS (2017)
-  [5] Harper's Illustrated Biochemistry, 28th Ed., Chapter 53
-*)
 
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 #load "../_common/Cli.fs"
@@ -133,520 +49,709 @@ open FSharp.Azure.Quantum.Backends.LocalBackend
 open FSharp.Azure.Quantum.Examples.Common
 
 // ==============================================================================
-// CLI CONFIGURATION
+// CLI
 // ==============================================================================
 
 let argv = fsi.CommandLineArgs |> Array.skip 1
 let args = Cli.parse argv
 
-Cli.exitIfHelp "ReactionPathway.fsx" "Drug metabolism reaction pathway analysis via VQE"
-    [ { Cli.OptionSpec.Name = "max-iterations"; Description = "Maximum VQE iterations (default: 50)"; Default = Some "50" }
-      { Cli.OptionSpec.Name = "tolerance"; Description = "Convergence tolerance in Hartree (default: 1e-4)"; Default = Some "1e-4" }
-      { Cli.OptionSpec.Name = "temperature"; Description = "Temperature in Kelvin for rate calc (default: 310 = body temp)"; Default = Some "310" }
+Cli.exitIfHelp "ReactionPathway.fsx"
+    "Compare CYP450 metabolic pathways by VQE activation energy"
+    [ { Cli.OptionSpec.Name = "input"; Description = "CSV file with custom metabolic pathways"; Default = Some "built-in presets" }
+      { Cli.OptionSpec.Name = "pathways"; Description = "Comma-separated preset names to run (default: all)"; Default = Some "all" }
+      { Cli.OptionSpec.Name = "max-iterations"; Description = "Maximum VQE iterations"; Default = Some "50" }
+      { Cli.OptionSpec.Name = "tolerance"; Description = "Energy convergence tolerance (Hartree)"; Default = Some "1e-4" }
+      { Cli.OptionSpec.Name = "temperature"; Description = "Temperature for rate calculations (Kelvin)"; Default = Some "310" }
       { Cli.OptionSpec.Name = "output"; Description = "Write results to JSON file"; Default = None }
       { Cli.OptionSpec.Name = "csv"; Description = "Write results to CSV file"; Default = None }
-      { Cli.OptionSpec.Name = "quiet"; Description = "Suppress informational output"; Default = None } ]
+      { Cli.OptionSpec.Name = "quiet"; Description = "Suppress informational output (flag)"; Default = None } ]
     args
 
 let quiet = Cli.hasFlag "quiet" args
+let inputFile = args |> Cli.tryGet "input"
+let pathwayFilter = args |> Cli.getCommaSeparated "pathways"
 let maxIterations = Cli.getIntOr "max-iterations" 50 args
 let tolerance = Cli.getFloatOr "tolerance" 1e-4 args
 let temperature = Cli.getFloatOr "temperature" 310.0 args
 
 // ==============================================================================
+// TYPES
+// ==============================================================================
+
+/// A metabolic pathway defined by its three molecular species along the
+/// reaction coordinate: separated reactants, transition state, and product.
+type MetabolicPathway =
+    { Name: string
+      Reactants: Molecule list
+      TransitionState: Molecule
+      Product: Molecule
+      Enzyme: string
+      Description: string }
+
+/// Result of computing a single pathway's energy profile via VQE.
+type PathwayResult =
+    { Pathway: MetabolicPathway
+      ReactantEnergy: float
+      TsEnergy: float
+      ProductEnergy: float
+      ActivationEnergyHartree: float
+      ActivationEnergyKcal: float
+      ReactionEnergyKcal: float
+      RateConstant: float
+      HalfLife: string
+      BarrierAssessment: string
+      ComputeTimeSeconds: float
+      HasVqeFailure: bool }
+
+// ==============================================================================
 // PHYSICAL CONSTANTS
 // ==============================================================================
 
-let kB = 1.380649e-23          // Boltzmann constant (J/K)
-let hPlanck = 6.62607015e-34   // Planck constant (J*s)
-let gasR = 8.314               // Gas constant (J/mol*K)
-let hartreeToKcalMol = 627.509 // 1 Hartree = 627.5 kcal/mol
-let hartreeToKJMol = 2625.5    // 1 Hartree = 2625.5 kJ/mol
+let kB = 1.380649e-23           // Boltzmann constant (J/K)
+let hPlanck = 6.62607015e-34    // Planck constant (J*s)
+let gasR = 8.314                // Gas constant (J/(mol*K))
+let hartreeToKcalMol = 627.509  // 1 Hartree in kcal/mol
+let hartreeToKJMol = 2625.5     // 1 Hartree in kJ/mol
 
 // ==============================================================================
-// MOLECULAR STRUCTURES FOR HYDROXYLATION REACTION
+// BUILT-IN PATHWAY PRESETS
 // ==============================================================================
-//
-// We model a simplified HYDROXYLATION reaction, the most common P450 pathway:
-//
-//   R-H + [Fe=O]2+ -> R* + [Fe-OH]2+ -> R-OH + Fe2+
-//
-// For NISQ tractability, we model the key C-H -> C-OH step using small molecules.
-// Real application: Use full CYP active site with QM/MM
-//
-// Model reaction: CH4 -> CH3OH (methane hydroxylation)
-// This captures the essential C-H bond activation chemistry.
-//
+// Each pathway models a different CYP450 metabolic reaction using
+// NISQ-tractable model molecules (<=7 atoms per species).
 
-if not quiet then
-    printfn "============================================================"
-    printfn "  Drug Metabolism: Reaction Pathway Analysis (VQE)"
-    printfn "============================================================"
-    printfn ""
-    printfn "Configuration:"
-    printfn "  Max iterations: %d" maxIterations
-    printfn "  Tolerance:      %g Hartree" tolerance
-    printfn "  Temperature:    %.1f K (%.1f C)" temperature (temperature - 273.15)
-    printfn ""
+/// C-H hydroxylation: CH2 + OH -> [CH...H...OH] -> CH2OH
+/// The most common CYP450 reaction (~75% of Phase I metabolism).
+/// Model: methylene + OH captures essential C-H bond activation
+/// with NISQ-tractable molecule sizes (≤5 atoms per species).
+let private hydroxylationPathway : MetabolicPathway =
+    let reactant : Molecule =
+        { Name = "Methylene (CH2, model)"
+          Atoms =
+            [ { Element = "C"; Position = (0.0, 0.0, 0.0) }
+              { Element = "H"; Position = (1.09, 0.0, 0.0) }
+              { Element = "H"; Position = (-0.547, 0.944, 0.0) } ]
+          Bonds =
+            [ { Atom1 = 0; Atom2 = 1; BondOrder = 1.0 }
+              { Atom1 = 0; Atom2 = 2; BondOrder = 1.0 } ]
+          Charge = 0; Multiplicity = 1 }
 
-// -- Reactant: Methane (CH4) - simplified drug substrate
+    let oxidant : Molecule =
+        { Name = "Hydroxyl radical (OH)"
+          Atoms =
+            [ { Element = "O"; Position = (5.0, 0.0, 0.0) }
+              { Element = "H"; Position = (5.97, 0.0, 0.0) } ]
+          Bonds = [ { Atom1 = 0; Atom2 = 1; BondOrder = 1.0 } ]
+          Charge = 0; Multiplicity = 2 }
 
-let reactantMethane: Molecule =
-    { Name = "Methane (Reactant)"
-      Atoms =
-          [ { Element = "C"; Position = (0.0, 0.0, 0.0) }
-            { Element = "H"; Position = (1.09, 0.0, 0.0) }
-            { Element = "H"; Position = (-0.363, 1.028, 0.0) }
-            { Element = "H"; Position = (-0.363, -0.514, 0.890) }
-            { Element = "H"; Position = (-0.363, -0.514, -0.890) } ]
-      Bonds =
-          [ { Atom1 = 0; Atom2 = 1; BondOrder = 1.0 }
-            { Atom1 = 0; Atom2 = 2; BondOrder = 1.0 }
-            { Atom1 = 0; Atom2 = 3; BondOrder = 1.0 }
-            { Atom1 = 0; Atom2 = 4; BondOrder = 1.0 } ]
+    let ts : Molecule =
+        { Name = "C-H Abstraction TS"
+          Atoms =
+            [ { Element = "C"; Position = (0.0, 0.0, 0.0) }
+              { Element = "H"; Position = (-0.547, 0.944, 0.0) }   // spectator H
+              { Element = "H"; Position = (1.35, 0.0, 0.0) }       // stretched C-H (1.09 -> 1.35)
+              { Element = "O"; Position = (2.65, 0.0, 0.0) }       // O approaching
+              { Element = "H"; Position = (3.3, 0.7, 0.0) } ]      // O-H
+          Bonds =
+            [ { Atom1 = 0; Atom2 = 1; BondOrder = 1.0 }
+              { Atom1 = 0; Atom2 = 2; BondOrder = 0.5 }    // breaking C-H
+              { Atom1 = 2; Atom2 = 3; BondOrder = 0.5 }    // forming O-H
+              { Atom1 = 3; Atom2 = 4; BondOrder = 1.0 } ]
+          Charge = 0; Multiplicity = 2 }
+
+    let product : Molecule =
+        { Name = "Hydroxymethyl (CH2OH, model)"
+          Atoms =
+            [ { Element = "C"; Position = (0.0, 0.0, 0.0) }
+              { Element = "H"; Position = (-0.547, 0.944, 0.0) }
+              { Element = "O"; Position = (1.43, 0.0, 0.0) }
+              { Element = "H"; Position = (1.83, 0.89, 0.0) } ]
+          Bonds =
+            [ { Atom1 = 0; Atom2 = 1; BondOrder = 1.0 }
+              { Atom1 = 0; Atom2 = 2; BondOrder = 1.0 }
+              { Atom1 = 2; Atom2 = 3; BondOrder = 1.0 } ]
+          Charge = 0; Multiplicity = 1 }
+
+    { Name = "Hydroxylation"
+      Reactants = [ reactant; oxidant ]
+      TransitionState = ts
+      Product = product
+      Enzyme = "CYP3A4"
+      Description = "C-H bond hydroxylation (most common CYP450 reaction)" }
+
+/// N-dealkylation: CH3-NH2 + OH -> [CH2...H...OH + NH2] -> CH2O + NH3
+/// Second most common CYP450 reaction. Model: methylamine N-demethylation.
+let private nDealkylationPathway : MetabolicPathway =
+    let reactant : Molecule =
+        { Name = "Methylamine (CH3NH2)"
+          Atoms =
+            [ { Element = "C"; Position = (0.0, 0.0, 0.0) }
+              { Element = "N"; Position = (1.47, 0.0, 0.0) }
+              { Element = "H"; Position = (-0.54, 0.94, 0.0) }
+              { Element = "H"; Position = (-0.54, -0.47, 0.82) }
+              { Element = "H"; Position = (1.86, 0.46, 0.82) } ]
+          Bonds =
+            [ { Atom1 = 0; Atom2 = 1; BondOrder = 1.0 }
+              { Atom1 = 0; Atom2 = 2; BondOrder = 1.0 }
+              { Atom1 = 0; Atom2 = 3; BondOrder = 1.0 }
+              { Atom1 = 1; Atom2 = 4; BondOrder = 1.0 } ]
+          Charge = 0; Multiplicity = 1 }
+
+    let oxidant : Molecule =
+        { Name = "Hydroxyl radical (OH)"
+          Atoms =
+            [ { Element = "O"; Position = (5.0, 0.0, 0.0) }
+              { Element = "H"; Position = (5.97, 0.0, 0.0) } ]
+          Bonds = [ { Atom1 = 0; Atom2 = 1; BondOrder = 1.0 } ]
+          Charge = 0; Multiplicity = 2 }
+
+    let ts : Molecule =
+        { Name = "N-Dealkylation TS"
+          Atoms =
+            [ { Element = "C"; Position = (0.0, 0.0, 0.0) }
+              { Element = "N"; Position = (1.55, 0.0, 0.0) }       // stretched C-N
+              { Element = "H"; Position = (-0.54, 0.94, 0.0) }
+              { Element = "H"; Position = (-0.54, -0.47, 0.82) }
+              { Element = "O"; Position = (-1.30, 0.0, -0.80) }    // O approaching C
+              { Element = "H"; Position = (-1.85, 0.0, -0.10) } ]  // transferred H
+          Bonds =
+            [ { Atom1 = 0; Atom2 = 1; BondOrder = 0.6 }   // weakening C-N
+              { Atom1 = 0; Atom2 = 2; BondOrder = 1.0 }
+              { Atom1 = 0; Atom2 = 3; BondOrder = 1.0 }
+              { Atom1 = 0; Atom2 = 4; BondOrder = 0.5 }   // forming C-O
+              { Atom1 = 4; Atom2 = 5; BondOrder = 1.0 } ]
+          Charge = 0; Multiplicity = 2 }
+
+    let product : Molecule =
+        { Name = "Formaldehyde (CH2O)"
+          Atoms =
+            [ { Element = "C"; Position = (0.0, 0.0, 0.0) }
+              { Element = "O"; Position = (0.0, 0.0, 1.21) }
+              { Element = "H"; Position = (0.94, 0.0, -0.54) }
+              { Element = "H"; Position = (-0.94, 0.0, -0.54) } ]
+          Bonds =
+            [ { Atom1 = 0; Atom2 = 1; BondOrder = 2.0 }
+              { Atom1 = 0; Atom2 = 2; BondOrder = 1.0 }
+              { Atom1 = 0; Atom2 = 3; BondOrder = 1.0 } ]
+          Charge = 0; Multiplicity = 1 }
+
+    { Name = "N-Dealkylation"
+      Reactants = [ reactant; oxidant ]
+      TransitionState = ts
+      Product = product
+      Enzyme = "CYP2D6"
+      Description = "Oxidative N-dealkylation (methylamine demethylation model)" }
+
+/// Aromatic oxidation: benzene-model + OH -> epoxide TS -> phenol-model
+/// CYP1A2-mediated aromatic ring oxidation. Model: simplified 3-atom ring.
+let private aromaticOxidationPathway : MetabolicPathway =
+    let reactant : Molecule =
+        { Name = "Ethene (C2H4, arene model)"
+          Atoms =
+            [ { Element = "C"; Position = (0.0, 0.0, 0.0) }
+              { Element = "C"; Position = (1.34, 0.0, 0.0) }
+              { Element = "H"; Position = (-0.54, 0.94, 0.0) }
+              { Element = "H"; Position = (1.88, 0.94, 0.0) } ]
+          Bonds =
+            [ { Atom1 = 0; Atom2 = 1; BondOrder = 2.0 }
+              { Atom1 = 0; Atom2 = 2; BondOrder = 1.0 }
+              { Atom1 = 1; Atom2 = 3; BondOrder = 1.0 } ]
+          Charge = 0; Multiplicity = 1 }
+
+    let oxidant : Molecule =
+        { Name = "Oxygen atom (model)"
+          Atoms =
+            [ { Element = "O"; Position = (5.0, 1.0, 0.0) } ]
+          Bonds = []
+          Charge = 0; Multiplicity = 3 }
+
+    let ts : Molecule =
+        { Name = "Epoxidation TS"
+          Atoms =
+            [ { Element = "C"; Position = (0.0, 0.0, 0.0) }
+              { Element = "C"; Position = (1.40, 0.0, 0.0) }       // stretched C=C
+              { Element = "O"; Position = (0.70, 0.0, 1.60) }      // O approaching from above
+              { Element = "H"; Position = (-0.54, 0.94, 0.0) }
+              { Element = "H"; Position = (1.94, 0.94, 0.0) } ]
+          Bonds =
+            [ { Atom1 = 0; Atom2 = 1; BondOrder = 1.5 }   // weakening double bond
+              { Atom1 = 0; Atom2 = 2; BondOrder = 0.4 }   // forming C-O (left)
+              { Atom1 = 1; Atom2 = 2; BondOrder = 0.4 }   // forming C-O (right)
+              { Atom1 = 0; Atom2 = 3; BondOrder = 1.0 }
+              { Atom1 = 1; Atom2 = 4; BondOrder = 1.0 } ]
+          Charge = 0; Multiplicity = 1 }
+
+    let product : Molecule =
+        { Name = "Ethylene oxide (epoxide)"
+          Atoms =
+            [ { Element = "C"; Position = (0.0, 0.0, 0.0) }
+              { Element = "C"; Position = (1.47, 0.0, 0.0) }
+              { Element = "O"; Position = (0.74, 0.0, 1.22) }
+              { Element = "H"; Position = (-0.54, 0.94, 0.0) }
+              { Element = "H"; Position = (2.01, 0.94, 0.0) } ]
+          Bonds =
+            [ { Atom1 = 0; Atom2 = 1; BondOrder = 1.0 }
+              { Atom1 = 0; Atom2 = 2; BondOrder = 1.0 }
+              { Atom1 = 1; Atom2 = 2; BondOrder = 1.0 }
+              { Atom1 = 0; Atom2 = 3; BondOrder = 1.0 }
+              { Atom1 = 1; Atom2 = 4; BondOrder = 1.0 } ]
+          Charge = 0; Multiplicity = 1 }
+
+    { Name = "Aromatic Oxidation"
+      Reactants = [ reactant; oxidant ]
+      TransitionState = ts
+      Product = product
+      Enzyme = "CYP1A2"
+      Description = "Aromatic epoxidation (arene oxide intermediate model)" }
+
+/// S-oxidation: (CH3)2S + O -> [(CH3)2S...O] -> (CH3)2SO
+/// FMO-mediated sulfoxidation. Model: dimethyl sulfide -> dimethyl sulfoxide.
+let private sulfoxidationPathway : MetabolicPathway =
+    let reactant : Molecule =
+        { Name = "Dimethyl sulfide (model)"
+          Atoms =
+            [ { Element = "S"; Position = (0.0, 0.0, 0.0) }
+              { Element = "C"; Position = (1.82, 0.0, 0.0) }
+              { Element = "C"; Position = (-1.82, 0.0, 0.0) }
+              { Element = "H"; Position = (2.30, 0.94, 0.0) }
+              { Element = "H"; Position = (-2.30, 0.94, 0.0) } ]
+          Bonds =
+            [ { Atom1 = 0; Atom2 = 1; BondOrder = 1.0 }
+              { Atom1 = 0; Atom2 = 2; BondOrder = 1.0 }
+              { Atom1 = 1; Atom2 = 3; BondOrder = 1.0 }
+              { Atom1 = 2; Atom2 = 4; BondOrder = 1.0 } ]
+          Charge = 0; Multiplicity = 1 }
+
+    let oxidant : Molecule =
+        { Name = "Oxygen atom (model)"
+          Atoms =
+            [ { Element = "O"; Position = (0.0, 3.0, 0.0) } ]
+          Bonds = []
+          Charge = 0; Multiplicity = 3 }
+
+    let ts : Molecule =
+        { Name = "Sulfoxidation TS"
+          Atoms =
+            [ { Element = "S"; Position = (0.0, 0.0, 0.0) }
+              { Element = "C"; Position = (1.82, 0.0, 0.0) }
+              { Element = "C"; Position = (-1.82, 0.0, 0.0) }
+              { Element = "O"; Position = (0.0, 1.80, 0.0) }       // O approaching S
+              { Element = "H"; Position = (2.30, 0.94, 0.0) } ]
+          Bonds =
+            [ { Atom1 = 0; Atom2 = 1; BondOrder = 1.0 }
+              { Atom1 = 0; Atom2 = 2; BondOrder = 1.0 }
+              { Atom1 = 0; Atom2 = 3; BondOrder = 0.5 }    // forming S-O
+              { Atom1 = 1; Atom2 = 4; BondOrder = 1.0 } ]
+          Charge = 0; Multiplicity = 1 }
+
+    let product : Molecule =
+        { Name = "DMSO (model)"
+          Atoms =
+            [ { Element = "S"; Position = (0.0, 0.0, 0.0) }
+              { Element = "C"; Position = (1.82, 0.0, 0.0) }
+              { Element = "C"; Position = (-1.82, 0.0, 0.0) }
+              { Element = "O"; Position = (0.0, 1.48, 0.0) }
+              { Element = "H"; Position = (2.30, 0.94, 0.0) } ]
+          Bonds =
+            [ { Atom1 = 0; Atom2 = 1; BondOrder = 1.0 }
+              { Atom1 = 0; Atom2 = 2; BondOrder = 1.0 }
+              { Atom1 = 0; Atom2 = 3; BondOrder = 2.0 }
+              { Atom1 = 1; Atom2 = 4; BondOrder = 1.0 } ]
+          Charge = 0; Multiplicity = 1 }
+
+    { Name = "Sulfoxidation"
+      Reactants = [ reactant; oxidant ]
+      TransitionState = ts
+      Product = product
+      Enzyme = "FMO3"
+      Description = "S-oxidation (dimethyl sulfide -> DMSO, flavin monooxygenase)" }
+
+/// All built-in presets keyed by lowercase name.
+let private builtinPresets : Map<string, MetabolicPathway> =
+    [ hydroxylationPathway; nDealkylationPathway; aromaticOxidationPathway; sulfoxidationPathway ]
+    |> List.map (fun p -> p.Name.ToLowerInvariant().Replace(" ", "-"), p)
+    |> Map.ofList
+
+let private presetNames =
+    builtinPresets |> Map.toList |> List.map fst |> String.concat ", "
+
+// ==============================================================================
+// CSV INPUT PARSING
+// ==============================================================================
+
+/// Parse atom list from compact string format:
+///   "C:0,0,0|O:0,0,1.21|H:0.94,0,-0.54"
+let private parseAtoms (s: string) : Atom list =
+    s.Split('|')
+    |> Array.choose (fun entry ->
+        let parts = entry.Trim().Split(':')
+        if parts.Length = 2 then
+            let coords = parts.[1].Split(',')
+            if coords.Length = 3 then
+                match Double.TryParse coords.[0], Double.TryParse coords.[1], Double.TryParse coords.[2] with
+                | (true, x), (true, y), (true, z) ->
+                    Some { Element = parts.[0].Trim(); Position = (x, y, z) }
+                | _ -> None
+            else None
+        else None)
+    |> Array.toList
+
+/// Infer single bonds between adjacent atom pairs (simple fallback).
+let private inferBonds (atoms: Atom list) : Bond list =
+    [ for i in 0 .. atoms.Length - 2 do
+        { Atom1 = i; Atom2 = i + 1; BondOrder = 1.0 } ]
+
+/// Build a Molecule from an atom string, inferring bonds.
+let private moleculeFromAtomString (name: string) (atomStr: string) : Molecule =
+    let atoms = parseAtoms atomStr
+    { Name = name
+      Atoms = atoms
+      Bonds = inferBonds atoms
       Charge = 0
       Multiplicity = 1 }
 
-// -- Oxidant: OH radical (simplified; in reality this is the Fe=O moiety of CYP450)
+/// Load metabolic pathways from a CSV file.
+/// Expected columns: name, enzyme, description, reactant_atoms, ts_atoms, product_atoms
+/// OR: name, preset (to reference a built-in preset by name)
+let private loadPathwaysFromCsv (path: string) : MetabolicPathway list =
+    let rows, errors = Data.readCsvWithHeaderWithErrors path
+    if not (List.isEmpty errors) && not quiet then
+        for err in errors do
+            eprintfn "  Warning (CSV): %s" err
 
-let oxidantOH: Molecule =
-    { Name = "Hydroxyl (Oxidant)"
-      Atoms =
-          [ { Element = "O"; Position = (5.0, 0.0, 0.0) }
-            { Element = "H"; Position = (5.97, 0.0, 0.0) } ]
-      Bonds = [ { Atom1 = 0; Atom2 = 1; BondOrder = 1.0 } ]
-      Charge = 0
-      Multiplicity = 2 }
+    rows
+    |> List.choose (fun row ->
+        let get key = row.Values |> Map.tryFind key
+        let name = get "name" |> Option.defaultValue "Unknown"
+        match get "preset" with
+        | Some presetKey ->
+            let key = presetKey.Trim().ToLowerInvariant()
+            match builtinPresets |> Map.tryFind key with
+            | Some pathway -> Some { pathway with Name = name }
+            | None ->
+                if not quiet then
+                    eprintfn "  Warning: unknown preset '%s' (available: %s)" presetKey presetNames
+                None
+        | None ->
+            match get "reactant_atoms", get "ts_atoms", get "product_atoms" with
+            | Some rAtoms, Some tsAtoms, Some pAtoms ->
+                let enzyme = get "enzyme" |> Option.defaultValue "Unknown"
+                let desc = get "description" |> Option.defaultValue ""
+                let reactant = moleculeFromAtomString (name + " reactant") rAtoms
+                let ts = moleculeFromAtomString (name + " TS") tsAtoms
+                let product = moleculeFromAtomString (name + " product") pAtoms
+                Some
+                    { Name = name
+                      Reactants = [ reactant ]
+                      TransitionState = ts
+                      Product = product
+                      Enzyme = enzyme
+                      Description = desc }
+            | _ ->
+                if not quiet then
+                    eprintfn "  Warning: row '%s' missing required columns" name
+                None)
 
-// -- Transition State: [CH3...H...OH]
-// The transferring H atom is equidistant between C and O.
-// Bond distances stretched (~1.3-1.4 A vs normal 1.1 A).
+// ==============================================================================
+// PATHWAY SELECTION
+// ==============================================================================
 
-let transitionState: Molecule =
-    { Name = "Transition State [CH3...H...OH]"
-      Atoms =
-          [ { Element = "C"; Position = (0.0, 0.0, 0.0) }
-            { Element = "H"; Position = (-0.363, 1.028, 0.0) }
-            { Element = "H"; Position = (-0.363, -0.514, 0.890) }
-            { Element = "H"; Position = (-0.363, -0.514, -0.890) }
-            { Element = "H"; Position = (1.35, 0.0, 0.0) }   // Stretched C-H (normally 1.09)
-            { Element = "O"; Position = (2.65, 0.0, 0.0) }   // O-H forming (normally ~0.97)
-            { Element = "H"; Position = (3.3, 0.7, 0.0) } ]
-      Bonds =
-          [ { Atom1 = 0; Atom2 = 1; BondOrder = 1.0 }
-            { Atom1 = 0; Atom2 = 2; BondOrder = 1.0 }
-            { Atom1 = 0; Atom2 = 3; BondOrder = 1.0 }
-            { Atom1 = 0; Atom2 = 4; BondOrder = 0.5 }  // Breaking C-H bond (partial)
-            { Atom1 = 4; Atom2 = 5; BondOrder = 0.5 }  // Forming O-H bond (partial)
-            { Atom1 = 5; Atom2 = 6; BondOrder = 1.0 } ]
-      Charge = 0
-      Multiplicity = 2 }
+let pathways : MetabolicPathway list =
+    let allPathways =
+        match inputFile with
+        | Some path ->
+            let resolved = Data.resolveRelative __SOURCE_DIRECTORY__ path
+            if not quiet then
+                printfn "Loading pathways from: %s" resolved
+            loadPathwaysFromCsv resolved
+        | None ->
+            builtinPresets |> Map.toList |> List.map snd
 
-// -- Product: Methanol (CH3OH)
+    match pathwayFilter with
+    | [] -> allPathways
+    | filters ->
+        let filterSet = filters |> List.map (fun s -> s.ToLowerInvariant()) |> Set.ofList
+        allPathways
+        |> List.filter (fun p ->
+            let key = p.Name.ToLowerInvariant().Replace(" ", "-")
+            filterSet |> Set.exists (fun f -> key.Contains f))
 
-let productMethanol: Molecule =
-    { Name = "Methanol (Product)"
-      Atoms =
-          [ { Element = "C"; Position = (0.0, 0.0, 0.0) }
-            { Element = "H"; Position = (-0.363, 1.028, 0.0) }
-            { Element = "H"; Position = (-0.363, -0.514, 0.890) }
-            { Element = "H"; Position = (-0.363, -0.514, -0.890) }
-            { Element = "O"; Position = (1.43, 0.0, 0.0) }
-            { Element = "H"; Position = (1.83, 0.89, 0.0) } ]
-      Bonds =
-          [ { Atom1 = 0; Atom2 = 1; BondOrder = 1.0 }
-            { Atom1 = 0; Atom2 = 2; BondOrder = 1.0 }
-            { Atom1 = 0; Atom2 = 3; BondOrder = 1.0 }
-            { Atom1 = 0; Atom2 = 4; BondOrder = 1.0 }
-            { Atom1 = 4; Atom2 = 5; BondOrder = 1.0 } ]
-      Charge = 0
-      Multiplicity = 1 }
+if List.isEmpty pathways then
+    eprintfn "Error: No pathways selected. Available presets: %s" presetNames
+    exit 1
 
-// Combined reactant system (for energy comparison)
-let reactantSystem: Molecule =
-    { Name = "CH4 + OH (Separated)"
-      Atoms = reactantMethane.Atoms @ oxidantOH.Atoms
-      Bonds =
-          reactantMethane.Bonds
-          @ (oxidantOH.Bonds
-             |> List.map (fun b ->
-                 { b with
-                     Atom1 = b.Atom1 + reactantMethane.Atoms.Length
-                     Atom2 = b.Atom2 + reactantMethane.Atoms.Length }))
-      Charge = 0
-      Multiplicity = 2 }
+// ==============================================================================
+// QUANTUM BACKEND (Rule 1: all VQE via IQuantumBackend)
+// ==============================================================================
 
-// Display molecular info
-let displayMolecule (mol: Molecule) =
-    if not quiet then
-        printfn "  %s:" mol.Name
-        printfn "    Atoms: %d" mol.Atoms.Length
-        printfn "    Electrons: %d" (Molecule.countElectrons mol)
-        printfn "    Multiplicity: %d (spin = %d/2)" mol.Multiplicity (mol.Multiplicity - 1)
+let backend : IQuantumBackend = LocalBackend() :> IQuantumBackend
 
 if not quiet then
-    printfn "Reaction Model: C-H Hydroxylation"
-    printfn "------------------------------------------------------------"
     printfn ""
-    printfn "  Real CYP450 reaction:"
-    printfn "    Drug-H + [Fe=O]2+ -> Drug-OH + Fe2+"
+    printfn "=================================================================="
+    printfn "  Drug Metabolism: Reaction Pathway Comparison"
+    printfn "=================================================================="
     printfn ""
-    printfn "  Simplified model (for NISQ):"
-    printfn "    CH4 -> [CH3...H...OH] -> CH3OH"
-    printfn "           (transition state)"
-    printfn ""
-    printfn "Molecular Species:"
-    printfn "------------------------------------------------------------"
-    displayMolecule reactantMethane
-    displayMolecule oxidantOH
-    displayMolecule transitionState
-    displayMolecule productMethanol
+    printfn "  Backend:      %s" backend.Name
+    printfn "  Pathways:     %d" pathways.Length
+    printfn "  VQE iters:    %d (tol: %g Ha)" maxIterations tolerance
+    printfn "  Temperature:  %.1f K (%.1f C)" temperature (temperature - 273.15)
     printfn ""
 
 // ==============================================================================
-// QUANTUM BACKEND SETUP
+// VQE COMPUTATION
 // ==============================================================================
 
-let backend = LocalBackend() :> IQuantumBackend
+/// VQE solver configuration.
+let private solverConfig (backend: IQuantumBackend) (maxIter: int) (tol: float) : SolverConfig =
+    { Method = GroundStateMethod.VQE
+      Backend = Some backend
+      MaxIterations = maxIter
+      Tolerance = tol
+      InitialParameters = None
+      ProgressReporter = None
+      ErrorMitigation = None
+      IntegralProvider = None }
 
-if not quiet then
-    printfn "Quantum Backend: %s" backend.Name
-    printfn ""
-
-// ==============================================================================
-// VQE CALCULATIONS
-// ==============================================================================
-
-/// Calculate ground state energy for a molecule using VQE
-let calculateEnergy (molecule: Molecule) : float * float =
+/// Calculate ground state energy for a molecule using VQE via IQuantumBackend.
+/// Returns (Ok energy | Error message, elapsed seconds).
+let private computeEnergy
+    (backend: IQuantumBackend)
+    (maxIter: int)
+    (tol: float)
+    (molecule: Molecule)
+    : Result<float, string> * float =
     let startTime = DateTime.Now
-
-    let config =
-        { Method = GroundStateMethod.VQE
-          Backend = Some backend
-          MaxIterations = maxIterations
-          Tolerance = tolerance
-          InitialParameters = None
-          ProgressReporter = None
-          ErrorMitigation = None
-          IntegralProvider = None }
-
+    let config = solverConfig backend maxIter tol
     let result = GroundStateEnergy.estimateEnergy molecule config |> Async.RunSynchronously
     let elapsed = (DateTime.Now - startTime).TotalSeconds
 
     match result with
-    | Ok vqeResult -> (vqeResult.Energy, elapsed)
+    | Ok vqeResult -> (Ok vqeResult.Energy, elapsed)
     | Error err ->
-        if not quiet then printfn "  Warning: VQE calculation failed: %A" err.Message
-        (0.0, elapsed)
+        if not quiet then
+            eprintfn "  Warning: VQE failed for %s: %s" molecule.Name err.Message
+        (Error (sprintf "VQE failed for %s: %s" molecule.Name err.Message), elapsed)
 
-if not quiet then
-    printfn "VQE Energy Calculations"
-    printfn "============================================================"
-    printfn ""
-
-// Step 1: Reactant system
-if not quiet then
-    printfn "Step 1: Reactant System (CH4 + OH)"
-    printfn "------------------------------------------------------------"
-
-let (reactantEnergy, reactantTime) = calculateEnergy reactantSystem
-
-if not quiet then
-    printfn "  E_reactant = %.6f Hartree (%.2f s)" reactantEnergy reactantTime
-    printfn ""
-
-// Step 2: Transition state
-if not quiet then
-    printfn "Step 2: Transition State [CH3...H...OH]"
-    printfn "------------------------------------------------------------"
-
-let (tsEnergy, tsTime) = calculateEnergy transitionState
-
-if not quiet then
-    printfn "  E_TS = %.6f Hartree (%.2f s)" tsEnergy tsTime
-    printfn ""
-
-// Step 3: Product
-if not quiet then
-    printfn "Step 3: Product (CH3OH)"
-    printfn "------------------------------------------------------------"
-
-let (productEnergy, productTime) = calculateEnergy productMethanol
-
-if not quiet then
-    printfn "  E_product = %.6f Hartree (%.2f s)" productEnergy productTime
-    printfn ""
-
-// ==============================================================================
-// ACTIVATION ENERGY CALCULATION
-// ==============================================================================
-
-let activationEnergyHartree = tsEnergy - reactantEnergy
-let activationEnergyKcal = activationEnergyHartree * hartreeToKcalMol
-let activationEnergyKJ = activationEnergyHartree * hartreeToKJMol
-
-let reactionEnergyHartree = productEnergy - reactantEnergy
-let reactionEnergyKcal = reactionEnergyHartree * hartreeToKcalMol
-
-let barrierInterpretation =
-    if abs activationEnergyKcal < 5.0 then "Very fast (diffusion limited)"
-    elif abs activationEnergyKcal < 15.0 then "Fast (typical enzymatic)"
-    elif abs activationEnergyKcal < 25.0 then "Moderate (rate-determining)"
-    elif abs activationEnergyKcal < 35.0 then "Slow (requires enzyme catalysis)"
+/// Interpret an activation energy barrier for metabolic context.
+let private assessBarrier (eaKcal: float) : string =
+    if eaKcal < 0.0 then "Negative Ea (illustrative only)"
+    elif eaKcal < 5.0 then "Very fast (diffusion-limited)"
+    elif eaKcal < 15.0 then "Fast (typical enzymatic)"
+    elif eaKcal < 25.0 then "Moderate (rate-determining step)"
+    elif eaKcal < 35.0 then "Slow (catalyst essential)"
     else "Very slow (unlikely pathway)"
 
-if not quiet then
-    printfn "============================================================"
-    printfn "  Activation Energy Analysis"
-    printfn "============================================================"
-    printfn ""
-    printfn "Energy Components (Hartree):"
-    printfn "  E_reactant = %.6f" reactantEnergy
-    printfn "  E_TS       = %.6f" tsEnergy
-    printfn "  E_product  = %.6f" productEnergy
-    printfn ""
-    printfn "Activation Energy (forward reaction):"
-    printfn "  Ea = E_TS - E_reactant"
-    printfn "  Ea = %.6f Hartree" activationEnergyHartree
-    printfn "     = %.2f kcal/mol" activationEnergyKcal
-    printfn "     = %.2f kJ/mol" activationEnergyKJ
-    printfn ""
-    printfn "Reaction Energy (thermodynamics):"
-    printfn "  dE = E_product - E_reactant"
-    printfn "  dE = %.6f Hartree" reactionEnergyHartree
-    printfn "     = %.2f kcal/mol" reactionEnergyKcal
-    printfn ""
-    printfn "Barrier Assessment: %s" barrierInterpretation
-    printfn ""
+/// Format a half-life from a rate constant.
+let private formatHalfLife (k: float) : string =
+    if k > 1e-30 && k < 1e30 then
+        let hl = 0.693 / k
+        if hl < 1e-9 then sprintf "%.1e ns" (hl * 1e9)
+        elif hl < 1e-6 then sprintf "%.1e us" (hl * 1e6)
+        elif hl < 1e-3 then sprintf "%.1e ms" (hl * 1e3)
+        elif hl < 1.0 then sprintf "%.2f s" hl
+        elif hl < 60.0 then sprintf "%.1f s" hl
+        elif hl < 3600.0 then sprintf "%.1f min" (hl / 60.0)
+        else sprintf "%.1f h" (hl / 3600.0)
+    else "N/A"
 
-// ==============================================================================
-// RATE CONSTANT CALCULATION (Eyring Equation)
-// ==============================================================================
+/// Compute the full energy profile for one metabolic pathway.
+let private computePathway
+    (backend: IQuantumBackend)
+    (maxIter: int)
+    (tol: float)
+    (idx: int)
+    (total: int)
+    (pathway: MetabolicPathway)
+    : PathwayResult =
+    if not quiet then
+        printfn "  [%d/%d] %s (%s)" (idx + 1) total pathway.Name pathway.Enzyme
+        printfn "         %s" pathway.Description
 
-// Eyring equation: k = (kB*T/h) * exp(-Ea/RT)
-let eaJoules = activationEnergyKJ * 1000.0 // kJ/mol -> J/mol
-let kBT_h = kB * temperature / hPlanck     // prefactor ~6.4e12 s^-1 at 310K
-let exponent = -eaJoules / (gasR * temperature)
-let rateConstant = kBT_h * exp(exponent)
+    let startTime = DateTime.Now
+    let mutable anyFailure = false
 
-if not quiet then
-    printfn "Rate Constant Estimation (Eyring TST)"
-    printfn "------------------------------------------------------------"
-    printfn ""
-    printfn "  k = (kB*T/h) * exp(-Ea/RT)"
-    printfn ""
-    printfn "  Temperature:     %.1f K (%.1f C)" temperature (temperature - 273.15)
-    printfn "  Prefactor kB*T/h: %.2e s^-1" kBT_h
-    printfn "  Activation energy: %.2f kJ/mol" activationEnergyKJ
-    printfn ""
+    /// Unwrap a VQE result, logging failures and tracking error state.
+    let unwrapEnergy (label: string) (name: string) (res: Result<float, string>, elapsed: float) : float * float =
+        match res with
+        | Ok e ->
+            if not quiet then
+                printfn "         %-8s %-20s  E = %10.6f Ha  (%.1fs)" label name e elapsed
+            (e, elapsed)
+        | Error _ ->
+            anyFailure <- true
+            if not quiet then
+                printfn "         %-8s %-20s  E = FAILED         (%.1fs)" label name elapsed
+            (0.0, elapsed)
 
-let halfLifeStr =
-    if rateConstant > 1e-30 && rateConstant < 1e30 then
-        let halfLife = 0.693 / rateConstant
-        if not quiet then
-            printfn "  Rate constant k = %.2e s^-1" rateConstant
-        let desc =
-            if halfLife < 1e-9 then sprintf "%.2e ns (instantaneous)" (halfLife * 1e9)
-            elif halfLife < 1e-6 then sprintf "%.2e us (very fast)" (halfLife * 1e6)
-            elif halfLife < 1e-3 then sprintf "%.2e ms (fast)" (halfLife * 1e3)
-            elif halfLife < 1.0 then sprintf "%.2e s (moderate)" halfLife
-            elif halfLife < 60.0 then sprintf "%.1f s (slow)" halfLife
-            elif halfLife < 3600.0 then sprintf "%.1f min (very slow)" (halfLife / 60.0)
-            else sprintf "%.1f hours (extremely slow)" (halfLife / 3600.0)
-        if not quiet then printfn "  Half-life: %s" desc
-        desc
-    else
-        if not quiet then
-            printfn "  Rate constant: Outside reasonable range"
-            printfn "  (Check activation energy calculation)"
-        "N/A"
+    // Reactant energy = sum of separated species
+    let reactantEnergy =
+        pathway.Reactants
+        |> List.sumBy (fun mol ->
+            let (e, _) = unwrapEnergy "reactant" mol.Name (computeEnergy backend maxIter tol mol)
+            e)
 
-if not quiet then printfn ""
+    let (tsE, _) = unwrapEnergy "TS" pathway.TransitionState.Name (computeEnergy backend maxIter tol pathway.TransitionState)
+    let (prodE, _) = unwrapEnergy "product" pathway.Product.Name (computeEnergy backend maxIter tol pathway.Product)
 
-// ==============================================================================
-// DRUG METABOLISM IMPLICATIONS
-// ==============================================================================
+    let totalTime = (DateTime.Now - startTime).TotalSeconds
 
-// Reference CYP450 activation barriers (kcal/mol)
-let referenceBarriers =
-    [ ("CYP3A4 hydroxylation", 12.0, 18.0)
-      ("CYP2D6 N-dealkylation", 15.0, 22.0)
-      ("CYP2C9 aromatic oxidation", 10.0, 16.0)
-      ("Spontaneous (non-enzymatic)", 25.0, 40.0) ]
+    // Activation energy
+    let eaHartree = tsE - reactantEnergy
+    let eaKcal = eaHartree * hartreeToKcalMol
 
-let potentialEnzymes =
-    if abs activationEnergyKcal < 20.0 then
-        [ "CYP3A4 (major liver enzyme)"
-          "CYP2D6 (polymorphic - variable metabolism)"
-          "CYP2C9 (warfarin metabolism)" ]
-    elif abs activationEnergyKcal < 25.0 then
-        [ "CYP1A2 (caffeine metabolism)"
-          "CYP2E1 (ethanol metabolism)" ]
-    else
-        [ "Unlikely to be CYP-mediated"
-          "May require different enzyme family" ]
+    // Reaction energy
+    let dEKcal = (prodE - reactantEnergy) * hartreeToKcalMol
+
+    // Rate constant via Eyring equation: k = (kB*T/h) * exp(-Ea/(R*T))
+    let eaJoules = eaHartree * hartreeToKJMol * 1000.0  // Hartree -> kJ/mol -> J/mol
+    let kBT_h = kB * temperature / hPlanck
+    let rateK = kBT_h * exp(-eaJoules / (gasR * temperature))
+
+    if not quiet then
+        if anyFailure then
+            printfn "         => INCOMPLETE (VQE failure - energies are unreliable)"
+        else
+            printfn "         => Ea = %.2f kcal/mol  |  dE = %.2f kcal/mol  |  k = %.2e /s" eaKcal dEKcal rateK
+        printfn ""
+
+    { Pathway = pathway
+      ReactantEnergy = reactantEnergy
+      TsEnergy = tsE
+      ProductEnergy = prodE
+      ActivationEnergyHartree = eaHartree
+      ActivationEnergyKcal = eaKcal
+      ReactionEnergyKcal = dEKcal
+      RateConstant = rateK
+      HalfLife = formatHalfLife rateK
+      BarrierAssessment = if anyFailure then "VQE FAILED" else assessBarrier eaKcal
+      ComputeTimeSeconds = totalTime
+      HasVqeFailure = anyFailure }
+
+// --- Run all pathways ---
 
 if not quiet then
-    printfn "============================================================"
-    printfn "  Drug Metabolism Implications"
-    printfn "============================================================"
+    printfn "Computing energy profiles..."
     printfn ""
-    printfn "Reference Activation Barriers (kcal/mol):"
-    for (pathway, low, high) in referenceBarriers do
-        printfn "  %s: %.0f - %.0f" pathway low high
-    printfn ""
-    printfn "Calculated Barrier: %.1f kcal/mol" (abs activationEnergyKcal)
-    printfn ""
-    printfn "Potential Metabolizing Enzymes:"
-    for enzyme in potentialEnzymes do
-        printfn "  - %s" enzyme
-    printfn ""
-    printfn "Clinical Relevance:"
-    printfn "  1. Metabolic rate determines systemic clearance"
-    printfn "     Faster metabolism -> shorter half-life -> more frequent dosing"
-    printfn "  2. Drug-Drug Interaction Risk:"
-    printfn "     Inhibitors: ketoconazole, erythromycin, grapefruit juice"
-    printfn "     Inducers: rifampin, carbamazepine, St. John's wort"
-    printfn "  3. Pharmacogenomics:"
-    printfn "     CYP2D6 poor metabolizers (5-10%% of population)"
-    printfn "     Affects codeine->morphine, tamoxifen->endoxifen activation"
-    printfn "  4. Toxic Metabolite Risk:"
-    printfn "     If barrier to toxic pathway is lower than safe pathway"
-    printfn ""
+
+let results =
+    pathways
+    |> List.mapi (fun i pathway -> computePathway backend maxIterations tolerance i pathways.Length pathway)
+
+// Sort by activation energy ascending (lowest positive barrier = fastest pathway).
+// Failed pathways sink to bottom; negative Ea flagged as illustrative.
+let ranked =
+    results
+    |> List.sortBy (fun r ->
+        if r.HasVqeFailure then (2, infinity)
+        elif r.ActivationEnergyKcal < 0.0 then (1, r.ActivationEnergyKcal)
+        else (0, r.ActivationEnergyKcal))
 
 // ==============================================================================
-// QUANTUM ADVANTAGE ANALYSIS
+// RANKED COMPARISON TABLE
 // ==============================================================================
 
-if not quiet then
-    printfn "Quantum Computing Advantage"
-    printfn "------------------------------------------------------------"
+let printTable () =
+    printfn "=================================================================="
+    printfn "  Ranked Metabolic Pathways (by activation energy)"
+    printfn "=================================================================="
     printfn ""
-    printfn "  Why quantum matters for reaction pathways:"
-    printfn "  1. Transition states are multiconfigurational"
-    printfn "     Breaking/forming bonds -> degenerate electronic states"
-    printfn "     Classical DFT underestimates barriers by 5-10 kcal/mol"
-    printfn "  2. Radical character in CYP450 intermediates"
-    printfn "     Spin-state changes during reaction"
-    printfn "  3. Near-degeneracy effects"
-    printfn "     Multiple low-lying electronic states"
-    printfn ""
-    printfn "  Method           | Typical Error | Computation"
-    printfn "  -----------------|---------------|-------------------"
-    printfn "  B3LYP (DFT)      | +/-5 kcal/mol | Minutes"
-    printfn "  CCSD(T) (gold)   | +/-1 kcal/mol | Days (small mol)"
-    printfn "  VQE (quantum)    | +/-1 kcal/mol | Hours (NISQ)"
-    printfn "  VQE (FT-QC)      | +/-1 kcal/mol | Minutes (future)"
-    printfn ""
-    printfn "  For drug metabolism: 5 kcal/mol error -> 10-100x error in rate constant"
+    printfn "  %-4s  %-22s  %-8s  %13s  %11s  %10s  %s"
+        "#" "Pathway" "Enzyme" "Ea (kcal/mol)" "Rate (/s)" "Half-life" "Assessment"
+    printfn "  %s" (String('=', 100))
+
+    ranked
+    |> List.iteri (fun i r ->
+        printfn "  %-4d  %-22s  %-8s  %13.2f  %11.2e  %10s  %s"
+            (i + 1)
+            r.Pathway.Name
+            r.Pathway.Enzyme
+            r.ActivationEnergyKcal
+            r.RateConstant
+            r.HalfLife
+            r.BarrierAssessment)
+
     printfn ""
 
-// ==============================================================================
-// STRUCTURED OUTPUT
-// ==============================================================================
+    // Thermodynamics column
+    printfn "  %-4s  %-22s  %-8s  %13s  %11s  %s"
+        "#" "Pathway" "Enzyme" "dE (kcal/mol)" "Time (s)" "Thermodynamics"
+    printfn "  %s" (String('-', 85))
 
-let totalTime = reactantTime + tsTime + productTime
+    ranked
+    |> List.iteri (fun i r ->
+        let thermo = if r.ReactionEnergyKcal < 0.0 then "exothermic" else "endothermic"
+        printfn "  %-4d  %-22s  %-8s  %13.2f  %11.1f  %s"
+            (i + 1) r.Pathway.Name r.Pathway.Enzyme r.ReactionEnergyKcal r.ComputeTimeSeconds thermo)
 
-let resultsList = System.Collections.Generic.List<Map<string, string>>()
+    printfn ""
 
-// Energy results
-let energyResults =
-    [ "stage", "energy_calculation"
-      "reactant_energy_hartree", sprintf "%.6f" reactantEnergy
-      "ts_energy_hartree", sprintf "%.6f" tsEnergy
-      "product_energy_hartree", sprintf "%.6f" productEnergy
-      "activation_energy_hartree", sprintf "%.6f" activationEnergyHartree
-      "activation_energy_kcal_mol", sprintf "%.2f" activationEnergyKcal
-      "activation_energy_kj_mol", sprintf "%.2f" activationEnergyKJ
-      "reaction_energy_hartree", sprintf "%.6f" reactionEnergyHartree
-      "reaction_energy_kcal_mol", sprintf "%.2f" reactionEnergyKcal
-      "barrier_assessment", barrierInterpretation
-      "thermodynamics", (if reactionEnergyKcal < 0.0 then "exothermic" else "endothermic") ]
-    |> Map.ofList
-
-resultsList.Add(energyResults)
-
-// Rate constant results
-let rateResults =
-    [ "stage", "rate_constant"
-      "temperature_k", sprintf "%.1f" temperature
-      "rate_constant_s_inv", sprintf "%.2e" rateConstant
-      "half_life", halfLifeStr
-      "prefactor_s_inv", sprintf "%.2e" kBT_h
-      "potential_enzymes", (potentialEnzymes |> String.concat "; ") ]
-    |> Map.ofList
-
-resultsList.Add(rateResults)
-
-// Computation summary
-let summaryResults =
-    [ "stage", "computation_summary"
-      "max_iterations", string maxIterations
-      "tolerance", sprintf "%g" tolerance
-      "reactant_time_s", sprintf "%.2f" reactantTime
-      "ts_time_s", sprintf "%.2f" tsTime
-      "product_time_s", sprintf "%.2f" productTime
-      "total_time_s", sprintf "%.2f" totalTime ]
-    |> Map.ofList
-
-resultsList.Add(summaryResults)
-
-let allResults = resultsList |> Seq.toList
-
-match Cli.tryGet "output" args with
-| Some path ->
-    Reporting.writeJson path allResults
-    if not quiet then printfn "Results written to %s" path
-| None -> ()
-
-match Cli.tryGet "csv" args with
-| Some path ->
-    let header =
-        [ "stage"
-          "reactant_energy_hartree"
-          "ts_energy_hartree"
-          "product_energy_hartree"
-          "activation_energy_kcal_mol"
-          "reaction_energy_kcal_mol"
-          "barrier_assessment"
-          "temperature_k"
-          "rate_constant_s_inv"
-          "half_life"
-          "total_time_s" ]
-
-    let rows =
-        allResults
-        |> List.map (fun m ->
-            header |> List.map (fun h -> m |> Map.tryFind h |> Option.defaultValue ""))
-
-    Reporting.writeCsv path header rows
-    if not quiet then printfn "CSV written to %s" path
-| None -> ()
+// Always print the ranked comparison table — that's the primary output of this tool,
+// even in --quiet mode (which only suppresses per-pathway progress output).
+printTable ()
 
 // ==============================================================================
 // SUMMARY
 // ==============================================================================
 
 if not quiet then
-    printfn ""
-    printfn "============================================================"
-    printfn "  Summary"
-    printfn "============================================================"
-    printfn ""
-    printfn "  Calculated C-H hydroxylation reaction pathway"
-    printfn "  Activation energy: %.2f kcal/mol (%s)" (abs activationEnergyKcal) barrierInterpretation
-    printfn "  Reaction thermodynamics: %.2f kcal/mol (%s)"
-        reactionEnergyKcal
-        (if reactionEnergyKcal < 0.0 then "exothermic" else "endothermic")
-    printfn "  Rate constant estimated via transition state theory"
-    printfn "  All computation via IQuantumBackend (quantum compliant)"
-    printfn ""
-    printfn "  Total computation time: %.2f seconds" totalTime
+    let best = ranked |> List.head
+    let totalTime = results |> List.sumBy (fun r -> r.ComputeTimeSeconds)
+    printfn "  Best pathway:  %s via %s (Ea = %.2f kcal/mol)" best.Pathway.Name best.Pathway.Enzyme best.ActivationEnergyKcal
+    printfn "  Total time:    %.1f seconds" totalTime
+    printfn "  Quantum:       all VQE via IQuantumBackend [Rule 1 compliant]"
     printfn ""
 
+// ==============================================================================
+// STRUCTURED OUTPUT
+// ==============================================================================
+
+let resultMaps =
+    ranked
+    |> List.mapi (fun i r ->
+        [ "rank", string (i + 1)
+          "pathway", r.Pathway.Name
+          "enzyme", r.Pathway.Enzyme
+          "description", r.Pathway.Description
+          "ea_hartree", sprintf "%.6f" r.ActivationEnergyHartree
+          "ea_kcal_mol", sprintf "%.2f" r.ActivationEnergyKcal
+          "de_kcal_mol", sprintf "%.2f" r.ReactionEnergyKcal
+          "rate_constant_s", sprintf "%.2e" r.RateConstant
+          "half_life", r.HalfLife
+          "barrier_assessment", r.BarrierAssessment
+          "thermodynamics", (if r.ReactionEnergyKcal < 0.0 then "exothermic" else "endothermic")
+          "reactant_energy_ha", sprintf "%.6f" r.ReactantEnergy
+          "ts_energy_ha", sprintf "%.6f" r.TsEnergy
+          "product_energy_ha", sprintf "%.6f" r.ProductEnergy
+          "compute_time_s", sprintf "%.1f" r.ComputeTimeSeconds
+          "temperature_k", sprintf "%.1f" temperature
+          "has_vqe_failure", string r.HasVqeFailure ]
+        |> Map.ofList)
+
+match Cli.tryGet "output" args with
+| Some path ->
+    Reporting.writeJson path resultMaps
+    if not quiet then printfn "Results written to %s" path
+| None -> ()
+
+match Cli.tryGet "csv" args with
+| Some path ->
+    let header =
+        [ "rank"; "pathway"; "enzyme"; "description"; "ea_hartree"; "ea_kcal_mol"
+          "de_kcal_mol"; "rate_constant_s"; "half_life"; "barrier_assessment"
+          "thermodynamics"; "reactant_energy_ha"; "ts_energy_ha"; "product_energy_ha"
+          "compute_time_s"; "temperature_k"; "has_vqe_failure" ]
+    let rows =
+        resultMaps
+        |> List.map (fun m ->
+            header |> List.map (fun h -> m |> Map.tryFind h |> Option.defaultValue ""))
+    Reporting.writeCsv path header rows
+    if not quiet then printfn "Results written to %s" path
+| None -> ()
+
 if argv.Length = 0 && not quiet then
-    printfn "Tip: Run with -- --help to see available options"
-    printfn "     --temperature 298.15   (room temperature instead of body temp)"
-    printfn "     --max-iterations 100   (more VQE iterations)"
-    printfn "     --output results.json  (structured output)"
+    printfn ""
+    printfn "Tip: Run with --help to see all options."
+    printfn "     --pathways hydroxylation,sulfoxidation   Run specific pathways"
+    printfn "     --input pathways.csv                     Load custom pathways from CSV"
+    printfn "     --csv results.csv                        Export ranked table as CSV"
+    printfn ""

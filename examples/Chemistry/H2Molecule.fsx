@@ -198,7 +198,7 @@ let runGroundState (label: string) (distance: float) (method: GroundStateMethod)
         |> Some
     | Error err ->
         if not quiet then
-            printfn "Calculation failed: %A" err.Message
+            printfn "Calculation failed: %s" err.Message
         None
 
 // Run the selected methods
@@ -400,7 +400,7 @@ match convResult with
         printfn "Tip: Use --csv to export results for external plotting tools."
 | Error err ->
     if not quiet then
-        printfn "Convergence calculation failed: %A" err.Message
+        printfn "Convergence calculation failed: %s" err.Message
 
 // ==============================================================================
 // STRUCTURED OUTPUT

@@ -15,6 +15,7 @@
 
 //#r "nuget: FSharp.Azure.Quantum"
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
+#r "nuget: Microsoft.Extensions.Logging.Abstractions, 10.0.0"
 
 #load "../_common/Cli.fs"
 #load "../_common/Data.fs"
@@ -88,7 +89,8 @@ if shouldRun 1 then
           Backend = quantumBackend
           Shots = cliShots
           FitIntercept = true
-          Verbose = not quiet }
+          Verbose = not quiet
+          Logger = None }
 
     match QuantumRegressionHHL.train config with
     | Error err ->
@@ -152,7 +154,8 @@ if shouldRun 2 then
           Backend = quantumBackend
           Shots = cliShots
           FitIntercept = true
-          Verbose = not quiet }
+          Verbose = not quiet
+          Logger = None }
 
     match QuantumRegressionHHL.train config with
     | Error err ->
@@ -216,7 +219,8 @@ if shouldRun 3 then
           Backend = quantumBackend
           Shots = cliShots
           FitIntercept = true
-          Verbose = false }
+          Verbose = false
+          Logger = None }
 
     match QuantumRegressionHHL.train config with
     | Error err ->

@@ -1,63 +1,29 @@
+// ==============================================================================
 // Grover's Algorithm Threat to Symmetric Cryptography (AES)
-// Demonstrates quantum speedup for brute-force key search attacks
+// ==============================================================================
+// Compares classical vs quantum security of symmetric ciphers using Grover's
+// quadratic speedup. For each cipher, computes quantum security bits (key_bits/2),
+// time estimates, and resource requirements (Grassl et al. 2016).
+//
+// Includes a live Grover search demo via the library's GroverSearch module to
+// demonstrate the oracle + amplitude-amplification infrastructure.
 //
 // Usage:
 //   dotnet fsi GroverAESThreat.fsx
 //   dotnet fsi GroverAESThreat.fsx -- --help
-//   dotnet fsi GroverAESThreat.fsx -- --key-size 256 --target 5 --qubits 3
+//   dotnet fsi GroverAESThreat.fsx -- --ciphers aes-128,aes-256
+//   dotnet fsi GroverAESThreat.fsx -- --input ciphers.csv
+//   dotnet fsi GroverAESThreat.fsx -- --target 5 --qubits 3
 //   dotnet fsi GroverAESThreat.fsx -- --quiet --output results.json --csv results.csv
-
-(*
-===============================================================================
- Background Theory
-===============================================================================
-
-Grover's algorithm (1996) provides quadratic speedup for unstructured search
-problems: finding a marked item in an unsorted database of N items requires
-O(sqrt(N)) quantum queries versus O(N) classical queries. For symmetric
-cryptography like AES, this means a brute-force key search on an n-bit key
-requires only O(2^(n/2)) quantum operations instead of O(2^n) classical
-operations.
-
-The algorithm works by amplitude amplification: starting from a uniform
-superposition |s> = (1/sqrt(N)) Sum|x>, repeatedly apply the Grover iterate
-G = -H^n U0 H^n Uw, where Uw marks the target state and U0 reflects about
-|s>. After ~(pi/4)*sqrt(N) iterations, measuring yields the marked state with
-high probability. For cryptographic key search, the oracle Uw checks if
-decrypting known ciphertext with key |k> produces expected plaintext.
-
-Key Equations:
-  - Classical brute force: O(2^n) operations for n-bit key
-  - Grover search: O(2^(n/2)) operations = O(sqrt(2^n))
-  - Optimal iterations: k ~ (pi/4)*sqrt(N) where N = 2^n
-  - Success probability: sin^2((2k+1)*theta) where sin^2(theta) = 1/N
-  - AES-128: 2^128 classical -> 2^64 quantum (still infeasible)
-  - AES-256: 2^256 classical -> 2^128 quantum (quantum-safe margin)
-
-Quantum Advantage:
-  Grover provides QUADRATIC (not exponential) speedup. This is fundamentally
-  different from Shor's exponential speedup for factoring/DLP:
-
-  | Algorithm | Classical  | Quantum    | Speedup     |
-  |-----------|------------|------------|-------------|
-  | Shor      | O(e^n)     | O(n^3)     | Exponential |
-  | Grover    | O(2^n)     | O(2^(n/2)) | Quadratic   |
-
-  For AES-128 (n=128): 2^64 quantum ops is ~10^19 operations--still infeasible
-  with any foreseeable quantum computer. AES-256 provides 2^128 quantum
-  security, equivalent to classical AES-128 security. The standard mitigation
-  is to DOUBLE the key size: AES-128 -> AES-256 for post-quantum security.
-
-References:
-  [1] Grover, "A fast quantum mechanical algorithm for database search",
-      STOC 1996, pp. 212-219. https://doi.org/10.1145/237814.237866
-  [2] Bennett et al., "Strengths and Weaknesses of Quantum Computing",
-      SIAM J. Comput. 26(5), 1510-1523 (1997). https://arxiv.org/abs/quant-ph/9701001
-  [3] Grassl et al., "Applying Grover's algorithm to AES: quantum resource
-      estimates", PQCrypto 2016. https://doi.org/10.1007/978-3-319-29360-8_3
-  [4] Wikipedia: Grover's_algorithm
-      https://en.wikipedia.org/wiki/Grover%27s_algorithm
-*)
+//
+// References:
+//   [1] Grover, "A fast quantum mechanical algorithm for database search",
+//       STOC 1996. https://doi.org/10.1145/237814.237866
+//   [2] Grassl et al., "Applying Grover's algorithm to AES: quantum resource
+//       estimates", PQCrypto 2016. https://doi.org/10.1007/978-3-319-29360-8_3
+//   [3] Wikipedia: Grover's_algorithm
+//       https://en.wikipedia.org/wiki/Grover%27s_algorithm
+// ==============================================================================
 
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 #load "../_common/Cli.fs"
@@ -72,438 +38,370 @@ open FSharp.Azure.Quantum.GroverSearch
 open FSharp.Azure.Quantum.GroverSearch.Oracle
 open FSharp.Azure.Quantum.Examples.Common
 
-// ============================================================================
-// CLI Setup
-// ============================================================================
+// ==============================================================================
+// CLI
+// ==============================================================================
 
 let argv = fsi.CommandLineArgs |> Array.skip 1
 let args = Cli.parse argv
 
-Cli.exitIfHelp "GroverAESThreat.fsx" "Grover's algorithm threat analysis for symmetric cryptography (AES)." [
-    { Name = "key-size"; Description = "AES key size to focus on (128, 192, 256)"; Default = Some "128" }
-    { Name = "target"; Description = "Target value for Grover demo search"; Default = Some "3" }
-    { Name = "qubits"; Description = "Number of qubits for Grover demo search"; Default = Some "2" }
-    { Name = "output"; Description = "Write results to JSON file"; Default = None }
-    { Name = "csv"; Description = "Write results to CSV file"; Default = None }
-    { Name = "quiet"; Description = "Suppress informational output"; Default = None }
-] args
+Cli.exitIfHelp "GroverAESThreat.fsx"
+    "Grover's algorithm threat analysis for symmetric ciphers (AES, ChaCha20, DES, etc.)."
+    [ { Cli.OptionSpec.Name = "input"; Description = "CSV file with custom cipher definitions"; Default = Some "built-in presets" }
+      { Cli.OptionSpec.Name = "ciphers"; Description = "Comma-separated cipher names to analyse (default: all)"; Default = Some "all" }
+      { Cli.OptionSpec.Name = "target"; Description = "Target value for Grover demo search"; Default = Some "3" }
+      { Cli.OptionSpec.Name = "qubits"; Description = "Number of qubits for Grover demo search"; Default = Some "2" }
+      { Cli.OptionSpec.Name = "output"; Description = "Write results to JSON file"; Default = None }
+      { Cli.OptionSpec.Name = "csv"; Description = "Write results to CSV file"; Default = None }
+      { Cli.OptionSpec.Name = "quiet"; Description = "Suppress informational output (flag)"; Default = None } ]
+    args
 
-let focusKeySize = Cli.getIntOr "key-size" 128 args
+let quiet = Cli.hasFlag "quiet" args
+let inputFile = Cli.tryGet "input" args
+let cipherFilter = Cli.getCommaSeparated "ciphers" args
 let targetValue = Cli.getIntOr "target" 3 args
 let numQubits = Cli.getIntOr "qubits" 2 args
-let quiet = Cli.hasFlag "quiet" args
-let outputPath = Cli.tryGet "output" args
-let csvPath = Cli.tryGet "csv" args
 
-// ============================================================================
-// Result Collection
-// ============================================================================
+// ==============================================================================
+// TYPES
+// ==============================================================================
 
-let results = System.Collections.Generic.List<Map<string, string>>()
+/// Symmetric cipher configuration.
+type CipherInfo =
+    { Name: string
+      KeyBits: int
+      BlockBits: int }
 
-let addResult scenario cipher keyBits classicalBits quantumBits quantumSafe recommendation =
-    results.Add(
-        [ "scenario", scenario
-          "cipher", cipher
-          "key_bits", string keyBits
-          "classical_security_bits", string classicalBits
-          "quantum_security_bits", string quantumBits
-          "quantum_safe", string quantumSafe
-          "recommendation", recommendation ]
-        |> Map.ofList)
+/// Security analysis result for one cipher.
+type CipherResult =
+    { Cipher: CipherInfo
+      ClassicalSecurityBits: float
+      QuantumSecurityBits: float
+      QuantumSafe: bool
+      GroverIterationsLog2: float
+      ResourceEstimate: string
+      TimeYears: float
+      Recommendation: string
+      HasQuantumFailure: bool }
 
-let addGroverResult target found iterations successProb qubitsUsed =
-    results.Add(
-        [ "scenario", "Grover Demo"
-          "cipher", "N/A"
-          "target_value", string target
-          "found_value", found
-          "iterations", string iterations
-          "success_probability", sprintf "%.4f" successProb
-          "qubits_used", string qubitsUsed
-          "search_space", string (1 <<< qubitsUsed) ]
-        |> Map.ofList)
+// ==============================================================================
+// PHYSICAL CONSTANTS
+// ==============================================================================
 
-// ============================================================================
-// Domain Types for Cryptographic Analysis
-// ============================================================================
+let opsPerSecond = 1e9  // optimistic: 1 billion quantum ops/sec
 
-/// Symmetric cipher configuration
-type SymmetricCipher = {
-    Name: string
-    KeyBits: int
-    BlockBits: int
-}
+// ==============================================================================
+// SECURITY ANALYSIS FUNCTIONS (Pure)
+// ==============================================================================
 
-/// Security analysis result
-type SecurityAnalysis = {
-    Cipher: SymmetricCipher
-    ClassicalSecurity: float      // log2 of classical operations
-    QuantumSecurity: float        // log2 of quantum operations (Grover)
-    QuantumSafe: bool             // True if quantum security >= 128 bits
-    Recommendation: string
-}
-
-// ============================================================================
-// Security Analysis Functions (Pure)
-// ============================================================================
-
-/// Calculate quantum security level using Grover's speedup
+/// Quantum security bits = classical / 2  (Grover's quadratic speedup).
 let quantumSecurityBits (classicalBits: int) : float =
     float classicalBits / 2.0
 
-/// Analyze a symmetric cipher's quantum resistance
-let analyzeSymmetricCipher (cipher: SymmetricCipher) : SecurityAnalysis =
-    let classicalSecurity = float cipher.KeyBits
-    let quantumSecurity = quantumSecurityBits cipher.KeyBits
-    let isQuantumSafe = quantumSecurity >= 128.0
+/// Estimate Grover iterations (log2) for a key space of keyBits.
+let groverIterationsLog2 (keyBits: int) : float =
+    // Optimal iterations ~ (pi/4) * sqrt(2^n)
+    // log2 of that is roughly n/2 + constant
+    let n = float keyBits
+    n / 2.0 + Math.Log(Math.PI / 4.0, 2.0)
 
-    let recommendation =
-        if isQuantumSafe then
-            sprintf "%s is quantum-safe (%.0f-bit quantum security)" cipher.Name quantumSecurity
-        elif quantumSecurity >= 64.0 then
-            sprintf "%s has reduced security (%.0f-bit quantum). Consider upgrading to %d-bit keys."
-                cipher.Name quantumSecurity (cipher.KeyBits * 2)
-        else
-            sprintf "%s is NOT quantum-safe (%.0f-bit quantum). UPGRADE IMMEDIATELY."
-                cipher.Name quantumSecurity
+/// Estimate quantum resources based on Grassl et al. (2016).
+let estimateResources (keyBits: int) : string =
+    match keyBits with
+    | 56  -> "~1000 qubits, 2^48 T-gates"
+    | 112 -> "~2200 qubits, 2^76 T-gates"
+    | 128 -> "2953 qubits, 2^86 T-gates"
+    | 192 -> "4449 qubits, 2^118 T-gates"
+    | 256 -> "6681 qubits, 2^151 T-gates"
+    | _   -> sprintf "~%d qubits, 2^%d T-gates" (keyBits * 20) (keyBits / 2 + 20)
 
+/// Estimate attack time in years at opsPerSecond.
+let estimateTimeYears (keyBits: int) : float =
+    let qBits = quantumSecurityBits keyBits
+    let quantumOps = Math.Pow(2.0, qBits)
+    let timeSec = quantumOps / opsPerSecond
+    timeSec / (365.25 * 24.0 * 3600.0)
+
+/// Build a recommendation string.
+let recommend (cipher: CipherInfo) (qSafe: bool) (qBits: float) : string =
+    if qSafe then
+        sprintf "%s is quantum-safe (%.0f-bit quantum security)" cipher.Name qBits
+    elif qBits >= 64.0 then
+        sprintf "%s has reduced security (%.0f-bit quantum). Consider %d-bit keys."
+            cipher.Name qBits (cipher.KeyBits * 2)
+    else
+        sprintf "%s is NOT quantum-safe (%.0f-bit quantum). UPGRADE IMMEDIATELY."
+            cipher.Name qBits
+
+/// Analyse one cipher.
+let analyseCipher (cipher: CipherInfo) : CipherResult =
+    let classical = float cipher.KeyBits
+    let quantum = quantumSecurityBits cipher.KeyBits
+    let safe = quantum >= 128.0
     { Cipher = cipher
-      ClassicalSecurity = classicalSecurity
-      QuantumSecurity = quantumSecurity
-      QuantumSafe = isQuantumSafe
-      Recommendation = recommendation }
+      ClassicalSecurityBits = classical
+      QuantumSecurityBits = quantum
+      QuantumSafe = safe
+      GroverIterationsLog2 = groverIterationsLog2 cipher.KeyBits
+      ResourceEstimate = estimateResources cipher.KeyBits
+      TimeYears = estimateTimeYears cipher.KeyBits
+      Recommendation = recommend cipher safe quantum
+      HasQuantumFailure = false }
 
-/// Estimate Grover iterations needed
-let groverIterations (keyBits: int) : float =
-    (Math.PI / 4.0) * Math.Sqrt(Math.Pow(2.0, float keyBits))
+// ==============================================================================
+// BUILT-IN CIPHER PRESETS
+// ==============================================================================
 
-/// Estimate quantum resources for Grover attack on AES
-/// Based on Grassl et al. (2016) estimates
-let estimateAESGroverResources (keyBits: int) : string =
-    let qubits =
-        match keyBits with
-        | 128 -> 2953   // Grassl et al. estimate
-        | 192 -> 4449
-        | 256 -> 6681
-        | _ -> keyBits * 20  // Rough estimate
+let private builtinPresets : Map<string, CipherInfo> =
+    [ { Name = "DES";      KeyBits = 56;  BlockBits = 64 }
+      { Name = "3DES";     KeyBits = 112; BlockBits = 64 }
+      { Name = "AES-128";  KeyBits = 128; BlockBits = 128 }
+      { Name = "AES-192";  KeyBits = 192; BlockBits = 128 }
+      { Name = "AES-256";  KeyBits = 256; BlockBits = 128 }
+      { Name = "ChaCha20"; KeyBits = 256; BlockBits = 512 } ]
+    |> List.map (fun c -> c.Name.ToLowerInvariant(), c)
+    |> Map.ofList
 
-    let tGates =
-        match keyBits with
-        | 128 -> "2^86"
-        | 192 -> "2^118"
-        | 256 -> "2^151"
-        | _ -> sprintf "2^%d" (keyBits / 2 + 20)
+let private presetNames =
+    builtinPresets |> Map.toList |> List.map fst |> String.concat ", "
 
-    sprintf "%d qubits, %s T-gates" qubits tGates
+// ==============================================================================
+// CSV INPUT PARSING
+// ==============================================================================
 
-// ============================================================================
-// Main Execution
-// ============================================================================
+/// Load ciphers from a CSV file.
+/// Expected columns: name, key_bits, block_bits
+/// OR: name, preset (to reference a built-in preset)
+let private loadCiphersFromCsv (path: string) : CipherInfo list =
+    let rows, errors = Data.readCsvWithHeaderWithErrors path
+    if not (List.isEmpty errors) && not quiet then
+        for err in errors do
+            eprintfn "  Warning (CSV): %s" err
 
-if not quiet then
-    printfn "=== Grover's Algorithm Threat to Symmetric Cryptography ==="
-    printfn ""
-    printfn "BUSINESS SCENARIO:"
-    printfn "A security architect needs to assess whether current symmetric encryption"
-    printfn "(AES-128, AES-256) will remain secure against quantum computers. This"
-    printfn "demonstrates Grover's quadratic speedup for brute-force key search."
-    printfn ""
+    rows
+    |> List.choose (fun row ->
+        let get key = row.Values |> Map.tryFind key
+        let name = get "name" |> Option.defaultValue "Unknown"
+        match get "preset" with
+        | Some presetKey ->
+            let key = presetKey.Trim().ToLowerInvariant()
+            match builtinPresets |> Map.tryFind key with
+            | Some c -> Some { c with Name = name }
+            | None ->
+                if not quiet then
+                    eprintfn "  Warning: unknown preset '%s' (available: %s)" presetKey presetNames
+                None
+        | None ->
+            match get "key_bits" with
+            | Some kbStr ->
+                match Int32.TryParse kbStr with
+                | true, kb ->
+                    let bb =
+                        get "block_bits"
+                        |> Option.bind (fun s -> match Int32.TryParse s with true, v -> Some v | _ -> None)
+                        |> Option.defaultValue 128
+                    Some { Name = name; KeyBits = kb; BlockBits = bb }
+                | _ ->
+                    if not quiet then eprintfn "  Warning: invalid key_bits '%s' for '%s'" kbStr name
+                    None
+            | None ->
+                if not quiet then eprintfn "  Warning: row '%s' missing 'key_bits' or 'preset'" name
+                None)
 
-// ============================================================================
-// Scenario 1: Compare Classical vs Quantum Key Search
-// ============================================================================
+// ==============================================================================
+// CIPHER SELECTION
+// ==============================================================================
 
-let ciphers = [
-    { Name = "DES";      KeyBits = 56;  BlockBits = 64 }
-    { Name = "3DES";     KeyBits = 112; BlockBits = 64 }
-    { Name = "AES-128";  KeyBits = 128; BlockBits = 128 }
-    { Name = "AES-192";  KeyBits = 192; BlockBits = 128 }
-    { Name = "AES-256";  KeyBits = 256; BlockBits = 128 }
-    { Name = "ChaCha20"; KeyBits = 256; BlockBits = 512 }
-]
+let ciphers : CipherInfo list =
+    let allCiphers =
+        match inputFile with
+        | Some path ->
+            let resolved = Data.resolveRelative __SOURCE_DIRECTORY__ path
+            if not quiet then printfn "Loading ciphers from: %s" resolved
+            loadCiphersFromCsv resolved
+        | None ->
+            builtinPresets |> Map.toList |> List.map snd
 
-let analyses = ciphers |> List.map analyzeSymmetricCipher
+    match cipherFilter with
+    | [] -> allCiphers
+    | filters ->
+        let filterSet = filters |> List.map (fun s -> s.ToLowerInvariant()) |> Set.ofList
+        allCiphers
+        |> List.filter (fun c ->
+            let key = c.Name.ToLowerInvariant()
+            filterSet |> Set.exists (fun f -> key.Contains f))
 
-if not quiet then
-    printfn "--- Scenario 1: Classical vs Quantum Brute Force ---"
-    printfn ""
-    printfn "Security Level Comparison:"
-    printfn ""
-    printfn "  Cipher       Key Size   Classical (bits)   Quantum (bits)   Safe?"
-    printfn "  ----------   --------   ----------------   --------------   -----"
+if List.isEmpty ciphers then
+    eprintfn "Error: No ciphers selected. Available presets: %s" presetNames
+    exit 1
 
-    analyses |> List.iter (fun a ->
-        let qStatus = if a.QuantumSafe then "Yes" else "No"
-        printfn "  %-10s   %3d-bit    %6.0f             %6.0f           %s"
-            a.Cipher.Name a.Cipher.KeyBits
-            a.ClassicalSecurity a.QuantumSecurity qStatus)
+// ==============================================================================
+// QUANTUM BACKEND (Rule 1)
+// ==============================================================================
 
-    printfn ""
-    printfn "128-bit quantum security is considered the post-quantum minimum."
-    printfn ""
-
-// Collect all cipher analysis results
-analyses |> List.iter (fun a ->
-    addResult "Cipher Comparison" a.Cipher.Name a.Cipher.KeyBits
-        (int a.ClassicalSecurity) (int a.QuantumSecurity)
-        a.QuantumSafe a.Recommendation)
-
-// ============================================================================
-// Scenario 2: Detailed AES Analysis (focused on user-specified key size)
-// ============================================================================
-
-let aesVariants = [
-    { Name = "AES-128"; KeyBits = 128; BlockBits = 128 }
-    { Name = "AES-192"; KeyBits = 192; BlockBits = 128 }
-    { Name = "AES-256"; KeyBits = 256; BlockBits = 128 }
-]
-
-if not quiet then
-    printfn "--- Scenario 2: AES Quantum Security Analysis ---"
-    printfn ""
-
-    aesVariants |> List.iter (fun cipher ->
-        let analysis = analyzeSymmetricCipher cipher
-        let resources = estimateAESGroverResources cipher.KeyBits
-        let iters = groverIterations cipher.KeyBits
-        let focusMarker = if cipher.KeyBits = focusKeySize then " [FOCUS]" else ""
-
-        printfn "%s:%s" cipher.Name focusMarker
-        printfn "  Key space:           2^%d = %.2e possible keys" cipher.KeyBits (Math.Pow(2.0, float cipher.KeyBits))
-        printfn "  Classical security:  %.0f bits (brute force: 2^%.0f ops)" analysis.ClassicalSecurity analysis.ClassicalSecurity
-        printfn "  Quantum security:    %.0f bits (Grover: 2^%.0f ops)" analysis.QuantumSecurity analysis.QuantumSecurity
-        printfn "  Grover iterations:   ~2^%.0f" (Math.Log(iters, 2.0))
-        printfn "  Quantum resources:   %s" resources
-        printfn "  Assessment:          %s" analysis.Recommendation
-        printfn "")
-
-// ============================================================================
-// Scenario 3: Why Grover Doesn't Break AES
-// ============================================================================
-
-let focusCipher = aesVariants |> List.find (fun c -> c.KeyBits = focusKeySize)
-let focusQuantumBits = quantumSecurityBits focusCipher.KeyBits
-let opsPerSecond = 1e9  // Optimistic: 1 billion quantum ops/sec
-let quantumOps = Math.Pow(2.0, focusQuantumBits)
-let timeSeconds = quantumOps / opsPerSecond
-let timeYears = timeSeconds / (365.25 * 24.0 * 3600.0)
+let backend : IQuantumBackend = LocalBackend() :> IQuantumBackend
 
 if not quiet then
-    printfn "--- Scenario 3: Why Grover Doesn't Break AES (Yet) ---"
     printfn ""
-    printfn "Even with Grover's speedup, breaking %s requires:" focusCipher.Name
+    printfn "=================================================================="
+    printfn "  Grover's Algorithm Threat to Symmetric Cryptography"
+    printfn "=================================================================="
     printfn ""
-    printfn "  Quantum operations:  2^%.0f = %.2e" focusQuantumBits quantumOps
-    printfn "  Qubits needed:       %s" (estimateAESGroverResources focusCipher.KeyBits)
-    printfn "  Circuit depth:       ~2^%.0f sequential operations" focusQuantumBits
-    printfn ""
-    printfn "Time estimate (optimistic 10^9 ops/sec):"
-    printfn "  Operations:  %.2e" quantumOps
-    printfn "  Time:        %.2e seconds" timeSeconds
-    printfn "  Time:        %.2e years" timeYears
-
-    if timeYears > 1e9 then
-        printfn "  Time:        ~%.0f billion years" (timeYears / 1e9)
-    elif timeYears > 1e6 then
-        printfn "  Time:        ~%.0f million years" (timeYears / 1e6)
-
-    printfn ""
-    printfn "KEY INSIGHT: Even with Grover, %s requires impractical time!" focusCipher.Name
-    printfn "             The circuit depth alone makes it infeasible."
+    printfn "  Backend:  %s" backend.Name
+    printfn "  Ciphers:  %d" ciphers.Length
     printfn ""
 
-// Add time estimate to results
-results.Add(
-    [ "scenario", "Time Estimate"
-      "cipher", focusCipher.Name
-      "key_bits", string focusCipher.KeyBits
-      "quantum_security_bits", string (int focusQuantumBits)
-      "quantum_ops", sprintf "%.2e" quantumOps
-      "time_seconds", sprintf "%.2e" timeSeconds
-      "time_years", sprintf "%.2e" timeYears
-      "ops_per_second", sprintf "%.0e" opsPerSecond ]
-    |> Map.ofList)
+// ==============================================================================
+// ANALYSE ALL CIPHERS
+// ==============================================================================
 
-// ============================================================================
-// Scenario 4: Practical Recommendations
-// ============================================================================
+let results = ciphers |> List.map analyseCipher
 
-if not quiet then
-    printfn "--- Scenario 4: Post-Quantum Symmetric Crypto Recommendations ---"
-    printfn ""
+// Sort: least quantum-safe first (lowest quantum security bits).
+let ranked =
+    results
+    |> List.sortBy (fun r -> r.QuantumSecurityBits)
 
-    let recommendations = [
-        ("AES-128 users", "Upgrade to AES-256 for post-quantum security margin")
-        ("AES-256 users", "Already quantum-safe (128-bit quantum security)")
-        ("New systems",   "Use AES-256 or ChaCha20-Poly1305 by default")
-        ("Hash functions","Use SHA-3 or SHA-256 with 256-bit output")
-        ("MACs",          "Use HMAC-SHA-256 or Poly1305")
-    ]
+// ==============================================================================
+// GROVER DEMO
+// ==============================================================================
 
-    printfn "Recommendations by use case:"
-    printfn ""
-
-    recommendations |> List.iter (fun (useCase, rec') ->
-        printfn "  %-16s -> %s" useCase rec')
-
-    printfn ""
-
-    // Comparison with asymmetric crypto
-    printfn "COMPARISON: Symmetric vs Asymmetric Quantum Threats"
-    printfn ""
-    printfn "  Crypto Type      Algorithm       Quantum Attack   Mitigation"
-    printfn "  ---------------  --------------  ---------------  ---------------"
-    printfn "  Symmetric        AES-128         Grover (2^64)    Use AES-256"
-    printfn "  Symmetric        AES-256         Grover (2^128)   Already safe"
-    printfn "  Asymmetric       RSA-2048        Shor (poly)      Use PQ crypto"
-    printfn "  Asymmetric       ECDH-256        Shor (poly)      Use PQ crypto"
-    printfn "  Hash             SHA-256         Grover (2^128)   Already safe"
-    printfn ""
-    printfn "Key insight: Symmetric crypto needs only key doubling; asymmetric"
-    printfn "             crypto needs complete algorithm replacement!"
-    printfn ""
-
-// ============================================================================
-// Demonstration: Grover Search Using Our Library
-// ============================================================================
-
-if not quiet then
-    printfn "--- Demonstration: Grover Search Infrastructure ---"
-    printfn ""
-    printfn "Our library's GroverSearch module demonstrates Grover's algorithm."
-    printfn "For a real AES attack, the oracle would check: Decrypt(key, ciphertext) = plaintext"
-    printfn ""
-
-let searchSpace = 1 <<< numQubits
-
-if not quiet then
-    let optimalIters = int (Math.Round((Math.PI / 4.0) * Math.Sqrt(float searchSpace)))
-    printfn "Example: Search %d-item database (%d qubits)" searchSpace numQubits
-    printfn "  Database size: N = %d" searchSpace
-    printfn "  Classical:     O(%d) = %d queries average" searchSpace searchSpace
-    printfn "  Grover:        O(sqrt(%d)) = %d queries" searchSpace (int (Math.Sqrt(float searchSpace)))
-    printfn "  Optimal iterations: pi/4 * sqrt(%d) ~ %d" searchSpace optimalIters
-    printfn ""
-
-if targetValue >= searchSpace then
-    if not quiet then
-        printfn "  WARNING: Target value %d exceeds search space 2^%d = %d" targetValue numQubits searchSpace
-        printfn "           Skipping Grover demo (use --target with a smaller value)"
-        printfn ""
-    addGroverResult targetValue "out_of_range" 0 0.0 numQubits
-else
-    if not quiet then
-        printfn "Creating oracle for target value %d in %d-qubit space..." targetValue numQubits
-
-    match Oracle.forValue targetValue numQubits with
-    | Error err ->
-        if not quiet then
-            printfn "  Failed to create oracle: %A" err
-        addGroverResult targetValue "oracle_error" 0 0.0 numQubits
-    | Ok oracle ->
-        if not quiet then
-            printfn "  Oracle created successfully"
-            printfn ""
-
-            // Verify which values are marked by the oracle
-            printfn "Oracle verification (classical check):"
-            for i in 0 .. searchSpace - 1 do
-                let isTarget = Oracle.isSolution oracle.Spec i
-                let mark = if isTarget then "TARGET" else "      "
-                printfn "  %s |%d> = |%s>" mark i (Convert.ToString(i, 2).PadLeft(numQubits, '0'))
-
-            printfn ""
-            printfn "Running Grover search..."
-
-        // Create local backend and search configuration
-        let backend = LocalBackend() :> IQuantumBackend
-        let optIters = int (Math.Round((Math.PI / 4.0) * Math.Sqrt(float searchSpace)))
-        let config = { Grover.defaultConfig with Iterations = Some (max 1 optIters) }
-
-        match Grover.search oracle backend config with
+/// Run a small Grover search to demonstrate the library's oracle/search infra.
+/// Returns (target, found, iterations, successProb, qubitsUsed, hasFailure).
+let runGroverDemo (target: int) (qubits: int) : int * string * int * float * int * bool =
+    let searchSpace = 1 <<< qubits
+    if target >= searchSpace then
+        (target, "out_of_range", 0, 0.0, qubits, false)
+    else
+        match Oracle.forValue target qubits with
         | Error err ->
-            if not quiet then
-                printfn "  Search failed: %A" err
-            addGroverResult targetValue "search_error" 0 0.0 numQubits
-        | Ok result ->
-            let foundStr =
-                if result.Solutions.IsEmpty then "(none)"
-                else result.Solutions |> List.map string |> String.concat ", "
+            if not quiet then eprintfn "  Grover oracle error: %s" err.Message
+            (target, "oracle_error", 0, 0.0, qubits, true)
+        | Ok oracle ->
+            let optIters = int (Math.Round((Math.PI / 4.0) * Math.Sqrt(float searchSpace)))
+            let config = { Grover.defaultConfig with Iterations = Some (max 1 optIters) }
+            match Grover.search oracle backend config with
+            | Error err ->
+                if not quiet then eprintfn "  Grover search error: %s" err.Message
+                (target, "search_error", 0, 0.0, qubits, true)
+            | Ok result ->
+                let foundStr =
+                    if result.Solutions.IsEmpty then "(none)"
+                    else result.Solutions |> List.map string |> String.concat ","
+                (target, foundStr, result.Iterations, result.SuccessProbability, qubits, false)
 
-            if not quiet then
-                printfn ""
-                printfn "Grover Search Result:"
-                printfn "  Search space:    2^%d = %d items" numQubits searchSpace
-                printfn "  Target:          |%d>" targetValue
-
-                if result.Solutions.IsEmpty then
-                    printfn "  Found:           (no solution)"
-                else
-                    for solution in result.Solutions do
-                        printfn "  Found:           |%d> = |%s>" solution (Convert.ToString(solution, 2).PadLeft(numQubits, '0'))
-
-                printfn "  Iterations:      %d" result.Iterations
-                printfn "  Success prob:    %.1f%%" (result.SuccessProbability * 100.0)
-                printfn ""
-                printfn "This same technique would search the AES key space--just with"
-                printfn "128+ qubits and an oracle that checks decryption!"
-                printfn ""
-
-            addGroverResult targetValue foundStr result.Iterations result.SuccessProbability numQubits
-
-// ============================================================================
-// Key Takeaways
-// ============================================================================
+let (demoTarget, demoFound, demoIters, demoProb, demoQubits, demoFailed) =
+    runGroverDemo targetValue numQubits
 
 if not quiet then
-    printfn "--- Key Takeaways ---"
+    let searchSpace = 1 <<< numQubits
+    printfn "Grover Demo: search %d-item space (%d qubits) for target=%d"
+        searchSpace numQubits targetValue
+    printfn "  Found:       %s" demoFound
+    printfn "  Iterations:  %d" demoIters
+    printfn "  Success:     %.1f%%" (demoProb * 100.0)
     printfn ""
 
-    let takeaways = [
-        "Grover provides QUADRATIC speedup (sqrt(N)), not exponential like Shor"
-        "AES-128: 128-bit classical -> 64-bit quantum security"
-        "AES-256: 256-bit classical -> 128-bit quantum security (safe!)"
-        "Even with Grover, AES-128 attack needs billions of years"
-        "Simple mitigation: DOUBLE the key size (AES-128 -> AES-256)"
-        "Symmetric crypto is FAR easier to make quantum-safe than asymmetric"
-        "NIST recommendation: Use 256-bit symmetric keys for post-quantum"
-    ]
+// ==============================================================================
+// RANKED COMPARISON TABLE
+// ==============================================================================
 
-    takeaways |> List.iter (printfn "- %s")
+let printTable () =
+    printfn "=================================================================="
+    printfn "  Ranked Symmetric Ciphers (by quantum security)"
+    printfn "=================================================================="
+    printfn ""
+    printfn "  %-4s  %-12s  %4s  %8s  %8s  %8s  %-6s  %s"
+        "#" "Cipher" "Key" "Classic" "Quantum" "Time(yr)" "Safe?" "Resource Estimate"
+    printfn "  %s" (String('=', 95))
+
+    ranked
+    |> List.iteri (fun i r ->
+        let safeStr = if r.QuantumSafe then "Yes" else "No"
+        let timeStr =
+            if r.TimeYears > 1e15 then sprintf "%.0e" r.TimeYears
+            elif r.TimeYears > 1e9 then sprintf "%.0fB" (r.TimeYears / 1e9)
+            elif r.TimeYears > 1e6 then sprintf "%.0fM" (r.TimeYears / 1e6)
+            else sprintf "%.1f" r.TimeYears
+        printfn "  %-4d  %-12s  %4d  %8.0f  %8.0f  %8s  %-6s  %s"
+            (i + 1) r.Cipher.Name r.Cipher.KeyBits
+            r.ClassicalSecurityBits r.QuantumSecurityBits
+            timeStr safeStr r.ResourceEstimate)
+
     printfn ""
 
-// ============================================================================
-// Structured Output
-// ============================================================================
+// Always print the table (even in --quiet mode).
+printTable ()
 
-let resultsList = results |> Seq.toList
+// ==============================================================================
+// SUMMARY
+// ==============================================================================
 
-match outputPath with
-| Some path -> Reporting.writeJson path resultsList
-| None -> ()
+if not quiet then
+    let safe = ranked |> List.filter (fun r -> r.QuantumSafe)
+    let unsafe = ranked |> List.filter (fun r -> not r.QuantumSafe)
+    printfn "  Quantum-safe ciphers:   %d  (%s)"
+        safe.Length
+        (safe |> List.map (fun r -> r.Cipher.Name) |> String.concat ", "
+         |> fun s -> if s = "" then "none" else s)
+    printfn "  Vulnerable ciphers:     %d  (%s)"
+        unsafe.Length
+        (unsafe |> List.map (fun r -> r.Cipher.Name) |> String.concat ", "
+         |> fun s -> if s = "" then "none" else s)
+    printfn "  128-bit quantum security is the post-quantum minimum."
+    printfn ""
 
-match csvPath with
+// ==============================================================================
+// STRUCTURED OUTPUT
+// ==============================================================================
+
+let resultMaps =
+    ranked
+    |> List.mapi (fun i r ->
+        [ "rank", string (i + 1)
+          "cipher", r.Cipher.Name
+          "key_bits", string r.Cipher.KeyBits
+          "block_bits", string r.Cipher.BlockBits
+          "classical_security_bits", sprintf "%.0f" r.ClassicalSecurityBits
+          "quantum_security_bits", sprintf "%.0f" r.QuantumSecurityBits
+          "quantum_safe", string r.QuantumSafe
+          "grover_iterations_log2", sprintf "%.1f" r.GroverIterationsLog2
+          "resource_estimate", r.ResourceEstimate
+          "attack_time_years", sprintf "%.2e" r.TimeYears
+          "recommendation", r.Recommendation
+          "grover_demo_target", string demoTarget
+          "grover_demo_found", demoFound
+          "grover_demo_iterations", string demoIters
+          "grover_demo_success_prob", sprintf "%.4f" demoProb
+          "has_quantum_failure", string (r.HasQuantumFailure || demoFailed) ]
+        |> Map.ofList)
+
+match Cli.tryGet "output" args with
 | Some path ->
-    // Use union of all keys across result rows
-    let allKeys =
-        resultsList
-        |> List.collect (fun m -> m |> Map.toList |> List.map fst)
-        |> List.distinct
-    let rows =
-        resultsList
-        |> List.map (fun m -> allKeys |> List.map (fun k -> m |> Map.tryFind k |> Option.defaultValue ""))
-    Reporting.writeCsv path allKeys rows
+    Reporting.writeJson path resultMaps
+    if not quiet then printfn "Results written to %s" path
 | None -> ()
 
-// ============================================================================
-// Usage Hints
-// ============================================================================
+match Cli.tryGet "csv" args with
+| Some path ->
+    let header =
+        [ "rank"; "cipher"; "key_bits"; "block_bits"
+          "classical_security_bits"; "quantum_security_bits"; "quantum_safe"
+          "grover_iterations_log2"; "resource_estimate"; "attack_time_years"
+          "recommendation"; "grover_demo_target"; "grover_demo_found"
+          "grover_demo_iterations"; "grover_demo_success_prob"; "has_quantum_failure" ]
+    let rows =
+        resultMaps
+        |> List.map (fun m ->
+            header |> List.map (fun h -> m |> Map.tryFind h |> Option.defaultValue ""))
+    Reporting.writeCsv path header rows
+    if not quiet then printfn "Results written to %s" path
+| None -> ()
 
-if not quiet && outputPath.IsNone && csvPath.IsNone && argv.Length = 0 then
+if argv.Length = 0 && not quiet then
     printfn ""
-    printfn "Hint: Customize this run with CLI options:"
-    printfn "  dotnet fsi GroverAESThreat.fsx -- --key-size 256"
-    printfn "  dotnet fsi GroverAESThreat.fsx -- --target 5 --qubits 3"
-    printfn "  dotnet fsi GroverAESThreat.fsx -- --quiet --output results.json --csv results.csv"
-    printfn "  dotnet fsi GroverAESThreat.fsx -- --help"
+    printfn "Tip: Run with --help to see all options."
+    printfn "     --ciphers aes-128,aes-256       Analyse specific ciphers"
+    printfn "     --input ciphers.csv              Load custom ciphers from CSV"
+    printfn "     --csv results.csv                Export ranked table as CSV"
+    printfn ""
