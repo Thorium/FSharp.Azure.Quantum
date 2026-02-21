@@ -234,8 +234,23 @@ module QuantumVertexCoverSolver =
     // DECOMPOSE / RECOMBINE HOOKS (Decision 10: identity stubs)
     // ========================================================================
 
-    /// Decompose a problem into sub-problems. Currently identity (single problem).
-    let decompose (problem: Problem) : Problem list = [ problem ]
+    /// Decompose a vertex cover problem into independent sub-problems by
+    /// connected components. Each component can be solved independently because
+    /// edges only create constraints within a component.
+    let decompose (problem: Problem) : Problem list =
+        let n = problem.Vertices.Length
+        if n <= 1 then [ problem ]
+        else
+            let parts = ProblemDecomposition.partitionByComponents n problem.Edges
+            match parts with
+            | [ _ ] -> [ problem ]  // Single component — no benefit to splitting
+            | components ->
+                components
+                |> List.map (fun (globalIndices, localEdges) ->
+                    let localVertices =
+                        globalIndices
+                        |> List.map (fun gi -> problem.Vertices.[gi])
+                    { Vertices = localVertices; Edges = localEdges })
 
     /// Recombine sub-solutions into a single solution. Currently identity (single solution).
     /// Handles empty list gracefully.
@@ -261,6 +276,8 @@ module QuantumVertexCoverSolver =
     // ========================================================================
 
     /// Solve vertex cover using QAOA with full configuration control.
+    /// Automatically decomposes into connected components when the problem
+    /// exceeds backend qubit capacity.
     let solveWithConfig
         (backend: BackendAbstraction.IQuantumBackend)
         (problem: Problem)
@@ -273,35 +290,39 @@ module QuantumVertexCoverSolver =
                 i < 0 || j < 0 || i >= problem.Vertices.Length || j >= problem.Vertices.Length || i = j) then
             Error (QuantumError.ValidationError ("edges", "Edge index out of range or self-loop"))
         else
-            match toQubo problem with
-            | Error err -> Error err
-            | Ok qubo ->
-                let result =
-                    if config.EnableOptimization then
-                        executeQaoaWithOptimization backend qubo config
-                        |> Result.map (fun (bits, optParams, converged) ->
-                            (bits, Some optParams, Some converged))
-                    else
-                        executeQaoaWithGridSearch backend qubo config
-                        |> Result.map (fun (bits, optParams) ->
-                            (bits, Some optParams, None))
-
-                match result with
+            let solveSingle (subProblem: Problem) =
+                match toQubo subProblem with
                 | Error err -> Error err
-                | Ok (bits, optParams, converged) ->
-                    let finalBits, wasRepaired =
-                        if config.EnableConstraintRepair && not (isValid problem bits) then
-                            (repairConstraints problem bits, true)
+                | Ok qubo ->
+                    let result =
+                        if config.EnableOptimization then
+                            executeQaoaWithOptimization backend qubo config
+                            |> Result.map (fun (bits, optParams, converged) ->
+                                (bits, Some optParams, Some converged))
                         else
-                            (bits, false)
+                            executeQaoaWithGridSearch backend qubo config
+                            |> Result.map (fun (bits, optParams) ->
+                                (bits, Some optParams, None))
 
-                    let solution = decodeSolution problem finalBits
-                    Ok { solution with
-                            BackendName = backend.Name
-                            NumShots = config.FinalShots
-                            WasRepaired = wasRepaired
-                            OptimizedParameters = optParams
-                            OptimizationConverged = converged }
+                    match result with
+                    | Error err -> Error err
+                    | Ok (bits, optParams, converged) ->
+                        let finalBits, wasRepaired =
+                            if config.EnableConstraintRepair && not (isValid subProblem bits) then
+                                (repairConstraints subProblem bits, true)
+                            else
+                                (bits, false)
+
+                        let solution = decodeSolution subProblem finalBits
+                        Ok { solution with
+                                BackendName = backend.Name
+                                NumShots = config.FinalShots
+                                WasRepaired = wasRepaired
+                                OptimizedParameters = optParams
+                                OptimizationConverged = converged }
+
+            ProblemDecomposition.solveWithDecomposition
+                backend problem estimateQubits decompose recombine solveSingle
 
     /// Solve vertex cover using QAOA with default configuration.
     let solve

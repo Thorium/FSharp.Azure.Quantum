@@ -141,6 +141,68 @@ module QaoaCircuit =
                 NumQubits = n
                 Terms = Array.append diagonalTerms offDiagonalTerms
             }
+
+        /// Convert sparse QUBO (Map<int*int, float>) directly to ProblemHamiltonian
+        /// without creating an intermediate dense float[,] array.
+        ///
+        /// This is the memory-efficient path for large sparse problems. A 1000-variable
+        /// QUBO with 5000 nonzeros iterates only those entries instead of allocating a
+        /// 1M-element dense matrix.
+        ///
+        /// Uses the same Ising mapping as fromQubo:
+        ///   Diagonal  Q_ii  => -Q_ii/2 * Z_i
+        ///   Off-diag  (i<j) => (Q_ij + Q_ji)/4 * Z_i Z_j
+        ///
+        /// Parameters:
+        ///   numQubits - number of binary variables
+        ///   quboMap   - sparse QUBO entries (i,j) -> coefficient (may be symmetric or upper-triangle)
+        let fromQuboSparse (numQubits: int) (quboMap: Map<int * int, float>) : ProblemHamiltonian =
+            // Accumulate diagonal and off-diagonal contributions.
+            // Off-diagonal: collect into (min(i,j), max(i,j)) -> summed coefficient
+            // so we handle both upper and lower triangle entries.
+            let mutable diagCoeffs = Map.empty<int, float>
+            let mutable offDiagCoeffs = Map.empty<int * int, float>
+
+            for KeyValue((i, j), qij) in quboMap do
+                if abs qij > 1e-10 then
+                    if i = j then
+                        let prev = diagCoeffs |> Map.tryFind i |> Option.defaultValue 0.0
+                        diagCoeffs <- diagCoeffs |> Map.add i (prev + qij)
+                    else
+                        let key = if i < j then (i, j) else (j, i)
+                        let prev = offDiagCoeffs |> Map.tryFind key |> Option.defaultValue 0.0
+                        offDiagCoeffs <- offDiagCoeffs |> Map.add key (prev + qij)
+
+            let diagonalTerms =
+                diagCoeffs
+                |> Map.toArray
+                |> Array.choose (fun (i, qii) ->
+                    if abs qii > 1e-10 then
+                        Some {
+                            Coefficient = -qii / 2.0
+                            QubitsIndices = [| i |]
+                            PauliOperators = [| PauliZ |]
+                        }
+                    else
+                        None)
+
+            let offDiagonalTerms =
+                offDiagCoeffs
+                |> Map.toArray
+                |> Array.choose (fun ((i, j), sumQij) ->
+                    if abs sumQij > 1e-10 then
+                        Some {
+                            Coefficient = sumQij / 4.0
+                            QubitsIndices = [| i; j |]
+                            PauliOperators = [| PauliZ; PauliZ |]
+                        }
+                    else
+                        None)
+
+            {
+                NumQubits = numQubits
+                Terms = Array.append diagonalTerms offDiagonalTerms
+            }
     
     // ============================================================================
     // 3. MIXER HAMILTONIAN CONSTRUCTION

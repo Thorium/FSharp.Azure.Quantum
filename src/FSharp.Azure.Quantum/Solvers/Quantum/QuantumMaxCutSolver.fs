@@ -276,30 +276,14 @@ module QuantumMaxCutSolver =
                 | Error err -> return Error err
                 | Ok quboMatrix ->
                     
-                    // Step 3: Convert QUBO to dense array for QAOA
+                    // Step 3: Convert QUBO to dense array and execute QAOA pipeline
                     let quboArray = Qubo.toDenseArray quboMatrix.NumVariables quboMatrix.Q
-                    
-                    // Step 4: Create QAOA Hamiltonians from QUBO
-                    let problemHam = QaoaCircuit.ProblemHamiltonian.fromQubo quboArray
-                    let mixerHam = QaoaCircuit.MixerHamiltonian.create problemHam.NumQubits
-                    
-                    // Step 5: Build QAOA circuit with parameters
                     let (gamma, beta) = config.InitialParameters
                     let parameters = [| gamma, beta |]
-                    let qaoaCircuit = QaoaCircuit.QaoaCircuit.build problemHam mixerHam parameters
                     
-                    // Step 6: Wrap QAOA circuit for backend execution
-                    let circuitWrapper = CircuitAbstraction.QaoaCircuitWrapper(qaoaCircuit) :> CircuitAbstraction.ICircuit
-                    
-                    // Step 7: Execute on quantum backend asynchronously
-                    // Execute circuit to get quantum state, then measure
-                    let stateResult = backend.ExecuteToState circuitWrapper
-                    
-                    match stateResult with
+                    match QaoaExecutionHelpers.executeFromQubo backend quboArray parameters config.NumShots with
                     | Error err -> return Error err
-                    | Ok quantumState ->
-                        // Measure the state to get classical bit strings
-                        let measurements = QuantumState.measure quantumState config.NumShots
+                    | Ok measurements ->
                         
                         // Step 7: Decode measurements to partitions
                         let solutions = 

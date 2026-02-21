@@ -489,7 +489,9 @@ module QuantumSatSolver =
     // DECOMPOSE / RECOMBINE HOOKS (Decision 10: identity stubs)
     // ========================================================================
 
-    /// Decompose a problem into sub-problems. Currently identity (single problem).
+    /// Decompose a SAT problem into sub-problems.
+    /// Currently identity — SAT clause dependencies make partitioning non-trivial.
+    /// Future: partition by independent variable groups (disjoint clause sets).
     let decompose (problem: Problem) : Problem list = [ problem ]
 
     /// Recombine sub-solutions into a single solution. Currently identity.
@@ -516,6 +518,7 @@ module QuantumSatSolver =
     // ========================================================================
 
     /// Solve MAX-SAT using QAOA with full configuration control.
+    /// Supports automatic decomposition when problem exceeds backend capacity.
     let solveWithConfig
         (backend: BackendAbstraction.IQuantumBackend)
         (problem: Problem)
@@ -525,41 +528,45 @@ module QuantumSatSolver =
         match validateProblem problem with
         | Error err -> Error err
         | Ok () ->
-            match toQubo problem with
-            | Error err -> Error err
-            | Ok qubo ->
-                let result =
-                    if config.EnableOptimization then
-                        executeQaoaWithOptimization backend qubo config
-                        |> Result.map (fun (bits, optParams, converged) ->
-                            (bits, Some optParams, Some converged))
-                    else
-                        executeQaoaWithGridSearch backend qubo config
-                        |> Result.map (fun (bits, optParams) ->
-                            (bits, Some optParams, None))
-
-                match result with
+            let solveSingle (subProblem: Problem) =
+                match toQubo subProblem with
                 | Error err -> Error err
-                | Ok (bits, optParams, converged) ->
-                    let needsRepair =
-                        let assignment =
-                            Array.init problem.NumVariables (fun i ->
-                                if i < bits.Length then bits.[i] = 1 else false)
-                        countSatisfied problem assignment < problem.Clauses.Length
-
-                    let finalBits, wasRepaired =
-                        if config.EnableConstraintRepair && needsRepair then
-                            (repairConstraints problem bits, true)
+                | Ok qubo ->
+                    let result =
+                        if config.EnableOptimization then
+                            executeQaoaWithOptimization backend qubo config
+                            |> Result.map (fun (bits, optParams, converged) ->
+                                (bits, Some optParams, Some converged))
                         else
-                            (bits, false)
+                            executeQaoaWithGridSearch backend qubo config
+                            |> Result.map (fun (bits, optParams) ->
+                                (bits, Some optParams, None))
 
-                    let solution = decodeSolution problem finalBits
-                    Ok { solution with
-                            BackendName = backend.Name
-                            NumShots = config.FinalShots
-                            WasRepaired = wasRepaired
-                            OptimizedParameters = optParams
-                            OptimizationConverged = converged }
+                    match result with
+                    | Error err -> Error err
+                    | Ok (bits, optParams, converged) ->
+                        let needsRepair =
+                            let assignment =
+                                Array.init subProblem.NumVariables (fun i ->
+                                    if i < bits.Length then bits.[i] = 1 else false)
+                            countSatisfied subProblem assignment < subProblem.Clauses.Length
+
+                        let finalBits, wasRepaired =
+                            if config.EnableConstraintRepair && needsRepair then
+                                (repairConstraints subProblem bits, true)
+                            else
+                                (bits, false)
+
+                        let solution = decodeSolution subProblem finalBits
+                        Ok { solution with
+                                BackendName = backend.Name
+                                NumShots = config.FinalShots
+                                WasRepaired = wasRepaired
+                                OptimizedParameters = optParams
+                                OptimizationConverged = converged }
+
+            ProblemDecomposition.solveWithDecomposition
+                backend problem estimateQubits decompose recombine solveSingle
 
     /// Solve MAX-SAT using QAOA with default configuration.
     let solve

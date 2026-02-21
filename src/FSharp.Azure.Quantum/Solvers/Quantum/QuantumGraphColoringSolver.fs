@@ -367,28 +367,14 @@ module QuantumGraphColoringSolver =
                 | Error err -> return Error err
                 | Ok (quboMatrix, reverseMap) ->
                     
-                    // Step 3: Convert QUBO to dense array for QAOA
+                    // Step 3: Convert QUBO to dense array and execute QAOA pipeline
                     let quboArray = Qubo.toDenseArray quboMatrix.NumVariables quboMatrix.Q
-                    
-                    // Step 4: Create QAOA Hamiltonians from QUBO
-                    let problemHam = QaoaCircuit.ProblemHamiltonian.fromQubo quboArray
-                    let mixerHam = QaoaCircuit.MixerHamiltonian.create problemHam.NumQubits
-                    
-                    // Step 5: Build QAOA circuit with parameters
                     let (gamma, beta) = config.InitialParameters
                     let parameters = [| gamma, beta |]
-                    let qaoaCircuit = QaoaCircuit.QaoaCircuit.build problemHam mixerHam parameters
                     
-                    // Step 6: Wrap QAOA circuit for backend execution
-                    let circuitWrapper = CircuitAbstraction.QaoaCircuitWrapper(qaoaCircuit) :> CircuitAbstraction.ICircuit
-                    
-                    // Step 7: Execute on quantum backend to get state
-                    match backend.ExecuteToState circuitWrapper with
+                    match QaoaExecutionHelpers.executeFromQubo backend quboArray parameters config.NumShots with
                     | Error err -> return Error err
-                    | Ok state ->
-                        
-                        // Step 8: Perform measurements on quantum state
-                        let measurements = QuantumState.measure state config.NumShots
+                    | Ok measurements ->
                         
                         // Step 9: Decode measurements to color assignments
                         let solutions = 

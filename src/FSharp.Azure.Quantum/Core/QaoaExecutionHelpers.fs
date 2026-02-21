@@ -291,3 +291,298 @@ module QaoaExecutionHelpers =
             match result.LastError with
             | Some err -> Error err
             | None -> Error (QuantumError.OperationError ("QAOA", "No valid solution found"))
+
+    // ================================================================================
+    // DENSE QUBO CONVENIENCE (for old solver migration — Task 2)
+    // ================================================================================
+
+    /// Execute QAOA from a dense QUBO matrix: builds Hamiltonians, circuit, executes,
+    /// and returns measurements. This is the convenience entry-point for old solvers
+    /// that have their own config types and just need the circuit execution pipeline.
+    ///
+    /// Parameters:
+    ///   backend    - quantum backend to execute on
+    ///   qubo       - dense QUBO matrix (float[,])
+    ///   parameters - array of (gamma, beta) tuples, one per QAOA layer
+    ///   shots      - number of measurement shots
+    ///
+    /// Returns: Ok measurements or Error
+    let executeFromQubo
+        (backend: BackendAbstraction.IQuantumBackend)
+        (qubo: float[,])
+        (parameters: (float * float)[])
+        (shots: int)
+        : Result<int[][], QuantumError> =
+
+        let n = Array2D.length1 qubo
+        let problemHam = QaoaCircuit.ProblemHamiltonian.fromQubo qubo
+        let mixerHam = QaoaCircuit.MixerHamiltonian.create n
+        executeQaoaCircuit backend problemHam mixerHam parameters shots
+
+    // ================================================================================
+    // SPARSE QUBO EXECUTION (Task 1 — memory-efficient path)
+    // ================================================================================
+
+    /// Evaluate sparse QUBO objective for a bitstring.
+    /// Returns the energy: sum of Q[(i,j)] * bits[i] * bits[j] for all entries.
+    let evaluateQuboSparse (quboMap: Map<int * int, float>) (bits: int[]) : float =
+        quboMap
+        |> Map.fold (fun acc (i, j) qij ->
+            acc + qij * float bits.[i] * float bits.[j]) 0.0
+
+    /// Execute a single QAOA circuit from sparse QUBO representation.
+    /// Avoids allocating dense float[,] array — calls ProblemHamiltonian.fromQuboSparse.
+    let executeQaoaCircuitSparse
+        (backend: BackendAbstraction.IQuantumBackend)
+        (numQubits: int)
+        (quboMap: Map<int * int, float>)
+        (parameters: (float * float)[])
+        (shots: int)
+        : Result<int[][], QuantumError> =
+
+        let problemHam = QaoaCircuit.ProblemHamiltonian.fromQuboSparse numQubits quboMap
+        let mixerHam = QaoaCircuit.MixerHamiltonian.create numQubits
+        executeQaoaCircuit backend problemHam mixerHam parameters shots
+
+    /// Execute QAOA with Nelder-Mead optimization from sparse QUBO.
+    /// Returns: (bestBitstring, optimizedParameters, converged)
+    let executeQaoaWithOptimizationSparse
+        (backend: BackendAbstraction.IQuantumBackend)
+        (numQubits: int)
+        (quboMap: Map<int * int, float>)
+        (config: QaoaSolverConfig)
+        : Result<int[] * (float * float)[] * bool, QuantumError> =
+
+        match validateConfig config with
+        | Error err -> Error err
+        | Ok () ->
+
+        let problemHam = QaoaCircuit.ProblemHamiltonian.fromQuboSparse numQubits quboMap
+        let mixerHam = QaoaCircuit.MixerHamiltonian.create numQubits
+
+        // Build a dense array on the fly for the objective function (evaluateQubo needs it)
+        // For very large problems, callers should use evaluateQuboSparse directly.
+        let objectiveFunc =
+            fun (flatParams: float[]) ->
+                let parameters =
+                    Array.init config.NumLayers (fun i ->
+                        (flatParams.[2 * i], flatParams.[2 * i + 1]))
+
+                match executeQaoaCircuit backend problemHam mixerHam parameters config.OptimizationShots with
+                | Error _ -> System.Double.MaxValue
+                | Ok measurements ->
+                    measurements
+                    |> Array.map (fun bits -> evaluateQuboSparse quboMap bits)
+                    |> Array.average
+
+        let rng = Random(42)
+        let initialParams =
+            Array.init (2 * config.NumLayers) (fun i ->
+                if i % 2 = 0 then
+                    rng.NextDouble() * (Math.PI / 2.0)
+                else
+                    rng.NextDouble() * (Math.PI / 4.0))
+
+        let lowerBounds = Array.init (2 * config.NumLayers) (fun _ -> 0.0)
+        let upperBounds = Array.init (2 * config.NumLayers) (fun i ->
+            if i % 2 = 0 then Math.PI else Math.PI / 2.0)
+
+        let optimResult, converged =
+            try
+                let result = QaoaOptimizer.Optimizer.minimizeWithBounds
+                                objectiveFunc initialParams lowerBounds upperBounds
+                (result, result.Converged)
+            with
+            | :? MathNet.Numerics.Optimization.MaximumIterationsException ->
+                ({ QaoaOptimizer.OptimizationResult.OptimizedParameters = initialParams
+                   QaoaOptimizer.OptimizationResult.FinalObjectiveValue = System.Double.MaxValue
+                   QaoaOptimizer.OptimizationResult.Converged = false
+                   QaoaOptimizer.OptimizationResult.Iterations = config.MaxOptimizationIterations }, false)
+
+        let optimizedParams =
+            Array.init config.NumLayers (fun i ->
+                (optimResult.OptimizedParameters.[2 * i],
+                 optimResult.OptimizedParameters.[2 * i + 1]))
+
+        match executeQaoaCircuit backend problemHam mixerHam optimizedParams config.FinalShots with
+        | Error err -> Error err
+        | Ok measurements ->
+            let bestSolution =
+                measurements
+                |> Array.minBy (fun bits -> evaluateQuboSparse quboMap bits)
+            Ok (bestSolution, optimizedParams, converged)
+
+    /// Execute QAOA with grid search from sparse QUBO.
+    /// Returns: (bestBitstring, bestParameters)
+    let executeQaoaWithGridSearchSparse
+        (backend: BackendAbstraction.IQuantumBackend)
+        (numQubits: int)
+        (quboMap: Map<int * int, float>)
+        (config: QaoaSolverConfig)
+        : Result<int[] * (float * float)[], QuantumError> =
+
+        match validateConfig config with
+        | Error err -> Error err
+        | Ok () ->
+
+        let problemHam = QaoaCircuit.ProblemHamiltonian.fromQuboSparse numQubits quboMap
+        let mixerHam = QaoaCircuit.MixerHamiltonian.create numQubits
+
+        let gammaValues = [| 0.1; 0.3; 0.5; 0.7; 1.0; 1.5; Math.PI / 4.0 |]
+        let betaValues = [| 0.1; 0.3; 0.5; 0.7; 1.0 |]
+
+        let initialState = {| BestSolution = None; BestEnergy = System.Double.MaxValue; BestParams = Array.empty<float * float>; LastError = None |}
+
+        let result =
+            (initialState, seq {
+                for gamma in gammaValues do
+                    for beta in betaValues do
+                        yield (gamma, beta)
+            })
+            ||> Seq.fold (fun state (gamma, beta) ->
+                let parameters = Array.init config.NumLayers (fun _ -> (gamma, beta))
+
+                match executeQaoaCircuit backend problemHam mixerHam parameters config.OptimizationShots with
+                | Error err ->
+                    {| state with LastError = Some err |}
+                | Ok measurements ->
+                    let candidate =
+                        measurements
+                        |> Array.minBy (fun bits -> evaluateQuboSparse quboMap bits)
+
+                    let energy = evaluateQuboSparse quboMap candidate
+                    if energy < state.BestEnergy then
+                        {| state with BestSolution = Some candidate; BestEnergy = energy; BestParams = parameters |}
+                    else
+                        state)
+
+        match result.BestSolution with
+        | Some _ ->
+            match executeQaoaCircuit backend problemHam mixerHam result.BestParams config.FinalShots with
+            | Error err -> Error err
+            | Ok measurements ->
+                let bestSolution =
+                    measurements
+                    |> Array.minBy (fun bits -> evaluateQuboSparse quboMap bits)
+                Ok (bestSolution, result.BestParams)
+        | None ->
+            match result.LastError with
+            | Some err -> Error err
+            | None -> Error (QuantumError.OperationError ("QAOA", "No valid solution found"))
+
+    // ================================================================================
+    // BUDGET-CONSTRAINED EXECUTION (Task 5)
+    // ================================================================================
+
+    /// Capacity-check strategy for budget-constrained execution.
+    ///
+    /// Mirrors ProblemDecomposition.DecompositionStrategy but lives here to avoid
+    /// a compile-order dependency (QaoaExecutionHelpers compiles before ProblemDecomposition).
+    type BudgetDecompositionStrategy =
+        /// Run as-is (no capacity check).
+        | NoBudgetDecomposition
+        /// Error if problem exceeds this fixed qubit limit.
+        | FixedQubitLimit of maxQubits: int
+        /// Error if problem exceeds backend's MaxQubits (IQubitLimitedBackend).
+        | AdaptiveToBudgetBackend
+
+    /// Budget constraints for QAOA execution.
+    ///
+    /// Controls total resource usage and provides a safety check against
+    /// exceeding backend qubit capacity.
+    type ExecutionBudget = {
+        /// Maximum total measurement shots across all sub-problems.
+        /// Shots are divided equally among decomposed sub-problems.
+        MaxTotalShots: int
+
+        /// Optional wall-clock time limit in milliseconds.
+        /// Execution stops early if time is exceeded (best-effort).
+        MaxTimeMs: int option
+
+        /// Capacity-check strategy for large problems.
+        Decomposition: BudgetDecompositionStrategy
+    }
+
+    /// Default execution budget: 1000 shots, no time limit, adaptive capacity check.
+    let defaultBudget : ExecutionBudget = {
+        MaxTotalShots = 1000
+        MaxTimeMs = None
+        Decomposition = AdaptiveToBudgetBackend
+    }
+
+    /// Execute QAOA with budget constraints and capacity checking.
+    ///
+    /// This is the highest-level QAOA execution entry point. It:
+    /// 1. Validates configuration and budget
+    /// 2. Checks backend capacity (MaxQubits via IQubitLimitedBackend)
+    /// 3. Returns clear error if problem exceeds capacity
+    /// 4. Applies shot budget limit to config
+    /// 5. Respects optional time limit
+    ///
+    /// For automatic problem decomposition, use solver-level
+    /// ProblemDecomposition.solveWithDecomposition instead.
+    ///
+    /// Parameters:
+    ///   backend  - quantum backend (checked for IQubitLimitedBackend)
+    ///   qubo     - dense QUBO matrix
+    ///   config   - QAOA solver configuration
+    ///   budget   - execution budget constraints
+    ///
+    /// Returns: Ok (bestBitstring, parameters, converged) or Error
+    let executeWithBudget
+        (backend: BackendAbstraction.IQuantumBackend)
+        (qubo: float[,])
+        (config: QaoaSolverConfig)
+        (budget: ExecutionBudget)
+        : Result<int[] * (float * float)[] * bool, QuantumError> =
+
+        match validateConfig config with
+        | Error err -> Error err
+        | Ok () ->
+
+        if budget.MaxTotalShots <= 0 then
+            Error (QuantumError.ValidationError ("MaxTotalShots", $"must be > 0, got {budget.MaxTotalShots}"))
+        else
+
+        let n = Array2D.length1 qubo
+        let stopwatch = System.Diagnostics.Stopwatch.StartNew()
+
+        let isTimeExceeded () =
+            match budget.MaxTimeMs with
+            | Some maxMs -> stopwatch.ElapsedMilliseconds > int64 maxMs
+            | None -> false
+
+        // Check if problem exceeds capacity
+        let maxQubits = BackendAbstraction.UnifiedBackend.getMaxQubits backend
+        let exceedsCapacity =
+            match budget.Decomposition with
+            | NoBudgetDecomposition -> false
+            | FixedQubitLimit limit -> n > limit
+            | AdaptiveToBudgetBackend ->
+                match maxQubits with
+                | Some limit -> n > limit
+                | None -> false
+
+        if isTimeExceeded () then
+            Error (QuantumError.OperationError ("QAOA", "Time budget exceeded before execution started"))
+        elif exceedsCapacity then
+            // Problem exceeds capacity — return clear error.
+            // QUBO-level decomposition requires solver-level knowledge.
+            // Use ProblemDecomposition.solveWithDecomposition for auto-splitting.
+            let limitStr =
+                match maxQubits with
+                | Some limit -> $"{limit}"
+                | None -> "unknown"
+            Error (QuantumError.OperationError (
+                "QAOA",
+                $"Problem requires {n} qubits but backend supports {limitStr}. " +
+                "Use solver-level decomposition (solveWithConfig) for automatic splitting, " +
+                "or reduce problem size."))
+        else
+            // Single execution with budget-limited shots
+            let adjustedConfig = { config with FinalShots = min config.FinalShots budget.MaxTotalShots }
+            if config.EnableOptimization then
+                executeQaoaWithOptimization backend qubo adjustedConfig
+            else
+                executeQaoaWithGridSearch backend qubo adjustedConfig
+                |> Result.map (fun (bits, ps) -> (bits, ps, false))

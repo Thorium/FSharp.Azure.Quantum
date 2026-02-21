@@ -67,23 +67,12 @@ module QuantumTspSolver =
             let gamma = parameters.[0]
             let beta = parameters.[1]
             
-            // Build QAOA circuit with these parameters
-            let qaoaCircuit = QaoaCircuit.QaoaCircuit.build 
-                                problemHam mixerHam [| (gamma, beta) |]
-            
-            // Execute on backend
-            let circuitWrapper = 
-                CircuitAbstraction.QaoaCircuitWrapper(qaoaCircuit) 
-                :> CircuitAbstraction.ICircuit
-            
-            // Execute circuit to get quantum state, then measure
-            match backend.ExecuteToState circuitWrapper with
+            // Build QAOA circuit with these parameters and execute
+            match QaoaExecutionHelpers.executeQaoaCircuit backend problemHam mixerHam [| (gamma, beta) |] numShots with
             | Error _ -> 
                 // Return large penalty if execution fails
                 System.Double.MaxValue
-            | Ok quantumState ->
-                // Measure the state to get classical bit strings (int[][] where each int is 0 or 1)
-                let measurements = QuantumState.measure quantumState numShots
+            | Ok measurements ->
                 
                 // Decode all measurements and find best tour cost
                 let tourResults =
@@ -285,20 +274,13 @@ module QuantumTspSolver =
                 
                 let (optParams, optIters, optConverged) = optimizationInfo
                 
-                // Step 5: Build final QAOA circuit with optimized parameters
+                // Step 5: Execute final QAOA circuit with optimized parameters
+                let quboArray = Qubo.toDenseArray quboMatrix.NumVariables quboMatrix.Q
                 let parameters = [| finalGamma, finalBeta |]
-                let qaoaCircuit = QaoaCircuit.QaoaCircuit.build problemHam mixerHam parameters
                 
-                // Step 6: Execute on backend with full shot count
-                let circuitWrapper = 
-                    CircuitAbstraction.QaoaCircuitWrapper(qaoaCircuit) 
-                    :> CircuitAbstraction.ICircuit
-                
-                match backend.ExecuteToState circuitWrapper with
+                match QaoaExecutionHelpers.executeFromQubo backend quboArray parameters config.FinalShots with
                 | Error err -> Error err
-                | Ok quantumState ->
-                    // Measure the state to get classical bit strings (int[][] where each int is 0 or 1)
-                    let measurements = QuantumState.measure quantumState config.FinalShots
+                | Ok measurements ->
                     
                     // Step 7: Decode measurements to tours
                     let tourResults =

@@ -274,30 +274,14 @@ module QuantumKnapsackSolver =
                 | Error err -> return Error err
                 | Ok quboMatrix ->
                     
-                    // Step 3: Convert QUBO to dense array for QAOA
+                    // Step 3: Execute QAOA pipeline from dense QUBO
                     let quboArray = Qubo.toDenseArray quboMatrix.NumVariables quboMatrix.Q
-                    
-                    // Step 4: Create QAOA Hamiltonians from QUBO
-                    let problemHam = QaoaCircuit.ProblemHamiltonian.fromQubo quboArray
-                    let mixerHam = QaoaCircuit.MixerHamiltonian.create problemHam.NumQubits
-                    
-                    // Step 5: Build QAOA circuit with parameters
                     let (gamma, beta) = config.InitialParameters
                     let parameters = [| gamma, beta |]
-                    let qaoaCircuit = QaoaCircuit.QaoaCircuit.build problemHam mixerHam parameters
                     
-                    // Step 6: Wrap QAOA circuit for backend execution
-                    let circuitWrapper = CircuitAbstraction.QaoaCircuitWrapper(qaoaCircuit) :> CircuitAbstraction.ICircuit
-                    
-                    // Step 7: Execute on quantum backend asynchronously
-                    // Execute circuit to get quantum state, then measure
-                    let stateResult = backend.ExecuteToState circuitWrapper
-                    
-                    match stateResult with
+                    match QaoaExecutionHelpers.executeFromQubo backend quboArray parameters config.NumShots with
                     | Error err -> return Error err
-                    | Ok quantumState ->
-                        // Measure the state to get classical bit strings
-                        let measurements = QuantumState.measure quantumState config.NumShots
+                    | Ok measurements ->
                         
                         // Step 8: Decode measurements to selections
                         let solutions = 
@@ -637,25 +621,16 @@ module QuantumKnapsackSolver =
                     consecutiveFailures <- config.MaxConsecutiveFailures // Stop
                 | Ok quboMatrix ->
 
-                // Convert to dense array and build QAOA circuit
+                // Convert to dense array and execute QAOA pipeline
                 let quboArray = Qubo.toDenseArray quboMatrix.NumVariables quboMatrix.Q
-                let problemHam = QaoaCircuit.ProblemHamiltonian.fromQubo quboArray
-                let mixerHam = QaoaCircuit.MixerHamiltonian.create problemHam.NumQubits
                 let (gamma, beta) = config.InitialParameters
                 let parameters = [| gamma, beta |]
-                let qaoaCircuit = QaoaCircuit.QaoaCircuit.build problemHam mixerHam parameters
-                let circuitWrapper =
-                    CircuitAbstraction.QaoaCircuitWrapper(qaoaCircuit) :> CircuitAbstraction.ICircuit
 
-                // Execute on quantum backend
-                match backend.ExecuteToState circuitWrapper with
+                match QaoaExecutionHelpers.executeFromQubo backend quboArray parameters config.NumShots with
                 | Error err ->
                     lastError <- Some err
                     consecutiveFailures <- config.MaxConsecutiveFailures // Stop
-                | Ok quantumState ->
-
-                // Sample measurements
-                let measurements = QuantumState.measure quantumState config.NumShots
+                | Ok measurements ->
 
                 // Find new feasible solutions in this batch
                 let mutable foundNew = false

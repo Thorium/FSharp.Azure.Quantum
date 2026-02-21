@@ -275,8 +275,33 @@ module QuantumMatchingSolver =
     // DECOMPOSE / RECOMBINE HOOKS (Decision 10: identity stubs)
     // ========================================================================
 
-    /// Decompose a problem into sub-problems. Currently identity (single problem).
-    let decompose (problem: Problem) : Problem list = [ problem ]
+    /// Decompose a matching problem into independent sub-problems by connected
+    /// components. Maximum matchings are independent across components.
+    let decompose (problem: Problem) : Problem list =
+        let n = problem.NumVertices
+        if n <= 1 then [ problem ]
+        else
+            let simpleEdges =
+                problem.Edges |> List.map (fun e -> (e.Source, e.Target))
+            let parts = ProblemDecomposition.partitionByComponents n simpleEdges
+            match parts with
+            | [ _ ] -> [ problem ]
+            | components ->
+                components
+                |> List.choose (fun (globalIndices, localEdges) ->
+                    // Map edges back to Edge records with local indices
+                    let globalToLocal =
+                        globalIndices
+                        |> List.mapi (fun localIdx globalIdx -> (globalIdx, localIdx))
+                        |> Map.ofList
+                    let localEdgeRecords =
+                        problem.Edges
+                        |> List.choose (fun e ->
+                            match Map.tryFind e.Source globalToLocal, Map.tryFind e.Target globalToLocal with
+                            | Some ls, Some lt -> Some { e with Source = ls; Target = lt }
+                            | _ -> None)
+                    if localEdgeRecords.IsEmpty then None
+                    else Some { NumVertices = globalIndices.Length; Edges = localEdgeRecords })
 
     /// Recombine sub-solutions into a single solution. Currently identity.
     /// Handles empty list gracefully.
@@ -302,6 +327,8 @@ module QuantumMatchingSolver =
     // ========================================================================
 
     /// Solve maximum matching using QAOA with full configuration control.
+    /// Automatically decomposes into connected components when the problem
+    /// exceeds backend qubit capacity.
     let solveWithConfig
         (backend: BackendAbstraction.IQuantumBackend)
         (problem: Problem)
@@ -311,40 +338,44 @@ module QuantumMatchingSolver =
         match validateProblem problem with
         | Error err -> Error err
         | Ok () ->
-            let edges = normalizeEdges problem.Edges
-            match toQubo problem with
-            | Error err -> Error err
-            | Ok qubo ->
-                let result =
-                    if config.EnableOptimization then
-                        executeQaoaWithOptimization backend qubo config
-                        |> Result.map (fun (bits, optParams, converged) ->
-                            (bits, Some optParams, Some converged))
-                    else
-                        executeQaoaWithGridSearch backend qubo config
-                        |> Result.map (fun (bits, optParams) ->
-                            (bits, Some optParams, None))
-
-                match result with
+            let solveSingle (subProblem: Problem) =
+                let edges = normalizeEdges subProblem.Edges
+                match toQubo subProblem with
                 | Error err -> Error err
-                | Ok (bits, optParams, converged) ->
-                    let needsRepair =
-                        let decoded = decodeSolution edges bits
-                        not decoded.IsValid
-
-                    let finalBits, wasRepaired =
-                        if config.EnableConstraintRepair && needsRepair then
-                            (repairConstraints edges bits, true)
+                | Ok qubo ->
+                    let result =
+                        if config.EnableOptimization then
+                            executeQaoaWithOptimization backend qubo config
+                            |> Result.map (fun (bits, optParams, converged) ->
+                                (bits, Some optParams, Some converged))
                         else
-                            (bits, false)
+                            executeQaoaWithGridSearch backend qubo config
+                            |> Result.map (fun (bits, optParams) ->
+                                (bits, Some optParams, None))
 
-                    let solution = decodeSolution edges finalBits
-                    Ok { solution with
-                            BackendName = backend.Name
-                            NumShots = config.FinalShots
-                            WasRepaired = wasRepaired
-                            OptimizedParameters = optParams
-                            OptimizationConverged = converged }
+                    match result with
+                    | Error err -> Error err
+                    | Ok (bits, optParams, converged) ->
+                        let needsRepair =
+                            let decoded = decodeSolution edges bits
+                            not decoded.IsValid
+
+                        let finalBits, wasRepaired =
+                            if config.EnableConstraintRepair && needsRepair then
+                                (repairConstraints edges bits, true)
+                            else
+                                (bits, false)
+
+                        let solution = decodeSolution edges finalBits
+                        Ok { solution with
+                                BackendName = backend.Name
+                                NumShots = config.FinalShots
+                                WasRepaired = wasRepaired
+                                OptimizedParameters = optParams
+                                OptimizationConverged = converged }
+
+            ProblemDecomposition.solveWithDecomposition
+                backend problem estimateQubits decompose recombine solveSingle
 
     /// Solve maximum matching using QAOA with default configuration.
     let solve

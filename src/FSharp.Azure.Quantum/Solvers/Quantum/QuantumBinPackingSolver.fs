@@ -481,7 +481,9 @@ module QuantumBinPackingSolver =
     // DECOMPOSE / RECOMBINE HOOKS (Decision 10: identity stubs)
     // ========================================================================
 
-    /// Decompose a problem into sub-problems. Currently identity (single problem).
+    /// Decompose a bin packing problem into sub-problems.
+    /// Currently identity — bin packing has shared capacity constraints.
+    /// Future: partition by item-size groups or greedy pre-assignment.
     let decompose (problem: Problem) : Problem list = [ problem ]
 
     /// Recombine sub-solutions into a single solution. Currently identity.
@@ -507,6 +509,7 @@ module QuantumBinPackingSolver =
     // ========================================================================
 
     /// Solve bin packing using QAOA with full configuration control.
+    /// Supports automatic decomposition when problem exceeds backend capacity.
     let solveWithConfig
         (backend: BackendAbstraction.IQuantumBackend)
         (problem: Problem)
@@ -516,39 +519,43 @@ module QuantumBinPackingSolver =
         match validateProblem problem with
         | Error err -> Error err
         | Ok () ->
-            let b = computeMaxBins problem
-            match toQubo problem with
-            | Error err -> Error err
-            | Ok qubo ->
-                let result =
-                    if config.EnableOptimization then
-                        executeQaoaWithOptimization backend qubo config
-                        |> Result.map (fun (bits, optParams, converged) ->
-                            (bits, Some optParams, Some converged))
-                    else
-                        executeQaoaWithGridSearch backend qubo config
-                        |> Result.map (fun (bits, optParams) ->
-                            (bits, Some optParams, None))
-
-                match result with
+            let solveSingle (subProblem: Problem) =
+                let b = computeMaxBins subProblem
+                match toQubo subProblem with
                 | Error err -> Error err
-                | Ok (bits, optParams, converged) ->
-                    let decoded = decodeSolution problem b bits
-                    let needsRepair = not decoded.IsValid
-
-                    let finalBits, wasRepaired =
-                        if config.EnableConstraintRepair && needsRepair then
-                            (repairConstraints problem b bits, true)
+                | Ok qubo ->
+                    let result =
+                        if config.EnableOptimization then
+                            executeQaoaWithOptimization backend qubo config
+                            |> Result.map (fun (bits, optParams, converged) ->
+                                (bits, Some optParams, Some converged))
                         else
-                            (bits, false)
+                            executeQaoaWithGridSearch backend qubo config
+                            |> Result.map (fun (bits, optParams) ->
+                                (bits, Some optParams, None))
 
-                    let solution = decodeSolution problem b finalBits
-                    Ok { solution with
-                            BackendName = backend.Name
-                            NumShots = config.FinalShots
-                            WasRepaired = wasRepaired
-                            OptimizedParameters = optParams
-                            OptimizationConverged = converged }
+                    match result with
+                    | Error err -> Error err
+                    | Ok (bits, optParams, converged) ->
+                        let decoded = decodeSolution subProblem b bits
+                        let needsRepair = not decoded.IsValid
+
+                        let finalBits, wasRepaired =
+                            if config.EnableConstraintRepair && needsRepair then
+                                (repairConstraints subProblem b bits, true)
+                            else
+                                (bits, false)
+
+                        let solution = decodeSolution subProblem b finalBits
+                        Ok { solution with
+                                BackendName = backend.Name
+                                NumShots = config.FinalShots
+                                WasRepaired = wasRepaired
+                                OptimizedParameters = optParams
+                                OptimizationConverged = converged }
+
+            ProblemDecomposition.solveWithDecomposition
+                backend problem estimateQubits decompose recombine solveSingle
 
     /// Solve bin packing using QAOA with default configuration.
     let solve

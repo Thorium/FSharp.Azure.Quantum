@@ -388,6 +388,20 @@ module BackendAbstraction =
         ///   let! state = backend.InitializeState 5
         ///   // state = |00000⟩ in backend's native representation
         abstract member InitializeState: int -> Result<QuantumState, QuantumError>
+
+    /// Optional interface for backends that can report qubit limits.
+    ///
+    /// Non-breaking extension: solvers can test `backend :? IQubitLimitedBackend`
+    /// to query capacity without requiring all backends to implement this.
+    ///
+    /// Usage:
+    ///   match backend with
+    ///   | :? IQubitLimitedBackend as lb -> lb.MaxQubits
+    ///   | _ -> None  // unlimited/unknown
+    type IQubitLimitedBackend =
+        inherit IQuantumBackend
+        /// Maximum number of qubits supported (None = unlimited/unknown).
+        abstract member MaxQubits: int option
     
     /// Backend capabilities descriptor
     /// 
@@ -428,7 +442,10 @@ module BackendAbstraction =
         /// Create backend capabilities from IQuantumBackend
         let getCapabilities (backend: IQuantumBackend) : BackendCapabilities =
             {
-                MaxQubits = None  // Query from backend if available
+                MaxQubits =
+                    match backend with
+                    | :? IQubitLimitedBackend as lb -> lb.MaxQubits
+                    | _ -> None
                 NativeStateType = backend.NativeStateType
                 SupportedGates = None  // Query from IQuantumBackend.SupportedGates
                 SupportsBraiding = backend.SupportsOperation (QuantumOperation.Braid 0)
@@ -438,6 +455,13 @@ module BackendAbstraction =
                 NoiseLevel = Some 0.0  // Assume noiseless unless specified
                 IsSimulator = true  // Conservative default - assume simulator
             }
+
+        /// Get maximum qubits supported by backend (None if unlimited/unknown).
+        /// Convenience wrapper that checks for IQubitLimitedBackend.
+        let getMaxQubits (backend: IQuantumBackend) : int option =
+            match backend with
+            | :? IQubitLimitedBackend as lb -> lb.MaxQubits
+            | _ -> None
         
         /// Execute operation with automatic state conversion if needed
         /// 

@@ -387,35 +387,17 @@ module QuantumNetworkFlowSolver =
                         r.Report(Progress.PhaseChanged("Network Flow QAOA", Some "Building QAOA circuit...")))
                     
                     let quboArray = Qubo.toDenseArray quboMatrix.NumVariables quboMatrix.Q
-                    let problemHam = QaoaCircuit.ProblemHamiltonian.fromQubo quboArray
-                    let mixerHam = QaoaCircuit.MixerHamiltonian.create problemHam.NumQubits
-                    
-                    // Step 3: Build QAOA circuit with parameters
                     let (gamma, beta) = config.InitialParameters
                     let parameters = [| gamma, beta |]
-                    let qaoaCircuit = QaoaCircuit.QaoaCircuit.build problemHam mixerHam parameters
                     
-                    // Step 4: Execute on backend asynchronously
+                    // Step 3: Execute QAOA pipeline
                     config.ProgressReporter
                     |> Option.iter (fun r -> 
                         r.Report(Progress.PhaseChanged("Network Flow QAOA", Some $"Executing on {backend.Name}...")))
                     
-                    let circuitWrapper = 
-                        CircuitAbstraction.QaoaCircuitWrapper(qaoaCircuit) 
-                        :> CircuitAbstraction.ICircuit
-                    
-                    // Execute circuit to get quantum state, then measure
-                    let stateResult = backend.ExecuteToState circuitWrapper
-                    
-                    match stateResult with
+                    match QaoaExecutionHelpers.executeFromQubo backend quboArray parameters config.NumShots with
                     | Error err -> return Error err
-                    | Ok quantumState ->
-                        // Measure the state to get classical bit strings
-                        config.ProgressReporter
-                        |> Option.iter (fun r -> 
-                            r.Report(Progress.PhaseChanged("Network Flow QAOA", Some $"Sampling {config.NumShots} measurements...")))
-                        
-                        let measurements = QuantumState.measure quantumState config.NumShots
+                    | Ok measurements ->
                         
                         // Step 5: Decode measurements to network flow solutions
                         config.ProgressReporter

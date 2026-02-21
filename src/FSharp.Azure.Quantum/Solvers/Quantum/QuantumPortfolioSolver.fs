@@ -620,29 +620,14 @@ module QuantumPortfolioSolver =
                 | Error msg -> return Error msg
                 | Ok quboMatrix ->
                     
-                    // Step 2: Generate QAOA circuit components from QUBO
+                    // Step 2: Execute QAOA pipeline from dense QUBO
                     let quboArray = Qubo.toDenseArray quboMatrix.NumVariables quboMatrix.Q
-                    let problemHam = QaoaCircuit.ProblemHamiltonian.fromQubo quboArray
-                    let mixerHam = QaoaCircuit.MixerHamiltonian.create problemHam.NumQubits
-                    
-                    // Step 3: Build QAOA circuit with parameters
                     let (gamma, beta) = config.InitialParameters
                     let parameters = [| gamma, beta |]
-                    let qaoaCircuit = QaoaCircuit.QaoaCircuit.build problemHam mixerHam parameters
                     
-                    // Step 4: Execute on backend (async, non-blocking)
-                    let circuitWrapper = 
-                        CircuitAbstraction.QaoaCircuitWrapper(qaoaCircuit) 
-                        :> CircuitAbstraction.ICircuit
-                    
-                    // Execute circuit to get quantum state, then measure
-                    let stateResult = backend.ExecuteToState circuitWrapper
-                    
-                    match stateResult with
+                    match QaoaExecutionHelpers.executeFromQubo backend quboArray parameters config.NumShots with
                     | Error err -> return Error err
-                    | Ok quantumState ->
-                        // Measure the state to get classical bit strings
-                        let measurements = QuantumState.measure quantumState config.NumShots
+                    | Ok measurements ->
                         
                         // Step 5: Decode measurements to portfolio solutions
                         let portfolioResults =
