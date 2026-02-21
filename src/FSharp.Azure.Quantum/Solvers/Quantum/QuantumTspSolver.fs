@@ -48,16 +48,6 @@ open FSharp.Azure.Quantum.Core
 ///   | Error msg -> printfn "Error: %s" msg
 module QuantumTspSolver =
 
-    /// Convert sparse QUBO matrix (Map) to dense 2D array
-    let private quboMapToArray (quboMatrix: GraphOptimization.QuboMatrix) : float[,] =
-        let n = quboMatrix.NumVariables
-        let dense = Array2D.zeroCreate n n
-        
-        for KeyValue((i, j), value) in quboMatrix.Q do
-            dense.[i, j] <- value
-        
-        dense
-
     /// Objective function for QAOA parameter optimization
     /// Evaluates tour quality for given (gamma, beta) parameters
     /// Returns: Best tour length found (lower is better)
@@ -259,7 +249,7 @@ module QuantumTspSolver =
                 let quboMatrix = GraphOptimization.toQubo problem
                 
                 // Step 3: Generate QAOA circuit components from QUBO
-                let quboArray = quboMapToArray quboMatrix
+                let quboArray = Qubo.toDenseArray quboMatrix.NumVariables quboMatrix.Q
                 let problemHam = QaoaCircuit.ProblemHamiltonian.fromQubo quboArray
                 let mixerHam = QaoaCircuit.MixerHamiltonian.create problemHam.NumQubits
                 

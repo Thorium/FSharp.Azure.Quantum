@@ -23,70 +23,26 @@ module DrugDiscoverySolvers =
     // QAOA CONFIGURATION
     // ================================================================================
     
-    /// Configuration for QAOA execution
-    type QaoaConfig = {
-        /// Number of QAOA layers (p parameter). Higher p = better solutions but slower.
-        NumLayers: int
-        
-        /// Enable Nelder-Mead parameter optimization
-        EnableOptimization: bool
-        
-        /// Number of shots for optimization phase (lower = faster)
-        OptimizationShots: int
-        
-        /// Number of shots for final execution (higher = better sampling)
-        FinalShots: int
-        
-        /// Enable constraint repair post-processing
-        EnableConstraintRepair: bool
-        
-        /// Maximum optimization iterations for Nelder-Mead
-        MaxOptimizationIterations: int
-    }
+    /// Configuration for QAOA execution.
+    /// Type alias for the unified QaoaSolverConfig from QaoaExecutionHelpers.
+    type QaoaConfig = QaoaExecutionHelpers.QaoaSolverConfig
     
     /// Default QAOA configuration (balanced speed/quality)
-    let defaultConfig : QaoaConfig = {
-        NumLayers = 2
-        EnableOptimization = true
-        OptimizationShots = 100
-        FinalShots = 1000
-        EnableConstraintRepair = true
-        MaxOptimizationIterations = 200
-    }
+    let defaultConfig : QaoaConfig = QaoaExecutionHelpers.defaultConfig
     
     /// Fast configuration (for quick prototyping)
-    let fastConfig : QaoaConfig = {
-        NumLayers = 1
-        EnableOptimization = false
-        OptimizationShots = 50
-        FinalShots = 500
-        EnableConstraintRepair = true
-        MaxOptimizationIterations = 100
-    }
+    let fastConfig : QaoaConfig = QaoaExecutionHelpers.fastConfig
     
     /// High-quality configuration (for production)
-    let highQualityConfig : QaoaConfig = {
-        NumLayers = 3
-        EnableOptimization = true
-        OptimizationShots = 200
-        FinalShots = 2000
-        EnableConstraintRepair = true
-        MaxOptimizationIterations = 500
-    }
+    let highQualityConfig : QaoaConfig = QaoaExecutionHelpers.highQualityConfig
 
     // ================================================================================
-    // SHARED UTILITIES
+    // SHARED UTILITIES (delegated to QaoaExecutionHelpers)
     // ================================================================================
 
     /// Evaluate QUBO objective for a bitstring
     let private evaluateQubo (qubo: float[,]) (bits: int[]) : float =
-        let n = Array2D.length1 qubo
-        seq {
-            for i in 0 .. n - 1 do
-                for j in 0 .. n - 1 do
-                    yield qubo.[i, j] * float bits.[i] * float bits.[j]
-        }
-        |> Seq.sum
+        QaoaExecutionHelpers.evaluateQubo qubo bits
     
     /// Execute a single QAOA circuit with given parameters and return measurements
     let private executeQaoaCircuit
@@ -96,13 +52,7 @@ module DrugDiscoverySolvers =
         (parameters: (float * float)[])
         (shots: int)
         : Result<int[][], QuantumError> =
-        
-        let qaoaCircuit = QaoaCircuit.QaoaCircuit.build problemHam mixerHam parameters
-        let circuit = CircuitAbstraction.QaoaCircuitWrapper(qaoaCircuit) :> CircuitAbstraction.ICircuit
-        
-        match backend.ExecuteToState circuit with
-        | Error err -> Error err
-        | Ok state -> Ok (QuantumState.measure state shots)
+        QaoaExecutionHelpers.executeQaoaCircuit backend problemHam mixerHam parameters shots
     
     /// Create objective function for Nelder-Mead optimization
     /// Returns expectation value of QUBO Hamiltonian (lower = better)
@@ -114,22 +64,7 @@ module DrugDiscoverySolvers =
         (numLayers: int)
         (shots: int)
         : float[] -> float =
-        
-        fun (flatParams: float[]) ->
-            // Convert flat array to (gamma, beta) pairs
-            let parameters = 
-                Array.init numLayers (fun i ->
-                    let gamma = flatParams.[2 * i]
-                    let beta = flatParams.[2 * i + 1]
-                    (gamma, beta))
-            
-            match executeQaoaCircuit backend problemHam mixerHam parameters shots with
-            | Error _ -> System.Double.MaxValue  // Penalty for failed execution
-            | Ok measurements ->
-                // Calculate average QUBO energy across all measurements
-                measurements
-                |> Array.map (fun bits -> evaluateQubo qubo bits)
-                |> Array.average
+        QaoaExecutionHelpers.createObjectiveFunction backend qubo problemHam mixerHam numLayers shots
     
     /// Execute QAOA with Nelder-Mead parameter optimization
     let private executeQaoaWithOptimization
@@ -137,60 +72,7 @@ module DrugDiscoverySolvers =
         (qubo: float[,])
         (config: QaoaConfig)
         : Result<int[] * (float * float)[] * bool, QuantumError> =
-        
-        let n = Array2D.length1 qubo
-        let problemHam = QaoaCircuit.ProblemHamiltonian.fromQubo qubo
-        let mixerHam = QaoaCircuit.MixerHamiltonian.create n
-        
-        // Create objective function for optimization
-        let objectiveFunc = createObjectiveFunction backend qubo problemHam mixerHam config.NumLayers config.OptimizationShots
-        
-        // Initial parameters: use standard QAOA heuristic
-        // γ ∈ [0, π/2], β ∈ [0, π/4] works well for many problems
-        let rng = Random(42)  // Fixed seed for reproducibility
-        let initialParams = 
-            Array.init (2 * config.NumLayers) (fun i ->
-                if i % 2 = 0 then 
-                    rng.NextDouble() * (Math.PI / 2.0)  // gamma
-                else 
-                    rng.NextDouble() * (Math.PI / 4.0)) // beta
-        
-        // Parameter bounds
-        let lowerBounds = Array.init (2 * config.NumLayers) (fun i ->
-            if i % 2 = 0 then 0.0 else 0.0)
-        let upperBounds = Array.init (2 * config.NumLayers) (fun i ->
-            if i % 2 = 0 then Math.PI else Math.PI / 2.0)
-        
-        // Run Nelder-Mead optimization (may throw MaximumIterationsException)
-        let optimResult, converged = 
-            try
-                let result = QaoaOptimizer.Optimizer.minimizeWithBounds 
-                                objectiveFunc initialParams lowerBounds upperBounds
-                (result, result.Converged)
-            with
-            | :? MathNet.Numerics.Optimization.MaximumIterationsException ->
-                // Optimizer didn't converge - use initial parameters as fallback
-                { QaoaOptimizer.OptimizationResult.OptimizedParameters = initialParams
-                  QaoaOptimizer.OptimizationResult.FinalObjectiveValue = System.Double.MaxValue
-                  QaoaOptimizer.OptimizationResult.Converged = false
-                  QaoaOptimizer.OptimizationResult.Iterations = config.MaxOptimizationIterations }, false
-        
-        // Extract optimized parameters (or initial if optimization failed)
-        let optimizedParams =
-            Array.init config.NumLayers (fun i ->
-                (optimResult.OptimizedParameters.[2 * i], 
-                 optimResult.OptimizedParameters.[2 * i + 1]))
-        
-        // Execute final circuit with optimized parameters and more shots
-        match executeQaoaCircuit backend problemHam mixerHam optimizedParams config.FinalShots with
-        | Error err -> Error err
-        | Ok measurements ->
-            // Find best solution (lowest QUBO energy)
-            let bestSolution =
-                measurements
-                |> Array.minBy (fun bits -> evaluateQubo qubo bits)
-            
-            Ok (bestSolution, optimizedParams, converged)
+        QaoaExecutionHelpers.executeQaoaWithOptimization backend qubo config
     
     /// Execute QAOA with grid search (fallback when optimization disabled)
     let private executeQaoaWithGridSearch
@@ -198,49 +80,7 @@ module DrugDiscoverySolvers =
         (qubo: float[,])
         (config: QaoaConfig)
         : Result<int[] * (float * float)[], QuantumError> =
-        
-        let n = Array2D.length1 qubo
-        let problemHam = QaoaCircuit.ProblemHamiltonian.fromQubo qubo
-        let mixerHam = QaoaCircuit.MixerHamiltonian.create n
-        
-        // Grid search parameter sets for multi-layer QAOA
-        let gammaValues = [| 0.1; 0.3; 0.5; 0.7; 1.0; 1.5; Math.PI / 4.0 |]
-        let betaValues = [| 0.1; 0.3; 0.5; 0.7; 1.0 |]
-        
-        let initialState = {| BestSolution = None; BestEnergy = System.Double.MaxValue; BestParams = Array.empty<float * float>; LastError = None |}
-        
-        // Try different parameter combinations
-        let result =
-            (initialState, seq {
-                for gamma in gammaValues do
-                    for beta in betaValues do
-                        yield (gamma, beta)
-            })
-            ||> Seq.fold (fun state (gamma, beta) ->
-                // Create multi-layer parameters (same gamma/beta for each layer)
-                let parameters = Array.init config.NumLayers (fun _ -> (gamma, beta))
-                
-                match executeQaoaCircuit backend problemHam mixerHam parameters config.FinalShots with
-                | Error err -> 
-                    {| state with LastError = Some err |}
-                | Ok measurements ->
-                    // Find best measurement in this batch
-                    let candidate = 
-                        measurements
-                        |> Array.minBy (fun bits -> evaluateQubo qubo bits)
-                    
-                    let energy = evaluateQubo qubo candidate
-                    if energy < state.BestEnergy then
-                        {| state with BestSolution = Some candidate; BestEnergy = energy; BestParams = parameters |}
-                    else
-                        state)
-        
-        match result.BestSolution with
-        | Some solution -> Ok (solution, result.BestParams)
-        | None -> 
-            match result.LastError with
-            | Some err -> Error err
-            | None -> Error (QuantumError.OperationError ("QAOA", "No valid solution found"))
+        QaoaExecutionHelpers.executeQaoaWithGridSearch backend qubo config
 
     // ================================================================================
     // MAXIMUM WEIGHT INDEPENDENT SET (MWIS)

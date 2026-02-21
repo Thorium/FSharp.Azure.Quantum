@@ -50,7 +50,7 @@ module QaoaOptimizer =
                 Iterations = result.Iterations
             }
         
-        /// Minimize objective function with parameter bounds using BOBYQA
+        /// Minimize objective function with parameter bounds using Nelder-Mead with quadratic penalty
         /// Parameters:
         ///   objectiveFunction - Function to minimize (lower is better)
         ///   initialParameters - Initial guess for parameters

@@ -39,3 +39,23 @@ module Qubo =
     /// Ensures constraint violations dominate the objective in QUBO energy
     let computeLucasPenalties (objectiveMagnitude: float) (numOptions: int) : float =
         float numOptions * objectiveMagnitude * 10.0
+    
+    /// Convert sparse QUBO map to dense 2D array.
+    /// Consolidates the private quboMapToArray copies duplicated across 6 solver files.
+    /// Used at the toQubo boundary: buildQuboMap >> toDenseArray >> ProblemHamiltonian.fromQubo
+    let toDenseArray (n: int) (qubo: Map<int * int, float>) : float[,] =
+        let dense = Array2D.zeroCreate n n
+        for KeyValue((i, j), value) in qubo do
+            dense.[i, j] <- value
+        dense
+    
+    /// At-most-one constraint: at most one variable in a set equals 1.
+    /// Penalizes any pair being simultaneously 1.
+    /// Formula: λ * Σ_{i<j} x_i * x_j
+    let atMostOneConstraint (varIndices: int list) (penalty: float) : Map<(int * int), float> =
+        varIndices
+        |> List.collect (fun i ->
+            varIndices
+            |> List.filter (fun j -> j > i)
+            |> List.map (fun j -> ((i, j), penalty)))
+        |> List.fold (fun acc (key, value) -> combineTerms key value acc) Map.empty

@@ -139,8 +139,26 @@
     <Compile Include="StatisticalDistributionsTests.fs" />
     <Compile Include="OptionPricingTests.fs" />
     
+    <!-- Step 0e: Topological QAOA Verification Tests -->
+    <Compile Include="TopologicalQaoaVerificationTests.fs" />
+    
+    <!-- QAOA Execution Helpers Tests (shared QAOA infrastructure) -->
+    <Compile Include="QaoaExecutionHelpersTests.fs" />
+    
     <!-- Drug Discovery Quantum Solvers Tests -->
     <Compile Include="DrugDiscoverySolversTests.fs" />
+    
+    <!-- Expansion Solvers Tests (Phase 1: Graph optimization) -->
+    <Compile Include="QuantumVertexCoverSolverTests.fs" />
+    <Compile Include="QuantumCliqueSolverTests.fs" />
+    <!-- Expansion Solvers Tests (Phase 2: Non-graph optimization) -->
+    <Compile Include="QuantumSetCoverSolverTests.fs" />
+    <Compile Include="QuantumSatSolverTests.fs" />
+    <!-- Expansion Solvers Tests (Phase 3: Medium priority) -->
+    <Compile Include="QuantumMatchingSolverTests.fs" />
+    <Compile Include="QuantumBinPackingSolverTests.fs" />
+    <!-- Expansion Solvers Tests (Phase 4: Stretch goal) -->
+    <Compile Include="QuantumBinaryILPSolverTests.fs" />
     
     <!-- Business Module Tests -->
     <Compile Include="QuantumRiskEngineTests.fs" />

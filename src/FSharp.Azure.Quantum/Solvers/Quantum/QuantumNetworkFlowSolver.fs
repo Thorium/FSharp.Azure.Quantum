@@ -102,16 +102,6 @@ module QuantumNetworkFlowSolver =
     // QUBO ENCODING FOR MIN-COST FLOW
     // ================================================================================
 
-    /// Convert sparse QUBO matrix (Map) to dense 2D array
-    let private quboMapToArray (quboMatrix: QuboMatrix) : float[,] =
-        let n = quboMatrix.NumVariables
-        let dense = Array2D.zeroCreate n n
-        
-        for KeyValue((i, j), value) in quboMatrix.Q do
-            dense.[i, j] <- value
-        
-        dense
-
     /// Encode min-cost flow problem as QUBO
     /// 
     /// Variables: x_e = 1 if edge e is selected for flow
@@ -396,7 +386,7 @@ module QuantumNetworkFlowSolver =
                     |> Option.iter (fun r -> 
                         r.Report(Progress.PhaseChanged("Network Flow QAOA", Some "Building QAOA circuit...")))
                     
-                    let quboArray = quboMapToArray quboMatrix
+                    let quboArray = Qubo.toDenseArray quboMatrix.NumVariables quboMatrix.Q
                     let problemHam = QaoaCircuit.ProblemHamiltonian.fromQubo quboArray
                     let mixerHam = QaoaCircuit.MixerHamiltonian.create problemHam.NumQubits
                     

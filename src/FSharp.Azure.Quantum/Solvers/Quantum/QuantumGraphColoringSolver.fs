@@ -96,16 +96,6 @@ module QuantumGraphColoringSolver =
     // QUBO ENCODING FOR K-COLORING
     // ================================================================================
 
-    /// Convert sparse QUBO matrix (Map) to dense 2D array
-    let private quboMapToArray (quboMatrix: QuboMatrix) : float[,] =
-        let n = quboMatrix.NumVariables
-        let dense = Array2D.zeroCreate n n
-        
-        for KeyValue((i, j), value) in quboMatrix.Q do
-            dense.[i, j] <- value
-        
-        dense
-
     /// Encode K-coloring problem as QUBO using one-hot encoding
     /// 
     /// ONE-HOT ENCODING:
@@ -378,7 +368,7 @@ module QuantumGraphColoringSolver =
                 | Ok (quboMatrix, reverseMap) ->
                     
                     // Step 3: Convert QUBO to dense array for QAOA
-                    let quboArray = quboMapToArray quboMatrix
+                    let quboArray = Qubo.toDenseArray quboMatrix.NumVariables quboMatrix.Q
                     
                     // Step 4: Create QAOA Hamiltonians from QUBO
                     let problemHam = QaoaCircuit.ProblemHamiltonian.fromQubo quboArray

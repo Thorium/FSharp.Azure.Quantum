@@ -108,16 +108,6 @@ module QuantumPortfolioSolver =
     // QUBO ENCODING FOR PORTFOLIO OPTIMIZATION
     // ================================================================================
 
-    /// Convert sparse QUBO matrix (Map) to dense 2D array
-    let private quboMapToArray (quboMatrix: GraphOptimization.QuboMatrix) : float[,] =
-        let n = quboMatrix.NumVariables
-        let dense = Array2D.zeroCreate n n
-        
-        for KeyValue((i, j), value) in quboMatrix.Q do
-            dense.[i, j] <- value
-        
-        dense
-
     /// Encode portfolio optimization as QUBO
     /// 
     /// Variables: x_i = 1 if asset i is included in portfolio
@@ -631,7 +621,7 @@ module QuantumPortfolioSolver =
                 | Ok quboMatrix ->
                     
                     // Step 2: Generate QAOA circuit components from QUBO
-                    let quboArray = quboMapToArray quboMatrix
+                    let quboArray = Qubo.toDenseArray quboMatrix.NumVariables quboMatrix.Q
                     let problemHam = QaoaCircuit.ProblemHamiltonian.fromQubo quboArray
                     let mixerHam = QaoaCircuit.MixerHamiltonian.create problemHam.NumQubits
                     

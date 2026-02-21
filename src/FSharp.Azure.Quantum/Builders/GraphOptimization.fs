@@ -566,8 +566,12 @@ module GraphOptimization =
             addTermsToQubo baseQubo edgeTerms
         
         | _ ->
-            // Default: binary encoding
-            emptyQubo numNodes
+            // These objectives are defined in GraphObjective but not yet implemented:
+            // MinimizeSpanningTree, MinimizeMaxWeight, MaximizeEdges, MinimizeEdges, Custom
+            invalidOp (
+                sprintf "GraphOptimization.toQubo: QUBO encoding is not implemented for objective '%A'. Supported objectives: MinimizeColors, MinimizeTotalWeight, MaximizeCut."
+                    problem.Objective
+            )
     
     // ========================================================================
     // OBJECTIVE VALUE CALCULATION (TDD CYCLE 2)
@@ -781,8 +785,12 @@ module GraphOptimization =
             createSolution problem.Graph (Some partition) None
         
         | _ ->
-            // Default: empty solution
-            emptySolution problem.Graph
+            // These objectives are defined in GraphObjective but not yet implemented:
+            // MinimizeSpanningTree, MinimizeMaxWeight, MaximizeEdges, MinimizeEdges, Custom
+            invalidOp (
+                sprintf "GraphOptimization.decodeSolution: decoding is not implemented for objective '%A'. Supported objectives: MinimizeColors, MinimizeTotalWeight, MaximizeCut."
+                    problem.Objective
+            )
 
     // ========================================================================
     // TDD CYCLE 2 - CONSTRAINT VALIDATION
