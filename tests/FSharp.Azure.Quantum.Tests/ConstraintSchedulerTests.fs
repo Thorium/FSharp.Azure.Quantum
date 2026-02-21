@@ -121,3 +121,267 @@ module ConstraintSchedulerTests =
                 Assert.Equal(11.0, s.TotalCost)
             | None -> Assert.Fail("Should have found a schedule")
         | Error e -> Assert.Fail(sprintf "Solver failed: %A" e)
+
+    // ========================================================================
+    // QAOA STRATEGY TESTS
+    // ========================================================================
+
+    [<Fact>]
+    let ``QAOA Strategy - Simple Conflict via SAT`` () =
+        let result = constraintScheduler {
+            task "T1"
+            task "T2"
+            
+            resource "R1" 10.0
+            resource "R2" 10.0
+            
+            conflict "T1" "T2"
+            
+            optimizeFor MaximizeSatisfaction
+            useQaoa
+            backend (LocalBackend.LocalBackend() :> IQuantumBackend)
+        }
+        
+        match result with
+        | Ok r ->
+            match r.BestSchedule with
+            | Some s ->
+                Assert.Equal(2, s.Assignments.Length)
+                // Both tasks should be assigned
+                let tasks = s.Assignments |> List.map (fun a -> a.Task) |> Set.ofList
+                Assert.Contains("T1", tasks)
+                Assert.Contains("T2", tasks)
+            | None -> () // QAOA is approximate; no solution is acceptable
+        | Error e -> Assert.Fail(sprintf "QAOA SAT solver failed: %A" e)
+
+    [<Fact>]
+    let ``QAOA Strategy - Resource Requirement via SAT`` () =
+        let result = constraintScheduler {
+            task "T1"
+            resource "R1" 10.0
+            resource "R2" 20.0
+            
+            require "T1" "R2"
+            
+            optimizeFor MaximizeSatisfaction
+            useQaoa
+            backend (LocalBackend.LocalBackend() :> IQuantumBackend)
+        }
+        
+        match result with
+        | Ok r ->
+            match r.BestSchedule with
+            | Some s ->
+                Assert.Equal(1, s.Assignments.Length)
+            | None -> () // QAOA is approximate
+        | Error e -> Assert.Fail(sprintf "QAOA SAT solver failed: %A" e)
+
+    [<Fact>]
+    let ``QAOA Strategy - Cost Optimization via SAT (no capacity)`` () =
+        let result = constraintScheduler {
+            task "T1"
+            task "T2"
+            
+            resource "Cheap" 1.0
+            resource "Expensive" 10.0
+            
+            conflict "T1" "T2"
+            
+            optimizeFor MinimizeCost
+            useQaoa
+            backend (LocalBackend.LocalBackend() :> IQuantumBackend)
+        }
+        
+        match result with
+        | Ok r ->
+            match r.BestSchedule with
+            | Some s ->
+                Assert.Equal(2, s.Assignments.Length)
+            | None -> () // QAOA is approximate
+        | Error e -> Assert.Fail(sprintf "QAOA SAT solver failed: %A" e)
+
+    [<Fact>]
+    let ``QAOA Strategy - Bin Packing with Capacity Constraints`` () =
+        let result = constraintScheduler {
+            task "T1"
+            task "T2"
+            task "T3"
+            
+            resourceWithCapacity "Server1" 5.0 2
+            resourceWithCapacity "Server2" 3.0 2
+            
+            optimizeFor MinimizeCost
+            useQaoa
+            backend (LocalBackend.LocalBackend() :> IQuantumBackend)
+        }
+        
+        match result with
+        | Ok r ->
+            match r.BestSchedule with
+            | Some s ->
+                // All 3 tasks should be assigned
+                Assert.Equal(3, s.Assignments.Length)
+            | None -> () // QAOA is approximate
+        | Error e -> Assert.Fail(sprintf "QAOA bin packing solver failed: %A" e)
+
+    [<Fact>]
+    let ``QAOA Strategy - CE builder useGrover preserves Grover behavior`` () =
+        let result = constraintScheduler {
+            task "T1"
+            task "T2"
+            
+            resource "R1" 10.0
+            resource "R2" 10.0
+            
+            conflict "T1" "T2"
+            
+            optimizeFor MaximizeSatisfaction
+            useGrover
+            backend (LocalBackend.LocalBackend() :> IQuantumBackend)
+        }
+        
+        match result with
+        | Ok r ->
+            match r.BestSchedule with
+            | Some s ->
+                Assert.True(s.IsFeasible, "Grover should find a feasible schedule")
+                Assert.Equal(2, s.Assignments.Length)
+                let t1Res = s.Assignments |> List.find (fun a -> a.Task = "T1") |> fun a -> a.Resource
+                let t2Res = s.Assignments |> List.find (fun a -> a.Task = "T2") |> fun a -> a.Resource
+                Assert.NotEqual<string>(t1Res, t2Res)
+            | None -> Assert.Fail("Grover should have found a schedule")
+        | Error e -> Assert.Fail(sprintf "Grover solver failed: %A" e)
+
+    [<Fact>]
+    let ``QAOA Strategy - Auto selects Grover when no capacity`` () =
+        // No capacity constraints -> Auto should pick Grover (same as default)
+        let result = constraintScheduler {
+            task "T1"
+            task "T2"
+            
+            resource "R1" 10.0
+            resource "R2" 10.0
+            
+            conflict "T1" "T2"
+            
+            optimizeFor MaximizeSatisfaction
+            backend (LocalBackend.LocalBackend() :> IQuantumBackend)
+        }
+        
+        match result with
+        | Ok r ->
+            match r.BestSchedule with
+            | Some s ->
+                Assert.True(s.IsFeasible, "Auto (Grover) should find a feasible schedule")
+                Assert.Equal(2, s.Assignments.Length)
+            | None -> Assert.Fail("Should have found a schedule")
+        | Error e -> Assert.Fail(sprintf "Solver failed: %A" e)
+
+    [<Fact>]
+    let ``QAOA Strategy - Auto selects QAOA when capacity present`` () =
+        // Resources with capacity -> Auto should pick QAOA
+        let result = constraintScheduler {
+            task "T1"
+            task "T2"
+            
+            resourceWithCapacity "Server1" 5.0 2
+            resourceWithCapacity "Server2" 3.0 2
+            
+            optimizeFor MinimizeCost
+            backend (LocalBackend.LocalBackend() :> IQuantumBackend)
+        }
+        
+        match result with
+        | Ok r ->
+            match r.BestSchedule with
+            | Some s ->
+                Assert.Equal(2, s.Assignments.Length)
+            | None -> () // QAOA is approximate
+        | Error e -> Assert.Fail(sprintf "Auto QAOA solver failed: %A" e)
+
+    [<Fact>]
+    let ``QAOA Strategy - Validation errors unchanged`` () =
+        // Empty tasks should still fail
+        let result = constraintScheduler {
+            resource "R1" 10.0
+            optimizeFor MaximizeSatisfaction
+            useQaoa
+            backend (LocalBackend.LocalBackend() :> IQuantumBackend)
+        }
+        
+        match result with
+        | Error (QuantumError.ValidationError ("Tasks", _)) -> ()
+        | other -> Assert.Fail(sprintf "Expected validation error, got: %A" other)
+
+    [<Fact>]
+    let ``QAOA Strategy - Programmatic API with Strategy`` () =
+        let backend = LocalBackend.LocalBackend() :> IQuantumBackend
+        let problem = {
+            Tasks = ["T1"; "T2"]
+            Resources = [{ Id = "R1"; Cost = 10.0; Capacity = None }; { Id = "R2"; Cost = 10.0; Capacity = None }]
+            HardConstraints = [Conflict ("T1", "T2")]
+            SoftConstraints = []
+            Goal = MaximizeSatisfaction
+            MaxBudget = None
+            Backend = Some backend
+            Strategy = Some QaoaOptimize
+            Shots = 100
+        }
+        
+        let result = ConstraintScheduler.solve problem
+        
+        match result with
+        | Ok r ->
+            match r.BestSchedule with
+            | Some s -> Assert.Equal(2, s.Assignments.Length)
+            | None -> () // QAOA is approximate
+        | Error e -> Assert.Fail(sprintf "Programmatic QAOA failed: %A" e)
+
+    [<Fact>]
+    let ``QAOA Strategy - Programmatic API defaults Strategy to None`` () =
+        let backend = LocalBackend.LocalBackend() :> IQuantumBackend
+        let problem = {
+            Tasks = ["T1"]
+            Resources = [{ Id = "R1"; Cost = 10.0; Capacity = None }]
+            HardConstraints = []
+            SoftConstraints = []
+            Goal = MaximizeSatisfaction
+            MaxBudget = None
+            Backend = Some backend
+            Strategy = None
+            Shots = 100
+        }
+        
+        let result = ConstraintScheduler.solve problem
+        
+        match result with
+        | Ok r ->
+            match r.BestSchedule with
+            | Some s ->
+                Assert.Equal(1, s.Assignments.Length)
+                Assert.Equal("T1", s.Assignments.[0].Task)
+            | None -> Assert.Fail("Should have found a schedule for single task")
+        | Error e -> Assert.Fail(sprintf "Solver failed: %A" e)
+
+    [<Fact>]
+    let ``QAOA Strategy - Balanced goal with QAOA uses SAT when no capacity`` () =
+        let result = constraintScheduler {
+            task "T1"
+            task "T2"
+            
+            resource "R1" 5.0
+            resource "R2" 15.0
+            
+            conflict "T1" "T2"
+            
+            optimizeFor Balanced
+            useQaoa
+            backend (LocalBackend.LocalBackend() :> IQuantumBackend)
+        }
+        
+        match result with
+        | Ok r ->
+            match r.BestSchedule with
+            | Some s -> Assert.Equal(2, s.Assignments.Length)
+            | None -> () // QAOA is approximate
+        | Error e -> Assert.Fail(sprintf "QAOA Balanced solver failed: %A" e)

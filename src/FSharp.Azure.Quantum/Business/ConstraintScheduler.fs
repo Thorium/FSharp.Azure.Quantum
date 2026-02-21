@@ -7,6 +7,7 @@ open FSharp.Azure.Quantum.GroverSearch
 open FSharp.Azure.Quantum.GroverSearch.Oracle
 open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum.Algorithms
+open FSharp.Azure.Quantum.Quantum
 
 /// <summary>
 /// High-level constraint-based scheduling using quantum optimization.
@@ -22,7 +23,9 @@ open FSharp.Azure.Quantum.Algorithms
 /// **Quantum Advantage:**
 /// Uses Grover's algorithm with Max-SAT (constraint satisfaction) and
 /// Weighted Graph Coloring (cost optimization) for quadratic speedup
-/// over classical constraint solvers.
+/// over classical constraint solvers. Also supports QAOA-based
+/// approximate optimization via SAT and Bin Packing formulations
+/// for problems with capacity constraints or larger search spaces.
 /// 
 /// **Example:**
 /// ```fsharp
@@ -61,6 +64,17 @@ module ConstraintScheduler =
         
         /// Balance cost and satisfaction
         | Balanced
+    
+    /// Algorithm strategy for quantum solving
+    type AlgorithmStrategy =
+        /// System selects the best algorithm based on problem structure
+        | Auto
+        
+        /// Use Grover's search (exact search via oracle)
+        | GroverSearch
+        
+        /// Use QAOA optimization (approximate optimization via QUBO)
+        | QaoaOptimize
     
     /// Hard constraint that MUST be satisfied
     type HardConstraint =
@@ -113,6 +127,9 @@ module ConstraintScheduler =
         
         /// Quantum backend (None = classical algorithm, Some = quantum optimization)
         Backend: IQuantumBackend option
+        
+        /// Algorithm strategy (None = Auto, system picks best algorithm)
+        Strategy: AlgorithmStrategy option
         
         /// Number of measurement shots (default: 1000)
         Shots: int
@@ -485,6 +502,172 @@ module ConstraintScheduler =
                     let schedule = decodeColoringSolution problem bestSolution
                     Ok (Some schedule)
     
+    // ========================================================================
+    // QAOA-BASED OPTIMIZATION (approximate, via QUBO)
+    // ========================================================================
+    
+    /// Convert scheduling problem to QuantumSatSolver.Problem for QAOA optimization.
+    /// Same encoding as toMaxSat but targets QuantumSatSolver types.
+    let private toQaoaSatProblem (problem: SchedulingProblem) : QuantumSatSolver.Problem =
+        let taskIdx = createTaskIndex problem.Tasks
+        let resIdx = createResourceIndex problem.Resources
+        
+        // Each task-resource pair is a boolean variable
+        let numVars = problem.Tasks.Length * problem.Resources.Length
+        
+        // 1. Structural: each task assigned to exactly one resource
+        let structuralClauses =
+            problem.Tasks
+            |> List.collect (fun task ->
+                let t = taskIdx.[task]
+                
+                // At least one resource
+                let atLeastOne : QuantumSatSolver.Clause =
+                    { Literals =
+                        problem.Resources
+                        |> List.mapi (fun r _ ->
+                            let varId = t * problem.Resources.Length + r
+                            ({ Variable = varId; IsNegated = false } : QuantumSatSolver.Literal))
+                    }
+                
+                // At most one resource (pairwise mutex)
+                let atMostOne : QuantumSatSolver.Clause list =
+                    problem.Resources
+                    |> List.mapi (fun r1 _ ->
+                        problem.Resources
+                        |> List.mapi (fun r2 _ ->
+                            if r1 < r2 then
+                                let v1 = t * problem.Resources.Length + r1
+                                let v2 = t * problem.Resources.Length + r2
+                                Some ({ Literals = [
+                                    ({ Variable = v1; IsNegated = true } : QuantumSatSolver.Literal)
+                                    ({ Variable = v2; IsNegated = true } : QuantumSatSolver.Literal)
+                                ] } : QuantumSatSolver.Clause)
+                            else
+                                None)
+                        |> List.choose id)
+                    |> List.concat
+                
+                atLeastOne :: atMostOne)
+        
+        // 2. Hard constraints
+        let constraintClauses =
+            problem.HardConstraints
+            |> List.collect (fun constraint' ->
+                match constraint' with
+                | Conflict (task1, task2) ->
+                    match Map.tryFind task1 taskIdx, Map.tryFind task2 taskIdx with
+                    | Some t1, Some t2 ->
+                        problem.Resources
+                        |> List.mapi (fun r _ ->
+                            let v1 = t1 * problem.Resources.Length + r
+                            let v2 = t2 * problem.Resources.Length + r
+                            ({ Literals = [
+                                ({ Variable = v1; IsNegated = true } : QuantumSatSolver.Literal)
+                                ({ Variable = v2; IsNegated = true } : QuantumSatSolver.Literal)
+                            ] } : QuantumSatSolver.Clause))
+                    | _ -> []
+                | RequiresResource (task, resource) ->
+                    match Map.tryFind task taskIdx, Map.tryFind resource resIdx with
+                    | Some t, Some r ->
+                        let varId = t * problem.Resources.Length + r
+                        [ ({ Literals = [
+                            ({ Variable = varId; IsNegated = false } : QuantumSatSolver.Literal)
+                        ] } : QuantumSatSolver.Clause) ]
+                    | _ -> []
+                | Precedence _ -> [])
+        
+        { NumVariables = numVars
+          Clauses = structuralClauses @ constraintClauses }
+    
+    /// Decode a QuantumSatSolver.Solution back to a Schedule.
+    /// The SAT assignment is a bool[] where variable (t * numResources + r) = true
+    /// means task t is assigned to resource r.
+    let private decodeQaoaSatSolution (problem: SchedulingProblem) (satSolution: QuantumSatSolver.Solution) : Schedule =
+        let assignments =
+            problem.Tasks
+            |> List.mapi (fun tIdx task ->
+                problem.Resources
+                |> List.mapi (fun rIdx res ->
+                    let varId = tIdx * problem.Resources.Length + rIdx
+                    if varId < satSolution.Assignment.Length && satSolution.Assignment.[varId] then
+                        Some { Task = task; Resource = res.Id; Cost = res.Cost }
+                    else
+                        None)
+                |> List.choose id)
+            |> List.concat
+        
+        createSchedule problem assignments
+    
+    /// Convert scheduling problem to QuantumBinPackingSolver.Problem.
+    /// Tasks are "items" (unit size) and resources with Capacity are "bins".
+    /// Resources without Capacity get a default capacity equal to total task count.
+    let private toQaoaBinPackingProblem (problem: SchedulingProblem) : QuantumBinPackingSolver.Problem =
+        let items =
+            problem.Tasks
+            |> List.map (fun taskId ->
+                ({ Id = taskId; Size = 1.0 } : QuantumBinPackingSolver.Item))
+        
+        // Use the max capacity of any resource, or task count as default
+        let binCapacity =
+            problem.Resources
+            |> List.choose (fun r -> r.Capacity)
+            |> function
+               | [] -> float problem.Tasks.Length  // No capacity constraints: all tasks fit
+               | capacities -> capacities |> List.max |> float
+        
+        { Items = items
+          BinCapacity = binCapacity }
+    
+    /// Decode a QuantumBinPackingSolver.Solution back to a Schedule.
+    /// Bin indices are mapped back to resource indices.
+    let private decodeQaoaBinPackingSolution (problem: SchedulingProblem) (binSolution: QuantumBinPackingSolver.Solution) : Schedule =
+        let assignments =
+            binSolution.Assignments
+            |> List.choose (fun (item, binIdx) ->
+                let taskId = item.Id
+                // Map bin index to resource (modular wrap if more bins than resources)
+                let resIdx = binIdx % problem.Resources.Length
+                if resIdx < problem.Resources.Length then
+                    let res = problem.Resources.[resIdx]
+                    Some { Task = taskId; Resource = res.Id; Cost = res.Cost }
+                else
+                    None)
+        
+        createSchedule problem assignments
+    
+    /// Find optimal schedule using QAOA-based SAT optimization.
+    let private optimizeQaoaSat (backend: IQuantumBackend) (problem: SchedulingProblem) : QuantumResult<Schedule option> =
+        let satProblem = toQaoaSatProblem problem
+        
+        match QuantumSatSolver.solve backend satProblem problem.Shots with
+        | Error err -> Error err
+        | Ok satSolution ->
+            let schedule = decodeQaoaSatSolution problem satSolution
+            Ok (Some schedule)
+    
+    /// Find optimal schedule using QAOA-based bin packing optimization.
+    let private optimizeQaoaBinPacking (backend: IQuantumBackend) (problem: SchedulingProblem) : QuantumResult<Schedule option> =
+        let binProblem = toQaoaBinPackingProblem problem
+        
+        match QuantumBinPackingSolver.solve backend binProblem problem.Shots with
+        | Error err -> Error err
+        | Ok binSolution ->
+            let schedule = decodeQaoaBinPackingSolution problem binSolution
+            Ok (Some schedule)
+    
+    /// Determine the effective strategy based on problem characteristics.
+    /// Auto selects QAOA when capacity constraints are present (bin packing formulation),
+    /// and Grover otherwise (exact search is preferred for small problems).
+    let private resolveStrategy (problem: SchedulingProblem) : AlgorithmStrategy =
+        match problem.Strategy with
+        | Some strategy -> strategy
+        | None ->
+            // Auto: Use QAOA if any resource has capacity constraints
+            let hasCapacity = problem.Resources |> List.exists (fun r -> r.Capacity.IsSome)
+            if hasCapacity then QaoaOptimize
+            else GroverSearch
+
     /// Find schedule using classical algorithm (baseline)
     let private optimizeClassical (_problem: SchedulingProblem) : Schedule option =
         failwith
@@ -504,16 +687,30 @@ module ConstraintScheduler =
             let bestSchedule =
                 match problem.Backend with
                 | Some backend ->
-                    match problem.Goal with
-                    | MinimizeCost | Balanced ->
-                        match optimizeQuantumColoring backend problem with
-                        | Ok sched -> Ok sched
-                        | Error e -> Error e
+                    let strategy = resolveStrategy problem
                     
-                    | MaximizeSatisfaction ->
-                        match optimizeQuantumSat backend problem with
-                        | Ok sched -> Ok sched
-                        | Error e -> Error e
+                    match strategy, problem.Goal with
+                    // Grover paths (existing)
+                    | GroverSearch, MaximizeSatisfaction ->
+                        optimizeQuantumSat backend problem
+                    | GroverSearch, (MinimizeCost | Balanced) ->
+                        optimizeQuantumColoring backend problem
+                    
+                    // QAOA paths (new)
+                    | QaoaOptimize, MaximizeSatisfaction ->
+                        optimizeQaoaSat backend problem
+                    | QaoaOptimize, (MinimizeCost | Balanced) ->
+                        // Use bin packing when capacity constraints exist, SAT otherwise
+                        let hasCapacity = problem.Resources |> List.exists (fun r -> r.Capacity.IsSome)
+                        if hasCapacity then
+                            optimizeQaoaBinPacking backend problem
+                        else
+                            optimizeQaoaSat backend problem
+                    
+                    // Auto strategy dispatches to resolved strategy (already handled by resolveStrategy)
+                    | Auto, _ ->
+                        // resolveStrategy never returns Auto, but handle for completeness
+                        optimizeQuantumSat backend problem
                 
                 | None ->
                     Error (QuantumError.NotImplemented (
@@ -639,6 +836,7 @@ module ConstraintScheduler =
             Goal = Balanced
             MaxBudget = None
             Backend = None
+            Strategy = None
             Shots = 1000
         }
         
@@ -756,6 +954,28 @@ module ConstraintScheduler =
         [<CustomOperation("shots")>]
         member _.Shots(problem: SchedulingProblem, shots: int) : SchedulingProblem =
             { problem with Shots = shots }
+        
+        /// <summary>Use Grover's search algorithm (exact search via oracle).</summary>
+        /// <remarks>
+        /// Grover's algorithm uses an oracle to search for valid schedules.
+        /// Best for small problems where an exact solution is desired.
+        /// This is the default strategy when no capacity constraints exist.
+        /// </remarks>
+        [<CustomOperation("useGrover")>]
+        member _.UseGrover(problem: SchedulingProblem) : SchedulingProblem =
+            { problem with Strategy = Some GroverSearch }
+        
+        /// <summary>Use QAOA optimization (approximate optimization via QUBO).</summary>
+        /// <remarks>
+        /// QAOA formulates the scheduling problem as a QUBO and uses
+        /// variational quantum optimization. Best for problems with
+        /// capacity constraints or when approximate solutions are acceptable.
+        /// Automatically selects bin packing formulation when resources have
+        /// capacity limits, or SAT formulation otherwise.
+        /// </remarks>
+        [<CustomOperation("useQaoa")>]
+        member _.UseQaoa(problem: SchedulingProblem) : SchedulingProblem =
+            { problem with Strategy = Some QaoaOptimize }
     
     /// <summary>
     /// Create a constraint-based scheduler builder.
