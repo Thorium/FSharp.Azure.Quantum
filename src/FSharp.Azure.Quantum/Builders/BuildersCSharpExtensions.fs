@@ -720,6 +720,100 @@ type CSharpBuilders private () =
     static member ExecutePhaseEstimator(problem: QuantumPhaseEstimator.PhaseEstimatorProblem, exactness: Algorithms.QPE.Exactness) =
         QuantumPhaseEstimator.estimate { problem with Exactness = exactness }
 
+    // ============================================================================
+    // COVERAGE OPTIMIZER EXTENSIONS (Quantum Set Cover)
+    // ============================================================================
+
+    /// <summary>Create a coverage option (shift, facility, service, etc.) (C# helper).</summary>
+    /// <param name="id">Unique identifier for this option</param>
+    /// <param name="coveredElements">Array of element indices this option covers (0-based)</param>
+    /// <param name="cost">Cost of selecting this option</param>
+    static member CoverageOption(id: string, coveredElements: int[], cost: float) : CoverageOptimizer.CoverageOption =
+        { Id = id; CoveredElements = Array.toList coveredElements; Cost = cost }
+
+    /// <summary>Solve a coverage optimization problem (C# helper).</summary>
+    /// <param name="universeSize">Total number of elements to cover</param>
+    /// <param name="options">Array of coverage options</param>
+    /// <param name="backend">Quantum backend (REQUIRED - RULE1 compliance)</param>
+    /// <param name="shots">Number of measurement shots (default: 1000)</param>
+    /// <returns>Result with coverage solution or error</returns>
+    /// <remarks>
+    /// Uses QAOA-based quantum set cover optimization to find minimum-cost subsets
+    /// that cover all required elements.
+    ///
+    /// **Business Use Cases:** Shift coverage, facility location, service coverage,
+    /// network monitoring, test coverage.
+    /// </remarks>
+    static member CoverageProblem(universeSize: int, options: CoverageOptimizer.CoverageOption[], backend: IQuantumBackend, [<OptionalArgument; DefaultParameterValue(1000)>] shots: int) =
+        let problem : CoverageOptimizer.CoverageProblem =
+            { UniverseSize = universeSize
+              Options = Array.toList options
+              Backend = Some backend
+              Shots = shots }
+        CoverageOptimizer.solve problem
+
+    // ============================================================================
+    // RESOURCE PAIRING EXTENSIONS (Quantum Matching)
+    // ============================================================================
+
+    /// <summary>Create a compatibility score between two participants (C# helper).</summary>
+    /// <param name="participant1">First participant</param>
+    /// <param name="participant2">Second participant</param>
+    /// <param name="weight">Compatibility score (higher = better match)</param>
+    static member PairingCompatibility(participant1: string, participant2: string, weight: float) : ResourcePairing.Compatibility =
+        { Participant1 = participant1; Participant2 = participant2; Weight = weight }
+
+    /// <summary>Solve a resource pairing problem (C# helper).</summary>
+    /// <param name="participants">Array of participant identifiers</param>
+    /// <param name="compatibilities">Array of compatibility scores</param>
+    /// <param name="backend">Quantum backend (REQUIRED - RULE1 compliance)</param>
+    /// <param name="shots">Number of measurement shots (default: 1000)</param>
+    /// <returns>Result with optimal pairings or error</returns>
+    /// <remarks>
+    /// Uses QAOA-based quantum maximum weight matching to find optimal 1:1 pairings
+    /// that maximize total compatibility.
+    ///
+    /// **Business Use Cases:** Recruiting, mentoring, trading, healthcare, ride-sharing.
+    /// </remarks>
+    static member PairingProblem(participants: string[], compatibilities: ResourcePairing.Compatibility[], backend: IQuantumBackend, [<OptionalArgument; DefaultParameterValue(1000)>] shots: int) =
+        let problem : ResourcePairing.PairingProblem =
+            { Participants = Array.toList participants
+              Compatibilities = Array.toList compatibilities
+              Backend = Some backend
+              Shots = shots }
+        ResourcePairing.solve problem
+
+    // ============================================================================
+    // PACKING OPTIMIZER EXTENSIONS (Quantum Bin Packing)
+    // ============================================================================
+
+    /// <summary>Create a packing item (C# helper).</summary>
+    /// <param name="id">Unique identifier for this item</param>
+    /// <param name="size">Size/weight of the item</param>
+    static member PackingItem(id: string, size: float) : PackingOptimizer.PackingItem =
+        { Id = id; Size = size }
+
+    /// <summary>Solve a packing optimization problem (C# helper).</summary>
+    /// <param name="items">Array of items to pack</param>
+    /// <param name="binCapacity">Maximum capacity per bin/container</param>
+    /// <param name="backend">Quantum backend (REQUIRED - RULE1 compliance)</param>
+    /// <param name="shots">Number of measurement shots (default: 1000)</param>
+    /// <returns>Result with bin assignments or error</returns>
+    /// <remarks>
+    /// Uses QAOA-based quantum bin packing optimization to assign items to bins
+    /// minimizing the total number of bins used.
+    ///
+    /// **Business Use Cases:** Container loading, VM placement, warehouse management,
+    /// batch job scheduling, stock cutting.
+    /// </remarks>
+    static member PackingProblem(items: PackingOptimizer.PackingItem[], binCapacity: float, backend: IQuantumBackend, [<OptionalArgument; DefaultParameterValue(1000)>] shots: int) =
+        let problem : PackingOptimizer.PackingProblem =
+            { Items = Array.toList items
+              BinCapacity = binCapacity
+              Backend = Some backend
+              Shots = shots }
+        PackingOptimizer.solve problem
+
 // ============================================================================
 // QUANTUM BACKEND EXTENSIONS - Task-based Async for C#
 // ============================================================================
