@@ -102,12 +102,17 @@ module QuantumBinaryILPSolver =
 
     /// Compute the number of slack bits needed for a constraint with bound b.
     /// T = ceil(log2(b + 1)), minimum 1 bit for b > 0, 0 bits for b = 0.
+    /// Uses integer bit counting to avoid floating-point precision issues.
     let private slackBitsForBound (b: float) : int =
         if b <= 0.0 then 0
         elif b < 1.0 then 1
         else
-            let t = System.Math.Ceiling(System.Math.Log(b + 1.0, 2.0))
-            max 1 (int t)
+            // Integer bit counting: find smallest t such that 2^t >= b+1
+            let bInt = int (System.Math.Ceiling b)
+            let rec countBits value bits =
+                if value <= 0 then bits
+                else countBits (value >>> 1) (bits + 1)
+            max 1 (countBits bInt 0)
 
     /// Compute the starting index for slack variables of constraint k.
     /// Slack variables for constraint k start at:
@@ -316,6 +321,7 @@ module QuantumBinaryILPSolver =
     /// Strategy: For each violated constraint, greedily flip variables from 1→0
     /// (choosing the variable with the largest positive coefficient first)
     /// until the constraint is satisfied. This reduces the LHS most quickly.
+    /// Wraps in a convergence loop since fixing one constraint may violate another.
     /// Then rebuild the full bitstring with correct slack values.
     let private repairConstraints (problem: Problem) (bits: int[]) : int[] =
         let n = problem.ObjectiveCoeffs.Length
@@ -324,32 +330,46 @@ module QuantumBinaryILPSolver =
         // Start with current decision variables
         let vars = Array.copy bits.[0 .. n - 1]
 
-        // Repair each violated constraint by flipping x_i from 1→0
-        problem.Constraints
-        |> List.iter (fun constr ->
-            let lhs =
-                constr.Coefficients
-                |> List.indexed
-                |> List.sumBy (fun (i, ai) -> ai * float vars.[i])
+        // Convergence loop: iterate until all constraints satisfied or max iterations
+        let maxIterations = problem.Constraints.Length * 2 + 1
+        let rec converge iteration =
+            if iteration >= maxIterations then
+                ()  // Give up after max iterations
+            else
+                let mutable anyViolated = false
 
-            if lhs > constr.Bound + 1e-9 then
-                // Get variables that are 1, sorted by coefficient (largest first)
-                // Flipping these reduces LHS most
-                let candidates =
-                    constr.Coefficients
-                    |> List.indexed
-                    |> List.filter (fun (i, ai) -> vars.[i] = 1 && ai > 0.0)
-                    |> List.sortByDescending snd
+                // Repair each violated constraint by flipping x_i from 1→0
+                problem.Constraints
+                |> List.iter (fun constr ->
+                    let lhs =
+                        constr.Coefficients
+                        |> List.indexed
+                        |> List.sumBy (fun (i, ai) -> ai * float vars.[i])
 
-                let rec flipUntilSatisfied remaining currentLhs =
-                    match remaining with
-                    | _ when currentLhs <= constr.Bound + 1e-9 -> ()
-                    | [] -> ()
-                    | (i, ai) :: rest ->
-                        vars.[i] <- 0
-                        flipUntilSatisfied rest (currentLhs - ai)
+                    if lhs > constr.Bound + 1e-9 then
+                        anyViolated <- true
+                        // Get variables that are 1, sorted by coefficient (largest first)
+                        // Flipping these reduces LHS most
+                        let candidates =
+                            constr.Coefficients
+                            |> List.indexed
+                            |> List.filter (fun (i, ai) -> vars.[i] = 1 && ai > 0.0)
+                            |> List.sortByDescending snd
 
-                flipUntilSatisfied candidates lhs)
+                        let rec flipUntilSatisfied remaining currentLhs =
+                            match remaining with
+                            | _ when currentLhs <= constr.Bound + 1e-9 -> ()
+                            | [] -> ()
+                            | (i, ai) :: rest ->
+                                vars.[i] <- 0
+                                flipUntilSatisfied rest (currentLhs - ai)
+
+                        flipUntilSatisfied candidates lhs)
+
+                if anyViolated then
+                    converge (iteration + 1)
+
+        converge 0
 
         // Build the full bitstring: decision vars + optimal slack values
         let result = Array.zeroCreate totalVars
@@ -366,7 +386,7 @@ module QuantumBinaryILPSolver =
                 constr.Coefficients
                 |> List.indexed
                 |> List.sumBy (fun (i, ai) -> ai * float vars.[i])
-            let slack = max 0.0 (constr.Bound - lhs) |> int
+            let slack = max 0.0 (constr.Bound - lhs) |> round |> int
             let tk = slackBitsForBound constr.Bound
             let slackStart = slackStartIndex n problem.Constraints k
 

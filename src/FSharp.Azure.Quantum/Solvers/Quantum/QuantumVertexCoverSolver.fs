@@ -160,9 +160,10 @@ module QuantumVertexCoverSolver =
         bits.Length = problem.Vertices.Length
         && problem.Edges
            |> List.forall (fun (i, j) ->
-               let ci = min i j |> max 0
-               let cj = max i j |> min (bits.Length - 1)
-               bits.[ci] = 1 || bits.[cj] = 1)
+               let lo = min i j
+               let hi = max i j
+               lo >= 0 && hi < bits.Length
+               && (bits.[lo] = 1 || bits.[hi] = 1))
 
     /// Decode a bitstring into a Solution.
     let private decodeSolution (problem: Problem) (bits: int[]) : Solution =

@@ -251,11 +251,14 @@ module QuantumCliqueSolver =
                     |> Array.sortByDescending (fun i ->
                         let count = conflictCounts |> Map.tryFind i |> Option.defaultValue 0
                         (count, -problem.Vertices.[i].Weight))
-                    |> Array.head
+                    |> Array.tryHead
 
-                let updated = Array.copy current
-                updated.[worstVertex] <- 0
-                fix updated
+                match worstVertex with
+                | None -> current  // No conflicting vertices to remove (shouldn't happen)
+                | Some idx ->
+                    let updated = Array.copy current
+                    updated.[idx] <- 0
+                    fix updated
 
         fix (Array.copy bits)
 

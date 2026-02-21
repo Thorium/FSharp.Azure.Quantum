@@ -22,7 +22,6 @@ module RealDWaveBackend =
     open System.Net.Http
     open System.Text
     open System.Text.Json
-    open System.Threading.Tasks
     open FSharp.Azure.Quantum.Core.CircuitAbstraction
     open FSharp.Azure.Quantum.Core.BackendAbstraction
     open FSharp.Azure.Quantum.Core
@@ -221,6 +220,20 @@ module RealDWaveBackend =
         
         let client = new DWaveClient(config)
         
+        /// Convert a raw SAPI solution (Ising spins) to a DWaveSolution domain type.
+        /// D-Wave SAPI returns Ising solutions as {-1, +1} natively.
+        let convertSapiSolution (spins: int[]) (energy: float) (occurrences: int) : DWaveTypes.DWaveSolution =
+            let spinMap =
+                spins
+                |> Array.mapi (fun i s -> (i, s))
+                |> Map.ofArray
+            {
+                Spins = spinMap
+                Energy = energy
+                NumOccurrences = occurrences
+                ChainBreakFraction = 0.0
+            }
+        
         /// Get max qubits for solver
         let getMaxQubits (solverName: string) : int =
             if solverName.Contains("system6") then 5640
@@ -243,7 +256,7 @@ module RealDWaveBackend =
                     let ising = quboToIsing qubo
                     
                     // Validate qubit count
-                    let numQubits = qubo |> Map.toSeq |> Seq.map (fun ((i,j),_) -> max i j) |> Seq.max |> (+) 1
+                    let numQubits = getNumVariables qubo
                     let maxQubits = getMaxQubits config.Solver
                     
                     if numQubits > maxQubits then
@@ -261,10 +274,19 @@ module RealDWaveBackend =
                             match pollResult with
                             | Error e -> return Error (QuantumError.BackendError ("D-Wave Poll", e))
                             | Ok solution ->
-                                // Convert solutions to measurements
+                                // Convert Ising spin solutions to binary measurements
+                                // D-Wave returns Ising spins {-1,+1}; convert to QUBO binary {0,1}
                                 let measurements =
                                     Array.zip solution.solutions solution.num_occurrences
-                                    |> Array.collect (fun (bitstring, occurrences) ->
+                                    |> Array.collect (fun (spins, occurrences) ->
+                                        let spinMap =
+                                            spins
+                                            |> Array.mapi (fun i s -> (i, s))
+                                            |> Map.ofArray
+                                        let binary = isingToQubo spinMap
+                                        let bitstring =
+                                            [| 0 .. numQubits - 1 |]
+                                            |> Array.map (fun i -> Map.tryFind i binary |> Option.defaultValue 0)
                                         Array.replicate occurrences bitstring
                                     )
                                 
@@ -288,7 +310,10 @@ module RealDWaveBackend =
         
         /// Execute circuit and return full result with measurements
         member this.Execute (circuit: ICircuit) (numShots: int) : Result<ExecutionResult, QuantumError> =
-            this.ExecuteCore(circuit, numShots) |> Async.RunSynchronously
+            if numShots <= 0 then
+                Error (QuantumError.ValidationError ("numShots", $"must be > 0, got {numShots}"))
+            else
+                this.ExecuteCore(circuit, numShots) |> Async.RunSynchronously
         
         // ================================================================
         // IQuantumBackend IMPLEMENTATION
@@ -307,12 +332,7 @@ module RealDWaveBackend =
                     Error (QuantumError.ValidationError ("QUBO extraction", $"Failed to extract QUBO from circuit: {e}"))
                 | Ok qubo ->
                     let ising = quboToIsing qubo
-                    let numQubits =
-                        qubo
-                        |> Map.toSeq
-                        |> Seq.map (fun ((i, j), _) -> max i j)
-                        |> Seq.fold max 0
-                        |> (+) 1
+                    let numQubits = getNumVariables qubo
                     let maxQubits = getMaxQubits config.Solver
                     if numQubits > maxQubits then
                         Error (QuantumError.ValidationError ("qubit count", $"Problem requires {numQubits} qubits, but {config.Solver} supports max {maxQubits}"))
@@ -328,20 +348,11 @@ module RealDWaveBackend =
                             | Error e ->
                                 Error (QuantumError.BackendError ("D-Wave Poll", e))
                             | Ok solution ->
-                                // Convert D-Wave solutions to DWaveSolution format
+                                // Convert D-Wave SAPI solutions to DWaveSolution format
                                 let dwaveSolutions =
                                     Array.zip3 solution.solutions solution.energies solution.num_occurrences
                                     |> Array.map (fun (spins, energy, occurrences) ->
-                                        let spinMap =
-                                            spins
-                                            |> Array.mapi (fun i s -> (i, if s = 0 then -1 else s))
-                                            |> Map.ofArray
-                                        {
-                                            Spins = spinMap
-                                            Energy = energy
-                                            NumOccurrences = occurrences
-                                            ChainBreakFraction = 0.0
-                                        })
+                                        convertSapiSolution spins energy occurrences)
                                     |> Array.toList
                                 Ok (QuantumState.IsingSamples (box ising, box dwaveSolutions))
             
@@ -385,16 +396,7 @@ module RealDWaveBackend =
                                     let dwaveSolutions =
                                         Array.zip3 solution.solutions solution.energies solution.num_occurrences
                                         |> Array.map (fun (spins, energy, occurrences) ->
-                                            let spinMap =
-                                                spins
-                                                |> Array.mapi (fun i s -> (i, if s = 0 then -1 else s))
-                                                |> Map.ofArray
-                                            {
-                                                Spins = spinMap
-                                                Energy = energy
-                                                NumOccurrences = occurrences
-                                                ChainBreakFraction = 0.0
-                                            })
+                                            convertSapiSolution spins energy occurrences)
                                         |> Array.toList
                                     Ok (QuantumState.IsingSamples (box annealOp.Problem, box dwaveSolutions))
                         | _ ->

@@ -75,6 +75,23 @@ module QaoaExecutionHelpers =
     }
 
     // ================================================================================
+    // CONFIGURATION VALIDATION
+    // ================================================================================
+
+    /// Validate QAOA solver configuration, returning Error if invalid.
+    let private validateConfig (config: QaoaSolverConfig) : Result<unit, QuantumError> =
+        if config.NumLayers <= 0 then
+            Error (QuantumError.ValidationError ("NumLayers", $"must be > 0, got {config.NumLayers}"))
+        elif config.OptimizationShots <= 0 then
+            Error (QuantumError.ValidationError ("OptimizationShots", $"must be > 0, got {config.OptimizationShots}"))
+        elif config.FinalShots <= 0 then
+            Error (QuantumError.ValidationError ("FinalShots", $"must be > 0, got {config.FinalShots}"))
+        elif config.MaxOptimizationIterations <= 0 then
+            Error (QuantumError.ValidationError ("MaxOptimizationIterations", $"must be > 0, got {config.MaxOptimizationIterations}"))
+        else
+            Ok ()
+
+    // ================================================================================
     // QUBO CONVERSION UTILITIES (Debt 2 consolidation)
     // ================================================================================
 
@@ -154,6 +171,10 @@ module QaoaExecutionHelpers =
         (config: QaoaSolverConfig)
         : Result<int[] * (float * float)[] * bool, QuantumError> =
         
+        match validateConfig config with
+        | Error err -> Error err
+        | Ok () ->
+        
         let n = Array2D.length1 qubo
         let problemHam = QaoaCircuit.ProblemHamiltonian.fromQubo qubo
         let mixerHam = QaoaCircuit.MixerHamiltonian.create n
@@ -216,6 +237,10 @@ module QaoaExecutionHelpers =
         (config: QaoaSolverConfig)
         : Result<int[] * (float * float)[], QuantumError> =
         
+        match validateConfig config with
+        | Error err -> Error err
+        | Ok () ->
+        
         let n = Array2D.length1 qubo
         let problemHam = QaoaCircuit.ProblemHamiltonian.fromQubo qubo
         let mixerHam = QaoaCircuit.MixerHamiltonian.create n
@@ -237,7 +262,7 @@ module QaoaExecutionHelpers =
                 // Create multi-layer parameters (same gamma/beta for each layer)
                 let parameters = Array.init config.NumLayers (fun _ -> (gamma, beta))
                 
-                match executeQaoaCircuit backend problemHam mixerHam parameters config.FinalShots with
+                match executeQaoaCircuit backend problemHam mixerHam parameters config.OptimizationShots with
                 | Error err -> 
                     {| state with LastError = Some err |}
                 | Ok measurements ->
@@ -253,7 +278,15 @@ module QaoaExecutionHelpers =
                         state)
         
         match result.BestSolution with
-        | Some solution -> Ok (solution, result.BestParams)
+        | Some _ ->
+            // Re-execute with FinalShots using the best parameters found
+            match executeQaoaCircuit backend problemHam mixerHam result.BestParams config.FinalShots with
+            | Error err -> Error err
+            | Ok measurements ->
+                let bestSolution =
+                    measurements
+                    |> Array.minBy (fun bits -> evaluateQubo qubo bits)
+                Ok (bestSolution, result.BestParams)
         | None -> 
             match result.LastError with
             | Some err -> Error err
