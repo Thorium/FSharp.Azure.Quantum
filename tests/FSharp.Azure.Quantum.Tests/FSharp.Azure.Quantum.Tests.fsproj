@@ -169,6 +169,11 @@
     <Compile Include="AutoMLBuilderTests.fs" />
     <Compile Include="PredictiveModelBuilderTests.fs" />
     
+    <!-- New Business Builder Tests (Step 6) -->
+    <Compile Include="CoverageOptimizerTests.fs" />
+    <Compile Include="ResourcePairingTests.fs" />
+    <Compile Include="PackingOptimizerTests.fs" />
+    
     <Compile Include="IntegrationTests.fs" />
     
     <!-- Kasino Game Tests -->

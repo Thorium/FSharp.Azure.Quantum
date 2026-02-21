@@ -266,6 +266,9 @@
     <!-- Business-First Quantum Solvers -->
     <Compile Include="Business\SocialNetworkAnalyzer.fs" />
     <Compile Include="Business\ConstraintScheduler.fs" />
+    <Compile Include="Business\CoverageOptimizer.fs" />
+    <Compile Include="Business\ResourcePairing.fs" />
+    <Compile Include="Business\PackingOptimizer.fs" />
     
     <!-- C# Interop Extensions -->
     <Compile Include="Builders\BuildersCSharpExtensions.fs" />
