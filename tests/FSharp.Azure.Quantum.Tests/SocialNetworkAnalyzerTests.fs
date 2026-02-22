@@ -26,6 +26,7 @@ module SocialNetworkAnalyzerTests =
             ]
             MinCommunitySize = Some 3
             Mode = None
+            Strategy = None
             Backend = Some (LocalBackend.LocalBackend() :> IQuantumBackend)
             Shots = 100
         }
@@ -41,6 +42,7 @@ module SocialNetworkAnalyzerTests =
             ]
             MinCommunitySize = Some 2
             Mode = None
+            Strategy = None
             Backend = Some (LocalBackend.LocalBackend() :> IQuantumBackend)
             Shots = 100
         }
@@ -126,6 +128,7 @@ module SocialNetworkAnalyzerTests =
             Connections = []
             MinCommunitySize = Some 2
             Mode = None
+            Strategy = None
             Backend = Some (LocalBackend.LocalBackend() :> IQuantumBackend)
             Shots = 100
         }
@@ -142,6 +145,7 @@ module SocialNetworkAnalyzerTests =
             Connections = []
             MinCommunitySize = Some 2
             Mode = None
+            Strategy = None
             Backend = Some (LocalBackend.LocalBackend() :> IQuantumBackend)
             Shots = 100
         }
@@ -263,6 +267,7 @@ module SocialNetworkAnalyzerTests =
             ]
             MinCommunitySize = Some 2
             Mode = None
+            Strategy = None
             Backend = Some (LocalBackend.LocalBackend() :> IQuantumBackend)
             Shots = 100
         }
@@ -283,6 +288,7 @@ module SocialNetworkAnalyzerTests =
             Connections = [{ Person1 = "Person0"; Person2 = "Person1" }]
             MinCommunitySize = Some 2
             Mode = None
+            Strategy = None
             Backend = Some (LocalBackend.LocalBackend() :> IQuantumBackend)
             Shots = 100
         }
@@ -306,6 +312,7 @@ module SocialNetworkAnalyzerTests =
             ]
             MinCommunitySize = None
             Mode = Some FindLargestCommunity
+            Strategy = None
             Backend = Some backend
             Shots = 100
         }
@@ -333,6 +340,7 @@ module SocialNetworkAnalyzerTests =
             Connections = []
             MinCommunitySize = None
             Mode = Some FindLargestCommunity
+            Strategy = None
             Backend = Some backend
             Shots = 100
         }
@@ -392,6 +400,7 @@ module SocialNetworkAnalyzerTests =
             ]
             MinCommunitySize = None
             Mode = Some FindMonitorSet
+            Strategy = None
             Backend = Some backend
             Shots = 100
         }
@@ -418,6 +427,7 @@ module SocialNetworkAnalyzerTests =
             Connections = []
             MinCommunitySize = None
             Mode = Some FindMonitorSet
+            Strategy = None
             Backend = Some backend
             Shots = 100
         }
@@ -442,6 +452,7 @@ module SocialNetworkAnalyzerTests =
             ]
             MinCommunitySize = None
             Mode = Some FindMonitorSet
+            Strategy = None
             Backend = Some backend
             Shots = 100
         }
@@ -500,6 +511,7 @@ module SocialNetworkAnalyzerTests =
             ]
             MinCommunitySize = None
             Mode = Some FindPairings
+            Strategy = None
             Backend = Some backend
             Shots = 100
         }
@@ -530,6 +542,7 @@ module SocialNetworkAnalyzerTests =
             Connections = []
             MinCommunitySize = None
             Mode = Some FindPairings
+            Strategy = None
             Backend = Some backend
             Shots = 100
         }
@@ -552,6 +565,7 @@ module SocialNetworkAnalyzerTests =
             ]
             MinCommunitySize = None
             Mode = Some FindPairings
+            Strategy = None
             Backend = Some backend
             Shots = 100
         }
@@ -616,6 +630,7 @@ module SocialNetworkAnalyzerTests =
             ]
             MinCommunitySize = Some 3
             Mode = None
+            Strategy = None
             Backend = Some backend
             Shots = 100
         }
@@ -641,6 +656,7 @@ module SocialNetworkAnalyzerTests =
             ]
             MinCommunitySize = None
             Mode = None
+            Strategy = None
             Backend = Some backend
             Shots = 100
         }
@@ -651,3 +667,188 @@ module SocialNetworkAnalyzerTests =
             Assert.True(result.Communities.Length >= 1,
                 "Default mode should find communities via QAOA")
         | Error e -> failwith $"Should succeed with default mode, got error: {e}"
+
+    // ========================================================================
+    // ALGORITHM STRATEGY TESTS
+    // ========================================================================
+
+    [<Fact>]
+    let ``useGrover with FindLargestCommunity should use Grover search`` () =
+        let quantumBackend = LocalBackend.LocalBackend() :> IQuantumBackend
+        let result = socialNetwork {
+            person "Alice"
+            person "Bob"
+            person "Carol"
+            connection "Alice" "Bob"
+            connection "Bob" "Carol"
+            connection "Carol" "Alice"
+            findLargestCommunity
+            useGrover
+            backend quantumBackend
+            shots 100
+        }
+        match result with
+        | Ok r ->
+            Assert.Equal(3, r.TotalPeople)
+            Assert.True(r.Communities.Length >= 1,
+                "Grover strategy should find at least one community")
+        | Error e -> failwith $"Should succeed with Grover strategy, got error: {e}"
+
+    [<Fact>]
+    let ``useQaoa with FindLargestCommunity should use QAOA optimization`` () =
+        let quantumBackend = LocalBackend.LocalBackend() :> IQuantumBackend
+        let result = socialNetwork {
+            person "Alice"
+            person "Bob"
+            person "Carol"
+            connection "Alice" "Bob"
+            connection "Bob" "Carol"
+            connection "Carol" "Alice"
+            findLargestCommunity
+            useQaoa
+            backend quantumBackend
+            shots 100
+        }
+        match result with
+        | Ok r ->
+            Assert.Equal(3, r.TotalPeople)
+            Assert.True(r.Communities.Length >= 1,
+                "QAOA strategy should find at least one community")
+        | Error e -> failwith $"Should succeed with QAOA strategy, got error: {e}"
+
+    [<Fact>]
+    let ``useQaoa with FindCommunities should return validation error`` () =
+        let quantumBackend = LocalBackend.LocalBackend() :> IQuantumBackend
+        let result = socialNetwork {
+            person "Alice"
+            person "Bob"
+            person "Carol"
+            connection "Alice" "Bob"
+            connection "Bob" "Carol"
+            connection "Carol" "Alice"
+            findCommunities 3
+            useQaoa
+            backend quantumBackend
+            shots 100
+        }
+        match result with
+        | Error (QuantumError.ValidationError ("Strategy", msg)) ->
+            Assert.Contains("not supported", msg)
+        | Ok _ -> failwith "Should return ValidationError when using QAOA with FindCommunities"
+        | Error e -> failwith $"Expected ValidationError(Strategy), got: {e}"
+
+    [<Fact>]
+    let ``useGrover with FindMonitorSet should return validation error`` () =
+        let quantumBackend = LocalBackend.LocalBackend() :> IQuantumBackend
+        let result = socialNetwork {
+            person "Alice"
+            person "Bob"
+            connection "Alice" "Bob"
+            findMonitorSet
+            useGrover
+            backend quantumBackend
+            shots 100
+        }
+        match result with
+        | Error (QuantumError.ValidationError ("Strategy", msg)) ->
+            Assert.Contains("not supported", msg)
+        | Ok _ -> failwith "Should return ValidationError when using Grover with FindMonitorSet"
+        | Error e -> failwith $"Expected ValidationError(Strategy), got: {e}"
+
+    [<Fact>]
+    let ``useGrover with FindPairings should return validation error`` () =
+        let quantumBackend = LocalBackend.LocalBackend() :> IQuantumBackend
+        let result = socialNetwork {
+            person "Alice"
+            person "Bob"
+            connection "Alice" "Bob"
+            findPairings
+            useGrover
+            backend quantumBackend
+            shots 100
+        }
+        match result with
+        | Error (QuantumError.ValidationError ("Strategy", msg)) ->
+            Assert.Contains("not supported", msg)
+        | Ok _ -> failwith "Should return ValidationError when using Grover with FindPairings"
+        | Error e -> failwith $"Expected ValidationError(Strategy), got: {e}"
+
+    [<Fact>]
+    let ``strategy None should default to Auto for all modes`` () =
+        // FindLargestCommunity with no strategy should use QAOA (Auto default)
+        let backend = LocalBackend.LocalBackend() :> IQuantumBackend
+        let problem = {
+            People = ["Alice"; "Bob"; "Carol"]
+            Connections = [
+                { Person1 = "Alice"; Person2 = "Bob" }
+                { Person1 = "Bob"; Person2 = "Carol" }
+                { Person1 = "Carol"; Person2 = "Alice" }
+            ]
+            MinCommunitySize = None
+            Mode = Some FindLargestCommunity
+            Strategy = None  // Auto — should default to QAOA
+            Backend = Some backend
+            Shots = 100
+        }
+        match solve problem with
+        | Ok result ->
+            Assert.True(result.Communities.Length >= 1,
+                "Auto strategy should find communities")
+        | Error e -> failwith $"Should succeed with auto strategy, got error: {e}"
+
+    [<Fact>]
+    let ``explicit GroverSearch strategy via record should work for FindLargestCommunity`` () =
+        let backend = LocalBackend.LocalBackend() :> IQuantumBackend
+        let problem = {
+            People = ["Alice"; "Bob"; "Carol"]
+            Connections = [
+                { Person1 = "Alice"; Person2 = "Bob" }
+                { Person1 = "Bob"; Person2 = "Carol" }
+                { Person1 = "Carol"; Person2 = "Alice" }
+            ]
+            MinCommunitySize = None
+            Mode = Some FindLargestCommunity
+            Strategy = Some GroverSearch
+            Backend = Some backend
+            Shots = 100
+        }
+        match solve problem with
+        | Ok result ->
+            Assert.Equal(3, result.TotalPeople)
+            Assert.True(result.Communities.Length >= 1,
+                "Grover strategy should find communities via decreasing clique search")
+        | Error e -> failwith $"Should succeed with explicit Grover strategy, got error: {e}"
+
+    [<Fact>]
+    let ``useQaoa with FindMonitorSet should succeed`` () =
+        let quantumBackend = LocalBackend.LocalBackend() :> IQuantumBackend
+        let result = socialNetwork {
+            people ["Alice"; "Bob"; "Carol"]
+            connection "Alice" "Bob"
+            connection "Bob" "Carol"
+            findMonitorSet
+            useQaoa
+            backend quantumBackend
+            shots 100
+        }
+        match result with
+        | Ok r ->
+            Assert.True(r.MonitorSet.Length >= 1, "Should find monitors with QAOA")
+        | Error e -> failwith $"Should succeed with QAOA strategy for FindMonitorSet, got error: {e}"
+
+    [<Fact>]
+    let ``useQaoa with FindPairings should succeed`` () =
+        let quantumBackend = LocalBackend.LocalBackend() :> IQuantumBackend
+        let result = socialNetwork {
+            people ["Alice"; "Bob"; "Carol"; "Dave"]
+            connection "Alice" "Bob"
+            connection "Carol" "Dave"
+            findPairings
+            useQaoa
+            backend quantumBackend
+            shots 100
+        }
+        match result with
+        | Ok r ->
+            Assert.True(r.Pairings.Length >= 1, "Should find pairings with QAOA")
+        | Error e -> failwith $"Should succeed with QAOA strategy for FindPairings, got error: {e}"
