@@ -360,7 +360,8 @@ module ChemistryDataProviders =
         /// Delegates to MoleculeFormats.Xyz.readAsync.
         let fromFileAsync (filePath: string) : Async<QuantumResult<XyzMolecule>> =
             async {
-                let! result = MoleculeFormats.Xyz.readAsync filePath
+                let! ct = Async.CancellationToken
+                let! result = MoleculeFormats.Xyz.readAsync filePath ct |> Async.AwaitTask
                 return result |> Result.map fromMoleculeData
             }
 
@@ -421,7 +422,8 @@ module ChemistryDataProviders =
         /// For new code, prefer MoleculeFormats.Xyz.readAsync directly.
         let loadAsMoleculeInstanceAsync (filePath: string) (charge: int option) (multiplicity: int option) : Async<QuantumResult<MoleculeInstance>> =
             async {
-                let! result = MoleculeFormats.Xyz.readAsync filePath
+                let! ct = Async.CancellationToken
+                let! result = MoleculeFormats.Xyz.readAsync filePath ct |> Async.AwaitTask
                 return result |> Result.map (fun data ->
                     let instance = toMoleculeInstance data
                     // Override charge/multiplicity if provided
@@ -458,7 +460,8 @@ module ChemistryDataProviders =
 
         let loadFile (filePath: string) : Async<QuantumResult<MoleculeInstance>> =
             async {
-                let! result = MoleculeFormats.Xyz.readAsync filePath
+                let! ct = Async.CancellationToken
+                let! result = MoleculeFormats.Xyz.readAsync filePath ct |> Async.AwaitTask
                 return result |> Result.map toMoleculeInstance
             }
 

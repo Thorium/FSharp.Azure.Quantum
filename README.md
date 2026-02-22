@@ -99,7 +99,7 @@ flowchart TD
 
 **Current Features:**
 - Multiple Backends: LocalBackend (simulation), Azure Quantum (IonQ, Rigetti, Atom Computing, Quantinuum), D-Wave quantum annealers (2000+ qubits)
-- Topological Quantum Computing: Anyon braiding simulator (Ising & Fibonacci anyons) - Microsoft Majorana architecture
+- Topological Quantum Computing: Anyon braiding simulator (Ising, Fibonacci & SU(2)_k anyons) with error correction (toric code, surface codes, anyonic charge correction) - Microsoft Majorana architecture
 - Quantum Machine Learning: VQC, Quantum Kernel SVM, Feature Maps, Variational Forms, AutoML
 - Business Problem Builders: Social Network Analysis, Constraint Scheduling, AutoML, Anomaly Detection, Binary Classification, Predictive Modeling, Similarity Search
 - OpenQASM 2.0: Import/export compatibility with IBM Qiskit, Amazon Braket, Google Cirq
@@ -3013,6 +3013,7 @@ match result with
 - **Braiding**: Exchange anyons (replaces quantum gates)
 - **Fusion**: Measurement (collapses superposition to classical outcome)
 - **F-moves**: Change fusion tree basis (advanced)
+- **Error Correction**: Toric code (MWPM), surface codes (planar, color), anyonic charge correction
 
 **Advantages:**
 - Topological protection: Error rates ~10⁻¹² (vs 10⁻³ for gate-based)

@@ -131,7 +131,9 @@ let applyGate backend state = task {
 
 **Implemented:**
 - Magic state distillation (15-to-1 protocol for Ising universality)
-- Toric code error correction (syndrome detection and correction)
+- Toric code error correction (syndrome detection and MWPM decoder)
+- Surface code variants (planar code with boundary matching, color code on 4.8.8 lattice with greedy decoder)
+- Anyonic error correction (fusion-tree-level charge violation detection, syndrome extraction, greedy charge-correction decoder, code space projection)
 - Error propagation analysis through topological circuits
 - Kauffman bracket and Jones polynomial calculations (via KauffmanBracket + KnotConstructors)
 
@@ -354,10 +356,7 @@ let rec braidSequence acc index state =
    - Microsoft Majorana Gen 1 backend
    - Other topological hardware experiments
 
-2. **Advanced Algorithms** (Layer 4 Extensions)
-   - Surface code variants (planar, color codes)
-
-3. **Performance Optimizations**
+2. **Performance Optimizations**
    - GPU acceleration
    - Sparse matrices
    - Parallel braiding
@@ -365,17 +364,20 @@ let rec braidSequence acc index state =
 ### Integration Points
 
 **Current Bridges:**
-- Gate-to-braid compilation (GateToBraid, 21 gate types)
+- Gate-to-braid compilation (GateToBraid, 21 gate types including Fibonacci CZ/SWAP)
 - Standard algorithm integration (AlgorithmExtensions - Grover, QFT, Shor, HHL, Fibonacci Grover)
 - Braid-to-gate conversion with aggressive optimization (commutation cancellation, template matching)
 - Toric code MWPM decoder (syndrome decoding with greedy matching)
+- Surface code variants (planar code with boundary matching, color code on 4.8.8 lattice with greedy decoder)
+- Anyonic error correction (charge violation detection, syndrome extraction, greedy charge-correction decoder)
+- SU(2)_k F-matrix bridge (delegates to FMatrix.computeFMatrix/getFSymbol for general levels)
+- Multi-term superposition measurement (Born-rule aggregation in TopologicalBuilder)
 - Entanglement entropy (von Neumann entropy via density matrix and partial trace)
 - Kauffman bracket knot invariants
 - Pentagon/Hexagon equation verification
 - Shared IQuantumBackend interface
 
 **Potential Future Bridges:**
-- Error correction code interop
 - Hybrid topological + gate-based computing pipelines
 
 ## References

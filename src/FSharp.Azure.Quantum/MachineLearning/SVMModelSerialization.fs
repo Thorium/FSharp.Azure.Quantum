@@ -10,6 +10,8 @@ open FSharp.Azure.Quantum.Core
 open System
 open System.IO
 open System.Text.Json
+open System.Threading
+open System.Threading.Tasks
 open Microsoft.Extensions.Logging
 
 module SVMModelSerialization =
@@ -105,13 +107,14 @@ module SVMModelSerialization =
     // BINARY SVM SERIALIZATION
     // ========================================================================
     
-    /// Save binary SVM model to JSON file (async)
+    /// Save binary SVM model to JSON file (async, task-based)
     let saveSVMModelAsync
         (filePath: string)
         (model: QuantumKernelSVM.SVMModel)
         (note: string option)
-        : Async<QuantumResult<unit>> =
-        async {
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<unit>> =
+        task {
             try
                 let serializable = {
                     SupportVectorIndices = model.SupportVectorIndices
@@ -128,7 +131,7 @@ module SVMModelSerialization =
                 options.WriteIndented <- true
                 
                 let json = JsonSerializer.Serialize(serializable, options)
-                do! File.WriteAllTextAsync(filePath, json) |> Async.AwaitTask
+                do! File.WriteAllTextAsync(filePath, json, cancellationToken)
                 
                 return Ok ()
             with ex ->
@@ -141,31 +144,35 @@ module SVMModelSerialization =
         (model: QuantumKernelSVM.SVMModel)
         (note: string option)
         : QuantumResult<unit> =
-        saveSVMModelAsync filePath model note |> Async.RunSynchronously
+        saveSVMModelAsync filePath model note CancellationToken.None
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
     
-    /// Load binary SVM model from JSON file (async)
+    /// Load binary SVM model from JSON file (async, task-based)
     let loadSVMModelAsync
         (filePath: string)
-        : Async<QuantumResult<QuantumKernelSVM.SVMModel>> =
-        async {
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<QuantumKernelSVM.SVMModel>> =
+        task {
             try
                 if not (File.Exists filePath) then
                     return Error (QuantumError.ValidationError ("Input", $"File not found: {filePath}"))
                 else
-                    let! json = File.ReadAllTextAsync(filePath) |> Async.AwaitTask
+                    let! json = File.ReadAllTextAsync(filePath, cancellationToken)
                     let serializable = JsonSerializer.Deserialize<SerializableSVMModel>(json)
                     
                     return
                         serializableToFeatureMap serializable.FeatureMap
                         |> Result.map (fun featureMap ->
-                            {
+                            let model : QuantumKernelSVM.SVMModel = {
                                 SupportVectorIndices = serializable.SupportVectorIndices
                                 Alphas = serializable.Alphas
                                 Bias = serializable.Bias
                                 TrainData = serializable.TrainData
                                 TrainLabels = serializable.TrainLabels
                                 FeatureMap = featureMap
-                            })
+                            }
+                            model)
             with ex ->
                 return Error (QuantumError.ValidationError ("Input", $"Failed to load SVM model: {ex.Message}"))
         }
@@ -174,7 +181,9 @@ module SVMModelSerialization =
     let loadSVMModel
         (filePath: string)
         : QuantumResult<QuantumKernelSVM.SVMModel> =
-        loadSVMModelAsync filePath |> Async.RunSynchronously
+        loadSVMModelAsync filePath CancellationToken.None
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
     
     /// Print binary SVM model information via ILogger
     let printSVMModelInfo
@@ -212,13 +221,14 @@ module SVMModelSerialization =
     // MULTI-CLASS SVM SERIALIZATION
     // ========================================================================
     
-    /// Save multi-class SVM model to JSON file (async)
+    /// Save multi-class SVM model to JSON file (async, task-based)
     let saveMultiClassSVMModelAsync
         (filePath: string)
         (model: MultiClassSVM.MultiClassModel)
         (note: string option)
-        : Async<QuantumResult<unit>> =
-        async {
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<unit>> =
+        task {
             try
                 let binaryModels =
                     model.BinaryModels
@@ -246,7 +256,7 @@ module SVMModelSerialization =
                 options.WriteIndented <- true
                 
                 let json = JsonSerializer.Serialize(serializable, options)
-                do! File.WriteAllTextAsync(filePath, json) |> Async.AwaitTask
+                do! File.WriteAllTextAsync(filePath, json, cancellationToken)
                 
                 return Ok ()
             with ex ->
@@ -259,18 +269,21 @@ module SVMModelSerialization =
         (model: MultiClassSVM.MultiClassModel)
         (note: string option)
         : QuantumResult<unit> =
-        saveMultiClassSVMModelAsync filePath model note |> Async.RunSynchronously
+        saveMultiClassSVMModelAsync filePath model note CancellationToken.None
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
     
-    /// Load multi-class SVM model from JSON file (async)
+    /// Load multi-class SVM model from JSON file (async, task-based)
     let loadMultiClassSVMModelAsync
         (filePath: string)
-        : Async<QuantumResult<MultiClassSVM.MultiClassModel>> =
-        async {
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<MultiClassSVM.MultiClassModel>> =
+        task {
             try
                 if not (File.Exists filePath) then
                     return Error (QuantumError.ValidationError ("Input", $"File not found: {filePath}"))
                 else
-                    let! json = File.ReadAllTextAsync(filePath) |> Async.AwaitTask
+                    let! json = File.ReadAllTextAsync(filePath, cancellationToken)
                     let serializable = JsonSerializer.Deserialize<SerializableMultiClassSVMModel>(json)
                     
                     // Convert all binary models
@@ -297,11 +310,12 @@ module SVMModelSerialization =
                     return
                         binaryModelsResult
                         |> Result.map (fun binaryModels ->
-                            {
+                            let model : MultiClassSVM.MultiClassModel = {
                                 BinaryModels = binaryModels
                                 ClassLabels = serializable.ClassLabels
                                 NumClasses = serializable.NumClasses
-                            })
+                            }
+                            model)
             with ex ->
                 return Error (QuantumError.ValidationError ("Input", $"Failed to load multi-class SVM model: {ex.Message}"))
         }
@@ -310,7 +324,9 @@ module SVMModelSerialization =
     let loadMultiClassSVMModel
         (filePath: string)
         : QuantumResult<MultiClassSVM.MultiClassModel> =
-        loadMultiClassSVMModelAsync filePath |> Async.RunSynchronously
+        loadMultiClassSVMModelAsync filePath CancellationToken.None
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
     
     /// Print multi-class SVM model information via ILogger
     let printMultiClassSVMModelInfo

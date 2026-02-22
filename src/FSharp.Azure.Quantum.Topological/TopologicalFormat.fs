@@ -10,6 +10,8 @@ module TopologicalFormat =
     
     open System
     open System.IO
+    open System.Threading
+    open System.Threading.Tasks
     
     // ========================================================================
     // AST (Abstract Syntax Tree)
@@ -151,6 +153,16 @@ module TopologicalFormat =
                 parseProgram text
             with ex ->
                 Error $"Failed to read file {filePath}: {ex.Message}"
+        
+        /// Parse program from file asynchronously
+        let parseFileAsync (filePath: string) (cancellationToken: CancellationToken) : Task<ParseResult<Program>> =
+            task {
+                try
+                    let! text = File.ReadAllTextAsync(filePath, cancellationToken)
+                    return parseProgram text
+                with ex ->
+                    return Error $"Failed to read file {filePath}: {ex.Message}"
+            }
     
     // ========================================================================
     // SERIALIZER
@@ -204,6 +216,17 @@ module TopologicalFormat =
                 Ok ()
             with ex ->
                 Error $"Failed to write file {filePath}: {ex.Message}"
+        
+        /// Serialize program to file asynchronously
+        let serializeToFileAsync (program: Program) (filePath: string) (cancellationToken: CancellationToken) : Task<Result<unit, string>> =
+            task {
+                try
+                    let text = serializeProgram program
+                    do! File.WriteAllTextAsync(filePath, text, cancellationToken)
+                    return Ok ()
+                with ex ->
+                    return Error $"Failed to write file {filePath}: {ex.Message}"
+            }
     
     // ========================================================================
     // EXECUTION

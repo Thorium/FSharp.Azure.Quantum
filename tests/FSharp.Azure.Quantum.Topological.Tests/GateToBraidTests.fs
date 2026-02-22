@@ -524,3 +524,76 @@ module GateToBraidTests =
         Assert.True(compilation.IsExact)
         Assert.Equal(5, compilation.OriginalGateCount)  // 5 original gates
         Assert.True(compilation.CompiledBraids.Length > 15)  // CZ+CCX produce many braids
+    
+    // ============================================================================
+    // FIBONACCI NATIVE CZ/SWAP COMPILATION TESTS
+    // ============================================================================
+    
+    [<Fact>]
+    let ``Fibonacci CZ gate compiles natively via CNOT decomposition`` () =
+        // CZ = H(target) · CNOT · H(target)
+        // Since Fibonacci supports CNOT natively, CZ should compile directly
+        let gateSeq = {
+            BraidToGate.GateSequence.Gates = [CircuitBuilder.Gate.CZ (0, 1)]
+            NumQubits = 2
+            TotalPhase = System.Numerics.Complex(1.0, 0.0)
+            Depth = 1
+            TCount = 0
+        }
+        
+        let result = GateToBraid.compileGateSequence gateSeq 0.5 AnyonSpecies.AnyonType.Fibonacci
+        
+        match result with
+        | Ok compilation ->
+            Assert.Equal(AnyonSpecies.AnyonType.Fibonacci, compilation.AnyonType)
+            // CZ should decompose to H + CNOT + H = braids
+            Assert.True(compilation.CompiledBraids.Length > 0, "CZ should produce braids")
+        | Error err -> 
+            // Should NOT get a "should have been transpiled" error anymore
+            Assert.False(err.Message.Contains("transpiled"), 
+                $"CZ should be handled natively for Fibonacci: {err.Message}")
+    
+    [<Fact>]
+    let ``Fibonacci SWAP gate compiles natively via CNOT decomposition`` () =
+        // SWAP = CNOT(a,b) · CNOT(b,a) · CNOT(a,b)
+        let gateSeq = {
+            BraidToGate.GateSequence.Gates = [CircuitBuilder.Gate.SWAP (0, 1)]
+            NumQubits = 2
+            TotalPhase = System.Numerics.Complex(1.0, 0.0)
+            Depth = 1
+            TCount = 0
+        }
+        
+        let result = GateToBraid.compileGateSequence gateSeq 0.5 AnyonSpecies.AnyonType.Fibonacci
+        
+        match result with
+        | Ok compilation ->
+            Assert.Equal(AnyonSpecies.AnyonType.Fibonacci, compilation.AnyonType)
+            Assert.True(compilation.CompiledBraids.Length > 0, "SWAP should produce braids")
+        | Error err -> 
+            Assert.False(err.Message.Contains("transpiled"), 
+                $"SWAP should be handled natively for Fibonacci: {err.Message}")
+    
+    [<Fact>]
+    let ``Fibonacci circuit with CZ and SWAP compiles successfully`` () =
+        // Real Fibonacci circuit mixing native CNOT with CZ and SWAP
+        let gateSeq = {
+            BraidToGate.GateSequence.Gates = [
+                CircuitBuilder.Gate.H 0
+                CircuitBuilder.Gate.CZ (0, 1)
+                CircuitBuilder.Gate.SWAP (0, 1)
+                CircuitBuilder.Gate.T 1
+            ]
+            NumQubits = 2
+            TotalPhase = System.Numerics.Complex(1.0, 0.0)
+            Depth = 4
+            TCount = 1
+        }
+        
+        let result = GateToBraid.compileGateSequence gateSeq 0.5 AnyonSpecies.AnyonType.Fibonacci
+        
+        match result with
+        | Ok compilation ->
+            Assert.True(compilation.CompiledBraids.Length > 0)
+            Assert.Equal(4, compilation.OriginalGateCount)
+        | Error err -> Assert.Fail($"Fibonacci mixed circuit should compile: {err.Message}")

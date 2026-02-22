@@ -258,7 +258,9 @@ The topological library consists of 29 modules organized in 6 architectural laye
 | Module | Description |
 |--------|-------------|
 | `MagicStateDistillation.fs` | T-gate synthesis via 15-to-1 distillation (Bravyi-Kitaev 2005) |
-| `ToricCode.fs` | Topological error correction using toric code |
+| `ToricCode.fs` | Topological error correction using toric code with MWPM decoder |
+| `SurfaceCode.fs` | Surface code variants: planar code and color code (4.8.8 lattice) |
+| `AnyonicErrorCorrection.fs` | Fusion-tree-level error correction: charge violation detection, syndrome extraction, greedy decoder, code space projection |
 | `ErrorPropagation.fs` | Error propagation analysis through topological circuits |
 
 ### Layer 5: Compilation & Optimization
@@ -294,6 +296,7 @@ The topological library consists of 29 modules organized in 6 architectural laye
 
 - **Ising Anyons** (Majorana zero modes)
 - **Fibonacci Anyons** (SU(2) level k=3)
+- **SU(2)_k Anyons** (general Chern-Simons levels with computational basis encoding)
 - **Fusion Trees** (complete state representation)
 - **Braiding Operations** (R-matrices, F-matrices, F-moves)
 - **Measurement** (fusion outcome detection)
@@ -306,13 +309,14 @@ The topological library consists of 29 modules organized in 6 architectural laye
 - **Kauffman Bracket** (knot invariant evaluator with Jones polynomial)
 - **Noise Models** (configurable error simulation)
 - **Toric Code** (topological error correction with MWPM decoder)
+- **Surface Code Variants** (planar code with boundary matching, color code on 4.8.8 lattice with greedy decoder)
+- **Anyonic Error Correction** (fusion-tree-level charge violation detection, syndrome extraction, greedy charge-correction decoder, code space projection)
 - **Pentagon/Hexagon Verification** (F-matrix and R-matrix consistency checks)
 - **Entanglement Entropy** (von Neumann entropy, partial trace, density matrices)
 - **Solovay-Kitaev Algorithm** (gate approximation via Fibonacci anyons)
 
 ### Planned (Future Development)
 
-- **Advanced error correction** (surface codes on anyonic systems)
 - **Hardware backends** (Azure Quantum Majorana integration)
 - **Performance optimizations** (GPU acceleration, parallel braiding)
 

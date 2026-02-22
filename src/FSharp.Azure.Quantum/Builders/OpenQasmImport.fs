@@ -3,6 +3,8 @@ namespace FSharp.Azure.Quantum
 open System
 open System.IO
 open System.Text.RegularExpressions
+open System.Threading
+open System.Threading.Tasks
 
 /// OpenQASM Import Module (Versioned)
 /// 
@@ -707,6 +709,22 @@ module OpenQasmImport =
             Error $"I/O error reading file: {ex.Message}"
         | ex ->
             Error $"Unexpected error reading file: {ex.Message}"
+
+    /// <summary>
+    /// Parse OpenQASM file into a Circuit asynchronously with version auto-detection.
+    /// </summary>
+    let parseFromFileAsync (filePath: string) (ct: CancellationToken) : Task<ParseResult<Circuit>> = task {
+        try
+            let! qasm = File.ReadAllTextAsync(filePath, ct)
+            return parse qasm
+        with
+        | :? FileNotFoundException ->
+            return Error $"File not found: {filePath}"
+        | :? IOException as ex ->
+            return Error $"I/O error reading file: {ex.Message}"
+        | ex ->
+            return Error $"Unexpected error reading file: {ex.Message}"
+    }
     
     /// <summary>
     /// Validate that a string contains valid OpenQASM (any supported version).

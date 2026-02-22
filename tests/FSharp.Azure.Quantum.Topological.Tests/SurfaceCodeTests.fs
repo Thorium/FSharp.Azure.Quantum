@@ -118,7 +118,7 @@ module SurfaceCodeTests =
     let ``Planar: Z error flips Plus to Minus`` () =
         let lattice = { SurfaceCode.PlanarLattice.Distance = 3 }
         let state = SurfaceCode.initializePlanarGroundState lattice
-        let edge = { SurfaceCode.PlanarEdge.Position = { SurfaceCode.X = 0; SurfaceCode.Y = 0 }; EdgeType = SurfaceCode.PHorizontal }
+        let edge : SurfaceCode.PlanarEdge = { Position = { X = 0; Y = 0 }; EdgeType = SurfaceCode.PHorizontal }
         let errState = SurfaceCode.applyPlanarZError state edge
         let q = Map.find edge errState.Qubits
         Assert.Equal(SurfaceCode.Minus, q)
@@ -127,7 +127,7 @@ module SurfaceCodeTests =
     let ``Planar: X error keeps Plus as Plus`` () =
         let lattice = { SurfaceCode.PlanarLattice.Distance = 3 }
         let state = SurfaceCode.initializePlanarGroundState lattice
-        let edge = { SurfaceCode.PlanarEdge.Position = { SurfaceCode.X = 1; SurfaceCode.Y = 0 }; EdgeType = SurfaceCode.PVertical }
+        let edge : SurfaceCode.PlanarEdge = { Position = { X = 1; Y = 0 }; EdgeType = SurfaceCode.PVertical }
         let errState = SurfaceCode.applyPlanarXError state edge
         let q = Map.find edge errState.Qubits
         Assert.Equal(SurfaceCode.Plus, q)
@@ -137,7 +137,7 @@ module SurfaceCodeTests =
         let lattice = { SurfaceCode.PlanarLattice.Distance = 5 }
         let state = SurfaceCode.initializePlanarGroundState lattice
         // Apply Z error to a horizontal edge in the interior
-        let edge = { SurfaceCode.PlanarEdge.Position = { SurfaceCode.X = 2; SurfaceCode.Y = 1 }; EdgeType = SurfaceCode.PHorizontal }
+        let edge : SurfaceCode.PlanarEdge = { Position = { X = 2; Y = 1 }; EdgeType = SurfaceCode.PHorizontal }
         let errState = SurfaceCode.applyPlanarZError state edge
         let syndrome = SurfaceCode.measurePlanarSyndrome errState
         // Z error creates X-stabilizer violations
@@ -149,8 +149,8 @@ module SurfaceCodeTests =
     let ``Planar: Two Z errors create detectable syndrome`` () =
         let lattice = { SurfaceCode.PlanarLattice.Distance = 5 }
         let state = SurfaceCode.initializePlanarGroundState lattice
-        let edge1 = { SurfaceCode.PlanarEdge.Position = { SurfaceCode.X = 1; SurfaceCode.Y = 1 }; EdgeType = SurfaceCode.PHorizontal }
-        let edge2 = { SurfaceCode.PlanarEdge.Position = { SurfaceCode.X = 3; SurfaceCode.Y = 2 }; EdgeType = SurfaceCode.PHorizontal }
+        let edge1 : SurfaceCode.PlanarEdge = { Position = { X = 1; Y = 1 }; EdgeType = SurfaceCode.PHorizontal }
+        let edge2 : SurfaceCode.PlanarEdge = { Position = { X = 3; Y = 2 }; EdgeType = SurfaceCode.PHorizontal }
         let errState =
             state
             |> fun s -> SurfaceCode.applyPlanarZError s edge1

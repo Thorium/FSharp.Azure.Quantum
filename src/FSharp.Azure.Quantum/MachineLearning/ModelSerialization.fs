@@ -11,6 +11,8 @@ open FSharp.Azure.Quantum.Core
 open System
 open System.IO
 open System.Text.Json
+open System.Threading
+open System.Threading.Tasks
 open Microsoft.Extensions.Logging
 
 module ModelSerialization =
@@ -150,8 +152,9 @@ module ModelSerialization =
         (variationalFormType: string)
         (variationalFormDepth: int)
         (note: string option)
-        : Async<QuantumResult<unit>> =
-        async {
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<unit>> =
+        task {
             try
                 let model = {
                     Parameters = parameters
@@ -169,7 +172,7 @@ module ModelSerialization =
                 options.WriteIndented <- true
                 
                 let json = JsonSerializer.Serialize(model, options)
-                do! File.WriteAllTextAsync(filePath, json) |> Async.AwaitTask
+                do! File.WriteAllTextAsync(filePath, json, cancellationToken)
                 
                 return Ok ()
             with ex ->
@@ -188,12 +191,46 @@ module ModelSerialization =
         (variationalFormDepth: int)
         (note: string option)
         : QuantumResult<unit> =
-        saveVQCModelAsync filePath parameters finalLoss numQubits featureMapType featureMapDepth variationalFormType variationalFormDepth note
+        saveVQCModelAsync filePath parameters finalLoss numQubits featureMapType featureMapDepth variationalFormType variationalFormDepth note CancellationToken.None
+        |> Async.AwaitTask
         |> Async.RunSynchronously
+    
+    /// Save VQC training result with metadata (classification, async, task-based)
+    ///
+    /// Convenience function that takes VQC.TrainingResult directly
+    let saveVQCTrainingResultAsync
+        (filePath: string)
+        (result: VQC.TrainingResult)
+        (numQubits: int)
+        (featureMapType: string)
+        (featureMapDepth: int)
+        (variationalFormType: string)
+        (variationalFormDepth: int)
+        (note: string option)
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<unit>> =
+        
+        let finalLoss =
+            match result.LossHistory with
+            | [] -> 0.0
+            | losses -> List.last losses
+        
+        saveVQCModelAsync
+            filePath
+            result.Parameters
+            finalLoss
+            numQubits
+            featureMapType
+            featureMapDepth
+            variationalFormType
+            variationalFormDepth
+            note
+            cancellationToken
     
     /// Save VQC training result with metadata (classification)
     ///
     /// Convenience function that takes VQC.TrainingResult directly
+    [<System.Obsolete("Use saveVQCTrainingResultAsync for better performance and to avoid blocking threads")>]
     let saveVQCTrainingResult
         (filePath: string)
         (result: VQC.TrainingResult)
@@ -220,11 +257,44 @@ module ModelSerialization =
             variationalFormType
             variationalFormDepth
             note
+            CancellationToken.None
+        |> Async.AwaitTask
         |> Async.RunSynchronously
+    
+    /// Save VQC regression training result with metadata (async, task-based)
+    ///
+    /// Convenience function that takes VQC.RegressionTrainingResult directly
+    let saveVQCRegressionTrainingResultAsync
+        (filePath: string)
+        (result: VQC.RegressionTrainingResult)
+        (numQubits: int)
+        (featureMapType: string)
+        (featureMapDepth: int)
+        (variationalFormType: string)
+        (variationalFormDepth: int)
+        (note: string option)
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<unit>> =
+        
+        // For regression, use TrainMSE as the "loss"
+        let finalLoss = result.TrainMSE
+        
+        saveVQCModelAsync
+            filePath
+            result.Parameters
+            finalLoss
+            numQubits
+            featureMapType
+            featureMapDepth
+            variationalFormType
+            variationalFormDepth
+            note
+            cancellationToken
     
     /// Save VQC regression training result with metadata
     ///
     /// Convenience function that takes VQC.RegressionTrainingResult directly
+    [<System.Obsolete("Use saveVQCRegressionTrainingResultAsync for better performance and to avoid blocking threads")>]
     let saveVQCRegressionTrainingResult
         (filePath: string)
         (result: VQC.RegressionTrainingResult)
@@ -249,11 +319,14 @@ module ModelSerialization =
             variationalFormType
             variationalFormDepth
             note
+            CancellationToken.None
+        |> Async.AwaitTask
         |> Async.RunSynchronously
     
     /// Save VQC multi-class training result (one-vs-rest)
     ///
     /// Saves all binary classifiers with full architecture metadata
+    [<System.Obsolete("Use saveVQCMultiClassTrainingResultAsync for better performance and to avoid blocking threads")>]
     let saveVQCMultiClassTrainingResult
         (filePath: string)
         (result: VQC.MultiClassTrainingResult)
@@ -299,6 +372,53 @@ module ModelSerialization =
         with ex ->
             Error (QuantumError.ValidationError ("Input", $"Failed to save multi-class model: {ex.Message}"))
     
+    /// Save VQC multi-class training result asynchronously
+    let saveVQCMultiClassTrainingResultAsync
+        (filePath: string)
+        (result: VQC.MultiClassTrainingResult)
+        (numQubits: int)
+        (featureMapType: string)
+        (featureMapDepth: int)
+        (variationalFormType: string)
+        (variationalFormDepth: int)
+        (note: string option)
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<unit>> =
+        task {
+            try
+                let classifiers =
+                    result.Classifiers
+                    |> Array.map (fun classifier -> {
+                        Parameters = classifier.Parameters
+                        TrainAccuracy = classifier.TrainAccuracy
+                        NumIterations = classifier.LossHistory.Length
+                    })
+                
+                let model = {
+                    Classifiers = classifiers
+                    ClassLabels = result.ClassLabels
+                    TrainAccuracy = result.TrainAccuracy
+                    NumClasses = result.NumClasses
+                    NumQubits = numQubits
+                    FeatureMapType = featureMapType
+                    FeatureMapDepth = featureMapDepth
+                    VariationalFormType = variationalFormType
+                    VariationalFormDepth = variationalFormDepth
+                    SavedAt = DateTime.UtcNow.ToString("o")
+                    Note = note
+                }
+                
+                let options = JsonSerializerOptions()
+                options.WriteIndented <- true
+                
+                let json = JsonSerializer.Serialize(model, options)
+                do! File.WriteAllTextAsync(filePath, json, cancellationToken)
+                
+                return Ok ()
+            with ex ->
+                return Error (QuantumError.ValidationError ("Input", $"Failed to save multi-class model: {ex.Message}"))
+        }
+    
     /// Load VQC model from JSON file
     ///
     /// Returns: Serializable model with all metadata
@@ -316,6 +436,23 @@ module ModelSerialization =
         with ex ->
             Error (QuantumError.ValidationError ("Input", $"Failed to load model: {ex.Message}"))
     
+    /// Load VQC model from JSON file asynchronously
+    let loadVQCModelAsync
+        (filePath: string)
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<SerializableVQCModel>> =
+        task {
+            try
+                if not (File.Exists filePath) then
+                    return Error (QuantumError.ValidationError ("Input", $"File not found: {filePath}"))
+                else
+                    let! json = File.ReadAllTextAsync(filePath, cancellationToken)
+                    let model = JsonSerializer.Deserialize<SerializableVQCModel>(json)
+                    return Ok model
+            with ex ->
+                return Error (QuantumError.ValidationError ("Input", $"Failed to load model: {ex.Message}"))
+        }
+    
     /// Load VQC multi-class model from JSON file
     ///
     /// Returns: Serializable multi-class model with all classifiers
@@ -332,6 +469,23 @@ module ModelSerialization =
                 Ok model
         with ex ->
             Error (QuantumError.ValidationError ("Input", $"Failed to load multi-class model: {ex.Message}"))
+    
+    /// Load VQC multi-class model from JSON file asynchronously
+    let loadVQCMultiClassModelAsync
+        (filePath: string)
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<SerializableMultiClassVQCModel>> =
+        task {
+            try
+                if not (File.Exists filePath) then
+                    return Error (QuantumError.ValidationError ("Input", $"File not found: {filePath}"))
+                else
+                    let! json = File.ReadAllTextAsync(filePath, cancellationToken)
+                    let model = JsonSerializer.Deserialize<SerializableMultiClassVQCModel>(json)
+                    return Ok model
+            with ex ->
+                return Error (QuantumError.ValidationError ("Input", $"Failed to load multi-class model: {ex.Message}"))
+        }
     
     /// Load only the parameters from a saved model
     ///
@@ -393,6 +547,47 @@ module ModelSerialization =
         with ex ->
             Error (QuantumError.ValidationError ("Input", $"Failed to save SVM model: {ex.Message}"))
     
+    /// Save SVM model to JSON file asynchronously
+    let saveSVMModelAsync
+        (filePath: string)
+        (svmModel: QuantumKernelSVM.SVMModel)
+        (numQubits: int)
+        (note: string option)
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<unit>> =
+        task {
+            try
+                let fmType, fmDepth =
+                    match svmModel.FeatureMap with
+                    | FeatureMapType.ZZFeatureMap d -> ("ZZFeatureMap", d)
+                    | FeatureMapType.PauliFeatureMap (_, d) -> ("PauliFeatureMap", d)
+                    | FeatureMapType.AngleEncoding -> ("AngleEncoding", 0)
+                    | FeatureMapType.AmplitudeEncoding -> ("AmplitudeEncoding", 0)
+                
+                let model = {
+                    SupportVectorIndices = svmModel.SupportVectorIndices
+                    Alphas = svmModel.Alphas
+                    Bias = svmModel.Bias
+                    TrainData = svmModel.TrainData
+                    TrainLabels = svmModel.TrainLabels
+                    FeatureMapType = fmType
+                    FeatureMapDepth = fmDepth
+                    NumQubits = numQubits
+                    SavedAt = DateTime.UtcNow.ToString("o")
+                    Note = note
+                }
+                
+                let options = JsonSerializerOptions()
+                options.WriteIndented <- true
+                
+                let json = JsonSerializer.Serialize(model, options)
+                do! File.WriteAllTextAsync(filePath, json, cancellationToken)
+                
+                return Ok ()
+            with ex ->
+                return Error (QuantumError.ValidationError ("Input", $"Failed to save SVM model: {ex.Message}"))
+        }
+    
     /// Load SVM model from JSON file
     ///
     /// Returns: Serializable SVM model with all metadata
@@ -409,6 +604,23 @@ module ModelSerialization =
                 Ok model
         with ex ->
             Error (QuantumError.ValidationError ("Input", $"Failed to load SVM model: {ex.Message}"))
+    
+    /// Load SVM model from JSON file asynchronously
+    let loadSVMModelAsync
+        (filePath: string)
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<SerializableSVMModel>> =
+        task {
+            try
+                if not (File.Exists filePath) then
+                    return Error (QuantumError.ValidationError ("Input", $"File not found: {filePath}"))
+                else
+                    let! json = File.ReadAllTextAsync(filePath, cancellationToken)
+                    let model = JsonSerializer.Deserialize<SerializableSVMModel>(json)
+                    return Ok model
+            with ex ->
+                return Error (QuantumError.ValidationError ("Input", $"Failed to load SVM model: {ex.Message}"))
+        }
     
     // ========================================================================
     // MODEL INFORMATION
@@ -453,9 +665,41 @@ module ModelSerialization =
     // BATCH OPERATIONS
     // ========================================================================
     
+    /// Save multiple models with automatic naming (async, task-based)
+    ///
+    /// Files will be named: {baseFileName}_1.json, {baseFileName}_2.json, etc.
+    let saveVQCModelBatchAsync
+        (baseFileName: string)
+        (models: (float array * float * string option) array)
+        (numQubits: int)
+        (featureMapType: string)
+        (featureMapDepth: int)
+        (variationalFormType: string)
+        (variationalFormDepth: int)
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<string array>> =
+        task {
+            let mutable results = Array.zeroCreate models.Length
+            let mutable firstError = None
+            
+            for i in 0 .. models.Length - 1 do
+                if firstError.IsNone then
+                    let (parameters, finalLoss, note) = models.[i]
+                    let fileName = $"{baseFileName}_{i + 1}.json"
+                    let! result = saveVQCModelAsync fileName parameters finalLoss numQubits featureMapType featureMapDepth variationalFormType variationalFormDepth note cancellationToken
+                    match result with
+                    | Ok () -> results.[i] <- Some fileName
+                    | Error e -> firstError <- Some e
+            
+            match firstError with
+            | Some error -> return Error error
+            | None -> return Ok (results |> Array.choose id)
+        }
+    
     /// Save multiple models with automatic naming
     ///
     /// Files will be named: {baseFileName}_1.json, {baseFileName}_2.json, etc.
+    [<System.Obsolete("Use saveVQCModelBatchAsync for better performance and to avoid blocking threads")>]
     let saveVQCModelBatch
         (baseFileName: string)
         (models: (float array * float * string option) array)
@@ -466,20 +710,9 @@ module ModelSerialization =
         (variationalFormDepth: int)
         : QuantumResult<string array> =
         
-        let results =
-            models
-            |> Array.mapi (fun i (parameters, finalLoss, note) ->
-                let fileName = $"{baseFileName}_{i + 1}.json"
-                saveVQCModelAsync fileName parameters finalLoss numQubits featureMapType featureMapDepth variationalFormType variationalFormDepth note 
-                |> Async.RunSynchronously
-                |> Result.map (fun () -> fileName))
-        
-        // Check for any errors and collect all successful file names
-        let firstError = results |> Array.tryPick (function Error e -> Some e | Ok _ -> None)
-        
-        match firstError with
-        | Some error -> Error error
-        | None -> Ok (results |> Array.choose (function Ok fileName -> Some fileName | Error _ -> None))
+        saveVQCModelBatchAsync baseFileName models numQubits featureMapType featureMapDepth variationalFormType variationalFormDepth CancellationToken.None
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
     
     /// Load multiple models from directory
     ///
@@ -542,6 +775,24 @@ module ModelSerialization =
               model.FeatureMapDepth,
               model.VariationalFormType,
               model.VariationalFormDepth)))
+    
+    /// Load trained VQC model parameters for transfer learning (async, task-based)
+    let loadForTransferLearningAsync
+        (filePath: string)
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<float array * (int * string * int * string * int)>> =
+        task {
+            let! result = loadVQCModelAsync filePath cancellationToken
+            return
+                result
+                |> Result.map (fun model ->
+                    (model.Parameters,
+                     (model.NumQubits,
+                      model.FeatureMapType,
+                      model.FeatureMapDepth,
+                      model.VariationalFormType,
+                      model.VariationalFormDepth)))
+        }
     
     /// Initialize parameters for fine-tuning with optional layer freezing
     ///
@@ -825,8 +1076,9 @@ module ModelSerialization =
         (quboMatrix: Map<(int * int), float> option)
         (numVariables: int)
         (note: string option)
-        : Async<QuantumResult<unit>> =
-        async {
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<unit>> =
+        task {
             try
                 let (gamma, beta) = qaoaParams
                 
@@ -864,7 +1116,7 @@ module ModelSerialization =
                 options.WriteIndented <- true
                 
                 let json = JsonSerializer.Serialize(model, options)
-                do! File.WriteAllTextAsync(filePath, json) |> Async.AwaitTask
+                do! File.WriteAllTextAsync(filePath, json, cancellationToken)
                 
                 return Ok ()
             with ex ->
@@ -893,7 +1145,8 @@ module ModelSerialization =
         (note: string option)
         : QuantumResult<unit> =
         savePortfolioSolutionAsync filePath allocations totalValue expectedReturn risk sharpeRatio 
-            backendName numShots elapsedMs qaoaParams bestEnergy selectedAssets riskAversion budget quboMatrix numVariables note
+            backendName numShots elapsedMs qaoaParams bestEnergy selectedAssets riskAversion budget quboMatrix numVariables note CancellationToken.None
+        |> Async.AwaitTask
         |> Async.RunSynchronously
     
     /// Load quantum portfolio solution from JSON file
@@ -912,6 +1165,23 @@ module ModelSerialization =
                 Ok model
         with ex ->
             Error (QuantumError.ValidationError ("Input", $"Failed to load portfolio solution: {ex.Message}"))
+    
+    /// Load quantum portfolio solution from JSON file asynchronously
+    let loadPortfolioSolutionAsync
+        (filePath: string)
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<SerializablePortfolioSolution>> =
+        task {
+            try
+                if not (File.Exists filePath) then
+                    return Error (QuantumError.ValidationError ("Input", $"File not found: {filePath}"))
+                else
+                    let! json = File.ReadAllTextAsync(filePath, cancellationToken)
+                    let model = JsonSerializer.Deserialize<SerializablePortfolioSolution>(json)
+                    return Ok model
+            with ex ->
+                return Error (QuantumError.ValidationError ("Input", $"Failed to load portfolio solution: {ex.Message}"))
+        }
     
     /// Load QUBO matrix from saved portfolio solution
     ///

@@ -980,7 +980,7 @@ module MolecularInputTests =
             try
                 // Act - Use MoleculeFormats directly since FCIDump has no geometry
                 // Molecule.fromFciDumpFileAsync will fail with MissingGeometry error
-                let! result = FSharp.Azure.Quantum.Data.MoleculeFormats.FciDump.readAsync tempFile
+                let! result = FSharp.Azure.Quantum.Data.MoleculeFormats.FciDump.readAsync tempFile System.Threading.CancellationToken.None |> Async.AwaitTask
                 
                 // Assert
                 match result with
@@ -1011,7 +1011,7 @@ module MolecularInputTests =
             
             try
                 // Act - Use MoleculeFormats directly
-                let! result = FSharp.Azure.Quantum.Data.MoleculeFormats.FciDump.readAsync tempFile
+                let! result = FSharp.Azure.Quantum.Data.MoleculeFormats.FciDump.readAsync tempFile System.Threading.CancellationToken.None |> Async.AwaitTask
                 
                 // Assert
                 match result with

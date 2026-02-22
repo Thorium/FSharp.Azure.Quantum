@@ -5,6 +5,8 @@ open System.Globalization
 open System.IO
 open System.Text
 open System.Text.RegularExpressions
+open System.Threading
+open System.Threading.Tasks
 open FSharp.Azure.Quantum.Core
 
 /// Unified molecule file format parsing and writing.
@@ -182,14 +184,14 @@ module MoleculeFormats =
                               Units = "angstrom" } }
             }
 
-        /// Read XYZ file asynchronously.
-        let readAsync (path: string) : Async<QuantumResult<MoleculeData>> =
-            async {
+        /// Read XYZ file asynchronously (task-based).
+        let readAsync (path: string) (cancellationToken: CancellationToken) : Task<QuantumResult<MoleculeData>> =
+            task {
                 try
                     if not (File.Exists path) then
                         return Error(QuantumError.IOError("ReadXYZ", path, "File not found"))
                     else
-                        let! content = File.ReadAllTextAsync(path) |> Async.AwaitTask
+                        let! content = File.ReadAllTextAsync(path, cancellationToken)
                         return parse content
                 with ex ->
                     return Error(QuantumError.OperationError("XyzRead", ex.Message))
@@ -219,14 +221,14 @@ module MoleculeFormats =
 
                 Ok(sb.ToString())
 
-        /// Write MoleculeData to XYZ file asynchronously.
-        let writeAsync (path: string) (mol: MoleculeData) : Async<QuantumResult<unit>> =
-            async {
+        /// Write MoleculeData to XYZ file asynchronously (task-based).
+        let writeAsync (path: string) (mol: MoleculeData) (cancellationToken: CancellationToken) : Task<QuantumResult<unit>> =
+            task {
                 match format mol with
                 | Error e -> return Error e
                 | Ok content ->
                     try
-                        do! File.WriteAllTextAsync(path, content) |> Async.AwaitTask
+                        do! File.WriteAllTextAsync(path, content, cancellationToken)
                         return Ok()
                     with ex ->
                         return Error(QuantumError.IOError("WriteXYZ", path, ex.Message))
@@ -344,14 +346,14 @@ module MoleculeFormats =
         let parse (content: string) : QuantumResult<MoleculeData> =
             parseHeader content |> Result.map (fun h -> toMoleculeData h None)
 
-        /// Read FCIDump file asynchronously.
-        let readAsync (path: string) : Async<QuantumResult<MoleculeData>> =
-            async {
+        /// Read FCIDump file asynchronously (task-based).
+        let readAsync (path: string) (cancellationToken: CancellationToken) : Task<QuantumResult<MoleculeData>> =
+            task {
                 try
                     if not (File.Exists path) then
                         return Error(QuantumError.IOError("ReadFciDump", path, "File not found"))
                     else
-                        let! content = File.ReadAllTextAsync(path) |> Async.AwaitTask
+                        let! content = File.ReadAllTextAsync(path, cancellationToken)
 
                         return
                             parseHeader content
@@ -622,23 +624,23 @@ module MoleculeFormats =
                 else
                     Error(QuantumError.ValidationError("MolParsing", "No molecule found")))
 
-        /// Read SDF file asynchronously (returns all molecules).
-        let readAllAsync (path: string) : Async<QuantumResult<MoleculeData array>> =
-            async {
+        /// Read SDF file asynchronously (returns all molecules, task-based).
+        let readAllAsync (path: string) (cancellationToken: CancellationToken) : Task<QuantumResult<MoleculeData array>> =
+            task {
                 try
                     if not (File.Exists path) then
                         return Error(QuantumError.IOError("ReadSdf", path, "File not found"))
                     else
-                        let! content = File.ReadAllTextAsync(path) |> Async.AwaitTask
+                        let! content = File.ReadAllTextAsync(path, cancellationToken)
                         return parseAll content
                 with ex ->
                     return Error(QuantumError.OperationError("SdfRead", ex.Message))
             }
 
-        /// Read single MOL file asynchronously.
-        let readAsync (path: string) : Async<QuantumResult<MoleculeData>> =
-            async {
-                let! result = readAllAsync path
+        /// Read single MOL file asynchronously (task-based).
+        let readAsync (path: string) (cancellationToken: CancellationToken) : Task<QuantumResult<MoleculeData>> =
+            task {
+                let! result = readAllAsync path cancellationToken
                 return result |> Result.bind (fun arr ->
                     if arr.Length > 0 then Ok arr.[0]
                     else Error(QuantumError.ValidationError("MolParsing", "No molecule found")))
@@ -755,14 +757,14 @@ module MoleculeFormats =
             else
                 Ok molecules
 
-        /// Read PDB file and extract ligands asynchronously.
-        let readLigandsAsync (path: string) : Async<QuantumResult<MoleculeData array>> =
-            async {
+        /// Read PDB file and extract ligands asynchronously (task-based).
+        let readLigandsAsync (path: string) (cancellationToken: CancellationToken) : Task<QuantumResult<MoleculeData array>> =
+            task {
                 try
                     if not (File.Exists path) then
                         return Error(QuantumError.IOError("ReadPdb", path, "File not found"))
                     else
-                        let! content = File.ReadAllTextAsync(path) |> Async.AwaitTask
+                        let! content = File.ReadAllTextAsync(path, cancellationToken)
                         return parseLigands content
                 with ex ->
                     return Error(QuantumError.OperationError("PdbRead", ex.Message))
@@ -786,18 +788,18 @@ module MoleculeFormats =
             | ".fcidump" -> FciDumpFile
             | ext -> UnknownFile ext
 
-        /// Read molecule(s) from file, auto-detecting format.
-        let readAutoAsync (path: string) : Async<QuantumResult<MoleculeData array>> =
-            async {
+        /// Read molecule(s) from file, auto-detecting format (task-based).
+        let readAutoAsync (path: string) (cancellationToken: CancellationToken) : Task<QuantumResult<MoleculeData array>> =
+            task {
                 match path with
                 | XyzFile ->
-                    let! result = Xyz.readAsync path
+                    let! result = Xyz.readAsync path cancellationToken
                     return result |> Result.map Array.singleton
                 | SdfFile
-                | MolFile -> return! Sdf.readAllAsync path
-                | PdbFile -> return! Pdb.readLigandsAsync path
+                | MolFile -> return! Sdf.readAllAsync path cancellationToken
+                | PdbFile -> return! Pdb.readLigandsAsync path cancellationToken
                 | FciDumpFile ->
-                    let! result = FciDump.readAsync path
+                    let! result = FciDump.readAsync path cancellationToken
                     return result |> Result.map Array.singleton
                 | UnknownFile ext ->
                     return Error(QuantumError.ValidationError("FileFormat", $"Unknown file extension: {ext}"))

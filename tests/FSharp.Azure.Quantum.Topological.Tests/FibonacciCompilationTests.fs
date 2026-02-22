@@ -455,14 +455,43 @@ module FibonacciCompilationTests =
         Assert.Contains("Fibonacci CNOT", decomp.DecompositionNotes.Value)
 
     [<Fact>]
-    let ``compileTwoQubitGateFibonacci rejects unsupported gates`` () =
-        // CZ should have been transpiled before reaching here
+    let ``compileTwoQubitGateFibonacci compiles CZ via H-CNOT-H decomposition`` () =
+        // CZ is now natively supported: decomposed as H·CNOT·H
         let gate = CircuitBuilder.Gate.CZ (0, 1)
         let result = GateToBraid.compileTwoQubitGateFibonacci gate 2 0.5
         
         match result with
-        | Error _ -> () // Expected
-        | Ok _ -> failwith "CZ should not be directly supported for Fibonacci two-qubit"
+        | Ok decomp ->
+            Assert.Equal("CZ", decomp.GateName)
+            Assert.True(decomp.BraidSequence.Length > 0, "CZ should produce braid operations")
+            Assert.True(decomp.DecompositionNotes.IsSome)
+            Assert.Contains("CZ", decomp.DecompositionNotes.Value)
+        | Error err -> failwith $"CZ should compile for Fibonacci: {err}"
+
+    [<Fact>]
+    let ``compileTwoQubitGateFibonacci compiles SWAP via 3x CNOT decomposition`` () =
+        // SWAP is now natively supported: decomposed as CNOT·CNOT·CNOT
+        let gate = CircuitBuilder.Gate.SWAP (0, 1)
+        let result = GateToBraid.compileTwoQubitGateFibonacci gate 2 0.5
+        
+        match result with
+        | Ok decomp ->
+            Assert.Equal("SWAP", decomp.GateName)
+            Assert.True(decomp.BraidSequence.Length > 0, "SWAP should produce braid operations")
+            Assert.True(decomp.DecompositionNotes.IsSome)
+            Assert.Contains("SWAP", decomp.DecompositionNotes.Value)
+        | Error err -> failwith $"SWAP should compile for Fibonacci: {err}"
+
+    [<Fact>]
+    let ``compileTwoQubitGateFibonacci rejects unsupported gates`` () =
+        // Gates not in the supported set should fail gracefully
+        // CP requires transpilation — it's not directly supported as a two-qubit Fibonacci gate
+        let gate = CircuitBuilder.Gate.CP (0, 1, 0.5)
+        let result = GateToBraid.compileTwoQubitGateFibonacci gate 2 0.5
+        
+        match result with
+        | Error _ -> () // Expected: not in the CNOT/CZ/SWAP set
+        | Ok _ -> failwith "CP should not be directly supported for Fibonacci two-qubit"
 
     // ========================================================================
     // SECTION 8: compileGateToBraidFibonacci DISPATCHER
@@ -519,14 +548,15 @@ module FibonacciCompilationTests =
 
     [<Fact>]
     let ``compileGateToBraidFibonacci rejects must-transpile gates with descriptive error`` () =
-        let gate = CircuitBuilder.Gate.SWAP (0, 1)
-        let result = GateToBraid.compileGateToBraidFibonacci gate 2 0.5
+        // CCX (Toffoli) must be transpiled before reaching the Fibonacci compiler
+        let gate = CircuitBuilder.Gate.CCX (0, 1, 2)
+        let result = GateToBraid.compileGateToBraidFibonacci gate 3 0.5
         
         match result with
         | Error (TopologicalError.LogicError (name, msg)) ->
             Assert.Contains("transpiled", msg)
         | Error err -> failwith $"Expected LogicError, got {err}"
-        | Ok _ -> failwith "SWAP should be rejected (needs transpilation first)"
+        | Ok _ -> failwith "CCX should be rejected (needs transpilation first)"
 
     // ========================================================================
     // SECTION 9: compileGateSequence - ANYON TYPE DISPATCH
@@ -584,7 +614,7 @@ module FibonacciCompilationTests =
         Assert.True(compilation.IsExact, "Ising S should be exact")
 
     [<Fact>]
-    let ``compileGateSequence with SU2Level returns descriptive error`` () =
+    let ``compileGateSequence with SU2Level 3 succeeds`` () =
         let gateSeq : BraidToGate.GateSequence = {
             Gates = [CircuitBuilder.Gate.T 0]
             NumQubits = 1
@@ -596,10 +626,11 @@ module FibonacciCompilationTests =
         let result = GateToBraid.compileGateSequence gateSeq 0.5 (AnyonSpecies.AnyonType.SU2Level 3)
         
         match result with
-        | Error err ->
-            let msg = $"{err}"
-            Assert.Contains("not implemented", msg.ToLower())
-        | Ok _ -> failwith "SU(2)_k compilation should not be supported yet"
+        | Ok compilation ->
+            Assert.Equal(1, compilation.OriginalGateCount)
+            Assert.True(compilation.CompiledBraids.Length > 0, "SU(2)_3 T gate should produce braids")
+            Assert.Equal(AnyonSpecies.AnyonType.SU2Level 3, compilation.AnyonType)
+        | Error err -> failwith $"SU(2)_3 compilation should succeed but got: {err.Message}"
 
     [<Fact>]
     let ``compileGateSequence with Fibonacci handles multi-gate circuit`` () =

@@ -3,6 +3,8 @@ namespace FSharp.Azure.Quantum.MachineLearning.Tests
 open Xunit
 open FSharp.Azure.Quantum.MachineLearning
 open System.IO
+open System.Threading
+open System.Threading.Tasks
 
 module ModelSerializationTests =
     
@@ -31,35 +33,37 @@ module ModelSerializationTests =
     
     [<Fact>]
     let ``Save VQC model creates JSON file`` () =
-        let testFile = "test_vqc_save.json"
-        cleanupTestFile testFile
-        
-        try
-            let parameters = [| 0.1; 0.2; 0.3 |]
-            let result = 
-                ModelSerialization.saveVQCModelAsync
-                    testFile
-                    parameters
-                    0.5
-                    2
-                    "ZZFeatureMap"
-                    2
-                    "RealAmplitudes"
-                    1
-                    (Some "Test model")
-                |> Async.RunSynchronously
-            
-            match result with
-            | Ok () ->
-                Assert.True(File.Exists testFile, "JSON file should be created")
-            | Error e ->
-                Assert.Fail($"Save failed: {e}")
-        finally
+        task {
+            let testFile = "test_vqc_save.json"
             cleanupTestFile testFile
+            
+            try
+                let parameters = [| 0.1; 0.2; 0.3 |]
+                let! result = 
+                    ModelSerialization.saveVQCModelAsync
+                        testFile
+                        parameters
+                        0.5
+                        2
+                        "ZZFeatureMap"
+                        2
+                        "RealAmplitudes"
+                        1
+                        (Some "Test model")
+                        CancellationToken.None
+                
+                match result with
+                | Ok () ->
+                    Assert.True(File.Exists testFile, "JSON file should be created")
+                | Error e ->
+                    Assert.Fail($"Save failed: {e}")
+            finally
+                cleanupTestFile testFile
+        } :> Task
     
     [<Fact>]
     let ``Load VQC model retrieves saved data`` () =
-        async {
+        task {
             let testFile = "test_vqc_load.json"
             cleanupTestFile testFile
             
@@ -68,7 +72,7 @@ module ModelSerializationTests =
                 let finalLoss = 0.42
                 
                 // Save model
-                let! saveResult = ModelSerialization.saveVQCModelAsync testFile parameters finalLoss 2 "ZZFeatureMap" 2 "RealAmplitudes" 1 None
+                let! saveResult = ModelSerialization.saveVQCModelAsync testFile parameters finalLoss 2 "ZZFeatureMap" 2 "RealAmplitudes" 1 None CancellationToken.None
                 match saveResult with
                 | Error e -> Assert.Fail($"Save failed: {e}")
                 | Ok () ->
@@ -86,7 +90,7 @@ module ModelSerializationTests =
                         Assert.Equal(1, model.VariationalFormDepth)
             finally
                 cleanupTestFile testFile
-        } |> Async.StartAsTask
+        } :> Task
     
     [<Fact>]
     let ``Load nonexistent file returns error`` () =
@@ -150,14 +154,14 @@ module ModelSerializationTests =
     
     [<Fact>]
     let ``Load VQC parameters returns only parameter array`` () =
-        async {
+        task {
             let testFile = "test_params_only.json"
             cleanupTestFile testFile
             
             try
                 let parameters = [| 1.0; 2.0; 3.0; 4.0; 5.0 |]
                 
-                let! saveResult = ModelSerialization.saveVQCModelAsync testFile parameters 0.1 3 "ZZFeatureMap" 1 "RealAmplitudes" 1 None
+                let! saveResult = ModelSerialization.saveVQCModelAsync testFile parameters 0.1 3 "ZZFeatureMap" 1 "RealAmplitudes" 1 None CancellationToken.None
                 match saveResult with
                 | Error e -> Assert.Fail($"Save failed: {e}")
                 | Ok () ->
@@ -168,7 +172,7 @@ module ModelSerializationTests =
                         Assert.Equal<float seq>(parameters, loadedParams)
             finally
                 cleanupTestFile testFile
-        } |> Async.StartAsTask
+        } :> Task
     
     // ========================================================================
     // MODEL INFO TESTS
@@ -176,7 +180,7 @@ module ModelSerializationTests =
     
     [<Fact>]
     let ``Get VQC model info returns metadata`` () =
-        async {
+        task {
             let testFile = "test_info.json"
             cleanupTestFile testFile
             
@@ -185,7 +189,7 @@ module ModelSerializationTests =
                 let numQubits = 2
                 let finalLoss = 0.25
                 
-                let! saveResult = ModelSerialization.saveVQCModelAsync testFile parameters finalLoss numQubits "ZZFeatureMap" 2 "RealAmplitudes" 1 None
+                let! saveResult = ModelSerialization.saveVQCModelAsync testFile parameters finalLoss numQubits "ZZFeatureMap" 2 "RealAmplitudes" 1 None CancellationToken.None
                 match saveResult with
                 | Error e -> Assert.Fail($"Save failed: {e}")
                 | Ok () ->
@@ -199,18 +203,18 @@ module ModelSerializationTests =
                         Assert.NotEmpty(savedAt)
             finally
                 cleanupTestFile testFile
-        } |> Async.StartAsTask
+        } :> Task
     
     [<Fact>]
     let ``Print VQC model info displays metadata`` () =
-        async {
+        task {
             let testFile = "test_print_info.json"
             cleanupTestFile testFile
             
             try
                 let parameters = [| 0.1; 0.2 |]
                 
-                let! saveResult = ModelSerialization.saveVQCModelAsync testFile parameters 0.5 1 "ZFeatureMap" 1 "RY" 2 (Some "Test note")
+                let! saveResult = ModelSerialization.saveVQCModelAsync testFile parameters 0.5 1 "ZFeatureMap" 1 "RY" 2 (Some "Test note") CancellationToken.None
                 match saveResult with
                 | Error e -> Assert.Fail($"Save failed: {e}")
                 | Ok () ->
@@ -221,7 +225,7 @@ module ModelSerializationTests =
                         Assert.True(true, "Print should succeed")
             finally
                 cleanupTestFile testFile
-        } |> Async.StartAsTask
+        } :> Task
     
     // ========================================================================
     // BATCH OPERATIONS TESTS
@@ -310,14 +314,14 @@ module ModelSerializationTests =
     
     [<Fact>]
     let ``Saved model includes timestamp`` () =
-        async {
+        task {
             let testFile = "test_timestamp.json"
             cleanupTestFile testFile
             
             try
                 let parameters = [| 0.1 |]
                 
-                let! saveResult = ModelSerialization.saveVQCModelAsync testFile parameters 0.5 1 "ZFeatureMap" 1 "RY" 1 None
+                let! saveResult = ModelSerialization.saveVQCModelAsync testFile parameters 0.5 1 "ZFeatureMap" 1 "RY" 1 None CancellationToken.None
                 match saveResult with
                 | Error e -> Assert.Fail($"Save failed: {e}")
                 | Ok () ->
@@ -330,11 +334,11 @@ module ModelSerializationTests =
                         Assert.Contains("T", model.SavedAt)
             finally
                 cleanupTestFile testFile
-        } |> Async.StartAsTask
+        } :> Task
     
     [<Fact>]
     let ``Saved model preserves optional note`` () =
-        async {
+        task {
             let testFile = "test_note.json"
             cleanupTestFile testFile
             
@@ -342,7 +346,7 @@ module ModelSerializationTests =
                 let parameters = [| 0.1; 0.2 |]
                 let note = "This is a test model for XOR classification"
                 
-                let! saveResult = ModelSerialization.saveVQCModelAsync testFile parameters 0.3 2 "ZZFeatureMap" 2 "RealAmplitudes" 1 (Some note)
+                let! saveResult = ModelSerialization.saveVQCModelAsync testFile parameters 0.3 2 "ZZFeatureMap" 2 "RealAmplitudes" 1 (Some note) CancellationToken.None
                 match saveResult with
                 | Error e -> Assert.Fail($"Save failed: {e}")
                 | Ok () ->
@@ -354,18 +358,18 @@ module ModelSerializationTests =
                         Assert.Equal(note, model.Note.Value)
             finally
                 cleanupTestFile testFile
-        } |> Async.StartAsTask
+        } :> Task
     
     [<Fact>]
     let ``Saved model handles None note`` () =
-        async {
+        task {
             let testFile = "test_no_note.json"
             cleanupTestFile testFile
             
             try
                 let parameters = [| 0.1 |]
                 
-                let! saveResult = ModelSerialization.saveVQCModelAsync testFile parameters 0.5 1 "ZFeatureMap" 1 "RY" 1 None
+                let! saveResult = ModelSerialization.saveVQCModelAsync testFile parameters 0.5 1 "ZFeatureMap" 1 "RY" 1 None CancellationToken.None
                 match saveResult with
                 | Error e -> Assert.Fail($"Save failed: {e}")
                 | Ok () ->
@@ -376,7 +380,7 @@ module ModelSerializationTests =
                         Assert.True(model.Note.IsNone)
             finally
                 cleanupTestFile testFile
-        } |> Async.StartAsTask
+        } :> Task
     
     // ========================================================================
     // ROUNDTRIP TESTS
@@ -384,7 +388,7 @@ module ModelSerializationTests =
     
     [<Fact>]
     let ``Complete save-load roundtrip preserves all data`` () =
-        async {
+        task {
             let testFile = "test_roundtrip.json"
             cleanupTestFile testFile
         
@@ -408,7 +412,8 @@ module ModelSerializationTests =
                         originalFMDepth 
                         originalVFType 
                         originalVFDepth 
-                        originalNote with
+                        originalNote
+                        CancellationToken.None with
                 | Error e -> Assert.Fail($"Save failed: {e}")
                 | Ok () ->
                 
@@ -426,7 +431,7 @@ module ModelSerializationTests =
                         Assert.Equal(originalNote, model.Note)
             finally
                 cleanupTestFile testFile
-        } |> Async.StartAsTask
+        } :> Task
     
     // ========================================================================
     // MULTI-CLASS VQC SERIALIZATION TESTS
@@ -649,45 +654,47 @@ module ModelSerializationTests =
     
     [<Fact>]
     let ``Save portfolio solution creates JSON file`` () =
-        let testFile = "test_portfolio_save.json"
-        cleanupTestFile testFile
-        
-        try
-            let allocations = createMockAllocations()
-            let selectedAssets = Map.ofList [("AAPL", true); ("GOOGL", true); ("MSFT", true)]
-            
-            let result = 
-                ModelSerialization.savePortfolioSolutionAsync
-                    testFile
-                    allocations
-                    6125.0      // totalValue
-                    0.12        // expectedReturn
-                    0.15        // risk
-                    0.80        // sharpeRatio
-                    "LocalBackend"
-                    1000        // numShots
-                    150.5       // elapsedMs
-                    (0.5, 0.5)  // qaoaParams
-                    -0.08       // bestEnergy
-                    selectedAssets
-                    0.5         // riskAversion
-                    10000.0     // budget
-                    None        // quboMatrix
-                    3           // numVariables
-                    (Some "Test portfolio solution")
-                |> Async.RunSynchronously
-            
-            match result with
-            | Ok () ->
-                Assert.True(File.Exists testFile, "JSON file should be created")
-            | Error e ->
-                Assert.Fail($"Save failed: {e}")
-        finally
+        task {
+            let testFile = "test_portfolio_save.json"
             cleanupTestFile testFile
+            
+            try
+                let allocations = createMockAllocations()
+                let selectedAssets = Map.ofList [("AAPL", true); ("GOOGL", true); ("MSFT", true)]
+                
+                let! result = 
+                    ModelSerialization.savePortfolioSolutionAsync
+                        testFile
+                        allocations
+                        6125.0      // totalValue
+                        0.12        // expectedReturn
+                        0.15        // risk
+                        0.80        // sharpeRatio
+                        "LocalBackend"
+                        1000        // numShots
+                        150.5       // elapsedMs
+                        (0.5, 0.5)  // qaoaParams
+                        -0.08       // bestEnergy
+                        selectedAssets
+                        0.5         // riskAversion
+                        10000.0     // budget
+                        None        // quboMatrix
+                        3           // numVariables
+                        (Some "Test portfolio solution")
+                        CancellationToken.None
+                
+                match result with
+                | Ok () ->
+                    Assert.True(File.Exists testFile, "JSON file should be created")
+                | Error e ->
+                    Assert.Fail($"Save failed: {e}")
+            finally
+                cleanupTestFile testFile
+        } :> Task
     
     [<Fact>]
     let ``Load portfolio solution retrieves saved data`` () =
-        async {
+        task {
             let testFile = "test_portfolio_load.json"
             cleanupTestFile testFile
             
@@ -707,6 +714,7 @@ module ModelSerializationTests =
                     ModelSerialization.savePortfolioSolutionAsync
                         testFile allocations totalValue expectedReturn risk sharpeRatio
                         "IonQ" 2000 200.0 (gamma, beta) -0.05 selectedAssets riskAversion budget None 3 None
+                        CancellationToken.None
                 
                 match saveResult with
                 | Error e -> Assert.Fail($"Save failed: {e}")
@@ -734,11 +742,11 @@ module ModelSerializationTests =
                         Assert.Equal(150.0, aaplAlloc.Price, 2)
             finally
                 cleanupTestFile testFile
-        } |> Async.StartAsTask
+        } :> Task
     
     [<Fact>]
     let ``Load portfolio QAOA params returns tuple`` () =
-        async {
+        task {
             let testFile = "test_portfolio_qaoa_params.json"
             cleanupTestFile testFile
             
@@ -751,6 +759,7 @@ module ModelSerializationTests =
                     ModelSerialization.savePortfolioSolutionAsync
                         testFile allocations 1000.0 0.1 0.1 1.0
                         "LocalBackend" 100 50.0 (gamma, beta) 0.0 selectedAssets 0.5 1000.0 None 1 None
+                        CancellationToken.None
                 
                 match saveResult with
                 | Error e -> Assert.Fail($"Save failed: {e}")
@@ -763,11 +772,11 @@ module ModelSerializationTests =
                         Assert.Equal(beta, loadedBeta, 3)
             finally
                 cleanupTestFile testFile
-        } |> Async.StartAsTask
+        } :> Task
     
     [<Fact>]
     let ``Portfolio solution with QUBO matrix roundtrip`` () =
-        async {
+        task {
             let testFile = "test_portfolio_qubo.json"
             cleanupTestFile testFile
             
@@ -788,6 +797,7 @@ module ModelSerializationTests =
                         testFile allocations 2000.0 0.12 0.15 0.8
                         "LocalBackend" 500 75.0 (0.4, 0.6) -0.1 selectedAssets 0.5 2500.0 
                         (Some quboMatrix) 2 (Some "QUBO test")
+                        CancellationToken.None
                 
                 match saveResult with
                 | Error e -> Assert.Fail($"Save failed: {e}")
@@ -805,11 +815,11 @@ module ModelSerializationTests =
                         Assert.Equal(0.2, loadedQubo.[(0, 1)], 2)
             finally
                 cleanupTestFile testFile
-        } |> Async.StartAsTask
+        } :> Task
     
     [<Fact>]
     let ``Get portfolio solution info returns summary`` () =
-        async {
+        task {
             let testFile = "test_portfolio_info.json"
             cleanupTestFile testFile
             
@@ -825,6 +835,7 @@ module ModelSerializationTests =
                     ModelSerialization.savePortfolioSolutionAsync
                         testFile allocations totalValue expectedReturn risk sharpeRatio
                         "Rigetti" 800 120.0 (0.5, 0.5) -0.02 selectedAssets 0.4 2000.0 None 1 None
+                        CancellationToken.None
                 
                 match saveResult with
                 | Error e -> Assert.Fail($"Save failed: {e}")
@@ -841,7 +852,7 @@ module ModelSerializationTests =
                         Assert.NotEmpty(savedAt)
             finally
                 cleanupTestFile testFile
-        } |> Async.StartAsTask
+        } :> Task
     
     [<Fact>]
     let ``Load nonexistent portfolio file returns error`` () =
@@ -854,7 +865,7 @@ module ModelSerializationTests =
     
     [<Fact>]
     let ``Portfolio solution preserves timestamp`` () =
-        async {
+        task {
             let testFile = "test_portfolio_timestamp.json"
             cleanupTestFile testFile
             
@@ -866,6 +877,7 @@ module ModelSerializationTests =
                     ModelSerialization.savePortfolioSolutionAsync
                         testFile allocations 1000.0 0.1 0.1 1.0
                         "LocalBackend" 100 50.0 (0.5, 0.5) 0.0 selectedAssets 0.5 1000.0 None 1 None
+                        CancellationToken.None
                 
                 match saveResult with
                 | Error e -> Assert.Fail($"Save failed: {e}")
@@ -878,11 +890,11 @@ module ModelSerializationTests =
                         Assert.Contains("T", solution.SavedAt)  // ISO 8601 format
             finally
                 cleanupTestFile testFile
-        } |> Async.StartAsTask
+        } :> Task
     
     [<Fact>]
     let ``Portfolio solution preserves optional note`` () =
-        async {
+        task {
             let testFile = "test_portfolio_note.json"
             cleanupTestFile testFile
             
@@ -895,6 +907,7 @@ module ModelSerializationTests =
                     ModelSerialization.savePortfolioSolutionAsync
                         testFile allocations 1000.0 0.1 0.1 1.0
                         "LocalBackend" 100 50.0 (0.5, 0.5) 0.0 selectedAssets 0.5 1000.0 None 1 (Some note)
+                        CancellationToken.None
                 
                 match saveResult with
                 | Error e -> Assert.Fail($"Save failed: {e}")
@@ -907,4 +920,4 @@ module ModelSerializationTests =
                         Assert.Equal(note, solution.Note.Value)
             finally
                 cleanupTestFile testFile
-        } |> Async.StartAsTask
+        } :> Task

@@ -14,6 +14,8 @@ open System.Net.Http
 open System.IO
 open System.Security.Cryptography
 open System.Text
+open System.Threading
+open System.Threading.Tasks
 open FSharp.Azure.Quantum.Core
 
 module FinancialData =
@@ -351,6 +353,83 @@ module FinancialData =
     /// Load prices for Yahoo Finance CSV format
     let loadYahooFinanceCsv (filePath: string) (symbol: string) : QuantumResult<PriceSeries> =
         loadPricesFromCsv filePath symbol "Date" "Close"
+    
+    /// Load OHLCV data from CSV file asynchronously
+    let loadPricesFromCsvAsync
+        (filePath: string)
+        (symbol: string)
+        (dateColumn: string)
+        (closeColumn: string)
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<PriceSeries>> =
+        task {
+            try
+                let! allText = File.ReadAllTextAsync(filePath, cancellationToken)
+                let lines = allText.Split([| '\n'; '\r' |], StringSplitOptions.RemoveEmptyEntries)
+                if lines.Length < 2 then
+                    return Error (QuantumError.ValidationError ("file", "CSV must have header and at least one data row"))
+                else
+                    let headers = 
+                        lines.[0].Split(',') 
+                        |> Array.map (fun s -> s.Trim().Trim('"').ToLower())
+                    
+                    let dateIdx = headers |> Array.tryFindIndex (fun h -> h = dateColumn.ToLower())
+                    let closeIdx = headers |> Array.tryFindIndex (fun h -> h = closeColumn.ToLower())
+                    
+                    let openIdx = headers |> Array.tryFindIndex (fun h -> h = "open")
+                    let highIdx = headers |> Array.tryFindIndex (fun h -> h = "high")
+                    let lowIdx = headers |> Array.tryFindIndex (fun h -> h = "low")
+                    let volumeIdx = headers |> Array.tryFindIndex (fun h -> h = "volume")
+                    let adjCloseIdx = headers |> Array.tryFindIndex (fun h -> 
+                        h = "adj close" || h = "adjusted_close" || h = "adjclose")
+                    
+                    match dateIdx, closeIdx with
+                    | None, _ -> return Error (QuantumError.ValidationError ("dateColumn", sprintf "Column '%s' not found" dateColumn))
+                    | _, None -> return Error (QuantumError.ValidationError ("closeColumn", sprintf "Column '%s' not found" closeColumn))
+                    | Some dIdx, Some cIdx ->
+                        let dataLines = lines.[1..]
+                        
+                        let prices =
+                            dataLines
+                            |> Array.choose (fun line ->
+                                let fields = line.Split(',') |> Array.map (fun s -> s.Trim().Trim('"'))
+                                match parseDate fields.[dIdx], parseFloat fields.[cIdx] with
+                                | Some date, Some close ->
+                                    let openPrice = openIdx |> Option.bind (fun idx -> parseFloat fields.[idx]) |> Option.defaultValue close
+                                    let highPrice = highIdx |> Option.bind (fun idx -> parseFloat fields.[idx]) |> Option.defaultValue close
+                                    let lowPrice = lowIdx |> Option.bind (fun idx -> parseFloat fields.[idx]) |> Option.defaultValue close
+                                    let volume = volumeIdx |> Option.bind (fun idx -> parseFloat fields.[idx]) |> Option.defaultValue 0.0
+                                    let adjClose = adjCloseIdx |> Option.bind (fun idx -> parseFloat fields.[idx])
+                                    
+                                    Some {
+                                        Date = date
+                                        Open = openPrice
+                                        High = highPrice
+                                        Low = lowPrice
+                                        Close = close
+                                        Volume = volume
+                                        AdjustedClose = adjClose
+                                    }
+                                | _ -> None)
+                        
+                        if prices.Length = 0 then
+                            return Error (QuantumError.ValidationError (
+                                "csv",
+                                sprintf "All %d data rows failed to parse (no valid date/close pairs found)" dataLines.Length))
+                        else
+                        
+                        let sortedPrices = prices |> Array.sortBy (fun p -> p.Date)
+                        
+                        return Ok {
+                            Symbol = symbol
+                            Name = None
+                            Currency = "USD"
+                            Prices = sortedPrices
+                            Frequency = Daily
+                        }
+            with ex ->
+                return Error (QuantumError.Other (sprintf "Failed to read CSV: %s" ex.Message))
+        }
 
     // ========================================================================
     // YAHOO FINANCE - LIVE FETCHING
@@ -425,6 +504,21 @@ module FinancialData =
                 None
         with _ -> None
 
+    let private tryReadFreshCacheAsync (cachePath: string) (ttl: TimeSpan) (cancellationToken: CancellationToken) : Task<string option> =
+        task {
+            try
+                if File.Exists(cachePath) then
+                    let age = DateTime.UtcNow - File.GetLastWriteTimeUtc(cachePath)
+                    if age <= ttl then
+                        let! content = File.ReadAllTextAsync(cachePath, cancellationToken)
+                        return Some content
+                    else
+                        return None
+                else
+                    return None
+            with _ -> return None
+        }
+
     let private tryWriteCache (cachePath: string) (content: string) : unit =
         try
             let directory = Path.GetDirectoryName(cachePath)
@@ -432,6 +526,16 @@ module FinancialData =
                 Directory.CreateDirectory(directory) |> ignore
             File.WriteAllText(cachePath, content)
         with _ -> ()
+
+    let private tryWriteCacheAsync (cachePath: string) (content: string) (cancellationToken: CancellationToken) : Task<unit> =
+        task {
+            try
+                let directory = Path.GetDirectoryName(cachePath)
+                if not (String.IsNullOrWhiteSpace directory) then
+                    Directory.CreateDirectory(directory) |> ignore
+                do! File.WriteAllTextAsync(cachePath, content, cancellationToken)
+            with _ -> ()
+        }
 
     let private parseYahooChartJson (symbol: string) (json: string) : QuantumResult<PriceSeries> =
         try
@@ -541,15 +645,16 @@ module FinancialData =
         with ex ->
             Error (QuantumError.OperationError ("YahooFinance.Parse", ex.Message))
 
-    /// Download historical prices from Yahoo Finance's chart API.
+    /// Download historical prices from Yahoo Finance's chart API (task-based).
     ///
     /// Note: Yahoo Finance does not provide an official public API; this uses the JSON
     /// endpoint used by their website.
     let fetchYahooHistoryAsync
         (httpClient: HttpClient)
         (request: YahooHistoryRequest)
-        : Async<QuantumResult<PriceSeries>> =
-        async {
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<PriceSeries>> =
+        task {
             let symbol = request.Symbol.Trim().ToUpperInvariant()
             if String.IsNullOrWhiteSpace symbol then
                 return Error (QuantumError.ValidationError ("symbol", "Symbol must be non-empty"))
@@ -566,7 +671,13 @@ module FinancialData =
                     request.CacheDirectory
                     |> Option.map (fun dir -> Path.Combine(dir, sprintf "yahoo_chart_%s.json" cacheKey))
 
-                match cachePathOpt |> Option.bind (fun p -> tryReadFreshCache p request.CacheTtl) with
+                // Try reading from cache asynchronously
+                let! cachedJsonOpt =
+                    match cachePathOpt with
+                    | Some p -> tryReadFreshCacheAsync p request.CacheTtl cancellationToken
+                    | None -> Task.FromResult None
+
+                match cachedJsonOpt with
                 | Some cachedJson ->
                     return parseYahooChartJson symbol cachedJson
                 | None ->
@@ -576,26 +687,33 @@ module FinancialData =
 
                     try
                         use req = new HttpRequestMessage(HttpMethod.Get, url)
-                        let! resp = httpClient.SendAsync(req) |> Async.AwaitTask
-                        let! body = resp.Content.ReadAsStringAsync() |> Async.AwaitTask
+                        let! resp = httpClient.SendAsync(req, cancellationToken)
+                        let! body = resp.Content.ReadAsStringAsync(cancellationToken)
 
                         if not resp.IsSuccessStatusCode then
                             return Error (QuantumError.BackendError ("YahooFinance", $"HTTP {(int resp.StatusCode)}: {body}"))
                         else
-                            cachePathOpt |> Option.iter (fun p -> tryWriteCache p body)
+                            // Write to cache asynchronously
+                            match cachePathOpt with
+                            | Some p -> do! tryWriteCacheAsync p body cancellationToken
+                            | None -> ()
                             return parseYahooChartJson symbol body
                     with ex ->
                         return Error (QuantumError.BackendError ("YahooFinance", ex.Message))
         }
 
     /// Synchronous wrapper for fetchYahooHistoryAsync.
+    [<Obsolete("Use fetchYahooHistoryAsync with CancellationToken instead.")>]
     let fetchYahooHistory
         (httpClient: HttpClient)
         (request: YahooHistoryRequest)
         : QuantumResult<PriceSeries> =
-        fetchYahooHistoryAsync httpClient request |> Async.RunSynchronously
+        fetchYahooHistoryAsync httpClient request CancellationToken.None
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
 
     /// Convenience overload with defaults.
+    [<Obsolete("Use fetchYahooHistoryAsync with CancellationToken instead.")>]
     let fetchYahooHistoryDefault (httpClient: HttpClient) (symbol: string) : QuantumResult<PriceSeries> =
         fetchYahooHistory httpClient (defaultYahooHistoryRequest symbol)
 
@@ -850,6 +968,75 @@ module FinancialData =
                     Error (QuantumError.ValidationError ("columns", "CSV must have symbol, quantity, and price columns"))
         with ex ->
             Error (QuantumError.Other (sprintf "Failed to read portfolio CSV: %s" ex.Message))
+    
+    /// Load portfolio from CSV asynchronously
+    let loadPortfolioFromCsvAsync (filePath: string) (portfolioName: string) (cancellationToken: CancellationToken) : Task<QuantumResult<Portfolio>> =
+        task {
+            try
+                let! allText = File.ReadAllTextAsync(filePath, cancellationToken)
+                let lines = allText.Split([| '\n'; '\r' |], StringSplitOptions.RemoveEmptyEntries)
+                if lines.Length < 2 then
+                    return Error (QuantumError.ValidationError ("file", "CSV must have header and at least one position"))
+                else
+                    let headers = lines.[0].Split(',') |> Array.map (fun s -> s.Trim().Trim('"').ToLower())
+                    
+                    let symbolIdx = headers |> Array.tryFindIndex (fun h -> h = "symbol" || h = "ticker")
+                    let quantityIdx = headers |> Array.tryFindIndex (fun h -> h = "quantity" || h = "shares")
+                    let priceIdx = headers |> Array.tryFindIndex (fun h -> h = "price" || h = "current_price")
+                    let assetClassIdx = headers |> Array.tryFindIndex (fun h -> h = "asset_class" || h = "type")
+                    let sectorIdx = headers |> Array.tryFindIndex (fun h -> h = "sector")
+                    
+                    match symbolIdx, quantityIdx, priceIdx with
+                    | Some sIdx, Some qIdx, Some pIdx ->
+                        let posArray =
+                            lines.[1..]
+                            |> Array.map (fun line ->
+                                let fields = line.Split(',') |> Array.map (fun s -> s.Trim().Trim('"'))
+                                
+                                let symbol = fields.[sIdx]
+                                let quantity = parseFloat fields.[qIdx] |> Option.defaultValue 0.0
+                                let price = parseFloat fields.[pIdx] |> Option.defaultValue 0.0
+                                
+                                let assetClass =
+                                    assetClassIdx
+                                    |> Option.map (fun idx -> 
+                                        match fields.[idx].ToLower() with
+                                        | "equity" | "stock" -> Equity
+                                        | "fixed_income" | "bond" -> FixedIncome
+                                        | "commodity" -> Commodity
+                                        | "currency" | "fx" -> Currency
+                                        | "derivative" -> Derivative
+                                        | "alternative" -> Alternative
+                                        | "cash" -> Cash
+                                        | _ -> Equity)
+                                    |> Option.defaultValue Equity
+                                
+                                let sector = sectorIdx |> Option.map (fun idx -> fields.[idx])
+                                
+                                {
+                                    Symbol = symbol
+                                    Quantity = quantity
+                                    CurrentPrice = price
+                                    MarketValue = quantity * price
+                                    AssetClass = assetClass
+                                    Sector = sector
+                                })
+                        let totalValue = posArray |> Array.sumBy (fun p -> p.MarketValue)
+                        
+                        return Ok {
+                            Id = Guid.NewGuid().ToString()
+                            Name = portfolioName
+                            BaseCurrency = "USD"
+                            Positions = posArray
+                            TotalValue = totalValue
+                            ValuationDate = DateTime.UtcNow
+                        }
+                        
+                    | _ ->
+                        return Error (QuantumError.ValidationError ("columns", "CSV must have symbol, quantity, and price columns"))
+            with ex ->
+                return Error (QuantumError.Other (sprintf "Failed to read portfolio CSV: %s" ex.Message))
+        }
     
     /// Create portfolio from position list
     let createPortfolio (name: string) (positions: Position list) : Portfolio =

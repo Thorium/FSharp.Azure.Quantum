@@ -57,11 +57,11 @@
     <Compile Include="AnyonSpecies.fs" />
     <Compile Include="FusionRules.fs" />
     <Compile Include="TopologicalHelpers.fs" />
+    <Compile Include="FMatrix.fs" />
     <Compile Include="BraidingOperators.fs" />
     <Compile Include="FusionTree.fs" />
     <Compile Include="TopologicalOperations.fs" />
     <Compile Include="ModularData.fs" />
-    <Compile Include="FMatrix.fs" />
     <Compile Include="RMatrix.fs" />
     <Compile Include="BraidingConsistency.fs" />
     <Compile Include="BraidGroup.fs" />
@@ -74,6 +74,7 @@
     <Compile Include="GateToBraid.fs" />
     <Compile Include="ToricCode.fs" />
     <Compile Include="SurfaceCode.fs" />
+    <Compile Include="AnyonicErrorCorrection.fs" />
     <Compile Include="EntanglementEntropy.fs" />
     <Compile Include="TopologicalBackend.fs" />
     <Compile Include="AlgorithmExtensions.fs" />

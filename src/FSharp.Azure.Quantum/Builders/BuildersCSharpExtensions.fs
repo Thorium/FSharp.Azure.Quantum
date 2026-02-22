@@ -4,6 +4,7 @@ open System
 open System.Collections.Generic
 open System.Runtime.CompilerServices
 open System.Runtime.InteropServices
+open System.Threading
 open System.Threading.Tasks
 open Microsoft.FSharp.Collections
 open FSharp.Azure.Quantum.Core.BackendAbstraction
@@ -945,6 +946,8 @@ module ModelSerializationCSharpExtensions =
             let! result = ModelSerialization.saveVQCModelAsync 
                             filePath parameters finalLoss numQubits 
                             featureMapType featureMapDepth variationalFormType variationalFormDepth note
+                            CancellationToken.None
+                          |> Async.AwaitTask
             return Result.mapError (fun (e: QuantumError) -> e.Message) result
         }
         |> Async.StartAsTask
@@ -1002,7 +1005,8 @@ module SVMModelSerializationCSharpExtensions =
         (note: string option)
         : Task<Result<unit, string>> =
         async {
-            let! result = SVMModelSerialization.saveSVMModelAsync filePath model note
+            let! result = SVMModelSerialization.saveSVMModelAsync filePath model note CancellationToken.None
+                          |> Async.AwaitTask
             return Result.mapError (fun (e: QuantumError) -> e.Message) result
         }
         |> Async.StartAsTask
@@ -1013,7 +1017,8 @@ module SVMModelSerializationCSharpExtensions =
     [<Extension>]
     let LoadSVMModelTask (filePath: string) : Task<Result<QuantumKernelSVM.SVMModel, string>> =
         async {
-            let! result = SVMModelSerialization.loadSVMModelAsync filePath
+            let! result = SVMModelSerialization.loadSVMModelAsync filePath CancellationToken.None
+                          |> Async.AwaitTask
             return Result.mapError (fun (e: QuantumError) -> e.Message) result
         }
         |> Async.StartAsTask
@@ -1028,7 +1033,8 @@ module SVMModelSerializationCSharpExtensions =
         (note: string option)
         : Task<Result<unit, string>> =
         async {
-            let! result = SVMModelSerialization.saveMultiClassSVMModelAsync filePath model note
+            let! result = SVMModelSerialization.saveMultiClassSVMModelAsync filePath model note CancellationToken.None
+                          |> Async.AwaitTask
             return Result.mapError (fun (e: QuantumError) -> e.Message) result
         }
         |> Async.StartAsTask
@@ -1039,7 +1045,8 @@ module SVMModelSerializationCSharpExtensions =
     [<Extension>]
     let LoadMultiClassSVMModelTask (filePath: string) : Task<Result<MultiClassSVM.MultiClassModel, string>> =
         async {
-            let! result = SVMModelSerialization.loadMultiClassSVMModelAsync filePath
+            let! result = SVMModelSerialization.loadMultiClassSVMModelAsync filePath CancellationToken.None
+                          |> Async.AwaitTask
             return Result.mapError (fun (e: QuantumError) -> e.Message) result
         }
         |> Async.StartAsTask

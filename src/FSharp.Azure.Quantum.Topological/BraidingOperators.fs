@@ -109,9 +109,37 @@ module BraidingOperators =
         // UNRECOGNIZED CASES
         // ========================================================================
         
+        // ========================================================================
+        // GENERAL SU(2)_k: COMPUTE R-SYMBOL VIA CFT FORMULA
+        // ========================================================================
+        // 
+        // R[j1,j2;j3] = exp(2πi * (h_j1 + h_j2 - h_j3))
+        // where h_j = j(j+1)/(k+2) is the conformal weight.
+        // This is the same formula used by RMatrix.computeSU2KRMatrices,
+        // but computed inline because RMatrix.fs is compiled after this file.
+        
         | _ ->
-            TopologicalResult.logicError "R-matrix"
-                $"No R-matrix element defined for {a} × {b} → {c} in {anyonType} theory"
+            // Extract spin value from particle
+            let spinValue = function
+                | AnyonSpecies.Particle.SpinJ (j_doubled, _) -> Some (float j_doubled / 2.0)
+                | AnyonSpecies.Particle.Vacuum -> Some 0.0
+                | _ -> None
+            
+            match spinValue a, spinValue b, spinValue c with
+            | Some j1, Some j2, Some j3 ->
+                // Extract k from anyon type
+                match anyonType with
+                | AnyonSpecies.AnyonType.SU2Level k ->
+                    let conformalWeight j = j * (j + 1.0) / float (k + 2)
+                    let h1, h2, h3 = conformalWeight j1, conformalWeight j2, conformalWeight j3
+                    let theta = h1 + h2 - h3
+                    Ok (expI (2.0 * π * theta))
+                | _ ->
+                    TopologicalResult.logicError "R-matrix"
+                        $"No R-matrix element defined for {a} × {b} → {c} in {anyonType} theory"
+            | _ ->
+                TopologicalResult.logicError "R-matrix"
+                    $"No R-matrix element defined for {a} × {b} → {c} in {anyonType} theory"
     
     /// Get full R-matrix for a given pair (a,b) and anyon type
     /// 
@@ -280,9 +308,20 @@ module BraidingOperators =
                 | _ -> Ok Complex.Zero
             
             | _ ->
-                TopologicalResult.notImplemented
-                    "F-matrix"
-                    (Some $"F-matrix not implemented for anyon type {anyonType}")
+                // General SU(2)_k: delegate to FMatrix module which computes
+                // F-symbols via q-deformed Racah-Wigner 6j-symbols
+                FMatrix.computeFMatrix anyonType
+                |> Result.bind (fun fMatrixData ->
+                    let index : FMatrix.FSymbolIndex = {
+                        FMatrix.FSymbolIndex.A = a
+                        FMatrix.FSymbolIndex.B = b
+                        FMatrix.FSymbolIndex.C = c
+                        FMatrix.FSymbolIndex.D = d
+                        FMatrix.FSymbolIndex.E = e
+                        FMatrix.FSymbolIndex.F = f
+                    }
+                    FMatrix.getFSymbol fMatrixData index
+                )
     
     /// Get full F-matrix for (a,b,c) fusion to d
     /// 

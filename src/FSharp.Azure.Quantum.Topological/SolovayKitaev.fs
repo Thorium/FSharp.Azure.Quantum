@@ -689,3 +689,231 @@ module SolovayKitaev =
         // Start with best single braid word
         let (initOps, initMatrix, initError) = findClosest target
         refine initOps initMatrix initError 0
+
+    // ========================================================================
+    // SU(2)_k GENERAL BRAID GENERATORS (k ≥ 3)
+    // ========================================================================
+    //
+    // For general SU(2)_k Chern-Simons theories, the qubit is encoded in the
+    // 2D fusion space of two j=1/2 anyons with total charge constrained to
+    // the vacuum sector. The two fusion channels are j=0 and j=1.
+    //
+    // Braid generators σ₁ and σ₂ are computed from the R-matrix and F-matrix:
+    //   σ₁ = diag(R[1/2,1/2;0], R[1/2,1/2;1])   (diagonal in fusion basis)
+    //   σ₂ = F⁻¹ · R · F                          (basis change via F-matrix)
+    //
+    // The R-matrix phases come from the CFT conformal weight formula:
+    //   R[j1,j2;j3] = exp(2πi * (h_{j1} + h_{j2} - h_{j3}))
+    //   h_j = j(j+1)/(k+2)
+    //
+    // IMPORTANT: SU(2)_3 is NOT the same as Fibonacci despite both being related
+    // to the SU(2)_3 theory. The Fibonacci model uses specific hardcoded phases
+    // (R^1_ττ = exp(4πi/5)) that differ from the SU(2)_3 CFT formula.
+    //
+    // Universality by k:
+    //   k=1: Trivial (abelian)
+    //   k=2: Ising (NOT universal, Clifford only)
+    //   k=3: Universal (contains Fibonacci subcategory)
+    //   k=4: NOT universal by braiding alone
+    //   k≥5 odd: Generally believed universal
+    //   k≥6 even: May not be universal
+
+    /// Compute braid generator matrices σ₁ and σ₂ for SU(2)_k (j=1/2 encoding).
+    ///
+    /// Returns Error if:
+    /// - k < 3 (k=1 has insufficient fusion space, k=2 is Ising)
+    /// - F-matrix or R-matrix computation fails
+    ///
+    /// The returned matrices act on the 2D qubit space spanned by
+    /// fusion channels {j=0, j=1} of two j=1/2 anyons.
+    let computeSU2kSigmaMatrices (k: int) : TopologicalResult<SU2Matrix * SU2Matrix> =
+        if k < 3 then
+            TopologicalResult.logicError
+                "SU(2)_k braid generators"
+                $"k={k} is too small for qubit encoding. Need k ≥ 3 for 2D fusion space of j=1/2 anyons."
+        else
+
+        // j=1/2 particle and fusion channels j=0 and j=1
+        let halfSpin = AnyonSpecies.Particle.SpinJ(1, k)
+        let j0 = AnyonSpecies.Particle.SpinJ(0, k)  // j=0 (vacuum channel)
+        let j1 = AnyonSpecies.Particle.SpinJ(2, k)  // j=1
+
+        topologicalResult {
+            // Compute R-matrix data
+            let! rData = RMatrix.computeRMatrix (AnyonSpecies.AnyonType.SU2Level k)
+
+            // Get R[1/2, 1/2; 0] and R[1/2, 1/2; 1]
+            let rIdx0 : RMatrix.RMatrixIndex = { RMatrix.RMatrixIndex.A = halfSpin; RMatrix.RMatrixIndex.B = halfSpin; RMatrix.RMatrixIndex.C = j0 }
+            let rIdx1 : RMatrix.RMatrixIndex = { RMatrix.RMatrixIndex.A = halfSpin; RMatrix.RMatrixIndex.B = halfSpin; RMatrix.RMatrixIndex.C = j1 }
+
+            let! r0 = RMatrix.getRSymbol rData rIdx0
+            let! r1 = RMatrix.getRSymbol rData rIdx1
+
+            // σ₁ = diag(R[1/2,1/2;0], R[1/2,1/2;1])
+            let sigma1 = { A = r0; B = Complex.Zero; C = Complex.Zero; D = r1 }
+
+            // Compute F-matrix data for σ₂ = F⁻¹ · R · F
+            // F = F^{1/2, 1/2, 1/2}_{1/2} — the 2×2 matrix in {j=0, j=1} basis
+            let! fData = FMatrix.computeFMatrix (AnyonSpecies.AnyonType.SU2Level k)
+
+            // Get the 4 F-symbol entries for the 2×2 F-matrix
+            // F[a,b,c,d; e,f] where a=b=c=1/2, d=1/2, and e,f ∈ {j=0, j=1}
+            let fIdx e f : FMatrix.FSymbolIndex = {
+                FMatrix.FSymbolIndex.A = halfSpin
+                FMatrix.FSymbolIndex.B = halfSpin
+                FMatrix.FSymbolIndex.C = halfSpin
+                FMatrix.FSymbolIndex.D = halfSpin
+                FMatrix.FSymbolIndex.E = e
+                FMatrix.FSymbolIndex.F = f
+            }
+
+            let! f00 = FMatrix.getFSymbol fData (fIdx j0 j0)
+            let! f01 = FMatrix.getFSymbol fData (fIdx j0 j1)
+            let! f10 = FMatrix.getFSymbol fData (fIdx j1 j0)
+            let! f11 = FMatrix.getFSymbol fData (fIdx j1 j1)
+
+            // F = [[f00, f01], [f10, f11]]
+            // R_diag = diag(r0, r1)
+            //
+            // Compute R · F (diagonal R times F):
+            let rf00 = r0 * f00
+            let rf01 = r0 * f01
+            let rf10 = r1 * f10
+            let rf11 = r1 * f11
+
+            // Compute F⁻¹ via the standard 2×2 inverse:
+            // F⁻¹ = (1/det) * [[f11, -f01], [-f10, f00]]
+            let det = f00 * f11 - f01 * f10
+
+            if det.Magnitude < 1e-15 then
+                return!
+                    TopologicalResult.logicError
+                        "SU(2)_k braid generators"
+                        $"F-matrix for k={k} has zero determinant — cannot compute F⁻¹"
+            else
+
+            let detInv = Complex.One / det
+            let fi00 = detInv * f11
+            let fi01 = detInv * (-f01)
+            let fi10 = detInv * (-f10)
+            let fi11 = detInv * f00
+
+            // σ₂ = F⁻¹ · (R · F)
+            let s2a = fi00 * rf00 + fi01 * rf10
+            let s2b = fi00 * rf01 + fi01 * rf11
+            let s2c = fi10 * rf00 + fi11 * rf10
+            let s2d = fi10 * rf01 + fi11 * rf11
+
+            let sigma2 = createSU2 s2a s2b s2c s2d
+
+            return (sigma1, sigma2)
+        }
+
+    /// Elementary SU(2)_k braid operations (same structure as Fibonacci).
+    /// These are the building blocks: {σ₁, σ₁⁻¹, σ₂, σ₂⁻¹}
+    /// Prefixed with "SK" to avoid name collision with FibonacciBraidOp constructors.
+    type SU2kBraidOp =
+        | SKSigma1
+        | SKSigma1Inv
+        | SKSigma2
+        | SKSigma2Inv
+
+    /// Approximate arbitrary SU(2) gate using SU(2)_k braid generators.
+    ///
+    /// Uses the same iterative refinement algorithm as Fibonacci compilation,
+    /// but with k-specific sigma matrices computed from R/F data.
+    ///
+    /// Parameters:
+    ///   k - Chern-Simons level (must be ≥ 3)
+    ///   target - Target SU(2) matrix to approximate
+    ///   epsilon - Target approximation error
+    ///   baseSetLength - Maximum length of braid words in base set
+    ///   maxDepth - Maximum refinement iterations
+    ///
+    /// Returns: Ok (braidOps, error) or Error
+    let approximateGateSU2k
+        (k: int)
+        (target: SU2Matrix)
+        (epsilon: float)
+        (baseSetLength: int)
+        (maxDepth: int)
+        : TopologicalResult<SU2kBraidOp list * float> =
+
+        // Compute sigma matrices for this k
+        match computeSU2kSigmaMatrices k with
+        | Error err -> Error err
+        | Ok (sigma1, sigma2) ->
+
+        let sigma1Inv = dagger sigma1
+        let sigma2Inv = dagger sigma2
+
+        /// Get SU(2) matrix for an SU(2)_k braid operation
+        let su2kBraidMatrix (op: SU2kBraidOp) : SU2Matrix =
+            match op with
+            | SKSigma1 -> sigma1
+            | SKSigma1Inv -> sigma1Inv
+            | SKSigma2 -> sigma2
+            | SKSigma2Inv -> sigma2Inv
+
+        /// Compute SU(2) matrix for a sequence of SU(2)_k braid operations
+        let su2kBraidSequenceMatrix (ops: SU2kBraidOp list) : SU2Matrix =
+            ops
+            |> List.map su2kBraidMatrix
+            |> List.fold multiply identity
+
+        // Build base set: all braid words up to given length
+        let generators = [SKSigma1; SKSigma1Inv; SKSigma2; SKSigma2Inv]
+
+        let rec generate (length: int) : SU2kBraidOp list list =
+            if length = 0 then
+                [[]]
+            else
+                let shorter = generate (length - 1)
+                shorter
+                |> List.collect (fun seq ->
+                    generators |> List.map (fun g -> g :: seq))
+
+        let baseSet =
+            [ for len in 1 .. baseSetLength do
+                yield! generate len ]
+            |> List.map (fun seq -> (seq, su2kBraidSequenceMatrix seq))
+            |> List.distinctBy (fun (_, matrix) ->
+                let round (c: Complex) =
+                    (round (c.Real * 1e10) / 1e10, round (c.Imaginary * 1e10) / 1e10)
+                (round matrix.A, round matrix.B, round matrix.C, round matrix.D))
+
+        // Find closest braid word in base set to a given target
+        let findClosest (tgt: SU2Matrix) : SU2kBraidOp list * SU2Matrix * float =
+            baseSet
+            |> List.map (fun (ops, matrix) ->
+                let dist = operatorDistance tgt matrix
+                (ops, matrix, dist))
+            |> List.minBy (fun (_, _, dist) -> dist)
+
+        // Iterative refinement: keep prepending correction braid words
+        let rec refine (currentOps: SU2kBraidOp list) (currentMatrix: SU2Matrix) (currentError: float) (depth: int) =
+            if currentError < epsilon || depth >= maxDepth then
+                (currentOps, currentError)
+            else
+                // Compute residual: Δ = target · current†
+                let currentDag = dagger currentMatrix
+                let residual = multiply target currentDag
+
+                // Find best correction for the residual
+                let (corrOps, corrMatrix, _) = findClosest residual
+
+                // New approximation: correction · current
+                let newMatrix = multiply corrMatrix currentMatrix
+                let newError = operatorDistance target newMatrix
+                let newOps = corrOps @ currentOps
+
+                // Only continue if we made progress
+                if newError >= currentError then
+                    (currentOps, currentError)
+                else
+                    refine newOps newMatrix newError (depth + 1)
+
+        // Start with best single braid word
+        let (initOps, initMatrix, initError) = findClosest target
+        let (finalOps, finalError) = refine initOps initMatrix initError 0
+        Ok (finalOps, finalError)

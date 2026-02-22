@@ -428,11 +428,13 @@ let toricCodeExample (latticeSize: int) (errorRate: float) = result {
 ### Production Readiness: Current Status
 
 **What works well** (2025):
-- Ising anyons (full support), Fibonacci (partial), SU(2)_k (general framework)
+- Ising anyons (full support), Fibonacci (full support), SU(2)_k (general framework with computational basis encoding)
 - Unified backend (`TopologicalUnifiedBackend`) integrating with gate-based algorithms
 - Algorithm extensions: Grover, QFT, Shor, HHL on topological backends
 - Gate-to-braid compilation (21 gate types supported)
 - Modular data verification, toric code error correction
+- Surface code variants: planar code and color code (4.8.8 lattice)
+- Anyonic error correction: fusion-tree-level charge violation detection, syndrome extraction, greedy decoder, code space projection
 - Magic state distillation for Ising universality
 
 **Current limitations**:
@@ -458,11 +460,9 @@ let tooLargeResult = backend.InitializeState 20  // Fibonacci: F(21)=10946 dimen
 
 **Near-Term** (next 6-12 months):
 - Azure Quantum Majorana integration (when available)
-- Surface code variants (planar, color codes)
 
 **Mid-Term** (1-2 years):
 - GPU acceleration
-- SU(2)_k F-matrix computation (6j-symbols)
 - Additional lattice models (Kitaev quantum double)
 
 **Long-Term** (3-5 years):

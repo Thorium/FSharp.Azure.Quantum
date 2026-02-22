@@ -10,6 +10,8 @@ open FSharp.Azure.Quantum.Core
 open System
 open System.IO
 open System.Text.Json
+open System.Threading
+open System.Threading.Tasks
 open Microsoft.Extensions.Logging
 
 module HHLModelSerialization =
@@ -91,16 +93,57 @@ module HHLModelSerialization =
         with ex ->
             Error (QuantumError.ValidationError ("Input", $"Failed to save HHL model: {ex.Message}"))
     
-    /// Save HHL regression result with metadata
+    /// Save HHL regression model to JSON file asynchronously
+    let saveHHLModelAsync
+        (filePath: string)
+        (weights: float array)
+        (rSquared: float)
+        (mse: float)
+        (successProbability: float)
+        (numFeatures: int)
+        (numSamples: int)
+        (hasIntercept: bool)
+        (conditionNumber: float option)
+        (note: string option)
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<unit>> =
+        task {
+            try
+                let model = {
+                    Weights = weights
+                    RSquared = rSquared
+                    MSE = mse
+                    SuccessProbability = successProbability
+                    NumFeatures = numFeatures
+                    NumSamples = numSamples
+                    HasIntercept = hasIntercept
+                    ConditionNumber = conditionNumber
+                    SavedAt = DateTime.UtcNow.ToString("o")
+                    Note = note
+                }
+                
+                let options = JsonSerializerOptions()
+                options.WriteIndented <- true
+                
+                let json = JsonSerializer.Serialize(model, options)
+                do! File.WriteAllTextAsync(filePath, json, cancellationToken)
+                
+                return Ok ()
+            with ex ->
+                return Error (QuantumError.ValidationError ("Input", $"Failed to save HHL model: {ex.Message}"))
+        }
+    
+    /// Save HHL regression result with metadata (async, task-based)
     ///
     /// Convenience function that takes QuantumRegressionHHL.RegressionResult directly
-    let saveHHLRegressionResult
+    let saveHHLRegressionResultAsync
         (filePath: string)
         (result: QuantumRegressionHHL.RegressionResult)
         (note: string option)
-        : QuantumResult<unit> =
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<unit>> =
         
-        saveHHLModel
+        saveHHLModelAsync
             filePath
             result.Weights
             result.RSquared
@@ -111,6 +154,32 @@ module HHLModelSerialization =
             result.HasIntercept
             result.ConditionNumber
             note
+            cancellationToken
+    
+    /// Save HHL regression result with metadata
+    ///
+    /// Convenience function that takes QuantumRegressionHHL.RegressionResult directly
+    [<System.Obsolete("Use saveHHLRegressionResultAsync for better performance and to avoid blocking threads")>]
+    let saveHHLRegressionResult
+        (filePath: string)
+        (result: QuantumRegressionHHL.RegressionResult)
+        (note: string option)
+        : QuantumResult<unit> =
+        
+        saveHHLModelAsync
+            filePath
+            result.Weights
+            result.RSquared
+            result.MSE
+            result.SuccessProbability
+            result.NumFeatures
+            result.NumSamples
+            result.HasIntercept
+            result.ConditionNumber
+            note
+            CancellationToken.None
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
     
     /// Load HHL regression model from JSON file
     ///
@@ -128,6 +197,23 @@ module HHLModelSerialization =
                 Ok model
         with ex ->
             Error (QuantumError.ValidationError ("Input", $"Failed to load HHL model: {ex.Message}"))
+    
+    /// Load HHL regression model from JSON file asynchronously
+    let loadHHLModelAsync
+        (filePath: string)
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<SerializableHHLModel>> =
+        task {
+            try
+                if not (File.Exists filePath) then
+                    return Error (QuantumError.ValidationError ("Input", $"File not found: {filePath}"))
+                else
+                    let! json = File.ReadAllTextAsync(filePath, cancellationToken)
+                    let model = JsonSerializer.Deserialize<SerializableHHLModel>(json)
+                    return Ok model
+            with ex ->
+                return Error (QuantumError.ValidationError ("Input", $"Failed to load HHL model: {ex.Message}"))
+        }
     
     /// Load HHL model and reconstruct RegressionResult
     ///
@@ -148,6 +234,30 @@ module HHLModelSerialization =
                 HasIntercept = model.HasIntercept
                 ConditionNumber = model.ConditionNumber
             })
+    
+    /// Load HHL model and reconstruct RegressionResult (async, task-based)
+    ///
+    /// Convenience function for full deserialization
+    let loadHHLRegressionResultAsync
+        (filePath: string)
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<QuantumRegressionHHL.RegressionResult>> =
+        task {
+            let! result = loadHHLModelAsync filePath cancellationToken
+            return
+                result
+                |> Result.map (fun model ->
+                    {
+                        Weights = model.Weights
+                        RSquared = model.RSquared
+                        MSE = model.MSE
+                        SuccessProbability = model.SuccessProbability
+                        NumFeatures = model.NumFeatures
+                        NumSamples = model.NumSamples
+                        HasIntercept = model.HasIntercept
+                        ConditionNumber = model.ConditionNumber
+                    } : QuantumRegressionHHL.RegressionResult)
+        }
     
     /// Print HHL model information via ILogger
     let printHHLModelInfo

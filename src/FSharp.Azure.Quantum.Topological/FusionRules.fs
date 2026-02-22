@@ -56,7 +56,15 @@ module FusionRules =
             TopologicalResult.validationError "particles" $"Invalid particles {a} or {b} for anyon type {anyonType}"
         | Ok true, Ok true ->
         
-        match anyonType, a, b with
+        // SU(2)₂ is isomorphic to Ising — delegate to Ising fusion rules.
+        // AnyonSpecies.particles (SU2Level 2) returns [Vacuum; Sigma; Psi],
+        // so all SU2Level 2 callers use Ising particle types.
+        let effectiveType =
+            match anyonType with
+            | AnyonSpecies.AnyonType.SU2Level 2 -> AnyonSpecies.AnyonType.Ising
+            | other -> other
+        
+        match effectiveType, a, b with
         // ========================================================================
         // ISING FUSION RULES (SU(2)₂)
         // ========================================================================

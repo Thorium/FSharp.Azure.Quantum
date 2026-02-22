@@ -3,6 +3,8 @@ namespace FSharp.Azure.Quantum.Business
 open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum.Core
 open System
+open System.Threading
+open System.Threading.Tasks
 open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.Backends
@@ -268,194 +270,213 @@ module PredictiveModel =
     // PERSISTENCE - Save/Load models (defined before train for forward reference)
     // ========================================================================
     
-    /// Save model to file
-    let save (path: string) (model: Model) : QuantumResult<unit> =
-        match model.InternalModel with
-        | RegressionVQC (result, featureMap, varForm, numQubits) ->
-            let fmType = match featureMap with ZZFeatureMap _ -> "ZZFeatureMap" | _ -> "Unknown"
-            let fmDepth = match featureMap with ZZFeatureMap d -> d | _ -> 0
-            let vfType = match varForm with RealAmplitudes _ -> "RealAmplitudes" | _ -> "Unknown"
-            let vfDepth = match varForm with RealAmplitudes d -> d | _ -> 0
-            
-            ModelSerialization.saveVQCRegressionTrainingResult path result numQubits fmType fmDepth vfType vfDepth model.Metadata.Note
-        
-        | MultiClassVQC (multiClassResult, featureMap, varForm, numQubits) ->
-            // Save all binary classifiers with full architecture metadata
-            let fmType = match featureMap with ZZFeatureMap _ -> "ZZFeatureMap" | _ -> "Unknown"
-            let fmDepth = match featureMap with ZZFeatureMap d -> d | _ -> 0
-            let vfType = match varForm with RealAmplitudes _ -> "RealAmplitudes" | _ -> "Unknown"
-            let vfDepth = match varForm with RealAmplitudes d -> d | _ -> 0
-            
-            ModelSerialization.saveVQCMultiClassTrainingResult path multiClassResult numQubits fmType fmDepth vfType vfDepth model.Metadata.Note
-        
-        | HHLRegressor hhlResult ->
-            HHLModelSerialization.saveHHLRegressionResult path hhlResult model.Metadata.Note
-        
-        | SVMRegressor svmModel ->
-            SVMModelSerialization.saveSVMModelAsync path svmModel model.Metadata.Note
-            |> Async.RunSynchronously
-        
-        | SVMMultiClass multiClassModel ->
-            SVMModelSerialization.saveMultiClassSVMModelAsync path multiClassModel model.Metadata.Note
-            |> Async.RunSynchronously
-        
-        | ClassicalRegressor _
-        | ClassicalMultiClass _ ->
-            Error (QuantumError.Other "Classical models don't support persistence currently")
-    
-    /// Load model from file
-    let load (path: string) : QuantumResult<Model> =
-        // Try to load as VQC model first
-        match ModelSerialization.loadForTransferLearning path with
-        | Ok (parameters, (numQubits, fmType, fmDepth, vfType, vfDepth)) ->
-            let featureMap = 
-                match fmType with
-                | "ZZFeatureMap" -> FeatureMapType.ZZFeatureMap fmDepth
-                | _ -> FeatureMapType.ZZFeatureMap 2
-            
-            let varForm =
-                match vfType with
-                | "RealAmplitudes" -> VariationalForm.RealAmplitudes vfDepth
-                | _ -> VariationalForm.RealAmplitudes 2
-            
-            // Load full model to get finalLoss (stored as TrainMSE for regression)
-            match ModelSerialization.loadVQCModel path with
-            | Error e -> Error e
-            | Ok serializedModel ->
-                // Create RegressionTrainingResult from saved data
-                let result : VQC.RegressionTrainingResult = {
-                    Parameters = parameters
-                    LossHistory = []  // Not stored
-                    Epochs = 0  // Not stored
-                    TrainMSE = serializedModel.FinalLoss
-                    TrainRSquared = 0.0  // Not stored, set to 0
-                    Converged = true  // Assume converged if saved
-                    ValueRange = (0.0, 1.0)  // Default range, can't recover original
-                }
+    /// Save model to file (async, task-based)
+    let saveAsync (path: string) (model: Model) (cancellationToken: CancellationToken) : Task<QuantumResult<unit>> =
+        task {
+            match model.InternalModel with
+            | RegressionVQC (result, featureMap, varForm, numQubits) ->
+                let fmType = match featureMap with ZZFeatureMap _ -> "ZZFeatureMap" | _ -> "Unknown"
+                let fmDepth = match featureMap with ZZFeatureMap d -> d | _ -> 0
+                let vfType = match varForm with RealAmplitudes _ -> "RealAmplitudes" | _ -> "Unknown"
+                let vfDepth = match varForm with RealAmplitudes d -> d | _ -> 0
                 
-                Ok {
-                    InternalModel = RegressionVQC (result, featureMap, varForm, numQubits)
-                    Metadata = {
-                        ProblemType = Regression
-                        Architecture = Quantum
-                        TrainingScore = 0.0
-                        TrainingTime = TimeSpan.Zero
-                        NumFeatures = numQubits
-                        NumSamples = 0
-                        CreatedAt = DateTime.UtcNow
-                        Note = serializedModel.Note
-                    }
-                }
-        | Error _ ->
-            // Try to load as multi-class VQC model
-            match ModelSerialization.loadVQCMultiClassModel path with
-            | Ok multiClassModel ->
+                return! ModelSerialization.saveVQCRegressionTrainingResultAsync path result numQubits fmType fmDepth vfType vfDepth model.Metadata.Note cancellationToken
+            
+            | MultiClassVQC (multiClassResult, featureMap, varForm, numQubits) ->
+                let fmType = match featureMap with ZZFeatureMap _ -> "ZZFeatureMap" | _ -> "Unknown"
+                let fmDepth = match featureMap with ZZFeatureMap d -> d | _ -> 0
+                let vfType = match varForm with RealAmplitudes _ -> "RealAmplitudes" | _ -> "Unknown"
+                let vfDepth = match varForm with RealAmplitudes d -> d | _ -> 0
+                
+                return! ModelSerialization.saveVQCMultiClassTrainingResultAsync path multiClassResult numQubits fmType fmDepth vfType vfDepth model.Metadata.Note cancellationToken
+            
+            | HHLRegressor hhlResult ->
+                return! HHLModelSerialization.saveHHLRegressionResultAsync path hhlResult model.Metadata.Note cancellationToken
+            
+            | SVMRegressor svmModel ->
+                return! SVMModelSerialization.saveSVMModelAsync path svmModel model.Metadata.Note cancellationToken
+            
+            | SVMMultiClass multiClassModel ->
+                return! SVMModelSerialization.saveMultiClassSVMModelAsync path multiClassModel model.Metadata.Note cancellationToken
+            
+            | ClassicalRegressor _
+            | ClassicalMultiClass _ ->
+                return Error (QuantumError.Other "Classical models don't support persistence currently")
+        }
+    
+    /// Save model to file
+    [<System.Obsolete("Use saveAsync for better performance and to avoid blocking threads")>]
+    let save (path: string) (model: Model) : QuantumResult<unit> =
+        saveAsync path model CancellationToken.None
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
+    
+    /// Load model from file (async, task-based)
+    let loadAsync (path: string) (cancellationToken: CancellationToken) : Task<QuantumResult<Model>> =
+        task {
+            // Try to load as VQC model first
+            let! transferResult = ModelSerialization.loadForTransferLearningAsync path cancellationToken
+            match transferResult with
+            | Ok (parameters, (numQubits, fmType, fmDepth, vfType, vfDepth)) ->
                 let featureMap = 
-                    match multiClassModel.FeatureMapType with
-                    | "ZZFeatureMap" -> FeatureMapType.ZZFeatureMap multiClassModel.FeatureMapDepth
+                    match fmType with
+                    | "ZZFeatureMap" -> FeatureMapType.ZZFeatureMap fmDepth
                     | _ -> FeatureMapType.ZZFeatureMap 2
                 
                 let varForm =
-                    match multiClassModel.VariationalFormType with
-                    | "RealAmplitudes" -> VariationalForm.RealAmplitudes multiClassModel.VariationalFormDepth
+                    match vfType with
+                    | "RealAmplitudes" -> VariationalForm.RealAmplitudes vfDepth
                     | _ -> VariationalForm.RealAmplitudes 2
                 
-                // Reconstruct MultiClassTrainingResult from serialized data
-                let classifiers =
-                    multiClassModel.Classifiers
-                    |> Array.map (fun classifier ->
-                        {
-                            Parameters = classifier.Parameters
-                            LossHistory = []  // Not stored
-                            Epochs = classifier.NumIterations
-                            TrainAccuracy = classifier.TrainAccuracy
-                            Converged = true  // Assume converged if saved
-                        } : VQC.TrainingResult
-                    )
-                
-                let multiClassResult : VQC.MultiClassTrainingResult = {
-                    Classifiers = classifiers
-                    ClassLabels = multiClassModel.ClassLabels
-                    TrainAccuracy = multiClassModel.TrainAccuracy
-                    NumClasses = multiClassModel.NumClasses
-                }
-                
-                Ok {
-                    InternalModel = MultiClassVQC (multiClassResult, featureMap, varForm, multiClassModel.NumQubits)
-                    Metadata = {
-                        ProblemType = MultiClass multiClassModel.NumClasses
-                        Architecture = Quantum
-                        TrainingScore = multiClassModel.TrainAccuracy
-                        TrainingTime = TimeSpan.Zero
-                        NumFeatures = multiClassModel.NumQubits
-                        NumSamples = 0  // Not stored
-                        CreatedAt = DateTime.UtcNow
-                        Note = multiClassModel.Note
+                // Load full model to get finalLoss (stored as TrainMSE for regression)
+                let! fullModelResult = ModelSerialization.loadVQCModelAsync path cancellationToken
+                match fullModelResult with
+                | Error e -> return Error e
+                | Ok serializedModel ->
+                    let result : VQC.RegressionTrainingResult = {
+                        Parameters = parameters
+                        LossHistory = []
+                        Epochs = 0
+                        TrainMSE = serializedModel.FinalLoss
+                        TrainRSquared = 0.0
+                        Converged = true
+                        ValueRange = (0.0, 1.0)
                     }
-                }
-            | Error _ ->
-                // Try to load as HHL model
-                match HHLModelSerialization.loadHHLRegressionResult path with
-                | Ok hhlResult ->
-                    Ok {
-                        InternalModel = HHLRegressor hhlResult
+                    
+                    return Ok {
+                        InternalModel = RegressionVQC (result, featureMap, varForm, numQubits)
                         Metadata = {
                             ProblemType = Regression
                             Architecture = Quantum
-                            TrainingScore = hhlResult.RSquared
+                            TrainingScore = 0.0
                             TrainingTime = TimeSpan.Zero
-                            NumFeatures = hhlResult.NumFeatures
-                            NumSamples = hhlResult.NumSamples
+                            NumFeatures = numQubits
+                            NumSamples = 0
                             CreatedAt = DateTime.UtcNow
-                            Note = None  // Note is in the serialized model
+                            Note = serializedModel.Note
+                        }
+                    }
+            | Error _ ->
+                // Try to load as multi-class VQC model
+                let! multiClassVqcResult = ModelSerialization.loadVQCMultiClassModelAsync path cancellationToken
+                match multiClassVqcResult with
+                | Ok multiClassModel ->
+                    let featureMap = 
+                        match multiClassModel.FeatureMapType with
+                        | "ZZFeatureMap" -> FeatureMapType.ZZFeatureMap multiClassModel.FeatureMapDepth
+                        | _ -> FeatureMapType.ZZFeatureMap 2
+                    
+                    let varForm =
+                        match multiClassModel.VariationalFormType with
+                        | "RealAmplitudes" -> VariationalForm.RealAmplitudes multiClassModel.VariationalFormDepth
+                        | _ -> VariationalForm.RealAmplitudes 2
+                    
+                    let classifiers =
+                        multiClassModel.Classifiers
+                        |> Array.map (fun classifier ->
+                            {
+                                Parameters = classifier.Parameters
+                                LossHistory = []
+                                Epochs = classifier.NumIterations
+                                TrainAccuracy = classifier.TrainAccuracy
+                                Converged = true
+                            } : VQC.TrainingResult
+                        )
+                    
+                    let multiClassResult : VQC.MultiClassTrainingResult = {
+                        Classifiers = classifiers
+                        ClassLabels = multiClassModel.ClassLabels
+                        TrainAccuracy = multiClassModel.TrainAccuracy
+                        NumClasses = multiClassModel.NumClasses
+                    }
+                    
+                    return Ok {
+                        InternalModel = MultiClassVQC (multiClassResult, featureMap, varForm, multiClassModel.NumQubits)
+                        Metadata = {
+                            ProblemType = MultiClass multiClassModel.NumClasses
+                            Architecture = Quantum
+                            TrainingScore = multiClassModel.TrainAccuracy
+                            TrainingTime = TimeSpan.Zero
+                            NumFeatures = multiClassModel.NumQubits
+                            NumSamples = 0
+                            CreatedAt = DateTime.UtcNow
+                            Note = multiClassModel.Note
                         }
                     }
                 | Error _ ->
-                    // Try to load as binary SVM model
-                    match SVMModelSerialization.loadSVMModelAsync path |> Async.RunSynchronously with
-                    | Ok svmModel ->
-                        let numFeatures = if svmModel.TrainData.Length > 0 then svmModel.TrainData.[0].Length else 0
-                        Ok {
-                            InternalModel = SVMRegressor svmModel
+                    // Try to load as HHL model
+                    let! hhlResult = HHLModelSerialization.loadHHLRegressionResultAsync path cancellationToken
+                    match hhlResult with
+                    | Ok hhlResult ->
+                        return Ok {
+                            InternalModel = HHLRegressor hhlResult
                             Metadata = {
                                 ProblemType = Regression
                                 Architecture = Quantum
-                                TrainingScore = 0.0  // Not stored in SVM model
+                                TrainingScore = hhlResult.RSquared
                                 TrainingTime = TimeSpan.Zero
-                                NumFeatures = numFeatures
-                                NumSamples = svmModel.TrainData.Length
+                                NumFeatures = hhlResult.NumFeatures
+                                NumSamples = hhlResult.NumSamples
                                 CreatedAt = DateTime.UtcNow
                                 Note = None
                             }
                         }
                     | Error _ ->
-                        // Try to load as multi-class SVM model
-                        match SVMModelSerialization.loadMultiClassSVMModelAsync path |> Async.RunSynchronously with
-                        | Ok multiClassModel ->
-                            let numFeatures = 
-                                if multiClassModel.BinaryModels.Length > 0 && 
-                                   multiClassModel.BinaryModels.[0].TrainData.Length > 0 
-                                then multiClassModel.BinaryModels.[0].TrainData.[0].Length 
-                                else 0
-                            let numSamples = 
-                                if multiClassModel.BinaryModels.Length > 0 
-                                then multiClassModel.BinaryModels.[0].TrainData.Length 
-                                else 0
-                            Ok {
-                                InternalModel = SVMMultiClass multiClassModel
+                        // Try to load as binary SVM model
+                        let! svmResult = SVMModelSerialization.loadSVMModelAsync path cancellationToken
+                        match svmResult with
+                        | Ok svmModel ->
+                            let numFeatures = if svmModel.TrainData.Length > 0 then svmModel.TrainData.[0].Length else 0
+                            return Ok {
+                                InternalModel = SVMRegressor svmModel
                                 Metadata = {
-                                    ProblemType = MultiClass multiClassModel.NumClasses
+                                    ProblemType = Regression
                                     Architecture = Quantum
-                                    TrainingScore = 0.0  // Not stored in SVM model
+                                    TrainingScore = 0.0
                                     TrainingTime = TimeSpan.Zero
                                     NumFeatures = numFeatures
-                                    NumSamples = numSamples
+                                    NumSamples = svmModel.TrainData.Length
                                     CreatedAt = DateTime.UtcNow
                                     Note = None
                                 }
                             }
-                        | Error e ->
-                            Error (QuantumError.ValidationError ("Input", $"Failed to load model as VQC, multi-class VQC, HHL, or SVM: {e}"))
+                        | Error _ ->
+                            // Try to load as multi-class SVM model
+                            let! multiClassSvmResult = SVMModelSerialization.loadMultiClassSVMModelAsync path cancellationToken
+                            match multiClassSvmResult with
+                            | Ok multiClassModel ->
+                                let numFeatures = 
+                                    if multiClassModel.BinaryModels.Length > 0 && 
+                                       multiClassModel.BinaryModels.[0].TrainData.Length > 0 
+                                    then multiClassModel.BinaryModels.[0].TrainData.[0].Length 
+                                    else 0
+                                let numSamples = 
+                                    if multiClassModel.BinaryModels.Length > 0 
+                                    then multiClassModel.BinaryModels.[0].TrainData.Length 
+                                    else 0
+                                return Ok {
+                                    InternalModel = SVMMultiClass multiClassModel
+                                    Metadata = {
+                                        ProblemType = MultiClass multiClassModel.NumClasses
+                                        Architecture = Quantum
+                                        TrainingScore = 0.0
+                                        TrainingTime = TimeSpan.Zero
+                                        NumFeatures = numFeatures
+                                        NumSamples = numSamples
+                                        CreatedAt = DateTime.UtcNow
+                                        Note = None
+                                    }
+                                }
+                            | Error e ->
+                                return Error (QuantumError.ValidationError ("Input", $"Failed to load model as VQC, multi-class VQC, HHL, or SVM: {e}"))
+        }
+    
+    /// Load model from file
+    [<System.Obsolete("Use loadAsync for better performance and to avoid blocking threads")>]
+    let load (path: string) : QuantumResult<Model> =
+        loadAsync path CancellationToken.None
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
     
     // ========================================================================
     // TRAINING - Core business logic

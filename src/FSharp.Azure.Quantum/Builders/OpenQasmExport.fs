@@ -3,6 +3,8 @@ namespace FSharp.Azure.Quantum
 open System
 open System.IO
 open System.Text
+open System.Threading
+open System.Threading.Tasks
 
 /// TKT-97: OpenQASM Export Module (Versioned)
 /// 
@@ -272,6 +274,24 @@ module OpenQasmExport =
     let exportToFile (circuit: Circuit) (filePath: string) : unit =
         exportToFileWithConfig (configFor V2_0) circuit filePath
 
+    /// <summary>
+    /// Export circuit to a .qasm file asynchronously using the specified version configuration.
+    /// </summary>
+    let exportToFileWithConfigAsync (config: QasmConfig) (circuit: Circuit) (filePath: string) (ct: CancellationToken) : Task<unit> = task {
+        let directory = Path.GetDirectoryName(filePath)
+        if not (String.IsNullOrEmpty(directory)) && not (Directory.Exists(directory)) then
+            Directory.CreateDirectory(directory) |> ignore
+
+        let qasmCode = exportWithConfig config circuit
+        do! File.WriteAllTextAsync(filePath, qasmCode, ct)
+    }
+
+    /// <summary>
+    /// Export circuit to a .qasm file asynchronously (OpenQASM 2.0, backward compatible).
+    /// </summary>
+    let exportToFileAsync (circuit: Circuit) (filePath: string) (ct: CancellationToken) : Task<unit> =
+        exportToFileWithConfigAsync (configFor V2_0) circuit filePath ct
+
 /// <summary>
 /// Public API module for OpenQASM export.
 /// Provides both backward-compatible 2.0 functions and new versioned functions.
@@ -297,6 +317,12 @@ module OpenQasm =
     
     /// <summary>Export circuit to file using specified version config</summary>
     let exportToFileWithConfig = OpenQasmExport.exportToFileWithConfig
+    
+    /// <summary>Export circuit to file asynchronously (OpenQASM 2.0, default)</summary>
+    let exportToFileAsync = OpenQasmExport.exportToFileAsync
+    
+    /// <summary>Export circuit to file asynchronously using specified version config</summary>
+    let exportToFileWithConfigAsync = OpenQasmExport.exportToFileWithConfigAsync
     
     /// <summary>Validate circuit is OpenQASM compatible</summary>
     let validate = OpenQasmExport.validate

@@ -68,44 +68,42 @@ module VisualizationTests =
 
     [<Fact>]
     let ``Circuit visualization produces valid Mermaid diagram`` () =
-        let backend = MockBackend()
-        
-        // Construct the program function manually to match the expected signature
-        // Builder.Run expects: BuilderContext -> Task<Result<'a * BuilderContext, QuantumError>>
-        // The computation expression returns exactly that.
-        let program = topological backend {
-             do! TopologicalBuilder.initialize AnyonSpecies.AnyonType.Ising 4
-             do! TopologicalBuilder.braid 0
-             do! TopologicalBuilder.braid 1
-             do! TopologicalBuilder.braid 2
-             
-             let! _ = TopologicalBuilder.measure 0
-             return ()
-        }
-        
-        // Execute
-        // Note: 'program' is already a function: BuilderContext -> Task<Result<unit * BuilderContext, QuantumError>>
-        // This matches executeWithContext signature.
-        let task = TopologicalBuilder.executeWithContext backend program
-        task.Wait()
-        let result = task.Result
-        
-        match result with
-        | Ok ((), context) ->
-            // Generate diagram
-            let mermaid = context.ToMermaid()
+        task {
+            let backend = MockBackend()
             
-            // Verify output
-            Assert.Contains("sequenceDiagram", mermaid)
-            Assert.Contains("Initialize 4 Ising Anyons", mermaid)
-            Assert.Contains("Braid σ0", mermaid)
-            Assert.Contains("Braid σ1", mermaid)
-            Assert.Contains("Braid σ2", mermaid)
-            Assert.Contains("Measure Fusion", mermaid)
+            // Construct the program function manually to match the expected signature
+            // Builder.Run expects: BuilderContext -> Task<Result<'a * BuilderContext, QuantumError>>
+            // The computation expression returns exactly that.
+            let program = topological backend {
+                 do! TopologicalBuilder.initialize AnyonSpecies.AnyonType.Ising 4
+                 do! TopologicalBuilder.braid 0
+                 do! TopologicalBuilder.braid 1
+                 do! TopologicalBuilder.braid 2
+                 
+                 let! _ = TopologicalBuilder.measure 0
+                 return ()
+            }
             
-            // Print for manual inspection (visible in test output)
-            printfn "%s" mermaid
+            // Execute
+            let! result = TopologicalBuilder.executeWithContext backend program
             
-        | Error err ->
-            Assert.Fail(sprintf "Program execution failed: %s" err.Message)
+            match result with
+            | Ok ((), context) ->
+                // Generate diagram
+                let mermaid = context.ToMermaid()
+                
+                // Verify output
+                Assert.Contains("sequenceDiagram", mermaid)
+                Assert.Contains("Initialize 4 Ising Anyons", mermaid)
+                Assert.Contains("Braid σ0", mermaid)
+                Assert.Contains("Braid σ1", mermaid)
+                Assert.Contains("Braid σ2", mermaid)
+                Assert.Contains("Measure Fusion", mermaid)
+                
+                // Print for manual inspection (visible in test output)
+                printfn "%s" mermaid
+                
+            | Error err ->
+                Assert.Fail(sprintf "Program execution failed: %s" err.Message)
+        } :> Task
 

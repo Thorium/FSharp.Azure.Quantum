@@ -22,7 +22,9 @@ A topological quantum computing library for F#, implementing anyon models, fusio
 
 ### Algorithms and Compilation (Layers 4-5)
 - **Magic State Distillation**: 15-to-1 protocol for Ising anyon universality
-- **Toric Code**: Topological error correction with syndrome detection
+- **Toric Code**: Topological error correction with MWPM decoder
+- **Surface Code Variants**: Planar code (open boundaries, boundary matching) and color code (4.8.8 lattice, greedy decoder)
+- **Anyonic Error Correction**: Fusion-tree-level charge violation detection, syndrome extraction, greedy charge-correction decoder, code space projection
 - **Gate-to-Braid Compilation**: Translate gate-based circuits to braid sequences (21 gate types)
 - **Braid-to-Gate**: Convert braid sequences back to gate operations
 - **Solovay-Kitaev**: Gate approximation for efficient braid decomposition
@@ -140,7 +142,8 @@ Layer 6: Builders & Formats      TopologicalBuilder, TopologicalFormat, Visualiz
                                  TopologicalHelpers
 Layer 5: Compilation              GateToBraid, BraidToGate, SolovayKitaev, CircuitOptimization,
                                  AlgorithmExtensions
-Layer 4: Algorithms               MagicStateDistillation, ToricCode, ErrorPropagation
+Layer 4: Algorithms               MagicStateDistillation, ToricCode, SurfaceCode,
+                                 AnyonicErrorCorrection, ErrorPropagation
 Layer 3: Operations               TopologicalOperations, FusionTree
 Layer 2: Backends                 TopologicalUnifiedBackend, TopologicalUnifiedBackendFactory
 Layer 1: Mathematical Foundation  AnyonSpecies, FusionRules, BraidingOperators, FMatrix,
@@ -169,7 +172,8 @@ FSharp.Azure.Quantum.Topological
            KauffmanBracket, KnotConstructors
   Layer 2: TopologicalUnifiedBackend, TopologicalUnifiedBackendFactory
   Layer 3: FusionTree, TopologicalOperations
-  Layer 4: MagicStateDistillation, ToricCode, ErrorPropagation
+  Layer 4: MagicStateDistillation, ToricCode, SurfaceCode,
+           AnyonicErrorCorrection, ErrorPropagation
   Layer 5: GateToBraid, BraidToGate, SolovayKitaev, CircuitOptimization,
            AlgorithmExtensions
   Layer 6: TopologicalBuilder, TopologicalBuilderExtensions, TopologicalFormat,
@@ -213,12 +217,11 @@ Anyons are quasiparticles in 2D systems with exotic exchange statistics -- neith
 
 2. **Fibonacci Anyons** -- Universal for quantum computation via braiding alone. Particles: {1, tau}. Golden ratio phi appears throughout. Not yet physically realized.
 
-3. **SU(2)_k (General)** -- Framework for arbitrary Chern-Simons levels. k=2 (Ising) and k=3 are tested.
+3. **SU(2)_k (General)** -- Framework for arbitrary Chern-Simons levels with computational basis encoding. k=2 (Ising) and k=3 are tested. SpinJ particles with truncated spins for any level k.
 
 ## Future Work
 
 - **Azure Quantum Majorana**: Hardware backend integration (when available)
-- **Surface Code Variants**: Planar codes, color codes
 - **Performance**: GPU acceleration, sparse matrices, parallel braiding
 - **Advanced Noise Models**: Thermal excitation, braiding imprecision beyond current NoiseModels
 

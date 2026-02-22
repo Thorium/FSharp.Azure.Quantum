@@ -305,17 +305,21 @@ module RiskEngine =
             let startTime = System.DateTime.Now
 
             // 1. Ingest Data (Real or Mock)
-            let returns =
+            let! returns =
                 match config.MarketDataPath with
                 | Some path when System.IO.File.Exists(path) ->
-                    System.IO.File.ReadAllLines(path)
-                    |> Array.skip 1
-                    |> Array.map (fun line ->
-                        match System.Double.TryParse(line.Trim()) with
-                        | true, v -> v
-                        | _ -> 0.0)
+                    async {
+                        let! lines = System.IO.File.ReadAllLinesAsync(path) |> Async.AwaitTask
+                        return
+                            lines
+                            |> Array.skip 1
+                            |> Array.map (fun line ->
+                                match System.Double.TryParse(line.Trim()) with
+                                | true, v -> v
+                                | _ -> 0.0)
+                    }
                 | _ ->
-                    generateMockReturns config.SimulationPaths
+                    async { return generateMockReturns config.SimulationPaths }
 
             // 2. Choose quantum or classical path
             if config.UseAmplitudeEstimation && config.Backend.IsSome then

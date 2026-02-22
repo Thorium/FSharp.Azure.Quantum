@@ -544,7 +544,8 @@ module Molecule =
     ///   | Error e -> printfn "Error: %A" e
     let fromXyzFileAsync (filePath: string) : Async<Result<Molecule, QuantumError>> =
         async {
-            let! result = FSharp.Azure.Quantum.Data.MoleculeFormats.Xyz.readAsync filePath
+            let! ct = Async.CancellationToken
+            let! result = FSharp.Azure.Quantum.Data.MoleculeFormats.Xyz.readAsync filePath ct |> Async.AwaitTask
             return result |> Result.bind fromMoleculeData
         }
     
@@ -561,7 +562,8 @@ module Molecule =
     ///   let! result = Molecule.fromFciDumpFileAsync "h2.fcidump"
     let fromFciDumpFileAsync (filePath: string) : Async<Result<Molecule, QuantumError>> =
         async {
-            let! result = FSharp.Azure.Quantum.Data.MoleculeFormats.FciDump.readAsync filePath
+            let! ct = Async.CancellationToken
+            let! result = FSharp.Azure.Quantum.Data.MoleculeFormats.FciDump.readAsync filePath ct |> Async.AwaitTask
             return result |> Result.bind fromMoleculeData
         }
     
