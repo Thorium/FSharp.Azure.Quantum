@@ -31,6 +31,9 @@ Computation expressions provide a declarative, F#-idiomatic way to construct qua
 | **optionPricing** | Price financial options using quantum Monte Carlo | `spotPrice`, `strikePrice`, `riskFreeRate`, `volatility`, `expiry`, `optionType`, `qubits`, `iterations`, `shots`, `backend`, `cancellation_token` |
 | **topological** | Topological quantum computing with anyons | `let!`/`do!` syntax with `initialize`, `braid`, `measure`, `braidSequence`, `getState`, `getResults`, `getLog` |
 | **quantumChemistry** | Quantum chemistry ground state calculations | `molecule`, `basis`, `ansatz`, `optimizer`, `maxIterations`, `initialParameters`, `molecule_from_xyz`, `molecule_from_fcidump`, `molecule_from_provider`, `molecule_from_name` |
+| **coverageOptimizer** | Set coverage optimization (minimum cost covering) | `element`, `universeSize`, `option`, `backend`, `shots` |
+| **resourcePairing** | Resource pairing/matching optimization | `participant`, `participants`, `compatibility`, `backend`, `shots` |
+| **packingOptimizer** | Bin packing optimization (minimize containers) | `item`, `containerCapacity`, `backend`, `shots` |
 
 ---
 
@@ -841,6 +844,151 @@ let problem3 = quantumChemistry {
 - `Convergence` - Whether VQE converged within tolerance
 - `BondLengths` - Map of bond lengths (e.g., "H-H" -> 0.74)
 - `DipoleMoment` - Dipole moment if computed
+
+---
+
+### 21. coverageOptimizer
+
+**Module**: `FSharp.Azure.Quantum.Business.CoverageOptimizer`
+
+**Purpose**: Optimize set coverage — select minimum-cost options that cover all required elements (shifts, facilities, service packages, etc.)
+
+**Example**:
+```fsharp
+let result = coverageOptimizer {
+    universeSize 3
+
+    option "MorningShift" [0; 1] 25.0    // Covers slots 0,1 at cost $25
+    option "AfternoonShift" [1; 2] 20.0  // Covers slots 1,2 at cost $20
+    option "FullDay" [0; 1; 2] 40.0      // Covers all at cost $40
+
+    backend myBackend
+}
+
+match result with
+| Ok r ->
+    printfn "Selected %d options, total cost: $%.2f" r.SelectedOptions.Length r.TotalCost
+    printfn "Coverage: %d/%d elements" r.ElementsCovered r.TotalElements
+| Error e -> printfn "Coverage optimization failed: %A" e
+```
+
+**Custom Operations**:
+- `element` - Add an element to the universe (auto-expands universe size if needed)
+- `universeSize` - Set the universe size directly (total number of elements to cover)
+- `option` - Add a coverage option (id: string, coveredElements: int list, cost: float)
+- `backend` - Quantum backend to use (required)
+- `shots` - Number of measurement shots (default: 1000)
+
+**Notes**:
+- Uses QAOA-based set cover optimization via QUBO formulation
+- Either use `element` to incrementally define the universe, or `universeSize` to set it directly
+- Element indices are 0-based and must be in range [0, UniverseSize)
+- Option costs must be non-negative
+
+**Use Cases**:
+- Shift coverage: Select minimum shifts to cover all time slots
+- Facility location: Place minimum facilities to serve all demand zones
+- Service coverage: Select service packages covering all customer needs
+- Network coverage: Place minimum sensors to monitor all segments
+- Test coverage: Select minimum test suites covering all code paths
+
+---
+
+### 22. resourcePairing
+
+**Module**: `FSharp.Azure.Quantum.Business.ResourcePairing`
+
+**Purpose**: Optimal 1:1 pairing/matching of participants maximizing total compatibility
+
+**Example**:
+```fsharp
+let result = resourcePairing {
+    participant "Alice"
+    participant "Bob"
+    participant "Carol"
+
+    compatibility "Alice" "Bob" 0.9    // High compatibility
+    compatibility "Alice" "Carol" 0.5  // Medium compatibility
+    compatibility "Bob" "Carol" 0.7    // Good compatibility
+
+    backend myBackend
+}
+
+match result with
+| Ok r ->
+    printfn "Found %d pairings, total score: %.2f" r.Pairings.Length r.TotalScore
+    r.Pairings |> List.iter (fun p ->
+        printfn "  %s <-> %s (%.2f)" p.Participant1 p.Participant2 p.Weight)
+| Error e -> printfn "Resource pairing failed: %A" e
+```
+
+**Custom Operations**:
+- `participant` - Add a single participant by ID
+- `participants` - Add multiple participants at once (string list)
+- `compatibility` - Add a compatibility score between two participants (p1: string, p2: string, weight: float)
+- `backend` - Quantum backend to use (required)
+- `shots` - Number of measurement shots (default: 1000)
+
+**Notes**:
+- Uses QAOA-based maximum weight matching via QUBO formulation
+- Requires at least 2 participants
+- Compatibility weights must be non-negative (higher = better match)
+- All participants referenced in compatibilities must be declared
+
+**Use Cases**:
+- Recruiting: Match job candidates to open positions
+- Mentoring: Pair mentors with mentees based on compatibility
+- Trading: Match buyers with sellers for optimal deals
+- Healthcare: Assign patients to specialists by expertise fit
+- Ride-sharing: Match drivers with passengers by proximity/preference
+
+---
+
+### 23. packingOptimizer
+
+**Module**: `FSharp.Azure.Quantum.Business.PackingOptimizer`
+
+**Purpose**: Bin packing optimization — assign items to bins minimizing the number of bins used
+
+**Example**:
+```fsharp
+let result = packingOptimizer {
+    containerCapacity 100.0
+
+    item "Crate-A" 45.0
+    item "Crate-B" 35.0
+    item "Crate-C" 25.0
+    item "Crate-D" 50.0
+
+    backend myBackend
+}
+
+match result with
+| Ok r ->
+    printfn "Packed %d items into %d bins" r.ItemsAssigned r.BinsUsed
+    r.Assignments |> List.iter (fun a ->
+        printfn "  %s (size %.1f) -> Bin %d" a.Item.Id a.Item.Size a.BinIndex)
+| Error e -> printfn "Packing optimization failed: %A" e
+```
+
+**Custom Operations**:
+- `item` - Add an item to pack (id: string, size: float)
+- `containerCapacity` - Set the capacity of each bin/container (all bins have the same capacity)
+- `backend` - Quantum backend to use (required)
+- `shots` - Number of measurement shots (default: 1000)
+
+**Notes**:
+- Uses QAOA-based bin packing optimization via QUBO formulation
+- All item sizes must be positive and not exceed bin capacity
+- Bin capacity must be positive
+- Requires at least one item
+
+**Use Cases**:
+- Container loading: Pack cargo into containers minimizing container count
+- VM placement: Place virtual machines onto servers respecting memory/CPU limits
+- Warehouse: Assign products to storage bins by size constraints
+- Cloud computing: Schedule batch jobs into time windows with capacity limits
+- Manufacturing: Cut stock into pieces minimizing waste
 
 ---
 

@@ -25,6 +25,11 @@ Business Problem Builders provide domain-specific APIs that hide quantum complex
 ### 4. Predictive Modeling - Churn Prediction, Demand Forecasting
 ### 5. Similarity Search - Recommendations, Semantic Search
 ### 6. Quantum Drug Discovery - Virtual Screening, Compound Selection
+### 7. Social Network Analyzer - Community Detection, Influence Maximization
+### 8. Constraint Scheduler - Constraint-Based Scheduling Optimization
+### 9. Coverage Optimizer - Set Coverage Optimization
+### 10. Resource Pairing - Resource Pairing/Matching Optimization
+### 11. Packing Optimizer - Bin Packing Optimization
 
 ---
 
@@ -842,6 +847,679 @@ match classificationResult, selectionResult with
 ### Working Example
 
 See complete example: [examples/DrugDiscovery/](https://github.com/Thorium/FSharp.Azure.Quantum/tree/main/examples/DrugDiscovery/)
+
+---
+
+## Social Network Analyzer
+
+### What is Social Network Analysis?
+
+Analyze the structure and dynamics of social networks to detect communities, identify influential nodes, and optimize information flow.
+
+**Business Applications:**
+- Community detection (identify clusters in customer networks)
+- Influence maximization (find key influencers for marketing campaigns)
+- Information diffusion modeling (viral marketing reach prediction)
+- Fraud ring detection (connected suspicious actors)
+- Organizational network optimization (team collaboration analysis)
+
+### API Reference
+
+```fsharp
+open FSharp.Azure.Quantum.Business.SocialNetworkAnalyzer
+
+// Minimal configuration - community detection
+let result = socialNetworkAnalysis {
+    loadGraph edges  // Array of (sourceNode, targetNode, weight) tuples
+    
+    // Analysis type
+    analysisType CommunityDetection  // or InfluenceMaximization, InformationDiffusion
+    
+    // Algorithm
+    method QuantumWalk  // or QAOA, Classical
+}
+
+match result with
+| Ok analysis ->
+    printfn "Communities found: %d" analysis.CommunityCount
+    printfn "Modularity score: %.4f" analysis.Modularity
+    
+    // Inspect detected communities
+    analysis.Communities |> Array.iteri (fun i community ->
+        printfn "Community %d: %d members" i community.Members.Length
+    )
+    
+| Error err -> eprintfn "Analysis failed: %s" err.Message
+```
+
+### Configuration Options
+
+```fsharp
+let result = socialNetworkAnalysis {
+    loadGraph edges
+    
+    // Analysis type
+    analysisType InfluenceMaximization
+    
+    // Method selection
+    method QAOA  // Quantum Approximate Optimization Algorithm
+    
+    // QAOA configuration
+    qaoaLayers 3            // Number of QAOA layers (default: 2)
+    shots 2000              // Quantum measurement shots
+    backend localBackend    // Quantum backend
+    
+    // Influence maximization parameters
+    seedSetSize 10          // Number of influencers to find
+    diffusionModel IndependentCascade  // or LinearThreshold
+    propagationProbability 0.1         // Edge activation probability
+    
+    // Graph preprocessing
+    directed false          // Undirected graph
+    weighted true           // Use edge weights
+    normalizeWeights true   // Normalize edge weights to [0,1]
+}
+```
+
+### Example: Influence Maximization for Marketing
+
+```fsharp
+// Social network edges: (from_user, to_user, interaction_strength)
+let socialEdges = [|
+    (0, 1, 0.8); (0, 2, 0.6); (1, 3, 0.9)
+    (2, 4, 0.7); (3, 5, 0.5); (4, 5, 0.4)
+    (5, 6, 0.8); (6, 7, 0.3); (7, 8, 0.6)
+    // ... 10,000 edges from customer interaction data
+|]
+
+let result = socialNetworkAnalysis {
+    loadGraph socialEdges
+    analysisType InfluenceMaximization
+    method QAOA
+    qaoaLayers 2
+    seedSetSize 5           // Find top 5 influencers
+    diffusionModel IndependentCascade
+    propagationProbability 0.15
+    shots 1000
+    backend localBackend
+}
+
+match result with
+| Ok analysis ->
+    printfn "Top influencers for campaign:"
+    analysis.InfluentialNodes |> Array.iteri (fun rank node ->
+        printfn "  %d. User %d (reach: %.0f%% of network)" 
+            (rank + 1) node.Id (node.ExpectedReach * 100.0)
+    )
+    printfn "Total expected reach: %.0f%% of network" 
+        (analysis.TotalExpectedReach * 100.0)
+    
+| Error err -> eprintfn "Analysis failed: %s" err.Message
+```
+
+### Working Example
+
+See complete example: [examples/SocialNetworkAnalysis/](https://github.com/Thorium/FSharp.Azure.Quantum/tree/main/examples/SocialNetworkAnalysis/)
+
+---
+
+## Constraint Scheduler
+
+### What is Constraint Scheduling?
+
+Optimize scheduling of tasks, resources, and events subject to hard and soft constraints such as time windows, dependencies, capacity limits, and preferences.
+
+**Business Applications:**
+- Employee shift scheduling (nurse rostering, retail staffing)
+- Job shop scheduling (manufacturing production lines)
+- Meeting room allocation (calendar optimization)
+- University timetabling (course scheduling)
+- Vehicle routing with time windows (delivery scheduling)
+
+### API Reference
+
+```fsharp
+open FSharp.Azure.Quantum.Business.ConstraintScheduler
+
+// Minimal configuration - schedule tasks with constraints
+let result = constraintSchedule {
+    tasks taskList           // Array of tasks with durations
+    resources resourceList   // Available resources (people, machines, rooms)
+    
+    // Constraints
+    timeHorizon (TimeSpan.FromHours 8.0)  // Scheduling window
+    
+    // Optimization objective
+    objective MinimizeMakespan  // or MinimizeLateness, MaximizeUtilization
+    
+    // Solver
+    method QAOA  // or QuantumAnnealing, Classical
+}
+
+match result with
+| Ok schedule ->
+    printfn "Makespan: %A" schedule.Makespan
+    printfn "Resource utilization: %.1f%%" (schedule.Utilization * 100.0)
+    
+    // Inspect assignments
+    schedule.Assignments |> Array.iter (fun a ->
+        printfn "Task '%s' -> Resource '%s' at %A" 
+            a.TaskName a.ResourceName a.StartTime
+    )
+    
+| Error err -> eprintfn "Scheduling failed: %s" err.Message
+```
+
+### Configuration Options
+
+```fsharp
+let result = constraintSchedule {
+    tasks taskList
+    resources resourceList
+    
+    // Time configuration
+    timeHorizon (TimeSpan.FromHours 8.0)
+    timeSlotDuration (TimeSpan.FromMinutes 30.0)  // Granularity
+    
+    // Hard constraints (must satisfy)
+    precedenceConstraints [| (task1, task2); (task2, task3) |]  // task1 before task2
+    unavailability [| (resource1, timeSlot3); (resource2, timeSlot1) |]
+    maxConcurrentTasks 3           // Per-resource concurrency limit
+    
+    // Soft constraints (preferences, penalized if violated)
+    preferredAssignments [| (task1, resource2, 0.8) |]  // weight 0.8
+    minimizeGaps true              // Reduce idle time between tasks
+    balanceLoad true               // Even distribution across resources
+    
+    // Solver configuration
+    method QAOA
+    qaoaLayers 4
+    shots 2000
+    backend localBackend
+    
+    // Optimization objective
+    objective MinimizeMakespan
+    constraintPenalty 10.0         // Penalty weight for soft constraint violations
+}
+```
+
+### Example: Employee Shift Scheduling
+
+```fsharp
+// Define shifts and employees
+let shifts = [|
+    { Name = "Morning"; Duration = TimeSpan.FromHours 8.0; RequiredSkill = "Cashier" }
+    { Name = "Afternoon"; Duration = TimeSpan.FromHours 8.0; RequiredSkill = "Cashier" }
+    { Name = "Night"; Duration = TimeSpan.FromHours 8.0; RequiredSkill = "Security" }
+    { Name = "Stocking"; Duration = TimeSpan.FromHours 4.0; RequiredSkill = "General" }
+    // ... 20 shifts per week
+|]
+
+let employees = [|
+    { Name = "Alice"; Skills = [| "Cashier"; "General" |]; MaxHoursPerWeek = 40.0 }
+    { Name = "Bob"; Skills = [| "Security"; "General" |]; MaxHoursPerWeek = 32.0 }
+    { Name = "Carol"; Skills = [| "Cashier"; "Security"; "General" |]; MaxHoursPerWeek = 40.0 }
+    // ... 8 employees
+|]
+
+let result = constraintSchedule {
+    tasks shifts
+    resources employees
+    
+    timeHorizon (TimeSpan.FromDays 7.0)
+    timeSlotDuration (TimeSpan.FromHours 4.0)
+    
+    // Hard constraints
+    maxConcurrentTasks 1               // One shift at a time per person
+    
+    // Soft constraints
+    balanceLoad true                   // Fair distribution of shifts
+    minimizeGaps true                  // Minimize fragmented schedules
+    
+    objective MaximizeUtilization
+    method QAOA
+    qaoaLayers 3
+    shots 1500
+    backend localBackend
+}
+
+match result with
+| Ok schedule ->
+    printfn "Weekly Schedule (utilization: %.1f%%):" (schedule.Utilization * 100.0)
+    schedule.Assignments 
+    |> Array.groupBy (fun a -> a.ResourceName)
+    |> Array.iter (fun (employee, assignments) ->
+        let totalHours = assignments |> Array.sumBy (fun a -> a.Duration.TotalHours)
+        printfn "  %s (%.0f hrs):" employee totalHours
+        assignments |> Array.iter (fun a ->
+            printfn "    %s at %A" a.TaskName a.StartTime
+        )
+    )
+    
+| Error err -> eprintfn "Scheduling failed: %s" err.Message
+```
+
+### Working Example
+
+See complete example: [examples/ConstraintScheduling/](https://github.com/Thorium/FSharp.Azure.Quantum/tree/main/examples/ConstraintScheduling/)
+
+---
+
+## Coverage Optimizer
+
+### What is Set Coverage Optimization?
+
+Find the minimum-cost collection of sets that covers all required elements. This is a fundamental combinatorial optimization problem with broad applications in facility placement, service deployment, and resource allocation.
+
+**Business Applications:**
+- Facility location (minimum stores to cover all delivery zones)
+- Service deployment (minimum servers to cover all regions)
+- Sensor placement (minimum sensors for full monitoring coverage)
+- Test suite minimization (minimum tests to cover all code paths)
+- Advertising campaign selection (minimum campaigns to reach all demographics)
+
+### API Reference
+
+```fsharp
+open FSharp.Azure.Quantum.Business.CoverageOptimizer
+
+// Minimal configuration - find minimum covering sets
+let result = coverageOptimization {
+    universe elements          // Array of elements to cover
+    sets candidateSets         // Array of (setId, elements, cost) tuples
+    
+    // Optimization objective
+    objective MinimizeCost  // or MinimizeSets, MaximizeCoverage
+    
+    // Solver
+    method QAOA  // or QuantumAnnealing, Classical
+}
+
+match result with
+| Ok solution ->
+    printfn "Sets selected: %d" solution.SelectedSets.Length
+    printfn "Total cost: %.2f" solution.TotalCost
+    printfn "Coverage: %.1f%%" (solution.CoveragePercent * 100.0)
+    
+    // Inspect selected sets
+    solution.SelectedSets |> Array.iter (fun s ->
+        printfn "  Set '%s' (cost: %.2f, covers: %d elements)" 
+            s.Name s.Cost s.CoveredElements.Length
+    )
+    
+| Error err -> eprintfn "Optimization failed: %s" err.Message
+```
+
+### Configuration Options
+
+```fsharp
+let result = coverageOptimization {
+    universe elements
+    sets candidateSets
+    
+    // Objective
+    objective MinimizeCost
+    
+    // Constraints
+    maxSets 10                     // Maximum number of sets to select
+    budgetLimit 1000.0             // Maximum total cost
+    requiredCoverage 1.0           // 100% coverage required (default)
+    
+    // Solver configuration
+    method QAOA
+    qaoaLayers 3
+    shots 2000
+    backend localBackend
+    
+    // Penalty tuning
+    coveragePenalty 20.0           // Penalty weight for uncovered elements
+    
+    // Greedy warm-start (seed QAOA with classical greedy solution)
+    warmStart true
+}
+```
+
+### Example: Facility Location for Delivery Coverage
+
+```fsharp
+// Delivery zones that must be covered
+let deliveryZones = [| "Zone-A"; "Zone-B"; "Zone-C"; "Zone-D"; "Zone-E"; 
+                        "Zone-F"; "Zone-G"; "Zone-H" |]
+
+// Candidate warehouse locations: (name, zones covered, monthly cost)
+let warehouseCandidates = [|
+    ("Warehouse-North", [| "Zone-A"; "Zone-B"; "Zone-C" |], 5000.0)
+    ("Warehouse-South", [| "Zone-F"; "Zone-G"; "Zone-H" |], 4500.0)
+    ("Warehouse-Central", [| "Zone-C"; "Zone-D"; "Zone-E"; "Zone-F" |], 7000.0)
+    ("Warehouse-East", [| "Zone-B"; "Zone-D"; "Zone-G" |], 3500.0)
+    ("Warehouse-West", [| "Zone-A"; "Zone-E"; "Zone-H" |], 4000.0)
+    // ... 20 candidate locations
+|]
+
+let result = coverageOptimization {
+    universe deliveryZones
+    sets warehouseCandidates
+    
+    objective MinimizeCost
+    requiredCoverage 1.0           // Must cover all zones
+    maxSets 5                      // Open at most 5 warehouses
+    
+    method QAOA
+    qaoaLayers 3
+    shots 2000
+    warmStart true
+    backend localBackend
+}
+
+match result with
+| Ok solution ->
+    printfn "Optimal warehouse placement:"
+    printfn "  Total monthly cost: $%.0f" solution.TotalCost
+    printfn "  Warehouses needed: %d" solution.SelectedSets.Length
+    solution.SelectedSets |> Array.iter (fun w ->
+        printfn "  - %s ($%.0f/mo, covers: %s)" 
+            w.Name w.Cost (String.concat ", " w.CoveredElements)
+    )
+    printfn "  Coverage: %.0f%%" (solution.CoveragePercent * 100.0)
+    
+| Error err -> eprintfn "Optimization failed: %s" err.Message
+```
+
+### Working Example
+
+See complete example: [examples/CoverageOptimization/](https://github.com/Thorium/FSharp.Azure.Quantum/tree/main/examples/CoverageOptimization/)
+
+---
+
+## Resource Pairing
+
+### What is Resource Pairing?
+
+Optimally match resources to demands, workers to tasks, or entities to partners based on compatibility scores, preferences, and constraints. This solves assignment and matching problems common in workforce management and logistics.
+
+**Business Applications:**
+- Worker-task assignment (match employees to projects by skill fit)
+- Mentor-mentee pairing (optimize mentorship compatibility)
+- Donor-recipient matching (organ transplant, blood donation)
+- Student-school assignment (school choice optimization)
+- Ride-sharing matching (drivers to passengers)
+
+### API Reference
+
+```fsharp
+open FSharp.Azure.Quantum.Business.ResourcePairing
+
+// Minimal configuration - optimal resource matching
+let result = resourcePairing {
+    supply supplyItems        // Array of resources (workers, donors, drivers)
+    demand demandItems        // Array of demands (tasks, recipients, passengers)
+    
+    // Compatibility scoring
+    compatibilityMatrix scores  // 2D array of compatibility scores
+    
+    // Optimization objective
+    objective MaximizeCompatibility  // or MinimizeCost, Balanced
+    
+    // Solver
+    method QAOA  // or QuantumAnnealing, Classical
+}
+
+match result with
+| Ok matching ->
+    printfn "Pairs matched: %d" matching.Pairs.Length
+    printfn "Total compatibility: %.2f" matching.TotalScore
+    printfn "Average score: %.2f" matching.AverageScore
+    
+    // Inspect pairings
+    matching.Pairs |> Array.iter (fun p ->
+        printfn "  %s <-> %s (score: %.2f)" 
+            p.SupplyName p.DemandName p.Score
+    )
+    
+| Error err -> eprintfn "Matching failed: %s" err.Message
+```
+
+### Configuration Options
+
+```fsharp
+let result = resourcePairing {
+    supply supplyItems
+    demand demandItems
+    compatibilityMatrix scores
+    
+    // Matching constraints
+    maxPairsPerSupply 1            // One-to-one matching (default)
+    maxPairsPerDemand 1            // Each demand fulfilled once
+    minimumScore 0.3               // Minimum acceptable compatibility
+    
+    // Capacity matching (one-to-many)
+    supplyCapacities capacities    // Array of max assignments per supply item
+    
+    // Preferences (soft constraints)
+    supplyPreferences prefs        // Ranked preference lists for supply side
+    demandPreferences prefs        // Ranked preference lists for demand side
+    
+    // Solver configuration
+    objective MaximizeCompatibility
+    method QAOA
+    qaoaLayers 3
+    shots 2000
+    backend localBackend
+    
+    // Fairness
+    balancePairings true           // Distribute evenly across supply items
+    fairnessPenalty 5.0            // Penalty weight for imbalanced assignments
+}
+```
+
+### Example: Worker-Project Assignment
+
+```fsharp
+// Available developers
+let developers = [|
+    { Name = "Alice"; Skills = [| "F#"; "Azure"; "ML" |] }
+    { Name = "Bob"; Skills = [| "C#"; "Azure"; "DevOps" |] }
+    { Name = "Carol"; Skills = [| "F#"; "Python"; "ML" |] }
+    { Name = "Dave"; Skills = [| "C#"; "React"; "SQL" |] }
+|]
+
+// Projects needing assignment
+let projects = [|
+    { Name = "Quantum ML Platform"; RequiredSkills = [| "F#"; "ML"; "Azure" |] }
+    { Name = "Cloud Infrastructure"; RequiredSkills = [| "Azure"; "DevOps" |] }
+    { Name = "Data Pipeline"; RequiredSkills = [| "Python"; "ML"; "SQL" |] }
+    { Name = "Web Dashboard"; RequiredSkills = [| "React"; "C#"; "SQL" |] }
+|]
+
+// Compute compatibility scores based on skill overlap
+let scores = Array2D.init developers.Length projects.Length (fun i j ->
+    let devSkills = Set.ofArray developers.[i].Skills
+    let projSkills = Set.ofArray projects.[j].RequiredSkills
+    let overlap = Set.intersect devSkills projSkills |> Set.count |> float
+    overlap / (projSkills |> Set.count |> float)  // Fraction of required skills met
+)
+
+let result = resourcePairing {
+    supply developers
+    demand projects
+    compatibilityMatrix scores
+    
+    maxPairsPerSupply 1            // Each developer on one project
+    maxPairsPerDemand 1            // Each project gets one developer
+    minimumScore 0.3               // Must have at least 30% skill match
+    
+    objective MaximizeCompatibility
+    method QAOA
+    qaoaLayers 2
+    shots 1000
+    backend localBackend
+}
+
+match result with
+| Ok matching ->
+    printfn "Optimal team assignments:"
+    matching.Pairs |> Array.iter (fun p ->
+        printfn "  %s -> %s (skill fit: %.0f%%)" 
+            p.SupplyName p.DemandName (p.Score * 100.0)
+    )
+    printfn "Overall team fit: %.0f%%" (matching.AverageScore * 100.0)
+    
+    // Identify unmatched items
+    if matching.UnmatchedSupply.Length > 0 then
+        printfn "Unassigned developers: %s" 
+            (matching.UnmatchedSupply |> Array.map (fun u -> u.Name) |> String.concat ", ")
+    if matching.UnmatchedDemand.Length > 0 then
+        printfn "Unstaffed projects: %s" 
+            (matching.UnmatchedDemand |> Array.map (fun u -> u.Name) |> String.concat ", ")
+    
+| Error err -> eprintfn "Assignment failed: %s" err.Message
+```
+
+### Working Example
+
+See complete example: [examples/ResourcePairing/](https://github.com/Thorium/FSharp.Azure.Quantum/tree/main/examples/ResourcePairing/)
+
+---
+
+## Packing Optimizer
+
+### What is Bin Packing Optimization?
+
+Optimally pack items of varying sizes into containers (bins) to minimize wasted space or the number of containers used. This is a classic combinatorial optimization problem with significant cost implications in logistics and infrastructure.
+
+**Business Applications:**
+- Container loading (shipping/logistics)
+- Cloud VM placement (virtual machine bin packing)
+- Warehouse storage allocation (optimize shelf/pallet usage)
+- Memory allocation (data partitioning across storage nodes)
+- Cutting stock problems (minimize material waste)
+
+### API Reference
+
+```fsharp
+open FSharp.Azure.Quantum.Business.PackingOptimizer
+
+// Minimal configuration - pack items into bins
+let result = packingOptimization {
+    items itemList             // Array of items with sizes/weights
+    binCapacity capacity       // Capacity of each bin
+    
+    // Optimization objective
+    objective MinimizeBins  // or MinimizeWaste, BalanceLoad
+    
+    // Solver
+    method QAOA  // or QuantumAnnealing, Classical
+}
+
+match result with
+| Ok packing ->
+    printfn "Bins used: %d" packing.BinsUsed
+    printfn "Total waste: %.1f%%" (packing.WastePercent * 100.0)
+    printfn "Average fill: %.1f%%" (packing.AverageFillRate * 100.0)
+    
+    // Inspect bin assignments
+    packing.Bins |> Array.iteri (fun i bin ->
+        printfn "  Bin %d: %d items, %.1f%% full" 
+            (i + 1) bin.Items.Length (bin.FillRate * 100.0)
+    )
+    
+| Error err -> eprintfn "Packing failed: %s" err.Message
+```
+
+### Configuration Options
+
+```fsharp
+let result = packingOptimization {
+    items itemList
+    binCapacity capacity
+    
+    // Multi-dimensional packing
+    dimensions 1               // 1D (weight), 2D (area), or 3D (volume)
+    
+    // Bin configuration
+    binCapacity 100.0          // Single capacity (1D)
+    binCapacities [| 100.0; 50.0; 80.0 |]  // Per-dimension capacities (multi-D)
+    maxBins 20                 // Upper bound on bins available
+    
+    // Item constraints
+    itemGroups groupAssignments  // Items that must be in the same bin
+    incompatible conflicts       // Item pairs that cannot share a bin
+    
+    // Solver configuration
+    objective MinimizeBins
+    method QAOA
+    qaoaLayers 3
+    shots 2000
+    backend localBackend
+    
+    // Heuristic warm-start
+    warmStart true             // Seed with First Fit Decreasing heuristic
+    
+    // Penalty tuning
+    overflowPenalty 50.0       // Penalty for exceeding bin capacity
+}
+```
+
+### Example: Container Loading for Shipping
+
+```fsharp
+// Packages to ship: (name, weight_kg, volume_m3)
+let packages = [|
+    ("Electronics-A", 15.0, 0.3)
+    ("Electronics-B", 8.0, 0.2)
+    ("Furniture-1", 45.0, 1.2)
+    ("Furniture-2", 38.0, 0.9)
+    ("Books-Pallet", 25.0, 0.5)
+    ("Clothing-Box", 5.0, 0.8)
+    ("Appliance-1", 30.0, 0.6)
+    ("Appliance-2", 22.0, 0.4)
+    ("Fragile-1", 10.0, 0.3)
+    ("Fragile-2", 12.0, 0.35)
+    // ... 50 packages
+|]
+
+let items = packages |> Array.map (fun (name, weight, volume) ->
+    { Name = name; Sizes = [| weight; volume |] }
+)
+
+let result = packingOptimization {
+    items items
+    dimensions 2                           // Weight and volume
+    binCapacities [| 100.0; 2.5 |]        // 100kg, 2.5m³ per container
+    maxBins 10
+    
+    // Fragile items cannot share with heavy furniture
+    incompatible [| ("Fragile-1", "Furniture-1"); ("Fragile-2", "Furniture-2") |]
+    
+    objective MinimizeBins
+    method QAOA
+    qaoaLayers 3
+    shots 2000
+    warmStart true
+    backend localBackend
+}
+
+match result with
+| Ok packing ->
+    printfn "Shipping plan:"
+    printfn "  Containers needed: %d" packing.BinsUsed
+    printfn "  Average fill rate: %.1f%%" (packing.AverageFillRate * 100.0)
+    packing.Bins |> Array.iteri (fun i bin ->
+        printfn "  Container %d (%.1f%% full):" (i + 1) (bin.FillRate * 100.0)
+        bin.Items |> Array.iter (fun item ->
+            printfn "    - %s (%.0fkg, %.1fm³)" item.Name item.Sizes.[0] item.Sizes.[1]
+        )
+    )
+    
+    let wastedCapacity = packing.WastePercent * 100.0
+    printfn "  Wasted capacity: %.1f%%" wastedCapacity
+    
+| Error err -> eprintfn "Packing failed: %s" err.Message
+```
+
+### Working Example
+
+See complete example: [examples/PackingOptimization/](https://github.com/Thorium/FSharp.Azure.Quantum/tree/main/examples/PackingOptimization/)
 
 ---
 

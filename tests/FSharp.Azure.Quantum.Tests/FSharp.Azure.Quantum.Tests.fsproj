@@ -145,6 +145,9 @@
     <!-- QAOA Execution Helpers Tests (shared QAOA infrastructure) -->
     <Compile Include="QaoaExecutionHelpersTests.fs" />
     
+    <!-- Problem Decomposition Tests (backend-aware decomposition orchestrator) -->
+    <Compile Include="ProblemDecompositionTests.fs" />
+    
     <!-- Drug Discovery Quantum Solvers Tests -->
     <Compile Include="DrugDiscoverySolversTests.fs" />
     

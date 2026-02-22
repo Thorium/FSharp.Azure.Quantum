@@ -10,10 +10,11 @@ FSharp.Azure.Quantum is a **quantum-first optimization library** with intelligen
 
 **Philosophy**: Quantum algorithms are the primary approach. Classical solvers serve as an optimization for very small problems where quantum overhead isn't justified.
 
-## Three-Layer Quantum-First Architecture
+## Four-Layer Quantum-First Architecture
 
 ```
 LAYER 1: User-Facing API
+  ├─ Business Builders (SocialNetworkAnalyzer, ConstraintScheduler, CoverageOptimizer, etc.) → Domain-specific computation expressions
   ├─ High-Level Builders (GraphColoring, MaxCut, TSP, Portfolio, etc.) → Quantum computation expressions
   └─ HybridSolver API (Optional) → Automatic quantum/classical routing for optimization
 
@@ -28,7 +29,13 @@ LAYER 2: Problem Solvers
       ├─ TspSolver (Nearest Neighbor, 2-opt)
       └─ PortfolioSolver (Greedy Ratio)
 
-LAYER 3: Execution Backends
+LAYER 3: Problem Decomposition
+  └─ ProblemDecomposition (Core/ProblemDecomposition.fs)
+      ├─ Backend-aware problem partitioning (splits large problems for target backend constraints)
+      ├─ QUBO/Ising sub-problem generation
+      └─ Result aggregation across decomposed sub-problems
+
+LAYER 4: Execution Backends
   ├─ LocalBackend (CPU simulation, ≤20 qubits, default)
   ├─ IonQBackend (Azure Quantum, trapped ions)
   └─ RigettiBackend (Azure Quantum, superconducting qubits)
@@ -36,9 +43,17 @@ LAYER 3: Execution Backends
 
 **Key Architectural Principle**: High-level builders go directly to quantum solvers. Classical solvers are only accessible through HybridSolver for performance optimization of small problems.
 
+**Architecture Flow**: Business Builders → Solvers → ProblemDecomposition → QaoaExecutionHelpers → QaoaCircuit → Backend
+
 ## Key Concepts
 
 ### Quantum-First Approach
+
+**Business Builders** (`SocialNetworkAnalyzer`, `ConstraintScheduler`, `CoverageOptimizer`, `ResourcePairing`, `PackingOptimizer`):
+- Domain-specific computation expression builders in the `Business/` folder
+- Encode real-world business problems into the quantum optimization pipeline
+- Internally delegate to high-level builders and solvers
+- Flow: Business Builders → Solvers → ProblemDecomposition → Backend
 
 **High-Level Builders** (`GraphColoring`, `MaxCut`, `TSP`, `Portfolio`, etc.):
 - Use quantum algorithms directly (QAOA, VQE, QFT)
@@ -68,7 +83,7 @@ LAYER 3: Execution Backends
 
 ### Builder Routing Architecture
 
-High-Level Builders (`GraphColoring`, `MaxCut`, `TSP`, `Portfolio`) provide a business-friendly quantum API that encodes problems as QUBO/Ising models and solves them using QAOA or VQE.
+High-Level Builders (`GraphColoring`, `MaxCut`, `TSP`, `Portfolio`) provide a business-friendly quantum API that encodes problems as QUBO/Ising models and solves them using QAOA or VQE. Business Builders (`SocialNetworkAnalyzer`, `ConstraintScheduler`, etc.) provide domain-specific APIs that delegate to high-level builders.
 
 **Direct Quantum Routing (Default):**
 ```
@@ -77,6 +92,8 @@ User → GraphColoring.solve(problem, colors, backend)
        Encode as QUBO
          ↓
        Build QAOA Circuit
+         ↓
+       ProblemDecomposition (partition for backend constraints)
          ↓
        Execute on Backend (LocalBackend default)
          ↓
@@ -132,6 +149,7 @@ match HybridSolver.solveGraphColoring problem 4 None None None with
 ```
 src/FSharp.Azure.Quantum/
 ├── Core/              - Foundation (types, auth, QAOA, VQE, circuit operations)
+│   └── ProblemDecomposition.fs - Backend-aware problem decomposition and partitioning
 ├── LocalSimulator/    - CPU-based quantum simulation (default backend)
 ├── Backends/          - IonQ, Rigetti cloud backend integration
 ├── Solvers/
@@ -140,6 +158,12 @@ src/FSharp.Azure.Quantum/
 │   └── Hybrid/        - Optional routing logic (HybridSolver)
 ├── Algorithms/        - Grover, Amplitude Amplification, QFT (educational & building blocks)
 ├── Builders/          - High-level APIs (GraphColoring, MaxCut, TSP, etc.)
+├── Business/          - Domain-specific computation expression builders
+│   ├── SocialNetworkAnalyzer.fs  - Community detection and influence optimization
+│   ├── ConstraintScheduler.fs    - Constraint-based scheduling optimization
+│   ├── CoverageOptimizer.fs      - Set cover and facility location problems
+│   ├── ResourcePairing.fs        - Bipartite matching and resource assignment
+│   └── PackingOptimizer.fs       - Bin packing and knapsack variants
 ├── ErrorMitigation/   - ZNE, PEC, REM (reduce quantum noise)
 └── Utilities/         - Performance benchmarking, circuit optimization
 ```
@@ -163,7 +187,9 @@ A: No. Classical solvers (`TspSolver`, `PortfolioSolver`) are internal implement
 
 - **Algorithm** - Mathematical approach (QAOA, Grover, QFT, Shor)
 - **Solver** - Problem-specific implementation (uses algorithms internally)
+- **ProblemDecomposition** - Backend-aware partitioning layer that splits large problems into sub-problems matching backend constraints
 - **Builder** - User-facing API with computation expressions (e.g., `graphColoring { ... }`)
+- **Business Builder** - Domain-specific builder for real-world problems (e.g., `SocialNetworkAnalyzer`, `ConstraintScheduler`)
 - **Backend** - Execution environment (LocalBackend, IonQBackend, RigettiBackend)
 
 ## Design Patterns

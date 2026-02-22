@@ -17,6 +17,7 @@ Guide to problem-specific QUBO (Quadratic Unconstrained Binary Optimization) tra
 - [Strategy Selection](#strategy-selection)
 - [Validation](#validation)
 - [Best Practices](#best-practices)
+- [Sparse QUBO Pipeline](#sparse-qubo-pipeline)
 
 ---
 
@@ -430,6 +431,266 @@ assert test_validation.IsValid
 let production_distances = array2D [[0.0; 50.0; 100.0]; [50.0; 0.0; 75.0]; [100.0; 75.0; 0.0]]  // Mock 3-city distance matrix
 let penalty = 100.0  // Penalty strength for constraint violations
 let prod_qubo = ProblemTransformer.encodeTspEdgeBased production_distances penalty
+```
+
+---
+
+## Sparse QUBO Pipeline
+
+For large, sparse QUBO problems, the library provides a memory-efficient pipeline that operates on `Map<int * int, float>` instead of dense `float[,]` matrices. A 1000-variable problem with 5% density needs ~5,000 map entries versus a 1,000,000-element dense matrix.
+
+### When to Use Sparse vs Dense
+
+| Criterion | Dense (`float[,]`) | Sparse (`Map<int*int, float>`) |
+|-----------|--------------------|---------------------------------|
+| **Problem Size** | n < 500 variables | n ≥ 500 variables |
+| **Density** | > 30% non-zero entries | < 30% non-zero entries |
+| **Memory** | O(n²) always | O(k) where k = non-zero entries |
+| **Use Case** | Small/medium fully-connected | Large graph-based, TSP, network |
+| **Migration** | Existing solvers (`executeFromQubo`) | New solvers, custom problems |
+
+**Rule of thumb**: If your QUBO matrix is mostly zeros, use the sparse pipeline.
+
+### Building a ProblemHamiltonian from Sparse QUBO
+
+`QaoaCircuit.ProblemHamiltonian.fromQuboSparse` converts a sparse QUBO map to a `ProblemHamiltonian` using the same Ising mapping as `fromQubo`, but without allocating a dense matrix.
+
+**Signature**:
+```fsharp
+QaoaCircuit.ProblemHamiltonian.fromQuboSparse
+    : numQubits:int -> quboMap:Map<int * int, float> -> ProblemHamiltonian
+```
+
+**Ising mapping** (identical to `fromQubo`):
+- Diagonal Q_ii => `-Q_ii/2 * Z_i`
+- Off-diagonal (i < j) => `(Q_ij + Q_ji)/4 * Z_i Z_j`
+
+The map may contain entries in upper-triangle, lower-triangle, or both — symmetric entries are merged automatically.
+
+```fsharp
+open FSharp.Azure.Quantum
+
+// Build sparse QUBO for a 4-variable problem (Max-Cut on a small graph)
+let quboMap =
+    Map.ofList [
+        (0, 1), -1.0   // Edge 0-1
+        (1, 2), -1.0   // Edge 1-2
+        (2, 3), -1.0   // Edge 2-3
+        (0, 3), -1.0   // Edge 0-3
+    ]
+
+// Convert to ProblemHamiltonian without allocating a 4×4 dense matrix
+let problemHam = QaoaCircuit.ProblemHamiltonian.fromQuboSparse 4 quboMap
+let mixerHam = QaoaCircuit.MixerHamiltonian.create 4
+
+// Use with any existing QAOA execution function
+let parameters = [| (0.5, 0.3) |]  // 1 layer
+let result = QaoaExecutionHelpers.executeQaoaCircuit backend problemHam mixerHam parameters 100
+```
+
+### Dense Migration Helper: `executeFromQubo`
+
+`QaoaExecutionHelpers.executeFromQubo` is a convenience entry point for solvers that already have a dense `float[,]` QUBO matrix. It builds the circuit and returns measurements in one call — used by existing solvers (TSP, Knapsack, Portfolio, etc.) during migration to the consolidated pipeline.
+
+**Signature**:
+```fsharp
+QaoaExecutionHelpers.executeFromQubo
+    : backend:IQuantumBackend
+    -> qubo:float[,]
+    -> parameters:(float * float)[]
+    -> shots:int
+    -> Result<int[][], QuantumError>
+```
+
+```fsharp
+open FSharp.Azure.Quantum
+
+// Dense 3×3 QUBO matrix (fully connected)
+let qubo =
+    array2D [[ -1.0;  0.5;  0.0 ]
+             [  0.5; -2.0;  0.3 ]
+             [  0.0;  0.3; -1.5 ]]
+
+let parameters = [| (0.7, 0.4); (0.5, 0.3) |]  // 2 QAOA layers
+
+// Single call: builds ProblemHamiltonian, MixerHamiltonian, executes circuit
+match QaoaExecutionHelpers.executeFromQubo backend qubo parameters 200 with
+| Ok measurements ->
+    printfn "Got %d measurement shots" measurements.Length
+    // measurements: int[][] — each row is a bitstring
+| Error err ->
+    printfn "Execution failed: %A" err
+```
+
+### Sparse Execution Functions
+
+The sparse pipeline provides four functions that mirror their dense counterparts but accept `Map<int * int, float>` and require an explicit `numQubits` parameter.
+
+#### `evaluateQuboSparse`
+
+Evaluates the QUBO objective value for a given bitstring. Used internally by the optimization and grid-search functions to score candidate solutions.
+
+**Signature**:
+```fsharp
+QaoaExecutionHelpers.evaluateQuboSparse
+    : quboMap:Map<int * int, float> -> bits:int[] -> float
+```
+
+```fsharp
+let quboMap = Map.ofList [ (0, 0), -3.0; (0, 1), 2.0; (1, 1), -1.0 ]
+
+// Evaluate energy for bitstring [1; 0]
+let energy = QaoaExecutionHelpers.evaluateQuboSparse quboMap [| 1; 0 |]
+// energy = -3.0  (only diagonal Q_00 contributes)
+
+// Evaluate energy for bitstring [1; 1]
+let energy2 = QaoaExecutionHelpers.evaluateQuboSparse quboMap [| 1; 1 |]
+// energy2 = -3.0 + 2.0 + (-1.0) = -2.0
+```
+
+#### `executeQaoaCircuitSparse`
+
+Executes a single QAOA circuit from a sparse QUBO representation. Equivalent to `executeQaoaCircuit` but skips dense matrix allocation by calling `fromQuboSparse` internally.
+
+**Signature**:
+```fsharp
+QaoaExecutionHelpers.executeQaoaCircuitSparse
+    : backend:IQuantumBackend
+    -> numQubits:int
+    -> quboMap:Map<int * int, float>
+    -> parameters:(float * float)[]
+    -> shots:int
+    -> Result<int[][], QuantumError>
+```
+
+```fsharp
+open FSharp.Azure.Quantum
+
+// Sparse QUBO for a 5-qubit problem (only 6 non-zero entries)
+let quboMap =
+    Map.ofList [
+        (0, 0), -2.0; (1, 1), -3.0; (2, 2), -1.0
+        (0, 1),  1.5; (1, 3),  0.8; (3, 4), -1.2
+    ]
+
+let parameters = [| (0.5, 0.3) |]
+
+match QaoaExecutionHelpers.executeQaoaCircuitSparse backend 5 quboMap parameters 100 with
+| Ok measurements ->
+    // Find best solution
+    let best =
+        measurements
+        |> Array.minBy (QaoaExecutionHelpers.evaluateQuboSparse quboMap)
+    printfn "Best bitstring: %A with energy %.4f" best
+        (QaoaExecutionHelpers.evaluateQuboSparse quboMap best)
+| Error err ->
+    printfn "Error: %A" err
+```
+
+#### `executeQaoaWithOptimizationSparse`
+
+Runs QAOA with Nelder-Mead parameter optimization over a sparse QUBO. Returns the best bitstring, optimized parameters, and a convergence flag.
+
+**Signature**:
+```fsharp
+QaoaExecutionHelpers.executeQaoaWithOptimizationSparse
+    : backend:IQuantumBackend
+    -> numQubits:int
+    -> quboMap:Map<int * int, float>
+    -> config:QaoaSolverConfig
+    -> Result<int[] * (float * float)[] * bool, QuantumError>
+```
+
+```fsharp
+open FSharp.Azure.Quantum
+
+let quboMap =
+    Map.ofList [
+        (0, 0), -2.0; (1, 1), -3.0
+        (0, 1),  1.0
+    ]
+
+let config = {
+    NumLayers = 2
+    OptimizationShots = 50
+    FinalShots = 200
+    MaxOptimizationIterations = 100
+}
+
+match QaoaExecutionHelpers.executeQaoaWithOptimizationSparse backend 2 quboMap config with
+| Ok (bestBits, optimizedParams, converged) ->
+    let energy = QaoaExecutionHelpers.evaluateQuboSparse quboMap bestBits
+    printfn "Best: %A  Energy: %.4f  Converged: %b" bestBits energy converged
+    printfn "Optimized params: %A" optimizedParams
+| Error err ->
+    printfn "Error: %A" err
+```
+
+#### `executeQaoaWithGridSearchSparse`
+
+Runs QAOA with grid search over gamma/beta values using a sparse QUBO. Useful when Nelder-Mead convergence is unreliable or for quick exploration.
+
+**Signature**:
+```fsharp
+QaoaExecutionHelpers.executeQaoaWithGridSearchSparse
+    : backend:IQuantumBackend
+    -> numQubits:int
+    -> quboMap:Map<int * int, float>
+    -> config:QaoaSolverConfig
+    -> Result<int[] * (float * float)[], QuantumError>
+```
+
+```fsharp
+open FSharp.Azure.Quantum
+
+// Large sparse QUBO (e.g., 100-variable graph problem with ~300 edges)
+let quboMap =
+    // In practice, built from graph edges
+    Map.ofList [
+        (0, 5), -1.0; (3, 12), -1.0; (7, 42), -1.0
+        // ... hundreds of entries, but far fewer than 10,000 dense elements
+    ]
+
+let config = {
+    NumLayers = 1
+    OptimizationShots = 30
+    FinalShots = 200
+    MaxOptimizationIterations = 50
+}
+
+match QaoaExecutionHelpers.executeQaoaWithGridSearchSparse backend 100 quboMap config with
+| Ok (bestBits, bestParams) ->
+    let energy = QaoaExecutionHelpers.evaluateQuboSparse quboMap bestBits
+    printfn "Grid search best energy: %.4f" energy
+    printfn "Best parameters: %A" bestParams
+| Error err ->
+    printfn "Error: %A" err
+```
+
+### Sparse vs Dense: Complete Comparison
+
+```fsharp
+open FSharp.Azure.Quantum
+
+// === Dense path (existing solvers) ===
+let denseQubo =
+    array2D [[ -1.0;  0.5 ]
+             [  0.5; -2.0 ]]
+
+// One-shot execution
+let denseResult = QaoaExecutionHelpers.executeFromQubo backend denseQubo [|(0.5, 0.3)|] 100
+
+// === Sparse path (new, memory-efficient) ===
+let sparseQubo = Map.ofList [ (0, 0), -1.0; (1, 1), -2.0; (0, 1), 0.5 ]
+
+// One-shot execution (equivalent)
+let sparseResult = QaoaExecutionHelpers.executeQaoaCircuitSparse backend 2 sparseQubo [|(0.5, 0.3)|] 100
+
+// With optimization
+let optimResult = QaoaExecutionHelpers.executeQaoaWithOptimizationSparse backend 2 sparseQubo config
+
+// With grid search
+let gridResult = QaoaExecutionHelpers.executeQaoaWithGridSearchSparse backend 2 sparseQubo config
 ```
 
 ---

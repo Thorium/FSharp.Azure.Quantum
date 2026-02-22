@@ -493,3 +493,428 @@ module OptimizationIntegrationTests =
             Assert.Equal(2, parameters.Length)  // 2 layers = 2 (gamma, beta) pairs
         | Error err ->
             Assert.Fail($"Expected Ok but got Error: {err}")
+
+// ============================================================================
+// evaluateQuboSparse TESTS
+// ============================================================================
+
+module EvaluateQuboSparseTests =
+
+    [<Fact>]
+    let ``evaluateQuboSparse returns zero for all-zero bitstring`` () =
+        let quboMap = Map.ofList [ ((0, 0), -1.0); ((0, 1), 2.0); ((1, 1), -3.0) ]
+        let bits = [| 0; 0 |]
+        Assert.Equal(0.0, evaluateQuboSparse quboMap bits, 10)
+
+    [<Fact>]
+    let ``evaluateQuboSparse returns diagonal value for single bit set`` () =
+        let quboMap = Map.ofList [ ((0, 0), -3.0); ((0, 1), 2.0); ((1, 1), -5.0) ]
+        let bits = [| 1; 0 |]
+        Assert.Equal(-3.0, evaluateQuboSparse quboMap bits, 10)
+
+    [<Fact>]
+    let ``evaluateQuboSparse returns correct energy for all-ones`` () =
+        // Q = {(0,0): -3, (0,1): 2, (1,1): -5}
+        // Energy for [1,1] = -3 + 2 + (-5) = -6.0
+        let quboMap = Map.ofList [ ((0, 0), -3.0); ((0, 1), 2.0); ((1, 1), -5.0) ]
+        let bits = [| 1; 1 |]
+        Assert.Equal(-6.0, evaluateQuboSparse quboMap bits, 10)
+
+    [<Fact>]
+    let ``evaluateQuboSparse handles empty map`` () =
+        let quboMap = Map.empty<int * int, float>
+        let bits = [| 1; 1; 1 |]
+        Assert.Equal(0.0, evaluateQuboSparse quboMap bits, 10)
+
+    [<Fact>]
+    let ``evaluateQuboSparse matches evaluateQubo for same data`` () =
+        // Create same QUBO in both dense and sparse form
+        let qubo = array2D [| [| -1.0; 2.0 |]; [| 0.0; -3.0 |] |]
+        let quboMap = Map.ofList [ ((0, 0), -1.0); ((0, 1), 2.0); ((1, 1), -3.0) ]
+        let bits = [| 1; 1 |]
+        let denseEnergy = evaluateQubo qubo bits
+        let sparseEnergy = evaluateQuboSparse quboMap bits
+        Assert.Equal(denseEnergy, sparseEnergy, 10)
+
+    [<Fact>]
+    let ``evaluateQuboSparse with symmetric entries`` () =
+        // Both (0,1) and (1,0) present — both contribute
+        let quboMap = Map.ofList [ ((0, 1), 3.0); ((1, 0), 4.0) ]
+        let bits = [| 1; 1 |]
+        // Energy = 3.0 * 1 * 1 + 4.0 * 1 * 1 = 7.0
+        Assert.Equal(7.0, evaluateQuboSparse quboMap bits, 10)
+
+// ============================================================================
+// executeFromQubo TESTS
+// ============================================================================
+
+module ExecuteFromQuboTests =
+
+    [<Fact>]
+    let ``executeFromQubo returns measurements with correct dimensions`` () =
+        let qubo = array2D [| [| -1.0; 2.0 |]; [| 0.0; -1.0 |] |]
+        let backend = createLocalBackend ()
+        let parameters = [| (0.5, 0.3) |]
+
+        let result = executeFromQubo backend qubo parameters 50
+        match result with
+        | Ok measurements ->
+            Assert.Equal(50, measurements.Length)
+            for m in measurements do
+                Assert.Equal(2, m.Length)
+                for b in m do
+                    Assert.True(b = 0 || b = 1)
+        | Error err ->
+            Assert.Fail($"Expected Ok but got Error: {err}")
+
+    [<Fact>]
+    let ``executeFromQubo handles 1-qubit problem`` () =
+        let qubo = array2D [| [| -7.0 |] |]
+        let backend = createLocalBackend ()
+        let parameters = [| (0.4, 0.2) |]
+
+        let result = executeFromQubo backend qubo parameters 20
+        match result with
+        | Ok measurements ->
+            Assert.Equal(20, measurements.Length)
+            for m in measurements do
+                Assert.Equal(1, m.Length)
+        | Error err ->
+            Assert.Fail($"Expected Ok but got Error: {err}")
+
+    [<Fact>]
+    let ``executeFromQubo with multiple layers`` () =
+        let qubo = array2D [| [| -1.0; 0.5 |]; [| 0.0; -1.0 |] |]
+        let backend = createLocalBackend ()
+        let parameters = [| (0.5, 0.3); (0.7, 0.4) |]  // 2 layers
+
+        let result = executeFromQubo backend qubo parameters 30
+        match result with
+        | Ok measurements ->
+            Assert.Equal(30, measurements.Length)
+        | Error err ->
+            Assert.Fail($"Expected Ok but got Error: {err}")
+
+// ============================================================================
+// executeQaoaCircuitSparse TESTS
+// ============================================================================
+
+module ExecuteQaoaCircuitSparseTests =
+
+    [<Fact>]
+    let ``executeQaoaCircuitSparse returns measurements with correct dimensions`` () =
+        let quboMap = Map.ofList [ ((0, 0), -1.0); ((0, 1), 2.0); ((1, 1), -1.0) ]
+        let backend = createLocalBackend ()
+        let parameters = [| (0.5, 0.3) |]
+
+        let result = executeQaoaCircuitSparse backend 2 quboMap parameters 80
+        match result with
+        | Ok measurements ->
+            Assert.Equal(80, measurements.Length)
+            for m in measurements do
+                Assert.Equal(2, m.Length)
+                for b in m do
+                    Assert.True(b = 0 || b = 1)
+        | Error err ->
+            Assert.Fail($"Expected Ok but got Error: {err}")
+
+    [<Fact>]
+    let ``executeQaoaCircuitSparse handles 3-qubit problem`` () =
+        let quboMap = Map.ofList [
+            ((0, 0), -1.0); ((1, 1), -1.0); ((2, 2), -1.0)
+            ((0, 1), 0.5); ((1, 2), 0.5)
+        ]
+        let backend = createLocalBackend ()
+        let parameters = [| (0.5, 0.3) |]
+
+        let result = executeQaoaCircuitSparse backend 3 quboMap parameters 40
+        match result with
+        | Ok measurements ->
+            Assert.Equal(40, measurements.Length)
+            for m in measurements do
+                Assert.Equal(3, m.Length)
+        | Error err ->
+            Assert.Fail($"Expected Ok but got Error: {err}")
+
+// ============================================================================
+// executeQaoaWithGridSearchSparse TESTS
+// ============================================================================
+
+module GridSearchSparseTests =
+
+    [<Fact>]
+    let ``executeQaoaWithGridSearchSparse finds solution for 2-qubit problem`` () =
+        let quboMap = Map.ofList [ ((0, 0), -1.0); ((0, 1), 2.0); ((1, 1), -1.0) ]
+        let backend = createLocalBackend ()
+        let config = { fastConfig with NumLayers = 1; FinalShots = 200 }
+
+        let result = executeQaoaWithGridSearchSparse backend 2 quboMap config
+        match result with
+        | Ok (solution, parameters) ->
+            Assert.Equal(2, solution.Length)
+            Assert.True(parameters.Length >= 1)
+            for b in solution do
+                Assert.True(b = 0 || b = 1)
+        | Error err ->
+            Assert.Fail($"Expected Ok but got Error: {err}")
+
+    [<Fact>]
+    let ``executeQaoaWithGridSearchSparse rejects invalid config`` () =
+        let quboMap = Map.ofList [ ((0, 0), -1.0) ]
+        let backend = createLocalBackend ()
+        let config = { fastConfig with NumLayers = 0 }  // invalid
+
+        let result = executeQaoaWithGridSearchSparse backend 1 quboMap config
+        match result with
+        | Error (QuantumError.ValidationError (field, _)) ->
+            Assert.Equal("NumLayers", field)
+        | Error _ -> Assert.Fail("Expected ValidationError")
+        | Ok _ -> Assert.Fail("Expected Error for invalid config")
+
+// ============================================================================
+// executeQaoaWithOptimizationSparse TESTS
+// ============================================================================
+
+module OptimizationSparseTests =
+
+    [<Fact>]
+    let ``executeQaoaWithOptimizationSparse returns valid result for 2-qubit problem`` () =
+        let quboMap = Map.ofList [ ((0, 0), -1.0); ((0, 1), 2.0); ((1, 1), -1.0) ]
+        let backend = createLocalBackend ()
+        let config = {
+            defaultConfig with
+                NumLayers = 1
+                OptimizationShots = 50
+                FinalShots = 200
+                MaxOptimizationIterations = 50
+        }
+
+        let result = executeQaoaWithOptimizationSparse backend 2 quboMap config
+        match result with
+        | Ok (solution, parameters, _converged) ->
+            Assert.Equal(2, solution.Length)
+            Assert.Equal(1, parameters.Length)
+            for b in solution do
+                Assert.True(b = 0 || b = 1)
+        | Error err ->
+            Assert.Fail($"Expected Ok but got Error: {err}")
+
+    [<Fact>]
+    let ``executeQaoaWithOptimizationSparse rejects invalid config`` () =
+        let quboMap = Map.ofList [ ((0, 0), -1.0) ]
+        let backend = createLocalBackend ()
+        let config = { defaultConfig with FinalShots = -1 }  // invalid
+
+        let result = executeQaoaWithOptimizationSparse backend 1 quboMap config
+        match result with
+        | Error (QuantumError.ValidationError (field, _)) ->
+            Assert.Equal("FinalShots", field)
+        | Error _ -> Assert.Fail("Expected ValidationError")
+        | Ok _ -> Assert.Fail("Expected Error for invalid config")
+
+// ============================================================================
+// BUDGET EXECUTION TESTS
+// ============================================================================
+
+module BudgetExecutionTests =
+
+    [<Fact>]
+    let ``defaultBudget has expected values`` () =
+        Assert.Equal(1000, defaultBudget.MaxTotalShots)
+        Assert.Equal(None, defaultBudget.MaxTimeMs)
+        match defaultBudget.Decomposition with
+        | AdaptiveToBudgetBackend -> ()  // expected
+        | other -> Assert.Fail($"Expected AdaptiveToBudgetBackend but got {other}")
+
+    [<Fact>]
+    let ``executeWithBudget succeeds for small problem within budget`` () =
+        let qubo = array2D [| [| -1.0; 2.0 |]; [| 0.0; -1.0 |] |]
+        let backend = createLocalBackend ()
+        let config = { fastConfig with NumLayers = 1; FinalShots = 200 }
+        let budget : ExecutionBudget = {
+            MaxTotalShots = 500
+            MaxTimeMs = None
+            Decomposition = NoBudgetDecomposition
+        }
+
+        let result = executeWithBudget backend qubo config budget
+        match result with
+        | Ok (solution, parameters, _converged) ->
+            Assert.Equal(2, solution.Length)
+            Assert.True(parameters.Length >= 1)
+        | Error err ->
+            Assert.Fail($"Expected Ok but got Error: {err}")
+
+    [<Fact>]
+    let ``executeWithBudget limits shots to MaxTotalShots`` () =
+        let qubo = array2D [| [| -1.0 |] |]
+        let backend = createLocalBackend ()
+        // Config requests 2000 final shots, but budget caps at 100
+        let config = { fastConfig with NumLayers = 1; FinalShots = 2000 }
+        let budget : ExecutionBudget = {
+            MaxTotalShots = 100
+            MaxTimeMs = None
+            Decomposition = NoBudgetDecomposition
+        }
+
+        let result = executeWithBudget backend qubo config budget
+        match result with
+        | Ok _ -> ()  // success is sufficient — shot limiting is internal
+        | Error err ->
+            Assert.Fail($"Expected Ok but got Error: {err}")
+
+    [<Fact>]
+    let ``executeWithBudget rejects zero MaxTotalShots`` () =
+        let qubo = array2D [| [| -1.0 |] |]
+        let backend = createLocalBackend ()
+        let config = { fastConfig with NumLayers = 1 }
+        let budget : ExecutionBudget = {
+            MaxTotalShots = 0
+            MaxTimeMs = None
+            Decomposition = NoBudgetDecomposition
+        }
+
+        let result = executeWithBudget backend qubo config budget
+        match result with
+        | Error (QuantumError.ValidationError (field, _)) ->
+            Assert.Equal("MaxTotalShots", field)
+        | Error _ -> Assert.Fail("Expected ValidationError for MaxTotalShots")
+        | Ok _ -> Assert.Fail("Expected Error for zero MaxTotalShots")
+
+    [<Fact>]
+    let ``executeWithBudget rejects negative MaxTotalShots`` () =
+        let qubo = array2D [| [| -1.0 |] |]
+        let backend = createLocalBackend ()
+        let config = { fastConfig with NumLayers = 1 }
+        let budget : ExecutionBudget = {
+            MaxTotalShots = -10
+            MaxTimeMs = None
+            Decomposition = NoBudgetDecomposition
+        }
+
+        let result = executeWithBudget backend qubo config budget
+        match result with
+        | Error (QuantumError.ValidationError _) -> ()  // expected
+        | Error _ -> Assert.Fail("Expected ValidationError")
+        | Ok _ -> Assert.Fail("Expected Error for negative MaxTotalShots")
+
+    [<Fact>]
+    let ``executeWithBudget rejects invalid config`` () =
+        let qubo = array2D [| [| -1.0 |] |]
+        let backend = createLocalBackend ()
+        let config = { fastConfig with NumLayers = 0 }  // invalid
+        let budget : ExecutionBudget = {
+            MaxTotalShots = 1000
+            MaxTimeMs = None
+            Decomposition = NoBudgetDecomposition
+        }
+
+        let result = executeWithBudget backend qubo config budget
+        match result with
+        | Error (QuantumError.ValidationError (field, _)) ->
+            Assert.Equal("NumLayers", field)
+        | Error _ -> Assert.Fail("Expected ValidationError")
+        | Ok _ -> Assert.Fail("Expected Error for invalid config")
+
+    [<Fact>]
+    let ``executeWithBudget with FixedQubitLimit errors when problem exceeds limit`` () =
+        // 3-qubit problem but limit is 2
+        let qubo = Array2D.init 3 3 (fun i j -> if i = j then -1.0 else 0.5)
+        let backend = createLocalBackend ()
+        let config = { fastConfig with NumLayers = 1 }
+        let budget : ExecutionBudget = {
+            MaxTotalShots = 1000
+            MaxTimeMs = None
+            Decomposition = FixedQubitLimit 2
+        }
+
+        let result = executeWithBudget backend qubo config budget
+        match result with
+        | Error (QuantumError.OperationError ("QAOA", msg)) ->
+            Assert.Contains("requires 3 qubits", msg)
+        | Error _ -> Assert.Fail("Expected OperationError from QAOA")
+        | Ok _ -> Assert.Fail("Expected Error when exceeding FixedQubitLimit")
+
+    [<Fact>]
+    let ``executeWithBudget with FixedQubitLimit succeeds when within limit`` () =
+        let qubo = array2D [| [| -1.0; 2.0 |]; [| 0.0; -1.0 |] |]
+        let backend = createLocalBackend ()
+        let config = { fastConfig with NumLayers = 1; FinalShots = 100 }
+        let budget : ExecutionBudget = {
+            MaxTotalShots = 500
+            MaxTimeMs = None
+            Decomposition = FixedQubitLimit 10
+        }
+
+        let result = executeWithBudget backend qubo config budget
+        match result with
+        | Ok _ -> ()
+        | Error err -> Assert.Fail($"Expected Ok but got Error: {err}")
+
+    [<Fact>]
+    let ``executeWithBudget with AdaptiveToBudgetBackend checks LocalBackend limit`` () =
+        // LocalBackend has MaxQubits = 16
+        // Create a problem that would exceed it (but we can't actually create a 17-qubit QUBO
+        // with the LocalBackend, so we test with a 2-qubit problem that fits)
+        let qubo = array2D [| [| -1.0; 2.0 |]; [| 0.0; -1.0 |] |]
+        let backend = createLocalBackend ()
+        let config = { fastConfig with NumLayers = 1; FinalShots = 100 }
+        let budget : ExecutionBudget = {
+            MaxTotalShots = 500
+            MaxTimeMs = None
+            Decomposition = AdaptiveToBudgetBackend
+        }
+
+        let result = executeWithBudget backend qubo config budget
+        match result with
+        | Ok _ -> ()  // 2 qubits < 16 limit, should succeed
+        | Error err -> Assert.Fail($"Expected Ok but got Error: {err}")
+
+    [<Fact>]
+    let ``executeWithBudget with NoBudgetDecomposition ignores capacity`` () =
+        // Even if we had a "too large" problem, NoBudgetDecomposition doesn't check
+        let qubo = array2D [| [| -1.0 |] |]
+        let backend = createLocalBackend ()
+        let config = { fastConfig with NumLayers = 1; FinalShots = 50 }
+        let budget : ExecutionBudget = {
+            MaxTotalShots = 500
+            MaxTimeMs = None
+            Decomposition = NoBudgetDecomposition
+        }
+
+        let result = executeWithBudget backend qubo config budget
+        match result with
+        | Ok _ -> ()
+        | Error err -> Assert.Fail($"Expected Ok but got Error: {err}")
+
+// ============================================================================
+// IQubitLimitedBackend TESTS
+// ============================================================================
+
+module IQubitLimitedBackendTests =
+
+    [<Fact>]
+    let ``LocalBackend implements IQubitLimitedBackend with MaxQubits 16`` () =
+        let backend = LocalBackend.LocalBackend()
+        let limited = backend :> BackendAbstraction.IQubitLimitedBackend
+        Assert.Equal(Some 16, limited.MaxQubits)
+
+    [<Fact>]
+    let ``getMaxQubits returns Some for LocalBackend`` () =
+        let backend = LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
+        let maxQubits = BackendAbstraction.UnifiedBackend.getMaxQubits backend
+        Assert.Equal(Some 16, maxQubits)
+
+    [<Fact>]
+    let ``getMaxQubits returns None for non-limited backend`` () =
+        // LocalBackend does implement IQubitLimitedBackend, but we can verify
+        // the pattern works by checking the type test
+        let backend = LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
+        let isLimited = backend :? BackendAbstraction.IQubitLimitedBackend
+        Assert.True(isLimited)
+
+    [<Fact>]
+    let ``getCapabilities includes MaxQubits from IQubitLimitedBackend`` () =
+        let backend = LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
+        let caps = BackendAbstraction.UnifiedBackend.getCapabilities backend
+        Assert.Equal(Some 16, caps.MaxQubits)

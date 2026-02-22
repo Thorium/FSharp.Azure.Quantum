@@ -207,6 +207,104 @@ This API provides:
 | **Use cases** | Development, testing, small problems | Production, large problems, research |
 | **Hardware access** | ❌ Simulation only | ✅ IonQ, Rigetti, etc. |
 
+## Qubit Limit Awareness with IQubitLimitedBackend
+
+### The IQubitLimitedBackend Interface
+
+Some backends have a maximum number of qubits they can handle. The `IQubitLimitedBackend` interface provides a **non-breaking, opt-in extension** to `IQuantumBackend` that lets backends advertise their capacity:
+
+```fsharp
+/// Optional interface for backends that have qubit limits.
+/// Inherits from IQuantumBackend — existing backends are unaffected.
+type IQubitLimitedBackend =
+    inherit IQuantumBackend
+    
+    /// Maximum number of qubits this backend supports, or None if unlimited.
+    abstract MaxQubits : int option
+```
+
+**Key design points:**
+- ✅ **Non-breaking** — backends that don't implement it continue to work unchanged
+- ✅ **Optional** — callers use a type-test pattern to check at runtime
+- ✅ `LocalBackend` implements it with `MaxQubits = Some 16`
+
+### Querying Backend Limits
+
+Use standard F# pattern matching to check whether a backend reports a qubit limit:
+
+```fsharp
+open FSharp.Azure.Quantum.Backends
+
+let backend = LocalBackendFactory.createUnified()
+
+// Pattern match to discover qubit limits
+let maxQubits =
+    match backend with
+    | :? IQubitLimitedBackend as lb -> lb.MaxQubits
+    | _ -> None
+
+match maxQubits with
+| Some n -> printfn "Backend supports up to %d qubits" n
+| None   -> printfn "Backend does not report a qubit limit"
+```
+
+### UnifiedBackend.getMaxQubits Helper
+
+For convenience, `UnifiedBackend` exposes a helper that wraps the pattern-match logic above:
+
+```fsharp
+module UnifiedBackend =
+    
+    /// Returns the maximum qubit count for a backend, or None if the
+    /// backend does not implement IQubitLimitedBackend.
+    let getMaxQubits (backend: IQuantumBackend) : int option =
+        match backend with
+        | :? IQubitLimitedBackend as lb -> lb.MaxQubits
+        | _ -> None
+```
+
+Usage is straightforward:
+
+```fsharp
+open FSharp.Azure.Quantum.Backends
+
+let backend = LocalBackendFactory.createUnified()
+let limit = UnifiedBackend.getMaxQubits backend
+// limit = Some 16 for LocalBackend
+```
+
+### Integration with ProblemDecomposition
+
+`ProblemDecomposition` uses `IQubitLimitedBackend` to **automatically decompose** problems that exceed the backend's qubit capacity. When a problem requires more qubits than the backend can handle, the decomposer splits it into smaller sub-problems, solves each independently, and merges the results:
+
+```fsharp
+open FSharp.Azure.Quantum.Backends
+open FSharp.Azure.Quantum.Quantum.QuantumTspSolver
+
+let backend = LocalBackendFactory.createUnified()  // MaxQubits = Some 16
+let largeProblem = (* distance matrix for 10+ cities *)
+
+// ProblemDecomposition checks the backend's qubit limit automatically.
+// If the problem exceeds the limit, it decomposes into sub-problems,
+// solves each within the backend's capacity, and merges the results.
+match solve backend largeProblem defaultConfig with
+| Ok solution ->
+    printfn "Tour: %A" solution.Tour
+    printfn "Length: %.2f" solution.TourLength
+| Error err ->
+    eprintfn "Error: %s" err.Message
+```
+
+The decomposition flow:
+
+1. **Check capacity** — calls `UnifiedBackend.getMaxQubits` on the active backend
+2. **Estimate qubit requirement** — computes qubits needed for the given problem size
+3. **Decompose if needed** — splits the problem into chunks that each fit within `MaxQubits`
+4. **Solve sub-problems** — runs QAOA on each chunk using the same backend
+5. **Merge results** — combines sub-solutions into a single `TspSolution`
+
+This is fully transparent to the caller — the same `solve` function handles both small problems (direct execution) and large problems (automatic decomposition).
+
 ## Summary
 
 **Current Implementation:**

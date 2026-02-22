@@ -21,8 +21,12 @@ Complete reference for **FSharp.Azure.Quantum** quantum optimization APIs.
 **Quantum Algorithm APIs (Research & Education):**
 - [Quantum Linear System Solver](#quantum-linear-system-solver-hhl-algorithm) - HHL algorithm for Ax = b
 
+**QAOA Execution & Decomposition:**
+- [QAOA Execution Helpers](#qaoa-execution-helpers) - Unified QAOA execution, sparse QUBO, budget control
+- [Problem Decomposition](#problem-decomposition) - Backend-aware problem splitting and graph decomposition
+
 **Infrastructure:**
-- [Quantum Backends](#quantum-backends) - LocalBackend, IonQ, Rigetti
+- [Quantum Backends](#quantum-backends) - LocalBackend, IonQ, Rigetti, IQubitLimitedBackend
 - [C# Interop](#c-interop) - Using from C#
 - [Core Types](#core-types) - Data structures and result types
 - **[QUBO Encoding Strategies](qubo-encoding-strategies.md)** - Problem transformations
@@ -681,6 +685,46 @@ let backend = // Cloud backend - requires Azure Quantum workspace
 | 17-20 qubits | IonQ/Rigetti Simulator | Scalable, still affordable |
 | 20+ qubits | IonQ/Rigetti QPU | Real quantum hardware needed |
 
+### IQubitLimitedBackend Interface
+
+**Module:** `FSharp.Azure.Quantum.Core.BackendAbstraction`
+
+Optional interface for backends that report qubit capacity limits. Solvers can test for this interface to query capacity without requiring all backends to implement it.
+
+```fsharp
+/// Inherits IQuantumBackend, adds qubit limit reporting.
+type IQubitLimitedBackend =
+    inherit IQuantumBackend
+    /// Maximum number of qubits supported (None = unlimited/unknown).
+    abstract member MaxQubits: int option
+```
+
+**Convenience wrapper:**
+
+```text
+val UnifiedBackend.getMaxQubits : backend:IQuantumBackend → int option
+```
+
+Returns `Some limit` if the backend implements `IQubitLimitedBackend`, otherwise `None`.
+
+```fsharp
+open FSharp.Azure.Quantum.Core.BackendAbstraction
+
+let backend = LocalBackendFactory.createUnified()
+
+// Check backend capacity
+match UnifiedBackend.getMaxQubits backend with
+| Some limit -> printfn "Backend supports up to %d qubits" limit
+| None -> printfn "Backend has no known qubit limit"
+
+// Pattern-match directly on the interface
+match backend with
+| :? IQubitLimitedBackend as lb ->
+    printfn "Max qubits: %A" lb.MaxQubits
+| _ ->
+    printfn "Backend does not report qubit limits"
+```
+
 ---
 
 ## C# Interop
@@ -998,6 +1042,277 @@ match QuantumRegressionHHL.train config with
 
 ---
 
+## QAOA Execution Helpers
+
+**Module:** `FSharp.Azure.Quantum.Core.QaoaExecutionHelpers`
+
+Shared QAOA execution infrastructure for all quantum solvers. Consolidates QAOA circuit construction, parameter optimization, and measurement into reusable functions. Supports both dense (`float[,]`) and sparse (`Map<int * int, float>`) QUBO representations, and provides budget-constrained execution with backend capacity checking.
+
+### Configuration Types
+
+```fsharp
+/// Unified QAOA execution configuration.
+type QaoaSolverConfig = {
+    NumLayers: int                   // QAOA layers (p parameter)
+    OptimizationShots: int           // Shots per optimization iteration
+    FinalShots: int                  // Shots for final measurement
+    EnableOptimization: bool         // Enable Nelder-Mead (false = grid search)
+    EnableConstraintRepair: bool     // Enable constraint repair post-processing
+    MaxOptimizationIterations: int   // Max Nelder-Mead iterations
+}
+```
+
+### Preset Configurations
+
+```text
+val defaultConfig     : QaoaSolverConfig   // Balanced (2 layers, 100/1000 shots, optimization on)
+val fastConfig        : QaoaSolverConfig   // Quick prototyping (1 layer, 50/500 shots, grid search)
+val highQualityConfig : QaoaSolverConfig   // Production (3 layers, 200/2000 shots, optimization on)
+```
+
+### Dense QUBO Functions
+
+```text
+val evaluateQubo :
+    qubo:float[,] → bits:int[] → float
+
+val executeQaoaCircuit :
+    backend:IQuantumBackend → problemHam:ProblemHamiltonian → mixerHam:MixerHamiltonian
+    → parameters:(float * float)[] → shots:int → Result<int[][], QuantumError>
+
+val executeQaoaWithOptimization :
+    backend:IQuantumBackend → qubo:float[,] → config:QaoaSolverConfig
+    → Result<int[] * (float * float)[] * bool, QuantumError>
+
+val executeQaoaWithGridSearch :
+    backend:IQuantumBackend → qubo:float[,] → config:QaoaSolverConfig
+    → Result<int[] * (float * float)[], QuantumError>
+
+val executeFromQubo :
+    backend:IQuantumBackend → qubo:float[,] → parameters:(float * float)[] → shots:int
+    → Result<int[][], QuantumError>
+```
+
+**Parameters:**
+- `qubo` — Dense QUBO matrix (`float[,]`)
+- `config` — QAOA solver configuration
+- `backend` — Quantum backend (explicit; RULE 1 compliance)
+
+### Sparse QUBO Functions
+
+Memory-efficient path that avoids allocating dense `float[,]` arrays. Preferred for large, sparse QUBO problems.
+
+```text
+val evaluateQuboSparse :
+    quboMap:Map<int * int, float> → bits:int[] → float
+
+val executeQaoaCircuitSparse :
+    backend:IQuantumBackend → numQubits:int → quboMap:Map<int * int, float>
+    → parameters:(float * float)[] → shots:int → Result<int[][], QuantumError>
+
+val executeQaoaWithOptimizationSparse :
+    backend:IQuantumBackend → numQubits:int → quboMap:Map<int * int, float>
+    → config:QaoaSolverConfig → Result<int[] * (float * float)[] * bool, QuantumError>
+
+val executeQaoaWithGridSearchSparse :
+    backend:IQuantumBackend → numQubits:int → quboMap:Map<int * int, float>
+    → config:QaoaSolverConfig → Result<int[] * (float * float)[], QuantumError>
+```
+
+**Parameters:**
+- `numQubits` — Number of qubits (variables) in the QUBO
+- `quboMap` — Sparse QUBO as `Map<(i, j), coefficient>` (only non-zero entries)
+
+### Budget Execution Types
+
+```fsharp
+/// Capacity-check strategy for budget-constrained execution.
+type BudgetDecompositionStrategy =
+    | NoBudgetDecomposition             // No capacity check
+    | FixedQubitLimit of maxQubits: int  // Error if problem exceeds limit
+    | AdaptiveToBudgetBackend           // Use backend's MaxQubits
+
+/// Budget constraints for QAOA execution.
+type ExecutionBudget = {
+    MaxTotalShots: int                  // Max shots across all sub-problems
+    MaxTimeMs: int option               // Optional wall-clock limit (ms)
+    Decomposition: BudgetDecompositionStrategy
+}
+```
+
+### Budget Execution Functions
+
+```text
+val defaultBudget : ExecutionBudget
+    // 1000 shots, no time limit, AdaptiveToBudgetBackend
+
+val executeWithBudget :
+    backend:IQuantumBackend → qubo:float[,] → config:QaoaSolverConfig
+    → budget:ExecutionBudget → Result<int[] * (float * float)[] * bool, QuantumError>
+```
+
+### Example: Sparse QUBO Execution
+
+```fsharp
+open FSharp.Azure.Quantum.Core.QaoaExecutionHelpers
+
+let backend = LocalBackendFactory.createUnified()
+
+// Define a sparse QUBO (only non-zero entries)
+let quboMap =
+    Map.ofList [
+        (0, 0), -1.0
+        (1, 1), -1.0
+        (0, 1),  2.0
+    ]
+
+let config = defaultConfig
+
+match executeQaoaWithOptimizationSparse backend 2 quboMap config with
+| Ok (bestBits, parameters, converged) ->
+    let energy = evaluateQuboSparse quboMap bestBits
+    printfn "Best bitstring: %A" bestBits
+    printfn "Energy: %.4f" energy
+    printfn "Converged: %b" converged
+| Error err ->
+    printfn "Error: %s" err.Message
+```
+
+### Example: Budget-Constrained Execution
+
+```fsharp
+open FSharp.Azure.Quantum.Core.QaoaExecutionHelpers
+
+let backend = LocalBackendFactory.createUnified()
+let qubo = Array2D.init 4 4 (fun i j -> if i = j then -1.0 elif abs (i - j) = 1 then 0.5 else 0.0)
+
+let budget = {
+    MaxTotalShots = 500
+    MaxTimeMs = Some 5000       // 5-second wall-clock limit
+    Decomposition = AdaptiveToBudgetBackend
+}
+
+match executeWithBudget backend qubo defaultConfig budget with
+| Ok (bits, params, converged) ->
+    printfn "Solution: %A (converged=%b)" bits converged
+| Error err ->
+    printfn "Budget execution failed: %s" err.Message
+```
+
+---
+
+## Problem Decomposition
+
+**Module:** `FSharp.Azure.Quantum.Core.ProblemDecomposition`
+
+Generic problem decomposition orchestrator for QAOA solvers. When a problem requires more qubits than the backend supports (`IQubitLimitedBackend.MaxQubits`), automatically splits the problem into sub-problems, solves them independently, and recombines the results. Fully generic over problem and solution types — solvers supply decompose/recombine/solve functions.
+
+### Strategy Types
+
+```fsharp
+/// Strategy for decomposing a problem when it exceeds backend capacity.
+type DecompositionStrategy =
+    | NoDecomposition                              // Run as-is
+    | FixedPartition of maxQubitsPerPartition: int // Fixed-size partitions
+    | AdaptiveToBackend                            // Auto from backend MaxQubits
+
+/// Result of the decomposition planning step.
+type DecompositionPlan<'Problem> =
+    | RunDirect of 'Problem            // Fits within capacity
+    | RunDecomposed of 'Problem list   // Split into sub-problems
+```
+
+### Planning and Execution Functions
+
+```text
+val plan :
+    strategy:DecompositionStrategy → backend:IQuantumBackend
+    → estimateQubits:('Problem → int) → decomposeFn:('Problem → 'Problem list)
+    → problem:'Problem → DecompositionPlan<'Problem>
+
+val execute :
+    solveFn:('Problem → Result<'Solution, QuantumError>)
+    → recombineFn:('Solution list → 'Solution)
+    → plan:DecompositionPlan<'Problem> → Result<'Solution, QuantumError>
+
+val solveWithDecomposition :
+    backend:IQuantumBackend → problem:'Problem
+    → estimateQubits:('Problem → int) → decomposeFn:('Problem → 'Problem list)
+    → recombineFn:('Solution list → 'Solution)
+    → solveFn:('Problem → Result<'Solution, QuantumError>)
+    → Result<'Solution, QuantumError>
+```
+
+**Parameters:**
+- `estimateQubits` — Function to estimate qubit count for a problem
+- `decomposeFn` — Function to split a problem into sub-problems
+- `recombineFn` — Function to merge sub-solutions into one
+- `solveFn` — Function to solve a single (sub-)problem
+
+### Graph Decomposition Helpers
+
+Utility functions for graph-based solvers to decompose problems by connected components using union-find.
+
+```text
+val connectedComponents :
+    numVertices:int → edges:(int * int) list → int list list
+
+val partitionByComponents :
+    numVertices:int → edges:(int * int) list → (int list * (int * int) list) list
+
+val canDecomposeWithinLimit :
+    numVertices:int → edges:(int * int) list → maxQubitsPerPart:int
+    → qubitsPerVertex:int → bool
+```
+
+**Parameters:**
+- `numVertices` — Total number of vertices (0-indexed)
+- `edges` — Undirected edges as `(int * int)` pairs
+- `maxQubitsPerPart` — Maximum qubits per sub-problem
+- `qubitsPerVertex` — Qubits per vertex (typically 1 for MaxCut, numColors for coloring)
+
+### Example: Solver Integration
+
+```fsharp
+open FSharp.Azure.Quantum.Core.ProblemDecomposition
+
+let backend = LocalBackendFactory.createUnified()
+
+// Solver-supplied functions
+let estimateQubits problem = problem.VertexCount
+let decompose problem =
+    partitionByComponents problem.VertexCount problem.Edges
+    |> List.map (fun (verts, edges) -> { VertexCount = verts.Length; Edges = edges })
+let recombine solutions = solutions |> List.reduce mergeSolutions
+let solveOne problem = solveSmallProblem backend problem
+
+// Automatically decomposes if problem exceeds backend capacity
+match solveWithDecomposition backend largeProblem estimateQubits decompose recombine solveOne with
+| Ok solution -> printfn "Solution: %A" solution
+| Error err -> printfn "Error: %s" err.Message
+```
+
+### Example: Connected Components
+
+```fsharp
+open FSharp.Azure.Quantum.Core.ProblemDecomposition
+
+// Graph with two disconnected components: {0,1,2} and {3,4}
+let edges = [(0, 1); (1, 2); (3, 4)]
+let components = connectedComponents 5 edges
+// components = [[0; 1; 2]; [3; 4]]
+
+// Check if decomposition fits within a 3-qubit backend
+let fits = canDecomposeWithinLimit 5 edges 3 1
+// fits = true (largest component has 3 vertices × 1 qubit each = 3 ≤ 3)
+
+// Get partitioned sub-problems with local indices
+let parts = partitionByComponents 5 edges
+// parts = [([0; 1; 2], [(0, 1); (1, 2)]); ([3; 4], [(0, 1)])]
+```
+
+---
+
 ## Advanced Topics
 
 ### Custom QAOA Parameters
@@ -1096,4 +1411,4 @@ problems
 
 ---
 
-**Last Updated**: 2025-11-29
+**Last Updated**: 2026-02-21

@@ -91,15 +91,14 @@ let ``Ising TopologicalBackend accepts QuantumMaxCutSolver.solve`` () =
         // CutValue should be non-negative (any partition has >= 0 cut)
         Assert.True(solution.CutValue >= 0.0,
             $"CutValue should be non-negative, got {solution.CutValue}")
-    | Error (QuantumError.OperationError (op, msg)) ->
+    | Error (QuantumError.OperationError (op, _msg)) ->
         // Acceptable: topological backend may fail on QAOA circuit execution
-        // due to gate compilation limitations. Document the error.
-        Assert.True(true,
-            $"Ising backend returned OperationError for {op}: {msg}")
-    | Error err ->
-        // Other errors are also acceptable for this verification test
-        Assert.True(true,
-            $"Ising backend returned error: {err}")
+        // due to gate compilation limitations (Ising Rz discretization).
+        Assert.Contains("QAOA", op + _msg) |> ignore
+        // Just verify we got a structured error, not a crash
+    | Error _err ->
+        // Other structured errors acceptable for topological verification
+        ()
 
 [<Fact>]
 let ``Ising TopologicalBackend MaxCut on triangle finds feasible partition`` () =
@@ -122,8 +121,8 @@ let ``Ising TopologicalBackend MaxCut on triangle finds feasible partition`` () 
         Assert.True(solution.CutValue >= 0.0,
             $"Expected non-negative cut, got {solution.CutValue}")
     | Error _ ->
-        // Acceptable: document that Ising QAOA may fail
-        Assert.True(true, "Ising backend did not produce a solution for triangle")
+        // Acceptable: Ising QAOA may fail due to gate compilation limitations
+        ()
 
 [<Fact>]
 let ``Ising TopologicalBackend reports correct backend name`` () =
@@ -154,12 +153,10 @@ let ``Fibonacci TopologicalBackend accepts QuantumMaxCutSolver.solve`` () =
             $"CutValue should be non-negative, got {solution.CutValue}")
         // Document: Fibonacci QAOA execution time for 4-qubit problem
         // (Solovay-Kitaev overhead expected to be significantly longer than LocalBackend)
-    | Error (QuantumError.OperationError (op, msg)) ->
-        Assert.True(true,
-            $"Fibonacci backend returned OperationError for {op}: {msg}")
-    | Error err ->
-        Assert.True(true,
-            $"Fibonacci backend returned error: {err}")
+    | Error (QuantumError.OperationError (op, _msg)) ->
+        Assert.Contains("QAOA", op + _msg) |> ignore
+    | Error _err ->
+        ()
 
 [<Fact>]
 let ``Fibonacci TopologicalBackend MaxCut on triangle finds feasible partition`` () =
@@ -179,7 +176,8 @@ let ``Fibonacci TopologicalBackend MaxCut on triangle finds feasible partition``
         Assert.True(solution.CutValue >= 0.0,
             $"Expected non-negative cut, got {solution.CutValue}")
     | Error _ ->
-        Assert.True(true, "Fibonacci backend did not produce a solution for triangle")
+        // Acceptable: Fibonacci QAOA may fail due to Solovay-Kitaev compilation limits
+        ()
 
 [<Fact>]
 let ``Fibonacci TopologicalBackend reports correct backend name`` () =
@@ -253,7 +251,8 @@ let ``Ising TopologicalBackend accepts QuantumVertexCoverSolver.solve`` () =
     | Ok solution ->
         Assert.Equal("Topological Quantum Backend", solution.BackendName)
     | Error _ ->
-        Assert.True(true, "Ising backend may not produce a VertexCover solution")
+        // Acceptable: Ising backend may not support VertexCover QAOA circuit
+        ()
 
 [<Fact>]
 let ``Ising TopologicalBackend accepts QuantumCliqueSolver.solve`` () =
@@ -273,7 +272,8 @@ let ``Ising TopologicalBackend accepts QuantumCliqueSolver.solve`` () =
     | Ok solution ->
         Assert.Equal("Topological Quantum Backend", solution.BackendName)
     | Error _ ->
-        Assert.True(true, "Ising backend may not produce a Clique solution")
+        // Acceptable: Ising backend may not support Clique QAOA circuit
+        ()
 
 [<Fact>]
 let ``Ising TopologicalBackend accepts QuantumSetCoverSolver.solve`` () =
@@ -292,7 +292,8 @@ let ``Ising TopologicalBackend accepts QuantumSetCoverSolver.solve`` () =
     | Ok solution ->
         Assert.Equal("Topological Quantum Backend", solution.BackendName)
     | Error _ ->
-        Assert.True(true, "Ising backend may not produce a SetCover solution")
+        // Acceptable: Ising backend may not support SetCover QAOA circuit
+        ()
 
 [<Fact>]
 let ``Ising TopologicalBackend accepts QuantumMatchingSolver.solve`` () =
@@ -311,7 +312,8 @@ let ``Ising TopologicalBackend accepts QuantumMatchingSolver.solve`` () =
     | Ok solution ->
         Assert.Equal("Topological Quantum Backend", solution.BackendName)
     | Error _ ->
-        Assert.True(true, "Ising backend may not produce a Matching solution")
+        // Acceptable: Ising backend may not support Matching QAOA circuit
+        ()
 
 [<Fact>]
 let ``Ising TopologicalBackend accepts QuantumBinPackingSolver.solve`` () =
@@ -330,7 +332,8 @@ let ``Ising TopologicalBackend accepts QuantumBinPackingSolver.solve`` () =
     | Ok solution ->
         Assert.Equal("Topological Quantum Backend", solution.BackendName)
     | Error _ ->
-        Assert.True(true, "Ising backend may not produce a BinPacking solution")
+        // Acceptable: Ising backend may not support BinPacking QAOA circuit
+        ()
 
 [<Fact>]
 let ``Ising TopologicalBackend accepts QuantumBinaryILPSolver.solve`` () =
@@ -348,4 +351,5 @@ let ``Ising TopologicalBackend accepts QuantumBinaryILPSolver.solve`` () =
     | Ok solution ->
         Assert.Equal("Topological Quantum Backend", solution.BackendName)
     | Error _ ->
-        Assert.True(true, "Ising backend may not produce a BinaryILP solution")
+        // Acceptable: Ising backend may not support BinaryILP QAOA circuit
+        ()

@@ -83,6 +83,24 @@ Examples are categorized into **4 levels** based on business utility and technic
 - **[SupplyChain/SupplyChain-Small.fsx](SupplyChain/SupplyChain-Small.fsx)**  
   Small-scale supply chain example (faster execution)
 
+#### Coverage & Set Cover
+- **[CoverageOptimizer/CoverageOptimizer_Example.fsx](CoverageOptimizer/CoverageOptimizer_Example.fsx)** NEW  
+  Minimum-cost set cover (facility placement, sensor deployment, test selection)  
+  **Use Case:** Facility placement, sensor networks, test suite minimization  
+  **ROI:** Minimize coverage costs while guaranteeing complete coverage
+
+#### Pairing & Matching
+- **[ResourcePairing/ResourcePairing_Example.fsx](ResourcePairing/ResourcePairing_Example.fsx)** NEW  
+  Optimal pairing/matching maximizing compatibility scores  
+  **Use Case:** Mentor-mentee matching, team formation, interview scheduling  
+  **ROI:** Better team productivity through optimal skill alignment
+
+#### Bin Packing & Loading
+- **[PackingOptimizer/PackingOptimizer_Example.fsx](PackingOptimizer/PackingOptimizer_Example.fsx)** NEW  
+  Minimize bins/containers needed to pack items  
+  **Use Case:** Container shipping, server allocation, storage optimization  
+  **ROI:** Reduce container/VM costs by minimizing wasted capacity
+
 ### Network & Social Analysis
 - **[GraphAnalytics/SocialNetworkAnalyzer_Example.fsx](GraphAnalytics/SocialNetworkAnalyzer_Example.fsx)**  
   Detect communities and fraud rings in social networks  
@@ -104,6 +122,11 @@ Examples are categorized into **4 levels** based on business utility and technic
   Fragment Molecular Orbital VQE for caffeine (drug-like molecule)  
   **Quantum Advantage:** ✅ Exponential (electron correlation)  
   **Use Case:** Lead optimization, fragment-based drug design
+
+- **[DrugDiscovery/DrugDiscoverySolvers_Example.fsx](DrugDiscovery/DrugDiscoverySolvers_Example.fsx)** NEW  
+  QAOA-based drug discovery: independent set (toxicity), influence maximization (target ID), diverse selection (library design)  
+  **Use Case:** Hit-to-lead filtering, target pathway analysis, compound library diversification  
+  **ROI:** Accelerate early-stage pipeline with quantum-classical hybrid screening
 
 - **[DrugDiscovery/MolecularSimilarity.fsx](DrugDiscovery/MolecularSimilarity.fsx)**  
   Quantum kernel similarity for virtual screening  
@@ -313,6 +336,17 @@ Examples are categorized into **4 levels** based on business utility and technic
 - **[IntegerVariables/verify-fix.fsx](IntegerVariables/verify-fix.fsx)**  
   Verification for integer variable encoding
 
+### Sparse QUBO & Problem Decomposition
+- **[SparseQubo/SparseQubo_Example.fsx](SparseQubo/SparseQubo_Example.fsx)** NEW  
+  Sparse QUBO encoding pipeline: coordinate-list (COO) representation, density analysis, and conversion to standard QUBO  
+  **Use Case:** Large-scale optimization where QUBO matrices are >95% sparse  
+  **Algorithm:** COO-based storage with O(nnz) operations instead of O(n²)
+
+- **[ProblemDecomposition/ProblemDecomposition_Example.fsx](ProblemDecomposition/ProblemDecomposition_Example.fsx)** NEW  
+  Automatic problem decomposition: splits large QUBOs into sub-problems that fit backend qubit limits, solves independently, and merges results  
+  **Use Case:** Run 50+ variable problems on 16-qubit LocalBackend via divide-and-conquer  
+  **Algorithm:** Graph-based partitioning with budget-aware execution orchestration
+
 ### Quantum Circuit Building
 - **[CircuitBuilder/QuantumCircuits.fsx](CircuitBuilder/QuantumCircuits.fsx)**  
   Low-level quantum circuit construction
@@ -474,19 +508,25 @@ dotnet fsi test-all-examples.fsx
 1. AutoML/QuickPrototyping.fsx - Easiest start
 2. BinaryClassification/FraudDetection.fsx - Real use case
 3. JobScheduling/ConstraintScheduler_Example.fsx - Optimization intro
-4. GraphColoring/GraphColoring.fsx - Classic problem
+4. CoverageOptimizer/CoverageOptimizer_Example.fsx - Set cover problems
+5. ResourcePairing/ResourcePairing_Example.fsx - Matching & pairing
+6. GraphColoring/GraphColoring.fsx - Classic problem
 
 ### Developer Path (Quantum Optimization)
 1. GraphColoring/GraphColoring.fsx - Best documented
 2. MaxCut/MaxCut.fsx - Graph partitioning
 3. Knapsack/Knapsack.fsx - Classic NP problem
-4. MaxCut/DWaveMaxCutExample.fsx - Real quantum hardware
+4. PackingOptimizer/PackingOptimizer_Example.fsx - Bin packing
+5. DrugDiscovery/DrugDiscoverySolvers_Example.fsx - QAOA drug discovery
+6. MaxCut/DWaveMaxCutExample.fsx - Real quantum hardware
 
 ### Research Path (Quantum Algorithms)
 1. Algorithms/BellStatesExample.fsx - Quantum basics
 2. Algorithms/Grover_SAT_Example.fsx - Quantum search
-3. Chemistry/H2Molecule.fsx - VQE
-4. Topological/ToricCodeExample.fsx - Topological qubits
+3. SparseQubo/SparseQubo_Example.fsx - Sparse QUBO pipeline
+4. ProblemDecomposition/ProblemDecomposition_Example.fsx - Auto-decomposition
+5. Chemistry/H2Molecule.fsx - VQE
+6. Topological/ToricCodeExample.fsx - Topological qubits
 
 ### Expert Path (Full Stack)
 1. CircuitBuilder/ - Low-level circuits
