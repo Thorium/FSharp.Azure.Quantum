@@ -1109,125 +1109,62 @@ See complete example: [examples/ConstraintScheduling/](https://github.com/Thoriu
 
 ### What is Set Coverage Optimization?
 
-Find the minimum-cost collection of sets that covers all required elements. This is a fundamental combinatorial optimization problem with broad applications in facility placement, service deployment, and resource allocation.
+Find the minimum-cost collection of options that covers all required elements. This is a fundamental combinatorial optimization problem with broad applications in facility placement, service deployment, and resource allocation.
 
 **Business Applications:**
-- Facility location (minimum stores to cover all delivery zones)
-- Service deployment (minimum servers to cover all regions)
-- Sensor placement (minimum sensors for full monitoring coverage)
+- Shift coverage (select minimum shifts to cover all required time slots)
+- Facility location (minimum facilities to serve all demand zones)
+- Service coverage (select service packages covering all customer needs)
+- Sensor placement (minimum sensors for full network monitoring)
 - Test suite minimization (minimum tests to cover all code paths)
-- Advertising campaign selection (minimum campaigns to reach all demographics)
 
 ### API Reference
+
+The `coverageOptimizer` computation expression builder is in `FSharp.Azure.Quantum.Business.CoverageOptimizer`.
+
+**CE Operations:**
+
+| Operation | Parameters | Description |
+|---|---|---|
+| `element` | `elementIndex: int` | Add an element to the universe (expands universe size if needed) |
+| `universeSize` | `size: int` | Set the universe size directly |
+| `option` | `id: string, coveredElements: int list, cost: float` | Add a coverage option with its cost |
+| `backend` | `backend: IQuantumBackend` | Set the quantum backend (required) |
+| `shots` | `shots: int` | Number of measurement shots (default: 1000) |
+
+**Result type — `CoverageResult`:**
+
+| Field | Type | Description |
+|---|---|---|
+| `SelectedOptions` | `CoverageOption list` | Coverage options selected by the optimizer |
+| `TotalCost` | `float` | Total cost of selected options |
+| `ElementsCovered` | `int` | Number of distinct elements covered |
+| `TotalElements` | `int` | Total elements that need coverage |
+| `IsComplete` | `bool` | Whether all elements are covered |
+| `Message` | `string` | Human-readable execution summary |
+
+**Minimal example:**
 
 ```fsharp
 open FSharp.Azure.Quantum.Business.CoverageOptimizer
 
-// Minimal configuration - find minimum covering sets
-let result = coverageOptimization {
-    universe elements          // Array of elements to cover
-    sets candidateSets         // Array of (setId, elements, cost) tuples
-    
-    // Optimization objective
-    objective MinimizeCost  // or MinimizeSets, MaximizeCoverage
-    
-    // Solver
-    method QAOA  // or QuantumAnnealing, Classical
+let result = coverageOptimizer {
+    element 0   // Time slot 0
+    element 1   // Time slot 1
+    element 2   // Time slot 2
+
+    option "MorningShift" [0; 1] 25.0   // Covers slots 0,1 at cost $25
+    option "AfternoonShift" [1; 2] 20.0 // Covers slots 1,2 at cost $20
+    option "FullDay" [0; 1; 2] 40.0     // Covers all at cost $40
+
+    backend quantumBackend
 }
-
-match result with
-| Ok solution ->
-    printfn "Sets selected: %d" solution.SelectedSets.Length
-    printfn "Total cost: %.2f" solution.TotalCost
-    printfn "Coverage: %.1f%%" (solution.CoveragePercent * 100.0)
-    
-    // Inspect selected sets
-    solution.SelectedSets |> Array.iter (fun s ->
-        printfn "  Set '%s' (cost: %.2f, covers: %d elements)" 
-            s.Name s.Cost s.CoveredElements.Length
-    )
-    
-| Error err -> eprintfn "Optimization failed: %s" err.Message
-```
-
-### Configuration Options
-
-```fsharp
-let result = coverageOptimization {
-    universe elements
-    sets candidateSets
-    
-    // Objective
-    objective MinimizeCost
-    
-    // Constraints
-    maxSets 10                     // Maximum number of sets to select
-    budgetLimit 1000.0             // Maximum total cost
-    requiredCoverage 1.0           // 100% coverage required (default)
-    
-    // Solver configuration
-    method QAOA
-    qaoaLayers 3
-    shots 2000
-    backend localBackend
-    
-    // Penalty tuning
-    coveragePenalty 20.0           // Penalty weight for uncovered elements
-    
-    // Greedy warm-start (seed QAOA with classical greedy solution)
-    warmStart true
-}
-```
-
-### Example: Facility Location for Delivery Coverage
-
-```fsharp
-// Delivery zones that must be covered
-let deliveryZones = [| "Zone-A"; "Zone-B"; "Zone-C"; "Zone-D"; "Zone-E"; 
-                        "Zone-F"; "Zone-G"; "Zone-H" |]
-
-// Candidate warehouse locations: (name, zones covered, monthly cost)
-let warehouseCandidates = [|
-    ("Warehouse-North", [| "Zone-A"; "Zone-B"; "Zone-C" |], 5000.0)
-    ("Warehouse-South", [| "Zone-F"; "Zone-G"; "Zone-H" |], 4500.0)
-    ("Warehouse-Central", [| "Zone-C"; "Zone-D"; "Zone-E"; "Zone-F" |], 7000.0)
-    ("Warehouse-East", [| "Zone-B"; "Zone-D"; "Zone-G" |], 3500.0)
-    ("Warehouse-West", [| "Zone-A"; "Zone-E"; "Zone-H" |], 4000.0)
-    // ... 20 candidate locations
-|]
-
-let result = coverageOptimization {
-    universe deliveryZones
-    sets warehouseCandidates
-    
-    objective MinimizeCost
-    requiredCoverage 1.0           // Must cover all zones
-    maxSets 5                      // Open at most 5 warehouses
-    
-    method QAOA
-    qaoaLayers 3
-    shots 2000
-    warmStart true
-    backend localBackend
-}
-
-match result with
-| Ok solution ->
-    printfn "Optimal warehouse placement:"
-    printfn "  Total monthly cost: $%.0f" solution.TotalCost
-    printfn "  Warehouses needed: %d" solution.SelectedSets.Length
-    solution.SelectedSets |> Array.iter (fun w ->
-        printfn "  - %s ($%.0f/mo, covers: %s)" 
-            w.Name w.Cost (String.concat ", " w.CoveredElements)
-    )
-    printfn "  Coverage: %.0f%%" (solution.CoveragePercent * 100.0)
-    
-| Error err -> eprintfn "Optimization failed: %s" err.Message
 ```
 
 ### Working Example
 
-See complete example: [examples/CoverageOptimization/](https://github.com/Thorium/FSharp.Azure.Quantum/tree/main/examples/CoverageOptimization/)
+See the complete runnable script with CLI options, JSON/CSV output, and detailed reporting:
+[examples/CoverageOptimizer/CoverageOptimizer_Example.fsx](https://github.com/Thorium/FSharp.Azure.Quantum/tree/main/examples/CoverageOptimizer/CoverageOptimizer_Example.fsx)
 
 ---
 
@@ -1235,149 +1172,62 @@ See complete example: [examples/CoverageOptimization/](https://github.com/Thoriu
 
 ### What is Resource Pairing?
 
-Optimally match resources to demands, workers to tasks, or entities to partners based on compatibility scores, preferences, and constraints. This solves assignment and matching problems common in workforce management and logistics.
+Optimally match participants into pairs based on compatibility scores to maximize total matching quality. This solves maximum weight matching problems common in workforce management, mentoring programs, and logistics.
 
 **Business Applications:**
-- Worker-task assignment (match employees to projects by skill fit)
+- Recruiting (match candidates to positions by skill fit)
 - Mentor-mentee pairing (optimize mentorship compatibility)
 - Donor-recipient matching (organ transplant, blood donation)
-- Student-school assignment (school choice optimization)
+- Trading (match buyers with sellers for optimal deals)
 - Ride-sharing matching (drivers to passengers)
 
 ### API Reference
 
+The `resourcePairing` computation expression builder is in `FSharp.Azure.Quantum.Business.ResourcePairing`.
+
+**CE Operations:**
+
+| Operation | Parameters | Description |
+|---|---|---|
+| `participant` | `id: string` | Add a single participant |
+| `participants` | `ids: string list` | Add multiple participants at once |
+| `compatibility` | `p1: string, p2: string, weight: float` | Set compatibility score between two participants (higher = better) |
+| `backend` | `backend: IQuantumBackend` | Set the quantum backend (required) |
+| `shots` | `shots: int` | Number of measurement shots (default: 1000) |
+
+**Result type — `PairingResult`:**
+
+| Field | Type | Description |
+|---|---|---|
+| `Pairings` | `Pairing list` | Optimal pairings found (each has `Participant1`, `Participant2`, `Weight`) |
+| `TotalScore` | `float` | Total compatibility score across all pairings |
+| `ParticipantsPaired` | `int` | Number of participants that were paired |
+| `TotalParticipants` | `int` | Total number of participants |
+| `IsValid` | `bool` | Whether matching is valid (no participant in multiple pairs) |
+| `Message` | `string` | Human-readable execution summary |
+
+**Minimal example:**
+
 ```fsharp
 open FSharp.Azure.Quantum.Business.ResourcePairing
 
-// Minimal configuration - optimal resource matching
 let result = resourcePairing {
-    supply supplyItems        // Array of resources (workers, donors, drivers)
-    demand demandItems        // Array of demands (tasks, recipients, passengers)
-    
-    // Compatibility scoring
-    compatibilityMatrix scores  // 2D array of compatibility scores
-    
-    // Optimization objective
-    objective MaximizeCompatibility  // or MinimizeCost, Balanced
-    
-    // Solver
-    method QAOA  // or QuantumAnnealing, Classical
+    participant "Alice"
+    participant "Bob"
+    participant "Carol"
+
+    compatibility "Alice" "Bob" 0.9    // High compatibility
+    compatibility "Alice" "Carol" 0.5  // Medium compatibility
+    compatibility "Bob" "Carol" 0.7    // Good compatibility
+
+    backend quantumBackend
 }
-
-match result with
-| Ok matching ->
-    printfn "Pairs matched: %d" matching.Pairs.Length
-    printfn "Total compatibility: %.2f" matching.TotalScore
-    printfn "Average score: %.2f" matching.AverageScore
-    
-    // Inspect pairings
-    matching.Pairs |> Array.iter (fun p ->
-        printfn "  %s <-> %s (score: %.2f)" 
-            p.SupplyName p.DemandName p.Score
-    )
-    
-| Error err -> eprintfn "Matching failed: %s" err.Message
-```
-
-### Configuration Options
-
-```fsharp
-let result = resourcePairing {
-    supply supplyItems
-    demand demandItems
-    compatibilityMatrix scores
-    
-    // Matching constraints
-    maxPairsPerSupply 1            // One-to-one matching (default)
-    maxPairsPerDemand 1            // Each demand fulfilled once
-    minimumScore 0.3               // Minimum acceptable compatibility
-    
-    // Capacity matching (one-to-many)
-    supplyCapacities capacities    // Array of max assignments per supply item
-    
-    // Preferences (soft constraints)
-    supplyPreferences prefs        // Ranked preference lists for supply side
-    demandPreferences prefs        // Ranked preference lists for demand side
-    
-    // Solver configuration
-    objective MaximizeCompatibility
-    method QAOA
-    qaoaLayers 3
-    shots 2000
-    backend localBackend
-    
-    // Fairness
-    balancePairings true           // Distribute evenly across supply items
-    fairnessPenalty 5.0            // Penalty weight for imbalanced assignments
-}
-```
-
-### Example: Worker-Project Assignment
-
-```fsharp
-// Available developers
-let developers = [|
-    { Name = "Alice"; Skills = [| "F#"; "Azure"; "ML" |] }
-    { Name = "Bob"; Skills = [| "C#"; "Azure"; "DevOps" |] }
-    { Name = "Carol"; Skills = [| "F#"; "Python"; "ML" |] }
-    { Name = "Dave"; Skills = [| "C#"; "React"; "SQL" |] }
-|]
-
-// Projects needing assignment
-let projects = [|
-    { Name = "Quantum ML Platform"; RequiredSkills = [| "F#"; "ML"; "Azure" |] }
-    { Name = "Cloud Infrastructure"; RequiredSkills = [| "Azure"; "DevOps" |] }
-    { Name = "Data Pipeline"; RequiredSkills = [| "Python"; "ML"; "SQL" |] }
-    { Name = "Web Dashboard"; RequiredSkills = [| "React"; "C#"; "SQL" |] }
-|]
-
-// Compute compatibility scores based on skill overlap
-let scores = Array2D.init developers.Length projects.Length (fun i j ->
-    let devSkills = Set.ofArray developers.[i].Skills
-    let projSkills = Set.ofArray projects.[j].RequiredSkills
-    let overlap = Set.intersect devSkills projSkills |> Set.count |> float
-    overlap / (projSkills |> Set.count |> float)  // Fraction of required skills met
-)
-
-let result = resourcePairing {
-    supply developers
-    demand projects
-    compatibilityMatrix scores
-    
-    maxPairsPerSupply 1            // Each developer on one project
-    maxPairsPerDemand 1            // Each project gets one developer
-    minimumScore 0.3               // Must have at least 30% skill match
-    
-    objective MaximizeCompatibility
-    method QAOA
-    qaoaLayers 2
-    shots 1000
-    backend localBackend
-}
-
-match result with
-| Ok matching ->
-    printfn "Optimal team assignments:"
-    matching.Pairs |> Array.iter (fun p ->
-        printfn "  %s -> %s (skill fit: %.0f%%)" 
-            p.SupplyName p.DemandName (p.Score * 100.0)
-    )
-    printfn "Overall team fit: %.0f%%" (matching.AverageScore * 100.0)
-    
-    // Identify unmatched items
-    if matching.UnmatchedSupply.Length > 0 then
-        printfn "Unassigned developers: %s" 
-            (matching.UnmatchedSupply |> Array.map (fun u -> u.Name) |> String.concat ", ")
-    if matching.UnmatchedDemand.Length > 0 then
-        printfn "Unstaffed projects: %s" 
-            (matching.UnmatchedDemand |> Array.map (fun u -> u.Name) |> String.concat ", ")
-    
-| Error err -> eprintfn "Assignment failed: %s" err.Message
 ```
 
 ### Working Example
 
-See complete example: [examples/ResourcePairing/](https://github.com/Thorium/FSharp.Azure.Quantum/tree/main/examples/ResourcePairing/)
+See the complete runnable script with CLI options, JSON/CSV output, and detailed reporting:
+[examples/ResourcePairing/ResourcePairing_Example.fsx](https://github.com/Thorium/FSharp.Azure.Quantum/tree/main/examples/ResourcePairing/ResourcePairing_Example.fsx)
 
 ---
 
@@ -1385,7 +1235,7 @@ See complete example: [examples/ResourcePairing/](https://github.com/Thorium/FSh
 
 ### What is Bin Packing Optimization?
 
-Optimally pack items of varying sizes into containers (bins) to minimize wasted space or the number of containers used. This is a classic combinatorial optimization problem with significant cost implications in logistics and infrastructure.
+Optimally pack items of varying sizes into containers (bins) to minimize the number of containers used. This is a classic combinatorial optimization problem with significant cost implications in logistics and infrastructure.
 
 **Business Applications:**
 - Container loading (shipping/logistics)
@@ -1396,130 +1246,49 @@ Optimally pack items of varying sizes into containers (bins) to minimize wasted 
 
 ### API Reference
 
+The `packingOptimizer` computation expression builder is in `FSharp.Azure.Quantum.Business.PackingOptimizer`.
+
+**CE Operations:**
+
+| Operation | Parameters | Description |
+|---|---|---|
+| `item` | `id: string, size: float` | Add an item to pack with its size/weight |
+| `containerCapacity` | `capacity: float` | Set the bin/container capacity (all bins have the same capacity) |
+| `backend` | `backend: IQuantumBackend` | Set the quantum backend (required) |
+| `shots` | `shots: int` | Number of measurement shots (default: 1000) |
+
+**Result type — `PackingResult`:**
+
+| Field | Type | Description |
+|---|---|---|
+| `Assignments` | `BinAssignment list` | Item-to-bin assignments (each has `Item: PackingItem`, `BinIndex: int`) |
+| `BinsUsed` | `int` | Number of bins used |
+| `IsValid` | `bool` | Whether all items are assigned and no bin exceeds capacity |
+| `TotalItems` | `int` | Total items in the problem |
+| `ItemsAssigned` | `int` | Items successfully assigned |
+| `Message` | `string` | Human-readable execution summary |
+
+**Minimal example:**
+
 ```fsharp
 open FSharp.Azure.Quantum.Business.PackingOptimizer
 
-// Minimal configuration - pack items into bins
-let result = packingOptimization {
-    items itemList             // Array of items with sizes/weights
-    binCapacity capacity       // Capacity of each bin
-    
-    // Optimization objective
-    objective MinimizeBins  // or MinimizeWaste, BalanceLoad
-    
-    // Solver
-    method QAOA  // or QuantumAnnealing, Classical
+let result = packingOptimizer {
+    containerCapacity 100.0
+
+    item "Crate-A" 45.0
+    item "Crate-B" 35.0
+    item "Crate-C" 25.0
+    item "Crate-D" 50.0
+
+    backend quantumBackend
 }
-
-match result with
-| Ok packing ->
-    printfn "Bins used: %d" packing.BinsUsed
-    printfn "Total waste: %.1f%%" (packing.WastePercent * 100.0)
-    printfn "Average fill: %.1f%%" (packing.AverageFillRate * 100.0)
-    
-    // Inspect bin assignments
-    packing.Bins |> Array.iteri (fun i bin ->
-        printfn "  Bin %d: %d items, %.1f%% full" 
-            (i + 1) bin.Items.Length (bin.FillRate * 100.0)
-    )
-    
-| Error err -> eprintfn "Packing failed: %s" err.Message
-```
-
-### Configuration Options
-
-```fsharp
-let result = packingOptimization {
-    items itemList
-    binCapacity capacity
-    
-    // Multi-dimensional packing
-    dimensions 1               // 1D (weight), 2D (area), or 3D (volume)
-    
-    // Bin configuration
-    binCapacity 100.0          // Single capacity (1D)
-    binCapacities [| 100.0; 50.0; 80.0 |]  // Per-dimension capacities (multi-D)
-    maxBins 20                 // Upper bound on bins available
-    
-    // Item constraints
-    itemGroups groupAssignments  // Items that must be in the same bin
-    incompatible conflicts       // Item pairs that cannot share a bin
-    
-    // Solver configuration
-    objective MinimizeBins
-    method QAOA
-    qaoaLayers 3
-    shots 2000
-    backend localBackend
-    
-    // Heuristic warm-start
-    warmStart true             // Seed with First Fit Decreasing heuristic
-    
-    // Penalty tuning
-    overflowPenalty 50.0       // Penalty for exceeding bin capacity
-}
-```
-
-### Example: Container Loading for Shipping
-
-```fsharp
-// Packages to ship: (name, weight_kg, volume_m3)
-let packages = [|
-    ("Electronics-A", 15.0, 0.3)
-    ("Electronics-B", 8.0, 0.2)
-    ("Furniture-1", 45.0, 1.2)
-    ("Furniture-2", 38.0, 0.9)
-    ("Books-Pallet", 25.0, 0.5)
-    ("Clothing-Box", 5.0, 0.8)
-    ("Appliance-1", 30.0, 0.6)
-    ("Appliance-2", 22.0, 0.4)
-    ("Fragile-1", 10.0, 0.3)
-    ("Fragile-2", 12.0, 0.35)
-    // ... 50 packages
-|]
-
-let items = packages |> Array.map (fun (name, weight, volume) ->
-    { Name = name; Sizes = [| weight; volume |] }
-)
-
-let result = packingOptimization {
-    items items
-    dimensions 2                           // Weight and volume
-    binCapacities [| 100.0; 2.5 |]        // 100kg, 2.5m³ per container
-    maxBins 10
-    
-    // Fragile items cannot share with heavy furniture
-    incompatible [| ("Fragile-1", "Furniture-1"); ("Fragile-2", "Furniture-2") |]
-    
-    objective MinimizeBins
-    method QAOA
-    qaoaLayers 3
-    shots 2000
-    warmStart true
-    backend localBackend
-}
-
-match result with
-| Ok packing ->
-    printfn "Shipping plan:"
-    printfn "  Containers needed: %d" packing.BinsUsed
-    printfn "  Average fill rate: %.1f%%" (packing.AverageFillRate * 100.0)
-    packing.Bins |> Array.iteri (fun i bin ->
-        printfn "  Container %d (%.1f%% full):" (i + 1) (bin.FillRate * 100.0)
-        bin.Items |> Array.iter (fun item ->
-            printfn "    - %s (%.0fkg, %.1fm³)" item.Name item.Sizes.[0] item.Sizes.[1]
-        )
-    )
-    
-    let wastedCapacity = packing.WastePercent * 100.0
-    printfn "  Wasted capacity: %.1f%%" wastedCapacity
-    
-| Error err -> eprintfn "Packing failed: %s" err.Message
 ```
 
 ### Working Example
 
-See complete example: [examples/PackingOptimization/](https://github.com/Thorium/FSharp.Azure.Quantum/tree/main/examples/PackingOptimization/)
+See the complete runnable script with CLI options, JSON/CSV output, and detailed reporting:
+[examples/PackingOptimizer/PackingOptimizer_Example.fsx](https://github.com/Thorium/FSharp.Azure.Quantum/tree/main/examples/PackingOptimizer/PackingOptimizer_Example.fsx)
 
 ---
 

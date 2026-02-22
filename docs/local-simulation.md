@@ -66,13 +66,13 @@ Optimization converged: true
 - **Unit testing** - Fast, deterministic tests without network I/O
 - **Algorithm development** - Rapid iteration during development
 - **Educational purposes** - Learning quantum concepts interactively
-- **Small problems** - Up to 16 qubits (2^16 = 65536 state dimensions)
+- **Small problems** - Up to 20 qubits (2^20 = ~1M state dimensions)
 - **Offline work** - No internet connection required
 - **Cost-free exploration** - Zero cloud execution costs
 
 ### ⚠️ Use Azure Quantum For:
 
-- **Large problems** - More than 16 qubits
+- **Large problems** - More than 20 qubits
 - **Production workloads** - Scalable cloud execution
 - **Hardware access** - Real quantum hardware (IonQ, Rigetti, etc.)
 - **Performance** - Parallel execution across multiple circuits
@@ -765,8 +765,8 @@ The simulator provides detailed error messages for common mistakes:
 
 ## FAQ
 
-**Q: Why is simulation limited to 16 qubits?**  
-A: State vector simulation requires 2^n complex numbers. For 16 qubits, that's 65536 complex numbers (1 MB). For 20 qubits, it would be 16 MB, and for 30 qubits, 16 GB. The 16-qubit limit balances functionality with practical memory and performance constraints.
+**Q: Why is simulation limited to 20 qubits?**  
+A: State vector simulation requires 2^n complex numbers. For 20 qubits, that's ~1 million complex numbers (16 MB). For 30 qubits it would be 16 GB. The 20-qubit limit balances functionality with practical memory and performance constraints.
 
 **Q: How accurate is the simulator?**  
 A: The simulator implements exact state vector evolution with floating-point arithmetic. Expect ~1e-14 numerical precision (double precision). This is sufficient for algorithm development and unit testing.

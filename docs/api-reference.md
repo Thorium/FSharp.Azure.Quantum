@@ -636,7 +636,7 @@ match NetworkFlow.solve problem None with
 **Characteristics:**
 - ✅ Free (local simulation)
 - ✅ Fast (milliseconds)
-- ✅ Up to 16 qubits
+- ✅ Up to 20 qubits
 - ✅ Perfect for development/testing
 
 ```fsharp
@@ -682,8 +682,8 @@ let backend = // Cloud backend - requires Azure Quantum workspace
 | Problem Size | Recommended Backend | Rationale |
 |--------------|---------------------|-----------|
 | ≤20 qubits | LocalBackend | Free, fast, sufficient |
-| 17-20 qubits | IonQ/Rigetti Simulator | Scalable, still affordable |
-| 20+ qubits | IonQ/Rigetti QPU | Real quantum hardware needed |
+| 17-29 qubits | IonQ/Rigetti Simulator | Scalable, still affordable |
+| 30+ qubits | IonQ/Rigetti QPU | Real quantum hardware needed |
 
 ### IQubitLimitedBackend Interface
 
@@ -787,11 +787,26 @@ match solver.solve problem with
 
 ### IQuantumBackend Interface
 
+**Module:** `FSharp.Azure.Quantum.Core.BackendAbstraction`
+
 ```fsharp
 type IQuantumBackend =
-    abstract Execute : Circuit -> int -> ExecutionResult
-    abstract Name : string
+    /// Execute circuit and return quantum state
+    abstract member ExecuteToState: ICircuit -> Result<QuantumState, QuantumError>
+    /// Backend's native state representation type
+    abstract member NativeStateType: QuantumStateType
+    /// Apply quantum operation to existing state
+    abstract member ApplyOperation: QuantumOperation -> QuantumState -> Result<QuantumState, QuantumError>
+    /// Check if backend supports a specific operation type
+    abstract member SupportsOperation: QuantumOperation -> bool
+    /// Backend name (for logging and diagnostics)
+    abstract member Name: string
+    /// Initialize quantum state without running a circuit
+    abstract member InitializeState: int -> Result<QuantumState, QuantumError>
 ```
+
+See also `IQubitLimitedBackend` (inherits `IQuantumBackend`, adds `MaxQubits: int option`)
+in the [Backend Selection Guide](#backend-selection-guide) section below.
 
 ### Circuit Types
 
@@ -1320,11 +1335,9 @@ let parts = partitionByComponents 5 edges
 ```fsharp
 open FSharp.Azure.Quantum.Quantum
 
-// Configure optimization behavior
-let config : QuantumMaxCutSolver.QuantumMaxCutConfig = {
-    OptimizationShots = 50           // Shots per optimization iteration
-    FinalShots = 500                 // Shots for final measurement
-    EnableOptimization = true        // Enable parameter search
+// Configure MaxCut QAOA behavior
+let config : QuantumMaxCutSolver.QaoaConfig = {
+    NumShots = 500                   // Number of measurement shots
     InitialParameters = (0.5, 0.5)   // Starting (gamma, beta)
 }
 
@@ -1332,8 +1345,10 @@ let config : QuantumMaxCutSolver.QuantumMaxCutConfig = {
 let backend = LocalBackendFactory.createUnified()
 match QuantumMaxCutSolver.solve backend problem config with
 | Ok result -> 
-    let (gamma, beta) = result.OptimizedParameters
-    printfn "Optimal parameters: γ=%.3f, β=%.3f" gamma beta
+    printfn "Cut value: %d" result.CutValue
+    printfn "Partition: %A" result.Partition
+| Error err ->
+    printfn "Error: %A" err
 ```
 
 ### Error Handling Patterns

@@ -207,7 +207,7 @@ let problem = graphColoring {
 ```fsharp
 let solve (backend: IQuantumBackend option) problem =
     let actualBackend = backend |> Option.defaultValue (LocalBackendFactory.createUnified())
-    actualBackend.Execute circuit shots
+    actualBackend.ExecuteToState circuit
 ```
 
 **Result Type Pattern**: Explicit error handling

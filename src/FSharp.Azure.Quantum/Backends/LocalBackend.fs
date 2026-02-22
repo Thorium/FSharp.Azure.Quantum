@@ -525,9 +525,9 @@ module LocalBackend =
                 | ex -> Error (QuantumError.OperationError ("LocalBackend", ex.Message))
 
         interface IQubitLimitedBackend with
-            /// LocalBackend uses QaoaSimulator which supports up to 16 qubits.
+            /// LocalBackend uses QaoaSimulator which supports up to 20 qubits.
             /// Beyond ~20 qubits the state vector (2^n complex entries) becomes impractical.
-            member _.MaxQubits = Some 16
+            member _.MaxQubits = Some 20
 
 /// Factory functions for creating local backend instances
 module LocalBackendFactory =

@@ -94,7 +94,7 @@ let ``Ising TopologicalBackend accepts QuantumMaxCutSolver.solve`` () =
     | Error (QuantumError.OperationError (op, _msg)) ->
         // Acceptable: topological backend may fail on QAOA circuit execution
         // due to gate compilation limitations (Ising Rz discretization).
-        Assert.Contains("QAOA", op + _msg) |> ignore
+        Assert.Contains("QAOA", op + _msg)
         // Just verify we got a structured error, not a crash
     | Error _err ->
         // Other structured errors acceptable for topological verification
@@ -140,9 +140,7 @@ let ``Fibonacci TopologicalBackend accepts QuantumMaxCutSolver.solve`` () =
     let problem = create4VertexPathProblem ()
 
     // Act: Fibonacci uses Solovay-Kitaev compilation — may be slow
-    let sw = System.Diagnostics.Stopwatch.StartNew()
     let result = QuantumMaxCutSolver.solve backend problem defaultConfig
-    sw.Stop()
 
     // Assert: Backend is accepted and quantum path is attempted.
     // Document wall-clock time for performance baseline.
@@ -154,7 +152,7 @@ let ``Fibonacci TopologicalBackend accepts QuantumMaxCutSolver.solve`` () =
         // Document: Fibonacci QAOA execution time for 4-qubit problem
         // (Solovay-Kitaev overhead expected to be significantly longer than LocalBackend)
     | Error (QuantumError.OperationError (op, _msg)) ->
-        Assert.Contains("QAOA", op + _msg) |> ignore
+        Assert.Contains("QAOA", op + _msg)
     | Error _err ->
         ()
 

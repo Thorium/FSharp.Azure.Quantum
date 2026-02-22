@@ -894,21 +894,21 @@ module BudgetExecutionTests =
 module IQubitLimitedBackendTests =
 
     [<Fact>]
-    let ``LocalBackend implements IQubitLimitedBackend with MaxQubits 16`` () =
+    let ``LocalBackend implements IQubitLimitedBackend with MaxQubits 20`` () =
         let backend = LocalBackend.LocalBackend()
         let limited = backend :> BackendAbstraction.IQubitLimitedBackend
-        Assert.Equal(Some 16, limited.MaxQubits)
+        Assert.Equal(Some 20, limited.MaxQubits)
 
     [<Fact>]
     let ``getMaxQubits returns Some for LocalBackend`` () =
         let backend = LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
         let maxQubits = BackendAbstraction.UnifiedBackend.getMaxQubits backend
-        Assert.Equal(Some 16, maxQubits)
+        Assert.Equal(Some 20, maxQubits)
 
     [<Fact>]
-    let ``getMaxQubits returns None for non-limited backend`` () =
-        // LocalBackend does implement IQubitLimitedBackend, but we can verify
-        // the pattern works by checking the type test
+    let ``LocalBackend is recognized as IQubitLimitedBackend via type test`` () =
+        // Verify the type-test pattern used by getMaxQubits correctly
+        // identifies LocalBackend as implementing IQubitLimitedBackend
         let backend = LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
         let isLimited = backend :? BackendAbstraction.IQubitLimitedBackend
         Assert.True(isLimited)
@@ -917,4 +917,4 @@ module IQubitLimitedBackendTests =
     let ``getCapabilities includes MaxQubits from IQubitLimitedBackend`` () =
         let backend = LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
         let caps = BackendAbstraction.UnifiedBackend.getCapabilities backend
-        Assert.Equal(Some 16, caps.MaxQubits)
+        Assert.Equal(Some 20, caps.MaxQubits)

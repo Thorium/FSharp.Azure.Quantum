@@ -226,7 +226,7 @@ type IQubitLimitedBackend =
 **Key design points:**
 - ✅ **Non-breaking** — backends that don't implement it continue to work unchanged
 - ✅ **Optional** — callers use a type-test pattern to check at runtime
-- ✅ `LocalBackend` implements it with `MaxQubits = Some 16`
+- ✅ `LocalBackend` implements it with `MaxQubits = Some 20`
 
 ### Querying Backend Limits
 
@@ -270,7 +270,7 @@ open FSharp.Azure.Quantum.Backends
 
 let backend = LocalBackendFactory.createUnified()
 let limit = UnifiedBackend.getMaxQubits backend
-// limit = Some 16 for LocalBackend
+// limit = Some 20 for LocalBackend
 ```
 
 ### Integration with ProblemDecomposition
@@ -281,7 +281,7 @@ let limit = UnifiedBackend.getMaxQubits backend
 open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum.Quantum.QuantumTspSolver
 
-let backend = LocalBackendFactory.createUnified()  // MaxQubits = Some 16
+let backend = LocalBackendFactory.createUnified()  // MaxQubits = Some 20
 let largeProblem = (* distance matrix for 10+ cities *)
 
 // ProblemDecomposition checks the backend's qubit limit automatically.

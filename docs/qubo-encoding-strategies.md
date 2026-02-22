@@ -614,6 +614,8 @@ let config = {
     NumLayers = 2
     OptimizationShots = 50
     FinalShots = 200
+    EnableOptimization = true
+    EnableConstraintRepair = true
     MaxOptimizationIterations = 100
 }
 
@@ -655,6 +657,8 @@ let config = {
     NumLayers = 1
     OptimizationShots = 30
     FinalShots = 200
+    EnableOptimization = false
+    EnableConstraintRepair = true
     MaxOptimizationIterations = 50
 }
 
