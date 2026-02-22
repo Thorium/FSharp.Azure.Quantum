@@ -1,4 +1,4 @@
-// ==============================================================================
+﻿// ==============================================================================
 // Antibiotic Precursor Synthesis - Alternative Route Discovery
 // ==============================================================================
 // Compares beta-lactam synthesis routes by computing VQE activation energies.
@@ -10,7 +10,7 @@
 // Background:
 // China controls ~90% of global 6-APA/7-ACA production (key antibiotic
 // intermediates). Quantum chemistry can discover alternative synthesis routes
-// by accurately calculating activation energies for transition states —
+// by accurately calculating activation energies for transition states â€”
 // a problem where classical DFT has systematic errors of 3-5 kcal/mol for
 // strained ring systems like beta-lactams (~27 kcal/mol ring strain).
 //
@@ -34,6 +34,7 @@
 //   [4] Reiher, M. et al. "Elucidating reaction mechanisms on quantum computers" PNAS (2017)
 // ==============================================================================
 
+#r "nuget: Microsoft.Extensions.Logging.Abstractions, 10.0.0"
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 #load "../_common/Cli.fs"
 #load "../_common/Data.fs"
@@ -120,7 +121,7 @@ let hartreeToKJMol = 2625.5     // 1 Hartree in kJ/mol
 
 // --- Shared molecules used by multiple routes ---
 
-/// Formaldehyde (H2C=O) — used as ketene-analogue reactant in Staudinger
+/// Formaldehyde (H2C=O) â€” used as ketene-analogue reactant in Staudinger
 /// and Lewis acid routes.
 let private formaldehyde : Molecule =
     { Name = "Formaldehyde (H2C=O)"
@@ -135,7 +136,7 @@ let private formaldehyde : Molecule =
           { Atom1 = 0; Atom2 = 3; BondOrder = 1.0 } ]
       Charge = 0; Multiplicity = 1 }
 
-/// Ammonia (NH3) — used as imine-analogue reactant in Staudinger
+/// Ammonia (NH3) â€” used as imine-analogue reactant in Staudinger
 /// and Lewis acid routes.
 let private ammonia : Molecule =
     { Name = "Ammonia (NH3)"
@@ -150,7 +151,7 @@ let private ammonia : Molecule =
           { Atom1 = 0; Atom2 = 3; BondOrder = 1.0 } ]
       Charge = 0; Multiplicity = 1 }
 
-/// Formamide (simplified) — shared product of Staudinger and Lewis acid routes.
+/// Formamide (simplified) â€” shared product of Staudinger and Lewis acid routes.
 let private formamide : Molecule =
     { Name = "Formamide (simplified)"
       Atoms =
@@ -556,7 +557,7 @@ let private computeRoute (backend: IQuantumBackend) (maxIter: int) (tol: float) 
 
     if not quiet then
         if anyFailure then
-            printfn "         => INCOMPLETE (VQE failure — energies are unreliable)"
+            printfn "         => INCOMPLETE (VQE failure â€” energies are unreliable)"
         else
             printfn "         => Ea = %.2f kcal/mol  |  dE = %.2f kcal/mol  |  k = %.2e /s" eaKcal dEKcal rateK
         printfn ""
@@ -632,7 +633,7 @@ let printTable () =
 
     printfn ""
 
-// Always print the ranked comparison table — that's the primary output of this tool,
+// Always print the ranked comparison table â€” that's the primary output of this tool,
 // even in --quiet mode (which only suppresses per-route progress output).
 printTable ()
 

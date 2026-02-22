@@ -1,4 +1,4 @@
-/// Graph Coloring - Problem AND Solution Visualization
+﻿/// Graph Coloring - Problem AND Solution Visualization
 ///
 /// Demonstrates visualization at BOTH stages:
 /// 1. BEFORE solving: Visualize the problem structure (graph, conflicts)
@@ -8,6 +8,7 @@
 /// GraphColoringProblem AND ColoringSolution types.
 
 //#r "nuget: FSharp.Azure.Quantum"
+#r "nuget: Microsoft.Extensions.Logging.Abstractions, 10.0.0"
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 
 #load "../_common/Cli.fs"

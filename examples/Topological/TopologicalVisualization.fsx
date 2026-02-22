@@ -1,5 +1,5 @@
-(*
-    Topological Quantum Computing — Visualization
+﻿(*
+    Topological Quantum Computing â€” Visualization
     ================================================
 
     Visualises fusion trees and quantum superpositions of Ising
@@ -10,6 +10,7 @@
               dotnet fsi TopologicalVisualization.fsx -- --quiet --output r.json
 *)
 
+#r "nuget: Microsoft.Extensions.Logging.Abstractions, 10.0.0"
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 #r "../../src/FSharp.Azure.Quantum.Topological/bin/Debug/net10.0/FSharp.Azure.Quantum.Topological.dll"
 #load "../_common/Cli.fs"
@@ -43,7 +44,7 @@ let shouldRun ex = exChoice = "all" || exChoice = string ex
 let separator () = pr "%s" (String.replicate 60 "-")
 
 // ---------------------------------------------------------------------------
-// Quantum backend (Rule 1) — topological backend via IQuantumBackend
+// Quantum backend (Rule 1) â€” topological backend via IQuantumBackend
 // ---------------------------------------------------------------------------
 let quantumBackend = TopologicalUnifiedBackendFactory.createIsing 10
 
@@ -55,7 +56,7 @@ let mutable jsonResults : (string * obj) list = []
 let mutable csvRows     : string list list    = []
 
 // ---------------------------------------------------------------------------
-// Example 1 — Topological qubit encoding
+// Example 1 â€” Topological qubit encoding
 // ---------------------------------------------------------------------------
 if shouldRun 1 then
     separator ()
@@ -79,7 +80,7 @@ if shouldRun 1 then
     csvRows <- [ "1_qubit_encoding"; "sigma x sigma -> vacuum"; "sigma x sigma -> psi" ] :: csvRows
 
 // ---------------------------------------------------------------------------
-// Example 2 — Four sigma anyons fusion tree
+// Example 2 â€” Four sigma anyons fusion tree
 // ---------------------------------------------------------------------------
 if shouldRun 2 then
     separator ()
@@ -102,7 +103,7 @@ if shouldRun 2 then
     csvRows <- [ "2_four_sigma"; "4 anyons"; string (fourTree.ToASCII().Length) + " chars" ] :: csvRows
 
 // ---------------------------------------------------------------------------
-// Example 3 — Quantum superposition
+// Example 3 â€” Quantum superposition
 // ---------------------------------------------------------------------------
 if shouldRun 3 then
     separator ()
@@ -124,7 +125,7 @@ if shouldRun 3 then
     csvRows <- [ "3_superposition"; string bellState.Terms.Length; "uniform" ] :: csvRows
 
 // ---------------------------------------------------------------------------
-// Example 4 — Fibonacci anyons
+// Example 4 â€” Fibonacci anyons
 // ---------------------------------------------------------------------------
 if shouldRun 4 then
     separator ()
@@ -146,7 +147,7 @@ if shouldRun 4 then
     csvRows <- [ "4_fibonacci"; "tau x tau -> tau"; "Fibonacci" ] :: csvRows
 
 // ---------------------------------------------------------------------------
-// Example 5 — Superposition after braiding
+// Example 5 â€” Superposition after braiding
 // ---------------------------------------------------------------------------
 if shouldRun 5 then
     separator ()

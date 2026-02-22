@@ -1,4 +1,4 @@
-/// Quantum-Enhanced Statistical Distributions
+﻿/// Quantum-Enhanced Statistical Distributions
 ///
 /// USE CASE: Sample from standard distributions using quantum random number generation
 ///
@@ -29,7 +29,7 @@ Supported distributions:
 
 All sampling functions accept an IQuantumBackend, ensuring the entropy
 source can be a real quantum device (Rigetti, IonQ, Quantinuum) or a
-local simulator — Rule 1 compliant.
+local simulator â€” Rule 1 compliant.
 
 References:
   [1] Herrero-Collantes & Garcia-Escartin, "Quantum random number generators",
@@ -46,6 +46,7 @@ Usage:
 *)
 
 //#r "nuget: FSharp.Azure.Quantum"
+#r "nuget: Microsoft.Extensions.Logging.Abstractions, 10.0.0"
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 
 #load "../_common/Cli.fs"

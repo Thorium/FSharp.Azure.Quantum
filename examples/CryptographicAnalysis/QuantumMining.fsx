@@ -1,4 +1,4 @@
-// Quantum Proof-of-Work Mining - Grover's Algorithm vs Bitcoin Mining
+﻿// Quantum Proof-of-Work Mining - Grover's Algorithm vs Bitcoin Mining
 // Demonstrates using quantum search to break simplified Bitcoin-like PoW puzzles
 //
 // Usage:
@@ -64,6 +64,7 @@ References:
       https://en.bitcoin.it/wiki/Block_hashing_algorithm
 *)
 
+#r "nuget: Microsoft.Extensions.Logging.Abstractions, 10.0.0"
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 #r "nuget: NBitcoin, 7.0.44"
 #load "../_common/Cli.fs"

@@ -1,4 +1,4 @@
-// ==============================================================================
+﻿// ==============================================================================
 // Quantum Tree Search Examples - FSharp.Azure.Quantum
 // ==============================================================================
 // Demonstrates the Quantum Tree Search API using Grover's algorithm to solve
@@ -15,6 +15,7 @@
 //   dotnet fsi GameAI.fsx -- --help
 // ==============================================================================
 
+#r "nuget: Microsoft.Extensions.Logging.Abstractions, 10.0.0"
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 #load "../_common/Cli.fs"
 #load "../_common/Data.fs"

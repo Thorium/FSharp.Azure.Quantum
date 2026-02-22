@@ -1,4 +1,4 @@
-/// BB84 Issue Fix Verification
+﻿/// BB84 Issue Fix Verification
 ///
 /// Verifies critical fixes in the BB84 QKD implementation:
 /// 1. Sample indices are returned and used correctly
@@ -9,6 +9,7 @@
 /// of BB84 protocol correctness properties.
 
 //#r "nuget: FSharp.Azure.Quantum"
+#r "nuget: Microsoft.Extensions.Logging.Abstractions, 10.0.0"
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 
 #load "../_common/Cli.fs"

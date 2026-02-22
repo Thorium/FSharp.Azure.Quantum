@@ -1,5 +1,5 @@
-(*
-    Basic Fusion Example — Topological Quantum Computing
+﻿(*
+    Basic Fusion Example â€” Topological Quantum Computing
     ======================================================
 
     Demonstrates fundamental fusion rules of Ising anyons:
@@ -13,6 +13,7 @@
               dotnet fsi BasicFusion.fsx -- --quiet --output r.json --csv r.csv
 *)
 
+#r "nuget: Microsoft.Extensions.Logging.Abstractions, 10.0.0"
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 #r "../../src/FSharp.Azure.Quantum.Topological/bin/Debug/net10.0/FSharp.Azure.Quantum.Topological.dll"
 #load "../_common/Cli.fs"
@@ -49,7 +50,7 @@ let shouldRun ex = exChoice = "all" || exChoice = string ex
 let separator () = pr "%s" (String.replicate 60 "-")
 
 // ---------------------------------------------------------------------------
-// Quantum backend — topological IQuantumBackend
+// Quantum backend â€” topological IQuantumBackend
 // ---------------------------------------------------------------------------
 let quantumBackend = TopologicalUnifiedBackendFactory.createIsing 10
 
@@ -68,7 +69,7 @@ let mutable jsonResults : (string * obj) list = []
 let mutable csvRows     : string list list    = []
 
 // ---------------------------------------------------------------------------
-// Example 1 — Initialise Ising anyons
+// Example 1 â€” Initialise Ising anyons
 // ---------------------------------------------------------------------------
 if shouldRun 1 then
     separator ()
@@ -87,7 +88,7 @@ if shouldRun 1 then
     csvRows <- [ "1_init"; "2"; string superposition.Terms.Length ] :: csvRows
 
 // ---------------------------------------------------------------------------
-// Example 2 — Fusion measurement (sigma x sigma = 1 + psi)
+// Example 2 â€” Fusion measurement (sigma x sigma = 1 + psi)
 // ---------------------------------------------------------------------------
 if shouldRun 2 then
     separator ()
@@ -119,7 +120,7 @@ if shouldRun 2 then
         pr "Measurement failed: %s" err.Message
 
 // ---------------------------------------------------------------------------
-// Example 3 — Fusion statistics
+// Example 3 â€” Fusion statistics
 // ---------------------------------------------------------------------------
 if shouldRun 3 then
     separator ()
@@ -159,7 +160,7 @@ if shouldRun 3 then
         let vacPct = float vacCount / float cliTrials * 100.0
         let psiPct = float psiCount / float cliTrials * 100.0
         pr "Vacuum (1): %d times (%.1f%%)" vacCount vacPct
-        pr "Psi    (ψ): %d times (%.1f%%)" psiCount psiPct
+        pr "Psi    (Ïˆ): %d times (%.1f%%)" psiCount psiPct
         pr ""
         pr "Expected: ~50%% vacuum, ~50%% psi  (from sigma x sigma = 1 + psi)"
 
@@ -171,7 +172,7 @@ if shouldRun 3 then
         pr "Measurement setup failed: %s" err.Message
 
 // ---------------------------------------------------------------------------
-// Example 4 — Four anyons (2-qubit equivalent)
+// Example 4 â€” Four anyons (2-qubit equivalent)
 // ---------------------------------------------------------------------------
 if shouldRun 4 then
     separator ()

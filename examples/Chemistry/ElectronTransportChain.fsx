@@ -1,5 +1,5 @@
-// ==============================================================================
-// Electron Transport Chain — Redox Pair Comparison
+﻿// ==============================================================================
+// Electron Transport Chain â€” Redox Pair Comparison
 // ==============================================================================
 // Compares electron transfer energetics across multiple redox pairs using VQE,
 // ranking them by Marcus theory electron transfer rate.
@@ -35,6 +35,7 @@
 //   [5] Wikipedia: Marcus_theory
 // ==============================================================================
 
+#r "nuget: Microsoft.Extensions.Logging.Abstractions, 10.0.0"
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 #load "../_common/Cli.fs"
 #load "../_common/Data.fs"
@@ -117,8 +118,8 @@ let hartreeToKcalMol = 627.509   // 1 Hartree in kcal/mol
 // ==============================================================================
 // BUILT-IN REDOX PAIR PRESETS
 // ==============================================================================
-// Each pair models a 1-electron oxidation: neutral molecule → cation + e-.
-// Real ETC carriers (cytochrome Fe2+→Fe3+, ubiquinone, Fe-S clusters) are too
+// Each pair models a 1-electron oxidation: neutral molecule â†’ cation + e-.
+// Real ETC carriers (cytochrome Fe2+â†’Fe3+, ubiquinone, Fe-S clusters) are too
 // large for NISQ. These small-molecule analogues capture the same physics:
 // VQE on two charge states to get the ionization energy.
 
@@ -144,7 +145,7 @@ let private lihPair : RedoxPair =
       ReducedMolecule = reduced
       OxidizedMolecule = oxidized
       BiologicalAnalogue = "Metal-ligand bond (Fe-N in heme)"
-      Description = "Lithium hydride ionization — metal-ligand 1e- transfer model" }
+      Description = "Lithium hydride ionization â€” metal-ligand 1e- transfer model" }
 
 /// HF: strongly polar bond with high ionization energy. Models electron
 /// transfer in high-potential carriers like cytochrome a3 (E0 = +0.55 V).
@@ -167,7 +168,7 @@ let private hfPair : RedoxPair =
       ReducedMolecule = reduced
       OxidizedMolecule = oxidized
       BiologicalAnalogue = "High-potential carrier (cyt a3, E0 +0.55V)"
-      Description = "Hydrogen fluoride ionization — high-potential 1e- transfer model" }
+      Description = "Hydrogen fluoride ionization â€” high-potential 1e- transfer model" }
 
 /// H2: homonuclear diatomic, lowest ionization energy among presets.
 /// Models low-potential carriers like NADH (E0 = -0.32 V) where electrons
@@ -191,10 +192,10 @@ let private h2Pair : RedoxPair =
       ReducedMolecule = reduced
       OxidizedMolecule = oxidized
       BiologicalAnalogue = "Low-potential donor (NADH, E0 -0.32V)"
-      Description = "Hydrogen ionization — low-potential 1e- donor model" }
+      Description = "Hydrogen ionization â€” low-potential 1e- donor model" }
 
 /// H2O: lone-pair ionization removes a non-bonding electron. Models
-/// water oxidation at Complex IV (the terminal step: 2H2O → O2 + 4H+ + 4e-).
+/// water oxidation at Complex IV (the terminal step: 2H2O â†’ O2 + 4H+ + 4e-).
 let private h2oPair : RedoxPair =
     let reduced : Molecule =
         { Name = "H2O (neutral)"
@@ -217,7 +218,7 @@ let private h2oPair : RedoxPair =
       ReducedMolecule = reduced
       OxidizedMolecule = oxidized
       BiologicalAnalogue = "Water oxidation (Complex IV terminal step)"
-      Description = "Water ionization — lone-pair 1e- removal model" }
+      Description = "Water ionization â€” lone-pair 1e- removal model" }
 
 /// All built-in presets keyed by lowercase name.
 let private builtinPresets : Map<string, RedoxPair> =
@@ -469,7 +470,7 @@ let private computeSystem
 
     if not quiet then
         if anyFailure then
-            printfn "         => INCOMPLETE (VQE failure — energies are unreliable)"
+            printfn "         => INCOMPLETE (VQE failure â€” energies are unreliable)"
         else
             printfn "         => IE = %.4f eV  |  k_ET = %.2e /s" ieEv rate
         printfn ""
@@ -540,7 +541,7 @@ let printTable () =
 
     printfn ""
 
-// Always print the ranked comparison table — that's the primary output of this tool,
+// Always print the ranked comparison table â€” that's the primary output of this tool,
 // even in --quiet mode (which only suppresses per-system progress output).
 printTable ()
 

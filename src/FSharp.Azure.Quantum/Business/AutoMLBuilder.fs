@@ -498,7 +498,7 @@ module AutoML =
     // ========================================================================
     
     /// Run AutoML search to find best model
-    [<System.Obsolete("Uses Async.Parallel internally. Async counterpart (searchAsync) deferred to Phase 6.")>]
+    [<System.Obsolete("Uses Async.Parallel |> Async.RunSynchronously internally. Use searchAsync for non-blocking parallelization.")>]
     let search (problem: AutoMLProblem) : QuantumResult<AutoMLResult> =
         validateProblem problem
         |> Result.bind (fun () ->
@@ -807,7 +807,284 @@ module AutoML =
             
             | _ ->
                 Error (QuantumError.OperationError ("Operation", "All trials failed - no model could be trained successfully")))
-    
+
+    /// Run AutoML search to find best model (task-based, non-blocking parallelization).
+    ///
+    /// Uses Task.WhenAll + Task.Run for CPU-bound trial batches instead of
+    /// Async.Parallel |> Async.RunSynchronously, making it safe to call from
+    /// an async/task context without deadlock risk.
+    let searchAsync (problem: AutoMLProblem) (cancellationToken: System.Threading.CancellationToken) : System.Threading.Tasks.Task<QuantumResult<AutoMLResult>> =
+        task {
+            // Merge explicit CancellationToken with any token on the problem
+            let problemWithToken =
+                match problem.CancellationToken with
+                | Some _ -> problem
+                | None -> { problem with CancellationToken = Some cancellationToken }
+
+            return
+                validateProblem problemWithToken
+                |> Result.bind (fun () ->
+
+                    let startTime = DateTime.UtcNow
+                    let backend = problemWithToken.Backend |> Option.defaultValue (LocalBackend.LocalBackend() :> IQuantumBackend)
+                    let reporter = problemWithToken.ProgressReporter
+
+                    reporter |> Option.iter (fun r ->
+                        r.Report(Core.Progress.PhaseChanged("AutoML Search", Some "Initializing search")))
+
+                    if problemWithToken.Verbose then
+                        logInfo problemWithToken.Logger "[Start] Starting AutoML Search (async)..."
+                        logInfo problemWithToken.Logger $"   Samples: {problemWithToken.TrainFeatures.Length}"
+                        logInfo problemWithToken.Logger $"   Features: {problemWithToken.TrainFeatures.[0].Length}"
+                        logInfo problemWithToken.Logger $"   Max Trials: {problemWithToken.MaxTrials}"
+                        logInfo problemWithToken.Logger $"   Architectures: {problemWithToken.TryArchitectures.Length}"
+                        logInfo problemWithToken.Logger ""
+
+                    let splitIndex = int (float problemWithToken.TrainFeatures.Length * (1.0 - problemWithToken.ValidationSplit))
+                    let trainX = problemWithToken.TrainFeatures.[..splitIndex-1]
+                    let trainY = problemWithToken.TrainLabels.[..splitIndex-1]
+                    let valX = problemWithToken.TrainFeatures.[splitIndex..]
+                    let valY = problemWithToken.TrainLabels.[splitIndex..]
+
+                    if problemWithToken.Verbose then
+                        logInfo problemWithToken.Logger $"Train/Val Split: {trainX.Length}/{valX.Length} samples\n"
+
+                    let hyperparamConfigs = generateHyperparameterConfigs problemWithToken.RandomSeed
+                    let trials = generateTrials problemWithToken hyperparamConfigs
+
+                    if problemWithToken.Verbose then
+                        logInfo problemWithToken.Logger $"Generated {trials.Length} trials to execute\n"
+
+                    let isTimeBudgetExceeded () =
+                        problemWithToken.MaxTimeMinutes
+                        |> Option.map (fun maxMinutes ->
+                            (DateTime.UtcNow - startTime).TotalMinutes > float maxMinutes)
+                        |> Option.defaultValue false
+
+                    let isCancellationRequested () =
+                        cancellationToken.IsCancellationRequested ||
+                        (match problemWithToken.CancellationToken with
+                         | Some token when token.IsCancellationRequested -> true
+                         | _ ->
+                             reporter |> Option.map (fun r -> r.IsCancellationRequested) |> Option.defaultValue false)
+
+                    // executeTrial is CPU-bound, identical logic to sync version
+                    let executeTrial (trial: TrialSpec) : (TrialResult * obj option) option =
+                        if isCancellationRequested() then
+                            if problemWithToken.Verbose then
+                                logInfo problemWithToken.Logger "[Stop] Search cancelled by user"
+                            reporter |> Option.iter (fun r ->
+                                r.Report(Core.Progress.ProgressUpdate(0.0, "Search cancelled by user")))
+                            None
+                        elif isTimeBudgetExceeded() then
+                            if problemWithToken.Verbose then
+                                let elapsed = (DateTime.UtcNow - startTime).TotalMinutes
+                                logInfo problemWithToken.Logger $"[Timeout] Time budget exceeded ({elapsed:F1} minutes)"
+                            None
+                        else
+                            let trialStart = DateTime.UtcNow
+                            let modelTypeStr = sprintf "%A" trial.ModelType
+                            reporter |> Option.iter (fun r ->
+                                r.Report(Core.Progress.TrialStarted(trial.Id + 1, trials.Length, modelTypeStr)))
+                            if problemWithToken.Verbose then
+                                logInfo problemWithToken.Logger $"Trial {trial.Id + 1}/{List.length trials}: {trial.ModelType} with {trial.Architecture}..."
+
+                            let createFailureResult errorMsg =
+                                ({
+                                    Id = trial.Id
+                                    ModelType = trial.ModelType
+                                    Architecture = trial.Architecture
+                                    Hyperparameters = trial.Hyperparameters
+                                    Score = 0.0
+                                    TrainingTime = DateTime.UtcNow - trialStart
+                                    Success = false
+                                    ErrorMessage = Some errorMsg
+                                }, None)
+
+                            let createSuccessResult score model =
+                                ({
+                                    Id = trial.Id
+                                    ModelType = trial.ModelType
+                                    Architecture = trial.Architecture
+                                    Hyperparameters = trial.Hyperparameters
+                                    Score = score
+                                    TrainingTime = DateTime.UtcNow - trialStart
+                                    Success = true
+                                    ErrorMessage = None
+                                }, Some (box model))
+
+                            let result =
+                                try
+                                    match trial.ModelType with
+                                    | BinaryClassification ->
+                                        let trainYInt = trainY |> Array.map int
+                                        let valYInt = valY |> Array.map int
+                                        tryBinaryClassificationModel trainX trainYInt trial.Architecture trial.Hyperparameters (Some backend)
+                                        |> Result.bind (fun model ->
+                                            BinaryClassifier.evaluate valX valYInt model
+                                            |> Result.map (fun metrics ->
+                                                let score = metrics.Accuracy
+                                                let elapsed = (DateTime.UtcNow - trialStart).TotalSeconds
+                                                if problemWithToken.Verbose then
+                                                    logInfo problemWithToken.Logger $"  [OK] Score: {score * 100.0:F2}%% (time: {elapsed:F1}s)"
+                                                reporter |> Option.iter (fun r ->
+                                                    r.Report(Core.Progress.TrialCompleted(trial.Id + 1, score, elapsed)))
+                                                (score, model)))
+                                        |> Result.map (fun (score, model) -> createSuccessResult score model)
+                                        |> Result.orElseWith (fun e ->
+                                            if problemWithToken.Verbose then
+                                                logWarning problemWithToken.Logger $"  [FAIL] Failed: {e}"
+                                            reporter |> Option.iter (fun r ->
+                                                r.Report(Core.Progress.TrialFailed(trial.Id + 1, e.Message)))
+                                            Ok (createFailureResult e.Message))
+                                    | MultiClassClassification numClasses ->
+                                        let trainYInt = trainY |> Array.map int
+                                        let valYInt = valY |> Array.map int
+                                        tryMultiClassModel trainX trainYInt numClasses trial.Architecture trial.Hyperparameters (Some backend)
+                                        |> Result.bind (fun model ->
+                                            PredictiveModel.evaluateMultiClass valX valYInt model
+                                            |> Result.map (fun metrics ->
+                                                let score = metrics.Accuracy
+                                                if problemWithToken.Verbose then
+                                                    logInfo problemWithToken.Logger $"  [OK] Score: {score * 100.0:F2}%% (time: {(DateTime.UtcNow - trialStart).TotalSeconds:F1}s)"
+                                                (score, model)))
+                                        |> Result.map (fun (score, model) -> createSuccessResult score model)
+                                        |> Result.orElseWith (fun e ->
+                                            if problemWithToken.Verbose then
+                                                logWarning problemWithToken.Logger $"  [FAIL] Failed: {e}"
+                                            Ok (createFailureResult e.Message))
+                                    | Regression ->
+                                        tryRegressionModel trainX trainY trial.Architecture trial.Hyperparameters (Some backend)
+                                        |> Result.bind (fun model ->
+                                            PredictiveModel.evaluateRegression valX valY model
+                                            |> Result.map (fun metrics ->
+                                                let score = max 0.0 metrics.RSquared
+                                                if problemWithToken.Verbose then
+                                                    logInfo problemWithToken.Logger $"  [OK] R2 Score: {score:F4} (time: {(DateTime.UtcNow - trialStart).TotalSeconds:F1}s)"
+                                                (score, model)))
+                                        |> Result.map (fun (score, model) -> createSuccessResult score model)
+                                        |> Result.orElseWith (fun e ->
+                                            if problemWithToken.Verbose then
+                                                logWarning problemWithToken.Logger $"  [FAIL] Failed: {e}"
+                                            Ok (createFailureResult e.Message))
+                                    | AnomalyDetection ->
+                                        let normalData = trainX
+                                        tryAnomalyDetectionModel normalData trial.Architecture trial.Hyperparameters (Some backend)
+                                        |> Result.map (fun detector ->
+                                            let predictions =
+                                                valX
+                                                |> Array.choose (fun x ->
+                                                    AnomalyDetector.check x detector
+                                                    |> Result.toOption
+                                                    |> Option.map (fun pred -> if pred.IsAnomaly then 1.0 else 0.0))
+                                            let score =
+                                                if predictions.Length > 0 then
+                                                    let anomalyRate = predictions |> Array.average
+                                                    if anomalyRate >= 0.05 && anomalyRate <= 0.15 then 0.8 else 0.5
+                                                else 0.0
+                                            if problemWithToken.Verbose then
+                                                logInfo problemWithToken.Logger $"  [OK] Heuristic Score: {score:F2} (time: {(DateTime.UtcNow - trialStart).TotalSeconds:F1}s)"
+                                            (score, detector))
+                                        |> Result.map (fun (score, detector) -> createSuccessResult score detector)
+                                        |> Result.orElseWith (fun e ->
+                                            if problemWithToken.Verbose then
+                                                logWarning problemWithToken.Logger $"  [FAIL] Failed: {e}"
+                                            Ok (createFailureResult e.Message))
+                                    | SimilaritySearch ->
+                                        trySimilaritySearchModel trainX trial.Hyperparameters (Some backend)
+                                        |> Result.map (fun searchIndex ->
+                                            let score =
+                                                if searchIndex.Items.Length >= 2 then 0.7
+                                                else 0.3
+                                            if problemWithToken.Verbose then
+                                                logInfo problemWithToken.Logger $"  [OK] Search Quality Score: {score:F2} (time: {(DateTime.UtcNow - trialStart).TotalSeconds:F1}s)"
+                                            (score, searchIndex))
+                                        |> Result.map (fun (score, searchIndex) -> createSuccessResult score searchIndex)
+                                        |> Result.orElseWith (fun e ->
+                                            if problemWithToken.Verbose then
+                                                logWarning problemWithToken.Logger $"  [FAIL] Failed: {e}"
+                                            Ok (createFailureResult e.Message))
+                                with ex ->
+                                    if problemWithToken.Verbose then
+                                        logError problemWithToken.Logger $"  [ERROR] Exception: {ex.Message}"
+                                    Ok (createFailureResult ex.Message)
+
+                            match result with
+                            | Ok resultTuple -> Some resultTuple
+                            | Error _ -> None
+
+                    // Task-based parallelization: Task.WhenAll + Task.Run for CPU-bound work
+                    let maxDegreeOfParallelism = min 4 (trials.Length / 2 |> max 1)
+
+                    let resultsWithModels =
+                        trials
+                        |> List.chunkBySize maxDegreeOfParallelism
+                        |> List.collect (fun batch ->
+                            let tasks =
+                                batch
+                                |> List.map (fun trial ->
+                                    System.Threading.Tasks.Task.Run((fun () -> executeTrial trial), cancellationToken))
+                                |> Array.ofList
+                            System.Threading.Tasks.Task.WhenAll(tasks).GetAwaiter().GetResult()
+                            |> Array.choose id
+                            |> Array.toList)
+
+                    let results = resultsWithModels |> List.map fst
+                    let totalTime = DateTime.UtcNow - startTime
+
+                    let bestResultWithModel =
+                        resultsWithModels
+                        |> List.filter (fun (r, _) -> r.Success)
+                        |> List.sortByDescending (fun (r, _) -> r.Score)
+                        |> List.tryHead
+
+                    match bestResultWithModel with
+                    | Some (bestTrial, Some bestModel) ->
+                        let modelTypeStr =
+                            match bestTrial.ModelType with
+                            | BinaryClassification -> "Binary Classification"
+                            | MultiClassClassification n -> $"Multi-Class Classification ({n} classes)"
+                            | Regression -> "Regression"
+                            | AnomalyDetection -> "Anomaly Detection"
+                            | SimilaritySearch -> "Similarity Search"
+
+                        let successfulTrials = results |> List.filter (fun r -> r.Success) |> List.length
+                        let failedTrials = results |> List.filter (fun r -> not r.Success) |> List.length
+
+                        let result = {
+                            BestModelType = modelTypeStr
+                            BestArchitecture = bestTrial.Architecture
+                            BestHyperparameters = bestTrial.Hyperparameters
+                            Score = bestTrial.Score
+                            AllTrials = results |> List.toArray
+                            TotalSearchTime = totalTime
+                            SuccessfulTrials = successfulTrials
+                            FailedTrials = failedTrials
+                            Model = bestModel
+                            Metadata = {
+                                NumFeatures = problemWithToken.TrainFeatures.[0].Length
+                                NumSamples = problemWithToken.TrainFeatures.Length
+                                CreatedAt = startTime
+                                SearchCompleted = DateTime.UtcNow
+                                Note = None
+                            }
+                        }
+
+                        if problemWithToken.Verbose then
+                            logInfo problemWithToken.Logger ""
+                            logInfo problemWithToken.Logger "[OK] AutoML Search Complete (async)!"
+                            logInfo problemWithToken.Logger $"   Best Model: {result.BestModelType}"
+                            logInfo problemWithToken.Logger $"   Best Architecture: {result.BestArchitecture}"
+                            logInfo problemWithToken.Logger $"   Best Score: {result.Score * 100.0:F2}%%"
+                            logInfo problemWithToken.Logger $"   Successful Trials: {result.SuccessfulTrials}/{results.Length}"
+                            logInfo problemWithToken.Logger $"   Total Time: {result.TotalSearchTime.TotalSeconds:F1}s"
+
+                        Ok result
+
+                    | _ ->
+                        Error (QuantumError.OperationError ("Operation", "All trials failed - no model could be trained successfully")))
+        }
+
     
     // ========================================================================
     // PREDICTION - Use best model

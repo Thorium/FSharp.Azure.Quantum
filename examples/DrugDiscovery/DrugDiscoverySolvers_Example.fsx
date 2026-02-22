@@ -1,4 +1,4 @@
-// ============================================================================
+﻿// ============================================================================
 // DrugDiscoverySolvers Example
 // ============================================================================
 // Demonstrates the three quantum drug-discovery solvers:
@@ -18,6 +18,7 @@
 //   dotnet fsi DrugDiscoverySolvers_Example.fsx -- --output results.json --csv results.csv
 // ============================================================================
 
+#r "nuget: Microsoft.Extensions.Logging.Abstractions, 10.0.0"
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 #load "../_common/Cli.fs"
 #load "../_common/Data.fs"
@@ -65,10 +66,10 @@ let quantumBackend = LocalBackend() :> IQuantumBackend
 // pairs that have known chemical conflicts (toxicity, interference, etc.)
 
 if runAll || exampleName = "independent" then
-    pr "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    pr "â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”"
     pr " Example 1: Independent Set - Compound Screening"
     pr " Select highest-value drug candidates avoiding chemical conflicts."
-    pr "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    pr "â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”"
 
     let problem : DrugDiscoverySolvers.IndependentSet.Problem = {
         Nodes = [
@@ -120,10 +121,10 @@ if runAll || exampleName = "independent" then
 
 if runAll || exampleName = "influence" then
     pr ""
-    pr "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    pr "â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”"
     pr " Example 2: Influence Maximization - Gene Pathway Analysis"
     pr " Select top-K genes with highest combined influence in a regulatory network."
-    pr "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    pr "â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”"
 
     let problem : DrugDiscoverySolvers.InfluenceMaximization.Problem = {
         Nodes = [
@@ -178,10 +179,10 @@ if runAll || exampleName = "influence" then
 
 if runAll || exampleName = "diverse" then
     pr ""
-    pr "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    pr "â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”"
     pr " Example 3: Diverse Selection - Compound Library Design"
     pr " Select diverse high-value compounds within a budget."
-    pr "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    pr "â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”"
 
     let items : DrugDiscoverySolvers.DiverseSelection.Item list = [
         { Id = "CompoundA"; Value = 0.9; Cost = 100.0 }

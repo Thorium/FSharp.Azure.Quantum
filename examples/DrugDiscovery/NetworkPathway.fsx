@@ -1,4 +1,4 @@
-// ==============================================================================
+﻿// ==============================================================================
 // Network Pathway Analysis - Key Target Identification
 // ==============================================================================
 // Identifies key drug targets in protein interaction networks using quantum
@@ -29,6 +29,7 @@
 //   [4] Wikipedia: Influence_maximization
 // ==============================================================================
 
+#r "nuget: Microsoft.Extensions.Logging.Abstractions, 10.0.0"
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 #r "nuget: MathNet.Numerics, 5.0.0"
 #load "../_common/Cli.fs"

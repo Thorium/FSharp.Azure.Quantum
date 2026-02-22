@@ -1,4 +1,4 @@
-// ==============================================================================
+﻿// ==============================================================================
 // Combinatorial Screening - Diverse Compound Selection
 // ==============================================================================
 // Selects an optimal diverse subset of compounds from a screening library
@@ -31,6 +31,7 @@
 //   [4] Farhi, E. et al. "QAOA" arXiv:1411.4028 (2014)
 // ==============================================================================
 
+#r "nuget: Microsoft.Extensions.Logging.Abstractions, 10.0.0"
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 #r "nuget: MathNet.Numerics, 5.0.0"
 #load "../_common/Cli.fs"
@@ -315,7 +316,7 @@ let compoundResults : CompoundResult list =
           HasVqeFailure = hasFailure })
 
 // Sort: selected first (by value descending), then unselected (by value descending).
-// Failed → bottom.
+// Failed â†’ bottom.
 let ranked =
     compoundResults
     |> List.sortBy (fun r ->
@@ -398,7 +399,7 @@ let printTable () =
             printfn ""
     | None -> ()
 
-// Always print — this is the primary output.
+// Always print â€” this is the primary output.
 printTable ()
 
 // ==============================================================================

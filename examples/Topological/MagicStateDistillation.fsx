@@ -1,5 +1,5 @@
-(*
-    Magic State Distillation — Topological Quantum Computing
+﻿(*
+    Magic State Distillation â€” Topological Quantum Computing
     ==========================================================
 
     Demonstrates achieving universal quantum computation with
@@ -13,6 +13,7 @@
               dotnet fsi MagicStateDistillation.fsx -- --error-rate 0.08
 *)
 
+#r "nuget: Microsoft.Extensions.Logging.Abstractions, 10.0.0"
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 #r "../../src/FSharp.Azure.Quantum.Topological/bin/Debug/net10.0/FSharp.Azure.Quantum.Topological.dll"
 #load "../_common/Cli.fs"
@@ -49,7 +50,7 @@ let separator () = pr "%s" (String.replicate 60 "-")
 let fmt (x: float) = sprintf "%.6f" x
 
 // ---------------------------------------------------------------------------
-// Quantum backend (Rule 1) — topological IQuantumBackend
+// Quantum backend (Rule 1) â€” topological IQuantumBackend
 // ---------------------------------------------------------------------------
 let quantumBackend = TopologicalUnifiedBackendFactory.createIsing 10
 
@@ -60,7 +61,7 @@ let mutable jsonResults : (string * obj) list = []
 let mutable csvRows     : string list list    = []
 
 // ---------------------------------------------------------------------------
-// Example 1 — Single round 15-to-1 distillation
+// Example 1 â€” Single round 15-to-1 distillation
 // ---------------------------------------------------------------------------
 if shouldRun 1 then
     separator ()
@@ -99,7 +100,7 @@ if shouldRun 1 then
         pr "Insufficient states (%d/15)" states.Length
 
 // ---------------------------------------------------------------------------
-// Example 2 — Iterative distillation (2 rounds)
+// Example 2 â€” Iterative distillation (2 rounds)
 // ---------------------------------------------------------------------------
 if shouldRun 2 then
     separator ()
@@ -139,7 +140,7 @@ if shouldRun 2 then
         pr "Insufficient states (%d/%d)" s.Length needed
 
 // ---------------------------------------------------------------------------
-// Example 3 — Resource estimation
+// Example 3 â€” Resource estimation
 // ---------------------------------------------------------------------------
 if shouldRun 3 then
     separator ()
@@ -159,7 +160,7 @@ if shouldRun 3 then
     csvRows <- [ "3_resources"; sprintf "%.4f" targetFid; sprintf "%.4f" noisyFid ] :: csvRows
 
 // ---------------------------------------------------------------------------
-// Example 4 — Apply T-gate via magic state injection
+// Example 4 â€” Apply T-gate via magic state injection
 // ---------------------------------------------------------------------------
 if shouldRun 4 then
     separator ()
@@ -199,7 +200,7 @@ if shouldRun 4 then
 
             match MagicStateDistillation.applyTGate random dataQubit distR.PurifiedState with
             | Ok tGateR ->
-                pr "T-gate applied — gate fidelity: %s" (fmt tGateR.GateFidelity)
+                pr "T-gate applied â€” gate fidelity: %s" (fmt tGateR.GateFidelity)
                 pr ""
                 pr "Clifford + T-gate = universal quantum computation!"
 

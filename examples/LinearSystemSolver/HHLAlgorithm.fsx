@@ -1,4 +1,4 @@
-// HHL Algorithm (Harrow-Hassidim-Lloyd) Example
+﻿// HHL Algorithm (Harrow-Hassidim-Lloyd) Example
 // Quantum Linear System Solver: Ax = b
 //
 // BREAKTHROUGH: Exponential speedup for solving linear systems
@@ -59,6 +59,7 @@ References:
 *)
 
 //#r "nuget: FSharp.Azure.Quantum"
+#r "nuget: Microsoft.Extensions.Logging.Abstractions, 10.0.0"
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 #load "../_common/Cli.fs"
 #load "../_common/Data.fs"

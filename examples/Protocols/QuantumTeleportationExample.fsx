@@ -1,4 +1,4 @@
-/// Quantum Teleportation Protocol Example
+﻿/// Quantum Teleportation Protocol Example
 /// 
 /// Demonstrates the canonical quantum teleportation protocol:
 /// - Transfer quantum state from Alice to Bob using entanglement
@@ -26,28 +26,28 @@
 ===============================================================================
 
 Quantum teleportation (Bennett et al., 1993) transfers an unknown quantum state
-|ψ⟩ = α|0⟩ + β|1⟩ from Alice to Bob using shared entanglement and classical
+|ÏˆâŸ© = Î±|0âŸ© + Î²|1âŸ© from Alice to Bob using shared entanglement and classical
 communication. Crucially, the protocol does NOT transmit the physical qubit or
 violate relativity (classical bits must be sent). Instead, it "disassembles"
 the quantum information at Alice's location and "reassembles" it at Bob's,
 consuming one Bell pair and two classical bits per teleported qubit.
 
 The protocol proceeds in three steps: (1) Alice and Bob pre-share a Bell state
-|Φ⁺⟩ = (|00⟩ + |11⟩)/√2. (2) Alice performs a Bell-basis measurement on her
+|Î¦âºâŸ© = (|00âŸ© + |11âŸ©)/âˆš2. (2) Alice performs a Bell-basis measurement on her
 qubit (the state to teleport) and her half of the Bell pair, obtaining 2 classical
-bits (m₁, m₂). This measurement collapses Bob's qubit into one of four states,
-each related to |ψ⟩ by a known Pauli operation. (3) Alice sends (m₁, m₂) to Bob,
-who applies the corresponding correction: I, X, Z, or XZ. Bob now has |ψ⟩.
+bits (mâ‚, mâ‚‚). This measurement collapses Bob's qubit into one of four states,
+each related to |ÏˆâŸ© by a known Pauli operation. (3) Alice sends (mâ‚, mâ‚‚) to Bob,
+who applies the corresponding correction: I, X, Z, or XZ. Bob now has |ÏˆâŸ©.
 
 Key Equations:
-  - Initial state: |ψ⟩_A ⊗ |Φ⁺⟩_AB = (α|0⟩ + β|1⟩) ⊗ (|00⟩ + |11⟩)/√2
+  - Initial state: |ÏˆâŸ©_A âŠ— |Î¦âºâŸ©_AB = (Î±|0âŸ© + Î²|1âŸ©) âŠ— (|00âŸ© + |11âŸ©)/âˆš2
   - Bell measurement outcomes and Bob's state:
-    |Φ⁺⟩: Bob has |ψ⟩ (apply I)
-    |Φ⁻⟩: Bob has Z|ψ⟩ (apply Z)
-    |Ψ⁺⟩: Bob has X|ψ⟩ (apply X)
-    |Ψ⁻⟩: Bob has XZ|ψ⟩ (apply XZ)
-  - Resource cost: 1 ebit (Bell pair) + 2 cbits → 1 teleported qubit
-  - Fidelity: F = |⟨ψ_ideal|ψ_actual⟩|² (ideally 1.0, limited by noise)
+    |Î¦âºâŸ©: Bob has |ÏˆâŸ© (apply I)
+    |Î¦â»âŸ©: Bob has Z|ÏˆâŸ© (apply Z)
+    |Î¨âºâŸ©: Bob has X|ÏˆâŸ© (apply X)
+    |Î¨â»âŸ©: Bob has XZ|ÏˆâŸ© (apply XZ)
+  - Resource cost: 1 ebit (Bell pair) + 2 cbits â†’ 1 teleported qubit
+  - Fidelity: F = |âŸ¨Ïˆ_ideal|Ïˆ_actualâŸ©|Â² (ideally 1.0, limited by noise)
 
 Quantum Advantage:
   Teleportation is foundational for quantum networking and distributed quantum
@@ -70,6 +70,7 @@ References:
 *)
 
 //#r "nuget: FSharp.Azure.Quantum"
+#r "nuget: Microsoft.Extensions.Logging.Abstractions, 10.0.0"
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 
 #load "../_common/Cli.fs"

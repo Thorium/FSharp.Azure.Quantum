@@ -1,4 +1,4 @@
-#!/usr/bin/env dotnet fsi
+﻿#!/usr/bin/env dotnet fsi
 // ============================================================================
 // Azure Quantum Workspace Management
 // ============================================================================
@@ -18,6 +18,7 @@
 
 //#r "nuget: FSharp.Azure.Quantum"
 #r "nuget: Microsoft.Azure.Quantum.Client"
+#r "nuget: Microsoft.Extensions.Logging.Abstractions, 10.0.0"
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 #load "../_common/Cli.fs"
 #load "../_common/Data.fs"

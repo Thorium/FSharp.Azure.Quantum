@@ -1,4 +1,4 @@
-// ==============================================================================
+﻿// ==============================================================================
 // Supply Chain Optimization using Quantum QAOA Network Flow
 // ==============================================================================
 // Multi-stage supply chain optimization using QuantumNetworkFlowSolver (QAOA)
@@ -19,6 +19,7 @@
 //       https://en.wikipedia.org/wiki/Minimum-cost_flow_problem
 // ==============================================================================
 
+#r "nuget: Microsoft.Extensions.Logging.Abstractions, 10.0.0"
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 #load "../_common/Cli.fs"
 #load "../_common/Data.fs"

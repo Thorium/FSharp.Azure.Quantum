@@ -1,4 +1,4 @@
-// ==============================================================================
+﻿// ==============================================================================
 // Quantum ECDLP Threat to Bitcoin / Cryptocurrency Elliptic Curve Cryptography
 // ==============================================================================
 // Compares quantum-assisted ECDLP attacks across multiple toy elliptic curves,
@@ -22,6 +22,7 @@
 //       https://en.wikipedia.org/wiki/Elliptic-curve_cryptography
 // ==============================================================================
 
+#r "nuget: Microsoft.Extensions.Logging.Abstractions, 10.0.0"
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 #r "nuget: NBitcoin, 7.0.44"
 #load "../_common/Cli.fs"
@@ -361,7 +362,7 @@ if not quiet then
     printfn "    Private (hex): %s" (bitcoinKey.ToHex())
     printfn "    Public (hex):  %s" (bitcoinPubKey.ToHex())
     printfn "    Address:       %s" (p2wpkhAddress.ToString())
-    printfn "    (Breaking requires ~2,330 logical qubits — ~1000x current hardware)"
+    printfn "    (Breaking requires ~2,330 logical qubits â€” ~1000x current hardware)"
     printfn ""
 
 // ==============================================================================

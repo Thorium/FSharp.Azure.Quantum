@@ -1,4 +1,4 @@
-/// Knapsack Example - Resource Allocation with Quantum QAOA
+﻿/// Knapsack Example - Resource Allocation with Quantum QAOA
 /// 
 /// USE CASE: Select optimal set of items to maximize value within weight/capacity constraint
 /// 
@@ -18,33 +18,33 @@
 ===============================================================================
 
 The 0/1 Knapsack Problem is a classic NP-hard combinatorial optimization problem:
-given n items with weights wᵢ and values vᵢ, and a knapsack capacity W, select a
-subset S to maximize Σᵢ∈S vᵢ subject to Σᵢ∈S wᵢ ≤ W. Each item is either fully
-included (1) or excluded (0)—no fractional selections. While dynamic programming
+given n items with weights wáµ¢ and values váµ¢, and a knapsack capacity W, select a
+subset S to maximize Î£áµ¢âˆˆS váµ¢ subject to Î£áµ¢âˆˆS wáµ¢ â‰¤ W. Each item is either fully
+included (1) or excluded (0)â€”no fractional selections. While dynamic programming
 solves this in O(nW) pseudo-polynomial time, truly large instances (n > 100,
-W > 10⁶) or variants with additional constraints remain computationally challenging.
+W > 10â¶) or variants with additional constraints remain computationally challenging.
 
 The problem maps naturally to QUBO (Quadratic Unconstrained Binary Optimization)
-formulation suitable for quantum optimization. Binary variables xᵢ ∈ {0,1} indicate
-item selection. The objective maximizes Σᵢ vᵢxᵢ while a penalty term enforces the
-capacity constraint: minimize -Σᵢ vᵢxᵢ + λ(Σᵢ wᵢxᵢ - W)² where λ is a penalty
+formulation suitable for quantum optimization. Binary variables xáµ¢ âˆˆ {0,1} indicate
+item selection. The objective maximizes Î£áµ¢ váµ¢xáµ¢ while a penalty term enforces the
+capacity constraint: minimize -Î£áµ¢ váµ¢xáµ¢ + Î»(Î£áµ¢ wáµ¢xáµ¢ - W)Â² where Î» is a penalty
 strength. QAOA then searches for the ground state of this cost Hamiltonian.
 
 Key Equations:
-  - Objective function: max Σᵢ vᵢxᵢ  where xᵢ ∈ {0,1}
-  - Capacity constraint: Σᵢ wᵢxᵢ ≤ W
-  - QUBO formulation: min -Σᵢ vᵢxᵢ + λ·(Σᵢ wᵢxᵢ - W - s)²
-    where s is a slack variable for inequality → equality conversion
-  - Penalty strength: λ > max(vᵢ) ensures feasibility dominates
+  - Objective function: max Î£áµ¢ váµ¢xáµ¢  where xáµ¢ âˆˆ {0,1}
+  - Capacity constraint: Î£áµ¢ wáµ¢xáµ¢ â‰¤ W
+  - QUBO formulation: min -Î£áµ¢ váµ¢xáµ¢ + Î»Â·(Î£áµ¢ wáµ¢xáµ¢ - W - s)Â²
+    where s is a slack variable for inequality â†’ equality conversion
+  - Penalty strength: Î» > max(váµ¢) ensures feasibility dominates
   - Dynamic programming: O(nW) time, O(W) space (classical baseline)
 
 Quantum Advantage:
-  QAOA explores the 2ⁿ solution space in superposition, potentially finding
+  QAOA explores the 2â¿ solution space in superposition, potentially finding
   high-quality solutions faster than classical local search for large instances.
   The quantum approach is particularly promising for knapsack variants with
   complex constraints (multi-dimensional knapsack, multiple knapsacks, quadratic
   knapsack) where classical DP becomes impractical. Current NISQ devices handle
-  n ≈ 20-50 items; fault-tolerant systems could address industrial-scale problems
+  n â‰ˆ 20-50 items; fault-tolerant systems could address industrial-scale problems
   with thousands of items and constraints.
 
 References:
@@ -66,6 +66,7 @@ Usage:
 *)
 
 //#r "nuget: FSharp.Azure.Quantum"
+#r "nuget: Microsoft.Extensions.Logging.Abstractions, 10.0.0"
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 
 #load "../_common/Cli.fs"

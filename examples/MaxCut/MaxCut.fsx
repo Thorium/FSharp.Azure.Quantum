@@ -1,4 +1,4 @@
-/// MaxCut Example - Circuit Design Wire Minimization
+﻿/// MaxCut Example - Circuit Design Wire Minimization
 /// 
 /// USE CASE: Partition circuit blocks to minimize wire crossings
 /// 
@@ -29,18 +29,18 @@ The Quantum Approximate Optimization Algorithm (QAOA), introduced by Farhi et al
 (2014), is a variational quantum algorithm specifically designed for combinatorial
 optimization problems like MaxCut. QAOA encodes the problem Hamiltonian H_C (cost)
 and a mixer Hamiltonian H_B (driver) into alternating quantum operations. At depth
-p, the ansatz is: |ψ(γ,β)⟩ = Πₖ exp(-iβₖH_B)·exp(-iγₖH_C)|+⟩ⁿ. The parameters
-(γ,β) are optimized classically to maximize ⟨H_C⟩.
+p, the ansatz is: |Ïˆ(Î³,Î²)âŸ© = Î â‚– exp(-iÎ²â‚–H_B)Â·exp(-iÎ³â‚–H_C)|+âŸ©â¿. The parameters
+(Î³,Î²) are optimized classically to maximize âŸ¨H_CâŸ©.
 
 Key Equations:
-  - MaxCut cost function: C(z) = Σ_{(i,j)∈E} wᵢⱼ·½(1 - zᵢzⱼ)  where zᵢ ∈ {±1}
-  - Problem Hamiltonian: H_C = Σ_{(i,j)∈E} wᵢⱼ·½(I - ZᵢZⱼ)
-  - Mixer Hamiltonian: H_B = Σᵢ Xᵢ (induces transitions between configurations)
-  - QAOA depth-p ansatz: |γ,β⟩ = Πₖ₌₁ᵖ e^{-iβₖH_B} e^{-iγₖH_C} |+⟩ⁿ
-  - Expected cut value: ⟨γ,β|H_C|γ,β⟩ (maximized over parameters)
+  - MaxCut cost function: C(z) = Î£_{(i,j)âˆˆE} wáµ¢â±¼Â·Â½(1 - záµ¢zâ±¼)  where záµ¢ âˆˆ {Â±1}
+  - Problem Hamiltonian: H_C = Î£_{(i,j)âˆˆE} wáµ¢â±¼Â·Â½(I - Záµ¢Zâ±¼)
+  - Mixer Hamiltonian: H_B = Î£áµ¢ Xáµ¢ (induces transitions between configurations)
+  - QAOA depth-p ansatz: |Î³,Î²âŸ© = Î â‚–â‚Œâ‚áµ– e^{-iÎ²â‚–H_B} e^{-iÎ³â‚–H_C} |+âŸ©â¿
+  - Expected cut value: âŸ¨Î³,Î²|H_C|Î³,Î²âŸ© (maximized over parameters)
 
 Quantum Advantage:
-  QAOA provides a quantum-native approach to NP-hard optimization. At depth p→∞,
+  QAOA provides a quantum-native approach to NP-hard optimization. At depth pâ†’âˆž,
   QAOA provably finds the optimal solution. For finite depth, QAOA can outperform
   classical local search on certain graph instances. On NISQ devices, QAOA at
   depth p=1-3 often matches or exceeds classical heuristics for small graphs.
@@ -61,6 +61,7 @@ References:
 *)
 
 //#r "nuget: FSharp.Azure.Quantum"
+#r "nuget: Microsoft.Extensions.Logging.Abstractions, 10.0.0"
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 
 #load "../_common/Cli.fs"

@@ -1,4 +1,4 @@
-// Ekert E91 Quantum Key Distribution Protocol Example
+﻿// Ekert E91 Quantum Key Distribution Protocol Example
 // Demonstrates entanglement-based QKD with CHSH eavesdropper detection
 //
 // Usage:
@@ -52,6 +52,7 @@ References:
       https://en.wikipedia.org/wiki/Quantum_key_distribution#E91_protocol
 *)
 
+#r "nuget: Microsoft.Extensions.Logging.Abstractions, 10.0.0"
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 #load "../_common/Cli.fs"
 #load "../_common/Data.fs"
@@ -109,7 +110,7 @@ if runScenario "basis" then
         printfn ""
         printfn "BUSINESS SCENARIO:"
         printfn "Entanglement-based quantum key distribution with security"
-        printfn "guaranteed by Bell's theorem — any eavesdropping destroys"
+        printfn "guaranteed by Bell's theorem â€” any eavesdropping destroys"
         printfn "entanglement and is detected via CHSH inequality violation."
         printfn ""
         printfn "Backend: %s" backend.Name

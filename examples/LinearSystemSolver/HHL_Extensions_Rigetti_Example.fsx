@@ -1,4 +1,4 @@
-// HHL Algorithm Extensions - Production Rigetti Example
+﻿// HHL Algorithm Extensions - Production Rigetti Example
 // Demonstrates new features:
 // 1. Automatic condition number estimation
 // 2. Comprehensive error bounds calculation
@@ -8,6 +8,7 @@
 //
 // NEW in this version: Smart configuration for quantum hardware
 
+#r "nuget: Microsoft.Extensions.Logging.Abstractions, 10.0.0"
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 #load "../_common/Cli.fs"
 #load "../_common/Data.fs"

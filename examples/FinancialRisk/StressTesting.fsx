@@ -1,4 +1,4 @@
-// ==============================================================================
+﻿// ==============================================================================
 // Quantum Stress Testing Example
 // ==============================================================================
 // Quantum-enhanced multi-scenario stress testing for financial portfolios.
@@ -21,6 +21,7 @@
 //   [4] Rebentrost et al., "Quantum computational finance" arXiv:1805.00109
 // ==============================================================================
 
+#r "nuget: Microsoft.Extensions.Logging.Abstractions, 10.0.0"
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 
 #load "../_common/Cli.fs"
@@ -548,9 +549,9 @@ let printTable () =
             | GeopoliticalEvent   -> "Geo"
             | MarketDislocation   -> "Mkt"
         let status = if r.HasQuantumFailure then "FAIL" else "OK"
-        let qvarStr = if Double.IsNaN r.QuantumVaR then "—" else sprintf "$%s" (r.QuantumVaR.ToString("N0"))
-        let tailStr = if Double.IsNaN r.TailProbability then "—" else sprintf "%.4f%%" (r.TailProbability * 100.0)
-        let speedStr = if Double.IsNaN r.Speedup then "—" else sprintf "%.1fx" r.Speedup
+        let qvarStr = if Double.IsNaN r.QuantumVaR then "â€”" else sprintf "$%s" (r.QuantumVaR.ToString("N0"))
+        let tailStr = if Double.IsNaN r.TailProbability then "â€”" else sprintf "%.4f%%" (r.TailProbability * 100.0)
+        let speedStr = if Double.IsNaN r.Speedup then "â€”" else sprintf "%.1fx" r.Speedup
         printfn "  %-32s %10s $%14s %7.2f%% %12s %10s %8s %8s"
             (if r.Scenario.Name.Length > 32 then r.Scenario.Name.[..31] else r.Scenario.Name)
             catStr

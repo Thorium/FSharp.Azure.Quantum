@@ -1,4 +1,4 @@
-// ============================================================================
+﻿// ============================================================================
 // Social Network Analyzer Example
 // ============================================================================
 // Demonstrates using quantum Grover's algorithm to find tight-knit communities
@@ -16,6 +16,7 @@
 //   dotnet fsi SocialNetworkAnalyzer_Example.fsx -- --shots 2000 --quiet --output results.json
 // ============================================================================
 
+#r "nuget: Microsoft.Extensions.Logging.Abstractions, 10.0.0"
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 #load "../_common/Cli.fs"
 #load "../_common/Data.fs"

@@ -1,4 +1,4 @@
-// Deutsch-Jozsa Algorithm Example
+﻿// Deutsch-Jozsa Algorithm Example
 // Determines if a function is constant or balanced with a single quantum query
 //
 // Usage:
@@ -50,6 +50,7 @@ References:
       https://en.wikipedia.org/wiki/Deutsch%E2%80%93Jozsa_algorithm
 *)
 
+#r "nuget: Microsoft.Extensions.Logging.Abstractions, 10.0.0"
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 #r "../../src/FSharp.Azure.Quantum.Topological/bin/Debug/net10.0/FSharp.Azure.Quantum.Topological.dll"
 #load "../_common/Cli.fs"

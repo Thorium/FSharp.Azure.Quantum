@@ -1,4 +1,4 @@
-/// Integer Variables Example - Native Integer Support for QAOA
+﻿/// Integer Variables Example - Native Integer Support for QAOA
 ///
 /// USE CASE: Work with integer decision variables directly in quantum optimization
 ///
@@ -42,6 +42,7 @@ Usage:
 *)
 
 //#r "nuget: FSharp.Azure.Quantum"
+#r "nuget: Microsoft.Extensions.Logging.Abstractions, 10.0.0"
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 
 #load "../_common/Cli.fs"

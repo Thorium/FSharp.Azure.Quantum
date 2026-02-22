@@ -1,4 +1,4 @@
-/// BB84 Complete QKD Pipeline Example
+﻿/// BB84 Complete QKD Pipeline Example
 ///
 /// Demonstrates the full Quantum Key Distribution pipeline:
 /// 1. BB84 quantum key exchange (basis reconciliation, sifting)
@@ -24,6 +24,7 @@
 /// - Micius satellite: Intercontinental QKD (Beijing-Vienna, 2017)
 
 //#r "nuget: FSharp.Azure.Quantum"
+#r "nuget: Microsoft.Extensions.Logging.Abstractions, 10.0.0"
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 
 #load "../_common/Cli.fs"

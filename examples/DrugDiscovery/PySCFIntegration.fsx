@@ -1,4 +1,4 @@
-// ==============================================================================
+﻿// ==============================================================================
 // PySCF Integration for Real Molecular Integrals
 // ==============================================================================
 // Computes real molecular integrals via PySCF (pythonnet) and feeds them into
@@ -38,6 +38,7 @@
 // ==============================================================================
 
 #r "nuget: pythonnet, 3.0.5"
+#r "nuget: Microsoft.Extensions.Logging.Abstractions, 10.0.0"
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 #load "../_common/Cli.fs"
 #load "../_common/Data.fs"

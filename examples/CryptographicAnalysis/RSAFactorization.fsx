@@ -1,4 +1,4 @@
-// RSA Factorization Example - Shor's Algorithm for Breaking RSA Keys
+﻿// RSA Factorization Example - Shor's Algorithm for Breaking RSA Keys
 // Demonstrates quantum period finding to factor composite numbers
 //
 // Usage:
@@ -13,7 +13,7 @@
 ===============================================================================
 
 Shor's algorithm (1994) is the most famous quantum algorithm, demonstrating
-exponential speedup for integer factorization—the problem underlying RSA
+exponential speedup for integer factorizationâ€”the problem underlying RSA
 encryption security. Given a composite number N = p x q, classical algorithms
 require O(exp(n^(1/3))) time (number field sieve) where n = log N, while Shor's
 algorithm runs in O(n^3) time. This means a sufficiently large quantum computer
@@ -58,6 +58,7 @@ References:
       https://en.wikipedia.org/wiki/Shor%27s_algorithm
 *)
 
+#r "nuget: Microsoft.Extensions.Logging.Abstractions, 10.0.0"
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 #load "../_common/Cli.fs"
 #load "../_common/Data.fs"

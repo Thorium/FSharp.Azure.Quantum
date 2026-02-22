@@ -921,7 +921,7 @@ module QuantumBackendCSharpExtensions =
 /// C# extensions for ModelSerialization to enable Task-based async/await.
 /// </summary>
 /// <remarks>
-/// These extensions convert F# Async to C# Task for idiomatic async/await usage.
+/// These extensions use native Task-based async for zero-bridging C# interop.
 /// </remarks>
 [<Extension>]
 module ModelSerializationCSharpExtensions =
@@ -942,15 +942,13 @@ module ModelSerializationCSharpExtensions =
         (variationalFormDepth: int)
         (note: string option)
         : Task<Result<unit, string>> =
-        async {
+        task {
             let! result = ModelSerialization.saveVQCModelAsync 
                             filePath parameters finalLoss numQubits 
                             featureMapType featureMapDepth variationalFormType variationalFormDepth note
                             CancellationToken.None
-                          |> Async.AwaitTask
             return Result.mapError (fun (e: QuantumError) -> e.Message) result
         }
-        |> Async.StartAsTask
 
 // ============================================================================
 // QUANTUM CHEMISTRY EXTENSIONS - Task-based Async for C#
@@ -968,21 +966,21 @@ module QuantumChemistryCSharpExtensions =
     /// </summary>
     [<Extension>]
     let FromXYZTask (filePath: string) : Task<Result<Molecule, QuantumError>> =
-        Molecule.fromXyzFileAsync filePath |> Async.StartAsTask
+        Molecule.fromXyzFileTask filePath CancellationToken.None
     
     /// <summary>
     /// Save molecule to XYZ file asynchronously using C# Task.
     /// </summary>
     [<Extension>]
     let SaveXYZTask (filePath: string) (molecule: Molecule) : Task<Result<unit, QuantumError>> =
-        Molecule.saveToXyzFileAsync filePath molecule |> Async.StartAsTask
+        Molecule.saveToXyzFileTask filePath molecule CancellationToken.None
     
     /// <summary>
     /// Load molecule from FCIDump file asynchronously using C# Task.
     /// </summary>
     [<Extension>]
     let FromFCIDumpTask (filePath: string) : Task<Result<Molecule, QuantumError>> =
-        Molecule.fromFciDumpFileAsync filePath |> Async.StartAsTask
+        Molecule.fromFciDumpFileTask filePath CancellationToken.None
 
 // ============================================================================
 // SVM MODEL SERIALIZATION EXTENSIONS - Task-based Async for C#
@@ -1004,24 +1002,20 @@ module SVMModelSerializationCSharpExtensions =
         (model: QuantumKernelSVM.SVMModel)
         (note: string option)
         : Task<Result<unit, string>> =
-        async {
+        task {
             let! result = SVMModelSerialization.saveSVMModelAsync filePath model note CancellationToken.None
-                          |> Async.AwaitTask
             return Result.mapError (fun (e: QuantumError) -> e.Message) result
         }
-        |> Async.StartAsTask
     
     /// <summary>
     /// Load SVM model asynchronously using C# Task.
     /// </summary>
     [<Extension>]
     let LoadSVMModelTask (filePath: string) : Task<Result<QuantumKernelSVM.SVMModel, string>> =
-        async {
+        task {
             let! result = SVMModelSerialization.loadSVMModelAsync filePath CancellationToken.None
-                          |> Async.AwaitTask
             return Result.mapError (fun (e: QuantumError) -> e.Message) result
         }
-        |> Async.StartAsTask
     
     /// <summary>
     /// Save multi-class SVM model asynchronously using C# Task.
@@ -1032,24 +1026,20 @@ module SVMModelSerializationCSharpExtensions =
         (model: MultiClassSVM.MultiClassModel)
         (note: string option)
         : Task<Result<unit, string>> =
-        async {
+        task {
             let! result = SVMModelSerialization.saveMultiClassSVMModelAsync filePath model note CancellationToken.None
-                          |> Async.AwaitTask
             return Result.mapError (fun (e: QuantumError) -> e.Message) result
         }
-        |> Async.StartAsTask
     
     /// <summary>
     /// Load multi-class SVM model asynchronously using C# Task.
     /// </summary>
     [<Extension>]
     let LoadMultiClassSVMModelTask (filePath: string) : Task<Result<MultiClassSVM.MultiClassModel, string>> =
-        async {
+        task {
             let! result = SVMModelSerialization.loadMultiClassSVMModelAsync filePath CancellationToken.None
-                          |> Async.AwaitTask
             return Result.mapError (fun (e: QuantumError) -> e.Message) result
         }
-        |> Async.StartAsTask
 
 // ============================================================================
 // OPTION PRICING EXTENSIONS - Task-based Async for C#

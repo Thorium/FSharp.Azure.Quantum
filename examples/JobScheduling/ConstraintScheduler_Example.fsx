@@ -1,4 +1,4 @@
-// ============================================================================
+﻿// ============================================================================
 // Constraint Scheduler Example
 // ============================================================================
 // Demonstrates using quantum optimization to solve scheduling and resource
@@ -16,6 +16,7 @@
 //   dotnet fsi ConstraintScheduler_Example.fsx -- --shots 3000 --quiet --output results.json
 // ============================================================================
 
+#r "nuget: Microsoft.Extensions.Logging.Abstractions, 10.0.0"
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 #load "../_common/Cli.fs"
 #load "../_common/Data.fs"

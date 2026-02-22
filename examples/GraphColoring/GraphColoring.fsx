@@ -1,4 +1,4 @@
-// ============================================================================
+﻿// ============================================================================
 // Graph Coloring Examples - FSharp.Azure.Quantum
 // ============================================================================
 //
@@ -29,27 +29,27 @@
 
 Graph k-coloring asks: can a graph G = (V, E) be colored with at most k colors
 such that no two adjacent vertices share a color? Determining the chromatic
-number χ(G) (minimum k for which this is possible) is NP-hard. Graph coloring
+number Ï‡(G) (minimum k for which this is possible) is NP-hard. Graph coloring
 has extensive applications: register allocation in compilers (interference graph),
 frequency assignment in wireless networks (avoid interference), exam scheduling
 (avoid student conflicts), map coloring, and Sudoku solving.
 
-The problem is formulated as QUBO by introducing binary variables xᵥ,c ∈ {0,1}
+The problem is formulated as QUBO by introducing binary variables xáµ¥,c âˆˆ {0,1}
 indicating vertex v has color c. Constraints ensure: (1) each vertex gets exactly
-one color: Σc xᵥ,c = 1, and (2) adjacent vertices differ: xᵤ,c + xᵥ,c ≤ 1 for
+one color: Î£c xáµ¥,c = 1, and (2) adjacent vertices differ: xáµ¤,c + xáµ¥,c â‰¤ 1 for
 edges (u,v). These constraints are converted to penalty terms in the objective
 function, which QAOA minimizes. Finding the chromatic number requires testing
 k = 1, 2, ... until a valid coloring exists.
 
 Key Equations:
-  - One-color constraint: (Σc xᵥ,c - 1)² = 0 for each vertex v
-  - Edge constraint: Σc xᵤ,c·xᵥ,c = 0 for each edge (u,v)
-  - QUBO objective: min Σᵥ A(Σc xᵥ,c - 1)² + Σ₍ᵤ,ᵥ₎∈E B·Σc xᵤ,c·xᵥ,c
-  - Chromatic number: χ(G) = min{k : G is k-colorable}
-  - Greedy upper bound: χ(G) ≤ Δ(G) + 1 where Δ is max degree
+  - One-color constraint: (Î£c xáµ¥,c - 1)Â² = 0 for each vertex v
+  - Edge constraint: Î£c xáµ¤,cÂ·xáµ¥,c = 0 for each edge (u,v)
+  - QUBO objective: min Î£áµ¥ A(Î£c xáµ¥,c - 1)Â² + Î£â‚áµ¤,áµ¥â‚ŽâˆˆE BÂ·Î£c xáµ¤,cÂ·xáµ¥,c
+  - Chromatic number: Ï‡(G) = min{k : G is k-colorable}
+  - Greedy upper bound: Ï‡(G) â‰¤ Î”(G) + 1 where Î” is max degree
 
 Quantum Advantage:
-  Graph coloring's combinatorial explosion (kⁿ possible assignments for n vertices,
+  Graph coloring's combinatorial explosion (kâ¿ possible assignments for n vertices,
   k colors) makes it ideal for quantum speedup. QAOA explores colorings in
   superposition, with interference amplifying valid solutions. For sparse graphs
   with complex constraint structures (e.g., register allocation interference
@@ -69,6 +69,7 @@ References:
 *)
 
 //#r "nuget: FSharp.Azure.Quantum"
+#r "nuget: Microsoft.Extensions.Logging.Abstractions, 10.0.0"
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 
 #load "../_common/Cli.fs"

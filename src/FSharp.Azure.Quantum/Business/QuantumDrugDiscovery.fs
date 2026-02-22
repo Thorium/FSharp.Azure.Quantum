@@ -187,13 +187,29 @@ type QuantumDrugDiscoveryBuilder() =
         | Some (Provider provider) -> ProviderDataLoader.loadFromProvider provider
         | Some (ProviderAsync provider) ->
             // Note: This uses Async.RunSynchronously on a private member.
-            // An async LoadCandidatesAsync path should be added in Phase 6.
+            // Use LoadCandidatesAsync for non-blocking execution.
             ProviderDataLoader.loadFromProviderAsync provider |> Async.RunSynchronously
         | Some (FilePath path) -> ProviderDataLoader.loadFromFilePath path
         | None ->
             match state.CandidatesPath with
             | Some path -> ProviderDataLoader.loadFromFilePath path
             | None -> Error (QuantumError.ValidationError ("Input", "No candidates specified. Use 'load_candidates_from_file' or 'load_candidates_from_provider'."))
+
+    /// Non-blocking variant of LoadCandidates that awaits async providers via task CE.
+    member private _.LoadCandidatesAsync(state: DrugDiscoveryConfiguration, cancellationToken: System.Threading.CancellationToken) =
+        task {
+            cancellationToken.ThrowIfCancellationRequested()
+            match state.CandidateSource with
+            | Some (Provider provider) -> return ProviderDataLoader.loadFromProvider provider
+            | Some (ProviderAsync provider) ->
+                let! result = ProviderDataLoader.loadFromProviderAsync provider |> Async.StartAsTask
+                return result
+            | Some (FilePath path) -> return ProviderDataLoader.loadFromFilePath path
+            | None ->
+                match state.CandidatesPath with
+                | Some path -> return ProviderDataLoader.loadFromFilePath path
+                | None -> return Error (QuantumError.ValidationError ("Input", "No candidates specified. Use 'load_candidates_from_file' or 'load_candidates_from_provider'."))
+        }
 
     member private _.MapFeatureMap featureMap =
         match featureMap with

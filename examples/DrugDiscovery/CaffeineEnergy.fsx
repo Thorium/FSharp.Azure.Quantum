@@ -1,4 +1,4 @@
-// ==============================================================================
+﻿// ==============================================================================
 // Drug Fragment Ground State Energy Comparison
 // ==============================================================================
 // Compares ground state energies of small drug-like molecular fragments using
@@ -34,6 +34,7 @@
 //   [4] Goodman & Gilman's Pharmacological Basis of Therapeutics, 13th Ed.
 // ==============================================================================
 
+#r "nuget: Microsoft.Extensions.Logging.Abstractions, 10.0.0"
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 #load "../_common/Cli.fs"
 #load "../_common/Data.fs"
@@ -128,7 +129,7 @@ let private formaldehydeFragment : DrugFragment =
     { Name = "Formaldehyde"
       Molecule = mol
       FunctionalGroup = "Carbonyl (C=O)"
-      PharmRole = "H-bond acceptor — receptor selectivity"
+      PharmRole = "H-bond acceptor â€” receptor selectivity"
       Description = "Simplest carbonyl; models amide bonds in caffeine xanthine core" }
 
 /// Hydrogen cyanide (HCN): simplest nitrile, models C-N triple bonds.
@@ -149,7 +150,7 @@ let private hcnFragment : DrugFragment =
     { Name = "HCN"
       Molecule = mol
       FunctionalGroup = "Nitrile (C#N)"
-      PharmRole = "Electrophilic warhead — covalent inhibitors"
+      PharmRole = "Electrophilic warhead â€” covalent inhibitors"
       Description = "Nitrile model; sp-nitrogen in purine rings and covalent drug warheads" }
 
 /// Water (H2O): models hydroxyl groups (Ser, Thr, Tyr sidechains).
@@ -171,7 +172,7 @@ let private waterFragment : DrugFragment =
     { Name = "Water"
       Molecule = mol
       FunctionalGroup = "Hydroxyl (O-H)"
-      PharmRole = "H-bond donor/acceptor — universal solvent shell"
+      PharmRole = "H-bond donor/acceptor â€” universal solvent shell"
       Description = "Hydroxyl model; Ser/Thr/Tyr sidechains and metabolic oxidation products" }
 
 /// Hydrogen sulfide (H2S): models thiol groups (Cys sidechain).
@@ -193,7 +194,7 @@ let private h2sFragment : DrugFragment =
     { Name = "H2S"
       Molecule = mol
       FunctionalGroup = "Thiol (S-H)"
-      PharmRole = "Covalent target — disulfide bonds, cysteine reactivity"
+      PharmRole = "Covalent target â€” disulfide bonds, cysteine reactivity"
       Description = "Thiol model; Cys sidechain and covalent drug targets" }
 
 /// All built-in presets keyed by lowercase name.
@@ -475,7 +476,7 @@ let printTable () =
 
     printfn ""
 
-// Always print the ranked comparison table — that's the primary output of this tool,
+// Always print the ranked comparison table â€” that's the primary output of this tool,
 // even in --quiet mode (which only suppresses per-fragment progress output).
 printTable ()
 

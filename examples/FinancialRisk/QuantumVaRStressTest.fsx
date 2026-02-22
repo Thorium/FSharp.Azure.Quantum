@@ -1,5 +1,5 @@
-// ==============================================================================
-// Quantum VaR Stress Test — RiskEngine DSL
+﻿// ==============================================================================
+// Quantum VaR Stress Test â€” RiskEngine DSL
 // ==============================================================================
 // Compares Value-at-Risk, Conditional VaR, and Expected Shortfall across
 // multiple confidence levels using the high-level QuantumRiskEngine DSL.
@@ -18,6 +18,7 @@
 //   [2] https://en.wikipedia.org/wiki/Value_at_risk
 // ==============================================================================
 
+#r "nuget: Microsoft.Extensions.Logging.Abstractions, 10.0.0"
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 
 #load "../_common/Cli.fs"
@@ -165,7 +166,7 @@ let backend = LocalBackend() :> IQuantumBackend
 // ==============================================================================
 
 if not quiet then
-    printfn "Quantum VaR Stress Test — RiskEngine DSL"
+    printfn "Quantum VaR Stress Test â€” RiskEngine DSL"
     printfn "Levels: %d  Qubits: %d  Shots: %d  Paths: %s"
         levels.Length numQubits shots (simulationPaths.ToString("N0"))
     printfn ""
@@ -224,14 +225,14 @@ if not quiet then printfn ""
 let private fmtPct (v: float option) =
     match v with
     | Some x -> sprintf "%8.4f%%" (x * 100.0)
-    | None   -> sprintf "%9s" "—"
+    | None   -> sprintf "%9s" "â€”"
 
 let private fmtMs (ms: float) = sprintf "%8.1f" ms
 
 let printTable () =
     let divider = String('-', 96)
     printfn ""
-    printfn "  VaR Stress Test — Risk Metrics by Confidence Level"
+    printfn "  VaR Stress Test â€” Risk Metrics by Confidence Level"
     printfn "  %s" divider
     printfn "  %-20s %9s %9s %9s %9s %8s %8s %8s"
         "Level" "VaR" "CVaR" "ES" "Vol" "Time(ms)" "Method" "Status"

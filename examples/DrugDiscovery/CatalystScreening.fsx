@@ -1,4 +1,4 @@
-// ==============================================================================
+﻿// ==============================================================================
 // Catalyst Screening for beta-Lactam Synthesis
 // ==============================================================================
 // Compares Lewis acid catalyst binding energies via VQE, ranking catalysts by
@@ -41,6 +41,7 @@
 //   [4] Wikipedia: Beta-lactam_antibiotic
 // ==============================================================================
 
+#r "nuget: Microsoft.Extensions.Logging.Abstractions, 10.0.0"
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 #load "../_common/Cli.fs"
 #load "../_common/Data.fs"
@@ -136,7 +137,7 @@ let private createCatalyst element bondLength name formula acidity notes indUse 
       SelectivityNotes = notes
       IndustrialUse = indUse }
 
-/// H2 baseline — no catalyst.
+/// H2 baseline â€” no catalyst.
 let private noCatalystPreset : CatalystInfo =
     { Name = "No Catalyst (Baseline)"
       Formula = "H2"
@@ -151,22 +152,22 @@ let private noCatalystPreset : CatalystInfo =
       SelectivityNotes = "Uncatalyzed reaction"
       IndustrialUse = "Baseline comparison" }
 
-/// BH — Boron hydride model for BF3.
+/// BH â€” Boron hydride model for BF3.
 let private bf3Preset =
     createCatalyst "B" 1.23 "Boron (BF3 model)" "BF3" "Strong"
         "Highly reactive, may cause side reactions" "Staudinger synthesis"
 
-/// AlH — Aluminum hydride model for AlCl3.
+/// AlH â€” Aluminum hydride model for AlCl3.
 let private alcl3Preset =
     createCatalyst "Al" 1.65 "Aluminum (AlCl3 model)" "AlCl3" "Strong"
         "Classical Friedel-Crafts, can polymerize" "Alkylation, acylation"
 
-/// ZnH — Zinc hydride model for ZnCl2.
+/// ZnH â€” Zinc hydride model for ZnCl2.
 let private zncl2Preset =
     createCatalyst "Zn" 1.54 "Zinc (ZnCl2 model)" "ZnCl2" "Moderate"
         "Milder, better selectivity, biocompatible" "Organic synthesis"
 
-/// TiH — Titanium hydride model for TiCl4.
+/// TiH â€” Titanium hydride model for TiCl4.
 let private ticl4Preset =
     createCatalyst "Ti" 1.78 "Titanium (TiCl4 model)" "TiCl4" "Strong"
         "Oxophilic, excellent for carbonyls" "Ziegler-Natta catalysis"
@@ -471,7 +472,7 @@ let results =
     |> List.mapi (fun i cat ->
         screenCatalyst backend maxIterations tolerance substrateEnergy substrateOk i catalysts.Length cat)
 
-// Sort: most negative binding energy first (strongest binder). Failed → bottom.
+// Sort: most negative binding energy first (strongest binder). Failed â†’ bottom.
 let ranked =
     results
     |> List.sortBy (fun r ->
@@ -530,7 +531,7 @@ let printTable () =
 
     printfn ""
 
-// Always print the ranked comparison table — that's the primary output of this tool,
+// Always print the ranked comparison table â€” that's the primary output of this tool,
 // even in --quiet mode (which only suppresses per-catalyst progress output).
 printTable ()
 

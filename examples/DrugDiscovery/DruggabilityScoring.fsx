@@ -1,4 +1,4 @@
-// ==============================================================================
+﻿// ==============================================================================
 // Druggability Scoring - Pharmacophore Feature Selection
 // ==============================================================================
 // Selects non-overlapping pharmacophore features from a protein binding pocket
@@ -32,6 +32,7 @@
 //   [4] Wikipedia: Independent_set_(graph_theory)
 // ==============================================================================
 
+#r "nuget: Microsoft.Extensions.Logging.Abstractions, 10.0.0"
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 #r "nuget: MathNet.Numerics, 5.0.0"
 #load "../_common/Cli.fs"
@@ -430,7 +431,7 @@ let printTable () =
             printfn ""
     | None -> ()
 
-// Always print — this is the primary output.
+// Always print â€” this is the primary output.
 printTable ()
 
 // ==============================================================================

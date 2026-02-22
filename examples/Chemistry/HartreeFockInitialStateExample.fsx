@@ -1,4 +1,4 @@
-// ==============================================================================
+﻿// ==============================================================================
 // Hartree-Fock Initial State Preparation Example
 // ==============================================================================
 // Demonstrates the importance of starting VQE from the Hartree-Fock (HF)
@@ -30,6 +30,7 @@
 //
 // ==============================================================================
 
+#r "nuget: Microsoft.Extensions.Logging.Abstractions, 10.0.0"
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 #load "../_common/Cli.fs"
 #load "../_common/Data.fs"

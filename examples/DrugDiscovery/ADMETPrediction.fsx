@@ -1,4 +1,4 @@
-// ==============================================================================
+﻿// ==============================================================================
 // ADMET Prediction Example (Quantum Machine Learning)
 // ==============================================================================
 // Demonstrates quantum kernel methods for predicting drug ADMET properties:
@@ -67,16 +67,16 @@ Quantum-predicted properties must translate to formulated products:
 
 BIOPHARMACEUTICS CLASSIFICATION SYSTEM (BCS):
   BCS predicts oral absorption based on solubility and permeability:
-  - Class I:  High solubility, High permeability → Well absorbed (Metoprolol)
-  - Class II: Low solubility, High permeability → Dissolution-limited (Nifedipine)
-  - Class III: High solubility, Low permeability → Permeability-limited (Cimetidine)
-  - Class IV: Low solubility, Low permeability → Poorly absorbed (Taxol)
+  - Class I:  High solubility, High permeability â†’ Well absorbed (Metoprolol)
+  - Class II: Low solubility, High permeability â†’ Dissolution-limited (Nifedipine)
+  - Class III: High solubility, Low permeability â†’ Permeability-limited (Cimetidine)
+  - Class IV: Low solubility, Low permeability â†’ Poorly absorbed (Taxol)
   
   Thresholds:
-    High solubility: Highest dose dissolves in ≤250 mL water (pH 1-7.5)
-    High permeability: ≥90% absorption in humans
+    High solubility: Highest dose dissolves in â‰¤250 mL water (pH 1-7.5)
+    High permeability: â‰¥90% absorption in humans
   
-  See: _data/PHARMA_GLOSSARY.md → "Biopharmaceutics Classification System"
+  See: _data/PHARMA_GLOSSARY.md â†’ "Biopharmaceutics Classification System"
 
 DISSOLUTION & NOYES-WHITNEY EQUATION:
   Dissolution is often the rate-limiting step for oral absorption:
@@ -92,19 +92,19 @@ DISSOLUTION & NOYES-WHITNEY EQUATION:
     h     = boundary layer thickness (GI motility)
   
   Intrinsic Dissolution Rate (IDR):
-    IDR < 0.1 mg·cm⁻²·min⁻¹ → dissolution-rate-limited absorption
+    IDR < 0.1 mgÂ·cmâ»Â²Â·minâ»Â¹ â†’ dissolution-rate-limited absorption
   
-  See: _data/PHARMA_GLOSSARY.md → "Dissolution & the Noyes-Whitney Equation"
+  See: _data/PHARMA_GLOSSARY.md â†’ "Dissolution & the Noyes-Whitney Equation"
 
 pH-PARTITION HYPOTHESIS:
   Drug ionization affects membrane permeation:
-    For acids: pH = pKa + log([A⁻]/[HA])
-    For bases: pH = pKa + log([B]/[BH⁺])
+    For acids: pH = pKa + log([Aâ»]/[HA])
+    For bases: pH = pKa + log([B]/[BHâº])
   
   GI pH ranges: Stomach (1-3), Duodenum (4-6), Jejunum/Ileum (6-7.5)
   Un-ionized fraction crosses membranes (lipid bilayer permeability)
   
-  See: _data/PHARMA_GLOSSARY.md → "pH-Partition Hypothesis"
+  See: _data/PHARMA_GLOSSARY.md â†’ "pH-Partition Hypothesis"
 
 ===============================================================================
 
@@ -162,7 +162,7 @@ Key Equations:
   Half-life: t1/2 = 0.693 * Vd / CL
   LogP = log([drug]_octanol / [drug]_water)
   Noyes-Whitney: dm/dt = kA(Cs - C) / h (dissolution rate)
-  Henderson-Hasselbalch: pH = pKa + log([A⁻]/[HA]) (ionization)
+  Henderson-Hasselbalch: pH = pKa + log([Aâ»]/[HA]) (ionization)
 
 References:
   [1] Lipinski, C.A. et al. "Rule of five" Adv. Drug Deliv. Rev. (2001)
@@ -173,6 +173,7 @@ References:
 ===============================================================================
 *)
 
+#r "nuget: Microsoft.Extensions.Logging.Abstractions, 10.0.0"
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 #load "../_common/Cli.fs"
 #load "../_common/Data.fs"
@@ -626,7 +627,7 @@ let predictMetabolicStability (desc: ADMETDescriptors) : string =
     else "Stable"
 
 /// Predict BCS class based on solubility and permeability
-/// See _data/PHARMA_GLOSSARY.md → "Biopharmaceutics Classification System"
+/// See _data/PHARMA_GLOSSARY.md â†’ "Biopharmaceutics Classification System"
 let predictBCSClass (desc: ADMETDescriptors) : string * string =
     // Solubility estimate: Higher LogP = lower aqueous solubility
     // TPSA correlates with permeability (lower TPSA = higher permeability)
@@ -634,10 +635,10 @@ let predictBCSClass (desc: ADMETDescriptors) : string * string =
     let highPermeability = desc.TPSA < 100.0 && desc.LogP > 0.0
     
     // BCS Classification (FDA guidance)
-    // Class I: High solubility, High permeability → Well absorbed
-    // Class II: Low solubility, High permeability → Dissolution-limited
-    // Class III: High solubility, Low permeability → Permeability-limited
-    // Class IV: Low solubility, Low permeability → Poorly absorbed
+    // Class I: High solubility, High permeability â†’ Well absorbed
+    // Class II: Low solubility, High permeability â†’ Dissolution-limited
+    // Class III: High solubility, Low permeability â†’ Permeability-limited
+    // Class IV: Low solubility, Low permeability â†’ Poorly absorbed
     match highSolubility, highPermeability with
     | true, true -> 
         ("I", "Well absorbed - standard formulation suitable")

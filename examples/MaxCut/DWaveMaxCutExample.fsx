@@ -1,4 +1,4 @@
-/// End-to-End MaxCut Example with D-Wave Backend
+﻿/// End-to-End MaxCut Example with D-Wave Backend
 ///
 /// This example demonstrates:
 /// 1. Building a MaxCut problem (graph partitioning)
@@ -10,6 +10,7 @@
 ///           dotnet fsi DWaveMaxCutExample.fsx -- --help
 
 //#r "nuget: FSharp.Azure.Quantum"
+#r "nuget: Microsoft.Extensions.Logging.Abstractions, 10.0.0"
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 
 #load "../_common/Cli.fs"

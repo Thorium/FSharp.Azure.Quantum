@@ -535,13 +535,21 @@ module Molecule =
         let instance = ChemistryDataProviders.Conversions.fromMoleculeData data
         fromInstance instance
     
-    /// Load molecule from XYZ file asynchronously.
+    /// Load molecule from XYZ file asynchronously (Task-based, zero bridging).
     /// 
     /// Example:
-    ///   let! result = Molecule.fromXyzFileAsync "water.xyz"
+    ///   let! result = Molecule.fromXyzFileTask "water.xyz" ct
     ///   match result with
     ///   | Ok mol -> printfn "Loaded: %s" mol.Name
     ///   | Error e -> printfn "Error: %A" e
+    let fromXyzFileTask (filePath: string) (ct: System.Threading.CancellationToken) : System.Threading.Tasks.Task<Result<Molecule, QuantumError>> =
+        task {
+            let! result = FSharp.Azure.Quantum.Data.MoleculeFormats.Xyz.readAsync filePath ct
+            return result |> Result.bind fromMoleculeData
+        }
+
+    /// Load molecule from XYZ file asynchronously (F# Async wrapper).
+    [<System.Obsolete("Use fromXyzFileTask instead. This Async wrapper bridges through Async.AwaitTask.")>]
     let fromXyzFileAsync (filePath: string) : Async<Result<Molecule, QuantumError>> =
         async {
             let! ct = Async.CancellationToken
@@ -550,17 +558,26 @@ module Molecule =
         }
     
     /// Load molecule from XYZ file synchronously.
-    [<System.Obsolete("Use fromXyzFileAsync instead. This synchronous wrapper blocks the calling thread.")>]
+    [<System.Obsolete("Use fromXyzFileTask instead. This synchronous wrapper blocks the calling thread.")>]
     let fromXyzFile (filePath: string) : Result<Molecule, QuantumError> =
-        fromXyzFileAsync filePath |> Async.RunSynchronously
+        fromXyzFileTask filePath System.Threading.CancellationToken.None
+        |> Async.AwaitTask |> Async.RunSynchronously
     
-    /// Load molecule from FCIDump file asynchronously.
+    /// Load molecule from FCIDump file asynchronously (Task-based, zero bridging).
     /// 
     /// Note: FCIDump files typically don't contain geometry, so the resulting
     /// Molecule will have placeholder atoms. Use for orbital/electron info only.
     /// 
     /// Example:
-    ///   let! result = Molecule.fromFciDumpFileAsync "h2.fcidump"
+    ///   let! result = Molecule.fromFciDumpFileTask "h2.fcidump" ct
+    let fromFciDumpFileTask (filePath: string) (ct: System.Threading.CancellationToken) : System.Threading.Tasks.Task<Result<Molecule, QuantumError>> =
+        task {
+            let! result = FSharp.Azure.Quantum.Data.MoleculeFormats.FciDump.readAsync filePath ct
+            return result |> Result.bind fromMoleculeData
+        }
+
+    /// Load molecule from FCIDump file asynchronously (F# Async wrapper).
+    [<System.Obsolete("Use fromFciDumpFileTask instead. This Async wrapper bridges through Async.AwaitTask.")>]
     let fromFciDumpFileAsync (filePath: string) : Async<Result<Molecule, QuantumError>> =
         async {
             let! ct = Async.CancellationToken
@@ -569,9 +586,10 @@ module Molecule =
         }
     
     /// Load molecule from FCIDump file synchronously.
-    [<System.Obsolete("Use fromFciDumpFileAsync instead. This synchronous wrapper blocks the calling thread.")>]
+    [<System.Obsolete("Use fromFciDumpFileTask instead. This synchronous wrapper blocks the calling thread.")>]
     let fromFciDumpFile (filePath: string) : Result<Molecule, QuantumError> =
-        fromFciDumpFileAsync filePath |> Async.RunSynchronously
+        fromFciDumpFileTask filePath System.Threading.CancellationToken.None
+        |> Async.AwaitTask |> Async.RunSynchronously
     
     /// Format molecule as XYZ string.
     /// 
@@ -586,10 +604,22 @@ module Molecule =
             sb.AppendLine(sprintf "%-2s  %10.6f  %10.6f  %10.6f" atom.Element x y z) |> ignore
         sb.ToString()
     
-    /// Save molecule to XYZ file asynchronously.
+    /// Save molecule to XYZ file asynchronously (Task-based, zero bridging).
     /// 
     /// Example:
-    ///   let! result = Molecule.saveToXyzFileAsync "output.xyz" molecule
+    ///   let! result = Molecule.saveToXyzFileTask "output.xyz" molecule ct
+    let saveToXyzFileTask (filePath: string) (molecule: Molecule) (ct: System.Threading.CancellationToken) : System.Threading.Tasks.Task<Result<unit, QuantumError>> =
+        task {
+            try
+                let content = toXyz molecule
+                do! System.IO.File.WriteAllTextAsync(filePath, content, ct)
+                return Ok ()
+            with ex ->
+                return Error (QuantumError.IOError("WriteXYZ", filePath, ex.Message))
+        }
+
+    /// Save molecule to XYZ file asynchronously (F# Async wrapper).
+    [<System.Obsolete("Use saveToXyzFileTask instead. This Async wrapper bridges through Async.AwaitTask.")>]
     let saveToXyzFileAsync (filePath: string) (molecule: Molecule) : Async<Result<unit, QuantumError>> =
         async {
             try
@@ -601,9 +631,10 @@ module Molecule =
         }
     
     /// Save molecule to XYZ file synchronously.
-    [<System.Obsolete("Use saveToXyzFileAsync instead. This synchronous wrapper blocks the calling thread.")>]
+    [<System.Obsolete("Use saveToXyzFileTask instead. This synchronous wrapper blocks the calling thread.")>]
     let saveToXyzFile (filePath: string) (molecule: Molecule) : Result<unit, QuantumError> =
-        saveToXyzFileAsync filePath molecule |> Async.RunSynchronously
+        saveToXyzFileTask filePath molecule System.Threading.CancellationToken.None
+        |> Async.AwaitTask |> Async.RunSynchronously
 
 // ============================================================================
 // FERMION-TO-QUBIT MAPPINGS

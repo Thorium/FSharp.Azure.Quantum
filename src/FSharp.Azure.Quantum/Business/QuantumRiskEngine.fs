@@ -307,18 +307,22 @@ module RiskEngine =
             // 1. Ingest Data (Real or Mock)
             let! returns =
                 match config.MarketDataPath with
-                | Some path when System.IO.File.Exists(path) ->
+                | Some path ->
                     async {
-                        let! lines = System.IO.File.ReadAllLinesAsync(path) |> Async.AwaitTask
-                        return
-                            lines
-                            |> Array.skip 1
-                            |> Array.map (fun line ->
-                                match System.Double.TryParse(line.Trim()) with
-                                | true, v -> v
-                                | _ -> 0.0)
+                        let! exists = System.Threading.Tasks.Task.Run(fun () -> System.IO.File.Exists(path)) |> Async.AwaitTask
+                        if exists then
+                            let! lines = System.IO.File.ReadAllLinesAsync(path) |> Async.AwaitTask
+                            return
+                                lines
+                                |> Array.skip 1
+                                |> Array.map (fun line ->
+                                    match System.Double.TryParse(line.Trim()) with
+                                    | true, v -> v
+                                    | _ -> 0.0)
+                        else
+                            return generateMockReturns config.SimulationPaths
                     }
-                | _ ->
+                | None ->
                     async { return generateMockReturns config.SimulationPaths }
 
             // 2. Choose quantum or classical path

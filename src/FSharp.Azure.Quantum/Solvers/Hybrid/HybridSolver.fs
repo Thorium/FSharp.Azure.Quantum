@@ -190,6 +190,19 @@ module HybridSolver =
                 Some "QUBO-to-circuit compilation and backend submission are not yet implemented. Use solveTspWithBackend or force Classical method."))
         }
 
+    /// Task-based variant of executeQuantumTsp for use in async contexts.
+    let private executeQuantumTspTask
+        (_distances: float[,])
+        (_quantumConfig: QuantumExecutionConfig)
+        (cancellationToken: System.Threading.CancellationToken)
+        : System.Threading.Tasks.Task<QuantumResult<TspSolver.TspSolution>> =
+        task {
+            cancellationToken.ThrowIfCancellationRequested()
+            return Error (QuantumError.NotImplemented (
+                "Quantum TSP via QAOA circuit execution",
+                Some "QUBO-to-circuit compilation and backend submission are not yet implemented. Use solveTspWithBackend or force Classical method."))
+        }
+
     // ================================================================================
     // SOLVER ROUTING - TSP
     // ================================================================================
@@ -291,6 +304,108 @@ module HybridSolver =
                     |> createClassicalSolution <| reasoning <| startTime <| Some recommendation
                     |> Ok
             )
+
+    /// Solve TSP problem using hybrid solver with quantum execution support (task-based, non-blocking).
+    ///
+    /// This is the async counterpart of solveTspWithQuantum, replacing
+    /// Async.RunSynchronously calls with awaited Task calls.
+    ///
+    /// NOTE: The quantum path (executeQuantumTspTask) is a stub that always returns NotImplemented.
+    /// For real execution, use solveTspWithBackend.
+    let solveTspWithQuantumAsync
+        (distances: float[,])
+        (quantumConfig: QuantumExecutionConfig option)
+        (budget: float option)
+        (timeout: float option)
+        (forceMethod: SolverMethod option)
+        (cancellationToken: System.Threading.CancellationToken)
+        : System.Threading.Tasks.Task<QuantumResult<Solution<TspSolver.TspSolution>>> =
+        task {
+            let startTime = DateTime.UtcNow
+            let config = TspSolver.defaultConfig
+            let solveClassical () = TspSolver.solveWithDistances distances config
+
+            match forceMethod with
+            | Some Classical ->
+                return
+                    solveClassical ()
+                    |> createClassicalSolution
+                        <| "Classical solver forced by user override. Quantum Advisor bypassed."
+                        <| startTime
+                        <| None
+                    |> Ok
+
+            | Some Quantum when quantumConfig.IsNone ->
+                return Error (QuantumError.ValidationError ("Configuration", "Quantum method forced but no quantum configuration provided."))
+
+            | Some Quantum ->
+                let! quantumResult = executeQuantumTspTask distances quantumConfig.Value cancellationToken
+                match quantumResult with
+                | Ok quantumResult ->
+                    return
+                        createQuantumSolution
+                            quantumResult
+                            "Quantum solver forced by user override."
+                            startTime
+                            None
+                        |> Ok
+                | Error err -> return Error err
+
+            | None ->
+                let recommendation = QuantumAdvisor.getRecommendation distances
+                match recommendation with
+                | Error err -> return Error err
+                | Ok recommendation ->
+                    match recommendation.RecommendationType, quantumConfig with
+                    | QuantumAdvisor.RecommendationType.StronglyRecommendQuantum, Some qConfig ->
+                        match qConfig.MaxCostUSD with
+                        | Some limit when recommendation.EstimatedClassicalTimeMs.IsSome ->
+                            let estimatedCost = 5.0
+                            if estimatedCost > limit then
+                                let reasoning = $"Quantum advantage detected but estimated cost (${estimatedCost:F2}) exceeds limit (${limit:F2}). Falling back to classical."
+                                return
+                                    solveClassical ()
+                                    |> createClassicalSolution <| reasoning <| startTime <| Some recommendation
+                                    |> Ok
+                            else
+                                let! quantumResult = executeQuantumTspTask distances qConfig cancellationToken
+                                match quantumResult with
+                                | Ok quantumResult ->
+                                    return
+                                        createQuantumSolution
+                                            quantumResult
+                                            $"{recommendation.Reasoning} Routing to quantum backend."
+                                            startTime
+                                            (Some recommendation)
+                                        |> Ok
+                                | Error err -> return Error err
+                        | _ ->
+                            let! quantumResult = executeQuantumTspTask distances qConfig cancellationToken
+                            match quantumResult with
+                            | Ok quantumResult ->
+                                return
+                                    createQuantumSolution
+                                        quantumResult
+                                        $"{recommendation.Reasoning} Routing to quantum backend."
+                                        startTime
+                                        (Some recommendation)
+                                    |> Ok
+                            | Error err -> return Error err
+
+                    | QuantumAdvisor.RecommendationType.StronglyRecommendQuantum, None ->
+                        let reasoning = $"{recommendation.Reasoning} Quantum solver not available - using classical fallback."
+                        return
+                            solveClassical ()
+                            |> createClassicalSolution <| reasoning <| startTime <| Some recommendation
+                            |> Ok
+
+                    | _ ->
+                        let reasoning = $"{recommendation.Reasoning} Routing to classical TSP solver."
+                        return
+                            solveClassical ()
+                            |> createClassicalSolution <| reasoning <| startTime <| Some recommendation
+                            |> Ok
+        }
 
     /// Solve TSP problem using hybrid solver with optional backend override.
     ///

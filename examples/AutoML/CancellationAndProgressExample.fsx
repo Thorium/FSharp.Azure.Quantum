@@ -1,4 +1,4 @@
-#!/usr/bin/env dotnet fsi
+﻿#!/usr/bin/env dotnet fsi
 // ============================================================================
 // AutoML: Cancellation & Progress Reporting
 // ============================================================================
@@ -12,6 +12,7 @@
 //
 // ============================================================================
 
+#r "nuget: Microsoft.Extensions.Logging.Abstractions, 10.0.0"
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 #load "../_common/Cli.fs"
 #load "../_common/Data.fs"

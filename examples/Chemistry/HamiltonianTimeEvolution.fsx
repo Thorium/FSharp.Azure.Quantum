@@ -1,4 +1,4 @@
-// ==============================================================================
+﻿// ==============================================================================
 // Hamiltonian Time Evolution Example
 // ==============================================================================
 // Demonstrates Trotter-Suzuki simulation for molecular dynamics using the
@@ -29,6 +29,7 @@
 //
 // ==============================================================================
 
+#r "nuget: Microsoft.Extensions.Logging.Abstractions, 10.0.0"
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 #r "../../src/FSharp.Azure.Quantum.Topological/bin/Debug/net10.0/FSharp.Azure.Quantum.Topological.dll"
 #load "../_common/Cli.fs"

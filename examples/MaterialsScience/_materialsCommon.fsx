@@ -1,4 +1,4 @@
-// ==============================================================================
+﻿// ==============================================================================
 // Materials Science Common Module
 // ==============================================================================
 // Shared infrastructure for all MaterialsScience examples.
@@ -11,6 +11,7 @@
 //
 // ==============================================================================
 
+#r "nuget: Microsoft.Extensions.Logging.Abstractions, 10.0.0"
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 
 open System

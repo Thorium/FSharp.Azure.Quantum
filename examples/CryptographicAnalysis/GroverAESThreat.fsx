@@ -1,4 +1,4 @@
-// ==============================================================================
+﻿// ==============================================================================
 // Grover's Algorithm Threat to Symmetric Cryptography (AES)
 // ==============================================================================
 // Compares classical vs quantum security of symmetric ciphers using Grover's
@@ -25,6 +25,7 @@
 //       https://en.wikipedia.org/wiki/Grover%27s_algorithm
 // ==============================================================================
 
+#r "nuget: Microsoft.Extensions.Logging.Abstractions, 10.0.0"
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 #load "../_common/Cli.fs"
 #load "../_common/Data.fs"

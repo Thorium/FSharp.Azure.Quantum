@@ -1,4 +1,4 @@
-// ==============================================================================
+﻿// ==============================================================================
 // Regime-Aware Portfolio Optimization
 // ==============================================================================
 // Adaptive portfolio optimization using Hidden Markov Models (HMM) to detect
@@ -20,6 +20,7 @@
 // ==============================================================================
 
 //#r "nuget: FSharp.Azure.Quantum"
+#r "nuget: Microsoft.Extensions.Logging.Abstractions, 10.0.0"
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 
 #load "../_common/Cli.fs"
@@ -156,7 +157,7 @@ if selectedStocks.IsEmpty then
     exit 1
 
 // ==============================================================================
-// SYNTHETIC DATA GENERATION (Markov chain — inherently stateful)
+// SYNTHETIC DATA GENERATION (Markov chain â€” inherently stateful)
 // ==============================================================================
 
 /// Per-asset return parameters: (bullMu, bullSigma), (bearMu, bearSigma)
@@ -212,7 +213,7 @@ let private generateMarketData (numDays: int) (rngSeed: int) (stockList: StockIn
     (marketReturns, regimes, assetReturns)
 
 // ==============================================================================
-// HIDDEN MARKOV MODEL (HMM) — Viterbi Algorithm
+// HIDDEN MARKOV MODEL (HMM) â€” Viterbi Algorithm
 // ==============================================================================
 
 module MarketHMM =

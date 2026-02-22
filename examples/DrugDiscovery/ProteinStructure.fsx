@@ -1,4 +1,4 @@
-// ==============================================================================
+﻿// ==============================================================================
 // Protein Structure Analysis Example (PDB Parsing + VQE)
 // ==============================================================================
 // Demonstrates parsing PDB files, analyzing protein binding sites, and running
@@ -100,6 +100,7 @@ References:
   [3] Volkamer, A. et al. "DoGSiteScorer" J. Chem. Inf. Model. (2012)
 *)
 
+#r "nuget: Microsoft.Extensions.Logging.Abstractions, 10.0.0"
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 
 #load "../_common/Cli.fs"

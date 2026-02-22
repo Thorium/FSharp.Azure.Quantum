@@ -1,4 +1,4 @@
-// ==============================================================================
+﻿// ==============================================================================
 // Protein-Ligand Binding Affinity Comparison
 // ==============================================================================
 // Compares multiple drug-protein binding systems by computing VQE interaction
@@ -12,7 +12,7 @@
 // Binding affinity (dE = E_complex - E_protein - E_ligand) is the fundamental
 // measure of drug-target interaction strength. Classical force fields approximate
 // electrostatics + van der Waals but miss electron correlation, charge transfer,
-// and partial covalent character — exactly the effects VQE captures.
+// and partial covalent character â€” exactly the effects VQE captures.
 //
 // IMPORTANT LIMITATION:
 // This example uses EMPIRICAL Hamiltonian coefficients (not molecular integrals).
@@ -33,6 +33,7 @@
 //   [4] Harper's Illustrated Biochemistry, 28th Ed., Ch. 7-8
 // ==============================================================================
 
+#r "nuget: Microsoft.Extensions.Logging.Abstractions, 10.0.0"
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 #load "../_common/Cli.fs"
 #load "../_common/Data.fs"
@@ -170,7 +171,7 @@ let private waterHfSystem : BindingSystem =
       Description = "Water...HF H-bond (fluorinated drug binding model)" }
 
 /// H2S...HF: sulfur as H-bond acceptor.
-/// Models cysteine thiol interactions — weaker than O-H donor.
+/// Models cysteine thiol interactions â€” weaker than O-H donor.
 let private h2sHfSystem : BindingSystem =
     let ligand : Molecule =
         { Name = "HF (donor)"
@@ -546,7 +547,7 @@ let printTable () =
 
     printfn ""
 
-// Always print the ranked comparison table — that's the primary output of this tool,
+// Always print the ranked comparison table â€” that's the primary output of this tool,
 // even in --quiet mode (which only suppresses per-system progress output).
 printTable ()
 

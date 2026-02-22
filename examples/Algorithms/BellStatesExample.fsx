@@ -1,4 +1,4 @@
-// Bell States (EPR Pairs) Example
+﻿// Bell States (EPR Pairs) Example
 // Creates and verifies maximally entangled two-qubit states across backends
 //
 // Usage:
@@ -52,6 +52,7 @@ References:
   [4] Wikipedia: Bell_state https://en.wikipedia.org/wiki/Bell_state
 *)
 
+#r "nuget: Microsoft.Extensions.Logging.Abstractions, 10.0.0"
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 #r "../../src/FSharp.Azure.Quantum.Topological/bin/Debug/net10.0/FSharp.Azure.Quantum.Topological.dll"
 #load "../_common/Cli.fs"
@@ -142,7 +143,7 @@ if not quiet then
     printfn "=== Bell States (EPR Pairs) ==="
     printfn ""
     printfn "BUSINESS SCENARIO:"
-    printfn "Create maximally entangled qubit pairs — the fundamental"
+    printfn "Create maximally entangled qubit pairs â€” the fundamental"
     printfn "resource for quantum communication, teleportation, and QKD."
     printfn ""
 

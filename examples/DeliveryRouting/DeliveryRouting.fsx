@@ -1,4 +1,4 @@
-(**
+﻿(**
 # Delivery Route Optimization
 
 **Business Context**: 
@@ -15,8 +15,8 @@ Actual addresses in NYC area converted to GPS coordinates. Distances calculated 
 Haversine formula (great-circle distance on Earth's surface).
 
 **Mathematical Formulation**:
-- Variables: Binary xᵢⱼ (1 if edge i→j is in tour, 0 otherwise)
-- Objective: Minimize Σᵢⱼ dᵢⱼ × xᵢⱼ (total distance)
+- Variables: Binary xáµ¢â±¼ (1 if edge iâ†’j is in tour, 0 otherwise)
+- Objective: Minimize Î£áµ¢â±¼ dáµ¢â±¼ Ã— xáµ¢â±¼ (total distance)
 - Constraints: Each city visited exactly once, no subtours
 
 **Expected Performance**:
@@ -49,19 +49,19 @@ Classical heuristics (nearest neighbor, 2-opt, Lin-Kernighan) find good solution
 quickly, while exact methods (branch-and-bound, dynamic programming) guarantee
 optimality but scale exponentially.
 
-TSP maps to QUBO using binary variables xᵢ,ₜ ∈ {0,1} indicating city i is visited
-at time t. Constraints ensure: (1) each city visited once: Σₜ xᵢ,ₜ = 1, (2) each
-time has one city: Σᵢ xᵢ,ₜ = 1. The objective minimizes Σᵢⱼₜ dᵢⱼ·xᵢ,ₜ·xⱼ,ₜ₊₁.
+TSP maps to QUBO using binary variables xáµ¢,â‚œ âˆˆ {0,1} indicating city i is visited
+at time t. Constraints ensure: (1) each city visited once: Î£â‚œ xáµ¢,â‚œ = 1, (2) each
+time has one city: Î£áµ¢ xáµ¢,â‚œ = 1. The objective minimizes Î£áµ¢â±¼â‚œ dáµ¢â±¼Â·xáµ¢,â‚œÂ·xâ±¼,â‚œâ‚Šâ‚.
 This quadratic form suits QAOA, which explores tours in superposition. The Vehicle
 Routing Problem (VRP) generalizes TSP to multiple vehicles with capacity constraints.
 
 Key Equations:
-  - Tour length: L = Σₖ₌₁ⁿ d(πₖ, πₖ₊₁) where π is a permutation of cities
-  - QUBO variables: xᵢ,ₜ = 1 iff city i visited at position t
-  - Row constraint: Σₜ xᵢ,ₜ = 1 for each city i
-  - Column constraint: Σᵢ xᵢ,ₜ = 1 for each time t
-  - Objective: Σᵢⱼₜ dᵢⱼ·xᵢ,ₜ·xⱼ,ₜ₊₁ (distance between consecutive cities)
-  - Held-Karp DP: O(n²·2ⁿ) exact solution (classical baseline)
+  - Tour length: L = Î£â‚–â‚Œâ‚â¿ d(Ï€â‚–, Ï€â‚–â‚Šâ‚) where Ï€ is a permutation of cities
+  - QUBO variables: xáµ¢,â‚œ = 1 iff city i visited at position t
+  - Row constraint: Î£â‚œ xáµ¢,â‚œ = 1 for each city i
+  - Column constraint: Î£áµ¢ xáµ¢,â‚œ = 1 for each time t
+  - Objective: Î£áµ¢â±¼â‚œ dáµ¢â±¼Â·xáµ¢,â‚œÂ·xâ±¼,â‚œâ‚Šâ‚ (distance between consecutive cities)
+  - Held-Karp DP: O(nÂ²Â·2â¿) exact solution (classical baseline)
 
 Quantum Advantage:
   TSP is a prime target for quantum optimization. QAOA can explore the tour space
@@ -85,6 +85,7 @@ References:
 *)
 
 //#r "nuget: FSharp.Azure.Quantum"
+#r "nuget: Microsoft.Extensions.Logging.Abstractions, 10.0.0"
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 
 #load "../_common/Cli.fs"
@@ -343,9 +344,9 @@ let calculateNaiveRoute (locations: Location list) : Route =
 // ============================================================================
 
 if not quiet then
-    printfn "╔═══════════════════════════════════════════════════════════════╗"
-    printfn "║     QuickShip Logistics - Delivery Route Optimization        ║"
-    printfn "╚═══════════════════════════════════════════════════════════════╝"
+    printfn "â•”â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•—"
+    printfn "â•‘     QuickShip Logistics - Delivery Route Optimization        â•‘"
+    printfn "â•šâ•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•"
     printfn ""
     printfn "Business Problem:"
     printfn "  Optimize daily delivery route for 15 customers in NYC area"
@@ -356,14 +357,14 @@ if not quiet then
 // Calculate baseline (naive route)
 let naiveRoute = calculateNaiveRoute allStops
 if not quiet then
-    printfn "📊 Baseline Analysis:"
+    printfn "ðŸ“Š Baseline Analysis:"
     printfn "  Naive route (visit in given order):"
     printfn "    Distance: %s" (formatDistance naiveRoute.TotalDistance)
     printfn "    Est. Time: %s" (formatTime naiveRoute.TotalTime)
 
 // Solve with hybrid optimization (quantum-ready)
 if not quiet then
-    printfn "\n⚙️  Solving with HybridSolver (Quantum-Ready Optimization)..."
+    printfn "\nâš™ï¸  Solving with HybridSolver (Quantum-Ready Optimization)..."
 
 let solverResult = solveWithHybridSolver allStops
 
@@ -376,26 +377,26 @@ let resultRoute, resultPerf, resultSolver =
         let perfWithImprovement = { perf with Improvement = Some improvement }
 
         if not quiet then
-            printfn "\n💡 Solver Decision: %s" reasoning
-            printRoute "✅ Optimized Route Found" optimizedRoute perfWithImprovement (Some "HybridSolver")
+            printfn "\nðŸ’¡ Solver Decision: %s" reasoning
+            printRoute "âœ… Optimized Route Found" optimizedRoute perfWithImprovement (Some "HybridSolver")
 
             // Business insights
-            printfn "\n💡 Business Impact:"
+            printfn "\nðŸ’¡ Business Impact:"
             let fuelSavings = improvement
             let timeSavings = naiveRoute.TotalTime - optimizedRoute.TotalTime
 
-            printfn "  • %.1f km shorter route (%.1f%% reduction)"
+            printfn "  â€¢ %.1f km shorter route (%.1f%% reduction)"
                 (naiveRoute.TotalDistance - optimizedRoute.TotalDistance) improvement
-            printfn "  • %s faster delivery" (formatTime timeSavings)
-            printfn "  • Estimated fuel savings: %.1f%% per day" fuelSavings
-            printfn "  • Annual impact (250 work days): ~%.0f km saved"
+            printfn "  â€¢ %s faster delivery" (formatTime timeSavings)
+            printfn "  â€¢ Estimated fuel savings: %.1f%% per day" fuelSavings
+            printfn "  â€¢ Annual impact (250 work days): ~%.0f km saved"
                 ((naiveRoute.TotalDistance - optimizedRoute.TotalDistance) * 250.0)
 
         (optimizedRoute, perfWithImprovement, "HybridSolver")
 
     | Error msg ->
         if not quiet then
-            printfn "❌ Optimization failed: %s" msg
+            printfn "âŒ Optimization failed: %s" msg
             printfn "\nUsing baseline naive route"
 
         let perf = {
@@ -411,13 +412,13 @@ let resultRoute, resultPerf, resultSolver =
 
 // Additional Analysis
 if not quiet then
-    printfn "\n📈 Route Statistics:"
+    printfn "\nðŸ“ˆ Route Statistics:"
     printfn "  Total stops: %d" allStops.Length
     printfn "  Average distance between stops: %.1f km"
         (naiveRoute.TotalDistance / float allStops.Length)
 
-    printfn "\n✨ Note: This example uses HybridSolver with automatic classical/quantum routing."
-    printfn "   Current problem size (16 cities) → Classical solver (fast, optimal for <50 cities)"
+    printfn "\nâœ¨ Note: This example uses HybridSolver with automatic classical/quantum routing."
+    printfn "   Current problem size (16 cities) â†’ Classical solver (fast, optimal for <50 cities)"
     printfn "   For larger problems (50+ cities), quantum solvers may provide advantages."
     printfn ""
 
@@ -428,7 +429,7 @@ if not quiet then
 let routeStops =
     resultRoute.Path
     |> List.map (fun loc -> loc.Name)
-    |> String.concat " → "
+    |> String.concat " â†’ "
 
 let resultRows : Map<string, string> list =
     [ Map.ofList
@@ -467,7 +468,7 @@ match csvPath with
 // ==============================================================================
 
 if argv.Length = 0 && not quiet then
-    printfn "💡 Tip: Run with --help to see all options:"
+    printfn "ðŸ’¡ Tip: Run with --help to see all options:"
     printfn "   dotnet fsi DeliveryRouting.fsx -- --help"
     printfn "   dotnet fsi DeliveryRouting.fsx -- --input locations.csv --output route.json"
     printfn "   dotnet fsi DeliveryRouting.fsx -- --quiet --output route.json  (pipeline mode)"

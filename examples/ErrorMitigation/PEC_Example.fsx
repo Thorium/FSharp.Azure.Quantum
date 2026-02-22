@@ -1,4 +1,4 @@
-// ==============================================================================
+﻿// ==============================================================================
 // Probabilistic Error Cancellation (PEC) Example
 // ==============================================================================
 // Demonstrates PEC error mitigation for quantum circuits. PEC reduces circuit
@@ -83,6 +83,7 @@ References:
 *)
 
 #r "nuget: MathNet.Numerics, 5.0.0"
+#r "nuget: Microsoft.Extensions.Logging.Abstractions, 10.0.0"
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 #load "../_common/Cli.fs"
 #load "../_common/Data.fs"

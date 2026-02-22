@@ -1,4 +1,4 @@
-// ==============================================================================
+﻿// ==============================================================================
 // Quantum Value-at-Risk (VaR) Example
 // ==============================================================================
 // Quantum-enhanced risk measurement for financial portfolios.
@@ -20,6 +20,7 @@
 //   [3] https://en.wikipedia.org/wiki/Value_at_risk
 // ==============================================================================
 
+#r "nuget: Microsoft.Extensions.Logging.Abstractions, 10.0.0"
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 
 #load "../_common/Cli.fs"
@@ -503,18 +504,18 @@ let printTable () =
     | Ok r ->
         printfn "  %-32s $%14s %9.2f%% %8s" "Classical Parametric (Normal)" (r.VaR.ToString("N0")) (r.VaRPercent * 100.0) "OK"
     | Error _ ->
-        printfn "  %-32s %15s %10s %8s" "Classical Parametric (Normal)" "—" "—" "FAIL"
+        printfn "  %-32s %15s %10s %8s" "Classical Parametric (Normal)" "â€”" "â€”" "FAIL"
 
     match historicalVaRResult with
     | Ok r ->
         printfn "  %-32s $%14s %9.2f%% %8s" "Classical Historical Sim" (r.VaR.ToString("N0")) (r.VaRPercent * 100.0) "OK"
     | Error _ ->
-        printfn "  %-32s %15s %10s %8s" "Classical Historical Sim" "—" "—" "FAIL"
+        printfn "  %-32s %15s %10s %8s" "Classical Historical Sim" "â€”" "â€”" "FAIL"
 
     if not (Double.IsNaN quantumVaRValue) then
         printfn "  %-32s $%14s %9.2f%% %8s" "QUANTUM Amplitude Estimation" (quantumVaRValue.ToString("N0")) (quantumVaRValue / portfolioValue * 100.0) "OK"
     else
-        printfn "  %-32s %15s %10s %8s" "QUANTUM Amplitude Estimation" "—" "—" "FAIL"
+        printfn "  %-32s %15s %10s %8s" "QUANTUM Amplitude Estimation" "â€”" "â€”" "FAIL"
 
     printfn "  %s" divider2
     printfn ""

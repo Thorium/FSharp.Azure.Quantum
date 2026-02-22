@@ -1,5 +1,5 @@
-(*
-    Bell State Creation — Topological Quantum Computing
+﻿(*
+    Bell State Creation â€” Topological Quantum Computing
     =====================================================
 
     Creates entangled Bell state via braiding operations instead
@@ -11,6 +11,7 @@
               dotnet fsi BellState.fsx -- --quiet --output r.json --csv r.csv
 *)
 
+#r "nuget: Microsoft.Extensions.Logging.Abstractions, 10.0.0"
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 #r "../../src/FSharp.Azure.Quantum.Topological/bin/Debug/net10.0/FSharp.Azure.Quantum.Topological.dll"
 #load "../_common/Cli.fs"
@@ -46,7 +47,7 @@ let shouldRun ex = exChoice = "all" || exChoice = string ex
 let separator () = pr "%s" (String.replicate 60 "-")
 
 // ---------------------------------------------------------------------------
-// Quantum backend (Rule 1) — topological IQuantumBackend
+// Quantum backend (Rule 1) â€” topological IQuantumBackend
 // ---------------------------------------------------------------------------
 let quantumBackend = TopologicalUnifiedBackendFactory.createIsing 10
 
@@ -55,7 +56,7 @@ let mutable jsonResults : (string * obj) list = []
 let mutable csvRows     : string list list    = []
 
 // ---------------------------------------------------------------------------
-// Example 1 — Create Bell state via braiding
+// Example 1 â€” Create Bell state via braiding
 // ---------------------------------------------------------------------------
 if shouldRun 1 then
     separator ()
@@ -87,7 +88,7 @@ if shouldRun 1 then
         pr "Failed: %s" err.Message
 
 // ---------------------------------------------------------------------------
-// Example 2 — Entanglement correlation test
+// Example 2 â€” Entanglement correlation test
 // ---------------------------------------------------------------------------
 if shouldRun 2 then
     separator ()
@@ -122,7 +123,7 @@ if shouldRun 2 then
     pr "Uncorrelated: %d (%.1f%%)" (cliTrials - correlatedCount) (100.0 - corrPct)
     pr ""
     if corrPct > 75.0 then
-        pr "Strong correlation — entanglement verified"
+        pr "Strong correlation â€” entanglement verified"
     else
         pr "Correlation weaker than expected"
 
@@ -133,7 +134,7 @@ if shouldRun 2 then
                   sprintf "%.1f" corrPct ] :: csvRows
 
 // ---------------------------------------------------------------------------
-// Example 3 — Gate-based vs topological comparison
+// Example 3 â€” Gate-based vs topological comparison
 // ---------------------------------------------------------------------------
 if shouldRun 3 then
     separator ()

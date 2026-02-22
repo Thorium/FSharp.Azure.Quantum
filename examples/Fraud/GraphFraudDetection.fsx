@@ -1,4 +1,4 @@
-// ==============================================================================
+﻿// ==============================================================================
 // Graph-Based Fraud Detection using Quantum QAOA
 // ==============================================================================
 // Detects fraud rings and money laundering in transaction networks via quantum
@@ -20,6 +20,7 @@
 //       https://en.wikipedia.org/wiki/Money_laundering
 // ==============================================================================
 
+#r "nuget: Microsoft.Extensions.Logging.Abstractions, 10.0.0"
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 
 #load "../_common/Cli.fs"
@@ -300,7 +301,7 @@ let detectFraudPatterns (transactions: Transaction list) (features: GraphFeature
               Confidence = min 1.0 (float chain.Length / 5.0)
               PatternType = "Layering" })
 
-    // Pattern 2: Money mule (star topology — many in, few out)
+    // Pattern 2: Money mule (star topology â€” many in, few out)
     let mulePatterns =
         features
         |> List.filter (fun f -> f.InDegree >= 3 && f.OutDegree <= 1 && f.TransactionVelocity > 2.0)
@@ -346,7 +347,7 @@ let detectFraudPatterns (transactions: Transaction list) (features: GraphFeature
     layeringPatterns @ mulePatterns @ circularPatterns
 
 // ==============================================================================
-// RISK SCORING (functional — no mutable)
+// RISK SCORING (functional â€” no mutable)
 // ==============================================================================
 
 let calculateRiskScores

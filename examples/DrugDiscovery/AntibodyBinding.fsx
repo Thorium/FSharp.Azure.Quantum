@@ -1,4 +1,4 @@
-// ==============================================================================
+﻿// ==============================================================================
 // Antibody-Antigen CDR Contact Type Comparison
 // ==============================================================================
 // Compares binding energy contributions from different CDR-epitope interface
@@ -37,6 +37,7 @@
 //   [4] Fedorov, D.G. "Fragment Molecular Orbital Method" (2017)
 // ==============================================================================
 
+#r "nuget: Microsoft.Extensions.Logging.Abstractions, 10.0.0"
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 #load "../_common/Cli.fs"
 #load "../_common/Data.fs"
@@ -564,7 +565,7 @@ let printTable () =
 
     printfn ""
 
-// Always print the ranked comparison table — that's the primary output of this tool,
+// Always print the ranked comparison table â€” that's the primary output of this tool,
 // even in --quiet mode (which only suppresses per-contact progress output).
 printTable ()
 

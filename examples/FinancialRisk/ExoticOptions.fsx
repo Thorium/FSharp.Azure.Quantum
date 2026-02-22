@@ -1,4 +1,4 @@
-// ==============================================================================
+﻿// ==============================================================================
 // Exotic Options Pricing with Quantum Monte Carlo
 // ==============================================================================
 // Path-dependent exotic options using quantum amplitude estimation.
@@ -20,6 +20,7 @@
 //   [4] https://en.wikipedia.org/wiki/Lookback_option
 // ==============================================================================
 
+#r "nuget: Microsoft.Extensions.Logging.Abstractions, 10.0.0"
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 
 #load "../_common/Cli.fs"
@@ -512,9 +513,9 @@ let printTable () =
     printfn "  %s" divider
     for r in sortedResults do
         let status = if r.HasQuantumFailure then "FAIL" else "OK"
-        let fmt v = if Double.IsNaN v then "—" else sprintf "%8.4f" v
-        let priceFmt = if Double.IsNaN r.Price then "       —" else sprintf "$%8.4f" r.Price
-        let errFmt = if Double.IsNaN r.StdError then "       —" else sprintf "$%7.4f" r.StdError
+        let fmt v = if Double.IsNaN v then "â€”" else sprintf "%8.4f" v
+        let priceFmt = if Double.IsNaN r.Price then "       â€”" else sprintf "$%8.4f" r.Price
+        let errFmt = if Double.IsNaN r.StdError then "       â€”" else sprintf "$%7.4f" r.StdError
         printfn "  %-32s %8s %10s %8s %8s %8s %8s %8s"
             (if r.Name.Length > 32 then r.Name.[..31] else r.Name)
             r.OptionType

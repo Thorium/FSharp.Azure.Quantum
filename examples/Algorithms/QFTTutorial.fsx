@@ -1,4 +1,4 @@
-/// Quantum Fourier Transform (QFT) Tutorial
+﻿/// Quantum Fourier Transform (QFT) Tutorial
 /// 
 /// A Li Tan-style pedagogical tutorial with worked numerical examples,
 /// classical comparisons, and progressive exercises.
@@ -18,22 +18,22 @@ MOTIVATION: The Discrete Fourier Transform in Classical Signal Processing
 --------------------------------------------------------------------------
 In classical signal processing, the Discrete Fourier Transform (DFT) converts
 a time-domain signal into its frequency components. For a sequence of N samples
-{x₀, x₁, ..., x_{N-1}}, the DFT produces frequency coefficients:
+{xâ‚€, xâ‚, ..., x_{N-1}}, the DFT produces frequency coefficients:
 
-    X_k = Σⱼ₌₀^{N-1} xⱼ · e^{-2πijk/N}    for k = 0, 1, ..., N-1
+    X_k = Î£â±¼â‚Œâ‚€^{N-1} xâ±¼ Â· e^{-2Ï€ijk/N}    for k = 0, 1, ..., N-1
 
 The DFT is fundamental to audio processing (MP3), image compression (JPEG),
-telecommunications, and medical imaging. However, the naive DFT requires O(N²)
+telecommunications, and medical imaging. However, the naive DFT requires O(NÂ²)
 operations. The Fast Fourier Transform (FFT) reduces this to O(N log N), but
-for quantum systems with N = 2ⁿ states, even FFT becomes intractable.
+for quantum systems with N = 2â¿ states, even FFT becomes intractable.
 
 THE QUANTUM ADVANTAGE
 ---------------------
 The Quantum Fourier Transform (QFT) performs the same mathematical operation
-on quantum amplitudes, but with only O(n²) gates for n qubits representing
-N = 2ⁿ amplitudes. This is EXPONENTIALLY faster than classical methods:
+on quantum amplitudes, but with only O(nÂ²) gates for n qubits representing
+N = 2â¿ amplitudes. This is EXPONENTIALLY faster than classical methods:
 
-    | n qubits | N = 2ⁿ states | Classical FFT | Quantum QFT |
+    | n qubits | N = 2â¿ states | Classical FFT | Quantum QFT |
     |----------|---------------|---------------|-------------|
     |    10    |      1,024    |    10,240     |     100     |
     |    20    |  1,048,576    | 20,971,520    |     400     |
@@ -49,19 +49,19 @@ MATHEMATICAL DEFINITION
 -----------------------
 The QFT transforms computational basis states according to:
 
-    QFT|j⟩ = (1/√N) Σₖ₌₀^{N-1} e^{2πijk/N} |k⟩
+    QFT|jâŸ© = (1/âˆšN) Î£â‚–â‚Œâ‚€^{N-1} e^{2Ï€ijk/N} |kâŸ©
 
-where N = 2ⁿ for n qubits. Equivalently, in amplitude notation:
+where N = 2â¿ for n qubits. Equivalently, in amplitude notation:
 
-    |ψ⟩ = Σⱼ xⱼ|j⟩  →  QFT|ψ⟩ = Σₖ Xₖ|k⟩
+    |ÏˆâŸ© = Î£â±¼ xâ±¼|jâŸ©  â†’  QFT|ÏˆâŸ© = Î£â‚– Xâ‚–|kâŸ©
 
-    where X_k = (1/√N) Σⱼ xⱼ · e^{2πijk/N}
+    where X_k = (1/âˆšN) Î£â±¼ xâ±¼ Â· e^{2Ï€ijk/N}
 
-NOTE: The QFT uses e^{+2πijk/N} (positive exponent), while the classical DFT
-typically uses e^{-2πijk/N} (negative). This is a convention choice - both are
+NOTE: The QFT uses e^{+2Ï€ijk/N} (positive exponent), while the classical DFT
+typically uses e^{-2Ï€ijk/N} (negative). This is a convention choice - both are
 valid Fourier transforms, just with opposite "frequency direction."
 
-The QFT is UNITARY: QFT · QFT† = I (identity). This means information is
+The QFT is UNITARY: QFT Â· QFTâ€  = I (identity). This means information is
 preserved and the transform is reversible.
 
 IMPORTANT: QFT vs Classical FFT
@@ -83,6 +83,7 @@ References:
       Academic Press (2008), Chapters 3-4 (classical DFT background).
 *)
 
+#r "nuget: Microsoft.Extensions.Logging.Abstractions, 10.0.0"
 #r "../../src/FSharp.Azure.Quantum/bin/Debug/net10.0/FSharp.Azure.Quantum.dll"
 
 #load "../_common/Cli.fs"
@@ -173,11 +174,11 @@ The QFT circuit for n qubits consists of:
 
 For 3 qubits, the circuit looks like:
 
-    |q0⟩ --- H --- CP(pi/2) --- CP(pi/4) -----------------x---
+    |q0âŸ© --- H --- CP(pi/2) --- CP(pi/4) -----------------x---
                      |            |                        |
-    |q1⟩ ------------*------- H -+------- CP(pi/2) -------+x--
+    |q1âŸ© ------------*------- H -+------- CP(pi/2) -------+x--
                                  |          |              ||
-    |q2⟩ ------------------------*--------- * ------ H ----x+--
+    |q2âŸ© ------------------------*--------- * ------ H ----x+--
                                                            |
                                                         SWAP
 
@@ -245,17 +246,17 @@ if shouldRun "gates" then
  Chapter 3: QFT on Computational Basis States - Worked Examples
 ===============================================================================
 
-When QFT is applied to a computational basis state |j⟩, the result is an
+When QFT is applied to a computational basis state |jâŸ©, the result is an
 equal superposition of all basis states with specific phase relationships:
 
-    QFT|j⟩ = (1/√N) Σₖ e^{2πijk/N} |k⟩
+    QFT|jâŸ© = (1/âˆšN) Î£â‚– e^{2Ï€ijk/N} |kâŸ©
 
-Key insight: ALL output amplitudes have EQUAL magnitude (1/√N), but different
+Key insight: ALL output amplitudes have EQUAL magnitude (1/âˆšN), but different
 PHASES determined by the input j.
 *)
 
 // ===========================================================================
-// EXAMPLE: QFT on |0⟩
+// EXAMPLE: QFT on |0âŸ©
 // ===========================================================================
 
 if shouldRun "qft0" then
@@ -306,7 +307,7 @@ if shouldRun "qft0" then
         if not quiet then printfn "  Error: %A" err
 
 // ===========================================================================
-// EXAMPLE: QFT on |1⟩
+// EXAMPLE: QFT on |1âŸ©
 // ===========================================================================
 
 if shouldRun "qft1" then
@@ -359,7 +360,7 @@ if shouldRun "qft1" then
         if not quiet then printfn "  Error: %A" err
 
 // ===========================================================================
-// EXAMPLE: QFT on |5⟩
+// EXAMPLE: QFT on |5âŸ©
 // ===========================================================================
 
 if shouldRun "qft5" then
@@ -414,10 +415,10 @@ if shouldRun "qft5" then
  Chapter 4: The QFT-Inverse QFT Identity (Unitarity)
 ===============================================================================
 
-Since QFT is unitary, applying QFT followed by its inverse (QFT†) returns
+Since QFT is unitary, applying QFT followed by its inverse (QFTâ€ ) returns
 the original state:
 
-    QFT† · QFT = I (identity)
+    QFTâ€  Â· QFT = I (identity)
 
 This is analogous to the classical Fourier transform pair where transforming
 to frequency domain and back recovers the original signal.
@@ -432,7 +433,7 @@ if shouldRun "roundtrip" then
 
     if not quiet then
         printfn "============================================================================="
-        printfn " EXAMPLE 4.1: Round-Trip Verification (QFT -> QFT† = Identity)"
+        printfn " EXAMPLE 4.1: Round-Trip Verification (QFT -> QFTâ€  = Identity)"
         printfn "============================================================================="
         printfn ""
         printfn "PROBLEM: Verify that QFT followed by inverse QFT returns |0> to |0>."
@@ -444,7 +445,7 @@ if shouldRun "roundtrip" then
             if isIdentity then
                 printfn "  Result: PASSED"
                 printfn "  All measurements returned |%s>" (String.replicate n "0")
-                printfn "  QFT * QFT† = Identity verified!"
+                printfn "  QFT * QFTâ€  = Identity verified!"
             else
                 printfn "  Result: FAILED"
                 printfn "  Some measurements were not |%s>" (String.replicate n "0")
@@ -606,7 +607,7 @@ if not quiet then
     printfn ""
     printfn "  3. Exponential speedup over classical DFT/FFT"
     printfn ""
-    printfn "  4. QFT is UNITARY: QFT * QFT† = Identity"
+    printfn "  4. QFT is UNITARY: QFT * QFTâ€  = Identity"
     printfn ""
     printfn "  5. Applications: Shor's algorithm, QPE, period finding"
     printfn ""
