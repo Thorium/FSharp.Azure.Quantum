@@ -211,64 +211,91 @@ module TopologicalFormat =
     
     module Executor =
         
-        open System.Threading.Tasks
+        open FSharp.Azure.Quantum.Core
+        open FSharp.Azure.Quantum.Core.BackendAbstraction
+        
+        /// Result of executing a topological program
+        type ExecutionResult = {
+            /// The resulting quantum state
+            FinalState: QuantumState
+            
+            /// Classical measurement outcomes (if any measurements were performed)
+            MeasurementOutcomes: (AnyonSpecies.Particle * float) list
+            
+            /// Any log messages
+            Messages: string list
+        }
         
         /// Execute a parsed program on a topological backend
         let executeProgram 
-            (backend: TopologicalBackend.ITopologicalBackend) 
+            (backend: IQuantumBackend) 
             (program: Program) 
-            : Task<TopologicalResult<TopologicalBackend.ExecutionResult>> =
+            : Result<ExecutionResult, QuantumError> =
             
-            task {
-                // Convert program operations to backend operations
-                let backendOperations =
-                    program.Operations
-                    |> List.choose (fun op ->
-                        match op with
-                        | Initialize _ -> None  // Initialization handled separately
-                        | Braid index -> Some (TopologicalBackend.Braid index)
-                        | Measure index -> Some (TopologicalBackend.Measure index)
-                        | FMove (dir, depth) ->
-                            let fmoveDir = 
-                                match dir with
-                                | Left -> TopologicalOperations.FMoveDirection.LeftToRight
-                                | Right -> TopologicalOperations.FMoveDirection.RightToLeft
-                                | Up -> TopologicalOperations.FMoveDirection.LeftToRight  // Map Up to LeftToRight
-                                | Down -> TopologicalOperations.FMoveDirection.RightToLeft  // Map Down to RightToLeft
-                            Some (TopologicalBackend.FMove (fmoveDir, depth))
-                        | Comment _ -> None
-                    )
-                
-                // Find initialization
-                let initOp =
-                    program.Operations
-                    |> List.tryPick (fun op ->
-                        match op with
-                        | Initialize count -> Some count
-                        | _ -> None
-                    )
-                
-                match initOp with
-                | None -> return TopologicalResult.validationError "field" "Program must contain INIT operation"
-                | Some count ->
-                    // Initialize backend
-                    let! initResult = backend.Initialize program.AnyonType count
+            // Convert program operations to QuantumOperations
+            let backendOperations =
+                program.Operations
+                |> List.choose (fun op ->
+                    match op with
+                    | Initialize _ -> None  // Initialization handled separately
+                    | Braid index -> Some (QuantumOperation.Braid index)
+                    | Measure index -> Some (QuantumOperation.Measure index)
+                    | FMove (dir, depth) ->
+                        let fmoveDir = 
+                            match dir with
+                            | Left -> FMoveDirection.Forward
+                            | Right -> FMoveDirection.Backward
+                            | Up -> FMoveDirection.Forward      // Map Up to Forward
+                            | Down -> FMoveDirection.Backward    // Map Down to Backward
+                        Some (QuantumOperation.FMove (fmoveDir, depth))
+                    | Comment _ -> None
+                )
+            
+            // Find initialization
+            let initOp =
+                program.Operations
+                |> List.tryPick (fun op ->
+                    match op with
+                    | Initialize count -> Some count
+                    | _ -> None
+                )
+            
+            match initOp with
+            | None -> Error (QuantumError.ValidationError ("field", "Program must contain INIT operation"))
+            | Some count ->
+                // Initialize backend
+                match backend.InitializeState count with
+                | Error err -> Error err
+                | Ok initialState ->
+                    // Execute operations sequentially with fold
+                    let foldResult =
+                        backendOperations
+                        |> List.fold (fun acc op ->
+                            match acc with
+                            | Error err -> Error err  // Short-circuit on error
+                            | Ok (state, measurements, messages) ->
+                                match backend.ApplyOperation op state with
+                                | Error err -> Error err
+                                | Ok newState ->
+                                    let msg = $"Applied operation: {op}"
+                                    Ok (newState, measurements, msg :: messages)
+                        ) (Ok (initialState, [], []))
                     
-                    match initResult with
-                    | Error err -> return Error err
-                    | Ok initialState ->
-                        // Execute operations
-                        return! backend.Execute initialState backendOperations
-            }
+                    match foldResult with
+                    | Error err -> Error err
+                    | Ok (finalState, measurements, messages) ->
+                        Ok {
+                            FinalState = finalState
+                            MeasurementOutcomes = List.rev measurements
+                            Messages = List.rev messages
+                        }
         
         /// Execute program from file
         let executeFile 
-            (backend: TopologicalBackend.ITopologicalBackend) 
+            (backend: IQuantumBackend) 
             (filePath: string) 
-            : Task<TopologicalResult<TopologicalBackend.ExecutionResult>> =
+            : Result<ExecutionResult, QuantumError> =
             
-            task {
-                match Parser.parseFile filePath with
-                | Error msg -> return TopologicalResult.validationError "filePath" msg
-                | Ok program -> return! executeProgram backend program
-            }
+            match Parser.parseFile filePath with
+            | Error msg -> Error (QuantumError.ValidationError ("filePath", msg))
+            | Ok program -> executeProgram backend program

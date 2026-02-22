@@ -2,7 +2,7 @@
 
 **Topological Quantum Computing Library for F#**
 
-A standalone library for topological quantum computing, implementing anyon models, fusion rules, and braiding operators. This project is architecturally independent from the gate-based quantum computing library (`FSharp.Azure.Quantum`), as topological quantum computing is a fundamentally different paradigm -- information is encoded in the topology of anyon worldlines rather than in quantum amplitudes.
+A topological quantum computing library for F#, implementing anyon models, fusion rules, braiding operators, and gate-to-braid compilation. While topological quantum computing is a fundamentally different paradigm -- information is encoded in the topology of anyon worldlines rather than in quantum amplitudes -- this library integrates seamlessly with the gate-based library (`FSharp.Azure.Quantum`) via the shared `IQuantumBackend` interface, enabling standard algorithms (Grover, QFT, Shor, HHL) to run on topological backends.
 
 ## Features
 
@@ -15,7 +15,8 @@ A standalone library for topological quantum computing, implementing anyon model
 - **Consistency Verification**: Pentagon and hexagon equation checks
 
 ### Backends and Operations (Layers 2-3)
-- **ITopologicalBackend**: Backend interface with `SimulatorBackend` implementation
+- **TopologicalUnifiedBackend**: Implements `IQuantumBackend` for seamless integration with gate-based algorithms
+- **TopologicalUnifiedBackendFactory**: Factory functions (`createIsing`, `createFibonacci`, `create`)
 - **Fusion Trees**: Quantum state representation as recursive tree structures
 - **TopologicalOperations**: Braiding, fusion measurement, superposition management
 
@@ -23,13 +24,17 @@ A standalone library for topological quantum computing, implementing anyon model
 - **Magic State Distillation**: 15-to-1 protocol for Ising anyon universality
 - **Toric Code**: Topological error correction with syndrome detection
 - **Gate-to-Braid Compilation**: Translate gate-based circuits to braid sequences (21 gate types)
+- **Braid-to-Gate**: Convert braid sequences back to gate operations
 - **Solovay-Kitaev**: Gate approximation for efficient braid decomposition
+- **Algorithm Extensions**: Run Grover, QFT, Shor, and HHL on topological backends via `IQuantumBackend`
+- **Knot Invariants**: Kauffman bracket, Jones polynomial, and standard knot constructors (trefoil, figure-eight, Hopf link, etc.)
 
 ### Developer Experience (Layer 6)
 - **Computation Expressions**: `topological backend { ... }` builder for composing programs
 - **TopologicalFormat**: Import/export `.tqp` files (human-readable format)
 - **Noise Models**: Configurable noise simulation for realistic error modelling
 - **Visualization**: State visualization and debugging utilities
+- **TopologicalHelpers**: Complex number utilities and display formatting
 
 ## Installation
 
@@ -70,35 +75,55 @@ let d = AnyonSpecies.quantumDimension sigma
 ```fsharp
 open FSharp.Azure.Quantum.Topological
 
-let program backend = topological backend {
-    let! ctx = initialize Ising 4       // Create 4 sigma anyons
-    let! ctx = braid 0 ctx              // Braid anyons 0 and 1
-    let! ctx = braid 2 ctx              // Braid anyons 2 and 3
-    let! (outcome, ctx) = measure 0 ctx // Measure fusion of pair 0
+let backend = TopologicalUnifiedBackendFactory.createIsing 10
+
+let program = topological backend {
+    let! state = initialize AnyonSpecies.AnyonType.Ising 4  // Create 4 sigma anyons
+    do! braid 0                                              // Braid anyons 0 and 1
+    do! braid 2                                              // Braid anyons 2 and 3
+    let! outcome = measure 0                                 // Measure fusion of pair 0
     return outcome
 }
+```
+
+### Running gate-based algorithms on topological backends
+
+```fsharp
+open FSharp.Azure.Quantum.Topological
+
+// The topological backend implements IQuantumBackend, so standard algorithms work directly
+let backend = TopologicalUnifiedBackendFactory.createIsing 20
+
+// Grover search on topological backend (gate-to-braid compilation happens automatically)
+let groverResult = AlgorithmExtensions.searchSingleWithTopology 42 8 backend config
+
+// QFT on topological backend
+let qftResult = AlgorithmExtensions.qftWithTopology 4 backend qftConfig
+
+// Shor's factoring on topological backend
+let shorResult = AlgorithmExtensions.factor15WithTopology backend
 ```
 
 ### Railway-oriented composition
 
 ```fsharp
-let backend = TopologicalBackend.createSimulator AnyonType.Ising 10
+let backend = TopologicalUnifiedBackendFactory.createIsing 10
 
-backend.Initialize AnyonType.Ising 6
-|> TaskResult.bind (backend.Braid 0)
-|> TaskResult.bind (backend.Braid 2)
-|> TaskResult.bind (fun state ->
-    backend.Execute state [
-        TopologicalBackend.Measure 0
-        TopologicalBackend.Braid 2
-        TopologicalBackend.Measure 2
-    ]
-)
+// Sequential operations using Result.bind
+match backend.InitializeState 2 with
+| Ok state ->
+    match backend.ApplyOperation (QuantumOperation.Braid 0) state with
+    | Ok braided ->
+        match backend.ApplyOperation (QuantumOperation.Measure 0) braided with
+        | Ok measured -> printfn "Measured: %A" measured
+        | Error e -> printfn "Measure error: %s" e.Message
+    | Error e -> printfn "Braid error: %s" e.Message
+| Error e -> printfn "Init error: %s" e.Message
 ```
 
 ## Test Coverage
 
-**770 unit tests** covering all 27 modules across 6 architectural layers:
+**807 unit tests** covering all 29 modules across 6 architectural layers:
 
 ```bash
 dotnet test tests/FSharp.Azure.Quantum.Topological.Tests/
@@ -108,20 +133,22 @@ Tests validate mathematical consistency (Pentagon/Hexagon equations, unitarity, 
 
 ## Architecture
 
-The library follows a strictly layered architecture that mirrors the gate-based library's structure but is fundamentally separate:
+The library follows a strictly layered architecture that mirrors the gate-based library's structure, integrating via the shared `IQuantumBackend` interface:
 
 ```
-Layer 6: Builders & Formats      TopologicalBuilder, TopologicalFormat, Visualization
-Layer 5: Compilation              GateToBraid, BraidToGate, SolovayKitaev, CircuitOptimization
+Layer 6: Builders & Formats      TopologicalBuilder, TopologicalFormat, Visualization,
+                                 TopologicalHelpers
+Layer 5: Compilation              GateToBraid, BraidToGate, SolovayKitaev, CircuitOptimization,
+                                 AlgorithmExtensions
 Layer 4: Algorithms               MagicStateDistillation, ToricCode, ErrorPropagation
 Layer 3: Operations               TopologicalOperations, FusionTree
-Layer 2: Backends                 ITopologicalBackend, SimulatorBackend
+Layer 2: Backends                 TopologicalUnifiedBackend, TopologicalUnifiedBackendFactory
 Layer 1: Mathematical Foundation  AnyonSpecies, FusionRules, BraidingOperators, FMatrix,
-                                  RMatrix, ModularData, BraidGroup, BraidingConsistency,
-                                  EntanglementEntropy, KauffmanBracket
+                                 RMatrix, ModularData, BraidGroup, BraidingConsistency,
+                                 EntanglementEntropy, KauffmanBracket, KnotConstructors
 ```
 
-### Why a Separate Project?
+### Why a Separate Package?
 
 | Gate-Based (FSharp.Azure.Quantum) | Topological (This Library) |
 |-----------------------------------|----------------------------|
@@ -129,7 +156,9 @@ Layer 1: Mathematical Foundation  AnyonSpecies, FusionRules, BraidingOperators, 
 | Amplitude vectors | Fusion trees |
 | Z-basis measurement | Fusion outcome measurement |
 | Error-prone (needs QEC) | Topologically protected |
-| Azure Quantum integration | Standalone simulator (hardware-ready) |
+| Azure Quantum integration | Simulator + IQuantumBackend integration |
+
+**Note:** While the paradigms differ, the topological backend implements `IQuantumBackend` from the gate-based library, enabling standard algorithms (Grover, QFT, Shor, HHL) to run on topological backends via automatic gate-to-braid compilation.
 
 ### Namespace Structure
 
@@ -137,13 +166,14 @@ Layer 1: Mathematical Foundation  AnyonSpecies, FusionRules, BraidingOperators, 
 FSharp.Azure.Quantum.Topological
   Layer 1: AnyonSpecies, FusionRules, BraidingOperators, FMatrix, RMatrix,
            ModularData, BraidGroup, BraidingConsistency, EntanglementEntropy,
-           KauffmanBracket
-  Layer 2: TopologicalBackend (ITopologicalBackend + SimulatorBackend)
+           KauffmanBracket, KnotConstructors
+  Layer 2: TopologicalUnifiedBackend, TopologicalUnifiedBackendFactory
   Layer 3: FusionTree, TopologicalOperations
   Layer 4: MagicStateDistillation, ToricCode, ErrorPropagation
-  Layer 5: GateToBraid, BraidToGate, SolovayKitaev, CircuitOptimization
-  Layer 6: TopologicalBuilder, TopologicalFormat, NoiseModels, Visualization,
-           TopologicalError
+  Layer 5: GateToBraid, BraidToGate, SolovayKitaev, CircuitOptimization,
+           AlgorithmExtensions
+  Layer 6: TopologicalBuilder, TopologicalBuilderExtensions, TopologicalFormat,
+           NoiseModels, Visualization, TopologicalHelpers, TopologicalError
 ```
 
 ## Examples
@@ -190,7 +220,7 @@ Anyons are quasiparticles in 2D systems with exotic exchange statistics -- neith
 - **Azure Quantum Majorana**: Hardware backend integration (when available)
 - **Surface Code Variants**: Planar codes, color codes
 - **Performance**: GPU acceleration, sparse matrices, parallel braiding
-- **Noise Models**: Thermal excitation, braiding imprecision
+- **Advanced Noise Models**: Thermal excitation, braiding imprecision beyond current NoiseModels
 
 ## References
 

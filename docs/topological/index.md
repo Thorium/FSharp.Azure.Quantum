@@ -56,7 +56,7 @@ This directory contains comprehensive documentation for the **FSharp.Azure.Quant
 - Module dependencies and compilation order
 - Design patterns and best practices
 
-**Key Takeaway:** Topological library follows same architectural principles as gate-based library but is fundamentally separate due to different computational paradigm.
+**Key Takeaway:** Topological library follows same architectural principles as gate-based library, implementing a fundamentally different computational paradigm while sharing the `IQuantumBackend` interface for algorithm integration.
 
 ---
 
@@ -156,54 +156,65 @@ open FSharp.Azure.Quantum.Topological
 
 // Layer 1: Mathematical Foundation
 AnyonSpecies      // Particle types and anyon theories
-FusionRules       // Fusion algebra (σ×σ = 1+ψ)
+FusionRules       // Fusion algebra (sigma x sigma = 1+psi)
 BraidingOperators // R-matrices and F-matrices
 KauffmanBracket   // Knot invariants (Kauffman bracket, Jones polynomial)
+KnotConstructors  // Standard knot/link diagram constructors (trefoil, figure-eight, Hopf link, etc.)
+
+// Layer 2: Backends
+TopologicalUnifiedBackendFactory  // Factory: createIsing, createFibonacci, create
+                                  // Returns IQuantumBackend for algorithm integration
 
 // Layer 3: Operations
 FusionTree        // Quantum state representation
 TopologicalOperations // Braiding, measurement, superposition
 
-// Layer 2: Backends
-TopologicalBackend // ITopologicalBackend interface
-                   // createSimulator, createHardware
-
 // Layer 4: Algorithms
 MagicStateDistillation // T-gate implementation via magic states
 
-// Integration
+// Layer 5: Compilation & Integration
 GateToBraid       // Convert gate-based circuits to braids
+AlgorithmExtensions // Run Grover, QFT, Shor, HHL on topological backends
 ```
 
 ### Common Operations
 
 ```fsharp
-// Create simulator
-let backend = TopologicalBackend.createSimulator AnyonType.Ising 10
+// Create simulator (unified backend - implements IQuantumBackend)
+let backend = TopologicalUnifiedBackendFactory.createIsing 10
 
-// Initialize state
-let! initialState = backend.Initialize AnyonType.Ising 4
+// Run standard algorithms on topological backend
+let groverResult = AlgorithmExtensions.searchSingleWithTopology 42 8 backend config
+let qftResult = AlgorithmExtensions.qftWithTopology 4 backend qftConfig
+let shorResult = AlgorithmExtensions.factor15WithTopology backend
 
-// Braid anyons
-let! state1 = backend.Braid 0 initialState
+// Computation expression
+let program = topological backend {
+    let! state = initialize AnyonSpecies.AnyonType.Ising 4
+    do! braid 0
+    do! braid 2
+    let! outcome = measure 0
+    return outcome
+}
 
-// Measure fusion
-let! (outcome, collapsed, prob) = backend.MeasureFusion 0 state1
+// Pure mathematical exploration (no backend needed)
+let channels = FusionRules.channels sigma sigma ising
+let R = BraidingOperators.element sigma sigma AnyonSpecies.Particle.Vacuum ising
+
+// Knot invariants
+let trefoil = KnotConstructors.trefoilKnot true
+let jones = KauffmanBracket.jonesPolynomial trefoil standardA
 
 // Magic state distillation
 let magicState = MagicStateDistillation.prepareNoisyMagicState 0.05 AnyonType.Ising
 let! purified = MagicStateDistillation.distill15to1 random [magicState; ...]
-
-// Knot invariants (from braiding operations)
-let trefoil = KauffmanBracket.trefoil true
-let jones = KauffmanBracket.jonesPolynomial trefoil standardA
 ```
 
 ---
 
 ## Complete Module Reference
 
-The topological library consists of 27 modules organized in 6 architectural layers. Below is the complete reference with brief descriptions.
+The topological library consists of 29 modules organized in 6 architectural layers. Below is the complete reference with brief descriptions.
 
 ### Layer 1: Mathematical Foundation (Core Anyonic Theory)
 
@@ -212,7 +223,7 @@ The topological library consists of 27 modules organized in 6 architectural laye
 | Module | Description |
 |--------|-------------|
 | `AnyonSpecies.fs` | Anyon particle types, quantum dimensions, and anyon theories (Ising, Fibonacci) |
-| `FusionRules.fs` | Fusion algebra rules (e.g., σ×σ = 1+ψ for Ising anyons) |
+| `FusionRules.fs` | Fusion algebra rules (e.g., sigma x sigma = 1+psi for Ising anyons) |
 | `BraidingOperators.fs` | R-matrices (braiding phase) and F-matrices (basis transformations) |
 | `FMatrix.fs` | F-matrix calculations and caching for efficient fusion tree manipulations |
 | `RMatrix.fs` | R-matrix calculations for braiding operations |
@@ -221,15 +232,15 @@ The topological library consists of 27 modules organized in 6 architectural laye
 | `BraidingConsistency.fs` | Pentagon and hexagon consistency equations for F and R matrices |
 | `EntanglementEntropy.fs` | Topological entanglement entropy calculations |
 | `KauffmanBracket.fs` | Kauffman bracket invariant and Jones polynomial for knot theory |
+| `KnotConstructors.fs` | Standard knot/link diagram constructors (unknot, trefoil, figure-eight, Hopf link, etc.) |
 
 ### Layer 2: Backends (Execution Abstractions)
 
-**Purpose:** Backend interfaces for executing topological operations - simulators and hardware integration points.
+**Purpose:** Backend interfaces for executing topological operations — unified backend integrating with gate-based algorithms.
 
 | Module | Description |
 |--------|-------------|
-| `TopologicalBackend.fs` | `ITopologicalBackend` interface and simulator implementation |
-| `Legacy\TopologicalBackend.fs` | Backward-compatible old backend interface (deprecated) |
+| `TopologicalBackend.fs` | `TopologicalUnifiedBackend` implementing `IQuantumBackend` + `TopologicalUnifiedBackendFactory` |
 
 ### Layer 3: State Representation & Operations
 
@@ -252,7 +263,7 @@ The topological library consists of 27 modules organized in 6 architectural laye
 
 ### Layer 5: Compilation & Optimization
 
-**Purpose:** Converting between gate-based and topological representations, circuit optimization.
+**Purpose:** Converting between gate-based and topological representations, circuit optimization, and running standard algorithms on topological backends.
 
 | Module | Description |
 |--------|-------------|
@@ -260,6 +271,7 @@ The topological library consists of 27 modules organized in 6 architectural laye
 | `BraidToGate.fs` | Convert braid sequences back to gate operations |
 | `SolovayKitaev.fs` | Gate approximation algorithm for efficient decomposition |
 | `CircuitOptimization.fs` | Circuit optimization and simplification strategies |
+| `AlgorithmExtensions.fs` | Run Grover, QFT, Shor, and HHL algorithms on topological backends |
 
 ### Layer 6: Builders, Formats & Utilities
 
@@ -272,12 +284,7 @@ The topological library consists of 27 modules organized in 6 architectural laye
 | `NoiseModels.fs` | Noise simulation for realistic error modeling |
 | `Visualization.fs` | State visualization and debugging utilities |
 | `TopologicalError.fs` | Error types and exception handling |
-
-### Commented Out / Future Development
-
-| Module | Status | Reason |
-|--------|--------|--------|
-| `AlgorithmExtensions.fs` | Commented out | Requires refactoring - references removed adapter modules |
+| `TopologicalHelpers.fs` | Complex number utilities and display formatting for particles |
 
 ---
 
@@ -292,14 +299,19 @@ The topological library consists of 27 modules organized in 6 architectural laye
 - **Measurement** (fusion outcome detection)
 - **Magic State Distillation** (15-to-1 protocol)
 - **Gate-to-Braid Compilation** (21 gate types)
-- **Backend Abstraction** (simulator, hardware-ready)
+- **Braid-to-Gate Conversion** (reverse compilation)
+- **Unified Backend** (IQuantumBackend implementation)
+- **Algorithm Extensions** (Grover, QFT, Shor, HHL on topological backends)
+- **Knot Constructors** (standard knot/link diagrams)
+- **Noise Models** (configurable error simulation)
+- **Toric Code** (topological error correction)
 
 ### Planned (Future Development)
 
-- **Fibonacci-specific algorithms** (Jones polynomial, link invariants)
+- **Fibonacci-specific algorithms** (Fibonacci-native gate compilation)
 - **Advanced error correction** (surface codes on anyonic systems)
-- **Hardware backends** (Azure Quantum integration)
-- **Performance optimizations** (parallel braiding, caching)
+- **Hardware backends** (Azure Quantum Majorana integration)
+- **Performance optimizations** (GPU acceleration, parallel braiding)
 
 ---
 
@@ -353,6 +365,6 @@ This documentation and the FSharp.Azure.Quantum.Topological library are licensed
 
 ---
 
-**Last Updated:** December 2025  
-**Library Version:** 0.3.3  
+**Last Updated:** February 2026  
+**Library Version:** 0.3.9  
 **F# Version:** 10.0

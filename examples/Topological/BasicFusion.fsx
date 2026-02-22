@@ -21,6 +21,7 @@
 
 open System
 open FSharp.Azure.Quantum.Topological
+open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.Examples.Common
 
@@ -48,12 +49,19 @@ let shouldRun ex = exChoice = "all" || exChoice = string ex
 let separator () = pr "%s" (String.replicate 60 "-")
 
 // ---------------------------------------------------------------------------
-// Quantum backend (Rule 1) — topological IQuantumBackend
+// Quantum backend — topological IQuantumBackend
 // ---------------------------------------------------------------------------
 let quantumBackend = TopologicalUnifiedBackendFactory.createIsing 10
 
-// Legacy topological backend for fusion-specific operations
-let topoBackend = TopologicalBackend.createSimulator AnyonSpecies.AnyonType.Ising 10
+/// Helper: create a raw 2-sigma-anyon FusionTree.State.
+/// This is the minimal "sigma x sigma" system for demonstrating
+/// the Ising fusion rule: sigma x sigma = 1 (vacuum) + psi.
+let createTwoSigmaState () =
+    let tree = FusionTree.fuse
+                   (FusionTree.leaf AnyonSpecies.Particle.Sigma)
+                   (FusionTree.leaf AnyonSpecies.Particle.Sigma)
+                   AnyonSpecies.Particle.Vacuum  // initial channel
+    FusionTree.create tree AnyonSpecies.AnyonType.Ising
 
 // Results accumulators
 let mutable jsonResults : (string * obj) list = []
@@ -67,21 +75,16 @@ if shouldRun 1 then
     pr "EXAMPLE 1: Initialise 2 Ising anyons (sigma particles)"
     separator ()
 
-    let state2 =
-        task { return! topoBackend.Initialize AnyonSpecies.AnyonType.Ising 2 }
-        |> Async.AwaitTask |> Async.RunSynchronously
+    let state = createTwoSigmaState ()
+    let superposition = TopologicalOperations.pureState state
 
-    match state2 with
-    | Ok state ->
-        pr "Initialised 2 sigma anyons"
-        pr "  Terms in superposition: %d" state.Terms.Length
-        for (amp, fusionState) in state.Terms do
-            pr "  Amplitude: %A   Tree: %A" amp fusionState.Tree
+    pr "Initialised 2 sigma anyons"
+    pr "  Terms in superposition: %d" superposition.Terms.Length
+    for (amp, fusionState) in superposition.Terms do
+        pr "  Amplitude: %A   Tree: %A" amp fusionState.Tree
 
-        jsonResults <- ("1_init", box {| anyons = 2; terms = state.Terms.Length |}) :: jsonResults
-        csvRows <- [ "1_init"; "2"; string state.Terms.Length ] :: csvRows
-    | Error err ->
-        pr "Initialisation failed: %s" err.Message
+    jsonResults <- ("1_init", box {| anyons = 2; terms = superposition.Terms.Length |}) :: jsonResults
+    csvRows <- [ "1_init"; "2"; string superposition.Terms.Length ] :: csvRows
 
 // ---------------------------------------------------------------------------
 // Example 2 — Fusion measurement (sigma x sigma = 1 + psi)
@@ -91,29 +94,27 @@ if shouldRun 2 then
     pr "EXAMPLE 2: Measure fusion of two sigma anyons"
     separator ()
 
-    let result =
-        task {
-            let! initR = topoBackend.Initialize AnyonSpecies.AnyonType.Ising 2
-            match initR with
-            | Ok state ->
-                let! measR = topoBackend.MeasureFusion 0 state
-                return measR
-            | Error e -> return Error e
-        } |> Async.AwaitTask |> Async.RunSynchronously
+    let state = createTwoSigmaState ()
+    let result = TopologicalOperations.measureFusion 0 state
 
     match result with
-    | Ok (outcome, collapsed, probability) ->
-        let outName =
-            match outcome with
-            | AnyonSpecies.Particle.Vacuum -> "vacuum (trivial)"
-            | AnyonSpecies.Particle.Psi    -> "psi (fermion)"
-            | _                            -> sprintf "%A" outcome
-        pr "Outcome: %s   (probability: %.4f)" outName probability
-        pr "Collapsed state terms: %d" collapsed.Terms.Length
+    | Ok outcomes ->
+        // measureFusion returns all possible outcomes with probabilities
+        for (probability, opResult) in outcomes do
+            match opResult.ClassicalOutcome with
+            | Some outcome ->
+                let outName =
+                    match outcome with
+                    | AnyonSpecies.Particle.Vacuum -> "vacuum (trivial)"
+                    | AnyonSpecies.Particle.Psi    -> "psi (fermion)"
+                    | _                            -> sprintf "%A" outcome
+                pr "Outcome: %s   (probability: %.4f)" outName probability
 
-        jsonResults <- ("2_measure", box {| outcome = sprintf "%A" outcome
-                                            probability = probability |}) :: jsonResults
-        csvRows <- [ "2_measure"; sprintf "%A" outcome; sprintf "%.4f" probability ] :: csvRows
+                jsonResults <- ("2_measure", box {| outcome = sprintf "%A" outcome
+                                                    probability = probability |}) :: jsonResults
+                csvRows <- [ "2_measure"; sprintf "%A" outcome; sprintf "%.4f" probability ] :: csvRows
+            | None ->
+                pr "Outcome: (no classical outcome)   (probability: %.4f)" probability
     | Error err ->
         pr "Measurement failed: %s" err.Message
 
@@ -125,34 +126,49 @@ if shouldRun 3 then
     pr "EXAMPLE 3: Fusion statistics (%d trials)" cliTrials
     separator ()
 
-    let (vacCount, psiCount) =
-        task {
-            let mutable vac = 0
-            let mutable psi = 0
-            for _ in 1 .. cliTrials do
-                let! initR = topoBackend.Initialize AnyonSpecies.AnyonType.Ising 2
-                match initR with
-                | Ok state ->
-                    let! measR = topoBackend.MeasureFusion 0 state
-                    match measR with
-                    | Ok (AnyonSpecies.Particle.Vacuum, _, _) -> vac <- vac + 1
-                    | Ok (AnyonSpecies.Particle.Psi, _, _)    -> psi <- psi + 1
-                    | _ -> ()
-                | _ -> ()
-            return (vac, psi)
-        } |> Async.AwaitTask |> Async.RunSynchronously
+    // measureFusion on a 2-sigma state returns probabilities deterministically
+    // (Born rule from quantum dimensions). Run a single measurement to get the
+    // theoretical distribution, then simulate sampling with those weights.
+    let state = createTwoSigmaState ()
 
-    let vacPct = float vacCount / float cliTrials * 100.0
-    let psiPct = float psiCount / float cliTrials * 100.0
-    pr "Vacuum (1): %d times (%.1f%%)" vacCount vacPct
-    pr "Psi    (ψ): %d times (%.1f%%)" psiCount psiPct
-    pr ""
-    pr "Expected: ~50%% vacuum, ~50%% psi  (from sigma x sigma = 1 + psi)"
+    match TopologicalOperations.measureFusion 0 state with
+    | Ok outcomes ->
+        let rng = Random()
+        let mutable vacCount = 0
+        let mutable psiCount = 0
 
-    jsonResults <- ("3_stats", box {| trials = cliTrials; vacuum = vacCount; psi = psiCount
-                                      vacuumPct = vacPct; psiPct = psiPct |}) :: jsonResults
-    csvRows <- [ "3_stats"; string vacCount; string psiCount;
-                  sprintf "%.1f" vacPct; sprintf "%.1f" psiPct ] :: csvRows
+        // Build cumulative distribution from outcome probabilities
+        let cdf =
+            outcomes
+            |> List.choose (fun (prob, opResult) ->
+                opResult.ClassicalOutcome |> Option.map (fun p -> (p, prob)))
+            |> List.scan (fun (_, cumProb) (particle, prob) -> (Some particle, cumProb + prob)) (None, 0.0)
+            |> List.tail  // drop initial (None, 0.0)
+
+        for _ in 1 .. cliTrials do
+            let r = rng.NextDouble ()
+            let sampled =
+                cdf
+                |> List.tryFind (fun (_, cumProb) -> r < cumProb)
+                |> Option.bind fst
+            match sampled with
+            | Some AnyonSpecies.Particle.Vacuum -> vacCount <- vacCount + 1
+            | Some AnyonSpecies.Particle.Psi    -> psiCount <- psiCount + 1
+            | _                                 -> ()
+
+        let vacPct = float vacCount / float cliTrials * 100.0
+        let psiPct = float psiCount / float cliTrials * 100.0
+        pr "Vacuum (1): %d times (%.1f%%)" vacCount vacPct
+        pr "Psi    (ψ): %d times (%.1f%%)" psiCount psiPct
+        pr ""
+        pr "Expected: ~50%% vacuum, ~50%% psi  (from sigma x sigma = 1 + psi)"
+
+        jsonResults <- ("3_stats", box {| trials = cliTrials; vacuum = vacCount; psi = psiCount
+                                          vacuumPct = vacPct; psiPct = psiPct |}) :: jsonResults
+        csvRows <- [ "3_stats"; string vacCount; string psiCount;
+                      sprintf "%.1f" vacPct; sprintf "%.1f" psiPct ] :: csvRows
+    | Error err ->
+        pr "Measurement setup failed: %s" err.Message
 
 // ---------------------------------------------------------------------------
 // Example 4 — Four anyons (2-qubit equivalent)
@@ -162,19 +178,27 @@ if shouldRun 4 then
     pr "EXAMPLE 4: Four Ising anyons (2-qubit equivalent)"
     separator ()
 
-    let result =
-        task { return! topoBackend.Initialize AnyonSpecies.AnyonType.Ising 4 }
-        |> Async.AwaitTask |> Async.RunSynchronously
+    // Use the unified backend: InitializeState 2 creates a 2-qubit
+    // topological state encoded in Ising sigma-pairs (+ parity ancilla).
+    match quantumBackend.InitializeState 2 with
+    | Ok (QuantumState.FusionSuperposition fs) ->
+        match TopologicalOperations.fromInterface fs with
+        | Some superposition ->
+            let numAnyons =
+                match superposition.Terms with
+                | (_, firstState) :: _ -> FusionTree.leaves firstState.Tree |> List.length
+                | [] -> 0
+            pr "Initialised 2-qubit state (%d sigma anyons in encoding)" numAnyons
+            pr "  Terms in superposition: %d" superposition.Terms.Length
+            for (amp, _) in superposition.Terms do
+                pr "  Amplitude: %A" amp
 
-    match result with
-    | Ok state ->
-        pr "Initialised 4 anyons (2-dimensional fusion space)"
-        pr "  Terms in superposition: %d" state.Terms.Length
-        for (amp, _) in state.Terms do
-            pr "  Amplitude: %A" amp
-
-        jsonResults <- ("4_four_anyons", box {| anyons = 4; terms = state.Terms.Length |}) :: jsonResults
-        csvRows <- [ "4_four_anyons"; "4"; string state.Terms.Length ] :: csvRows
+            jsonResults <- ("4_four_anyons", box {| qubits = 2; anyons = numAnyons; terms = superposition.Terms.Length |}) :: jsonResults
+            csvRows <- [ "4_four_anyons"; string numAnyons; string superposition.Terms.Length ] :: csvRows
+        | None ->
+            pr "Failed: could not unwrap FusionSuperposition"
+    | Ok other ->
+        pr "Unexpected state type: %A" other
     | Error err ->
         pr "Failed: %s" err.Message
 

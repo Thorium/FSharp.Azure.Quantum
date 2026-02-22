@@ -47,17 +47,20 @@ Each gate applies a **precise unitary transformation** to the state vector. The 
 // Topological QC (actual library code)
 open FSharp.Azure.Quantum.Topological
 
-let runTopologicalComputation () = task {
-    let backend = TopologicalBackend.createSimulator AnyonType.Ising 10
+let runTopologicalComputation () =
+    let backend = TopologicalUnifiedBackendFactory.createIsing 10
     
-    let! initialState = backend.Initialize AnyonType.Ising 4
-    let! state1 = backend.Braid 0 initialState
-    let! state2 = backend.Braid 2 state1
-    let! (outcome, collapsedState, probability) = backend.MeasureFusion 0 state2
-    
-    // outcome: Vacuum, Sigma, or Psi (fusion channel determines logical state)
-    return $"Fusion outcome: {outcome} (probability: {probability:F4})"
-}
+    match backend.InitializeState 4 with
+    | Ok initialState ->
+        match backend.ApplyOperation (QuantumOperation.Braid 0) initialState with
+        | Ok state1 ->
+            match backend.ApplyOperation (QuantumOperation.Braid 2) state1 with
+            | Ok state2 ->
+                // Measure via computation expression or direct measurement
+                $"Computation succeeded on topological backend"
+            | Error e -> $"Error: {e}"
+        | Error e -> $"Error: {e}"
+    | Error e -> $"Error: {e}"
 ```
 
 **Critical Difference**:
@@ -116,43 +119,36 @@ type TopologicalResult<'T> = Result<'T, TopologicalError>
 - **Composable** via `Result.bind`, `Result.map`, `Result.mapError`
 - **Explicit errors**: Discriminated union encodes all failure modes
 
-### Backend Architecture: Layered Error Handling
+### Backend Architecture
 
-The library uses a 3-layer architecture:
+The library provides a unified backend interface:
+
+**Unified Backend:** Implements `IQuantumBackend` from the gate-based library, enabling standard algorithms to run on topological backends via automatic gate-to-braid compilation.
+
+```fsharp
+// TopologicalUnifiedBackend implements IQuantumBackend
+let backend = TopologicalUnifiedBackendFactory.createIsing 10
+
+// Standard algorithm integration
+let groverResult = AlgorithmExtensions.searchSingleWithTopology 42 8 backend config
+```
+
+The unified backend uses a 3-layer internal architecture:
 
 **Layer 1 (Inner Operations)**: Performance-critical, uses exceptions for programmer errors (like `List.item` throwing on bad index).
 
 **Layer 2 (Backend Interface)**: Public API contract with `Result` types for safety.
 
 ```fsharp
-type ITopologicalBackend =
-    abstract member Braid : 
-        leftIndex: int -> 
-        state: Superposition -> 
-        Task<TopologicalResult<Superposition>>
-    
-    abstract member Execute :
-        initialState: Superposition ->
-        operations: TopologicalOperation list ->
-        Task<TopologicalResult<ExecutionResult>>
+// IQuantumBackend interface (shared with gate-based library)
+type IQuantumBackend =
+    abstract member InitializeState : numQubits:int -> Result<QuantumState, QuantumError>
+    abstract member ApplyOperation : operation:QuantumOperation -> state:QuantumState -> Result<QuantumState, QuantumError>
+    abstract member Measure : state:QuantumState -> shots:int -> Result<int[][], QuantumError>
+    abstract member Name : string
 ```
 
-**Layer 3 (Backend Implementation)**: Converts exceptions from Layer 1 into typed `Result` values.
-
-```fsharp
-type SimulatorBackend(anyonType: AnyonType, maxAnyons: int) =
-    interface ITopologicalBackend with
-        member _.Braid leftIndex state = task {
-            if leftIndex < 0 then
-                return Error (ValidationError $"Braid index must be non-negative, got {leftIndex}")
-            else
-                try
-                    let braided = TopologicalOperations.braidSuperposition leftIndex state
-                    return Ok braided
-                with ex -> 
-                    return Error (ComputationError $"Braiding failed: {ex.Message}")
-        }
-```
+**Layer 3 (Backend Implementation)**: Converts exceptions from Layer 1 into typed `Result` values. The `TopologicalUnifiedBackend` handles gate-to-braid compilation transparently.
 
 ### Practical Usage Patterns
 
@@ -161,57 +157,31 @@ type SimulatorBackend(anyonType: AnyonType, maxAnyons: int) =
 ```fsharp
 open FSharp.Azure.Quantum.Topological
 
-let program backend = topological backend {
-    let! ctx = initialize Ising 4
-    let! ctx = braid 0 ctx
-    let! ctx = braid 2 ctx
-    let! (outcome, ctx) = measure 0 ctx
+let backend = TopologicalUnifiedBackendFactory.createIsing 10
+
+let program = topological backend {
+    let! state = initialize AnyonSpecies.AnyonType.Ising 4
+    do! braid 0
+    do! braid 2
+    let! outcome = measure 0
     return outcome
 }
 // If ANY operation fails, entire computation short-circuits with Error
 ```
 
-**Pattern 2: Railway-Oriented Composition**
+**Pattern 2: Algorithm Extensions** (run standard algorithms on topological backends)
 
 ```fsharp
-let railwayExample () =
-    let backend = TopologicalBackend.createSimulator AnyonType.Ising 6
-    
-    backend.Initialize AnyonType.Ising 6
-    |> TaskResult.bind (backend.Braid 0)
-    |> TaskResult.bind (backend.Braid 2)
-    |> TaskResult.bind (backend.Braid 0)
-    |> TaskResult.bind (fun state ->
-        backend.Execute state [
-            TopologicalBackend.Measure 0
-            TopologicalBackend.Braid 2
-            TopologicalBackend.Measure 2
-        ]
-    )
-    |> TaskResult.map (fun result ->
-        printfn "Execution complete! %d measurements" result.MeasurementOutcomes.Length
-        result
-    )
-```
+let backend = TopologicalUnifiedBackendFactory.createIsing 20
 
-**Pattern 3: Result Computation Expression with Task**
+// Grover search - gate-to-braid compilation happens automatically
+let groverResult = AlgorithmExtensions.searchSingleWithTopology 42 8 backend config
 
-```fsharp
-let resultExample () = taskResult {
-    let backend = TopologicalBackend.createSimulator AnyonType.Ising 10
-    
-    let! initialState = backend.Initialize AnyonType.Ising 4
-    let! braidedState = backend.Braid 0 initialState
-    let! (outcome, collapsedState, probability) = backend.MeasureFusion 0 braidedState
-    
-    printfn "Outcome: %A (p=%.4f)" outcome probability
-    return collapsedState
-}
+// QFT on topological backend
+let qftResult = AlgorithmExtensions.qftWithTopology 4 backend qftConfig
 
-// Handle final result
-match! resultExample () with
-| Ok state -> printfn "Computation completed"
-| Error err -> printfn "Error: %s (%s)" err.Message err.Category
+// Shor's factoring on topological backend
+let shorResult = AlgorithmExtensions.factor15WithTopology backend
 ```
 
 ### Fusion Trees: The Core Data Structure
@@ -459,8 +429,11 @@ let toricCodeExample (latticeSize: int) (errorRate: float) = result {
 
 **What works well** (2025):
 - Ising anyons (full support), Fibonacci (partial), SU(2)_k (general framework)
+- Unified backend (`TopologicalUnifiedBackend`) integrating with gate-based algorithms
+- Algorithm extensions: Grover, QFT, Shor, HHL on topological backends
+- Gate-to-braid compilation (21 gate types supported)
 - Modular data verification, toric code error correction
-- Compiled DLLs for fast execution (48x faster than scripts)
+- Magic state distillation for Ising universality
 
 **Current limitations**:
 - **Simulator only** -- educational/research tool, max ~10-12 anyons practical
@@ -468,16 +441,17 @@ let toricCodeExample (latticeSize: int) (errorRate: float) = result {
 - **Best practices**: Always handle Result types, understand complexity limits, cache expensive computations
 
 ```fsharp
-// DO: Always handle Result types
-match backend.Initialize Ising 4 with
+// DO: Always handle Result types (unified backend)
+let backend = TopologicalUnifiedBackendFactory.createIsing 10
+match backend.InitializeState 4 with
 | Ok state -> (* continue *)
 | Error err -> (* log error, return gracefully *)
 
 // DO: Understand complexity limits
-let reasonableSize = backend.Initialize Fibonacci 6  // F(7)=13 dimensional
+let reasonableResult = backend.InitializeState 6  // Fibonacci: F(7)=13 dimensional
 
 // DON'T: Try to simulate too many anyons
-let tooLarge = backend.Initialize Fibonacci 20  // F(21)=10946 dimensional - will hang!
+let tooLargeResult = backend.InitializeState 20  // Fibonacci: F(21)=10946 dimensional - will hang!
 ```
 
 ### Future Roadmap

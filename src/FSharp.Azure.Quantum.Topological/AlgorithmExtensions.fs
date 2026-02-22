@@ -11,8 +11,8 @@ namespace FSharp.Azure.Quantum.Topological
 /// - Topological path: Oracle → Gates → Braids → TopologicalBackend (2-3x faster)
 /// 
 /// Usage:
-///   let topoBackend = TopologicalBackend.createSimulator AnyonType.Ising 10
-///   let result = GroverSearch.searchWithTopology oracle topoBackend config
+///   let backend = TopologicalUnifiedBackendFactory.createIsing 10
+///   let result = AlgorithmExtensions.searchWithTopology oracle 8 backend config
 module AlgorithmExtensions =
     
     open FSharp.Azure.Quantum.Core

@@ -77,8 +77,6 @@
     <Compile Include="TopologicalBackend.fs" />
     <Compile Include="AlgorithmExtensions.fs" />
     
-    <!-- Legacy - Old measurement-only backend (deprecated) -->
-    <Compile Include="Legacy\TopologicalBackend.fs" />  <!-- Old version for backward compatibility -->
     <Compile Include="TopologicalBuilder.fs" />
     <Compile Include="TopologicalFormat.fs" />
     <Compile Include="MagicStateDistillation.fs" />

@@ -2,27 +2,32 @@
 
 ## Overview
 
-The FSharp.Azure.Quantum.Topological library follows a **strictly layered architecture** that separates concerns and enables composition. This architecture mirrors the gate-based quantum computing library but is **fundamentally separate** because topological quantum computing is a different paradigm.
+The FSharp.Azure.Quantum.Topological library follows a **strictly layered architecture** that separates concerns and enables composition. This architecture mirrors the gate-based quantum computing library, implementing a **fundamentally different paradigm** while integrating with it via the shared `IQuantumBackend` interface.
 
 ## Architectural Layers
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│  Layer 6: Business Domain                               │
-│  Real-world applications (error detection, etc.)        │
-│  Files: (Future) Business/TopologicalApplications.fs    │
+│  Layer 6: Builders, Formats & Utilities                 │
+│  User-friendly DSL, file formats, helpers               │
+│  Files: TopologicalBuilder.fs, TopologicalFormat.fs,    │
+│         Visualization.fs, NoiseModels.fs,               │
+│         TopologicalHelpers.fs, TopologicalError.fs      │
 └─────────────────────────────────────────────────────────┘
                            ▼
 ┌─────────────────────────────────────────────────────────┐
-│  Layer 5: Builders (Computation Expressions)            │
-│  User-friendly DSL for composing quantum programs       │
-│  Files: TopologicalBuilder.fs                           │
+│  Layer 5: Compilation & Integration                     │
+│  Gate-to-braid conversion, optimization, algorithm ext. │
+│  Files: GateToBraid.fs, BraidToGate.fs,                 │
+│         SolovayKitaev.fs, CircuitOptimization.fs,       │
+│         AlgorithmExtensions.fs                          │
 └─────────────────────────────────────────────────────────┘
                            ▼
 ┌─────────────────────────────────────────────────────────┐
 │  Layer 4: Algorithms                                     │
-│  Topological-specific algorithms                        │
-│  Files: MagicStateDistillation.fs, (Future) Kauffman    │
+│  Topological-specific algorithms & error correction     │
+│  Files: MagicStateDistillation.fs, ToricCode.fs,        │
+│         ErrorPropagation.fs                             │
 └─────────────────────────────────────────────────────────┘
                            ▼
 ┌─────────────────────────────────────────────────────────┐
@@ -33,15 +38,18 @@ The FSharp.Azure.Quantum.Topological library follows a **strictly layered archit
                            ▼
 ┌─────────────────────────────────────────────────────────┐
 │  Layer 2: Backends (Execution)                          │
-│  Simulator, hardware adapters (via ITopologicalBackend) │
+│  Unified IQuantumBackend                                │
 │  Files: TopologicalBackend.fs                           │
 └─────────────────────────────────────────────────────────┘
                            ▼
 ┌─────────────────────────────────────────────────────────┐
 │  Layer 1: Core (Mathematical Foundation)                │
-│  Pure functions: anyon species, fusion, braiding        │
+│  Pure functions: anyon species, fusion, braiding, knots │
 │  Files: AnyonSpecies.fs, FusionRules.fs,                │
-│         BraidingOperators.fs                            │
+│         BraidingOperators.fs, FMatrix.fs, RMatrix.fs,   │
+│         ModularData.fs, BraidGroup.fs,                  │
+│         BraidingConsistency.fs, EntanglementEntropy.fs, │
+│         KauffmanBracket.fs, KnotConstructors.fs         │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -73,22 +81,24 @@ let channels = FusionRules.channels sigma sigma Ising
 
 **Purpose:** Abstract execution of topological quantum operations across different backends (simulator, hardware).
 
-**Key Interface:**
-- `ITopologicalBackend` - Unified interface for all backends
+**Key Interfaces:**
+- `IQuantumBackend` (unified) - Shared interface with gate-based library, enabling standard algorithms to run on topological backends
 
 **Implementations:**
-- `SimulatorBackend` - Classical simulation of topological quantum operations
+- `TopologicalUnifiedBackend` - Primary backend implementing `IQuantumBackend`, with automatic gate-to-braid compilation
+- `TopologicalUnifiedBackendFactory` - Factory functions: `createIsing`, `createFibonacci`, `create`
 
 **Design Principles:**
 - ✅ Interface-based design (dependency inversion)
 - ✅ Capabilities-based validation
-- ✅ Async operations (Task-based)
+- ✅ Unified backend enables standard algorithms (Grover, QFT, Shor, HHL) on topological hardware
 - ✅ Backend-specific details hidden from consumers
 
 **Example:**
 ```fsharp
-let backend: ITopologicalBackend = createSimulator Ising 10
-let! state = backend.Initialize Ising 4  // Returns Task
+// Unified backend (recommended)
+let backend = TopologicalUnifiedBackendFactory.createIsing 10
+let! state = backend.InitializeState 4  // Returns Result
 ```
 
 ### Layer 3: Operations - High-Level Quantum Operations
@@ -101,7 +111,7 @@ let! state = backend.Initialize Ising 4  // Returns Task
 
 **Design Principles:**
 - ✅ Composable operations (small, focused functions)
-- ✅ Backend-agnostic (works with any ITopologicalBackend)
+- ✅ Backend-agnostic (works with any IQuantumBackend)
 - ✅ Type-safe state management
 - ✅ Clear separation of concerns
 
@@ -119,12 +129,13 @@ let applyGate backend state = task {
 
 **Purpose:** Implement algorithms specific to topological quantum computing.
 
-**Note:** These are **NOT** gate-based algorithms (HHL, Shor's). Topological algorithms are fundamentally different!
+**Implemented:**
+- Magic state distillation (15-to-1 protocol for Ising universality)
+- Toric code error correction (syndrome detection and correction)
+- Error propagation analysis through topological circuits
+- Kauffman bracket and Jones polynomial calculations (via KauffmanBracket + KnotConstructors)
 
-**Examples:**
-- Kauffman bracket invariant calculation
-- Topological error correction protocols
-- Fibonacci anyon universal gate compilation
+**Note:** Standard quantum algorithms (Grover, QFT, Shor, HHL) run on topological backends via `AlgorithmExtensions` (Layer 5), not as topological-native algorithms.
 
 **Design Principles:**
 - ✅ Algorithm = sequence of Layer 3 operations
@@ -143,12 +154,42 @@ let calculateKnot backend braidPattern = task {
 }
 ```
 
-### Layer 5: Builders - Computation Expressions
+### Layer 5: Compilation & Integration
 
-**Purpose:** Provide user-friendly DSL for composing quantum programs.
+**Purpose:** Convert between gate-based and topological representations, optimize circuits, and enable standard algorithms on topological backends.
 
-**Key Builder:**
-- `TopologicalProgramBuilder` - Computation expression for topological programs
+**Key Modules:**
+- `GateToBraid.fs` - Convert gate-based circuits to braid sequences (21 gate types)
+- `BraidToGate.fs` - Convert braid sequences back to gate operations
+- `SolovayKitaev.fs` - Gate approximation for efficient braid decomposition
+- `CircuitOptimization.fs` - Braid sequence optimization and simplification
+- `AlgorithmExtensions.fs` - Run Grover, QFT, Shor, HHL on topological backends
+
+**Design Principles:**
+- ✅ Transparent gate-to-braid compilation
+- ✅ Algorithm extensions delegate to standard implementations (zero code duplication)
+- ✅ Solovay-Kitaev approximation for non-Clifford gates
+- ✅ Well-documented approximation error tracking
+
+**Example:**
+```fsharp
+// Standard algorithms work on topological backends
+let backend = TopologicalUnifiedBackendFactory.createIsing 20
+let result = AlgorithmExtensions.searchSingleWithTopology 42 8 backend config
+let qft = AlgorithmExtensions.qftWithTopology 4 backend qftConfig
+```
+
+### Layer 6: Builders, Formats & Utilities
+
+**Purpose:** Provide user-friendly DSL for composing quantum programs, file formats, and supporting utilities.
+
+**Key Modules:**
+- `TopologicalBuilder.fs` - Computation expression builder (`topological backend { ... }`)
+- `TopologicalFormat.fs` - `.tqp` file format for serializing topological programs
+- `NoiseModels.fs` - Configurable noise simulation for realistic error modeling
+- `Visualization.fs` - State visualization and debugging utilities
+- `TopologicalHelpers.fs` - Complex number utilities and particle display formatting
+- `TopologicalError.fs` - Error types, TopologicalResult, and result computation expression
 
 **Design Principles:**
 - Familiar F# syntax (computation expressions)
@@ -159,55 +200,36 @@ let calculateKnot backend braidPattern = task {
 **Example:**
 ```fsharp
 let program = topological backend {
-    let! qubit = initialize Ising 4
-    do! braid 0 qubit
-    do! braid 2 qubit
-    let! outcome = measure 0 qubit
+    let! state = initialize Ising 4
+    do! braid 0
+    do! braid 2
+    let! outcome = measure 0
     return outcome
 }
 ```
 
-### Layer 6: Business Domain - Real-World Applications
+## Relationship with Gate-Based Library
 
-**Purpose:** Map business problems to topological quantum solutions.
+### Different Paradigms, Shared Interface
 
-**Examples:**
-- Quantum error detection
-- Cryptographic protocols
-- Material simulation (Majorana-specific)
-
-**Design Principles:**
-- ✅ Domain-driven design
-- ✅ Business-meaningful names
-- ✅ Hide quantum complexity from domain experts
-- ✅ Clear ROI metrics
-
-**Example:**
-```fsharp
-// Business problem: Detect errors in quantum memory
-let detectMemoryError qubitState = task {
-    let! errorPresent = topologicalErrorDetection qubitState
-    return if errorPresent then TriggerCorrection else Continue
-}
-```
-
-## Separation from Gate-Based Library
-
-### Why Separate?
-
-**Fundamental Incompatibility:**
+**Fundamental Differences:**
 
 | Aspect | Gate-Based | Topological |
 |--------|-----------|-------------|
 | **Operations** | H, CNOT, Rz gates | Braiding anyons |
 | **State** | Amplitude vectors | Fusion trees |
 | **Qubits** | Direct 2-state | Encoded in anyon clusters |
-| **Measurement** | Z-basis {│0⟩, │1⟩} | Fusion outcomes {1, σ, ψ} |
+| **Measurement** | Z-basis {|0>, |1>} | Fusion outcomes {1, sigma, psi} |
 | **Algorithms** | Shor's, HHL, VQE | Kauffman, topological codes |
 
-### Shared Patterns (Not Implementation!)
+### Integration via IQuantumBackend
 
-Both libraries follow the **same architectural layers**:
+While the paradigms differ, the topological backend implements `IQuantumBackend` from the gate-based library. This enables:
+- Standard algorithms (Grover, QFT, Shor, HHL) to run on topological backends
+- Automatic gate-to-braid compilation (transparent to the caller)
+- Backend-agnostic algorithm implementation
+
+### Shared Patterns (Same Structure, Different Content)
 
 ```
 Gate-Based:                    Topological:
@@ -215,15 +237,14 @@ Gate-Based:                    Topological:
 │   ├── Gates.fs              │   ├── AnyonSpecies.fs
 │   └── StateVector.fs        │   ├── FusionRules.fs
 ├── Backends/                  ├── Backends/
-│   ├── IQuantumBackend       │   ├── ITopologicalBackend
-│   └── LocalBackend          │   └── SimulatorBackend
+│   ├── IQuantumBackend       │   ├── IQuantumBackend (shared!)
+│   └── LocalBackend          │   └── TopologicalUnifiedBackend
 ├── Algorithms/                ├── Algorithms/
-│   ├── Shor.fs               │   └── KnotiInvariant.fs
+│   ├── Shor.fs               │   ├── MagicStateDistillation.fs
+│   └── Grover.fs             │   └── AlgorithmExtensions.fs
 └── Builders/                  └── Builders/
     └── QuantumBuilder            └── TopologicalBuilder
 ```
-
-**Key Point:** Same **structure**, different **content**!
 
 ## Design Principles
 
@@ -331,30 +352,27 @@ let rec braidSequence acc index state =
 
 1. **Hardware Adapters** (Layer 2 Extensions)
    - Microsoft Majorana Gen 1 backend
-   - IBM topological experiments
-   - Google topological prototypes
+   - Other topological hardware experiments
 
 2. **Advanced Algorithms** (Layer 4 Extensions)
-   - Magic state distillation (for universality)
-   - Topological error correction codes
-   - Fibonacci anyon gate compilation
+   - Surface code variants (planar, color codes)
+   - Fibonacci anyon native gate compilation
 
-3. **Business Applications** (Layer 6 Extensions)
-   - Quantum cryptography protocols
-   - Majorana-based secure storage
-   - Material simulation (topological insulators)
+3. **Performance Optimizations**
+   - GPU acceleration
+   - Sparse matrices
+   - Parallel braiding
 
 ### Integration Points
 
-**Potential (Future) Bridges:**
-- Toric code simulation of gate-based QC
-- Error correction code interop
-- High-level problem solvers (shared abstractions)
+**Current Bridges:**
+- Gate-to-braid compilation (GateToBraid, 21 gate types)
+- Standard algorithm integration (AlgorithmExtensions - Grover, QFT, Shor, HHL)
+- Shared IQuantumBackend interface
 
-**NOT Planned:**
-- Direct algorithm porting (Shor's → topological)
-- Circuit compilation (gates → braiding)
-  - Reason: Too much overhead, not practical
+**Potential Future Bridges:**
+- Error correction code interop
+- Hybrid topological + gate-based computing pipelines
 
 ## References
 
@@ -378,6 +396,6 @@ When adding new features, **always**:
 2. ✅ Follow idiomatic F# principles
 3. ✅ Write business-meaningful tests
 4. ✅ Update this architecture document
-5. ✅ Keep separate from gate-based library
+5. ✅ Keep topological-specific code in this package (shared interfaces live in the gate-based library)
 
-**Remember:** We're building **two separate libraries** that happen to follow the **same architectural pattern**!
+**Remember:** We're building a **companion library** that follows the **same architectural pattern** as the gate-based library, sharing the `IQuantumBackend` interface for interoperability!

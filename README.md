@@ -2979,7 +2979,7 @@ Unlike gate-based quantum computing (which uses qubits and gates), topological q
 open FSharp.Azure.Quantum.Topological
 
 // Create backend for Ising anyons (Microsoft's approach)
-let backend = TopologicalBackend.createSimulator AnyonSpecies.AnyonType.Ising 10
+let backend = TopologicalUnifiedBackendFactory.createIsing 10
 
 // Create entangled state via braiding
 let! result = topological backend {

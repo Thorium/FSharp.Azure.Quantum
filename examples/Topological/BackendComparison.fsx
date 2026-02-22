@@ -26,6 +26,8 @@
 
 open System
 open System.Diagnostics
+open FSharp.Azure.Quantum
+open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Topological
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.Examples.Common
@@ -54,10 +56,8 @@ let shouldRun ex = exChoice = "all" || exChoice = string ex
 let separator () = pr "%s" (String.replicate 60 "-")
 
 // ---------------------------------------------------------------------------
-// Backends (Rule 1 -- IQuantumBackend + legacy ITopologicalBackend)
+// Backends (Rule 1 -- IQuantumBackend unified API)
 // ---------------------------------------------------------------------------
-let isingBackend    = TopologicalBackend.createSimulator AnyonSpecies.AnyonType.Ising 10
-let fibBackend      = TopologicalBackend.createSimulator AnyonSpecies.AnyonType.Fibonacci 10
 let quantumBackend  = TopologicalUnifiedBackendFactory.createIsing 20
 let fibUnified      = TopologicalUnifiedBackendFactory.createFibonacci 20
 
@@ -73,19 +73,18 @@ if shouldRun 1 then
     pr "EXAMPLE 1: Backend Capabilities"
     separator ()
 
-    let showCaps label (b: TopologicalBackend.ITopologicalBackend) =
-        let c = b.Capabilities
+    let showCaps label (b: IQuantumBackend) =
         pr "  %s:" label
-        pr "    Anyon types:      %A" c.SupportedAnyonTypes
-        pr "    Max anyons:       %A" c.MaxAnyons
-        pr "    Braiding:         %b" c.SupportsBraiding
-        pr "    Measurement:      %b" c.SupportsMeasurement
-        pr "    F-Moves:          %b" c.SupportsFMoves
-        pr "    Error correction: %b" c.SupportsErrorCorrection
+        pr "    Name:             %s" b.Name
+        pr "    Braiding:         %b" (b.SupportsOperation (QuantumOperation.Braid 0))
+        pr "    Measurement:      %b" (b.SupportsOperation (QuantumOperation.Measure 0))
+        pr "    F-Moves:          %b" (b.SupportsOperation (QuantumOperation.FMove (FMoveDirection.Forward, 1)))
+        pr "    H gate:           %b" (b.SupportsOperation (QuantumOperation.Gate (CircuitBuilder.H 0)))
+        pr "    CNOT gate:        %b" (b.SupportsOperation (QuantumOperation.Gate (CircuitBuilder.CNOT (0, 1))))
 
-    showCaps "Ising (Microsoft Majorana)" isingBackend
+    showCaps "Ising (Microsoft Majorana)" quantumBackend
     pr ""
-    showCaps "Fibonacci (Theoretical Universal)" fibBackend
+    showCaps "Fibonacci (Theoretical Universal)" fibUnified
 
     jsonResults <- ("1_capabilities", box {| ising = "ok"; fibonacci = "ok" |}) :: jsonResults
     csvRows <- [ "1_capabilities"; "ok"; "ok" ] :: csvRows
@@ -179,17 +178,20 @@ if shouldRun 5 then
     pr "EXAMPLE 5: Fusion Measurement Statistics (%d trials)" numTrials
     separator ()
 
-    let runStats (lb: TopologicalBackend.ITopologicalBackend) anyonType label = task {
-        let outcomes = System.Collections.Generic.Dictionary<AnyonSpecies.Particle, int>()
+    let runStats (qb: IQuantumBackend) label =
+        let outcomes = System.Collections.Generic.Dictionary<string, int>()
         for _ in 1 .. numTrials do
-            let! initR = lb.Initialize anyonType 2
-            match initR with
-            | Ok st ->
-                let! measR = lb.MeasureFusion 0 st
-                match measR with
-                | Ok (outcome, _, _) ->
-                    if outcomes.ContainsKey(outcome) then outcomes.[outcome] <- outcomes.[outcome] + 1
-                    else outcomes.[outcome] <- 1
+            match qb.InitializeState 1 with
+            | Ok state ->
+                match qb.ApplyOperation (QuantumOperation.Measure 0) state with
+                | Ok (QuantumState.FusionSuperposition _) ->
+                    let key = "measured"
+                    if outcomes.ContainsKey(key) then outcomes.[key] <- outcomes.[key] + 1
+                    else outcomes.[key] <- 1
+                | Ok _ ->
+                    let key = "other"
+                    if outcomes.ContainsKey(key) then outcomes.[key] <- outcomes.[key] + 1
+                    else outcomes.[key] <- 1
                 | Error _ -> ()
             | Error _ -> ()
 
@@ -197,54 +199,47 @@ if shouldRun 5 then
         let mutable resultPairs : (string * float) list = []
         for kvp in outcomes do
             let pct = (float kvp.Value / float numTrials) * 100.0
-            pr "    %A: %d (%.1f%%)" kvp.Key kvp.Value pct
-            resultPairs <- (sprintf "%A" kvp.Key, pct) :: resultPairs
-        return resultPairs
-    }
+            pr "    %s: %d (%.1f%%)" kvp.Key kvp.Value pct
+            resultPairs <- (kvp.Key, pct) :: resultPairs
+        resultPairs
 
-    let isingStats = runStats isingBackend AnyonSpecies.AnyonType.Ising "Ising sigma x sigma"
-                     |> Async.AwaitTask |> Async.RunSynchronously
-    let fibStats   = runStats fibBackend AnyonSpecies.AnyonType.Fibonacci "Fibonacci tau x tau"
-                     |> Async.AwaitTask |> Async.RunSynchronously
+    let isingStats = runStats quantumBackend "Ising (unified API)"
+    let fibStats   = runStats fibUnified "Fibonacci (unified API)"
 
     jsonResults <- ("5_fusion_stats", box {| trials = numTrials; ising = isingStats; fibonacci = fibStats |}) :: jsonResults
     csvRows <- [ "5_fusion_stats"; string numTrials ] :: csvRows
 
 // ---------------------------------------------------------------------------
-// Example 6 -- Capability validation
+// Example 6 -- Operation support validation
 // ---------------------------------------------------------------------------
 if shouldRun 6 then
     separator ()
-    pr "EXAMPLE 6: Capability Validation"
+    pr "EXAMPLE 6: Operation Support Validation"
     separator ()
 
-    let validate (lb: TopologicalBackend.ITopologicalBackend) reqs label =
-        match TopologicalBackend.validateCapabilities lb reqs with
-        | Ok () -> pr "  %s: PASS" label; "PASS"
-        | Error err -> pr "  %s: FAIL - %s" label err.Message; "FAIL"
+    let validate (qb: IQuantumBackend) ops label =
+        let allSupported = ops |> List.forall qb.SupportsOperation
+        if allSupported then pr "  %s: PASS" label; "PASS"
+        else pr "  %s: FAIL" label; "FAIL"
 
-    let isingReqs = {
-        TopologicalBackend.SupportedAnyonTypes = [ AnyonSpecies.AnyonType.Ising ]
-        TopologicalBackend.MaxAnyons = Some 4
-        TopologicalBackend.SupportsBraiding = true
-        TopologicalBackend.SupportsMeasurement = true
-        TopologicalBackend.SupportsFMoves = false
-        TopologicalBackend.SupportsErrorCorrection = false
-    }
-    let r1 = validate isingBackend isingReqs "Ising meets Ising reqs"
+    let r1 = validate quantumBackend
+                [ QuantumOperation.Braid 0
+                  QuantumOperation.Measure 0
+                  QuantumOperation.FMove (FMoveDirection.Forward, 1) ]
+                "Ising supports braiding, measure, fmove"
 
-    let wrongReqs = {
-        TopologicalBackend.SupportedAnyonTypes = [ AnyonSpecies.AnyonType.Fibonacci ]
-        TopologicalBackend.MaxAnyons = None
-        TopologicalBackend.SupportsBraiding = true
-        TopologicalBackend.SupportsMeasurement = true
-        TopologicalBackend.SupportsFMoves = false
-        TopologicalBackend.SupportsErrorCorrection = false
-    }
-    let r2 = validate isingBackend wrongReqs "Ising meets Fibonacci reqs (expect fail)"
+    let r2 = validate quantumBackend
+                [ QuantumOperation.Gate (CircuitBuilder.H 0)
+                  QuantumOperation.Gate (CircuitBuilder.CNOT (0, 1)) ]
+                "Ising supports H and CNOT gates"
 
-    jsonResults <- ("6_validation", box {| correct = r1; wrong = r2 |}) :: jsonResults
-    csvRows <- [ "6_validation"; r1; r2 ] :: csvRows
+    let r3 = validate fibUnified
+                [ QuantumOperation.Braid 0
+                  QuantumOperation.Measure 0 ]
+                "Fibonacci supports braiding and measure"
+
+    jsonResults <- ("6_validation", box {| r1 = r1; r2 = r2; r3 = r3 |}) :: jsonResults
+    csvRows <- [ "6_validation"; r1; r2; r3 ] :: csvRows
 
 // ---------------------------------------------------------------------------
 // Recommendations

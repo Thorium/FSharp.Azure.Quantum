@@ -22,7 +22,7 @@ cd FSharp.Azure.Quantum
 # Build the topological library
 dotnet build src/FSharp.Azure.Quantum.Topological/FSharp.Azure.Quantum.Topological.fsproj
 
-# Run the test suite (~770 tests)
+# Run the test suite (~807 tests)
 dotnet test tests/FSharp.Azure.Quantum.Topological.Tests/FSharp.Azure.Quantum.Topological.Tests.fsproj
 ```
 
@@ -80,30 +80,22 @@ dotnet fsi MyFirstTopological.fsx
 
 open FSharp.Azure.Quantum.Topological
 
-let backend = TopologicalBackend.createSimulator AnyonSpecies.AnyonType.Ising 10
+// Create a unified backend (implements IQuantumBackend)
+let backend = TopologicalUnifiedBackendFactory.createIsing 10
 
-let result =
-    task {
-        // Initialize 4 sigma anyons
-        let! initResult = backend.Initialize AnyonSpecies.AnyonType.Ising 4
-        match initResult with
-        | Ok state ->
-            // Braid anyons at index 0
-            let! braidResult = backend.Braid 0 state
-            match braidResult with
-            | Ok braidedState ->
-                // Measure fusion outcome
-                let! measureResult = backend.MeasureFusion 0 braidedState
-                return measureResult
-            | Error e -> return Error e
-        | Error e -> return Error e
-    } |> Async.AwaitTask |> Async.RunSynchronously
-
-match result with
-| Ok (outcome, collapsed, probability) ->
-    printfn "Outcome: %A (probability: %.4f)" outcome probability
-| Error err ->
-    printfn "Error: %s" err.Message
+// Use the synchronous IQuantumBackend API
+match backend.InitializeState 4 with
+| Ok initialState ->
+    // Apply braid operation (gate-to-braid compilation happens automatically)
+    match backend.ApplyOperation (QuantumOperation.Braid 0) initialState with
+    | Ok braidedState ->
+        // Measure
+        match backend.Measure braidedState 1 with
+        | Ok measurements ->
+            printfn "Measurement results: %A" measurements
+        | Error e -> printfn "Measurement error: %A" e
+    | Error e -> printfn "Braid error: %A" e
+| Error e -> printfn "Init error: %A" e
 ```
 
 ### Option C: Pure mathematical exploration (no backend needed)
@@ -140,7 +132,7 @@ printfn "R^{sigma,sigma}_vacuum = %A" R
 | **Fusion** | Combining two anyons -- the result is non-deterministic (this encodes a qubit) | `FusionRules.channels` |
 | **Braiding** | Moving anyons around each other -- applies a topological phase (this is a gate) | `BraidingOperators.element` |
 | **Fusion tree** | The data structure representing the quantum state | `FusionTree` |
-| **Backend** | Executes topological operations (currently: simulator) | `ITopologicalBackend` |
+| **Backend** | Executes topological operations (unified: `TopologicalUnifiedBackend` via `IQuantumBackend`) | `TopologicalUnifiedBackendFactory` |
 
 **Why topological?** Information is stored in the topology of anyon worldlines, not in fragile quantum amplitudes. Local noise cannot change global topology, giving exponential error suppression.
 
@@ -195,8 +187,9 @@ If you already know Qiskit, Q#, or Cirq, here is the mapping:
 
 | Gate-Based | Topological Equivalent | Library API |
 |------------|----------------------|-------------|
-| Qubit | Pair of sigma anyons | `backend.Initialize Ising 4` (4 anyons = 2 qubits) |
-| Gate (H, CNOT) | Braid operation | `backend.Braid index state` |
-| Measurement | Fusion measurement | `backend.MeasureFusion index state` |
+| Qubit | Pair of sigma anyons | `backend.InitializeState 4` (4 anyons = 2 qubits) |
+| Gate (H, CNOT) | Braid operation | `backend.ApplyOperation (QuantumOperation.Braid index) state` |
+| Measurement | Fusion measurement | `backend.Measure state shots` |
 | Circuit | Braid sequence | `topological backend { ... }` |
 | State vector | Fusion tree superposition | `FusionTree` + `TopologicalOperations.Superposition` |
+| Algorithm | Algorithm extension | `AlgorithmExtensions.searchSingleWithTopology` etc. |

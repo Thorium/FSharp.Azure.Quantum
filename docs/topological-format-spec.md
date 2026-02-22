@@ -270,7 +270,7 @@ END
 - [x] Serializer implementation (`TopologicalFormat.Serializer` module)
 - [ ] JSON schema validation (optional - not currently needed)
 - [ ] CLI tool (`dotnet tqp run program.tqp`) (future enhancement)
-- [x] Integration with `ITopologicalBackend` (`TopologicalFormat.Executor` module)
+- [x] Integration with `IQuantumBackend` (`TopologicalFormat.Executor` module)
 - [x] Unit tests (`TopologicalFormatTests.fs`)
 - [x] Documentation examples
 

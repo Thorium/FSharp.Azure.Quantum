@@ -205,18 +205,13 @@ if shouldRun 5 then
         Serializer.serializeToFile program tqpPath |> ignore
         tempFiles <- tqpPath :: tempFiles
 
-    let topoBackend =
-        TopologicalBackend.SimulatorBackend(AnyonSpecies.AnyonType.Fibonacci, 10)
-        :> TopologicalBackend.ITopologicalBackend
+    let fibBackend = TopologicalUnifiedBackendFactory.createFibonacci 10
 
     let execResult =
-        task {
-            match Parser.parseFile tqpPath with
-            | Ok program ->
-                let! r = Executor.executeProgram topoBackend program
-                return Some r
-            | Error _ -> return None
-        } |> Async.AwaitTask |> Async.RunSynchronously
+        match Parser.parseFile tqpPath with
+        | Ok program ->
+            Some (Executor.executeProgram fibBackend program)
+        | Error _ -> None
 
     match execResult with
     | Some (Ok result) ->
@@ -229,7 +224,7 @@ if shouldRun 5 then
         jsonResults <- ("5_execute", box {| status = "ok"; measurements = measCount |}) :: jsonResults
         csvRows <- [ "5_execute"; "ok"; string measCount ] :: csvRows
     | Some (Error err) ->
-        pr "Execution failed: %s" err.Message
+        pr "Execution failed: %A" err
     | None ->
         pr "Parse failed"
 
