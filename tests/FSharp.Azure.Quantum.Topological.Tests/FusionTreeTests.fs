@@ -385,3 +385,136 @@ module FusionTreeTests =
         Assert.Contains("Total Charge:", display)
         Assert.Contains("Anyons:", display)
         Assert.Contains("Theory:", display)
+    
+    // ========================================================================
+    // SU(2)_k COMPUTATIONAL BASIS ENCODING
+    // ========================================================================
+    
+    [<Fact>]
+    let ``SU2 k=3: Single bit 0 encodes as j=1/2 pair fusing to vacuum`` () =
+        // SU(2)_3: j=1/2 × j=1/2 → j=0 (vacuum channel for bit 0)
+        let k = 3
+        match FusionTree.fromComputationalBasis [0] (AnyonSpecies.AnyonType.SU2Level k) with
+        | Ok tree ->
+            // Tree should have 2 leaves (one pair of j=1/2 anyons)
+            Assert.Equal(2, FusionTree.size tree)
+            let leafList = FusionTree.leaves tree
+            Assert.Equal(2, leafList.Length)
+            // Both leaves should be SpinJ(1, 3) i.e. j=1/2 at level 3
+            leafList |> List.iter (fun p ->
+                Assert.Equal(AnyonSpecies.Particle.SpinJ(1, k), p))
+            // Total charge should be vacuum (SpinJ(0, k))
+            let charge = FusionTree.totalCharge tree (AnyonSpecies.AnyonType.SU2Level k)
+            Assert.Equal(AnyonSpecies.Particle.SpinJ(0, k), charge)
+        | Error err -> Assert.Fail($"Expected Ok but got Error: {err}")
+    
+    [<Fact>]
+    let ``SU2 k=3: Single bit 1 encodes as j=1/2 pair fusing to j=1`` () =
+        // SU(2)_3: j=1/2 × j=1/2 → j=1 (spin-1 channel for bit 1)
+        let k = 3
+        match FusionTree.fromComputationalBasis [1] (AnyonSpecies.AnyonType.SU2Level k) with
+        | Ok tree ->
+            Assert.Equal(2, FusionTree.size tree)
+            // Total charge should be j=1 (SpinJ(2, k))
+            let charge = FusionTree.totalCharge tree (AnyonSpecies.AnyonType.SU2Level k)
+            Assert.Equal(AnyonSpecies.Particle.SpinJ(2, k), charge)
+        | Error err -> Assert.Fail($"Expected Ok but got Error: {err}")
+    
+    [<Fact>]
+    let ``SU2 k=3: Two-bit encoding produces valid tree with 4 leaves`` () =
+        // Two bits → two j=1/2 pairs → 4 anyons
+        let k = 3
+        match FusionTree.fromComputationalBasis [0; 1] (AnyonSpecies.AnyonType.SU2Level k) with
+        | Ok tree ->
+            Assert.Equal(4, FusionTree.size tree)
+            let leafList = FusionTree.leaves tree
+            Assert.Equal(4, leafList.Length)
+            leafList |> List.iter (fun p ->
+                Assert.Equal(AnyonSpecies.Particle.SpinJ(1, k), p))
+            // Tree should be valid
+            match FusionTree.isValid tree (AnyonSpecies.AnyonType.SU2Level k) with
+            | Ok true -> ()
+            | Ok false -> Assert.Fail("Expected valid tree but got invalid")
+            | Error err -> Assert.Fail($"Validation error: {err}")
+        | Error err -> Assert.Fail($"Expected Ok but got Error: {err}")
+    
+    [<Fact>]
+    let ``SU2 k=3: Roundtrip encoding preserves bits`` () =
+        // Encode then decode should give back original bits
+        let k = 3
+        let testCases = [[0]; [1]; [0; 0]; [0; 1]; [1; 0]; [1; 1]; [1; 0; 1]]
+        for bits in testCases do
+            match FusionTree.fromComputationalBasis bits (AnyonSpecies.AnyonType.SU2Level k) with
+            | Ok tree ->
+                let decoded = FusionTree.toComputationalBasis tree
+                Assert.Equal<int list>(bits, decoded)
+            | Error err -> Assert.Fail($"Encoding failed for {bits}: {err}")
+    
+    [<Fact>]
+    let ``SU2 k=4: Encoding works for higher level`` () =
+        // SU(2)_4 also supports j=1/2 pair encoding
+        let k = 4
+        match FusionTree.fromComputationalBasis [1; 0; 1] (AnyonSpecies.AnyonType.SU2Level k) with
+        | Ok tree ->
+            Assert.Equal(6, FusionTree.size tree)
+            let decoded = FusionTree.toComputationalBasis tree
+            Assert.Equal<int list>([1; 0; 1], decoded)
+        | Error err -> Assert.Fail($"Expected Ok but got Error: {err}")
+    
+    [<Fact>]
+    let ``SU2 k=2: Encoding is equivalent to Ising encoding behavior`` () =
+        // SU(2)_2 = Ising. The SU2 encoding should still work (using SpinJ particles)
+        // but produce a valid tree with equivalent structure
+        let k = 2
+        match FusionTree.fromComputationalBasis [1; 0] (AnyonSpecies.AnyonType.SU2Level k) with
+        | Ok tree ->
+            let decoded = FusionTree.toComputationalBasis tree
+            Assert.Equal<int list>([1; 0], decoded)
+            // All leaves should be SpinJ(1, 2) (j=1/2)
+            let leafList = FusionTree.leaves tree
+            leafList |> List.iter (fun p ->
+                Assert.Equal(AnyonSpecies.Particle.SpinJ(1, k), p))
+        | Error err -> Assert.Fail($"Expected Ok but got Error: {err}")
+    
+    [<Fact>]
+    let ``SU2 k=1: Returns error because j=1/2 pair cannot encode a qubit`` () =
+        // SU(2)_1: j=1/2 × j=1/2 → j=0 only (truncation cuts off j=1)
+        // Cannot distinguish bit 0 from bit 1 → encoding not possible
+        let k = 1
+        match FusionTree.fromComputationalBasis [1] (AnyonSpecies.AnyonType.SU2Level k) with
+        | Error _ -> () // Expected: encoding not possible for k=1
+        | Ok _ -> Assert.Fail("Expected error for SU(2)_1 encoding but got Ok")
+    
+    [<Fact>]
+    let ``SU2 k=3: Empty bit list produces vacuum leaf`` () =
+        let k = 3
+        match FusionTree.fromComputationalBasis [] (AnyonSpecies.AnyonType.SU2Level k) with
+        | Ok tree ->
+            match tree with
+            | FusionTree.Leaf AnyonSpecies.Particle.Vacuum -> ()
+            | _ -> Assert.Fail("Expected vacuum leaf for empty bits")
+        | Error err -> Assert.Fail($"Expected Ok but got Error: {err}")
+    
+    [<Fact>]
+    let ``SU2 k=3: Different bit values produce different trees`` () =
+        // Anti-gaming: bit 0 and bit 1 must produce structurally different trees
+        let k = 3
+        match FusionTree.fromComputationalBasis [0] (AnyonSpecies.AnyonType.SU2Level k),
+              FusionTree.fromComputationalBasis [1] (AnyonSpecies.AnyonType.SU2Level k) with
+        | Ok tree0, Ok tree1 ->
+            Assert.False(FusionTree.equals tree0 tree1)
+            // Different charges
+            let charge0 = FusionTree.totalCharge tree0 (AnyonSpecies.AnyonType.SU2Level k)
+            let charge1 = FusionTree.totalCharge tree1 (AnyonSpecies.AnyonType.SU2Level k)
+            Assert.NotEqual(charge0, charge1)
+        | Error e, _ | _, Error e -> Assert.Fail($"Unexpected error: {e}")
+    
+    [<Fact>]
+    let ``SU2 k=5: Three-bit encoding roundtrips correctly`` () =
+        let k = 5
+        let bits = [1; 1; 0]
+        match FusionTree.fromComputationalBasis bits (AnyonSpecies.AnyonType.SU2Level k) with
+        | Ok tree ->
+            let decoded = FusionTree.toComputationalBasis tree
+            Assert.Equal<int list>(bits, decoded)
+        | Error err -> Assert.Fail($"Expected Ok but got Error: {err}")

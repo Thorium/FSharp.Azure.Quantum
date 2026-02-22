@@ -1,6 +1,7 @@
 namespace FSharp.Azure.Quantum.Core
 
 open System.Threading
+open System.Threading.Tasks
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.LocalSimulator
 open FSharp.Azure.Quantum.Core.CircuitAbstraction
@@ -389,6 +390,40 @@ module BackendAbstraction =
         ///   // state = |00000⟩ in backend's native representation
         abstract member InitializeState: int -> Result<QuantumState, QuantumError>
 
+        /// Execute circuit asynchronously via task-based execution.
+        ///
+        /// Primary method for cloud backends (Azure Quantum).
+        /// Local backends wrap the synchronous ExecuteToState in a completed task.
+        ///
+        /// Parameters:
+        ///   circuit - Quantum circuit to execute
+        ///   cancellationToken - Token for cooperative cancellation of long-running cloud jobs
+        ///
+        /// Returns:
+        ///   Task<Result<QuantumState, QuantumError>> - Task completing with the final quantum state
+        ///
+        /// Design rationale:
+        ///   Azure Quantum jobs follow submit → poll → retrieve, taking 30s to 30min.
+        ///   This method exposes that I/O-bound lifecycle as a proper .NET Task instead
+        ///   of forcing callers through Async.RunSynchronously.
+        ///   Uses task { } CE (not async { }) because all underlying I/O is .NET Task-based
+        ///   (HttpClient, Azure SDK), eliminating Async.AwaitTask bridging overhead.
+        abstract member ExecuteToStateAsync: ICircuit -> CancellationToken -> Task<Result<QuantumState, QuantumError>>
+
+        /// Apply operation asynchronously via task-based execution.
+        ///
+        /// Primary method for cloud backends (Azure Quantum).
+        /// Local backends wrap the synchronous ApplyOperation in a completed task.
+        ///
+        /// Parameters:
+        ///   operation - Quantum operation to apply
+        ///   state - Current quantum state
+        ///   cancellationToken - Token for cooperative cancellation
+        ///
+        /// Returns:
+        ///   Task<Result<QuantumState, QuantumError>> - Task completing with the evolved state
+        abstract member ApplyOperationAsync: QuantumOperation -> QuantumState -> CancellationToken -> Task<Result<QuantumState, QuantumError>>
+
     /// Optional interface for backends that can report qubit limits.
     ///
     /// Non-breaking extension: solvers can test `backend :? IQubitLimitedBackend`
@@ -541,3 +576,74 @@ module BackendAbstraction =
         ///   Array of bitstrings (measurement outcomes)
         let measureState (state: QuantumState) (shots: int) : int[][] =
             QuantumState.measure state shots
+
+        /// Execute operation with automatic state conversion if needed (task-based).
+        ///
+        /// Task-based counterpart of applyWithConversion.
+        /// Handles conversion between state types transparently.
+        ///
+        /// Parameters:
+        ///   backend - Unified quantum backend
+        ///   operation - Operation to apply
+        ///   state - Current quantum state
+        ///   ct - Cancellation token
+        ///
+        /// Returns:
+        ///   Task with evolved state (possibly converted to backend's native type)
+        let applyWithConversionAsync
+            (backend: IQuantumBackend)
+            (operation: QuantumOperation)
+            (state: QuantumState)
+            (ct: CancellationToken)
+            : Task<Result<QuantumState, QuantumError>> =
+
+            let stateType = QuantumState.stateType state
+            let nativeType = backend.NativeStateType
+
+            if stateType = nativeType then
+                backend.ApplyOperationAsync operation state ct
+            else
+                match QuantumStateConversion.convert nativeType state with
+                | Error err -> Task.FromResult(Error err)
+                | Ok converted -> backend.ApplyOperationAsync operation converted ct
+
+        /// Apply sequence of operations efficiently (task-based).
+        ///
+        /// Task-based counterpart of applySequence.
+        /// Converts state once if needed (not per operation).
+        ///
+        /// Parameters:
+        ///   backend - Unified quantum backend
+        ///   operations - List of operations to apply
+        ///   initialState - Starting quantum state
+        ///   ct - Cancellation token
+        ///
+        /// Returns:
+        ///   Task with final quantum state after all operations
+        let applySequenceAsync
+            (backend: IQuantumBackend)
+            (operations: QuantumOperation list)
+            (initialState: QuantumState)
+            (ct: CancellationToken)
+            : Task<Result<QuantumState, QuantumError>> = task {
+            if List.isEmpty operations then
+                return Ok initialState
+            else
+                let nativeType = backend.NativeStateType
+                let stateType = QuantumState.stateType initialState
+
+                let initialResult =
+                    if stateType <> nativeType then
+                        QuantumStateConversion.convert nativeType initialState
+                    else
+                        Ok initialState
+
+                let mutable current = initialResult
+                for op in operations do
+                    match current with
+                    | Error _ -> ()
+                    | Ok s ->
+                        let! next = backend.ApplyOperationAsync op s ct
+                        current <- next
+                return current
+        }

@@ -2,6 +2,8 @@ namespace FSharp.Azure.Quantum.Topological
 
 open System
 open System.Numerics
+open System.Threading
+open System.Threading.Tasks
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.BackendAbstraction
@@ -848,6 +850,12 @@ module TopologicalUnifiedBackend =
                             Ok (QuantumState.FusionSuperposition (TopologicalOperations.toInterface initialSuperposition))
                 with
                 | ex -> Error (QuantumError.OperationError ("TopologicalBackend", ex.Message))
+
+            member this.ExecuteToStateAsync (circuit: ICircuit) (_ct: CancellationToken) : Task<Result<QuantumState, QuantumError>> =
+                task { return (this :> IQuantumBackend).ExecuteToState circuit }
+
+            member this.ApplyOperationAsync (operation: QuantumOperation) (state: QuantumState) (_ct: CancellationToken) : Task<Result<QuantumState, QuantumError>> =
+                task { return (this :> IQuantumBackend).ApplyOperation operation state }
 
 /// Factory functions for creating topological backend instances
 module TopologicalUnifiedBackendFactory =

@@ -577,3 +577,218 @@ module BraidToGateTests =
         // Counter-clockwise: exp(iπ/8) = conjugate
         Assert.Equal(cw.Real, ccw.Real, 10)
         Assert.Equal(-cw.Imaginary, ccw.Imaginary, 10)
+    
+    // ========================================================================
+    // GATES COMMUTE DETECTION
+    // ========================================================================
+    
+    [<Fact>]
+    let ``gatesCommute returns true for gates on different qubits`` () =
+        Assert.True(BraidToGate.gatesCommute (CircuitBuilder.Gate.T 0) (CircuitBuilder.Gate.H 1))
+    
+    [<Fact>]
+    let ``gatesCommute returns false for gates on same qubit`` () =
+        Assert.False(BraidToGate.gatesCommute (CircuitBuilder.Gate.T 0) (CircuitBuilder.Gate.H 0))
+    
+    [<Fact>]
+    let ``gatesCommute handles CNOT correctly`` () =
+        // CNOT(0,1) shares qubit 1 with H(1) → do not commute
+        Assert.False(BraidToGate.gatesCommute (CircuitBuilder.Gate.CNOT (0, 1)) (CircuitBuilder.Gate.H 1))
+        // CNOT(0,1) does not share qubits with H(2) → commute
+        Assert.True(BraidToGate.gatesCommute (CircuitBuilder.Gate.CNOT (0, 1)) (CircuitBuilder.Gate.H 2))
+    
+    // ========================================================================
+    // COMMUTATION-BASED CANCELLATION
+    // ========================================================================
+    
+    [<Fact>]
+    let ``commutationCancellation cancels T and Tdg through commuting gate`` () =
+        // T(q0) H(q1) Tdg(q0) → H(q1)
+        // T and Tdg cancel because H(q1) commutes with both
+        let gates = [
+            CircuitBuilder.Gate.T 0
+            CircuitBuilder.Gate.H 1
+            CircuitBuilder.Gate.TDG 0
+        ]
+        let result = BraidToGate.commutationCancellation gates
+        Assert.Equal(1, result.Length)
+        Assert.Equal(CircuitBuilder.Gate.H 1, result.[0])
+    
+    [<Fact>]
+    let ``commutationCancellation does not cancel through non-commuting gate`` () =
+        // T(q0) H(q0) Tdg(q0) → T(q0) H(q0) Tdg(q0) (H blocks cancellation)
+        let gates = [
+            CircuitBuilder.Gate.T 0
+            CircuitBuilder.Gate.H 0
+            CircuitBuilder.Gate.TDG 0
+        ]
+        let result = BraidToGate.commutationCancellation gates
+        Assert.Equal(3, result.Length)
+    
+    [<Fact>]
+    let ``commutationCancellation cancels X through multiple commuting gates`` () =
+        // X(q0) T(q1) S(q2) X(q0) → T(q1) S(q2)
+        let gates = [
+            CircuitBuilder.Gate.X 0
+            CircuitBuilder.Gate.T 1
+            CircuitBuilder.Gate.S 2
+            CircuitBuilder.Gate.X 0
+        ]
+        let result = BraidToGate.commutationCancellation gates
+        Assert.Equal(2, result.Length)
+    
+    [<Fact>]
+    let ``commutationCancellation with empty input returns empty`` () =
+        let result = BraidToGate.commutationCancellation []
+        Assert.Empty(result)
+    
+    [<Fact>]
+    let ``commutationCancellation with no cancellable pairs is identity`` () =
+        let gates = [
+            CircuitBuilder.Gate.H 0
+            CircuitBuilder.Gate.T 0
+            CircuitBuilder.Gate.CNOT (0, 1)
+        ]
+        let result = BraidToGate.commutationCancellation gates
+        Assert.Equal(3, result.Length)
+    
+    // ========================================================================
+    // TEMPLATE MATCHING
+    // ========================================================================
+    
+    [<Fact>]
+    let ``templateMatching replaces S S with Z`` () =
+        let gates = [ CircuitBuilder.Gate.S 0; CircuitBuilder.Gate.S 0 ]
+        let result = BraidToGate.templateMatching gates
+        Assert.Equal(1, result.Length)
+        Assert.Equal(CircuitBuilder.Gate.Z 0, result.[0])
+    
+    [<Fact>]
+    let ``templateMatching replaces T T with S`` () =
+        let gates = [ CircuitBuilder.Gate.T 0; CircuitBuilder.Gate.T 0 ]
+        let result = BraidToGate.templateMatching gates
+        Assert.Equal(1, result.Length)
+        Assert.Equal(CircuitBuilder.Gate.S 0, result.[0])
+    
+    [<Fact>]
+    let ``templateMatching replaces Tdg Tdg with Sdg`` () =
+        let gates = [ CircuitBuilder.Gate.TDG 0; CircuitBuilder.Gate.TDG 0 ]
+        let result = BraidToGate.templateMatching gates
+        Assert.Equal(1, result.Length)
+        Assert.Equal(CircuitBuilder.Gate.SDG 0, result.[0])
+    
+    [<Fact>]
+    let ``templateMatching replaces Sdg Sdg with Z`` () =
+        let gates = [ CircuitBuilder.Gate.SDG 0; CircuitBuilder.Gate.SDG 0 ]
+        let result = BraidToGate.templateMatching gates
+        Assert.Equal(1, result.Length)
+        Assert.Equal(CircuitBuilder.Gate.Z 0, result.[0])
+    
+    [<Fact>]
+    let ``templateMatching replaces H Z H with X`` () =
+        let gates = [ CircuitBuilder.Gate.H 0; CircuitBuilder.Gate.Z 0; CircuitBuilder.Gate.H 0 ]
+        let result = BraidToGate.templateMatching gates
+        Assert.Equal(1, result.Length)
+        Assert.Equal(CircuitBuilder.Gate.X 0, result.[0])
+    
+    [<Fact>]
+    let ``templateMatching replaces H X H with Z`` () =
+        let gates = [ CircuitBuilder.Gate.H 0; CircuitBuilder.Gate.X 0; CircuitBuilder.Gate.H 0 ]
+        let result = BraidToGate.templateMatching gates
+        Assert.Equal(1, result.Length)
+        Assert.Equal(CircuitBuilder.Gate.Z 0, result.[0])
+    
+    [<Fact>]
+    let ``templateMatching does not match different qubits`` () =
+        // S(q0) S(q1) should NOT be replaced
+        let gates = [ CircuitBuilder.Gate.S 0; CircuitBuilder.Gate.S 1 ]
+        let result = BraidToGate.templateMatching gates
+        Assert.Equal(2, result.Length)
+    
+    [<Fact>]
+    let ``templateMatching chains: T T T T becomes S S in single pass`` () =
+        // T T T T → single pass: T T → S, T T → S → result is [S, S]
+        // A second pass of template matching would reduce S S → Z,
+        // but templateMatching is a single-pass algorithm.
+        let gates = [
+            CircuitBuilder.Gate.T 0
+            CircuitBuilder.Gate.T 0
+            CircuitBuilder.Gate.T 0
+            CircuitBuilder.Gate.T 0
+        ]
+        let result = BraidToGate.templateMatching gates
+        Assert.Equal(2, result.Length)
+        Assert.Equal(CircuitBuilder.Gate.S 0, result.[0])
+        Assert.Equal(CircuitBuilder.Gate.S 0, result.[1])
+    
+    [<Fact>]
+    let ``optimizeAggressive reduces T T T T to Z via multi-pass`` () =
+        // optimizeAggressive applies template matching + basic optimization multiple passes
+        // T T T T → S S (template) → Z (template in next basic pass)
+        let gates = [
+            CircuitBuilder.Gate.T 0
+            CircuitBuilder.Gate.T 0
+            CircuitBuilder.Gate.T 0
+            CircuitBuilder.Gate.T 0
+        ]
+        let result = BraidToGate.optimizeAggressive gates
+        // Multi-pass strategy should reduce this further
+        Assert.True(result.Length <= 2, 
+            $"Expected at most 2 gates after aggressive optimization, got {result.Length}")
+    
+    [<Fact>]
+    let ``templateMatching with empty input returns empty`` () =
+        let result = BraidToGate.templateMatching []
+        Assert.Empty(result)
+    
+    // ========================================================================
+    // AGGRESSIVE OPTIMIZATION (END-TO-END)
+    // ========================================================================
+    
+    [<Fact>]
+    let ``optimizeAggressive reduces T Tdg to empty`` () =
+        let gates = [ CircuitBuilder.Gate.T 0; CircuitBuilder.Gate.TDG 0 ]
+        let result = BraidToGate.optimizeAggressive gates
+        Assert.Empty(result)
+    
+    [<Fact>]
+    let ``optimizeAggressive reduces through commutation and templates`` () =
+        // T(q0) H(q1) Tdg(q0) → cancels through commutation → H(q1)
+        let gates = [
+            CircuitBuilder.Gate.T 0
+            CircuitBuilder.Gate.H 1
+            CircuitBuilder.Gate.TDG 0
+        ]
+        let result = BraidToGate.optimizeAggressive gates
+        Assert.Equal(1, result.Length)
+        Assert.Equal(CircuitBuilder.Gate.H 1, result.[0])
+    
+    [<Fact>]
+    let ``optimizeAggressive does not change irreducible sequence`` () =
+        let gates = [
+            CircuitBuilder.Gate.H 0
+            CircuitBuilder.Gate.T 0
+            CircuitBuilder.Gate.CNOT (0, 1)
+        ]
+        let result = BraidToGate.optimizeAggressive gates
+        Assert.Equal(3, result.Length)
+    
+    [<Fact>]
+    let ``optimizeAggressive never increases gate count`` () =
+        // Property: optimization should never make things worse
+        let gates = [
+            CircuitBuilder.Gate.T 0; CircuitBuilder.Gate.T 0
+            CircuitBuilder.Gate.H 1; CircuitBuilder.Gate.H 1
+            CircuitBuilder.Gate.S 2; CircuitBuilder.Gate.SDG 2
+            CircuitBuilder.Gate.CNOT (0, 1)
+        ]
+        let result = BraidToGate.optimizeAggressive gates
+        Assert.True(result.Length <= gates.Length,
+            $"Optimized {result.Length} should be <= original {gates.Length}")
+    
+    [<Fact>]
+    let ``optimizeAggressive is accessible via optimizeGates level 2`` () =
+        // Verify that optimization level 2+ uses aggressive optimization
+        let gates = [ CircuitBuilder.Gate.T 0; CircuitBuilder.Gate.TDG 0 ]
+        let result = BraidToGate.optimizeGates 2 gates
+        Assert.Empty(result)

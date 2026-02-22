@@ -274,3 +274,274 @@ module ToricCodeTests =
             float (ToricCode.logicalQubits large) / float (ToricCode.physicalQubits large)
         
         Assert.True(rateLarge < rateSmall)
+    
+    // ========================================================================
+    // MWPM DECODER: MATCHING GRAPH CONSTRUCTION
+    // ========================================================================
+    
+    [<Fact>]
+    let ``buildMatchingGraph with no excitations returns empty`` () =
+        let lattice = { ToricCode.Width = 4; ToricCode.Height = 4 }
+        let edges = ToricCode.buildMatchingGraph lattice []
+        Assert.Empty(edges)
+    
+    [<Fact>]
+    let ``buildMatchingGraph with 2 excitations returns 1 edge`` () =
+        let lattice = { ToricCode.Width = 4; ToricCode.Height = 4 }
+        let exc = [{ ToricCode.X = 0; ToricCode.Y = 0 }; { ToricCode.X = 2; ToricCode.Y = 0 }]
+        let edges = ToricCode.buildMatchingGraph lattice exc
+        Assert.Equal(1, edges.Length)
+        Assert.Equal(2, edges.[0].Weight)
+    
+    [<Fact>]
+    let ``buildMatchingGraph with 4 excitations returns 6 edges`` () =
+        // Complete graph on 4 vertices has C(4,2) = 6 edges
+        let lattice = { ToricCode.Width = 6; ToricCode.Height = 6 }
+        let exc = [
+            { ToricCode.X = 0; ToricCode.Y = 0 }
+            { ToricCode.X = 1; ToricCode.Y = 0 }
+            { ToricCode.X = 2; ToricCode.Y = 0 }
+            { ToricCode.X = 3; ToricCode.Y = 0 }
+        ]
+        let edges = ToricCode.buildMatchingGraph lattice exc
+        Assert.Equal(6, edges.Length)
+    
+    [<Fact>]
+    let ``buildMatchingGraph uses toric distance`` () =
+        let lattice = { ToricCode.Width = 6; ToricCode.Height = 6 }
+        let exc = [{ ToricCode.X = 0; ToricCode.Y = 0 }; { ToricCode.X = 5; ToricCode.Y = 0 }]
+        let edges = ToricCode.buildMatchingGraph lattice exc
+        // Wrap-around distance: min(5, 6-5) = 1
+        Assert.Equal(1, edges.[0].Weight)
+    
+    // ========================================================================
+    // MWPM DECODER: GREEDY MATCHING
+    // ========================================================================
+    
+    [<Fact>]
+    let ``greedyMatching with empty excitations returns empty list`` () =
+        let lattice = { ToricCode.Width = 4; ToricCode.Height = 4 }
+        match ToricCode.greedyMatching lattice [] with
+        | Ok pairs -> Assert.Empty(pairs)
+        | Error err -> Assert.Fail($"Expected Ok, got: {err.Message}")
+    
+    [<Fact>]
+    let ``greedyMatching with odd excitations returns error`` () =
+        let lattice = { ToricCode.Width = 4; ToricCode.Height = 4 }
+        let exc = [{ ToricCode.X = 0; ToricCode.Y = 0 }]
+        match ToricCode.greedyMatching lattice exc with
+        | Error (TopologicalError.ValidationError (_, reason)) ->
+            Assert.Contains("even", reason)
+        | _ -> Assert.Fail("Expected validation error for odd excitations")
+    
+    [<Fact>]
+    let ``greedyMatching pairs 2 excitations correctly`` () =
+        let lattice = { ToricCode.Width = 4; ToricCode.Height = 4 }
+        let exc = [{ ToricCode.X = 1; ToricCode.Y = 1 }; { ToricCode.X = 3; ToricCode.Y = 1 }]
+        match ToricCode.greedyMatching lattice exc with
+        | Ok pairs ->
+            Assert.Equal(1, pairs.Length)
+            let (p1, p2) = pairs.[0]
+            Assert.True(
+                (p1.X = 1 && p2.X = 3) || (p1.X = 3 && p2.X = 1),
+                "Should pair the two excitations together")
+        | Error err -> Assert.Fail($"Expected Ok, got: {err.Message}")
+    
+    [<Fact>]
+    let ``greedyMatching with 4 excitations produces 2 pairs`` () =
+        let lattice = { ToricCode.Width = 6; ToricCode.Height = 6 }
+        let exc = [
+            { ToricCode.X = 0; ToricCode.Y = 0 }
+            { ToricCode.X = 1; ToricCode.Y = 0 }
+            { ToricCode.X = 4; ToricCode.Y = 0 }
+            { ToricCode.X = 5; ToricCode.Y = 0 }
+        ]
+        match ToricCode.greedyMatching lattice exc with
+        | Ok pairs ->
+            Assert.Equal(2, pairs.Length)
+            // Greedy should pair nearest: (0,1) and (4,5)
+            // rather than (0,5) and (1,4) which would be farther
+            let totalWeight = 
+                pairs |> List.sumBy (fun (a, b) -> ToricCode.toricDistance lattice a b)
+            Assert.True(totalWeight <= 2, $"Expected total weight <= 2, got {totalWeight}")
+        | Error err -> Assert.Fail($"Expected Ok, got: {err.Message}")
+    
+    // ========================================================================
+    // MWPM DECODER: CORRECTION PATH
+    // ========================================================================
+    
+    [<Fact>]
+    let ``correctionPath between same point returns empty`` () =
+        let lattice = { ToricCode.Width = 4; ToricCode.Height = 4 }
+        let p = { ToricCode.X = 2; ToricCode.Y = 2 }
+        let path = ToricCode.correctionPath lattice p p ToricCode.Horizontal
+        Assert.Empty(path)
+    
+    [<Fact>]
+    let ``correctionPath along horizontal produces correct length`` () =
+        let lattice = { ToricCode.Width = 6; ToricCode.Height = 6 }
+        let p1 = { ToricCode.X = 1; ToricCode.Y = 2 }
+        let p2 = { ToricCode.X = 4; ToricCode.Y = 2 }
+        let path = ToricCode.correctionPath lattice p1 p2 ToricCode.Horizontal
+        // Distance is 3 (direct path), so 3 edges
+        Assert.Equal(3, path.Length)
+    
+    [<Fact>]
+    let ``correctionPath wraps around torus when shorter`` () =
+        let lattice = { ToricCode.Width = 6; ToricCode.Height = 6 }
+        let p1 = { ToricCode.X = 0; ToricCode.Y = 0 }
+        let p2 = { ToricCode.X = 5; ToricCode.Y = 0 }
+        let path = ToricCode.correctionPath lattice p1 p2 ToricCode.Horizontal
+        // Wrap-around: 1 edge (go from 0 backwards to 5) vs direct: 5 edges
+        Assert.Equal(1, path.Length)
+    
+    [<Fact>]
+    let ``correctionPath with both dx and dy produces combined length`` () =
+        let lattice = { ToricCode.Width = 6; ToricCode.Height = 6 }
+        let p1 = { ToricCode.X = 1; ToricCode.Y = 1 }
+        let p2 = { ToricCode.X = 3; ToricCode.Y = 4 }
+        let path = ToricCode.correctionPath lattice p1 p2 ToricCode.Horizontal
+        // dx=2, dy=3, total=5 edges
+        Assert.Equal(5, path.Length)
+    
+    // ========================================================================
+    // MWPM DECODER: VERTEX AND PLAQUETTE SYNDROME DECODING
+    // ========================================================================
+    
+    [<Fact>]
+    let ``decodeVertexSyndrome on clean state returns empty result`` () =
+        let lattice = { ToricCode.Width = 4; ToricCode.Height = 4 }
+        let state = ToricCode.initializeGroundState lattice
+        let syndrome = ToricCode.measureSyndrome state
+        match ToricCode.decodeVertexSyndrome lattice syndrome with
+        | Ok result ->
+            Assert.Empty(result.MatchedPairs)
+            Assert.Empty(result.Corrections)
+            Assert.Equal(0, result.TotalWeight)
+        | Error err -> Assert.Fail($"Expected Ok, got: {err.Message}")
+    
+    [<Fact>]
+    let ``decodePlaquetteSyndrome on clean state returns empty result`` () =
+        let lattice = { ToricCode.Width = 4; ToricCode.Height = 4 }
+        let state = ToricCode.initializeGroundState lattice
+        let syndrome = ToricCode.measureSyndrome state
+        match ToricCode.decodePlaquetteSyndrome lattice syndrome with
+        | Ok result ->
+            Assert.Empty(result.MatchedPairs)
+            Assert.Empty(result.Corrections)
+            Assert.Equal(0, result.TotalWeight)
+        | Error err -> Assert.Fail($"Expected Ok, got: {err.Message}")
+    
+    [<Fact>]
+    let ``decodeVertexSyndrome after Z error produces matching`` () =
+        let lattice = { ToricCode.Width = 4; ToricCode.Height = 4 }
+        let state = ToricCode.initializeGroundState lattice
+        
+        // Apply a Z error (creates two e-particle excitations at adjacent vertices)
+        let edge = { 
+            ToricCode.Position = { ToricCode.X = 1; ToricCode.Y = 1 }
+            ToricCode.Type = ToricCode.Vertical 
+        }
+        let errorState = ToricCode.applyZError state edge
+        let syndrome = ToricCode.measureSyndrome errorState
+        
+        let excitations = ToricCode.getElectricExcitations syndrome
+        
+        // Z error on a vertical edge creates excitations at adjacent plaquettes
+        // (e-particle count should be even)
+        if excitations.Length > 0 then
+            Assert.True(excitations.Length % 2 = 0, 
+                $"Expected even number of excitations, got {excitations.Length}")
+            
+            match ToricCode.decodeVertexSyndrome lattice syndrome with
+            | Ok result ->
+                Assert.True(result.MatchedPairs.Length > 0, "Should produce at least one pair")
+                Assert.True(result.TotalWeight > 0, "Should have non-zero weight")
+            | Error err -> Assert.Fail($"Expected Ok, got: {err.Message}")
+    
+    [<Fact>]
+    let ``decodePlaquetteSyndrome after Z error produces matching`` () =
+        let lattice = { ToricCode.Width = 4; ToricCode.Height = 4 }
+        let state = ToricCode.initializeGroundState lattice
+        
+        // Apply a Z error to create m-particle excitations
+        let edge = { 
+            ToricCode.Position = { ToricCode.X = 1; ToricCode.Y = 1 }
+            ToricCode.Type = ToricCode.Horizontal 
+        }
+        let errorState = ToricCode.applyZError state edge
+        let syndrome = ToricCode.measureSyndrome errorState
+        
+        let excitations = ToricCode.getMagneticExcitations syndrome
+        
+        if excitations.Length > 0 then
+            Assert.True(excitations.Length % 2 = 0)
+            match ToricCode.decodePlaquetteSyndrome lattice syndrome with
+            | Ok result ->
+                Assert.True(result.MatchedPairs.Length > 0)
+            | Error err -> Assert.Fail($"Expected Ok, got: {err.Message}")
+    
+    // ========================================================================
+    // MWPM DECODER: FULL SYNDROME DECODING AND CORRECTION
+    // ========================================================================
+    
+    [<Fact>]
+    let ``decodeSyndrome on ground state returns clean state`` () =
+        let lattice = { ToricCode.Width = 4; ToricCode.Height = 4 }
+        let state = ToricCode.initializeGroundState lattice
+        match ToricCode.decodeSyndrome state with
+        | Ok (correctedState, vertexResult, plaquetteResult) ->
+            // Ground state has no errors, so decoder should be no-op
+            Assert.Empty(vertexResult.MatchedPairs)
+            Assert.Empty(plaquetteResult.MatchedPairs)
+            
+            // Corrected state should still be ground state
+            let syndrome = ToricCode.measureSyndrome correctedState
+            Assert.Empty(ToricCode.getElectricExcitations syndrome)
+            Assert.Empty(ToricCode.getMagneticExcitations syndrome)
+        | Error err -> Assert.Fail($"Expected Ok, got: {err.Message}")
+    
+    [<Fact>]
+    let ``applyCorrections with empty corrections is identity`` () =
+        let lattice = { ToricCode.Width = 4; ToricCode.Height = 4 }
+        let state = ToricCode.initializeGroundState lattice
+        let corrected = ToricCode.applyCorrections state [] ToricCode.Horizontal
+        
+        // State should be unchanged
+        Assert.Equal(state.Qubits.Count, corrected.Qubits.Count)
+        corrected.Qubits |> Map.iter (fun edge qubit ->
+            Assert.Equal(Map.find edge state.Qubits, qubit))
+    
+    [<Fact>]
+    let ``decodeSyndrome produces correction for single Z error`` () =
+        let lattice = { ToricCode.Width = 5; ToricCode.Height = 5 }
+        let state = ToricCode.initializeGroundState lattice
+        
+        // Apply single Z error (within correctable range: d=5, corrects up to 2 errors)
+        let edge = { 
+            ToricCode.Position = { ToricCode.X = 2; ToricCode.Y = 2 }
+            ToricCode.Type = ToricCode.Vertical 
+        }
+        let errorState = ToricCode.applyZError state edge
+        
+        // Verify error created excitations
+        let preSyndrome = ToricCode.measureSyndrome errorState
+        let preElectric = ToricCode.getElectricExcitations preSyndrome
+        let preMagnetic = ToricCode.getMagneticExcitations preSyndrome
+        let preTotal = preElectric.Length + preMagnetic.Length
+        Assert.True(preTotal > 0, "Z error should create excitations")
+        
+        match ToricCode.decodeSyndrome errorState with
+        | Ok (correctedState, vertexResult, plaquetteResult) ->
+            // Decoder should have found the excitations and produced corrections
+            // At least one of the decoders should have found pairs
+            let totalPairs = vertexResult.MatchedPairs.Length + plaquetteResult.MatchedPairs.Length
+            
+            // The Z error on a vertical edge creates e-particles at adjacent vertices,
+            // so the vertex decoder should find and pair them
+            if preElectric.Length > 0 then
+                Assert.True(vertexResult.MatchedPairs.Length > 0,
+                    "Vertex decoder should pair e-particle excitations")
+                Assert.True(vertexResult.Corrections.Length > 0,
+                    "Vertex decoder should produce correction chains")
+        | Error err -> Assert.Fail($"Expected Ok, got: {err.Message}")

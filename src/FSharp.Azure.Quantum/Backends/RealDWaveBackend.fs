@@ -22,6 +22,8 @@ module RealDWaveBackend =
     open System.Net.Http
     open System.Text
     open System.Text.Json
+    open System.Threading
+    open System.Threading.Tasks
     open FSharp.Azure.Quantum.Core.CircuitAbstraction
     open FSharp.Azure.Quantum.Core.BackendAbstraction
     open FSharp.Azure.Quantum.Core
@@ -412,6 +414,89 @@ module RealDWaveBackend =
                 | BackendAbstraction.QuantumOperation.Sequence ops ->
                     ops |> List.forall (fun op -> (this :> BackendAbstraction.IQuantumBackend).SupportsOperation op)
                 | _ -> false
+
+            member this.ExecuteToStateAsync (circuit: ICircuit) (_ct: CancellationToken) : Task<Result<QuantumState, QuantumError>> =
+                // RealDWaveBackend has true async I/O (client.SubmitProblemAsync / client.PollJobAsync).
+                // ExecuteToState already uses these internally via Async.RunSynchronously.
+                // Here we bridge the Async pipeline to Task without blocking.
+                match extractFromICircuit circuit with
+                | Error e ->
+                    Task.FromResult(Error (QuantumError.ValidationError ("QUBO extraction", $"Failed to extract QUBO from circuit: {e}")))
+                | Ok qubo ->
+                    let ising = quboToIsing qubo
+                    let numQubits = getNumVariables qubo
+                    let maxQubits = getMaxQubits config.Solver
+                    if numQubits > maxQubits then
+                        Task.FromResult(Error (QuantumError.ValidationError ("qubit count", $"Problem requires {numQubits} qubits, but {config.Solver} supports max {maxQubits}")))
+                    else
+                        let asyncWork = async {
+                            let! submitResult = client.SubmitProblemAsync(ising, 1)
+                            match submitResult with
+                            | Error e ->
+                                return Error (QuantumError.BackendError ("D-Wave Submit", e))
+                            | Ok jobId ->
+                                let! pollResult = client.PollJobAsync(jobId)
+                                match pollResult with
+                                | Error e ->
+                                    return Error (QuantumError.BackendError ("D-Wave Poll", e))
+                                | Ok solution ->
+                                    let dwaveSolutions =
+                                        Array.zip3 solution.solutions solution.energies solution.num_occurrences
+                                        |> Array.map (fun (spins, energy, occurrences) ->
+                                            convertSapiSolution spins energy occurrences)
+                                        |> Array.toList
+                                    return Ok (QuantumState.IsingSamples (box ising, box dwaveSolutions))
+                        }
+                        Async.StartAsTask(asyncWork)
+
+            member this.ApplyOperationAsync (operation: BackendAbstraction.QuantumOperation) (state: QuantumState) (_ct: CancellationToken) : Task<Result<QuantumState, QuantumError>> =
+                match operation with
+                | BackendAbstraction.QuantumOperation.Sequence ops ->
+                    // Apply sequence by folding async over operations
+                    let asyncWork = async {
+                        let mutable current = Ok state
+                        for op in ops do
+                            match current with
+                            | Error _ -> ()
+                            | Ok currentState ->
+                                let! next =
+                                    (this :> BackendAbstraction.IQuantumBackend).ApplyOperationAsync op currentState CancellationToken.None
+                                    |> Async.AwaitTask
+                                current <- next
+                        return current
+                    }
+                    Async.StartAsTask(asyncWork)
+                | BackendAbstraction.QuantumOperation.Extension (:? DWaveBackend.AnnealIsingOperation as annealOp) ->
+                    if annealOp.NumReads <= 0 then
+                        Task.FromResult(Error (QuantumError.ValidationError ("numReads", $"must be > 0, got {annealOp.NumReads}")))
+                    else
+                        match state with
+                        | QuantumState.IsingSamples _ ->
+                            let asyncWork = async {
+                                let! submitResult = client.SubmitProblemAsync(annealOp.Problem, annealOp.NumReads)
+                                match submitResult with
+                                | Error e ->
+                                    return Error (QuantumError.BackendError ("D-Wave Submit", e))
+                                | Ok jobId ->
+                                    let! pollResult = client.PollJobAsync(jobId)
+                                    match pollResult with
+                                    | Error e ->
+                                        return Error (QuantumError.BackendError ("D-Wave Poll", e))
+                                    | Ok solution ->
+                                        let dwaveSolutions =
+                                            Array.zip3 solution.solutions solution.energies solution.num_occurrences
+                                            |> Array.map (fun (spins, energy, occurrences) ->
+                                                convertSapiSolution spins energy occurrences)
+                                            |> Array.toList
+                                        return Ok (QuantumState.IsingSamples (box annealOp.Problem, box dwaveSolutions))
+                            }
+                            Async.StartAsTask(asyncWork)
+                        | _ ->
+                            Task.FromResult(Error (QuantumError.OperationError ("ApplyOperation", $"AnnealIsingOperation requires Annealing state, got {QuantumState.stateType state}")))
+                | BackendAbstraction.QuantumOperation.Extension ext ->
+                    Task.FromResult(Error (QuantumError.OperationError ("ApplyOperation", $"Extension operation '{ext.Id}' is not supported by D-Wave backend")))
+                | _ ->
+                    Task.FromResult(Error (QuantumError.OperationError ("ApplyOperation", "D-Wave annealing backend only supports annealing intent operations")))
         
         interface IDisposable with
             member _.Dispose() = (client :> IDisposable).Dispose()

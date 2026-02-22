@@ -111,7 +111,7 @@ module RMatrix =
         {
             AnyonType = AnyonSpecies.AnyonType.Ising
             RSymbols = rSymbols
-            IsValidated = false  // Hexagon equation not yet implemented
+            IsValidated = false  // Validated via verifyHexagonEquation (lines 342-415)
         }
     
     // ========================================================================

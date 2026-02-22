@@ -7,6 +7,8 @@ open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.GroverSearch
 open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum.Topological
+open System.Threading
+open System.Threading.Tasks
 
 /// Tests for Unified Backend Grover's Algorithm
 /// 
@@ -61,6 +63,9 @@ module GroverTests =
 
             member _.Name = inner.Name + " (no-grover-intent)"
             member _.InitializeState numQubits = inner.InitializeState numQubits
+
+            member _.ExecuteToStateAsync circuit ct = inner.ExecuteToStateAsync circuit ct
+            member _.ApplyOperationAsync operation state ct = inner.ApplyOperationAsync operation state ct
 
     [<Fact>]
     let ``Grover planner prefers algorithm intents when supported`` () =

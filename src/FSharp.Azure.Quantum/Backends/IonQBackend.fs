@@ -4,6 +4,7 @@ open FSharp.Azure.Quantum.Core
 open System
 open System.IO
 open System.Text.Json
+open System.Threading.Tasks
 open FSharp.Azure.Quantum.Core.Types
 
 /// IonQ Backend Integration
@@ -276,7 +277,7 @@ module IonQBackend =
     /// - shots: Number of measurement shots
     /// - target: IonQ backend (e.g., "ionq.simulator", "ionq.qpu.aria-1")
     /// 
-    /// Returns: Async<Result<Map<string, int>, QuantumError>>
+    /// Returns: Task<Result<Map<string, int>, QuantumError>>
     ///   - Ok: Measurement histogram (bitstring -> count)
     ///   - Error: QuantumError with details
     let submitAndWaitForResultsAsync
@@ -285,8 +286,8 @@ module IonQBackend =
         (circuit: IonQCircuit)
         (shots: int)
         (target: string)
-        : Async<Result<Map<string, int>, QuantumError>> =
-        async {
+        : Task<Result<Map<string, int>, QuantumError>> =
+        task {
             // Step 1: Create job submission
             let submission = createJobSubmission circuit shots target
             
@@ -301,7 +302,7 @@ module IonQBackend =
                 let! pollResult = JobLifecycle.pollJobUntilCompleteAsync httpClient workspaceUrl jobId timeout cancellationToken
                 match pollResult with
                 | Error err -> return Error err
-                | Ok job ->
+                | Ok (job: QuantumJob) ->
                     // Check job status
                     match job.Status with
                     | JobStatus.Succeeded ->
@@ -346,7 +347,7 @@ module IonQBackend =
     /// - target: IonQ backend target (e.g., "ionq.simulator", "ionq.qpu.aria-1")
     /// - constraints: Optional backend constraints (auto-detected from target if None)
     /// 
-    /// Returns: Async<Result<Map<string, int>, QuantumError>>
+    /// Returns: Task<Result<Map<string, int>, QuantumError>>
     ///   - Ok: Measurement histogram (bitstring -> count)
     ///   - Error: QuantumError with validation or execution details
     let submitAndWaitForResultsWithValidationAsync
@@ -356,8 +357,8 @@ module IonQBackend =
         (shots: int)
         (target: string)
         (constraints: CircuitValidator.BackendConstraints option)
-        : Async<Result<Map<string, int>, QuantumError>> =
-        async {
+        : Task<Result<Map<string, int>, QuantumError>> =
+        task {
             // Step 1: Determine constraints (auto-detect or use provided)
             let backendConstraints =
                 match constraints with
@@ -380,5 +381,5 @@ module IonQBackend =
                 return Error (QuantumError.ValidationError("circuit", String.concat "; " errorMessages))
             | Ok () ->
                 // Step 4: Submit circuit (validation passed)
-                return! submitAndWaitForResultsAsync httpClient workspaceUrl circuit shots target
+                return! submitAndWaitForResultsAsync httpClient workspaceUrl circuit shots target |> Async.AwaitTask
         }

@@ -4,6 +4,7 @@ open FSharp.Azure.Quantum.Core
 open System
 open System.Text
 open System.Text.Json
+open System.Threading.Tasks
 open FSharp.Azure.Quantum.Core.Types
 
 /// Rigetti Backend Integration
@@ -409,7 +410,7 @@ module RigettiBackend =
     /// - shots: Number of measurement shots
     /// - target: Rigetti backend (e.g., "rigetti.sim.qvm", "rigetti.qpu.ankaa-3")
     /// 
-    /// Returns: Async<Result<Map<string, int>, QuantumError>>
+    /// Returns: Task<Result<Map<string, int>, QuantumError>>
     ///   - Ok: Measurement histogram (bitstring -> count)
     ///   - Error: QuantumError with details
     let submitAndWaitForResultsAsync
@@ -418,8 +419,8 @@ module RigettiBackend =
         (program: QuilProgram)
         (shots: int)
         (target: string)
-        : Async<Result<Map<string, int>, QuantumError>> =
-        async {
+        : Task<Result<Map<string, int>, QuantumError>> =
+        task {
             // Step 1: Create job submission
             let submission = createJobSubmission program shots target None
             
@@ -434,7 +435,7 @@ module RigettiBackend =
                 let! pollResult = JobLifecycle.pollJobUntilCompleteAsync httpClient workspaceUrl jobId timeout cancellationToken
                 match pollResult with
                 | Error err -> return Error err
-                | Ok job ->
+                | Ok (job: QuantumJob) ->
                     // Check job status
                     match job.Status with
                     | JobStatus.Succeeded ->
@@ -480,7 +481,7 @@ module RigettiBackend =
     /// - target: Rigetti backend target (e.g., "rigetti.sim.qvm", "rigetti.qpu.ankaa-3")
     /// - constraints: Optional backend constraints (auto-detected from target if None)
     /// 
-    /// Returns: Async<Result<Map<string, int>, QuantumError>>
+    /// Returns: Task<Result<Map<string, int>, QuantumError>>
     ///   - Ok: Measurement histogram (bitstring -> count)
     ///   - Error: QuantumError with validation or execution details
     let submitAndWaitForResultsWithValidationAsync
@@ -490,12 +491,12 @@ module RigettiBackend =
         (shots: int)
         (target: string)
         (constraints: CircuitValidator.BackendConstraints option)
-        : Async<Result<Map<string, int>, QuantumError>> =
-        async {
+        : Task<Result<Map<string, int>, QuantumError>> =
+        task {
             // Pre-flight validation
             match validateProgramWithConstraints program target constraints with
             | Error validationError -> return Error validationError
             | Ok () ->
                 // Validation passed, submit to Azure
-                return! submitAndWaitForResultsAsync httpClient workspaceUrl program shots target
+                return! submitAndWaitForResultsAsync httpClient workspaceUrl program shots target |> Async.AwaitTask
         }

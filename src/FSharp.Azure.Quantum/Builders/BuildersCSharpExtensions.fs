@@ -891,9 +891,7 @@ module QuantumBackendCSharpExtensions =
     let ExecuteToStateTask 
         (backend: IQuantumBackend) 
         (circuit: ICircuit) : Task<Result<QuantumState, QuantumError>> =
-        async {
-            return backend.ExecuteToState circuit
-        } |> Async.StartAsTask
+        backend.ExecuteToStateAsync circuit System.Threading.CancellationToken.None
     
     /// <summary>
     /// Get backend name (C# property helper).

@@ -7,6 +7,8 @@ open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.GroverSearch
 open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum.LocalSimulator
+open System.Threading
+open System.Threading.Tasks
 
 /// Tests for Unified Backend amplitude amplification.
 module AmplitudeAmplificationUnifiedTests =
@@ -29,6 +31,9 @@ module AmplitudeAmplificationUnifiedTests =
 
             member _.Name = inner.Name + " (no-grover-intent)"
             member _.InitializeState numQubits = inner.InitializeState numQubits
+
+            member _.ExecuteToStateAsync circuit ct = inner.ExecuteToStateAsync circuit ct
+            member _.ApplyOperationAsync operation state ct = inner.ApplyOperationAsync operation state ct
 
     let private hadamardPrepCircuit (numQubits: int) : CircuitBuilder.Circuit =
         let circuit = CircuitBuilder.empty numQubits

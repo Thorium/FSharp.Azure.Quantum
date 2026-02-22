@@ -356,7 +356,6 @@ let rec braidSequence acc index state =
 
 2. **Advanced Algorithms** (Layer 4 Extensions)
    - Surface code variants (planar, color codes)
-   - Fibonacci anyon native gate compilation
 
 3. **Performance Optimizations**
    - GPU acceleration
@@ -367,7 +366,12 @@ let rec braidSequence acc index state =
 
 **Current Bridges:**
 - Gate-to-braid compilation (GateToBraid, 21 gate types)
-- Standard algorithm integration (AlgorithmExtensions - Grover, QFT, Shor, HHL)
+- Standard algorithm integration (AlgorithmExtensions - Grover, QFT, Shor, HHL, Fibonacci Grover)
+- Braid-to-gate conversion with aggressive optimization (commutation cancellation, template matching)
+- Toric code MWPM decoder (syndrome decoding with greedy matching)
+- Entanglement entropy (von Neumann entropy via density matrix and partial trace)
+- Kauffman bracket knot invariants
+- Pentagon/Hexagon equation verification
 - Shared IQuantumBackend interface
 
 **Potential Future Bridges:**

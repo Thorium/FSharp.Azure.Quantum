@@ -4,6 +4,7 @@ open FSharp.Azure.Quantum.Core
 open System
 open System.IO
 open System.Text.Json
+open System.Threading.Tasks
 open FSharp.Azure.Quantum.Core.Types
 
 /// Quantinuum Backend Integration
@@ -141,7 +142,7 @@ module QuantinuumBackend =
     /// - shots: Number of measurement shots
     /// - target: Quantinuum backend (e.g., "quantinuum.sim.h1-1sc", "quantinuum.qpu.h1-1")
     /// 
-    /// Returns: Async<Result<Map<string, int>, QuantumError>>
+    /// Returns: Task<Result<Map<string, int>, QuantumError>>
     ///   - Ok: Measurement histogram (bitstring -> count)
     ///   - Error: QuantumError with details
     let submitAndWaitForResultsAsync
@@ -150,8 +151,8 @@ module QuantinuumBackend =
         (qasmCode: string)
         (shots: int)
         (target: string)
-        : Async<Result<Map<string, int>, QuantumError>> =
-        async {
+        : Task<Result<Map<string, int>, QuantumError>> =
+        task {
             // Step 1: Create job submission
             let submission = createJobSubmission qasmCode shots target
             
@@ -166,7 +167,7 @@ module QuantinuumBackend =
                 let! pollResult = JobLifecycle.pollJobUntilCompleteAsync httpClient workspaceUrl jobId timeout cancellationToken
                 match pollResult with
                 | Error err -> return Error err
-                | Ok job ->
+                | Ok (job: QuantumJob) ->
                     // Check job status
                     match job.Status with
                     | JobStatus.Succeeded ->

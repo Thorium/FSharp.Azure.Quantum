@@ -439,10 +439,58 @@ module FusionTree =
                 |> fst
             |> Ok
         
-        | _ ->
-            TopologicalResult.notImplemented
-                "Computational basis encoding"
-                (Some $"Encoding not yet implemented for anyon type {anyonType}")
+        | AnyonSpecies.AnyonType.SU2Level k ->
+            // SU(2)_k encoding using j=1/2 pairs (the fundamental anyon)
+            // j=1/2 × j=1/2 → j=0 (vacuum) + j=1 (when k ≥ 2)
+            // Bit 0 → SpinJ(1,k) × SpinJ(1,k) → SpinJ(0,k) (vacuum)
+            // Bit 1 → SpinJ(1,k) × SpinJ(1,k) → SpinJ(2,k) (j=1)
+            //
+            // For k=1: j=1 is above the truncation (j_max = k/2 = 0.5), so only
+            // j=0 channel exists and we cannot encode a qubit → return error.
+            if k < 2 then
+                TopologicalResult.validationError
+                    "SU(2)_k level"
+                    $"SU(2)_{k} does not support computational basis encoding: k must be ≥ 2 for j=1/2 pair encoding (j=1 channel is truncated)"
+            else
+
+            let half = AnyonSpecies.Particle.SpinJ(1, k)   // j=1/2
+            let j0   = AnyonSpecies.Particle.SpinJ(0, k)   // j=0 (vacuum)
+            let j1   = AnyonSpecies.Particle.SpinJ(2, k)   // j=1
+
+            let pairTrees =
+                bits
+                |> List.map (fun bit ->
+                    let channel = if bit = 0 then j0 else j1
+                    Fusion (Leaf half, Leaf half, channel)
+                )
+
+            // Fuse pairs left-to-right with running charge via SU(2)_k fusion rules
+            match pairTrees with
+            | [] -> Leaf AnyonSpecies.Particle.Vacuum
+            | [single] -> single
+            | first :: rest ->
+                let firstCharge =
+                    match first with
+                    | Fusion (_, _, ch) -> ch
+                    | Leaf p -> p
+                rest
+                |> List.fold (fun (acc, runningCharge) tree ->
+                    let pairCharge =
+                        match tree with
+                        | Fusion (_, _, ch) -> ch
+                        | Leaf p -> p
+                    // SU(2)_k intermediate fusion: use simple rule
+                    // j0 is identity, j1×j1 → j0, j0×j1 → j1, j1×j0 → j1
+                    let newCharge =
+                        match runningCharge, pairCharge with
+                        | c, c2 when c = j0 -> c2
+                        | c, c2 when c2 = j0 -> c
+                        | c, c2 when c = j1 && c2 = j1 -> j0
+                        | _ -> j0 // fallback
+                    (Fusion (acc, tree, newCharge), newCharge)
+                ) (first, firstCharge)
+                |> fst
+            |> Ok
     
     /// Convert fusion tree to computational basis bitstring
     /// 
@@ -480,6 +528,16 @@ module FusionTree =
                 match channel with
                 | AnyonSpecies.Particle.Vacuum -> [0]
                 | AnyonSpecies.Particle.Tau -> [1]
+                | _ -> [0]
+
+            | Fusion (Leaf (AnyonSpecies.Particle.SpinJ (1, _)),
+                      Leaf (AnyonSpecies.Particle.SpinJ (1, _)),
+                      channel) ->
+                // SU(2)_k j=1/2 pair encoding
+                // SpinJ(0, k) → bit 0, SpinJ(2, k) → bit 1
+                match channel with
+                | AnyonSpecies.Particle.SpinJ (0, _) -> [0]
+                | AnyonSpecies.Particle.SpinJ (2, _) -> [1]
                 | _ -> [0]
 
             | Fusion (left, right, _) ->

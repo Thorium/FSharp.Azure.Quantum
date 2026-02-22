@@ -73,6 +73,7 @@
     <Compile Include="ErrorPropagation.fs" />
     <Compile Include="GateToBraid.fs" />
     <Compile Include="ToricCode.fs" />
+    <Compile Include="SurfaceCode.fs" />
     <Compile Include="EntanglementEntropy.fs" />
     <Compile Include="TopologicalBackend.fs" />
     <Compile Include="AlgorithmExtensions.fs" />

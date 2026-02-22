@@ -7,6 +7,8 @@ open FSharp.Azure.Quantum.Backends.LocalBackend
 open FSharp.Azure.Quantum.CircuitBuilder
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.BackendAbstraction
+open System.Threading
+open System.Threading.Tasks
 
 module HHL = FSharp.Azure.Quantum.Algorithms.HHL
 
@@ -44,6 +46,9 @@ module HHLUnifiedTests =
             member _.Name = inner.Name + " (no-hhl-intent)"
             member _.InitializeState numQubits = inner.InitializeState numQubits
 
+            member _.ExecuteToStateAsync circuit ct = inner.ExecuteToStateAsync circuit ct
+            member _.ApplyOperationAsync operation state ct = inner.ApplyOperationAsync operation state ct
+
     /// Backend wrapper that simulates a gate-based Rigetti constraint set.
     ///
     /// Purpose: verify HHL lowering + planning transpilation produces Rigetti-native gates.
@@ -69,6 +74,9 @@ module HHLUnifiedTests =
 
             member _.Name = "rigetti.sim.qvm (gate-only)"
             member _.InitializeState numQubits = inner.InitializeState numQubits
+
+            member _.ExecuteToStateAsync circuit ct = inner.ExecuteToStateAsync circuit ct
+            member _.ApplyOperationAsync operation state ct = inner.ApplyOperationAsync operation state ct
 
     [<Fact>]
     let ``HHL planner prefers algorithm intent when supported`` () =

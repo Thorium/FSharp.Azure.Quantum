@@ -5,6 +5,8 @@ open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.Backends
 open System
+open System.Threading
+open System.Threading.Tasks
 
 /// Tests for Quantum Phase Estimation (QPE) using unified backend
 module QPE = FSharp.Azure.Quantum.Algorithms.QPE
@@ -29,6 +31,10 @@ module QPETests =
 
             member _.Name = inner.Name + " (no-qpe-intent)"
             member _.InitializeState numQubits = inner.InitializeState numQubits
+            member this.ExecuteToStateAsync circuit ct =
+                task { return (this :> IQuantumBackend).ExecuteToState circuit }
+            member this.ApplyOperationAsync operation state ct =
+                task { return (this :> IQuantumBackend).ApplyOperation operation state }
 
     [<Fact>]
     let ``QPE planner prefers algorithm intent when supported`` () =

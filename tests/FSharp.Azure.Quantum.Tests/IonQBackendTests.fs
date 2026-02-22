@@ -467,7 +467,7 @@ module IonQBackendTests =
         let workflowFunc = submitAndWaitForResultsAsync
         
         // Assert - Function exists and has expected type
-        // (HttpClient -> string -> IonQCircuit -> int -> string -> Async<Result<Map<string, int>, QuantumError>>)
+        // (HttpClient -> string -> IonQCircuit -> int -> string -> Task<Result<Map<string, int>, QuantumError>>)
         Assert.NotNull(workflowFunc)
         
         // Verify we can create a submission (doesn't require HTTP)

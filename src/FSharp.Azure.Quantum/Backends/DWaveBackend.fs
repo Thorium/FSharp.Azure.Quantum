@@ -1,6 +1,8 @@
 namespace FSharp.Azure.Quantum.Backends
 
 open System
+open System.Threading
+open System.Threading.Tasks
 
 /// D-Wave quantum annealing backend implementation.
 ///
@@ -312,6 +314,12 @@ module DWaveBackend =
                 | BackendAbstraction.QuantumOperation.Sequence ops ->
                     ops |> List.forall (fun op -> (this :> BackendAbstraction.IQuantumBackend).SupportsOperation op)
                 | _ -> false
+
+            member this.ExecuteToStateAsync (circuit: ICircuit) (_ct: CancellationToken) : Task<Result<QuantumState, QuantumError>> =
+                task { return (this :> BackendAbstraction.IQuantumBackend).ExecuteToState circuit }
+
+            member this.ApplyOperationAsync (operation: BackendAbstraction.QuantumOperation) (state: QuantumState) (_ct: CancellationToken) : Task<Result<QuantumState, QuantumError>> =
+                task { return (this :> BackendAbstraction.IQuantumBackend).ApplyOperation operation state }
     
     // ============================================================================
     // HELPER FUNCTIONS FOR BACKEND CREATION

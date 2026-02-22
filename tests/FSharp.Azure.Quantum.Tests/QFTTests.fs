@@ -7,6 +7,8 @@ open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.CircuitBuilder
 open FSharp.Azure.Quantum.Backends
 open System
+open System.Threading
+open System.Threading.Tasks
 
 /// Module aliases to avoid name conflicts
 module QFT = FSharp.Azure.Quantum.Algorithms.QFT
@@ -31,6 +33,9 @@ module QFTTests =
 
             member _.Name = inner.Name + " (no-qft-intent)"
             member _.InitializeState numQubits = inner.InitializeState numQubits
+
+            member _.ExecuteToStateAsync circuit ct = inner.ExecuteToStateAsync circuit ct
+            member _.ApplyOperationAsync operation state ct = inner.ApplyOperationAsync operation state ct
 
     [<Fact>]
     let ``QFT planner prefers algorithm intent when supported`` () =

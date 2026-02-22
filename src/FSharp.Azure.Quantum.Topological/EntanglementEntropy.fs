@@ -28,6 +28,7 @@ namespace FSharp.Azure.Quantum.Topological
 module EntanglementEntropy =
     
     open System
+    open System.Numerics
     
     // ========================================================================
     // TOPOLOGICAL ENTROPY
@@ -171,10 +172,9 @@ module EntanglementEntropy =
     /// 
     /// The entropy measures entanglement between A and B.
     /// 
-    /// Note: This is a placeholder for future implementation.
-    /// Full implementation requires:
-    /// 1. Reduced density matrix calculation (partial trace)
-    /// 2. Eigenvalue decomposition
+    /// Implementation:
+    /// 1. Reduced density matrix calculation (partial trace) 
+    /// 2. Eigenvalue decomposition (Jacobi iteration)
     /// 3. Entropy formula: S = -Σ_i λ_i log(λ_i)
     type VonNeumannEntropyCalculation = {
         /// Eigenvalues of reduced density matrix
@@ -223,6 +223,233 @@ module EntanglementEntropy =
                 Entropy = entropyNat
                 EntropyBits = entropyBits
             }
+    
+    // ========================================================================
+    // DENSITY MATRIX AND PARTIAL TRACE
+    // ========================================================================
+    
+    /// Construct density matrix ρ = |ψ⟩⟨ψ| from a state vector.
+    /// 
+    /// Input: amplitude vector [α₀, α₁, ..., αₙ] representing |ψ⟩
+    /// Output: n×n matrix where ρᵢⱼ = αᵢ αⱼ*
+    /// 
+    /// The density matrix is Hermitian, positive semidefinite, and has Tr(ρ) = 1
+    /// when the input state is normalized.
+    let densityMatrix (amplitudes: Complex list) : Complex[,] =
+        let n = amplitudes.Length
+        let rho = Array2D.create n n Complex.Zero
+        for i in 0 .. n - 1 do
+            for j in 0 .. n - 1 do
+                rho.[i, j] <- amplitudes.[i] * Complex.Conjugate(amplitudes.[j])
+        rho
+    
+    /// Partial trace over subsystem B.
+    /// 
+    /// Given a density matrix ρ_AB of a bipartite system with dimensions
+    /// (dimA × dimB), compute ρ_A = Tr_B(ρ_AB).
+    /// 
+    /// The total Hilbert space dimension must equal dimA × dimB.
+    /// 
+    /// Mathematical operation:
+    ///   (ρ_A)_{i,i'} = Σⱼ ρ_{i⊗j, i'⊗j}
+    /// where i,i' index subsystem A and j indexes subsystem B.
+    let partialTraceB 
+        (rho: Complex[,]) 
+        (dimA: int) 
+        (dimB: int) 
+        : TopologicalResult<Complex[,]> =
+        
+        let totalDim = Array2D.length1 rho
+        
+        if totalDim <> dimA * dimB then
+            TopologicalResult.validationError "dimensions" 
+                $"Total dimension {totalDim} ≠ dimA ({dimA}) × dimB ({dimB})"
+        elif dimA <= 0 || dimB <= 0 then
+            TopologicalResult.validationError "dimensions"
+                "Subsystem dimensions must be positive"
+        else
+            let rhoA = Array2D.create dimA dimA Complex.Zero
+            
+            for iA in 0 .. dimA - 1 do
+                for iA' in 0 .. dimA - 1 do
+                    let mutable sum = Complex.Zero
+                    for jB in 0 .. dimB - 1 do
+                        let row = iA * dimB + jB
+                        let col = iA' * dimB + jB
+                        sum <- sum + rho.[row, col]
+                    rhoA.[iA, iA'] <- sum
+            
+            Ok rhoA
+    
+    /// Partial trace over subsystem A.
+    /// 
+    /// Given a density matrix ρ_AB, compute ρ_B = Tr_A(ρ_AB).
+    /// 
+    /// Mathematical operation:
+    ///   (ρ_B)_{j,j'} = Σᵢ ρ_{i⊗j, i⊗j'}
+    let partialTraceA 
+        (rho: Complex[,]) 
+        (dimA: int) 
+        (dimB: int) 
+        : TopologicalResult<Complex[,]> =
+        
+        let totalDim = Array2D.length1 rho
+        
+        if totalDim <> dimA * dimB then
+            TopologicalResult.validationError "dimensions"
+                $"Total dimension {totalDim} ≠ dimA ({dimA}) × dimB ({dimB})"
+        elif dimA <= 0 || dimB <= 0 then
+            TopologicalResult.validationError "dimensions"
+                "Subsystem dimensions must be positive"
+        else
+            let rhoB = Array2D.create dimB dimB Complex.Zero
+            
+            for jB in 0 .. dimB - 1 do
+                for jB' in 0 .. dimB - 1 do
+                    let mutable sum = Complex.Zero
+                    for iA in 0 .. dimA - 1 do
+                        let row = iA * dimB + jB
+                        let col = iA * dimB + jB'
+                        sum <- sum + rho.[row, col]
+                    rhoB.[jB, jB'] <- sum
+            
+            Ok rhoB
+    
+    // ========================================================================
+    // EIGENVALUE DECOMPOSITION (Jacobi iteration for Hermitian matrices)
+    // ========================================================================
+    
+    /// Extract real eigenvalues of a Hermitian density matrix using Jacobi iteration.
+    /// 
+    /// The Jacobi eigenvalue algorithm iteratively applies plane rotations to
+    /// reduce off-diagonal elements to zero. For a Hermitian matrix, all
+    /// eigenvalues are real.
+    /// 
+    /// Parameters:
+    ///   matrix - Hermitian density matrix (must be square)
+    ///   maxIterations - Maximum sweeps (default: 100)
+    ///   tolerance - Convergence threshold for off-diagonal norm
+    /// 
+    /// Returns eigenvalues sorted in descending order.
+    let eigenvaluesHermitian 
+        (matrix: Complex[,]) 
+        (maxIterations: int) 
+        (tolerance: float) 
+        : TopologicalResult<float list> =
+        
+        let n = Array2D.length1 matrix
+        if n <> Array2D.length2 matrix then
+            TopologicalResult.validationError "matrix" "Matrix must be square"
+        elif n = 0 then
+            Ok []
+        elif n = 1 then
+            Ok [matrix.[0, 0].Real]
+        else
+            // Work with real part (Hermitian matrix has real eigenvalues)
+            // For a density matrix ρ, this is exact since ρ = ρ†
+            let a = Array2D.init n n (fun i j -> matrix.[i, j].Real)
+            
+            let offDiagNorm () =
+                let mutable s = 0.0
+                for i in 0 .. n - 2 do
+                    for j in i + 1 .. n - 1 do
+                        s <- s + a.[i, j] * a.[i, j]
+                sqrt s
+            
+            let mutable iteration = 0
+            while iteration < maxIterations && offDiagNorm () > tolerance do
+                // Sweep over all off-diagonal elements
+                for p in 0 .. n - 2 do
+                    for q in p + 1 .. n - 1 do
+                        if abs a.[p, q] > tolerance / (float (n * n)) then
+                            // Compute Jacobi rotation angle
+                            let tau =
+                                if abs (a.[p, p] - a.[q, q]) < 1e-15 then
+                                    1.0  // θ = π/4
+                                else
+                                    2.0 * a.[p, q] / (a.[p, p] - a.[q, q])
+                            
+                            let t =
+                                let sgn = if tau >= 0.0 then 1.0 else -1.0
+                                sgn / (abs tau + sqrt (tau * tau + 1.0))
+                            
+                            let c = 1.0 / sqrt (1.0 + t * t)
+                            let s = t * c
+                            
+                            // Apply rotation
+                            let app = a.[p, p]
+                            let aqq = a.[q, q]
+                            let apq = a.[p, q]
+                            
+                            a.[p, p] <- app - t * apq
+                            a.[q, q] <- aqq + t * apq
+                            a.[p, q] <- 0.0
+                            a.[q, p] <- 0.0
+                            
+                            for r in 0 .. n - 1 do
+                                if r <> p && r <> q then
+                                    let arp = a.[r, p]
+                                    let arq = a.[r, q]
+                                    a.[r, p] <- c * arp - s * arq
+                                    a.[p, r] <- a.[r, p]
+                                    a.[r, q] <- s * arp + c * arq
+                                    a.[q, r] <- a.[r, q]
+                
+                iteration <- iteration + 1
+            
+            // Extract diagonal eigenvalues, sorted descending
+            let eigenvals = 
+                [ for i in 0 .. n - 1 -> a.[i, i] ]
+                |> List.sortDescending
+            
+            Ok eigenvals
+    
+    /// Compute von Neumann entropy of a density matrix.
+    /// 
+    /// S(ρ) = -Tr(ρ log ρ) = -Σᵢ λᵢ log(λᵢ)
+    /// 
+    /// Performs eigenvalue decomposition and then entropy calculation.
+    let vonNeumannEntropyFromDensityMatrix 
+        (rho: Complex[,]) 
+        : TopologicalResult<VonNeumannEntropyCalculation> =
+        
+        eigenvaluesHermitian rho 100 1e-12
+        |> Result.bind (fun eigenvalues ->
+            // Clamp small negative eigenvalues to zero (numerical noise)
+            let clamped = eigenvalues |> List.map (fun v -> max 0.0 v)
+            
+            // Re-normalize to ensure sum = 1 (compensate for numerical error)
+            let total = List.sum clamped
+            let normalized = 
+                if total > 1e-12 then
+                    clamped |> List.map (fun v -> v / total)
+                else
+                    clamped
+            
+            vonNeumannEntropyFromEigenvalues normalized
+        )
+    
+    /// Compute entanglement entropy of a pure bipartite state.
+    /// 
+    /// Given a state vector |ψ⟩_AB and subsystem dimensions dimA, dimB:
+    /// 1. Construct density matrix ρ_AB = |ψ⟩⟨ψ|
+    /// 2. Partial trace: ρ_A = Tr_B(ρ_AB)
+    /// 3. Compute S(ρ_A) = -Tr(ρ_A log ρ_A)
+    /// 
+    /// This is the standard measure of bipartite entanglement for pure states.
+    let entanglementEntropy 
+        (amplitudes: Complex list) 
+        (dimA: int) 
+        (dimB: int) 
+        : TopologicalResult<VonNeumannEntropyCalculation> =
+        
+        if amplitudes.Length <> dimA * dimB then
+            TopologicalResult.validationError "amplitudes"
+                $"State vector length {amplitudes.Length} ≠ dimA ({dimA}) × dimB ({dimB})"
+        else
+            let rhoAB = densityMatrix amplitudes
+            partialTraceB rhoAB dimA dimB
+            |> Result.bind vonNeumannEntropyFromDensityMatrix
     
     // ========================================================================
     // GROUND STATE DEGENERACY AND ENTROPY

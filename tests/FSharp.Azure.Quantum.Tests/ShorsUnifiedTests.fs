@@ -6,6 +6,8 @@ open FSharp.Azure.Quantum.Algorithms.ShorsTypes
 open FSharp.Azure.Quantum.Backends.LocalBackend
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.BackendAbstraction
+open System.Threading
+open System.Threading.Tasks
 
 /// Tests for Shor's Algorithm Unified Implementation
 /// 
@@ -37,6 +39,9 @@ module ShorTests =
 
             member _.Name = inner.Name + " (no-qpe-intent)"
             member _.InitializeState numQubits = inner.InitializeState numQubits
+
+            member _.ExecuteToStateAsync circuit ct = inner.ExecuteToStateAsync circuit ct
+            member _.ApplyOperationAsync operation state ct = inner.ApplyOperationAsync operation state ct
 
     [<Fact>]
     let ``Shor period-finding planner prefers native QPE intent when supported`` () =

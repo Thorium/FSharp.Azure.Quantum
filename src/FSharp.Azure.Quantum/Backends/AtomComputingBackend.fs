@@ -4,6 +4,7 @@ open FSharp.Azure.Quantum.Core
 open System
 open System.IO
 open System.Text.Json
+open System.Threading.Tasks
 open FSharp.Azure.Quantum.Core.Types
 
 /// Atom Computing Backend Integration
@@ -164,7 +165,7 @@ module AtomComputingBackend =
     /// - shots: Number of measurement shots
     /// - target: Atom Computing backend (e.g., "atom-computing.sim", "atom-computing.qpu.phoenix")
     /// 
-    /// Returns: Async<Result<Map<string, int>, QuantumError>>
+    /// Returns: Task<Result<Map<string, int>, QuantumError>>
     ///   - Ok: Measurement histogram (bitstring -> count)
     ///   - Error: QuantumError with details
     let submitAndWaitForResultsAsync
@@ -173,8 +174,8 @@ module AtomComputingBackend =
         (qasmCode: string)
         (shots: int)
         (target: string)
-        : Async<Result<Map<string, int>, QuantumError>> =
-        async {
+        : Task<Result<Map<string, int>, QuantumError>> =
+        task {
             // Step 1: Create job submission
             let submission = createJobSubmission qasmCode shots target
             
@@ -189,7 +190,7 @@ module AtomComputingBackend =
                 let! pollResult = JobLifecycle.pollJobUntilCompleteAsync httpClient workspaceUrl jobId timeout cancellationToken
                 match pollResult with
                 | Error err -> return Error err
-                | Ok job ->
+                | Ok (job: QuantumJob) ->
                     // Check job status
                     match job.Status with
                     | JobStatus.Succeeded ->

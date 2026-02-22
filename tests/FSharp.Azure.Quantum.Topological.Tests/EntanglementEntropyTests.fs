@@ -449,6 +449,290 @@ module EntanglementEntropyTests =
             Assert.Fail($"Should succeed, got error: {err.Message}")
     
     // ========================================================================
+    // DENSITY MATRIX CONSTRUCTION
+    // ========================================================================
+    
+    [<Fact>]
+    let ``densityMatrix of single qubit |0⟩ is correct`` () =
+        // |0⟩ = [1, 0] → ρ = [[1,0],[0,0]]
+        let amps = [ System.Numerics.Complex.One; System.Numerics.Complex.Zero ]
+        let rho = EntanglementEntropy.densityMatrix amps
+        
+        Assert.Equal(1.0, rho.[0, 0].Real, 10)
+        Assert.Equal(0.0, rho.[0, 1].Real, 10)
+        Assert.Equal(0.0, rho.[1, 0].Real, 10)
+        Assert.Equal(0.0, rho.[1, 1].Real, 10)
+    
+    [<Fact>]
+    let ``densityMatrix of |+⟩ state has equal off-diagonal elements`` () =
+        // |+⟩ = [1/√2, 1/√2] → ρ = [[1/2, 1/2],[1/2, 1/2]]
+        let s = 1.0 / sqrt 2.0
+        let amps = [ System.Numerics.Complex(s, 0.0); System.Numerics.Complex(s, 0.0) ]
+        let rho = EntanglementEntropy.densityMatrix amps
+        
+        Assert.Equal(0.5, rho.[0, 0].Real, 10)
+        Assert.Equal(0.5, rho.[0, 1].Real, 10)
+        Assert.Equal(0.5, rho.[1, 0].Real, 10)
+        Assert.Equal(0.5, rho.[1, 1].Real, 10)
+    
+    [<Fact>]
+    let ``densityMatrix trace equals 1 for normalized state`` () =
+        let s = 1.0 / sqrt 2.0
+        let amps = [ System.Numerics.Complex(s, 0.0); System.Numerics.Complex(0.0, s) ]
+        let rho = EntanglementEntropy.densityMatrix amps
+        
+        let trace = rho.[0, 0].Real + rho.[1, 1].Real
+        Assert.Equal(1.0, trace, 10)
+    
+    // ========================================================================
+    // PARTIAL TRACE
+    // ========================================================================
+    
+    [<Fact>]
+    let ``partialTraceB of product state returns subsystem A density matrix`` () =
+        // |ψ⟩ = |0⟩_A ⊗ |0⟩_B = [1, 0, 0, 0]
+        // ρ_A = Tr_B(|00⟩⟨00|) = |0⟩⟨0| = [[1,0],[0,0]]
+        let amps = [
+            System.Numerics.Complex.One
+            System.Numerics.Complex.Zero
+            System.Numerics.Complex.Zero
+            System.Numerics.Complex.Zero
+        ]
+        let rho = EntanglementEntropy.densityMatrix amps
+        
+        match EntanglementEntropy.partialTraceB rho 2 2 with
+        | Ok rhoA ->
+            Assert.Equal(1.0, rhoA.[0, 0].Real, 10)
+            Assert.Equal(0.0, rhoA.[0, 1].Real, 10)
+            Assert.Equal(0.0, rhoA.[1, 0].Real, 10)
+            Assert.Equal(0.0, rhoA.[1, 1].Real, 10)
+        | Error err -> Assert.Fail($"Expected Ok, got: {err.Message}")
+    
+    [<Fact>]
+    let ``partialTraceB of Bell state returns maximally mixed state`` () =
+        // |Φ+⟩ = (|00⟩ + |11⟩)/√2 = [1/√2, 0, 0, 1/√2]
+        // ρ_A = Tr_B(|Φ+⟩⟨Φ+|) = I/2
+        let s = 1.0 / sqrt 2.0
+        let amps = [
+            System.Numerics.Complex(s, 0.0)
+            System.Numerics.Complex.Zero
+            System.Numerics.Complex.Zero
+            System.Numerics.Complex(s, 0.0)
+        ]
+        let rho = EntanglementEntropy.densityMatrix amps
+        
+        match EntanglementEntropy.partialTraceB rho 2 2 with
+        | Ok rhoA ->
+            Assert.Equal(0.5, rhoA.[0, 0].Real, 8)
+            Assert.Equal(0.0, rhoA.[0, 1].Real, 8)
+            Assert.Equal(0.0, rhoA.[1, 0].Real, 8)
+            Assert.Equal(0.5, rhoA.[1, 1].Real, 8)
+        | Error err -> Assert.Fail($"Expected Ok, got: {err.Message}")
+    
+    [<Fact>]
+    let ``partialTraceA of Bell state returns maximally mixed state`` () =
+        let s = 1.0 / sqrt 2.0
+        let amps = [
+            System.Numerics.Complex(s, 0.0)
+            System.Numerics.Complex.Zero
+            System.Numerics.Complex.Zero
+            System.Numerics.Complex(s, 0.0)
+        ]
+        let rho = EntanglementEntropy.densityMatrix amps
+        
+        match EntanglementEntropy.partialTraceA rho 2 2 with
+        | Ok rhoB ->
+            Assert.Equal(0.5, rhoB.[0, 0].Real, 8)
+            Assert.Equal(0.0, rhoB.[0, 1].Real, 8)
+            Assert.Equal(0.0, rhoB.[1, 0].Real, 8)
+            Assert.Equal(0.5, rhoB.[1, 1].Real, 8)
+        | Error err -> Assert.Fail($"Expected Ok, got: {err.Message}")
+    
+    [<Fact>]
+    let ``partialTraceB with mismatched dimensions returns error`` () =
+        let amps = [
+            System.Numerics.Complex.One
+            System.Numerics.Complex.Zero
+            System.Numerics.Complex.Zero
+            System.Numerics.Complex.Zero
+        ]
+        let rho = EntanglementEntropy.densityMatrix amps
+        
+        // 4x4 matrix but dimA=3, dimB=2 → 3*2=6 ≠ 4
+        match EntanglementEntropy.partialTraceB rho 3 2 with
+        | Error (TopologicalError.ValidationError (_, _)) -> ()
+        | _ -> Assert.Fail("Expected validation error for mismatched dimensions")
+    
+    [<Fact>]
+    let ``partialTraceB trace preservation holds`` () =
+        // Tr(ρ_A) = Tr(ρ_AB) = 1 for normalized states
+        let s = 1.0 / sqrt 2.0
+        let amps = [
+            System.Numerics.Complex(s, 0.0)
+            System.Numerics.Complex.Zero
+            System.Numerics.Complex.Zero
+            System.Numerics.Complex(s, 0.0)
+        ]
+        let rho = EntanglementEntropy.densityMatrix amps
+        
+        match EntanglementEntropy.partialTraceB rho 2 2 with
+        | Ok rhoA ->
+            let trace = rhoA.[0, 0].Real + rhoA.[1, 1].Real
+            Assert.Equal(1.0, trace, 8)
+        | Error err -> Assert.Fail($"Expected Ok, got: {err.Message}")
+    
+    // ========================================================================
+    // EIGENVALUE DECOMPOSITION
+    // ========================================================================
+    
+    [<Fact>]
+    let ``eigenvaluesHermitian of identity matrix returns all ones`` () =
+        let n = 3
+        let identity = Array2D.init n n (fun i j ->
+            if i = j then System.Numerics.Complex.One else System.Numerics.Complex.Zero)
+        
+        match EntanglementEntropy.eigenvaluesHermitian identity 100 1e-12 with
+        | Ok eigenvals ->
+            Assert.Equal(3, eigenvals.Length)
+            eigenvals |> List.iter (fun v -> Assert.Equal(1.0, v, 8))
+        | Error err -> Assert.Fail($"Expected Ok, got: {err.Message}")
+    
+    [<Fact>]
+    let ``eigenvaluesHermitian of diagonal matrix returns diagonal entries`` () =
+        let matrix = Array2D.init 2 2 (fun i j ->
+            if i = 0 && j = 0 then System.Numerics.Complex(0.7, 0.0)
+            elif i = 1 && j = 1 then System.Numerics.Complex(0.3, 0.0)
+            else System.Numerics.Complex.Zero)
+        
+        match EntanglementEntropy.eigenvaluesHermitian matrix 100 1e-12 with
+        | Ok eigenvals ->
+            Assert.Equal(2, eigenvals.Length)
+            // Sorted descending
+            Assert.Equal(0.7, eigenvals.[0], 8)
+            Assert.Equal(0.3, eigenvals.[1], 8)
+        | Error err -> Assert.Fail($"Expected Ok, got: {err.Message}")
+    
+    [<Fact>]
+    let ``eigenvaluesHermitian of 1x1 matrix returns single value`` () =
+        let matrix = Array2D.init 1 1 (fun _ _ -> System.Numerics.Complex(0.42, 0.0))
+        match EntanglementEntropy.eigenvaluesHermitian matrix 100 1e-12 with
+        | Ok eigenvals ->
+            Assert.Equal(1, eigenvals.Length)
+            Assert.Equal(0.42, eigenvals.[0], 10)
+        | Error err -> Assert.Fail($"Expected Ok, got: {err.Message}")
+    
+    [<Fact>]
+    let ``eigenvaluesHermitian of empty matrix returns empty`` () =
+        let matrix = Array2D.create 0 0 System.Numerics.Complex.Zero
+        match EntanglementEntropy.eigenvaluesHermitian matrix 100 1e-12 with
+        | Ok eigenvals -> Assert.Empty(eigenvals)
+        | Error err -> Assert.Fail($"Expected Ok, got: {err.Message}")
+    
+    [<Fact>]
+    let ``eigenvaluesHermitian of maximally mixed 2x2 returns equal eigenvalues`` () =
+        // I/2 = [[0.5, 0], [0, 0.5]]
+        let matrix = Array2D.init 2 2 (fun i j ->
+            if i = j then System.Numerics.Complex(0.5, 0.0) else System.Numerics.Complex.Zero)
+        
+        match EntanglementEntropy.eigenvaluesHermitian matrix 100 1e-12 with
+        | Ok eigenvals ->
+            Assert.Equal(2, eigenvals.Length)
+            Assert.Equal(0.5, eigenvals.[0], 8)
+            Assert.Equal(0.5, eigenvals.[1], 8)
+        | Error err -> Assert.Fail($"Expected Ok, got: {err.Message}")
+    
+    // ========================================================================
+    // VON NEUMANN ENTROPY FROM DENSITY MATRIX
+    // ========================================================================
+    
+    [<Fact>]
+    let ``vonNeumannEntropyFromDensityMatrix of pure state returns zero`` () =
+        // |0⟩⟨0| has eigenvalues [1, 0] → S = 0
+        let rho = Array2D.init 2 2 (fun i j ->
+            if i = 0 && j = 0 then System.Numerics.Complex.One else System.Numerics.Complex.Zero)
+        
+        match EntanglementEntropy.vonNeumannEntropyFromDensityMatrix rho with
+        | Ok result ->
+            Assert.Equal(0.0, result.Entropy, 8)
+        | Error err -> Assert.Fail($"Expected Ok, got: {err.Message}")
+    
+    [<Fact>]
+    let ``vonNeumannEntropyFromDensityMatrix of maximally mixed state returns log(2)`` () =
+        // I/2 has eigenvalues [0.5, 0.5] → S = log(2)
+        let rho = Array2D.init 2 2 (fun i j ->
+            if i = j then System.Numerics.Complex(0.5, 0.0) else System.Numerics.Complex.Zero)
+        
+        match EntanglementEntropy.vonNeumannEntropyFromDensityMatrix rho with
+        | Ok result ->
+            Assert.Equal(log 2.0, result.Entropy, 6)
+            Assert.Equal(1.0, result.EntropyBits, 6)
+        | Error err -> Assert.Fail($"Expected Ok, got: {err.Message}")
+    
+    // ========================================================================
+    // ENTANGLEMENT ENTROPY (FULL PIPELINE)
+    // ========================================================================
+    
+    [<Fact>]
+    let ``entanglementEntropy of product state is zero`` () =
+        // |00⟩ = [1, 0, 0, 0] → no entanglement → S = 0
+        let amps = [
+            System.Numerics.Complex.One
+            System.Numerics.Complex.Zero
+            System.Numerics.Complex.Zero
+            System.Numerics.Complex.Zero
+        ]
+        match EntanglementEntropy.entanglementEntropy amps 2 2 with
+        | Ok result ->
+            Assert.Equal(0.0, result.Entropy, 6)
+        | Error err -> Assert.Fail($"Expected Ok, got: {err.Message}")
+    
+    [<Fact>]
+    let ``entanglementEntropy of Bell state is log(2)`` () =
+        // |Φ+⟩ = (|00⟩ + |11⟩)/√2 → maximally entangled → S = log(2)
+        let s = 1.0 / sqrt 2.0
+        let amps = [
+            System.Numerics.Complex(s, 0.0)
+            System.Numerics.Complex.Zero
+            System.Numerics.Complex.Zero
+            System.Numerics.Complex(s, 0.0)
+        ]
+        match EntanglementEntropy.entanglementEntropy amps 2 2 with
+        | Ok result ->
+            Assert.Equal(log 2.0, result.Entropy, 4)
+            Assert.Equal(1.0, result.EntropyBits, 4)
+        | Error err -> Assert.Fail($"Expected Ok, got: {err.Message}")
+    
+    [<Fact>]
+    let ``entanglementEntropy with mismatched dimensions returns error`` () =
+        // 4 amplitudes but dimA=3, dimB=2 → error
+        let amps = [
+            System.Numerics.Complex.One
+            System.Numerics.Complex.Zero
+            System.Numerics.Complex.Zero
+            System.Numerics.Complex.Zero
+        ]
+        match EntanglementEntropy.entanglementEntropy amps 3 2 with
+        | Error (TopologicalError.ValidationError (_, _)) -> ()
+        | _ -> Assert.Fail("Expected validation error for mismatched dimensions")
+    
+    [<Fact>]
+    let ``entanglementEntropy of partially entangled state is between 0 and log(2)`` () =
+        // |ψ⟩ = cos(π/8)|00⟩ + sin(π/8)|11⟩ → partial entanglement
+        let c = cos (System.Math.PI / 8.0)
+        let s = sin (System.Math.PI / 8.0)
+        let amps = [
+            System.Numerics.Complex(c, 0.0)
+            System.Numerics.Complex.Zero
+            System.Numerics.Complex.Zero
+            System.Numerics.Complex(s, 0.0)
+        ]
+        match EntanglementEntropy.entanglementEntropy amps 2 2 with
+        | Ok result ->
+            Assert.True(result.Entropy > 0.0, "Should have non-zero entropy")
+            Assert.True(result.Entropy < log 2.0, "Should be less than maximally entangled")
+        | Error err -> Assert.Fail($"Expected Ok, got: {err.Message}")
+    
+    // ========================================================================
     // INTEGRATION WITH ANYON SPECIES
     // ========================================================================
     

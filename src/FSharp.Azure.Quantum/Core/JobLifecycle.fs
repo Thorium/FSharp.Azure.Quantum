@@ -13,6 +13,9 @@ open FSharp.Azure.Quantum.Core.Types
 /// 
 /// Implements job submission, status polling with exponential backoff,
 /// result retrieval from blob storage, and job cancellation.
+/// 
+/// All functions use task { } CE for direct Task-based I/O without
+/// Async<>/Task<> bridging overhead. HttpClient is natively Task-based.
 module JobLifecycle =
     
     // ============================================================================
@@ -31,8 +34,8 @@ module JobLifecycle =
         (httpClient: HttpClient)
         (workspaceUrl: string)
         (submission: JobSubmission)
-        : Async<Result<string, QuantumError>> =
-        async {
+        : Task<Result<string, QuantumError>> =
+        task {
             try
                 // Construct job submission payload
                 let payload = 
@@ -48,11 +51,11 @@ module JobLifecycle =
                 
                 // Serialize to JSON
                 let jsonContent = JsonSerializer.Serialize(payload)
-                use content = new StringContent(jsonContent, System.Text.Encoding.UTF8, "application/json")
+                use content = new StringContent(jsonContent, Encoding.UTF8, "application/json")
                 
                 // Make PUT request to /jobs/{id}
                 let url = sprintf "%s/jobs/%s" workspaceUrl submission.JobId
-                use! response = httpClient.PutAsync(url, content) |> Async.AwaitTask
+                use! response = httpClient.PutAsync(url, content)
                 
                 // Handle response
                 match response.StatusCode with
@@ -77,10 +80,10 @@ module JobLifecycle =
                 | HttpStatusCode.NotFound ->
                     return Error (QuantumError.BackendError(submission.Target, "Backend not found"))
                 | _ ->
-                    let! errorBody = response.Content.ReadAsStringAsync() |> Async.AwaitTask
+                    let! errorBody = response.Content.ReadAsStringAsync()
                     return Error (QuantumError.AzureError (AzureQuantumError.UnknownError(int response.StatusCode, errorBody)))
             with
-            | :? TaskCanceledException as ex ->
+            | :? TaskCanceledException ->
                 return Error (QuantumError.AzureError (AzureQuantumError.NetworkTimeout 1))
             | ex ->
                 return Error (QuantumError.AzureError (AzureQuantumError.UnknownError(0, ex.Message)))
@@ -122,18 +125,18 @@ module JobLifecycle =
         (httpClient: HttpClient)
         (workspaceUrl: string)
         (jobId: string)
-        : Async<Result<QuantumJob, QuantumError>> =
-        async {
+        : Task<Result<QuantumJob, QuantumError>> =
+        task {
             try
                 // Make GET request to /jobs/{id}
                 let url = sprintf "%s/jobs/%s" workspaceUrl jobId
-                use! response = httpClient.GetAsync(url) |> Async.AwaitTask
+                use! response = httpClient.GetAsync(url)
                 
                 // Handle response
                 match response.StatusCode with
                 | HttpStatusCode.OK ->
                     // Parse JSON response manually using JsonDocument
-                    let! jsonBody = response.Content.ReadAsStringAsync() |> Async.AwaitTask
+                    let! jsonBody = response.Content.ReadAsStringAsync()
                     use jsonDoc = JsonDocument.Parse(jsonBody)
                     let root = jsonDoc.RootElement
                     
@@ -203,7 +206,7 @@ module JobLifecycle =
                     return Error (QuantumError.AzureError (AzureQuantumError.RateLimited retryAfter))
                     
                 | _ ->
-                    let! errorBody = response.Content.ReadAsStringAsync() |> Async.AwaitTask
+                    let! errorBody = response.Content.ReadAsStringAsync()
                     return Error (QuantumError.AzureError (AzureQuantumError.UnknownError(int response.StatusCode, errorBody)))
                     
             with
@@ -234,8 +237,8 @@ module JobLifecycle =
         (jobId: string)
         (timeout: TimeSpan)
         (cancellationToken: CancellationToken)
-        : Async<Result<QuantumJob, QuantumError>> =
-        async {
+        : Task<Result<QuantumJob, QuantumError>> =
+        task {
             // Helper to check if job status is terminal
             let isTerminal (status: JobStatus) =
                 match status with
@@ -249,45 +252,46 @@ module JobLifecycle =
             let maxInterval = TimeSpan.FromSeconds(30.0)
             let startTime = DateTimeOffset.UtcNow
             
-            // Recursive polling loop
-            let rec pollLoop (currentInterval: TimeSpan) : Async<Result<QuantumJob, QuantumError>> =
-                async {
-                    // Check cancellation
-                    if cancellationToken.IsCancellationRequested then
-                        return Error (QuantumError.OperationError("Job polling", "Operation cancelled"))
-                    else
-                        // Check timeout
-                        let elapsed = DateTimeOffset.UtcNow - startTime
-                        if elapsed >= timeout then
-                            return Error (QuantumError.OperationError("Job polling", "Operation cancelled due to timeout"))
-                        else
-                            // Get current job status
-                            let! result = getJobStatusAsync httpClient workspaceUrl jobId
-                            
-                            match result with
-                            | Ok job ->
-                                if isTerminal job.Status then
-                                    // Job complete - return result
-                                    return Ok job
-                                else
-                                    // Job still running - wait and poll again
-                                    let! _ = Async.Sleep(int currentInterval.TotalMilliseconds)
-                                    
-                                    // Calculate next interval with exponential backoff
-                                    let nextInterval = 
-                                        let doubled = TimeSpan.FromMilliseconds(currentInterval.TotalMilliseconds * 2.0)
-                                        if doubled > maxInterval then maxInterval else doubled
-                                    
-                                    // Continue polling
-                                    return! pollLoop nextInterval
-                            
-                            | Error err ->
-                                // Error getting status - return error
-                                return Error err
-                }
+            // Iterative polling loop (task CE does not support tail-call recursion)
+            let mutable currentInterval = initialInterval
+            let mutable finished = false
+            let mutable finalResult = Error (QuantumError.OperationError("Job polling", "Polling did not complete"))
             
-            // Start polling loop with initial interval
-            return! pollLoop initialInterval
+            while not finished do
+                // Check cancellation
+                if cancellationToken.IsCancellationRequested then
+                    finalResult <- Error (QuantumError.OperationError("Job polling", "Operation cancelled"))
+                    finished <- true
+                else
+                    // Check timeout
+                    let elapsed = DateTimeOffset.UtcNow - startTime
+                    if elapsed >= timeout then
+                        finalResult <- Error (QuantumError.OperationError("Job polling", "Operation cancelled due to timeout"))
+                        finished <- true
+                    else
+                        // Get current job status
+                        let! result = getJobStatusAsync httpClient workspaceUrl jobId
+                        
+                        match result with
+                        | Ok job ->
+                            if isTerminal job.Status then
+                                // Job complete - return result
+                                finalResult <- Ok job
+                                finished <- true
+                            else
+                                // Job still running - wait and poll again
+                                do! Task.Delay(int currentInterval.TotalMilliseconds)
+                                
+                                // Calculate next interval with exponential backoff
+                                let doubled = TimeSpan.FromMilliseconds(currentInterval.TotalMilliseconds * 2.0)
+                                currentInterval <- if doubled > maxInterval then maxInterval else doubled
+                        
+                        | Error err ->
+                            // Error getting status - return error
+                            finalResult <- Error err
+                            finished <- true
+            
+            return finalResult
         }
     
     // ============================================================================
@@ -304,17 +308,17 @@ module JobLifecycle =
     let getJobResultAsync
         (httpClient: HttpClient)
         (blobUri: string)
-        : Async<Result<JobResult, QuantumError>> =
-        async {
+        : Task<Result<JobResult, QuantumError>> =
+        task {
             try
                 // Make GET request to blob storage URI
-                use! response = httpClient.GetAsync(blobUri) |> Async.AwaitTask
+                use! response = httpClient.GetAsync(blobUri)
                 
                 // Handle response
                 match response.StatusCode with
                 | HttpStatusCode.OK ->
                     // Download result data
-                    let! resultJson = response.Content.ReadAsStringAsync() |> Async.AwaitTask
+                    let! resultJson = response.Content.ReadAsStringAsync()
                     let contentType = 
                         if not (isNull response.Content.Headers.ContentType) then
                             response.Content.Headers.ContentType.MediaType
@@ -349,7 +353,7 @@ module JobLifecycle =
                     return Error (QuantumError.AzureError AzureQuantumError.InvalidCredentials)
                     
                 | _ ->
-                    let! errorBody = response.Content.ReadAsStringAsync() |> Async.AwaitTask
+                    let! errorBody = response.Content.ReadAsStringAsync()
                     return Error (QuantumError.AzureError (AzureQuantumError.UnknownError(int response.StatusCode, errorBody)))
                     
             with
@@ -375,12 +379,12 @@ module JobLifecycle =
         (httpClient: HttpClient)
         (workspaceUrl: string)
         (jobId: string)
-        : Async<Result<unit, QuantumError>> =
-        async {
+        : Task<Result<unit, QuantumError>> =
+        task {
             try
                 // Make DELETE request to /jobs/{id}
                 let url = sprintf "%s/jobs/%s" workspaceUrl jobId
-                use! response = httpClient.DeleteAsync(url) |> Async.AwaitTask
+                use! response = httpClient.DeleteAsync(url)
                 
                 // Handle response
                 match response.StatusCode with
@@ -407,7 +411,7 @@ module JobLifecycle =
                     return Error (QuantumError.AzureError (AzureQuantumError.RateLimited retryAfter))
                     
                 | _ ->
-                    let! errorBody = response.Content.ReadAsStringAsync() |> Async.AwaitTask
+                    let! errorBody = response.Content.ReadAsStringAsync()
                     return Error (QuantumError.AzureError (AzureQuantumError.UnknownError(int response.StatusCode, errorBody)))
                     
             with
@@ -440,8 +444,8 @@ module JobLifecycle =
         (submission: JobSubmission)
         (timeout: TimeSpan)
         (cancellationToken: CancellationToken)
-        : Async<Result<JobResult, QuantumError>> =
-        async {
+        : Task<Result<JobResult, QuantumError>> =
+        task {
             // Step 1: Submit job
             let! submitResult = submitJobAsync httpClient workspaceUrl submission
             
@@ -481,8 +485,8 @@ module JobLifecycle =
         (submission: JobSubmission)
         (timeout: TimeSpan)
         (cancellationToken: CancellationToken)
-        : Async<Result<QuantumJob, QuantumError>> =
-        async {
+        : Task<Result<QuantumJob, QuantumError>> =
+        task {
             // Step 1: Submit job
             let! submitResult = submitJobAsync httpClient workspaceUrl submission
             
@@ -506,8 +510,8 @@ module JobLifecycle =
     let getResultFromJobAsync
         (httpClient: HttpClient)
         (job: QuantumJob)
-        : Async<Result<JobResult, QuantumError>> =
-        async {
+        : Task<Result<JobResult, QuantumError>> =
+        task {
             match job.OutputDataUri with
             | None ->
                 return Error (QuantumError.AzureError (AzureQuantumError.UnknownError(500, sprintf "Job %s has no output URI" job.JobId)))

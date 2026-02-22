@@ -1,6 +1,8 @@
 namespace FSharp.Azure.Quantum.Topological.Tests
 
 open System
+open System.Threading
+open System.Threading.Tasks
 open Xunit
 open FSharp.Azure.Quantum.Topological
 open FSharp.Azure.Quantum.Topological.TopologicalBuilderExtensions
@@ -53,6 +55,12 @@ module VisualizationTests =
                     | QuantumOperation.Measure _ -> Ok state
                     | _ -> Ok state
                 | _ -> Error (QuantumError.ValidationError ("state", "Mock requires FusionSuperposition"))
+
+            member this.ExecuteToStateAsync (circuit: FSharp.Azure.Quantum.Core.CircuitAbstraction.ICircuit) (_ct: CancellationToken) : Task<Result<QuantumState, QuantumError>> =
+                task { return (this :> IQuantumBackend).ExecuteToState circuit }
+
+            member this.ApplyOperationAsync (operation: QuantumOperation) (state: QuantumState) (_ct: CancellationToken) : Task<Result<QuantumState, QuantumError>> =
+                task { return (this :> IQuantumBackend).ApplyOperation operation state }
 
     // Helper to ignore Result value for 'do!' bindings in builder
     let ignoreResult (task: System.Threading.Tasks.Task<Result<TopologicalBuilder.BuilderContext, QuantumError>>) =

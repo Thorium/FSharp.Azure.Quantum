@@ -8,6 +8,8 @@ open FSharp.Azure.Quantum.Business.ConstraintScheduler
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum.GroverSearch
+open System.Threading
+open System.Threading.Tasks
 
 // Mock backend that simulates Grover search results
 // This avoids running the actual quantum simulation which can be slow
@@ -24,6 +26,11 @@ type MockGroverBackend(solutions: int list) =
         member _.ApplyOperation op state = Ok state
         member _.ExecuteToState _ = 
              Ok (QuantumState.StateVector (LocalSimulator.StateVector.init 1))
+
+        member this.ExecuteToStateAsync circuit ct =
+            task { return (this :> IQuantumBackend).ExecuteToState circuit }
+        member this.ApplyOperationAsync operation state ct =
+            task { return (this :> IQuantumBackend).ApplyOperation operation state }
 
 [<Collection("NonParallel")>]
 module ConstraintSchedulerTests =

@@ -54,7 +54,7 @@ module JobLifecycleTests =
         }
         
         // Act: Submit job
-        let result = submitJobAsync httpClient workspaceUrl submission |> Async.RunSynchronously
+        let result = (submitJobAsync httpClient workspaceUrl submission).Result
         
         // Assert: Should succeed
         match result with
@@ -82,7 +82,7 @@ module JobLifecycleTests =
         }
         
         // Act: Submit job with invalid credentials
-        let result = submitJobAsync httpClient workspaceUrl submission |> Async.RunSynchronously
+        let result = (submitJobAsync httpClient workspaceUrl submission).Result
         
         // Assert: Should return InvalidCredentials error
         match result with
@@ -115,7 +115,7 @@ module JobLifecycleTests =
         let workspaceUrl = "https://test.quantum.azure.com"
         
         // Act: Get job status
-        let result = getJobStatusAsync httpClient workspaceUrl jobId |> Async.RunSynchronously
+        let result = (getJobStatusAsync httpClient workspaceUrl jobId).Result
         
         // Assert: Should return QuantumJob with Executing status
         match result with
@@ -147,7 +147,7 @@ module JobLifecycleTests =
         let workspaceUrl = "https://test.quantum.azure.com"
         
         // Act: Get job status
-        let result = getJobStatusAsync httpClient workspaceUrl jobId |> Async.RunSynchronously
+        let result = (getJobStatusAsync httpClient workspaceUrl jobId).Result
         
         // Assert: Should return QuantumJob with Succeeded status
         match result with
@@ -180,7 +180,7 @@ module JobLifecycleTests =
         let workspaceUrl = "https://test.quantum.azure.com"
         
         // Act: Get job status
-        let result = getJobStatusAsync httpClient workspaceUrl jobId |> Async.RunSynchronously
+        let result = (getJobStatusAsync httpClient workspaceUrl jobId).Result
         
         // Assert: Should return QuantumJob with Failed status and error details
         match result with
@@ -235,7 +235,7 @@ module JobLifecycleTests =
         let cts = new CancellationTokenSource()
         
         // Act: Poll until complete
-        let result = pollJobUntilCompleteAsync httpClient workspaceUrl jobId timeout cts.Token |> Async.RunSynchronously
+        let result = (pollJobUntilCompleteAsync httpClient workspaceUrl jobId timeout cts.Token).Result
         
         // Assert: Should eventually succeed after 3 calls
         match result with
@@ -269,7 +269,7 @@ module JobLifecycleTests =
         cts.Cancel()
         
         // Act: Poll with canceled token
-        let result = pollJobUntilCompleteAsync httpClient workspaceUrl jobId timeout cts.Token |> Async.RunSynchronously
+        let result = (pollJobUntilCompleteAsync httpClient workspaceUrl jobId timeout cts.Token).Result
         
         // Assert: Should return Cancelled error
         match result with
@@ -301,7 +301,7 @@ module JobLifecycleTests =
         let cts = new CancellationTokenSource()
         
         // Act: Poll with short timeout
-        let result = pollJobUntilCompleteAsync httpClient workspaceUrl jobId timeout cts.Token |> Async.RunSynchronously
+        let result = (pollJobUntilCompleteAsync httpClient workspaceUrl jobId timeout cts.Token).Result
         
         // Assert: Should return timeout error
         match result with
@@ -330,7 +330,7 @@ module JobLifecycleTests =
         let blobUri = "https://storage.blob.core.windows.net/results/job-123.json"
         
         // Act: Get job result
-        let result = getJobResultAsync httpClient blobUri |> Async.RunSynchronously
+        let result = (getJobResultAsync httpClient blobUri).Result
         
         // Assert: Should return JobResult with data
         match result with
@@ -349,7 +349,7 @@ module JobLifecycleTests =
         let blobUri = "https://storage.blob.core.windows.net/results/nonexistent.json"
         
         // Act: Get job result
-        let result = getJobResultAsync httpClient blobUri |> Async.RunSynchronously
+        let result = (getJobResultAsync httpClient blobUri).Result
         
         // Assert: Should return error
         match result with
@@ -374,7 +374,7 @@ module JobLifecycleTests =
         let workspaceUrl = "https://test.quantum.azure.com"
         
         // Act: Cancel job
-        let result = cancelJobAsync httpClient workspaceUrl jobId |> Async.RunSynchronously
+        let result = (cancelJobAsync httpClient workspaceUrl jobId).Result
         
         // Assert: Should succeed
         match result with
@@ -392,7 +392,7 @@ module JobLifecycleTests =
         let workspaceUrl = "https://test.quantum.azure.com"
         
         // Act: Cancel job
-        let result = cancelJobAsync httpClient workspaceUrl jobId |> Async.RunSynchronously
+        let result = (cancelJobAsync httpClient workspaceUrl jobId).Result
         
         // Assert: Should return error
         match result with

@@ -256,11 +256,116 @@ module BraidToGate =
         |> mergeRotations
         |> cancelInverses  // Run again after merging
     
-    /// Aggressive optimization (placeholder for future enhancements)
+    /// Check if two gates operate on disjoint qubit sets (commutation criterion).
+    /// 
+    /// Two gates commute if they act on completely disjoint sets of qubits.
+    /// This is sufficient (but not necessary) for commutativity.
+    let gatesCommute (g1: CircuitBuilder.Gate) (g2: CircuitBuilder.Gate) : bool =
+        let q1 = getAffectedQubits g1 |> Set.ofList
+        let q2 = getAffectedQubits g2 |> Set.ofList
+        Set.intersect q1 q2 |> Set.isEmpty
+    
+    /// Commutation-based cancellation: move inverse gates towards each other
+    /// through commuting intermediate gates, then cancel them.
+    /// 
+    /// Example: T(q0) H(q1) T†(q0) → H(q1)
+    /// Because T(q0) and H(q1) act on disjoint qubits, they commute.
+    /// After commutation: T(q0) T†(q0) H(q1) → H(q1)
+    let commutationCancellation (gates: CircuitBuilder.Gate list) : CircuitBuilder.Gate list =
+        let arr = gates |> Array.ofList
+        let removed = Array.create arr.Length false
+        let mutable changed = true
+        
+        while changed do
+            changed <- false
+            for i in 0 .. arr.Length - 2 do
+                if not removed.[i] then
+                    // Look forward for a cancelling gate, skipping over commuting ones
+                    let mutable j = i + 1
+                    let mutable allCommute = true
+                    let mutable foundCancel = false
+                    
+                    while j < arr.Length && allCommute && not foundCancel do
+                        if removed.[j] then
+                            j <- j + 1
+                        else
+                            let cancels =
+                                match arr.[i], arr.[j] with
+                                | CircuitBuilder.Gate.T q1, CircuitBuilder.Gate.TDG q2 when q1 = q2 -> true
+                                | CircuitBuilder.Gate.TDG q1, CircuitBuilder.Gate.T q2 when q1 = q2 -> true
+                                | CircuitBuilder.Gate.S q1, CircuitBuilder.Gate.SDG q2 when q1 = q2 -> true
+                                | CircuitBuilder.Gate.SDG q1, CircuitBuilder.Gate.S q2 when q1 = q2 -> true
+                                | CircuitBuilder.Gate.H q1, CircuitBuilder.Gate.H q2 when q1 = q2 -> true
+                                | CircuitBuilder.Gate.X q1, CircuitBuilder.Gate.X q2 when q1 = q2 -> true
+                                | CircuitBuilder.Gate.Y q1, CircuitBuilder.Gate.Y q2 when q1 = q2 -> true
+                                | CircuitBuilder.Gate.Z q1, CircuitBuilder.Gate.Z q2 when q1 = q2 -> true
+                                | _ -> false
+                            
+                            if cancels then
+                                removed.[i] <- true
+                                removed.[j] <- true
+                                foundCancel <- true
+                                changed <- true
+                            elif gatesCommute arr.[i] arr.[j] then
+                                j <- j + 1  // Skip this gate, it commutes
+                            else
+                                allCommute <- false  // Blocked by non-commuting gate
+        
+        [ for i in 0 .. arr.Length - 1 do
+            if not removed.[i] then yield arr.[i] ]
+    
+    /// Template matching: recognize known circuit identities and replace
+    /// with more efficient equivalents.
+    /// 
+    /// Known patterns:
+    /// - S S = Z (two S gates = one Z gate)
+    /// - T T T T = Z (four T gates = one Z gate)
+    /// - T T = S (two T gates = one S gate)
+    /// - H Z H = X (Hadamard-Z-Hadamard = X)
+    /// - H X H = Z (Hadamard-X-Hadamard = Z)
+    let templateMatching (gates: CircuitBuilder.Gate list) : CircuitBuilder.Gate list =
+        let rec loop acc remaining =
+            match remaining with
+            | [] -> List.rev acc
+            | [g] -> List.rev (g :: acc)
+            // S S → Z
+            | CircuitBuilder.Gate.S q1 :: CircuitBuilder.Gate.S q2 :: rest when q1 = q2 ->
+                loop acc (CircuitBuilder.Gate.Z q1 :: rest)
+            // T T → S
+            | CircuitBuilder.Gate.T q1 :: CircuitBuilder.Gate.T q2 :: rest when q1 = q2 ->
+                loop acc (CircuitBuilder.Gate.S q1 :: rest)
+            // TDG TDG → SDG
+            | CircuitBuilder.Gate.TDG q1 :: CircuitBuilder.Gate.TDG q2 :: rest when q1 = q2 ->
+                loop acc (CircuitBuilder.Gate.SDG q1 :: rest)
+            // SDG SDG → Z
+            | CircuitBuilder.Gate.SDG q1 :: CircuitBuilder.Gate.SDG q2 :: rest when q1 = q2 ->
+                loop acc (CircuitBuilder.Gate.Z q1 :: rest)
+            // H Z H → X
+            | CircuitBuilder.Gate.H q1 :: CircuitBuilder.Gate.Z q2 :: CircuitBuilder.Gate.H q3 :: rest 
+                when q1 = q2 && q2 = q3 ->
+                loop acc (CircuitBuilder.Gate.X q1 :: rest)
+            // H X H → Z
+            | CircuitBuilder.Gate.H q1 :: CircuitBuilder.Gate.X q2 :: CircuitBuilder.Gate.H q3 :: rest
+                when q1 = q2 && q2 = q3 ->
+                loop acc (CircuitBuilder.Gate.Z q1 :: rest)
+            | g :: rest ->
+                loop (g :: acc) rest
+        
+        loop [] gates
+    
+    /// Aggressive optimization with commutation-based cancellation and template matching.
+    /// 
+    /// Applies a multi-pass strategy:
+    /// 1. Basic optimization (adjacent cancellation + rotation merging)
+    /// 2. Commutation-based cancellation (cancel through commuting gates)
+    /// 3. Template matching (replace known patterns with simpler equivalents)
+    /// 4. Final basic pass (clean up any new cancellation opportunities)
     let optimizeAggressive (gates: CircuitBuilder.Gate list) : CircuitBuilder.Gate list =
         gates
-        |> optimizeBasic
-        // Future: commutation-based optimization, template matching, etc.
+        |> optimizeBasic                // Pass 1: adjacent cancellation + rotation merge
+        |> commutationCancellation      // Pass 2: cancel through commuting gates
+        |> templateMatching             // Pass 3: replace known patterns
+        |> optimizeBasic                // Pass 4: final cleanup
     
     /// Optimize gate sequence based on level
     let optimizeGates (level: int) (gates: CircuitBuilder.Gate list) : CircuitBuilder.Gate list =

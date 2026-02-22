@@ -299,3 +299,235 @@ module ToricCode =
     /// Minimum weight of a logical operator = min(Width, Height)
     let codeDistance (lattice: Lattice) : int =
         min lattice.Width lattice.Height
+    
+    // ========================================================================
+    // MINIMUM-WEIGHT PERFECT MATCHING (MWPM) DECODER
+    // ========================================================================
+    
+    /// A weighted edge between two syndrome positions for matching
+    type MatchingEdge = {
+        /// First syndrome position
+        From: Coords
+        /// Second syndrome position
+        To: Coords
+        /// Manhattan distance on the torus (weight)
+        Weight: int
+    }
+    
+    /// Correction chain: a sequence of edges to apply X or Z corrections
+    type CorrectionChain = {
+        /// Edges to flip (apply X or Z gate)
+        Edges: Edge list
+    }
+    
+    /// Result of syndrome decoding
+    type DecoderResult = {
+        /// Matched pairs of syndrome excitations
+        MatchedPairs: (Coords * Coords) list
+        /// Correction chains to apply
+        Corrections: CorrectionChain list
+        /// Total weight of the matching (sum of distances)
+        TotalWeight: int
+    }
+    
+    /// Build complete weighted graph from syndrome positions.
+    /// 
+    /// Every pair of excitations is connected with weight equal to
+    /// their toric (Manhattan) distance. This is the input graph for MWPM.
+    let buildMatchingGraph (lattice: Lattice) (excitations: Coords list) : MatchingEdge list =
+        [ for i in 0 .. excitations.Length - 2 do
+            for j in i + 1 .. excitations.Length - 1 do
+                { From = excitations.[i]
+                  To = excitations.[j]
+                  Weight = toricDistance lattice excitations.[i] excitations.[j] } ]
+    
+    /// Greedy minimum-weight perfect matching.
+    /// 
+    /// Approximation of MWPM: sort edges by weight, greedily match unmatched
+    /// vertices with nearest unmatched partner. Exact for small instances and
+    /// a good approximation for larger ones.
+    /// 
+    /// On a torus, excitations always come in pairs (stabilizer constraint),
+    /// so a perfect matching always exists when |excitations| is even.
+    /// 
+    /// Returns Error if the number of excitations is odd (which would indicate
+    /// a measurement error or violated stabilizer constraint).
+    let greedyMatching 
+        (lattice: Lattice) 
+        (excitations: Coords list) 
+        : TopologicalResult<(Coords * Coords) list> =
+        
+        if excitations.Length % 2 <> 0 then
+            TopologicalResult.validationError "excitations" 
+                "Number of excitations must be even (stabilizer constraint on torus)"
+        elif excitations.Length = 0 then
+            Ok []
+        else
+            let edges = buildMatchingGraph lattice excitations
+            let sorted = edges |> List.sortBy (fun e -> e.Weight)
+            
+            let rec matchLoop (remaining: MatchingEdge list) (matched: Set<Coords>) (pairs: (Coords * Coords) list) =
+                match remaining with
+                | [] -> pairs
+                | edge :: rest ->
+                    if matched.Contains edge.From || matched.Contains edge.To then
+                        matchLoop rest matched pairs
+                    else
+                        let newMatched = matched |> Set.add edge.From |> Set.add edge.To
+                        matchLoop rest newMatched ((edge.From, edge.To) :: pairs)
+            
+            Ok (matchLoop sorted Set.empty [] |> List.rev)
+    
+    /// Compute a shortest correction path between two positions on the torus.
+    /// 
+    /// Finds the sequence of edges connecting p1 to p2 via the shortest
+    /// Manhattan-distance route (accounting for torus wrap-around).
+    /// For vertex syndromes, we use horizontal edges (X corrections).
+    /// For plaquette syndromes, we use vertical edges (Z corrections).
+    let correctionPath 
+        (lattice: Lattice) 
+        (p1: Coords) 
+        (p2: Coords) 
+        (edgeType: EdgeType) 
+        : Edge list =
+        
+        let dx = p2.X - p1.X
+        let dy = p2.Y - p1.Y
+        
+        // Choose shortest horizontal direction (accounting for wrap-around)
+        let dxShortest =
+            if abs dx <= lattice.Width - abs dx then dx
+            else if dx > 0 then dx - lattice.Width else dx + lattice.Width
+        
+        let dyShortest =
+            if abs dy <= lattice.Height - abs dy then dy
+            else if dy > 0 then dy - lattice.Height else dy + lattice.Height
+        
+        // Build horizontal segment
+        let horizontalEdges =
+            if dxShortest = 0 then []
+            else
+                let step = if dxShortest > 0 then 1 else -1
+                [ for i in 0 .. abs dxShortest - 1 do
+                    let x = ((p1.X + i * step) % lattice.Width + lattice.Width) % lattice.Width
+                    { Position = { X = x; Y = p1.Y }; Type = edgeType } ]
+        
+        // Build vertical segment (starting from endpoint of horizontal segment)
+        let yStart = p1.Y
+        let verticalEdges =
+            if dyShortest = 0 then []
+            else
+                let step = if dyShortest > 0 then 1 else -1
+                let xEnd = ((p1.X + dxShortest) % lattice.Width + lattice.Width) % lattice.Width
+                [ for i in 0 .. abs dyShortest - 1 do
+                    let y = ((yStart + i * step) % lattice.Height + lattice.Height) % lattice.Height
+                    { Position = { X = xEnd; Y = y }; Type = edgeType } ]
+        
+        horizontalEdges @ verticalEdges
+    
+    /// Decode vertex syndrome (e-particle excitations) using greedy MWPM.
+    /// 
+    /// Steps:
+    /// 1. Extract e-particle positions from syndrome
+    /// 2. Build complete weighted graph with toric distances
+    /// 3. Find greedy minimum-weight perfect matching
+    /// 4. Construct correction chains (X operators along shortest paths)
+    /// 
+    /// The correction chains, when applied to the state, annihilate the
+    /// e-particle pairs and restore the ground state code space.
+    let decodeVertexSyndrome 
+        (lattice: Lattice) 
+        (syndrome: Syndrome) 
+        : TopologicalResult<DecoderResult> =
+        
+        let excitations = getElectricExcitations syndrome
+        
+        greedyMatching lattice excitations
+        |> Result.map (fun pairs ->
+            let corrections =
+                pairs
+                |> List.map (fun (p1, p2) ->
+                    { Edges = correctionPath lattice p1 p2 Horizontal })
+            
+            let totalWeight = 
+                pairs |> List.sumBy (fun (p1, p2) -> toricDistance lattice p1 p2)
+            
+            { MatchedPairs = pairs
+              Corrections = corrections
+              TotalWeight = totalWeight })
+    
+    /// Decode plaquette syndrome (m-particle excitations) using greedy MWPM.
+    /// 
+    /// Same as vertex decoding but uses Z corrections along vertical edges
+    /// to annihilate m-particle pairs.
+    let decodePlaquetteSyndrome 
+        (lattice: Lattice) 
+        (syndrome: Syndrome) 
+        : TopologicalResult<DecoderResult> =
+        
+        let excitations = getMagneticExcitations syndrome
+        
+        greedyMatching lattice excitations
+        |> Result.map (fun pairs ->
+            let corrections =
+                pairs
+                |> List.map (fun (p1, p2) ->
+                    { Edges = correctionPath lattice p1 p2 Vertical })
+            
+            let totalWeight = 
+                pairs |> List.sumBy (fun (p1, p2) -> toricDistance lattice p1 p2)
+            
+            { MatchedPairs = pairs
+              Corrections = corrections
+              TotalWeight = totalWeight })
+    
+    /// Apply correction chains to a toric code state.
+    /// 
+    /// For vertex corrections (X-type), applies X gates along the chain.
+    /// For plaquette corrections (Z-type), applies Z gates along the chain.
+    let applyCorrections 
+        (state: ToricCodeState) 
+        (corrections: CorrectionChain list) 
+        (errorType: EdgeType) 
+        : ToricCodeState =
+        
+        let applyFn =
+            match errorType with
+            | Horizontal -> applyXError   // X corrections for e-particles
+            | Vertical -> applyZError     // Z corrections for m-particles
+        
+        corrections
+        |> List.fold (fun currentState chain ->
+            chain.Edges
+            |> List.fold (fun s edge -> applyFn s edge) currentState
+        ) state
+    
+    /// Full syndrome decoding: decode both vertex and plaquette syndromes
+    /// and apply corrections to restore the code space.
+    /// 
+    /// This is the main entry point for toric code error correction:
+    /// 1. Measure syndrome (identify anyon excitations)
+    /// 2. Decode vertex syndrome → X corrections
+    /// 3. Decode plaquette syndrome → Z corrections
+    /// 4. Apply all corrections
+    /// 
+    /// Returns the corrected state and decoder diagnostics.
+    let decodeSyndrome 
+        (state: ToricCodeState) 
+        : TopologicalResult<ToricCodeState * DecoderResult * DecoderResult> =
+        
+        let syndrome = measureSyndrome state
+        
+        decodeVertexSyndrome state.Lattice syndrome
+        |> Result.bind (fun vertexResult ->
+            decodePlaquetteSyndrome state.Lattice syndrome
+            |> Result.map (fun plaquetteResult ->
+                // Apply vertex corrections (X-type)
+                let afterVertexCorrection = 
+                    applyCorrections state vertexResult.Corrections Horizontal
+                
+                // Apply plaquette corrections (Z-type)
+                let afterFullCorrection = 
+                    applyCorrections afterVertexCorrection plaquetteResult.Corrections Vertical
+                
+                (afterFullCorrection, vertexResult, plaquetteResult)))

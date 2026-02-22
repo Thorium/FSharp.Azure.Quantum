@@ -457,13 +457,13 @@ let tooLargeResult = backend.InitializeState 20  // Fibonacci: F(21)=10946 dimen
 ### Future Roadmap
 
 **Near-Term** (next 6-12 months):
-- Complete Fibonacci F-matrix support
-- Noise models (thermal excitation, braiding imprecision)
-
-**Mid-Term** (1-2 years):
 - Azure Quantum Majorana integration (when available)
 - Surface code variants (planar, color codes)
+
+**Mid-Term** (1-2 years):
 - GPU acceleration
+- SU(2)_k F-matrix computation (6j-symbols)
+- Additional lattice models (Kitaev quantum double)
 
 **Long-Term** (3-5 years):
 - Experimental system interfaces

@@ -28,6 +28,7 @@
     <Compile Include="GateToBraidCorrectionTests.fs" />
     <Compile Include="BraidingAmplitudeTests.fs" />
     <Compile Include="ToricCodeTests.fs" />
+    <Compile Include="SurfaceCodeTests.fs" />
     <Compile Include="TopologicalBackendTests.fs" />
     <Compile Include="TopologicalBuilderTests.fs" />
     <Compile Include="TopologicalFormatTests.fs" />

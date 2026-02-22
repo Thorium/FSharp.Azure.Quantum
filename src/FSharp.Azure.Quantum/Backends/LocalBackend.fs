@@ -3,6 +3,7 @@ namespace FSharp.Azure.Quantum.Backends
 open System
 open System.Numerics
 open System.Threading
+open System.Threading.Tasks
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.BackendAbstraction
@@ -523,6 +524,12 @@ module LocalBackend =
                     Ok (QuantumState.StateVector initialState)
                 with
                 | ex -> Error (QuantumError.OperationError ("LocalBackend", ex.Message))
+
+            member this.ExecuteToStateAsync (circuit: ICircuit) (_ct: CancellationToken) : Task<Result<QuantumState, QuantumError>> =
+                task { return (this :> IQuantumBackend).ExecuteToState circuit }
+
+            member this.ApplyOperationAsync (operation: QuantumOperation) (state: QuantumState) (_ct: CancellationToken) : Task<Result<QuantumState, QuantumError>> =
+                task { return (this :> IQuantumBackend).ApplyOperation operation state }
 
         interface IQubitLimitedBackend with
             /// LocalBackend uses QaoaSimulator which supports up to 20 qubits.

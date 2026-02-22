@@ -118,6 +118,89 @@ module AlgorithmExtensions =
         | Error err -> Error err
 
     // ============================================================================
+    // GROVER SEARCH with Fibonacci Anyon Topological Backend
+    // ============================================================================
+    
+    /// Search using Grover's algorithm with Fibonacci anyon topological backend.
+    /// 
+    /// Fibonacci anyons are universal for quantum computation through braiding
+    /// alone (unlike Ising anyons which require magic state distillation).
+    /// This makes Fibonacci-based Grover search inherently fault-tolerant:
+    /// all gates are compiled to braiding sequences via Solovay-Kitaev.
+    /// 
+    /// Trade-offs vs Ising:
+    /// - Fibonacci: universal braiding (all gates native), but slower compilation
+    /// - Ising: fast Clifford gates, but non-Clifford requires distillation
+    /// 
+    /// Parameters:
+    ///   oracle - Compiled oracle defining search problem
+    ///   topoBackend - Topological backend configured with Fibonacci anyons
+    ///   config - Search configuration (iterations, shots, thresholds)
+    /// 
+    /// Returns:
+    ///   SearchResult with solutions and success probability
+    let searchWithTopologyFibonacci
+        (oracle: Oracle.CompiledOracle)
+        (topoBackend: IQuantumBackend)
+        (config: Grover.GroverConfig)
+        : Result<Grover.GroverResult, QuantumError> =
+        
+        // Fibonacci backend implements IQuantumBackend and handles
+        // gate-to-braid compilation internally via Solovay-Kitaev.
+        // No special handling needed - the backend interface is the same.
+        Grover.search oracle topoBackend config
+    
+    /// Search for single value with Fibonacci anyon topological backend.
+    /// 
+    /// Convenience function combining oracle creation and search.
+    /// Uses Fibonacci anyons (universal braiding, inherently fault-tolerant).
+    /// 
+    /// Example:
+    ///   let backend = TopologicalUnifiedBackendFactory.createFibonacci 16
+    ///   let result = searchSingleWithTopologyFibonacci 42 8 backend config
+    let searchSingleWithTopologyFibonacci
+        (target: int)
+        (numQubits: int)
+        (topoBackend: IQuantumBackend)
+        (config: Grover.GroverConfig)
+        : Result<Grover.GroverResult, QuantumError> =
+        
+        match Oracle.forValue target numQubits with
+        | Ok oracle -> searchWithTopologyFibonacci oracle topoBackend config
+        | Error err -> Error err
+    
+    /// Search for multiple values with Fibonacci anyon topological backend.
+    /// 
+    /// Convenience function for multi-solution search using Fibonacci anyons.
+    let searchMultipleWithTopologyFibonacci
+        (targets: int list)
+        (numQubits: int)
+        (topoBackend: IQuantumBackend)
+        (config: Grover.GroverConfig)
+        : Result<Grover.GroverResult, QuantumError> =
+        
+        if List.isEmpty targets then
+            Error (QuantumError.ValidationError ("Targets", "list cannot be empty"))
+        else
+            match Oracle.forValues targets numQubits with
+            | Ok oracle -> searchWithTopologyFibonacci oracle topoBackend config
+            | Error err -> Error err
+    
+    /// Search with predicate function and Fibonacci anyon topological backend.
+    /// 
+    /// Most flexible search variant - define oracle as boolean predicate.
+    let searchWithPredicateTopologyFibonacci
+        (predicate: int -> bool)
+        (numQubits: int)
+        (topoBackend: IQuantumBackend)
+        (config: Grover.GroverConfig)
+        : Result<Grover.GroverResult, QuantumError> =
+        
+        match Oracle.fromPredicate predicate numQubits with
+        | Ok oracle -> searchWithTopologyFibonacci oracle topoBackend config
+        | Error err -> Error err
+
+    // ============================================================================
     // QFT with Topological Backend
     // ============================================================================
     

@@ -6,6 +6,8 @@ open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.Core.ProblemDecomposition
 open FSharp.Azure.Quantum.Backends
+open System.Threading
+open System.Threading.Tasks
 
 // ============================================================================
 // HELPER TYPES
@@ -23,6 +25,11 @@ type private UnlimitedBackend() =
         member _.InitializeState (n: int) =
             Ok (QuantumState.StateVector (FSharp.Azure.Quantum.LocalSimulator.StateVector.init n))
 
+        member this.ExecuteToStateAsync circuit ct =
+            task { return (this :> IQuantumBackend).ExecuteToState circuit }
+        member this.ApplyOperationAsync operation state ct =
+            task { return (this :> IQuantumBackend).ApplyOperation operation state }
+
 /// A mock backend that implements IQubitLimitedBackend with a configurable limit.
 type private LimitedBackend(maxQubits: int) =
     interface IQuantumBackend with
@@ -34,6 +41,12 @@ type private LimitedBackend(maxQubits: int) =
             Ok (QuantumState.StateVector (FSharp.Azure.Quantum.LocalSimulator.StateVector.init 1))
         member _.InitializeState (n: int) =
             Ok (QuantumState.StateVector (FSharp.Azure.Quantum.LocalSimulator.StateVector.init n))
+
+        member this.ExecuteToStateAsync circuit ct =
+            task { return (this :> IQuantumBackend).ExecuteToState circuit }
+        member this.ApplyOperationAsync operation state ct =
+            task { return (this :> IQuantumBackend).ApplyOperation operation state }
+
     interface IQubitLimitedBackend with
         member _.MaxQubits = Some maxQubits
 
