@@ -1,6 +1,8 @@
 namespace FSharp.Azure.Quantum.Quantum
 
 open System
+open System.Threading
+open System.Threading.Tasks
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum.Classical
@@ -197,6 +199,7 @@ module QuantumTspSolver =
     ///   
     /// Returns:
     ///   Result with QuantumTspSolution or QuantumError
+    [<Obsolete("Use solveAsync for non-blocking execution against cloud backends")>]
     let solve 
         (backend: BackendAbstraction.IQuantumBackend)
         (distances: float[,])
@@ -362,13 +365,29 @@ module QuantumTspSolver =
             with ex ->
                 Error (QuantumError.OperationError ("QuantumTspSolver", sprintf "Quantum TSP solver failed: %s" ex.Message))
 
+    /// Solve TSP using quantum backend via QAOA (async).
+    /// Wraps the synchronous solve in a task; the Nelder-Mead optimization loop
+    /// is inherently sequential (each step depends on previous evaluation),
+    /// so true async parallelism is not applicable here.
+    let solveAsync
+        (backend: BackendAbstraction.IQuantumBackend)
+        (distances: float[,])
+        (config: QuantumTspConfig)
+        (cancellationToken: CancellationToken)
+        : Task<Result<QuantumTspSolution, QuantumError>> = task {
+        cancellationToken.ThrowIfCancellationRequested()
+        return solve backend distances config
+    }
+
     /// Solve TSP with default configuration (LocalBackend, optimization enabled)
+    [<Obsolete("Use solveAsync for non-blocking execution against cloud backends")>]
     let solveWithDefaults (distances: float[,]) : Result<QuantumTspSolution, QuantumError> =
         let backend = LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend
         solve backend distances defaultConfig
     
     /// Solve TSP with custom number of shots (backward compatibility - no optimization)
     /// Note: For parameter optimization, use solve with full QuantumTspConfig
+    [<Obsolete("Use solveAsync for non-blocking execution against cloud backends")>]
     let solveWithShots 
         (backend: BackendAbstraction.IQuantumBackend)
         (distances: float[,])

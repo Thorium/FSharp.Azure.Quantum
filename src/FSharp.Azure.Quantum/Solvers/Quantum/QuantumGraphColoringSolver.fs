@@ -1,6 +1,8 @@
 namespace FSharp.Azure.Quantum.Quantum
 
 open System
+open System.Threading
+open System.Threading.Tasks
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum.Core
@@ -339,7 +341,7 @@ module QuantumGraphColoringSolver =
     ///   let problem = { Vertices = ["A"; "B"; "C"]; Edges = [...]; NumColors = 3; FixedColors = Map.empty }
     ///   let config = defaultConfig 3
     ///   async {
-    ///       match! solveAsync backend problem config with
+    ///       match! solveAsync backend problem config CancellationToken.None with
     ///       | Ok solution -> printfn "Colors used: %d" solution.ColorsUsed
     ///       | Error msg -> printfn "Error: %s" msg
     ///   }
@@ -347,7 +349,8 @@ module QuantumGraphColoringSolver =
         (backend: BackendAbstraction.IQuantumBackend) 
         (problem: GraphColoringProblem) 
         (config: QaoaConfig) 
-        : Async<Result<GraphColoringSolution, QuantumError>> = async {
+        (cancellationToken: CancellationToken)
+        : Task<Result<GraphColoringSolution, QuantumError>> = task {
         
         let startTime = DateTime.Now
         
@@ -372,7 +375,8 @@ module QuantumGraphColoringSolver =
                     let (gamma, beta) = config.InitialParameters
                     let parameters = [| gamma, beta |]
                     
-                    match QaoaExecutionHelpers.executeFromQubo backend quboArray parameters config.NumShots with
+                    let! executeResult = QaoaExecutionHelpers.executeFromQuboAsync backend quboArray parameters config.NumShots cancellationToken
+                    match executeResult with
                     | Error err -> return Error err
                     | Ok measurements ->
                         
@@ -424,12 +428,15 @@ module QuantumGraphColoringSolver =
     ///   match solve backend problem config with
     ///   | Ok solution -> printfn "Colors used: %d" solution.ColorsUsed
     ///   | Error msg -> printfn "Error: %s" msg
+    [<Obsolete("Use solveAsync for non-blocking execution against cloud backends")>]
     let solve 
         (backend: BackendAbstraction.IQuantumBackend) 
         (problem: GraphColoringProblem) 
         (config: QaoaConfig) 
         : Result<GraphColoringSolution, QuantumError> =
-        solveAsync backend problem config |> Async.RunSynchronously
+        solveAsync backend problem config CancellationToken.None
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
 
     // ================================================================================
     // CLASSICAL GREEDY SOLVER (for comparison)

@@ -1,6 +1,8 @@
 namespace FSharp.Azure.Quantum.Quantum
 
 open System
+open System.Threading
+open System.Threading.Tasks
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.GraphOptimization
@@ -245,8 +247,8 @@ module QuantumKnapsackSolver =
     ///   let backend = BackendAbstraction.createLocalBackend()
     ///   let problem = { Items = [...]; Capacity = 50.0 }
     ///   let config = { NumShots = 1000; InitialParameters = (0.5, 0.5) }
-    ///   async {
-    ///       match! solveAsync backend problem config with
+    ///   task {
+    ///       match! solveAsync backend problem config CancellationToken.None with
     ///       | Ok solution -> printfn "Value: %f" solution.TotalValue
     ///       | Error msg -> printfn "Error: %s" msg
     ///   }
@@ -254,7 +256,8 @@ module QuantumKnapsackSolver =
         (backend: BackendAbstraction.IQuantumBackend) 
         (problem: KnapsackProblem) 
         (config: QaoaConfig) 
-        : Async<Result<KnapsackSolution, QuantumError>> = async {
+        (cancellationToken: CancellationToken)
+        : Task<Result<KnapsackSolution, QuantumError>> = task {
         
         let startTime = DateTime.Now
         
@@ -279,7 +282,8 @@ module QuantumKnapsackSolver =
                     let (gamma, beta) = config.InitialParameters
                     let parameters = [| gamma, beta |]
                     
-                    match QaoaExecutionHelpers.executeFromQubo backend quboArray parameters config.NumShots with
+                    let! executeResult = QaoaExecutionHelpers.executeFromQuboAsync backend quboArray parameters config.NumShots cancellationToken
+                    match executeResult with
                     | Error err -> return Error err
                     | Ok measurements ->
                         
@@ -341,12 +345,15 @@ module QuantumKnapsackSolver =
     ///   match solve backend problem config with
     ///   | Ok solution -> printfn "Value: %f" solution.TotalValue
     ///   | Error msg -> printfn "Error: %s" msg
+    [<Obsolete("Use solveAsync for non-blocking execution against cloud backends")>]
     let solve 
         (backend: BackendAbstraction.IQuantumBackend) 
         (problem: KnapsackProblem) 
         (config: QaoaConfig) 
         : Result<KnapsackSolution, QuantumError> =
-        solveAsync backend problem config |> Async.RunSynchronously
+        solveAsync backend problem config CancellationToken.None
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
 
     // ================================================================================
     // CLASSICAL GREEDY SOLVER (for comparison)

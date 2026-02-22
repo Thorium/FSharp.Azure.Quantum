@@ -1,6 +1,8 @@
 namespace FSharp.Azure.Quantum.Quantum
 
 open System
+open System.Threading
+open System.Threading.Tasks
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Backends
@@ -190,6 +192,7 @@ module DrugDiscoverySolvers =
             }
         
         /// Solve using quantum QAOA with advanced features
+        [<Obsolete("Use solveWithConfigAsync for non-blocking execution against cloud backends")>]
         let solveWithConfig
             (backend: BackendAbstraction.IQuantumBackend)
             (problem: Problem)
@@ -229,7 +232,21 @@ module DrugDiscoverySolvers =
                             OptimizedParameters = optParams
                             OptimizationConverged = converged }
         
+        /// Solve using quantum QAOA with advanced features (async).
+        /// Wraps the synchronous solveWithConfig in a task; will become truly async
+        /// once the underlying QAOA helpers are wired through.
+        let solveWithConfigAsync
+            (backend: BackendAbstraction.IQuantumBackend)
+            (problem: Problem)
+            (config: QaoaConfig)
+            (cancellationToken: CancellationToken)
+            : Task<Result<Solution, QuantumError>> = task {
+            cancellationToken.ThrowIfCancellationRequested()
+            return solveWithConfig backend problem config
+        }
+
         /// Solve using quantum QAOA with default configuration
+        [<Obsolete("Use solveWithConfigAsync for non-blocking execution against cloud backends")>]
         let solve 
             (backend: BackendAbstraction.IQuantumBackend)
             (problem: Problem)
@@ -237,7 +254,9 @@ module DrugDiscoverySolvers =
             : Result<Solution, QuantumError> =
             
             let config = { defaultConfig with FinalShots = shots }
-            solveWithConfig backend problem config
+            solveWithConfigAsync backend problem config CancellationToken.None
+            |> Async.AwaitTask
+            |> Async.RunSynchronously
         
         /// Classical greedy solver for comparison
         let solveClassical (problem: Problem) : Solution =
@@ -429,6 +448,7 @@ module DrugDiscoverySolvers =
             }
         
         /// Solve using quantum QAOA with advanced features
+        [<Obsolete("Use solveWithConfigAsync for non-blocking execution against cloud backends")>]
         let solveWithConfig
             (backend: BackendAbstraction.IQuantumBackend)
             (problem: Problem)
@@ -472,7 +492,21 @@ module DrugDiscoverySolvers =
                             OptimizedParameters = optParams
                             OptimizationConverged = converged }
         
+        /// Solve using quantum QAOA with advanced features (async).
+        /// Wraps the synchronous solveWithConfig in a task; will become truly async
+        /// once the underlying QAOA helpers are wired through.
+        let solveWithConfigAsync
+            (backend: BackendAbstraction.IQuantumBackend)
+            (problem: Problem)
+            (config: QaoaConfig)
+            (cancellationToken: CancellationToken)
+            : Task<Result<Solution, QuantumError>> = task {
+            cancellationToken.ThrowIfCancellationRequested()
+            return solveWithConfig backend problem config
+        }
+
         /// Solve using quantum QAOA with default configuration
+        [<Obsolete("Use solveWithConfigAsync for non-blocking execution against cloud backends")>]
         let solve 
             (backend: BackendAbstraction.IQuantumBackend)
             (problem: Problem)
@@ -480,7 +514,9 @@ module DrugDiscoverySolvers =
             : Result<Solution, QuantumError> =
             
             let config = { defaultConfig with FinalShots = shots }
-            solveWithConfig backend problem config
+            solveWithConfigAsync backend problem config CancellationToken.None
+            |> Async.AwaitTask
+            |> Async.RunSynchronously
         
         /// Classical greedy solver for comparison
         let solveClassical (problem: Problem) : Solution =
@@ -662,6 +698,7 @@ module DrugDiscoverySolvers =
             }
         
         /// Solve using quantum QAOA with advanced features
+        [<Obsolete("Use solveWithConfigAsync for non-blocking execution against cloud backends")>]
         let solveWithConfig
             (backend: BackendAbstraction.IQuantumBackend)
             (problem: Problem)
@@ -709,7 +746,21 @@ module DrugDiscoverySolvers =
                             OptimizedParameters = optParams
                             OptimizationConverged = converged }
         
+        /// Solve using quantum QAOA with advanced features (async).
+        /// Wraps the synchronous solveWithConfig in a task; will become truly async
+        /// once the underlying QAOA helpers are wired through.
+        let solveWithConfigAsync
+            (backend: BackendAbstraction.IQuantumBackend)
+            (problem: Problem)
+            (config: QaoaConfig)
+            (cancellationToken: CancellationToken)
+            : Task<Result<Solution, QuantumError>> = task {
+            cancellationToken.ThrowIfCancellationRequested()
+            return solveWithConfig backend problem config
+        }
+
         /// Solve using quantum QAOA with default configuration
+        [<Obsolete("Use solveWithConfigAsync for non-blocking execution against cloud backends")>]
         let solve 
             (backend: BackendAbstraction.IQuantumBackend)
             (problem: Problem)
@@ -717,7 +768,9 @@ module DrugDiscoverySolvers =
             : Result<Solution, QuantumError> =
             
             let config = { defaultConfig with FinalShots = shots }
-            solveWithConfig backend problem config
+            solveWithConfigAsync backend problem config CancellationToken.None
+            |> Async.AwaitTask
+            |> Async.RunSynchronously
         
         /// Classical greedy solver for comparison
         let solveClassical (problem: Problem) : Solution =

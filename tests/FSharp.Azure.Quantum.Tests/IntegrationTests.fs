@@ -1,6 +1,8 @@
 namespace FSharp.Azure.Quantum.Tests
 
 open System
+open System.Threading
+open System.Threading.Tasks
 open Xunit
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Classical
@@ -133,7 +135,8 @@ module IntegrationTests =
         // Act: Call both sync and async versions
         let syncResult = QuantumPortfolioSolver.solve backend assets constraints config
         let asyncResult = 
-            QuantumPortfolioSolver.solveAsync backend assets constraints config 
+            QuantumPortfolioSolver.solveAsync backend assets constraints config CancellationToken.None
+            |> Async.AwaitTask
             |> Async.RunSynchronously
         
         // Assert: Both should succeed and return similar results
@@ -182,9 +185,9 @@ module IntegrationTests =
         let tasks = 
             [1..3]
             |> List.map (fun _ -> 
-                QuantumPortfolioSolver.solveAsync backend assets constraints config)
+                QuantumPortfolioSolver.solveAsync backend assets constraints config CancellationToken.None)
         
-        let results = Async.Parallel tasks |> Async.RunSynchronously
+        let results = Task.WhenAll(tasks) |> Async.AwaitTask |> Async.RunSynchronously
         
         // Assert: All should succeed
         Assert.Equal(3, results.Length)

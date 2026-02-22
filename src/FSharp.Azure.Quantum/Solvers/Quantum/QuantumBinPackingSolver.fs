@@ -1,5 +1,8 @@
 namespace FSharp.Azure.Quantum.Quantum
 
+open System
+open System.Threading
+open System.Threading.Tasks
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.QaoaExecutionHelpers
@@ -510,6 +513,7 @@ module QuantumBinPackingSolver =
 
     /// Solve bin packing using QAOA with full configuration control.
     /// Supports automatic decomposition when problem exceeds backend capacity.
+    [<Obsolete("Use solveWithConfigAsync for non-blocking execution against cloud backends")>]
     let solveWithConfig
         (backend: BackendAbstraction.IQuantumBackend)
         (problem: Problem)
@@ -557,7 +561,21 @@ module QuantumBinPackingSolver =
             ProblemDecomposition.solveWithDecomposition
                 backend problem estimateQubits decompose recombine solveSingle
 
+    /// Solve bin packing using QAOA with full configuration control (async).
+    /// Wraps the synchronous solveWithConfig in a task; will become truly async
+    /// once ProblemDecomposition supports async solve functions.
+    let solveWithConfigAsync
+        (backend: BackendAbstraction.IQuantumBackend)
+        (problem: Problem)
+        (config: Config)
+        (cancellationToken: CancellationToken)
+        : Task<Result<Solution, QuantumError>> = task {
+        cancellationToken.ThrowIfCancellationRequested()
+        return solveWithConfig backend problem config
+    }
+
     /// Solve bin packing using QAOA with default configuration.
+    [<Obsolete("Use solveWithConfigAsync for non-blocking execution against cloud backends")>]
     let solve
         (backend: BackendAbstraction.IQuantumBackend)
         (problem: Problem)
@@ -565,7 +583,9 @@ module QuantumBinPackingSolver =
         : Result<Solution, QuantumError> =
 
         let config = { defaultConfig with FinalShots = shots }
-        solveWithConfig backend problem config
+        solveWithConfigAsync backend problem config CancellationToken.None
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
 
     // ========================================================================
     // CLASSICAL SOLVER (Rule 1: private — not exposed without backend)

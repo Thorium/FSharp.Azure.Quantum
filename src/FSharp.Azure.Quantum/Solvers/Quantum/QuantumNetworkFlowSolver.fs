@@ -1,6 +1,8 @@
 namespace FSharp.Azure.Quantum.Quantum
 
 open System
+open System.Threading
+open System.Threading.Tasks
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum.Core
@@ -355,7 +357,8 @@ module QuantumNetworkFlowSolver =
         (backend: BackendAbstraction.IQuantumBackend)
         (problem: NetworkFlowProblem)
         (config: QuantumFlowConfig)
-        : Async<Result<NetworkFlowSolution, QuantumError>> = async {
+        (cancellationToken: CancellationToken)
+        : Task<Result<NetworkFlowSolution, QuantumError>> = task {
         
         let startTime = DateTime.UtcNow
         
@@ -395,7 +398,8 @@ module QuantumNetworkFlowSolver =
                     |> Option.iter (fun r -> 
                         r.Report(Progress.PhaseChanged("Network Flow QAOA", Some $"Executing on {backend.Name}...")))
                     
-                    match QaoaExecutionHelpers.executeFromQubo backend quboArray parameters config.NumShots with
+                    let! executeResult = QaoaExecutionHelpers.executeFromQuboAsync backend quboArray parameters config.NumShots cancellationToken
+                    match executeResult with
                     | Error err -> return Error err
                     | Ok measurements ->
                         
@@ -453,12 +457,15 @@ module QuantumNetworkFlowSolver =
     ///   
     /// Returns:
     ///   Result with NetworkFlowSolution or QuantumError
+    [<Obsolete("Use solveAsync for non-blocking execution against cloud backends")>]
     let solve 
         (backend: BackendAbstraction.IQuantumBackend)
         (problem: NetworkFlowProblem)
         (config: QuantumFlowConfig)
         : Result<NetworkFlowSolution, QuantumError> =
-        solveAsync backend problem config |> Async.RunSynchronously
+        solveAsync backend problem config CancellationToken.None
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
 
     /// Solve network flow with default configuration
     let solveWithDefaults 

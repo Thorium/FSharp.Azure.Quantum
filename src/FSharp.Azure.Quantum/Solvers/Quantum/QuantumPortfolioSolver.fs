@@ -1,6 +1,8 @@
 namespace FSharp.Azure.Quantum.Quantum
 
 open System
+open System.Threading
+open System.Threading.Tasks
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum.Classical
@@ -592,7 +594,8 @@ module QuantumPortfolioSolver =
         (assets: PortfolioTypes.Asset list)
         (constraints: PortfolioSolver.Constraints)
         (config: QuantumPortfolioConfig)
-        : Async<Result<QuantumPortfolioSolution, QuantumError>> = async {
+        (cancellationToken: CancellationToken)
+        : Task<Result<QuantumPortfolioSolution, QuantumError>> = task {
         
         let startTime = DateTime.UtcNow
         
@@ -625,7 +628,8 @@ module QuantumPortfolioSolver =
                     let (gamma, beta) = config.InitialParameters
                     let parameters = [| gamma, beta |]
                     
-                    match QaoaExecutionHelpers.executeFromQubo backend quboArray parameters config.NumShots with
+                    let! executeResult = QaoaExecutionHelpers.executeFromQuboAsync backend quboArray parameters config.NumShots cancellationToken
+                    match executeResult with
                     | Error err -> return Error err
                     | Ok measurements ->
                         
@@ -668,13 +672,15 @@ module QuantumPortfolioSolver =
     ///   
     /// Returns:
     ///   Result with QuantumPortfolioSolution or QuantumError
+    [<Obsolete("Use solveAsync for non-blocking execution against cloud backends")>]
     let solve 
         (backend: BackendAbstraction.IQuantumBackend)
         (assets: PortfolioTypes.Asset list)
         (constraints: PortfolioSolver.Constraints)
         (config: QuantumPortfolioConfig)
         : Result<QuantumPortfolioSolution, QuantumError> =
-        solveAsync backend assets constraints config
+        solveAsync backend assets constraints config CancellationToken.None
+        |> Async.AwaitTask
         |> Async.RunSynchronously
 
     /// Solve portfolio with default configuration

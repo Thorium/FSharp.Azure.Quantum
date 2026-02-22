@@ -1,5 +1,8 @@
 namespace FSharp.Azure.Quantum.Quantum
 
+open System
+open System.Threading
+open System.Threading.Tasks
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.QaoaExecutionHelpers
@@ -278,6 +281,7 @@ module QuantumVertexCoverSolver =
     /// Solve vertex cover using QAOA with full configuration control.
     /// Automatically decomposes into connected components when the problem
     /// exceeds backend qubit capacity.
+    [<Obsolete("Use solveWithConfigAsync for non-blocking execution against cloud backends")>]
     let solveWithConfig
         (backend: BackendAbstraction.IQuantumBackend)
         (problem: Problem)
@@ -324,7 +328,21 @@ module QuantumVertexCoverSolver =
             ProblemDecomposition.solveWithDecomposition
                 backend problem estimateQubits decompose recombine solveSingle
 
+    /// Solve vertex cover using QAOA with full configuration control (async).
+    /// Wraps the synchronous solveWithConfig in a task; will become truly async
+    /// once ProblemDecomposition supports async solve functions.
+    let solveWithConfigAsync
+        (backend: BackendAbstraction.IQuantumBackend)
+        (problem: Problem)
+        (config: Config)
+        (cancellationToken: CancellationToken)
+        : Task<Result<Solution, QuantumError>> = task {
+        cancellationToken.ThrowIfCancellationRequested()
+        return solveWithConfig backend problem config
+    }
+
     /// Solve vertex cover using QAOA with default configuration.
+    [<Obsolete("Use solveWithConfigAsync for non-blocking execution against cloud backends")>]
     let solve
         (backend: BackendAbstraction.IQuantumBackend)
         (problem: Problem)
@@ -332,7 +350,9 @@ module QuantumVertexCoverSolver =
         : Result<Solution, QuantumError> =
 
         let config = { defaultConfig with FinalShots = shots }
-        solveWithConfig backend problem config
+        solveWithConfigAsync backend problem config CancellationToken.None
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
 
     // ========================================================================
     // CLASSICAL SOLVER (Rule 1: private — not exposed without backend)
