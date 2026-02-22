@@ -9,6 +9,8 @@ namespace FSharp.Azure.Quantum.MachineLearning
 /// feature spaces" Nature (2019)
 
 open System
+open System.Threading
+open System.Threading.Tasks
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 open Microsoft.Extensions.Logging
@@ -385,6 +387,7 @@ module QuantumKernelSVM =
     ///
     /// Returns:
     ///   Prediction with label and decision value
+    [<Obsolete("Use predictAsync for non-blocking I/O against cloud backends.")>]
     let predict
         (backend: IQuantumBackend)
         (model: SVMModel)
@@ -421,7 +424,51 @@ module QuantumKernelSVM =
                     Label = label
                     DecisionValue = decisionValue
                 })
-    
+
+    /// Predict label for a single sample asynchronously.
+    /// Parallelizes kernel computations for all support vectors via Task.WhenAll.
+    let predictAsync
+        (backend: IQuantumBackend)
+        (model: SVMModel)
+        (sample: float array)
+        (shots: int)
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<Prediction>> =
+        task {
+            if shots <= 0 then
+                return Error (QuantumError.ValidationError ("Input", "Number of shots must be positive"))
+            else
+                // Compute kernels between sample and all support vectors concurrently
+                let! kernelResults =
+                    model.SupportVectorIndices
+                    |> Array.map (fun svIdx ->
+                        task {
+                            let! result = QuantumKernels.computeKernelAsync backend model.FeatureMap sample model.TrainData.[svIdx] shots cancellationToken
+                            return result |> Result.mapError (fun e -> QuantumError.OperationError ("Kernel computation", $"Kernel computation failed: {e.Message}"))
+                        })
+                    |> Task.WhenAll
+
+                // Traverse Result array to get array Result
+                return
+                    kernelResults
+                    |> traverseResult
+                    |> Result.map (fun kernelValues ->
+                        let decisionValue =
+                            model.SupportVectorIndices
+                            |> Array.mapi (fun i svIdx ->
+                                let y_i = if model.TrainLabels.[svIdx] = 1 then 1.0 else -1.0
+                                model.Alphas.[i] * y_i * kernelValues.[i])
+                            |> Array.sum
+                            |> (+) model.Bias
+
+                        let label = if decisionValue >= 0.0 then 1 else 0
+
+                        {
+                            Label = label
+                            DecisionValue = decisionValue
+                        })
+        }
+
     // ========================================================================
     // EVALUATION
     // ========================================================================
@@ -429,6 +476,7 @@ module QuantumKernelSVM =
     /// Evaluate model on a dataset
     ///
     /// Returns accuracy (fraction of correct predictions)
+    [<Obsolete("Use evaluateAsync for non-blocking I/O against cloud backends.")>]
     let evaluate
         (backend: IQuantumBackend)
         (model: SVMModel)
@@ -457,3 +505,40 @@ module QuantumKernelSVM =
                     |> Array.length
                 
                 float correctCount / float testData.Length)
+
+    /// Evaluate model on a dataset asynchronously.
+    /// Parallelizes predictions across all test samples via Task.WhenAll.
+    ///
+    /// Returns accuracy (fraction of correct predictions)
+    let evaluateAsync
+        (backend: IQuantumBackend)
+        (model: SVMModel)
+        (testData: float array array)
+        (testLabels: int array)
+        (shots: int)
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<float>> =
+        task {
+            if testData.Length = 0 then
+                return Error (QuantumError.Other "Test data cannot be empty")
+            elif testData.Length <> testLabels.Length then
+                return Error (QuantumError.ValidationError ("Input", "Test data and labels must have same length"))
+            else
+                // Compute predictions for all test samples concurrently
+                let! predictionResults =
+                    testData
+                    |> Array.map (fun sample -> predictAsync backend model sample shots cancellationToken)
+                    |> Task.WhenAll
+
+                // Traverse results and compute accuracy
+                return
+                    predictionResults
+                    |> traverseResult
+                    |> Result.map (fun predictions ->
+                        let correctCount =
+                            Array.zip predictions testLabels
+                            |> Array.filter (fun (pred, label) -> pred.Label = label)
+                            |> Array.length
+
+                        float correctCount / float testData.Length)
+        }

@@ -7,6 +7,8 @@ namespace FSharp.Azure.Quantum.MachineLearning
 /// Supports both SGD and Adam optimizers.
 
 open System
+open System.Threading
+open System.Threading.Tasks
 open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum.CircuitBuilder
 open FSharp.Azure.Quantum.Core.BackendAbstraction
@@ -84,6 +86,7 @@ module VQC =
     // ========================================================================
     
     /// Execute forward pass: measure output qubit
+    [<Obsolete("Use forwardPassAsync for non-blocking I/O against cloud backends.")>]
     let private forwardPass 
         (backend: IQuantumBackend) 
         (circuit: Circuit) 
@@ -111,6 +114,31 @@ module VQC =
             let probability = onesCount / totalShots
             
             return probability
+        }
+
+    /// Execute forward pass asynchronously using backend.ExecuteToStateAsync.
+    /// Non-blocking I/O for cloud backends.
+    let private forwardPassAsync
+        (backend: IQuantumBackend)
+        (circuit: Circuit)
+        (shots: int)
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<float>> =
+        task {
+            let wrappedCircuit = CircuitWrapper(circuit) :> ICircuit
+            let! stateResult = backend.ExecuteToStateAsync wrappedCircuit cancellationToken
+            return
+                match stateResult with
+                | Error e -> Error e
+                | Ok state ->
+                    let measurements = QuantumState.measure state shots
+                    let onesCount =
+                        measurements
+                        |> Array.filter (fun shot -> shot.[0] = 1)
+                        |> Array.length
+                        |> float
+                    let totalShots = float shots
+                    Ok (onesCount / totalShots)
         }
     
     /// Build VQC circuit for a single sample
@@ -158,6 +186,7 @@ module VQC =
             -log (1.0 - p)
     
     /// Compute average loss over dataset (parallelized for performance)
+    [<Obsolete("Use computeLossAsync for genuine task-based parallelism with cloud backends.")>]
     let private computeLoss
         (backend: IQuantumBackend)
         (featureMap: FeatureMapType)
@@ -188,6 +217,43 @@ module VQC =
             let losses = results |> Array.choose (function Ok v -> Some v | _ -> None)
             Ok (Array.average losses)
     
+    /// Compute average loss over dataset using Task.WhenAll for genuine concurrent I/O.
+    /// Each sample's forward pass runs via backend.ExecuteToStateAsync.
+    let private computeLossAsync
+        (backend: IQuantumBackend)
+        (featureMap: FeatureMapType)
+        (variationalForm: VariationalForm)
+        (parameters: float array)
+        (features: float array array)
+        (labels: int array)
+        (shots: int)
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<float>> =
+        task {
+            let computeSampleLossAsync i =
+                task {
+                    match buildVQCCircuit featureMap variationalForm features.[i] parameters with
+                    | Error e -> return Error e
+                    | Ok circuit ->
+                        let! forwardResult = forwardPassAsync backend circuit shots cancellationToken
+                        return forwardResult |> Result.map (fun prediction -> binaryCrossEntropy prediction labels.[i])
+                }
+
+            // Launch all sample loss computations concurrently
+            let! results =
+                features
+                |> Array.mapi (fun i _ -> computeSampleLossAsync i)
+                |> Task.WhenAll
+
+            // Check if any failed
+            return
+                match results |> Array.tryFind Result.isError with
+                | Some (Error e) -> Error e
+                | _ ->
+                    let losses = results |> Array.choose (function Ok v -> Some v | _ -> None)
+                    Ok (Array.average losses)
+        }
+
     // ========================================================================
     // GRADIENT COMPUTATION (Parameter Shift Rule)
     // ========================================================================
@@ -199,6 +265,7 @@ module VQC =
     /// 
     /// 🚀 PERFORMANCE: Gradients for different parameters are computed in parallel
     /// This can provide 10-100× speedup depending on parameter count!
+    [<Obsolete("Use computeGradientAsync for genuine task-based parallelism with cloud backends.")>]
     let private computeGradient
         (backend: IQuantumBackend)
         (featureMap: FeatureMapType)
@@ -254,6 +321,64 @@ module VQC =
             let gradients = results |> Array.choose (function Ok v -> Some v | _ -> None)
             Ok gradients
     
+    /// Compute gradient using parameter shift rule with genuine task-based parallelism.
+    /// Both the per-parameter gradient and the +/- shift pair within each parameter
+    /// are computed concurrently via Task.WhenAll + backend.ExecuteToStateAsync.
+    let private computeGradientAsync
+        (backend: IQuantumBackend)
+        (featureMap: FeatureMapType)
+        (variationalForm: VariationalForm)
+        (parameters: float array)
+        (features: float array array)
+        (labels: int array)
+        (shots: int)
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<float array>> =
+        task {
+            let shift = Math.PI / 2.0
+
+            let computeParamGradientAsync i =
+                task {
+                    // Shift parameter forward
+                    let paramsPlus = Array.copy parameters
+                    paramsPlus.[i] <- paramsPlus.[i] + shift
+
+                    // Shift parameter backward
+                    let paramsMinus = Array.copy parameters
+                    paramsMinus.[i] <- paramsMinus.[i] - shift
+
+                    // Compute forward and backward shifts in parallel
+                    let! results =
+                        Task.WhenAll [|
+                            computeLossAsync backend featureMap variationalForm paramsPlus features labels shots cancellationToken
+                            computeLossAsync backend featureMap variationalForm paramsMinus features labels shots cancellationToken
+                        |]
+
+                    let lossPlus = results.[0]
+                    let lossMinus = results.[1]
+
+                    return
+                        match lossPlus, lossMinus with
+                        | Ok lp, Ok lm -> Ok ((lp - lm) / 2.0)
+                        | Error e, _ -> Error e
+                        | _, Error e -> Error e
+                }
+
+            // Compute gradient for all parameters in parallel
+            let! results =
+                parameters
+                |> Array.mapi (fun i _ -> computeParamGradientAsync i)
+                |> Task.WhenAll
+
+            // Check if any failed
+            return
+                match results |> Array.tryFind Result.isError with
+                | Some (Error e) -> Error (QuantumError.ValidationError ("Input", $"Gradient computation failed: {e}"))
+                | _ ->
+                    let gradients = results |> Array.choose (function Ok v -> Some v | _ -> None)
+                    Ok gradients
+        }
+
     // ========================================================================
     // TRAINING LOOP
     // ========================================================================
@@ -617,6 +742,7 @@ module VQC =
     }
     
     /// Predict continuous value for a single sample (regression)
+    [<Obsolete("Use predictRegressionAsync for non-blocking I/O against cloud backends.")>]
     let predictRegression
         (backend: IQuantumBackend)
         (featureMap: FeatureMapType)
@@ -638,8 +764,34 @@ module VQC =
                 let value = minVal + expectation * (maxVal - minVal)
                 
                 Ok { Value = value }
-    
+
+    /// Predict continuous value for a single sample (regression) asynchronously.
+    let predictRegressionAsync
+        (backend: IQuantumBackend)
+        (featureMap: FeatureMapType)
+        (variationalForm: VariationalForm)
+        (parameters: float array)
+        (features: float array)
+        (shots: int)
+        (valueRange: float * float)
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<RegressionPrediction>> =
+        task {
+            match buildVQCCircuit featureMap variationalForm features parameters with
+            | Error e -> return Error e
+            | Ok circuit ->
+                let! forwardResult = forwardPassAsync backend circuit shots cancellationToken
+                return
+                    match forwardResult with
+                    | Error e -> Error e
+                    | Ok expectation ->
+                        let (minVal, maxVal) = valueRange
+                        let value = minVal + expectation * (maxVal - minVal)
+                        Ok { Value = value }
+        }
+
     /// Compute Mean Squared Error loss for regression
+    [<Obsolete("Use computeRegressionLossAsync for genuine task-based parallelism.")>]
     let private computeRegressionLoss
         (backend: IQuantumBackend)
         (featureMap: FeatureMapType)
@@ -671,7 +823,45 @@ module VQC =
             
             Ok (Array.average squaredErrors)
     
+    /// Compute Mean Squared Error loss for regression using Task.WhenAll.
+    /// Fixes missed parallelism: the sync version was sequential Array.map.
+    let private computeRegressionLossAsync
+        (backend: IQuantumBackend)
+        (featureMap: FeatureMapType)
+        (variationalForm: VariationalForm)
+        (parameters: float array)
+        (trainFeatures: float array array)
+        (trainTargets: float array)
+        (shots: int)
+        (valueRange: float * float)
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<float>> =
+        task {
+            // Compute squared errors for each sample concurrently
+            let! results =
+                Array.zip trainFeatures trainTargets
+                |> Array.map (fun (features, target) ->
+                    task {
+                        let! predResult = predictRegressionAsync backend featureMap variationalForm parameters features shots valueRange cancellationToken
+                        return
+                            match predResult with
+                            | Error e -> Error e
+                            | Ok prediction ->
+                                let error = prediction.Value - target
+                                Ok (error * error)
+                    })
+                |> Task.WhenAll
+
+            return
+                match results |> Array.tryFind Result.isError with
+                | Some (Error e) -> Error (QuantumError.ValidationError ("Input", $"Loss computation failed: {e}"))
+                | _ ->
+                    let squaredErrors = results |> Array.choose (function Ok v -> Some v | _ -> None)
+                    Ok (Array.average squaredErrors)
+        }
+
     /// Compute gradient for regression using parameter shift rule
+    [<Obsolete("Use computeRegressionGradientAsync for genuine task-based parallelism.")>]
     let private computeRegressionGradient
         (backend: IQuantumBackend)
         (featureMap: FeatureMapType)
@@ -717,6 +907,60 @@ module VQC =
                 |> Array.choose (function Ok v -> Some v | _ -> None)
             Ok gradients
     
+    /// Compute gradient for regression using parameter shift rule with Task.WhenAll.
+    /// Fixes missed parallelism: the sync version was sequential Array.mapi.
+    /// Both per-parameter parallelism and +/- shift pairs run concurrently.
+    let private computeRegressionGradientAsync
+        (backend: IQuantumBackend)
+        (featureMap: FeatureMapType)
+        (variationalForm: VariationalForm)
+        (parameters: float array)
+        (trainFeatures: float array array)
+        (trainTargets: float array)
+        (shots: int)
+        (valueRange: float * float)
+        (cancellationToken: CancellationToken)
+        : Task<QuantumResult<float array>> =
+        task {
+            let shift = Math.PI / 2.0
+
+            let computeParamGradientAsync i =
+                task {
+                    let paramsPlus = Array.copy parameters
+                    paramsPlus.[i] <- paramsPlus.[i] + shift
+
+                    let paramsMinus = Array.copy parameters
+                    paramsMinus.[i] <- paramsMinus.[i] - shift
+
+                    // Compute +/- shift losses in parallel
+                    let! results =
+                        Task.WhenAll [|
+                            computeRegressionLossAsync backend featureMap variationalForm paramsPlus trainFeatures trainTargets shots valueRange cancellationToken
+                            computeRegressionLossAsync backend featureMap variationalForm paramsMinus trainFeatures trainTargets shots valueRange cancellationToken
+                        |]
+
+                    return
+                        match results.[0], results.[1] with
+                        | Ok lossPlus, Ok lossMinus ->
+                            Ok ((lossPlus - lossMinus) / 2.0)
+                        | Error e, _ | _, Error e ->
+                            Error (QuantumError.ValidationError ("Input", $"Gradient computation failed for parameter {i}: {e}"))
+                }
+
+            // Compute gradient for all parameters in parallel
+            let! results =
+                parameters
+                |> Array.mapi (fun i _ -> computeParamGradientAsync i)
+                |> Task.WhenAll
+
+            return
+                match results |> Array.tryFind Result.isError with
+                | Some (Error e) -> Error e
+                | _ ->
+                    let gradients = results |> Array.choose (function Ok v -> Some v | _ -> None)
+                    Ok gradients
+        }
+
     /// Calculate R² score for regression
     let private calculateRSquared (yTrue: float array) (yPred: float array) : float =
         let mean = yTrue |> Array.average

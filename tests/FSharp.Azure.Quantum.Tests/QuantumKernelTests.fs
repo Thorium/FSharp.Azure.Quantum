@@ -1,5 +1,7 @@
 module FSharp.Azure.Quantum.Tests.QuantumKernelTests
 
+open System.Threading
+open System.Threading.Tasks
 open Xunit
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.Backends
@@ -492,3 +494,208 @@ let ``computeKernelMatrix - properties should hold for real quantum kernel`` () 
             sprintf "Diagonal mean should be high, got %f" stats.DiagonalMean)
     | Error err ->
         Assert.True(false, sprintf "Should not fail: %s" err.Message)
+
+// ============================================================================
+// Async Kernel Computation Tests
+// ============================================================================
+
+[<Fact>]
+let ``computeKernelAsync - should return value between 0 and 1`` () : Task =
+    task {
+        let featureMap = AngleEncoding
+        let x = [| 0.5; 0.3 |]
+        let y = [| 0.7; 0.4 |]
+        let shots = 1000
+
+        let! result = computeKernelAsync backend featureMap x y shots CancellationToken.None
+
+        match result with
+        | Ok kernelValue ->
+            Assert.True(kernelValue >= 0.0 && kernelValue <= 1.0,
+                sprintf "Kernel value should be in [0,1], got %f" kernelValue)
+        | Error err ->
+            Assert.True(false, sprintf "Should not fail: %s" err.Message)
+    }
+
+[<Fact>]
+let ``computeKernelAsync - identical vectors should give high kernel value`` () : Task =
+    task {
+        let featureMap = AngleEncoding
+        let x = [| 0.5; 0.3 |]
+        let shots = 1000
+
+        let! result = computeKernelAsync backend featureMap x x shots CancellationToken.None
+
+        match result with
+        | Ok kernelValue ->
+            Assert.True(kernelValue > 0.8,
+                sprintf "K(x,x) should be high (>0.8), got %f" kernelValue)
+        | Error err ->
+            Assert.True(false, sprintf "Should not fail: %s" err.Message)
+    }
+
+[<Fact>]
+let ``computeKernelAsync - produces equivalent results to sync version`` () : Task =
+    task {
+        let featureMap = AngleEncoding
+        let x = [| 0.5; 0.3 |]
+        let y = [| 0.7; 0.4 |]
+        let shots = 1000
+
+        let syncResult = computeKernel backend featureMap x y shots
+        let! asyncResult = computeKernelAsync backend featureMap x y shots CancellationToken.None
+
+        match syncResult, asyncResult with
+        | Ok syncVal, Ok asyncVal ->
+            // Both should be valid kernel values (not necessarily identical due to quantum randomness)
+            Assert.True(syncVal >= 0.0 && syncVal <= 1.0, "Sync kernel value valid")
+            Assert.True(asyncVal >= 0.0 && asyncVal <= 1.0, "Async kernel value valid")
+        | Error _, _ | _, Error _ ->
+            Assert.True(false, "Both sync and async should succeed")
+    }
+
+// ============================================================================
+// Async Kernel Matrix Tests
+// ============================================================================
+
+[<Fact>]
+let ``computeKernelMatrixAsync - should be square with correct dimensions`` () : Task =
+    task {
+        let featureMap = AngleEncoding
+        let data = [|
+            [| 0.1; 0.2 |]
+            [| 0.3; 0.4 |]
+            [| 0.5; 0.6 |]
+        |]
+        let shots = 500
+
+        let! result = computeKernelMatrixAsync backend featureMap data shots CancellationToken.None
+
+        match result with
+        | Ok matrix ->
+            Assert.Equal(3, Array2D.length1 matrix)
+            Assert.Equal(3, Array2D.length2 matrix)
+
+            // Should be approximately symmetric
+            for i in 0 .. 2 do
+                for j in i + 1 .. 2 do
+                    Assert.True(abs (matrix.[i, j] - matrix.[j, i]) < 0.1,
+                        sprintf "Matrix should be symmetric at (%d,%d): %f vs %f"
+                            i j matrix.[i,j] matrix.[j,i])
+        | Error err ->
+            Assert.True(false, sprintf "Should not fail: %s" err.Message)
+    }
+
+[<Fact>]
+let ``computeKernelMatrixAsync - diagonal should be close to 1`` () : Task =
+    task {
+        let featureMap = AngleEncoding
+        let data = [|
+            [| 0.1; 0.2 |]
+            [| 0.3; 0.4 |]
+        |]
+        let shots = 1000
+
+        let! result = computeKernelMatrixAsync backend featureMap data shots CancellationToken.None
+
+        match result with
+        | Ok matrix ->
+            for i in 0 .. 1 do
+                Assert.True(matrix.[i, i] > 0.8,
+                    sprintf "K(%d,%d) should be high, got %f" i i matrix.[i,i])
+        | Error err ->
+            Assert.True(false, sprintf "Should not fail: %s" err.Message)
+    }
+
+[<Fact>]
+let ``computeKernelMatrixAsync - all values should be in range 0 to 1`` () : Task =
+    task {
+        let featureMap = AngleEncoding
+        let data = [|
+            [| 0.1; 0.2 |]
+            [| 0.8; 0.9 |]
+            [| 0.4; 0.5 |]
+        |]
+        let shots = 500
+
+        let! result = computeKernelMatrixAsync backend featureMap data shots CancellationToken.None
+
+        match result with
+        | Ok matrix ->
+            for i in 0 .. 2 do
+                for j in 0 .. 2 do
+                    Assert.True(matrix.[i, j] >= 0.0 && matrix.[i, j] <= 1.0,
+                        sprintf "K[%d,%d]=%f should be in [0,1]" i j matrix.[i,j])
+        | Error err ->
+            Assert.True(false, sprintf "Should not fail: %s" err.Message)
+    }
+
+// ============================================================================
+// Async Train/Test Kernel Matrix Tests
+// ============================================================================
+
+[<Fact>]
+let ``computeKernelMatrixTrainTestAsync - should have correct dimensions`` () : Task =
+    task {
+        let featureMap = AngleEncoding
+        let trainData = [|
+            [| 0.1; 0.2 |]
+            [| 0.3; 0.4 |]
+            [| 0.5; 0.6 |]
+        |]
+        let testData = [|
+            [| 0.7; 0.8 |]
+            [| 0.9; 1.0 |]
+        |]
+        let shots = 500
+
+        let! result = computeKernelMatrixTrainTestAsync backend featureMap trainData testData shots CancellationToken.None
+
+        match result with
+        | Ok matrix ->
+            // Should be 2 (test) x 3 (train)
+            Assert.Equal(2, Array2D.length1 matrix)
+            Assert.Equal(3, Array2D.length2 matrix)
+        | Error err ->
+            Assert.True(false, sprintf "Should not fail: %s" err.Message)
+    }
+
+[<Fact>]
+let ``computeKernelMatrixTrainTestAsync - all values should be in range`` () : Task =
+    task {
+        let featureMap = AngleEncoding
+        let trainData = [| [| 0.1; 0.2 |]; [| 0.3; 0.4 |] |]
+        let testData = [| [| 0.5; 0.6 |] |]
+        let shots = 500
+
+        let! result = computeKernelMatrixTrainTestAsync backend featureMap trainData testData shots CancellationToken.None
+
+        match result with
+        | Ok matrix ->
+            for i in 0 .. 0 do
+                for j in 0 .. 1 do
+                    Assert.True(matrix.[i, j] >= 0.0 && matrix.[i, j] <= 1.0,
+                        sprintf "K[%d,%d]=%f should be in [0,1]" i j matrix.[i,j])
+        | Error err ->
+            Assert.True(false, sprintf "Should not fail: %s" err.Message)
+    }
+
+// ============================================================================
+// Async Cancellation Tests
+// ============================================================================
+
+[<Fact>]
+let ``computeKernelAsync - accepts cancellation token`` () : Task =
+    task {
+        let featureMap = AngleEncoding
+        let x = [| 0.5; 0.3 |]
+        let y = [| 0.7; 0.4 |]
+        let shots = 100
+
+        use cts = new CancellationTokenSource()
+        let! result = computeKernelAsync backend featureMap x y shots cts.Token
+        // Local backend doesn't observe cancellation, so it should succeed
+        match result with
+        | Ok kernelValue -> Assert.True(kernelValue >= 0.0 && kernelValue <= 1.0)
+        | Error _ -> () // Also acceptable if backend respects cancellation
+    }

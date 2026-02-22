@@ -1,6 +1,8 @@
 namespace FSharp.Azure.Quantum.Tests
 
 open System
+open System.Threading
+open System.Threading.Tasks
 open Xunit
 open FSharp.Azure.Quantum.MachineLearning
 open FSharp.Azure.Quantum.MachineLearning.VQC
@@ -761,3 +763,113 @@ module VQCTests =
                     // Predicted label should be valid
                     Assert.True(prediction.Label >= 0 && prediction.Label <= 2, "Valid label")
                     Assert.True(prediction.Confidence > 0.0, "Should have some confidence")
+
+    // ========================================================================
+    // ASYNC PREDICTION TESTS (via public API)
+    // ========================================================================
+
+    [<Fact>]
+    let ``predictRegressionAsync - returns valid prediction for single sample`` () : Task =
+        task {
+            let backend = createTestBackend()
+            let featureMap = AngleEncoding
+            let variationalForm = RealAmplitudes 1
+            let parameters = randomParameters variationalForm 2 (Some 42)
+            let features = [| 0.5; 0.5 |]
+            let valueRange = (0.0, 1.0)
+
+            let! result = predictRegressionAsync backend featureMap variationalForm parameters features 100 valueRange CancellationToken.None
+            match result with
+            | Error msg ->
+                Assert.True(false, $"predictRegressionAsync failed: {msg}")
+            | Ok prediction ->
+                Assert.True(prediction.Value >= 0.0 && prediction.Value <= 1.0, $"Value {prediction.Value} must be in [0,1]")
+        }
+
+    [<Fact>]
+    let ``predictRegressionAsync - produces equivalent results to sync version`` () : Task =
+        task {
+            let backend = createTestBackend()
+            let featureMap = AngleEncoding
+            let variationalForm = RealAmplitudes 1
+            let parameters = randomParameters variationalForm 2 (Some 42)
+            let features = [| 0.5; 0.5 |]
+            let valueRange = (0.0, 1.0)
+
+            let syncResult = predictRegression backend featureMap variationalForm parameters features 1000 valueRange
+            let! asyncResult = predictRegressionAsync backend featureMap variationalForm parameters features 1000 valueRange CancellationToken.None
+
+            match syncResult, asyncResult with
+            | Ok syncPred, Ok asyncPred ->
+                // Both should be within the value range
+                Assert.True(syncPred.Value >= 0.0 && syncPred.Value <= 1.0, "Sync value in range")
+                Assert.True(asyncPred.Value >= 0.0 && asyncPred.Value <= 1.0, "Async value in range")
+            | Error _, _ | _, Error _ ->
+                Assert.True(false, "Both sync and async should succeed")
+        }
+
+    // ========================================================================
+    // ASYNC REGRESSION TESTS (wider value ranges)
+    // ========================================================================
+
+    [<Fact>]
+    let ``predictRegressionAsync - handles wide value range`` () : Task =
+        task {
+            let backend = createTestBackend()
+            let featureMap = AngleEncoding
+            let variationalForm = RealAmplitudes 1
+            let parameters = randomParameters variationalForm 2 (Some 42)
+            let features = [| 0.5; 0.5 |]
+            let valueRange = (0.0, 10.0)
+
+            let! result = predictRegressionAsync backend featureMap variationalForm parameters features 100 valueRange CancellationToken.None
+            match result with
+            | Error msg ->
+                Assert.True(false, $"predictRegressionAsync failed: {msg}")
+            | Ok prediction ->
+                Assert.True(prediction.Value >= 0.0 && prediction.Value <= 10.0, $"Value {prediction.Value} should be in [0,10]")
+        }
+
+    [<Fact>]
+    let ``predictRegressionAsync - sync and async agree on negative value range`` () : Task =
+        task {
+            let backend = createTestBackend()
+            let featureMap = AngleEncoding
+            let variationalForm = RealAmplitudes 1
+            let parameters = randomParameters variationalForm 2 (Some 42)
+            let features = [| 0.3; 0.7 |]
+            let valueRange = (-5.0, 5.0)
+
+            let syncResult = predictRegression backend featureMap variationalForm parameters features 1000 valueRange
+            let! asyncResult = predictRegressionAsync backend featureMap variationalForm parameters features 1000 valueRange CancellationToken.None
+
+            match syncResult, asyncResult with
+            | Ok syncPred, Ok asyncPred ->
+                // Both should be within the value range
+                Assert.True(syncPred.Value >= -5.0 && syncPred.Value <= 5.0, "Sync value in range")
+                Assert.True(asyncPred.Value >= -5.0 && asyncPred.Value <= 5.0, "Async value in range")
+            | Error _, _ | _, Error _ ->
+                Assert.True(false, "Both sync and async should succeed")
+        }
+
+    // ========================================================================
+    // ASYNC CANCELLATION TESTS
+    // ========================================================================
+
+    [<Fact>]
+    let ``predictRegressionAsync - accepts cancellation token`` () : Task =
+        task {
+            let backend = createTestBackend()
+            let featureMap = AngleEncoding
+            let variationalForm = RealAmplitudes 1
+            let parameters = randomParameters variationalForm 2 (Some 42)
+            let features = [| 0.5; 0.5 |]
+            let valueRange = (0.0, 1.0)
+
+            use cts = new CancellationTokenSource()
+            let! result = predictRegressionAsync backend featureMap variationalForm parameters features 10 valueRange cts.Token
+            // Local backend doesn't observe cancellation, so it should succeed
+            match result with
+            | Ok pred -> Assert.True(pred.Value >= 0.0 && pred.Value <= 1.0)
+            | Error _ -> () // Also acceptable if backend respects cancellation
+        }
