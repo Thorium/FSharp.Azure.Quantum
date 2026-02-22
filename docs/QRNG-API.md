@@ -180,6 +180,8 @@ Generates random bits using a **real quantum hardware backend** (IonQ, Rigetti, 
 
 **Returns:** `Async<Result<QRNGResult, string>>`
 
+> **Note:** This API currently uses F# `Async<_>`. For Task-based async patterns with `CancellationToken`, see `IQuantumBackend.ExecuteToStateAsync` in the [API Reference](api-reference.md).
+
 **Example:**
 ```fsharp
 open FSharp.Azure.Quantum.Backends

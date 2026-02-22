@@ -420,6 +420,8 @@ let solutions =
     |> Array.minBy (fun sol -> sol.TourLength)
 ```
 
+> **Async alternative:** For Task-based parallelism with cancellation support, use `Task.WhenAll` with the async QAOA helpers. See [Backend Switching](backend-switching.md) for `task { }` patterns.
+
 ---
 
 ## Still have questions?

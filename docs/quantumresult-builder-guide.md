@@ -171,6 +171,8 @@ let safeQuantumExecution (circuit: ICircuit) (backend: IQuantumBackend) : Quantu
  }
 ```
 
+> **Async alternative:** Use `backend.ExecuteToStateAsync circuit ct` with `task { }` for non-blocking execution. The async variant accepts a `CancellationToken` for timeout control instead of relying on `Async.RunSynchronously`.
+
 ### Loops and Iteration
 
 ```fsharp

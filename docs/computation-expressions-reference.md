@@ -676,6 +676,8 @@ match result |> Async.RunSynchronously with
 | Error e -> printfn "Error: %A" e
 ```
 
+> **Async alternative:** If the builder returns a `Task<_>`, use `task { let! r = result in ... }` instead of `Async.RunSynchronously`. See [Backend Switching](backend-switching.md) for async patterns.
+
 **Custom Operations**:
 - `spotPrice` - Current spot price of underlying asset (S₀)
 - `strikePrice` - Strike price of the option (K)

@@ -677,13 +677,59 @@ let backend = // Cloud backend - requires Azure Quantum workspace
 )
 ```
 
+### Cloud Backends (via CloudBackendFactory)
+
+**Module:** `FSharp.Azure.Quantum.Backends.CloudBackends`
+
+Create cloud backends for different quantum hardware providers. All cloud backends implement `IQuantumBackend` (both sync and async).
+
+```fsharp
+open System.Net.Http
+open FSharp.Azure.Quantum.Backends
+
+let httpClient = new HttpClient()
+let workspaceUrl = "https://your-workspace.quantum.azure.com"
+
+// Factory functions
+let rigetti    = CloudBackendFactory.createRigetti httpClient workspaceUrl "rigetti.qvm" 1000
+let ionq       = CloudBackendFactory.createIonQ httpClient workspaceUrl "ionq.simulator" 1000
+let quantinuum = CloudBackendFactory.createQuantinuum httpClient workspaceUrl "quantinuum.h1-1" 1000
+let atom       = CloudBackendFactory.createAtomComputing httpClient workspaceUrl "atomcomputing.phoenix" 1000
+```
+
+```text
+val CloudBackendFactory.createRigetti       : httpClient:HttpClient -> workspaceUrl:string -> target:string -> shots:int -> IQuantumBackend
+val CloudBackendFactory.createIonQ          : httpClient:HttpClient -> workspaceUrl:string -> target:string -> shots:int -> IQuantumBackend
+val CloudBackendFactory.createQuantinuum    : httpClient:HttpClient -> workspaceUrl:string -> target:string -> shots:int -> IQuantumBackend
+val CloudBackendFactory.createAtomComputing : httpClient:HttpClient -> workspaceUrl:string -> target:string -> shots:int -> IQuantumBackend
+```
+
+**Async usage with cloud backends:**
+
+```fsharp
+open System.Threading
+
+let backend = CloudBackendFactory.createIonQ httpClient workspaceUrl "ionq.simulator" 1000
+let cts = new CancellationTokenSource(TimeSpan.FromSeconds(60.0))
+
+// Async execution (recommended for cloud - avoids blocking during network I/O)
+task {
+    let! result = backend.ExecuteToStateAsync circuit cts.Token
+    match result with
+    | Ok state -> printfn "Executed on: %s" backend.Name
+    | Error err -> printfn "Error: %s" err.Message
+}
+```
+
+> **Note:** Cloud backends' `ApplyOperationAsync` always returns `Error` because cloud providers do not support incremental state operations. Use `ExecuteToStateAsync` for full circuit execution.
+
 ### Backend Selection Guide
 
 | Problem Size | Recommended Backend | Rationale |
 |--------------|---------------------|-----------|
 | ≤20 qubits | LocalBackend | Free, fast, sufficient |
-| 17-29 qubits | IonQ/Rigetti Simulator | Scalable, still affordable |
-| 30+ qubits | IonQ/Rigetti QPU | Real quantum hardware needed |
+| 17-29 qubits | IonQ/Rigetti/Quantinuum Simulator | Scalable, still affordable |
+| 30+ qubits | IonQ/Rigetti/Quantinuum/AtomComputing QPU | Real quantum hardware needed |
 
 ### IQubitLimitedBackend Interface
 
@@ -803,10 +849,35 @@ type IQuantumBackend =
     abstract member Name: string
     /// Initialize quantum state without running a circuit
     abstract member InitializeState: int -> Result<QuantumState, QuantumError>
+    
+    // Async variants (Task-based, with CancellationToken)
+    /// Execute circuit asynchronously
+    abstract member ExecuteToStateAsync: ICircuit -> CancellationToken -> Task<Result<QuantumState, QuantumError>>
+    /// Apply quantum operation asynchronously
+    abstract member ApplyOperationAsync: QuantumOperation -> QuantumState -> CancellationToken -> Task<Result<QuantumState, QuantumError>>
 ```
+
+> **Note:** Async methods use `System.Threading.Tasks.Task<T>` (not F# `Async<T>`), with `CancellationToken` as the last parameter. Use the `task { }` computation expression when calling these methods.
 
 See also `IQubitLimitedBackend` (inherits `IQuantumBackend`, adds `MaxQubits: int option`)
 in the [Backend Selection Guide](#backend-selection-guide) section below.
+
+### UnifiedBackend Module
+
+**Module:** `FSharp.Azure.Quantum.Core.BackendAbstraction`
+
+Higher-level helpers for applying operations through any `IQuantumBackend`.
+
+```text
+// Sync
+val UnifiedBackend.getMaxQubits : backend:IQuantumBackend -> int option
+val UnifiedBackend.applyWithConversion : backend:IQuantumBackend -> operation:QuantumOperation -> state:QuantumState -> Result<QuantumState, QuantumError>
+val UnifiedBackend.applySequence : backend:IQuantumBackend -> operations:QuantumOperation list -> initialState:QuantumState -> Result<QuantumState, QuantumError>
+
+// Async
+val UnifiedBackend.applyWithConversionAsync : backend:IQuantumBackend -> operation:QuantumOperation -> state:QuantumState -> ct:CancellationToken -> Task<Result<QuantumState, QuantumError>>
+val UnifiedBackend.applySequenceAsync : backend:IQuantumBackend -> operations:QuantumOperation list -> initialState:QuantumState -> ct:CancellationToken -> Task<Result<QuantumState, QuantumError>>
+```
 
 ### Circuit Types
 
@@ -1108,6 +1179,24 @@ val executeFromQubo :
     → Result<int[][], QuantumError>
 ```
 
+**Async variants** (Task-based, with `CancellationToken` and `maxConcurrency` for grid search):
+
+```text
+val executeQaoaCircuitAsync :
+    backend:IQuantumBackend → problemHam:ProblemHamiltonian → mixerHam:MixerHamiltonian
+    → parameters:(float * float)[] → shots:int → cancellationToken:CancellationToken
+    → Task<Result<int[][], QuantumError>>
+
+val executeQaoaWithGridSearchAsync :
+    backend:IQuantumBackend → qubo:float[,] → config:QaoaSolverConfig
+    → maxConcurrency:int → cancellationToken:CancellationToken
+    → Task<Result<int[] * (float * float)[], QuantumError>>
+
+val executeFromQuboAsync :
+    backend:IQuantumBackend → qubo:float[,] → parameters:(float * float)[] → shots:int
+    → cancellationToken:CancellationToken → Task<Result<int[][], QuantumError>>
+```
+
 **Parameters:**
 - `qubo` — Dense QUBO matrix (`float[,]`)
 - `config` — QAOA solver configuration
@@ -1132,6 +1221,20 @@ val executeQaoaWithOptimizationSparse :
 val executeQaoaWithGridSearchSparse :
     backend:IQuantumBackend → numQubits:int → quboMap:Map<int * int, float>
     → config:QaoaSolverConfig → Result<int[] * (float * float)[], QuantumError>
+```
+
+**Async variants:**
+
+```text
+val executeQaoaCircuitSparseAsync :
+    backend:IQuantumBackend → numQubits:int → quboMap:Map<int * int, float>
+    → parameters:(float * float)[] → shots:int → cancellationToken:CancellationToken
+    → Task<Result<int[][], QuantumError>>
+
+val executeQaoaWithGridSearchSparseAsync :
+    backend:IQuantumBackend → numQubits:int → quboMap:Map<int * int, float>
+    → config:QaoaSolverConfig → maxConcurrency:int → cancellationToken:CancellationToken
+    → Task<Result<int[] * (float * float)[], QuantumError>>
 ```
 
 **Parameters:**
@@ -1164,6 +1267,15 @@ val defaultBudget : ExecutionBudget
 val executeWithBudget :
     backend:IQuantumBackend → qubo:float[,] → config:QaoaSolverConfig
     → budget:ExecutionBudget → Result<int[] * (float * float)[] * bool, QuantumError>
+```
+
+**Async variant:**
+
+```text
+val executeWithBudgetAsync :
+    backend:IQuantumBackend → qubo:float[,] → config:QaoaSolverConfig
+    → budget:ExecutionBudget → maxConcurrency:int → cancellationToken:CancellationToken
+    → Task<Result<int[] * (float * float)[] * bool, QuantumError>>
 ```
 
 ### Example: Sparse QUBO Execution
@@ -1413,10 +1525,29 @@ problems
 
 ---
 
+## OpenQASM Export
+
+**Module:** `FSharp.Azure.Quantum.Builders.OpenQasmExport`
+
+Export quantum circuits to OpenQASM format for interoperability with other quantum frameworks.
+
+```text
+// Sync
+val exportToFile           : circuit:Circuit -> filePath:string -> unit
+val exportToFileWithConfig : config:QasmConfig -> circuit:Circuit -> filePath:string -> unit
+
+// Async
+val exportToFileAsync           : circuit:Circuit -> filePath:string -> ct:CancellationToken -> Task<unit>
+val exportToFileWithConfigAsync : config:QasmConfig -> circuit:Circuit -> filePath:string -> ct:CancellationToken -> Task<unit>
+```
+
+---
+
 ## Related Documentation
 
 - [Getting Started Guide](getting-started) - Installation and setup
 - [Architecture Overview](architecture-overview) - Library design
+- [Backend Switching](backend-switching) - Local vs cloud backends, async patterns
 - [QUBO Encoding Strategies](qubo-encoding-strategies) - Problem transformations
 - [Quantum Machine Learning](quantum-machine-learning) - VQC, Quantum Kernels, Feature Maps
 - [Business Problem Builders](business-problem-builders) - AutoML, Fraud Detection, Anomaly Detection
@@ -1426,4 +1557,4 @@ problems
 
 ---
 
-**Last Updated**: 2026-02-21
+**Last Updated**: 2026-02-22

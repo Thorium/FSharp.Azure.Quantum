@@ -37,8 +37,12 @@ LAYER 3: Problem Decomposition
 
 LAYER 4: Execution Backends
   ├─ LocalBackend (CPU simulation, ≤20 qubits, default)
-  ├─ IonQBackend (Azure Quantum, trapped ions)
-  └─ RigettiBackend (Azure Quantum, superconducting qubits)
+  ├─ Cloud Backends (via CloudBackendFactory)
+  │   ├─ RigettiCloudBackend (superconducting qubits)
+  │   ├─ IonQCloudBackend (trapped ions)
+  │   ├─ QuantinuumCloudBackend (trapped ions)
+  │   └─ AtomComputingCloudBackend (neutral atoms)
+  └─ All backends implement IQuantumBackend (sync + async)
 ```
 
 **Key Architectural Principle**: High-level builders go directly to quantum solvers. Classical solvers are only accessible through HybridSolver for performance optimization of small problems.
@@ -151,7 +155,9 @@ src/FSharp.Azure.Quantum/
 ├── Core/              - Foundation (types, auth, QAOA, VQE, circuit operations)
 │   └── ProblemDecomposition.fs - Backend-aware problem decomposition and partitioning
 ├── LocalSimulator/    - CPU-based quantum simulation (default backend)
-├── Backends/          - IonQ, Rigetti cloud backend integration
+├── Backends/          - Cloud backend integration (Rigetti, IonQ, Quantinuum, AtomComputing)
+│   └── CloudBackends.fs - Cloud backends + CloudBackendFactory
+├── MachineLearning/   - Quantum ML (VQC, QuantumKernel, QuantumKernelSVM)
 ├── Solvers/
 │   ├── Classical/     - CPU algorithms (internal, only via HybridSolver)
 │   ├── Quantum/       - Quantum algorithms (QAOA, VQE, QFT-based - primary solvers)
@@ -205,10 +211,23 @@ let problem = graphColoring {
 
 **Backend Abstraction**: Unified interface for all quantum execution environments
 ```fsharp
+// Synchronous execution
 let solve (backend: IQuantumBackend option) problem =
     let actualBackend = backend |> Option.defaultValue (LocalBackendFactory.createUnified())
     actualBackend.ExecuteToState circuit
+
+// Async execution (Task-based, with CancellationToken)
+open System.Threading
+open System.Threading.Tasks
+
+let solveAsync (backend: IQuantumBackend option) problem (ct: CancellationToken) =
+    task {
+        let actualBackend = backend |> Option.defaultValue (LocalBackendFactory.createUnified())
+        return! actualBackend.ExecuteToStateAsync circuit ct
+    }
 ```
+
+> **Async API (v2025.6+)**: All `IQuantumBackend` implementations now provide `ExecuteToStateAsync` and `ApplyOperationAsync` methods that return `Task<Result<QuantumState, QuantumError>>` with `CancellationToken` support. The async variants are ideal for cloud backends where I/O latency is significant. See [API Reference](api-reference.md) for full signatures.
 
 **Result Type Pattern**: Explicit error handling
 ```fsharp
@@ -238,9 +257,14 @@ match GraphColoring.solve problem 3 None with
 
 **Add a Backend**:
 1. Create `Backends/NewBackend.fs`
-2. Implement `IQuantumBackend` interface
+2. Implement `IQuantumBackend` interface (both sync and async members):
+   - `ExecuteToState` / `ExecuteToStateAsync` (with `CancellationToken`)
+   - `ApplyOperation` / `ApplyOperationAsync` (with `CancellationToken`)
+   - `InitializeState`, `SupportsOperation`, `Name`, `NativeStateType`
 3. Handle provider-specific circuit format (or use OpenQASM)
 4. Add authentication and job submission logic
+5. Async methods should use `task { }` computation expression (not `async { }`)
+6. See `Backends/CloudBackends.fs` for a reference cloud implementation
 
 ## References
 

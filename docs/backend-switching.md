@@ -305,11 +305,138 @@ The decomposition flow:
 
 This is fully transparent to the caller — the same `solve` function handles both small problems (direct execution) and large problems (automatic decomposition).
 
+## Async Backend Execution
+
+All backends support **Task-based async execution** with `CancellationToken` support. This is especially important for cloud backends where network I/O introduces latency.
+
+### IQuantumBackend Async Interface
+
+```fsharp
+type IQuantumBackend =
+    // Sync (original)
+    abstract member ExecuteToState: ICircuit -> Result<QuantumState, QuantumError>
+    abstract member ApplyOperation: QuantumOperation -> QuantumState -> Result<QuantumState, QuantumError>
+    
+    // Async (new)
+    abstract member ExecuteToStateAsync: ICircuit -> CancellationToken -> Task<Result<QuantumState, QuantumError>>
+    abstract member ApplyOperationAsync: QuantumOperation -> QuantumState -> CancellationToken -> Task<Result<QuantumState, QuantumError>>
+    
+    // Other members...
+    abstract member Name: string
+    abstract member NativeStateType: QuantumStateType
+    abstract member SupportsOperation: QuantumOperation -> bool
+    abstract member InitializeState: int -> Result<QuantumState, QuantumError>
+```
+
+### Async Usage Example
+
+```fsharp
+open System.Threading
+open System.Threading.Tasks
+open FSharp.Azure.Quantum.Backends
+
+// Use task { } computation expression for async workflows
+let solveAsync (backend: IQuantumBackend) circuit (ct: CancellationToken) =
+    task {
+        let! result = backend.ExecuteToStateAsync circuit ct
+        match result with
+        | Ok state -> return Ok state
+        | Error err -> return Error err
+    }
+
+// Run with cancellation support
+let cts = new CancellationTokenSource(TimeSpan.FromSeconds(30.0))
+let result = 
+    solveAsync backend circuit cts.Token
+    |> Async.AwaitTask |> Async.RunSynchronously
+```
+
+### Async with Cloud Backends
+
+Cloud backends benefit most from async since they involve HTTP calls, job submission, and polling:
+
+```fsharp
+open System.Net.Http
+open FSharp.Azure.Quantum.Backends
+
+// Create cloud backend via factory
+let httpClient = new HttpClient()
+let backend = CloudBackendFactory.createIonQ httpClient workspaceUrl "ionq.simulator" 1000
+
+// Async execution avoids blocking threads during cloud I/O
+let executeOnCloud circuit (ct: CancellationToken) =
+    task {
+        let! result = backend.ExecuteToStateAsync circuit ct
+        return result
+    }
+```
+
+### Parallel Async Execution
+
+Run multiple circuits concurrently using `Task.WhenAll`:
+
+```fsharp
+open System.Threading
+open System.Threading.Tasks
+
+let executeParallel (backend: IQuantumBackend) (circuits: ICircuit list) (ct: CancellationToken) =
+    task {
+        let tasks = 
+            circuits
+            |> List.map (fun c -> backend.ExecuteToStateAsync c ct)
+            |> Array.ofList
+        let! results = Task.WhenAll(tasks)
+        return results |> Array.toList
+    }
+```
+
+### UnifiedBackend Async Helpers
+
+The `UnifiedBackend` module provides higher-level async utilities:
+
+```fsharp
+open FSharp.Azure.Quantum.Backends
+
+// Apply a sequence of operations asynchronously
+let! result = UnifiedBackend.applySequenceAsync backend operations initialState ct
+
+// Apply with automatic state conversion
+let! result = UnifiedBackend.applyWithConversionAsync backend operation state ct
+```
+
+## Cloud Backend Factory
+
+Create cloud backends for different quantum hardware providers:
+
+```fsharp
+open System.Net.Http
+open FSharp.Azure.Quantum.Backends
+
+let httpClient = new HttpClient()
+let workspaceUrl = "https://your-workspace.quantum.azure.com"
+
+// Rigetti (superconducting qubits)
+let rigetti = CloudBackendFactory.createRigetti httpClient workspaceUrl "rigetti.qvm" 1000
+
+// IonQ (trapped ions)
+let ionq = CloudBackendFactory.createIonQ httpClient workspaceUrl "ionq.simulator" 1000
+
+// Quantinuum (trapped ions)
+let quantinuum = CloudBackendFactory.createQuantinuum httpClient workspaceUrl "quantinuum.h1-1" 1000
+
+// AtomComputing (neutral atoms)
+let atomComputing = CloudBackendFactory.createAtomComputing httpClient workspaceUrl "atomcomputing.phoenix" 1000
+```
+
+All cloud backends implement the same `IQuantumBackend` interface (sync and async), so they are fully interchangeable with `LocalBackend`.
+
 ## Summary
 
 **Current Implementation:**
 - ✅ **Local simulation**: Fully functional (≤20 qubits, ~4 cities for TSP)
-- ✅ **Unified API**: Same `solve` function for all backends
+- ✅ **Unified API**: Same `solve` function for all backends (sync and async)
+- ✅ **Async support**: Task-based async with CancellationToken on all backends
+- ✅ **Cloud backends**: Rigetti, IonQ, Quantinuum, AtomComputing via CloudBackendFactory
 - ⚠️ **Cloud integration**: Requires Azure Quantum workspace configuration
 
 **Key Achievement:**
@@ -331,6 +458,7 @@ match solve backend distances defaultConfig with
 - ✅ No code changes needed to switch backends
 - ✅ Same result format for analysis/visualization
 - ✅ Production-ready quantum solving
+- ✅ Async execution for non-blocking cloud I/O
 
 ## Next Steps
 
@@ -340,5 +468,5 @@ match solve backend distances defaultConfig with
 
 ---
 
-**Last Updated**: 2025-11-28  
-**Status**: Current - Local and cloud backends supported
+**Last Updated**: 2026-02-22  
+**Status**: Current - Local and cloud backends supported with sync and async APIs

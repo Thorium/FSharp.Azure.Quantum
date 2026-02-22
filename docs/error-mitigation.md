@@ -112,6 +112,10 @@ let executor (circuit: Circuit) : Async<Result<float, string>> =
         return Ok result.ExpectationValue
     }
 
+// Note: For Task-based executors with CancellationToken, use:
+//   let executorAsync (circuit: Circuit) (ct: CancellationToken) : Task<Result<float, string>> =
+//       task { let! result = backend.ExecuteToStateAsync circuit ct; ... }
+
 // Apply ZNE
 match! ZNE.mitigate vqeCircuit config executor with
 | Ok result ->
@@ -251,6 +255,9 @@ let executor (circuit: Circuit) : Async<Result<float, string>> =
         let! result = backend.Execute(circuit, shots = 1024)
         return Ok result.ExpectationValue
     }
+
+// Note: Task-based alternative with CancellationToken is also supported.
+// See Backend Switching guide for async patterns.
 
 // Apply PEC
 match! PEC.mitigate h2Circuit config executor with

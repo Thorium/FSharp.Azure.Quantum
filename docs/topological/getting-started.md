@@ -59,13 +59,23 @@ let bellProgram = topological backend {
 
 // Execute and handle the result
 let result =
-    task { return! TopologicalBuilder.execute backend bellProgram }
+    TopologicalBuilder.execute backend bellProgram
     |> Async.AwaitTask |> Async.RunSynchronously
 
 match result with
 | Ok outcome -> printfn "Fusion outcome: %A" outcome
 | Error err  -> printfn "Error: %s" err.Message
 ```
+
+> **Preferred async pattern:** Use `task { }` for non-blocking execution:
+> ```fsharp
+> task {
+>     let! result = TopologicalBuilder.execute backend bellProgram
+>     match result with
+>     | Ok outcome -> printfn "Fusion outcome: %A" outcome
+>     | Error err  -> printfn "Error: %s" err.Message
+> }
+> ```
 
 Run it:
 ```bash

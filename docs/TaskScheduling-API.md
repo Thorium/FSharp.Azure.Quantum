@@ -522,6 +522,8 @@ Solve the scheduling problem and return an optimized schedule.
 val solve : problem:SchedulingProblem -> Async<Result<Solution, string>>
 ```
 
+> **Note:** This API currently returns F# `Async<_>`. Backend-level async operations use Task-based APIs with `CancellationToken`. See [Backend Switching](backend-switching.md) for `task { }` patterns.
+
 **Parameters:**
 - `problem` - Scheduling problem defined with `scheduling { ... }`
 
@@ -1024,6 +1026,8 @@ var problem = scheduling.Run(builder => builder
 var resultAsync = TaskScheduling.solve(problem);
 var result = FSharpAsync.RunSynchronously(resultAsync, 
     FSharpOption<int>.None, FSharpOption<CancellationToken>.None);
+// Note: For Task-based async patterns, see the async backend APIs
+// which use standard .NET Task<T> with CancellationToken support.
 
 if (result.IsOk)
 {

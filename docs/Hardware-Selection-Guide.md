@@ -160,6 +160,8 @@ async {
 |> Async.RunSynchronously
 ```
 
+> **Async alternative:** Cloud backends now support `task { }` with `CancellationToken`. Use `backend.ExecuteToStateAsync circuit ct` for non-blocking execution. See [Backend Switching](backend-switching.md).
+
 **Cost:** ~$0.30 per circuit execution (varies by shot count)
 
 **When to Choose IonQ:** You need the **highest quality** results and your problem fits in 11 qubits.
