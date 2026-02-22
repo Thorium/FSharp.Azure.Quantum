@@ -322,3 +322,104 @@ module TopologicalFormat =
             match Parser.parseFile filePath with
             | Error msg -> Error (QuantumError.ValidationError ("filePath", msg))
             | Ok program -> executeProgram backend program
+
+        /// Execute a parsed program on a topological backend asynchronously.
+        ///
+        /// Uses backend.ApplyOperationAsync for each operation, enabling true non-blocking
+        /// execution on cloud backends while remaining compatible with local simulators.
+        ///
+        /// Parameters:
+        ///   backend - IQuantumBackend implementation
+        ///   program - Parsed topological program
+        ///   cancellationToken - Token for cooperative cancellation
+        ///
+        /// Returns:
+        ///   Task<Result<ExecutionResult, QuantumError>>
+        let executeProgramAsync
+            (backend: IQuantumBackend)
+            (program: Program)
+            (cancellationToken: CancellationToken)
+            : Task<Result<ExecutionResult, QuantumError>> =
+            task {
+                // Convert program operations to QuantumOperations
+                let backendOperations =
+                    program.Operations
+                    |> List.choose (fun op ->
+                        match op with
+                        | Initialize _ -> None
+                        | Braid index -> Some (QuantumOperation.Braid index)
+                        | Measure index -> Some (QuantumOperation.Measure index)
+                        | FMove (dir, depth) ->
+                            let fmoveDir =
+                                match dir with
+                                | Left -> FMoveDirection.Forward
+                                | Right -> FMoveDirection.Backward
+                                | Up -> FMoveDirection.Forward
+                                | Down -> FMoveDirection.Backward
+                            Some (QuantumOperation.FMove (fmoveDir, depth))
+                        | Comment _ -> None
+                    )
+
+                // Find initialization
+                let initOp =
+                    program.Operations
+                    |> List.tryPick (fun op ->
+                        match op with
+                        | Initialize count -> Some count
+                        | _ -> None
+                    )
+
+                match initOp with
+                | None -> return Error (QuantumError.ValidationError ("field", "Program must contain INIT operation"))
+                | Some count ->
+                    // InitializeState is CPU-only (no I/O), wrapping in task is fine
+                    match backend.InitializeState count with
+                    | Error err -> return Error err
+                    | Ok initialState ->
+                        // Execute operations sequentially with async fold
+                        let mutable currentState = initialState
+                        let mutable currentError : QuantumError option = None
+                        let messages = System.Collections.Generic.List<string>()
+
+                        for op in backendOperations do
+                            cancellationToken.ThrowIfCancellationRequested()
+                            if currentError.IsNone then
+                                let! result = backend.ApplyOperationAsync op currentState cancellationToken
+                                match result with
+                                | Error err -> currentError <- Some err
+                                | Ok newState ->
+                                    currentState <- newState
+                                    messages.Add($"Applied operation: {op}")
+
+                        match currentError with
+                        | Some err -> return Error err
+                        | None ->
+                            return Ok {
+                                FinalState = currentState
+                                MeasurementOutcomes = []
+                                Messages = messages |> Seq.toList
+                            }
+            }
+
+        /// Execute program from file asynchronously.
+        ///
+        /// Chains parseFileAsync (async file I/O) with executeProgramAsync (async backend execution).
+        ///
+        /// Parameters:
+        ///   backend - IQuantumBackend implementation
+        ///   filePath - Path to .tqp file
+        ///   cancellationToken - Token for cooperative cancellation
+        ///
+        /// Returns:
+        ///   Task<Result<ExecutionResult, QuantumError>>
+        let executeFileAsync
+            (backend: IQuantumBackend)
+            (filePath: string)
+            (cancellationToken: CancellationToken)
+            : Task<Result<ExecutionResult, QuantumError>> =
+            task {
+                let! parseResult = Parser.parseFileAsync filePath cancellationToken
+                match parseResult with
+                | Error msg -> return Error (QuantumError.ValidationError ("filePath", msg))
+                | Ok program -> return! executeProgramAsync backend program cancellationToken
+            }

@@ -174,5 +174,6 @@ module Scheduling =
         static member MinimizeLateness = MinimizeLateness
 
     /// Solve scheduling problem (synchronous for C#)
+    [<System.Obsolete("Use solve instead (returns Async). This synchronous wrapper blocks the calling thread.")>]
     let solveClassical (problem: SchedulingProblem<'TTask, 'TResource>) : QuantumResult<Solution> =
         solve problem |> Async.RunSynchronously

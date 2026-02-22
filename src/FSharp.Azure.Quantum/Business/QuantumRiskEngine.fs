@@ -386,6 +386,7 @@ module RiskEngine =
         }
 
     /// Execute the configured risk analysis (sync wrapper)
+    [<System.Obsolete("Use executeAsync instead. This synchronous wrapper blocks the calling thread.")>]
     let execute (config: RiskConfiguration) : RiskReport =
         match config.CancellationToken with
         | Some token ->

@@ -2,9 +2,11 @@ namespace FSharp.Azure.Quantum.Topological.Tests
 
 open System
 open System.IO
+open System.Threading.Tasks
 open Xunit
 open FSharp.Azure.Quantum.Topological
 open FSharp.Azure.Quantum.Topological.TopologicalFormat
+open FSharp.Azure.Quantum.Topological.TopologicalUnifiedBackendFactory
 
 module TopologicalFormatTests =
     
@@ -265,3 +267,184 @@ BRAID -1
         | Error msg -> 
             Assert.Contains("Failed to write", msg)
         | Ok () -> failwith "Should have failed with invalid path"
+
+    // ========================================================================
+    // EXECUTOR ASYNC TESTS
+    // ========================================================================
+
+    [<Fact>]
+    let ``executeProgramAsync should produce same result as sync executeProgram`` () : Task =
+        task {
+            let backend =
+                TopologicalUnifiedBackendFactory.createIsing 16
+
+            let program = {
+                AnyonType = AnyonSpecies.AnyonType.Ising
+                Operations = [
+                    Initialize 4
+                    Braid 0
+                    Braid 2
+                ]
+            }
+
+            let syncResult = Executor.executeProgram backend program
+
+            let! asyncResult =
+                Executor.executeProgramAsync backend program System.Threading.CancellationToken.None
+
+            match syncResult, asyncResult with
+            | Ok syncExec, Ok asyncExec ->
+                // Both should produce a valid final state
+                Assert.NotNull(box syncExec.FinalState)
+                Assert.NotNull(box asyncExec.FinalState)
+                // Messages should have same count (one per operation)
+                Assert.Equal(syncExec.Messages.Length, asyncExec.Messages.Length)
+            | Error syncErr, _ ->
+                failwith $"Sync execution failed: {syncErr}"
+            | _, Error asyncErr ->
+                failwith $"Async execution failed: {asyncErr}"
+        }
+
+    [<Fact>]
+    let ``executeProgramAsync should fail without INIT operation`` () : Task =
+        task {
+            let backend =
+                TopologicalUnifiedBackendFactory.createIsing 16
+
+            let program = {
+                AnyonType = AnyonSpecies.AnyonType.Ising
+                Operations = [ Braid 0 ]
+            }
+
+            let! result =
+                Executor.executeProgramAsync backend program System.Threading.CancellationToken.None
+
+            match result with
+            | Error err ->
+                let errStr = $"{err}"
+                Assert.Contains("INIT", errStr)
+            | Ok _ ->
+                failwith "Should have failed without INIT operation"
+        }
+
+    [<Fact>]
+    let ``executeProgramAsync should respect cancellation`` () : Task =
+        task {
+            let backend =
+                TopologicalUnifiedBackendFactory.createIsing 16
+
+            let program = {
+                AnyonType = AnyonSpecies.AnyonType.Ising
+                Operations = [
+                    Initialize 4
+                    Braid 0
+                    Braid 1
+                    Braid 2
+                ]
+            }
+
+            use cts = new System.Threading.CancellationTokenSource()
+            cts.Cancel()
+
+            let mutable threw = false
+            try
+                let! _ = Executor.executeProgramAsync backend program cts.Token
+                ()
+            with
+            | :? System.OperationCanceledException -> threw <- true
+
+            Assert.True(threw, "Should have thrown OperationCanceledException or TaskCanceledException")
+        }
+
+    [<Fact>]
+    let ``executeFileAsync should execute program from file`` () : Task =
+        task {
+            let tempFile = Path.GetTempFileName()
+
+            try
+                let program = {
+                    AnyonType = AnyonSpecies.AnyonType.Ising
+                    Operations = [
+                        Initialize 4
+                        Braid 0
+                        Braid 2
+                    ]
+                }
+
+                match Serializer.serializeToFile program tempFile with
+                | Error msg -> failwith $"Write failed: {msg}"
+                | Ok () ->
+                    let backend =
+                        TopologicalUnifiedBackendFactory.createIsing 16
+
+                    let! result =
+                        Executor.executeFileAsync backend tempFile System.Threading.CancellationToken.None
+
+                    match result with
+                    | Ok exec ->
+                        Assert.NotNull(box exec.FinalState)
+                        Assert.True(exec.Messages.Length > 0, "Should have execution messages")
+                    | Error err ->
+                        failwith $"Async file execution failed: {err}"
+            finally
+                if File.Exists(tempFile) then
+                    File.Delete(tempFile)
+        }
+
+    [<Fact>]
+    let ``executeFileAsync should fail with non-existent file`` () : Task =
+        task {
+            let backend =
+                TopologicalUnifiedBackendFactory.createIsing 16
+
+            let! result =
+                Executor.executeFileAsync backend "/nonexistent/file.tqp" System.Threading.CancellationToken.None
+
+            match result with
+            | Error err ->
+                let errStr = $"{err}"
+                Assert.Contains("filePath", errStr)
+            | Ok _ ->
+                failwith "Should have failed with non-existent file"
+        }
+
+    [<Fact>]
+    let ``executeFileAsync roundtrip with async file I/O`` () : Task =
+        task {
+            let tempFile = Path.GetTempFileName()
+
+            try
+                let program = {
+                    AnyonType = AnyonSpecies.AnyonType.Ising
+                    Operations = [
+                        Initialize 6
+                        Braid 0
+                        Braid 2
+                        Braid 4
+                    ]
+                }
+
+                // Write asynchronously
+                let! writeResult = Serializer.serializeToFileAsync program tempFile System.Threading.CancellationToken.None
+                match writeResult with
+                | Error msg -> failwith $"Async write failed: {msg}"
+                | Ok () -> ()
+
+                // Read and execute asynchronously
+                let backend =
+                    TopologicalUnifiedBackendFactory.createIsing 16
+
+                let! result =
+                    Executor.executeFileAsync backend tempFile System.Threading.CancellationToken.None
+
+                match result with
+                | Ok exec ->
+                    Assert.NotNull(box exec.FinalState)
+                    // 3 braid operations should produce 3 messages
+                    Assert.Equal(3, exec.Messages.Length)
+                | Error err ->
+                    failwith $"Async roundtrip failed: {err}"
+            finally
+                if File.Exists(tempFile) then
+                    File.Delete(tempFile)
+        }

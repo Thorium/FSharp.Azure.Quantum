@@ -185,7 +185,10 @@ type QuantumDrugDiscoveryBuilder() =
     member private _.LoadCandidates(state: DrugDiscoveryConfiguration) =
         match state.CandidateSource with
         | Some (Provider provider) -> ProviderDataLoader.loadFromProvider provider
-        | Some (ProviderAsync provider) -> ProviderDataLoader.loadFromProviderAsync provider |> Async.RunSynchronously
+        | Some (ProviderAsync provider) ->
+            // Note: This uses Async.RunSynchronously on a private member.
+            // An async LoadCandidatesAsync path should be added in Phase 6.
+            ProviderDataLoader.loadFromProviderAsync provider |> Async.RunSynchronously
         | Some (FilePath path) -> ProviderDataLoader.loadFromFilePath path
         | None ->
             match state.CandidatesPath with

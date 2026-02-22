@@ -201,6 +201,7 @@ module HybridSolver =
     ///
     /// ⚠️ WARNING: This function uses Async.RunSynchronously internally and can block for minutes.
     /// Consider refactoring to async if calling from async context.
+    [<System.Obsolete("Use solveTspWithBackend instead. This legacy function uses Async.RunSynchronously internally.")>]
     let solveTspWithQuantum
         (distances: float[,])
         (quantumConfig: QuantumExecutionConfig option)

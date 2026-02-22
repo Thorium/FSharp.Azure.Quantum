@@ -498,6 +498,7 @@ module AutoML =
     // ========================================================================
     
     /// Run AutoML search to find best model
+    [<System.Obsolete("Uses Async.Parallel internally. Async counterpart (searchAsync) deferred to Phase 6.")>]
     let search (problem: AutoMLProblem) : QuantumResult<AutoMLResult> =
         validateProblem problem
         |> Result.bind (fun () ->

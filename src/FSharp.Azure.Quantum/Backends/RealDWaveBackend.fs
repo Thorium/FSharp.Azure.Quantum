@@ -311,6 +311,7 @@ module RealDWaveBackend =
             }
         
         /// Execute circuit and return full result with measurements
+        [<System.Obsolete("Use ExecuteCore (async) instead. This synchronous wrapper blocks the calling thread.")>]
         member this.Execute (circuit: ICircuit) (numShots: int) : Result<ExecutionResult, QuantumError> =
             if numShots <= 0 then
                 Error (QuantumError.ValidationError ("numShots", $"must be > 0, got {numShots}"))

@@ -135,6 +135,9 @@
     <!-- Local Backend (depends on CircuitBuilder, CircuitAbstraction, BackendAbstraction, UnifiedBackendAbstraction) -->
     <Compile Include="Backends\LocalBackend.fs" />
 
+    <!-- Cloud Backend IQuantumBackend Wrappers (depends on BackendAbstraction, CircuitAbstraction, OpenQasmExport, utility backend modules) -->
+    <Compile Include="Backends\CloudBackendHelpers.fs" />
+    <Compile Include="Backends\CloudBackends.fs" />
     
     <!-- Unified Backend Algorithms (depends on CircuitBuilder, UnifiedBackendAbstraction, LocalBackend) -->
     <Compile Include="Algorithms\BellStates.fs" />

@@ -550,6 +550,7 @@ module Molecule =
         }
     
     /// Load molecule from XYZ file synchronously.
+    [<System.Obsolete("Use fromXyzFileAsync instead. This synchronous wrapper blocks the calling thread.")>]
     let fromXyzFile (filePath: string) : Result<Molecule, QuantumError> =
         fromXyzFileAsync filePath |> Async.RunSynchronously
     
@@ -568,6 +569,7 @@ module Molecule =
         }
     
     /// Load molecule from FCIDump file synchronously.
+    [<System.Obsolete("Use fromFciDumpFileAsync instead. This synchronous wrapper blocks the calling thread.")>]
     let fromFciDumpFile (filePath: string) : Result<Molecule, QuantumError> =
         fromFciDumpFileAsync filePath |> Async.RunSynchronously
     
@@ -599,6 +601,7 @@ module Molecule =
         }
     
     /// Save molecule to XYZ file synchronously.
+    [<System.Obsolete("Use saveToXyzFileAsync instead. This synchronous wrapper blocks the calling thread.")>]
     let saveToXyzFile (filePath: string) (molecule: Molecule) : Result<unit, QuantumError> =
         saveToXyzFileAsync filePath molecule |> Async.RunSynchronously
 

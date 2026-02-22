@@ -86,6 +86,7 @@
     <Compile Include="RigettiBackendTests.fs" />
     <Compile Include="QuantinuumBackendTests.fs" />
     <Compile Include="AtomComputingBackendTests.fs" />
+    <Compile Include="CloudBackendTests.fs" />
     <Compile Include="ZeroNoiseExtrapolationTests.fs" />
     <Compile Include="ProbabilisticErrorCancellationTests.fs" />
     <Compile Include="ReadoutErrorMitigationTests.fs" />
