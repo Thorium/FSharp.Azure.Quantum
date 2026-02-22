@@ -120,16 +120,18 @@ if runAll || exampleName = "partition" then
 // ============================================================================
 // Show the plan/execute workflow with a simple problem type
 
+// Types for Example 3 (must be at top level in .fsx)
+type SumProblem = { Numbers: int list }
+type SumSolution = { Total: int }
+
 if runAll || exampleName = "plan" then
     pr ""
-    pr "â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”"
+    pr "=========================================================================="
     pr " Example 3: Plan + Execute Workflow"
     pr " Use the two-phase API to plan decomposition, then execute."
-    pr "â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”"
+    pr "=========================================================================="
 
     // A simple problem: sum of N numbers, decomposable by splitting the list
-    type SumProblem = { Numbers: int list }
-    type SumSolution = { Total: int }
 
     let estimateQubits (p: SumProblem) = p.Numbers.Length
     let decompose (p: SumProblem) =
@@ -172,15 +174,16 @@ if runAll || exampleName = "plan" then
 // Example 4: One-shot solveWithDecomposition
 // ============================================================================
 
+// Types for Example 4 (must be at top level in .fsx)
+type ArrayProblem = { Values: float list }
+type ArraySolution = { Sum: float; Count: int }
+
 if runAll || exampleName = "solve" then
     pr ""
-    pr "â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”"
+    pr "=========================================================================="
     pr " Example 4: One-Shot solveWithDecomposition"
     pr " Convenience function that plans and executes in one call."
-    pr "â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”"
-
-    type ArrayProblem = { Values: float list }
-    type ArraySolution = { Sum: float; Count: int }
+    pr "=========================================================================="
 
     let problem = { Values = [ 1.5; 2.5; 3.0; 4.0; 5.5; 6.0; 7.5; 8.0 ] }
 
