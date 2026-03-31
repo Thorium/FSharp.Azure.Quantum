@@ -6,7 +6,7 @@
     <GenerateProgramFile>false</GenerateProgramFile>
 
     <!-- Package Metadata -->
-    <Version>0.3.10</Version>
+    <Version>0.3.11</Version>
     <PackageId>FSharp.Azure.Quantum.Topological</PackageId>
     <Title>FSharp.Azure.Quantum.Topological</Title>
     <Description>Topological quantum computing plugin for FSharp.Azure.Quantum. Provides anyon theory (Ising/Fibonacci/SU(2)_k), braiding compilation, gate-to-braid conversion, Majorana hardware simulator, noise models, and topological file format (.tqp). Seamlessly integrates with main package algorithms (Grover, QFT, QAOA) via IQuantumBackend interface. Requires FSharp.Azure.Quantum v1.3.10+.</Description>
@@ -32,6 +32,7 @@
     <SymbolPackageFormat>snupkg</SymbolPackageFormat>
     <IncludeSymbols>true</IncludeSymbols>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
+		<icon>logo.png</icon>
 
   </PropertyGroup>
 
@@ -46,7 +47,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <None Include="README.md" Pack="true" PackagePath="\" />
+    <None Include="README.md" Pack="true" PackagePath="/" />
+		<None Include="..\..\docs\images\logo.png" Pack="true" PackagePath="/" />
   </ItemGroup>
 
   <ItemGroup>
