@@ -836,13 +836,12 @@ module QaoaExecutionHelpers =
         (maxConcurrency: int)
         (cancellationToken: CancellationToken)
         : Task<Result<int[] * (float * float)[] * bool, QuantumError>> =
-        task {
             match validateConfig config with
-            | Error err -> return Error err
+            | Error err -> task { return Error err }
             | Ok () ->
 
             if budget.MaxTotalShots <= 0 then
-                return Error (QuantumError.ValidationError ("MaxTotalShots", $"must be > 0, got {budget.MaxTotalShots}"))
+                task { return Error (QuantumError.ValidationError ("MaxTotalShots", $"must be > 0, got {budget.MaxTotalShots}")) }
             else
 
             let n = Array2D.length1 qubo
@@ -864,24 +863,27 @@ module QaoaExecutionHelpers =
                     | None -> false
 
             if isTimeExceeded () then
-                return Error (QuantumError.OperationError ("QAOA", "Time budget exceeded before execution started"))
+                task { return Error (QuantumError.OperationError ("QAOA", "Time budget exceeded before execution started")) }
             elif exceedsCapacity then
                 let limitStr =
                     match maxQubits with
                     | Some limit -> $"{limit}"
                     | None -> "unknown"
-                return Error (QuantumError.OperationError (
-                    "QAOA",
-                    $"Problem requires {n} qubits but backend supports {limitStr}. " +
-                    "Use solver-level decomposition (solveWithConfig) for automatic splitting, " +
-                    "or reduce problem size."))
+                task {
+                    return Error (QuantumError.OperationError (
+                        "QAOA",
+                        $"Problem requires {n} qubits but backend supports {limitStr}. " +
+                        "Use solver-level decomposition (solveWithConfig) for automatic splitting, " +
+                        "or reduce problem size."))
+                }
             else
                 let adjustedConfig = { config with FinalShots = min config.FinalShots budget.MaxTotalShots }
                 if config.EnableOptimization then
                     // Nelder-Mead is inherently sequential — run sync optimization,
                     // but wrap in task to keep the async contract.
-                    return executeQaoaWithOptimization backend qubo adjustedConfig
+                    task { return executeQaoaWithOptimization backend qubo adjustedConfig }
                 else
-                    let! result = executeQaoaWithGridSearchAsync backend qubo adjustedConfig maxConcurrency cancellationToken
-                    return result |> Result.map (fun (bits, ps) -> (bits, ps, false))
-        }
+                    task {
+                        let! result = executeQaoaWithGridSearchAsync backend qubo adjustedConfig maxConcurrency cancellationToken
+                        return result |> Result.map (fun (bits, ps) -> (bits, ps, false))
+                    }

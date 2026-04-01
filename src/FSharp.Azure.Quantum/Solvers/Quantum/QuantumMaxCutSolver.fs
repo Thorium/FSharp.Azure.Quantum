@@ -259,7 +259,7 @@ module QuantumMaxCutSolver =
         (problem: MaxCutProblem) 
         (config: QaoaConfig) 
         (cancellationToken: CancellationToken)
-        : Task<Result<MaxCutSolution, QuantumError>> = task {
+        : Task<Result<MaxCutSolution, QuantumError>> = 
         
         let startTime = DateTime.Now
         
@@ -270,25 +270,25 @@ module QuantumMaxCutSolver =
             // Note: Backend validation removed (MaxQubits/Name properties no longer in interface)
             // Backends will return errors if qubit count exceeded
             if numQubits = 0 then
-                return Error (QuantumError.ValidationError ("numVertices", "MaxCut problem has no vertices"))
+                task {
+                    return Error (QuantumError.ValidationError ("numVertices", "MaxCut problem has no vertices"))
+                }
             elif problem.Edges.Length = 0 then
-                return Error (QuantumError.ValidationError ("numEdges", "MaxCut problem has no edges"))
+                task {
+                    return Error (QuantumError.ValidationError ("numEdges", "MaxCut problem has no edges"))
+                }
             else
                 // Step 2: Encode MaxCut as QUBO
                 match toQubo problem with
-                | Error err -> return Error err
+                | Error err -> task { return Error err }
                 | Ok quboMatrix ->
                     
                     // Step 3: Convert QUBO to dense array and execute QAOA pipeline
                     let quboArray = Qubo.toDenseArray quboMatrix.NumVariables quboMatrix.Q
                     let (gamma, beta) = config.InitialParameters
                     let parameters = [| gamma, beta |]
-                    
-                    let! executeResult = QaoaExecutionHelpers.executeFromQuboAsync backend quboArray parameters config.NumShots cancellationToken
-                    match executeResult with
-                    | Error err -> return Error err
-                    | Ok measurements ->
-                        
+
+                    let handleMeasurements (measurements : int array array) = 
                         // Step 7: Decode measurements to partitions
                         let solutions = 
                             measurements
@@ -301,16 +301,22 @@ module QuantumMaxCutSolver =
                         
                         let elapsedMs = (DateTime.Now - startTime).TotalMilliseconds
                         
-                        return Ok {
+                        Ok {
                             bestSolution with
                                 BackendName = backend.Name
                                 NumShots = config.NumShots
                                 ElapsedMs = elapsedMs
                         }
-        
+
+                    task {
+                        let! executeResult = QaoaExecutionHelpers.executeFromQuboAsync backend quboArray parameters config.NumShots cancellationToken
+                        match executeResult with
+                        | Error err -> return Error err
+                        | Ok measurements ->
+                            return handleMeasurements measurements
+                    }
         with ex ->
-            return Error (QuantumError.OperationError ("QuantumMaxCutSolver", sprintf "Quantum MaxCut solve failed: %s" ex.Message))
-    }
+            task { return Error (QuantumError.OperationError ("QuantumMaxCutSolver", sprintf "Quantum MaxCut solve failed: %s" ex.Message)) }
 
     /// Solve MaxCut problem using quantum QAOA (synchronous wrapper)
     /// 

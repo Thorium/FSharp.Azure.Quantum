@@ -86,7 +86,7 @@ module HybridSolver =
         SubscriptionId: string
 
         /// Maximum cost limit in USD (optional guard)
-        MaxCostUSD: float option
+        MaxCostUSD: float voption
 
         /// Enable comparison with classical solver
         EnableComparison: bool
@@ -260,7 +260,7 @@ module HybridSolver =
                 | QuantumAdvisor.RecommendationType.StronglyRecommendQuantum, Some qConfig ->
                     // Check cost limit
                     match qConfig.MaxCostUSD with
-                    | Some limit when recommendation.EstimatedClassicalTimeMs.IsSome ->
+                    | ValueSome limit when recommendation.EstimatedClassicalTimeMs.IsSome ->
                         let estimatedCost = 5.0 // Mock cost estimation
                         if estimatedCost > limit then
                             let reasoning = $"Quantum advantage detected but estimated cost (${estimatedCost:F2}) exceeds limit (${limit:F2}). Falling back to classical."
@@ -320,54 +320,73 @@ module HybridSolver =
         (forceMethod: SolverMethod option)
         (cancellationToken: System.Threading.CancellationToken)
         : System.Threading.Tasks.Task<QuantumResult<Solution<TspSolver.TspSolution>>> =
-        task {
             let startTime = DateTime.UtcNow
             let config = TspSolver.defaultConfig
             let solveClassical () = TspSolver.solveWithDistances distances config
 
             match forceMethod with
             | Some Classical ->
-                return
+                let res =
                     solveClassical ()
                     |> createClassicalSolution
                         <| "Classical solver forced by user override. Quantum Advisor bypassed."
                         <| startTime
                         <| None
                     |> Ok
+                task { return res }
 
             | Some Quantum when quantumConfig.IsNone ->
-                return Error (QuantumError.ValidationError ("Configuration", "Quantum method forced but no quantum configuration provided."))
+                task {
+                    return Error (QuantumError.ValidationError ("Configuration", "Quantum method forced but no quantum configuration provided."))
+                }
 
             | Some Quantum ->
-                let! quantumResult = executeQuantumTspTask distances quantumConfig.Value cancellationToken
-                match quantumResult with
-                | Ok quantumResult ->
-                    return
-                        createQuantumSolution
-                            quantumResult
-                            "Quantum solver forced by user override."
-                            startTime
-                            None
-                        |> Ok
-                | Error err -> return Error err
-
+                task {
+                    let! quantumResult = executeQuantumTspTask distances quantumConfig.Value cancellationToken
+                    match quantumResult with
+                    | Ok quantumResult ->
+                        return
+                            createQuantumSolution
+                                quantumResult
+                                "Quantum solver forced by user override."
+                                startTime
+                                None
+                            |> Ok
+                    | Error err -> return Error err
+                }
             | None ->
                 let recommendation = QuantumAdvisor.getRecommendation distances
                 match recommendation with
-                | Error err -> return Error err
+                | Error err -> task { return Error err }
                 | Ok recommendation ->
                     match recommendation.RecommendationType, quantumConfig with
                     | QuantumAdvisor.RecommendationType.StronglyRecommendQuantum, Some qConfig ->
                         match qConfig.MaxCostUSD with
-                        | Some limit when recommendation.EstimatedClassicalTimeMs.IsSome ->
+                        | ValueSome limit when recommendation.EstimatedClassicalTimeMs.IsSome ->
                             let estimatedCost = 5.0
                             if estimatedCost > limit then
                                 let reasoning = $"Quantum advantage detected but estimated cost (${estimatedCost:F2}) exceeds limit (${limit:F2}). Falling back to classical."
-                                return
-                                    solveClassical ()
-                                    |> createClassicalSolution <| reasoning <| startTime <| Some recommendation
-                                    |> Ok
+                                let res = 
+                                        solveClassical ()
+                                        |> createClassicalSolution <| reasoning <| startTime <| Some recommendation
+                                        |> Ok
+                                task { return res }
                             else
+                                task {
+                                    let! quantumResult = executeQuantumTspTask distances qConfig cancellationToken
+                                    match quantumResult with
+                                    | Ok quantumResult ->
+                                        return
+                                            createQuantumSolution
+                                                quantumResult
+                                                $"{recommendation.Reasoning} Routing to quantum backend."
+                                                startTime
+                                                (Some recommendation)
+                                            |> Ok
+                                    | Error err -> return Error err
+                                }
+                        | _ ->
+                            task {
                                 let! quantumResult = executeQuantumTspTask distances qConfig cancellationToken
                                 match quantumResult with
                                 | Ok quantumResult ->
@@ -379,33 +398,22 @@ module HybridSolver =
                                             (Some recommendation)
                                         |> Ok
                                 | Error err -> return Error err
-                        | _ ->
-                            let! quantumResult = executeQuantumTspTask distances qConfig cancellationToken
-                            match quantumResult with
-                            | Ok quantumResult ->
-                                return
-                                    createQuantumSolution
-                                        quantumResult
-                                        $"{recommendation.Reasoning} Routing to quantum backend."
-                                        startTime
-                                        (Some recommendation)
-                                    |> Ok
-                            | Error err -> return Error err
-
+                            }
                     | QuantumAdvisor.RecommendationType.StronglyRecommendQuantum, None ->
                         let reasoning = $"{recommendation.Reasoning} Quantum solver not available - using classical fallback."
-                        return
+                        let res = 
                             solveClassical ()
                             |> createClassicalSolution <| reasoning <| startTime <| Some recommendation
                             |> Ok
+                        task { return res }
 
                     | _ ->
                         let reasoning = $"{recommendation.Reasoning} Routing to classical TSP solver."
-                        return
+                        let res =
                             solveClassical ()
                             |> createClassicalSolution <| reasoning <| startTime <| Some recommendation
                             |> Ok
-        }
+                        task { return res }
 
     /// Solve TSP problem using hybrid solver with optional backend override.
     ///

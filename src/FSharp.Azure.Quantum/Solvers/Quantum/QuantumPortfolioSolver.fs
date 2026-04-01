@@ -500,7 +500,7 @@ module QuantumPortfolioSolver =
                     let allocations =
                         selectedAssetList
                         |> List.map (fun asset ->
-                            let shares = valuePerAsset / asset.Price
+                            let shares = if asset.Price = 0.0 then 0.0 else valuePerAsset / asset.Price
                             let actualValue = shares * asset.Price
                             {
                                 PortfolioSolver.Allocation.Asset = asset
@@ -595,7 +595,7 @@ module QuantumPortfolioSolver =
         (constraints: PortfolioSolver.Constraints)
         (config: QuantumPortfolioConfig)
         (cancellationToken: CancellationToken)
-        : Task<Result<QuantumPortfolioSolution, QuantumError>> = task {
+        : Task<Result<QuantumPortfolioSolution, QuantumError>> =
         
         let startTime = DateTime.UtcNow
         
@@ -604,11 +604,15 @@ module QuantumPortfolioSolver =
         let requiredQubits = numAssets
         
         if numAssets = 0 then
-            return Error (QuantumError.ValidationError ("numAssets", "Portfolio problem has no assets"))
+            task {
+                return Error (QuantumError.ValidationError ("numAssets", "Portfolio problem has no assets"))
+            }
         // Note: Backend validation removed (MaxQubits/Name properties no longer in interface)
         // Backends will return errors if qubit count exceeded
         elif config.NumShots <= 0 then
-            return Error (QuantumError.ValidationError ("numShots", "Number of shots must be positive"))
+            task {
+                return Error (QuantumError.ValidationError ("numShots", "Number of shots must be positive"))
+            }
         else
             try
                 // Build portfolio problem
@@ -620,7 +624,7 @@ module QuantumPortfolioSolver =
                 
                 // Step 1: Encode portfolio as QUBO
                 match toQubo problem with
-                | Error msg -> return Error msg
+                | Error msg -> task { return Error msg }
                 | Ok quboMatrix ->
                     
                     // Step 2: Execute QAOA pipeline from dense QUBO
@@ -628,18 +632,14 @@ module QuantumPortfolioSolver =
                     let (gamma, beta) = config.InitialParameters
                     let parameters = [| gamma, beta |]
                     
-                    let! executeResult = QaoaExecutionHelpers.executeFromQuboAsync backend quboArray parameters config.NumShots cancellationToken
-                    match executeResult with
-                    | Error err -> return Error err
-                    | Ok measurements ->
-                        
+                    let handleMeasurements (measurements : int array array) =
                         // Step 5: Decode measurements to portfolio solutions
                         let portfolioResults =
                             measurements
                             |> Array.choose (decodeSolution problem)
                         
                         if portfolioResults.Length = 0 then
-                            return Error (QuantumError.OperationError ("DecodeSolution", "No valid portfolio solutions found in quantum measurements"))
+                            Error (QuantumError.OperationError ("DecodeSolution", "No valid portfolio solutions found in quantum measurements"))
                         else
                             // Select best solution (minimum energy = maximum utility)
                             let bestSolution = 
@@ -648,16 +648,22 @@ module QuantumPortfolioSolver =
                             
                             let elapsedMs = (DateTime.UtcNow - startTime).TotalMilliseconds
                             
-                            return Ok {
+                            Ok {
                                 bestSolution with
                                     BackendName = backend.Name
                                     NumShots = config.NumShots
                                     ElapsedMs = elapsedMs
                             }
-            
+
+                    task {
+                        let! executeResult = QaoaExecutionHelpers.executeFromQuboAsync backend quboArray parameters config.NumShots cancellationToken
+                        match executeResult with
+                        | Error err -> return Error err
+                        | Ok measurements ->
+                            return handleMeasurements measurements
+                    }            
             with ex ->
-                return Error (QuantumError.OperationError ("QuantumPortfolioSolver", sprintf "Quantum portfolio solver failed: %s" ex.Message))
-    }
+                task { return Error (QuantumError.OperationError ("QuantumPortfolioSolver", sprintf "Quantum portfolio solver failed: %s" ex.Message)) }
 
     /// Solve portfolio optimization using quantum backend via QAOA (synchronous)
     /// 

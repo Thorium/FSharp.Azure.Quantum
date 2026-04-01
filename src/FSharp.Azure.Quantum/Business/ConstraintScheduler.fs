@@ -623,16 +623,19 @@ module ConstraintScheduler =
     /// Bin indices are mapped back to resource indices.
     let private decodeQaoaBinPackingSolution (problem: SchedulingProblem) (binSolution: QuantumBinPackingSolver.Solution) : Schedule =
         let assignments =
-            binSolution.Assignments
-            |> List.choose (fun (item, binIdx) ->
-                let taskId = item.Id
-                // Map bin index to resource (modular wrap if more bins than resources)
-                let resIdx = binIdx % problem.Resources.Length
-                if resIdx < problem.Resources.Length then
-                    let res = problem.Resources.[resIdx]
-                    Some { Task = taskId; Resource = res.Id; Cost = res.Cost }
-                else
-                    None)
+            if problem.Resources.Length = 0 then
+                []
+            else
+                binSolution.Assignments
+                |> List.choose (fun (item, binIdx) ->
+                    let taskId = item.Id
+                    // Map bin index to resource (modular wrap if more bins than resources)
+                    let resIdx = binIdx % problem.Resources.Length
+                    if resIdx < problem.Resources.Length then
+                        let res = problem.Resources.[resIdx]
+                        Some { Task = taskId; Resource = res.Id; Cost = res.Cost }
+                    else
+                        None)
         
         createSchedule problem assignments
     

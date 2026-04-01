@@ -158,7 +158,7 @@ module OpenQasmImport =
                 let divisor =
                     if m.Groups.[3].Success && m.Groups.[3].Value <> "" then
                         match Double.TryParse(m.Groups.[3].Value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture) with
-                        | true, v -> v
+                        | true, v -> if v = 0.0 then 1.0 else v
                         | false, _ -> 1.0
                     else 1.0
                 Ok (sign * multiplier * Math.PI / divisor)

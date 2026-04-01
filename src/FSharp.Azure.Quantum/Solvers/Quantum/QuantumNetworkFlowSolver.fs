@@ -358,7 +358,7 @@ module QuantumNetworkFlowSolver =
         (problem: NetworkFlowProblem)
         (config: QuantumFlowConfig)
         (cancellationToken: CancellationToken)
-        : Task<Result<NetworkFlowSolution, QuantumError>> = task {
+        : Task<Result<NetworkFlowSolution, QuantumError>> = 
         
         let startTime = DateTime.UtcNow
         
@@ -367,11 +367,15 @@ module QuantumNetworkFlowSolver =
         let requiredQubits = numEdges
         
         if numEdges = 0 then
-            return Error (QuantumError.ValidationError ("numEdges", "Network flow problem has no edges"))
+            task {
+                return Error (QuantumError.ValidationError ("numEdges", "Network flow problem has no edges"))
+            }
         // Note: Backend validation removed (MaxQubits/Name properties no longer in interface)
         // Backends will return errors if qubit count exceeded
         elif config.NumShots <= 0 then
-            return Error (QuantumError.ValidationError ("numShots", "Number of shots must be positive"))
+            task {
+                return Error (QuantumError.ValidationError ("numShots", "Number of shots must be positive"))
+            }
         else
             try
                 // Report start
@@ -381,7 +385,7 @@ module QuantumNetworkFlowSolver =
                 
                 // Step 1: Encode network flow as QUBO
                 match toQubo problem with
-                | Error msg -> return Error msg
+                | Error msg -> task { return Error msg }
                 | Ok quboMatrix ->
                     
                     // Step 2: Generate QAOA circuit components from QUBO
@@ -397,12 +401,8 @@ module QuantumNetworkFlowSolver =
                     config.ProgressReporter
                     |> Option.iter (fun r -> 
                         r.Report(Progress.PhaseChanged("Network Flow QAOA", Some $"Executing on {backend.Name}...")))
-                    
-                    let! executeResult = QaoaExecutionHelpers.executeFromQuboAsync backend quboArray parameters config.NumShots cancellationToken
-                    match executeResult with
-                    | Error err -> return Error err
-                    | Ok measurements ->
-                        
+
+                    let handleMeasurements (measurements:int array array) = 
                         // Step 5: Decode measurements to network flow solutions
                         config.ProgressReporter
                         |> Option.iter (fun r -> 
@@ -413,7 +413,7 @@ module QuantumNetworkFlowSolver =
                             |> Array.choose (decodeSolution problem)
                         
                         if flowResults.Length = 0 then
-                            return Error (QuantumError.OperationError ("DecodeSolution", "No valid network flow solutions found in quantum measurements"))
+                            Error (QuantumError.OperationError ("DecodeSolution", "No valid network flow solutions found in quantum measurements"))
                         else
                             // Select best solution (minimum cost)
                             let bestSolution = 
@@ -427,16 +427,23 @@ module QuantumNetworkFlowSolver =
                             |> Option.iter (fun r -> 
                                 r.Report(Progress.PhaseChanged("Network Flow Complete", Some $"Found solution with cost {bestSolution.TotalCost:F2}")))
                             
-                            return Ok {
+                            Ok {
                                 bestSolution with
                                     BackendName = backend.Name
                                     NumShots = config.NumShots
                                     ElapsedMs = elapsedMs
                             }
-            
+                    
+                    task {
+                        let! executeResult = QaoaExecutionHelpers.executeFromQuboAsync backend quboArray parameters config.NumShots cancellationToken
+                        match executeResult with
+                        | Error err -> return Error err
+                        | Ok measurements ->
+                            return handleMeasurements measurements
+                        
+                    }
             with ex ->
-                return Error (QuantumError.OperationError ("QuantumNetworkFlowSolver", sprintf "Quantum network flow solver failed: %s" ex.Message))
-    }
+                task { return Error (QuantumError.OperationError ("QuantumNetworkFlowSolver", sprintf "Quantum network flow solver failed: %s" ex.Message)) }
 
     /// Solve network flow problem using quantum backend via QAOA (synchronous wrapper)
     /// 

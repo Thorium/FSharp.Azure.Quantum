@@ -48,6 +48,40 @@ module FinancialData =
         AdjustedClose: float option
     }
     
+    [<Struct>]
+    type AssetClass =
+        | Equity
+        | FixedIncome
+        | Commodity
+        | Currency
+        | Derivative
+        | Alternative
+        | Cash
+    
+    [<Struct>]
+    type DataFrequency =
+        | Daily
+        | Weekly
+        | Monthly
+        | Intraday of minutes: int
+
+    [<Struct>]
+    type ReturnDistribution =
+        | Normal
+        | StudentT of degreesOfFreedom: float
+        | Historical
+        | LogNormal
+
+    type ScenarioType =
+        /// Historical scenario (replay actual market moves)
+        | Historical of startDate: DateTime * endDate: DateTime
+        
+        /// Hypothetical scenario (user-defined shocks)
+        | Hypothetical
+        
+        /// Regulatory scenario (Basel, CCAR, etc.)
+        | Regulatory of standard: string
+
     /// Time series of price data for a single asset
     type PriceSeries = {
         /// Asset symbol/ticker
@@ -65,12 +99,6 @@ module FinancialData =
         /// Data frequency
         Frequency: DataFrequency
     }
-    
-    and DataFrequency =
-        | Daily
-        | Weekly
-        | Monthly
-        | Intraday of minutes: int
     
     /// Return series for an asset
     type ReturnSeries = {
@@ -112,14 +140,6 @@ module FinancialData =
         Sector: string option
     }
     
-    and AssetClass =
-        | Equity
-        | FixedIncome
-        | Commodity
-        | Currency
-        | Derivative
-        | Alternative
-        | Cash
     
     /// Complete portfolio definition
     type Portfolio = {
@@ -185,12 +205,6 @@ module FinancialData =
         LookbackPeriod: int
     }
     
-    and ReturnDistribution =
-        | Normal
-        | StudentT of degreesOfFreedom: float
-        | Historical
-        | LogNormal
-    
     /// Stress scenario definition
     type StressScenario = {
         /// Scenario name
@@ -206,16 +220,7 @@ module FinancialData =
         CorrelationShock: float option
     }
     
-    and ScenarioType =
-        /// Historical scenario (replay actual market moves)
-        | Historical of startDate: DateTime * endDate: DateTime
-        
-        /// Hypothetical scenario (user-defined shocks)
-        | Hypothetical
-        
-        /// Regulatory scenario (Basel, CCAR, etc.)
-        | Regulatory of standard: string
-    
+   
     /// VaR calculation result
     type VaRResult = {
         /// Value at Risk amount
@@ -362,12 +367,12 @@ module FinancialData =
         (closeColumn: string)
         (cancellationToken: CancellationToken)
         : Task<QuantumResult<PriceSeries>> =
-        task {
-            try
-                let! allText = File.ReadAllTextAsync(filePath, cancellationToken)
+        try
+
+            let processContent (allText:string) =
                 let lines = allText.Split([| '\n'; '\r' |], StringSplitOptions.RemoveEmptyEntries)
                 if lines.Length < 2 then
-                    return Error (QuantumError.ValidationError ("file", "CSV must have header and at least one data row"))
+                    Error (QuantumError.ValidationError ("file", "CSV must have header and at least one data row"))
                 else
                     let headers = 
                         lines.[0].Split(',') 
@@ -384,8 +389,8 @@ module FinancialData =
                         h = "adj close" || h = "adjusted_close" || h = "adjclose")
                     
                     match dateIdx, closeIdx with
-                    | None, _ -> return Error (QuantumError.ValidationError ("dateColumn", sprintf "Column '%s' not found" dateColumn))
-                    | _, None -> return Error (QuantumError.ValidationError ("closeColumn", sprintf "Column '%s' not found" closeColumn))
+                    | None, _ -> Error (QuantumError.ValidationError ("dateColumn", sprintf "Column '%s' not found" dateColumn))
+                    | _, None -> Error (QuantumError.ValidationError ("closeColumn", sprintf "Column '%s' not found" closeColumn))
                     | Some dIdx, Some cIdx ->
                         let dataLines = lines.[1..]
                         
@@ -413,28 +418,33 @@ module FinancialData =
                                 | _ -> None)
                         
                         if prices.Length = 0 then
-                            return Error (QuantumError.ValidationError (
+                            Error (QuantumError.ValidationError (
                                 "csv",
                                 sprintf "All %d data rows failed to parse (no valid date/close pairs found)" dataLines.Length))
                         else
                         
                         let sortedPrices = prices |> Array.sortBy (fun p -> p.Date)
                         
-                        return Ok {
+                        Ok {
                             Symbol = symbol
                             Name = None
                             Currency = "USD"
                             Prices = sortedPrices
                             Frequency = Daily
                         }
+            task {
+                let! allText = File.ReadAllTextAsync(filePath, cancellationToken)
+                return processContent allText
+            }
+
             with ex ->
-                return Error (QuantumError.Other (sprintf "Failed to read CSV: %s" ex.Message))
-        }
+                task { return Error (QuantumError.Other (sprintf "Failed to read CSV: %s" ex.Message)) }
 
     // ========================================================================
     // YAHOO FINANCE - LIVE FETCHING
     // ========================================================================
 
+    [<Struct>]
     type YahooHistoryInterval =
         | OneDay
         | OneWeek
@@ -446,6 +456,7 @@ module FinancialData =
             | OneWeek -> "1wk"
             | OneMonth -> "1mo"
 
+    [<Struct>]
     type YahooHistoryRange =
         | OneMonth
         | ThreeMonths
@@ -971,12 +982,11 @@ module FinancialData =
     
     /// Load portfolio from CSV asynchronously
     let loadPortfolioFromCsvAsync (filePath: string) (portfolioName: string) (cancellationToken: CancellationToken) : Task<QuantumResult<Portfolio>> =
-        task {
-            try
-                let! allText = File.ReadAllTextAsync(filePath, cancellationToken)
+        try
+            let processContent (allText:string) =
                 let lines = allText.Split([| '\n'; '\r' |], StringSplitOptions.RemoveEmptyEntries)
                 if lines.Length < 2 then
-                    return Error (QuantumError.ValidationError ("file", "CSV must have header and at least one position"))
+                    Error (QuantumError.ValidationError ("file", "CSV must have header and at least one position"))
                 else
                     let headers = lines.[0].Split(',') |> Array.map (fun s -> s.Trim().Trim('"').ToLower())
                     
@@ -1023,7 +1033,7 @@ module FinancialData =
                                 })
                         let totalValue = posArray |> Array.sumBy (fun p -> p.MarketValue)
                         
-                        return Ok {
+                        Ok {
                             Id = Guid.NewGuid().ToString()
                             Name = portfolioName
                             BaseCurrency = "USD"
@@ -1033,10 +1043,13 @@ module FinancialData =
                         }
                         
                     | _ ->
-                        return Error (QuantumError.ValidationError ("columns", "CSV must have symbol, quantity, and price columns"))
-            with ex ->
-                return Error (QuantumError.Other (sprintf "Failed to read portfolio CSV: %s" ex.Message))
-        }
+                        Error (QuantumError.ValidationError ("columns", "CSV must have symbol, quantity, and price columns"))
+            task {
+                let! allText = File.ReadAllTextAsync(filePath, cancellationToken)
+                return processContent allText
+            }
+        with ex ->
+            task { return Error (QuantumError.Other (sprintf "Failed to read portfolio CSV: %s" ex.Message)) }
     
     /// Create portfolio from position list
     let createPortfolio (name: string) (positions: Position list) : Portfolio =
@@ -1066,7 +1079,7 @@ module FinancialData =
             covMatrix.Assets
             |> Array.map (fun symbol ->
                 match portfolio.Positions |> Array.tryFind (fun p -> p.Symbol = symbol) with
-                | Some pos -> pos.MarketValue / portfolio.TotalValue
+                | Some pos -> if portfolio.TotalValue = 0.0 then 0.0 else pos.MarketValue / portfolio.TotalValue
                 | None -> 0.0)
         
         // Calculate portfolio variance: w' * Σ * w
@@ -1119,7 +1132,8 @@ module FinancialData =
         // Expected Shortfall (approximate: ES ≈ VaR * (φ(z) / (1-p)))
         // where φ is standard normal PDF
         let normalPdf z = exp(-z * z / 2.0) / sqrt(2.0 * Math.PI)
-        let es = var * (normalPdf zScore) / (1.0 - riskParams.ConfidenceLevel)
+        let tailProb = 1.0 - riskParams.ConfidenceLevel
+        let es = if tailProb = 0.0 then var else var * (normalPdf zScore) / tailProb
         
         Ok {
             VaR = var
@@ -1128,7 +1142,7 @@ module FinancialData =
             TimeHorizon = riskParams.TimeHorizon
             Method = "Parametric (Normal)"
             PortfolioValue = portfolio.TotalValue
-            VaRPercent = var / portfolio.TotalValue
+            VaRPercent = if portfolio.TotalValue = 0.0 then 0.0 else var / portfolio.TotalValue
         }
     
     /// Calculate historical VaR (non-parametric)
@@ -1149,7 +1163,7 @@ module FinancialData =
                 returnSeries
                 |> Array.map (fun rs ->
                     match portfolio.Positions |> Array.tryFind (fun p -> p.Symbol = rs.Symbol) with
-                    | Some pos -> pos.MarketValue / portfolio.TotalValue
+                    | Some pos -> if portfolio.TotalValue = 0.0 then 0.0 else pos.MarketValue / portfolio.TotalValue
                     | None -> 0.0)
             
             let nObs = alignedReturns.[0].Length
@@ -1183,7 +1197,7 @@ module FinancialData =
                 TimeHorizon = riskParams.TimeHorizon
                 Method = "Historical Simulation"
                 PortfolioValue = portfolio.TotalValue
-                VaRPercent = var / portfolio.TotalValue
+                VaRPercent = if portfolio.TotalValue = 0.0 then 0.0 else var / portfolio.TotalValue
             }
     
     // ========================================================================

@@ -257,7 +257,7 @@ module QuantumKnapsackSolver =
         (problem: KnapsackProblem) 
         (config: QaoaConfig) 
         (cancellationToken: CancellationToken)
-        : Task<Result<KnapsackSolution, QuantumError>> = task {
+        : Task<Result<KnapsackSolution, QuantumError>> =
         
         let startTime = DateTime.Now
         
@@ -268,13 +268,17 @@ module QuantumKnapsackSolver =
             // Note: Backend validation removed (MaxQubits/Name properties no longer in interface)
             // Backends will return errors if qubit count exceeded
             if numQubits = 0 then
-                return Error (QuantumError.ValidationError ("numItems", "Knapsack problem has no items"))
+                task {
+                    return Error (QuantumError.ValidationError ("numItems", "Knapsack problem has no items"))
+                }
             elif problem.Capacity <= 0.0 then
-                return Error (QuantumError.ValidationError ("capacity", "Knapsack capacity must be positive"))
+                task {
+                    return Error (QuantumError.ValidationError ("capacity", "Knapsack capacity must be positive"))
+                }
             else
                 // Step 2: Encode Knapsack as QUBO
                 match toQubo problem with
-                | Error err -> return Error err
+                | Error err -> task { return Error err }
                 | Ok quboMatrix ->
                     
                     // Step 3: Execute QAOA pipeline from dense QUBO
@@ -282,11 +286,7 @@ module QuantumKnapsackSolver =
                     let (gamma, beta) = config.InitialParameters
                     let parameters = [| gamma, beta |]
                     
-                    let! executeResult = QaoaExecutionHelpers.executeFromQuboAsync backend quboArray parameters config.NumShots cancellationToken
-                    match executeResult with
-                    | Error err -> return Error err
-                    | Ok measurements ->
-                        
+                    let handleMeasurements (measurements:int array array) =
                         // Step 8: Decode measurements to selections
                         let solutions = 
                             measurements
@@ -315,16 +315,23 @@ module QuantumKnapsackSolver =
                         
                         let elapsedMs = (DateTime.Now - startTime).TotalMilliseconds
                         
-                        return Ok {
+                        Ok {
                             bestSolution with
                                 BackendName = backend.Name
                                 NumShots = config.NumShots
                                 ElapsedMs = elapsedMs
                         }
+
+                    task {
+                        let! executeResult = QaoaExecutionHelpers.executeFromQuboAsync backend quboArray parameters config.NumShots cancellationToken
+                        match executeResult with
+                        | Error err -> return Error err
+                        | Ok measurements ->
+                            return handleMeasurements measurements
+                    }
         
         with ex ->
-            return Error (QuantumError.OperationError ("QuantumKnapsackSolver", sprintf "Quantum Knapsack solve failed: %s" ex.Message))
-    }
+            task { return Error (QuantumError.OperationError ("QuantumKnapsackSolver", sprintf "Quantum Knapsack solve failed: %s" ex.Message)) }
 
     /// Solve Knapsack problem using quantum QAOA (synchronous wrapper)
     /// 
@@ -369,7 +376,7 @@ module QuantumKnapsackSolver =
         // Sort items by value-to-weight ratio (descending)
         let sortedItems = 
             problem.Items
-            |> List.map (fun item -> item, item.Value / item.Weight)
+            |> List.map (fun item -> item, if item.Weight = 0.0 then System.Double.MaxValue else item.Value / item.Weight)
             |> List.sortByDescending snd
             |> List.map fst
         

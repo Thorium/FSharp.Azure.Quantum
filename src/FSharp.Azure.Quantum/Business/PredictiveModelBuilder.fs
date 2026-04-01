@@ -74,11 +74,32 @@ module PredictiveModel =
         | MultiClass of int         // Predict categories (churn timing, risk levels)
     
     /// Architecture choice for predictive modeling
+    [<Struct>]
     type Architecture =
         | Quantum        // Pure quantum model (VQC for classification, QSVR for regression)
         | Hybrid         // Quantum features + classical ML
         | Classical      // Classical baseline for comparison
     
+    type InternalModel =
+        | RegressionVQC of VQC.RegressionTrainingResult * FeatureMapType * VariationalForm * int
+        | MultiClassVQC of VQC.MultiClassTrainingResult * FeatureMapType * VariationalForm * int  // stores all OVR classifiers
+        | SVMRegressor of QuantumKernelSVM.SVMModel
+        | SVMMultiClass of MultiClassSVM.MultiClassModel
+        | HHLRegressor of RegressionResult  // Quantum HHL linear regression
+        | ClassicalRegressor of float array  // Simple linear weights
+        | ClassicalMultiClass of float array array  // Weights per class
+    
+    type ModelMetadata = {
+        ProblemType: ProblemType
+        Architecture: Architecture
+        TrainingScore: float  // R² for regression, accuracy for classification
+        TrainingTime: TimeSpan
+        NumFeatures: int
+        NumSamples: int
+        CreatedAt: DateTime
+        Note: string option
+    }
+
     /// Predictive modeling problem specification
     type PredictionProblem = {
         /// Training features (samples × features)
@@ -137,26 +158,6 @@ module PredictiveModel =
         
         /// Training metadata
         Metadata: ModelMetadata
-    }
-    
-    and InternalModel =
-        | RegressionVQC of VQC.RegressionTrainingResult * FeatureMapType * VariationalForm * int
-        | MultiClassVQC of VQC.MultiClassTrainingResult * FeatureMapType * VariationalForm * int  // stores all OVR classifiers
-        | SVMRegressor of QuantumKernelSVM.SVMModel
-        | SVMMultiClass of MultiClassSVM.MultiClassModel
-        | HHLRegressor of RegressionResult  // Quantum HHL linear regression
-        | ClassicalRegressor of float array  // Simple linear weights
-        | ClassicalMultiClass of float array array  // Weights per class
-    
-    and ModelMetadata = {
-        ProblemType: ProblemType
-        Architecture: Architecture
-        TrainingScore: float  // R² for regression, accuracy for classification
-        TrainingTime: TimeSpan
-        NumFeatures: int
-        NumSamples: int
-        CreatedAt: DateTime
-        Note: string option
     }
     
     /// Regression prediction result
@@ -313,9 +314,9 @@ module PredictiveModel =
     
     /// Load model from file (async, task-based)
     let loadAsync (path: string) (cancellationToken: CancellationToken) : Task<QuantumResult<Model>> =
-        task {
+        async {
             // Try to load as VQC model first
-            let! transferResult = ModelSerialization.loadForTransferLearningAsync path cancellationToken
+            let! transferResult = ModelSerialization.loadForTransferLearningAsync path cancellationToken |> Async.AwaitTask
             match transferResult with
             | Ok (parameters, (numQubits, fmType, fmDepth, vfType, vfDepth)) ->
                 let featureMap = 
@@ -329,7 +330,7 @@ module PredictiveModel =
                     | _ -> VariationalForm.RealAmplitudes 2
                 
                 // Load full model to get finalLoss (stored as TrainMSE for regression)
-                let! fullModelResult = ModelSerialization.loadVQCModelAsync path cancellationToken
+                let! fullModelResult = ModelSerialization.loadVQCModelAsync path cancellationToken |> Async.AwaitTask
                 match fullModelResult with
                 | Error e -> return Error e
                 | Ok serializedModel ->
@@ -358,7 +359,7 @@ module PredictiveModel =
                     }
             | Error _ ->
                 // Try to load as multi-class VQC model
-                let! multiClassVqcResult = ModelSerialization.loadVQCMultiClassModelAsync path cancellationToken
+                let! multiClassVqcResult = ModelSerialization.loadVQCMultiClassModelAsync path cancellationToken |> Async.AwaitTask
                 match multiClassVqcResult with
                 | Ok multiClassModel ->
                     let featureMap = 
@@ -405,7 +406,7 @@ module PredictiveModel =
                     }
                 | Error _ ->
                     // Try to load as HHL model
-                    let! hhlResult = HHLModelSerialization.loadHHLRegressionResultAsync path cancellationToken
+                    let! hhlResult = HHLModelSerialization.loadHHLRegressionResultAsync path cancellationToken |> Async.AwaitTask
                     match hhlResult with
                     | Ok hhlResult ->
                         return Ok {
@@ -423,7 +424,7 @@ module PredictiveModel =
                         }
                     | Error _ ->
                         // Try to load as binary SVM model
-                        let! svmResult = SVMModelSerialization.loadSVMModelAsync path cancellationToken
+                        let! svmResult = SVMModelSerialization.loadSVMModelAsync path cancellationToken |> Async.AwaitTask
                         match svmResult with
                         | Ok svmModel ->
                             let numFeatures = if svmModel.TrainData.Length > 0 then svmModel.TrainData.[0].Length else 0
@@ -442,7 +443,7 @@ module PredictiveModel =
                             }
                         | Error _ ->
                             // Try to load as multi-class SVM model
-                            let! multiClassSvmResult = SVMModelSerialization.loadMultiClassSVMModelAsync path cancellationToken
+                            let! multiClassSvmResult = SVMModelSerialization.loadMultiClassSVMModelAsync path cancellationToken |> Async.AwaitTask
                             match multiClassSvmResult with
                             | Ok multiClassModel ->
                                 let numFeatures = 
@@ -469,7 +470,7 @@ module PredictiveModel =
                                 }
                             | Error e ->
                                 return Error (QuantumError.ValidationError ("Input", $"Failed to load model as VQC, multi-class VQC, HHL, or SVM: {e}"))
-        }
+        } |> Async.StartImmediateAsTask
     
     /// Load model from file
     [<System.Obsolete("Use loadAsync for better performance and to avoid blocking threads")>]
