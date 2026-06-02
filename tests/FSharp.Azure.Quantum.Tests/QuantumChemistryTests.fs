@@ -1698,3 +1698,105 @@ module VQEErrorMitigationTests =
             Assert.True(mitigated.ActualCostMultiplier >= 0.0)
         | Error err ->
             Assert.Fail($"Error mitigation should succeed: {err.Message}")
+
+/// Regression tests pinning the physical correctness of the bundled H2/STO-3G
+/// reference integrals (h2Sto3gIntegrals) and the fail-closed placeholder path.
+module H2ReferenceIntegralTests =
+    open System.Numerics
+    open FSharp.Azure.Quantum.QuantumChemistry
+    open FSharp.Azure.Quantum.QuantumChemistry.MolecularHamiltonian
+    open FSharp.Azure.Quantum.QuantumChemistry.FermionMapping
+    open FSharp.Azure.Quantum.Core.QaoaCircuit  // PauliOperator (PauliX/Y/Z/I)
+    open FSharp.Azure.Quantum.Core.BackendAbstraction
+    open FSharp.Azure.Quantum.Backends.LocalBackend
+    open MathNet.Numerics.LinearAlgebra
+
+    // Single-qubit Pauli matrices over System.Numerics.Complex.
+    let private c0 = Complex.Zero
+    let private c1 = Complex.One
+    let private ci = Complex.ImaginaryOne
+    let private mat (a: Complex[,]) = Matrix<Complex>.Build.DenseOfArray(a)
+    let private mI = mat (array2D [[c1; c0]; [c0; c1]])
+    let private mX = mat (array2D [[c0; c1]; [c1; c0]])
+    let private mY = mat (array2D [[c0; -ci]; [ci; c0]])
+    let private mZ = mat (array2D [[c1; c0]; [c0; -c1]])
+    let private pauliMat (op: PauliOperator) =
+        match op with
+        | PauliOperator.PauliI -> mI
+        | PauliOperator.PauliX -> mX
+        | PauliOperator.PauliY -> mY
+        | PauliOperator.PauliZ -> mZ
+
+    [<Fact>]
+    let ``h2Sto3gIntegrals reproduce FCI ground state within chemical accuracy`` () =
+        // Build the JW qubit Hamiltonian from the bundled real integrals, then
+        // exactly diagonalise it. The total ground state (electronic + nuclear
+        // repulsion) must match the known FCI value for H2/STO-3G at R=0.7414 A.
+        match buildFromIntegrals h2Sto3gIntegrals JordanWigner with
+        | Error e -> Assert.Fail($"buildFromIntegrals failed: {e}")
+        | Ok (qaoaHam, nucRep) ->
+            let mh = fromQaoaHamiltonian qaoaHam
+            Assert.Equal(4, mh.NumQubits)
+            let dim = 1 <<< mh.NumQubits
+            let mutable H = Matrix<Complex>.Build.Dense(dim, dim, c0)
+            for term in mh.Terms do
+                let mutable acc = Matrix<Complex>.Build.Dense(1, 1, c1)
+                for q in 0 .. mh.NumQubits - 1 do
+                    let p =
+                        match Map.tryFind q term.Operators with
+                        | Some op -> pauliMat op
+                        | None -> mI
+                    acc <- acc.KroneckerProduct(p)
+                H <- H + acc.Multiply(term.Coefficient)
+            let minElectronic =
+                H.Evd(Symmetricity.Hermitian).EigenValues
+                |> Seq.map (fun z -> z.Real)
+                |> Seq.min
+            let total = minElectronic + nucRep
+            let fciTotal = -1.137270  // literature FCI, H2/STO-3G at R=0.7414 A
+            Assert.True(abs (total - fciTotal) < 0.0016,
+                $"Total ground-state energy {total} Ha must be within chemical accuracy of FCI {fciTotal} Ha")
+
+    let private h2Molecule =
+        { Name = "H2"
+          Atoms = [ { Element = "H"; Position = (0.0, 0.0, 0.0) }
+                    { Element = "H"; Position = (0.0, 0.0, 0.7414) } ]
+          Bonds = [ { Atom1 = 0; Atom2 = 1; BondOrder = 1.0 } ]
+          Charge = 0
+          Multiplicity = 1 }
+
+    [<Fact>]
+    let ``buildWithMapping uses an IntegralProvider to build a real Hamiltonian`` () =
+        // The integration seam: a provider supplying real integrals (here the verified
+        // h2Sto3gIntegrals) yields a physically correct 4-qubit Hamiltonian.
+        let provider : IntegralProvider = fun _ -> Ok h2Sto3gIntegrals
+        match buildWithMapping h2Molecule JordanWigner (Some provider) with
+        | Ok hamiltonian ->
+            Assert.Equal(4, (fromQaoaHamiltonian hamiltonian).NumQubits)
+        | Error e -> Assert.Fail($"Provider-backed build should succeed, got {e}")
+
+    [<Fact>]
+    let ``ChemistryVQE UCCSD converges to FCI for H2 within chemical accuracy`` () =
+        // End-to-end VQE: the UCCSD ansatz must reach the H2 ground state. Guards
+        // against the two convergence bugs — the ansatz rotation using Coefficient.Real
+        // (the cluster operator's JW image is imaginary, so the ansatz was a no-op), and
+        // shot-sampled energy that made the finite-difference gradients pure noise.
+        match buildFromIntegrals h2Sto3gIntegrals JordanWigner with
+        | Error e -> Assert.Fail($"buildFromIntegrals failed: {e}")
+        | Ok (qaoaHam, nucRep) ->
+            let backend = LocalBackend() :> IQuantumBackend
+            let config : ChemistryVQE.ChemistryVQEConfig =
+                { Hamiltonian = fromQaoaHamiltonian qaoaHam
+                  Ansatz = ChemistryVQE.UCCSD(2, 4)
+                  MaxIterations = 100
+                  Tolerance = 1e-4
+                  UseHFInitialState = true
+                  Backend = backend
+                  ProgressReporter = None }
+            match ChemistryVQE.run config |> Async.RunSynchronously with
+            | Ok result ->
+                let total = result.Energy + nucRep
+                Assert.True(abs (total - (-1.137270)) < 0.0016,
+                    $"VQE total energy {total} Ha must be within chemical accuracy of FCI -1.13727 Ha " +
+                    $"(electronic {result.Energy}, nuclear {nucRep})")
+            | Error e -> Assert.Fail($"ChemistryVQE.run failed: {e}")

@@ -387,8 +387,13 @@ match solveQuantum backend problem with
 
 ### 🎯 Problem-Specific API Guides
 - [Graph Coloring API](GraphColoring-API) - Register allocation, frequency assignment, scheduling
-- [Quantum Chemistry API](QuantumChemistry-API) - VQE for molecular ground state energies
 - [Task Scheduling API](TaskScheduling-API) - Constraint-based quantum scheduling
+- [QRNG API](QRNG-API) - Quantum random number generation
+
+> Other algorithm APIs (HHL, Trotter–Suzuki, Quantum Monte Carlo, teleportation,
+> quantum & statistical distributions, quantum chemistry) are documented as
+> **runnable example scripts** — see *Working Code Examples* below. A compiling
+> `.fsx` is self-verifying and stays current; prose API docs drift out of date.
 
 ### 💡 Working Code Examples
 
@@ -405,10 +410,16 @@ match solveQuantum backend problem with
 - [**JobScheduling**](https://github.com/Thorium/FSharp.Azure.Quantum/tree/main/examples/JobScheduling) - Task scheduling with dependencies
 
 #### Advanced Quantum Algorithms
-- [**QuantumChemistry**](https://github.com/Thorium/FSharp.Azure.Quantum/tree/main/examples/Chemistry) - VQE for molecular simulation
+- [**QuantumChemistry**](https://github.com/Thorium/FSharp.Azure.Quantum/tree/main/examples/Chemistry) - VQE for molecular simulation (verified H2/STO-3G integrals)
 - [**PhaseEstimation**](https://github.com/Thorium/FSharp.Azure.Quantum/tree/main/examples/PhaseEstimation) - Quantum Phase Estimation (QPE)
 - [**QuantumArithmetic**](https://github.com/Thorium/FSharp.Azure.Quantum/tree/main/examples/QuantumArithmetic) - QFT-based arithmetic operations
 - [**CryptographicAnalysis**](https://github.com/Thorium/FSharp.Azure.Quantum/tree/main/examples/CryptographicAnalysis) - Shor's algorithm demonstrations
+- [**HHL (Linear Systems)**](https://github.com/Thorium/FSharp.Azure.Quantum/tree/main/examples/LinearSystemSolver) - Harrow–Hassidim–Lloyd solver
+- [**QuantumTeleportation**](https://github.com/Thorium/FSharp.Azure.Quantum/blob/main/examples/Protocols/QuantumTeleportationExample.fsx) - State teleportation protocol
+- [**QuantumDistributions**](https://github.com/Thorium/FSharp.Azure.Quantum/tree/main/examples/QuantumDistributions) - QRNG-based probability sampling
+- [**Financial Risk (Quantum Monte Carlo)**](https://github.com/Thorium/FSharp.Azure.Quantum/tree/main/examples/FinancialRisk) - Option pricing, VaR & stress testing via amplitude estimation
+- [**Trotter–Suzuki**](https://github.com/Thorium/FSharp.Azure.Quantum/blob/main/examples/Algorithms/TrotterSuzukiExample.fsx) - Hamiltonian time-evolution decomposition
+- [**Statistical Distributions**](https://github.com/Thorium/FSharp.Azure.Quantum/blob/main/examples/Algorithms/StatisticalDistributionsExample.fsx) - Numerical PDF / CDF / quantile helpers
 
 #### Interactive Demonstrations
 - [**Gomoku**](https://github.com/Thorium/FSharp.Azure.Quantum/tree/main/examples/Gomoku) - Quantum vs Classical AI game (with Hybrid mode)

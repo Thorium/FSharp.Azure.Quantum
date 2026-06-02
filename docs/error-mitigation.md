@@ -656,7 +656,7 @@ See complete, runnable examples in `examples/ErrorMitigation/`:
 
 - [Getting Started Guide](getting-started) - Installation and setup
 - [Backend Switching](backend-switching) - Cloud quantum backends
-- [Quantum Chemistry API](QuantumChemistry-API) - VQE with error mitigation
+- [Quantum Chemistry example](https://github.com/Thorium/FSharp.Azure.Quantum/tree/main/examples/Chemistry) - VQE (runnable .fsx)
 - [API Reference](api-reference) - Complete API documentation
 
 ## References

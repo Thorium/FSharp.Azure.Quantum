@@ -22,6 +22,10 @@ bld/
 # Example run outputs
 runs/
 
+# Editor/agent backup files
+*.bak
+*.backup
+
 # Visual Studio cache/options directory
 .vs/
 

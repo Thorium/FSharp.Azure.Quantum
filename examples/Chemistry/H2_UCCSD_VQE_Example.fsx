@@ -1,14 +1,17 @@
 ﻿// ==============================================================================
 // H2 Molecule Ground State with UCCSD-VQE
 // ==============================================================================
-// Production quantum chemistry example demonstrating the complete workflow:
-//   1. Build H2 molecular Hamiltonian (one + two-electron terms)
-//   2. UCCSD ansatz (chemistry-aware, guarantees chemical accuracy)
-//   3. Hartree-Fock initial state (10-100x faster convergence)
+// Quantum chemistry example demonstrating the complete workflow:
+//   1. Build H2 molecular Hamiltonian from REAL STO-3G integrals (h2Sto3gIntegrals)
+//   2. UCCSD ansatz (chemistry-aware)
+//   3. Hartree-Fock initial state (faster convergence)
 //   4. VQE optimization (find ground state energy)
 //
-// Target: H2 ground state energy = -1.137 Hartree (known exact value)
-// Accuracy goal: Chemical accuracy (+/-1 kcal/mol = +/-0.0016 Hartree)
+// Target: H2 total ground state energy = -1.13727 Hartree (known FCI value).
+// The bundled integrals are validated by exact diagonalisation (regression test
+// "h2Sto3gIntegrals reproduce FCI ground state"), and the UCCSD-VQE convergence is
+// covered by "ChemistryVQE UCCSD converges to FCI for H2". With the default iteration
+// budget the run reaches chemical accuracy (±1 kcal/mol of FCI).
 //
 // Usage:
 //   dotnet fsi H2_UCCSD_VQE_Example.fsx
@@ -98,7 +101,7 @@ let args = Cli.parse argv
 Cli.exitIfHelp "H2_UCCSD_VQE_Example.fsx" "H2 ground state with UCCSD ansatz and VQE optimization"
     [ { Cli.OptionSpec.Name = "bond-length"; Description = "H-H bond length in Angstroms"; Default = Some "0.74" }
       { Cli.OptionSpec.Name = "active-orbitals"; Description = "Number of spin-orbitals (2x spatial)"; Default = Some "4" }
-      { Cli.OptionSpec.Name = "max-iterations"; Description = "Maximum VQE iterations"; Default = Some "10" }
+      { Cli.OptionSpec.Name = "max-iterations"; Description = "Maximum VQE iterations"; Default = Some "100" }
       { Cli.OptionSpec.Name = "tolerance"; Description = "Convergence tolerance"; Default = Some "1e-4" }
       { Cli.OptionSpec.Name = "output"; Description = "Write results to JSON file"; Default = None }
       { Cli.OptionSpec.Name = "csv"; Description = "Write results to CSV file"; Default = None }
@@ -108,7 +111,7 @@ Cli.exitIfHelp "H2_UCCSD_VQE_Example.fsx" "H2 ground state with UCCSD ansatz and
 let quiet = Cli.hasFlag "quiet" args
 let bondLength = Cli.getFloatOr "bond-length" 0.74 args
 let numOrbitals = Cli.getIntOr "active-orbitals" 4 args
-let maxIterations = Cli.getIntOr "max-iterations" 10 args
+let maxIterations = Cli.getIntOr "max-iterations" 100 args
 let tolerance = Cli.getFloatOr "tolerance" 1e-4 args
 
 // ==============================================================================
@@ -217,15 +220,26 @@ let paramAnalysisRow =
 
 allResults.Add(paramAnalysisRow)
 
+// This example uses VERIFIED real STO-3G integrals for H2 at its equilibrium
+// geometry (R = 0.7414 Å), bundled in the library as `h2Sto3gIntegrals`. Exact
+// diagonalisation of the resulting Jordan-Wigner Hamiltonian reproduces the known
+// full-CI ground state to < 0.1 kcal/mol, so the VQE energy below is a genuine,
+// physically meaningful estimate — not a placeholder. The bundled integrals are
+// fixed to the equilibrium geometry; integrals at an arbitrary bond length require
+// an integral provider (e.g. PySCF) or an FCIDUMP file (Molecule.fromFciDumpFileTask).
+if abs (bondLength - 0.7414) > 1e-3 then
+    eprintfn "NOTE: bundled STO-3G integrals are for R = 0.7414 Å; --bond-length %.4f is" bondLength
+    eprintfn "      not applied to the Hamiltonian (geometry-specific integrals are fixed)."
+
 if not quiet then
-    printfn "Building Molecular Hamiltonian"
+    printfn "Building Molecular Hamiltonian (verified H2/STO-3G integrals, R = 0.7414 Å)"
     printfn "------------------------------------------------------------"
 
-match buildWithMapping h2Molecule JordanWigner with
+match buildFromIntegrals h2Sto3gIntegrals JordanWigner with
 | Error err ->
     if not quiet then
         printfn "Error building Hamiltonian: %A" err
-| Ok qaoaHamiltonian ->
+| Ok (qaoaHamiltonian, nuclearRepulsion) ->
 
     let molecularHamiltonian = fromQaoaHamiltonian qaoaHamiltonian
 
@@ -322,8 +336,9 @@ match buildWithMapping h2Molecule JordanWigner with
             if not quiet then
                 printfn "VQE Error: %A" err
         | Ok result ->
-            let exactEnergy = -1.137
-            let energyError = abs(result.Energy - exactEnergy)
+            let exactEnergy = -1.137270   // FCI total for H2/STO-3G at R = 0.7414 Å
+            let totalEnergy = result.Energy + nuclearRepulsion  // electronic + nuclear repulsion
+            let energyError = abs(totalEnergy - exactEnergy)
             let chemicalAccuracy = 0.0016
 
             if not quiet then
@@ -332,7 +347,9 @@ match buildWithMapping h2Molecule JordanWigner with
                 printfn "============================================================"
                 printfn ""
                 printfn "Ground State Energy:"
-                printfn "  Electronic Energy: %.6f Hartree" result.Energy
+                printfn "  Electronic Energy:   %.6f Hartree" result.Energy
+                printfn "  Nuclear Repulsion:   %.6f Hartree" nuclearRepulsion
+                printfn "  Total Energy:        %.6f Hartree" totalEnergy
                 printfn "  Iterations: %d" result.Iterations
                 printfn "  Converged: %s" (if result.Converged then "Yes" else "No")
                 printfn ""
@@ -348,26 +365,26 @@ match buildWithMapping h2Molecule JordanWigner with
 
                 printfn "Accuracy Analysis:"
                 printfn "  Target Energy (FCI): %.6f Hartree" exactEnergy
-                printfn "  Computed Energy:     %.6f Hartree" result.Energy
+                printfn "  Computed Total:      %.6f Hartree" totalEnergy
                 printfn "  Absolute Error:      %.6f Hartree" energyError
                 printfn "  Chemical Accuracy:   %.6f Hartree (1 kcal/mol)" chemicalAccuracy
                 printfn ""
 
                 if energyError < chemicalAccuracy then
                     printfn "Chemical accuracy achieved!"
-                    printfn "  Error is within +/-1 kcal/mol threshold"
-                elif result.Energy <> 0.0 then
-                    printfn "Energy error exceeds chemical accuracy"
-                    printfn "  (May need more iterations or better initial guess)"
+                    printfn "  Total energy is within +/-1 kcal/mol of FCI"
                 else
-                    printfn "Energy is zero - likely using simplified Hamiltonian"
+                    printfn "Total energy error exceeds chemical accuracy"
+                    printfn "  (VQE may need more iterations or a better initial guess)"
                 printfn ""
 
             let vqeRow =
                 [ "Section", "VQE_Result"
                   "BondLength_A", sprintf "%.4f" bondLength
-                  "Energy_Hartree", sprintf "%.6f" result.Energy
-                  "Energy_eV", sprintf "%.6f" (result.Energy * 27.2114)
+                  "ElectronicEnergy_Hartree", sprintf "%.6f" result.Energy
+                  "NuclearRepulsion_Hartree", sprintf "%.6f" nuclearRepulsion
+                  "TotalEnergy_Hartree", sprintf "%.6f" totalEnergy
+                  "TotalEnergy_eV", sprintf "%.6f" (totalEnergy * 27.2114)
                   "Iterations", sprintf "%d" result.Iterations
                   "Converged", sprintf "%b" result.Converged
                   "Error_Hartree", sprintf "%.6f" energyError

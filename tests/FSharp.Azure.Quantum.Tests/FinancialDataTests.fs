@@ -346,8 +346,10 @@ module FinancialDataTests =
         let riskParams = { ConfidenceLevel = 0.95; TimeHorizon = 1; Distribution = ReturnDistribution.Historical; LookbackPeriod = 252 }
         match calculateHistoricalVaR portfolio returnSeries riskParams with
         | Ok result ->
-            Assert.True(result.VaR > 0.0 || result.VaR <= 0.0, "VaR should be finite")
-            Assert.True(Double.IsFinite(result.VaR))
+            Assert.True(Double.IsFinite(result.VaR), $"VaR should be finite, got {result.VaR}")
+            Assert.True(result.VaR > 0.0, $"VaR should be positive for a risky portfolio, got {result.VaR}")
+            Assert.True(result.VaR < result.PortfolioValue,
+                $"VaR should not exceed total portfolio value, got VaR={result.VaR}, value={result.PortfolioValue}")
         | Error e -> failwith $"Expected Ok, got Error: {e}"
 
     // ========================================================================

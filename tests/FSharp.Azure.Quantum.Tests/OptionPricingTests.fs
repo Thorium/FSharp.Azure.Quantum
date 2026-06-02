@@ -407,10 +407,12 @@ module OptionPricingTests =
             return
                 match result80, result120 with
                 | Ok price80, Ok price120 ->
-                    // Higher spot should give higher call price
-                    // (may not hold perfectly due to quantum noise, but trend should be clear)
-                    Assert.True(price120.Price >= price80.Price * 0.5,
-                        $"Call with S=120 ({price120.Price:F4}) should be >= half of call with S=80 ({price80.Price:F4})")
+                    // Higher spot must give a higher (non-decreasing) call price: the S=120 call
+                    // is in-the-money (strike 100) while the S=80 call is out-of-the-money, so the
+                    // ITM price must dominate. A tiny tolerance absorbs quantum sampling noise.
+                    let noiseTolerance = 1e-6
+                    Assert.True(price120.Price >= price80.Price - noiseTolerance,
+                        $"Call price should be monotonic non-decreasing in spot: S=120 ({price120.Price:F4}) should be >= S=80 ({price80.Price:F4})")
                 | Error e, _ -> failwith $"S=80 pricing failed: {e}"
                 | _, Error e -> failwith $"S=120 pricing failed: {e}"
         }

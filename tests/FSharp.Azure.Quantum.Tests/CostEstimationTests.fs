@@ -715,22 +715,26 @@ let ``displayCostDashboard shows spending summary`` () =
         }
     ]
     
-    // Act - should not throw exception
+    // Act - exercise the logging path (must not throw) and inspect the rendered dashboard
     displayCostDashboard records None
-    
-    // Assert - if we get here without exception, test passes
-    Assert.True(true)
+    let dashboard = formatCostDashboard records
+
+    // Assert - the dashboard renders a header and summarizes all records
+    Assert.Contains("=== Cost Dashboard ===", dashboard)
+    Assert.Contains("[Total]", dashboard)
+    Assert.Contains("(2 jobs)", dashboard)
 
 [<Fact>]
 let ``displayCostDashboard handles empty records`` () =
     // Arrange
     let records = []
     
-    // Act - should not throw exception
+    // Act - exercise the logging path (must not throw) and inspect the rendered dashboard
     displayCostDashboard records None
-    
-    // Assert
-    Assert.True(true)
+    let dashboard = formatCostDashboard records
+
+    // Assert - empty input renders the explicit empty-state message
+    Assert.Contains("No cost records to display.", dashboard)
 
 [<Fact>]
 let ``findCheapestBackend returns error for empty backend list`` () =

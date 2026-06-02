@@ -7,64 +7,64 @@ open FSharp.Azure.Quantum.Core.BackendAbstraction
 open System.Numerics
 
 /// Quantum Phase Estimation (QPE) - Unified Backend Implementation
-/// 
+///
 /// State-based implementation using IQuantumBackend.
 /// Estimates the phase (eigenvalue) of a unitary operator U with respect to an eigenvector |ψ⟩.
 /// Given U|ψ⟩ = e^(2πiφ)|ψ⟩, QPE estimates φ to n bits of precision.
-/// 
+///
 /// Key Applications:
 /// - Shor's factoring algorithm (period finding)
 /// - Quantum chemistry (ground state energy estimation)
 /// - Solving linear systems of equations (HHL algorithm)
 /// - Quantum simulation
-/// 
+///
 /// Algorithm Overview:
 /// 1. Prepare counting qubits in superposition (Hadamard gates)
 /// 2. Apply controlled-U gates with increasing powers (U^(2^0), U^(2^1), ...)
 /// 3. Apply inverse QFT to counting register (uses QFT)
 /// 4. Measure to extract phase estimate
-/// 
+///
 /// Precision: n counting qubits → φ estimated to n bits of accuracy
-/// 
+///
 /// Example:
 /// ```fsharp
 /// open FSharp.Azure.Quantum.Algorithms.QPE
 /// open FSharp.Azure.Quantum.Backends.LocalBackend
-/// 
+///
 /// let backend = LocalBackend() :> IQuantumBackend
-/// 
+///
 /// // Estimate T gate phase: e^(iπ/4) = e^(2πi·1/8) → φ = 1/8
 /// match estimateTGatePhase 4 backend with
 /// | Ok result -> printfn "Estimated phase: %f (expected ~0.125)" result.EstimatedPhase
 /// | Error err -> printfn "Error: %A" err
 /// ```
 module QPE =
-    
+
     open FSharp.Azure.Quantum.Algorithms.QFT
-    
+
     // ========================================================================
     // TYPES - QPE configuration and results
     // ========================================================================
-    
+
     /// Unitary operator for phase estimation
     /// Represents U such that U|ψ⟩ = e^(2πiφ)|ψ⟩
     type UnitaryOperator =
         /// Phase gate: U = e^(iθ) (simple example)
         /// Eigenvalue: e^(iθ) → phase φ = θ/(2π)
         | PhaseGate of theta: float
-        
+
         /// T gate: U = e^(iπ/4) (π/8 gate)
         /// Eigenvalue: e^(iπ/4) → phase φ = 1/8
         | TGate
-        
+
         /// S gate: U = e^(iπ/2) (phase gate)
         /// Eigenvalue: e^(iπ/2) → phase φ = 1/4
         | SGate
-        
+
         /// General rotation gate: U = Rz(θ) = [[e^(-iθ/2), 0], [0, e^(iθ/2)]]
         /// Eigenvalue (for |1⟩): e^(iθ/2) → phase φ = θ/(4π)
         | RotationZ of theta: float
-        
+
         /// Modular exponentiation: U_a|x⟩ = |ax mod N⟩
         /// Used in Shor's period-finding: estimates phase φ = s/r where a^r ≡ 1 (mod N).
         ///
@@ -72,49 +72,49 @@ module QPE =
         /// requires multi-qubit Beauregard (2003) arithmetic circuits.
         /// Execution is handled by Shor.estimateModExpPhase in the Shor module.
         | ModularExponentiation of baseNum: int * modulus: int
-    
+
     /// Configuration for Quantum Phase Estimation
     type QPEConfig = {
         /// Number of counting qubits (precision = n bits)
         /// More counting qubits → higher precision
         /// Typical: 2 * log₂(desired accuracy) + 3
         CountingQubits: int
-        
+
         /// Number of target qubits (for eigenvector |ψ⟩)
         /// For single-qubit gates (T, S, PhaseGate): use 1
         TargetQubits: int
-        
+
         /// Unitary operator U to estimate phase of
         UnitaryOperator: UnitaryOperator
-        
+
         /// Initial eigenvector |ψ⟩ (must be eigenstate of U)
         /// If None, assumes |1⟩ for phase gates (standard eigenvector)
         EigenVector: QuantumState option
     }
-    
+
     /// Result of QPE execution
     type QPEResult = {
         /// Estimated phase φ (in range [0, 1))
         /// For U|ψ⟩ = e^(2πiφ)|ψ⟩, this is φ
         EstimatedPhase: float
-        
+
         /// Measurement outcome (binary representation of φ)
         /// EstimatedPhase = MeasurementOutcome / 2^CountingQubits
         MeasurementOutcome: int
-        
+
         /// Number of counting qubits used (precision)
         Precision: int
-        
+
         /// Final quantum state after QPE
         FinalState: QuantumState
-        
+
         /// Number of gates applied
         GateCount: int
-        
+
         /// Configuration used
         Config: QPEConfig
     }
-    
+
     // ========================================================================
     // INTENT → PLAN → EXECUTION (ADR: intent-first algorithms)
     // ========================================================================
@@ -142,7 +142,7 @@ module QPE =
     // ========================================================================
     // CONTROLLED UNITARY OPERATIONS
     // ========================================================================
-    
+
     /// Convert algorithm-level unitary to intent unitary.
     let private toIntentUnitary (u: UnitaryOperator) : QpeUnitary =
         match u with
@@ -334,13 +334,13 @@ module QPE =
 
 
 
-    
+
     // ========================================================================
     // QUANTUM PHASE ESTIMATION ALGORITHM
     // ========================================================================
-    
+
     /// Execute Quantum Phase Estimation
-    /// 
+    ///
     /// Algorithm Steps:
     /// 1. Initialize counting qubits to |+⟩^⊗n (Hadamard on all counting qubits)
     /// 2. Initialize target qubits to eigenvector |ψ⟩
@@ -348,15 +348,15 @@ module QPE =
     ///    - Apply controlled-U^(2^j) with control=counting[j], target=|ψ⟩
     /// 4. Apply inverse QFT to counting register (uses QFT)
     /// 5. Measure counting register to extract phase
-    /// 
+    ///
     /// Phase Encoding:
     /// After controlled unitaries, counting register contains:
     /// |φ⟩ = (1/√N) Σₖ e^(2πiφk) |k⟩
     /// where φ is the phase we want to estimate.
-    /// 
+    ///
     /// The inverse QFT converts this to:
     /// |φ_binary⟩ where measurement gives binary representation of φ
-    /// 
+    ///
     /// Example:
     /// ```fsharp
     /// let config = {
@@ -414,24 +414,27 @@ module QPE =
                     // Step 3: Measure final state (all qubits)
                     let measurements = UnifiedBackend.measureState preparedState 1000
 
-                    // Extract phase from measurement outcome of counting qubits.
+                    // Extract the phase from the counting register. QPE encodes the phase in
+                    // the PEAK of the measurement distribution, so use the MOST FREQUENT outcome
+                    // over all shots. (Reading a single sample — measurements.[0] — was a bug:
+                    // for a non-dyadic phase the distribution is spread, so one sample lands on a
+                    // low-probability outcome such as 0 often enough to be unreliable/flaky.)
                     //
-                    // When we omit the final bit-reversal SWAPs, the measured register is in bit-reversed
-                    // order; compensate classically before converting to an integer.
-                    let measuredCountingBits =
-                        measurements.[0]
-                        |> Array.take config.CountingQubits
-
-                    let canonicalCountingBits =
-                        if applyBitReversalSwaps then
-                            measuredCountingBits
-                        else
-                            Array.rev measuredCountingBits
-
-                    let measurementOutcome =
-                        canonicalCountingBits
+                    // When we omit the final bit-reversal SWAPs, the measured register is in
+                    // bit-reversed order; compensate classically before converting to an integer.
+                    let outcomeOf (measurement: int[]) =
+                        let bits = measurement |> Array.take config.CountingQubits
+                        let canonical = if applyBitReversalSwaps then bits else Array.rev bits
+                        canonical
                         |> Array.indexed
                         |> Array.fold (fun acc (i, bit) -> acc + (bit <<< i)) 0
+
+                    let measurementOutcome =
+                        measurements
+                        |> Array.map outcomeOf
+                        |> Array.countBy id
+                        |> Array.maxBy snd   // mode = peak of the QPE distribution
+                        |> fst
 
                     let estimatedPhase = float measurementOutcome / float (1 <<< config.CountingQubits)
 
@@ -450,19 +453,19 @@ module QPE =
 
     let execute (config: QPEConfig) (backend: IQuantumBackend) : Result<QPEResult, QuantumError> =
         executeWith config backend defaultApplyBitReversalSwaps
-    
+
     // ========================================================================
     // CONVENIENCE FUNCTIONS
     // ========================================================================
-    
+
     /// Estimate phase of T gate
-    /// 
+    ///
     /// T gate: U = e^(iπ/4) = e^(2πi·1/8)
     /// Expected phase: φ = 1/8 = 0.125
-    /// 
+    ///
     /// The T gate is the π/8 gate and is a fundamental gate in quantum computing.
     /// It's used extensively in fault-tolerant quantum computation.
-    /// 
+    ///
     /// Example:
     /// ```fsharp
     /// let backend = LocalBackend() :> IQuantumBackend
@@ -483,15 +486,15 @@ module QPE =
 
     let estimateTGatePhase (countingQubits: int) (backend: IQuantumBackend) : Result<QPEResult, QuantumError> =
         estimateTGatePhaseWith countingQubits backend defaultApplyBitReversalSwaps
-    
+
     /// Estimate phase of S gate
-    /// 
+    ///
     /// S gate: U = e^(iπ/2) = e^(2πi·1/4)
     /// Expected phase: φ = 1/4 = 0.25
-    /// 
+    ///
     /// The S gate (phase gate) is also called the √Z gate because S² = Z.
     /// It's used in many quantum algorithms including Grover's search.
-    /// 
+    ///
     /// Example:
     /// ```fsharp
     /// let backend = LocalBackend() :> IQuantumBackend
@@ -512,13 +515,13 @@ module QPE =
 
     let estimateSGatePhase (countingQubits: int) (backend: IQuantumBackend) : Result<QPEResult, QuantumError> =
         estimateSGatePhaseWith countingQubits backend defaultApplyBitReversalSwaps
-    
+
     /// Estimate phase of general phase gate U = e^(iθ)
-    /// 
+    ///
     /// Phase gate: U = e^(iθ) = e^(2πiφ) → φ = θ/(2π)
-    /// 
+    ///
     /// This is a generalization of the T and S gates to arbitrary angles.
-    /// 
+    ///
     /// Example:
     /// ```fsharp
     /// let backend = LocalBackend() :> IQuantumBackend
