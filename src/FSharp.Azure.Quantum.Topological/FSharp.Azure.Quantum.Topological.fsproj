@@ -6,15 +6,20 @@
     <GenerateProgramFile>false</GenerateProgramFile>
 
     <!-- Package Metadata -->
-    <Version>0.3.12</Version>
+    <Version>0.4.0</Version>
     <PackageId>FSharp.Azure.Quantum.Topological</PackageId>
     <Title>FSharp.Azure.Quantum.Topological</Title>
-    <Description>Topological quantum computing plugin for FSharp.Azure.Quantum. Provides anyon theory (Ising/Fibonacci/SU(2)_k), braiding compilation, gate-to-braid conversion, Majorana hardware simulator, noise models, and topological file format (.tqp). Seamlessly integrates with main package algorithms (Grover, QFT, QAOA) via IQuantumBackend interface. Requires FSharp.Azure.Quantum v1.3.10+.</Description>
-    <Summary>F# topological quantum computing plugin with anyon models, braiding compilation, noise models, and seamless integration with FSharp.Azure.Quantum algorithms</Summary>
-    <PackageReleaseNotes>v0.3.10: Async backend integration
+    <Description>Topological quantum computing plugin for FSharp.Azure.Quantum. Provides anyon theory (Ising/Fibonacci/SU(2)_k), braiding compilation, gate-to-braid conversion, Majorana (tetron) hardware device profiles and noise models, and topological file format (.tqp). Includes Majorana 1 (Al–InAs) and Majorana 2 (InAs–Pb) hardware profiles. Seamlessly integrates with main package algorithms (Grover, QFT, QAOA) via IQuantumBackend interface. Requires FSharp.Azure.Quantum v1.3.10+.</Description>
+    <Summary>F# topological quantum computing plugin with anyon models, braiding compilation, Majorana hardware profiles, noise models, and seamless integration with FSharp.Azure.Quantum algorithms</Summary>
+    <PackageReleaseNotes>v0.4.0: Majorana 2 (InAs–Pb tetron) hardware support
+- NEW: DeviceProfile module with majorana1 (Al–InAs) and majorana2 (InAs–Pb) hardware profiles capturing measured physics (topological gap, Majorana splitting, parity lifetime, parent gap)
+- NEW: NoiseModels.realisticTopologicalMajorana2 — parity lifetime τ_Z ≈ 22 s, poisoning ≈ 0.045 Hz, derived from the June 2026 InAs–Pb tetron result
+- CHANGED: NoiseModels.realisticTopological now defaults to Majorana 2; the previous Al–InAs preset is preserved as realisticTopologicalMajorana1
+- Requires FSharp.Azure.Quantum v1.3.10+
+
+v0.3.10: Async backend integration
 - NEW: TopologicalBackend now implements async IQuantumBackend members (ExecuteToStateAsync, ApplyOperationAsync)
-- IMPROVED: Aligned with FSharp.Azure.Quantum v1.3.10 async API additions
-- Requires FSharp.Azure.Quantum v1.3.10+</PackageReleaseNotes>
+- IMPROVED: Aligned with FSharp.Azure.Quantum v1.3.10 async API additions</PackageReleaseNotes>
     
     <!-- Repository Info -->
     <RepositoryUrl>https://github.com/thorium/FSharp.Azure.Quantum</RepositoryUrl>
@@ -81,6 +86,7 @@
     <Compile Include="TopologicalBuilder.fs" />
     <Compile Include="TopologicalFormat.fs" />
     <Compile Include="MagicStateDistillation.fs" />
+    <Compile Include="DeviceProfile.fs" />
     <Compile Include="NoiseModels.fs" />
     <Compile Include="Visualization.fs" />
   </ItemGroup>

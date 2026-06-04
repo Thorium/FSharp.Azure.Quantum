@@ -184,9 +184,13 @@ module NoiseModels =
                         RandomSeed = None
                     }
     
-    /// Create realistic noise model for topological qubits (Majorana)
-    let realisticTopological () : TopologicalResult<NoiseModel> =
-        // Topological qubits have much longer coherence times!
+    /// Create a realistic noise model for the Majorana 1 (Al–InAs) tetron generation.
+    ///
+    /// Reflects the aluminium-based single-tetron devices: parity lifetimes of
+    /// ~1–12 ms (modelled here as T1 = 1 ms) and quasiparticle poisoning as the
+    /// dominant error source (~100 Hz). See [DeviceProfile.majorana1].
+    let realisticTopologicalMajorana1 () : TopologicalResult<NoiseModel> =
+        // Topological qubits have much longer coherence times than superconducting!
         match createDecoherenceParameters 1000.0 500.0 with  // T1=1ms, T2=0.5ms
         | Error err -> Error err
         | Ok decoherence ->
@@ -208,6 +212,67 @@ module NoiseModels =
                             QuasiparticlePoisoning = Some poisoning
                             RandomSeed = None
                         }
+
+    /// Create a realistic noise model for the Majorana 2 (InAs–Pb) tetron generation.
+    ///
+    /// Reflects Microsoft Quantum, "20 Second Parity Lifetime in an InAs–Pb Tetron
+    /// Device" (June 2, 2026): replacing Al with the higher-gap superconductor Pb
+    /// pushes the parity (Z) lifetime to τ_Z = 22 ± 1 s — over three orders of
+    /// magnitude longer than Majorana 1 — and more than doubles the topological gap
+    /// (Δ_T ≈ 70 µeV). Quasiparticle poisoning is no longer the limiting error on
+    /// experimental timescales. See [DeviceProfile.majorana2].
+    ///
+    /// Numbers NOT measured in this work are flagged inline: gate/readout error
+    /// rates are carried over unchanged from the Majorana 1 generation (this paper
+    /// characterizes lifetime, not gate fidelity), and T2 (dephasing) is an explicit,
+    /// optimistic assumption — the paper does not measure dephasing/τ_X. The only
+    /// measured inputs here are the parity lifetime, temperature, and operation time.
+    let realisticTopologicalMajorana2 () : TopologicalResult<NoiseModel> =
+        let profile = DeviceProfile.majorana2
+
+        // T1 = measured parity (Z) lifetime (22 s), in microseconds. For a tetron
+        // this IS the bit-flip lifetime, and it is set by quasiparticle poisoning —
+        // so the poisoning channel below models the SAME physical process. To avoid
+        // double-counting, noisyBraid applies only dephasing (T2) from this record
+        // when QuasiparticlePoisoning is set (see applyDephasing / noisyBraid).
+        let t1Microseconds = profile.ParityLifetimeSeconds * 1_000_000.0  // 22 s → 2.2e7 µs
+        // T2 (dephasing / τ_X) is NOT measured in this work; the paper only notes
+        // τ_X ∝ E_M² with an expected >10× improvement as future work. Setting
+        // T2 = T1 treats dephasing as negligible over µs-scale ops — an OPTIMISTIC
+        // assumption, flagged here. Revise when dephasing data becomes available.
+        match createDecoherenceParameters t1Microseconds t1Microseconds with
+        | Error err -> Error err
+        | Ok decoherence ->
+            // Gate error rates are NOT re-measured in this lifetime-focused paper;
+            // carried over unchanged from Majorana 1 as a placeholder. Operation
+            // (measurement) time is set to 1 µs per the paper's "microsecond scale".
+            match createGateErrorParameters 0.0001 0.001 1.0 with  // carried over from M1; 1µs ops
+            | Error err -> Error err
+            | Ok gateErrors ->
+                // Single-shot interferometric parity readout; readout error NOT
+                // re-measured here — carried over from Majorana 1 (1%), over 1µs.
+                match createMeasurementErrorParameters 0.01 1.0 with
+                | Error err -> Error err
+                | Ok measurementErrors ->
+                    // Poisoning rate implied by the measured parity lifetime: 1/τ_Z ≈ 0.045 Hz.
+                    let poisoningRate = DeviceProfile.poisoningRateHz profile
+                    match createQuasiparticlePoisoningParameters poisoningRate profile.TemperatureKelvin with
+                    | Error err -> Error err
+                    | Ok poisoning ->
+                        Ok {
+                            Decoherence = Some decoherence
+                            GateErrors = Some gateErrors
+                            MeasurementErrors = Some measurementErrors
+                            QuasiparticlePoisoning = Some poisoning
+                            RandomSeed = None
+                        }
+
+    /// Create a realistic noise model for topological qubits (Majorana).
+    ///
+    /// Defaults to the latest generation, Majorana 2 (InAs–Pb). For the earlier
+    /// Al–InAs numbers use [realisticTopologicalMajorana1].
+    let realisticTopological () : TopologicalResult<NoiseModel> =
+        realisticTopologicalMajorana2 ()
     
     // ========================================================================
     // NOISE APPLICATION
@@ -266,6 +331,47 @@ module NoiseModels =
             { superposition with Terms = (newGroundAmp, groundState) :: dampedExcited }
             |> TopologicalOperations.normalize
     
+    /// Apply pure dephasing (T2 only) to a quantum superposition.
+    ///
+    /// Unlike applyDecoherence, this models ONLY phase decoherence (T2) and does
+    /// NOT transfer probability toward the ground state (no T1 amplitude damping).
+    /// It applies an independent random phase kick to each non-ground term, drawn
+    /// from a Gaussian whose variance is chosen so the ensemble coherence decays as
+    /// exp(-t/T2). Populations |amp|² are preserved exactly.
+    ///
+    /// Used for topological (tetron) qubits, where parity-flip (T1-like) errors are
+    /// already modelled by quasiparticle poisoning — applying T1 here as well would
+    /// double-count the same physical channel.
+    let applyDephasing
+        (parameters: DecoherenceParameters)
+        (elapsedTime: float)
+        (superposition: TopologicalOperations.Superposition)
+        (random: Random)
+        : TopologicalOperations.Superposition =
+
+        let t2Decay = exp (-elapsedTime / parameters.T2)
+
+        match superposition.Terms with
+        | [] | [_] ->
+            // No relative phase to dephase for an empty or single-term state.
+            superposition
+        | groundTerm :: excitedTerms when t2Decay < 1.0 ->
+            // Gaussian phase model: ⟨e^{iφ}⟩ = e^{-σ²/2} = t2Decay ⇒ σ = sqrt(-2 ln t2Decay)
+            let sigma = sqrt (-2.0 * log t2Decay)
+            let kicked =
+                excitedTerms
+                |> List.map (fun (amp, state) ->
+                    // Box–Muller: one standard-normal sample per term
+                    let u1 = max 1e-300 (random.NextDouble())
+                    let u2 = random.NextDouble()
+                    let g = sqrt (-2.0 * log u1) * cos (2.0 * Math.PI * u2)
+                    let phi = sigma * g
+                    (amp * Complex(cos phi, sin phi), state))
+            { superposition with Terms = groundTerm :: kicked }
+        | _ ->
+            // t2Decay ≈ 1 (elapsedTime ≪ T2): negligible dephasing.
+            superposition
+
     /// Apply depolarizing noise to a quantum superposition
     ///
     /// Depolarizing channel: ρ → (1-p)ρ + p(I/d)
@@ -345,7 +451,13 @@ module NoiseModels =
                 (fun s -> applyDepolarizingNoise gateErrors.TwoQubitErrorRate s random)
                 >> (match noiseModel.Decoherence with
                     | Some decoherence ->
-                        fun s -> applyDecoherence decoherence gateErrors.BraidingTime s random
+                        // For topological qubits, quasiparticle poisoning already models
+                        // parity-flip (T1) errors, so apply ONLY dephasing (T2) here to
+                        // avoid double-counting the same channel. When poisoning is not
+                        // modelled (e.g. superconducting), apply full T1+T2 decoherence.
+                        match noiseModel.QuasiparticlePoisoning with
+                        | Some _ -> fun s -> applyDephasing decoherence gateErrors.BraidingTime s random
+                        | None   -> fun s -> applyDecoherence decoherence gateErrors.BraidingTime s random
                     | None -> id)
             | None -> id)
         |> (match noiseModel.QuasiparticlePoisoning, noiseModel.GateErrors with
