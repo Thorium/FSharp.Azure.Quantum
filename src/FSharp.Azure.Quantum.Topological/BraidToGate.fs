@@ -96,15 +96,23 @@ module BraidToGate =
         | _ -> "Other"  // For other gate types not mapped
     
     /// Get qubits affected by a gate
-    let getAffectedQubits (gate: CircuitBuilder.Gate) : int list =
+    let rec getAffectedQubits (gate: CircuitBuilder.Gate) : int list =
         match gate with
         | CircuitBuilder.Gate.H q | CircuitBuilder.Gate.X q | CircuitBuilder.Gate.Y q | CircuitBuilder.Gate.Z q 
         | CircuitBuilder.Gate.P (q, _) | CircuitBuilder.Gate.T q | CircuitBuilder.Gate.TDG q 
         | CircuitBuilder.Gate.S q | CircuitBuilder.Gate.SDG q 
-        | CircuitBuilder.Gate.RZ (q, _) | CircuitBuilder.Gate.U3 (q, _, _, _) -> [q]
-        | CircuitBuilder.Gate.CNOT (c, t) | CircuitBuilder.Gate.CZ (c, t) | CircuitBuilder.Gate.SWAP (c, t) -> [c; t]
+        | CircuitBuilder.Gate.RZ (q, _) | CircuitBuilder.Gate.U3 (q, _, _, _)
+        | CircuitBuilder.Gate.RX (q, _) | CircuitBuilder.Gate.RY (q, _)
+        | CircuitBuilder.Gate.Measure q | CircuitBuilder.Gate.Reset q -> [q]
+        | CircuitBuilder.Gate.CNOT (c, t) | CircuitBuilder.Gate.CZ (c, t) | CircuitBuilder.Gate.SWAP (c, t)
+        | CircuitBuilder.Gate.CP (c, t, _) | CircuitBuilder.Gate.CRX (c, t, _)
+        | CircuitBuilder.Gate.CRY (c, t, _) | CircuitBuilder.Gate.CRZ (c, t, _)
+        | CircuitBuilder.Gate.RXX (c, t, _) | CircuitBuilder.Gate.RYY (c, t, _)
+        | CircuitBuilder.Gate.RZZ (c, t, _) -> [c; t]
         | CircuitBuilder.Gate.CCX (c1, c2, t) -> [c1; c2; t]
-        | _ -> []  // For other gate types
+        | CircuitBuilder.Gate.MCZ (controls, target) -> controls @ [target]
+        | CircuitBuilder.Gate.Barrier qubits -> qubits
+        | CircuitBuilder.Gate.Conditional (q, inner) -> q :: getAffectedQubits inner
     
     /// Check if gate is a Clifford gate
     let isClifford (gate: CircuitBuilder.Gate) : bool =

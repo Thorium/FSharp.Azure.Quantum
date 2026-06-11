@@ -115,7 +115,10 @@ module QuantinuumBackendTests =
         let resultJson = """{"results": {"00": 48, "11": 52}}"""
         
         // Act
-        let histogram = parseQuantinuumResult resultJson
+        let histogram =
+            match parseQuantinuumResult resultJson with
+            | Ok h -> h
+            | Error msg -> failwith $"Expected successful parse, got error: {msg}"
         
         // Assert
         Assert.Equal(2, histogram.Count)
@@ -128,7 +131,10 @@ module QuantinuumBackendTests =
         let resultJson = """{"results": {"000": 100}}"""
         
         // Act
-        let histogram = parseQuantinuumResult resultJson
+        let histogram =
+            match parseQuantinuumResult resultJson with
+            | Ok h -> h
+            | Error msg -> failwith $"Expected successful parse, got error: {msg}"
         
         // Assert
         Assert.Equal(1, histogram.Count)
@@ -140,7 +146,10 @@ module QuantinuumBackendTests =
         let resultJson = """{"results": {"00": 25, "01": 25, "10": 25, "11": 25}}"""
         
         // Act
-        let histogram = parseQuantinuumResult resultJson
+        let histogram =
+            match parseQuantinuumResult resultJson with
+            | Ok h -> h
+            | Error msg -> failwith $"Expected successful parse, got error: {msg}"
         
         // Assert
         Assert.Equal(4, histogram.Count)

@@ -425,9 +425,14 @@ module GraphOptimization =
         
         /// Helper: Add terms to QUBO matrix
         let addTermsToQubo (qubo: QuboMatrix) (terms: ((int * int) * float) list) : QuboMatrix =
+            // Accumulate coefficients on duplicate keys (e.g. parallel edges):
+            // QUBO terms with the same index pair sum, they don't overwrite
             let updatedQ =
                 terms
-                |> List.fold (fun q (key, value) -> Map.add key value q) qubo.Q
+                |> List.fold (fun q (key, value) ->
+                    q |> Map.change key (function
+                        | Some existing -> Some (existing + value)
+                        | None -> Some value)) qubo.Q
             { qubo with Q = updatedQ }
         
         match problem.Objective with
@@ -564,12 +569,31 @@ module GraphOptimization =
             
             // Build QUBO matrix with edge terms
             addTermsToQubo baseQubo edgeTerms
-        
-        | _ ->
-            // These objectives are defined in GraphObjective but not yet implemented:
-            // MinimizeSpanningTree, MinimizeMaxWeight, MaximizeEdges, MinimizeEdges, Custom
+
+        | MaximizeEdges
+        | MinimizeEdges ->
+            // Edge-selection encoding: one binary variable per edge, x_e = 1 when
+            // edge e is selected. QUBO always minimizes, so maximizing the edge
+            // count means minimizing its negation.
+            let numEdges = problem.Graph.Edges.Length
+            let baseQubo = emptyQubo numEdges
+            let sign =
+                match problem.Objective with
+                | MinimizeEdges -> 1.0
+                | _ -> -1.0
+
+            let edgeTerms =
+                problem.Graph.Edges
+                |> List.mapi (fun e _ -> ((e, e), sign))
+
+            addTermsToQubo baseQubo edgeTerms
+
+        | MinimizeSpanningTree | MinimizeMaxWeight | Custom _ ->
+            // Spanning-tree and minimax objectives need auxiliary-variable
+            // encodings that are not implemented; Custom objectives have no
+            // generic QUBO form.
             invalidOp (
-                sprintf "GraphOptimization.toQubo: QUBO encoding is not implemented for objective '%A'. Supported objectives: MinimizeColors, MinimizeTotalWeight, MaximizeCut."
+                sprintf "GraphOptimization.toQubo: QUBO encoding is not implemented for objective '%A'. Supported objectives: MinimizeColors, MinimizeTotalWeight, MaximizeCut, MaximizeEdges, MinimizeEdges."
                     problem.Objective
             )
     
@@ -783,12 +807,22 @@ module GraphOptimization =
                 |> Map.ofList
             
             createSolution problem.Graph (Some partition) None
-        
-        | _ ->
-            // These objectives are defined in GraphObjective but not yet implemented:
-            // MinimizeSpanningTree, MinimizeMaxWeight, MaximizeEdges, MinimizeEdges, Custom
+
+        | MaximizeEdges
+        | MinimizeEdges ->
+            // Decode edge selection: edge e is selected when its bit is 1
+            let bits = List.toArray quboSolution
+            let selectedEdges =
+                problem.Graph.Edges
+                |> List.indexed
+                |> List.filter (fun (e, _) -> e < bits.Length && bits.[e] = 1)
+                |> List.map snd
+
+            createSolution problem.Graph None (Some selectedEdges)
+
+        | MinimizeSpanningTree | MinimizeMaxWeight | Custom _ ->
             invalidOp (
-                sprintf "GraphOptimization.decodeSolution: decoding is not implemented for objective '%A'. Supported objectives: MinimizeColors, MinimizeTotalWeight, MaximizeCut."
+                sprintf "GraphOptimization.decodeSolution: decoding is not implemented for objective '%A'. Supported objectives: MinimizeColors, MinimizeTotalWeight, MaximizeCut, MaximizeEdges, MinimizeEdges."
                     problem.Objective
             )
 

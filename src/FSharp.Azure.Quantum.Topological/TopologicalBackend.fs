@@ -734,6 +734,9 @@ module TopologicalUnifiedBackend =
                         | CircuitBuilder.CRX (c, t, _)
                         | CircuitBuilder.CRY (c, t, _)
                         | CircuitBuilder.CRZ (c, t, _)
+                        | CircuitBuilder.RXX (c, t, _)
+                        | CircuitBuilder.RYY (c, t, _)
+                        | CircuitBuilder.RZZ (c, t, _)
                         | CircuitBuilder.SWAP (c, t) -> max c t + 1
                         | CircuitBuilder.CCX (c1, c2, t) -> max c1 (max c2 t) + 1
                         | CircuitBuilder.MCZ (controls, target) ->
@@ -742,6 +745,10 @@ module TopologicalUnifiedBackend =
                         | CircuitBuilder.Barrier qubits ->
                             if List.isEmpty qubits then 0
                             else (List.max qubits) + 1
+                        | CircuitBuilder.Conditional _ ->
+                            match BraidToGate.getAffectedQubits gate with
+                            | [] -> 0
+                            | qubits -> (List.max qubits) + 1
 
                     // Gates with amplitude-level intercepts in ApplyGate bypass braiding entirely.
                     // These are always supported regardless of braid-compilability.

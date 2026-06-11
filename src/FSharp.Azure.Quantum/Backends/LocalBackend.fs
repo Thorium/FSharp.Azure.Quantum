@@ -69,6 +69,11 @@ module LocalBackend =
             | CircuitBuilder.CNOT (ctrl, target) -> Gates.applyCNOT ctrl target state
             | CircuitBuilder.CZ (ctrl, target) -> Gates.applyCZ ctrl target state
             | CircuitBuilder.SWAP (q1, q2) -> Gates.applySWAP q1 q2 state
+
+            // Two-qubit gates - Ising interactions
+            | CircuitBuilder.RXX (q1, q2, angle) -> Gates.applyRxx q1 q2 angle state
+            | CircuitBuilder.RYY (q1, q2, angle) -> Gates.applyRyy q1 q2 angle state
+            | CircuitBuilder.RZZ (q1, q2, angle) -> Gates.applyRzz q1 q2 angle state
             
             // Two-qubit gates - Controlled (proper implementations)
             | CircuitBuilder.CP (ctrl, target, angle) ->
@@ -101,7 +106,34 @@ module LocalBackend =
             
             // Barrier - synchronization directive, no physical effect on simulation
             | CircuitBuilder.Barrier _ -> state
-        
+
+            // Conditional - requires measurement-outcome tracking (applyGateTracked)
+            | CircuitBuilder.Conditional _ ->
+                failwith "Conditional gates require outcome tracking; executed via applyGateTracked"
+
+        /// Apply a gate while tracking mid-circuit measurement outcomes.
+        ///
+        /// Measure collapses the state and records the classical outcome;
+        /// Conditional applies its inner gate only when the recorded outcome
+        /// of the referenced qubit is 1.
+        let applyGateTracked
+            (gate: CircuitBuilder.Gate)
+            (state: StateVector.StateVector, outcomes: Map<int, int>)
+            : StateVector.StateVector * Map<int, int> =
+            match gate with
+            | CircuitBuilder.Measure q ->
+                let rng = Random()
+                let outcome = Measurement.measureSingleQubit rng q state
+                let collapsed = Measurement.collapseAfterMeasurement q outcome state
+                (collapsed, outcomes |> Map.add q outcome)
+            | CircuitBuilder.Conditional (q, inner) ->
+                match outcomes |> Map.tryFind q with
+                | Some 1 -> (applyGate inner state, outcomes)
+                | Some _ -> (state, outcomes)
+                | None ->
+                    failwith $"Conditional gate references qubit {q} before it was measured"
+            | g -> (applyGate g state, outcomes)
+
         /// Execute circuit on state vector
         let executeCircuit (circuit: CircuitBuilder.Circuit) (numQubits: int) : Result<StateVector.StateVector, QuantumError> =
             try
@@ -112,9 +144,8 @@ module LocalBackend =
                 let finalState =
                     circuit.Gates
                     |> List.rev
-                    |> List.fold (fun state gate ->
-                        applyGate gate state
-                    ) initialState
+                    |> List.fold (fun acc gate -> applyGateTracked gate acc) (initialState, Map.empty)
+                    |> fst
                 
                 Ok finalState
             with
@@ -149,9 +180,8 @@ module LocalBackend =
                         let finalState =
                             cbCircuit.Gates
                             |> List.rev
-                            |> List.fold (fun state gate ->
-                                applyGate gate state
-                            ) initialState
+                            |> List.fold (fun acc gate -> applyGateTracked gate acc) (initialState, Map.empty)
+                            |> fst
                         Ok (QuantumState.StateVector finalState)
                     with
                     | :? System.OperationCanceledException ->
@@ -168,9 +198,8 @@ module LocalBackend =
                         let finalState =
                             cbCircuit.Gates
                             |> List.rev
-                            |> List.fold (fun state gate ->
-                                applyGate gate state
-                            ) initialState
+                            |> List.fold (fun acc gate -> applyGateTracked gate acc) (initialState, Map.empty)
+                            |> fst
                         Ok (QuantumState.StateVector finalState)
                     with
                     | :? System.OperationCanceledException ->

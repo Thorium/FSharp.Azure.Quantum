@@ -79,7 +79,7 @@ module Authentication =
             }
 
         /// Clear cached token (force refresh on next request)
-        /// 
+        ///
         /// Thread-safe - waits for any ongoing token refresh to complete
         /// before clearing the cache.
         member this.ClearCache() =
@@ -89,32 +89,49 @@ module Authentication =
             finally
                 refreshSemaphore.Release() |> ignore
 
+        interface IDisposable with
+            member _.Dispose() = refreshSemaphore.Dispose()
+
     /// DelegatingHandler that adds Authorization Bearer token to HTTP requests
+    ///
+    /// Disposing the handler also disposes the TokenManager it wraps.
     type AuthenticationHandler(tokenManager: TokenManager) =
         inherit DelegatingHandler()
-        
+
         member private this.SendAsyncCore(request: HttpRequestMessage, cancellationToken: CancellationToken, token: string) : Task<HttpResponseMessage> =
             request.Headers.Authorization <- AuthenticationHeaderValue("Bearer", token)
             base.SendAsync(request, cancellationToken)
-        
+
         override this.SendAsync(request: HttpRequestMessage, cancellationToken: CancellationToken) : Task<HttpResponseMessage> =
             // Get bearer token asynchronously without blocking
             async {
                 let! token = tokenManager.GetAccessTokenAsync(cancellationToken)
                 return! this.SendAsyncCore(request, cancellationToken, token) |> Async.AwaitTask
             } |> Async.StartAsTask
-    
+
+        override this.Dispose(disposing: bool) =
+            if disposing then
+                (tokenManager :> IDisposable).Dispose()
+            base.Dispose(disposing)
+
     /// Create an authenticated HttpClient for Azure Quantum API calls
-    /// 
+    ///
     /// This is the recommended way to create HttpClients for use with Azure Quantum backends.
     /// The returned client automatically handles Azure AD token acquisition and refresh.
-    /// 
+    ///
+    /// The client owns the full handler chain (auth handler, token manager and
+    /// socket handler): disposing the returned HttpClient releases everything.
+    /// Create one client and reuse it; a new client per request exhausts sockets.
+    ///
     /// Example:
     ///   let credential = CredentialProviders.createDefaultCredential()
-    ///   let httpClient = Authentication.createAuthenticatedClient credential
+    ///   use httpClient = Authentication.createAuthenticatedClient credential
     ///   // Use with IonQBackend, RigettiBackend, or Client modules
     let createAuthenticatedClient (credential: TokenCredential) : HttpClient =
         let tokenManager = TokenManager(credential)
-        let authHandler = new AuthenticationHandler(tokenManager)
-        new HttpClient(authHandler)
+        // DelegatingHandler requires an inner handler to forward requests to;
+        // without one, the first SendAsync throws InvalidOperationException.
+        let authHandler = new AuthenticationHandler(tokenManager, InnerHandler = new HttpClientHandler())
+        // disposeHandler = true: disposing the client disposes the handler chain
+        new HttpClient(authHandler, true)
 

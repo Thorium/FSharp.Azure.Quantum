@@ -184,9 +184,9 @@ module AtomComputingBackend =
             match submitResult with
             | Error err -> return Error err
             | Ok jobId ->
-                // Step 3: Poll until complete (10 minute timeout for 100+ qubit circuits)
+                // Step 3: Poll until complete (10 minute timeout for 100+ qubit circuits, honouring the caller's cancellation)
                 let timeout = TimeSpan.FromMinutes(10.0)
-                let cancellationToken = System.Threading.CancellationToken.None
+                let! cancellationToken = Async.CancellationToken
                 let! pollResult = JobLifecycle.pollJobUntilCompleteAsync httpClient workspaceUrl jobId timeout cancellationToken
                 match pollResult with
                 | Error err -> return Error err

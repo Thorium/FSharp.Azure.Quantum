@@ -160,6 +160,8 @@
     <Compile Include="Algorithms\Grover.fs" />
     <Compile Include="Algorithms\TreeSearch.fs" />
     <Compile Include="Algorithms\QFT.fs" />
+    <!-- State preparation must precede QPE: custom eigenvector prep uses Mottonen -->
+    <Compile Include="Algorithms\MottonenStatePreparation.fs" />
     <Compile Include="Algorithms\QPE.fs" />
     
     <!-- Unified Quantum Arithmetic (state-based, works with IQuantumBackend) -->
@@ -187,10 +189,7 @@
     <Compile Include="Backends\DWaveBackend.fs" />
     <Compile Include="Backends\RealDWaveBackend.fs" />
     
-    <!-- Advanced Quantum Algorithms -->
-    <Compile Include="Algorithms\MottonenStatePreparation.fs" />
-    
-    <!-- Quantum Solvers - Need conversion to ExecuteToState API -->
+        <!-- Quantum Solvers - Need conversion to ExecuteToState API -->
     <Compile Include="Solvers\Quantum\QuantumTspSolver.fs" /> 
     <Compile Include="Solvers\Quantum\QuantumNetworkFlowSolver.fs" /> 
     <Compile Include="Solvers\Quantum\QuantumPortfolioSolver.fs" /> 

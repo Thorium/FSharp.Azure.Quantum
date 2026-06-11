@@ -210,15 +210,26 @@ module IonQBackend =
     ///   }
     /// }
     /// 
-    /// Returns: Map<bitstring, count>
-    let parseIonQResult (jsonResult: string) : Map<string, int> =
-        use jsonDoc = JsonDocument.Parse(jsonResult)
-        let root = jsonDoc.RootElement
-        let histogram = root.GetProperty("histogram")
-        
-        histogram.EnumerateObject()
-        |> Seq.map (fun prop -> (prop.Name, prop.Value.GetInt32()))
-        |> Map.ofSeq
+    /// Returns: Map<bitstring, count>, or an error describing how the
+    /// payload deviated from the expected shape
+    let parseIonQResult (jsonResult: string) : Result<Map<string, int>, string> =
+        try
+            use jsonDoc = JsonDocument.Parse(jsonResult)
+            match jsonDoc.RootElement.TryGetProperty("histogram") with
+            | false, _ ->
+                Error "IonQ result JSON is missing the 'histogram' property"
+            | true, histogram when histogram.ValueKind <> JsonValueKind.Object ->
+                Error $"Expected 'histogram' to be a JSON object, got {histogram.ValueKind}"
+            | true, histogram ->
+                (Ok Map.empty, histogram.EnumerateObject())
+                ||> Seq.fold (fun acc prop ->
+                    acc
+                    |> Result.bind (fun counts ->
+                        match prop.Value.TryGetInt32() with
+                        | true, count -> Ok (counts |> Map.add prop.Name count)
+                        | false, _ -> Error $"Count for outcome '{prop.Name}' is not an integer"))
+        with
+        | :? JsonException as ex -> Error $"Invalid JSON in IonQ result: {ex.Message}"
     
     // ============================================================================
     // ERROR MAPPING
@@ -296,9 +307,9 @@ module IonQBackend =
             match submitResult with
             | Error err -> return Error err
             | Ok jobId ->
-                // Step 3: Poll until complete (5 minute timeout, no cancellation)
+                // Step 3: Poll until complete (5 minute timeout, honouring the caller's cancellation)
                 let timeout = TimeSpan.FromMinutes(5.0)
-                let cancellationToken = System.Threading.CancellationToken.None
+                let! cancellationToken = Async.CancellationToken
                 let! pollResult = JobLifecycle.pollJobUntilCompleteAsync httpClient workspaceUrl jobId timeout cancellationToken
                 match pollResult with
                 | Error err -> return Error err
@@ -316,12 +327,13 @@ module IonQBackend =
                             | Error err -> return Error err
                             | Ok jobResult ->
                                 // Step 5: Parse histogram from OutputData
-                                try
-                                    let resultJson = jobResult.OutputData :?> string
-                                    let histogram = parseIonQResult resultJson
-                                    return Ok histogram
-                                with
-                                | ex -> return Error (QuantumError.AzureError (AzureQuantumError.UnknownError(0, sprintf "Failed to parse IonQ results: %s" ex.Message)))
+                                match jobResult.OutputData with
+                                | :? string as resultJson ->
+                                    match parseIonQResult resultJson with
+                                    | Ok histogram -> return Ok histogram
+                                    | Error msg -> return Error (QuantumError.AzureError (AzureQuantumError.UnknownError(0, sprintf "Failed to parse IonQ results: %s" msg)))
+                                | other ->
+                                    return Error (QuantumError.AzureError (AzureQuantumError.UnknownError(0, sprintf "Expected IonQ output data to be a JSON string, got %s" (if isNull other then "null" else other.GetType().Name))))
                     
                     | JobStatus.Failed (errorCode, errorMessage) ->
                         // Map IonQ error to QuantumError

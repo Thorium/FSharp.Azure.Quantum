@@ -251,8 +251,8 @@ cx q[0],q[1];
         | Ok circuit ->
             Assert.Equal(2, circuit.QubitCount)
             Assert.Equal(2, circuit.Gates.Length)
-            Assert.Equal(H 0, circuit.Gates.[0])
-            Assert.Equal(CNOT (0, 1), circuit.Gates.[1])
+            Assert.Equal(H 0, (getGates circuit).[0])
+            Assert.Equal(CNOT (0, 1), (getGates circuit).[1])
         | Error msg -> failwith $"Parse failed: {msg}"
 
     [<Fact>]
@@ -269,8 +269,8 @@ c[0] = measure q[0];
         | Ok circuit ->
             Assert.Equal(1, circuit.QubitCount)
             Assert.Equal(2, circuit.Gates.Length)
-            Assert.Equal(H 0, circuit.Gates.[0])
-            Assert.Equal(Measure 0, circuit.Gates.[1])
+            Assert.Equal(H 0, (getGates circuit).[0])
+            Assert.Equal(Measure 0, (getGates circuit).[1])
         | Error msg -> failwith $"Parse failed: {msg}"
 
     [<Fact>]
@@ -304,11 +304,11 @@ c[1] = measure q[1];
         | Ok circuit ->
             Assert.Equal(3, circuit.QubitCount)
             Assert.Equal(5, circuit.Gates.Length)
-            Assert.Equal(H 0, circuit.Gates.[0])
-            Assert.Equal(CNOT (0, 1), circuit.Gates.[1])
-            Assert.Equal(CCX (0, 1, 2), circuit.Gates.[2])
-            Assert.Equal(Measure 0, circuit.Gates.[3])
-            Assert.Equal(Measure 1, circuit.Gates.[4])
+            Assert.Equal(H 0, (getGates circuit).[0])
+            Assert.Equal(CNOT (0, 1), (getGates circuit).[1])
+            Assert.Equal(CCX (0, 1, 2), (getGates circuit).[2])
+            Assert.Equal(Measure 0, (getGates circuit).[3])
+            Assert.Equal(Measure 1, (getGates circuit).[4])
         | Error msg -> failwith $"Parse failed: {msg}"
 
     [<Fact>]
@@ -325,7 +325,7 @@ measure q[0] -> c[0];
         | Ok circuit ->
             Assert.Equal(1, circuit.QubitCount)
             Assert.Equal(2, circuit.Gates.Length)
-            Assert.Equal(Measure 0, circuit.Gates.[1])
+            Assert.Equal(Measure 0, (getGates circuit).[1])
         | Error msg -> failwith $"Parse failed: {msg}"
 
     // ========================================================================
@@ -525,10 +525,11 @@ cx q[0],q[1];
         Assert.DoesNotContain("bit[2] c;", qasm)
 
     [<Fact>]
-    let ``V2_0 export with single measurement emits creg c[1]`` () =
+    let ``V2_0 export with measurement sizes creg to the qubit register`` () =
+        // measure q[2] writes c[2], so the creg must span all qubits
         let circuit = { QubitCount = 3; Gates = [H 0; Measure 2] }
         let qasm = OpenQasm.export circuit
-        Assert.Contains("creg c[1];", qasm)
+        Assert.Contains("creg c[3];", qasm)
 
     [<Fact>]
     let ``V2_0 round-trip with measurement includes creg`` () =
@@ -569,9 +570,9 @@ rx(-1.5707963268) q[0];
         match result with
         | Ok circuit ->
             Assert.Equal(1, circuit.Gates.Length)
-            match circuit.Gates.[0] with
+            match (getGates circuit).[0] with
             | RX (0, angle) -> Assert.True(abs (angle - (-1.5707963268)) < 1e-6)
-            | _ -> failwith $"Expected RX, got {circuit.Gates.[0]}"
+            | _ -> failwith $"Expected RX, got {(getGates circuit).[0]}"
         | Error msg -> failwith $"Parse failed: {msg}"
 
     [<Fact>]
@@ -585,9 +586,9 @@ rx(pi) q[0];
         match result with
         | Ok circuit ->
             Assert.Equal(1, circuit.Gates.Length)
-            match circuit.Gates.[0] with
+            match (getGates circuit).[0] with
             | RX (0, angle) -> Assert.True(abs (angle - System.Math.PI) < 1e-10)
-            | _ -> failwith $"Expected RX, got {circuit.Gates.[0]}"
+            | _ -> failwith $"Expected RX, got {(getGates circuit).[0]}"
         | Error msg -> failwith $"Parse failed: {msg}"
 
     [<Fact>]
@@ -600,9 +601,9 @@ ry(pi/2) q[0];
         let result = OpenQasmImport.parse qasm
         match result with
         | Ok circuit ->
-            match circuit.Gates.[0] with
+            match (getGates circuit).[0] with
             | RY (0, angle) -> Assert.True(abs (angle - System.Math.PI / 2.0) < 1e-10)
-            | _ -> failwith $"Expected RY, got {circuit.Gates.[0]}"
+            | _ -> failwith $"Expected RY, got {(getGates circuit).[0]}"
         | Error msg -> failwith $"Parse failed: {msg}"
 
     [<Fact>]
@@ -615,9 +616,9 @@ rz(pi/4) q[0];
         let result = OpenQasmImport.parse qasm
         match result with
         | Ok circuit ->
-            match circuit.Gates.[0] with
+            match (getGates circuit).[0] with
             | RZ (0, angle) -> Assert.True(abs (angle - System.Math.PI / 4.0) < 1e-10)
-            | _ -> failwith $"Expected RZ, got {circuit.Gates.[0]}"
+            | _ -> failwith $"Expected RZ, got {(getGates circuit).[0]}"
         | Error msg -> failwith $"Parse failed: {msg}"
 
     [<Fact>]
@@ -630,9 +631,9 @@ rx(2*pi) q[0];
         let result = OpenQasmImport.parse qasm
         match result with
         | Ok circuit ->
-            match circuit.Gates.[0] with
+            match (getGates circuit).[0] with
             | RX (0, angle) -> Assert.True(abs (angle - 2.0 * System.Math.PI) < 1e-10)
-            | _ -> failwith $"Expected RX, got {circuit.Gates.[0]}"
+            | _ -> failwith $"Expected RX, got {(getGates circuit).[0]}"
         | Error msg -> failwith $"Parse failed: {msg}"
 
     [<Fact>]
@@ -645,9 +646,9 @@ rz(-pi/4) q[0];
         let result = OpenQasmImport.parse qasm
         match result with
         | Ok circuit ->
-            match circuit.Gates.[0] with
+            match (getGates circuit).[0] with
             | RZ (0, angle) -> Assert.True(abs (angle - (-System.Math.PI / 4.0)) < 1e-10)
-            | _ -> failwith $"Expected RZ, got {circuit.Gates.[0]}"
+            | _ -> failwith $"Expected RZ, got {(getGates circuit).[0]}"
         | Error msg -> failwith $"Parse failed: {msg}"
 
     [<Fact>]
@@ -660,9 +661,9 @@ rz(3*pi/4) q[0];
         let result = OpenQasmImport.parse qasm
         match result with
         | Ok circuit ->
-            match circuit.Gates.[0] with
+            match (getGates circuit).[0] with
             | RZ (0, angle) -> Assert.True(abs (angle - 3.0 * System.Math.PI / 4.0) < 1e-10)
-            | _ -> failwith $"Expected RZ, got {circuit.Gates.[0]}"
+            | _ -> failwith $"Expected RZ, got {(getGates circuit).[0]}"
         | Error msg -> failwith $"Parse failed: {msg}"
 
     [<Fact>]
@@ -675,12 +676,12 @@ u3(pi/2,0,pi) q[0];
         let result = OpenQasmImport.parse qasm
         match result with
         | Ok circuit ->
-            match circuit.Gates.[0] with
+            match (getGates circuit).[0] with
             | U3 (0, theta, phi, lambda) ->
                 Assert.True(abs (theta - System.Math.PI / 2.0) < 1e-10)
                 Assert.True(abs phi < 1e-10)
                 Assert.True(abs (lambda - System.Math.PI) < 1e-10)
-            | _ -> failwith $"Expected U3, got {circuit.Gates.[0]}"
+            | _ -> failwith $"Expected U3, got {(getGates circuit).[0]}"
         | Error msg -> failwith $"Parse failed: {msg}"
 
     [<Fact>]
@@ -693,9 +694,9 @@ cp(pi/4) q[0],q[1];
         let result = OpenQasmImport.parse qasm
         match result with
         | Ok circuit ->
-            match circuit.Gates.[0] with
+            match (getGates circuit).[0] with
             | CP (0, 1, angle) -> Assert.True(abs (angle - System.Math.PI / 4.0) < 1e-10)
-            | _ -> failwith $"Expected CP, got {circuit.Gates.[0]}"
+            | _ -> failwith $"Expected CP, got {(getGates circuit).[0]}"
         | Error msg -> failwith $"Parse failed: {msg}"
 
     // ========================================================================
@@ -718,9 +719,9 @@ x b[2];
             Assert.Equal(5, circuit.QubitCount)
             Assert.Equal(3, circuit.Gates.Length)
             // a[0] -> qubit 0, a[1] -> qubit 1, b[0] -> qubit 2, b[2] -> qubit 4
-            Assert.Equal(H 0, circuit.Gates.[0])
-            Assert.Equal(CNOT (1, 2), circuit.Gates.[1])
-            Assert.Equal(X 4, circuit.Gates.[2])
+            Assert.Equal(H 0, (getGates circuit).[0])
+            Assert.Equal(CNOT (1, 2), (getGates circuit).[1])
+            Assert.Equal(X 4, (getGates circuit).[2])
         | Error msg -> failwith $"Parse failed: {msg}"
 
     [<Fact>]
@@ -737,8 +738,8 @@ cx a[1],b[0];
         | Ok circuit ->
             Assert.Equal(3, circuit.QubitCount)
             Assert.Equal(2, circuit.Gates.Length)
-            Assert.Equal(H 0, circuit.Gates.[0])
-            Assert.Equal(CNOT (1, 2), circuit.Gates.[1])
+            Assert.Equal(H 0, (getGates circuit).[0])
+            Assert.Equal(CNOT (1, 2), (getGates circuit).[1])
         | Error msg -> failwith $"Parse failed: {msg}"
 
     [<Fact>]
@@ -754,8 +755,8 @@ cx data[0],data[1];
         | Ok circuit ->
             Assert.Equal(2, circuit.QubitCount)
             Assert.Equal(2, circuit.Gates.Length)
-            Assert.Equal(H 0, circuit.Gates.[0])
-            Assert.Equal(CNOT (0, 1), circuit.Gates.[1])
+            Assert.Equal(H 0, (getGates circuit).[0])
+            Assert.Equal(CNOT (0, 1), (getGates circuit).[1])
         | Error msg -> failwith $"Parse failed: {msg}"
 
     [<Fact>]
@@ -772,8 +773,8 @@ measure data[0] -> meas[0];
         | Ok circuit ->
             Assert.Equal(2, circuit.QubitCount)
             Assert.Equal(2, circuit.Gates.Length)
-            Assert.Equal(H 0, circuit.Gates.[0])
-            Assert.Equal(Measure 0, circuit.Gates.[1])
+            Assert.Equal(H 0, (getGates circuit).[0])
+            Assert.Equal(Measure 0, (getGates circuit).[1])
         | Error msg -> failwith $"Parse failed: {msg}"
 
     [<Fact>]
@@ -788,9 +789,9 @@ rx(1.5707963268) myq[0];
         | Ok circuit ->
             Assert.Equal(1, circuit.QubitCount)
             Assert.Equal(1, circuit.Gates.Length)
-            match circuit.Gates.[0] with
+            match (getGates circuit).[0] with
             | RX (0, _) -> ()
-            | _ -> failwith $"Expected RX, got {circuit.Gates.[0]}"
+            | _ -> failwith $"Expected RX, got {(getGates circuit).[0]}"
         | Error msg -> failwith $"Parse failed: {msg}"
 
     // ========================================================================

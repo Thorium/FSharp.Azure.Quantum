@@ -140,7 +140,7 @@ module CircuitValidator =
             {
                 Name = "Local Simulator"
                 MaxQubits = 16  // Limited by 2^n state vector memory (~1 MB for 16 qubits)
-                SupportedGates = Set.ofList ["X"; "Y"; "Z"; "H"; "S"; "SDG"; "T"; "TDG"; "Rx"; "Ry"; "Rz"; "RZZ"; "CNOT"; "CZ"; "SWAP"; "CCX"]
+                SupportedGates = Set.ofList ["X"; "Y"; "Z"; "H"; "S"; "SDG"; "T"; "TDG"; "Rx"; "Ry"; "Rz"; "RXX"; "RYY"; "RZZ"; "CNOT"; "CZ"; "SWAP"; "CCX"]
                 MaxCircuitDepth = None  // No practical depth limit for local execution
                 HasAllToAllConnectivity = true  // Simulated, so all connections possible
                 ConnectedPairs = Set.empty

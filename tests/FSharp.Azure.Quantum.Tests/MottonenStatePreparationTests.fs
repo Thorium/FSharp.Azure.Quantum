@@ -5,6 +5,11 @@ open System.Numerics
 open Xunit
 open FSharp.Azure.Quantum.Algorithms
 open FSharp.Azure.Quantum
+open FSharp.Azure.Quantum.Core
+open FSharp.Azure.Quantum.Core.BackendAbstraction
+open FSharp.Azure.Quantum.Core.CircuitAbstraction
+open FSharp.Azure.Quantum.Backends
+open FSharp.Azure.Quantum.LocalSimulator
 
 module MottonenStatePreparationTests =
 
@@ -108,3 +113,73 @@ module MottonenStatePreparationTests =
         Assert.Throws<Exception>(fun () ->
             MottonenStatePreparation.prepareState state [|0; 1; 2|] emptyCircuit |> ignore
         ) |> ignore
+
+    // ========================================================================
+    // END-TO-END: PREPARED CIRCUIT REPRODUCES THE TARGET STATE
+    // ========================================================================
+
+    /// Build the preparation circuit, run it on the local simulator and
+    /// assert the resulting state vector matches the (normalized) target
+    /// amplitudes up to a global phase.
+    let private assertPreparesState (amplitudes: Complex[]) =
+        let target = (MottonenStatePreparation.normalizeState amplitudes).Amplitudes
+        let numQubits =
+            let rec log2 k = if k <= 1 then 0 else 1 + log2 (k / 2)
+            log2 amplitudes.Length
+
+        let circuit =
+            CircuitBuilder.empty numQubits
+            |> MottonenStatePreparation.prepareStateFromAmplitudes amplitudes [| 0 .. numQubits - 1 |]
+
+        let backend = LocalBackend.LocalBackend() :> IQuantumBackend
+
+        match backend.ExecuteToState (CircuitWrapper(circuit) :> ICircuit) with
+        | Error err ->
+            failwith $"ExecuteToState failed: %A{err}"
+        | Ok (QuantumState.StateVector sv) ->
+            let actual = Array.init (StateVector.dimension sv) (fun i -> StateVector.getAmplitude i sv)
+            Assert.Equal(target.Length, actual.Length)
+
+            // Align on the largest target amplitude to factor out global phase
+            let refIdx =
+                target
+                |> Array.mapi (fun i a -> i, a.Magnitude)
+                |> Array.maxBy snd
+                |> fst
+
+            Assert.True(actual[refIdx].Magnitude > 1e-6, "Reference amplitude missing in prepared state")
+            let globalPhase = actual[refIdx] / target[refIdx]
+
+            (target, actual)
+            ||> Array.iteri2 (fun i expected got ->
+                let aligned = got / globalPhase
+                Assert.True(
+                    (aligned - expected).Magnitude < 1e-6,
+                    $"Amplitude mismatch at index {i}: expected {expected}, got {aligned}"))
+        | Ok _ ->
+            failwith "Expected StateVector result"
+
+    [<Fact>]
+    let ``prepareState reproduces 3-qubit state with non-uniform real amplitudes`` () =
+        assertPreparesState [|
+            Complex(0.1, 0.0); Complex(0.25, 0.0); Complex(0.3, 0.0); Complex(0.05, 0.0)
+            Complex(0.45, 0.0); Complex(0.2, 0.0); Complex(0.5, 0.0); Complex(0.4, 0.0)
+        |]
+
+    [<Fact>]
+    let ``prepareState reproduces 3-qubit state with complex phases`` () =
+        assertPreparesState [|
+            Complex(0.1, 0.2); Complex(0.25, -0.15); Complex(0.0, 0.3); Complex(0.05, 0.05)
+            Complex(0.45, -0.1); Complex(0.2, 0.25); Complex(-0.3, 0.1); Complex(0.35, 0.0)
+        |]
+
+    [<Fact>]
+    let ``prepareState reproduces 4-qubit state with complex amplitudes`` () =
+        Array.init 16 (fun i -> Complex(float (i + 1), float (15 - i) * 0.3))
+        |> assertPreparesState
+
+    [<Fact>]
+    let ``prepareState reproduces 2-qubit state with pure phase differences`` () =
+        assertPreparesState [|
+            Complex(0.5, 0.0); Complex(0.0, 0.5); Complex(-0.5, 0.0); Complex(0.0, -0.5)
+        |]

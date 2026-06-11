@@ -677,6 +677,19 @@ module GateToBraid =
                 ApproximationError = 0.0
                 DecompositionNotes = Some "Barrier is a synchronization directive with no physical effect — no braiding needed"
             }
+
+        // Classical feedback is incompatible with braiding-based execution
+        | CircuitBuilder.Gate.Conditional _ ->
+            Error (TopologicalError.LogicError 
+                ("Conditional gate compilation",
+                 "Classically conditioned gates are not supported in topological quantum computing"))
+
+        // Ising interaction gates - must be transpiled to CNOT+RZ first
+        // (compileGateSequence transpiles automatically before compiling)
+        | CircuitBuilder.Gate.RXX _ | CircuitBuilder.Gate.RYY _ | CircuitBuilder.Gate.RZZ _ ->
+            Error (TopologicalError.LogicError 
+                ($"{gateName} gate compilation", 
+                 $"{gateName} should have been transpiled before gate-to-braid compilation"))
     
     // ========================================================================
     // FIBONACCI GATE COMPILATION
@@ -924,8 +937,10 @@ module GateToBraid =
                  "Reset gate is not supported in topological quantum computing"))
         
         // Must-be-transpiled gates — should not reach here
+        | CircuitBuilder.Gate.Conditional _
         | CircuitBuilder.Gate.CP _
         | CircuitBuilder.Gate.CRX _ | CircuitBuilder.Gate.CRY _ | CircuitBuilder.Gate.CRZ _
+        | CircuitBuilder.Gate.RXX _ | CircuitBuilder.Gate.RYY _ | CircuitBuilder.Gate.RZZ _
         | CircuitBuilder.Gate.CCX _ | CircuitBuilder.Gate.MCZ _ ->
             Error (TopologicalError.LogicError 
                 ($"{BraidToGate.getGateName gate} gate compilation", 
@@ -1187,8 +1202,10 @@ module GateToBraid =
                  "Reset gate is not supported in topological quantum computing"))
         
         // Must-be-transpiled gates
+        | CircuitBuilder.Gate.Conditional _
         | CircuitBuilder.Gate.CP _
         | CircuitBuilder.Gate.CRX _ | CircuitBuilder.Gate.CRY _ | CircuitBuilder.Gate.CRZ _
+        | CircuitBuilder.Gate.RXX _ | CircuitBuilder.Gate.RYY _ | CircuitBuilder.Gate.RZZ _
         | CircuitBuilder.Gate.CCX _ | CircuitBuilder.Gate.MCZ _ ->
             Error (TopologicalError.LogicError 
                 ($"{BraidToGate.getGateName gate} gate compilation", 

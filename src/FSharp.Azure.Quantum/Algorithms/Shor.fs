@@ -389,7 +389,13 @@ module Shor =
         // targetQubits + tempQubits + internal ancilla chain.
         
         let numBits = List.length targetQubits
-        
+
+        if numBits = 0 then
+            Error (QuantumError.ValidationError (
+                "targetQubits",
+                "controlledModularMultiplication requires at least one target qubit"))
+        else
+
         // Allocate temp qubits above all existing qubits in use
         let maxExistingQubit = max controlQubit (List.max targetQubits)
         let tempQubits = [ maxExistingQubit + 1 .. maxExistingQubit + numBits ]

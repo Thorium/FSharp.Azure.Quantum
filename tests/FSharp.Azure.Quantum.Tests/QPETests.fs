@@ -217,3 +217,59 @@ module QPETests =
             Assert.True(result.GateCount >= 3, $"Expected at least 3 gates, got {result.GateCount}")
             Assert.True(result.GateCount < 100, $"Gate count seems too high: {result.GateCount}")
             // Total: 3 H + 1 X + 3 CP + 3 H + 3 CP + 1 SWAP = 14 gates
+
+    // ========================================================================
+    // CUSTOM EIGENVECTOR SUPPORT
+    // ========================================================================
+
+    let private stateVectorOf (amplitudes: System.Numerics.Complex[]) : QuantumState =
+        QuantumState.StateVector (FSharp.Azure.Quantum.LocalSimulator.StateVector.create amplitudes)
+
+    [<Fact>]
+    let ``QPE with explicit |1> eigenvector matches default behaviour`` () =
+        // PhaseGate(π/2) with eigenvector |1⟩: phase φ = 1/4
+        let backend = LocalBackend.LocalBackend() :> IQuantumBackend
+        let config: QPE.QPEConfig = {
+            CountingQubits = 3
+            TargetQubits = 1
+            UnitaryOperator = QPE.UnitaryOperator.PhaseGate (Math.PI / 2.0)
+            EigenVector = Some (stateVectorOf [| System.Numerics.Complex.Zero; System.Numerics.Complex.One |])
+        }
+
+        match QPE.execute config backend with
+        | Error err -> Assert.Fail($"QPE with custom eigenvector failed: {err}")
+        | Ok result ->
+            let error = abs (result.EstimatedPhase - 0.25)
+            Assert.True(error < 0.15, $"Expected phase ~0.25, got {result.EstimatedPhase}")
+
+    [<Fact>]
+    let ``QPE with |0> eigenvector estimates zero phase`` () =
+        // PhaseGate leaves |0⟩ unchanged (eigenvalue 1): phase φ = 0
+        let backend = LocalBackend.LocalBackend() :> IQuantumBackend
+        let config: QPE.QPEConfig = {
+            CountingQubits = 3
+            TargetQubits = 1
+            UnitaryOperator = QPE.UnitaryOperator.PhaseGate (Math.PI / 2.0)
+            EigenVector = Some (stateVectorOf [| System.Numerics.Complex.One; System.Numerics.Complex.Zero |])
+        }
+
+        match QPE.execute config backend with
+        | Error err -> Assert.Fail($"QPE with |0> eigenvector failed: {err}")
+        | Ok result ->
+            Assert.True(result.EstimatedPhase < 0.1, $"Expected phase ~0, got {result.EstimatedPhase}")
+
+    [<Fact>]
+    let ``QPE rejects eigenvector with wrong dimension`` () =
+        let backend = LocalBackend.LocalBackend() :> IQuantumBackend
+        let config: QPE.QPEConfig = {
+            CountingQubits = 3
+            TargetQubits = 1
+            UnitaryOperator = QPE.UnitaryOperator.TGate
+            // 4 amplitudes = 2 qubits, but TargetQubits = 1
+            EigenVector = Some (stateVectorOf (Array.create 4 (System.Numerics.Complex(0.5, 0.0))))
+        }
+
+        match QPE.execute config backend with
+        | Error (QuantumError.ValidationError ("EigenVector", _)) -> ()
+        | Error err -> Assert.Fail($"Expected EigenVector validation error, got: {err}")
+        | Ok _ -> Assert.Fail("Expected validation error for mismatched eigenvector dimension")

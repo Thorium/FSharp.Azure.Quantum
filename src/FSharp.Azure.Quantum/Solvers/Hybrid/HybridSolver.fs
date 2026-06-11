@@ -204,6 +204,55 @@ module HybridSolver =
         }
 
     // ================================================================================
+    // COST ESTIMATION
+    // ================================================================================
+
+    /// Estimate the USD cost of one QAOA execution over `numVariables` qubits
+    /// using the shared CostEstimation pricing tables.
+    ///
+    /// Models a single QAOA layer on a dense QUBO at 1000 shots: one Hadamard
+    /// plus one mixer rotation per qubit, one two-qubit cost-Hamiltonian
+    /// interaction per variable pair, and a full-register measurement.
+    let internal estimateQaoaCostUSD
+        (costBackend: CostEstimation.CostBackend)
+        (numVariables: int)
+        : float =
+
+        let n = max 1 numVariables
+        let profile: CostEstimation.CircuitCostProfile = {
+            SingleQubitGates = (2 * n) * 1<CostEstimation.gate>
+            TwoQubitGates = (n * (n - 1) / 2) * 1<CostEstimation.gate>
+            Measurements = n * 1<CostEstimation.gate>
+            QubitCount = n * 1<CostEstimation.qubit>
+        }
+
+        match CostEstimation.estimateCost costBackend profile 1000<CostEstimation.shot> with
+        | Ok estimate -> float (estimate.ExpectedCost / 1.0M<CostEstimation.USD>)
+        | Error _ ->
+            // Conservative: an unknown cost must never pass a budget check
+            Double.PositiveInfinity
+
+    /// Cost estimate for the legacy QuantumExecutionConfig backend selection
+    let internal estimateQuantumConfigCostUSD (backend: QuantumBackend) (numVariables: int) : float =
+        match backend with
+        | IonQ _ -> estimateQaoaCostUSD (CostEstimation.CostBackend.IonQ false) numVariables
+        | Rigetti _ -> estimateQaoaCostUSD CostEstimation.CostBackend.Rigetti numVariables
+
+    /// Cost estimate for a unified IQuantumBackend: cloud hardware is priced
+    /// by provider (recognised from the backend name); anything else is
+    /// treated as local simulation, which costs nothing.
+    let internal estimateBackendCostUSD (backend: BackendAbstraction.IQuantumBackend) (numVariables: int) : float =
+        let name = backend.Name.ToLowerInvariant()
+        if name.Contains "ionq" then
+            estimateQaoaCostUSD (CostEstimation.CostBackend.IonQ false) numVariables
+        elif name.Contains "rigetti" then
+            estimateQaoaCostUSD CostEstimation.CostBackend.Rigetti numVariables
+        elif name.Contains "quantinuum" then
+            estimateQaoaCostUSD CostEstimation.CostBackend.Quantinuum numVariables
+        else
+            0.0
+
+    // ================================================================================
     // SOLVER ROUTING - TSP
     // ================================================================================
 
@@ -261,7 +310,7 @@ module HybridSolver =
                     // Check cost limit
                     match qConfig.MaxCostUSD with
                     | ValueSome limit when recommendation.EstimatedClassicalTimeMs.IsSome ->
-                        let estimatedCost = 5.0 // Mock cost estimation
+                        let estimatedCost = estimateQuantumConfigCostUSD qConfig.Backend ((Array2D.length1 distances) * (Array2D.length1 distances))
                         if estimatedCost > limit then
                             let reasoning = $"Quantum advantage detected but estimated cost (${estimatedCost:F2}) exceeds limit (${limit:F2}). Falling back to classical."
                             solveClassical ()
@@ -363,7 +412,7 @@ module HybridSolver =
                     | QuantumAdvisor.RecommendationType.StronglyRecommendQuantum, Some qConfig ->
                         match qConfig.MaxCostUSD with
                         | ValueSome limit when recommendation.EstimatedClassicalTimeMs.IsSome ->
-                            let estimatedCost = 5.0
+                            let estimatedCost = estimateQuantumConfigCostUSD qConfig.Backend ((Array2D.length1 distances) * (Array2D.length1 distances))
                             if estimatedCost > limit then
                                 let reasoning = $"Quantum advantage detected but estimated cost (${estimatedCost:F2}) exceeds limit (${limit:F2}). Falling back to classical."
                                 let res = 
@@ -483,7 +532,7 @@ module HybridSolver =
                         |> Ok
 
                     | Some actualBackend ->
-                        let estimatedCost = 5.0 // Mock cost estimation
+                        let estimatedCost = estimateBackendCostUSD actualBackend ((Array2D.length1 distances) * (Array2D.length1 distances))
 
                         match budget with
                         | Some limit when estimatedCost > limit ->
@@ -612,7 +661,7 @@ module HybridSolver =
                         |> Ok
 
                     | Some actualBackend ->
-                        let estimatedCost = 5.0 // Mock cost estimation
+                        let estimatedCost = estimateBackendCostUSD actualBackend numAssets
 
                         match budget with
                         | Some limit when estimatedCost > limit ->
@@ -735,7 +784,7 @@ module HybridSolver =
                         |> Ok
 
                     | Some actualBackend ->
-                        let estimatedCost = 5.0 // Mock cost estimation
+                        let estimatedCost = estimateBackendCostUSD actualBackend numVertices
 
                         match budget with
                         | Some limit when estimatedCost > limit ->
@@ -847,7 +896,7 @@ module HybridSolver =
                         |> Ok
 
                     | Some actualBackend ->
-                        let estimatedCost = 5.0 // Mock cost estimation
+                        let estimatedCost = estimateBackendCostUSD actualBackend numItems
 
                         match budget with
                         | Some limit when estimatedCost > limit ->
@@ -960,7 +1009,7 @@ module HybridSolver =
                         |> Ok
 
                     | Some actualBackend ->
-                        let estimatedCost = 5.0 // Mock cost estimation
+                        let estimatedCost = estimateBackendCostUSD actualBackend numVertices
 
                         match budget with
                         | Some limit when estimatedCost > limit ->

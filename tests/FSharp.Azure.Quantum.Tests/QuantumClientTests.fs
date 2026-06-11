@@ -578,3 +578,71 @@ let ``GetResultsAsync should return error for incomplete job`` () =
         | Error _ -> Assert.True(true) // Expected error for incomplete job
         | Ok _ -> Assert.True(false, "Expected error for job without results")
     }
+
+[<Fact>]
+let ``ListJobsAsync should parse jobs and follow nextLink pagination`` () =
+    async {
+        let page2Url = "https://management.azure.com/page2"
+
+        let mockHandler =
+            new MockHttpMessageHandler(fun request ->
+                let response = new HttpResponseMessage(HttpStatusCode.OK)
+
+                let body =
+                    if request.RequestUri.ToString() = page2Url then
+                        """{
+                            "value": [
+                                { "id": "job-2", "status": "Executing", "target": "rigetti.qpu", "creationTime": "2026-06-02T00:00:00Z" }
+                            ]
+                        }"""
+                    else
+                        sprintf
+                            """{
+                                "value": [
+                                    { "id": "job-1", "status": "Succeeded", "target": "ionq.simulator", "creationTime": "2026-06-01T00:00:00Z" }
+                                ],
+                                "nextLink": "%s"
+                            }"""
+                            page2Url
+
+                response.Content <- new StringContent(body)
+                Task.FromResult(response))
+
+        let httpClient = new HttpClient(mockHandler)
+        let client = QuantumClient(makeConfig httpClient)
+
+        let! result = client.ListJobsAsync()
+
+        match result with
+        | Error err -> Assert.True(false, sprintf "Expected job list, got error: %A" err)
+        | Ok jobs ->
+            Assert.Equal(2, jobs.Length)
+            Assert.Equal<string list>(["job-1"; "job-2"], jobs |> List.map (fun j -> j.JobId))
+            Assert.Equal(JobStatus.Succeeded, jobs.[0].Status)
+            Assert.Equal("rigetti.qpu", jobs.[1].Target)
+    }
+
+[<Fact>]
+let ``ListJobsAsync hits the workspace jobs endpoint`` () =
+    async {
+        let mutable capturedUrl = ""
+
+        let mockHandler =
+            new MockHttpMessageHandler(fun request ->
+                capturedUrl <- request.RequestUri.ToString()
+                let response = new HttpResponseMessage(HttpStatusCode.OK)
+                response.Content <- new StringContent("""{ "value": [] }""")
+                Task.FromResult(response))
+
+        let httpClient = new HttpClient(mockHandler)
+        let client = QuantumClient(makeConfig httpClient)
+
+        let! result = client.ListJobsAsync()
+
+        match result with
+        | Error err -> Assert.True(false, sprintf "Expected empty job list, got error: %A" err)
+        | Ok jobs ->
+            Assert.Empty(jobs)
+            Assert.Contains("/providers/Microsoft.Quantum/Workspaces/ws-test/jobs", capturedUrl)
+            Assert.Contains("api-version=", capturedUrl)
+    }

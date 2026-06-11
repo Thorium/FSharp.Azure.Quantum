@@ -69,7 +69,7 @@ module OpenQasmExport =
     /// Gate names are the same across all supported versions (qelib1.inc / stdgates.inc).
     /// The only version-dependent part is measurement syntax, handled separately.
     /// </summary>
-    let private gateToQasm (config: QasmConfig) (gate: Gate) : string =
+    let rec private gateToQasm (config: QasmConfig) (gate: Gate) : string =
         match gate with
         | X q -> 
             $"x q[{q}];"
@@ -111,6 +111,12 @@ module OpenQasmExport =
             $"cry({formatAngle theta}) q[{control}],q[{target}];"
         | CRZ (control, target, theta) ->
             $"crz({formatAngle theta}) q[{control}],q[{target}];"
+        | RXX (q1, q2, theta) ->
+            $"rxx({formatAngle theta}) q[{q1}],q[{q2}];"
+        | RYY (q1, q2, theta) ->
+            $"ryy({formatAngle theta}) q[{q1}],q[{q2}];"
+        | RZZ (q1, q2, theta) ->
+            $"rzz({formatAngle theta}) q[{q1}],q[{q2}];"
         | U3 (q, theta, phi, lambda) ->
             $"u3({formatAngle theta},{formatAngle phi},{formatAngle lambda}) q[{q}];"
         | MCZ (controls, target) ->
@@ -122,6 +128,14 @@ module OpenQasmExport =
         | Barrier qubits ->
             let qubitList = qubits |> List.map (fun q -> $"q[{q}]") |> String.concat ","
             $"barrier {qubitList};"
+        | Conditional (q, inner) ->
+            // Per-bit classical conditions exist only in OpenQASM 3.0;
+            // 2.0 `if` compares an entire creg and cannot express this.
+            match config.Version with
+            | V3_0 -> $"if (c[{q}] == 1) {{ {gateToQasm config inner} }}"
+            | _ ->
+                failwith "Conditional gates require OpenQASM 3.0 export (per-bit if). Use QasmVersion.V3_0."
+
     
     // ========================================================================
     // VALIDATION
@@ -135,7 +149,7 @@ module OpenQasmExport =
         if circuit.QubitCount < 0 then
             Error $"Invalid circuit: QubitCount must be >= 0, got {circuit.QubitCount}"
         else
-            let validateGate (gate: Gate) : Result<unit, string> =
+            let rec validateGate (gate: Gate) : Result<unit, string> =
                 let checkQubit q gateName =
                     if q < 0 || q >= circuit.QubitCount then
                         Error $"Invalid {gateName}: qubit {q} out of range [0, {circuit.QubitCount - 1}]"
@@ -159,11 +173,21 @@ module OpenQasmExport =
                             Ok ()
                     | Error msg, _ -> Error msg
                     | _, Error msg -> Error msg
-                | SWAP (q1, q2) ->
-                    match checkQubit q1 "SWAP qubit1", checkQubit q2 "SWAP qubit2" with
-                    | Ok (), Ok () -> 
+                | Conditional (q, inner) ->
+                    match checkQubit q "Conditional measured qubit" with
+                    | Error msg -> Error msg
+                    | Ok () ->
+                        match inner with
+                        | Conditional _ | Measure _ | Reset _ ->
+                            Error $"Conditional body must be a plain unitary gate, got {CircuitBuilder.getGateName inner}"
+                        | _ -> validateGate inner
+                | SWAP (q1, q2)
+                | RXX (q1, q2, _) | RYY (q1, q2, _) | RZZ (q1, q2, _) ->
+                    let name = CircuitBuilder.getGateName gate
+                    match checkQubit q1 $"{name} qubit1", checkQubit q2 $"{name} qubit2" with
+                    | Ok (), Ok () ->
                         if q1 = q2 then
-                            Error "SWAP qubits must be different"
+                            Error $"{name} qubits must be different"
                         else
                             Ok ()
                     | Error msg, _ -> Error msg
@@ -237,16 +261,19 @@ module OpenQasmExport =
         // Register declarations
         sb.AppendLine(qubitRegisterDecl config circuit.QubitCount) |> ignore
         
-        // Classical register declaration (only if circuit has measurements)
-        let measureCount =
+        // Classical register declaration. Measurements write c[q] for qubit q
+        // and conditionals read c[q], so the register must span all qubits.
+        let needsClassicalRegister =
             circuit.Gates
-            |> List.choose (fun g -> match g with | Measure _ -> Some () | _ -> None)
-            |> List.length
-        if measureCount > 0 then
-            sb.AppendLine(classicalRegisterDecl config measureCount) |> ignore
-        
-        // Gate instructions
-        for gate in circuit.Gates do
+            |> List.exists (fun g ->
+                match g with
+                | Measure _ | Conditional _ -> true
+                | _ -> false)
+        if needsClassicalRegister then
+            sb.AppendLine(classicalRegisterDecl config circuit.QubitCount) |> ignore
+
+        // Gate instructions (Gates is stored most-recent-first; emit in program order)
+        for gate in List.rev circuit.Gates do
             sb.AppendLine(gateToQasm config gate) |> ignore
         
         sb.ToString().TrimEnd()

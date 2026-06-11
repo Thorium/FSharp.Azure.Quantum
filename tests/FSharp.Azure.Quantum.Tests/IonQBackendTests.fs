@@ -316,7 +316,10 @@ module IonQBackendTests =
         }"""
         
         // Act
-        let result = parseIonQResult ionqResultJson
+        let result =
+            match parseIonQResult ionqResultJson with
+            | Ok histogram -> histogram
+            | Error msg -> failwith $"Expected successful parse, got error: {msg}"
         
         // Assert
         Assert.Equal(4, result.Count)
@@ -335,7 +338,10 @@ module IonQBackendTests =
         }"""
         
         // Act
-        let result = parseIonQResult ionqResultJson
+        let result =
+            match parseIonQResult ionqResultJson with
+            | Ok histogram -> histogram
+            | Error msg -> failwith $"Expected successful parse, got error: {msg}"
         
         // Assert
         Assert.Equal(1, result.Count)
@@ -354,7 +360,10 @@ module IonQBackendTests =
         }"""
         
         // Act
-        let result = parseIonQResult ionqResultJson
+        let result =
+            match parseIonQResult ionqResultJson with
+            | Ok histogram -> histogram
+            | Error msg -> failwith $"Expected successful parse, got error: {msg}"
         
         // Assert
         Assert.Equal(4, result.Count)

@@ -101,6 +101,9 @@ module OpenQasmImport =
     
     /// Match two-qubit gate with one parameter (e.g., CP gate)
     let private twoQubitRotationPattern = Regex(@"^\s*(\w+)\s*\(\s*(-?[0-9.eE+\-*/pi]+)\s*\)\s+(\w+)\s*\[\s*(\d+)\s*\]\s*,\s*(\w+)\s*\[\s*(\d+)\s*\]\s*;", RegexOptions.Compiled)
+
+    /// OpenQASM 3.0 per-bit conditional: if (c[0] == 1) x q[1];  (braces optional)
+    let private conditionalPattern = Regex(@"^\s*if\s*\(\s*(\w+)\s*\[\s*(\d+)\s*\]\s*==\s*1\s*\)\s*\{?\s*(.+?;)\s*\}?\s*$", RegexOptions.Compiled)
     
     /// Match two-qubit gate
     let private twoQubitPattern = Regex(@"^\s*(\w+)\s+(\w+)\s*\[\s*(\d+)\s*\]\s*,\s*(\w+)\s*\[\s*(\d+)\s*\]\s*;", RegexOptions.Compiled)
@@ -277,6 +280,9 @@ module OpenQasmImport =
                     | "crx" -> Ok (CRX (qubit1, qubit2, angle))  // Controlled-RX gate
                     | "cry" -> Ok (CRY (qubit1, qubit2, angle))  // Controlled-RY gate
                     | "crz" -> Ok (CRZ (qubit1, qubit2, angle))  // Controlled-RZ gate
+                    | "rxx" -> Ok (RXX (qubit1, qubit2, angle))  // Ising XX interaction
+                    | "ryy" -> Ok (RYY (qubit1, qubit2, angle))  // Ising YY interaction
+                    | "rzz" -> Ok (RZZ (qubit1, qubit2, angle))  // Ising ZZ interaction
                     | _ -> Error $"Unknown two-qubit rotation gate: {gateName}"
     
     /// Parse two-qubit gate
@@ -319,7 +325,7 @@ module OpenQasmImport =
     // ========================================================================
     
     /// Parse a single line of OpenQASM (version-aware)
-    let private parseLine (line: string) (state: ParserState) : ParseResult<ParserState> =
+    let rec private parseLine (line: string) (state: ParserState) : ParseResult<ParserState> =
         let cleanLine = removeComments line |> fun s -> s.Trim()
         
         // Skip empty lines
@@ -468,6 +474,25 @@ module OpenQasmImport =
                         else
                             Error $"Line {state.LineNumber}: Barrier must specify at least one qubit"
             
+            // OpenQASM 3.0 per-bit conditional (must check before gate patterns)
+            elif conditionalPattern.IsMatch(cleanLine) then
+                let m = conditionalPattern.Match(cleanLine)
+                let bitIdx = Int32.Parse(m.Groups.[2].Value)
+                let innerStatement = m.Groups.[3].Value
+
+                match parseLine innerStatement state with
+                | Error msg -> Error msg
+                | Ok state' when state'.Gates.Length = state.Gates.Length ->
+                    Error $"Line {state.LineNumber}: conditional body did not contain a gate"
+                | Ok state' ->
+                    match state'.Gates with
+                    | (Conditional _ | Measure _ | Reset _) :: _ ->
+                        Error $"Line {state.LineNumber}: conditional body must be a plain unitary gate"
+                    | inner :: rest ->
+                        Ok { state' with Gates = (Conditional (bitIdx, inner)) :: rest }
+                    | [] ->
+                        Error $"Line {state.LineNumber}: conditional body did not contain a gate"
+
             // Three-qubit gate (must check before two-qubit)
             elif threeQubitPattern.IsMatch(cleanLine) then
                 let m = threeQubitPattern.Match(cleanLine)
@@ -673,7 +698,9 @@ module OpenQasmImport =
                 match finalState.QubitCount with
                 | None -> Error "No qubit register declaration found (expected: qreg q[n]; or qubit[n] q;)"
                 | Some qCount ->
-                    Ok { QubitCount = qCount; Gates = finalState.Gates |> List.rev }
+                    // finalState.Gates was accumulated by prepending, so it is already
+                    // in the Circuit storage convention (most-recent-first)
+                    Ok { QubitCount = qCount; Gates = finalState.Gates }
             | Error msg -> Error msg
     
     /// <summary>

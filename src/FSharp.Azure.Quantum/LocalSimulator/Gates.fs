@@ -592,9 +592,85 @@ module Gates =
             else
                 // Qubits are the same (both 0 or both 1): no change
                 newAmplitudes[i] <- StateVector.getAmplitude i state
-        
+
         StateVector.create newAmplitudes
-    
+
+    /// Shared validation for the two-qubit Ising interaction gates
+    let private validateTwoQubitPair (gateLabel: string) (qubit1Index: int) (qubit2Index: int) (state: StateVector.StateVector) =
+        let numQubits = StateVector.numQubits state
+        if qubit1Index < 0 || qubit1Index >= numQubits then
+            failwith $"Qubit1 index {qubit1Index} out of range for {numQubits}-qubit state"
+        if qubit2Index < 0 || qubit2Index >= numQubits then
+            failwith $"Qubit2 index {qubit2Index} out of range for {numQubits}-qubit state"
+        if qubit1Index = qubit2Index then
+            failwith $"{gateLabel} qubits must be different"
+
+    /// Apply RZZ gate: exp(-iθ/2·Z⊗Z)
+    ///
+    /// Diagonal in the computational basis: basis states where the two qubits
+    /// agree get phase e^(-iθ/2), states where they differ get e^(iθ/2).
+    let applyRzz (qubit1Index: int) (qubit2Index: int) (theta: float) (state: StateVector.StateVector) : StateVector.StateVector =
+        validateTwoQubitPair "RZZ" qubit1Index qubit2Index state
+
+        let dimension = StateVector.dimension state
+        let mask1 = 1 <<< qubit1Index
+        let mask2 = 1 <<< qubit2Index
+        let halfTheta = theta / 2.0
+        let phaseSame = Complex(cos halfTheta, -sin halfTheta)   // e^(-iθ/2)
+        let phaseDiff = Complex(cos halfTheta, sin halfTheta)    // e^(+iθ/2)
+
+        let newAmplitudes =
+            Array.init dimension (fun i ->
+                let bitsAgree = ((i &&& mask1) <> 0) = ((i &&& mask2) <> 0)
+                let phase = if bitsAgree then phaseSame else phaseDiff
+                phase * StateVector.getAmplitude i state)
+
+        StateVector.create newAmplitudes
+
+    /// Apply RXX gate: exp(-iθ/2·X⊗X)
+    ///
+    /// Couples each basis state |i⟩ with the state where BOTH qubits are
+    /// flipped: cos(θ/2)·|i⟩ - i·sin(θ/2)·|i ⊕ both⟩.
+    let applyRxx (qubit1Index: int) (qubit2Index: int) (theta: float) (state: StateVector.StateVector) : StateVector.StateVector =
+        validateTwoQubitPair "RXX" qubit1Index qubit2Index state
+
+        let dimension = StateVector.dimension state
+        let flipMask = (1 <<< qubit1Index) ||| (1 <<< qubit2Index)
+        let c = Complex(cos (theta / 2.0), 0.0)
+        let minusISin = Complex(0.0, -sin (theta / 2.0))
+
+        let newAmplitudes =
+            Array.init dimension (fun i ->
+                let j = i ^^^ flipMask
+                c * StateVector.getAmplitude i state
+                + minusISin * StateVector.getAmplitude j state)
+
+        StateVector.create newAmplitudes
+
+    /// Apply RYY gate: exp(-iθ/2·Y⊗Y)
+    ///
+    /// Like RXX but with a sign from the Y matrix elements:
+    /// (Y⊗Y)|ab⟩ = -|āb̄⟩ when a = b and +|āb̄⟩ when a ≠ b.
+    let applyRyy (qubit1Index: int) (qubit2Index: int) (theta: float) (state: StateVector.StateVector) : StateVector.StateVector =
+        validateTwoQubitPair "RYY" qubit1Index qubit2Index state
+
+        let dimension = StateVector.dimension state
+        let mask1 = 1 <<< qubit1Index
+        let mask2 = 1 <<< qubit2Index
+        let flipMask = mask1 ||| mask2
+        let c = Complex(cos (theta / 2.0), 0.0)
+        let minusISin = Complex(0.0, -sin (theta / 2.0))
+
+        let newAmplitudes =
+            Array.init dimension (fun i ->
+                let j = i ^^^ flipMask
+                let bitsAgree = ((i &&& mask1) <> 0) = ((i &&& mask2) <> 0)
+                let sign = if bitsAgree then -1.0 else 1.0
+                c * StateVector.getAmplitude i state
+                + sign * minusISin * StateVector.getAmplitude j state)
+
+        StateVector.create newAmplitudes
+
     // ============================================================================
     // 7. THREE-QUBIT GATES (Depend on StateVector operations)
     // ============================================================================

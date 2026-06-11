@@ -197,6 +197,30 @@ module GateTranspiler =
             CNOT (qubit2, qubit1)
             CNOT (qubit1, qubit2)
         ]
+
+    /// Decompose RZZ into the standard CNOT conjugation
+    ///
+    /// RZZ(θ) = CNOT(a,b) · RZ_b(θ) · CNOT(a,b)
+    /// (the CNOT computes the parity into b, RZ phases it, the CNOT uncomputes)
+    let private decomposeRZZ (qubit1: int) (qubit2: int) (theta: float) : Gate list =
+        [
+            CNOT (qubit1, qubit2)
+            RZ (qubit2, theta)
+            CNOT (qubit1, qubit2)
+        ]
+
+    /// Decompose RXX via basis change: RXX(θ) = (H⊗H) · RZZ(θ) · (H⊗H)
+    let private decomposeRXX (qubit1: int) (qubit2: int) (theta: float) : Gate list =
+        [ H qubit1; H qubit2 ]
+        @ decomposeRZZ qubit1 qubit2 theta
+        @ [ H qubit1; H qubit2 ]
+
+    /// Decompose RYY via basis change with RX(±π/2):
+    /// RYY(θ) = (RX(π/2)⊗RX(π/2)) · RZZ(θ) · (RX(-π/2)⊗RX(-π/2))
+    let private decomposeRYY (qubit1: int) (qubit2: int) (theta: float) : Gate list =
+        [ RX (qubit1, -Math.PI / 2.0); RX (qubit2, -Math.PI / 2.0) ]
+        @ decomposeRZZ qubit1 qubit2 theta
+        @ [ RX (qubit1, Math.PI / 2.0); RX (qubit2, Math.PI / 2.0) ]
     
     // ========================================================================
     // THREE-QUBIT GATE DECOMPOSITIONS (Toffoli/CCX)
@@ -514,7 +538,7 @@ module GateTranspiler =
     /// - gate: the gate to transpile
     /// 
     /// Returns: list of gates (original if supported, decomposed if not)
-    let private transpileGate 
+    let rec private transpileGate 
         (needsPhaseDecomposition: bool)
         (needsCZDecomposition: bool)
         (needsSWAPDecomposition: bool)
@@ -539,6 +563,12 @@ module GateTranspiler =
         
         // CP - decompose if needed (for most backends)
         | CP (c, t, angle) when needsControlledRotationDecomposition -> decomposeCP c t angle
+
+        // Ising interaction gates - decomposed alongside controlled rotations
+        // (backends without native parameterized two-qubit gates need both)
+        | RXX (q1, q2, angle) when needsControlledRotationDecomposition -> decomposeRXX q1 q2 angle
+        | RYY (q1, q2, angle) when needsControlledRotationDecomposition -> decomposeRYY q1 q2 angle
+        | RZZ (q1, q2, angle) when needsControlledRotationDecomposition -> decomposeRZZ q1 q2 angle
         
         // SWAP - decompose if needed (for topological and some backends)
         // Note: IonQ and Rigetti support SWAP natively, so only decompose when explicitly needed
@@ -555,6 +585,13 @@ module GateTranspiler =
         // MCZ - always decompose (no backend supports multi-controlled gates natively)
         | MCZ (controls, target) -> decomposeMCZ controls target
         
+        // Conditional: transpile the inner gate, preserving the classical condition
+        | Conditional (q, inner) ->
+            transpileGate
+                needsPhaseDecomposition needsCZDecomposition needsSWAPDecomposition
+                needsCCXDecomposition needsControlledRotationDecomposition inner
+            |> List.map (fun g -> Conditional (q, g))
+
         // All other gates - pass through unchanged
         | other -> [other]
     
@@ -719,6 +756,12 @@ module GateTranspiler =
                 not (supportedGates.Contains "CRY")
             | CRZ _ ->
                 not (supportedGates.Contains "CRZ")
+            | RXX _ ->
+                not (supportedGates.Contains "RXX")
+            | RYY _ ->
+                not (supportedGates.Contains "RYY")
+            | RZZ _ ->
+                not (supportedGates.Contains "RZZ")
             | MCZ _ ->
                 not (supportedGates.Contains "MCZ")
             | _ -> false)

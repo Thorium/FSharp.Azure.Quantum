@@ -206,16 +206,18 @@ module CloudBackends =
                                         match resultData with
                                         | Error err -> return Error err
                                         | Ok jobResult ->
-                                            try
-                                                let resultJson = jobResult.OutputData :?> string
-                                                let histogram = IonQBackend.parseIonQResult resultJson
-                                                let numQubits =
-                                                    CloudBackendHelpers.inferNumQubits histogram
-                                                    |> Option.defaultValue circuit.NumQubits
-                                                return Ok (CloudBackendHelpers.histogramToQuantumState histogram numQubits)
-                                            with
-                                            | ex ->
-                                                return Error (QuantumError.AzureError (AzureQuantumError.UnknownError(0, sprintf "Failed to parse IonQ results: %s" ex.Message)))
+                                            match jobResult.OutputData with
+                                            | :? string as resultJson ->
+                                                match IonQBackend.parseIonQResult resultJson with
+                                                | Ok histogram ->
+                                                    let numQubits =
+                                                        CloudBackendHelpers.inferNumQubits histogram
+                                                        |> Option.defaultValue circuit.NumQubits
+                                                    return Ok (CloudBackendHelpers.histogramToQuantumState histogram numQubits)
+                                                | Error msg ->
+                                                    return Error (QuantumError.AzureError (AzureQuantumError.UnknownError(0, sprintf "Failed to parse IonQ results: %s" msg)))
+                                            | other ->
+                                                return Error (QuantumError.AzureError (AzureQuantumError.UnknownError(0, sprintf "Expected IonQ output data to be a JSON string, got %s" (if isNull other then "null" else other.GetType().Name))))
                                 | JobStatus.Failed (errorCode, errorMessage) ->
                                     return Error (IonQBackend.mapIonQError errorCode errorMessage)
                                 | JobStatus.Cancelled ->
@@ -336,16 +338,18 @@ module CloudBackends =
                                         match resultData with
                                         | Error err -> return Error err
                                         | Ok jobResult ->
-                                            try
-                                                let resultJson = jobResult.OutputData :?> string
-                                                let histogram = QuantinuumBackend.parseQuantinuumResult resultJson
-                                                let numQubits =
-                                                    CloudBackendHelpers.inferNumQubits histogram
-                                                    |> Option.defaultValue circuit.NumQubits
-                                                return Ok (CloudBackendHelpers.histogramToQuantumState histogram numQubits)
-                                            with
-                                            | ex ->
-                                                return Error (QuantumError.AzureError (AzureQuantumError.UnknownError(0, sprintf "Failed to parse Quantinuum results: %s" ex.Message)))
+                                            match jobResult.OutputData with
+                                            | :? string as resultJson ->
+                                                match QuantinuumBackend.parseQuantinuumResult resultJson with
+                                                | Ok histogram ->
+                                                    let numQubits =
+                                                        CloudBackendHelpers.inferNumQubits histogram
+                                                        |> Option.defaultValue circuit.NumQubits
+                                                    return Ok (CloudBackendHelpers.histogramToQuantumState histogram numQubits)
+                                                | Error msg ->
+                                                    return Error (QuantumError.AzureError (AzureQuantumError.UnknownError(0, sprintf "Failed to parse Quantinuum results: %s" msg)))
+                                            | other ->
+                                                return Error (QuantumError.AzureError (AzureQuantumError.UnknownError(0, sprintf "Expected Quantinuum output data to be a JSON string, got %s" (if isNull other then "null" else other.GetType().Name))))
                                 | JobStatus.Failed (errorCode, errorMessage) ->
                                     return Error (QuantinuumBackend.mapQuantinuumError errorCode errorMessage)
                                 | JobStatus.Cancelled ->

@@ -180,9 +180,16 @@ module QuantumKnapsackSolver =
     // ================================================================================
 
     /// Decode binary solution to Knapsack selection
-    let private decodeSolution (problem: KnapsackProblem) (bitstring: int[]) : KnapsackSolution =
-        let selectedItems = 
-            problem.Items 
+    ///
+    /// Returns None when the measurement has fewer bits than there are items
+    /// (a malformed backend response), rather than indexing out of range.
+    let private decodeSolution (problem: KnapsackProblem) (bitstring: int[]) : KnapsackSolution option =
+        if bitstring.Length < problem.Items.Length then
+            None
+        else
+
+        let selectedItems =
+            problem.Items
             |> List.mapi (fun i item -> i, item)
             |> List.filter (fun (i, _) -> bitstring.[i] = 1)
             |> List.map snd
@@ -191,7 +198,7 @@ module QuantumKnapsackSolver =
         let totalValue = selectedItems |> List.sumBy (fun item -> item.Value)
         let isFeasible = totalWeight <= problem.Capacity
         
-        {
+        Some {
             SelectedItems = selectedItems
             TotalWeight = totalWeight
             TotalValue = totalValue
@@ -287,10 +294,11 @@ module QuantumKnapsackSolver =
                     let parameters = [| gamma, beta |]
                     
                     let handleMeasurements (measurements:int array array) =
-                        // Step 8: Decode measurements to selections
-                        let solutions = 
+                        // Step 8: Decode measurements to selections,
+                        // dropping malformed (too short) measurements
+                        let solutions =
                             measurements
-                            |> Array.map (fun measurement -> decodeSolution problem measurement)
+                            |> Array.choose (decodeSolution problem)
                         
                         // Step 9: Find best FEASIBLE solution (satisfies capacity)
                         let feasibleSolutions = 

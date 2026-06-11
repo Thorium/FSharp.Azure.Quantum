@@ -100,6 +100,17 @@ module MermaidRenderer =
                 | CircuitBuilder.SWAP (q1, q2) ->
                     [ $"    Note over q{q1},q{q2}: SWAP"
                       $"    q{q1}<<->>q{q2}: Exchange" ]
+                | CircuitBuilder.RXX (q1, q2, angle) ->
+                    [ $"    Note over q{q1},q{q2}: RXX({angle:F2})"
+                      $"    q{q1}<<->>q{q2}: XX interaction" ]
+                | CircuitBuilder.RYY (q1, q2, angle) ->
+                    [ $"    Note over q{q1},q{q2}: RYY({angle:F2})"
+                      $"    q{q1}<<->>q{q2}: YY interaction" ]
+                | CircuitBuilder.RZZ (q1, q2, angle) ->
+                    [ $"    Note over q{q1},q{q2}: RZZ({angle:F2})"
+                      $"    q{q1}<<->>q{q2}: ZZ interaction" ]
+                | CircuitBuilder.Conditional (mq, inner) ->
+                    [ $"    Note over q{mq}: if q{mq}==1 then {CircuitBuilder.getGateName inner}" ]
                 
                 // Multi-qubit gates
                 | CircuitBuilder.CCX (ctrl1, ctrl2, targ) ->
@@ -180,11 +191,15 @@ module MermaidRenderer =
             | CircuitBuilder.CRY (_, _, a) -> $"CRY({a:F2})"
             | CircuitBuilder.CRZ (_, _, a) -> $"CRZ({a:F2})"
             | CircuitBuilder.SWAP _ -> "SWAP"
+            | CircuitBuilder.RXX (_, _, a) -> $"RXX({a:F2})"
+            | CircuitBuilder.RYY (_, _, a) -> $"RYY({a:F2})"
+            | CircuitBuilder.RZZ (_, _, a) -> $"RZZ({a:F2})"
             | CircuitBuilder.CCX _ -> "CCX/Toffoli"
             | CircuitBuilder.MCZ _ -> "MCZ"
             | CircuitBuilder.Measure _ -> "Measure"
             | CircuitBuilder.Reset _ -> "Reset |0⟩"
             | CircuitBuilder.Barrier _ -> "Barrier"
+            | CircuitBuilder.Conditional (mq, inner) -> $"if(q{mq}) {CircuitBuilder.getGateName inner}"
         
         let private processGate (currentId, qubitStates: QubitState, lines) gate =
             match gate with
@@ -194,7 +209,8 @@ module MermaidRenderer =
                 | CircuitBuilder.H qubit | CircuitBuilder.S qubit | CircuitBuilder.SDG qubit 
                 | CircuitBuilder.T qubit | CircuitBuilder.TDG qubit 
                 | CircuitBuilder.RX (qubit, _) | CircuitBuilder.RY (qubit, _) | CircuitBuilder.RZ (qubit, _) 
-                | CircuitBuilder.P (qubit, _) | CircuitBuilder.U3 (qubit, _, _, _) ->
+                | CircuitBuilder.P (qubit, _) | CircuitBuilder.U3 (qubit, _, _, _)
+                | CircuitBuilder.Conditional (qubit, _) ->
                     let gateId = currentId
                     let nextStateId = nextId gateId
                     let (NodeId prevId) = qubitStates.[qubit]
@@ -213,7 +229,9 @@ module MermaidRenderer =
                 
                 | CircuitBuilder.CNOT (ctrl, targ) | CircuitBuilder.CZ (ctrl, targ) 
                 | CircuitBuilder.CP (ctrl, targ, _) | CircuitBuilder.CRX (ctrl, targ, _) 
-                | CircuitBuilder.CRY (ctrl, targ, _) | CircuitBuilder.CRZ (ctrl, targ, _) ->
+                | CircuitBuilder.CRY (ctrl, targ, _) | CircuitBuilder.CRZ (ctrl, targ, _)
+                | CircuitBuilder.RXX (ctrl, targ, _) | CircuitBuilder.RYY (ctrl, targ, _)
+                | CircuitBuilder.RZZ (ctrl, targ, _) ->
                     let ctrlId = currentId
                     let gateId = nextId ctrlId
                     let nextCtrlId = nextId gateId

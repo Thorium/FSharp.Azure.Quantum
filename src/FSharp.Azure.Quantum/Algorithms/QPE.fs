@@ -198,10 +198,28 @@ module QPE =
             |> List.map (fun i -> QuantumOperation.Gate (CircuitBuilder.H i))
 
         // Step 3: Prepare target qubits in eigenvector
-        // For phase gates, eigenvector is |1⟩
+        // For phase gates, the default eigenvector is |1⟩; a custom eigenvector
+        // is prepared with Möttönen state preparation on the target register.
+        // (plan validates the eigenvector is a StateVector of the right dimension.)
         let eigenPrepOps =
             match config.EigenVector with
-            | Some _ -> []
+            | Some (QuantumState.StateVector sv) ->
+                let targetQubits =
+                    Array.init config.TargetQubits (fun i -> config.CountingQubits + i)
+                let amplitudes =
+                    Array.init
+                        (LocalSimulator.StateVector.dimension sv)
+                        (fun i -> LocalSimulator.StateVector.getAmplitude i sv)
+                let prepCircuit =
+                    CircuitBuilder.empty (config.CountingQubits + config.TargetQubits)
+                    |> MottonenStatePreparation.prepareStateFromAmplitudes amplitudes targetQubits
+                // Circuit.Gates is stored most-recent-first; restore forward order
+                prepCircuit.Gates
+                |> List.rev
+                |> List.map QuantumOperation.Gate
+            | Some _ ->
+                // Non-StateVector eigenvectors are rejected by plan before lowering
+                []
             | None ->
                 match config.UnitaryOperator with
                 | TGate | SGate | PhaseGate _ | RotationZ _ when config.TargetQubits = 1 ->
@@ -289,17 +307,42 @@ module QPE =
                             "ModularExponentiation cannot be executed via QPE's built-in lowering. " +
                             "Use Shor.estimateModExpPhase which has access to the Beauregard arithmetic circuits."))
                     | _ ->
-                        let coreIntent = toCoreIntent intent
-                        let nativeOp = QuantumOperation.Algorithm (AlgorithmOperation.QPE coreIntent)
+                        // Validate a custom eigenvector before planning. The native
+                        // QpeIntent cannot carry an eigenvector, so a custom one also
+                        // forces the lowered (gate-level) execution path.
+                        let eigenVectorValidation =
+                            match intent.Config.EigenVector with
+                            | None -> Ok ()
+                            | Some (QuantumState.StateVector sv) ->
+                                let expectedDim = 1 <<< intent.Config.TargetQubits
+                                let actualDim = LocalSimulator.StateVector.dimension sv
+                                if actualDim <> expectedDim then
+                                    Error (QuantumError.ValidationError (
+                                        "EigenVector",
+                                        $"dimension {actualDim} does not match TargetQubits={intent.Config.TargetQubits} (expected {expectedDim})"))
+                                elif LocalSimulator.StateVector.norm sv < 1e-10 then
+                                    Error (QuantumError.ValidationError ("EigenVector", "must be a non-zero state"))
+                                else
+                                    Ok ()
+                            | Some other ->
+                                Error (QuantumError.ValidationError (
+                                    "EigenVector",
+                                    $"must be a StateVector, got {other.GetType().Name}"))
 
-                        if backend.SupportsOperation nativeOp then
-                            Ok (QpePlan.ExecuteNatively (coreIntent, intent.Exactness))
-                        else
-                            let lowerOps = buildLoweringOps intent
-                            if lowerOps |> List.forall backend.SupportsOperation then
-                                Ok (QpePlan.ExecuteViaOps (lowerOps, intent.Exactness))
+                        match eigenVectorValidation with
+                        | Error e -> Error e
+                        | Ok () ->
+                            let coreIntent = toCoreIntent intent
+                            let nativeOp = QuantumOperation.Algorithm (AlgorithmOperation.QPE coreIntent)
+
+                            if intent.Config.EigenVector.IsNone && backend.SupportsOperation nativeOp then
+                                Ok (QpePlan.ExecuteNatively (coreIntent, intent.Exactness))
                             else
-                                Error (QuantumError.OperationError ("QPE", $"Backend '{backend.Name}' does not support required operations for QPE"))
+                                let lowerOps = buildLoweringOps intent
+                                if lowerOps |> List.forall backend.SupportsOperation then
+                                    Ok (QpePlan.ExecuteViaOps (lowerOps, intent.Exactness))
+                                else
+                                    Error (QuantumError.OperationError ("QPE", $"Backend '{backend.Name}' does not support required operations for QPE"))
 
     let private executePlan
         (backend: IQuantumBackend)
@@ -384,8 +427,6 @@ module QPE =
                 return! Error (QuantumError.ValidationError ("TargetQubits", "must be positive"))
             elif config.CountingQubits > 16 then
                 return! Error (QuantumError.ValidationError ("CountingQubits", "more than 16 is not practical for local simulation"))
-            elif config.EigenVector.IsSome then
-                return! Error (QuantumError.ValidationError ("EigenVector", "custom eigenvector preparation not yet supported; currently only the default |1> eigenvector is used for phase estimation"))
             else
                 match config.UnitaryOperator with
                 | ModularExponentiation (baseNum, modulus) ->

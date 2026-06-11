@@ -34,6 +34,12 @@ module CircuitBuilder =
         | CRY of int * int * float    // Controlled-RY: CRY(θ) applies RY(θ) when control is |1⟩
         | CRZ of int * int * float    // Controlled-RZ: CRZ(θ) applies RZ(θ) when control is |1⟩
         | SWAP of int * int           // SWAP two qubits (qubit1, qubit2)
+
+        // Two-qubit Ising interaction gates (native on trapped-ion and
+        // superconducting hardware: IonQ RXX, Rigetti/IBM ZZ interactions)
+        | RXX of int * int * float    // exp(-iθ/2·X⊗X) (qubit1, qubit2, angle)
+        | RYY of int * int * float    // exp(-iθ/2·Y⊗Y) (qubit1, qubit2, angle)
+        | RZZ of int * int * float    // exp(-iθ/2·Z⊗Z) (qubit1, qubit2, angle)
         
         // Three-qubit gates
         | CCX of int * int * int      // Toffoli (CCNOT) (control1, control2, target)
@@ -43,12 +49,22 @@ module CircuitBuilder =
         
         // Measurement
         | Measure of int              // Measurement of qubit in computational basis
-        
+
         // Reset and synchronization
         | Reset of int                // Reset qubit to |0⟩ state (measure + conditional X)
         | Barrier of int list         // Synchronization barrier across specified qubits (no physical effect)
 
+        // Classical control flow: apply the inner gate only when an earlier
+        // Measure of `measuredQubit` yielded 1. The inner gate must be a plain
+        // unitary (no nested Conditional/Measure/Reset). Exports to OpenQASM 3.0
+        // `if` statements; OpenQASM 2.0 cannot express per-bit conditions.
+        | Conditional of measuredQubit: int * gate: Gate
+
     /// Represents a quantum circuit with gates and qubit count
+    ///
+    /// INVARIANT: Gates is stored most-recent-first (addGate prepends for O(1)
+    /// append). Use getGates for program order; any consumer iterating Gates
+    /// directly (execution, export, optimization) must List.rev first.
     type Circuit = {
         QubitCount: int
         Gates: Gate list
@@ -135,7 +151,7 @@ module CircuitBuilder =
         { circuit with Gates = List.rev optimized }
 
     /// Converts a gate to OpenQASM 2.0 format
-    let private gateToQASM (gate: Gate) : string =
+    let rec private gateToQASM (gate: Gate) : string =
         match gate with
         | X q -> $"x q[{q}];"
         | Y q -> $"y q[{q}];"
@@ -158,6 +174,9 @@ module CircuitBuilder =
         | CRY (c, t, theta) -> $"cry({theta}) q[{c}],q[{t}];"
         | CRZ (c, t, theta) -> $"crz({theta}) q[{c}],q[{t}];"
         | SWAP (q1, q2) -> $"swap q[{q1}],q[{q2}];"
+        | RXX (q1, q2, theta) -> $"rxx({theta}) q[{q1}],q[{q2}];"
+        | RYY (q1, q2, theta) -> $"ryy({theta}) q[{q1}],q[{q2}];"
+        | RZZ (q1, q2, theta) -> $"rzz({theta}) q[{q1}],q[{q2}];"
         | CCX (c1, c2, t) -> $"ccx q[{c1}],q[{c2}],q[{t}];"
         | RX (q, angle) -> $"rx({angle}) q[{q}];"
         | RY (q, angle) -> $"ry({angle}) q[{q}];"
@@ -168,6 +187,10 @@ module CircuitBuilder =
         | Barrier qubits ->
             let qubitList = qubits |> List.map (fun q -> $"q[{q}]") |> String.concat ","
             $"barrier {qubitList};"
+        | Conditional (q, inner) ->
+            // OpenQASM 2.0 `if` compares a whole creg, not a single bit; only
+            // the versioned OpenQASM 3.0 exporter can express this faithfully
+            $"// conditional on q[{q}]: {gateToQASM inner} (use OpenQasmExport with OpenQASM 3.0)"
 
     /// Converts a circuit to OpenQASM 2.0 format for Azure Quantum submission
     let toOpenQASM (circuit: Circuit) : string =
@@ -201,11 +224,15 @@ module CircuitBuilder =
         | CRY _ -> "CRY"
         | CRZ _ -> "CRZ"
         | SWAP _ -> "SWAP"
+        | RXX _ -> "RXX"
+        | RYY _ -> "RYY"
+        | RZZ _ -> "RZZ"
         | CCX _ -> "CCX"
         | MCZ _ -> "MCZ"
         | Measure _ -> "Measure"
         | Reset _ -> "Reset"
         | Barrier _ -> "Barrier"
+        | Conditional _ -> "Conditional"
     
     /// Validates a circuit for correctness (qubit bounds, gate compatibility)
     let validate (circuit: Circuit) : Validation.ValidationResult =
@@ -217,8 +244,16 @@ module CircuitBuilder =
             else
                 None
 
-        let validateGate (gate: Gate) : string list =
+        let rec validateGate (gate: Gate) : string list =
             match gate with
+            | Conditional (q, inner) ->
+                let qubitErrors = validateQubit q |> Option.toList
+                let innerErrors =
+                    match inner with
+                    | Conditional _ | Measure _ | Reset _ ->
+                        [$"Conditional gate cannot wrap {getGateName inner} - only plain unitary gates"]
+                    | _ -> validateGate inner
+                qubitErrors @ innerErrors
             | X q | Y q | Z q | H q | S q | SDG q | T q | TDG q | Measure q | Reset q ->
                 validateQubit q |> Option.toList
             | RX (q, _) | RY (q, _) | RZ (q, _) | P (q, _) | U3 (q, _, _, _) ->
@@ -240,19 +275,20 @@ module CircuitBuilder =
                     else
                         errors
                 List.rev errors
-            | SWAP (q1, q2) ->
+            | SWAP (q1, q2)
+            | RXX (q1, q2, _) | RYY (q1, q2, _) | RZZ (q1, q2, _) ->
                 let errors = []
-                let errors = 
+                let errors =
                     match validateQubit q1 with
                     | Some err -> err :: errors
                     | None -> errors
-                let errors = 
+                let errors =
                     match validateQubit q2 with
                     | Some err -> err :: errors
                     | None -> errors
-                let errors = 
+                let errors =
                     if q1 = q2 then
-                        "SWAP qubits cannot be the same" :: errors
+                        $"{getGateName gate} qubits cannot be the same" :: errors
                     else
                         errors
                 List.rev errors
@@ -556,8 +592,38 @@ module CircuitBuilder =
         [<CustomOperation("SWAP")>]
         member _.SWAP(circuit: Circuit, qubit1and2: int*int) : Circuit =
             { circuit with Gates = (SWAP qubit1and2) :: circuit.Gates }
-        
-        
+
+        /// Apply RXX Ising interaction gate: exp(-iθ/2·X⊗X)
+        [<CustomOperation("RXX")>]
+        member _.RXX(circuit: Circuit, qubit1: int, qubit2: int, angle: float) : Circuit =
+            { circuit with Gates = (RXX (qubit1, qubit2, angle)) :: circuit.Gates }
+
+        /// Apply RXX Ising interaction gate: exp(-iθ/2·X⊗X)
+        [<CustomOperation("RXX")>]
+        member _.RXX(circuit: Circuit, qubitsAndAngle: int*int*float) : Circuit =
+            { circuit with Gates = (RXX qubitsAndAngle) :: circuit.Gates }
+
+        /// Apply RYY Ising interaction gate: exp(-iθ/2·Y⊗Y)
+        [<CustomOperation("RYY")>]
+        member _.RYY(circuit: Circuit, qubit1: int, qubit2: int, angle: float) : Circuit =
+            { circuit with Gates = (RYY (qubit1, qubit2, angle)) :: circuit.Gates }
+
+        /// Apply RYY Ising interaction gate: exp(-iθ/2·Y⊗Y)
+        [<CustomOperation("RYY")>]
+        member _.RYY(circuit: Circuit, qubitsAndAngle: int*int*float) : Circuit =
+            { circuit with Gates = (RYY qubitsAndAngle) :: circuit.Gates }
+
+        /// Apply RZZ Ising interaction gate: exp(-iθ/2·Z⊗Z)
+        [<CustomOperation("RZZ")>]
+        member _.RZZ(circuit: Circuit, qubit1: int, qubit2: int, angle: float) : Circuit =
+            { circuit with Gates = (RZZ (qubit1, qubit2, angle)) :: circuit.Gates }
+
+        /// Apply RZZ Ising interaction gate: exp(-iθ/2·Z⊗Z)
+        [<CustomOperation("RZZ")>]
+        member _.RZZ(circuit: Circuit, qubitsAndAngle: int*int*float) : Circuit =
+            { circuit with Gates = (RZZ qubitsAndAngle) :: circuit.Gates }
+
+
         // ========================================================================
         // THREE-QUBIT GATES
         // ========================================================================
@@ -731,7 +797,7 @@ module CircuitBuilder =
     /// Reverse circuit (creates inverse/adjoint circuit)
     /// Useful for uncomputation in quantum algorithms
     let reverse (circuit: Circuit) : Circuit =
-        let inverseGate (gate: Gate) : Gate =
+        let rec inverseGate (gate: Gate) : Gate =
             match gate with
             // Self-inverse gates
             | H q -> H q
@@ -759,6 +825,9 @@ module CircuitBuilder =
             | CRX (c, t, theta) -> CRX (c, t, -theta)
             | CRY (c, t, theta) -> CRY (c, t, -theta)
             | CRZ (c, t, theta) -> CRZ (c, t, -theta)
+            | RXX (q1, q2, theta) -> RXX (q1, q2, -theta)
+            | RYY (q1, q2, theta) -> RYY (q1, q2, -theta)
+            | RZZ (q1, q2, theta) -> RZZ (q1, q2, -theta)
             
             // U3 gate (negate all angles for inverse)
             | U3 (q, theta, phi, lambda) -> U3 (q, -theta, -lambda, -phi)
@@ -771,6 +840,9 @@ module CircuitBuilder =
             
             // Barrier is a synchronization directive — stays in place
             | Barrier qubits -> Barrier qubits
+
+            // Conditional: invert the inner unitary, same classical condition
+            | Conditional (q, inner) -> Conditional (q, inverseGate inner)
         
         // Gates are stored in reverse chronological order internally.
         // Adjoint of [A, B, C] (forward) is [C†, B†, A†] (forward).
@@ -887,7 +959,7 @@ module CircuitBuilder =
     // ========================================================================
     
     /// Get qubits affected by a gate
-    let private getAffectedQubits (gate: Gate) : int list =
+    let rec private getAffectedQubits (gate: Gate) : int list =
         match gate with
         | X q | Y q | Z q | H q -> [q]
         | S q | SDG q | T q | TDG q -> [q]
@@ -899,11 +971,13 @@ module CircuitBuilder =
         | CRY (c, t, _) -> [c; t]
         | CRZ (c, t, _) -> [c; t]
         | SWAP (c, t) -> [c; t]
+        | RXX (q1, q2, _) | RYY (q1, q2, _) | RZZ (q1, q2, _) -> [q1; q2]
         | CCX (c1, c2, t) -> [c1; c2; t]
         | MCZ (controls, target) -> controls @ [target]
         | Measure q -> [q]
         | Reset q -> [q]
         | Barrier qubits -> qubits
+        | Conditional (q, inner) -> q :: getAffectedQubits inner
     
     /// Check if two gates act on disjoint qubits (always commute)
     let private areDisjoint (gate1: Gate) (gate2: Gate) : bool =

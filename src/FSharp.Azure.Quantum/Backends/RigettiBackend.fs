@@ -429,9 +429,9 @@ module RigettiBackend =
             match submitResult with
             | Error err -> return Error err
             | Ok jobId ->
-                // Step 3: Poll until complete (5 minute timeout, no cancellation)
+                // Step 3: Poll until complete (5 minute timeout, honouring the caller's cancellation)
                 let timeout = TimeSpan.FromMinutes(5.0)
-                let cancellationToken = System.Threading.CancellationToken.None
+                let! cancellationToken = Async.CancellationToken
                 let! pollResult = JobLifecycle.pollJobUntilCompleteAsync httpClient workspaceUrl jobId timeout cancellationToken
                 match pollResult with
                 | Error err -> return Error err

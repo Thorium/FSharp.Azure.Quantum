@@ -93,6 +93,23 @@ module CircuitAbstraction =
             | CircuitBuilder.SWAP (q1, q2) ->
                 // SWAP = CNOT(q1,q2) CNOT(q2,q1) CNOT(q1,q2)
                 [QuantumGate.CNOT (q1, q2); QuantumGate.CNOT (q2, q1); QuantumGate.CNOT (q1, q2)]
+            | CircuitBuilder.RZZ (q1, q2, angle) ->
+                // RZZ(θ) = CNOT(q1,q2) · RZ_q2(θ) · CNOT(q1,q2)
+                [QuantumGate.CNOT (q1, q2); QuantumGate.RZ (q2, angle); QuantumGate.CNOT (q1, q2)]
+            | CircuitBuilder.RXX (q1, q2, angle) ->
+                // RXX(θ) = (H⊗H) · RZZ(θ) · (H⊗H)
+                [
+                    QuantumGate.H q1; QuantumGate.H q2
+                    QuantumGate.CNOT (q1, q2); QuantumGate.RZ (q2, angle); QuantumGate.CNOT (q1, q2)
+                    QuantumGate.H q1; QuantumGate.H q2
+                ]
+            | CircuitBuilder.RYY (q1, q2, angle) ->
+                // RYY(θ) = (RX(π/2)⊗RX(π/2)) · RZZ(θ) · (RX(-π/2)⊗RX(-π/2))
+                [
+                    QuantumGate.RX (q1, -Math.PI / 2.0); QuantumGate.RX (q2, -Math.PI / 2.0)
+                    QuantumGate.CNOT (q1, q2); QuantumGate.RZ (q2, angle); QuantumGate.CNOT (q1, q2)
+                    QuantumGate.RX (q1, Math.PI / 2.0); QuantumGate.RX (q2, Math.PI / 2.0)
+                ]
             | CircuitBuilder.CCX (c1, c2, t) ->
                 // Toffoli (CCX) decomposition using 6 CNOTs + T gates (Barenco decomposition)
                 // Reference: Nielsen & Chuang, p. 182
@@ -186,6 +203,8 @@ module CircuitAbstraction =
                 []
             | CircuitBuilder.Reset _ ->
                 failwith "Reset gate cannot be converted to QAOA gates (not unitary)"
+            | CircuitBuilder.Conditional _ ->
+                failwith "Conditional gates cannot be converted to QAOA gates (QAOA circuits have no classical control flow)"
             | CircuitBuilder.Barrier _ ->
                 // Barrier is a synchronization directive with no physical effect
                 []

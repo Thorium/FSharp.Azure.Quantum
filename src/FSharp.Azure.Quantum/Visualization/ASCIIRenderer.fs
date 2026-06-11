@@ -154,14 +154,47 @@ module ASCIIRenderer =
                     elif i = targ then
                         wire @ [box.Middle] @ List.replicate 3 BoxChars.horizontal
                     elif i > minQ && i < maxQ then
-                        let vLine = 
-                            String.replicate (box.Width / 2) BoxChars.horizontal + 
-                            BoxChars.vertical + 
+                        let vLine =
+                            String.replicate (box.Width / 2) BoxChars.horizontal +
+                            BoxChars.vertical +
                             String.replicate (box.Width / 2) BoxChars.horizontal
                         wire @ [vLine] @ List.replicate 3 BoxChars.horizontal
                     else
                         wire @ [String.replicate box.Width BoxChars.horizontal] @ List.replicate 3 BoxChars.horizontal)
-            
+
+            // Conditional gate: labelled box on the measured qubit
+            | CircuitBuilder.Conditional (mq, inner) ->
+                let label = sprintf "if:%s" (CircuitBuilder.getGateName inner)
+                let box = gateBox label
+                wires'
+                |> List.mapi (fun i wire ->
+                    if i = mq then
+                        wire @ [box.Middle] @ List.replicate 3 BoxChars.horizontal
+                    else
+                        wire @ [String.replicate box.Width BoxChars.horizontal] @ List.replicate 3 BoxChars.horizontal)
+
+            // Symmetric two-qubit Ising gates: label box on both qubits
+            | CircuitBuilder.RXX (q1, q2, angle)
+            | CircuitBuilder.RYY (q1, q2, angle)
+            | CircuitBuilder.RZZ (q1, q2, angle) ->
+                let label = sprintf "%s(%.2f)" (CircuitBuilder.getGateName g) angle
+                let box = gateBox label
+                let minQ = min q1 q2
+                let maxQ = max q1 q2
+
+                wires'
+                |> List.mapi (fun i wire ->
+                    if i = q1 || i = q2 then
+                        wire @ [box.Middle] @ List.replicate 3 BoxChars.horizontal
+                    elif i > minQ && i < maxQ then
+                        let vLine =
+                            String.replicate (box.Width / 2) BoxChars.horizontal +
+                            BoxChars.vertical +
+                            String.replicate (box.Width / 2) BoxChars.horizontal
+                        wire @ [vLine] @ List.replicate 3 BoxChars.horizontal
+                    else
+                        wire @ [String.replicate box.Width BoxChars.horizontal] @ List.replicate 3 BoxChars.horizontal)
+
             // SWAP gate
             | CircuitBuilder.SWAP (q1, q2) ->
                 let box = gateBox "×"

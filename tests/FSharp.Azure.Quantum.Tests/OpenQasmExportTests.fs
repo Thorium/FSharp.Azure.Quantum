@@ -95,10 +95,9 @@ module OpenQasmExportTests =
     
     [<Fact>]
     let ``export gates in correct order`` () =
-        let circuit = {
-            QubitCount = 3
-            Gates = [H 0; X 1; CNOT (0, 1); Y 2; RZ (2, 0.5)]
-        }
+        let circuit =
+            empty 3
+            |> addGates [H 0; X 1; CNOT (0, 1); Y 2; RZ (2, 0.5)]
         let qasm = OpenQasm.export circuit
         let lines = qasm.Split('\n')
         

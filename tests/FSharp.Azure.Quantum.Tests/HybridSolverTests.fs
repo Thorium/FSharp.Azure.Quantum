@@ -56,3 +56,29 @@ module HybridSolverTests =
         match result with
         | Error err -> Assert.True(false, err.Message)
         | Ok solution -> Assert.Equal(HybridSolver.SolverMethod.Classical, solution.Method)
+
+    // ========================================================================
+    // COST ESTIMATION (budget guard inputs)
+    // ========================================================================
+
+    [<Fact>]
+    let ``estimateBackendCostUSD treats local simulators as free`` () =
+        let backend = FSharp.Azure.Quantum.Backends.LocalBackend.LocalBackend() :> IQuantumBackend
+        Assert.Equal(0.0, HybridSolver.estimateBackendCostUSD backend 25)
+
+    [<Fact>]
+    let ``estimateQuantumConfigCostUSD scales with problem size`` () =
+        let backend = HybridSolver.QuantumBackend.IonQ "ionq.qpu"
+        let small = HybridSolver.estimateQuantumConfigCostUSD backend 9
+        let large = HybridSolver.estimateQuantumConfigCostUSD backend 100
+
+        Assert.True(small > 0.0, $"Expected nonzero cost for cloud backend, got {small}")
+        Assert.True(large > small, $"Expected cost to grow with problem size: {small} -> {large}")
+
+    [<Fact>]
+    let ``estimateQuantumConfigCostUSD differs between providers`` () =
+        let ionq = HybridSolver.estimateQuantumConfigCostUSD (HybridSolver.QuantumBackend.IonQ "ionq.qpu") 25
+        let rigetti = HybridSolver.estimateQuantumConfigCostUSD (HybridSolver.QuantumBackend.Rigetti "rigetti.qpu") 25
+
+        Assert.True(ionq > 0.0)
+        Assert.True(rigetti > 0.0)

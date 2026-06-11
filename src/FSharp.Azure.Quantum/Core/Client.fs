@@ -322,6 +322,64 @@ module Client =
                 return! Retry.executeWithRetry retryConfig (fun ct -> this.GetJobStatusAsyncInternal(jobId, ct)) ct
             }
 
+        /// List jobs (internal implementation without retry)
+        member private this.ListJobsAsyncInternal(ct: CancellationToken) =
+            async {
+                try
+                    let firstUrl =
+                        Endpoints.jobsPath config.SubscriptionId config.ResourceGroup config.WorkspaceName
+                        |> Endpoints.fullUrl
+
+                    let parseJob (element: JsonElement) : QuantumJob =
+                        { JobId = element.GetProperty("id").GetString()
+                          Status = JobStatus.Parse(element.GetProperty("status").GetString(), None, None)
+                          Target = element.GetProperty("target").GetString()
+                          CreationTime = element.GetProperty("creationTime").GetDateTimeOffset()
+                          BeginExecutionTime = tryGetJsonDateTimeOffset "beginExecutionTime" element
+                          EndExecutionTime = tryGetJsonDateTimeOffset "endExecutionTime" element
+                          CancellationTime = tryGetJsonDateTimeOffset "cancellationTime" element
+                          OutputDataUri = tryGetJsonString "outputDataUri" element }
+
+                    // Azure ARM list responses page through `value` + `nextLink`
+                    let rec fetchPage (url: string) (acc: QuantumJob list) =
+                        async {
+                            use request = new HttpRequestMessage(HttpMethod.Get, url)
+                            let! response = config.HttpClient.SendAsync(request, ct) |> Async.AwaitTask
+
+                            if response.IsSuccessStatusCode then
+                                let! responseBody = response.Content.ReadAsStringAsync(ct) |> Async.AwaitTask
+                                use jsonDoc = JsonDocument.Parse(responseBody)
+                                let root = jsonDoc.RootElement
+
+                                let pageJobs =
+                                    match root.TryGetProperty("value") with
+                                    | true, value when value.ValueKind = JsonValueKind.Array ->
+                                        value.EnumerateArray() |> Seq.map parseJob |> List.ofSeq
+                                    | _ -> []
+
+                                match tryGetJsonString "nextLink" root with
+                                | Some next when not (String.IsNullOrWhiteSpace next) ->
+                                    return! fetchPage next (acc @ pageJobs)
+                                | _ ->
+                                    return Ok (acc @ pageJobs)
+                            else
+                                let! errorBody = response.Content.ReadAsStringAsync(ct) |> Async.AwaitTask
+                                return Error (Retry.categorizeHttpError response.StatusCode errorBody)
+                        }
+
+                    return! fetchPage firstUrl []
+                with ex ->
+                    return Error(QuantumError.AzureError(AzureQuantumError.UnknownError(0, ex.Message)))
+            }
+
+        /// List all jobs in the workspace, following nextLink pagination,
+        /// with retry logic. Returns jobs newest-data-as-served by the API.
+        member this.ListJobsAsync(?cancellationToken: CancellationToken) =
+            async {
+                let ct = defaultArg cancellationToken CancellationToken.None
+                return! Retry.executeWithRetry retryConfig (fun ct -> this.ListJobsAsyncInternal(ct)) ct
+            }
+
         /// Cancel a quantum job
         member this.CancelJobAsync(jobId: string, ?cancellationToken: CancellationToken) =
             async {

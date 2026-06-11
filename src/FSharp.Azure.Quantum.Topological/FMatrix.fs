@@ -124,14 +124,15 @@ module FMatrix =
     // ========================================================================
     
     /// Compute F-symbols for Fibonacci anyons
-    /// 
+    ///
     /// Fibonacci F-symbols involve the golden ratio φ = (1+√5)/2.
-    /// 
-    /// From Simon Table 18.2:
-    /// - F[τ,τ,τ,1;τ,τ] = φ⁻¹
+    ///
+    /// From Simon "Topological Quantum", Table 9.5:
+    /// - F[τ,τ,τ,1;τ,τ] = 1 (the F^{τττ}_1 matrix is 1×1 and unitary)
+    /// - F[τ,τ,τ,τ;1,1] = φ⁻¹
     /// - F[τ,τ,τ,τ;1,τ] = F[τ,τ,τ,τ;τ,1] = φ⁻¹/²
     /// - F[τ,τ,τ,τ;τ,τ] = -φ⁻¹
-    /// 
+    ///
     /// where φ = (1+√5)/2 is the golden ratio.
     let computeFibonacciFSymbols () : Map<FSymbolIndex, Complex> =
         let phi = (1.0 + sqrt 5.0) / 2.0  // Golden ratio

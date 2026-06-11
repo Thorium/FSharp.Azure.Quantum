@@ -234,10 +234,17 @@ module AnyonicErrorCorrection =
                         else
                             // Pick first valid channel (prefer vacuum if available)
                             let preferred =
-                                match validChannels |> List.tryFind (fun c -> c = AnyonSpecies.Particle.Vacuum) with
-                                | Some v -> v
-                                | None -> validChannels |> List.head
-                            Ok (FusionTree.Fusion (correctedLeft, correctedRight, preferred), leftFixes + rightFixes + 1)
+                                validChannels
+                                |> List.tryFind (fun c -> c = AnyonSpecies.Particle.Vacuum)
+                                |> Option.orElse (validChannels |> List.tryHead)
+
+                            match preferred with
+                            | Some channel ->
+                                Ok (FusionTree.Fusion (correctedLeft, correctedRight, channel), leftFixes + rightFixes + 1)
+                            | None ->
+                                Error (TopologicalError.ComputationError (
+                                    "Anyonic error correction",
+                                    $"No valid fusion channel for {leftCharge} x {rightCharge}"))
 
         match correct state.Tree with
         | Error e -> Error e

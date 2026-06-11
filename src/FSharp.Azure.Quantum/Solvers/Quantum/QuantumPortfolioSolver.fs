@@ -463,19 +463,22 @@ module QuantumPortfolioSolver =
     // ================================================================================
 
     /// Decode QUBO solution bitstring to portfolio allocation
-    let private decodeSolution 
-        (problem: PortfolioProblem) 
+    ///
+    /// Returns None for malformed measurements (fewer bits than assets),
+    /// empty selections and budget violations.
+    let private decodeSolution
+        (problem: PortfolioProblem)
         (bitstring: int array)
         : QuantumPortfolioSolution option =
-        
-        try
+
+        if bitstring.Length < List.length problem.Assets then
+            None
+        else
             // Extract selected assets (where bit = 1)
             let selectedAssets =
-                bitstring
-                |> Array.mapi (fun i bit -> 
-                    let asset = problem.Assets.[i]
-                    (asset.Symbol, bit = 1))
-                |> Map.ofArray
+                problem.Assets
+                |> List.mapi (fun i asset -> (asset.Symbol, bitstring.[i] = 1))
+                |> Map.ofList
             
             let selectedAssetList =
                 problem.Assets
@@ -542,9 +545,6 @@ module QuantumPortfolioSolver =
                         BestEnergy = energy
                         SelectedAssets = selectedAssets
                     }
-        
-        with _ ->
-            None
 
     // ================================================================================
     // QUANTUM SOLVER

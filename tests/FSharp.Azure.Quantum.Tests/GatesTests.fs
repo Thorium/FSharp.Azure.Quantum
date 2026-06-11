@@ -454,9 +454,93 @@ module GatesTests =
         ) |> ignore
         
         // Invalid: out of range
-        Assert.Throws<System.Exception>(fun () -> 
+        Assert.Throws<System.Exception>(fun () ->
             Gates.applyCNOT 2 0 state2q |> ignore
         ) |> ignore
-        Assert.Throws<System.Exception>(fun () -> 
+        Assert.Throws<System.Exception>(fun () ->
             Gates.applyCZ 0 3 state2q |> ignore
         ) |> ignore
+
+    // ========================================================================
+    // ISING INTERACTION GATES (RXX / RYY / RZZ)
+    // ========================================================================
+
+    /// Random-ish 2-qubit test state (normalized via create)
+    let private testState2q () =
+        StateVector.create [|
+            Complex(0.5, 0.1); Complex(-0.3, 0.4); Complex(0.2, -0.6); Complex(0.1, 0.25)
+        |]
+
+    let private assertStatesEqual (expected: StateVector.StateVector) (actual: StateVector.StateVector) =
+        for i in 0 .. StateVector.dimension expected - 1 do
+            let e = StateVector.getAmplitude i expected
+            let a = StateVector.getAmplitude i actual
+            Assert.True((e - a).Magnitude < 1e-10, $"Amplitude {i}: expected {e}, got {a}")
+
+    [<Fact>]
+    let ``RZZ applies parity-dependent phases`` () =
+        // RZZ(θ)|00⟩ = e^(-iθ/2)|00⟩, RZZ(θ)|01⟩ = e^(+iθ/2)|01⟩
+        let theta = 0.7
+        let state00 = StateVector.init 2
+        let after00 = Gates.applyRzz 0 1 theta state00
+
+        let expectedPhase = Complex(cos (theta / 2.0), -sin (theta / 2.0))
+        Assert.True((StateVector.getAmplitude 0 after00 - expectedPhase).Magnitude < 1e-10)
+
+        // |01⟩ (qubit 0 = 1, qubit 1 = 0 → bits differ → e^(+iθ/2))
+        let state01 = StateVector.create [| Complex.Zero; Complex.One; Complex.Zero; Complex.Zero |]
+        let after01 = Gates.applyRzz 0 1 theta state01
+        let expectedDiff = Complex(cos (theta / 2.0), sin (theta / 2.0))
+        Assert.True((StateVector.getAmplitude 1 after01 - expectedDiff).Magnitude < 1e-10)
+
+    [<Fact>]
+    let ``RXX matches its CNOT-RZ-CNOT decomposition`` () =
+        // RXX(θ) = (H⊗H)·CNOT·RZ(θ)·CNOT·(H⊗H)
+        let theta = 1.234
+        let state = testState2q ()
+
+        let native = Gates.applyRxx 0 1 theta state
+        let decomposed =
+            state
+            |> Gates.applyH 0 |> Gates.applyH 1
+            |> Gates.applyCNOT 0 1
+            |> Gates.applyRz 1 theta
+            |> Gates.applyCNOT 0 1
+            |> Gates.applyH 0 |> Gates.applyH 1
+
+        assertStatesEqual decomposed native
+
+    [<Fact>]
+    let ``RYY matches its RX-conjugated decomposition`` () =
+        // RYY(θ) = (RX(π/2)⊗RX(π/2))·RZZ(θ)·(RX(-π/2)⊗RX(-π/2))
+        let theta = -0.81
+        let state = testState2q ()
+
+        let native = Gates.applyRyy 0 1 theta state
+        let decomposed =
+            state
+            |> Gates.applyRx 0 (-Math.PI / 2.0) |> Gates.applyRx 1 (-Math.PI / 2.0)
+            |> Gates.applyRzz 0 1 theta
+            |> Gates.applyRx 0 (Math.PI / 2.0) |> Gates.applyRx 1 (Math.PI / 2.0)
+
+        assertStatesEqual decomposed native
+
+    [<Fact>]
+    let ``Ising gates with negated angle are inverses`` () =
+        let theta = 0.456
+        let state = testState2q ()
+
+        let roundtripXX = state |> Gates.applyRxx 0 1 theta |> Gates.applyRxx 0 1 -theta
+        let roundtripYY = state |> Gates.applyRyy 0 1 theta |> Gates.applyRyy 0 1 -theta
+        let roundtripZZ = state |> Gates.applyRzz 0 1 theta |> Gates.applyRzz 0 1 -theta
+
+        assertStatesEqual state roundtripXX
+        assertStatesEqual state roundtripYY
+        assertStatesEqual state roundtripZZ
+
+    [<Fact>]
+    let ``Ising gates reject same-qubit application`` () =
+        let state = StateVector.init 2
+        Assert.Throws<System.Exception>(fun () -> Gates.applyRxx 0 0 1.0 state |> ignore) |> ignore
+        Assert.Throws<System.Exception>(fun () -> Gates.applyRyy 1 1 1.0 state |> ignore) |> ignore
+        Assert.Throws<System.Exception>(fun () -> Gates.applyRzz 0 0 1.0 state |> ignore) |> ignore

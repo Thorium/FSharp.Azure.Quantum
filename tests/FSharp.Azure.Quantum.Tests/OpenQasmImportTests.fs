@@ -26,7 +26,7 @@ x q[0];
         | Ok circuit ->
             Assert.Equal(1, circuit.QubitCount)
             Assert.Equal(1, circuit.Gates.Length)
-            match circuit.Gates.[0] with
+            match (getGates circuit).[0] with
             | X 0 -> ()
             | _ -> Assert.True(false, "Expected X gate on qubit 0")
         | Error msg -> Assert.True(false, $"Parse failed: {msg}")
@@ -43,7 +43,7 @@ y q[0];
         
         match result with
         | Ok circuit ->
-            match circuit.Gates.[0] with
+            match (getGates circuit).[0] with
             | Y 0 -> ()
             | _ -> Assert.True(false, "Expected Y gate")
         | Error msg -> Assert.True(false, $"Parse failed: {msg}")
@@ -60,7 +60,7 @@ z q[0];
         
         match result with
         | Ok circuit ->
-            match circuit.Gates.[0] with
+            match (getGates circuit).[0] with
             | Z 0 -> ()
             | _ -> Assert.True(false, "Expected Z gate")
         | Error msg -> Assert.True(false, $"Parse failed: {msg}")
@@ -77,7 +77,7 @@ h q[0];
         
         match result with
         | Ok circuit ->
-            match circuit.Gates.[0] with
+            match (getGates circuit).[0] with
             | H 0 -> ()
             | _ -> Assert.True(false, "Expected H gate")
         | Error msg -> Assert.True(false, $"Parse failed: {msg}")
@@ -98,7 +98,7 @@ s q[0];
         
         match result with
         | Ok circuit ->
-            match circuit.Gates.[0] with
+            match (getGates circuit).[0] with
             | S 0 -> ()
             | _ -> Assert.True(false, "Expected S gate")
         | Error msg -> Assert.True(false, $"Parse failed: {msg}")
@@ -115,7 +115,7 @@ sdg q[0];
         
         match result with
         | Ok circuit ->
-            match circuit.Gates.[0] with
+            match (getGates circuit).[0] with
             | SDG 0 -> ()
             | _ -> Assert.True(false, "Expected SDG gate")
         | Error msg -> Assert.True(false, $"Parse failed: {msg}")
@@ -132,7 +132,7 @@ t q[0];
         
         match result with
         | Ok circuit ->
-            match circuit.Gates.[0] with
+            match (getGates circuit).[0] with
             | T 0 -> ()
             | _ -> Assert.True(false, "Expected T gate")
         | Error msg -> Assert.True(false, $"Parse failed: {msg}")
@@ -149,7 +149,7 @@ tdg q[0];
         
         match result with
         | Ok circuit ->
-            match circuit.Gates.[0] with
+            match (getGates circuit).[0] with
             | TDG 0 -> ()
             | _ -> Assert.True(false, "Expected TDG gate")
         | Error msg -> Assert.True(false, $"Parse failed: {msg}")
@@ -170,7 +170,7 @@ rx(1.5707963268) q[0];
         
         match result with
         | Ok circuit ->
-            match circuit.Gates.[0] with
+            match (getGates circuit).[0] with
             | RX (0, angle) ->
                 Assert.InRange(angle, 1.5707, 1.5708)  // π/2
             | _ -> Assert.True(false, "Expected RX gate")
@@ -188,7 +188,7 @@ ry(3.1415926536) q[0];
         
         match result with
         | Ok circuit ->
-            match circuit.Gates.[0] with
+            match (getGates circuit).[0] with
             | RY (0, angle) ->
                 Assert.InRange(angle, 3.1415, 3.1416)  // π
             | _ -> Assert.True(false, "Expected RY gate")
@@ -206,7 +206,7 @@ rz(0.7853981634) q[0];
         
         match result with
         | Ok circuit ->
-            match circuit.Gates.[0] with
+            match (getGates circuit).[0] with
             | RZ (0, angle) ->
                 Assert.InRange(angle, 0.7853, 0.7854)  // π/4
             | _ -> Assert.True(false, "Expected RZ gate")
@@ -229,7 +229,7 @@ cx q[0],q[1];
         match result with
         | Ok circuit ->
             Assert.Equal(2, circuit.QubitCount)
-            match circuit.Gates.[0] with
+            match (getGates circuit).[0] with
             | CNOT (0, 1) -> ()
             | _ -> Assert.True(false, "Expected CNOT gate")
         | Error msg -> Assert.True(false, $"Parse failed: {msg}")
@@ -246,7 +246,7 @@ cz q[0],q[1];
         
         match result with
         | Ok circuit ->
-            match circuit.Gates.[0] with
+            match (getGates circuit).[0] with
             | CZ (0, 1) -> ()
             | _ -> Assert.True(false, "Expected CZ gate")
         | Error msg -> Assert.True(false, $"Parse failed: {msg}")
@@ -263,7 +263,7 @@ swap q[0],q[1];
         
         match result with
         | Ok circuit ->
-            match circuit.Gates.[0] with
+            match (getGates circuit).[0] with
             | SWAP (0, 1) -> ()
             | _ -> Assert.True(false, "Expected SWAP gate")
         | Error msg -> Assert.True(false, $"Parse failed: {msg}")
@@ -285,7 +285,7 @@ ccx q[0],q[1],q[2];
         match result with
         | Ok circuit ->
             Assert.Equal(3, circuit.QubitCount)
-            match circuit.Gates.[0] with
+            match (getGates circuit).[0] with
             | CCX (0, 1, 2) -> ()
             | _ -> Assert.True(false, "Expected CCX gate")
         | Error msg -> Assert.True(false, $"Parse failed: {msg}")
@@ -309,7 +309,7 @@ cx q[0],q[1];
         | Ok circuit ->
             Assert.Equal(2, circuit.QubitCount)
             Assert.Equal(2, circuit.Gates.Length)
-            match circuit.Gates.[0], circuit.Gates.[1] with
+            match (getGates circuit).[0], (getGates circuit).[1] with
             | H 0, CNOT (0, 1) -> ()
             | _ -> Assert.True(false, "Expected H and CNOT gates")
         | Error msg -> Assert.True(false, $"Parse failed: {msg}")

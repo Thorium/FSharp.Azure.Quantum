@@ -515,3 +515,59 @@ cx q[0],q[2];
         // After 5 round-trips, should still match original
         Assert.Equal(original.QubitCount, current.QubitCount)
         Assert.Equal(original.Gates.Length, current.Gates.Length)
+
+    // ========================================================================
+    // ISING INTERACTION GATES (RXX / RYY / RZZ)
+    // ========================================================================
+
+    [<Fact>]
+    let ``Ising gates survive QASM export-import roundtrip`` () =
+        let original = { QubitCount = 2; Gates = [RXX (0, 1, 0.5); RYY (0, 1, -1.25); RZZ (0, 1, 3.14)] }
+
+        let qasm = OpenQasmExport.export original
+
+        Assert.Contains("rxx(", qasm)
+        Assert.Contains("ryy(", qasm)
+        Assert.Contains("rzz(", qasm)
+
+        match OpenQasmImport.parse qasm with
+        | Error msg -> Assert.True(false, $"Import failed: {msg}")
+        | Ok imported ->
+            Assert.Equal(original.QubitCount, imported.QubitCount)
+            let gates = imported.Gates |> List.sortBy (fun g -> getGateName g)
+            let expected = original.Gates |> List.sortBy (fun g -> getGateName g)
+            Assert.Equal<Gate list>(expected, gates)
+
+    [<Fact>]
+    let ``Ising gates transpile to CNOT basis for IonQ`` () =
+        let circuit = { QubitCount = 2; Gates = [RXX (0, 1, 0.5); RYY (0, 1, 0.5); RZZ (0, 1, 0.5)] }
+
+        let transpiled = GateTranspiler.transpileForBackend "ionq.simulator" circuit
+
+        // No Ising gates should remain after transpilation
+        let remaining =
+            transpiled.Gates
+            |> List.filter (fun g -> match g with RXX _ | RYY _ | RZZ _ -> true | _ -> false)
+        Assert.Empty(remaining)
+
+        // Decompositions are CNOT + RZ (+ basis changes)
+        Assert.Contains(transpiled.Gates, fun g -> match g with CNOT _ -> true | _ -> false)
+
+    [<Fact>]
+    let ``export emits builder-built circuits in program order`` () =
+        // Regression test: Circuit.Gates is stored most-recent-first, so export
+        // must reverse before emitting. A reversed program reaching real
+        // hardware (Quantinuum/Atom submission paths) would execute backwards.
+        let circuit =
+            empty 2
+            |> addGate (H 0)
+            |> addGate (CNOT (0, 1))
+            |> addGate (Measure 0)
+
+        let qasm = OpenQasmExport.export circuit
+        let hIdx = qasm.IndexOf("h q[0];")
+        let cxIdx = qasm.IndexOf("cx q[0],q[1];")
+        let mIdx = qasm.IndexOf("measure q[0]")
+
+        Assert.True(hIdx >= 0 && cxIdx > hIdx && mIdx > cxIdx,
+            $"Expected h before cx before measure, got indices {hIdx}, {cxIdx}, {mIdx}")

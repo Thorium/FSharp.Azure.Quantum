@@ -364,7 +364,7 @@ module ResetBarrierTests =
         let result = OpenQasmImport.parse qasm
         match result with
         | Ok circuit ->
-            Assert.Equal<Gate list>([Reset 0; Reset 1; Reset 2], circuit.Gates)
+            Assert.Equal<Gate list>([Reset 0; Reset 1; Reset 2], getGates circuit)
         | Error msg -> Assert.Fail(msg)
 
     [<Fact>]
@@ -449,7 +449,7 @@ module ResetBarrierTests =
             Assert.Equal(3, circuit.QubitCount)
             Assert.Equal<Gate list>(
                 [H 0; Barrier [0; 1; 2]; CNOT(0, 1); Reset 2; X 1],
-                circuit.Gates)
+                getGates circuit)
         | Error msg -> Assert.Fail(msg)
 
     [<Fact>]

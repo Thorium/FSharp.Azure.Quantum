@@ -487,7 +487,10 @@ module CostEstimation =
             | Error msg -> Error msg
             | Ok (cheapest, cheapestEstimate) ->
                 let savings = currentEstimate.ExpectedCost - cheapestEstimate.ExpectedCost
-                let savingsPercent = (float (savings / currentEstimate.ExpectedCost)) * 100.0
+                let savingsPercent =
+                    // Subscription-based backends (e.g. Quantinuum HQC) can have ExpectedCost = 0
+                    if currentEstimate.ExpectedCost = 0.0M<USD> then 0.0
+                    else (float (savings / currentEstimate.ExpectedCost)) * 100.0
                 
                 // Only recommend if savings >= 20%
                 if savings > 0.0M<USD> && savingsPercent >= 20.0 && cheapest <> currentBackend then
@@ -756,15 +759,18 @@ module CostEstimation =
                 let total = recs |> List.sumBy (fun r -> r.ActualCost |> Option.defaultValue r.EstimatedCost)
                 sb.AppendLine(sprintf "  %s: $%.2f (%d jobs)" (formatBackendName backend) (usdFloat total) recs.Length) |> ignore)
             
-            // Estimate accuracy
-            let recordsWithActual = 
-                records 
-                |> List.filter (fun r -> r.ActualCost.IsSome)
-            
+            // Estimate accuracy (relative error is undefined for zero-cost jobs, so skip them)
+            let recordsWithActual =
+                records
+                |> List.filter (fun r ->
+                    match r.ActualCost with
+                    | Some actual -> actual <> 0.0M<USD>
+                    | None -> false)
+
             if not recordsWithActual.IsEmpty then
                 let accuracyErrors =
                     recordsWithActual
-                    |> List.map (fun r -> 
+                    |> List.map (fun r ->
                         let actual = r.ActualCost.Value
                         let estimated = r.EstimatedCost
                         abs(float ((actual - estimated) / actual)))
