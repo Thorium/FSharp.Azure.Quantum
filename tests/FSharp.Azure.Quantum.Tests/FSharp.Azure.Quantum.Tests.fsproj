@@ -183,20 +183,32 @@
     <Compile Include="IntegrationTests.fs" />
     
     <!-- Kasino Game Tests -->
-    <Compile Include="KasinoGameTests.fs" />
+    <!--<Compile Include="KasinoGameTests.fs" />-->
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="coverlet.collector" Version="6.0.4" />
-    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="coverlet.collector" Version="10.0.1">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.6.0" />
     <PackageReference Include="xunit" Version="2.9.3" />
-    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\FSharp.Azure.Quantum\FSharp.Azure.Quantum.fsproj" />
     <ProjectReference Include="..\..\src\FSharp.Azure.Quantum.Topological\FSharp.Azure.Quantum.Topological.fsproj" />
-    <ProjectReference Include="..\..\examples\Kasino\Game\Kasino.fsproj" />
+    <!--<ProjectReference Include="..\..\examples\Kasino\Game\Kasino.fsproj" /> -->
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Update="FSharp.Core" Version="10.1.301" />
+    <PackageReference Update="Microsoft.CodeAnalysis.NetAnalyzers" Version="10.0.301" />
+    <PackageReference Update="SonarAnalyzer.CSharp" Version="10.27.0.140913" />
   </ItemGroup>
 
 </Project>

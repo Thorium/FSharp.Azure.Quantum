@@ -6,12 +6,16 @@
     <GenerateProgramFile>false</GenerateProgramFile>
 
     <!-- Package Metadata -->
-    <Version>0.4.0</Version>
+    <Version>0.4.1</Version>
     <PackageId>FSharp.Azure.Quantum.Topological</PackageId>
     <Title>FSharp.Azure.Quantum.Topological</Title>
     <Description>Topological quantum computing plugin for FSharp.Azure.Quantum. Provides anyon theory (Ising/Fibonacci/SU(2)_k), braiding compilation, gate-to-braid conversion, Majorana (tetron) hardware device profiles and noise models, and topological file format (.tqp). Includes Majorana 1 (Al–InAs) and Majorana 2 (InAs–Pb) hardware profiles. Seamlessly integrates with main package algorithms (Grover, QFT, QAOA) via IQuantumBackend interface. Requires FSharp.Azure.Quantum v1.3.10+.</Description>
     <Summary>F# topological quantum computing plugin with anyon models, braiding compilation, Majorana hardware profiles, noise models, and seamless integration with FSharp.Azure.Quantum algorithms</Summary>
-    <PackageReleaseNotes>v0.4.0: Majorana 2 (InAs–Pb tetron) hardware support
+    <PackageReleaseNotes>v0.4.1: Dependency updates
+- UPDATED: FSharp.Core to 10.1.301
+- No functional changes
+
+v0.4.0: Majorana 2 (InAs–Pb tetron) hardware support
 - NEW: DeviceProfile module with majorana1 (Al–InAs) and majorana2 (InAs–Pb) hardware profiles capturing measured physics (topological gap, Majorana splitting, parity lifetime, parent gap)
 - NEW: NoiseModels.realisticTopologicalMajorana2 — parity lifetime τ_Z ≈ 22 s, poisoning ≈ 0.045 Hz, derived from the June 2026 InAs–Pb tetron result
 - CHANGED: NoiseModels.realisticTopological now defaults to Majorana 2; the previous Al–InAs preset is preserved as realisticTopologicalMajorana1
@@ -20,7 +24,7 @@
 v0.3.10: Async backend integration
 - NEW: TopologicalBackend now implements async IQuantumBackend members (ExecuteToStateAsync, ApplyOperationAsync)
 - IMPROVED: Aligned with FSharp.Azure.Quantum v1.3.10 async API additions</PackageReleaseNotes>
-    
+
     <!-- Repository Info -->
     <RepositoryUrl>https://github.com/thorium/FSharp.Azure.Quantum</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
@@ -32,7 +36,7 @@ v0.3.10: Async backend integration
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageLicenseExpression>Unlicense</PackageLicenseExpression>
     <Copyright>Unlicense - Public Domain</Copyright>
-    
+
     <!-- Symbols -->
     <SymbolPackageFormat>snupkg</SymbolPackageFormat>
     <IncludeSymbols>true</IncludeSymbols>
@@ -82,13 +86,19 @@ v0.3.10: Async backend integration
     <Compile Include="EntanglementEntropy.fs" />
     <Compile Include="TopologicalBackend.fs" />
     <Compile Include="AlgorithmExtensions.fs" />
-    
+
     <Compile Include="TopologicalBuilder.fs" />
     <Compile Include="TopologicalFormat.fs" />
     <Compile Include="MagicStateDistillation.fs" />
     <Compile Include="DeviceProfile.fs" />
     <Compile Include="NoiseModels.fs" />
     <Compile Include="Visualization.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Update="FSharp.Core" Version="10.1.301" />
+    <PackageReference Update="Microsoft.CodeAnalysis.NetAnalyzers" Version="10.0.301" />
+    <PackageReference Update="SonarAnalyzer.CSharp" Version="10.27.0.140913" />
   </ItemGroup>
 
 </Project>

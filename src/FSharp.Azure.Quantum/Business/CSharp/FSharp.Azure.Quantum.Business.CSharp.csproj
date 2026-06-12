@@ -26,9 +26,8 @@
 
   <!-- These builders are legacy/stale; compile disabled for now. -->
   <ItemGroup>
-
-
-
+    <PackageReference Update="Microsoft.CodeAnalysis.NetAnalyzers" Version="10.0.301" />
+    <PackageReference Update="SonarAnalyzer.CSharp" Version="10.27.0.140913" />
   </ItemGroup>
 
 </Project>

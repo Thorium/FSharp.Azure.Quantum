@@ -39,11 +39,11 @@ let ``TokenManager should cache token on subsequent requests`` () =
 
     let trackingCredential =
         { new TokenCredential() with
-            member _.GetToken(_, _) =
+            member _.GetToken(_: TokenRequestContext, _: CancellationToken) =
                 callCount <- callCount + 1
                 AccessToken("token", expiresOn)
 
-            member _.GetTokenAsync(_, _) =
+            member _.GetTokenAsync(_: TokenRequestContext, _: CancellationToken) =
                 callCount <- callCount + 1
                 System.Threading.Tasks.ValueTask<AccessToken>(AccessToken("token", expiresOn)) }
 
@@ -65,11 +65,11 @@ let ``TokenManager should refresh expired token`` () =
 
     let trackingCredential =
         { new TokenCredential() with
-            member _.GetToken(_, _) =
+            member _.GetToken(_: TokenRequestContext, _: CancellationToken) =
                 callCount <- callCount + 1
                 AccessToken(sprintf "token-%d" callCount, currentExpiry)
 
-            member _.GetTokenAsync(_, _) =
+            member _.GetTokenAsync(_: TokenRequestContext, _: CancellationToken) =
                 callCount <- callCount + 1
                 System.Threading.Tasks.ValueTask<AccessToken>(AccessToken(sprintf "token-%d" callCount, currentExpiry)) }
 
@@ -98,11 +98,11 @@ let ``TokenManager ClearCache should force token refresh`` () =
 
     let trackingCredential =
         { new TokenCredential() with
-            member _.GetToken(_, _) =
+            member _.GetToken(_: TokenRequestContext, _: CancellationToken) =
                 callCount <- callCount + 1
                 AccessToken("token", expiresOn)
 
-            member _.GetTokenAsync(_, _) =
+            member _.GetTokenAsync(_: TokenRequestContext, _: CancellationToken) =
                 callCount <- callCount + 1
                 System.Threading.Tasks.ValueTask<AccessToken>(AccessToken("token", expiresOn)) }
 
@@ -180,10 +180,10 @@ let ``AuthenticationHandler should add Authorization Bearer header`` () =
 type FailingTokenCredential(errorMessage: string) =
     inherit TokenCredential()
     
-    override this.GetToken(_, _) =
+    override this.GetToken(_: TokenRequestContext, _: CancellationToken) : AccessToken =
         raise (AuthenticationFailedException(errorMessage))
-    
-    override this.GetTokenAsync(_, _) =
+
+    override this.GetTokenAsync(_: TokenRequestContext, _: CancellationToken) : ValueTask<AccessToken> =
         raise (AuthenticationFailedException(errorMessage))
 
 [<Fact>]
@@ -201,10 +201,10 @@ let ``TokenManager should propagate credential errors`` () =
 let ``TokenManager should handle network timeout gracefully`` () =
     let timeoutCredential =
         { new TokenCredential() with
-            member _.GetToken(_, _) =
+            member _.GetToken(_: TokenRequestContext, _: CancellationToken) : AccessToken =
                 raise (TimeoutException("Network timeout"))
-            
-            member _.GetTokenAsync(_, _) =
+
+            member _.GetTokenAsync(_: TokenRequestContext, _: CancellationToken) : ValueTask<AccessToken> =
                 raise (TimeoutException("Network timeout"))
         }
     
@@ -243,13 +243,13 @@ let ``TokenManager should recover after clearing cache from failed state`` () =
     
     let recoveringCredential =
         { new TokenCredential() with
-            member _.GetToken(_, _) =
+            member _.GetToken(_: TokenRequestContext, _: CancellationToken) =
                 if shouldFail then
                     raise (AuthenticationFailedException("First attempt fails"))
                 else
                     AccessToken("recovered-token", expiresOn)
             
-            member _.GetTokenAsync(_, _) =
+            member _.GetTokenAsync(_: TokenRequestContext, _: CancellationToken) =
                 if shouldFail then
                     raise (AuthenticationFailedException("First attempt fails"))
                 else

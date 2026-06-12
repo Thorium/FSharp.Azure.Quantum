@@ -6,12 +6,18 @@
     <GenerateProgramFile>false</GenerateProgramFile>
 
     <!-- Package Metadata -->
-    <Version>1.3.12</Version>
+    <Version>1.4.1</Version>
     <PackageId>FSharp.Azure.Quantum</PackageId>
     <Title>FSharp.Azure.Quantum</Title>
     <Description>F# library for Azure Quantum with quantum-first optimization (Graph Coloring, TSP, MaxCut, Knapsack, Network Flow, Portfolio), Azure Quantum backend integration (IonQ, Rigetti, Quantinuum, Atom Computing), extensible circuit validation, local quantum simulation, QAOA with automatic parameter optimization (Nelder-Mead), OpenQASM 2.0 support, error mitigation techniques (ZNE, PEC, REM), Quantum Random Number Generation (QRNG), and educational quantum algorithms (Grover, QFT, Amplitude Amplification) with cloud backend execution. Multi-provider architecture supports IonQ, Rigetti, Quantinuum, Atom Computing, IBM, Amazon Braket, and Google Cirq.</Description>
     <Summary>F# library for Azure Quantum with quantum-first optimization, quantum backends (IonQ, Rigetti, Quantinuum, Atom Computing), QAOA with automatic parameter tuning, QRNG, and educational algorithms with cloud execution</Summary>
-    <PackageReleaseNotes>v1.3.10: Async backend refactoring
+    <PackageReleaseNotes>v1.4.1: Dependency updates
+- UPDATED: Azure.Identity 1.13.1 to 1.21.0
+- UPDATED: FSharp.Core to 10.1.301
+- UPDATED: Microsoft.Extensions.Logging to 10.0.9, Serilog to 4.3.1
+- UPDATED: OpenTelemetry to 1.16.0 (Exporter.Console 1.16.0, Instrumentation.Http 1.15.1)
+
+v1.3.10: Async backend refactoring
 - NEW: Task-based async APIs on IQuantumBackend (ExecuteToStateAsync, ApplyOperationAsync) with CancellationToken
 - NEW: Async QAOA execution helpers (executeQaoaCircuitAsync, executeQaoaWithGridSearchAsync, executeWithBudgetAsync)
 - NEW: Async ML pipeline (computeKernelAsync, computeKernelMatrixAsync, predictAsync, evaluateAsync)
@@ -22,7 +28,7 @@
 - IMPROVED: Sync methods marked [Obsolete] where async alternatives exist
 - FIXED: 6 pre-existing .fsx script failures (MathNet dependency, syntax errors)
 - Status: Production-ready</PackageReleaseNotes>
-    
+
     <!-- Repository Info -->
     <RepositoryUrl>https://github.com/thorium/FSharp.Azure.Quantum</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
@@ -34,7 +40,7 @@
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageLicenseExpression>Unlicense</PackageLicenseExpression>
     <Copyright>Unlicense - Public Domain</Copyright>
-    
+
     <!-- Symbols -->
     <SymbolPackageFormat>snupkg</SymbolPackageFormat>
     <IncludeSymbols>true</IncludeSymbols>
@@ -60,7 +66,7 @@
     <Compile Include="Core\Types.fs" />
     <Compile Include="Core\Progress.fs" />
     <Compile Include="Core\ResultBuilder.fs" />
-    
+
     <!-- Data Infrastructure Layer (depends on Core) -->
     <Compile Include="Data\PeriodicTable.fs" />
     <Compile Include="Data\MoleculeLibrary.fs" />
@@ -69,7 +75,7 @@
     <Compile Include="Data\MolecularData.fs" />
     <Compile Include="Data\SmilesDataProviders.fs" />
     <Compile Include="Data\FinancialData.fs" />
-    
+
     <!-- QUBO Helpers - Shared patterns for optimization solvers -->
     <Compile Include="Qubo.fs" />
 
@@ -78,7 +84,7 @@
     <Compile Include="LocalSimulator\Gates.fs" />
     <Compile Include="LocalSimulator\Measurement.fs" />
     <Compile Include="LocalSimulator\QaoaSimulator.fs" />
-    
+
     <!-- Unified Backend Architecture - Core State Types (depends on LocalSimulator) -->
     <Compile Include="Core\QuantumState.fs" />
     <Compile Include="Core\QuantumStateConversion.fs" />
@@ -106,7 +112,7 @@
     <Compile Include="Backends\AtomComputingBackend.fs" />
     <Compile Include="Backends\AzureQuantumWorkspace.fs" />
     <Compile Include="Core\Client.fs" />
-    
+
     <!-- D-Wave Integration (depends on DWaveTypes) -->
     <Compile Include="Algorithms\QuboToIsing.fs" />
 
@@ -142,14 +148,14 @@
 
     <!-- Unified backend-aware educational amplitude amplification (depends on BackendAbstraction + Builders) -->
     <Compile Include="Algorithms\AmplitudeAmplification.fs" />
-    
+
     <!-- Local Backend (depends on CircuitBuilder, CircuitAbstraction, BackendAbstraction, UnifiedBackendAbstraction) -->
     <Compile Include="Backends\LocalBackend.fs" />
 
     <!-- Cloud Backend IQuantumBackend Wrappers (depends on BackendAbstraction, CircuitAbstraction, OpenQasmExport, utility backend modules) -->
     <Compile Include="Backends\CloudBackendHelpers.fs" />
     <Compile Include="Backends\CloudBackends.fs" />
-    
+
     <!-- Unified Backend Algorithms (depends on CircuitBuilder, UnifiedBackendAbstraction, LocalBackend) -->
     <Compile Include="Algorithms\BellStates.fs" />
     <Compile Include="Algorithms\SuperdenseCoding.fs" />
@@ -163,12 +169,12 @@
     <!-- State preparation must precede QPE: custom eigenvector prep uses Mottonen -->
     <Compile Include="Algorithms\MottonenStatePreparation.fs" />
     <Compile Include="Algorithms\QPE.fs" />
-    
+
     <!-- Unified Quantum Arithmetic (state-based, works with IQuantumBackend) -->
     <!-- ✅ Migration Complete: All modular arithmetic functions implemented (Dec 11, 2024) -->
     <!-- Must come before Shor.fs: Shor's controlledModularMultiplication calls Arithmetic module -->
     <Compile Include="Algorithms\QuantumArithmetic.fs" />
-    
+
     <Compile Include="Algorithms\Shor.fs" />
     <Compile Include="Algorithms\TrotterSuzuki.fs" />
     <Compile Include="Algorithms\QuantumErrorCorrection.fs" />
@@ -184,24 +190,24 @@
     <Compile Include="Algorithms\QuantumMonteCarlo.fs" />
     <!-- D-Wave QUBO Extraction (depends on QaoaCircuit, CircuitAbstraction) -->
     <Compile Include="Algorithms\QuboExtraction.fs" />
-    
+
     <!-- D-Wave Backend (depends on QuboExtraction, QuboToIsing, DWaveTypes, BackendAbstraction) -->
     <Compile Include="Backends\DWaveBackend.fs" />
     <Compile Include="Backends\RealDWaveBackend.fs" />
-    
+
         <!-- Quantum Solvers - Need conversion to ExecuteToState API -->
-    <Compile Include="Solvers\Quantum\QuantumTspSolver.fs" /> 
-    <Compile Include="Solvers\Quantum\QuantumNetworkFlowSolver.fs" /> 
-    <Compile Include="Solvers\Quantum\QuantumPortfolioSolver.fs" /> 
-    <Compile Include="Solvers\Quantum\QuantumMaxCutSolver.fs" /> 
-    <Compile Include="Solvers\Quantum\QuantumKnapsackSolver.fs" /> 
-    <Compile Include="Solvers\Quantum\QuantumGraphColoringSolver.fs" /> 
+    <Compile Include="Solvers\Quantum\QuantumTspSolver.fs" />
+    <Compile Include="Solvers\Quantum\QuantumNetworkFlowSolver.fs" />
+    <Compile Include="Solvers\Quantum\QuantumPortfolioSolver.fs" />
+    <Compile Include="Solvers\Quantum\QuantumMaxCutSolver.fs" />
+    <Compile Include="Solvers\Quantum\QuantumKnapsackSolver.fs" />
+    <Compile Include="Solvers\Quantum\QuantumGraphColoringSolver.fs" />
     <Compile Include="Solvers\Quantum\QuantumArithmeticBuilder.fs" />
-    <Compile Include="Solvers\Quantum\QuantumConstraintSolverBuilder.fs" /> 
+    <Compile Include="Solvers\Quantum\QuantumConstraintSolverBuilder.fs" />
     <Compile Include="Solvers\Quantum\QuantumPatternMatcherBuilder.fs" />
     <Compile Include="Solvers\Quantum\QuantumTreeSearchBuilder.fs" />
     <Compile Include="Solvers\Quantum\QuantumPeriodFinderBuilder.fs" />
-    <Compile Include="Solvers\Quantum\QuantumPhaseEstimatorBuilder.fs" /> 
+    <Compile Include="Solvers\Quantum\QuantumPhaseEstimatorBuilder.fs" />
     <Compile Include="Solvers\Quantum\QuantumLinearSystemSolverBuilder.fs" />
     <Compile Include="Solvers\Quantum\QuantumChemistry.fs" />
     <Compile Include="Solvers\Quantum\DrugDiscoverySolvers.fs" />
@@ -228,7 +234,7 @@
     <Compile Include="TaskScheduling\Builders.fs" />
     <Compile Include="TaskScheduling\ClassicalSolver.fs" />
     <Compile Include="TaskScheduling\QuboEncoding.fs" />
-    <Compile Include="TaskScheduling\QuantumSolver.fs" /> 
+    <Compile Include="TaskScheduling\QuantumSolver.fs" />
     <Compile Include="TaskScheduling\Export.fs" />
     <Compile Include="TaskScheduling\TaskScheduling.fs" />
 
@@ -239,35 +245,35 @@
     <Compile Include="Solvers\Classical\MaxCutBuilder.fs" />
     <Compile Include="Solvers\Classical\KnapsackBuilder.fs" />
     <Compile Include="Solvers\Classical\GraphColoringBuilder.fs" />
-    
+
     <!-- Financial Derivatives - Quantum Monte Carlo for Option Pricing -->
     <Compile Include="Business\OptionPricingBuilder.fs" />
 
     <!-- Utilities Layer (depends on Classical Builders) -->
     <Compile Include="Utilities\PerformanceBenchmarking.fs" />
-    
+
     <!-- Visualization Layer (zero dependencies, pure F#) -->
     <Compile Include="Visualization\Types.fs" />
     <Compile Include="Visualization\ASCIIRenderer.fs" />
     <Compile Include="Visualization\MermaidRenderer.fs" />
     <Compile Include="Visualization\CircuitExtensions.fs" />
     <Compile Include="Visualization\SolutionExtensions.fs" />
-    
+
     <!-- Quantum Machine Learning (depends on CircuitBuilder, BackendAbstraction) -->
     <Compile Include="MachineLearning\QMLTypes.fs" />
     <Compile Include="MachineLearning\FeatureMap.fs" />
     <Compile Include="MachineLearning\VariationalForm.fs" />
     <Compile Include="MachineLearning\AdamOptimizer.fs" />
-    <Compile Include="MachineLearning\QuantumKernel.fs" /> 
+    <Compile Include="MachineLearning\QuantumKernel.fs" />
     <Compile Include="MachineLearning\QuantumKernelSVM.fs" />
-    <Compile Include="MachineLearning\VQC.fs" /> 
+    <Compile Include="MachineLearning\VQC.fs" />
     <Compile Include="MachineLearning\MultiClassSVM.fs" />
     <Compile Include="MachineLearning\SVMModelSerialization.fs" />
     <Compile Include="MachineLearning\DataPreprocessing.fs" />
     <Compile Include="MachineLearning\ModelSerialization.fs" />
     <Compile Include="MachineLearning\QuantumRegressionHHL.fs" />
     <Compile Include="MachineLearning\HHLModelSerialization.fs" />
-    
+
     <!-- Business-First ML Builders -->
     <Compile Include="Business\BinaryClassificationBuilder.fs" />
     <Compile Include="Business\AnomalyDetectionBuilder.fs" />
@@ -276,14 +282,14 @@
     <Compile Include="Business\AutoMLBuilder.fs" />
     <Compile Include="Business\QuantumRiskEngine.fs" />
     <Compile Include="Business\QuantumDrugDiscovery.fs" />
-    
+
     <!-- Business-First Quantum Solvers -->
     <Compile Include="Business\SocialNetworkAnalyzer.fs" />
     <Compile Include="Business\ConstraintScheduler.fs" />
     <Compile Include="Business\CoverageOptimizer.fs" />
     <Compile Include="Business\ResourcePairing.fs" />
     <Compile Include="Business\PackingOptimizer.fs" />
-    
+
     <!-- C# Interop Extensions -->
     <Compile Include="Builders\BuildersCSharpExtensions.fs" />
   </ItemGroup>
@@ -300,22 +306,29 @@
 
 
   <ItemGroup>
-    <!-- NOTE: FSharp.Core is implicitly included by the F# SDK and automatically 
+    <!-- NOTE: FSharp.Core is implicitly included by the F# SDK and automatically
          flows to NuGet package consumers as a transitive dependency.
          Current version: 10.0.100 (from .NET 10 SDK)
          C# projects consuming this library will automatically get FSharp.Core. -->
-    
-    <PackageReference Include="Azure.Identity" Version="1.13.1" />
+
+    <PackageReference Include="Azure.Identity" Version="1.21.0" />
     <PackageReference Include="MathNet.Numerics" Version="5.0.0" />
     <PackageReference Include="MathNet.Numerics.FSharp" Version="5.0.0" />
     <PackageReference Include="Microsoft.Azure.Quantum.Client" Version="0.28.302812" />
-    <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.0" />
-    <PackageReference Include="Serilog" Version="4.3.0" />
+    <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.9" />
+    <PackageReference Include="Serilog" Version="4.3.1" />
     <PackageReference Include="Serilog.Sinks.Console" Version="6.1.1" />
     <PackageReference Include="Serilog.Sinks.File" Version="7.0.0" />
-    <PackageReference Include="OpenTelemetry" Version="1.14.0" />
-    <PackageReference Include="OpenTelemetry.Exporter.Console" Version="1.14.0" />
-    <PackageReference Include="OpenTelemetry.Instrumentation.Http" Version="1.14.0" />
+    <PackageReference Include="OpenTelemetry" Version="1.16.0" />
+    <PackageReference Include="OpenTelemetry.Exporter.Console" Version="1.16.0" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.Http" Version="1.15.1" />
+  </ItemGroup>
+
+
+  <ItemGroup>
+    <PackageReference Update="FSharp.Core" Version="10.1.301" />
+    <PackageReference Update="Microsoft.CodeAnalysis.NetAnalyzers" Version="10.0.301" />
+    <PackageReference Update="SonarAnalyzer.CSharp" Version="10.27.0.140913" />
   </ItemGroup>
 
 </Project>
