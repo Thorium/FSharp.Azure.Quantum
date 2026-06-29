@@ -200,8 +200,10 @@ module OptionPricingTests =
                     Assert.True(greeks.Theta >= -10.0 && greeks.Theta <= 10.0, 
                         $"Theta should be reasonable, got {greeks.Theta}")
                     
-                    // Rho for calls should be roughly positive
-                    Assert.True(greeks.Rho >= -1.0 && greeks.Rho <= 1.0, 
+                    // Rho for a call is positive and of order K·T·e^(-rT)·N(d2) (≈ 50 for this
+                    // ATM 1y option); the genuine quantum payoff now reproduces this realistic
+                    // magnitude rather than the near-zero value the old fudge produced.
+                    Assert.True(greeks.Rho >= -1.0 && greeks.Rho <= 110.0,
                         $"Rho should be reasonable, got {greeks.Rho}")
                     
                     // Method should indicate quantum

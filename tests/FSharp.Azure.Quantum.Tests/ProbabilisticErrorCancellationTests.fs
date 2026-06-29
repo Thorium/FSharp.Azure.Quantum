@@ -31,9 +31,9 @@ module ProbabilisticErrorCancellationTests =
         // This is the key feature of PEC - some probabilities are negative!
         let decomposition: ProbabilisticErrorCancellation.QuasiProbDecomposition = {
             Terms = [
-                (CircuitBuilder.H 0, 1.1)      // Positive: desired gate
-                (CircuitBuilder.X 0, -0.05)    // Negative: Pauli X correction
-                (CircuitBuilder.Y 0, -0.05)    // Negative: Pauli Y correction
+                ([CircuitBuilder.H 0], 1.1)      // Positive: desired gate
+                ([CircuitBuilder.X 0], -0.05)    // Negative: Pauli X correction
+                ([CircuitBuilder.Y 0], -0.05)    // Negative: Pauli Y correction
             ]
             Normalization = 1.2  // Sum of |pᵢ| = |1.1| + |-0.05| + |-0.05| = 1.2
         }
@@ -89,26 +89,26 @@ module ProbabilisticErrorCancellationTests =
     // Cycle #2: Single-qubit gate decomposition - 5-term quasi-probability
     
     [<Fact>]
-    let ``decomposeSingleQubitGate should produce 5-term decomposition`` () =
+    let ``decomposeSingleQubitGate should produce 4-term decomposition`` () =
         // Arrange: Noise model with 0.1% depolarizing error
         let noiseModel: ProbabilisticErrorCancellation.NoiseModel = {
             SingleQubitDepolarizing = 0.001
             TwoQubitDepolarizing = 0.01
             ReadoutError = 0.02
         }
-        
+
         let gate = CircuitBuilder.H 0  // Hadamard gate
-        
+
         // Act: Decompose noisy gate into quasi-probability distribution
         let decomposition = ProbabilisticErrorCancellation.decomposeSingleQubitGate gate noiseModel
-        
-        // Assert: Should have exactly 5 terms (gate + 4 Pauli corrections)
-        Assert.Equal(5, decomposition.Terms.Length)
-        
-        // Assert: First term is the desired gate with positive probability
-        let (firstGate, firstProb) = decomposition.Terms.[0]
-        Assert.Equal(gate, firstGate)
-        Assert.True(firstProb > 0.0, "First term (desired gate) should have positive probability")
+
+        // Assert: Exactly 4 terms — identity correction (the gate itself) + X/Y/Z corrections
+        Assert.Equal(4, decomposition.Terms.Length)
+
+        // Assert: First term is the gate alone (identity correction) with positive probability
+        let (firstGates, firstProb) = decomposition.Terms.[0]
+        Assert.Equal<CircuitBuilder.Gate list>([gate], firstGates)
+        Assert.True(firstProb > 0.0, "First term (identity correction) should have positive probability")
     
     [<Fact>]
     let ``decomposeSingleQubitGate should have correct probability formula`` () =
@@ -125,18 +125,21 @@ module ProbabilisticErrorCancellationTests =
         // Act: Decompose
         let decomposition = ProbabilisticErrorCancellation.decomposeSingleQubitGate gate noiseModel
         
-        // Assert: First term probability should be (1 + p)
-        // From depolarizing channel inversion: U = (1+p)·Noisy_U - ...
+        // Exact inverse-depolarizing coefficients (identity folds into the gate term).
+        let denom = 4.0 * (1.0 - p)
+        let expectedQI = 1.0 + 3.0 * p / denom
+        let expectedQP = -p / denom
+
+        // Assert: First term probability is q_I = 1 + 3p/(4(1-p))
         let (_, firstProb) = decomposition.Terms.[0]
-        Assert.Equal(1.0 + p, firstProb, 10)
-        
-        // Assert: Correction terms should each be -p/4
-        // Depolarizing over {I, X, Y, Z} → 4 terms, each with weight -p/4
+        Assert.Equal(expectedQI, firstProb, 10)
+
+        // Assert: The 3 Pauli (X,Y,Z) correction terms each have weight q = -p/(4(1-p))
         let correctionProbs = decomposition.Terms |> List.skip 1 |> List.map snd
-        Assert.Equal(4, correctionProbs.Length)
-        
+        Assert.Equal(3, correctionProbs.Length)
+
         correctionProbs |> List.iter (fun prob ->
-            Assert.Equal(-p / 4.0, prob, 10))
+            Assert.Equal(expectedQP, prob, 10))
     
     [<Fact>]
     let ``decomposeSingleQubitGate should have correct normalization`` () =
@@ -153,13 +156,13 @@ module ProbabilisticErrorCancellationTests =
         // Act
         let decomposition = ProbabilisticErrorCancellation.decomposeSingleQubitGate gate noiseModel
         
-        // Assert: Normalization = Σ|pᵢ| = (1+p) + 4×(p/4) = 1 + 2p
-        let expectedNorm = 1.0 + 2.0 * p
+        // Assert: Normalization = Σ|pᵢ| = q_I + 3|q| = 1 + 3p/(2(1-p))
+        let expectedNorm = 1.0 + 3.0 * p / (2.0 * (1.0 - p))
         Assert.Equal(expectedNorm, decomposition.Normalization, 10)
-        
+
         // Assert: Manual calculation should match
-        let manualNorm = 
-            decomposition.Terms 
+        let manualNorm =
+            decomposition.Terms
             |> List.sumBy (fun (_, prob) -> abs prob)
         Assert.Equal(expectedNorm, manualNorm, 10)
     
@@ -198,12 +201,12 @@ module ProbabilisticErrorCancellationTests =
         let decomposition = ProbabilisticErrorCancellation.decomposeSingleQubitGate gate noiseModel
         
         // Assert: Correction terms (indices 1-4) should be identity or Pauli-like
-        let correctionGates = 
-            decomposition.Terms 
-            |> List.skip 1 
+        let correctionGates =
+            decomposition.Terms
+            |> List.skip 1
             |> List.map fst
-        
-        Assert.Equal(4, correctionGates.Length)
+
+        Assert.Equal(3, correctionGates.Length)
         
         // All correction gates should have negative probabilities
         let correctionProbs = 
@@ -275,17 +278,21 @@ module ProbabilisticErrorCancellationTests =
         // Act
         let decomposition = ProbabilisticErrorCancellation.decomposeTwoQubitGate gate noiseModel
         
-        // Assert: First term is (1 + p)
+        // Exact inverse two-qubit depolarizing coefficients (I⊗I folds into the gate term).
+        let denom = 16.0 * (1.0 - p)
+        let expectedQI = 1.0 + 15.0 * p / denom
+        let expectedQP = -p / denom
+
+        // Assert: First term is q_I = 1 + 15p/(16(1-p))
         let (_, firstProb) = decomposition.Terms.[0]
-        Assert.Equal(1.0 + p, firstProb, 10)
-        
-        // Assert: Each correction term is -p/15
-        // Two-qubit depolarizing: 15 Pauli operators (excluding II)
+        Assert.Equal(expectedQI, firstProb, 10)
+
+        // Assert: Each of the 15 non-identity Pauli corrections has weight q = -p/(16(1-p))
         let correctionProbs = decomposition.Terms |> List.skip 1 |> List.map snd
         Assert.Equal(15, correctionProbs.Length)
-        
+
         correctionProbs |> List.iter (fun prob ->
-            Assert.Equal(-p / 15.0, prob, 10))
+            Assert.Equal(expectedQP, prob, 10))
     
     [<Fact>]
     let ``decomposeTwoQubitGate should have correct normalization`` () =
@@ -302,8 +309,8 @@ module ProbabilisticErrorCancellationTests =
         // Act
         let decomposition = ProbabilisticErrorCancellation.decomposeTwoQubitGate gate noiseModel
         
-        // Assert: Normalization = Σ|pᵢ| = (1+p) + 15×(p/15) = 1 + 2p
-        let expectedNorm = 1.0 + 2.0 * p
+        // Assert: Normalization = Σ|pᵢ| = q_I + 15|q| = 1 + 15p/(8(1-p))
+        let expectedNorm = 1.0 + 15.0 * p / (8.0 * (1.0 - p))
         Assert.Equal(expectedNorm, decomposition.Normalization, 10)
     
     [<Fact>]
@@ -381,8 +388,8 @@ module ProbabilisticErrorCancellationTests =
         // Arrange: Simple decomposition with negative probabilities
         let decomposition: ProbabilisticErrorCancellation.QuasiProbDecomposition = {
             Terms = [
-                (CircuitBuilder.H 0, 1.1)      // Positive
-                (CircuitBuilder.X 0, -0.1)     // Negative
+                ([CircuitBuilder.H 0], 1.1)      // Positive
+                ([CircuitBuilder.X 0], -0.1)     // Negative
             ]
             Normalization = 1.2  // |1.1| + |-0.1| = 1.2
         }
@@ -405,8 +412,8 @@ module ProbabilisticErrorCancellationTests =
         // Arrange: Decomposition with known positive and negative terms
         let decomposition: ProbabilisticErrorCancellation.QuasiProbDecomposition = {
             Terms = [
-                (CircuitBuilder.H 0, 1.0)      // Positive
-                (CircuitBuilder.X 0, -0.5)     // Negative
+                ([CircuitBuilder.H 0], 1.0)      // Positive
+                ([CircuitBuilder.X 0], -0.5)     // Negative
             ]
             Normalization = 1.5
         }
@@ -434,8 +441,8 @@ module ProbabilisticErrorCancellationTests =
         // Arrange: Heavily weighted toward one term
         let decomposition: ProbabilisticErrorCancellation.QuasiProbDecomposition = {
             Terms = [
-                (CircuitBuilder.H 0, 0.9)      // High absolute probability
-                (CircuitBuilder.X 0, -0.1)     // Low absolute probability
+                ([CircuitBuilder.H 0], 0.9)      // High absolute probability
+                ([CircuitBuilder.X 0], -0.1)     // Low absolute probability
             ]
             Normalization = 1.0
         }
@@ -448,9 +455,9 @@ module ProbabilisticErrorCancellationTests =
             |> List.map (fun _ -> ProbabilisticErrorCancellation.sampleQuasiProb decomposition rng)
         
         // Assert: H gate should be sampled ~90% of the time (stochastic test)
-        let hGateCount = 
-            samples 
-            |> List.filter (fun (gate, _) -> gate = CircuitBuilder.H 0)
+        let hGateCount =
+            samples
+            |> List.filter (fun (gates, _) -> gates = [CircuitBuilder.H 0])
             |> List.length
         
         let hGateRatio = float hGateCount / 1000.0
@@ -463,8 +470,8 @@ module ProbabilisticErrorCancellationTests =
         // Arrange: Edge case - no negative probabilities (shouldn't happen in PEC, but test it)
         let decomposition: ProbabilisticErrorCancellation.QuasiProbDecomposition = {
             Terms = [
-                (CircuitBuilder.H 0, 0.6)
-                (CircuitBuilder.X 0, 0.4)
+                ([CircuitBuilder.H 0], 0.6)
+                ([CircuitBuilder.X 0], 0.4)
             ]
             Normalization = 1.0
         }
@@ -510,8 +517,8 @@ module ProbabilisticErrorCancellationTests =
         // Arrange
         let decomposition: ProbabilisticErrorCancellation.QuasiProbDecomposition = {
             Terms = [
-                (CircuitBuilder.H 0, 1.0)
-                (CircuitBuilder.X 0, -0.5)
+                ([CircuitBuilder.H 0], 1.0)
+                ([CircuitBuilder.X 0], -0.5)
             ]
             Normalization = 1.5
         }

@@ -244,14 +244,32 @@ module QFT =
 
         result {
             let! qftPlan = plan backend intent
-            let! evolved = executePlan backend state qftPlan
 
-            let gateCount =
-                match qftPlan with
-                | QftPlan.ExecuteNatively _ -> estimateGateCount intent.NumQubits intent.Config.ApplySwaps
-                | QftPlan.ExecuteViaOps (ops, _) -> ops.Length
+            match executePlan backend state qftPlan with
+            | Ok evolved ->
+                let gateCount =
+                    match qftPlan with
+                    | QftPlan.ExecuteNatively _ -> estimateGateCount intent.NumQubits intent.Config.ApplySwaps
+                    | QftPlan.ExecuteViaOps (ops, _) -> ops.Length
+                return (evolved, gateCount)
 
-            return (evolved, gateCount)
+            | Error e when UnifiedBackend.isIncrementalUnsupported e ->
+                // Cloud hardware cannot apply gates incrementally; submit the complete QFT circuit
+                // as one job via ExecuteToState. ExecuteToState runs from |0>, so this is correct
+                // for the standard from-|0> entry point. Applying QFT to an arbitrary prepared state
+                // on hardware isn't supported (a job can't load an arbitrary statevector) — that is
+                // the terminal-use limitation of gate-based algorithms on cloud backends.
+                if not (UnifiedBackend.isZeroState state) then
+                    return!
+                        Error (QuantumError.OperationError (
+                            "QFT",
+                            "Whole-circuit (cloud) execution supports QFT from the |0> state only. Applying QFT to an arbitrary prepared state requires a simulator with state-vector access."))
+                else
+                    let lowerOps = buildLoweringOps intent.NumQubits intent.Config intent.Exactness
+                    let! evolved = UnifiedBackend.submitAsCircuit backend intent.NumQubits lowerOps
+                    return (evolved, lowerOps.Length)
+
+            | Error e -> return! Error e
         }
 
     // ========================================================================

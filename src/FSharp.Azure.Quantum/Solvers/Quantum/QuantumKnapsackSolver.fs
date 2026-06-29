@@ -380,7 +380,7 @@ module QuantumKnapsackSolver =
     /// Uses greedy heuristic: sort items by value/weight ratio, select until capacity full.
     /// 
     /// Typical performance: 80-90% of optimal for random instances
-    let solveClassical (problem: KnapsackProblem) : KnapsackSolution =
+    let internal solveClassical (problem: KnapsackProblem) : KnapsackSolution =
         // Sort items by value-to-weight ratio (descending)
         let sortedItems = 
             problem.Items

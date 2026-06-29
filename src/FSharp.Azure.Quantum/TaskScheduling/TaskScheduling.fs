@@ -72,7 +72,9 @@ module TaskSchedulingTypes =
     /// 
     /// Note: This solver handles dependencies but ignores resource capacity constraints.
     /// For resource-constrained scheduling, use solveQuantum with IQuantumBackend.
-    let solve (problem: SchedulingProblem<'TTask, 'TResource>) : Async<QuantumResult<Solution>> =
+    /// Internal: classical dependency-only solver. Not part of the public quantum-first API.
+    /// Public callers must use solveQuantum with an IQuantumBackend (local simulator or cloud).
+    let internal solve (problem: SchedulingProblem<'TTask, 'TResource>) : Async<QuantumResult<Solution>> =
         async {
             return FSharp.Azure.Quantum.TaskScheduling.ClassicalSolver.solve problem
         }
@@ -175,5 +177,5 @@ module Scheduling =
 
     /// Solve scheduling problem (synchronous for C#)
     [<System.Obsolete("Use solve instead (returns Async). This synchronous wrapper blocks the calling thread.")>]
-    let solveClassical (problem: SchedulingProblem<'TTask, 'TResource>) : QuantumResult<Solution> =
+    let internal solveClassical (problem: SchedulingProblem<'TTask, 'TResource>) : QuantumResult<Solution> =
         solve problem |> Async.RunSynchronously

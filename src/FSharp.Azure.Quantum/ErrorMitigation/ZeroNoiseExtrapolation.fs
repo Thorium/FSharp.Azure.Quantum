@@ -97,13 +97,19 @@ module ZeroNoiseExtrapolation =
             let newGates = insertPairs gates numPairsToInsert 1 []
             { circuit with Gates = newGates }
     
-    /// Apply pulse stretching to increase decoherence (metadata only for now).
-    /// Composes with CircuitBuilder immutably.
+    /// Amplify noise by a pulse-stretch factor.
+    ///
+    /// On real superconducting hardware, ZNE stretches the physical gate pulses so each gate
+    /// experiences proportionally more decoherence. A gate-level simulator has no pulse model,
+    /// so we realise the SAME noise amplification digitally: stretching pulses by a factor s
+    /// multiplies the effective gate duration (and hence depth-dependent error) by s, which is
+    /// exactly what inserting identity pairs at rate (s − 1) does to the circuit depth. This is
+    /// the standard digital-ZNE equivalence (Giurgica-Tiron et al.), and it is identity-preserving
+    /// so the noiseless result is unchanged while a depth-dependent noise model is amplified by s.
     let private applyPulseStretch (stretchFactor: float) (circuit: CircuitBuilder.Circuit) : CircuitBuilder.Circuit =
-        // Pulse stretching doesn't modify circuit structure, only metadata
-        // For now, we return the circuit as-is (actual pulse control happens at backend)
-        // In a real implementation, we'd attach metadata to gates for backend processing
-        circuit
+        // s = 1.0 → baseline (no change); s > 1.0 → amplify depth-dependent noise by s.
+        let insertionRate = max 0.0 (stretchFactor - 1.0)
+        insertIdentityPairs insertionRate circuit
     
     // ============================================================================
     // Polynomial Fitting - Richardson Extrapolation

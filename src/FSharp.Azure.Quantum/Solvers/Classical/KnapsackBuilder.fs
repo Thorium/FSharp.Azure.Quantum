@@ -310,7 +310,7 @@ module Knapsack =
     /// 
     /// EXAMPLE:
     ///   let classicalSolution = Knapsack.solveClassicalGreedy problem
-    let solveClassicalGreedy (problem: Problem) : Solution =
+    let internal solveClassicalGreedy (problem: Problem) : Solution =
         // Convert to quantum solver format
         let quantumProblem : QuantumKnapsackSolver.KnapsackProblem = {
             Items = 
@@ -362,7 +362,7 @@ module Knapsack =
     /// 
     /// EXAMPLE:
     ///   let optimalSolution = Knapsack.solveClassicalDP problem
-    let solveClassicalDP (problem: Problem) : Solution =
+    let internal solveClassicalDP (problem: Problem) : Solution =
         // Convert to quantum solver format
         let quantumProblem : QuantumKnapsackSolver.KnapsackProblem = {
             Items = 

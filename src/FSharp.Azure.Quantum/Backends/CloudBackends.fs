@@ -48,7 +48,8 @@ module CloudBackends =
             workspaceUrl: string,
             target: string,
             ?shots: int,
-            ?timeout: TimeSpan
+            ?timeout: TimeSpan,
+            ?costLimitUsd: decimal
         ) =
 
         let shots = defaultArg shots 1000
@@ -68,7 +69,7 @@ module CloudBackends =
             member _.ExecuteToStateAsync (circuit: ICircuit) (cancellationToken: CancellationToken) : Task<Result<QuantumState, QuantumError>> =
                 task {
                     // Step 1: Convert ICircuit → QuilProgram
-                    match CircuitAdapter.toQuilProgram circuit with
+                    match CloudBackendHelpers.checkCostGuard target shots costLimitUsd |> Result.bind (fun () -> CircuitAdapter.toQuilProgram circuit) with
                     | Error err -> return Error err
                     | Ok quilProgram ->
                         // Step 2: Submit and wait for results
@@ -163,7 +164,8 @@ module CloudBackends =
             workspaceUrl: string,
             target: string,
             ?shots: int,
-            ?timeout: TimeSpan
+            ?timeout: TimeSpan,
+            ?costLimitUsd: decimal
         ) =
 
         let shots = defaultArg shots 1000
@@ -183,7 +185,7 @@ module CloudBackends =
             member _.ExecuteToStateAsync (circuit: ICircuit) (cancellationToken: CancellationToken) : Task<Result<QuantumState, QuantumError>> =
                 task {
                     // Step 1: Convert ICircuit → IonQCircuit
-                    match CircuitAdapter.toIonQCircuit circuit with
+                    match CloudBackendHelpers.checkCostGuard target shots costLimitUsd |> Result.bind (fun () -> CircuitAdapter.toIonQCircuit circuit) with
                     | Error err -> return Error err
                     | Ok ionqCircuit ->
                         // Step 2: Submit and wait for results
@@ -276,7 +278,8 @@ module CloudBackends =
             workspaceUrl: string,
             target: string,
             ?shots: int,
-            ?timeout: TimeSpan
+            ?timeout: TimeSpan,
+            ?costLimitUsd: decimal
         ) =
 
         let shots = defaultArg shots 1000
@@ -315,7 +318,7 @@ module CloudBackends =
             member _.ExecuteToStateAsync (circuit: ICircuit) (cancellationToken: CancellationToken) : Task<Result<QuantumState, QuantumError>> =
                 task {
                     // Step 1: Convert ICircuit → OpenQASM 2.0 string
-                    match circuitToOpenQasm circuit with
+                    match CloudBackendHelpers.checkCostGuard target shots costLimitUsd |> Result.bind (fun () -> circuitToOpenQasm circuit) with
                     | Error err -> return Error err
                     | Ok qasmCode ->
                         // Step 2: Submit and wait for results
@@ -407,7 +410,8 @@ module CloudBackends =
             workspaceUrl: string,
             target: string,
             ?shots: int,
-            ?timeout: TimeSpan
+            ?timeout: TimeSpan,
+            ?costLimitUsd: decimal
         ) =
 
         let shots = defaultArg shots 1000
@@ -445,7 +449,7 @@ module CloudBackends =
             member _.ExecuteToStateAsync (circuit: ICircuit) (cancellationToken: CancellationToken) : Task<Result<QuantumState, QuantumError>> =
                 task {
                     // Step 1: Convert ICircuit → OpenQASM 2.0 string
-                    match circuitToOpenQasm circuit with
+                    match CloudBackendHelpers.checkCostGuard target shots costLimitUsd |> Result.bind (fun () -> circuitToOpenQasm circuit) with
                     | Error err -> return Error err
                     | Ok qasmCode ->
                         // Step 2: Submit and wait for results

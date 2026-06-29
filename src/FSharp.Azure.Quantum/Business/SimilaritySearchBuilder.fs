@@ -102,24 +102,39 @@ module SimilaritySearch =
         Logger: ILogger option
     }
     
+    /// Quantum kernel configuration retained in the index so genuine quantum
+    /// kernels can be evaluated against novel query items at search time — not
+    /// just looked up from the precomputed item-vs-item matrix.
+    type QuantumKernelConfig = {
+        Backend: IQuantumBackend
+        FeatureMap: FeatureMapType
+        Shots: int
+    }
+
     /// Trained similarity search index
     type SearchIndex<'T> = {
         /// Indexed items with features
         Items: ('T * float array) array
-        
+
         /// Similarity metric
         Metric: SimilarityMetric
-        
+
         /// Threshold
         Threshold: float
-        
+
         /// Quantum kernel matrix (precomputed for efficiency)
         KernelMatrix: float[,] option
-        
+
+        /// Retained quantum-kernel backend/config for in-memory builds. None for
+        /// indices loaded from disk (a backend cannot be serialised) — such indices
+        /// cannot run novel-query quantum-kernel searches and report an honest error
+        /// rather than silently substituting a classical metric.
+        QuantumConfig: QuantumKernelConfig option
+
         /// Metadata
         Metadata: IndexMetadata
     }
-    
+
     and IndexMetadata = {
         NumItems: int
         NumFeatures: int
@@ -242,154 +257,168 @@ module SimilaritySearch =
                 logInfo problem.Logger (sprintf "  Features: %d" numFeatures)
                 logInfo problem.Logger (sprintf "  Metric: %A" problem.Metric)
             
-            // Precompute kernel matrix if using quantum kernel
-            let kernelMatrix =
+            // Precompute kernel matrix if using quantum kernel. A QuantumKernel index
+            // must genuinely use the quantum kernel: if the kernel computation fails we
+            // propagate the technical error rather than silently substituting cosine
+            // similarity (which would mislabel a classical result as a quantum search).
+            let kernelResult : QuantumResult<float[,] option * QuantumKernelConfig option> =
                 match problem.Metric with
                 | QuantumKernel ->
-                    
-                    let backend = 
+                    let backend =
                         match problem.Backend with
                         | Some b -> b
                         | None -> LocalBackend.LocalBackend() :> IQuantumBackend
-                    
-                    
-                    let numQubits = min numFeatures 8
+
                     let featureMap = FeatureMapType.ZZFeatureMap 2
                     let features = problem.Items |> Array.map snd
-                    
+
                     if problem.Verbose then
                         logInfo problem.Logger "  Computing quantum kernel matrix..."
-                    
-                    match QuantumKernels.computeKernelMatrix backend featureMap features problem.Shots with
-                    | Ok matrix -> Some matrix
-                    | Error e ->
-                        if problem.Verbose then
-                            logWarning problem.Logger (sprintf "  [WARN] Kernel computation failed: %s" e.Message)
-                            logWarning problem.Logger "  Falling back to cosine similarity"
-                        None
-                
-                | _ -> None
-            
-            let endTime = DateTime.UtcNow
-            
-            if problem.Verbose then
-                logInfo problem.Logger (sprintf "[OK] Index built in %A" (endTime - startTime))
-            
-            let index = {
-                Items = problem.Items
-                Metric = problem.Metric
-                Threshold = problem.Threshold
-                KernelMatrix = kernelMatrix
-                Metadata = {
-                    NumItems = problem.Items.Length
-                    NumFeatures = numFeatures
+
+                    QuantumKernels.computeKernelMatrix backend featureMap features problem.Shots
+                    |> Result.map (fun matrix ->
+                        Some matrix, Some { Backend = backend; FeatureMap = featureMap; Shots = problem.Shots })
+
+                | _ -> Ok (None, None)
+
+            kernelResult
+            |> Result.map (fun (kernelMatrix, quantumConfig) ->
+                let endTime = DateTime.UtcNow
+
+                if problem.Verbose then
+                    logInfo problem.Logger (sprintf "[OK] Index built in %A" (endTime - startTime))
+
+                {
+                    Items = problem.Items
                     Metric = problem.Metric
-                    CreatedAt = startTime
-                    Note = problem.Note
-                }
-            }
-            
-            Ok index)
+                    Threshold = problem.Threshold
+                    KernelMatrix = kernelMatrix
+                    QuantumConfig = quantumConfig
+                    Metadata = {
+                        NumItems = problem.Items.Length
+                        NumFeatures = numFeatures
+                        Metric = problem.Metric
+                        CreatedAt = startTime
+                        Note = problem.Note
+                    }
+                }))
     
     // ========================================================================
     // SIMILARITY SEARCH
     // ========================================================================
-    
+
+    /// Compute genuine quantum-kernel similarities between a query and every indexed
+    /// item using the retained backend. One circuit evaluation per item — the real
+    /// cost of a quantum kernel. Returns an error (never silently falls back to a
+    /// classical metric) when no live backend is available, e.g. an index loaded from
+    /// disk: the caller asked for a quantum-kernel search and must get one or an error.
+    let private quantumKernelSimilarities
+        (index: SearchIndex<'T>)
+        (queryFeatures: float array)
+        : QuantumResult<('T * float) array> =
+        match index.QuantumConfig with
+        | None ->
+            Error (QuantumError.Other
+                "QuantumKernel search requires a live backend. This index was loaded from disk (or built without quantum config); rebuild it with a backend to run quantum-kernel queries.")
+        | Some cfg ->
+            (Ok [], index.Items)
+            ||> Array.fold (fun acc (item, features) ->
+                acc |> Result.bind (fun sims ->
+                    QuantumKernels.computeKernel cfg.Backend cfg.FeatureMap queryFeatures features cfg.Shots
+                    |> Result.map (fun sim -> (item, sim) :: sims)))
+            |> Result.map (List.rev >> Array.ofList)
+
     /// Find top N most similar items
-    let findSimilar 
+    let findSimilar
         (queryItem: 'T)
         (queryFeatures: float array)
         (topN: int)
         (index: SearchIndex<'T>)
         : QuantumResult<SearchResults<'T>> =
-        
+
         let startTime = DateTime.UtcNow
-        
+
         // Find query index if item is in index
-        let queryIdx = 
-            index.Items 
+        let queryIdx =
+            index.Items
             |> Array.tryFindIndex (fun (item, _) -> obj.Equals(item, queryItem))
-        
+
         // Compute similarities
-        let similarities =
+        let similaritiesResult : QuantumResult<('T * float) array> =
             match index.Metric with
             | QuantumKernel when index.KernelMatrix.IsSome && queryIdx.IsSome ->
                 let idx = queryIdx.Value
-                // Use precomputed kernel matrix
-                [| for i in 0 .. index.Items.Length - 1 ->
-                    if i = idx then
-                        (fst index.Items.[i], 1.0)  // Self-similarity is 1.0
-                    else
-                        (fst index.Items.[i], index.KernelMatrix.Value.[idx, i])
-                |]
-            
+                // Query is an indexed item: reuse the precomputed kernel row.
+                Ok [| for i in 0 .. index.Items.Length - 1 ->
+                        if i = idx then
+                            (fst index.Items.[i], 1.0)  // Self-similarity is 1.0
+                        else
+                            (fst index.Items.[i], index.KernelMatrix.Value.[idx, i]) |]
+
             | QuantumKernel ->
-                // Fallback to cosine if kernel not available
-                index.Items
-                |> Array.map (fun (item, features) ->
-                    (item, cosineSimilarity queryFeatures features))
-            
+                // Novel query: evaluate the genuine quantum kernel against each item.
+                quantumKernelSimilarities index queryFeatures
+
             | Cosine ->
-                index.Items
-                |> Array.map (fun (item, features) ->
-                    (item, cosineSimilarity queryFeatures features))
-            
+                Ok (index.Items
+                    |> Array.map (fun (item, features) ->
+                        (item, cosineSimilarity queryFeatures features)))
+
             | Euclidean ->
-                index.Items
-                |> Array.map (fun (item, features) ->
-                    (item, euclideanSimilarity queryFeatures features))
-        
-        // Filter by threshold and exclude exact match
-        let filtered =
-            similarities
-            |> Array.filter (fun (item, sim) ->
-                sim >= index.Threshold && not (obj.Equals(item, queryItem)))
-            |> Array.sortByDescending snd
-            |> Array.take (min topN (Array.length similarities - 1))
-        
-        let matches =
-            filtered
-            |> Array.mapi (fun i (item, sim) ->
-                {
-                    Item = item
-                    Similarity = sim
-                    Rank = i + 1
-                })
-        
-        let endTime = DateTime.UtcNow
-        
-        Ok {
-            Query = queryItem
-            Matches = matches
-            SearchTime = endTime - startTime
-        }
-    
+                Ok (index.Items
+                    |> Array.map (fun (item, features) ->
+                        (item, euclideanSimilarity queryFeatures features)))
+
+        similaritiesResult
+        |> Result.map (fun similarities ->
+            // Filter by threshold and exclude exact match
+            let filtered =
+                similarities
+                |> Array.filter (fun (item, sim) ->
+                    sim >= index.Threshold && not (obj.Equals(item, queryItem)))
+                |> Array.sortByDescending snd
+                |> Array.truncate topN
+
+            let matches =
+                filtered
+                |> Array.mapi (fun i (item, sim) ->
+                    {
+                        Item = item
+                        Similarity = sim
+                        Rank = i + 1
+                    })
+
+            {
+                Query = queryItem
+                Matches = matches
+                SearchTime = DateTime.UtcNow - startTime
+            })
+
     /// Find all similar items above threshold
     let findAllSimilar
         (queryFeatures: float array)
         (index: SearchIndex<'T>)
         : QuantumResult<Match<'T> array> =
-        
+
         // Compute similarities for all items
-        let similarities =
+        let similaritiesResult : QuantumResult<('T * float) array> =
             match index.Metric with
             | Cosine ->
-                index.Items
-                |> Array.map (fun (item, features) ->
-                    (item, cosineSimilarity queryFeatures features))
-            
+                Ok (index.Items
+                    |> Array.map (fun (item, features) ->
+                        (item, cosineSimilarity queryFeatures features)))
+
             | Euclidean ->
-                index.Items
-                |> Array.map (fun (item, features) ->
-                    (item, euclideanSimilarity queryFeatures features))
-            
+                Ok (index.Items
+                    |> Array.map (fun (item, features) ->
+                        (item, euclideanSimilarity queryFeatures features)))
+
             | QuantumKernel ->
-                // Use cosine as fallback for single query
-                index.Items
-                |> Array.map (fun (item, features) ->
-                    (item, cosineSimilarity queryFeatures features))
-        
-        let matches =
+                // Genuine quantum kernel against each item (no classical substitution).
+                quantumKernelSimilarities index queryFeatures
+
+        similaritiesResult
+        |> Result.map (fun similarities ->
             similarities
             |> Array.filter (fun (_, sim) -> sim >= index.Threshold)
             |> Array.sortByDescending snd
@@ -398,9 +427,7 @@ module SimilaritySearch =
                     Item = item
                     Similarity = sim
                     Rank = i + 1
-                })
-        
-        Ok matches
+                }))
     
     // ========================================================================
     // DUPLICATE DETECTION
@@ -417,16 +444,36 @@ module SimilaritySearch =
         else
             // Compute all pairwise similarities using functional approach
             let n = index.Items.Length
-            
+
+            // For a quantum-kernel index ensure a genuine kernel matrix is available:
+            // reuse the precomputed one, else compute it via the retained backend. We
+            // never substitute cosine for a quantum-kernel duplicate search.
+            let matrixResult : QuantumResult<float[,] option> =
+                match index.Metric with
+                | QuantumKernel ->
+                    match index.KernelMatrix with
+                    | Some m -> Ok (Some m)
+                    | None ->
+                        match index.QuantumConfig with
+                        | Some cfg ->
+                            QuantumKernels.computeKernelMatrix cfg.Backend cfg.FeatureMap (index.Items |> Array.map snd) cfg.Shots
+                            |> Result.map Some
+                        | None ->
+                            Error (QuantumError.Other
+                                "QuantumKernel duplicate detection requires a precomputed kernel matrix or a live backend; this index (loaded from disk) has neither.")
+                | _ -> Ok None
+
+            matrixResult |> Result.bind (fun kernelOpt ->
+
             let computeSimilarity i j repFeatures features =
                 match index.Metric with
                 | Cosine -> cosineSimilarity repFeatures features
                 | Euclidean -> euclideanSimilarity repFeatures features
                 | QuantumKernel ->
-                    match index.KernelMatrix with
+                    match kernelOpt with
                     | Some matrix -> matrix.[i, j]
-                    | None -> cosineSimilarity repFeatures features
-            
+                    | None -> cosineSimilarity repFeatures features  // unreachable: guarded above
+
             let rec findGroups i visited groups =
                 if i >= n then
                     groups
@@ -466,8 +513,8 @@ module SimilaritySearch =
                             } :: groups
                     
                     findGroups (i + 1) newVisited newGroups
-            
-            Ok (findGroups 0 Set.empty [] |> List.rev |> Array.ofList)
+
+            Ok (findGroups 0 Set.empty [] |> List.rev |> Array.ofList))
     
     // ========================================================================
     // CLUSTERING
@@ -667,6 +714,9 @@ module SimilaritySearch =
                         Metric = metric
                         Threshold = serializable.Threshold
                         KernelMatrix = kernelMatrix
+                        // Backends are not serialisable; a loaded index cannot run novel-query
+                        // quantum-kernel searches and reports an honest error if asked to.
+                        QuantumConfig = None
                         Metadata = {
                             NumItems = serializable.NumItems
                             NumFeatures = serializable.NumFeatures

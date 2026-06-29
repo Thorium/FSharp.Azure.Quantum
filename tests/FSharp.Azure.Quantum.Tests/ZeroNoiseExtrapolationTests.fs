@@ -76,22 +76,38 @@ module ZeroNoiseExtrapolationTests =
         Assert.Equal(CircuitBuilder.qubitCount circuit, CircuitBuilder.qubitCount noisyCircuit)
     
     [<Fact>]
-    let ``applyNoiseScaling PulseStretching should preserve circuit structure`` () =
-        // Arrange: Circuit with rotation gates
-        let circuit = 
+    let ``applyNoiseScaling PulseStretching amplifies depth without changing qubits or the ideal result`` () =
+        // Arrange: Circuit with several gates (identity insertion distributes pairs between gates)
+        let circuit =
             CircuitBuilder.empty 2
             |> CircuitBuilder.addGate (CircuitBuilder.RX (0, 0.5))
             |> CircuitBuilder.addGate (CircuitBuilder.RY (1, 1.0))
-        
-        let noiseScaling = ZeroNoiseExtrapolation.NoiseScaling.PulseStretching 1.5
-        
-        // Act: Apply pulse stretching
+            |> CircuitBuilder.addGate (CircuitBuilder.H 0)
+            |> CircuitBuilder.addGate (CircuitBuilder.CNOT (0, 1))
+
+        let noiseScaling = ZeroNoiseExtrapolation.NoiseScaling.PulseStretching 2.0
+
+        // Act: Apply pulse stretching (realised digitally as depth scaling)
         let noisyCircuit = ZeroNoiseExtrapolation.applyNoiseScaling noiseScaling circuit
-        
-        // Assert: Gate count and qubit count should remain the same
-        // (Pulse stretching doesn't add gates, it modifies pulse duration metadata)
-        Assert.Equal(CircuitBuilder.gateCount circuit, CircuitBuilder.gateCount noisyCircuit)
+
+        // Assert: Depth grows so a depth-dependent noise model is amplified, while the qubit
+        // count is unchanged. Identity insertion keeps the noiseless result identical.
+        Assert.True(CircuitBuilder.gateCount noisyCircuit > CircuitBuilder.gateCount circuit,
+            "Pulse stretching (s=2.0) should increase circuit depth to amplify noise")
         Assert.Equal(CircuitBuilder.qubitCount circuit, CircuitBuilder.qubitCount noisyCircuit)
+
+    [<Fact>]
+    let ``applyNoiseScaling PulseStretching at factor 1.0 is the baseline (no change)`` () =
+        let circuit =
+            CircuitBuilder.empty 2
+            |> CircuitBuilder.addGate (CircuitBuilder.RX (0, 0.5))
+            |> CircuitBuilder.addGate (CircuitBuilder.RY (1, 1.0))
+
+        let noisyCircuit =
+            ZeroNoiseExtrapolation.applyNoiseScaling (ZeroNoiseExtrapolation.NoiseScaling.PulseStretching 1.0) circuit
+
+        // Baseline noise level must leave the circuit untouched.
+        Assert.Equal(CircuitBuilder.gateCount circuit, CircuitBuilder.gateCount noisyCircuit)
     
     // Cycle #3: Polynomial fitting - Idiomatic F# with MathNet
     

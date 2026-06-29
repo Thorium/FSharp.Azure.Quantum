@@ -492,7 +492,7 @@ module PredictiveModel =
             | Error e -> if verbose then logWarning logger $"[WARN] Failed to save model: {e}"
         | None -> ()
         model
-    
+
     /// Train a predictive model
     let train (problem: PredictionProblem) : QuantumResult<Model> =
         match validateProblem problem with
@@ -518,7 +518,10 @@ module PredictiveModel =
                 // =================================================================
                 // QUANTUM REGRESSION (HHL + VQC Fallback)
                 // =================================================================
-                | Quantum, Regression ->
+                // Regression is a linear-system problem, so every architecture solves it on the
+                // quantum backend: HHL (QuantumRegressionHHL) for the linear fit, with a VQC
+                // (variational) fallback for non-linear data. No classical solver — RULE1.
+                | (Classical | Quantum | Hybrid), Regression ->
                     // Strategy: Try HHL first (fast for linear), fall back to VQC (handles non-linear)
                     
                     if problem.Verbose then
@@ -549,7 +552,7 @@ module PredictiveModel =
                             InternalModel = HHLRegressor hhlResult
                             Metadata = {
                                 ProblemType = Regression
-                                Architecture = Quantum
+                                Architecture = problem.Architecture
                                 TrainingScore = hhlResult.RSquared
                                 TrainingTime = DateTime.UtcNow - startTime
                                 NumFeatures = hhlResult.NumFeatures
@@ -598,7 +601,7 @@ module PredictiveModel =
                                 InternalModel = RegressionVQC (vqcResult, featureMap, varForm, numQubits)
                                 Metadata = {
                                     ProblemType = Regression
-                                    Architecture = Quantum
+                                    Architecture = problem.Architecture
                                     TrainingScore = vqcResult.TrainRSquared
                                     TrainingTime = DateTime.UtcNow - startTime
                                     NumFeatures = numFeatures
@@ -611,158 +614,9 @@ module PredictiveModel =
                             saveModelIfRequested problem.SavePath problem.Verbose problem.Logger model)
                 
                 // =================================================================
-                // HYBRID REGRESSION (HHL with fallback capability)
+                // MULTI-CLASS (VQC One-vs-Rest) — Classical and Quantum architectures
                 // =================================================================
-                | Hybrid, Regression ->
-                    // Hybrid approach: Try quantum HHL first, with graceful degradation
-                    // Future enhancement: Quantum feature maps + classical regression
-                    
-                    let hhlConfig : RegressionConfig = {
-                        TrainX = problem.TrainFeatures
-                        TrainY = problem.TrainTargets
-                        EigenvalueQubits = 4  // Slightly fewer qubits for hybrid
-                        MinEigenvalue = 0.01
-                        Backend = backend
-                        Shots = problem.Shots
-                        FitIntercept = true
-                        Verbose = problem.Verbose
-                        Logger = problem.Logger
-                    }
-                    
-                    if problem.Verbose then
-                        logInfo problem.Logger "Training Hybrid Regression (HHL-based)..."
-                    
-                    train hhlConfig
-                    |> Result.map (fun hhlResult ->
-                        if problem.Verbose then
-                            let log = logInfo problem.Logger
-                            log "[OK] Hybrid HHL training succeeded!"
-                            log $"  R-squared Score: {hhlResult.RSquared:F4}"
-                        
-                        let model = {
-                            InternalModel = HHLRegressor hhlResult
-                            Metadata = {
-                                ProblemType = Regression
-                                Architecture = Hybrid
-                                TrainingScore = hhlResult.RSquared
-                                TrainingTime = DateTime.UtcNow - startTime
-                                NumFeatures = hhlResult.NumFeatures
-                                NumSamples = hhlResult.NumSamples
-                                CreatedAt = DateTime.UtcNow
-                                Note = problem.Note
-                            }
-                        }
-                        
-                        saveModelIfRequested problem.SavePath problem.Verbose problem.Logger model)
-                    |> Result.orElseWith (fun e ->
-                        // Fallback to classical regression if HHL fails
-                        if problem.Verbose then
-                            logWarning problem.Logger $"[WARN] HHL failed ({e.Message}), falling back to classical..."
-                        
-                        // Use classical regression as fallback
-                        let X = problem.TrainFeatures
-                        let y = problem.TrainTargets
-                        let n = X.Length
-                        let m = X.[0].Length
-                        
-                        // Add intercept column
-                        let XWithIntercept = X |> Array.map (fun row -> Array.append [| 1.0 |] row)
-                        
-                        // Compute (X^T X)^-1 X^T y using classical methods
-                        let XtX = 
-                            Array2D.init (m + 1) (m + 1) (fun i j ->
-                                [0 .. n - 1] |> List.sumBy (fun k -> XWithIntercept.[k].[i] * XWithIntercept.[k].[j])
-                            )
-                        
-                        let Xty = 
-                            Array.init (m + 1) (fun i ->
-                                [0 .. n - 1] |> List.sumBy (fun k -> XWithIntercept.[k].[i] * y.[k])
-                            )
-                        
-                        // Solve XtX * w = Xty via Gaussian elimination with partial pivoting.
-                        // Represented as a fold over columns, each step producing an updated
-                        // augmented matrix (array of row arrays) — no mutable state.
-                        let weights =
-                            let dim = m + 1
-                            // Augmented matrix [XtX | Xty] as array of row arrays
-                            let aug0 =
-                                Array.init dim (fun i ->
-                                    Array.init (dim + 1) (fun j ->
-                                        if j < dim then XtX.[i, j] else Xty.[i]))
-                            
-                            // Forward elimination: fold over pivot columns
-                            let augReduced =
-                                (aug0, [0 .. dim - 1])
-                                ||> List.fold (fun (aug: float[][]) col ->
-                                    // Partial pivoting: find row with max absolute value in this column
-                                    let pivotRow =
-                                        aug.[col .. dim - 1]
-                                        |> Array.mapi (fun i row -> (col + i, abs row.[col]))
-                                        |> Array.maxBy snd
-                                        |> fst
-                                    
-                                    // Swap pivot row into position
-                                    let swapped =
-                                        aug |> Array.mapi (fun i row ->
-                                            if i = col then aug.[pivotRow]
-                                            elif i = pivotRow then aug.[col]
-                                            else row)
-                                    
-                                    let pivotVal = swapped.[col].[col]
-                                    if abs pivotVal < 1e-12 then
-                                        failwith $"Singular matrix in normal equations: pivot at column {col} is near-zero"
-                                    
-                                    // Eliminate rows below pivot
-                                    swapped |> Array.mapi (fun i row ->
-                                        if i <= col then row
-                                        else
-                                            let factor = row.[col] / pivotVal
-                                            row |> Array.mapi (fun j v -> v - factor * swapped.[col].[j])))
-                            
-                            // Back substitution: fold from last row to first
-                            let solution =
-                                (Array.create dim 0.0, [dim - 1 .. -1 .. 0])
-                                ||> List.fold (fun sol row ->
-                                    let rhs = augReduced.[row].[dim]
-                                    let sumAbove =
-                                        [row + 1 .. dim - 1]
-                                        |> List.sumBy (fun j -> augReduced.[row].[j] * sol.[j])
-                                    let value = (rhs - sumAbove) / augReduced.[row].[row]
-                                    sol |> Array.mapi (fun i v -> if i = row then value else v))
-                            
-                            solution
-                        
-                        // Calculate training accuracy
-                        let predictions = 
-                            XWithIntercept |> Array.map (fun row ->
-                                Array.zip row weights |> Array.sumBy (fun (x, w) -> x * w)
-                            )
-                        
-                        let mean = y |> Array.average
-                        let ssTot = y |> Array.sumBy (fun yi -> (yi - mean) ** 2.0)
-                        let ssRes = Array.zip y predictions |> Array.sumBy (fun (yt, yp) -> (yt - yp) ** 2.0)
-                        let r2 = if ssTot = 0.0 then 1.0 else 1.0 - (ssRes / ssTot)
-                        
-                        let model = {
-                            InternalModel = ClassicalRegressor weights
-                            Metadata = {
-                                ProblemType = Regression
-                                Architecture = Hybrid
-                                TrainingScore = r2
-                                TrainingTime = DateTime.UtcNow - startTime
-                                NumFeatures = numFeatures
-                                NumSamples = numSamples
-                                CreatedAt = DateTime.UtcNow
-                                Note = problem.Note
-                            }
-                        }
-                        
-                        Ok (saveModelIfRequested problem.SavePath problem.Verbose problem.Logger model))
-                
-                // =================================================================
-                // QUANTUM MULTI-CLASS (VQC One-vs-Rest)
-                // =================================================================
-                | Quantum, MultiClass numClasses ->
+                | (Classical | Quantum), MultiClass numClasses ->
                     if problem.Verbose then
                         logInfo problem.Logger "Training Quantum Multi-Class (VQC One-vs-Rest)..."
                     
@@ -800,7 +654,7 @@ module PredictiveModel =
                             InternalModel = MultiClassVQC (multiClassResult, featureMap, varForm, numQubits)
                             Metadata = {
                                 ProblemType = MultiClass numClasses
-                                Architecture = Quantum
+                                Architecture = problem.Architecture
                                 TrainingScore = multiClassResult.TrainAccuracy
                                 TrainingTime = DateTime.UtcNow - startTime
                                 NumFeatures = numFeatures
@@ -857,89 +711,6 @@ module PredictiveModel =
                         }
                         
                         saveModelIfRequested problem.SavePath problem.Verbose problem.Logger model)
-                
-                // =================================================================
-                // CLASSICAL REGRESSION (Baseline)
-                // =================================================================
-                | Classical, Regression ->
-                    // Simple linear regression via normal equations
-                    let X = problem.TrainFeatures
-                    let y = problem.TrainTargets
-                    
-                    // Add intercept column
-                    let XwithIntercept = X |> Array.map (fun row -> Array.append [| 1.0 |] row)
-                    
-                    // Solve (X'X)w = X'y using simplified approach
-                    let weights = Array.create (numFeatures + 1) 0.1  // Simplified weights
-                    
-                    let predictions = 
-                        XwithIntercept 
-                        |> Array.map (fun row -> Array.zip row weights |> Array.sumBy (fun (x, w) -> x * w))
-                    
-                    let mean = y |> Array.average
-                    let ssTot = y |> Array.sumBy (fun yi -> (yi - mean) ** 2.0)
-                    let ssRes = Array.zip y predictions |> Array.sumBy (fun (yi, pi) -> (yi - pi) ** 2.0)
-                    let rSquared = 1.0 - (ssRes / ssTot)
-                    
-                    let model = {
-                        InternalModel = ClassicalRegressor weights
-                        Metadata = {
-                            ProblemType = Regression
-                            Architecture = Classical
-                            TrainingScore = rSquared
-                            TrainingTime = DateTime.UtcNow - startTime
-                            NumFeatures = numFeatures
-                            NumSamples = numSamples
-                            CreatedAt = DateTime.UtcNow
-                            Note = problem.Note
-                        }
-                    }
-                    
-                    Ok (saveModelIfRequested problem.SavePath problem.Verbose problem.Logger model)
-                
-                // =================================================================
-                // CLASSICAL MULTI-CLASS (Baseline)
-                // =================================================================
-                | Classical, MultiClass numClasses ->
-                    let labels = problem.TrainTargets |> Array.map int
-                    
-                    // Simple one-vs-rest with random weights (baseline)
-                    let weights = Array.init numClasses (fun _ -> Array.create (numFeatures + 1) 0.1)
-                    
-                    let predictions = 
-                        problem.TrainFeatures 
-                        |> Array.map (fun x ->
-                            let xWithIntercept = Array.append [| 1.0 |] x
-                            weights 
-                            |> Array.mapi (fun i w -> 
-                                let score = Array.zip xWithIntercept w |> Array.sumBy (fun (xi, wi) -> xi * wi)
-                                (i, score)
-                            )
-                            |> Array.maxBy snd
-                            |> fst
-                        )
-                    
-                    let accuracy = 
-                        Array.zip labels predictions 
-                        |> Array.filter (fun (y, p) -> y = p) 
-                        |> Array.length 
-                        |> fun correct -> float correct / float labels.Length
-                    
-                    let model = {
-                        InternalModel = ClassicalMultiClass weights
-                        Metadata = {
-                            ProblemType = MultiClass numClasses
-                            Architecture = Classical
-                            TrainingScore = accuracy
-                            TrainingTime = DateTime.UtcNow - startTime
-                            NumFeatures = numFeatures
-                            NumSamples = numSamples
-                            CreatedAt = DateTime.UtcNow
-                            Note = problem.Note
-                        }
-                    }
-                    
-                    Ok (saveModelIfRequested problem.SavePath problem.Verbose problem.Logger model)
                 
             with ex ->
                 Error (QuantumError.ValidationError ("Input", $"Training failed: {ex.Message}"))

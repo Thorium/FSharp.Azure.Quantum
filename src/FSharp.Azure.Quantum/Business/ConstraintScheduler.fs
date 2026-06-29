@@ -685,35 +685,42 @@ module ConstraintScheduler =
             Error (QuantumError.ValidationError ("Resources", "must have at least one resource"))
         elif problem.Tasks.Length > 50 then
             Error (QuantumError.ValidationError ("Tasks", $"too many tasks ({problem.Tasks.Length}), maximum is 50"))
+        elif problem.HardConstraints |> List.exists (function Precedence _ -> true | _ -> false) then
+            // Precedence is a temporal ordering ("A before B"). This optimiser only
+            // assigns tasks to resources — it has no time dimension — so precedence
+            // cannot be honoured. Surfacing this is more honest than silently ignoring
+            // the constraint and returning a schedule that violates it.
+            Error (QuantumError.NotImplemented (
+                "Precedence (temporal ordering) constraints",
+                Some "The resource-assignment scheduler does not model time, so precedence cannot be honoured. Remove Precedence constraints, or sequence tasks with a time-indexed scheduler."))
         else
             // Infer quantum vs classical from backend presence
             let bestSchedule =
                 match problem.Backend with
                 | Some backend ->
                     let strategy = resolveStrategy problem
-                    
+                    let hasCapacity = problem.Resources |> List.exists (fun r -> r.Capacity.IsSome)
+
                     match strategy, problem.Goal with
-                    // Grover paths (existing)
-                    | GroverSearch, MaximizeSatisfaction ->
-                        optimizeQuantumSat backend problem
-                    | GroverSearch, (MinimizeCost | Balanced) ->
-                        optimizeQuantumColoring backend problem
-                    
-                    // QAOA paths (new)
+                    // Satisfaction goal: resource cost is intentionally NOT part of the
+                    // objective (the user is maximising constraint satisfaction, not cost).
                     | QaoaOptimize, MaximizeSatisfaction ->
                         optimizeQaoaSat backend problem
-                    | QaoaOptimize, (MinimizeCost | Balanced) ->
-                        // Use bin packing when capacity constraints exist, SAT otherwise
-                        let hasCapacity = problem.Resources |> List.exists (fun r -> r.Capacity.IsSome)
-                        if hasCapacity then
-                            optimizeQaoaBinPacking backend problem
-                        else
-                            optimizeQaoaSat backend problem
-                    
-                    // Auto strategy dispatches to resolved strategy (already handled by resolveStrategy)
-                    | Auto, _ ->
-                        // resolveStrategy never returns Auto, but handle for completeness
+                    | (GroverSearch | Auto), MaximizeSatisfaction ->
                         optimizeQuantumSat backend problem
+
+                    // Cost goal WITH capacity: capacity is a hard structural requirement,
+                    // so we use the bin-packing formulation (cost minimisation is bounded
+                    // by capacity feasibility in this combination).
+                    | _, (MinimizeCost | Balanced) when hasCapacity ->
+                        optimizeQaoaBinPacking backend problem
+
+                    // Cost goal WITHOUT capacity: resource cost is genuinely encoded via the
+                    // weighted graph-colouring oracle. The SAT/QAOA clause encoding cannot
+                    // express resource costs, so every cost goal is routed to the cost-aware
+                    // colouring formulation regardless of the Grover/QAOA strategy hint.
+                    | _, (MinimizeCost | Balanced) ->
+                        optimizeQuantumColoring backend problem
                 
                 | None ->
                     Error (QuantumError.NotImplemented (

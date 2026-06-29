@@ -320,23 +320,42 @@ module OptionPricing =
                 
                 // Calculate discount factor
                 let discountFactor = exp (-marketParams.RiskFreeRate * marketParams.TimeToExpiry)
-                
-                // Map QMC result to option price
-                return qmcResult |> Result.map (fun result ->
-                    // Scale expectation to option price
-                    // Expected payoff ≈ amplitude * spot price (simplified)
-                    let expectedPayoff = result.ExpectationValue * marketParams.SpotPrice
+
+                // Reconstruct the same discretized terminal price grid used for state preparation.
+                let numLevels = 1 <<< numQubits
+                let mu = marketParams.RiskFreeRate - 0.5 * marketParams.Volatility * marketParams.Volatility
+                let sigma = marketParams.Volatility * sqrt marketParams.TimeToExpiry
+                let priceLevels =
+                    StatisticalDistributions.discretizeLogNormal
+                        (log marketParams.SpotPrice + mu * marketParams.TimeToExpiry)
+                        sigma
+                        numLevels
+                let payoffAt (price: float) =
+                    match optionType with
+                    | EuropeanCall | AsianCall _ -> max (price - marketParams.StrikePrice) 0.0
+                    | EuropeanPut  | AsianPut _  -> max (marketParams.StrikePrice - price) 0.0
+
+                // Genuine risk-neutral expected payoff E[payoff] = Σ_i q_i · payoff(S_i), where
+                // q_i are the quantum-measured bin probabilities of the prepared distribution.
+                // The Grover amplitude estimate (qmcResult) additionally yields P(in-the-money)
+                // and the O(1/M) error scaling used for the confidence interval.
+                match qmcResult, QuantumMonteCarlo.measureBinProbabilities backend statePrep with
+                | Error err, _ | _, Error err -> return Error err
+                | Ok result, Ok quantumProbs ->
+                    let expectedPayoff =
+                        Array.init numLevels (fun i -> quantumProbs.[i] * payoffAt (fst priceLevels.[i]))
+                        |> Array.sum
                     let optionPrice = discountFactor * expectedPayoff
-                    let confidenceInterval = discountFactor * result.StandardError * marketParams.SpotPrice
-                    
-                    {
+                    let prices = priceLevels |> Array.map fst
+                    let priceRange = Array.max prices - Array.min prices
+                    let confidenceInterval = discountFactor * result.StandardError * priceRange
+                    return Ok {
                         Price = optionPrice
                         ConfidenceInterval = confidenceInterval
                         Speedup = result.SpeedupFactor
                         Method = "Quantum Monte Carlo (Möttönen + Grover)"
                         QubitsUsed = numQubits
                     }
-                )
         }
 
     let price

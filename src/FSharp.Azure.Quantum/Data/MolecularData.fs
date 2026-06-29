@@ -473,8 +473,14 @@ module MolecularData =
     // MOLECULAR FINGERPRINTS
     // ========================================================================
     
+    /// Deterministic string hash (FNV-1a). System.String.GetHashCode is randomised per process
+    /// in .NET, which would make fingerprints — and the Tanimoto/Dice similarities derived from
+    /// them — non-reproducible across runs and processes.
+    let private stableHash (s: string) : int =
+        (2166136261u, s) ||> Seq.fold (fun h c -> (h ^^^ uint32 c) * 16777619u) |> int
+
     /// Generate a simple path-based fingerprint (similar to RDKit fingerprints)
-    /// 
+    ///
     /// This is a simplified implementation for educational/prototyping purposes.
     /// Production use should integrate with RDKit or similar.
     let generateFingerprint (molecule: Molecule) (nBits: int) : MolecularFingerprint =
@@ -482,14 +488,14 @@ module MolecularData =
             seq {
                 // Hash atom types
                 for atom in molecule.Atoms do
-                    let hash = atom.Element.GetHashCode() ^^^ (if atom.IsAromatic then 0x1234 else 0)
+                    let hash = stableHash atom.Element ^^^ (if atom.IsAromatic then 0x1234 else 0)
                     yield abs (hash) % nBits
 
                 // Hash bond patterns (atom1-bond-atom2)
                 for bond in molecule.Bonds do
                     let atom1 = molecule.Atoms.[bond.Atom1]
                     let atom2 = molecule.Atoms.[bond.Atom2]
-                    let hash = atom1.Element.GetHashCode() ^^^ (bond.Order * 0x5678) ^^^ atom2.Element.GetHashCode()
+                    let hash = stableHash atom1.Element ^^^ (bond.Order * 0x5678) ^^^ stableHash atom2.Element
                     yield abs (hash) % nBits
 
                 // Hash 2-bond paths
@@ -500,11 +506,11 @@ module MolecularData =
                             let a2 = molecule.Atoms.[bond1.Atom2]
                             let a3 = molecule.Atoms.[bond2.Atom2]
                             let hash =
-                                a1.Element.GetHashCode() ^^^
+                                stableHash a1.Element ^^^
                                 (bond1.Order * 0x1111) ^^^
-                                a2.Element.GetHashCode() ^^^
+                                stableHash a2.Element ^^^
                                 (bond2.Order * 0x2222) ^^^
-                                a3.Element.GetHashCode()
+                                stableHash a3.Element
                             yield abs (hash) % nBits
             }
             |> Seq.fold (fun s i -> Set.add i s) Set.empty

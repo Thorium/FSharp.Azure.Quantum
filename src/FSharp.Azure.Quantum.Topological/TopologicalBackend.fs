@@ -583,38 +583,11 @@ module TopologicalUnifiedBackend =
                                      (this :> IQuantumBackend).ApplyOperation (QuantumOperation.Sequence ops) state
 
                               | QuantumOperation.Algorithm (AlgorithmOperation.HHL intent) ->
-                                  // HHL intent: diagonal-only (native intent payload is diagonal eigenvalues), encoded as a single ancilla rotation.
-                                 let totalQubits = intent.EigenvalueQubits + intent.SolutionQubits + 1
-                                 if QuantumState.numQubits state <> totalQubits then
-                                     Error (QuantumError.ValidationError ("state", $"Expected {totalQubits} qubits for HHL intent, got {QuantumState.numQubits state}"))
-                                 elif intent.DiagonalEigenvalues.Length <> (1 <<< intent.SolutionQubits) then
-                                     Error (QuantumError.ValidationError ("DiagonalEigenvalues", $"Expected {1 <<< intent.SolutionQubits} eigenvalues for HHL intent, got {intent.DiagonalEigenvalues.Length}"))
-                                 else
-                                     let eigenvalue = intent.DiagonalEigenvalues[0]
-                                     if abs eigenvalue < intent.MinEigenvalue then
-                                         Error (QuantumError.ValidationError ("eigenvalue", $"too small: {eigenvalue}"))
-                                     else
-                                         let clampToUnit x =
-                                             if x > 1.0 then 1.0
-                                             elif x < -1.0 then -1.0
-                                             else x
-
-                                         let invLambda =
-                                             match intent.InversionMethod with
-                                             | HhlEigenvalueInversionMethod.ExactRotation c
-                                             | HhlEigenvalueInversionMethod.LinearApproximation c -> c / eigenvalue
-                                             | HhlEigenvalueInversionMethod.PiecewiseLinear segments ->
-                                                 let absLambda = abs eigenvalue
-                                                 let constant =
-                                                     segments
-                                                     |> Array.tryFind (fun (minL, maxL, _) -> absLambda >= minL && absLambda < maxL)
-                                                     |> Option.map (fun (_, _, c) -> c)
-                                                     |> Option.defaultValue 1.0
-                                                 constant / eigenvalue
-
-                                         let theta = 2.0 * Math.Asin(clampToUnit invLambda)
-                                         let ancillaQubit = intent.EigenvalueQubits + intent.SolutionQubits
-                                         (this :> IQuantumBackend).ApplyOperation (QuantumOperation.Gate (CircuitBuilder.RY (ancillaQubit, theta))) state
+                                  // Diagonal HHL inversion via the shared multiplexed multi-controlled RY.
+                                  // The CRY/MCZ gates are realised as braids by GateToBraid, so HHL inverts
+                                  // identically and correctly (for any solution-register size) on gated and
+                                  // topological hardware.
+                                  applyHhlInversion (this :> IQuantumBackend) intent state
                               
                               | QuantumOperation.Braid anyonIndex ->
 

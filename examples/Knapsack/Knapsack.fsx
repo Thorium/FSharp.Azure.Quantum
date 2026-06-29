@@ -272,13 +272,14 @@ match inputPath with
         solveAndReport "projects" builtInProjects 300000.0 Knapsack.budgetAllocation
         |> Option.iter allResults.Add
 
-        // Classical greedy comparison
-        let greedySol = Knapsack.solveClassicalGreedy (Knapsack.budgetAllocation builtInProjects 300000.0)
-        if not quiet then
-            printfn "  Classical Greedy comparison:"
+        // Quantum solver comparison (local simulator)
+        match Knapsack.solve (Knapsack.budgetAllocation builtInProjects 300000.0) None with
+        | Ok quantumSol when not quiet ->
+            printfn "  Quantum solver comparison (local simulator):"
             printfn "    Selected: %d items | Value: %.0f | Weight: %.0f"
-                greedySol.SelectedItems.Length greedySol.TotalValue greedySol.TotalWeight
+                quantumSol.SelectedItems.Length quantumSol.TotalValue quantumSol.TotalWeight
             printfn ""
+        | _ -> ()
 
         printHeader "Example 2: Cargo Loading (Maximize Value on Truck)"
         solveAndReport "cargo" builtInCargo 600.0 Knapsack.cargoLoading
@@ -310,13 +311,15 @@ match inputPath with
             printfn "    Feasible: %b (weight %.0f <= %.0f)" isFeasible tw testProblem.Capacity
             printfn "    Value: %.0f | Efficiency: %.1f value/weight" tv eff
 
-            let optSol = Knapsack.solveClassicalDP testProblem
-            printfn "  Optimal (DP): %A -> Value: %.0f"
-                (optSol.SelectedItems |> List.map (fun i -> i.Id)) optSol.TotalValue
-            if tv = optSol.TotalValue then
-                printfn "    Manual selection is optimal!"
-            else
-                printfn "    Manual is %.1f%% of optimal" (tv / optSol.TotalValue * 100.0)
+            match Knapsack.solve testProblem None with
+            | Ok optSol ->
+                printfn "  Quantum solver (local simulator): %A -> Value: %.0f"
+                    (optSol.SelectedItems |> List.map (fun i -> i.Id)) optSol.TotalValue
+                if tv = optSol.TotalValue then
+                    printfn "    Manual selection matches the quantum solution!"
+                else
+                    printfn "    Manual is %.1f%% of the quantum solution" (tv / optSol.TotalValue * 100.0)
+            | Error _ -> ()
             printfn ""
 
         printHeader "Example 6: Random Problem Instance"

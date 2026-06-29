@@ -448,7 +448,7 @@ module QuantumGraphColoringSolver =
     /// Uses greedy vertex ordering with first-fit color assignment.
     /// 
     /// Typical performance: Near-optimal for many graph types
-    let solveClassical (problem: GraphColoringProblem) : GraphColoringSolution =
+    let internal solveClassical (problem: GraphColoringProblem) : GraphColoringSolution =
         // Build adjacency list for efficient neighbor lookup
         let adjacencyMap = 
             problem.Vertices

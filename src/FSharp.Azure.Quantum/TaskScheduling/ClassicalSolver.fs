@@ -110,67 +110,9 @@ module ClassicalSolver =
             AssignedResources = task.ResourceRequirements
         }
     
-    /// Calculate makespan from assignments
-    let calculateMakespan (assignments: TaskAssignment list) : float =
-        if List.isEmpty assignments then 0.0
-        else assignments |> List.map (fun a -> a.EndTime) |> List.max
-    
-    /// Calculate total cost from assignments and resources
-    let calculateTotalCost
-        (assignments: TaskAssignment list)
-        (resources: Resource<'R> list)
-        : float =
-        
-        assignments
-        |> List.sumBy (fun a ->
-            let duration = a.EndTime - a.StartTime
-            a.AssignedResources
-            |> Map.toList
-            |> List.sumBy (fun (resourceId, quantity) ->
-                match resources |> List.tryFind (fun r -> r.Id = resourceId) with
-                | Some resource -> resource.CostPerUnit * quantity * duration
-                | None -> 0.0
-            )
-        )
-    
-    /// Find tasks that violate their deadlines
-    let findDeadlineViolations
-        (tasks: ScheduledTask<'T> list)
-        (completionTimes: Map<string, float>)
-        : string list =
-        
-        tasks
-        |> List.choose (fun task ->
-            match task.Deadline with
-            | Some deadline ->
-                let completion = Map.find task.Id completionTimes
-                if completion > deadline then Some task.Id else None
-            | None -> None
-        )
-    
-    /// Calculate resource utilization across all resources
-    let calculateResourceUtilization
-        (assignments: TaskAssignment list)
-        (resources: Resource<'R> list)
-        (makespan: float)
-        : Map<string, float> =
-        
-        resources
-        |> List.map (fun r ->
-            let totalUsage =
-                assignments
-                |> List.sumBy (fun a ->
-                    let duration = a.EndTime - a.StartTime
-                    match Map.tryFind r.Id a.AssignedResources with
-                    | Some quantity -> quantity * duration
-                    | None -> 0.0
-                )
-            let maxPossible = r.Capacity * makespan
-            let utilization = if maxPossible > 0.0 then totalUsage / maxPossible else 0.0
-            r.Id, utilization
-        )
-        |> Map.ofList
-    
+    // Schedule scoring helpers (makespan, cost, deadline violations, utilisation) now live in
+    // the neutral ScheduleMetrics module, shared with the quantum solver.
+
     // ============================================================================
     // PUBLIC API - Classical Greedy Solver
     // ============================================================================
@@ -200,11 +142,11 @@ module ClassicalSolver =
         
         let assignments = List.rev assignments  // Reverse to maintain original order
 
-        // Calculate metrics using helper functions
-        let makespan = calculateMakespan assignments
-        let totalCost = calculateTotalCost assignments problem.Resources
-        let violations = findDeadlineViolations problem.Tasks completionTimes
-        let resourceUtil = calculateResourceUtilization assignments problem.Resources makespan
+        // Calculate metrics using the shared ScheduleMetrics scorers
+        let makespan = ScheduleMetrics.calculateMakespan assignments
+        let totalCost = ScheduleMetrics.calculateTotalCost assignments problem.Resources
+        let violations = ScheduleMetrics.findDeadlineViolations problem.Tasks completionTimes
+        let resourceUtil = ScheduleMetrics.calculateResourceUtilization assignments problem.Resources makespan
 
         let solution = {
             Assignments = assignments

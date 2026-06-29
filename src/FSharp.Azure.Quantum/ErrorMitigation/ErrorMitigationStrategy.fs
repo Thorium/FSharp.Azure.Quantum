@@ -282,48 +282,63 @@ module ErrorMitigationStrategy =
     // Strategy Application (Placeholder for async execution)
     // ============================================================================
     
-    /// Apply mitigation strategy to a circuit with fallback handling.
-    /// 
-    /// Tries primary strategy first, falls back to secondary if primary fails.
-    /// Returns QuantumResult type for error handling.
-    let applyStrategy 
+    /// The readout calibration carried by a technique, if any. Readout error mitigation is
+    /// the only component that can be applied to a finished measurement histogram.
+    let rec private readoutCalibrationOf (technique: MitigationTechnique) : ReadoutErrorMitigation.CalibrationMatrix option =
+        match technique with
+        | ReadoutErrorMitigation calibration -> Some calibration
+        | Combined techniques -> techniques |> List.tryPick readoutCalibrationOf
+        | ZeroNoiseExtrapolation _ | ProbabilisticErrorCancellation _ -> None
+
+    /// Apply a mitigation strategy to a measurement histogram.
+    ///
+    /// Only readout error mitigation can be applied post-hoc to a finished histogram — it
+    /// corrects the measured counts with the inverse confusion matrix. Zero-Noise Extrapolation
+    /// and Probabilistic Error Cancellation are circuit-level techniques (they re-execute the
+    /// circuit at multiple noise levels / sample quasi-probability circuits), so they cannot be
+    /// applied here; for those use ZeroNoiseExtrapolation.mitigate / ProbabilisticErrorCancellation.mitigate
+    /// with a circuit executor.
+    ///
+    /// This genuinely applies the readout-correction component of the chosen technique (whether
+    /// a bare ReadoutErrorMitigation or a Combined strategy that contains one). If the primary
+    /// carries no applicable readout calibration it falls back to the secondary strategy.
+    let applyStrategy
         (histogram: Map<string, int>)
         (strategy: RecommendedStrategy)
         : QuantumResult<MitigatedResult> =
-        
-        try
-            // For now, apply readout correction as demonstration
-            // Real implementation would execute circuit with chosen technique
-            let correctedHistogram = 
-                histogram 
-                |> Map.toList 
-                |> List.map (fun (k, v) -> (k, float v))
-                |> Map.ofList
-            
+
+        let applyTechnique (technique: MitigationTechnique) : QuantumResult<Map<string, float>> =
+            match readoutCalibrationOf technique with
+            | Some calibration ->
+                ReadoutErrorMitigation.correctReadoutErrors histogram calibration ReadoutErrorMitigation.defaultConfig
+                |> Result.map (fun corrected -> corrected.Histogram)
+                |> Result.mapError (fun msg -> QuantumError.OperationError ("Readout error mitigation", msg))
+            | None ->
+                Error (QuantumError.NotImplemented (
+                    "post-hoc circuit-level mitigation (ZNE/PEC)",
+                    Some "Zero-Noise Extrapolation and Probabilistic Error Cancellation must execute the circuit at multiple noise levels; they cannot be applied to a finished histogram. Use their mitigate functions with a circuit executor, or include a ReadoutErrorMitigation calibration in the strategy."))
+
+        match applyTechnique strategy.Primary with
+        | Ok corrected ->
             Ok {
-                Histogram = correctedHistogram
+                Histogram = corrected
                 AppliedTechnique = strategy.Primary
                 UsedFallback = false
                 ActualCostMultiplier = strategy.EstimatedCostMultiplier
             }
-        with ex ->
-            // Try fallback if available
+        | Error primaryErr ->
             match strategy.Fallback with
             | Some fallback ->
-                try
-                    let correctedHistogram = 
-                        histogram 
-                        |> Map.toList 
-                        |> List.map (fun (k, v) -> (k, float v))
-                        |> Map.ofList
-                    
+                match applyTechnique fallback with
+                | Ok corrected ->
                     Ok {
-                        Histogram = correctedHistogram
+                        Histogram = corrected
                         AppliedTechnique = fallback
                         UsedFallback = true
                         ActualCostMultiplier = strategy.EstimatedCostMultiplier / 2.0
                     }
-                with ex2 ->
-                    Error (QuantumError.OperationError ("Error mitigation", $"Primary and fallback failed: {ex.Message}, {ex2.Message}"))
-            | None ->
-                Error (QuantumError.OperationError ("Error mitigation", $"Mitigation failed: {ex.Message}"))
+                | Error fallbackErr ->
+                    Error (QuantumError.OperationError (
+                        "Error mitigation",
+                        sprintf "Primary failed (%s) and fallback failed (%s)" primaryErr.Message fallbackErr.Message))
+            | None -> Error primaryErr

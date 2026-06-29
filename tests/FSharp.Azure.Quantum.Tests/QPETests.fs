@@ -273,3 +273,38 @@ module QPETests =
         | Error (QuantumError.ValidationError ("EigenVector", _)) -> ()
         | Error err -> Assert.Fail($"Expected EigenVector validation error, got: {err}")
         | Ok _ -> Assert.Fail("Expected validation error for mismatched eigenvector dimension")
+
+    // Cloud-style backend: rejects incremental ApplyOperation (like real hardware) and only runs
+    // COMPLETE circuits via ExecuteToState (delegated to a local simulator to stand in for a job).
+    type private CloudStyleBackend(inner: IQuantumBackend) =
+        let mutable executeCalls = 0
+        let incremental : Result<QuantumState, QuantumError> =
+            Error (QuantumError.OperationError ("ApplyOperation", "CloudStyle does not support incremental ApplyOperation. Use ExecuteToState with a complete circuit instead."))
+        member _.ExecuteToStateCalls = executeCalls
+        interface IQuantumBackend with
+            member _.ExecuteToState circuit =
+                executeCalls <- executeCalls + 1
+                inner.ExecuteToState circuit
+            member _.NativeStateType = inner.NativeStateType
+            member _.ApplyOperation _operation _state = incremental
+            member _.SupportsOperation _operation = true
+            member _.Name = inner.Name + " (cloud-style)"
+            member _.InitializeState numQubits = inner.InitializeState numQubits
+            member this.ExecuteToStateAsync circuit _ct =
+                task { return (this :> IQuantumBackend).ExecuteToState circuit }
+            member _.ApplyOperationAsync _operation _state _ct =
+                task { return incremental }
+
+    [<Fact>]
+    let ``QPE runs on a cloud-style backend via whole-circuit submission`` () =
+        let cloud = CloudStyleBackend(LocalBackend.LocalBackend() :> IQuantumBackend)
+        let config: QPE.QPEConfig =
+            { CountingQubits = 3
+              TargetQubits = 1
+              UnitaryOperator = QPE.UnitaryOperator.TGate
+              EigenVector = None }
+        match QPE.execute config (cloud :> IQuantumBackend) with
+        | Ok _ ->
+            Assert.True(cloud.ExecuteToStateCalls > 0,
+                "QPE should submit a complete circuit via ExecuteToState on a cloud-style backend")
+        | Error err -> Assert.Fail($"Cloud-style QPE failed: {err}")

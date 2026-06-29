@@ -259,7 +259,7 @@ module DrugDiscoverySolvers =
             |> Async.RunSynchronously
         
         /// Classical greedy solver for comparison
-        let solveClassical (problem: Problem) : Solution =
+        let internal solveClassical (problem: Problem) : Solution =
             // Greedy: sort by weight, add if no conflict
             let sorted = 
                 problem.Nodes 
@@ -519,7 +519,7 @@ module DrugDiscoverySolvers =
             |> Async.RunSynchronously
         
         /// Classical greedy solver for comparison
-        let solveClassical (problem: Problem) : Solution =
+        let internal solveClassical (problem: Problem) : Solution =
             // Greedy: iteratively select node with highest marginal gain
             let n = problem.Nodes.Length
             let selected = Array.zeroCreate n
@@ -773,7 +773,7 @@ module DrugDiscoverySolvers =
             |> Async.RunSynchronously
         
         /// Classical greedy solver for comparison
-        let solveClassical (problem: Problem) : Solution =
+        let internal solveClassical (problem: Problem) : Solution =
             // Greedy by value/cost ratio, considering diversity
             let n = problem.Items.Length
             let selected = Array.zeroCreate n

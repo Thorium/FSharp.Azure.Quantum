@@ -281,7 +281,7 @@ module MaxCut =
     /// 
     /// EXAMPLE:
     ///   let classicalSolution = MaxCut.solveClassical problem
-    let solveClassical (problem: MaxCutProblem) : Solution =
+    let internal solveClassical (problem: MaxCutProblem) : Solution =
         // Convert to quantum solver format
         let quantumProblem : QuantumMaxCutSolver.MaxCutProblem = {
             Vertices = problem.Vertices

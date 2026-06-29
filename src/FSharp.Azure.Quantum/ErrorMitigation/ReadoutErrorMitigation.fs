@@ -142,82 +142,55 @@ module ReadoutErrorMitigation =
                     return Error (sprintf "Qubit count must be 1-10 (got %d)" qubits)
                 else
                     // Prepare |0⟩^⊗n circuit (empty circuit, starts in |0⟩)
-                    let allZerosCircuit = CircuitBuilder.empty qubits
-                    
-                    // Execute and measure |0⟩ state
-                    let! zeroResults = executor allZerosCircuit config.CalibrationShots
-                    
-                    match zeroResults with
-                    | Error err -> return Error (sprintf "Failed to measure |0⟩ state: %s" err)
-                    | Ok zeroHistogram ->
-                        // Prepare |1⟩^⊗n circuit (X gate on all qubits)
-                        let xGates = 
-                            [ for q in 0 .. qubits - 1 -> CircuitBuilder.X q ]
-                        let allOnesCircuit = 
-                            CircuitBuilder.empty qubits
-                            |> CircuitBuilder.addGates xGates
-                        
-                        // Execute and measure |1⟩ state
-                        let! oneResults = executor allOnesCircuit config.CalibrationShots
-                        
-                        match oneResults with
-                        | Error err -> return Error (sprintf "Failed to measure |1⟩ state: %s" err)
-                        | Ok oneHistogram ->
-                            // Build confusion matrix: M[measured, prepared]
-                            let dimension = pown 2 qubits
-                            let matrix = Array2D.zeroCreate dimension dimension
-                            
-                            // Fill column 0: probabilities when preparing |0⟩
-                            for (bitstring, count) in Map.toList zeroHistogram do
-                                let measured = bitstringToInt bitstring
-                                let prob = float count / float config.CalibrationShots
-                                matrix.[measured, 0] <- prob
-                            
-                            // Fill column (2^n - 1): probabilities when preparing |1⟩^⊗n
-                            let allOnesIndex = dimension - 1
-                            for (bitstring, count) in Map.toList oneHistogram do
-                                let measured = bitstringToInt bitstring
-                                let prob = float count / float config.CalibrationShots
-                                matrix.[measured, allOnesIndex] <- prob
-                            
-                            // For multi-qubit systems, use tensor product approximation
-                            // Assume independent per-qubit readout errors
-                            // Build full matrix from single-qubit confusion matrices
-                            if qubits > 1 then
-                                // Extract single-qubit error rates from |0⟩ and |1⟩ measurements
-                                // For simplicity, assume same error rate for all qubits
-                                let p0_to_0 = matrix.[0, 0]  // P(measure 0 | prepared 0)
-                                let p0_to_1 = matrix.[0, allOnesIndex]  // P(measure 0 | prepared 1)
-                                
-                                // Build full matrix via tensor product
-                                for prepared in 0 .. dimension - 1 do
-                                    for measured in 0 .. dimension - 1 do
-                                        // Calculate probability as product of individual qubit probabilities
-                                        let prob =
-                                            [0 .. qubits - 1]
-                                            |> List.fold (fun accProb q ->
-                                                let preparedBit = (prepared >>> q) &&& 1
-                                                let measuredBit = (measured >>> q) &&& 1
-                                                
-                                                let qubitProb =
-                                                    match (preparedBit, measuredBit) with
-                                                    | (0, 0) -> p0_to_0       // P(measure 0 | prepared 0)
-                                                    | (0, 1) -> 1.0 - p0_to_0  // P(measure 1 | prepared 0)
-                                                    | (1, 0) -> p0_to_1       // P(measure 0 | prepared 1)
-                                                    | (1, 1) -> 1.0 - p0_to_1  // P(measure 1 | prepared 1)
-                                                    | _ -> 1.0
-                                                
-                                                accProb * qubitProb) 1.0
-                                        
-                                        matrix.[measured, prepared] <- prob
-                            
-                            return Ok {
-                                Matrix = matrix
-                                Qubits = qubits
-                                Timestamp = DateTime.UtcNow
-                                Backend = backend
-                                CalibrationShots = config.CalibrationShots
-                            }
+                    let dimension = pown 2 qubits
+                    let matrix = Array2D.zeroCreate dimension dimension
+
+                    // Genuine FULL calibration: prepare and measure EVERY basis state |j> to obtain
+                    // column j of the confusion matrix, M[measured, j] = P(measure 'measured' | prepared j).
+                    // Unlike a tensor-product reconstruction from only |0...0> and |1...1>, this captures
+                    // correlated and per-qubit-varying readout errors directly. Cost: 2^n calibration circuits.
+                    let prepareBasisState j =
+                        let xGates =
+                            [ for q in 0 .. qubits - 1 do
+                                if (j >>> q) &&& 1 = 1 then yield CircuitBuilder.X q ]
+                        CircuitBuilder.empty qubits |> CircuitBuilder.addGates xGates
+
+                    let rec measureColumn j =
+                        async {
+                            if j >= dimension then
+                                return Ok ()
+                            else
+                                let! colResult = executor (prepareBasisState j) config.CalibrationShots
+                                match colResult with
+                                | Error err ->
+                                    return Error (sprintf "Failed to measure basis state |%s>: %s" (intToBitstring j qubits) err)
+                                | Ok histogram ->
+                                    // Accumulate raw measured counts into column j...
+                                    for (bitstring, count) in Map.toList histogram do
+                                        let measured = bitstringToInt bitstring
+                                        if measured >= 0 && measured < dimension then
+                                            matrix.[measured, j] <- matrix.[measured, j] + float count
+                                    // ...then normalise the column into a probability distribution so the
+                                    // confusion matrix is column-stochastic (each prepared state sums to 1).
+                                    let colSum =
+                                        [ for m in 0 .. dimension - 1 -> matrix.[m, j] ] |> List.sum
+                                    if colSum > 0.0 then
+                                        for m in 0 .. dimension - 1 do
+                                            matrix.[m, j] <- matrix.[m, j] / colSum
+                                    return! measureColumn (j + 1)
+                        }
+
+                    let! fillResult = measureColumn 0
+                    match fillResult with
+                    | Error err -> return Error err
+                    | Ok () ->
+                        return Ok {
+                            Matrix = matrix
+                            Qubits = qubits
+                            Timestamp = DateTime.UtcNow
+                            Backend = backend
+                            CalibrationShots = config.CalibrationShots
+                        }
             with
             | ex -> return Error (sprintf "Calibration measurement error: %s" ex.Message)
         }
@@ -275,7 +248,16 @@ module ReadoutErrorMitigation =
         (calibration: CalibrationMatrix)
         (config: REMConfig)
         : Result<CorrectedResults, string> =
-        
+
+        // Guard: the calibration must match the histogram's qubit count. Otherwise the
+        // M^-1 × measured product is meaningless — histogram keys of a different width silently
+        // map to probability 0 and the result is garbage with no error.
+        let dimensionMismatch =
+            measured |> Map.exists (fun bitstring _ -> bitstring.Length <> calibration.Qubits)
+        if dimensionMismatch then
+            Error (sprintf "Calibration is for %d qubits but the measured histogram contains bitstrings of a different width. Supply a calibration matching the measured qubit count." calibration.Qubits)
+        else
+
         // Step 1: Invert calibration matrix
         match invertCalibrationMatrix calibration None with
         | Error err -> Error err

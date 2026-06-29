@@ -4,6 +4,7 @@ open System
 open System.Numerics
 open FSharp.Azure.Quantum.LocalSimulator
 open FSharp.Azure.Quantum.Core
+open FSharp.Azure.Quantum.Core.CostEstimation
 
 /// Shared helpers for cloud backend IQuantumBackend wrappers.
 ///
@@ -99,3 +100,32 @@ module CloudBackendHelpers =
         QuantumError.OperationError(
             "ApplyOperation",
             sprintf "%s does not support operation type: %A. Only Gate, Sequence, and Measure are supported." backendName op)
+
+    // ============================================================================
+    // COST GUARD (pre-submission)
+    // ============================================================================
+
+    /// Pre-submission cost guard for cloud (QPU) execution.
+    ///
+    /// Estimates the job cost from the target and shot count and rejects the
+    /// submission when the expected cost exceeds the caller-supplied per-job
+    /// limit (USD). Behaviour:
+    ///   • costLimitUsd = None  → no-op (guard disabled — default for all backends)
+    ///   • estimation fails     → fail-open (an estimator error never blocks a job)
+    ///   • simulator targets    → estimated at $0, so are never blocked
+    ///
+    /// Returns Ok () when the job may proceed, or a QuotaExceeded error otherwise.
+    let checkCostGuard (target: string) (shots: int) (costLimitUsd: decimal option) : Result<unit, QuantumError> =
+        match costLimitUsd with
+        | None -> Ok ()
+        | Some limit ->
+            match estimateCostSimple target shots with
+            | Error _ -> Ok ()  // fail-open: a cost-estimation failure must not block submission
+            | Ok estimate ->
+                let expected = estimate.ExpectedCost / 1.0M<USD>
+                if expected > limit then
+                    Error (QuantumError.AzureError (AzureQuantumError.QuotaExceeded(
+                        sprintf "Estimated job cost $%.2f exceeds the configured per-job limit $%.2f. Raise the limit or use a simulator target."
+                            (float expected) (float limit))))
+                else
+                    Ok ()

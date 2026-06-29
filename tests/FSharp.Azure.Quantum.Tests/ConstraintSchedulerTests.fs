@@ -371,24 +371,51 @@ module ConstraintSchedulerTests =
         | Error e -> Assert.Fail(sprintf "Solver failed: %A" e)
 
     [<Fact>]
-    let ``QAOA Strategy - Balanced goal with QAOA uses SAT when no capacity`` () =
+    let ``Cost goal routes to cost-aware coloring even when QAOA is requested`` () =
+        // A cost goal (Balanced/MinimizeCost) without capacity constraints is routed to
+        // the weighted graph-colouring formulation, which is the only encoding that
+        // genuinely carries resource costs — regardless of the QAOA strategy hint.
         let result = constraintScheduler {
             task "T1"
             task "T2"
-            
+
             resource "R1" 5.0
             resource "R2" 15.0
-            
+
             conflict "T1" "T2"
-            
+
             optimizeFor Balanced
             useQaoa
             backend (LocalBackend.LocalBackend() :> IQuantumBackend)
         }
-        
+
         match result with
         | Ok r ->
             match r.BestSchedule with
             | Some s -> Assert.Equal(2, s.Assignments.Length)
-            | None -> () // QAOA is approximate
-        | Error e -> Assert.Fail(sprintf "QAOA Balanced solver failed: %A" e)
+            | None -> () // quantum search is approximate
+        | Error e -> Assert.Fail(sprintf "Cost-goal solver failed: %A" e)
+
+    [<Fact>]
+    let ``Precedence constraints are rejected honestly rather than silently ignored`` () =
+        // The resource-assignment scheduler has no time dimension, so precedence
+        // (temporal ordering) cannot be honoured. solve must surface this as an error
+        // instead of returning a schedule that quietly ignores the constraint.
+        let result = constraintScheduler {
+            task "T1"
+            task "T2"
+
+            resource "R1" 10.0
+            resource "R2" 10.0
+
+            precedence "T1" "T2"
+
+            optimizeFor MaximizeSatisfaction
+            backend (LocalBackend.LocalBackend() :> IQuantumBackend)
+        }
+
+        match result with
+        | Error (QuantumError.NotImplemented (feature, _)) ->
+            Assert.Contains("Precedence", feature)
+        | Error e -> Assert.Fail(sprintf "Expected NotImplemented for precedence, got: %A" e)
+        | Ok _ -> Assert.Fail("Precedence constraint should be rejected, not silently ignored")

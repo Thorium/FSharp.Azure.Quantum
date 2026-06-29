@@ -443,7 +443,7 @@ module GraphColoring =
         }
     
     /// Solve graph coloring using classical greedy algorithm (for comparison)
-    let solveClassical (problem: GraphColoringProblem) (numColors: int) : QuantumResult<ColoringSolution> =
+    let internal solveClassical (problem: GraphColoringProblem) (numColors: int) : QuantumResult<ColoringSolution> =
         quantumResult {
             try
                 // Validate problem first

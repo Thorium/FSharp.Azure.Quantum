@@ -209,6 +209,15 @@ module RiskEngine =
                     findIndex (idx + 1) newCum
         findIndex 0 0.0
 
+    /// Read the genuine quantum bin probabilities q_i = |⟨i|ψ⟩|² from the prepared state |ψ⟩ = A|0⟩.
+    /// Bin index i maps directly to basis-state index i (the state-preparation encoding), so VaR/CVaR
+    /// are derived from the measured quantum distribution rather than from a classical array.
+    let private quantumBinProbabilities
+        (backend: IQuantumBackend)
+        (statePrep: CircuitBuilder.Circuit)
+        : Result<float[], QuantumError> =
+        QuantumMonteCarlo.measureBinProbabilities backend statePrep
+
     /// Execute quantum amplitude estimation for VaR using the QMC infrastructure.
     ///
     /// Algorithm:
@@ -228,71 +237,70 @@ module RiskEngine =
         async {
             let numQubits = config.NumQubits
 
-            // 1. Discretize the return distribution
-            let (probabilities, binEdges, _binWidth) = discretizeDistribution returns numQubits
+            // 1. Discretize the empirical return distribution and encode it as |ψ⟩ = A|0⟩.
+            let (empiricalProbs, binEdges, _binWidth) = discretizeDistribution returns numQubits
+            let statePrep = buildStatePrepCircuit empiricalProbs numQubits
 
-            // 2. Find VaR threshold bin index
-            let thresholdIndex = findVarThresholdIndex probabilities config.ConfidenceLevel
-
-            // 3. Build state preparation circuit
-            let statePrep = buildStatePrepCircuit probabilities numQubits
-
-            // 4. Build threshold oracle
-            let oracle = buildThresholdOracle numQubits thresholdIndex
-
-            // 5. Configure and execute QMC
-            let qmcConfig = {
-                QuantumMonteCarlo.QMCConfig.NumQubits = numQubits
-                QuantumMonteCarlo.QMCConfig.StatePreparation = statePrep
-                QuantumMonteCarlo.QMCConfig.Oracle = oracle
-                QuantumMonteCarlo.QMCConfig.GroverIterations = config.GroverIterations
-                QuantumMonteCarlo.QMCConfig.Shots = config.Shots
-            }
-
-            let! qmcResultWrapped =
-                match config.CancellationToken with
-                | Some token ->
-                    Async.StartAsTask(
-                        QuantumMonteCarlo.estimateExpectation qmcConfig qBackend,
-                        cancellationToken = token,
-                        taskCreationOptions = System.Threading.Tasks.TaskCreationOptions.None)
-                    |> Async.AwaitTask
-                | None ->
-                    QuantumMonteCarlo.estimateExpectation qmcConfig qBackend
-
-            match qmcResultWrapped with
+            // 2. Read the GENUINE quantum bin probabilities from the prepared state.
+            //    Everything below is derived from these, not from the classical array.
+            match quantumBinProbabilities qBackend statePrep with
             | Error err -> return Error err
-            | Ok qmcResult ->
-                // 6. Extract VaR from quantum result
-                // The estimated expectation value approximates the tail probability
-                // P(return < threshold). The VaR is the return value at the threshold bin edge.
-                let estimatedTailProb = qmcResult.ExpectationValue
+            | Ok quantumProbs ->
+                // 3. VaR threshold from the quantum cumulative distribution.
+                let thresholdIndex = findVarThresholdIndex quantumProbs config.ConfidenceLevel
+                let oracle = buildThresholdOracle numQubits thresholdIndex
 
-                // VaR = negative of the threshold bin edge (loss is positive)
-                let quantumVaR =
-                    if thresholdIndex > 0 && thresholdIndex <= binEdges.Length - 1 then
-                        -binEdges.[thresholdIndex]
-                    else
-                        0.0
+                // 4. Quantum amplitude estimation of the tail probability P(return < threshold).
+                let qmcConfig = {
+                    QuantumMonteCarlo.QMCConfig.NumQubits = numQubits
+                    QuantumMonteCarlo.QMCConfig.StatePreparation = statePrep
+                    QuantumMonteCarlo.QMCConfig.Oracle = oracle
+                    QuantumMonteCarlo.QMCConfig.GroverIterations = config.GroverIterations
+                    QuantumMonteCarlo.QMCConfig.Shots = config.Shots
+                }
 
-                // CVaR/ES: weighted average of bin midpoints below threshold
-                let quantumCVaR =
-                    if thresholdIndex > 0 then
-                        let tailBins = [| 0 .. thresholdIndex - 1 |]
-                        let tailProbSum = tailBins |> Array.sumBy (fun i -> probabilities.[i])
-                        if tailProbSum > 1e-12 then
-                            let weightedSum =
-                                tailBins
-                                |> Array.sumBy (fun i ->
-                                    let binMid = (binEdges.[i] + binEdges.[i + 1]) / 2.0
-                                    probabilities.[i] * binMid)
-                            -(weightedSum / tailProbSum)
+                let! qmcResultWrapped =
+                    match config.CancellationToken with
+                    | Some token ->
+                        Async.StartAsTask(
+                            QuantumMonteCarlo.estimateExpectation qmcConfig qBackend,
+                            cancellationToken = token,
+                            taskCreationOptions = System.Threading.Tasks.TaskCreationOptions.None)
+                        |> Async.AwaitTask
+                    | None ->
+                        QuantumMonteCarlo.estimateExpectation qmcConfig qBackend
+
+                match qmcResultWrapped with
+                | Error err -> return Error err
+                | Ok qmcResult ->
+                    // 5. Tail probability is the genuine amplitude-estimation result.
+                    let estimatedTailProb = qmcResult.ExpectationValue
+
+                    // VaR = loss at the threshold bin edge (the quantile boundary).
+                    let quantumVaR =
+                        if thresholdIndex > 0 && thresholdIndex <= binEdges.Length - 1 then
+                            -binEdges.[thresholdIndex]
+                        else
+                            0.0
+
+                    // CVaR/ES: quantum-probability-weighted mean of the tail bin midpoints.
+                    let quantumCVaR =
+                        if thresholdIndex > 0 then
+                            let tailBins = [| 0 .. thresholdIndex - 1 |]
+                            let tailMass = tailBins |> Array.sumBy (fun i -> quantumProbs.[i])
+                            if tailMass > 1e-12 then
+                                let weightedSum =
+                                    tailBins
+                                    |> Array.sumBy (fun i ->
+                                        let binMid = (binEdges.[i] + binEdges.[i + 1]) / 2.0
+                                        quantumProbs.[i] * binMid)
+                                -(weightedSum / tailMass)
+                            else
+                                quantumVaR
                         else
                             quantumVaR
-                    else
-                        quantumVaR
 
-                return Ok (quantumVaR, quantumCVaR, estimatedTailProb)
+                    return Ok (quantumVaR, quantumCVaR, estimatedTailProb)
         }
 
     // ========================================================================

@@ -26,7 +26,39 @@ module ModelSerializationTests =
     let private cleanupTestFile (filePath: string) =
         if File.Exists filePath then
             File.Delete filePath
-    
+
+    // ========================================================================
+    // SVM SERIALIZATION — lossless PauliFeatureMap round-trip
+    // ========================================================================
+
+    [<Fact>]
+    let ``SVM PauliFeatureMap strings survive save and reconstruct round-trip`` () =
+        let testFile = "test_svm_pauli_roundtrip.json"
+        try
+            let original : QuantumKernelSVM.SVMModel =
+                {
+                    SupportVectorIndices = [| 0; 1 |]
+                    Alphas = [| 0.5; 0.5 |]
+                    Bias = 0.1
+                    TrainData = [| [| 1.0; 2.0 |]; [| 3.0; 4.0 |] |]
+                    TrainLabels = [| 1; -1 |]
+                    FeatureMap = FeatureMapType.PauliFeatureMap ([ "X"; "Y"; "ZZ"; "XY" ], 3)
+                }
+            match ModelSerialization.saveSVMModel testFile original 2 (Some "round-trip test") with
+            | Error e -> failwith $"save failed: {e}"
+            | Ok () ->
+                match ModelSerialization.loadSVMModel testFile |> Result.bind ModelSerialization.reconstructSVMModel with
+                | Error e -> failwith $"load/reconstruct failed: {e}"
+                | Ok reconstructed ->
+                    match reconstructed.FeatureMap with
+                    | FeatureMapType.PauliFeatureMap (paulis, depth) ->
+                        // The exact Pauli strings must survive — not be replaced by a hardcoded default.
+                        Assert.Equal<string list>([ "X"; "Y"; "ZZ"; "XY" ], paulis)
+                        Assert.Equal(3, depth)
+                    | other -> failwith $"Expected PauliFeatureMap, got {other}"
+        finally
+            cleanupTestFile testFile
+
     // ========================================================================
     // BASIC SAVE/LOAD TESTS
     // ========================================================================

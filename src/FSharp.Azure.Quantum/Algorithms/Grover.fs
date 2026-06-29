@@ -557,32 +557,60 @@ module Grover =
 
         loop count initial
 
+    /// Rebuild the complete Grover gate circuit (prepare + iterations × (oracle + diffusion))
+    /// and submit it as one job via ExecuteToState. Used for backends that cannot apply
+    /// operations incrementally (real cloud hardware).
+    let private submitWholeCircuit
+        (backend: IQuantumBackend)
+        (oracle: Oracle.CompiledOracle)
+        (iterations: int)
+        : Result<QuantumState, QuantumError> =
+        result {
+            let prepareOps = lowerPrepareOps oracle.NumQubits
+            let! oracleOps = lowerOracleOps oracle
+            let diffusionOps = lowerDiffusionOps oracle.NumQubits
+            let iterationOps = oracleOps @ diffusionOps
+            let allOps = prepareOps @ (List.replicate iterations iterationOps |> List.concat)
+            return! UnifiedBackend.submitAsCircuit backend oracle.NumQubits allOps
+        }
+
     let private executePlan
         (backend: IQuantumBackend)
         (oracle: Oracle.CompiledOracle)
         (plan: GroverPlan)
         : Result<QuantumState, QuantumError> =
-        result {
-            let! state0 = backend.InitializeState oracle.NumQubits
 
-            match plan with
-            | ExecuteNatively (ops, iterations, _exactness) ->
-                let! prepared = backend.ApplyOperation ops.Prepare state0
+        // Incremental execution (exact on simulators; rejected by cloud hardware).
+        let incremental =
+            result {
+                let! state0 = backend.InitializeState oracle.NumQubits
 
-                let step s =
-                    s
-                    |> backend.ApplyOperation ops.Oracle
-                    |> Result.bind (backend.ApplyOperation ops.Diffusion)
+                match plan with
+                | ExecuteNatively (ops, iterations, _exactness) ->
+                    let! prepared = backend.ApplyOperation ops.Prepare state0
 
-                return! repeatM iterations step prepared
+                    let step s =
+                        s
+                        |> backend.ApplyOperation ops.Oracle
+                        |> Result.bind (backend.ApplyOperation ops.Diffusion)
 
-            | ExecuteViaOps (prepareOps, iterationOps, iterations, _exactness) ->
-                let! prepared = backend.ApplyOperation (QuantumOperation.Sequence prepareOps) state0
+                    return! repeatM iterations step prepared
 
-                let step s = backend.ApplyOperation (QuantumOperation.Sequence iterationOps) s
+                | ExecuteViaOps (prepareOps, iterationOps, iterations, _exactness) ->
+                    let! prepared = backend.ApplyOperation (QuantumOperation.Sequence prepareOps) state0
 
-                return! repeatM iterations step prepared
-        }
+                    let step s = backend.ApplyOperation (QuantumOperation.Sequence iterationOps) s
+
+                    return! repeatM iterations step prepared
+            }
+
+        match incremental with
+        | Ok state -> Ok state
+        | Error e when UnifiedBackend.isIncrementalUnsupported e ->
+            // Cloud backend: fall back to whole-circuit job submission.
+            let iterations = match plan with ExecuteNatively (_, k, _) | ExecuteViaOps (_, _, k, _) -> k
+            submitWholeCircuit backend oracle iterations
+        | Error e -> Error e
 
     /// Execute Grover search algorithm with unified backend
     /// 

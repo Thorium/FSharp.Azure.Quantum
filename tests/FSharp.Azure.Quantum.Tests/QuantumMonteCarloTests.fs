@@ -29,6 +29,43 @@ module QuantumMonteCarloTests =
         }
 
     // ========================================================================
+    // CORRECTNESS: amplitude estimation recovers a known marked probability
+    // ========================================================================
+
+    [<Fact>]
+    let ``QAE recovers a known non-uniform marked amplitude`` () =
+        // 2 qubits, 4 bins, non-uniform distribution p = [0.1; 0.2; 0.3; 0.4].
+        // The oracle marks bins 0 and 1, so the true marked amplitude is a = p0 + p1 = 0.3.
+        // This exercises the state-dependent diffusion (A S0 A†): the textbook uniform
+        // diffusion would give the wrong answer for a non-uniform state preparation.
+        let numQubits = 2
+        let probs = [| 0.1; 0.2; 0.3; 0.4 |]
+        let amps = probs |> Array.map (fun p -> System.Numerics.Complex(sqrt p, 0.0))
+        let qubits = [| 0 .. numQubits - 1 |]
+        let statePrep =
+            FSharp.Azure.Quantum.Algorithms.MottonenStatePreparation.prepareStateFromAmplitudes
+                amps qubits (CircuitBuilder.empty numQubits)
+        // Phase oracle marking basis states 0 (|00>) and 1: flip the qubits that are 0 in
+        // the target index, apply CZ to flip |11>, then undo the flips.
+        let markState (c: CircuitBuilder.Circuit) (idx: int) =
+            let flips = [0 .. numQubits - 1] |> List.filter (fun q -> (idx >>> q) &&& 1 = 0)
+            let withFlips = flips |> List.fold (fun cc q -> cc |> CircuitBuilder.addGate (CircuitBuilder.X q)) c
+            let withCZ = withFlips |> CircuitBuilder.addGate (CircuitBuilder.CZ(0, 1))
+            flips |> List.fold (fun cc q -> cc |> CircuitBuilder.addGate (CircuitBuilder.X q)) withCZ
+        let oracle = [0; 1] |> List.fold markState (CircuitBuilder.empty numQubits)
+        let config =
+            { NumQubits = numQubits
+              StatePreparation = statePrep
+              Oracle = oracle
+              GroverIterations = 4
+              Shots = 1000 }
+        match estimateExpectation config (createBackend()) |> Async.RunSynchronously with
+        | Ok qmc ->
+            Assert.True(abs (qmc.ExpectationValue - 0.3) < 0.02,
+                $"Expected marked amplitude a ≈ 0.3, got {qmc.ExpectationValue}")
+        | Error e -> failwith $"QAE failed: {e}"
+
+    // ========================================================================
     // VALIDATION
     // ========================================================================
 

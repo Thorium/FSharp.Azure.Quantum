@@ -357,7 +357,7 @@ module QuantumMaxCutSolver =
     /// Uses random initial partition with local improvement.
     /// 
     /// Typical performance: 80-90% of optimal for random graphs
-    let solveClassical (problem: MaxCutProblem) : MaxCutSolution =
+    let internal solveClassical (problem: MaxCutProblem) : MaxCutSolution =
         let rng = Random()
         
         // Start with random partition

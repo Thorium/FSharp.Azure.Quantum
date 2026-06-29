@@ -424,7 +424,80 @@ module AutoML =
         }
         
         SimilaritySearch.build problem
-    
+
+    // ========================================================================
+    // GENUINE EVALUATION OF UNSUPERVISED TRIALS
+    //
+    // AutoML is supervised (it always has labels), so anomaly and similarity trials
+    // are scored against those labels with real metrics — not fabricated constants.
+    // ========================================================================
+
+    /// Balanced accuracy = mean of true-positive-rate and true-negative-rate. Robust
+    /// to class imbalance and to degenerate "predict-all-one-class" detectors (both
+    /// collapse to 0.5), unlike raw accuracy. Used to genuinely score anomaly detection
+    /// against ground-truth anomaly labels (label >= 0.5 ⇒ anomaly).
+    let private balancedAccuracy (predicted: float array) (truth: float array) : float =
+        let pairs = Array.zip predicted truth
+        let pos = pairs |> Array.filter (fun (_, t) -> t >= 0.5)
+        let neg = pairs |> Array.filter (fun (_, t) -> t < 0.5)
+        let tpr =
+            if pos.Length = 0 then None
+            else Some (float (pos |> Array.filter (fun (p, _) -> p >= 0.5) |> Array.length) / float pos.Length)
+        let tnr =
+            if neg.Length = 0 then None
+            else Some (float (neg |> Array.filter (fun (p, _) -> p < 0.5) |> Array.length) / float neg.Length)
+        match tpr, tnr with
+        | Some a, Some b -> (a + b) / 2.0
+        | Some a, None -> a   // only anomalies in the validation set: report recall
+        | None, Some b -> b   // only normals: report specificity
+        | None, None -> 0.0
+
+    /// Genuine anomaly-detection score: run the detector over the labelled validation
+    /// set and compare its anomaly flags to the ground-truth labels via balanced accuracy.
+    let private scoreAnomalyDetector
+        (detector: AnomalyDetector.Detector)
+        (valX: float array array)
+        (valY: float array)
+        : float =
+        let paired =
+            Array.zip valX valY
+            |> Array.choose (fun (x, y) ->
+                AnomalyDetector.check x detector
+                |> Result.toOption
+                |> Option.map (fun pred -> ((if pred.IsAnomaly then 1.0 else 0.0), y)))
+        if paired.Length = 0 then 0.0
+        else balancedAccuracy (paired |> Array.map fst) (paired |> Array.map snd)
+
+    /// Genuine similarity-search score: average precision@k over the labelled validation
+    /// set, where a retrieved neighbour is "relevant" if it shares the query's label.
+    /// Measures whether the index actually groups same-class items, rather than scoring
+    /// by index size. The index keys are the boxed training-row indices (see
+    /// trySimilaritySearchModel), which map back to training labels.
+    let private scoreSimilarityIndex
+        (index: SimilaritySearch.SearchIndex<obj>)
+        (trainY: float array)
+        (valX: float array array)
+        (valY: float array)
+        : float =
+        let k = min 5 index.Items.Length
+        let perQuery =
+            Array.zip valX valY
+            |> Array.choose (fun (qFeatures, qLabel) ->
+                // Use a sentinel key (-1) absent from the index so no item is excluded as self.
+                match SimilaritySearch.findSimilar (box -1) qFeatures k index with
+                | Ok results when results.Matches.Length > 0 ->
+                    let relevant =
+                        results.Matches
+                        |> Array.filter (fun m ->
+                            match m.Item with
+                            | :? int as idx when idx >= 0 && idx < trainY.Length ->
+                                abs (trainY.[idx] - qLabel) < 0.5
+                            | _ -> false)
+                        |> Array.length
+                    Some (float relevant / float results.Matches.Length)
+                | _ -> None)
+        if perQuery.Length = 0 then 0.0 else Array.average perQuery
+
     // ========================================================================
     // TRIAL GENERATION
     // ========================================================================
@@ -675,24 +748,12 @@ module AutoML =
                                 
                                 tryAnomalyDetectionModel normalData trial.Architecture trial.Hyperparameters (Some backend)
                                 |> Result.map (fun detector ->
-                                    // Simple evaluation: predict on validation set
-                                    let predictions = 
-                                        valX 
-                                        |> Array.choose (fun x ->
-                                            AnomalyDetector.check x detector
-                                            |> Result.toOption
-                                            |> Option.map (fun pred -> if pred.IsAnomaly then 1.0 else 0.0))
-                                    
-                                    let score = 
-                                        if predictions.Length > 0 then
-                                            // Heuristic: good model finds 5-15% anomalies
-                                            let anomalyRate = predictions |> Array.average
-                                            if anomalyRate >= 0.05 && anomalyRate <= 0.15 then 0.8 else 0.5
-                                        else 0.0
-                                    
+                                    // Genuine evaluation against ground-truth labels (balanced accuracy)
+                                    let score = scoreAnomalyDetector detector valX valY
+
                                     if problem.Verbose then
-                                        logInfo problem.Logger $"  [OK] Heuristic Score: {score:F2} (time: {(DateTime.UtcNow - trialStart).TotalSeconds:F1}s)"
-                                    
+                                        logInfo problem.Logger $"  [OK] Balanced accuracy: {score:F4} (time: {(DateTime.UtcNow - trialStart).TotalSeconds:F1}s)"
+
                                     (score, detector))
                                 |> Result.map (fun (score, detector) -> createSuccessResult score detector)
                                 |> Result.orElseWith (fun e ->
@@ -704,19 +765,12 @@ module AutoML =
                             | SimilaritySearch ->
                                 trySimilaritySearchModel trainX trial.Hyperparameters (Some backend)
                                 |> Result.map (fun searchIndex ->
-                                    // Evaluate: test similarity search quality
-                                    // Score based on successful index building
-                                    let score = 
-                                        if searchIndex.Items.Length >= 2 then
-                                            // Successfully built index with multiple items
-                                            0.7
-                                        else
-                                            // Index too small
-                                            0.3
-                                    
+                                    // Genuine retrieval quality: label-based precision@k on the validation set
+                                    let score = scoreSimilarityIndex searchIndex trainY valX valY
+
                                     if problem.Verbose then
-                                        logInfo problem.Logger $"  [OK] Search Quality Score: {score:F2} (time: {(DateTime.UtcNow - trialStart).TotalSeconds:F1}s)"
-                                    
+                                        logInfo problem.Logger $"  [OK] Precision@k: {score:F4} (time: {(DateTime.UtcNow - trialStart).TotalSeconds:F1}s)"
+
                                     (score, searchIndex))
                                 |> Result.map (fun (score, searchIndex) -> createSuccessResult score searchIndex)
                                 |> Result.orElseWith (fun e ->
@@ -971,19 +1025,10 @@ module AutoML =
                                         let normalData = trainX
                                         tryAnomalyDetectionModel normalData trial.Architecture trial.Hyperparameters (Some backend)
                                         |> Result.map (fun detector ->
-                                            let predictions =
-                                                valX
-                                                |> Array.choose (fun x ->
-                                                    AnomalyDetector.check x detector
-                                                    |> Result.toOption
-                                                    |> Option.map (fun pred -> if pred.IsAnomaly then 1.0 else 0.0))
-                                            let score =
-                                                if predictions.Length > 0 then
-                                                    let anomalyRate = predictions |> Array.average
-                                                    if anomalyRate >= 0.05 && anomalyRate <= 0.15 then 0.8 else 0.5
-                                                else 0.0
+                                            // Genuine evaluation against ground-truth labels (balanced accuracy)
+                                            let score = scoreAnomalyDetector detector valX valY
                                             if problemWithToken.Verbose then
-                                                logInfo problemWithToken.Logger $"  [OK] Heuristic Score: {score:F2} (time: {(DateTime.UtcNow - trialStart).TotalSeconds:F1}s)"
+                                                logInfo problemWithToken.Logger $"  [OK] Balanced accuracy: {score:F4} (time: {(DateTime.UtcNow - trialStart).TotalSeconds:F1}s)"
                                             (score, detector))
                                         |> Result.map (fun (score, detector) -> createSuccessResult score detector)
                                         |> Result.orElseWith (fun e ->
@@ -993,11 +1038,10 @@ module AutoML =
                                     | SimilaritySearch ->
                                         trySimilaritySearchModel trainX trial.Hyperparameters (Some backend)
                                         |> Result.map (fun searchIndex ->
-                                            let score =
-                                                if searchIndex.Items.Length >= 2 then 0.7
-                                                else 0.3
+                                            // Genuine retrieval quality: label-based precision@k on the validation set
+                                            let score = scoreSimilarityIndex searchIndex trainY valX valY
                                             if problemWithToken.Verbose then
-                                                logInfo problemWithToken.Logger $"  [OK] Search Quality Score: {score:F2} (time: {(DateTime.UtcNow - trialStart).TotalSeconds:F1}s)"
+                                                logInfo problemWithToken.Logger $"  [OK] Precision@k: {score:F4} (time: {(DateTime.UtcNow - trialStart).TotalSeconds:F1}s)"
                                             (score, searchIndex))
                                         |> Result.map (fun (score, searchIndex) -> createSuccessResult score searchIndex)
                                         |> Result.orElseWith (fun e ->

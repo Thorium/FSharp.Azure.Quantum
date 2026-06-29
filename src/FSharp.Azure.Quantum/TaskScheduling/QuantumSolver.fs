@@ -81,16 +81,32 @@ module QuantumSolver =
             let (_, reverseMapping, _) = QuboEncoding.createVariableMappings problem.Tasks timeHorizon
             
             // Decode each measurement and find best feasible solution
+            // A schedule respects precedence iff every finish-to-start dependency holds:
+            // the successor starts no earlier than the predecessor finishes (+ lag).
+            let respectsDependencies (assignments: TaskAssignment list) =
+                problem.Dependencies
+                |> List.forall (fun dep ->
+                    match dep with
+                    | FinishToStart(predId, succId, lag) ->
+                        match assignments |> List.tryFind (fun a -> a.TaskId = predId),
+                              assignments |> List.tryFind (fun a -> a.TaskId = succId) with
+                        | Some pred, Some succ -> succ.StartTime >= pred.EndTime + lag
+                        | _ -> true)
+
             let solutions =
                 measurements
                 |> Array.choose (fun bitstring ->
                     let taskStarts = QuboEncoding.decodeBitstring bitstring reverseMapping
-                    
+
                     match QuboEncoding.buildSolutionFromStarts problem.Tasks taskStarts with
-                    | Some assignments ->
-                        let makespan = ClassicalSolver.calculateMakespan assignments
+                    // Keep only precedence-feasible measurements. The QUBO penalty biases QAOA
+                    // sampling toward these, but the final min-makespan selection must not pick a
+                    // lower-makespan measurement that VIOLATES precedence — otherwise the returned
+                    // "solution" silently breaks the dependencies the user specified.
+                    | Some assignments when respectsDependencies assignments ->
+                        let makespan = ScheduleMetrics.calculateMakespan assignments
                         Some (makespan, assignments)
-                    | None -> None
+                    | _ -> None
                 )
             
             if Array.isEmpty solutions then
@@ -99,11 +115,12 @@ module QuantumSolver =
                 // Select best solution (minimum makespan)
                 let (bestMakespan, bestAssignments) = solutions |> Array.minBy fst
                 
-                // Calculate metrics using helper functions from ClassicalSolver
-                let totalCost = ClassicalSolver.calculateTotalCost bestAssignments problem.Resources
+                // Score the quantum-decoded schedule with the shared ScheduleMetrics helpers
+                // (pure metric calculation — no classical solving in the quantum path)
+                let totalCost = ScheduleMetrics.calculateTotalCost bestAssignments problem.Resources
                 let completionTimes = bestAssignments |> List.map (fun a -> a.TaskId, a.EndTime) |> Map.ofList
-                let violations = ClassicalSolver.findDeadlineViolations problem.Tasks completionTimes
-                let resourceUtil = ClassicalSolver.calculateResourceUtilization bestAssignments problem.Resources bestMakespan
+                let violations = ScheduleMetrics.findDeadlineViolations problem.Tasks completionTimes
+                let resourceUtil = ScheduleMetrics.calculateResourceUtilization bestAssignments problem.Resources bestMakespan
                 
                 let solution = {
                     Assignments = bestAssignments

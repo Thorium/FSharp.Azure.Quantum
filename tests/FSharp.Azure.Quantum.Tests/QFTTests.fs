@@ -320,3 +320,33 @@ module QFTTests =
         | Error err -> Assert.Fail($"verifyUnitarity without swaps failed: {err}")
         | Ok isUnitary ->
             Assert.True(isUnitary, "QFT without swaps should still be unitary")
+
+    // Cloud-style backend: rejects incremental ApplyOperation (like real hardware) and only runs
+    // COMPLETE circuits via ExecuteToState (delegated to a local simulator to stand in for a job).
+    type private CloudStyleQftBackend(inner: IQuantumBackend) =
+        let mutable executeCalls = 0
+        let incremental : Result<QuantumState, QuantumError> =
+            Error (QuantumError.OperationError ("ApplyOperation", "CloudStyle does not support incremental ApplyOperation. Use ExecuteToState with a complete circuit instead."))
+        member _.ExecuteToStateCalls = executeCalls
+        interface IQuantumBackend with
+            member _.ExecuteToState circuit =
+                executeCalls <- executeCalls + 1
+                inner.ExecuteToState circuit
+            member _.NativeStateType = inner.NativeStateType
+            member _.ApplyOperation _operation _state = incremental
+            member _.SupportsOperation _operation = true
+            member _.Name = inner.Name + " (cloud-style)"
+            member _.InitializeState numQubits = inner.InitializeState numQubits
+            member this.ExecuteToStateAsync circuit _ct =
+                task { return (this :> IQuantumBackend).ExecuteToState circuit }
+            member _.ApplyOperationAsync _operation _state _ct =
+                task { return incremental }
+
+    [<Fact>]
+    let ``QFT runs on a cloud-style backend via whole-circuit submission`` () =
+        let cloud = CloudStyleQftBackend(LocalBackend.LocalBackend() :> IQuantumBackend)
+        match QFT.execute 3 (cloud :> IQuantumBackend) QFT.defaultConfig with
+        | Ok _ ->
+            Assert.True(cloud.ExecuteToStateCalls > 0,
+                "QFT should submit a complete circuit via ExecuteToState on a cloud-style backend")
+        | Error err -> Assert.Fail($"Cloud-style QFT failed: {err}")

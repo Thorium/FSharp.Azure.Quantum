@@ -2,13 +2,14 @@ namespace FSharp.Azure.Quantum.Topological
 
 /// Extension functions for quantum algorithms with topological backends
 /// 
-/// Provides `*WithTopology` variants of standard algorithms that use
-/// topological quantum computing backends for 2-3x performance improvements
-/// through direct braid compilation.
-/// 
+/// Provides `*WithTopology` variants of standard algorithms that run on the
+/// topological (anyon-braiding) backend. This models topological execution and
+/// fault-tolerance properties — it is NOT faster than gate-based simulation on a
+/// classical computer (the simulator still materialises the full 2^n state).
+///
 /// Architecture:
-/// - Standard path: Oracle → Gates → Backend (81% users)
-/// - Topological path: Oracle → Gates → Braids → TopologicalBackend (2-3x faster)
+/// - Standard path: Oracle → Gates → Backend
+/// - Topological path: Oracle → Gates → Braids → TopologicalBackend (models braiding)
 /// 
 /// Usage:
 ///   let backend = TopologicalUnifiedBackendFactory.createIsing 10
@@ -27,8 +28,8 @@ module AlgorithmExtensions =
     
     /// Search using Grover's algorithm with Ising anyon topological backend
     /// 
-    /// Performance: 2-3x faster than gate-based simulation through direct
-    /// braid compilation. Recommended for 8+ qubit searches on classical simulators.
+    /// Runs the search through braid compilation on the topological backend. This models
+    /// topological execution; on a classical simulator it is not faster than the gate path.
     /// 
     /// Parameters:
     ///   oracle - Compiled oracle defining search problem
@@ -296,7 +297,12 @@ module AlgorithmExtensions =
     // PERFORMANCE NOTES
     // ============================================================================
     
-    // Topological backends provide 2-3x speedup over gate-based simulation:
+    // The topological backend does NOT provide a speedup over gate-based simulation on a
+    // classical computer. Each gate is compiled to a braid sequence and applied to the full
+    // 2^n-dimensional state, so it is generally SLOWER than the gate simulator, not faster.
+    // Its purpose is to MODEL topological execution — braid compilation, anyonic operations,
+    // and fault-tolerance properties — not to accelerate classical simulation. Real speedups
+    // would only arise on actual topological hardware.
     //
     // 1. Direct braid compilation: Bypasses intermediate gate representation
     //    - Gates → Braids → Execute (adapter path)

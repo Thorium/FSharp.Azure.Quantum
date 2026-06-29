@@ -164,7 +164,7 @@ module CircuitBuilder =
         | P (q, theta) -> $"p({theta}) q[{q}];"
         | CNOT (control, target) -> $"cx q[{control}],q[{target}];"
         | CZ (control, target) -> $"cz q[{control}],q[{target}];"
-        | MCZ (controls, target) -> 
+        | MCZ (controls, target) ->
             // OpenQASM 2.0 doesn't support MCZ natively (OpenQASM 3.1 will)
             // For now, emit as comment - use GateTranspiler.transpile() to decompose
             let controlsStr = controls |> List.map string |> String.concat ","
@@ -197,7 +197,7 @@ module CircuitBuilder =
         let header = "OPENQASM 2.0;\ninclude \"qelib1.inc\";"
         let qregDecl = $"qreg q[{circuit.QubitCount}];"
         let gateLines = circuit.Gates |> List.rev |> List.map gateToQASM
-        
+
         let allLines = header :: qregDecl :: gateLines
         System.String.Join("\n", allLines)
 

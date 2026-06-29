@@ -114,13 +114,17 @@ module ModelSerialization =
         
         /// Feature map type name
         FeatureMapType: string
-        
+
         /// Feature map depth (if applicable)
         FeatureMapDepth: int
-        
+
+        /// Feature map Pauli strings (for PauliFeatureMap; empty array otherwise).
+        /// Preserves the full PauliFeatureMap configuration across a save/load round-trip.
+        FeatureMapPaulis: string array
+
         /// Number of qubits
         NumQubits: int
-        
+
         /// Optional metadata
         SavedAt: string
         Note: string option
@@ -516,14 +520,14 @@ module ModelSerialization =
         : QuantumResult<unit> =
         
         try
-            // Extract feature map info
-            let fmType, fmDepth =
+            // Extract feature map info (preserving Pauli strings for PauliFeatureMap)
+            let fmType, fmDepth, fmPaulis =
                 match svmModel.FeatureMap with
-                | FeatureMapType.ZZFeatureMap d -> ("ZZFeatureMap", d)
-                | FeatureMapType.PauliFeatureMap (_, d) -> ("PauliFeatureMap", d)
-                | FeatureMapType.AngleEncoding -> ("AngleEncoding", 0)
-                | FeatureMapType.AmplitudeEncoding -> ("AmplitudeEncoding", 0)
-            
+                | FeatureMapType.ZZFeatureMap d -> ("ZZFeatureMap", d, [||])
+                | FeatureMapType.PauliFeatureMap (paulis, d) -> ("PauliFeatureMap", d, List.toArray paulis)
+                | FeatureMapType.AngleEncoding -> ("AngleEncoding", 0, [||])
+                | FeatureMapType.AmplitudeEncoding -> ("AmplitudeEncoding", 0, [||])
+
             let model = {
                 SupportVectorIndices = svmModel.SupportVectorIndices
                 Alphas = svmModel.Alphas
@@ -532,6 +536,7 @@ module ModelSerialization =
                 TrainLabels = svmModel.TrainLabels
                 FeatureMapType = fmType
                 FeatureMapDepth = fmDepth
+                FeatureMapPaulis = fmPaulis
                 NumQubits = numQubits
                 SavedAt = DateTime.UtcNow.ToString("o")
                 Note = note
@@ -557,13 +562,13 @@ module ModelSerialization =
         : Task<QuantumResult<unit>> =
         task {
             try
-                let fmType, fmDepth =
+                let fmType, fmDepth, fmPaulis =
                     match svmModel.FeatureMap with
-                    | FeatureMapType.ZZFeatureMap d -> ("ZZFeatureMap", d)
-                    | FeatureMapType.PauliFeatureMap (_, d) -> ("PauliFeatureMap", d)
-                    | FeatureMapType.AngleEncoding -> ("AngleEncoding", 0)
-                    | FeatureMapType.AmplitudeEncoding -> ("AmplitudeEncoding", 0)
-                
+                    | FeatureMapType.ZZFeatureMap d -> ("ZZFeatureMap", d, [||])
+                    | FeatureMapType.PauliFeatureMap (paulis, d) -> ("PauliFeatureMap", d, List.toArray paulis)
+                    | FeatureMapType.AngleEncoding -> ("AngleEncoding", 0, [||])
+                    | FeatureMapType.AmplitudeEncoding -> ("AmplitudeEncoding", 0, [||])
+
                 let model = {
                     SupportVectorIndices = svmModel.SupportVectorIndices
                     Alphas = svmModel.Alphas
@@ -572,6 +577,7 @@ module ModelSerialization =
                     TrainLabels = svmModel.TrainLabels
                     FeatureMapType = fmType
                     FeatureMapDepth = fmDepth
+                    FeatureMapPaulis = fmPaulis
                     NumQubits = numQubits
                     SavedAt = DateTime.UtcNow.ToString("o")
                     Note = note
@@ -877,8 +883,21 @@ module ModelSerialization =
         (serialized: SerializableSVMModel)
         : QuantumResult<QuantumKernelSVM.SVMModel> =
         
-        // Parse feature map
-        parseFeatureMapType serialized.FeatureMapType serialized.FeatureMapDepth
+        // Parse feature map. For PauliFeatureMap, restore the exact Pauli strings that were
+        // saved (falling back to the historical default only for models written before the
+        // FeatureMapPaulis field existed), so the round-trip is lossless.
+        let featureMapResult =
+            match serialized.FeatureMapType with
+            | "PauliFeatureMap" ->
+                let paulis =
+                    if isNull (box serialized.FeatureMapPaulis) || Array.isEmpty serialized.FeatureMapPaulis then
+                        [ "Z"; "ZZ" ]  // backward compatibility with pre-FeatureMapPaulis models
+                    else
+                        List.ofArray serialized.FeatureMapPaulis
+                Ok (FeatureMapType.PauliFeatureMap (paulis, serialized.FeatureMapDepth))
+            | other -> parseFeatureMapType other serialized.FeatureMapDepth
+
+        featureMapResult
         |> Result.map (fun featureMap ->
             {
                 SupportVectorIndices = serialized.SupportVectorIndices

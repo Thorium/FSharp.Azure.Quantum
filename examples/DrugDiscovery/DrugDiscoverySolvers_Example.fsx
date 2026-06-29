@@ -106,11 +106,6 @@ if runAll || exampleName = "independent" then
         pr "  Valid:         %b (no conflicts)" sol.IsValid
         pr "  Repaired:      %b" sol.WasRepaired
         pr "  Backend:       %s (%d shots)" sol.BackendName sol.NumShots
-
-        // Classical comparison
-        let classical = DrugDiscoverySolvers.IndependentSet.solveClassical problem
-        pr ""
-        pr "  Classical greedy: %.2f (quantum: %.2f)" classical.TotalWeight sol.TotalWeight
     | Error e ->
         pr "IndependentSet FAILED: %A" e
 
@@ -165,10 +160,6 @@ if runAll || exampleName = "influence" then
         pr "  Synergy bonus:  %.2f" sol.SynergyBonus
         pr "  Selected:       %d / %d (K=%d)" sol.NumSelected (List.length problem.Nodes) problem.K
         pr "  Backend:        %s (%d shots)" sol.BackendName sol.NumShots
-
-        let classical = DrugDiscoverySolvers.InfluenceMaximization.solveClassical problem
-        pr ""
-        pr "  Classical greedy: %.2f (quantum: %.2f)" classical.TotalScore sol.TotalScore
     | Error e ->
         pr "InfluenceMaximization FAILED: %A" e
 
@@ -228,10 +219,6 @@ if runAll || exampleName = "diverse" then
         pr "  Diversity bonus:  %.2f" sol.DiversityBonus
         pr "  Feasible:         %b" sol.IsFeasible
         pr "  Backend:          %s (%d shots)" sol.BackendName sol.NumShots
-
-        let classical = DrugDiscoverySolvers.DiverseSelection.solveClassical problem
-        pr ""
-        pr "  Classical greedy: %.2f (quantum: %.2f)" classical.TotalValue sol.TotalValue
     | Error e ->
         pr "DiverseSelection FAILED: %A" e
 

@@ -134,23 +134,29 @@ let noisyMeasurementExecutor
     (shots: int)
     : Async<Result<Map<string, int>, string>> =
     async {
-        // Determine true state from circuit gates
-        let hasXGate =
-            circuit.Gates
-            |> List.exists (function | Gate.X _ -> true | _ -> false)
+        // Per-qubit "true" prepared value: 1 if an X gate targets that qubit, else 0. This models
+        // the calibration circuits (which prepare each basis state |j> with X gates) across ALL
+        // qubits — necessary so genuine 2^n calibration produces a proper, invertible confusion
+        // matrix. (This mock models X-based state preparation + independent readout flips; it does
+        // not simulate entangling gates such as H/CNOT.)
+        let numQubits = max 1 circuit.QubitCount
+        let preparedBit q =
+            circuit.Gates |> List.exists (function | Gate.X qq when qq = q -> true | _ -> false)
 
-        let trueState = if hasXGate then "1" else "0"
-
-        // Simulate readout errors (shot-by-shot measurement with bit flips)
         let random = Random()
         let mutable results = Map.empty
 
         for _ in 1 .. shots do
-            let measured =
-                if random.NextDouble() < flipProb then
-                    if trueState = "0" then "1" else "0"
-                else
-                    trueState
+            // Measure each qubit independently, flipping with probability flipProb.
+            let bits =
+                [ for q in 0 .. numQubits - 1 ->
+                    let trueBit = if preparedBit q then 1 else 0
+                    let measuredBit = if random.NextDouble() < flipProb then 1 - trueBit else trueBit
+                    measuredBit ]
+
+            // Bitstring convention matches bitstringToInt (Convert.ToInt32 base 2): leftmost char is
+            // the most-significant bit (highest qubit index), so reverse the qubit-0..n-1 list.
+            let measured = bits |> List.rev |> List.map string |> String.concat ""
 
             results <-
                 results

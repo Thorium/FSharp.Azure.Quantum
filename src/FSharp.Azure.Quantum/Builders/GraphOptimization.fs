@@ -444,23 +444,17 @@ module GraphOptimization =
             
             let baseQubo = emptyQubo numVars
             
-            // ONE-HOT CONSTRAINT: Each node must have exactly one color
-            // For each node i: Σ_c x_{i,c} = 1
-            // Penalty form: Σ_{c1<c2} x_{i,c1} * x_{i,c2}
+            // ONE-HOT CONSTRAINT: each node must have exactly one color (Σ_c x_{i,c} = 1).
+            // Reuse the canonical encoder so the constraint contributes BOTH the linear
+            // reward (-λ·x_i, the QUBO diagonal) and the quadratic penalty (2λ·x_i·x_j).
+            // Emitting only the quadratic pairs encodes "at most one", which leaves the
+            // all-zeros (uncoloured) assignment a global optimum of the QUBO.
             let oneHotTerms =
                 nodeIndexMap
                 |> Map.toList
                 |> List.collect (fun (_, nodeIdx) ->
-                    [0 .. numColors - 1]
-                    |> List.collect (fun c1 ->
-                        [c1 + 1 .. numColors - 1]
-                        |> List.map (fun c2 ->
-                            let var1 = nodeIdx * numColors + c1
-                            let var2 = nodeIdx * numColors + c2
-                            ((var1, var2), 2.0 * DefaultPenalty)
-                        )
-                    )
-                )
+                    let nodeVars = [ for c in 0 .. numColors - 1 -> nodeIdx * numColors + c ]
+                    Qubo.oneHotConstraint nodeVars DefaultPenalty |> Map.toList)
             
             let quboWithOneHot = addTermsToQubo baseQubo oneHotTerms
             
@@ -503,19 +497,16 @@ module GraphOptimization =
             
             // Helper: Generate one-hot constraint terms (exactly one variable = 1)
             // For each outer index, penalize having multiple inner indices selected
+            // Exactly-one per outer index. Reuse the canonical encoder so each group
+            // contributes the linear reward (-λ) as well as the quadratic penalty (2λ).
+            // The two TSP one-hot families (city-once and slot-once) share the same
+            // x_{i,t} variables, so their diagonal terms accumulate to -2λ via
+            // addTermsToQubo (which sums duplicate keys).
             let oneHotConstraintTerms (outerRange: int) (innerRange: int) (varFn: int -> int -> int) : ((int * int) * float) list =
                 [0 .. outerRange - 1]
                 |> List.collect (fun outer ->
-                    [0 .. innerRange - 1]
-                    |> List.collect (fun inner1 ->
-                        [inner1 + 1 .. innerRange - 1]
-                        |> List.map (fun inner2 ->
-                            let v1 = varFn outer inner1
-                            let v2 = varFn outer inner2
-                            ((v1, v2), 2.0 * DefaultPenalty)
-                        )
-                    )
-                )
+                    let groupVars = [ for inner in 0 .. innerRange - 1 -> varFn outer inner ]
+                    Qubo.oneHotConstraint groupVars DefaultPenalty |> Map.toList)
             
             // Constraint 1: Each city i must be visited exactly once
             let constraint1Terms = oneHotConstraintTerms numNodes numNodes varIndex

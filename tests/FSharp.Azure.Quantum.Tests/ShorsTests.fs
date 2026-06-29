@@ -27,7 +27,7 @@ module ShorsTests =
     
     // Import Shor module functions
     module Shor = FSharp.Azure.Quantum.Algorithms.Shor
-    
+
     // ========================================================================
     // BACKWARD COMPATIBILITY HELPERS
     // ========================================================================
@@ -35,7 +35,7 @@ module ShorsTests =
     /// Execute Shor's algorithm (backward compatibility wrapper)
     /// NOTE: shots parameter ignored in new API (state-based execution)
     let executeShorsWithBackend (config: ShorsConfig) (backend: IQuantumBackend) (shots: int) =
-        Shor.execute config backend
+        Shor.executeClassicallyAssisted config backend
     
     /// Factor number with backend (convenience wrapper)
     /// NOTE: shots parameter ignored in new API (state-based execution)
@@ -47,7 +47,7 @@ module ShorsTests =
             MaxAttempts = 5
         }
         // Return Result type to match old signature
-        match Shor.execute config backend with
+        match Shor.executeClassicallyAssisted config backend with
         | Ok result -> 
             if result.Success then
                 Ok result

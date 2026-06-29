@@ -470,7 +470,74 @@ module BackendAbstraction =
         /// Backend is simulator (true) or hardware (false)
         IsSimulator: bool
     }
-    
+
+    /// Apply the HHL eigenvalue-inversion step for a diagonal-matrix HHL intent.
+    ///
+    /// For each diagonal eigenvalue λ_k it applies a multi-controlled RY(2·asin(C/λ_k)) on the
+    /// ancilla qubit, controlled by the solution register being in state |k⟩. After post-selecting
+    /// the ancilla on |1⟩ this yields A⁻¹|b⟩ ∝ Σ_k (b_k/λ_k)|k⟩.
+    ///
+    /// Shared by every backend that implements the AlgorithmOperation.HHL intent (the gate-based
+    /// LocalBackend and the TopologicalBackend) so HHL behaves identically — and correctly for any
+    /// solution-register size — on both gated and topological hardware.
+    let applyHhlInversion (backend: IQuantumBackend) (intent: HhlIntent) (state: QuantumState) : Result<QuantumState, QuantumError> =
+        let totalQubits = intent.EigenvalueQubits + intent.SolutionQubits + 1
+        if QuantumState.numQubits state <> totalQubits then
+            Error (QuantumError.ValidationError ("state", $"Expected {totalQubits} qubits for HHL intent, got {QuantumState.numQubits state}"))
+        elif intent.DiagonalEigenvalues.Length <> (1 <<< intent.SolutionQubits) then
+            Error (QuantumError.ValidationError ("DiagonalEigenvalues", $"Expected {1 <<< intent.SolutionQubits} eigenvalues for HHL intent, got {intent.DiagonalEigenvalues.Length}"))
+        else
+            let clampToUnit x = if x > 1.0 then 1.0 elif x < -1.0 then -1.0 else x
+            let ancillaQubit = intent.EigenvalueQubits + intent.SolutionQubits
+            let solutionStart = intent.EigenvalueQubits
+            let solutionQubits = [ solutionStart .. solutionStart + intent.SolutionQubits - 1 ]
+
+            let applyOps ops st =
+                (Ok st, ops) ||> List.fold (fun acc op -> acc |> Result.bind (fun s -> backend.ApplyOperation op s))
+
+            (Ok state, [ 0 .. intent.DiagonalEigenvalues.Length - 1 ])
+            ||> List.fold (fun acc k ->
+                acc |> Result.bind (fun st ->
+                    let eigenvalue = intent.DiagonalEigenvalues.[k]
+                    if abs eigenvalue < intent.MinEigenvalue then
+                        Ok st  // eigenvalue below threshold → leave the ancilla |0⟩ for this basis state
+                    else
+                        let invLambda =
+                            match intent.InversionMethod with
+                            | HhlEigenvalueInversionMethod.ExactRotation c
+                            | HhlEigenvalueInversionMethod.LinearApproximation c -> c / eigenvalue
+                            | HhlEigenvalueInversionMethod.PiecewiseLinear segments ->
+                                let absLambda = abs eigenvalue
+                                let constant =
+                                    segments
+                                    |> Array.tryFind (fun (minL, maxL, _) -> absLambda >= minL && absLambda < maxL)
+                                    |> Option.map (fun (_, _, c) -> c)
+                                    |> Option.defaultValue 1.0
+                                constant / eigenvalue
+                        let theta = 2.0 * System.Math.Asin(clampToUnit invLambda)
+
+                        // X-flip the solution qubits where bit k is 0, so |k⟩ maps to |1...1⟩.
+                        let setupOps =
+                            [ 0 .. intent.SolutionQubits - 1 ]
+                            |> List.choose (fun bit ->
+                                if (k >>> bit) &&& 1 = 0 then Some (QuantumOperation.Gate (CircuitBuilder.X (solutionStart + bit))) else None)
+
+                        // Multi-controlled RY(theta) on the ancilla, controlled by all solution qubits.
+                        // CRY decomposition generalised by replacing CNOT with a multi-controlled X
+                        // (MCX = H · MCZ · H):  RY(θ/2); MCX; RY(-θ/2); MCX.
+                        let rotationOps =
+                            if intent.SolutionQubits = 1 then
+                                [ QuantumOperation.Gate (CircuitBuilder.CRY (solutionQubits.[0], ancillaQubit, theta)) ]
+                            else
+                                let mcx =
+                                    [ CircuitBuilder.H ancillaQubit
+                                      CircuitBuilder.MCZ (solutionQubits, ancillaQubit)
+                                      CircuitBuilder.H ancillaQubit ]
+                                ([ CircuitBuilder.RY (ancillaQubit, theta / 2.0) ] @ mcx @ [ CircuitBuilder.RY (ancillaQubit, -(theta / 2.0)) ] @ mcx)
+                                |> List.map QuantumOperation.Gate
+
+                        applyOps (setupOps @ rotationOps @ List.rev setupOps) st))
+
     /// Helper functions for working with unified backends
     module UnifiedBackend =
         
@@ -563,7 +630,69 @@ module BackendAbstraction =
                 |> List.fold (fun stateResult op ->
                     stateResult |> Result.bind (fun s -> backend.ApplyOperation op s)
                 ) convertedResult
-        
+
+        // ====================================================================
+        // Whole-circuit submission (cloud hardware path)
+        //
+        // Real quantum hardware cannot expose intermediate state, so it rejects the
+        // incremental ApplyOperation loop that gate-based algorithms use on a simulator.
+        // Instead it accepts a COMPLETE circuit as a job. These helpers let an algorithm
+        // fall back from an ApplyOperation loop to submitting one circuit via ExecuteToState,
+        // which every backend implements: simulators run it exactly, cloud submits it as a
+        // job, topological backends compile the gates to braids.
+        // ====================================================================
+
+        /// Lower a single gate-level operation to its gate list. Fails for operations that have
+        /// no direct gate representation (algorithm intent, braid, F-move).
+        let rec private opToGates (op: QuantumOperation) : Result<CircuitBuilder.Gate list, QuantumError> =
+            match op with
+            | QuantumOperation.Gate g -> Ok [g]
+            | QuantumOperation.Sequence ops ->
+                (Ok [], ops)
+                ||> List.fold (fun acc o -> acc |> Result.bind (fun gs -> opToGates o |> Result.map (fun g -> gs @ g)))
+            | QuantumOperation.Measure _ -> Ok []  // terminal measurement is implicit in ExecuteToState
+            | QuantumOperation.Extension ext ->
+                match ext with
+                | :? ILowerToOperationsExtension as lowerable -> Ok (lowerable.LowerToGates())
+                | _ -> Error (QuantumError.OperationError ("submitAsCircuit", "Extension operation cannot be lowered to a gate circuit."))
+            | QuantumOperation.Algorithm _ ->
+                Error (QuantumError.OperationError ("submitAsCircuit", "Algorithm-intent operations cannot be lowered to a gate circuit; provide gate-level operations for whole-circuit submission."))
+            | _ ->
+                Error (QuantumError.OperationError ("submitAsCircuit", "Operation cannot be lowered to a gate circuit for whole-circuit submission."))
+
+        /// Flatten gate-level operations into a single gate list.
+        let lowerOpsToGates (operations: QuantumOperation list) : Result<CircuitBuilder.Gate list, QuantumError> =
+            (Ok [], operations)
+            ||> List.fold (fun acc o -> acc |> Result.bind (fun gs -> opToGates o |> Result.map (fun g -> gs @ g)))
+
+        /// Build a complete gate circuit from gate-level operations and execute it via
+        /// ExecuteToState (whole-circuit submission). Works on every backend type.
+        let submitAsCircuit (backend: IQuantumBackend) (numQubits: int) (operations: QuantumOperation list) : Result<QuantumState, QuantumError> =
+            lowerOpsToGates operations
+            // lowerOpsToGates returns gates in program order (head = first applied), but
+            // CircuitBuilder.Circuit stores Gates most-recent-first (reversed) — executors List.rev
+            // before running — so we must reverse here, or the circuit would execute backwards.
+            |> Result.map (fun gates -> ({ QubitCount = numQubits; Gates = List.rev gates } : CircuitBuilder.Circuit))
+            |> Result.bind (fun circuit -> backend.ExecuteToState (CircuitWrapper(circuit) :> ICircuit))
+
+        /// Whether an error is a backend reporting that it cannot apply operations incrementally
+        /// (real cloud hardware requiring whole-circuit submission). Algorithms use this to fall
+        /// back from an ApplyOperation loop to submitAsCircuit.
+        let isIncrementalUnsupported (error: QuantumError) : bool =
+            match error with
+            | QuantumError.OperationError ("ApplyOperation", msg) -> msg.Contains("incremental")
+            | _ -> false
+
+        /// Whether a state is the computational |0...0> basis state (all amplitude on index 0).
+        /// Whole-circuit (cloud) submission runs from |0>, so an algorithm applied to an arbitrary
+        /// prepared state can only be submitted as a job when its input is |0>.
+        let isZeroState (state: QuantumState) : bool =
+            match state with
+            | QuantumState.StateVector sv ->
+                let a0 = StateVector.getAmplitude 0 sv
+                abs (a0.Magnitude - 1.0) < 1e-9
+            | _ -> false
+
         /// Measure state and return classical outcomes
         /// 
         /// Convenience wrapper around QuantumState.measure.

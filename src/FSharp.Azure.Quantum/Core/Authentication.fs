@@ -129,9 +129,12 @@ module Authentication =
     ///   // Use with IonQBackend, RigettiBackend, or Client modules
     let createAuthenticatedClient (credential: TokenCredential) : HttpClient =
         let tokenManager = TokenManager(credential)
+        // Handler chain: auth (adds bearer token) → throttling (client-side rate limiting
+        // and exponential backoff on 429 / x-ms-ratelimit headers) → sockets.
         // DelegatingHandler requires an inner handler to forward requests to;
         // without one, the first SendAsync throws InvalidOperationException.
-        let authHandler = new AuthenticationHandler(tokenManager, InnerHandler = new HttpClientHandler())
-        // disposeHandler = true: disposing the client disposes the handler chain
+        let throttlingHandler = new RateLimiting.ThrottlingHandler(new HttpClientHandler() :> HttpMessageHandler)
+        let authHandler = new AuthenticationHandler(tokenManager, InnerHandler = throttlingHandler)
+        // disposeHandler = true: disposing the client disposes the whole handler chain
         new HttpClient(authHandler, true)
 

@@ -365,14 +365,33 @@ module QPE =
 
         result {
             let! qpePlan = plan backend intent
-            let! preparedState = executePlan backend initialState qpePlan
 
-            let gateCount =
-                match qpePlan with
-                | QpePlan.ExecuteNatively _ -> estimateGateCount intent.ApplyBitReversalSwaps intent.Config
-                | QpePlan.ExecuteViaOps (ops, _) -> ops.Length
+            match executePlan backend initialState qpePlan with
+            | Ok preparedState ->
+                let gateCount =
+                    match qpePlan with
+                    | QpePlan.ExecuteNatively _ -> estimateGateCount intent.ApplyBitReversalSwaps intent.Config
+                    | QpePlan.ExecuteViaOps (ops, _) -> ops.Length
+                return (preparedState, gateCount)
 
-            return (preparedState, gateCount)
+            | Error e when UnifiedBackend.isIncrementalUnsupported e ->
+                // Cloud hardware cannot apply gates incrementally; submit the complete QPE circuit
+                // as one job via ExecuteToState. ExecuteToState runs from |0>, matching the standard
+                // from-|0> entry point (the lowering includes eigenstate preparation). Running QPE on
+                // an arbitrary prepared state on hardware isn't supported (a job can't load a
+                // statevector) — the terminal-use limitation of gate-based algorithms on cloud.
+                if not (UnifiedBackend.isZeroState initialState) then
+                    return!
+                        Error (QuantumError.OperationError (
+                            "QPE",
+                            "Whole-circuit (cloud) execution supports QPE from the |0> state only. Running QPE on an arbitrary prepared state requires a simulator with state-vector access."))
+                else
+                    let lowerOps = buildLoweringOps intent
+                    let totalQubits = intent.Config.CountingQubits + intent.Config.TargetQubits
+                    let! preparedState = UnifiedBackend.submitAsCircuit backend totalQubits lowerOps
+                    return (preparedState, lowerOps.Length)
+
+            | Error e -> return! Error e
         }
 
 

@@ -27,7 +27,43 @@ module HHL = FSharp.Azure.Quantum.Algorithms.HHL
 module HHLUnifiedTests =
     
     let createBackend() = LocalBackend() :> IQuantumBackend
-    
+
+    // ========================================================================
+    // CORRECTNESS: genuine eigenvalue inversion (not the single-rotation baseline)
+    // ========================================================================
+
+    [<Fact>]
+    let ``solve2x2Diagonal genuinely inverts the diagonal`` () =
+        // A = diag(2,3), b = [1,1]  =>  x ∝ A⁻¹b = [1/2, 1/3], so |x0|/|x1| ≈ 1.5.
+        // The old single-rotation baseline inverted only λ0, giving |x0|/|x1| ≈ 1.
+        let backend = createBackend()
+        match HHL.solve2x2Diagonal (2.0, 3.0) (Complex(1.0, 0.0), Complex(1.0, 0.0)) backend with
+        | Error e -> failwith $"solve2x2Diagonal failed: {e}"
+        | Ok result ->
+            Assert.Equal(2, result.Solution.Length)
+            let m0 = result.Solution.[0].Magnitude
+            let m1 = result.Solution.[1].Magnitude
+            Assert.True(m0 > 1e-9 && m1 > 1e-9, $"Both solution components should be non-zero, got {m0}, {m1}")
+            let ratio = m0 / m1
+            Assert.True(abs (ratio - 1.5) < 0.15, $"Expected |x0|/|x1| ≈ 1.5 (=(1/2)/(1/3)), got {ratio}")
+
+    [<Fact>]
+    let ``solve4x4Diagonal genuinely inverts the full diagonal`` () =
+        // A = diag(2,4,8,16), b = [1,1,1,1]  =>  x ∝ [1/2, 1/4, 1/8, 1/16], so
+        // |x0|/|x1| ≈ 2 and |x0|/|x3| ≈ 8. The old single-scaled-RY approximation for a
+        // 2-qubit solution register did NOT reproduce these ratios.
+        let backend = createBackend()
+        let eigenvalues = [| 2.0; 4.0; 8.0; 16.0 |]
+        let b = [| Complex(1.0, 0.0); Complex(1.0, 0.0); Complex(1.0, 0.0); Complex(1.0, 0.0) |]
+        match HHL.solve4x4Diagonal eigenvalues b backend with
+        | Error e -> failwith $"solve4x4Diagonal failed: {e}"
+        | Ok result ->
+            Assert.Equal(4, result.Solution.Length)
+            let m = result.Solution |> Array.map (fun c -> c.Magnitude)
+            Assert.True(m |> Array.forall (fun x -> x > 1e-9), $"all components should be non-zero, got %A{m}")
+            Assert.True(abs (m.[0] / m.[1] - 2.0) < 0.2, $"Expected |x0|/|x1| ≈ 2, got {m.[0] / m.[1]}")
+            Assert.True(abs (m.[0] / m.[3] - 8.0) < 0.8, $"Expected |x0|/|x3| ≈ 8, got {m.[0] / m.[3]}")
+
     // ========================================================================
     // HHL PLANNER TESTS
     // ========================================================================
@@ -79,7 +115,7 @@ module HHLUnifiedTests =
             member _.ApplyOperationAsync operation state ct = inner.ApplyOperationAsync operation state ct
 
     [<Fact>]
-    let ``HHL planner prefers algorithm intent when supported`` () =
+    let ``HHL planner prefers native intent for diagonal matrices when supported`` () =
         let backend = LocalBackend() :> IQuantumBackend
 
         let eigenvalues = [| 1.0; 2.0 |]
@@ -106,9 +142,12 @@ module HHLUnifiedTests =
                     Exactness = HHL.Exactness.Exact
                 }
 
+            // Diagonal matrices route to the native AlgorithmOperation.HHL intent on backends
+            // that support it (LocalBackend, TopologicalBackend) — the intent-first design that
+            // lets HHL run on both gated and topological hardware.
             match HHL.plan backend intent with
             | Ok (HHL.HhlPlan.ExecuteNatively _, _, _, _) -> Assert.True(true)
-            | Ok _ -> Assert.Fail("Expected ExecuteNatively plan")
+            | Ok _ -> Assert.Fail("Expected ExecuteNatively plan (native HHL intent)")
             | Error err -> Assert.Fail($"Planning failed: {err}")
 
     [<Fact>]
@@ -661,12 +700,13 @@ module HHLUnifiedTests =
         let inputVector = (Complex(1.0, 0.0), Complex.Zero)
         
         match HHL.solve2x2Diagonal eigenvalues inputVector backend with
-        | Ok result -> 
-            // Success probability should be between 0 and 1
-            Assert.True(result.SuccessProbability >= 0.0 && result.SuccessProbability <= 1.0)
-            // For poorly conditioned matrices, success probability should be lower
-            // κ=10 → success ≈ 1/100 = 0.01
-            Assert.True(result.SuccessProbability <= 0.5, $"Expected low success probability for κ=10, got {result.SuccessProbability}")
+        | Ok result ->
+            // Success probability is now the GENUINE measured P(ancilla = |1⟩) ∈ [0,1]
+            // (no κ-based geometric-mean fudge). For b = [1,0] the input aligns with the
+            // well-conditioned eigenvalue λ=1, so a high success probability is expected and
+            // correct — κ only suppresses success for input weight on the large eigenvalue.
+            Assert.True(result.SuccessProbability >= 0.0 && result.SuccessProbability <= 1.0,
+                $"Success probability should be a valid probability, got {result.SuccessProbability}")
         | Error (QuantumError.OperationError _) ->
             ()  // Acceptable
         | Error err -> 

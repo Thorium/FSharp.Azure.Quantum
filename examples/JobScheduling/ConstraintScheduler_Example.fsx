@@ -24,10 +24,12 @@
 open FSharp.Azure.Quantum.Examples.Common
 
 open System
+open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.Backends.LocalBackend
 open FSharp.Azure.Quantum.Business
+open FSharp.Azure.Quantum.TaskScheduling  // time-indexed scheduler (genuine precedence)
 
 // --- CLI ---
 let argv = fsi.CommandLineArgs |> Array.skip 1
@@ -242,38 +244,73 @@ if runAll || exampleName = "cloud" then
 // ============================================================================
 
 if runAll || exampleName = "manufacturing" then
-    pr "=== Example 4: Manufacturing Task Assignment (Quantum, %d shots) ===" (cliShots * 3)
+    pr "=== Example 4: Manufacturing with Precedence (Quantum, time-indexed) ==="
+    pr ""
+    pr "  Precedence (\"A must finish before B\") is a TEMPORAL constraint, so this case uses"
+    pr "  the time-indexed TaskScheduling solver rather than the resource-assignment"
+    pr "  ConstraintScheduler. Painting must follow BOTH welding and assembly."
     pr ""
 
-    let manufacturingResult = ConstraintScheduler.constraintScheduler {
-        task "Welding_Job1"
-        task "Welding_Job2"
-        task "Assembly_Job1"
-        task "Painting_Job1"
+    // Stations modelled as capacity-1 resources (one job at a time), with per-unit cost.
+    let weldStationA = resource { resourceId "WeldingStation_A"; capacity 1.0; costPerUnit 50.0 }
+    let weldStationB = resource { resourceId "WeldingStation_B"; capacity 1.0; costPerUnit 30.0 }
+    let assemblyLine = resource { resourceId "AssemblyLine_1"; capacity 1.0; costPerUnit 40.0 }
+    let paintingBooth = resource { resourceId "PaintingBooth"; capacity 1.0; costPerUnit 35.0 }
 
-        resource "WeldingStation_A" 50.0
-        resource "WeldingStation_B" 30.0
-        resource "AssemblyLine_1" 40.0
-        resource "PaintingBooth" 35.0
+    let manufacturingTasks : ScheduledTask<unit> list = [
+        // Unit-duration tasks: each occupies one discrete time slot (the QUBO discretises time
+        // into slots, so durations are slot-scale and the schedule width stays qubit-efficient).
+        scheduledTask { taskId "Welding_Job1"; duration (minutes 1.0); requires "WeldingStation_A" 1.0 }
+        scheduledTask { taskId "Welding_Job2"; duration (minutes 1.0); requires "WeldingStation_B" 1.0 }
+        scheduledTask { taskId "Assembly_Job1"; duration (minutes 1.0); requires "AssemblyLine_1" 1.0 }
+        // Genuine precedence: Painting can only start after Welding_Job1 AND Assembly_Job1 finish.
+        scheduledTask {
+            taskId "Painting_Job1"
+            duration (minutes 1.0)
+            afterMultiple ["Welding_Job1"; "Assembly_Job1"]
+            requires "PaintingBooth" 1.0
+        }
+    ]
 
-        require "Welding_Job1" "WeldingStation_A"
-        require "Welding_Job2" "WeldingStation_B"
-        require "Assembly_Job1" "AssemblyLine_1"
-        require "Painting_Job1" "PaintingBooth"
-
-        precedence "Welding_Job1" "Painting_Job1"
-        precedence "Assembly_Job1" "Painting_Job1"
-
-        prefer "Welding_Job1" "WeldingStation_A" 10.0
-
-        optimizeFor ConstraintScheduler.MaximizeSatisfaction
-        maxBudget 200.0
-
-        backend quantumBackend
-        shots (cliShots * 3)
+    let manufacturingProblem : SchedulingProblem<unit, unit> = scheduling {
+        tasks manufacturingTasks
+        resources [weldStationA; weldStationB; assemblyLine; paintingBooth]
+        objective MinimizeMakespan
+        timeHorizon 4.0
     }
 
-    displaySchedule "Manufacturing" manufacturingResult
+    match solveQuantum quantumBackend manufacturingProblem |> Async.RunSynchronously with
+    | Ok schedule ->
+        pr "Manufacturing Complete (precedence respected)"
+        pr ""
+        pr "  Schedule (ordered by start slot; time is discretised into unit slots):"
+        let ordered = schedule.Assignments |> List.sortBy (fun a -> a.StartTime)
+        ordered |> List.iter (fun a ->
+            let res = a.AssignedResources |> Map.toList |> List.map fst |> String.concat ", "
+            pr "    %-16s slot %.0f -> %.0f  on [%s]"
+                a.TaskId a.StartTime a.EndTime res)
+        pr ""
+        pr "  Makespan:   %.0f slots" schedule.Makespan
+        pr "  Total Cost: $%.2f" schedule.TotalCost
+
+        // Validate the precedence held in the produced schedule: painting must start strictly
+        // after both predecessors finish.
+        let startOf id =
+            ordered |> List.tryPick (fun a -> if a.TaskId = id then Some a.StartTime else None)
+        match startOf "Welding_Job1", startOf "Assembly_Job1", startOf "Painting_Job1" with
+        | Some w, Some asm, Some p ->
+            pr "  Precedence respected: Painting after Welding (%b) and after Assembly (%b)"
+                (p > w) (p > asm)
+        | _ -> ()
+
+        jsonResults <-
+            (box {| example = "Manufacturing"
+                    makespanSlots = schedule.Makespan
+                    totalCost = schedule.TotalCost
+                    assignments = schedule.Assignments.Length |}) :: jsonResults
+    | Error err ->
+        pr "Error: %A" err
+    pr ""
 
 // --- JSON output ---
 outputPath |> Option.iter (fun path ->

@@ -100,11 +100,10 @@ module HHL =
             Exactness = Exactness.Exact
         }
 
+    /// Build the backend-facing HHL intent payload (diagonal eigenvalues). Backends that support
+    /// the native AlgorithmOperation.HHL intent (LocalBackend gate simulator, TopologicalBackend)
+    /// consume this directly, which is how HHL runs on both gated and topological hardware.
     let private toCoreIntent (intent: HhlExecutionIntent) : BackendAbstraction.HhlIntent =
-        // NOTE:
-        // The native `AlgorithmOperation.HHL` intent payload uses diagonal eigenvalues.
-        // For general Hermitian matrices, this module executes via explicit gate lowering instead.
-        
         let diagonalEigenvalues =
             let dim = intent.Matrix.Dimension
             [| for i in 0 .. dim - 1 -> intent.Matrix.Elements[i * dim + i].Real |]
@@ -272,9 +271,9 @@ module HHL =
     /// eigenvalue scaling.
     /// </remarks>
     let private calculateSuccessProbability 
-        (ancillaQubit: int) 
-        (state: QuantumState) 
-        (conditionNumber: float option) : float =
+        (ancillaQubit: int)
+        (state: QuantumState)
+        (_conditionNumber: float option) : float =
         
         match state with
         | QuantumState.StateVector stateVec ->
@@ -292,17 +291,9 @@ module HHL =
                         0.0
                 )
             
-            // Apply condition number correction if provided
-            // This gives a more realistic estimate for poorly-conditioned matrices
-            match conditionNumber with
-            | Some kappa when kappa > 1.0 ->
-                // Theoretical worst-case: P_success ∝ 1/κ²
-                // Use geometric mean between measured and theoretical bound
-                let theoreticalBound = 1.0 / (kappa * kappa)
-                sqrt (measuredProb * theoreticalBound)
-            | _ ->
-                measuredProb
-        
+            // Report the genuine measured success probability P(ancilla = |1⟩).
+            measuredProb
+
         | QuantumState.FusionSuperposition fs ->
             let amplitudeVec = fs.GetAmplitudeVector()
             let dimension = amplitudeVec.Length
@@ -319,12 +310,8 @@ module HHL =
                         0.0
                 )
 
-            match conditionNumber with
-            | Some kappa when kappa > 1.0 ->
-                let theoreticalBound = 1.0 / (kappa * kappa)
-                sqrt (measuredProb * theoreticalBound)
-            | _ ->
-                measuredProb
+            // Report the genuine measured success probability P(ancilla = |1⟩).
+            measuredProb
 
         | _ -> 0.0  // Unknown for other representations
     
@@ -491,7 +478,8 @@ module HHL =
                 let invLambda = constant / eigenvalue
                 Ok (2.0 * Math.Asin(clampToUnit invLambda))
 
-    /// Build an intent-first operation for HHL.
+    /// Build the semantic HHL operation used to probe backend support (SupportsOperation) and
+    /// to drive the native intent path on backends that implement AlgorithmOperation.HHL.
     let private hhlIntentOp (intent: HhlExecutionIntent) (diagonalEigenvalues: float[]) : QuantumOperation =
         let inversionMethod =
             match intent.InversionMethod with
@@ -507,6 +495,28 @@ module HHL =
             MinEigenvalue = intent.MinEigenvalue
         })
 
+    /// Multi-controlled X (|1…1⟩-controlled), expressed as H · MCZ · H.
+    let private multiControlledXGates (controls: int list) (target: int) : CircuitBuilder.Gate list =
+        match controls with
+        | [] -> [ CircuitBuilder.X target ]
+        | _ ->
+            [ CircuitBuilder.H target
+              CircuitBuilder.MCZ (controls, target)
+              CircuitBuilder.H target ]
+
+    /// Multi-controlled RY (generalizes the CRY decomposition by replacing CNOT with MCX).
+    let private multiControlledRyGates (controls: int list) (target: int) (theta: float) : CircuitBuilder.Gate list =
+        if abs theta < 1e-12 then
+            []
+        elif controls.IsEmpty then
+            [ CircuitBuilder.RY (target, theta) ]
+        else
+            let mcx = multiControlledXGates controls target
+            [ CircuitBuilder.RY (target, theta / 2.0) ]
+            @ mcx
+            @ [ CircuitBuilder.RY (target, -theta / 2.0) ]
+            @ mcx
+
     let private buildLoweringOps
         (intent: HhlExecutionIntent)
         (spectrumEigenvalues: float[])
@@ -516,21 +526,44 @@ module HHL =
          let ancillaQubit = intent.EigenvalueQubits + intent.SolutionQubits
 
          if intent.Matrix.IsDiagonal then
-             // Diagonal path: single ancilla rotation (simplified baseline).
-             let estimatedEigenvalue = spectrumEigenvalues[0]
+             // Diagonal path: eigenvalue λ_i is the i-th diagonal entry, whose eigenvector is the
+             // solution-register basis state |i⟩. Invert with a multiplexed ancilla rotation
+             // controlled by the solution register — RY(θ_i) with θ_i = 2·asin(C/λ_i), applied
+             // per basis state. No QPE is required (the eigenvalues are known exactly), so this
+             // genuinely produces A⁻¹|b⟩ ∝ Σ_i (b_i/λ_i)|i⟩ after post-selecting ancilla = |1⟩.
+             let solutionQubits = [ intent.EigenvalueQubits .. intent.EigenvalueQubits + intent.SolutionQubits - 1 ]
+             let solutionQubitArray = solutionQubits |> List.toArray
+             let solutionDim = 1 <<< intent.SolutionQubits
 
-             result {
-                 let! theta = inversionRotationAngle intent.InversionMethod estimatedEigenvalue intent.MinEigenvalue
-                 let ops = [ QuantumOperation.Gate (CircuitBuilder.RY (ancillaQubit, theta)) ]
-                 let gateCountEstimate =
-                     // Keep the previous estimate structure for stability.
-                     let qpeGates = intent.EigenvalueQubits * intent.EigenvalueQubits
-                     let inversionGates = intent.EigenvalueQubits
-                     let inverseQpeGates = qpeGates
-                     qpeGates + inversionGates + inverseQpeGates + 10
+             let angleResults =
+                 Array.init solutionDim (fun i ->
+                     let lambda = if i < spectrumEigenvalues.Length then spectrumEigenvalues[i] else spectrumEigenvalues[0]
+                     inversionRotationAngle intent.InversionMethod lambda intent.MinEigenvalue)
 
-                 return (ops, gateCountEstimate, ancillaQubit)
-             }
+             match angleResults |> Array.tryPick (function Error e -> Some e | Ok _ -> None) with
+             | Some err -> Error err
+             | None ->
+                 let angles = angleResults |> Array.map (function Ok theta -> theta | Error _ -> 0.0)
+
+                 let multiplexedRyGates =
+                     [ 0 .. solutionDim - 1 ]
+                     |> List.collect (fun i ->
+                         let theta = angles[i]
+                         if abs theta < 1e-12 then
+                             []
+                         else
+                             // Flip the solution qubits where i has 0 bits, so |i⟩ maps to all-ones.
+                             let xFlips =
+                                 [ 0 .. intent.SolutionQubits - 1 ]
+                                 |> List.choose (fun bitIdx ->
+                                     if ((i >>> bitIdx) &&& 1) = 0 then Some (CircuitBuilder.X solutionQubitArray[bitIdx]) else None)
+                             xFlips
+                             @ multiControlledRyGates solutionQubits ancillaQubit theta
+                             @ xFlips)
+
+                 let ops = multiplexedRyGates |> List.map QuantumOperation.Gate
+                 let gateCountEstimate = solutionDim * (intent.SolutionQubits + 3) + 10
+                 Ok (ops, gateCountEstimate, ancillaQubit)
          else
              result {
                  // General-matrix path: perform QPE using controlled exp(-iAt), then apply an
@@ -657,28 +690,6 @@ module HHL =
 
                  let angles = angleResults |> Array.map (function Ok theta -> theta | Error _ -> 0.0) // safe: no errors remain
 
-                 let multiControlledXGates (controls: int list) (target: int) : CircuitBuilder.Gate list =
-                     match controls with
-                     | [] -> [ CircuitBuilder.X target ]
-                     | _ ->
-                         // Multi-controlled X can be expressed as H·MCZ·H.
-                         [ CircuitBuilder.H target
-                           CircuitBuilder.MCZ (controls, target)
-                           CircuitBuilder.H target ]
-
-                 let multiControlledRyGates (controls: int list) (target: int) (theta: float) : CircuitBuilder.Gate list =
-                     if abs theta < 1e-12 then
-                         []
-                     elif controls.IsEmpty then
-                         [ CircuitBuilder.RY (target, theta) ]
-                     else
-                         // Generalize the CRY decomposition by replacing CNOT with MCX.
-                         let mcx = multiControlledXGates controls target
-                         [ CircuitBuilder.RY (target, theta / 2.0) ]
-                         @ mcx
-                         @ [ CircuitBuilder.RY (target, -theta / 2.0) ]
-                         @ mcx
-
                  let multiplexedRyGates =
                      [ 0 .. eigenRegisterSize - 1 ]
                      |> List.collect (fun k ->
@@ -747,47 +758,51 @@ module HHL =
                      let op = hhlIntentOp intent spectrumEigenvalues
                      let exactness = intent.Exactness
 
-                     // Only use the native intent implementation for diagonal matrices.
+                     // Intent-first routing: backends that natively support the HHL intent
+                     // (LocalBackend simulator, TopologicalBackend) execute it directly — this is how
+                     // the same algorithm runs on both gated and topological hardware. Backends without
+                     // native HHL support (e.g. gate-only Rigetti) get the explicit gate lowering, which
+                     // performs genuine multiplexed eigenvalue inversion.
                      if intent.Matrix.IsDiagonal && backend.SupportsOperation op then
                          return (HhlPlan.ExecuteNatively (toCoreIntent intent, exactness), spectrumEigenvalues, ancillaQubit, conditionNumber)
-                      else
-                          let! (ops, _gateCount, _ancillaQubit) = buildLoweringOps intent spectrumEigenvalues maxEig
+                     else
+                         let! (ops, _gateCount, _ancillaQubit) = buildLoweringOps intent spectrumEigenvalues maxEig
 
-                          // Backends (Rigetti/IonQ/etc.) require transpilation into their supported gate sets.
-                          // `UnifiedBackend.applySequence` does not transpile, so we must do it during planning.
-                          let transpiledOps =
-                              let gateOps =
-                                  ops
-                                  |> List.choose (function
-                                      | QuantumOperation.Gate gate -> Some gate
-                                      | _ -> None)
+                         // Backends (Rigetti/IonQ/etc.) require transpilation into their supported gate sets.
+                         // `UnifiedBackend.applySequence` does not transpile, so we must do it during planning.
+                         let transpiledOps =
+                             let gateOps =
+                                 ops
+                                 |> List.choose (function
+                                     | QuantumOperation.Gate gate -> Some gate
+                                     | _ -> None)
 
-                              if gateOps.Length = ops.Length then
-                                   let totalQubits = intent.EigenvalueQubits + intent.SolutionQubits + 1
-                                   let circuit : CircuitBuilder.Circuit = { QubitCount = totalQubits; Gates = gateOps }
+                             if gateOps.Length = ops.Length then
+                                 let totalQubits = intent.EigenvalueQubits + intent.SolutionQubits + 1
+                                 let circuit : CircuitBuilder.Circuit = { QubitCount = totalQubits; Gates = gateOps }
 
-                                   // Some decompositions (e.g., MCZ -> CCX -> {RZ,CNOT,...}) require multiple passes.
-                                   // Iterate to a fixpoint (bounded) to ensure we emit only backend-native gates.
-                                   let rec transpileToFixpoint remaining (current: CircuitBuilder.Circuit) =
-                                       if remaining <= 0 then
-                                           current
-                                       else
-                                           let next = GateTranspiler.transpileForBackend backend.Name current
-                                           if next.Gates = current.Gates then
-                                               next
-                                           else
-                                               transpileToFixpoint (remaining - 1) next
+                                 // Some decompositions (e.g., MCZ -> CCX -> {RZ,CNOT,...}) require multiple passes.
+                                 // Iterate to a fixpoint (bounded) to ensure we emit only backend-native gates.
+                                 let rec transpileToFixpoint remaining (current: CircuitBuilder.Circuit) =
+                                     if remaining <= 0 then
+                                         current
+                                     else
+                                         let next = GateTranspiler.transpileForBackend backend.Name current
+                                         if next.Gates = current.Gates then
+                                             next
+                                         else
+                                             transpileToFixpoint (remaining - 1) next
 
-                                   let transpiled = transpileToFixpoint 5 circuit
-                                   transpiled.Gates |> List.map QuantumOperation.Gate
-                              else
-                                  // Non-gate operations should never appear in lowering, but keep this safe.
-                                  ops
+                                 let transpiled = transpileToFixpoint 5 circuit
+                                 transpiled.Gates |> List.map QuantumOperation.Gate
+                             else
+                                 // Non-gate operations should never appear in lowering, but keep this safe.
+                                 ops
 
-                          if transpiledOps |> List.forall backend.SupportsOperation then
-                              return (HhlPlan.ExecuteViaOps (transpiledOps, exactness), spectrumEigenvalues, ancillaQubit, conditionNumber)
-                          else
-                              return! Error (QuantumError.OperationError ("HHL", $"Backend '{backend.Name}' does not support required operations for HHL"))
+                         if transpiledOps |> List.forall backend.SupportsOperation then
+                             return (HhlPlan.ExecuteViaOps (transpiledOps, exactness), spectrumEigenvalues, ancillaQubit, conditionNumber)
+                         else
+                             return! Error (QuantumError.OperationError ("HHL", $"Backend '{backend.Name}' does not support required operations for HHL"))
          }
 
     let private executePlan

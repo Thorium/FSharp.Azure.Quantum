@@ -30,10 +30,14 @@ module ProbabilisticErrorCancellation =
     /// Key insight: Noisy_Gate = Σᵢ pᵢ × Clean_Gate_i
     /// where some pᵢ < 0 (quasi-probability, not true probability!)
     type QuasiProbDecomposition = {
-        /// List of (clean_gate, quasi_probability) pairs
+        /// List of (gate-sequence, quasi_probability) pairs. Each term is the sequence of
+        /// gates run IN PLACE OF the ideal gate: the original (noisy) gate followed by a
+        /// Pauli correction. A list (rather than a single gate) is required so a term can
+        /// express a Pauli tensor product on a two-qubit gate — e.g. X⊗X = [X control; X target]
+        /// — and so the identity correction is simply the original gate on its own.
         /// Note: Some probabilities can be NEGATIVE!
-        Terms: (CircuitBuilder.Gate * float) list
-        
+        Terms: (CircuitBuilder.Gate list * float) list
+
         /// Normalization factor = Σ|pᵢ| (sum of absolute values)
         /// Used for importance sampling from quasi-probability distribution
         Normalization: float
@@ -108,21 +112,28 @@ module ProbabilisticErrorCancellation =
             | _ -> 0  // Default for multi-qubit gates
         
         let qubit = getQubit gate
-        
-        // 5-term decomposition: desired gate + 4 Pauli corrections
-        // For identity correction, we use X·X = I (apply X twice)
-        // This represents the depolarizing channel's identity component
+
+        // Exact inverse single-qubit depolarizing quasi-probabilities.
+        // D⁻¹(ρ) = q_I·ρ + q·(XρX + YρY + ZρZ) with
+        //   q_I + 3q = 1            (trace preserving)
+        //   q_I − q  = 1/(1−p)      (Pauli eigenvalue inverted)
+        // ⇒ q = −p/(4(1−p)),  q_I = 1 + 3p/(4(1−p)).
+        let denom = 4.0 * (1.0 - p)
+        let qI = 1.0 + 3.0 * p / denom
+        let qP = -p / denom
+
+        // 4-term decomposition. Each term runs the original (noisy) gate, then a Pauli
+        // correction; the identity correction is just the gate on its own.
         let terms = [
-            (gate, 1.0 + p)                             // Positive: desired gate
-            (CircuitBuilder.Gate.X qubit, -p / 4.0)     // Negative: I correction (via X·X)
-            (CircuitBuilder.Gate.X qubit, -p / 4.0)     // Negative: X correction
-            (CircuitBuilder.Gate.Y qubit, -p / 4.0)     // Negative: Y correction
-            (CircuitBuilder.Gate.Z qubit, -p / 4.0)     // Negative: Z correction
+            ([gate], qI)                                   // U   (≡ U then I)
+            ([gate; CircuitBuilder.Gate.X qubit], qP)      // U then X
+            ([gate; CircuitBuilder.Gate.Y qubit], qP)      // U then Y
+            ([gate; CircuitBuilder.Gate.Z qubit], qP)      // U then Z
         ]
-        
-        // Normalization = Σ|pᵢ| = (1+p) + 4×(p/4) = 1 + p + p = 1 + 2p
-        let normalization = (1.0 + p) + 4.0 * (p / 4.0)
-        
+
+        // Normalization = Σ|pᵢ| = |q_I| + 3|q| = 1 + 3p/(2(1−p))
+        let normalization = abs qI + 3.0 * abs qP
+
         {
             Terms = terms
             Normalization = normalization
@@ -150,55 +161,45 @@ module ProbabilisticErrorCancellation =
         let p = noiseModel.TwoQubitDepolarizing
         
         // Helper: Extract qubits from two-qubit gate
-        let (control, target) = 
+        let (control, target) =
             match gate with
             | CircuitBuilder.Gate.CNOT (c, t) -> (c, t)
             | CircuitBuilder.Gate.CZ (c, t) -> (c, t)
             | CircuitBuilder.Gate.SWAP (q1, q2) -> (q1, q2)
+            | CircuitBuilder.Gate.CCX (c1, _, t) -> (c1, t)  // two-qubit approximation of Toffoli
             | _ -> (0, 1)  // Default for other gate types
-        
-        // Generate 15-term Pauli basis corrections (excluding I⊗I)
-        // Two-qubit depolarizing: {I,X,Y,Z} ⊗ {I,X,Y,Z} = 16 total, minus I⊗I = 15
-        // For simplicity, we represent each correction as a single representative gate
-        let pauliBasisCorrections = [
-            // I⊗X
-            (CircuitBuilder.Gate.X target, -p / 15.0)
-            // I⊗Y  
-            (CircuitBuilder.Gate.Y target, -p / 15.0)
-            // I⊗Z
-            (CircuitBuilder.Gate.Z target, -p / 15.0)
-            // X⊗I
-            (CircuitBuilder.Gate.X control, -p / 15.0)
-            // X⊗X
-            (CircuitBuilder.Gate.X control, -p / 15.0)  // Different semantically
-            // X⊗Y
-            (CircuitBuilder.Gate.Y target, -p / 15.0)
-            // X⊗Z
-            (CircuitBuilder.Gate.Z target, -p / 15.0)
-            // Y⊗I
-            (CircuitBuilder.Gate.Y control, -p / 15.0)
-            // Y⊗X
-            (CircuitBuilder.Gate.X target, -p / 15.0)
-            // Y⊗Y
-            (CircuitBuilder.Gate.Y control, -p / 15.0)
-            // Y⊗Z
-            (CircuitBuilder.Gate.Z target, -p / 15.0)
-            // Z⊗I
-            (CircuitBuilder.Gate.Z control, -p / 15.0)
-            // Z⊗X
-            (CircuitBuilder.Gate.X target, -p / 15.0)
-            // Z⊗Y
-            (CircuitBuilder.Gate.Y target, -p / 15.0)
-            // Z⊗Z
-            (CircuitBuilder.Gate.Z control, -p / 15.0)
-        ]
-        
-        // 16 terms total: desired gate + 15 Pauli corrections
-        let terms = (gate, 1.0 + p) :: pauliBasisCorrections
-        
-        // Normalization = Σ|pᵢ| = (1+p) + 15×(p/15) = 1 + 2p
-        let normalization = (1.0 + p) + 15.0 * (p / 15.0)
-        
+
+        // Exact inverse two-qubit depolarizing quasi-probabilities over the 16-Pauli basis
+        // {I,X,Y,Z}⊗{I,X,Y,Z}. D⁻¹ = q_I·(I⊗I) + q·Σ(15 non-identity Paulis) with
+        //   q_I + 15q = 1           (trace preserving)
+        //   q_I − q   = 1/(1−p)     (Pauli eigenvalue inverted)
+        // ⇒ q = −p/(16(1−p)),  q_I = 1 + 15p/(16(1−p)).
+        let denom = 16.0 * (1.0 - p)
+        let qI = 1.0 + 15.0 * p / denom
+        let qP = -p / denom
+
+        // A Pauli factor on a given qubit: None = identity (no gate).
+        let pauliOn q =
+            [ None
+              Some (CircuitBuilder.Gate.X q)
+              Some (CircuitBuilder.Gate.Y q)
+              Some (CircuitBuilder.Gate.Z q) ]
+
+        // 15 non-identity Pauli pairs P_control ⊗ P_target (skip I⊗I). A tensor product
+        // applies BOTH factors, e.g. X⊗X = [X control; X target].
+        let pauliBasisCorrections =
+            [ for pc in pauliOn control do
+                for pt in pauliOn target do
+                    match pc, pt with
+                    | None, None -> ()                       // I⊗I folds into the gate term
+                    | _ -> yield (gate :: List.choose id [pc; pt], qP) ]
+
+        // 16 terms total: gate (≡ gate then I⊗I) + 15 Pauli-correction tensor products.
+        let terms = ([gate], qI) :: pauliBasisCorrections
+
+        // Normalization = Σ|pᵢ| = |q_I| + 15|q| = 1 + 15p/(8(1−p))
+        let normalization = abs qI + 15.0 * abs qP
+
         {
             Terms = terms
             Normalization = normalization
@@ -239,23 +240,23 @@ module ProbabilisticErrorCancellation =
     /// The sign correction ensures expectation value is correct:
     /// E[f] = Σᵢ pᵢ·f(gateᵢ) = Σᵢ qᵢ·(sign(pᵢ)×Normalization)·f(gateᵢ)
     /// 
-    /// Returns: (sampled_gate, weight) where weight = ±Normalization
-    let sampleQuasiProb (decomposition: QuasiProbDecomposition) (rng: System.Random) : CircuitBuilder.Gate * float =
+    /// Returns: (sampled_gate_sequence, weight) where weight = ±Normalization
+    let sampleQuasiProb (decomposition: QuasiProbDecomposition) (rng: System.Random) : CircuitBuilder.Gate list * float =
         // Step 1: Convert quasi-probabilities to proper probabilities
         // qᵢ = |pᵢ| / Σ|pⱼ|
-        let properProbabilities = 
-            decomposition.Terms 
+        let properProbabilities =
+            decomposition.Terms
             |> List.map (fun (_, quasiProb) -> abs quasiProb / decomposition.Normalization)
-        
+
         // Step 2: Sample index using categorical distribution
         let sampledIndex = sampleCategorical properProbabilities rng
-        
-        // Step 3: Extract gate and compute weight with sign correction
-        let (gate, originalQuasiProb) = decomposition.Terms.[sampledIndex]
+
+        // Step 3: Extract the gate sequence and compute weight with sign correction
+        let (gates, originalQuasiProb) = decomposition.Terms.[sampledIndex]
         let sign = if originalQuasiProb >= 0.0 then 1.0 else -1.0
         let weight = sign * decomposition.Normalization
-        
-        (gate, weight)
+
+        (gates, weight)
     
     // ============================================================================
     // Full PEC Pipeline - Monte Carlo Error Mitigation
@@ -307,11 +308,13 @@ module ProbabilisticErrorCancellation =
                 let samples = 
                     [1 .. config.Samples]
                     |> List.map (fun _ ->
-                        // Sample clean circuit from quasi-probability distributions
+                        // Sample clean circuit from quasi-probability distributions.
+                        // Each sampled term is a short gate sequence (original gate + Pauli
+                        // correction), appended in order to rebuild the corrected circuit.
                         gateDecompositions
                         |> List.fold (fun (gates, weight) decomposition ->
-                            let (sampledGate, gateWeight) = sampleQuasiProb decomposition rng
-                            (gates @ [sampledGate], weight * gateWeight)
+                            let (sampledGates, gateWeight) = sampleQuasiProb decomposition rng
+                            (gates @ sampledGates, weight * gateWeight)
                         ) ([], 1.0))
                 
                 // Execute all sampled circuits
@@ -319,10 +322,14 @@ module ProbabilisticErrorCancellation =
                     samples
                     |> List.map (fun (sampledGates, totalWeight) ->
                         async {
-                            // Build clean circuit with sampled gates
+                            // Build clean circuit with sampled gates. sampledGates is in program
+                            // order (the original circuit was reversed at step 1), but
+                            // CircuitBuilder.Circuit stores Gates most-recent-first, so reverse it
+                            // back — otherwise a conforming executor (which List.rev's) runs the
+                            // sampled circuit backwards, inconsistently with the baseline.
                             let sampledCircuit: CircuitBuilder.Circuit = {
                                 QubitCount = circuit.QubitCount
-                                Gates = sampledGates
+                                Gates = List.rev sampledGates
                             }
                             
                             // Execute sampled circuit

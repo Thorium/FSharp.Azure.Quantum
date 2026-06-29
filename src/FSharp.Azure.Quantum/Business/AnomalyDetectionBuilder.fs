@@ -117,12 +117,20 @@ module AnomalyDetector =
         
         /// Quantum feature map
         FeatureMap: FeatureMapType
-        
+
         /// Number of qubits
         NumQubits: int
-        
+
         /// Decision threshold
         Threshold: float
+
+        /// Backend the detector was trained on, reused for inference so predictions
+        /// run on the same quantum kernel. None for detectors loaded from disk (a
+        /// backend cannot be serialised); inference then falls back to a local simulator.
+        Backend: IQuantumBackend option
+
+        /// Measurement shots used for kernel evaluation at inference time.
+        Shots: int
     }
     
     and DetectorMetadata = {
@@ -302,6 +310,9 @@ module AnomalyDetector =
                         FeatureMap = svmModel.FeatureMap
                         NumQubits = detectorData.SVMModel.NumQubits
                         Threshold = detectorData.Threshold
+                        // Backend is not serialisable; inference uses a local simulator.
+                        Backend = None
+                        Shots = 1000
                     })
         with ex ->
             Error (QuantumError.ValidationError ("Input", $"Failed to load detector: {ex.Message}"))
@@ -370,8 +381,10 @@ module AnomalyDetector =
                     FeatureMap = featureMap
                     NumQubits = numQubits
                     Threshold = threshold
+                    Backend = Some backend
+                    Shots = problem.Shots
                 }
-                
+
                 if problem.Verbose then
                     logInfo problem.Logger $"[OK] Training complete in {endTime - startTime}"
                 
@@ -426,9 +439,14 @@ module AnomalyDetector =
     
     /// Check if sample is anomalous
     let check (sample: float array) (detector: Detector) : QuantumResult<AnomalyResult> =
-        let backend = LocalBackend.LocalBackend() :> IQuantumBackend
-        
-        computeAnomalyScore backend detector sample 1000
+        // Reuse the backend the detector was trained on so inference runs on the same
+        // quantum kernel; fall back to a local simulator only for disk-loaded detectors.
+        let backend =
+            match detector.Backend with
+            | Some b -> b
+            | None -> LocalBackend.LocalBackend() :> IQuantumBackend
+
+        computeAnomalyScore backend detector sample detector.Shots
         |> Result.map (fun score ->
             
             let isAnomaly = score > detector.Threshold

@@ -58,11 +58,30 @@ type DrugDiscoveryConfiguration = {
     DiversityWeight: float
 }
 
+/// A candidate molecule scored by the trained quantum model.
+type ScoredCandidate = {
+    /// Index of the molecule within the loaded candidate set.
+    Index: int
+    /// Molecule identifier (SMILES when available, otherwise a generated id).
+    Identifier: string
+    /// Quantum-derived screening score — higher means more promising. For the
+    /// classifier methods this is the model's decision value / active-class
+    /// probability; for QAOA it is the activity value of the selected compound.
+    Score: float
+    /// Whether a classifier predicts this candidate as an active hit.
+    /// None for QAOA diverse selection (which selects rather than classifies).
+    PredictedActive: bool option
+}
+
 /// Result of the screening pipeline
 type ScreeningResult = {
     Message: string
     Method: ScreeningMethod
     MoleculesProcessed: int
+    /// Candidates scored by the trained quantum model, ranked best-first. For the
+    /// classifier methods this covers the whole candidate pool; for QAOA it is the
+    /// selected diverse set.
+    RankedCandidates: ScoredCandidate array
     Configuration: DrugDiscoveryConfiguration
 }
 
@@ -156,8 +175,27 @@ module internal ProviderDataLoader =
                 | _ -> File.ReadAllLines(path) |> Array.toList |> MolecularData.loadFromSmilesList
 
 /// Builder for the Quantum Drug Discovery DSL
+/// Helpers for scoring candidate molecules with a trained quantum model.
+module internal ScreeningScoring =
+
+    /// Collapse an array of Results into a Result of array, propagating the first error.
+    let sequence (results: Result<'a, 'e> array) : Result<'a array, 'e> =
+        (Ok [], results)
+        ||> Array.fold (fun acc r ->
+            match acc, r with
+            | Error e, _ -> Error e
+            | Ok xs, Ok x -> Ok (x :: xs)
+            | Ok _, Error e -> Error e)
+        |> Result.map (List.rev >> Array.ofList)
+
+    /// Identifier for the i-th candidate: its SMILES when available, else a generated id.
+    let identifierAt (identifiers: string array) (i: int) =
+        if i < identifiers.Length && not (System.String.IsNullOrWhiteSpace identifiers.[i])
+        then identifiers.[i]
+        else $"Mol_{i}"
+
 type QuantumDrugDiscoveryBuilder() =
-    
+
     let defaultConfig = {
         TargetPdbPath = None
         CandidatesPath = None
@@ -217,53 +255,87 @@ type QuantumDrugDiscoveryBuilder() =
         | PauliFeatureMap -> FeatureMapType.PauliFeatureMap (["Z"; "ZZ"], 2)
         | ZFeatureMap -> FeatureMapType.ZZFeatureMap 1
 
-    member private _.TrainQuantumKernelSVM (backend: IQuantumBackend) featureMap (features: float[][]) (labels: int[]) batchSize shots state =
+    member private _.TrainQuantumKernelSVM (backend: IQuantumBackend) featureMap (features: float[][]) (labels: int[]) batchSize shots (identifiers: string[]) state =
         let limit = min features.Length batchSize
         let trainData = features.[0..limit-1]
         let trainLabels = labels.[0..limit-1]
-        
-        let config = { QuantumKernelSVM.defaultConfig with Verbose = false; MaxIterations = 20 }
-        
-        QuantumKernelSVM.train backend featureMap trainData trainLabels config shots
-        |> Result.map (fun model ->
-            { Message = $"Success! Model Trained.\nSupport Vectors: {model.SupportVectorIndices.Length}\nBias: {model.Bias:F4}\n\nNote: In a real scenario, this model would now score the remaining candidates."
-              Method = QuantumKernelSVM
-              MoleculesProcessed = limit
-              Configuration = state })
-        |> Result.mapError (fun e -> QuantumError.OperationError ("Training", $"Training Failed: {e.Message}"))
 
-    member private this.TrainVQCClassifier (backend: IQuantumBackend) featureMap (features: float[][]) (labels: int[]) state =
+        let config = { QuantumKernelSVM.defaultConfig with Verbose = false; MaxIterations = 20 }
+
+        QuantumKernelSVM.train backend featureMap trainData trainLabels config shots
+        |> Result.mapError (fun e -> QuantumError.OperationError ("Training", $"Training Failed: {e.Message}"))
+        |> Result.bind (fun model ->
+            // Genuinely score the whole candidate pool with the trained model: the SVM
+            // decision value is the screening score (signed distance from the hyperplane).
+            features
+            |> Array.mapi (fun i feat ->
+                QuantumKernelSVM.predict backend model feat shots
+                |> Result.map (fun pred ->
+                    { Index = i
+                      Identifier = ScreeningScoring.identifierAt identifiers i
+                      Score = pred.DecisionValue
+                      PredictedActive = Some (pred.Label = 1) }))
+            |> ScreeningScoring.sequence
+            |> Result.mapError (fun e -> QuantumError.OperationError ("Scoring", $"Candidate scoring failed: {e.Message}"))
+            |> Result.map (fun scored ->
+                let ranked = scored |> Array.sortByDescending (fun c -> c.Score)
+                let hits = ranked |> Array.filter (fun c -> c.PredictedActive = Some true) |> Array.length
+                { Message = $"Quantum Kernel SVM screening complete.\nSupport Vectors: {model.SupportVectorIndices.Length}\nBias: {model.Bias:F4}\nCandidates scored: {ranked.Length}\nPredicted active hits: {hits}"
+                  Method = QuantumKernelSVM
+                  MoleculesProcessed = features.Length
+                  RankedCandidates = ranked
+                  Configuration = state }))
+
+    member private this.TrainVQCClassifier (backend: IQuantumBackend) featureMap (features: float[][]) (labels: int[]) (identifiers: string[]) state =
         let limit = min features.Length state.BatchSize
         let trainData = features.[0..limit-1]
         let trainLabels = labels.[0..limit-1]
-        
+
         // Determine number of qubits from feature dimension
         let numQubits = if trainData.Length > 0 then trainData.[0].Length else 1
-        
+
         // Create variational form with configured layers
         let variationalForm = VariationalForm.RealAmplitudes state.VQCLayers
-        
+
         // Initialize random parameters
         let numParams = numQubits * state.VQCLayers
         let rng = System.Random(42)
         let initialParams = Array.init numParams (fun _ -> rng.NextDouble() * 2.0 * System.Math.PI)
-        
+
         // Configure VQC training
-        let vqcConfig = { 
-            VQC.defaultConfig with 
+        let vqcConfig = {
+            VQC.defaultConfig with
                 MaxEpochs = state.VQCMaxEpochs
                 Shots = state.Shots
-                Verbose = false 
+                Verbose = false
         }
-        
+
+        let mappedFeatureMap = this.MapFeatureMap state.FeatureMap
+
         // Train VQC model
-        VQC.train backend (this.MapFeatureMap state.FeatureMap) variationalForm initialParams trainData trainLabels vqcConfig
-        |> Result.map (fun result ->
-            { Message = $"VQC Training Complete!\nEpochs: {result.Epochs}\nTrain Accuracy: {result.TrainAccuracy:P2}\nConverged: {result.Converged}\n\nNote: Model can now classify new candidate molecules."
-              Method = VQCClassifier
-              MoleculesProcessed = limit
-              Configuration = state })
+        VQC.train backend mappedFeatureMap variationalForm initialParams trainData trainLabels vqcConfig
         |> Result.mapError (fun e -> QuantumError.OperationError ("VQCTraining", $"VQC Training Failed: {e.Message}"))
+        |> Result.bind (fun result ->
+            // Genuinely classify the whole candidate pool with the trained circuit: the
+            // active-class probability is the screening score.
+            features
+            |> Array.mapi (fun i feat ->
+                VQC.predict backend mappedFeatureMap variationalForm result.Parameters feat state.Shots
+                |> Result.map (fun pred ->
+                    { Index = i
+                      Identifier = ScreeningScoring.identifierAt identifiers i
+                      Score = pred.Probability
+                      PredictedActive = Some (pred.Label = 1) }))
+            |> ScreeningScoring.sequence
+            |> Result.mapError (fun e -> QuantumError.OperationError ("Scoring", $"Candidate scoring failed: {e.Message}"))
+            |> Result.map (fun scored ->
+                let ranked = scored |> Array.sortByDescending (fun c -> c.Score)
+                let hits = ranked |> Array.filter (fun c -> c.PredictedActive = Some true) |> Array.length
+                { Message = $"VQC screening complete.\nEpochs: {result.Epochs}\nTrain Accuracy: {result.TrainAccuracy:P2}\nConverged: {result.Converged}\nCandidates scored: {ranked.Length}\nPredicted active hits: {hits}"
+                  Method = VQCClassifier
+                  MoleculesProcessed = features.Length
+                  RankedCandidates = ranked
+                  Configuration = state }))
 
     member private _.RunQAOADiverseSelection (backend: IQuantumBackend) (features: float[][]) (labelsOpt: int[] option) state =
         let limit = min features.Length state.BatchSize
@@ -308,9 +380,24 @@ type QuantumDrugDiscoveryBuilder() =
         DrugDiscoverySolvers.DiverseSelection.solve backend problem state.Shots
         |> Result.map (fun solution ->
             let selectedIds = solution.SelectedItems |> List.map (fun item -> item.Id) |> String.concat ", "
+            // Expose the selected diverse set as ranked candidates (by activity value).
+            let ranked =
+                solution.SelectedItems
+                |> List.map (fun item ->
+                    let idx =
+                        match System.Int32.TryParse(item.Id.Replace("Mol_", "")) with
+                        | true, n -> n
+                        | _ -> -1
+                    { Index = idx
+                      Identifier = item.Id
+                      Score = item.Value
+                      PredictedActive = None })
+                |> List.sortByDescending (fun c -> c.Score)
+                |> Array.ofList
             { Message = $"QAOA Diverse Selection Complete!\nSelected: {solution.SelectedItems.Length} compounds\nTotal Value: {solution.TotalValue:F2}\nDiversity Bonus: {solution.DiversityBonus:F2}\nTotal Cost: {solution.TotalCost:F2}\nFeasible: {solution.IsFeasible}\n\nSelected Compounds: {selectedIds}"
               Method = QAOADiverseSelection
               MoleculesProcessed = limit
+              RankedCandidates = ranked
               Configuration = state })
         |> Result.mapError (fun e -> QuantumError.OperationError ("QAOASelection", $"QAOA Selection Failed: {e.Message}"))
 
@@ -319,15 +406,18 @@ type QuantumDrugDiscoveryBuilder() =
         this.LoadCandidates(state)
         |> Result.mapError (fun e -> QuantumError.OperationError ("DataLoading", $"Error loading molecular data: {e.Message}"))
         |> Result.bind (fun dataset ->
-            // Extract features
+            // Extract features, retaining a stable identifier (SMILES) per molecule so the
+            // scored candidates can be reported with their chemistry, not just an index.
+            let identifiers = dataset.Molecules |> Array.map (fun m -> m.Smiles)
             let datasetWithFeats =
                 dataset
                 |> MolecularData.withDescriptors
                 |> MolecularData.withFingerprints state.FingerprintSize
-            
+
             MolecularData.toFeatureMatrix true true datasetWithFeats
-            |> Result.mapError (fun e -> QuantumError.OperationError ("FeatureExtraction", $"Error generating features: {e.Message}")))
-        |> Result.bind (fun (features, labelsOpt) ->
+            |> Result.mapError (fun e -> QuantumError.OperationError ("FeatureExtraction", $"Error generating features: {e.Message}"))
+            |> Result.map (fun (features, labelsOpt) -> (features, labelsOpt, identifiers)))
+        |> Result.bind (fun (features, labelsOpt, identifiers) ->
             // Run screening method
             match state.Method with
             | QuantumKernelSVM ->
@@ -336,14 +426,14 @@ type QuantumDrugDiscoveryBuilder() =
                 | Some backend ->
                     let labels = labelsOpt |> Option.defaultWith (fun () -> Array.create features.Length 0)
                     let featureMap = this.MapFeatureMap state.FeatureMap
-                    this.TrainQuantumKernelSVM backend featureMap features labels state.BatchSize state.Shots state
+                    this.TrainQuantumKernelSVM backend featureMap features labels state.BatchSize state.Shots identifiers state
             | VQCClassifier ->
                 match state.Backend with
                 | None -> Error (QuantumError.ValidationError ("Backend", "No backend provided. Use 'backend'."))
                 | Some backend ->
                     let labels = labelsOpt |> Option.defaultWith (fun () -> Array.create features.Length 0)
                     let featureMap = this.MapFeatureMap state.FeatureMap
-                    this.TrainVQCClassifier backend featureMap features labels state
+                    this.TrainVQCClassifier backend featureMap features labels identifiers state
             | QAOADiverseSelection ->
                 match state.Backend with
                 | None -> Error (QuantumError.ValidationError ("Backend", "No backend provided. Use 'backend'."))

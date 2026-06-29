@@ -513,3 +513,36 @@ module TaskSchedulingTests =
             Assert.Fail($"Scheduling failed: {msg}")
 
 
+
+    // ============================================================================
+    // TEST: Quantum solver must return a PRECEDENCE-FEASIBLE schedule
+    // (regression for the fix: solveQuantum previously picked min-makespan without
+    //  filtering precedence-violating measurements, so it could return a schedule
+    //  that breaks the dependencies the user specified.)
+    // ============================================================================
+
+    [<Fact>]
+    let ``solveQuantum returns a precedence-respecting schedule`` () =
+        // Unit-duration tasks (1 slot each) so the A->B chain fits a small time horizon.
+        let taskA = scheduledTask { taskId "A"; duration (minutes 1.0) }
+        let taskB = scheduledTask { taskId "B"; duration (minutes 1.0); after "A" }
+
+        let problem = scheduling {
+            tasks [taskA; taskB]
+            resources []
+            objective MinimizeMakespan
+            timeHorizon 3.0
+        }
+
+        let backend = LocalBackend.LocalBackend() :> Core.BackendAbstraction.IQuantumBackend
+
+        match solveQuantum backend problem |> Async.RunSynchronously with
+        | Ok solution ->
+            let a = solution.Assignments |> List.find (fun x -> x.TaskId = "A")
+            let b = solution.Assignments |> List.find (fun x -> x.TaskId = "B")
+            // B must start no earlier than A finishes — the solver must not return a
+            // lower-makespan but precedence-violating schedule.
+            Assert.True(b.StartTime >= a.EndTime,
+                sprintf "B (start %.1f) must start after A finishes (end %.1f)" b.StartTime a.EndTime)
+        | Error msg ->
+            Assert.Fail(sprintf "solveQuantum should find a precedence-feasible schedule: %A" msg)

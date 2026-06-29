@@ -190,7 +190,7 @@ module ShorTests =
             // If it somehow succeeds (e.g., if quantum part is implemented), validate
             Assert.Equal(15, result.Config.NumberToFactor)
             Assert.Equal(Some 7, result.Config.RandomBase)
-            Assert.Equal(8, result.Config.PrecisionQubits)
+            Assert.Equal(3, result.Config.PrecisionQubits)
         | Error (QuantumError.NotImplemented _) ->
             // Expected: quantum subroutine not yet implemented
             ()
@@ -218,7 +218,7 @@ module ShorTests =
         // For N=15: log₂(15) ≈ 3.9 → 2*3.9+3 = 10.8 → round to 10
         // For N=21: log₂(21) ≈ 4.4 → 2*4.4+3 = 11.8 → round to 11
         
-        match factor 15 backend with
+        match factorClassicallyAssisted 15 backend with
         | Ok result ->
             // Precision should be around 10-11 qubits
             Assert.InRange(result.Config.PrecisionQubits, 9, 12)
@@ -236,7 +236,7 @@ module ShorTests =
         let backend = createBackend()
         
         // 15 is composite and odd, requires quantum period-finding
-        match factor 15 backend with
+        match factorClassicallyAssisted 15 backend with
         | Ok result ->
             // If somehow implemented, validate success
             Assert.Equal(15, result.Number)
@@ -283,7 +283,7 @@ module ShorTests =
             MaxAttempts = 5
         }
         
-        match execute config backend with
+        match executeClassicallyAssisted config backend with
         | Ok result ->
             Assert.Equal(35, result.Number)
             Assert.Equal(config, result.Config)
@@ -303,7 +303,7 @@ module ShorTests =
             MaxAttempts = 3
         }
         
-        match execute config backend with
+        match executeClassicallyAssisted config backend with
         | Ok result ->
             Assert.Equal(21, result.Number)
             Assert.Equal(None, config.RandomBase)
@@ -336,7 +336,7 @@ module ShorTests =
         let backend = createBackend()
         
         // 35 = 5 × 7 (semi-prime: product of two primes)
-        match factor 35 backend with
+        match factorClassicallyAssisted 35 backend with
         | Ok result ->
             Assert.Equal(35, result.Number)
             match result.Factors with
@@ -442,6 +442,8 @@ module ShorTests =
     let ``factor with N=35 successfully factors into 5 and 7`` () =
         let backend = createBackend()
         
+        // factor (genuine default) auto-falls back to classically-assisted when N is too large
+        // for the genuine quantum circuit (N=35 needs more counting qubits than fit in 20 qubits).
         match factor 35 backend with
         | Error err -> Assert.Fail($"Should succeed: {err}")
         | Ok result ->
@@ -478,7 +480,7 @@ module ShorTests =
     let ``findPeriod correctly finds period for a=7, N=15`` () =
         let backend = createBackend()
         
-        match findPeriod 7 15 8 backend with
+        match findPeriod 7 15 3 backend with
         | Error err -> Assert.Fail($"Should succeed: {err}")
         | Ok result ->
             Assert.Equal(7, result.Base)
@@ -494,7 +496,7 @@ module ShorTests =
         let backend = createBackend()
         
         // Test that QPE is being used (even if classically assisted)
-        match factor 15 backend with
+        match factorClassicallyAssisted 15 backend with
         | Ok result when result.PeriodResult.IsSome ->
             let pr = result.PeriodResult.Value
             // Phase estimate should be in range [0, 1)

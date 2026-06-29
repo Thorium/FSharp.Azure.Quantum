@@ -260,3 +260,43 @@ module GroverSearchTests =
         match classicalSearch predicate searchSpace with
         | Some value -> Assert.Equal(7, value)
         | None -> Assert.True(false, "Classical search should find value")
+
+    // A backend that mimics real cloud hardware: it rejects incremental ApplyOperation and only
+    // executes COMPLETE circuits via ExecuteToState (which it runs on a local simulator to stand
+    // in for a submitted job). Used to prove gate-based algorithms route to whole-circuit
+    // submission instead of the per-gate ApplyOperation loop.
+    type MockCloudBackend() =
+        let inner = new LocalBackend.LocalBackend() :> IQuantumBackend
+        let mutable executeToStateCalls = 0
+        let incrementalError : Result<QuantumState, QuantumError> =
+            Error (QuantumError.OperationError ("ApplyOperation", "MockCloud does not support incremental ApplyOperation. Use ExecuteToState with a complete circuit instead."))
+        member _.ExecuteToStateCalls = executeToStateCalls
+        interface IQuantumBackend with
+            member _.Name = "MockCloud"
+            member _.NativeStateType = QuantumStateType.GateBased
+            member _.SupportsOperation(_op) = true
+            member _.InitializeState(n) = inner.InitializeState n
+            member _.ApplyOperation _op _state = incrementalError
+            member _.ExecuteToState(circuit) =
+                executeToStateCalls <- executeToStateCalls + 1
+                inner.ExecuteToState circuit
+            member this.ExecuteToStateAsync circuit _ct =
+                task { return (this :> IQuantumBackend).ExecuteToState circuit }
+            member _.ApplyOperationAsync _op _state _ct =
+                task { return incrementalError }
+
+    [<Fact>]
+    let ``Grover runs on a cloud-style backend via whole-circuit submission`` () =
+        let target = 5
+        let numQubits = 3
+        let mockCloud = MockCloudBackend()
+        let config = { Grover.defaultConfig with RandomSeed = Some 42 }
+        match Grover.searchSingle target numQubits (mockCloud :> IQuantumBackend) config with
+        | Ok result ->
+            Assert.Contains(target, result.Solutions)
+            // The incremental ApplyOperation path was rejected, so Grover must have submitted a
+            // complete circuit via ExecuteToState (the cloud path).
+            Assert.True(mockCloud.ExecuteToStateCalls > 0,
+                "Grover should submit a complete circuit via ExecuteToState on a cloud-style backend")
+        | Error err ->
+            Assert.True(false, $"Cloud-style Grover search failed: {err}")
