@@ -1,4 +1,5 @@
 namespace FSharp.Azure.Quantum.TaskScheduling
+open System
 open FSharp.Azure.Quantum.Core
 
 /// Task Scheduling Domain Types
@@ -21,27 +22,24 @@ module Types =
 
     /// Dependency relationship between tasks
     type Dependency =
-        | FinishToStart of predecessorId: string * successorId: string * lag: float
-
-    /// Time duration helper type
-    type Duration = Duration of float
+        | FinishToStart of predecessorId: string * successorId: string * lag: TimeSpan
 
     /// Scheduled task with duration, dependencies, and constraints
     type ScheduledTask<'T> = {
         /// Task identifier (must be unique)
         Id: string
-        
+
         /// Optional task payload/value (None when created via CE builder without explicit value)
         Value: 'T option
-        
-        /// Task duration in time units (minutes)
-        Duration: float
-        
-        /// Earliest allowed start time
-        EarliestStart: float option
-        
-        /// Latest allowed completion time (deadline)
-        Deadline: float option
+
+        /// Task duration (a real-time span; build with minutes/hours/days)
+        Duration: TimeSpan
+
+        /// Earliest allowed start time (offset from schedule start)
+        EarliestStart: TimeSpan option
+
+        /// Latest allowed completion time (deadline, offset from schedule start)
+        Deadline: TimeSpan option
         
         /// Resource requirements (resource ID -> quantity needed)
         ResourceRequirements: Map<string, float>
@@ -87,22 +85,22 @@ module Types =
         
         /// Optimization objective
         Objective: Objective
-        
-        /// Maximum time horizon to consider
-        TimeHorizon: float
+
+        /// Maximum time horizon to consider (real-time span)
+        TimeHorizon: TimeSpan
     }
 
     /// Task assignment in schedule
     type TaskAssignment = {
         /// Task identifier
         TaskId: string
-        
-        /// Scheduled start time
-        StartTime: float
-        
-        /// Scheduled end time
-        EndTime: float
-        
+
+        /// Scheduled start time (offset from schedule start)
+        StartTime: TimeSpan
+
+        /// Scheduled end time (offset from schedule start)
+        EndTime: TimeSpan
+
         /// Assigned resources (resource ID -> quantity allocated)
         AssignedResources: Map<string, float>
     }
@@ -113,8 +111,8 @@ module Types =
         Assignments: TaskAssignment list
         
         /// Total completion time (max end time)
-        Makespan: float
-        
+        Makespan: TimeSpan
+
         /// Total resource usage cost
         TotalCost: float
         
@@ -132,11 +130,11 @@ module Types =
     // TIME UNIT HELPERS
     // ============================================================================
 
-    /// Convert minutes to duration
-    let minutes (value: float) : Duration = Duration value
+    /// A duration of the given number of minutes.
+    let minutes (value: float) : TimeSpan = TimeSpan.FromMinutes value
 
-    /// Convert hours to duration (1 hour = 60 minutes)
-    let hours (value: float) : Duration = Duration (value * 60.0)
+    /// A duration of the given number of hours.
+    let hours (value: float) : TimeSpan = TimeSpan.FromHours value
 
-    /// Convert days to duration (1 day = 1440 minutes)
-    let days (value: float) : Duration = Duration (value * 1440.0)
+    /// A duration of the given number of days.
+    let days (value: float) : TimeSpan = TimeSpan.FromDays value

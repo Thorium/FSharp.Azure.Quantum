@@ -307,9 +307,11 @@ module DecomposeRecombineTests =
         Assert.Equal(5.0, result.TotalWeight, 6)
 
     [<Fact>]
-    let ``recombine picks best of multiple solutions`` () =
+    let ``recombine unions independent component matchings`` () =
+        // Connected components are independent, so the whole-graph matching is the
+        // UNION of the per-component matchings: weights and sizes add up.
         let sol1 : Solution = {
-            SelectedEdges = []
+            SelectedEdges = [ { Source = 0; Target = 1; Weight = 3.0 } ]
             TotalWeight = 3.0
             MatchingSize = 1
             IsValid = true
@@ -318,7 +320,7 @@ module DecomposeRecombineTests =
             OptimizedParameters = None; OptimizationConverged = None
         }
         let sol2 : Solution = {
-            SelectedEdges = []
+            SelectedEdges = [ { Source = 2; Target = 3; Weight = 4.0 }; { Source = 4; Target = 5; Weight = 3.0 } ]
             TotalWeight = 7.0
             MatchingSize = 2
             IsValid = true
@@ -327,7 +329,9 @@ module DecomposeRecombineTests =
             OptimizedParameters = None; OptimizationConverged = None
         }
         let result = recombine [ sol1; sol2 ]
-        Assert.Equal(7.0, result.TotalWeight, 6)
+        Assert.Equal(10.0, result.TotalWeight, 6)
+        Assert.Equal(3, result.MatchingSize)
+        Assert.Equal(3, result.SelectedEdges.Length)
 
 // ============================================================================
 // QUANTUM SOLVER TESTS (using LocalBackend)

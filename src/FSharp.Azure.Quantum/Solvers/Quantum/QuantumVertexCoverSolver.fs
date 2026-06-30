@@ -255,8 +255,9 @@ module QuantumVertexCoverSolver =
                         |> List.map (fun gi -> problem.Vertices.[gi])
                     { Vertices = localVertices; Edges = localEdges })
 
-    /// Recombine sub-solutions into a single solution. Currently identity (single solution).
-    /// Handles empty list gracefully.
+    /// Recombine sub-solutions (one per connected component) into a single solution.
+    /// Connected components are independent, so the vertex cover of the whole graph
+    /// is the UNION of the per-component covers — not the single cheapest one.
     let recombine (solutions: Solution list) : Solution =
         match solutions with
         | [] ->
@@ -272,7 +273,16 @@ module QuantumVertexCoverSolver =
                 OptimizationConverged = None
             }
         | [ single ] -> single
-        | _ -> solutions |> List.minBy (fun s -> s.CoverWeight)
+        | sols ->
+            { CoverVertices = sols |> List.collect (fun s -> s.CoverVertices)
+              CoverWeight = sols |> List.sumBy (fun s -> s.CoverWeight)
+              CoverSize = sols |> List.sumBy (fun s -> s.CoverSize)
+              IsValid = sols |> List.forall (fun s -> s.IsValid)
+              WasRepaired = sols |> List.exists (fun s -> s.WasRepaired)
+              BackendName = sols |> List.tryHead |> Option.map (fun s -> s.BackendName) |> Option.defaultValue ""
+              NumShots = sols |> List.tryHead |> Option.map (fun s -> s.NumShots) |> Option.defaultValue 0
+              OptimizedParameters = None
+              OptimizationConverged = None }
 
     // ========================================================================
     // QUANTUM SOLVERS (Rule 1: IQuantumBackend required)

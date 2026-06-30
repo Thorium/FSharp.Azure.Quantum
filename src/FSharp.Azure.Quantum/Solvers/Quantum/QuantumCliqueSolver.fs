@@ -304,6 +304,9 @@ module QuantumCliqueSolver =
                 OptimizationConverged = None
             }
         | [ single ] -> single
+        // A clique is fully connected, so it cannot span disconnected components:
+        // the maximum clique lives entirely within one component. Picking the best
+        // per-component clique is therefore correct (do NOT union here).
         | _ -> solutions |> List.maxBy (fun s -> s.CliqueSize)
 
     // ========================================================================

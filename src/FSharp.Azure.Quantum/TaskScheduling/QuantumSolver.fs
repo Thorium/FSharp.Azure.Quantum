@@ -36,16 +36,26 @@ module QuantumSolver =
             | Error err -> return Error err
             | Ok () ->
             
-            // Determine time horizon (max possible makespan)
-            let totalDuration = problem.Tasks |> List.sumBy (fun t -> t.Duration)
-            let timeHorizon = 
-                if problem.TimeHorizon > 0.0 then
-                    int (ceil problem.TimeHorizon)
-                else
-                    int (ceil totalDuration)  // Conservative estimate if not specified
-            
+            // Discretise the real-time problem into a BOUNDED grid of time slots. Real durations
+            // (minutes/hours/days) are mapped onto integer slots via slotMinutes, so the QUBO never
+            // conflates real time with slot indices, and the qubit count (numTasks × timeHorizon)
+            // stays within the local simulator's reach.
+            let numTasks = problem.Tasks.Length
+            let totalWorkMin = problem.Tasks |> List.sumBy (fun t -> t.Duration.TotalMinutes)
+            let horizonMin =
+                let h = problem.TimeHorizon.TotalMinutes
+                if h > 0.0 then max h totalWorkMin else totalWorkMin
+            let minDurMin =
+                problem.Tasks
+                |> List.choose (fun t -> if t.Duration.TotalMinutes > 0.0 then Some t.Duration.TotalMinutes else None)
+                |> function [] -> 1.0 | xs -> List.min xs
+            // Cap slots so numTasks × timeHorizon stays modest (~18 qubits).
+            let maxSlots = max 2 (min 10 (18 / max 1 numTasks))
+            let timeHorizon = max 2 (min maxSlots (int (ceil (horizonMin / minDurMin))))
+            let slotMinutes = if timeHorizon > 0 then horizonMin / float timeHorizon else 1.0
+
             // Encode problem as QUBO
-            match QuboEncoding.toQubo problem timeHorizon with
+            match QuboEncoding.toQubo problem timeHorizon slotMinutes with
             | Error err -> return Error err
             | Ok quboMatrix ->
             
@@ -98,7 +108,7 @@ module QuantumSolver =
                 |> Array.choose (fun bitstring ->
                     let taskStarts = QuboEncoding.decodeBitstring bitstring reverseMapping
 
-                    match QuboEncoding.buildSolutionFromStarts problem.Tasks taskStarts with
+                    match QuboEncoding.buildSolutionFromStarts problem.Tasks taskStarts slotMinutes with
                     // Keep only precedence-feasible measurements. The QUBO penalty biases QAOA
                     // sampling toward these, but the final min-makespan selection must not pick a
                     // lower-makespan measurement that VIOLATES precedence — otherwise the returned

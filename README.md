@@ -82,7 +82,7 @@ flowchart TD
 - [Documentation](#documentation)
 - [Problem Size Guidelines](#problem-size-guidelines)
 - [Design Philosophy](#design-philosophy)
-- [Quantum Algorithms](#educational-algorithms)
+- [Quantum Algorithms](#quantum-algorithms)
   - [Grover's Search Algorithm](#grovers-search-algorithm)
   - [Amplitude Amplification](#amplitude-amplification)
   - [Quantum Fourier Transform (QFT)](#quantum-fourier-transform-qft)
@@ -305,26 +305,29 @@ match Portfolio.solve problem None with
 **Use Case:** Supply chain optimization, logistics, distribution planning
 
 ```fsharp
+open FSharp.Azure.Quantum
+
 let nodes = [
-    NetworkFlow.SourceNode("Factory", 100)
-    NetworkFlow.IntermediateNode("Warehouse", 80)
-    NetworkFlow.SinkNode("Store1", 40)
-    NetworkFlow.SinkNode("Store2", 60)
+    NetworkFlow.createSource "Factory" 100 100   // id, supply, capacity
+    NetworkFlow.createIntermediate "Warehouse" 80
+    NetworkFlow.createSink "Store1" 40           // id, demand
+    NetworkFlow.createSink "Store2" 60
 ]
 
 let routes = [
-    NetworkFlow.Route("Factory", "Warehouse", 5.0)
-    NetworkFlow.Route("Warehouse", "Store1", 3.0)
-    NetworkFlow.Route("Warehouse", "Store2", 4.0)
+    NetworkFlow.createRoute "Factory" "Warehouse" 5.0   // from, to, cost
+    NetworkFlow.createRoute "Warehouse" "Store1" 3.0
+    NetworkFlow.createRoute "Warehouse" "Store2" 4.0
 ]
 
-let problem = { NetworkFlow.Nodes = nodes; Routes = routes }
+let problem = NetworkFlow.createProblem nodes routes
 
+// Pass Some backend to run on quantum hardware/simulator; None uses the default.
 match NetworkFlow.solve problem None with
 | Ok flow ->
     printfn "Total cost: $%.2f" flow.TotalCost
     printfn "Fill rate: %.1f%%" (flow.FillRate * 100.0)
-| Error msg -> printfn "Error: %s" msg
+| Error err -> printfn "Error: %A" err
 ```
 
 ### Task Scheduling
@@ -376,7 +379,7 @@ let problem = scheduling {
 }
 
 // Solve with quantum backend for resource constraints
-let backend = BackendAbstraction.createLocalBackend()
+let backend = LocalBackend() :> IQuantumBackend
 match solveQuantum backend problem with
 | Ok solution ->
     printfn "Makespan: %.2f hours" solution.Makespan
@@ -414,23 +417,25 @@ Beyond the optimization and QFT-based builders, the library provides five advanc
 **Use Case:** Graph traversal, decision trees, game tree exploration
 
 ```fsharp
-open FSharp.Azure.Quantum.QuantumTreeSearchBuilder
+open FSharp.Azure.Quantum
 
-// Search decision tree with quantum parallelism
+// Search a decision tree with quantum parallelism
 let searchProblem = QuantumTreeSearch.quantumTreeSearch {
-    depth 5                    // Tree depth
-    branchingFactor 3          // Children per node
-    target 42                  // Target node value
-    qubits 10
+    initialState [0]                                        // Root state
+    maxDepth 5                                              // Tree depth
+    branchingFactor 3                                       // Children per node
+    evaluateWith (fun state -> float (List.sum state))     // Score a state
+    generateMovesWith (fun state -> [ for c in 1..3 -> state @ [c] ])  // Expand a node
 }
 
-match search searchProblem with
+match QuantumTreeSearch.solve searchProblem with
 | Ok result ->
-    printfn "Found path: %A" result.Path
-    printfn "Depth explored: %d" result.DepthReached
-    printfn "Success probability: %.2f%%" (result.Probability * 100.0)
-| Error msg ->
-    printfn "Error: %s" msg
+    printfn "Best move: %d" result.BestMove
+    printfn "Score: %.4f" result.Score
+    printfn "Paths explored: %d" result.PathsExplored
+    printfn "Quantum advantage: %b" result.QuantumAdvantage
+| Error err ->
+    printfn "Error: %A" err
 ```
 
 **Features:**
@@ -446,25 +451,27 @@ match search searchProblem with
 **Use Case:** SAT solving, constraint satisfaction problems, logic puzzles
 
 ```fsharp
-open FSharp.Azure.Quantum.QuantumConstraintSolverBuilder
+open FSharp.Azure.Quantum
 
-// Solve boolean satisfiability (SAT) problem
+// Solve a constraint-satisfaction problem (here: a 3-variable "all different")
 let satProblem = QuantumConstraintSolver.constraintSolver {
-    variables ["x"; "y"; "z"]
-    clause ["x"; "!y"]         // x OR NOT y
-    clause ["!x"; "z"]         // NOT x OR z
-    clause ["y"; "!z"]         // y OR NOT z
-    qubits 8
+    searchSpace 3                          // Number of variables (indices 0..2)
+    domain [0; 1; 2]                       // Value each variable may take
+    satisfies (fun assignment ->           // True when all constraints hold
+        assignment.[0] <> assignment.[1] &&
+        assignment.[1] <> assignment.[2] &&
+        assignment.[0] <> assignment.[2])
 }
 
-match solve satProblem with
+match QuantumConstraintSolver.solve satProblem with
 | Ok solution ->
     printfn "Satisfying assignment:"
-    solution.Assignment 
-    |> Map.iter (fun var value -> printfn "  %s = %b" var value)
-    printfn "Clauses satisfied: %d/%d" solution.SatisfiedClauses solution.TotalClauses
-| Error msg ->
-    printfn "Error: %s" msg
+    solution.Assignment
+    |> Map.iter (fun var value -> printfn "  var%d = %A" var value)
+    printfn "All constraints satisfied: %b" solution.AllConstraintsSatisfied
+    printfn "Success probability: %.2f%%" (solution.SuccessProbability * 100.0)
+| Error err ->
+    printfn "Error: %A" err
 ```
 
 **Features:**
@@ -480,23 +487,22 @@ match solve satProblem with
 **Use Case:** String matching, DNA sequence alignment, anomaly detection
 
 ```fsharp
-open FSharp.Azure.Quantum.QuantumPatternMatcherBuilder
+open FSharp.Azure.Quantum
 
-// Find pattern in data stream with quantum speedup
+// Find the items matching a predicate, with quantum search speedup
 let matchProblem = QuantumPatternMatcher.patternMatcher {
-    haystack [1; 2; 3; 4; 5; 6; 7; 8]
-    needle [3; 4; 5]
-    tolerance 0                 // Exact match
-    qubits 12
+    searchSpace [1; 2; 3; 4; 5; 6; 7; 8]   // Candidate items
+    matchPattern (fun x -> x % 3 = 0)      // Pattern: multiples of 3
+    findTop 2                              // Return up to 2 matches
 }
 
-match find matchProblem with
+match QuantumPatternMatcher.solve matchProblem with
 | Ok result ->
-    printfn "Pattern found at positions: %A" result.Positions
-    printfn "Total matches: %d" result.MatchCount
-    printfn "Search probability: %.2f%%" (result.Probability * 100.0)
-| Error msg ->
-    printfn "Error: %s" msg
+    printfn "Matches found: %A" result.Matches
+    printfn "Search space size: %d" result.SearchSpaceSize
+    printfn "Success probability: %.2f%%" (result.SuccessProbability * 100.0)
+| Error err ->
+    printfn "Error: %A" err
 ```
 
 **Features:**
@@ -512,29 +518,32 @@ match find matchProblem with
 **Use Case:** Cryptographic operations, RSA encryption, modular arithmetic
 
 ```fsharp
-open FSharp.Azure.Quantum.QuantumArithmeticBuilder
+open FSharp.Azure.Quantum
 
-// Quantum integer addition
+// Quantum integer addition: 15 + 27
 let addProblem = QuantumArithmeticOps.quantumArithmetic {
-    operands 15 27              // 15 + 27
-    operation Add
+    operands 15 27
+    operation QuantumArithmeticOps.Add
     qubits 10
 }
 
-match compute addProblem with
-| Ok result ->
-    printfn "Result: %d" result.Value
-    printfn "Carry: %b" result.Carry
-    printfn "Gates used: %d" result.GateCount
-    printfn "Circuit depth: %d" result.CircuitDepth
-| Error msg ->
-    printfn "Error: %s" msg
+// The CE returns a validated Result<ArithmeticOperation, _>; bind, then execute.
+match addProblem with
+| Ok op ->
+    match QuantumArithmeticOps.execute op with
+    | Ok result ->
+        printfn "Result: %d" result.Value
+        printfn "Gates used: %d" result.GateCount
+        printfn "Circuit depth: %d" result.CircuitDepth
+        printfn "Modular: %b" result.IsModular
+    | Error err -> printfn "Error: %A" err
+| Error err -> printfn "Error: %A" err
 
-// Modular exponentiation for RSA
+// Modular exponentiation for RSA: 5^3 mod 33
 let rsaProblem = QuantumArithmeticOps.quantumArithmetic {
-    operands 5 3                // base=5, exponent=3
-    operation ModularExponentiate
-    modulus 33                  // RSA modulus
+    operands 5 3                                // base = 5, exponent = 3
+    operation QuantumArithmeticOps.ModularExponentiate
+    modulus 33                                  // RSA modulus
     qubits 12
 }
 ```
@@ -552,27 +561,30 @@ let rsaProblem = QuantumArithmeticOps.quantumArithmetic {
 **Use Case:** Shor's algorithm, cryptanalysis, order finding
 
 ```fsharp
-open FSharp.Azure.Quantum.QuantumPeriodFinderBuilder
+open FSharp.Azure.Quantum
 
-// Find period of modular function (Shor's algorithm)
+// Find the period of a modular function (core of Shor's algorithm)
 let shorsProblem = QuantumPeriodFinder.periodFinder {
     number 15                   // Composite to factor
-    base_ 7                     // Coprime base
+    chosenBase 7                // Coprime base
     precision 12                // QPE precision bits
     maxAttempts 10              // Probabilistic retries
 }
 
-match findPeriod shorsProblem with
-| Ok result ->
-    printfn "Period found: %d" result.Period
-    match result.Factors with
-    | Some (p, q) ->
-        printfn "Factors: %d × %d = %d" p q (p * q)
-        printfn "⚠️  RSA modulus factored!"
-    | None ->
-        printfn "Retry with different base (probabilistic)"
-| Error msg ->
-    printfn "Error: %s" msg
+// The CE returns a validated Result<PeriodFinderProblem, _>; bind, then solve.
+match shorsProblem with
+| Ok problem ->
+    match QuantumPeriodFinder.solve problem with
+    | Ok result ->
+        printfn "Period found: %d" result.Period
+        match result.Factors with
+        | Some (p, q) ->
+            printfn "Factors: %d x %d = %d" p q (p * q)
+            printfn "RSA modulus factored!"
+        | None ->
+            printfn "Retry with a different base (probabilistic)"
+    | Error err -> printfn "Error: %A" err
+| Error err -> printfn "Error: %A" err
 ```
 
 **Features:**
@@ -588,25 +600,28 @@ match findPeriod shorsProblem with
 **Use Case:** Eigenvalue estimation, quantum chemistry, VQE enhancement
 
 ```fsharp
-open FSharp.Azure.Quantum.QuantumPhaseEstimatorBuilder
-open FSharp.Azure.Quantum.Algorithms.QuantumPhaseEstimation
+open System
+open FSharp.Azure.Quantum
+open FSharp.Azure.Quantum.Algorithms.QPE   // UnitaryOperator (RotationZ, PhaseGate, ...)
 
-// Estimate eigenphase of unitary operator
+// Estimate the eigenphase of a unitary operator
 let qpeProblem = QuantumPhaseEstimator.phaseEstimator {
-    unitary (RotationZ (Math.PI / 4.0))  // Operator U
-    eigenstate 0                         // |ψ⟩ = |0⟩
-    precision 16                         // 16-bit phase precision
-    qubits 20
+    unitary (RotationZ (Math.PI / 4.0))   // Operator U
+    precision 16                          // 16-bit phase precision
+    targetQubits 1
 }
 
-match estimate qpeProblem with
-| Ok result ->
-    printfn "Estimated phase: %.6f" result.Phase
-    printfn "Eigenvalue: e^(2πi × %.6f)" result.Phase
-    printfn "Confidence: %.2f%%" (result.Confidence * 100.0)
-    printfn "Application: Molecular energy = %.4f Hartree" (result.Phase * 2.0 * Math.PI)
-| Error msg ->
-    printfn "Error: %s" msg
+// The CE returns a validated Result<PhaseEstimatorProblem, _>; bind, then estimate.
+match qpeProblem with
+| Ok problem ->
+    match QuantumPhaseEstimator.estimate problem with
+    | Ok result ->
+        printfn "Estimated phase: %.6f" result.Phase
+        printfn "Eigenvalue: %A" result.Eigenvalue
+        printfn "Measurement outcome: %d" result.MeasurementOutcome
+        printfn "Molecular energy ~ %.4f Hartree" (result.Phase * 2.0 * Math.PI)
+    | Error err -> printfn "Error: %A" err
+| Error err -> printfn "Error: %A" err
 ```
 
 **Features:**
@@ -648,7 +663,7 @@ match estimate qpeProblem with
 - Use for **learning quantum algorithms** and understanding quantum advantage
 - Use for **prototyping** future quantum applications
 - Use **Phase Estimator for small molecules** on current NISQ hardware
-- For **production optimization**, use the [6 QAOA-based builders](#-problem-builders) instead
+- For **production optimization**, use the [7 problem builders](#-problem-builders) instead
 
 ---
 
@@ -657,45 +672,50 @@ match estimate qpeProblem with
 All advanced builders have C#-friendly fluent APIs:
 
 ```csharp
+using System;
 using FSharp.Azure.Quantum;
 using static FSharp.Azure.Quantum.CSharpBuilders;
 
-// Tree Search
-var treeSearch = TreeSearch(depth: 5, branchingFactor: 3, target: 42);
-var searchResult = ExecuteTreeSearch(treeSearch);
+// Tree Search: initial state, scoring function, and move generator
+var treeSearch = QuantumTreeSearch(
+    initialState: 0,
+    evaluator: x => (double)x,
+    moveGenerator: x => new[] { x + 1, x + 2 });
+var searchResult = SolveTreeSearch(treeSearch);
 
-// Constraint Solver
-var satProblem = ConstraintProblem(
-    variables: new[] { "x", "y", "z" },
-    clauses: new[] { 
-        new[] { "x", "!y" },
-        new[] { "!x", "z" }
-    }
-);
+// Constraint Solver: search-space size, domain, and a constraint predicate
+var satProblem = QuantumConstraintSolver(
+    searchSpaceSize: 3,
+    domain: new[] { 0, 1 },
+    singleConstraint: assignment => assignment[0] != assignment[1]);
 var satResult = SolveConstraints(satProblem);
 
-// Pattern Matcher
-var pattern = PatternMatch(
-    haystack: new[] { 1, 2, 3, 4, 5, 6, 7, 8 },
-    needle: new[] { 3, 4, 5 },
-    tolerance: 0
-);
-var matchResult = FindPattern(pattern);
+// Pattern Matcher: candidate configurations and a match predicate
+var pattern = QuantumPatternMatcher(
+    configurations: new[] { 1, 2, 3, 4, 5, 6, 7, 8 },
+    pattern: x => x % 3 == 0);
+var matchResult = SolvePatternMatch(pattern);
 
-// Arithmetic
-var add = ArithmeticAdd(15, 27);
-var addResult = ComputeArithmetic(add);
+// Arithmetic: build an operation, then execute it
+var add = Add(15, 27);
+var addResult = ExecuteArithmetic(add);
 
 var rsa = ModularExponentiate(baseValue: 5, exponent: 3, modulus: 33);
-var rsaResult = ComputeArithmetic(rsa);
+var rsaResult = ExecuteArithmetic(rsa);
 
-// Period Finder (Shor's)
+// Period Finder (Shor's): the factory returns a Result; unwrap before executing
 var shors = FactorInteger(15, precision: 12);
-var factorResult = FindPeriod(shors);
+if (shors.IsOk)
+{
+    var factorResult = ExecutePeriodFinder(shors.ResultValue);
+}
 
-// Phase Estimator
+// Phase Estimator: EstimateRotationZ also returns a Result
 var qpe = EstimateRotationZ(Math.PI / 4.0, precision: 16);
-var phaseResult = EstimatePhase(qpe);
+if (qpe.IsOk)
+{
+    var phaseResult = ExecutePhaseEstimator(qpe.ResultValue);
+}
 ```
 
 **Current Status:** Educational/research focus - Demonstrates quantum algorithms but hardware insufficient for real-world applications (as of 2025)
@@ -707,7 +727,7 @@ var phaseResult = EstimatePhase(qpe);
 **Primary Focus: QAOA-Based Combinatorial Optimization**
 
 This library is designed for **NISQ-era practical quantum advantage** in optimization:
-- ✅ 6 optimization problem builders (Graph Coloring, MaxCut, TSP, Knapsack, Portfolio, Network Flow)
+- ✅ 7 optimization problem builders (Graph Coloring, MaxCut, TSP, Knapsack, Portfolio, Network Flow, Task Scheduling)
 - ✅ QAOA implementation with automatic parameter tuning
 - ✅ Error mitigation for noisy hardware (ZNE, PEC, REM)
 - ✅ Production-ready solvers with cloud backend integration
@@ -1010,24 +1030,29 @@ match schedule with
 ```fsharp
 open FSharp.Azure.Quantum.Business
 
-// Automated hyperparameter tuning and model selection
-let automl = autoML {
-    dataset trainData
-    target "label_column"
-    features ["feature1"; "feature2"; "feature3"]
-    maxTrials 20
-    timeout (minutes 30.0)
-}
+// Training data: each sample is a float array of features, with a numeric label
+let features = [| [| 0.1; 0.2 |]; [| 0.9; 0.8 |]; [| 0.2; 0.1 |]; [| 0.8; 0.9 |] |]
+let labels   = [| 0.0; 1.0; 0.0; 1.0 |]
 
-match AutoML.run automl with
+// The CE runs the automated model search and returns Result<AutoMLResult, _>
+let automlResult =
+    AutoML.autoML {
+        trainWith features labels
+        tryBinaryClassification true
+        maxTrials 20
+        validationSplit 0.2
+    }
+
+match automlResult with
 | Ok result ->
-    printfn "Best model accuracy: %.2f%%" (result.BestAccuracy * 100.0)
-    printfn "Best hyperparameters: %A" result.BestHyperparameters
-    
-    // Use best model for predictions
-    let predictions = AutoML.predict result.BestModel newData
-    predictions |> List.iter (printfn "Prediction: %A")
-| Error msg -> printfn "Error: %s" msg
+    printfn "Best model: %s (validation score %.2f%%)" result.BestModelType (result.Score * 100.0)
+    printfn "Best architecture: %A" result.BestArchitecture
+
+    // Use the best model for a prediction
+    match AutoML.predict [| 0.85; 0.85 |] result with
+    | Ok prediction -> printfn "Prediction: %A" prediction
+    | Error err -> printfn "Error: %A" err
+| Error err -> printfn "Error: %A" err
 ```
 
 ### Anomaly Detection - Security & Fraud Detection
@@ -1035,20 +1060,30 @@ match AutoML.run automl with
 ```fsharp
 open FSharp.Azure.Quantum.Business
 
-// Detect outliers in network traffic for security monitoring
-let detector = anomalyDetection {
-    data securityLogs
-    features ["packet_size"; "connection_duration"; "failed_logins"]
-    threshold 0.95
-    sensitivity High
-}
+// Train on NORMAL examples only (one-class anomaly detection).
+// Each sample is a float array of features (packet size, duration, failed logins).
+let normalTraffic =
+    [| [| 0.10; 0.20; 0.0 |]
+       [| 0.15; 0.25; 0.0 |]
+       [| 0.12; 0.18; 0.1 |] |]
 
-match AnomalyDetection.detect detector with
-| Ok anomalies ->
-    printfn "Found %d anomalies" anomalies.Length
-    anomalies |> List.iter (fun a ->
-        printfn "⚠️  Anomaly score: %.3f - %A" a.Score a.DataPoint)
-| Error msg -> printfn "Error: %s" msg
+// The CE trains the detector and returns Result<Detector, _>
+let detectorResult =
+    AnomalyDetector.anomalyDetection {
+        trainOnNormalData normalTraffic
+        sensitivity AnomalyDetector.High
+        contaminationRate 0.05
+    }
+
+match detectorResult with
+| Ok detector ->
+    // Score a new sample against the trained detector
+    let sample = [| 0.9; 0.95; 0.8 |]
+    match AnomalyDetector.check sample detector with
+    | Ok result ->
+        printfn "Anomaly: %b (score %.3f)" result.IsAnomaly result.AnomalyScore
+    | Error err -> printfn "Error: %A" err
+| Error err -> printfn "Error: %A" err
 ```
 
 ### Binary Classification - Fraud Detection
@@ -1056,31 +1091,36 @@ match AnomalyDetection.detect detector with
 ```fsharp
 open FSharp.Azure.Quantum.Business
 
-// Classify transactions as fraudulent or legitimate
-let classifier = binaryClassification {
-    trainingData transactions
-    positiveClass "fraud"
-    negativeClass "legitimate"
-    features ["amount"; "location"; "time"; "merchant_type"]
-    algorithm QuantumSVM
-}
+// Labeled transactions: features as float arrays, labels 0 = legitimate, 1 = fraud
+let trainX = [| [| 0.1; 0.2 |]; [| 0.9; 0.8 |]; [| 0.2; 0.1 |]; [| 0.85; 0.9 |] |]
+let trainY = [| 0; 1; 0; 1 |]
 
-match BinaryClassification.train classifier with
+// The CE trains the classifier and returns Result<Classifier, _>
+let classifierResult =
+    BinaryClassifier.binaryClassification {
+        trainWith trainX trainY
+        architecture BinaryClassifier.Hybrid   // Quantum feature map + classical SVM
+        maxEpochs 50
+    }
+
+match classifierResult with
 | Ok model ->
-    // Evaluate performance
-    let metrics = BinaryClassification.evaluate model testTransactions
-    printfn "Precision: %.2f%%" (metrics.Precision * 100.0)
-    printfn "Recall: %.2f%%" (metrics.Recall * 100.0)
-    printfn "F1 Score: %.2f" metrics.F1Score
-    
-    // Classify new transactions
-    let newTransaction = ["amount", 1500.0; "location", "foreign"]
-    match BinaryClassification.predict model newTransaction with
+    // Evaluate on held-out data (features, labels, classifier)
+    let testX = [| [| 0.15; 0.2 |]; [| 0.8; 0.85 |] |]
+    let testY = [| 0; 1 |]
+    match BinaryClassifier.evaluate testX testY model with
+    | Ok metrics ->
+        printfn "Precision: %.2f%%" (metrics.Precision * 100.0)
+        printfn "Recall: %.2f%%" (metrics.Recall * 100.0)
+        printfn "F1 Score: %.2f" metrics.F1Score
+    | Error err -> printfn "Error: %A" err
+
+    // Classify a new sample
+    match BinaryClassifier.predict [| 0.82; 0.88 |] model with
     | Ok prediction ->
-        printfn "Classification: %s (%.2f%% confidence)" 
-            prediction.Class (prediction.Probability * 100.0)
-    | Error msg -> printfn "Error: %s" msg
-| Error msg -> printfn "Training failed: %s" msg
+        printfn "Label: %d (%.2f%% confidence)" prediction.Label (prediction.Confidence * 100.0)
+    | Error err -> printfn "Error: %A" err
+| Error err -> printfn "Training failed: %A" err
 ```
 
 ### Predictive Modeling - Customer Churn Prediction
@@ -1088,25 +1128,26 @@ match BinaryClassification.train classifier with
 ```fsharp
 open FSharp.Azure.Quantum.Business
 
-// Predict which customers are likely to cancel service
-let model = predictiveModel {
-    historicalData customerData
-    targetVariable "churned"
-    predictors ["tenure"; "monthly_charges"; "total_charges"; "contract_type"]
-    horizon (days 30.0)
-}
+// Historical customers: features (e.g. tenure, monthly charges), target = churn score
+let history = [| [| 12.0; 50.0 |]; [| 1.0; 90.0 |]; [| 24.0; 40.0 |]; [| 2.0; 95.0 |] |]
+let targets = [| 0.0; 1.0; 0.0; 1.0 |]
 
-match PredictiveModel.build model with
-| Ok trained ->
-    // Identify high-risk customers
-    let predictions = PredictiveModel.predict trained activeCustomers
-    let highRisk = predictions |> List.filter (fun p -> p.ChurnProbability > 0.7)
-    
-    printfn "High-risk customers: %d" highRisk.Length
-    highRisk |> List.iter (fun customer ->
-        printfn "Customer %s: %.1f%% churn risk" 
-            customer.Id (customer.ChurnProbability * 100.0))
-| Error msg -> printfn "Error: %s" msg
+// The CE trains the model and returns Result<Model, _>
+let modelResult =
+    PredictiveModel.predictiveModel {
+        trainWith history targets
+        problemType PredictiveModel.Regression
+        architecture PredictiveModel.Hybrid
+        maxEpochs 50
+    }
+
+match modelResult with
+| Ok model ->
+    // Score an active customer (backend / shots optional -> None None uses defaults)
+    match PredictiveModel.predict [| 3.0; 92.0 |] model None None with
+    | Ok prediction -> printfn "Predicted churn score: %.3f" prediction.Value
+    | Error err -> printfn "Error: %A" err
+| Error err -> printfn "Error: %A" err
 ```
 
 ### Similarity Search - Product Recommendations
@@ -1442,7 +1483,7 @@ QuantumGraphColoringSolver.solve
 **Example:**
 ```fsharp
 // Local simulation (default)
-let backend = BackendAbstraction.createLocalBackend()
+let backend = LocalBackend() :> IQuantumBackend
 
 // Azure Quantum (cloud)
 let connectionString = "InstrumentationKey=..."
@@ -1694,9 +1735,10 @@ type IQuantumBackend =
 ```fsharp
 open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Core.BackendAbstraction
+open FSharp.Azure.Quantum.Backends.LocalBackend
 
 // Step 1: Develop locally
-let localBackend = createLocalBackend()
+let localBackend = LocalBackend()
 let circuit = CircuitBuilder.create 3
               |> addGate (H 0)
               |> addGate (CNOT (0,1))
@@ -2048,7 +2090,7 @@ let qiskitCircuit = OpenQasmImport.parseFromFile "qiskit_algorithm.qasm"
 match qiskitCircuit with
 | Ok circuit ->
     // 2. Run on LocalBackend for testing
-    let localBackend = BackendAbstraction.createLocalBackend()
+    let localBackend = LocalBackend() :> IQuantumBackend
     let testResult = LocalSimulator.QaoaSimulator.simulate circuit 1000
     
     printfn "Local test: %d samples" testResult.Shots
@@ -2472,7 +2514,7 @@ let quantumConfig : QuantumGraphColoringSolver.QuantumGraphColoringConfig = {
 }
 
 // Use custom config
-let backend = BackendAbstraction.createLocalBackend()
+let backend = LocalBackend() :> IQuantumBackend
 match QuantumGraphColoringSolver.solve backend problem quantumConfig with
 | Ok result -> printfn "Colors used: %d" result.ColorsUsed
 | Error msg -> printfn "Error: %s" msg
@@ -2550,26 +2592,24 @@ In addition to the optimization solvers above, the library includes **foundation
 
 ```fsharp
 open FSharp.Azure.Quantum.GroverSearch
+open FSharp.Azure.Quantum.Core.BackendAbstraction
+open FSharp.Azure.Quantum.Backends.LocalBackend
 
-// Search for item satisfying predicate
-let searchConfig = {
-    MaxIterations = Some 10
-    SuccessThreshold = 0.9
-    OptimizeIterations = true
-    Shots = 1000
-    RandomSeed = Some 42
-}
+// Search an 8-element (3-qubit) space for items where the predicate holds
+let predicate x = x = 3 || x = 5            // Looking for values 3 or 5
+let backend = LocalBackend() :> IQuantumBackend
+let config = { Grover.defaultConfig with Shots = 1000; RandomSeed = Some 42 }
 
-// Search 8-item space for items where f(x) = true
-let predicate x = x = 3 || x = 5  // Looking for indices 3 or 5
-
-match Search.searchWithPredicate 3 predicate searchConfig with
-| Ok result ->
-    printfn "Found solutions: %A" result.Solutions
-    printfn "Success probability: %.2f%%" (result.SuccessProbability * 100.0)
-    printfn "Iterations: %d" result.IterationsApplied
-| Error msg -> 
-    printfn "Search failed: %s" msg
+// Compile a predicate oracle, then run Grover search on the backend
+match Oracle.fromPredicate predicate 3 with
+| Ok oracle ->
+    match Grover.search oracle backend config with
+    | Ok result ->
+        printfn "Found solutions: %A" result.Solutions
+        printfn "Success probability: %.2f%%" (result.SuccessProbability * 100.0)
+        printfn "Iterations: %d" result.Iterations
+    | Error err -> printfn "Search failed: %A" err
+| Error err -> printfn "Oracle build failed: %A" err
 ```
 
 **Features:**

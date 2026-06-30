@@ -181,6 +181,7 @@ module ShorTests =
     // ========================================================================
     
     [<Fact>]
+    [<Trait("Category", "Slow")>]
     let ``factor15 uses correct configuration`` () =
         let backend = createBackend()
         
@@ -353,6 +354,7 @@ module ShorTests =
     // ========================================================================
     
     [<Fact>]
+    [<Trait("Category", "Slow")>]   // genuine end-to-end factoring of 15 (~5 min)
     let ``Shor accepts IQuantumBackend`` () =
         // This test validates that Shor follows RULE1
         let backend = createBackend()
@@ -364,6 +366,7 @@ module ShorTests =
         Assert.True(true)
     
     [<Fact>]
+    [<Trait("Category", "Slow")>]   // genuine end-to-end factoring of 15 (~5 min)
     let ``Shor works with LocalBackend`` () =
         // Validate that LocalBackend is compatible
         let backend = LocalBackend() :> IQuantumBackend
@@ -384,6 +387,7 @@ module ShorTests =
     // ========================================================================
     
     [<Fact>]
+    [<Trait("Category", "Slow")>]
     let ``factor15 successfully factors 15 into 3 and 5`` () =
         let backend = createBackend()
         

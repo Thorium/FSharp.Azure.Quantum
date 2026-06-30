@@ -291,20 +291,17 @@ module QuantumMatchingSolver =
             | [ _ ] -> [ problem ]
             | components ->
                 components
-                |> List.choose (fun (globalIndices, localEdges) ->
-                    // Map edges back to Edge records with local indices
-                    let globalToLocal =
-                        globalIndices
-                        |> List.mapi (fun localIdx globalIdx -> (globalIdx, localIdx))
-                        |> Map.ofList
-                    let localEdgeRecords =
+                |> List.choose (fun (globalIndices, _localEdges) ->
+                    // Keep GLOBAL vertex indices in each component sub-problem so the
+                    // decoded sub-solutions can be unioned directly in recombine.
+                    // Qubit count = #edges (see estimateQubits), independent of
+                    // NumVertices, so retaining the global vertex space is free.
+                    let idxSet = Set.ofList globalIndices
+                    let componentEdges =
                         problem.Edges
-                        |> List.choose (fun e ->
-                            match Map.tryFind e.Source globalToLocal, Map.tryFind e.Target globalToLocal with
-                            | Some ls, Some lt -> Some { e with Source = ls; Target = lt }
-                            | _ -> None)
-                    if localEdgeRecords.IsEmpty then None
-                    else Some { NumVertices = globalIndices.Length; Edges = localEdgeRecords })
+                        |> List.filter (fun e -> idxSet.Contains e.Source && idxSet.Contains e.Target)
+                    if componentEdges.IsEmpty then None
+                    else Some { NumVertices = problem.NumVertices; Edges = componentEdges })
 
     /// Recombine sub-solutions into a single solution. Currently identity.
     /// Handles empty list gracefully.
@@ -323,7 +320,19 @@ module QuantumMatchingSolver =
                 OptimizationConverged = None
             }
         | [ single ] -> single
-        | _ -> solutions |> List.maxBy (fun s -> s.TotalWeight)
+        | sols ->
+            // Connected components are independent: the maximum matching of the whole
+            // graph is the UNION of the per-component matchings (edges keep global
+            // vertex indices, so concatenation is valid).
+            { SelectedEdges = sols |> List.collect (fun s -> s.SelectedEdges)
+              TotalWeight = sols |> List.sumBy (fun s -> s.TotalWeight)
+              MatchingSize = sols |> List.sumBy (fun s -> s.MatchingSize)
+              IsValid = sols |> List.forall (fun s -> s.IsValid)
+              WasRepaired = sols |> List.exists (fun s -> s.WasRepaired)
+              BackendName = sols |> List.tryHead |> Option.map (fun s -> s.BackendName) |> Option.defaultValue ""
+              NumShots = sols |> List.tryHead |> Option.map (fun s -> s.NumShots) |> Option.defaultValue 0
+              OptimizedParameters = None
+              OptimizationConverged = None }
 
     // ========================================================================
     // QUANTUM SOLVERS (Rule 1: IQuantumBackend required)

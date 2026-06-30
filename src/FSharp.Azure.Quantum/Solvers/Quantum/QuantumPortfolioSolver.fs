@@ -43,7 +43,7 @@ open FSharp.Azure.Quantum.Core
 ///
 /// Examples:
 ///   // Synchronous (blocks until complete):
-///   let backend = BackendAbstraction.createLocalBackend()
+///   let backend = LocalBackend() :> IQuantumBackend
 ///   let config = { NumShots = 1000; RiskAversion = 0.5; InitialParameters = (0.5, 0.5) }
 ///   match QuantumPortfolioSolver.solve backend assets constraints config with
 ///   | Ok result -> printfn "Expected return: %f" result.ExpectedReturn

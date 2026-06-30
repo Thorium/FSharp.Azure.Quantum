@@ -200,8 +200,8 @@ module Scheduler =
         
         {
             Id = task.Id
-            Value = task.TaskType
-            Duration = effectiveDuration
+            Value = Some task.TaskType
+            Duration = System.TimeSpan.FromMinutes effectiveDuration
             EarliestStart = None
             Deadline = None
             ResourceRequirements = 
@@ -218,7 +218,7 @@ module Scheduler =
     let toResource (drone: DroneResource) : Resource<string> =
         {
             Id = drone.Id
-            Value = drone.Model
+            Value = Some drone.Model
             Capacity = drone.MaxPayloadKg
             AvailableWindows = [ (0.0, 1440.0) ]  // Available all day (in minutes)
             CostPerUnit = Scheduling.minGroundTimeMin  // Minimum turnaround time as "cost"
@@ -230,7 +230,7 @@ module Scheduler =
     
     /// Create dependency from task reference (using FinishToStart DU)
     let toDependency (fromTaskId: string) (toTaskId: string) : Dependency =
-        FinishToStart (fromTaskId, toTaskId, 0.0)  // lag = 0 means tasks can start immediately after predecessor
+        FinishToStart (fromTaskId, toTaskId, System.TimeSpan.Zero)  // lag = 0 means tasks can start immediately after predecessor
     
     /// Build scheduling problem from drone tasks and resources
     let buildProblem (tasks: DroneTask list) (drones: DroneResource list) : SchedulingProblem<DroneTaskType, string> =
@@ -246,8 +246,8 @@ module Scheduler =
         
         // Calculate time horizon based on total task duration + buffer
         let totalDuration = tasks |> List.sumBy (fun t -> t.DurationMinutes)
-        let timeHorizon = totalDuration * 2.0  // 2x buffer for scheduling flexibility
-        
+        let timeHorizon = System.TimeSpan.FromMinutes (totalDuration * 2.0)  // 2x buffer for scheduling flexibility
+
         {
             Tasks = scheduledTasks
             Resources = resources
@@ -256,9 +256,10 @@ module Scheduler =
             TimeHorizon = timeHorizon
         }
     
-    /// Solve scheduling problem (classical approach)
+    /// Solve scheduling problem (uses the quantum solver on a local simulator; the internal
+    /// classical greedy solver is not part of the public quantum-first API).
     let solveClassical (problem: SchedulingProblem<DroneTaskType, string>) : Async<QuantumResult<Solution>> =
-        solve problem
+        solveQuantum (LocalBackend() :> IQuantumBackend) problem
     
     /// Solve scheduling problem with quantum backend
     let solveWithQuantum (backend: IQuantumBackend) (problem: SchedulingProblem<DroneTaskType, string>) : Async<QuantumResult<Solution>> =
@@ -280,7 +281,7 @@ module Visualization =
         sb.AppendLine("╠════════════════════════════════════════════════════════════════════════════╣") |> ignore
         
         // Time axis
-        let maxTime = solution.Makespan
+        let maxTime = solution.Makespan.TotalMinutes
         let numTicks = min 20 (int (maxTime / timeScale))
         let tickWidth = 3
         
@@ -296,8 +297,8 @@ module Visualization =
         
         // Task bars
         for assignment in solution.Assignments |> List.sortBy (fun a -> a.StartTime) do
-            let startPos = int (assignment.StartTime / timeScale)
-            let endPos = int (assignment.EndTime / timeScale)
+            let startPos = int (assignment.StartTime.TotalMinutes / timeScale)
+            let endPos = int (assignment.EndTime.TotalMinutes / timeScale)
             let barLength = max 1 (endPos - startPos)
             
             let taskName = 
@@ -440,7 +441,7 @@ module Program =
                     printfn "║  SCHEDULING RESULTS                                        ║"
                     printfn "╠════════════════════════════════════════════════════════════╣"
                     printfn "║  Method: %-48s ║" methodUsed
-                    printfn "║  Makespan: %8.1f minutes                                ║" solution.Makespan
+                    printfn "║  Makespan: %8.1f minutes                                ║" solution.Makespan.TotalMinutes
                     printfn "║  Tasks Scheduled: %3d                                      ║" solution.Assignments.Length
                     printfn "╠════════════════════════════════════════════════════════════╣"
                     printfn "║  TASK ASSIGNMENTS:                                         ║"
@@ -449,8 +450,8 @@ module Program =
                     |> List.sortBy (fun a -> a.StartTime)
                     |> List.iter (fun assignment ->
                         let resource = getPrimaryResource assignment.AssignedResources
-                        printfn "║  %-12s │ Start: %6.1f │ End: %6.1f │ %s ║" 
-                            assignment.TaskId assignment.StartTime assignment.EndTime resource)
+                        printfn "║  %-12s │ Start: %6.1f │ End: %6.1f │ %s ║"
+                            assignment.TaskId assignment.StartTime.TotalMinutes assignment.EndTime.TotalMinutes resource)
                     
                     printfn "╚════════════════════════════════════════════════════════════╝"
                     
@@ -459,8 +460,8 @@ module Program =
                     printfn "%s" gantt
                     
                     // Calculate metrics
-                    let totalTaskTime = solution.Assignments |> List.sumBy (fun a -> a.EndTime - a.StartTime)
-                    let totalSlotTime = solution.Makespan * float (max 1 drones.Length)
+                    let totalTaskTime = solution.Assignments |> List.sumBy (fun a -> (a.EndTime - a.StartTime).TotalMinutes)
+                    let totalSlotTime = solution.Makespan.TotalMinutes * float (max 1 drones.Length)
                     let utilization = if totalSlotTime > 0.0 then totalTaskTime / totalSlotTime else 0.0
                     let idleTime = totalSlotTime - totalTaskTime
                     
@@ -477,7 +478,7 @@ module Program =
                         drone_count = drones.Length
                         dependency_count = tasks |> List.sumBy (fun t -> t.DependsOn.Length)
                         method_used = methodUsed
-                        makespan_min = solution.Makespan
+                        makespan_min = solution.Makespan.TotalMinutes
                         total_idle_time_min = idleTime
                         resource_utilization = utilization
                         elapsed_ms = sw.ElapsedMilliseconds
@@ -491,9 +492,9 @@ module Program =
                         |> List.sortBy (fun a -> a.StartTime)
                         |> List.map (fun a ->
                             [ a.TaskId
-                              sprintf "%.1f" a.StartTime
-                              sprintf "%.1f" a.EndTime
-                              sprintf "%.1f" (a.EndTime - a.StartTime)
+                              sprintf "%.1f" a.StartTime.TotalMinutes
+                              sprintf "%.1f" a.EndTime.TotalMinutes
+                              sprintf "%.1f" (a.EndTime - a.StartTime).TotalMinutes
                               getPrimaryResource a.AssignedResources ])
                     
                     Reporting.writeCsv
@@ -522,7 +523,7 @@ module Program =
 
 | Task | Start (min) | End (min) | Duration | Resource |
 |------|-------------|-----------|----------|----------|
-{solution.Assignments |> List.sortBy (fun a -> a.StartTime) |> List.map (fun a -> sprintf "| %s | %.1f | %.1f | %.1f | %s |" a.TaskId a.StartTime a.EndTime (a.EndTime - a.StartTime) (getPrimaryResource a.AssignedResources)) |> String.concat "\n"}
+{solution.Assignments |> List.sortBy (fun a -> a.StartTime) |> List.map (fun a -> sprintf "| %s | %.1f | %.1f | %.1f | %s |" a.TaskId a.StartTime.TotalMinutes a.EndTime.TotalMinutes (a.EndTime - a.StartTime).TotalMinutes (getPrimaryResource a.AssignedResources)) |> String.concat "\n"}
 
 ## Quantum Computing Context
 

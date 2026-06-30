@@ -11,7 +11,18 @@
     <Title>FSharp.Azure.Quantum</Title>
     <Description>F# library for Azure Quantum with quantum-first optimization (Graph Coloring, TSP, MaxCut, Knapsack, Network Flow, Portfolio), Azure Quantum backend integration (IonQ, Rigetti, Quantinuum, Atom Computing), extensible circuit validation, local quantum simulation, QAOA with automatic parameter optimization (Nelder-Mead), OpenQASM 2.0 support, error mitigation techniques (ZNE, PEC, REM), Quantum Random Number Generation (QRNG), and educational quantum algorithms (Grover, QFT, Amplitude Amplification) with cloud backend execution. Multi-provider architecture supports IonQ, Rigetti, Quantinuum, Atom Computing, IBM, Amazon Braket, and Google Cirq.</Description>
     <Summary>F# library for Azure Quantum with quantum-first optimization, quantum backends (IonQ, Rigetti, Quantinuum, Atom Computing), QAOA with automatic parameter tuning, QRNG, and educational algorithms with cloud execution</Summary>
-    <PackageReleaseNotes>v1.4.1: Dependency updates
+    <PackageReleaseNotes>v1.4.2: Compilation/hardware tooling and weighted MAX-SAT
+- NEW: QubitRouting - inserts SWAPs so two-qubit gates respect device connectivity (CouplingMap: grid/linear/fromPairs); tracks logical-to-physical qubit permutation
+- NEW: CloudBackends.Factory.createRigettiRouted - Rigetti backend that auto-routes circuits for a device coupling map
+- NEW: QirEmitter - emit circuits as QIR base-profile textual LLVM IR for Azure Quantum submission
+- NEW: ResourceEstimation - logical (qubits/gates/T-count/depth) and physical (surface-code) resource estimates
+- NEW: NoiseModel - DeviceNoiseProfile with noise-aware routing (routeNoiseAware) and success-probability estimation
+- NEW: Weighted MAX-SAT - per-clause weights in QuantumSatSolver (clause / weightedClause); solution reports SatisfiedWeight/TotalWeight
+- IMPROVED: AutoML returns a typed TrainedModel discriminated union instead of obj (no unboxing in predict)
+- IMPROVED: Connected-component decomposition now unions sub-solutions for Vertex Cover and Maximum Matching
+- IMPROVED: Knapsack builder shares the solver item type (no duplicate record or field mapping)
+
+v1.4.1: Dependency updates
 - UPDATED: Azure.Identity 1.13.1 to 1.21.0
 - UPDATED: FSharp.Core to 10.1.301
 - UPDATED: Microsoft.Extensions.Logging to 10.0.9, Serilog to 4.3.1
@@ -126,6 +137,10 @@ v1.3.10: Async backend refactoring
     <!-- Builders Layer (depends on Types, LocalSimulator) -->
     <Compile Include="Builders\CircuitBuilder.fs" />
     <Compile Include="Builders\GateTranspiler.fs" />
+    <Compile Include="Builders\QubitRouting.fs" />
+    <Compile Include="Builders\ResourceEstimation.fs" />
+    <Compile Include="Builders\NoiseModel.fs" />
+    <Compile Include="Builders\QirEmitter.fs" />
     <Compile Include="Builders\OpenQasmVersion.fs" />
     <Compile Include="Builders\OpenQasmExport.fs" />
     <Compile Include="Builders\OpenQasmImport.fs" />

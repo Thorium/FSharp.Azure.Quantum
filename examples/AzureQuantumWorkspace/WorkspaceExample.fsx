@@ -25,7 +25,10 @@
 #load "../_common/Reporting.fs"
 
 open System
+open FSharp.Azure.Quantum
+open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Backends.AzureQuantumWorkspace
+open FSharp.Azure.Quantum.Backends.CloudBackends
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 open FSharp.Azure.Quantum.Backends.LocalBackend
 open FSharp.Azure.Quantum.Examples.Common
@@ -41,7 +44,7 @@ let args = Cli.parse argv
 Cli.exitIfHelp
     "WorkspaceExample.fsx"
     "Azure Quantum workspace management: create, env config, backend comparison"
-    [ { Name = "example"; Description = "Which example (all|create|env-config|backends)"; Default = Some "all" }
+    [ { Name = "example"; Description = "Which example (all|create|env-config|backends|submit)"; Default = Some "all" }
       { Name = "subscription"; Description = "Azure subscription ID"; Default = Some "your-subscription-id" }
       { Name = "resource-group"; Description = "Azure resource group"; Default = Some "your-resource-group" }
       { Name = "workspace-name"; Description = "Azure Quantum workspace name"; Default = Some "your-workspace-name" }
@@ -211,6 +214,62 @@ if shouldRun "backends" then
         { Name = "backends"; Label = "Backend Comparison"
           Status = "OK"
           Detail = sprintf "local backend=%s type=%A" quantumBackend.Name quantumBackend.NativeStateType }
+
+// ============================================================================
+// EXAMPLE 4: Real Cloud Job Submission (env-gated — the ONLY example that
+// actually contacts Azure Quantum and may incur cost). Requires explicit
+// `--example submit`; it is never run by `--example all`.
+//
+// Required environment variable:
+//   AZURE_QUANTUM_WORKSPACE_URL  Data-plane endpoint, e.g.
+//     https://<location>.quantum.azure.com/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.Quantum/workspaces/<ws>
+// Optional:
+//   AZURE_QUANTUM_TARGET         provider target (default "ionq.simulator")
+// Authentication uses DefaultAzureCredential: run `az login`, or set
+//   AZURE_TENANT_ID / AZURE_CLIENT_ID / AZURE_CLIENT_SECRET, or use managed identity.
+// ============================================================================
+
+if exampleArg = "submit" then
+    pr "=== Example 4: Real Cloud Job Submission ==="
+    pr ""
+
+    let workspaceUrl = Environment.GetEnvironmentVariable "AZURE_QUANTUM_WORKSPACE_URL"
+    let target =
+        match Environment.GetEnvironmentVariable "AZURE_QUANTUM_TARGET" with
+        | null | "" -> "ionq.simulator"
+        | t -> t
+
+    if String.IsNullOrWhiteSpace workspaceUrl then
+        pr "  [SKIP] AZURE_QUANTUM_WORKSPACE_URL not set — not contacting Azure Quantum."
+        pr "         Set it (and authenticate, e.g. 'az login') to run on real hardware:"
+        pr "           export AZURE_QUANTUM_WORKSPACE_URL=https://<loc>.quantum.azure.com/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.Quantum/workspaces/<ws>"
+        pr "           export AZURE_QUANTUM_TARGET=ionq.simulator   # optional"
+        record { Name = "submit"; Label = "Real Cloud Submission"; Status = "SKIPPED"; Detail = "AZURE_QUANTUM_WORKSPACE_URL not set" }
+    else
+        pr "  Target:    %s" target
+        pr "  Workspace: %s" workspaceUrl
+        pr "  Submitting a 2-qubit Bell circuit to Azure Quantum (this submits a real job)..."
+
+        // Whole-circuit submission: cloud backends submit a job and poll to completion.
+        let circuit =
+            CircuitBuilder.empty 2
+            |> CircuitBuilder.addGate (CircuitBuilder.Gate.H 0)
+            |> CircuitBuilder.addGate (CircuitBuilder.Gate.CNOT (0, 1))
+            |> CircuitBuilder.addMeasurement 0
+            |> CircuitBuilder.addMeasurement 1
+
+        // Authenticate (bearer token + throttling handler) and create a real IonQ backend.
+        let credential = Authentication.CredentialProviders.createDefaultCredential ()
+        use httpClient = Authentication.createAuthenticatedClient credential
+        let backend = CloudBackendFactory.createIonQ httpClient workspaceUrl target 1000
+
+        match backend.ExecuteToState (CircuitAbstraction.wrapCircuit circuit) with
+        | Ok _ ->
+            pr "  [OK] Job completed on backend '%s'" backend.Name
+            record { Name = "submit"; Label = "Real Cloud Submission"; Status = "OK"; Detail = sprintf "target=%s" target }
+        | Error err ->
+            pr "  [ERROR] %A" err
+            record { Name = "submit"; Label = "Real Cloud Submission"; Status = "ERROR"; Detail = sprintf "%A" err }
 
 // --- JSON output ---
 

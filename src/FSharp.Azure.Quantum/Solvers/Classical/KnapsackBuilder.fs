@@ -44,17 +44,10 @@ module Knapsack =
     // TYPES - Domain-specific types for Knapsack problems
     // ============================================================================
 
-    /// Knapsack Item with weight and value
-    type Item = {
-        /// Item identifier/name
-        Id: string
-        
-        /// Item weight (consumes capacity)
-        Weight: float
-        
-        /// Item value (benefit/profit)
-        Value: float
-    }
+    /// Knapsack Item with weight and value.
+    /// Alias of the solver's item type so the builder and solver share one
+    /// definition (no parallel record, no field-by-field mapping).
+    type Item = QuantumKnapsackSolver.KnapsackItem
 
     /// Knapsack Problem representation
     type Problem = {
@@ -122,9 +115,9 @@ module Knapsack =
     ///   ]
     ///   let problem = Knapsack.createProblem items 5.0
     let createProblem (items: (string * float * float) list) (capacity: float) : Problem =
-        let itemList = 
+        let itemList : Item list =
             items
-            |> List.map (fun (id, weight, value) -> 
+            |> List.map (fun (id, weight, value) ->
                 { Id = id; Weight = weight; Value = value })
         
         let totalValue = itemList |> List.sumBy (fun item -> item.Value)
@@ -248,17 +241,8 @@ module Knapsack =
                 |> Option.defaultValue (LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend)
             
             // Convert to quantum solver format
-            let quantumProblem : QuantumKnapsackSolver.KnapsackProblem = {
-                Items = 
-                    problem.Items 
-                    |> List.map (fun item -> 
-                        { 
-                            QuantumKnapsackSolver.KnapsackItem.Id = item.Id
-                            QuantumKnapsackSolver.KnapsackItem.Weight = item.Weight
-                            QuantumKnapsackSolver.KnapsackItem.Value = item.Value 
-                        })
-                Capacity = problem.Capacity
-            }
+            let quantumProblem : QuantumKnapsackSolver.KnapsackProblem =
+                { Items = problem.Items; Capacity = problem.Capacity }
             
             // Create quantum Knapsack solver configuration
             let quantumConfig : QuantumKnapsackSolver.QaoaConfig = {
@@ -281,10 +265,7 @@ module Knapsack =
                     else 0.0
                 
                 // Convert back to domain types
-                let selectedItems = 
-                    quantumResult.SelectedItems 
-                    |> List.map (fun qItem -> 
-                        { Id = qItem.Id; Weight = qItem.Weight; Value = qItem.Value })
+                let selectedItems = quantumResult.SelectedItems
                 
                 return {
                     SelectedItems = selectedItems
@@ -312,17 +293,8 @@ module Knapsack =
     ///   let classicalSolution = Knapsack.solveClassicalGreedy problem
     let internal solveClassicalGreedy (problem: Problem) : Solution =
         // Convert to quantum solver format
-        let quantumProblem : QuantumKnapsackSolver.KnapsackProblem = {
-            Items = 
-                problem.Items 
-                |> List.map (fun item -> 
-                    { 
-                        QuantumKnapsackSolver.KnapsackItem.Id = item.Id
-                        Weight = item.Weight
-                        Value = item.Value 
-                    })
-            Capacity = problem.Capacity
-        }
+        let quantumProblem : QuantumKnapsackSolver.KnapsackProblem =
+            { Items = problem.Items; Capacity = problem.Capacity }
         
         let classicalResult = QuantumKnapsackSolver.solveClassical quantumProblem
         
@@ -336,10 +308,7 @@ module Knapsack =
                 (classicalResult.TotalWeight / problem.Capacity) * 100.0
             else 0.0
         
-        let selectedItems = 
-            classicalResult.SelectedItems 
-            |> List.map (fun qItem -> 
-                { Id = qItem.Id; Weight = qItem.Weight; Value = qItem.Value })
+        let selectedItems = classicalResult.SelectedItems
         
         {
             SelectedItems = selectedItems
@@ -364,17 +333,8 @@ module Knapsack =
     ///   let optimalSolution = Knapsack.solveClassicalDP problem
     let internal solveClassicalDP (problem: Problem) : Solution =
         // Convert to quantum solver format
-        let quantumProblem : QuantumKnapsackSolver.KnapsackProblem = {
-            Items = 
-                problem.Items 
-                |> List.map (fun item -> 
-                    { 
-                        QuantumKnapsackSolver.KnapsackItem.Id = item.Id
-                        Weight = item.Weight
-                        Value = item.Value 
-                    })
-            Capacity = problem.Capacity
-        }
+        let quantumProblem : QuantumKnapsackSolver.KnapsackProblem =
+            { Items = problem.Items; Capacity = problem.Capacity }
         
         let dpResult = QuantumKnapsackSolver.solveClassical quantumProblem
         
@@ -388,10 +348,7 @@ module Knapsack =
                 (dpResult.TotalWeight / problem.Capacity) * 100.0
             else 0.0
         
-        let selectedItems = 
-            dpResult.SelectedItems 
-            |> List.map (fun qItem -> 
-                { Id = qItem.Id; Weight = qItem.Weight; Value = qItem.Value })
+        let selectedItems = dpResult.SelectedItems
         
         {
             SelectedItems = selectedItems
@@ -493,12 +450,7 @@ module Knapsack =
             findAllExactCombinationsClassical problem
         | Some quantumBackend ->
             // Quantum path: use iterative QAOA via QuantumKnapsackSolver
-            let quantumItems =
-                problem.Items
-                |> List.map (fun item ->
-                    { QuantumKnapsackSolver.KnapsackItem.Id = item.Id
-                      QuantumKnapsackSolver.KnapsackItem.Weight = item.Weight
-                      QuantumKnapsackSolver.KnapsackItem.Value = item.Value })
+            let quantumItems = problem.Items
 
             let config = QuantumKnapsackSolver.defaultSubsetSumConfig
 
@@ -506,10 +458,6 @@ module Knapsack =
             | Ok result ->
                 // Convert quantum items back to domain items
                 result.Combinations
-                |> List.map (fun combo ->
-                    combo
-                    |> List.map (fun qItem ->
-                        { Id = qItem.Id; Weight = qItem.Weight; Value = qItem.Value }))
             | Error _ ->
                 // On quantum error, fall back to classical
                 findAllExactCombinationsClassical problem

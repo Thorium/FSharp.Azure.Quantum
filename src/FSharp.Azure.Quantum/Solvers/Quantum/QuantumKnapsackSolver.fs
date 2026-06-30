@@ -40,7 +40,7 @@ open FSharp.Azure.Quantum.GraphOptimization
 ///   Subject to: Σ w_i * x_i ≤ W  (capacity constraint)
 ///
 /// Example:
-///   let backend = BackendAbstraction.createLocalBackend()
+///   let backend = LocalBackend() :> IQuantumBackend
 ///   let config = { NumShots = 1000; InitialParameters = (0.5, 0.5) }
 ///   match QuantumKnapsackSolver.solve backend problem config with
 ///   | Ok solution -> printfn "Total value: %f" solution.TotalValue
@@ -251,7 +251,7 @@ module QuantumKnapsackSolver =
     /// Returns: Async<Result<KnapsackSolution, QuantumError>> - Async computation with result or error
     /// 
     /// Example:
-    ///   let backend = BackendAbstraction.createLocalBackend()
+    ///   let backend = LocalBackend() :> IQuantumBackend
     ///   let problem = { Items = [...]; Capacity = 50.0 }
     ///   let config = { NumShots = 1000; InitialParameters = (0.5, 0.5) }
     ///   task {
@@ -354,7 +354,7 @@ module QuantumKnapsackSolver =
     /// Returns: Ok with best feasible solution found, or Error with QuantumError
     /// 
     /// Example:
-    ///   let backend = BackendAbstraction.createLocalBackend()
+    ///   let backend = LocalBackend() :> IQuantumBackend
     ///   let problem = { Items = [...]; Capacity = 50.0 }
     ///   let config = { NumShots = 1000; InitialParameters = (0.5, 0.5) }
     ///   match solve backend problem config with

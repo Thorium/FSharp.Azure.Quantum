@@ -1,4 +1,5 @@
 namespace FSharp.Azure.Quantum.TaskScheduling
+open System
 open FSharp.Azure.Quantum.Core
 
 open FSharp.Azure.Quantum
@@ -15,6 +16,13 @@ module QuboEncoding =
     /// (Alias for shared Qubo.combineTerms)
     let private addOrUpdate (key: int * int) (value: float) (map: Map<int * int, float>) : Map<int * int, float> =
         Qubo.combineTerms key value map
+
+    /// Number of whole time slots a real-time duration occupies, given the slot size in minutes.
+    /// (At least 1 slot.) This is what makes real durations — minutes, hours, days — map onto the
+    /// discrete QUBO time grid without conflating real time with slot indices.
+    let private durationToSlots (slotMinutes: float) (d: TimeSpan) : int =
+        if slotMinutes <= 0.0 then 1
+        else max 1 (int (ceil (d.TotalMinutes / slotMinutes)))
     
     /// Create variable index mappings for QUBO encoding
     /// Returns (forward mapping, reverse mapping, total variables)
@@ -42,9 +50,10 @@ module QuboEncoding =
     let private computePenaltyWeights
         (tasks: ScheduledTask<'T> list)
         (timeHorizon: int)
+        (slotMinutes: float)
         : float * float * float =
-        
-        let maxDuration = tasks |> List.map (fun t -> t.Duration) |> List.max
+
+        let maxDuration = tasks |> List.map (fun t -> float (durationToSlots slotMinutes t.Duration)) |> List.max
         let penaltyOneHot = Qubo.computeLucasPenalties maxDuration timeHorizon
         let penaltyDependency = maxDuration * penaltyOneHot
         let penaltyResource = maxDuration * penaltyOneHot
@@ -56,15 +65,16 @@ module QuboEncoding =
         (tasks: ScheduledTask<'T> list)
         (varMapping: Map<string * int, int>)
         (timeHorizon: int)
+        (slotMinutes: float)
         : Map<int * int, float> =
-        
+
         tasks
         |> List.collect (fun task ->
             [0 .. timeHorizon - 1]
             |> List.choose (fun t ->
                 Map.tryFind (task.Id, t) varMapping
                 |> Option.map (fun varIdx ->
-                    let completionTime = float t + task.Duration
+                    let completionTime = float t + float (durationToSlots slotMinutes task.Duration)
                     ((varIdx, varIdx), completionTime))))
         |> List.fold (fun acc (key, value) -> addOrUpdate key value acc) Map.empty
     
@@ -94,9 +104,10 @@ module QuboEncoding =
         (dependencies: Dependency list)
         (varMapping: Map<string * int, int>)
         (timeHorizon: int)
+        (slotMinutes: float)
         (penaltyDependency: float)
         : Map<int * int, float> =
-        
+
         dependencies
         |> List.collect (function
             | FinishToStart(predId, succId, lag) ->
@@ -104,12 +115,14 @@ module QuboEncoding =
                 match List.tryFind (fun (t: ScheduledTask<'T>) -> t.Id = predId) tasks with
                 | None -> []  // Skip if task not found
                 | Some predTask ->
-                    let predDuration = predTask.Duration
-                    
+                    // Predecessor occupancy and lag expressed in slots.
+                    let predDurationSlots = float (durationToSlots slotMinutes predTask.Duration)
+                    let lagSlots = if slotMinutes > 0.0 then lag.TotalMinutes / slotMinutes else 0.0
+
                     // Generate penalty terms for violating pairs
                     [0 .. timeHorizon - 1]
                     |> List.collect (fun t_pred ->
-                        let predEnd = float t_pred + predDuration + lag
+                        let predEnd = float t_pred + predDurationSlots + lagSlots
                         [0 .. int predEnd]
                         |> List.choose (fun t_succ ->
                             match Map.tryFind (predId, t_pred) varMapping, Map.tryFind (succId, t_succ) varMapping with
@@ -125,9 +138,10 @@ module QuboEncoding =
         (resources: Resource<'R> list)
         (varMapping: Map<string * int, int>)
         (timeHorizon: int)
+        (slotMinutes: float)
         (penaltyResource: float)
         : Map<int * int, float> =
-        
+
         if List.isEmpty resources then
             Map.empty
         else
@@ -139,7 +153,7 @@ module QuboEncoding =
                     let overlappingVars =
                         tasks
                         |> List.collect (fun task ->
-                            let taskDuration = int (ceil task.Duration)
+                            let taskDuration = durationToSlots slotMinutes task.Duration
                             let startRange = max 0 (t - taskDuration + 1), t
                             
                             [fst startRange .. snd startRange]
@@ -191,19 +205,22 @@ module QuboEncoding =
         )
         |> Map.ofArray
     
-    /// Build solution from decoded task start times
+    /// Build solution from decoded task START SLOTS, mapping each slot back to a real start time
+    /// (slot index × slotMinutes) so the returned schedule is in genuine time units.
     let buildSolutionFromStarts
         (tasks: ScheduledTask<'T> list)
         (taskStarts: Map<string, float>)
+        (slotMinutes: float)
         : TaskAssignment list option =
-        
+
         // Check if valid (each task starts exactly once)
         let isValid = tasks |> List.forall (fun t -> Map.containsKey t.Id taskStarts)
-        
+
         if isValid then
             tasks
             |> List.map (fun task ->
-                let startTime = Map.find task.Id taskStarts
+                let startSlot = Map.find task.Id taskStarts
+                let startTime = TimeSpan.FromMinutes(startSlot * slotMinutes)
                 {
                     TaskId = task.Id
                     StartTime = startTime
@@ -236,30 +253,31 @@ module QuboEncoding =
     /// 
     /// QUBO FORM (minimization for QAOA):
     ///   H = Objective + λ₁*Penalty₁ + λ₂*Penalty₂ + λ₃*Penalty₃
-    let toQubo 
-        (problem: SchedulingProblem<'TTask, 'TResource>) 
+    let toQubo
+        (problem: SchedulingProblem<'TTask, 'TResource>)
         (timeHorizon: int)
+        (slotMinutes: float)
         : QuantumResult<GraphOptimization.QuboMatrix> =
-        
+
         let numTasks = problem.Tasks.Length
-        
+
         if numTasks = 0 then
             Error (QuantumError.ValidationError ("Tasks", "No tasks to schedule"))
         elif timeHorizon <= 0 then
             Error (QuantumError.ValidationError ("TimeHorizon", "Time horizon must be positive"))
         else
-            // Create variable mappings functionally
+            // Create variable mappings functionally (timeHorizon = number of discrete slots)
             let (varMapping, _, numVariables) = createVariableMappings problem.Tasks timeHorizon
-            
+
             // Calculate penalty weights
             let (penaltyOneHot, penaltyDependency, penaltyResource) =
-                computePenaltyWeights problem.Tasks timeHorizon
-            
+                computePenaltyWeights problem.Tasks timeHorizon slotMinutes
+
             // Build QUBO terms functionally
-            let objectiveTerms = buildObjectiveTerms problem.Tasks varMapping timeHorizon
+            let objectiveTerms = buildObjectiveTerms problem.Tasks varMapping timeHorizon slotMinutes
             let oneHotTerms = buildOneHotTerms problem.Tasks varMapping timeHorizon penaltyOneHot
-            let dependencyTerms = buildDependencyTerms problem.Tasks problem.Dependencies varMapping timeHorizon penaltyDependency
-            let resourceTerms = buildResourceTerms problem.Tasks problem.Resources varMapping timeHorizon penaltyResource
+            let dependencyTerms = buildDependencyTerms problem.Tasks problem.Dependencies varMapping timeHorizon slotMinutes penaltyDependency
+            let resourceTerms = buildResourceTerms problem.Tasks problem.Resources varMapping timeHorizon slotMinutes penaltyResource
             
             // Combine all terms
             let quboTerms =

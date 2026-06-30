@@ -190,7 +190,7 @@ let problem : SchedulingProblem<unit, unit> = scheduling {
     tasks scheduledTasks
     resources [machine1]
     objective MinimizeMakespan
-    timeHorizon timeHorizonSlots
+    timeHorizon (hours timeHorizonSlots)
 }
 
 // ==============================================================================
@@ -209,10 +209,8 @@ let backend = LocalBackend() :> FSharp.Azure.Quantum.Core.BackendAbstraction.IQu
 if not quiet then
     printfn "Running quantum optimization (QUBO encoding + QAOA)..."
     printfn "- Encoding scheduling problem as QUBO matrix"
-    printfn "- Variables: %d tasks Ã— %d time slots = %d qubits (fits LocalBackend limit)"
+    printfn "- %d tasks discretised into a bounded time-slot grid (qubits kept within LocalBackend limit)"
         problem.Tasks.Length
-        (int problem.TimeHorizon)
-        (problem.Tasks.Length * int problem.TimeHorizon)
     printfn "- Applying QAOA (Quantum Approximate Optimization Algorithm)"
     printfn "- Measuring quantum state and decoding to schedule"
     printfn ""
@@ -252,9 +250,9 @@ let scheduleResult : (Solution * float * float * float) option =
                 let job = productionJobs |> List.tryFind (fun j -> j.Id = assignment.TaskId)
                 let jobName = job |> Option.map (fun j -> j.Name) |> Option.defaultValue assignment.TaskId
                 let jobPriority = job |> Option.map (fun j -> j.Priority) |> Option.defaultValue 0
-                let startHours = assignment.StartTime / 60.0
-                let endHours = assignment.EndTime / 60.0
-                let durationHours = (assignment.EndTime - assignment.StartTime) / 60.0
+                let startHours = assignment.StartTime.TotalHours
+                let endHours = assignment.EndTime.TotalHours
+                let durationHours = (assignment.EndTime - assignment.StartTime).TotalHours
                 printfn "  %s: hours %.1f-%.1f (duration: %.1fh, priority: %d)"
                     jobName
                     startHours
@@ -266,7 +264,7 @@ let scheduleResult : (Solution * float * float * float) option =
             printfn "PERFORMANCE SUMMARY:"
             printfn "â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€"
             printfn "  Total Jobs:            %d" productionJobs.Length
-            printfn "  Makespan:              %.1f hours" (schedule.Makespan / 60.0)
+            printfn "  Makespan:              %.1f hours" (schedule.Makespan.TotalHours)
             printfn "  Total Cost:            $%.2f" schedule.TotalCost
 
         // Calculate utilization
@@ -282,7 +280,7 @@ let scheduleResult : (Solution * float * float * float) option =
         // ==============================================================================
 
         let sequentialHours = productionJobs |> List.sumBy (fun j -> j.DurationHours)
-        let makespanHours = schedule.Makespan / 60.0
+        let makespanHours = schedule.Makespan.TotalHours
         let speedup = if makespanHours > 0.0 then sequentialHours / makespanHours else 1.0
         let timeSaved = sequentialHours - makespanHours
         let timeSavedPct = if sequentialHours > 0.0 then (timeSaved / sequentialHours) * 100.0 else 0.0
@@ -401,10 +399,10 @@ let resultRows : Map<string, string> list =
                 Map.ofList
                     [ "task_id", a.TaskId
                       "task_name", jobName
-                      "start_hours", sprintf "%.2f" (a.StartTime / 60.0)
-                      "end_hours", sprintf "%.2f" (a.EndTime / 60.0)
-                      "duration_hours", sprintf "%.2f" ((a.EndTime - a.StartTime) / 60.0)
-                      "makespan_hours", sprintf "%.2f" (schedule.Makespan / 60.0)
+                      "start_hours", sprintf "%.2f" (a.StartTime.TotalHours)
+                      "end_hours", sprintf "%.2f" (a.EndTime.TotalHours)
+                      "duration_hours", sprintf "%.2f" ((a.EndTime - a.StartTime).TotalHours)
+                      "makespan_hours", sprintf "%.2f" (schedule.Makespan.TotalHours)
                       "total_cost", sprintf "%.2f" schedule.TotalCost
                       "speedup", sprintf "%.2f" speedup
                       "time_saved_pct", sprintf "%.1f" timeSavedPct

@@ -1,4 +1,5 @@
 namespace FSharp.Azure.Quantum.TaskScheduling
+open System
 open FSharp.Azure.Quantum.Core
 
 open Types
@@ -76,10 +77,10 @@ module ClassicalSolver =
     /// Compute earliest start time for a task based on dependencies
     let private computeStartTime
         (task: ScheduledTask<'T>)
-        (completionTimes: Map<string, float>)
+        (completionTimes: Map<string, TimeSpan>)
         (dependencies: Dependency list)
-        : float =
-        
+        : TimeSpan =
+
         // Find earliest start time based on dependencies
         let depEndTime =
             dependencies
@@ -89,7 +90,7 @@ module ClassicalSolver =
                     |> Option.map (fun endTime -> endTime + lag)
                 | _ -> None)
             |> function
-                | [] -> 0.0
+                | [] -> TimeSpan.Zero
                 | times -> List.max times
         
         // Consider earliest start constraint
@@ -100,7 +101,7 @@ module ClassicalSolver =
     /// Create assignment from task and start time
     let private createAssignment
         (task: ScheduledTask<'T>)
-        (startTime: float)
+        (startTime: TimeSpan)
         : TaskAssignment =
         
         {

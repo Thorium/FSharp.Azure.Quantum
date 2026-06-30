@@ -258,15 +258,15 @@ if runAll || exampleName = "manufacturing" then
     let paintingBooth = resource { resourceId "PaintingBooth"; capacity 1.0; costPerUnit 35.0 }
 
     let manufacturingTasks : ScheduledTask<unit> list = [
-        // Unit-duration tasks: each occupies one discrete time slot (the QUBO discretises time
-        // into slots, so durations are slot-scale and the schedule width stays qubit-efficient).
-        scheduledTask { taskId "Welding_Job1"; duration (minutes 1.0); requires "WeldingStation_A" 1.0 }
-        scheduledTask { taskId "Welding_Job2"; duration (minutes 1.0); requires "WeldingStation_B" 1.0 }
-        scheduledTask { taskId "Assembly_Job1"; duration (minutes 1.0); requires "AssemblyLine_1" 1.0 }
+        // Real-time durations (System.TimeSpan). The solver discretises time into a bounded slot
+        // grid internally, so genuine hours/minutes work directly.
+        scheduledTask { taskId "Welding_Job1"; duration (hours 1.0); requires "WeldingStation_A" 1.0 }
+        scheduledTask { taskId "Welding_Job2"; duration (hours 1.0); requires "WeldingStation_B" 1.0 }
+        scheduledTask { taskId "Assembly_Job1"; duration (hours 1.0); requires "AssemblyLine_1" 1.0 }
         // Genuine precedence: Painting can only start after Welding_Job1 AND Assembly_Job1 finish.
         scheduledTask {
             taskId "Painting_Job1"
-            duration (minutes 1.0)
+            duration (hours 1.0)
             afterMultiple ["Welding_Job1"; "Assembly_Job1"]
             requires "PaintingBooth" 1.0
         }
@@ -276,21 +276,21 @@ if runAll || exampleName = "manufacturing" then
         tasks manufacturingTasks
         resources [weldStationA; weldStationB; assemblyLine; paintingBooth]
         objective MinimizeMakespan
-        timeHorizon 4.0
+        timeHorizon (hours 4.0)
     }
 
     match solveQuantum quantumBackend manufacturingProblem |> Async.RunSynchronously with
     | Ok schedule ->
         pr "Manufacturing Complete (precedence respected)"
         pr ""
-        pr "  Schedule (ordered by start slot; time is discretised into unit slots):"
+        pr "  Schedule (ordered by start time):"
         let ordered = schedule.Assignments |> List.sortBy (fun a -> a.StartTime)
         ordered |> List.iter (fun a ->
             let res = a.AssignedResources |> Map.toList |> List.map fst |> String.concat ", "
-            pr "    %-16s slot %.0f -> %.0f  on [%s]"
-                a.TaskId a.StartTime a.EndTime res)
+            pr "    %-16s %.1fh -> %.1fh  on [%s]"
+                a.TaskId a.StartTime.TotalHours a.EndTime.TotalHours res)
         pr ""
-        pr "  Makespan:   %.0f slots" schedule.Makespan
+        pr "  Makespan:   %.1f hours" schedule.Makespan.TotalHours
         pr "  Total Cost: $%.2f" schedule.TotalCost
 
         // Validate the precedence held in the produced schedule: painting must start strictly
@@ -305,7 +305,7 @@ if runAll || exampleName = "manufacturing" then
 
         jsonResults <-
             (box {| example = "Manufacturing"
-                    makespanSlots = schedule.Makespan
+                    makespanHours = schedule.Makespan.TotalHours
                     totalCost = schedule.TotalCost
                     assignments = schedule.Assignments.Length |}) :: jsonResults
     | Error err ->

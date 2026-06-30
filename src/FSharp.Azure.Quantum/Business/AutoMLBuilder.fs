@@ -179,6 +179,15 @@ module AutoML =
         CancellationToken: System.Threading.CancellationToken option
     }
     
+    /// Trained model produced by an AutoML trial.
+    /// Replaces the former type-erased `obj` so callers can pattern-match instead of unboxing.
+    type TrainedModel =
+        | BinaryModel of BinaryClassifier.Classifier
+        | MultiClassModel of PredictiveModel.Model
+        | RegressionModel of PredictiveModel.Model
+        | AnomalyModel of AnomalyDetector.Detector
+        | SimilarityModel of SimilaritySearch.SearchIndex<obj>
+
     /// AutoML result - best model found
     type AutoMLResult = {
         /// Best model type
@@ -206,7 +215,7 @@ module AutoML =
         FailedTrials: int
         
         /// Trained model (can be used for predictions)
-        Model: obj  // Type-erased for flexibility
+        Model: TrainedModel
         
         /// Model metadata
         Metadata: AutoMLMetadata
@@ -624,7 +633,7 @@ module AutoML =
                     reporter |> Option.map (fun r -> r.IsCancellationRequested) |> Option.defaultValue false
             
             // Execute a single trial and return result with trained model
-            let executeTrial (trial: TrialSpec) : (TrialResult * obj option) option =
+            let executeTrial (trial: TrialSpec) : (TrialResult * TrainedModel option) option =
                 // Check cancellation first
                 if isCancellationRequested() then
                     if problem.Verbose then
@@ -670,7 +679,7 @@ module AutoML =
                             TrainingTime = DateTime.UtcNow - trialStart
                             Success = true
                             ErrorMessage = None
-                        }, Some (box model))
+                        }, Some model)
                     
                     let result =
                         try
@@ -695,11 +704,11 @@ module AutoML =
                                              r.Report(Core.Progress.TrialCompleted(trial.Id + 1, score, elapsed)))
                                          
                                          (score, model)))
-                                |> Result.map (fun (score, model) -> createSuccessResult score model)
+                                |> Result.map (fun (score, model) -> createSuccessResult score (BinaryModel model))
                                 |> Result.orElseWith (fun e ->
                                     if problem.Verbose then
                                         logWarning problem.Logger $"  [FAIL] Failed: {e}"
-                                    
+
                                     // Report trial failure
                                     reporter |> Option.iter (fun r ->
                                         r.Report(Core.Progress.TrialFailed(trial.Id + 1, e.Message)))
@@ -719,12 +728,12 @@ module AutoML =
                                         if problem.Verbose then
                                             logInfo problem.Logger $"  [OK] Score: {score * 100.0:F2}%% (time: {(DateTime.UtcNow - trialStart).TotalSeconds:F1}s)"
                                         (score, model)))
-                                |> Result.map (fun (score, model) -> createSuccessResult score model)
+                                |> Result.map (fun (score, model) -> createSuccessResult score (MultiClassModel model))
                                 |> Result.orElseWith (fun e ->
                                     if problem.Verbose then
                                         logWarning problem.Logger $"  [FAIL] Failed: {e}"
                                     Ok (createFailureResult e.Message))
-                            
+
                             // Regression
                             | Regression ->
                                 tryRegressionModel trainX trainY trial.Architecture trial.Hyperparameters (Some backend)
@@ -735,12 +744,12 @@ module AutoML =
                                         if problem.Verbose then
                                             logInfo problem.Logger $"  [OK] R2 Score: {score:F4} (time: {(DateTime.UtcNow - trialStart).TotalSeconds:F1}s)"
                                         (score, model)))
-                                |> Result.map (fun (score, model) -> createSuccessResult score model)
+                                |> Result.map (fun (score, model) -> createSuccessResult score (RegressionModel model))
                                 |> Result.orElseWith (fun e ->
                                     if problem.Verbose then
                                         logWarning problem.Logger $"  [FAIL] Failed: {e}"
                                     Ok (createFailureResult e.Message))
-                            
+
                             // Anomaly Detection
                             | AnomalyDetection ->
                                 // For anomaly detection, use all normal data for training
@@ -755,12 +764,12 @@ module AutoML =
                                         logInfo problem.Logger $"  [OK] Balanced accuracy: {score:F4} (time: {(DateTime.UtcNow - trialStart).TotalSeconds:F1}s)"
 
                                     (score, detector))
-                                |> Result.map (fun (score, detector) -> createSuccessResult score detector)
+                                |> Result.map (fun (score, detector) -> createSuccessResult score (AnomalyModel detector))
                                 |> Result.orElseWith (fun e ->
                                     if problem.Verbose then
                                         logWarning problem.Logger $"  [FAIL] Failed: {e}"
                                     Ok (createFailureResult e.Message))
-                            
+
                             // Similarity Search
                             | SimilaritySearch ->
                                 trySimilaritySearchModel trainX trial.Hyperparameters (Some backend)
@@ -772,12 +781,12 @@ module AutoML =
                                         logInfo problem.Logger $"  [OK] Precision@k: {score:F4} (time: {(DateTime.UtcNow - trialStart).TotalSeconds:F1}s)"
 
                                     (score, searchIndex))
-                                |> Result.map (fun (score, searchIndex) -> createSuccessResult score searchIndex)
+                                |> Result.map (fun (score, searchIndex) -> createSuccessResult score (SimilarityModel searchIndex))
                                 |> Result.orElseWith (fun e ->
                                     if problem.Verbose then
                                         logWarning problem.Logger $"  [FAIL] Failed: {e}"
                                     Ok (createFailureResult e.Message))
-                            
+
                         with ex ->
                             if problem.Verbose then
                                 logError problem.Logger $"  [ERROR] Exception: {ex.Message}"
@@ -923,7 +932,7 @@ module AutoML =
                              reporter |> Option.map (fun r -> r.IsCancellationRequested) |> Option.defaultValue false)
 
                     // executeTrial is CPU-bound, identical logic to sync version
-                    let executeTrial (trial: TrialSpec) : (TrialResult * obj option) option =
+                    let executeTrial (trial: TrialSpec) : (TrialResult * TrainedModel option) option =
                         if isCancellationRequested() then
                             if problemWithToken.Verbose then
                                 logInfo problemWithToken.Logger "[Stop] Search cancelled by user"
@@ -965,7 +974,7 @@ module AutoML =
                                     TrainingTime = DateTime.UtcNow - trialStart
                                     Success = true
                                     ErrorMessage = None
-                                }, Some (box model))
+                                }, Some model)
 
                             let result =
                                 try
@@ -984,7 +993,7 @@ module AutoML =
                                                 reporter |> Option.iter (fun r ->
                                                     r.Report(Core.Progress.TrialCompleted(trial.Id + 1, score, elapsed)))
                                                 (score, model)))
-                                        |> Result.map (fun (score, model) -> createSuccessResult score model)
+                                        |> Result.map (fun (score, model) -> createSuccessResult score (BinaryModel model))
                                         |> Result.orElseWith (fun e ->
                                             if problemWithToken.Verbose then
                                                 logWarning problemWithToken.Logger $"  [FAIL] Failed: {e}"
@@ -1002,7 +1011,7 @@ module AutoML =
                                                 if problemWithToken.Verbose then
                                                     logInfo problemWithToken.Logger $"  [OK] Score: {score * 100.0:F2}%% (time: {(DateTime.UtcNow - trialStart).TotalSeconds:F1}s)"
                                                 (score, model)))
-                                        |> Result.map (fun (score, model) -> createSuccessResult score model)
+                                        |> Result.map (fun (score, model) -> createSuccessResult score (MultiClassModel model))
                                         |> Result.orElseWith (fun e ->
                                             if problemWithToken.Verbose then
                                                 logWarning problemWithToken.Logger $"  [FAIL] Failed: {e}"
@@ -1016,7 +1025,7 @@ module AutoML =
                                                 if problemWithToken.Verbose then
                                                     logInfo problemWithToken.Logger $"  [OK] R2 Score: {score:F4} (time: {(DateTime.UtcNow - trialStart).TotalSeconds:F1}s)"
                                                 (score, model)))
-                                        |> Result.map (fun (score, model) -> createSuccessResult score model)
+                                        |> Result.map (fun (score, model) -> createSuccessResult score (RegressionModel model))
                                         |> Result.orElseWith (fun e ->
                                             if problemWithToken.Verbose then
                                                 logWarning problemWithToken.Logger $"  [FAIL] Failed: {e}"
@@ -1030,7 +1039,7 @@ module AutoML =
                                             if problemWithToken.Verbose then
                                                 logInfo problemWithToken.Logger $"  [OK] Balanced accuracy: {score:F4} (time: {(DateTime.UtcNow - trialStart).TotalSeconds:F1}s)"
                                             (score, detector))
-                                        |> Result.map (fun (score, detector) -> createSuccessResult score detector)
+                                        |> Result.map (fun (score, detector) -> createSuccessResult score (AnomalyModel detector))
                                         |> Result.orElseWith (fun e ->
                                             if problemWithToken.Verbose then
                                                 logWarning problemWithToken.Logger $"  [FAIL] Failed: {e}"
@@ -1043,7 +1052,7 @@ module AutoML =
                                             if problemWithToken.Verbose then
                                                 logInfo problemWithToken.Logger $"  [OK] Precision@k: {score:F4} (time: {(DateTime.UtcNow - trialStart).TotalSeconds:F1}s)"
                                             (score, searchIndex))
-                                        |> Result.map (fun (score, searchIndex) -> createSuccessResult score searchIndex)
+                                        |> Result.map (fun (score, searchIndex) -> createSuccessResult score (SimilarityModel searchIndex))
                                         |> Result.orElseWith (fun e ->
                                             if problemWithToken.Verbose then
                                                 logWarning problemWithToken.Logger $"  [FAIL] Failed: {e}"
@@ -1137,31 +1146,26 @@ module AutoML =
     /// Predict with AutoML result (wrapper for underlying model)
     let predict (features: float array) (result: AutoMLResult) : QuantumResult<Prediction> =
         try
-            match result.BestModelType with
-            | name when name.StartsWith("Binary") ->
-                let model = unbox<BinaryClassifier.Classifier> result.Model
+            // Pattern-match the typed model (exhaustive — no unboxing, no "unsupported" arm).
+            match result.Model with
+            | BinaryModel model ->
                 BinaryClassifier.predict features model
                 |> Result.map BinaryPrediction
-            
-            | name when name.StartsWith("Multi-Class") ->
-                let model = unbox<PredictiveModel.Model> result.Model
+
+            | MultiClassModel model ->
                 PredictiveModel.predictCategory features model None None
                 |> Result.map CategoryPrediction
-            
-            | "Regression" ->
-                let model = unbox<PredictiveModel.Model> result.Model
+
+            | RegressionModel model ->
                 PredictiveModel.predict features model None None
                 |> Result.map RegressionPrediction
-            
-            | "Anomaly Detection" ->
-                let detector = unbox<AnomalyDetector.Detector> result.Model
+
+            | AnomalyModel detector ->
                 AnomalyDetector.check features detector
                 |> Result.map AnomalyPrediction
-            
-            | "Similarity Search" ->
-                let searchIndex = unbox<SimilaritySearch.SearchIndex<obj>> result.Model
-                // For similarity search, we need an item from the index
-                // Use the first item in the index as a fallback
+
+            | SimilarityModel searchIndex ->
+                // For similarity search, use the first index item as a query fallback
                 if searchIndex.Items.Length = 0 then
                     Error (QuantumError.ValidationError ("Input", "Similarity search index is empty"))
                 else
@@ -1170,9 +1174,6 @@ module AutoML =
                     let topN = min 5 (searchIndex.Items.Length - 1) |> max 1
                     SimilaritySearch.findSimilar firstItem features topN searchIndex
                     |> Result.map SimilarityPrediction
-            
-            | _ ->
-                Error (QuantumError.ValidationError ("Input", $"Unsupported model type: {result.BestModelType}"))
         with ex ->
             Error (QuantumError.ValidationError ("Input", $"Prediction failed: {ex.Message}"))
     

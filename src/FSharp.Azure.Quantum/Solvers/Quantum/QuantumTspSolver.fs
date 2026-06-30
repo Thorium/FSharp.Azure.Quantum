@@ -43,7 +43,7 @@ open FSharp.Azure.Quantum.Core
 /// 6. Return Best Solution
 ///
 /// Example:
-///   let backend = BackendAbstraction.createLocalBackend()
+///   let backend = LocalBackend() :> IQuantumBackend
 ///   let config = { NumShots = 1000; InitialParameters = (0.5, 0.5) }
 ///   match QuantumTspSolver.solve backend distances config with
 ///   | Ok result -> printfn "Tour length: %f" result.TourLength

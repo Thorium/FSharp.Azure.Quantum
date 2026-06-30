@@ -1,4 +1,5 @@
 namespace FSharp.Azure.Quantum.TaskScheduling
+open System
 open FSharp.Azure.Quantum.Core
 
 open Types
@@ -16,7 +17,7 @@ module Builders =
             {
                 Id = ""
                 Value = None
-                Duration = 0.0
+                Duration = TimeSpan.Zero
                 EarliestStart = None
                 Deadline = None
                 ResourceRequirements = Map.empty
@@ -31,7 +32,7 @@ module Builders =
             {
                 Id = ""
                 Value = None
-                Duration = 0.0
+                Duration = TimeSpan.Zero
                 EarliestStart = None
                 Deadline = None
                 ResourceRequirements = Map.empty
@@ -44,7 +45,7 @@ module Builders =
             {
                 Id = if System.String.IsNullOrEmpty task2.Id then task1.Id else task2.Id
                 Value = match task2.Value with | Some _ -> task2.Value | None -> task1.Value
-                Duration = if task2.Duration = 0.0 then task1.Duration else task2.Duration
+                Duration = if task2.Duration = TimeSpan.Zero then task1.Duration else task2.Duration
                 EarliestStart = match task2.EarliestStart with | Some _ -> task2.EarliestStart | None -> task1.EarliestStart
                 Deadline = match task2.Deadline with | Some _ -> task2.Deadline | None -> task1.Deadline
                 ResourceRequirements = Map.fold (fun acc k v -> Map.add k v acc) task1.ResourceRequirements task2.ResourceRequirements
@@ -68,11 +69,10 @@ module Builders =
         member _.TaskId(task: ScheduledTask<'T>, id: string) =
             { task with Id = id }
 
-        /// Set task duration (required)
+        /// Set task duration (required). Build with minutes/hours/days, e.g. duration (hours 1.0).
         [<CustomOperation("duration")>]
-        member _.Duration(task: ScheduledTask<'T>, duration: Duration) =
-            let (Duration d) = duration
-            { task with Duration = d }
+        member _.Duration(task: ScheduledTask<'T>, duration: TimeSpan) =
+            { task with Duration = duration }
 
         /// Add single dependency (task must start after specified task completes)
         [<CustomOperation("after")>]
@@ -109,14 +109,14 @@ module Builders =
         member _.Priority(task: ScheduledTask<'T>, priority: float) =
             { task with Priority = priority }
 
-        /// Set deadline (latest completion time)
+        /// Set deadline (latest completion time, as an offset; build with minutes/hours/days)
         [<CustomOperation("deadline")>]
-        member _.Deadline(task: ScheduledTask<'T>, deadline: float) =
+        member _.Deadline(task: ScheduledTask<'T>, deadline: TimeSpan) =
             { task with Deadline = Some deadline }
 
-        /// Set earliest start time
+        /// Set earliest start time (offset; build with minutes/hours/days)
         [<CustomOperation("earliestStart")>]
-        member _.EarliestStart(task: ScheduledTask<'T>, earliestStart: float) =
+        member _.EarliestStart(task: ScheduledTask<'T>, earliestStart: TimeSpan) =
             { task with EarliestStart = Some earliestStart }
 
     /// Computation expression builder instance for scheduled tasks
@@ -219,7 +219,7 @@ module Builders =
                 Resources = []
                 Dependencies = []
                 Objective = MinimizeMakespan
-                TimeHorizon = 1000.0
+                TimeHorizon = TimeSpan.FromMinutes 1000.0
             }
         
         member _.YieldFrom(problem: SchedulingProblem<'TTask, 'TResource>) : SchedulingProblem<'TTask, 'TResource> =
@@ -231,7 +231,7 @@ module Builders =
                 Resources = []
                 Dependencies = []
                 Objective = MinimizeMakespan
-                TimeHorizon = 1000.0
+                TimeHorizon = TimeSpan.FromMinutes 1000.0
             }
         
         member _.Combine(prob1: SchedulingProblem<'TTask, 'TResource>, prob2: SchedulingProblem<'TTask, 'TResource>) : SchedulingProblem<'TTask, 'TResource> =
@@ -240,7 +240,7 @@ module Builders =
                 Resources = prob1.Resources @ prob2.Resources
                 Dependencies = prob1.Dependencies @ prob2.Dependencies
                 Objective = prob2.Objective  // Take second if set
-                TimeHorizon = if prob2.TimeHorizon = 1000.0 then prob1.TimeHorizon else prob2.TimeHorizon
+                TimeHorizon = if prob2.TimeHorizon = TimeSpan.FromMinutes 1000.0 then prob1.TimeHorizon else prob2.TimeHorizon
             }
         
         member inline _.Delay([<InlineIfLambda>] f: unit -> SchedulingProblem<'TTask, 'TResource>) : SchedulingProblem<'TTask, 'TResource> = f()
@@ -265,7 +265,7 @@ module Builders =
                     | Some value ->
                         match value with
                         | :? (string list) as deps ->
-                            deps |> List.map (fun predId -> FinishToStart(predId, task.Id, 0.0))
+                            deps |> List.map (fun predId -> FinishToStart(predId, task.Id, TimeSpan.Zero))
                         | _ -> []
                     | _ -> []
                 )
@@ -281,9 +281,9 @@ module Builders =
         member _.Objective(problem: SchedulingProblem<'TTask, 'TResource>, objective: Objective) =
             { problem with Objective = objective }
 
-        /// Set time horizon
+        /// Set time horizon (real-time span; build with minutes/hours/days, e.g. timeHorizon (hours 8.0))
         [<CustomOperation("timeHorizon")>]
-        member _.TimeHorizon(problem: SchedulingProblem<'TTask, 'TResource>, horizon: float) =
+        member _.TimeHorizon(problem: SchedulingProblem<'TTask, 'TResource>, horizon: TimeSpan) =
             { problem with TimeHorizon = horizon }
 
     /// Computation expression builder instance for scheduling problems

@@ -528,7 +528,7 @@ module ConstraintScheduler =
                         |> List.mapi (fun r _ ->
                             let varId = t * problem.Resources.Length + r
                             ({ Variable = varId; IsNegated = false } : QuantumSatSolver.Literal))
-                    }
+                      Weight = 1.0 }
                 
                 // At most one resource (pairwise mutex)
                 let atMostOne : QuantumSatSolver.Clause list =
@@ -542,7 +542,7 @@ module ConstraintScheduler =
                                 Some ({ Literals = [
                                     ({ Variable = v1; IsNegated = true } : QuantumSatSolver.Literal)
                                     ({ Variable = v2; IsNegated = true } : QuantumSatSolver.Literal)
-                                ] } : QuantumSatSolver.Clause)
+                                ]; Weight = 1.0 } : QuantumSatSolver.Clause)
                             else
                                 None)
                         |> List.choose id)
@@ -565,7 +565,7 @@ module ConstraintScheduler =
                             ({ Literals = [
                                 ({ Variable = v1; IsNegated = true } : QuantumSatSolver.Literal)
                                 ({ Variable = v2; IsNegated = true } : QuantumSatSolver.Literal)
-                            ] } : QuantumSatSolver.Clause))
+                            ]; Weight = 1.0 } : QuantumSatSolver.Clause))
                     | _ -> []
                 | RequiresResource (task, resource) ->
                     match Map.tryFind task taskIdx, Map.tryFind resource resIdx with
@@ -573,7 +573,7 @@ module ConstraintScheduler =
                         let varId = t * problem.Resources.Length + r
                         [ ({ Literals = [
                             ({ Variable = varId; IsNegated = false } : QuantumSatSolver.Literal)
-                        ] } : QuantumSatSolver.Clause) ]
+                        ]; Weight = 1.0 } : QuantumSatSolver.Clause) ]
                     | _ -> []
                 | Precedence _ -> [])
         

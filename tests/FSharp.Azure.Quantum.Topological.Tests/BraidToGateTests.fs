@@ -792,3 +792,30 @@ module BraidToGateTests =
         let gates = [ CircuitBuilder.Gate.T 0; CircuitBuilder.Gate.TDG 0 ]
         let result = BraidToGate.optimizeGates 2 gates
         Assert.Empty(result)
+
+    // ========================================================================
+    // BRAID -> GATE EXECUTION (wired reverse bridge)
+    // ========================================================================
+
+    [<Fact>]
+    let ``Braid compiles to a gate circuit (compileToCircuit)`` () =
+        // Business meaning: a braid program can be turned into a runnable gate circuit.
+        let braid = braidFromGensOrFail 2 [BraidGroup.sigma 0] "Single σ_0"
+        match BraidToGate.compileToCircuit braid AnyonSpecies.AnyonType.Ising BraidToGate.defaultOptions with
+        | Error err -> failwith $"compileToCircuit failed: {err.Message}"
+        | Ok circuit ->
+            // One Ising clockwise braid = one S gate
+            Assert.Equal(1, circuit.Gates.Length)
+            Assert.Equal(CircuitBuilder.Gate.S 0, circuit.Gates.[0])
+
+    [<Fact>]
+    let ``Braid runs on a gate backend (executeOnGateBackend)`` () =
+        // Business meaning: a topological (braid) program can be executed/validated
+        // on a gate-based simulator/hardware via the wired braid->gate path.
+        let braid = braidFromGensOrFail 2 [BraidGroup.sigma 0] "Single σ_0"
+        let backend =
+            FSharp.Azure.Quantum.Backends.LocalBackend.LocalBackend()
+            :> FSharp.Azure.Quantum.Core.BackendAbstraction.IQuantumBackend
+        match BraidToGate.executeOnGateBackend backend braid AnyonSpecies.AnyonType.Ising BraidToGate.defaultOptions with
+        | Ok _ -> ()  // executed successfully on the gate simulator
+        | Error err -> failwith $"executeOnGateBackend failed: {err.Message}"

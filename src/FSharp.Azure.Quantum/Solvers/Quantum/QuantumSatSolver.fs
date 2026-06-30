@@ -67,11 +67,22 @@ module QuantumSatSolver =
         IsNegated: bool
     }
 
-    /// A clause is a disjunction (OR) of literals.
+    /// A clause is a disjunction (OR) of literals, with a weight for
+    /// weighted MAX-SAT (default 1.0 = an ordinary, equally-weighted clause).
     type Clause = {
         /// The literals in this clause
         Literals: Literal list
+        /// Clause weight for weighted MAX-SAT (use 1.0 for unweighted problems)
+        Weight: float
     }
+
+    /// Create an unweighted clause (Weight = 1.0) — the common case.
+    let clause (literals: Literal list) : Clause = { Literals = literals; Weight = 1.0 }
+
+    /// Create a weighted clause for weighted MAX-SAT (e.g. soft constraints
+    /// with importance, or hard constraints given a large weight).
+    let weightedClause (weight: float) (literals: Literal list) : Clause =
+        { Literals = literals; Weight = weight }
 
     /// MAX-SAT problem in CNF form.
     type Problem = {
@@ -89,6 +100,10 @@ module QuantumSatSolver =
         SatisfiedClauses: int
         /// Total number of clauses
         TotalClauses: int
+        /// Total weight of satisfied clauses (= SatisfiedClauses for unweighted problems)
+        SatisfiedWeight: float
+        /// Total weight of all clauses (= TotalClauses for unweighted problems)
+        TotalWeight: float
         /// Whether all clauses are satisfied
         AllSatisfied: bool
         /// Whether constraint repair was applied
@@ -325,13 +340,14 @@ module QuantumSatSolver =
     /// by grouping the first two literals with an auxiliary, then treating
     /// (aux, remaining...) as a smaller clause.
     let private buildQuboMap (problem: Problem) : Map<int * int, float> =
-        // Penalty per clause = 1.0 (all clauses equally weighted)
-        let penalty = 1.0
-
         let mutable nextAux = problem.NumVariables
 
         problem.Clauses
         |> List.fold (fun qubo clause ->
+            // Penalty per clause = its weight (1.0 for unweighted MAX-SAT).
+            // Each clause owns its auxiliary variables, so the Rosenberg multiplier
+            // scales with this same penalty and stays correctly enforced per clause.
+            let penalty = clause.Weight
             match clause.Literals with
             | [] -> qubo  // Empty clause: always false, skip
             | [ a ] ->
@@ -418,6 +434,15 @@ module QuantumSatSolver =
         |> List.filter (evaluateClause assignment)
         |> List.length
 
+    /// Total weight of clauses satisfied by the assignment (the weighted MAX-SAT objective).
+    let private satisfiedWeight (problem: Problem) (assignment: bool[]) : float =
+        problem.Clauses
+        |> List.sumBy (fun c -> if evaluateClause assignment c then c.Weight else 0.0)
+
+    /// Total weight of all clauses in the problem.
+    let private totalWeight (problem: Problem) : float =
+        problem.Clauses |> List.sumBy (fun c -> c.Weight)
+
     /// Validate a bitstring for this problem. Checks that the bitstring
     /// has enough entries for all variables (including auxiliaries).
     let isValid (problem: Problem) (bits: int[]) : bool =
@@ -436,6 +461,8 @@ module QuantumSatSolver =
             Assignment = assignment
             SatisfiedClauses = satisfied
             TotalClauses = problem.Clauses.Length
+            SatisfiedWeight = satisfiedWeight problem assignment
+            TotalWeight = totalWeight problem
             AllSatisfied = satisfied = problem.Clauses.Length
             WasRepaired = false
             BackendName = ""
@@ -450,12 +477,11 @@ module QuantumSatSolver =
 
     /// Count how many currently-unsatisfied clauses would become satisfied
     /// if variable at index varIdx were flipped.
-    let private flipGain (problem: Problem) (assignment: bool[]) (varIdx: int) : int =
+    let private flipGain (problem: Problem) (assignment: bool[]) (varIdx: int) : float =
         let flipped = Array.copy assignment
         flipped.[varIdx] <- not flipped.[varIdx]
-        let oldSatisfied = countSatisfied problem assignment
-        let newSatisfied = countSatisfied problem flipped
-        newSatisfied - oldSatisfied
+        // Weighted gain so repair optimizes the weighted MAX-SAT objective.
+        satisfiedWeight problem flipped - satisfiedWeight problem assignment
 
     /// Repair a solution by greedily flipping variables to maximize
     /// satisfied clauses. Iterates until no single flip improves the count.
@@ -468,7 +494,7 @@ module QuantumSatSolver =
             let gains =
                 [ 0 .. problem.NumVariables - 1 ]
                 |> List.map (fun v -> (v, flipGain problem current v))
-                |> List.filter (fun (_, g) -> g > 0)
+                |> List.filter (fun (_, g) -> g > 0.0)
                 |> List.sortByDescending snd
 
             match gains with
@@ -506,6 +532,8 @@ module QuantumSatSolver =
                 Assignment = [||]
                 SatisfiedClauses = 0
                 TotalClauses = 0
+                SatisfiedWeight = 0.0
+                TotalWeight = 0.0
                 AllSatisfied = false
                 WasRepaired = false
                 BackendName = ""
@@ -514,7 +542,7 @@ module QuantumSatSolver =
                 OptimizationConverged = None
             }
         | [ single ] -> single
-        | _ -> solutions |> List.maxBy (fun s -> s.SatisfiedClauses)
+        | _ -> solutions |> List.maxBy (fun s -> s.SatisfiedWeight)
 
     // ========================================================================
     // QUANTUM SOLVERS (Rule 1: IQuantumBackend required)
@@ -612,6 +640,8 @@ module QuantumSatSolver =
                 Assignment = Array.create (max 0 problem.NumVariables) false
                 SatisfiedClauses = 0
                 TotalClauses = problem.Clauses.Length
+                SatisfiedWeight = 0.0
+                TotalWeight = totalWeight problem
                 AllSatisfied = problem.Clauses.IsEmpty
                 WasRepaired = false
                 BackendName = "Classical Greedy"
@@ -626,7 +656,7 @@ module QuantumSatSolver =
                 let gains =
                     [ 0 .. problem.NumVariables - 1 ]
                     |> List.map (fun v -> (v, flipGain problem current v))
-                    |> List.filter (fun (_, g) -> g > 0)
+                    |> List.filter (fun (_, g) -> g > 0.0)
                     |> List.sortByDescending snd
 
                 match gains with
@@ -642,6 +672,8 @@ module QuantumSatSolver =
                 Assignment = optimized
                 SatisfiedClauses = satisfied
                 TotalClauses = problem.Clauses.Length
+                SatisfiedWeight = satisfiedWeight problem optimized
+                TotalWeight = totalWeight problem
                 AllSatisfied = satisfied = problem.Clauses.Length
                 WasRepaired = false
                 BackendName = "Classical Greedy"

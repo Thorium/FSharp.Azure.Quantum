@@ -552,9 +552,8 @@ type CSharpBuilders private () =
     /// <param name="b">Second operand</param>
     /// <param name="qubits">Number of qubits (optional, defaults to 8)</param>
     /// <returns>Arithmetic operation to execute</returns>
-    static member Add(a: int, b: int, ?qubits: int) =
-        let q = defaultArg qubits 8
-        QuantumArithmeticOps.add a b q
+    static member Add(a: int, b: int, [<Optional; DefaultParameterValue(8)>] qubits: int) =
+        QuantumArithmeticOps.add a b qubits
     
     /// <summary>Perform modular addition: (a + b) mod N (C# helper).</summary>
     /// <param name="a">First operand</param>
@@ -562,9 +561,8 @@ type CSharpBuilders private () =
     /// <param name="modulus">Modulus N</param>
     /// <param name="qubits">Number of qubits (optional, defaults to 8)</param>
     /// <returns>Arithmetic operation to execute</returns>
-    static member ModularAdd(a: int, b: int, modulus: int, ?qubits: int) =
-        let q = defaultArg qubits 8
-        QuantumArithmeticOps.modularAdd a b modulus q
+    static member ModularAdd(a: int, b: int, modulus: int, [<Optional; DefaultParameterValue(8)>] qubits: int) =
+        QuantumArithmeticOps.modularAdd a b modulus qubits
     
     /// <summary>Perform modular multiplication: (a * b) mod N (C# helper).</summary>
     /// <param name="a">First operand</param>
@@ -572,9 +570,8 @@ type CSharpBuilders private () =
     /// <param name="modulus">Modulus N</param>
     /// <param name="qubits">Number of qubits (optional, defaults to 8)</param>
     /// <returns>Arithmetic operation to execute</returns>
-    static member ModularMultiply(a: int, b: int, modulus: int, ?qubits: int) =
-        let q = defaultArg qubits 8
-        QuantumArithmeticOps.modularMultiply a b modulus q
+    static member ModularMultiply(a: int, b: int, modulus: int, [<Optional; DefaultParameterValue(8)>] qubits: int) =
+        QuantumArithmeticOps.modularMultiply a b modulus qubits
     
     /// <summary>Perform modular exponentiation: (base^exponent) mod N (C# helper).</summary>
     /// <param name="baseValue">Base value</param>
@@ -582,9 +579,8 @@ type CSharpBuilders private () =
     /// <param name="modulus">Modulus N</param>
     /// <param name="qubits">Number of qubits (optional, defaults to 8)</param>
     /// <returns>Arithmetic operation to execute</returns>
-    static member ModularExponentiate(baseValue: int, exponent: int, modulus: int, ?qubits: int) =
-        let q = defaultArg qubits 8
-        QuantumArithmeticOps.modularExponentiate baseValue exponent modulus q
+    static member ModularExponentiate(baseValue: int, exponent: int, modulus: int, [<Optional; DefaultParameterValue(8)>] qubits: int) =
+        QuantumArithmeticOps.modularExponentiate baseValue exponent modulus qubits
     
     /// <summary>Execute quantum arithmetic operation (C# helper).</summary>
     /// <param name="operation">Arithmetic operation to execute</param>
@@ -613,9 +609,8 @@ type CSharpBuilders private () =
     /// <param name="number">Integer to factor</param>
     /// <param name="precision">Number of precision qubits (optional, defaults to 8)</param>
     /// <returns>Period finder problem to solve</returns>
-    static member FactorInteger(number: int, ?precision: int) =
-        let p = defaultArg precision 8
-        QuantumPeriodFinder.factorInteger number p
+    static member FactorInteger(number: int, [<Optional; DefaultParameterValue(8)>] precision: int) =
+        QuantumPeriodFinder.factorInteger number precision
 
     /// <summary>Factor an integer using Shor's algorithm with explicit exactness (C# helper).</summary>
     static member FactorInteger(number: int, precision: int, exactness: Algorithms.QPE.Exactness) =
@@ -627,9 +622,8 @@ type CSharpBuilders private () =
     /// <param name="baseValue">Base for period finding</param>
     /// <param name="precision">Number of precision qubits (optional, defaults to 8)</param>
     /// <returns>Period finder problem to solve</returns>
-    static member FactorIntegerWithBase(number: int, baseValue: int, ?precision: int) =
-        let p = defaultArg precision 8
-        QuantumPeriodFinder.factorIntegerWithBase number baseValue p
+    static member FactorIntegerWithBase(number: int, baseValue: int, [<Optional; DefaultParameterValue(8)>] precision: int) =
+        QuantumPeriodFinder.factorIntegerWithBase number baseValue precision
 
     /// <summary>Factor an integer with base and explicit exactness (C# helper).</summary>
     static member FactorIntegerWithBase(number: int, baseValue: int, precision: int, exactness: Algorithms.QPE.Exactness) =
@@ -664,9 +658,8 @@ type CSharpBuilders private () =
     /// <summary>Estimate eigenphase of T gate (e^(iπ/4)) using QPE (C# helper).</summary>
     /// <param name="precision">Number of precision qubits (optional, defaults to 8)</param>
     /// <returns>Phase estimator problem to solve</returns>
-    static member EstimateTGate(?precision: int) =
-        let p = defaultArg precision 8
-        QuantumPhaseEstimator.estimateTGate p None
+    static member EstimateTGate([<Optional; DefaultParameterValue(8)>] precision: int) =
+        QuantumPhaseEstimator.estimateTGate precision None
 
     /// <summary>Estimate eigenphase of T gate with explicit exactness (C# helper).</summary>
     static member EstimateTGate(precision: int, exactness: Algorithms.QPE.Exactness) =
@@ -676,9 +669,8 @@ type CSharpBuilders private () =
     /// <summary>Estimate eigenphase of S gate (e^(iπ/2)) using QPE (C# helper).</summary>
     /// <param name="precision">Number of precision qubits (optional, defaults to 8)</param>
     /// <returns>Phase estimator problem to solve</returns>
-    static member EstimateSGate(?precision: int) =
-        let p = defaultArg precision 8
-        QuantumPhaseEstimator.estimateSGate p None
+    static member EstimateSGate([<Optional; DefaultParameterValue(8)>] precision: int) =
+        QuantumPhaseEstimator.estimateSGate precision None
 
     /// <summary>Estimate eigenphase of S gate with explicit exactness (C# helper).</summary>
     static member EstimateSGate(precision: int, exactness: Algorithms.QPE.Exactness) =
@@ -689,9 +681,8 @@ type CSharpBuilders private () =
     /// <param name="theta">Phase angle in radians</param>
     /// <param name="precision">Number of precision qubits (optional, defaults to 8)</param>
     /// <returns>Phase estimator problem to solve</returns>
-    static member EstimatePhaseGate(theta: float, ?precision: int) =
-        let p = defaultArg precision 8
-        QuantumPhaseEstimator.estimatePhaseGate theta p None
+    static member EstimatePhaseGate(theta: float, [<Optional; DefaultParameterValue(8)>] precision: int) =
+        QuantumPhaseEstimator.estimatePhaseGate theta precision None
 
     /// <summary>Estimate eigenphase of Phase gate with explicit exactness (C# helper).</summary>
     static member EstimatePhaseGate(theta: float, precision: int, exactness: Algorithms.QPE.Exactness) =
@@ -702,9 +693,8 @@ type CSharpBuilders private () =
     /// <param name="theta">Rotation angle in radians</param>
     /// <param name="precision">Number of precision qubits (optional, defaults to 8)</param>
     /// <returns>Phase estimator problem to solve</returns>
-    static member EstimateRotationZ(theta: float, ?precision: int) =
-        let p = defaultArg precision 8
-        QuantumPhaseEstimator.estimateRotationZ theta p None
+    static member EstimateRotationZ(theta: float, [<Optional; DefaultParameterValue(8)>] precision: int) =
+        QuantumPhaseEstimator.estimateRotationZ theta precision None
 
     /// <summary>Estimate eigenphase of Rotation-Z gate with explicit exactness (C# helper).</summary>
     static member EstimateRotationZ(theta: float, precision: int, exactness: Algorithms.QPE.Exactness) =

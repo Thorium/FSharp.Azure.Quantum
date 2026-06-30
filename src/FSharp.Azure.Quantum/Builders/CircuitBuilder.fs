@@ -959,7 +959,7 @@ module CircuitBuilder =
     // ========================================================================
     
     /// Get qubits affected by a gate
-    let rec private getAffectedQubits (gate: Gate) : int list =
+    let rec getAffectedQubits (gate: Gate) : int list =
         match gate with
         | X q | Y q | Z q | H q -> [q]
         | S q | SDG q | T q | TDG q -> [q]

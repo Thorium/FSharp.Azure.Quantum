@@ -533,3 +533,41 @@ Gate breakdown:
 
 Clifford gates: {cliffordCount}
 Non-Clifford gates: {nonCliffordCount}"""
+
+    // ========================================================================
+    // EXECUTION ON GATE BACKENDS
+    //
+    // The reverse of the gate->braid path used by the topological backend:
+    // these helpers compile a braid word to a gate circuit so a topological
+    // (braid) program can run on a gate-based simulator or gate hardware.
+    // Useful for cross-validating braid programs against the gate model.
+    // ========================================================================
+
+    /// Build a gate-based circuit from a compiled braid gate sequence.
+    let toCircuit (sequence: GateSequence) : CircuitBuilder.Circuit =
+        let qubits = max 1 sequence.NumQubits
+        CircuitBuilder.empty qubits
+        |> CircuitBuilder.addGates sequence.Gates
+
+    /// Compile a braid word directly to a gate-based circuit (braid -> gates -> Circuit).
+    let compileToCircuit
+        (braid: BraidGroup.BraidWord)
+        (anyonType: AnyonSpecies.AnyonType)
+        (options: CompilationOptions)
+        : Result<CircuitBuilder.Circuit, TopologicalError> =
+        compileToGates braid anyonType options
+        |> Result.map toCircuit
+
+    /// Execute a braid on a GATE-based backend by compiling it to a gate circuit
+    /// and running it. This is the wired braid->gate path: a topological program
+    /// can be run/validated on any IQuantumBackend (local simulator or gate cloud).
+    let executeOnGateBackend
+        (backend: Core.BackendAbstraction.IQuantumBackend)
+        (braid: BraidGroup.BraidWord)
+        (anyonType: AnyonSpecies.AnyonType)
+        (options: CompilationOptions) =
+        compileToCircuit braid anyonType options
+        |> Result.bind (fun circuit ->
+            match backend.ExecuteToState (Core.CircuitAbstraction.wrapCircuit circuit) with
+            | Ok state -> Ok state
+            | Error qerr -> Error (TopologicalError.BackendError ("gate-backend", qerr.Message)))

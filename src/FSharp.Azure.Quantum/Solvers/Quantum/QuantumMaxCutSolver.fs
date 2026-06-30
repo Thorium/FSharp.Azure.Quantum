@@ -39,7 +39,7 @@ open FSharp.Azure.Quantum.GraphOptimization
 ///   MaxCut = Σ w_ij  where i ∈ S, j ∈ T
 ///
 /// Example:
-///   let backend = BackendAbstraction.createLocalBackend()
+///   let backend = LocalBackend() :> IQuantumBackend
 ///   let config = { NumShots = 1000; InitialParameters = (0.5, 0.5) }
 ///   match QuantumMaxCutSolver.solve backend graph config with
 ///   | Ok solution -> printfn "Cut value: %f" solution.CutValue
@@ -246,7 +246,7 @@ module QuantumMaxCutSolver =
     /// Returns: Async<Result<MaxCutSolution, QuantumError>> - Async computation with result or error
     /// 
     /// Example:
-    ///   let backend = BackendAbstraction.createLocalBackend()
+    ///   let backend = LocalBackend() :> IQuantumBackend
     ///   let problem = { Vertices = ["A"; "B"; "C"]; Edges = [...] }
     ///   let config = { NumShots = 1000; InitialParameters = (0.5, 0.5) }
     ///   task {
@@ -331,7 +331,7 @@ module QuantumMaxCutSolver =
     /// Returns: Ok with best partition found, or Error with QuantumError
     /// 
     /// Example:
-    ///   let backend = BackendAbstraction.createLocalBackend()
+    ///   let backend = LocalBackend() :> IQuantumBackend
     ///   let problem = { Vertices = ["A"; "B"; "C"]; Edges = [...] }
     ///   let config = { NumShots = 1000; InitialParameters = (0.5, 0.5) }
     ///   match solve backend problem config with

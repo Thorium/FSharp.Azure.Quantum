@@ -12,7 +12,7 @@ module Export =
         
         writer.WriteLine("# Gantt Chart - Task Schedule")
         writer.WriteLine("")
-        writer.WriteLine(sprintf "Makespan: %.1f time units" solution.Makespan)
+        writer.WriteLine(sprintf "Makespan: %.1f minutes" solution.Makespan.TotalMinutes)
         writer.WriteLine(sprintf "Total Cost: $%.2f" solution.TotalCost)
         writer.WriteLine(sprintf "Valid: %b" solution.IsValid)
         writer.WriteLine("")
@@ -21,12 +21,12 @@ module Export =
         writer.WriteLine("----------------")
         
         for assignment in solution.Assignments |> List.sortBy (fun a -> a.StartTime) do
-            let barLength = int (assignment.EndTime - assignment.StartTime)
+            let barLength = max 1 (int (assignment.EndTime - assignment.StartTime).TotalMinutes)
             let bar = System.String('█', barLength)
             writer.WriteLine(sprintf "%-12s [%6.1f - %6.1f] %s"
                 (if assignment.TaskId.Length > 12 then assignment.TaskId.Substring(0, 12) else assignment.TaskId)
-                assignment.StartTime
-                assignment.EndTime
+                assignment.StartTime.TotalMinutes
+                assignment.EndTime.TotalMinutes
                 bar)
         
         if not (List.isEmpty solution.DeadlineViolations) then

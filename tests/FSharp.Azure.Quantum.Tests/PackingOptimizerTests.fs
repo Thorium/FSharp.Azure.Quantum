@@ -17,6 +17,7 @@ module PackingOptimizerTests =
     // ========================================================================
 
     [<Fact>]
+    [<Trait("Category", "Slow")>]
     let ``PackingOptimizer CE - simple bin packing`` () =
         let result = packingOptimizer {
             containerCapacity 100.0
@@ -36,6 +37,7 @@ module PackingOptimizerTests =
         | Error e -> Assert.Fail(sprintf "Packing optimizer failed: %A" e)
 
     [<Fact>]
+    [<Trait("Category", "Slow")>]
     let ``PackingOptimizer CE - items fit in one bin`` () =
         let result = packingOptimizer {
             containerCapacity 100.0
@@ -94,6 +96,7 @@ module PackingOptimizerTests =
     // ========================================================================
 
     [<Fact>]
+    [<Trait("Category", "Slow")>]
     let ``PackingOptimizer API - programmatic solve`` () =
         let backend = localBackend ()
         let problem = {

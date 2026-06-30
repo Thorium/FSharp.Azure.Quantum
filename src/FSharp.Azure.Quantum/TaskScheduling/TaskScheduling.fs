@@ -1,5 +1,6 @@
 namespace FSharp.Azure.Quantum
 
+open System
 open FSharp.Azure.Quantum.Core
 
 // Open the TaskScheduling namespace to make all types available
@@ -95,7 +96,7 @@ module TaskSchedulingTypes =
     /// - Need optimal allocation under constraints
     /// 
     /// Example:
-    ///   let backend = BackendAbstraction.createLocalBackend()
+    ///   let backend = LocalBackend() :> IQuantumBackend
     ///   let! result = solveQuantum backend problem
     let solveQuantum 
         (backend: BackendAbstraction.IQuantumBackend)
@@ -115,7 +116,7 @@ module TaskSchedulingTypes =
 module Scheduling =
 
     /// Create a simple task (C# helper)
-    let task (id: string) (value: 'T) (duration: float) : ScheduledTask<'T> =
+    let task (id: string) (value: 'T) (duration: TimeSpan) : ScheduledTask<'T> =
         {
             Id = id
             Value = Some value
@@ -128,7 +129,7 @@ module Scheduling =
         }
 
     /// Create a task with resource requirements (C# helper)
-    let taskWithRequirements (id: string) (value: 'T) (duration: float) (requirements: (string * float) list) : ScheduledTask<'T> =
+    let taskWithRequirements (id: string) (value: 'T) (duration: TimeSpan) (requirements: (string * float) list) : ScheduledTask<'T> =
         {
             Id = id
             Value = Some value
@@ -148,7 +149,7 @@ module Scheduling =
                 Resources = []
                 Dependencies = []
                 Objective = MinimizeMakespan
-                TimeHorizon = 1000.0
+                TimeHorizon = TimeSpan.FromMinutes 1000.0
             })
 
         member _.Tasks(tasks: ScheduledTask<'TTask> list) =
@@ -163,7 +164,7 @@ module Scheduling =
         member _.Objective(objective: Objective) =
             SchedulingBuilder({ problem with Objective = objective })
 
-        member _.TimeHorizon(horizon: float) =
+        member _.TimeHorizon(horizon: TimeSpan) =
             SchedulingBuilder({ problem with TimeHorizon = horizon })
 
         member _.Build() = problem

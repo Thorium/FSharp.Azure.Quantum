@@ -4,6 +4,7 @@ open System
 open System.Net.Http
 open System.Threading
 open System.Threading.Tasks
+open FSharp.Azure.Quantum
 open FSharp.Azure.Quantum.Core
 open FSharp.Azure.Quantum.Core.Types
 open FSharp.Azure.Quantum.Core.BackendAbstraction
@@ -49,7 +50,8 @@ module CloudBackends =
             target: string,
             ?shots: int,
             ?timeout: TimeSpan,
-            ?costLimitUsd: decimal
+            ?costLimitUsd: decimal,
+            ?couplingMap: QubitRouting.CouplingMap
         ) =
 
         let shots = defaultArg shots 1000
@@ -68,6 +70,19 @@ module CloudBackends =
 
             member _.ExecuteToStateAsync (circuit: ICircuit) (cancellationToken: CancellationToken) : Task<Result<QuantumState, QuantumError>> =
                 task {
+                    // Step 0: Route for the device coupling map — insert SWAPs so every
+                    // two-qubit gate acts on physically-adjacent qubits. No-op when no
+                    // coupling map is configured (e.g. for all-to-all devices, or when
+                    // the caller supplies an already-routed circuit).
+                    let circuit =
+                        match couplingMap with
+                        | Some cm ->
+                            match CircuitAdapter.tryGetCircuit circuit with
+                            | Some gateCircuit ->
+                                let routed, _ = QubitRouting.route cm gateCircuit
+                                wrapCircuit routed
+                            | None -> circuit
+                        | None -> circuit
                     // Step 1: Convert ICircuit → QuilProgram
                     match CloudBackendHelpers.checkCostGuard target shots costLimitUsd |> Result.bind (fun () -> CircuitAdapter.toQuilProgram circuit) with
                     | Error err -> return Error err
@@ -530,6 +545,13 @@ module CloudBackends =
         /// Create a Rigetti cloud backend.
         let createRigetti (httpClient: HttpClient) (workspaceUrl: string) (target: string) (shots: int) : IQuantumBackend =
             RigettiCloudBackend(httpClient, workspaceUrl, target, shots) :> IQuantumBackend
+
+        /// Create a Rigetti cloud backend that automatically routes circuits for the
+        /// given device coupling map (inserts SWAPs so two-qubit gates respect the
+        /// hardware connectivity). Use this for connectivity-limited QPUs; supply the
+        /// device's coupling map (e.g. QubitRouting.grid / .linear / .fromPairs).
+        let createRigettiRouted (httpClient: HttpClient) (workspaceUrl: string) (target: string) (shots: int) (couplingMap: QubitRouting.CouplingMap) : IQuantumBackend =
+            RigettiCloudBackend(httpClient, workspaceUrl, target, shots, couplingMap = couplingMap) :> IQuantumBackend
 
         /// Create an IonQ cloud backend.
         let createIonQ (httpClient: HttpClient) (workspaceUrl: string) (target: string) (shots: int) : IQuantumBackend =

@@ -171,6 +171,7 @@ module QuantumPeriodFinderBuilderTests =
     // ========================================================================
     
     [<Fact>]
+    [<Trait("Category", "Slow")>]
     let ``solve should factor N=15 (classic example)`` () =
         let problem = periodFinder {
             number 15  // 15 = 3 × 5
@@ -209,6 +210,7 @@ module QuantumPeriodFinderBuilderTests =
                 Assert.NotEmpty(err.Message)
     
     [<Fact>]
+    [<Trait("Category", "Slow")>]   // ~78 min genuine factoring of 21
     let ``solve should factor N=21 (3 × 7)`` () =
         let problem = periodFinder {
             number 21
@@ -340,6 +342,7 @@ module QuantumPeriodFinderBuilderTests =
             | Error err -> Assert.True(false, $"Solve failed: {err.Message}")
     
     [<Fact>]
+    [<Trait("Category", "Slow")>]
     let ``solve should use higher precision for better success`` () =
         let lowPrecision = periodFinder {
             number 15
@@ -401,6 +404,7 @@ module QuantumPeriodFinderBuilderTests =
         Assert.Contains("Qubits", estimate)
     
     [<Fact>]
+    [<Trait("Category", "Slow")>]
     let ``describeResult should format human-readable output`` () =
         let problem = periodFinder {
             number 15
@@ -436,6 +440,7 @@ module QuantumPeriodFinderBuilderTests =
     // ========================================================================
     
     [<Fact>]
+    [<Trait("Category", "Slow")>]
     let ``solve should populate result metadata`` () =
         let problem = periodFinder {
             number 15
@@ -474,6 +479,7 @@ module QuantumPeriodFinderBuilderTests =
                 Assert.True(true, "Probabilistic behavior may result in errors")
     
     [<Fact>]
+    [<Trait("Category", "Slow")>]
     let ``solve should track attempt count`` () =
         let problem = periodFinder {
             number 15

@@ -32,7 +32,7 @@ open FSharp.Azure.Quantum.GraphOptimization
 /// 5. Return Best Solution
 ///
 /// Example:
-///   let backend = BackendAbstraction.createLocalBackend()
+///   let backend = LocalBackend() :> IQuantumBackend
 ///   let config = { NumShots = 1000; InitialParameters = (0.5, 0.5) }
 ///   match QuantumNetworkFlowSolver.solve backend problem config with
 ///   | Ok solution -> printfn "Total cost: %f" solution.TotalCost

@@ -16,7 +16,7 @@ let private pos (v: int) : Literal = { Variable = v; IsNegated = false }
 let private neg (v: int) : Literal = { Variable = v; IsNegated = true }
 
 /// Helper to create a clause from a list of literals
-let private clause (lits: Literal list) : Clause = { Literals = lits }
+let private clause (lits: Literal list) : Clause = { Literals = lits; Weight = 1.0 }
 
 // ============================================================================
 // QUBO ENCODING TESTS
@@ -432,6 +432,8 @@ module DecomposeRecombineTests =
             Assignment = [| true; false |]
             SatisfiedClauses = 1
             TotalClauses = 1
+            SatisfiedWeight = 1.0
+            TotalWeight = 1.0
             AllSatisfied = true
             WasRepaired = false
             BackendName = "test"
@@ -455,6 +457,8 @@ module DecomposeRecombineTests =
             Assignment = [| true; false |]
             SatisfiedClauses = 1
             TotalClauses = 3
+            SatisfiedWeight = 1.0
+            TotalWeight = 3.0
             AllSatisfied = false
             WasRepaired = false
             BackendName = "test"
@@ -463,7 +467,7 @@ module DecomposeRecombineTests =
             OptimizationConverged = None
         }
         let sol2 : Solution = {
-            sol1 with SatisfiedClauses = 3; AllSatisfied = true
+            sol1 with SatisfiedClauses = 3; SatisfiedWeight = 3.0; AllSatisfied = true
         }
         let result = recombine [ sol1; sol2 ]
         Assert.Equal(3, result.SatisfiedClauses)

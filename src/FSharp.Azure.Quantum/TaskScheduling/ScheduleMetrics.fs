@@ -1,5 +1,6 @@
 namespace FSharp.Azure.Quantum.TaskScheduling
 
+open System
 open Types
 
 /// Pure scoring/metric helpers for a decoded schedule.
@@ -12,8 +13,8 @@ open Types
 module ScheduleMetrics =
 
     /// Calculate makespan (latest end time) from assignments.
-    let calculateMakespan (assignments: TaskAssignment list) : float =
-        if List.isEmpty assignments then 0.0
+    let calculateMakespan (assignments: TaskAssignment list) : TimeSpan =
+        if List.isEmpty assignments then TimeSpan.Zero
         else assignments |> List.map (fun a -> a.EndTime) |> List.max
 
     /// Calculate total cost from assignments and resources.
@@ -24,12 +25,12 @@ module ScheduleMetrics =
 
         assignments
         |> List.sumBy (fun a ->
-            let duration = a.EndTime - a.StartTime
+            let durationMinutes = (a.EndTime - a.StartTime).TotalMinutes
             a.AssignedResources
             |> Map.toList
             |> List.sumBy (fun (resourceId, quantity) ->
                 match resources |> List.tryFind (fun r -> r.Id = resourceId) with
-                | Some resource -> resource.CostPerUnit * quantity * duration
+                | Some resource -> resource.CostPerUnit * quantity * durationMinutes
                 | None -> 0.0
             )
         )
@@ -37,7 +38,7 @@ module ScheduleMetrics =
     /// Find tasks that violate their deadlines.
     let findDeadlineViolations
         (tasks: ScheduledTask<'T> list)
-        (completionTimes: Map<string, float>)
+        (completionTimes: Map<string, TimeSpan>)
         : string list =
 
         tasks
@@ -53,7 +54,7 @@ module ScheduleMetrics =
     let calculateResourceUtilization
         (assignments: TaskAssignment list)
         (resources: Resource<'R> list)
-        (makespan: float)
+        (makespan: TimeSpan)
         : Map<string, float> =
 
         resources
@@ -61,12 +62,12 @@ module ScheduleMetrics =
             let totalUsage =
                 assignments
                 |> List.sumBy (fun a ->
-                    let duration = a.EndTime - a.StartTime
+                    let durationMinutes = (a.EndTime - a.StartTime).TotalMinutes
                     match Map.tryFind r.Id a.AssignedResources with
-                    | Some quantity -> quantity * duration
+                    | Some quantity -> quantity * durationMinutes
                     | None -> 0.0
                 )
-            let maxPossible = r.Capacity * makespan
+            let maxPossible = r.Capacity * makespan.TotalMinutes
             let utilization = if maxPossible > 0.0 then totalUsage / maxPossible else 0.0
             r.Id, utilization
         )

@@ -208,6 +208,7 @@ module ConstraintSchedulerTests =
         | Error e -> Assert.Fail(sprintf "QAOA SAT solver failed: %A" e)
 
     [<Fact>]
+    [<Trait("Category", "Slow")>]
     let ``QAOA Strategy - Bin Packing with Capacity Constraints`` () =
         let result = constraintScheduler {
             task "T1"
