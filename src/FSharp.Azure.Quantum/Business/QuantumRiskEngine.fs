@@ -307,8 +307,12 @@ module RiskEngine =
     // CLASSICAL PATH
     // ========================================================================
 
-    /// Execute the configured risk analysis (async, cancellable)
-    let executeAsync (config: RiskConfiguration) : Async<RiskReport> =
+    /// Execute the configured risk analysis (async, cancellable).
+    ///
+    /// Returns a `Result`: the quantum amplitude-estimation path can fail as a business
+    /// outcome (e.g. backend rejects the circuit), surfaced as `Error`; the classical
+    /// Monte Carlo path always yields `Ok`.
+    let executeAsync (config: RiskConfiguration) : Async<QuantumResult<RiskReport>> =
         async {
             let startTime = System.DateTime.Now
 
@@ -341,7 +345,8 @@ module RiskEngine =
 
                 match quantumResult with
                 | Error err ->
-                    return failwith $"Quantum amplitude estimation failed: {err}"
+                    // Business outcome: propagate the quantum failure as Error (no classical fallback).
+                    return Error err
                 | Ok (quantumVaR, quantumCVaR, _tailProb) ->
                     // Volatility still computed classically (not a tail-risk metric)
                     let vol =
@@ -353,7 +358,7 @@ module RiskEngine =
 
                     let executionTime = (System.DateTime.Now - startTime).TotalMilliseconds
 
-                    return {
+                    return Ok {
                         VaR = if List.contains ValueAtRisk config.Metrics then ValueSome quantumVaR else ValueNone
                         CVaR = if List.contains ConditionalVaR config.Metrics then ValueSome quantumCVaR else ValueNone
                         ExpectedShortfall = if List.contains ExpectedShortfall config.Metrics then ValueSome quantumCVaR else ValueNone
@@ -385,7 +390,7 @@ module RiskEngine =
 
                 let executionTime = (System.DateTime.Now - startTime).TotalMilliseconds
 
-                return {
+                return Ok {
                     VaR = vaR
                     CVaR = cVaR
                     ExpectedShortfall = es
@@ -397,14 +402,23 @@ module RiskEngine =
                 }
         }
 
-    /// Execute the configured risk analysis (sync wrapper)
-    [<System.Obsolete("Use executeAsync instead. This synchronous wrapper blocks the calling thread.")>]
+    /// Execute the configured risk analysis (sync wrapper).
+    ///
+    /// Convenience adapter over `executeAsync`. Prefer `executeAsync`, which returns the
+    /// quantum failure as a `Result`; this wrapper unwraps it and raises on `Error`.
+    [<System.Obsolete("Use executeAsync instead. This synchronous wrapper blocks the calling thread and raises on quantum failure; prefer the Result-returning executeAsync.")>]
     let execute (config: RiskConfiguration) : RiskReport =
-        match config.CancellationToken with
-        | Some token ->
-            Async.RunSynchronously(executeAsync config, cancellationToken = token)
-        | None ->
-            executeAsync config |> Async.RunSynchronously
+        let result =
+            match config.CancellationToken with
+            | Some token ->
+                Async.RunSynchronously(executeAsync config, cancellationToken = token)
+            | None ->
+                executeAsync config |> Async.RunSynchronously
+        match result with
+        | Ok report -> report
+        | Error err ->
+            raise (System.InvalidOperationException(
+                $"Risk analysis failed: {err.Message}. Use executeAsync to handle this as a Result."))
 
 /// Builder for the Quantum Risk Engine DSL
 type QuantumRiskEngineBuilder() =
@@ -442,7 +456,10 @@ type QuantumRiskEngineBuilder() =
         body()
 
     member _.Run(state: RiskConfiguration) : QuantumResult<RiskReport> =
-        Ok (RiskEngine.execute state)
+        // Propagate a quantum failure as Error rather than raising (executeAsync is Result-typed).
+        match state.CancellationToken with
+        | Some token -> Async.RunSynchronously(RiskEngine.executeAsync state, cancellationToken = token)
+        | None -> RiskEngine.executeAsync state |> Async.RunSynchronously
 
     member this.Run(f: unit -> RiskConfiguration) : QuantumResult<RiskReport> =
         this.Run(f())

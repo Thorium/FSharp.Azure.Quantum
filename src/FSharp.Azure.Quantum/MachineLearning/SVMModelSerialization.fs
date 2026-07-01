@@ -102,7 +102,37 @@ module SVMModelSerialization =
         | "AmplitudeEncoding" ->
             Ok FeatureMapType.AmplitudeEncoding
         | _ -> Error (QuantumError.ValidationError ("Input", $"Unknown feature map type: {fm.Type}"))
-    
+
+    // ========================================================================
+    // IN-MEMORY CONVERSION (embed an SVM model in another serializable envelope)
+    // ========================================================================
+
+    /// Convert a trained SVM model to its JSON-serializable representation (in-memory).
+    /// Use this to embed an SVM model inside another serializable record (e.g. a Detector);
+    /// call saveSVMModel/saveSVMModelAsync to persist an SVM model directly to a file.
+    let toSerializable (note: string option) (model: QuantumKernelSVM.SVMModel) : SerializableSVMModel =
+        {
+            SupportVectorIndices = model.SupportVectorIndices
+            Alphas = model.Alphas
+            Bias = model.Bias
+            TrainData = model.TrainData
+            TrainLabels = model.TrainLabels
+            FeatureMap = featureMapToSerializable model.FeatureMap
+            SavedAt = DateTime.UtcNow.ToString("o")
+            Note = note
+        }
+
+    /// Reconstruct a trained SVM model from its JSON-serializable representation.
+    let fromSerializable (serializable: SerializableSVMModel) : QuantumResult<QuantumKernelSVM.SVMModel> =
+        serializableToFeatureMap serializable.FeatureMap
+        |> Result.map (fun featureMap ->
+            ({ SupportVectorIndices = serializable.SupportVectorIndices
+               Alphas = serializable.Alphas
+               Bias = serializable.Bias
+               TrainData = serializable.TrainData
+               TrainLabels = serializable.TrainLabels
+               FeatureMap = featureMap } : QuantumKernelSVM.SVMModel))
+
     // ========================================================================
     // BINARY SVM SERIALIZATION
     // ========================================================================

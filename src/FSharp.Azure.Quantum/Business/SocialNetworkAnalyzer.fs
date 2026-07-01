@@ -446,7 +446,7 @@ module SocialNetworkAnalyzer =
     // ========================================================================
     
     /// Execute social network analysis
-    let solve (problem: SocialNetworkProblem) : QuantumResult<SocialNetworkResult> =
+    let rec solve (problem: SocialNetworkProblem) : QuantumResult<SocialNetworkResult> =
         if problem.People.IsEmpty then
             Error (QuantumError.ValidationError ("People", "network must have at least one person"))
         elif problem.People.Length > 100 then
@@ -454,9 +454,9 @@ module SocialNetworkAnalyzer =
         else
             match problem.Backend with
             | None ->
-                Error (QuantumError.NotImplemented (
-                    "Classical community detection",
-                    Some "Provide a quantum backend via SocialNetworkProblem.Backend."))
+                // Quantum-first: default to the local simulator (a real quantum backend) when
+                // no backend was supplied, then run the same quantum analysis path.
+                solve { problem with Backend = Some (LocalBackend.LocalBackend() :> IQuantumBackend) }
             | Some backend ->
                 // Determine the effective analysis mode
                 let effectiveMode =

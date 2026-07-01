@@ -171,36 +171,41 @@ module HybridSolver =
     // QUANTUM EXECUTION
     // ================================================================================
 
-    /// Execute TSP problem on quantum backend using QAOA
+    /// Run the real quantum TSP solver (QAOA on a unified IQuantumBackend) and adapt the
+    /// result to the classical TspSolution shape used by the legacy hybrid API.
     ///
-    /// Returns Error because the full QUBO-to-circuit workflow is not implemented:
-    /// 1. Convert TSP to QUBO matrix (GraphOptimization.toQubo)
-    /// 2. Generate QAOA circuit (QaoaCircuit.fromQubo)
-    /// 3. Submit to quantum backend (IonQ/Rigetti)
-    /// 4. Decode measurement results to tour
-    ///
-    /// Use solveTspWithBackend for unified-backend execution when available.
+    /// The legacy QuantumExecutionConfig only names a provider (IonQ/Rigetti) and carries no
+    /// live HttpClient/credentials, so it cannot construct a cloud backend on its own. This
+    /// executes genuine QAOA on the default unified backend (local simulator). To target a
+    /// specific gate-based or topological cloud backend, use solveTspWithBackend and pass it in.
+    let private runQuantumTspCore (distances: float[,]) : QuantumResult<TspSolver.TspSolution> =
+        let backend = defaultHybridBackend ()
+        match QuantumTspSolver.solve backend distances QuantumTspSolver.defaultConfig with
+        | Error err -> Error err
+        | Ok quantumResult ->
+            Ok {
+                Tour = quantumResult.Tour
+                TourLength = quantumResult.TourLength
+                Iterations = 0  // Quantum solver doesn't track classical iterations
+                ElapsedMs = quantumResult.ElapsedMs
+            }
+
+    /// Execute TSP on the unified quantum backend using real QAOA (see runQuantumTspCore).
     let private executeQuantumTsp
-        (_distances: float[,])
+        (distances: float[,])
         (_quantumConfig: QuantumExecutionConfig)
         : Async<QuantumResult<TspSolver.TspSolution>> =
-        async {
-            return Error (QuantumError.NotImplemented (
-                "Quantum TSP via QAOA circuit execution",
-                Some "QUBO-to-circuit compilation and backend submission are not yet implemented. Use solveTspWithBackend or force Classical method."))
-        }
+        async { return runQuantumTspCore distances }
 
     /// Task-based variant of executeQuantumTsp for use in async contexts.
     let private executeQuantumTspTask
-        (_distances: float[,])
+        (distances: float[,])
         (_quantumConfig: QuantumExecutionConfig)
         (cancellationToken: System.Threading.CancellationToken)
         : System.Threading.Tasks.Task<QuantumResult<TspSolver.TspSolution>> =
         task {
             cancellationToken.ThrowIfCancellationRequested()
-            return Error (QuantumError.NotImplemented (
-                "Quantum TSP via QAOA circuit execution",
-                Some "QUBO-to-circuit compilation and backend submission are not yet implemented. Use solveTspWithBackend or force Classical method."))
+            return runQuantumTspCore distances
         }
 
     // ================================================================================
@@ -258,8 +263,8 @@ module HybridSolver =
 
     /// Solve TSP problem using hybrid solver with quantum execution support
     ///
-    /// NOTE: This legacy API uses a mock quantum path (`executeQuantumTsp`) and is maintained
-    /// for backward compatibility. For real unified-backend execution use `solveTspWithBackend`.
+    /// NOTE: This legacy API runs real QAOA on the default unified backend (local simulator).
+    /// To target a specific gate-based or topological cloud backend, use `solveTspWithBackend`.
     ///
     /// ⚠️ WARNING: This function uses Async.RunSynchronously internally and can block for minutes.
     /// Consider refactoring to async if calling from async context.
@@ -359,8 +364,8 @@ module HybridSolver =
     /// This is the async counterpart of solveTspWithQuantum, replacing
     /// Async.RunSynchronously calls with awaited Task calls.
     ///
-    /// NOTE: The quantum path (executeQuantumTspTask) is a stub that always returns NotImplemented.
-    /// For real execution, use solveTspWithBackend.
+    /// NOTE: The quantum path runs real QAOA on the default unified backend (local simulator).
+    /// To target a specific cloud backend, use solveTspWithBackend.
     let solveTspWithQuantumAsync
         (distances: float[,])
         (quantumConfig: QuantumExecutionConfig option)

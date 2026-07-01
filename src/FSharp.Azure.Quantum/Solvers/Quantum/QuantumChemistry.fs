@@ -2428,53 +2428,6 @@ module MolecularHamiltonian =
           TwoElectron = { NumOrbitals = 2; Integrals = g2 }
           ReferenceEnergy = Some -1.116765 }   // Hartree-Fock energy (2·h00 + (00|00) + Enuc)
 
-    /// Non-physical DEMO-fallback Hamiltonian, used by `buildWithMapping` only when no
-    /// `IntegralProvider` is supplied: the one- and two-electron integrals are fixed
-    /// constants unrelated to the molecule, basis, or geometry, so the energy is
-    /// illustrative only (keeps demos/tests runnable). Real cases supply an
-    /// `IntegralProvider` (PySCF/Psi4/FCIDUMP) — see `buildWithMapping`.
-    let private buildPlaceholderHamiltonian (molecule: Molecule) (mapping: MappingMethod) : Result<QaoaCircuit.ProblemHamiltonian, QuantumError> =
-        let numOrbitals = molecule.Atoms.Length * 2  // Minimal basis: 2 orbitals per atom
-        if numOrbitals > 20 then
-            Error (QuantumError.ValidationError("MoleculeSize", $"Molecule too large: {numOrbitals} orbitals (max 20)"))
-        else
-            let fermionTerms =
-                [
-                    // One-electron terms hᵢⱼ a†ᵢ aⱼ — PLACEHOLDER constants, not real integrals
-                    for i in 0 .. numOrbitals - 1 do
-                        for j in 0 .. numOrbitals - 1 do
-                            let hij = if i = j then -1.0 else -0.1
-                            yield {
-                                FermionMapping.Coefficient = System.Numerics.Complex(hij, 0.0)
-                                FermionMapping.Operators = [
-                                    { FermionMapping.OrbitalIndex = i; FermionMapping.OperatorType = FermionMapping.Creation }
-                                    { FermionMapping.OrbitalIndex = j; FermionMapping.OperatorType = FermionMapping.Annihilation }
-                                ]
-                            }
-                    // Two-electron terms gᵢⱼ — PLACEHOLDER constants, nearest-neighbour only
-                    for i in 0 .. numOrbitals - 2 do
-                        for j in i + 1 .. numOrbitals - 1 do
-                            let gijij = 0.5
-                            yield {
-                                FermionMapping.Coefficient = System.Numerics.Complex(0.5 * gijij, 0.0)
-                                FermionMapping.Operators = [
-                                    { FermionMapping.OrbitalIndex = i; FermionMapping.OperatorType = FermionMapping.Creation }
-                                    { FermionMapping.OrbitalIndex = j; FermionMapping.OperatorType = FermionMapping.Creation }
-                                    { FermionMapping.OrbitalIndex = j; FermionMapping.OperatorType = FermionMapping.Annihilation }
-                                    { FermionMapping.OrbitalIndex = i; FermionMapping.OperatorType = FermionMapping.Annihilation }
-                                ]
-                            }
-                ]
-            let fermionHamiltonian = {
-                FermionMapping.NumOrbitals = numOrbitals
-                FermionMapping.Terms = fermionTerms
-            }
-            let qubitHamiltonian =
-                match mapping with
-                | BravyiKitaev -> FermionMapping.BravyiKitaev.transform fermionHamiltonian
-                | _ -> FermionMapping.JordanWigner.transform fermionHamiltonian
-            Ok (FermionMapping.toQaoaHamiltonian qubitHamiltonian)
-
     /// Build a Hamiltonian from a Molecule under the given mapping.
     ///
     /// PRODUCTION USE: supply an `IntegralProvider` that obtains real molecular-orbital
@@ -2489,9 +2442,9 @@ module MolecularHamiltonian =
     ///       for the integrals and delegates to `buildFromIntegrals` → a physically correct
     ///       Hamiltonian. Wire the provider to PySCF/Psi4 — see
     ///       examples/DrugDiscovery/PySCFIntegration.fsx.
-    ///     • With `None`: falls back to a non-physical DEMO placeholder (fixed-constant
-    ///       integrals) and emits a runtime warning, so the pipeline stays runnable for
-    ///       demos/tests. The energy is illustrative only — supply a provider for real work.
+    ///     • With `None`: returns `Error` — a fermionic mapping requires real molecular
+    ///       integrals. Supply an `IntegralProvider` (PySCF/Psi4/FCIDUMP), or call
+    ///       `buildFromIntegrals` with integrals you already hold (e.g. `h2Sto3gIntegrals`).
     ///
     /// Shortcut when you already hold integrals: call `buildFromIntegrals` directly with a
     /// `MolecularIntegrals` value such as the bundled `h2Sto3gIntegrals`, or integrals
@@ -2516,8 +2469,9 @@ module MolecularHamiltonian =
                 
                 | JordanWigner | BravyiKitaev ->
                     // Production path: an IntegralProvider supplies real MO integrals from an
-                    // external chemistry package (PySCF/Psi4/FCIDUMP). With no provider we fall
-                    // back to a non-physical demo placeholder (see the None arm).
+                    // external chemistry package (PySCF/Psi4/FCIDUMP). A fermionic mapping is
+                    // meaningless without real integrals, so `None` is a hard Error rather than
+                    // a silently non-physical placeholder.
                     match integralProvider with
                     | Some provider ->
                         match provider molecule with
@@ -2530,11 +2484,12 @@ module MolecularHamiltonian =
                                 "Check the provider (e.g. PySCF/Psi4 wrapper) or load integrals from " +
                                 "an FCIDUMP file via Molecule.fromFciDumpFileTask."))
                     | None ->
-                        // No provider supplied → demo fallback so the pipeline stays runnable
-                        // for demos/tests. Warn so the illustrative energy is not mistaken for a
-                        // real result; real cases pass an IntegralProvider (PySCF/Psi4/FCIDUMP).
-                        eprintfn "WARNING: buildWithMapping (%A) has no IntegralProvider; using a non-physical demo-fallback Hamiltonian (illustrative energy only). Supply an IntegralProvider (PySCF/Psi4/FCIDUMP) or use buildFromIntegrals for real results." mapping
-                        buildPlaceholderHamiltonian molecule mapping
+                        Error (QuantumError.ValidationError("IntegralProvider",
+                            $"The %A{mapping} fermionic mapping requires real molecular integrals, " +
+                            "but no IntegralProvider was supplied. Pass an IntegralProvider " +
+                            "(PySCF/Psi4/FCIDUMP), or call buildFromIntegrals with integrals you " +
+                            "already hold (e.g. h2Sto3gIntegrals). Use the Empirical mapping for a " +
+                            "provider-free prototype Hamiltonian."))
         }
     
     /// Build molecular Hamiltonian from molecule structure

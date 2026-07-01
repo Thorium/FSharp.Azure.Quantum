@@ -402,6 +402,55 @@ module CloudBackendTests =
             | Ok _ -> Assert.True(false, "Expected Error for cloud ApplyOperation")
         } :> Task
 
+    // ========================================================================
+    // IQM (superconducting, OpenQASM 2.0 via Azure Quantum)
+    // ========================================================================
+
+    [<Fact>]
+    let ``IqmCloudBackend Name includes target`` () =
+        let httpClient = createDummyHttpClient ()
+        let backend = CloudBackends.IqmCloudBackend(httpClient, "https://test", "iqm.qpu.garnet") :> IQuantumBackend
+        Assert.Equal("IQM Cloud (iqm.qpu.garnet)", backend.Name)
+
+    [<Fact>]
+    let ``IqmCloudBackend NativeStateType is GateBased`` () =
+        let httpClient = createDummyHttpClient ()
+        let backend = CloudBackends.IqmCloudBackend(httpClient, "https://test", "iqm.sim") :> IQuantumBackend
+        Assert.Equal(QuantumStateType.GateBased, backend.NativeStateType)
+
+    [<Fact>]
+    let ``CloudBackendFactory createIqm builds an IQM backend`` () =
+        let httpClient = createDummyHttpClient ()
+        let backend = CloudBackends.CloudBackendFactory.createIqm httpClient "https://test" "iqm.sim" 1000
+        Assert.Equal("IQM Cloud (iqm.sim)", backend.Name)
+
+    [<Fact>]
+    let ``IqmCloudBackend ApplyOperationAsync returns Error`` () : Task =
+        task {
+            let httpClient = createDummyHttpClient ()
+            let backend = CloudBackends.IqmCloudBackend(httpClient, "https://test", "iqm.sim") :> IQuantumBackend
+            let dummyState = QuantumState.StateVector (FSharp.Azure.Quantum.LocalSimulator.StateVector.init 2)
+            let gate = QuantumOperation.Gate (FSharp.Azure.Quantum.CircuitBuilder.Gate.H 0)
+            let! result = backend.ApplyOperationAsync gate dummyState CancellationToken.None
+            match result with
+            | Error (QuantumError.OperationError _) -> ()
+            | Error err -> Assert.True(false, sprintf "Expected OperationError, got: %A" err)
+            | Ok _ -> Assert.True(false, "Expected Error for cloud ApplyOperation")
+        } :> Task
+
+    [<Fact>]
+    let ``IqmBackend parseIqmResult reads the results histogram`` () =
+        let json = """{ "results": { "00": 480, "11": 520 } }"""
+        let histogram = IqmBackend.parseIqmResult json
+        Assert.Equal(480, histogram.["00"])
+        Assert.Equal(520, histogram.["11"])
+
+    [<Fact>]
+    let ``IqmBackend createJobSubmission uses OpenQASM 2.0 format`` () =
+        let submission = IqmBackend.createJobSubmission "OPENQASM 2.0;" 500 "iqm.sim"
+        Assert.Equal("iqm.sim", submission.Target)
+        Assert.Equal(FSharp.Azure.Quantum.Core.Types.CircuitFormat.Custom "qasm.v2", submission.InputDataFormat)
+
     [<Fact>]
     let ``AtomComputingCloudBackend QPU MaxQubits is 100`` () =
         let httpClient = createDummyHttpClient ()

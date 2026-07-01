@@ -532,6 +532,129 @@ module CloudBackends =
                 elif target.Contains("sim") then Some 20  // StateVector.create limit
                 else None
 
+    /// IQuantumBackend implementation for IQM (superconducting) via Azure Quantum.
+    ///
+    /// Converts ICircuit to OpenQASM 2.0, submits to iqm.sim or iqm.qpu.*,
+    /// and returns an approximate QuantumState from the measurement histogram.
+    ///
+    /// Parameters:
+    ///   httpClient   - Authenticated HttpClient for Azure Quantum API
+    ///   workspaceUrl - Azure Quantum workspace URL
+    ///   target       - IQM target (e.g., "iqm.sim", "iqm.qpu.garnet")
+    ///   shots        - Number of measurement shots (default 1000)
+    ///   timeout      - Job timeout (default 5 minutes)
+    type IqmCloudBackend
+        (
+            httpClient: HttpClient,
+            workspaceUrl: string,
+            target: string,
+            ?shots: int,
+            ?timeout: TimeSpan,
+            ?costLimitUsd: decimal
+        ) =
+
+        let shots = defaultArg shots 1000
+        let timeout = defaultArg timeout (TimeSpan.FromMinutes(5.0))
+
+        /// Convert ICircuit to an OpenQASM 2.0 string for IQM.
+        let circuitToOpenQasm (circuit: ICircuit) : Result<string, QuantumError> =
+            match CircuitAdapter.tryGetCircuit circuit with
+            | Some builderCircuit ->
+                try
+                    Ok (FSharp.Azure.Quantum.OpenQasmExport.export builderCircuit)
+                with ex ->
+                    Error (QuantumError.OperationError("OpenQASM export", sprintf "Failed to export circuit to OpenQASM: %s" ex.Message))
+            | None ->
+                match CircuitAdapter.tryGetQaoaCircuit circuit with
+                | Some qaoaCircuit ->
+                    try
+                        Ok (QaoaCircuit.toOpenQasm qaoaCircuit)
+                    with ex ->
+                        Error (QuantumError.OperationError("OpenQASM export", sprintf "Failed to export QAOA circuit to OpenQASM: %s" ex.Message))
+                | None ->
+                    Error (QuantumError.OperationError("Circuit extraction", "Cannot extract circuit from ICircuit wrapper for OpenQASM export"))
+
+        interface IQuantumBackend with
+
+            member _.Name = sprintf "IQM Cloud (%s)" target
+
+            member _.NativeStateType = QuantumStateType.GateBased
+
+            member this.ExecuteToState (circuit: ICircuit) : Result<QuantumState, QuantumError> =
+                (this :> IQuantumBackend).ExecuteToStateAsync circuit CancellationToken.None
+                |> Async.AwaitTask
+                |> Async.RunSynchronously
+
+            member _.ExecuteToStateAsync (circuit: ICircuit) (cancellationToken: CancellationToken) : Task<Result<QuantumState, QuantumError>> =
+                task {
+                    // Step 1: Convert ICircuit → OpenQASM 2.0 string
+                    match CloudBackendHelpers.checkCostGuard target shots costLimitUsd |> Result.bind (fun () -> circuitToOpenQasm circuit) with
+                    | Error err -> return Error err
+                    | Ok qasmCode ->
+                        // Step 2: Submit and wait for results
+                        let submission = IqmBackend.createJobSubmission qasmCode shots target
+                        let! submitResult = JobLifecycle.submitJobAsync httpClient workspaceUrl submission
+                        match submitResult with
+                        | Error err -> return Error err
+                        | Ok jobId ->
+                            let! pollResult = JobLifecycle.pollJobUntilCompleteAsync httpClient workspaceUrl jobId timeout cancellationToken
+                            match pollResult with
+                            | Error err -> return Error err
+                            | Ok job ->
+                                match job.Status with
+                                | JobStatus.Succeeded ->
+                                    match job.OutputDataUri with
+                                    | None ->
+                                        return Error (QuantumError.AzureError (AzureQuantumError.UnknownError(500, "Job completed but no output URI available")))
+                                    | Some uri ->
+                                        let! resultData = JobLifecycle.getJobResultAsync httpClient uri
+                                        match resultData with
+                                        | Error err -> return Error err
+                                        | Ok jobResult ->
+                                            try
+                                                let resultJson = jobResult.OutputData :?> string
+                                                let histogram = IqmBackend.parseIqmResult resultJson
+                                                let numQubits =
+                                                    CloudBackendHelpers.inferNumQubits histogram
+                                                    |> Option.defaultValue circuit.NumQubits
+                                                return Ok (CloudBackendHelpers.histogramToQuantumState histogram numQubits)
+                                            with
+                                            | ex ->
+                                                return Error (QuantumError.AzureError (AzureQuantumError.UnknownError(0, sprintf "Failed to parse IQM results: %s" ex.Message)))
+                                | JobStatus.Failed (errorCode, errorMessage) ->
+                                    return Error (IqmBackend.mapIqmError errorCode errorMessage)
+                                | JobStatus.Cancelled ->
+                                    return Error (QuantumError.OperationError("Job execution", "Operation cancelled"))
+                                | _ ->
+                                    return Error (QuantumError.AzureError (AzureQuantumError.UnknownError(0, sprintf "Unexpected job status: %A" job.Status)))
+                }
+
+            member _.InitializeState (numQubits: int) : Result<QuantumState, QuantumError> =
+                Ok (QuantumState.StateVector (StateVector.init numQubits))
+
+            member this.ApplyOperation (op: QuantumOperation) (state: QuantumState) : Result<QuantumState, QuantumError> =
+                let iface = (this :> IQuantumBackend)
+                iface.ApplyOperationAsync op state CancellationToken.None
+                |> Async.AwaitTask
+                |> Async.RunSynchronously
+
+            member _.ApplyOperationAsync (op: QuantumOperation) (_state: QuantumState) (cancellationToken: CancellationToken) : Task<Result<QuantumState, QuantumError>> =
+                task {
+                    return Error (QuantumError.OperationError(
+                        "ApplyOperation",
+                        sprintf "IQM Cloud (%s) does not support incremental ApplyOperation. Use ExecuteToState with a complete circuit instead." target))
+                }
+
+            member _.SupportsOperation (op: QuantumOperation) : bool =
+                CloudBackendHelpers.isCloudSupportedOperation op
+
+        interface IQubitLimitedBackend with
+            member _.MaxQubits =
+                // IQM Garnet: 20 qubits; simulator limited by state-vector size.
+                if target.Contains("qpu") then Some 20
+                elif target.Contains("sim") then Some 20
+                else None
+
     // ============================================================================
     // FACTORY MODULE
     // ============================================================================
@@ -564,3 +687,8 @@ module CloudBackends =
         /// Create an Atom Computing cloud backend.
         let createAtomComputing (httpClient: HttpClient) (workspaceUrl: string) (target: string) (shots: int) : IQuantumBackend =
             AtomComputingCloudBackend(httpClient, workspaceUrl, target, shots) :> IQuantumBackend
+
+        /// Create an IQM cloud backend (superconducting, OpenQASM 2.0 via Azure Quantum).
+        /// Example targets: "iqm.sim", "iqm.qpu.garnet".
+        let createIqm (httpClient: HttpClient) (workspaceUrl: string) (target: string) (shots: int) : IQuantumBackend =
+            IqmCloudBackend(httpClient, workspaceUrl, target, shots) :> IQuantumBackend

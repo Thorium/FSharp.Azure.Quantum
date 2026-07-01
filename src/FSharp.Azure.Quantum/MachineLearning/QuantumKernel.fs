@@ -97,26 +97,16 @@ module QuantumKernels =
         (shots: int)
         : QuantumResult<float> =
         
-        // Wrap circuit for backend execution (like VQC does)
-        let wrappedCircuit = CircuitWrapper(circuit)
-        
-        match backend.ExecuteToState wrappedCircuit with
-        | Error e -> Error (QuantumError.ValidationError ("Input", $"Quantum backend execution failed: {e}"))
-        | Ok state ->
-            
-            // Perform measurements on quantum state
-            let measurements = QuantumState.measure state shots
-            
-            // Count measurements where all qubits are |0⟩
-            let allZeroCount = 
+        // Execute and sample the kernel circuit via the shared primitive (Primitives.run).
+        FSharp.Azure.Quantum.Primitives.run backend circuit shots
+        |> Result.mapError (fun e -> QuantumError.ValidationError ("Input", $"Quantum backend execution failed: {e}"))
+        |> Result.map (fun measurements ->
+            // Fidelity estimate = probability of measuring the all-|0⟩ outcome.
+            let allZeroCount =
                 measurements
-                |> Array.filter (fun measurement ->
-                    measurement |> Array.forall ((=) 0)
-                )
+                |> Array.filter (fun measurement -> measurement |> Array.forall ((=) 0))
                 |> Array.length
-            
-            let probability = float allZeroCount / float shots
-            Ok probability
+            float allZeroCount / float shots)
 
     /// Execute kernel circuit and measure probability of |0...0⟩ state asynchronously.
     /// Uses backend.ExecuteToStateAsync for non-blocking I/O.
@@ -127,8 +117,8 @@ module QuantumKernels =
         (cancellationToken: CancellationToken)
         : Task<QuantumResult<float>> =
         task {
-            let wrappedCircuit = CircuitWrapper(circuit)
-            let! stateResult = backend.ExecuteToStateAsync wrappedCircuit cancellationToken
+            // Execute via the shared primitive (Primitives.getStateAsync), then sample.
+            let! stateResult = FSharp.Azure.Quantum.Primitives.getStateAsync backend circuit cancellationToken
             return
                 match stateResult with
                 | Error e -> Error (QuantumError.ValidationError ("Input", $"Quantum backend execution failed: {e}"))

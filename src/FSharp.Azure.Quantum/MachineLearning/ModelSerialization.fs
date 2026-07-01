@@ -96,40 +96,9 @@ module ModelSerialization =
     }
     
     /// Serializable SVM model (JSON-friendly)
-    type SerializableSVMModel = {
-        /// Support vector indices
-        SupportVectorIndices: int array
-        
-        /// Lagrange multipliers (alphas)
-        Alphas: float array
-        
-        /// Bias term
-        Bias: float
-        
-        /// Training data (support vectors)
-        TrainData: float array array
-        
-        /// Training labels
-        TrainLabels: int array
-        
-        /// Feature map type name
-        FeatureMapType: string
+    // NOTE: SVM model serialization lives in the dedicated SVMModelSerialization module,
+    // which is the single canonical SVM schema (binary + multi-class, lossless feature maps).
 
-        /// Feature map depth (if applicable)
-        FeatureMapDepth: int
-
-        /// Feature map Pauli strings (for PauliFeatureMap; empty array otherwise).
-        /// Preserves the full PauliFeatureMap configuration across a save/load round-trip.
-        FeatureMapPaulis: string array
-
-        /// Number of qubits
-        NumQubits: int
-
-        /// Optional metadata
-        SavedAt: string
-        Note: string option
-    }
-    
     // ========================================================================
     // VQC SERIALIZATION
     // ========================================================================
@@ -502,133 +471,6 @@ module ModelSerialization =
         |> Result.map (fun model -> model.Parameters)
     
     // ========================================================================
-    // SVM SERIALIZATION
-    // ========================================================================
-    
-    /// Save SVM model to JSON file
-    ///
-    /// Parameters:
-    ///   filePath - Path to save JSON file
-    ///   svmModel - Trained SVM model
-    ///   numQubits - Number of qubits used
-    ///   note - Optional note about the model
-    let saveSVMModel
-        (filePath: string)
-        (svmModel: QuantumKernelSVM.SVMModel)
-        (numQubits: int)
-        (note: string option)
-        : QuantumResult<unit> =
-        
-        try
-            // Extract feature map info (preserving Pauli strings for PauliFeatureMap)
-            let fmType, fmDepth, fmPaulis =
-                match svmModel.FeatureMap with
-                | FeatureMapType.ZZFeatureMap d -> ("ZZFeatureMap", d, [||])
-                | FeatureMapType.PauliFeatureMap (paulis, d) -> ("PauliFeatureMap", d, List.toArray paulis)
-                | FeatureMapType.AngleEncoding -> ("AngleEncoding", 0, [||])
-                | FeatureMapType.AmplitudeEncoding -> ("AmplitudeEncoding", 0, [||])
-
-            let model = {
-                SupportVectorIndices = svmModel.SupportVectorIndices
-                Alphas = svmModel.Alphas
-                Bias = svmModel.Bias
-                TrainData = svmModel.TrainData
-                TrainLabels = svmModel.TrainLabels
-                FeatureMapType = fmType
-                FeatureMapDepth = fmDepth
-                FeatureMapPaulis = fmPaulis
-                NumQubits = numQubits
-                SavedAt = DateTime.UtcNow.ToString("o")
-                Note = note
-            }
-            
-            let options = JsonSerializerOptions()
-            options.WriteIndented <- true
-            
-            let json = JsonSerializer.Serialize(model, options)
-            File.WriteAllText(filePath, json)
-            
-            Ok ()
-        with ex ->
-            Error (QuantumError.ValidationError ("Input", $"Failed to save SVM model: {ex.Message}"))
-    
-    /// Save SVM model to JSON file asynchronously
-    let saveSVMModelAsync
-        (filePath: string)
-        (svmModel: QuantumKernelSVM.SVMModel)
-        (numQubits: int)
-        (note: string option)
-        (cancellationToken: CancellationToken)
-        : Task<QuantumResult<unit>> =
-        task {
-            try
-                let fmType, fmDepth, fmPaulis =
-                    match svmModel.FeatureMap with
-                    | FeatureMapType.ZZFeatureMap d -> ("ZZFeatureMap", d, [||])
-                    | FeatureMapType.PauliFeatureMap (paulis, d) -> ("PauliFeatureMap", d, List.toArray paulis)
-                    | FeatureMapType.AngleEncoding -> ("AngleEncoding", 0, [||])
-                    | FeatureMapType.AmplitudeEncoding -> ("AmplitudeEncoding", 0, [||])
-
-                let model = {
-                    SupportVectorIndices = svmModel.SupportVectorIndices
-                    Alphas = svmModel.Alphas
-                    Bias = svmModel.Bias
-                    TrainData = svmModel.TrainData
-                    TrainLabels = svmModel.TrainLabels
-                    FeatureMapType = fmType
-                    FeatureMapDepth = fmDepth
-                    FeatureMapPaulis = fmPaulis
-                    NumQubits = numQubits
-                    SavedAt = DateTime.UtcNow.ToString("o")
-                    Note = note
-                }
-                
-                let options = JsonSerializerOptions()
-                options.WriteIndented <- true
-                
-                let json = JsonSerializer.Serialize(model, options)
-                do! File.WriteAllTextAsync(filePath, json, cancellationToken)
-                
-                return Ok ()
-            with ex ->
-                return Error (QuantumError.ValidationError ("Input", $"Failed to save SVM model: {ex.Message}"))
-        }
-    
-    /// Load SVM model from JSON file
-    ///
-    /// Returns: Serializable SVM model with all metadata
-    let loadSVMModel
-        (filePath: string)
-        : QuantumResult<SerializableSVMModel> =
-        
-        try
-            if not (File.Exists filePath) then
-                Error (QuantumError.ValidationError ("Input", $"File not found: {filePath}"))
-            else
-                let json = File.ReadAllText(filePath)
-                let model = JsonSerializer.Deserialize<SerializableSVMModel>(json)
-                Ok model
-        with ex ->
-            Error (QuantumError.ValidationError ("Input", $"Failed to load SVM model: {ex.Message}"))
-    
-    /// Load SVM model from JSON file asynchronously
-    let loadSVMModelAsync
-        (filePath: string)
-        (cancellationToken: CancellationToken)
-        : Task<QuantumResult<SerializableSVMModel>> =
-        task {
-            try
-                if not (File.Exists filePath) then
-                    return Error (QuantumError.ValidationError ("Input", $"File not found: {filePath}"))
-                else
-                    let! json = File.ReadAllTextAsync(filePath, cancellationToken)
-                    let model = JsonSerializer.Deserialize<SerializableSVMModel>(json)
-                    return Ok model
-            with ex ->
-                return Error (QuantumError.ValidationError ("Input", $"Failed to load SVM model: {ex.Message}"))
-        }
-    
-    // ========================================================================
     // MODEL INFORMATION
     // ========================================================================
     
@@ -875,38 +717,6 @@ module ModelSerialization =
             // Default two-local configuration
             Ok (VariationalForm.TwoLocal ("RY", "CX", vfDepth))
         | _ -> Error (QuantumError.ValidationError ("Input", $"Unknown variational form type: {vfType}"))
-    
-    /// Reconstruct QuantumKernelSVM.SVMModel from serialized data
-    ///
-    /// Returns: Full SVM model ready for prediction
-    let reconstructSVMModel
-        (serialized: SerializableSVMModel)
-        : QuantumResult<QuantumKernelSVM.SVMModel> =
-        
-        // Parse feature map. For PauliFeatureMap, restore the exact Pauli strings that were
-        // saved (falling back to the historical default only for models written before the
-        // FeatureMapPaulis field existed), so the round-trip is lossless.
-        let featureMapResult =
-            match serialized.FeatureMapType with
-            | "PauliFeatureMap" ->
-                let paulis =
-                    if isNull (box serialized.FeatureMapPaulis) || Array.isEmpty serialized.FeatureMapPaulis then
-                        [ "Z"; "ZZ" ]  // backward compatibility with pre-FeatureMapPaulis models
-                    else
-                        List.ofArray serialized.FeatureMapPaulis
-                Ok (FeatureMapType.PauliFeatureMap (paulis, serialized.FeatureMapDepth))
-            | other -> parseFeatureMapType other serialized.FeatureMapDepth
-
-        featureMapResult
-        |> Result.map (fun featureMap ->
-            {
-                SupportVectorIndices = serialized.SupportVectorIndices
-                Alphas = serialized.Alphas
-                Bias = serialized.Bias
-                TrainData = serialized.TrainData
-                TrainLabels = serialized.TrainLabels
-                FeatureMap = featureMap
-            })
     
     // ========================================================================
     // TRANSFER LEARNING UTILITIES

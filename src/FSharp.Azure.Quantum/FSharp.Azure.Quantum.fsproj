@@ -9,7 +9,7 @@
     <Version>1.4.2</Version>
     <PackageId>FSharp.Azure.Quantum</PackageId>
     <Title>FSharp.Azure.Quantum</Title>
-    <Description>F# library for Azure Quantum with quantum-first optimization (Graph Coloring, TSP, MaxCut, Knapsack, Network Flow, Portfolio), Azure Quantum backend integration (IonQ, Rigetti, Quantinuum, Atom Computing), extensible circuit validation, local quantum simulation, QAOA with automatic parameter optimization (Nelder-Mead), OpenQASM 2.0 support, error mitigation techniques (ZNE, PEC, REM), Quantum Random Number Generation (QRNG), and educational quantum algorithms (Grover, QFT, Amplitude Amplification) with cloud backend execution. Multi-provider architecture supports IonQ, Rigetti, Quantinuum, Atom Computing, IBM, Amazon Braket, and Google Cirq.</Description>
+    <Description>F# library for Azure Quantum with quantum-first optimization (Graph Coloring, TSP, MaxCut, Knapsack, Network Flow, Portfolio), Azure Quantum backend integration (IonQ, Rigetti, Quantinuum, Atom Computing), extensible circuit validation, local quantum simulation, QAOA with automatic parameter optimization (Nelder-Mead), OpenQASM 2.0 support, error mitigation techniques (ZNE, PEC, REM), Quantum Random Number Generation (QRNG), and educational quantum algorithms (Grover, QFT, Amplitude Amplification) with cloud backend execution. Native IQuantumBackend integration for IonQ, Rigetti, Quantinuum, Atom Computing, IQM and D-Wave, plus Pasqal neutral-atom analog hardware (via Pulser) and a neutral-atom analog programming model; additional platforms (IBM, Amazon Braket, Google Cirq) are targetable via OpenQASM 2.0 export/import.</Description>
     <Summary>F# library for Azure Quantum with quantum-first optimization, quantum backends (IonQ, Rigetti, Quantinuum, Atom Computing), QAOA with automatic parameter tuning, QRNG, and educational algorithms with cloud execution</Summary>
     <PackageReleaseNotes>v1.4.2: Compilation/hardware tooling and weighted MAX-SAT
 - NEW: QubitRouting - inserts SWAPs so two-qubit gates respect device connectivity (CouplingMap: grid/linear/fromPairs); tracks logical-to-physical qubit permutation
@@ -122,6 +122,7 @@ v1.3.10: Async backend refactoring
     <Compile Include="Backends\RigettiBackend.fs" />
     <Compile Include="Backends\QuantinuumBackend.fs" />
     <Compile Include="Backends\AtomComputingBackend.fs" />
+    <Compile Include="Backends\IqmBackend.fs" />
     <Compile Include="Backends\AzureQuantumWorkspace.fs" />
     <Compile Include="Core\Client.fs" />
 
@@ -141,6 +142,7 @@ v1.3.10: Async backend refactoring
     <Compile Include="Builders\ResourceEstimation.fs" />
     <Compile Include="Builders\NoiseModel.fs" />
     <Compile Include="Builders\QirEmitter.fs" />
+    <Compile Include="Builders\CudaQBridge.fs" />
     <Compile Include="Builders\OpenQasmVersion.fs" />
     <Compile Include="Builders\OpenQasmExport.fs" />
     <Compile Include="Builders\OpenQasmImport.fs" />
@@ -168,6 +170,9 @@ v1.3.10: Async backend refactoring
     <!-- Local Backend (depends on CircuitBuilder, CircuitAbstraction, BackendAbstraction, UnifiedBackendAbstraction) -->
     <Compile Include="Backends\LocalBackend.fs" />
 
+    <!-- Density-matrix noisy simulator backend (depends on LocalBackend, CircuitAbstraction) -->
+    <Compile Include="Backends\NoisyBackend.fs" />
+
     <!-- Cloud Backend IQuantumBackend Wrappers (depends on BackendAbstraction, CircuitAbstraction, OpenQasmExport, utility backend modules) -->
     <Compile Include="Backends\CloudBackendHelpers.fs" />
     <Compile Include="Backends\CloudBackends.fs" />
@@ -193,6 +198,26 @@ v1.3.10: Async backend refactoring
 
     <Compile Include="Algorithms\Shor.fs" />
     <Compile Include="Algorithms\TrotterSuzuki.fs" />
+
+    <!-- CUDA-Q-style execution primitives (sample/observe/run/getState) over IQuantumBackend.
+         Depends on TrotterSuzuki (PauliHamiltonian) for observe. -->
+    <Compile Include="Core\Primitives.fs" />
+
+    <!-- ADAPT-VQE / ADAPT-QAOA adaptive ansatz (depends on Primitives, TrotterSuzuki, QaoaOptimizer) -->
+    <Compile Include="Algorithms\AdaptVqe.fs" />
+    <Compile Include="Algorithms\AdaptQaoa.fs" />
+
+    <!-- Emulate-target mode (transpile→validate→local-run); depends on Primitives, GateTranspiler, CircuitValidator, LocalBackend -->
+    <Compile Include="Core\Emulation.fs" />
+
+    <!-- Neutral-atom (Rydberg) analog mode: Trotterizes an analog program to gates (depends on Primitives) -->
+    <Compile Include="Algorithms\NeutralAtom.fs" />
+
+    <!-- Pasqal neutral-atom cloud backend: RydbergProgram -> Pulser JSON -> Azure Quantum -->
+    <Compile Include="Algorithms\PasqalBackend.fs" />
+
+    <!-- QuEra neutral-atom via AWS Braket: RydbergProgram -> Braket AHS program JSON -->
+    <Compile Include="Algorithms\QueraBackend.fs" />
     <Compile Include="Algorithms\QuantumErrorCorrection.fs" />
     <Compile Include="Algorithms\HHLTypes.fs" />
     <Compile Include="Algorithms\HHL.fs" />

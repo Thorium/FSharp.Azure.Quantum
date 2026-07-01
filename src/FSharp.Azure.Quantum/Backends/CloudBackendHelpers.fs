@@ -39,6 +39,11 @@ module CloudBackendHelpers =
     ///   - Accuracy depends on number of shots (more shots = better approximation)
     ///   - For exact state reconstruction, use quantum state tomography
     let histogramToQuantumState (histogram: Map<string, int>) (numQubits: int) : QuantumState =
+        // A dense state vector is only feasible (and `1 <<< numQubits` only non-overflowing) up to
+        // the simulator's 20-qubit limit. Fail fast with a clear message — callers wrap this in
+        // try/with and surface it as an Error — rather than allocating multiple GB or overflowing.
+        if numQubits > 20 then
+            failwithf "Cannot materialise a dense state vector for %d qubits (limit 20); parse the measurement histogram directly for larger circuits." numQubits
         let dimension = 1 <<< numQubits
         let totalShots =
             histogram

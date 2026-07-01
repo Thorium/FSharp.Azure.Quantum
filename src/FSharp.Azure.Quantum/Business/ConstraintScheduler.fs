@@ -696,37 +696,35 @@ module ConstraintScheduler =
         else
             // Infer quantum vs classical from backend presence
             let bestSchedule =
-                match problem.Backend with
-                | Some backend ->
-                    let strategy = resolveStrategy problem
-                    let hasCapacity = problem.Resources |> List.exists (fun r -> r.Capacity.IsSome)
+                // Quantum-first: run on the caller's backend, or default to the local simulator
+                // (a real quantum backend) when none was supplied.
+                let backend =
+                    problem.Backend
+                    |> Option.defaultWith (fun () -> LocalBackend.LocalBackend() :> IQuantumBackend)
+                let strategy = resolveStrategy problem
+                let hasCapacity = problem.Resources |> List.exists (fun r -> r.Capacity.IsSome)
 
-                    match strategy, problem.Goal with
-                    // Satisfaction goal: resource cost is intentionally NOT part of the
-                    // objective (the user is maximising constraint satisfaction, not cost).
-                    | QaoaOptimize, MaximizeSatisfaction ->
-                        optimizeQaoaSat backend problem
-                    | (GroverSearch | Auto), MaximizeSatisfaction ->
-                        optimizeQuantumSat backend problem
+                match strategy, problem.Goal with
+                // Satisfaction goal: resource cost is intentionally NOT part of the
+                // objective (the user is maximising constraint satisfaction, not cost).
+                | QaoaOptimize, MaximizeSatisfaction ->
+                    optimizeQaoaSat backend problem
+                | (GroverSearch | Auto), MaximizeSatisfaction ->
+                    optimizeQuantumSat backend problem
 
-                    // Cost goal WITH capacity: capacity is a hard structural requirement,
-                    // so we use the bin-packing formulation (cost minimisation is bounded
-                    // by capacity feasibility in this combination).
-                    | _, (MinimizeCost | Balanced) when hasCapacity ->
-                        optimizeQaoaBinPacking backend problem
+                // Cost goal WITH capacity: capacity is a hard structural requirement,
+                // so we use the bin-packing formulation (cost minimisation is bounded
+                // by capacity feasibility in this combination).
+                | _, (MinimizeCost | Balanced) when hasCapacity ->
+                    optimizeQaoaBinPacking backend problem
 
-                    // Cost goal WITHOUT capacity: resource cost is genuinely encoded via the
-                    // weighted graph-colouring oracle. The SAT/QAOA clause encoding cannot
-                    // express resource costs, so every cost goal is routed to the cost-aware
-                    // colouring formulation regardless of the Grover/QAOA strategy hint.
-                    | _, (MinimizeCost | Balanced) ->
-                        optimizeQuantumColoring backend problem
-                
-                | None ->
-                    Error (QuantumError.NotImplemented (
-                        "Classical constraint scheduling",
-                        Some "Provide a quantum backend via SchedulingProblem.Backend."))
-            
+                // Cost goal WITHOUT capacity: resource cost is genuinely encoded via the
+                // weighted graph-colouring oracle. The SAT/QAOA clause encoding cannot
+                // express resource costs, so every cost goal is routed to the cost-aware
+                // colouring formulation regardless of the Grover/QAOA strategy hint.
+                | _, (MinimizeCost | Balanced) ->
+                    optimizeQuantumColoring backend problem
+
             match bestSchedule with
             | Error e -> Error e
             | Ok schedule ->

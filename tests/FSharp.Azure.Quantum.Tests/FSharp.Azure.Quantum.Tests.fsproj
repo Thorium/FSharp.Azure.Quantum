@@ -184,6 +184,16 @@
     <Compile Include="ResourcePairingTests.fs" />
     <Compile Include="PackingOptimizerTests.fs" />
     
+    <Compile Include="PrimitivesTests.fs" />
+    <Compile Include="EmulationTests.fs" />
+    <Compile Include="NoisyBackendTests.fs" />
+    <Compile Include="CudaQBridgeTests.fs" />
+    <Compile Include="NeutralAtomTests.fs" />
+    <Compile Include="PasqalTests.fs" />
+    <Compile Include="QueraTests.fs" />
+    <Compile Include="OpenQasm3Tests.fs" />
+    <Compile Include="AdaptVqeTests.fs" />
+    <Compile Include="AdaptQaoaTests.fs" />
     <Compile Include="IntegrationTests.fs" />
     
     <!-- Kasino Game Tests -->

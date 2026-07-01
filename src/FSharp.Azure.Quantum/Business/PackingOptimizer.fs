@@ -129,17 +129,17 @@ module PackingOptimizer =
         elif problem.Items |> List.exists (fun i -> i.Size > problem.BinCapacity) then
             Error (QuantumError.ValidationError ("ItemSize", "item size exceeds bin capacity"))
         else
-            match problem.Backend with
-            | Some backend ->
-                let binProblem = toBinPackingProblem problem
-                match QuantumBinPackingSolver.solve backend binProblem problem.Shots with
-                | Error err -> Error err
-                | Ok solution ->
-                    Ok (decodeSolution problem solution)
-            | None ->
-                Error (QuantumError.NotImplemented (
-                    "Classical packing optimization",
-                    Some "Provide a quantum backend via PackingProblem.Backend."))
+            // Quantum-first: run on the caller's backend, or default to the local simulator
+            // (a real quantum backend) when none was supplied.
+            let backend =
+                problem.Backend
+                |> Option.defaultWith (fun () ->
+                    FSharp.Azure.Quantum.Backends.LocalBackend.LocalBackend() :> IQuantumBackend)
+            let binProblem = toBinPackingProblem problem
+            match QuantumBinPackingSolver.solve backend binProblem problem.Shots with
+            | Error err -> Error err
+            | Ok solution ->
+                Ok (decodeSolution problem solution)
 
     // ========================================================================
     // COMPUTATION EXPRESSION BUILDER

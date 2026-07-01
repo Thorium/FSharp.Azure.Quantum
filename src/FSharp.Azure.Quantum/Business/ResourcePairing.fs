@@ -150,17 +150,17 @@ module ResourcePairing =
                 not (List.contains c.Participant2 problem.Participants)) then
             Error (QuantumError.ValidationError ("Participants", "compatibility references unknown participant"))
         else
-            match problem.Backend with
-            | Some backend ->
-                let matchingProblem = toMatchingProblem problem
-                match QuantumMatchingSolver.solve backend matchingProblem problem.Shots with
-                | Error err -> Error err
-                | Ok solution ->
-                    Ok (decodeSolution problem solution)
-            | None ->
-                Error (QuantumError.NotImplemented (
-                    "Classical resource pairing",
-                    Some "Provide a quantum backend via PairingProblem.Backend."))
+            // Quantum-first: run on the caller's backend, or default to the local simulator
+            // (a real quantum backend) when none was supplied.
+            let backend =
+                problem.Backend
+                |> Option.defaultWith (fun () ->
+                    FSharp.Azure.Quantum.Backends.LocalBackend.LocalBackend() :> IQuantumBackend)
+            let matchingProblem = toMatchingProblem problem
+            match QuantumMatchingSolver.solve backend matchingProblem problem.Shots with
+            | Error err -> Error err
+            | Ok solution ->
+                Ok (decodeSolution problem solution)
 
     // ========================================================================
     // COMPUTATION EXPRESSION BUILDER

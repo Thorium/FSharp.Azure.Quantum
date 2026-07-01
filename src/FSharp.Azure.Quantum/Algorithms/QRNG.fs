@@ -57,8 +57,8 @@ module QRNG =
                 |> List.fold (fun c qubitIdx ->
                     CircuitBuilder.addGate (CircuitBuilder.Gate.H qubitIdx) c) circuit
 
-            let wrappedCircuit = CircuitAbstraction.CircuitWrapper(circuitWithH) :> ICircuit
-            backend.ExecuteToState wrappedCircuit
+            // Wrap-and-execute via the shared primitive (Primitives.getState).
+            Primitives.getState backend circuitWithH
     
     // ========================================================================
     // TYPES

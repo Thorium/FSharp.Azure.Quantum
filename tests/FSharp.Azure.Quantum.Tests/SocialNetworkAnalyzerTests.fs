@@ -70,12 +70,12 @@ module SocialNetworkAnalyzerTests =
         | _ -> failwith "Should return ValidationError for too many people"
 
     [<Fact>]
-    let ``solve without backend should return NotImplemented error`` () =
+    let ``solve without backend defaults to local simulator`` () =
         let problem = { createTriangle() with Backend = None }
+        // Quantum-first: omitting a backend defaults to the local simulator and still solves.
         match solve problem with
-        | Error (QuantumError.NotImplemented (feature, _)) ->
-            Assert.Contains("Classical", feature)
-        | _ -> failwith "Should return NotImplemented when no backend provided"
+        | Ok _ -> ()
+        | other -> failwith (sprintf "Expected Ok via default local simulator, got: %A" other)
 
     [<Fact>]
     let ``solve with missing MinCommunitySize and no Mode should default to FindLargestCommunity`` () =
@@ -230,7 +230,7 @@ module SocialNetworkAnalyzerTests =
         | Error e -> failwith $"CE should succeed, got error: {e}"
 
     [<Fact>]
-    let ``socialNetwork CE without backend should return NotImplemented`` () =
+    let ``socialNetwork CE without backend defaults to local simulator`` () =
         let result = socialNetwork {
             person "Alice"
             person "Bob"
@@ -238,8 +238,8 @@ module SocialNetworkAnalyzerTests =
             findCommunities 2
         }
         match result with
-        | Error (QuantumError.NotImplemented _) -> ()
-        | _ -> failwith "Should return NotImplemented without backend"
+        | Ok _ -> ()
+        | other -> failwith (sprintf "Expected Ok via default local simulator, got: %A" other)
 
     [<Fact>]
     let ``socialNetwork CE with empty people should return ValidationError`` () =
@@ -373,7 +373,7 @@ module SocialNetworkAnalyzerTests =
         | Error e -> failwith $"CE should succeed, got error: {e}"
 
     [<Fact>]
-    let ``findLargestCommunity without backend should return NotImplemented`` () =
+    let ``findLargestCommunity without backend defaults to local simulator`` () =
         let result = socialNetwork {
             person "Alice"
             person "Bob"
@@ -381,8 +381,8 @@ module SocialNetworkAnalyzerTests =
             findLargestCommunity
         }
         match result with
-        | Error (QuantumError.NotImplemented _) -> ()
-        | _ -> failwith "Should return NotImplemented without backend"
+        | Ok _ -> ()
+        | other -> failwith (sprintf "Expected Ok via default local simulator, got: %A" other)
 
     // ========================================================================
     // FIND MONITOR SET (QAOA MIN VERTEX COVER) TESTS
@@ -484,7 +484,7 @@ module SocialNetworkAnalyzerTests =
         | Error e -> failwith $"CE should succeed, got error: {e}"
 
     [<Fact>]
-    let ``findMonitorSet without backend should return NotImplemented`` () =
+    let ``findMonitorSet without backend defaults to local simulator`` () =
         let result = socialNetwork {
             person "Alice"
             person "Bob"
@@ -492,8 +492,8 @@ module SocialNetworkAnalyzerTests =
             findMonitorSet
         }
         match result with
-        | Error (QuantumError.NotImplemented _) -> ()
-        | _ -> failwith "Should return NotImplemented without backend"
+        | Ok _ -> ()
+        | other -> failwith (sprintf "Expected Ok via default local simulator, got: %A" other)
 
     // ========================================================================
     // FIND PAIRINGS (QAOA MAX MATCHING) TESTS
@@ -602,7 +602,7 @@ module SocialNetworkAnalyzerTests =
         | Error e -> failwith $"CE should succeed, got error: {e}"
 
     [<Fact>]
-    let ``findPairings without backend should return NotImplemented`` () =
+    let ``findPairings without backend defaults to local simulator`` () =
         let result = socialNetwork {
             person "Alice"
             person "Bob"
@@ -610,8 +610,8 @@ module SocialNetworkAnalyzerTests =
             findPairings
         }
         match result with
-        | Error (QuantumError.NotImplemented _) -> ()
-        | _ -> failwith "Should return NotImplemented without backend"
+        | Ok _ -> ()
+        | other -> failwith (sprintf "Expected Ok via default local simulator, got: %A" other)
 
     // ========================================================================
     // MODE DEFAULTS AND BACKWARDS COMPATIBILITY TESTS

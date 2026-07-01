@@ -207,7 +207,7 @@ module CoverageOptimizerTests =
         | other -> Assert.Fail(sprintf "Expected CoveredElements validation error, got: %A" other)
 
     [<Fact>]
-    let ``CoverageOptimizer - no backend returns error`` () =
+    let ``CoverageOptimizer - no backend defaults to local simulator`` () =
         let problem = {
             UniverseSize = 2
             Options = [{ Id = "A"; CoveredElements = [0; 1]; Cost = 10.0 }]
@@ -215,11 +215,11 @@ module CoverageOptimizerTests =
             Shots = 1000
         }
 
-        let result = CoverageOptimizer.solve problem
-
-        match result with
-        | Error (QuantumError.NotImplemented _) -> ()
-        | other -> Assert.Fail(sprintf "Expected NotImplemented error, got: %A" other)
+        // Quantum-first: omitting a backend defaults to the local simulator (a real quantum
+        // backend) and still solves — it must not short-circuit with NotImplemented.
+        match CoverageOptimizer.solve problem with
+        | Ok _ -> ()
+        | other -> Assert.Fail(sprintf "Expected Ok via default local simulator, got: %A" other)
 
     // ========================================================================
     // EDGE CASES

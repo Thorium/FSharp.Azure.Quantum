@@ -443,8 +443,12 @@ module BinaryClassifier =
             
             ModelSerialization.saveVQCTrainingResult path result numQubits fmType fmDepth vfType vfDepth classifier.Metadata.Note
         
-        | SVMModel (svmModel, numQubits) ->
-            ModelSerialization.saveSVMModel path svmModel numQubits classifier.Metadata.Note
+        | SVMModel (svmModel, _numQubits) ->
+            // numQubits is recoverable from the feature dimension on load, so it isn't
+            // separately persisted; use the canonical SVM schema (SVMModelSerialization).
+            SVMModelSerialization.saveSVMModelAsync path svmModel classifier.Metadata.Note System.Threading.CancellationToken.None
+            |> Async.AwaitTask
+            |> Async.RunSynchronously
         
         | ClassicalModel _ ->
             Error (QuantumError.NotImplemented ("Classical model persistence", Some "Use PredictiveModelBuilder for classical baselines"))
@@ -457,25 +461,26 @@ module BinaryClassifier =
             
             // Check if it's an SVM model (has SupportVectorIndices field)
             if json.Contains("\"SupportVectorIndices\"") then
-                // Load as SVM
-                ModelSerialization.loadSVMModel path
+                // Load as SVM (canonical SVMModelSerialization schema). The qubit/feature count
+                // is derived from the training-data dimension rather than a stored field.
+                let serialized = System.Text.Json.JsonSerializer.Deserialize<SVMModelSerialization.SerializableSVMModel>(json)
+                SVMModelSerialization.fromSerializable serialized
                 |> Result.mapError (fun e -> QuantumError.ValidationError ("Input", $"Failed to load SVM model: {e}"))
-                |> Result.bind (fun serialized ->
-                    ModelSerialization.reconstructSVMModel serialized
-                    |> Result.map (fun svmModel ->
-                        {
-                            Model = SVMModel (svmModel, serialized.NumQubits)
-                            Metadata = {
-                                Architecture = Hybrid
-                                TrainingAccuracy = 0.0
-                                TrainingTime = TimeSpan.Zero
-                                NumFeatures = serialized.NumQubits
-                                NumSamples = serialized.TrainData.Length
-                                CreatedAt = DateTime.UtcNow
-                                Note = serialized.Note
-                            }
-                            Backend = LocalBackend.LocalBackend() :> IQuantumBackend
-                        }))
+                |> Result.map (fun svmModel ->
+                    let numFeatures = if svmModel.TrainData.Length > 0 then svmModel.TrainData.[0].Length else 0
+                    {
+                        Model = SVMModel (svmModel, numFeatures)
+                        Metadata = {
+                            Architecture = Hybrid
+                            TrainingAccuracy = 0.0
+                            TrainingTime = TimeSpan.Zero
+                            NumFeatures = numFeatures
+                            NumSamples = svmModel.TrainData.Length
+                            CreatedAt = DateTime.UtcNow
+                            Note = serialized.Note
+                        }
+                        Backend = LocalBackend.LocalBackend() :> IQuantumBackend
+                    })
             else
                 // Load as VQC model
                 ModelSerialization.loadForTransferLearning path

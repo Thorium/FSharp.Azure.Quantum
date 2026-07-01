@@ -271,6 +271,46 @@ module MaxCut =
         with
         | ex -> Error (QuantumError.OperationError ("MaxCut solve failed: ", $"Failed: {ex.Message}"))
 
+    /// Solve MaxCut with ADAPT-QAOA (adaptive per-layer mixer selection) instead of the
+    /// fixed-mixer QAOA used by `solve`. ADAPT-QAOA grows a compact, problem-tailored ansatz
+    /// and is well suited to small graphs where a shallow, high-quality circuit is valuable.
+    ///
+    /// Runs on a state-vector backend (defaults to the local simulator). For larger graphs or
+    /// cloud hardware, prefer `solve`.
+    ///
+    ///   let solution = MaxCut.solveWithAdaptQaoa problem None
+    let solveWithAdaptQaoa (problem: MaxCutProblem) (backend: BackendAbstraction.IQuantumBackend option) : QuantumResult<Solution> =
+        try
+            let actualBackend =
+                backend
+                |> Option.defaultValue (LocalBackend.LocalBackend() :> BackendAbstraction.IQuantumBackend)
+
+            let quantumProblem : QuantumMaxCutSolver.MaxCutProblem =
+                { Vertices = problem.Vertices; Edges = problem.Edges }
+
+            QuantumMaxCutSolver.toQubo quantumProblem
+            |> Result.bind (fun qubo ->
+                FSharp.Azure.Quantum.Algorithms.AdaptQaoa.solveQubo actualBackend qubo.NumVariables qubo.Q FSharp.Azure.Quantum.Algorithms.AdaptQaoa.defaultConfig
+                |> Result.map (fun quboSolution ->
+                    // QUBO variable i corresponds to vertex index i; xᵢ = 1 → partition S.
+                    let vertices = problem.Vertices |> List.toArray
+                    let indexOf = problem.Vertices |> List.mapi (fun i v -> v, i) |> Map.ofList
+                    let x = quboSolution.Assignment
+                    let inS i = i < x.Length && x.[i] = 1
+                    let partitionS = [ for i in 0 .. vertices.Length - 1 do if inS i then yield vertices.[i] ]
+                    let partitionT = [ for i in 0 .. vertices.Length - 1 do if not (inS i) then yield vertices.[i] ]
+                    let cutEdges =
+                        problem.Edges
+                        |> List.filter (fun e -> inS indexOf.[e.Source] <> inS indexOf.[e.Target])
+                    { PartitionS = partitionS
+                      PartitionT = partitionT
+                      CutValue = cutEdges |> List.sumBy (fun e -> e.Weight)
+                      CutEdges = cutEdges
+                      BackendName = actualBackend.Name
+                      IsQuantum = true }))
+        with
+        | ex -> Error (QuantumError.OperationError ("MaxCut solveWithAdaptQaoa failed: ", $"Failed: {ex.Message}"))
+
     /// Solve MaxCut using classical greedy algorithm (for comparison)
     /// 
     /// PARAMETERS:

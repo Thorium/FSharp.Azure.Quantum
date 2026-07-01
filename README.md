@@ -93,9 +93,9 @@ flowchart TD
 
 ## Status
 
-**Architecture:** Quantum-First Hybrid Library - Quantum algorithms as primary solvers, with intelligent classical fallback for small problems
+**Architecture:** Quantum-First Hybrid Library - Quantum algorithms as primary solvers, with opt-in classical routing (via `HybridSolver` / `QuantumAdvisor`) for small problems where quantum offers no advantage. Quantum solvers never fall back to classical silently — see [Design Philosophy](#design-philosophy).
 
-**Current Version:** Latest (D-Wave Support + Quantum Machine Learning + Business Builders)
+**Current Version:** 1.4.2 (core) / 0.4.2 (Topological plugin) — D-Wave Support + Quantum Machine Learning + Business Builders + compilation/hardware tooling (QIR, resource estimation, qubit routing, noise-aware routing)
 
 **Current Features:**
 - Multiple Backends: LocalBackend (simulation), Azure Quantum (IonQ, Rigetti, Atom Computing, Quantinuum), D-Wave quantum annealers (2000+ qubits)
@@ -785,7 +785,7 @@ let config = {
 
 // Initialize parameters
 let numQubits = trainFeatures.[0].Length
-let numParams = VariationalForms.parameterCount variationalForm numQubits
+let numParams = AnsatzHelpers.parameterCount variationalForm numQubits
 let initialParams = Array.init numParams (fun _ -> Random().NextDouble() * 2.0 * Math.PI)
 
 // Train the classifier
@@ -1152,26 +1152,11 @@ match modelResult with
 
 ### Similarity Search - Product Recommendations
 
-```fsharp
-open FSharp.Azure.Quantum.Business
+Build a `SearchIndex` from a catalog with `similaritySearch { ... }`, then rank
+neighbours with `SimilaritySearch.findSimilar queryItem queryFeatures topN index`
+(returns `QuantumResult<SearchResults<'T>>`).
 
-// Find similar products using quantum-enhanced search
-let search = similaritySearch {
-    catalog productCatalog
-    features ["category"; "price"; "rating"; "features"]
-    similarityMetric QuantumKernel
-    topK 10
-}
-
-let targetProduct = "laptop-xyz-2024"
-
-match SimilaritySearch.findSimilar search targetProduct with
-| Ok recommendations ->
-    printfn "Customers who viewed %s also liked:" targetProduct
-    recommendations |> List.iter (fun (product, similarity) ->
-        printfn "  %s (%.1f%% similar)" product.Name (similarity * 100.0))
-| Error msg -> printfn "Error: %s" msg
-```
+▶ Full runnable example: [`examples/SimilaritySearch/ProductRecommendations.fsx`](examples/SimilaritySearch/ProductRecommendations.fsx)
 
 **Business Builder Features:**
 - Social Network Analyzer - Community detection, fraud rings, influencer identification (Grover's algorithm)
@@ -1216,7 +1201,7 @@ The HybridSolver provides a unified API that:
 The HybridSolver supports all 5 main optimization problems:
 
 ```fsharp
-open FSharp.Azure.Quantum.Classical.HybridSolver
+open FSharp.Azure.Quantum.HybridSolver
 
 // TSP with automatic routing
 let distances = array2D [[0.0; 10.0; 15.0]; 
@@ -2143,6 +2128,23 @@ match imported with
 
 ---
 
+## Compilation & Hardware Tooling
+
+Beyond circuit construction and execution, the library ships a hardware-aware
+compilation and estimation toolchain (all in `Builders/`):
+
+- **`QubitRouting`** — inserts SWAPs so two-qubit gates respect a device's `CouplingMap` (grid / linear / `fromPairs`) and tracks the logical→physical qubit permutation. `CloudBackends.Factory.createRigettiRouted` wires this into a Rigetti backend automatically.
+- **`NoiseModel`** — `DeviceNoiseProfile` plus noise-aware routing (`routeNoiseAware`) and success-probability estimation.
+- **`ResourceEstimation`** — logical resource estimates (qubits / gates / T-count / depth) via `estimateLogical` and physical surface-code estimates via `estimatePhysical`.
+- **`QirEmitter`** — emit circuits as QIR base-profile textual LLVM IR for Azure Quantum submission.
+- **Weighted MAX-SAT** — per-clause weights in `QuantumSatSolver` (`clause` / `weightedClause`); solutions report `SatisfiedWeight` / `TotalWeight`.
+- **`AutoML.TrainedModel`** — AutoML returns a typed `TrainedModel` discriminated union (no `obj` unboxing in `predict`).
+- **`CudaQBridge`** — hand a circuit to **NVIDIA CUDA-Q** for GPU / tensor-network / density-matrix simulation. CUDA-Q has no .NET binding, so this is a *source hand-off*: `CudaQBridge.toKernelSource "nvidia" shots circuit` emits a runnable CUDA-Q Python kernel (pure, dependency-free); `CudaQBridge.runAsync` optionally executes it via a local `python`+`cudaq` and parses the counts (returns `Error`, not an exception, when CUDA-Q isn't installed).
+
+These are exercised by the tests under `tests/` (e.g. `QubitRoutingTests`, `ResourceEstimationTests`, `QirEmitterTests`, `NoiseModelTests`).
+
+---
+
 ## Error Mitigation
 
 **Reduce quantum noise and improve result accuracy by 30-90% with production-ready error mitigation techniques.**
@@ -2522,6 +2524,136 @@ match QuantumGraphColoringSolver.solve backend problem quantumConfig with
 
 ---
 
+## Execution Primitives (CUDA-Q-style)
+
+The `Primitives` module gives every `IQuantumBackend` a small execution surface that
+mirrors CUDA-Q's `sample` / `observe` / `run` / `get_state`, so code (or an agent)
+written against that model maps directly onto this library:
+
+| CUDA-Q                | FSharp.Azure.Quantum      | Returns |
+|-----------------------|---------------------------|---------|
+| `cudaq.sample`        | `Primitives.sample`       | `Map<string,int>` — bitstring histogram |
+| `cudaq.run`           | `Primitives.run`          | `int[][]` — raw per-shot outcomes |
+| `cudaq.observe`       | `Primitives.observe`      | `float` — expectation ⟨H⟩ of a Pauli Hamiltonian |
+| `cudaq.get_state`     | `Primitives.getState`     | `QuantumState` — full statevector (simulator) |
+| `cudaq.sample_async`  | `Primitives.sampleAsync`  | `Task<…>` |
+| `cudaq.observe_async` | `Primitives.observeAsync` | `Task<…>` |
+
+The "kernel" is a `CircuitBuilder.Circuit`; the backend is the local simulator or any
+cloud QPU (IonQ, Rigetti, Quantinuum, Atom Computing, IQM). Every primitive returns a
+`Result`, so a backend rejecting the circuit is a handleable `Error` rather than an exception.
+
+```fsharp
+open System.Numerics
+open FSharp.Azure.Quantum
+open FSharp.Azure.Quantum.Core.BackendAbstraction
+open FSharp.Azure.Quantum.Backends
+open FSharp.Azure.Quantum.Algorithms
+
+let backend = LocalBackend.LocalBackend() :> IQuantumBackend
+
+// A Bell-state "kernel"
+let bell =
+    CircuitBuilder.empty 2
+    |> CircuitBuilder.addGate (CircuitBuilder.H 0)
+    |> CircuitBuilder.addGate (CircuitBuilder.CNOT (0, 1))
+
+Primitives.sample backend bell 1000            // Result<Map<string,int>>  → |00⟩ ~50%, |11⟩ ~50%
+
+// observe ⟨H⟩ for a Pauli Hamiltonian (TrotterSuzuki.PauliHamiltonian: 'I'/'X'/'Y'/'Z' per qubit)
+let zz : TrotterSuzuki.PauliHamiltonian =
+    { Terms = [ { Operators = [| 'Z'; 'Z' |]; Coefficient = Complex(1.0, 0.0) } ]; NumQubits = 2 }
+Primitives.observe backend bell zz             // Result<float>  → +1.0 for a Bell state
+```
+
+`observe` computes ⟨H⟩ for a Pauli Hamiltonian across every state representation: an exact
+⟨ψ|H|ψ⟩ on a state vector, topological superposition, or sparse state, and `Tr(ρH)` on the
+density-matrix (noisy) backend — so a *noisy* ⟨H⟩ (noisy VQE/VaR) just works. It returns
+`Error` only for annealing samples, where an expectation value isn't defined.
+
+**Batch / multi-QPU** — `Primitives.sampleBatchAsync` / `observeBatchAsync` run many circuits
+concurrently on one backend (parameter sweeps); `sampleDistributedAsync` fans a list of
+`(backend, circuit)` jobs across multiple QPUs. The library's counterpart to CUDA-Q's `mqpu`.
+
+**Emulate a hardware target locally** (`cudaq emulate=True` counterpart) —
+`Emulation.emulate "ionq.qpu.aria-1" shots circuit` transpiles the circuit to the target's
+native gate set, validates it against that device's qubit-count/connectivity/gate constraints,
+and runs it on the local simulator — returning the histogram plus any `ConstraintViolations`.
+Catch "won't fit this device" locally before paying for a hardware job.
+
+```fsharp
+match Emulation.emulate "rigetti.qpu.aspen-m-3" 1000 circuit with
+| Ok report ->
+    if report.ConstraintViolations.IsEmpty then printfn "would run cleanly"
+    else report.ConstraintViolations |> List.iter (printfn "  ⚠ %s")
+| Error e -> eprintfn "%s" e.Message
+```
+
+**Noisy (density-matrix) simulation** — `DensityMatrixSimulator.NoisyLocalBackend` evolves a
+full density matrix and applies a depolarizing channel after each gate, modelling the mixed
+states real hardware produces. It's a drop-in `IQuantumBackend`, so `Primitives.sample` reads
+its noisy statistics directly:
+
+```fsharp
+open FSharp.Azure.Quantum.Backends.DensityMatrixSimulator
+let noisy = NoisyLocalBackend(depolarizing 0.05 0.05) :> IQuantumBackend   // 5% single/two-qubit error
+Primitives.sample noisy bellCircuit 4000   // a Bell state now leaks a little into |01⟩/|10⟩
+```
+
+Intended for small circuits (≤ 8 qubits — a 2ⁿ×2ⁿ matrix). ▶ Runnable examples:
+[`examples/Primitives/CudaQStylePrimitives.fsx`](examples/Primitives/CudaQStylePrimitives.fsx) ·
+[`examples/ErrorMitigation/NoisyDensityMatrix.fsx`](examples/ErrorMitigation/NoisyDensityMatrix.fsx)
+
+---
+
+## ADAPT-VQE (adaptive ansatz)
+
+`AdaptVqe` grows a variational ansatz one operator at a time instead of using a fixed
+form: each round it screens an operator pool by the energy gradient each operator would
+contribute, appends the highest-gradient operator as a new `e^(-iθP)` block, re-optimises
+all angles, and stops when no pool operator has a meaningful gradient left. The result is
+a compact, problem-tailored ansatz — often far shallower than a fixed hardware-efficient
+form for the same accuracy.
+
+```fsharp
+open System.Numerics
+open FSharp.Azure.Quantum.Core.BackendAbstraction
+open FSharp.Azure.Quantum.Backends
+open FSharp.Azure.Quantum.Algorithms
+
+let backend = LocalBackend.LocalBackend() :> IQuantumBackend
+let term ops c : TrotterSuzuki.PauliString = { Operators = ops; Coefficient = Complex(c, 0.0) }
+
+// H = X₀ + X₁ + ½ Z₀Z₁
+let h : TrotterSuzuki.PauliHamiltonian =
+    { Terms = [ term [|'X';'I'|] 1.0; term [|'I';'X'|] 1.0; term [|'Z';'Z'|] 0.5 ]; NumQubits = 2 }
+
+// Operator pool (unit-coefficient generators) and run:
+let pool = [ term [|'Y';'I'|] 1.0; term [|'I';'Y'|] 1.0; term [|'Y';'X'|] 1.0; term [|'X';'Y'|] 1.0 ]
+match AdaptVqe.run backend h pool 2 AdaptVqe.defaultConfig with
+| Ok result -> printfn "ground energy %.4f in %d operators" result.Energy result.SelectedOperators.Length
+| Error e   -> eprintfn "%s" e.Message
+```
+
+`AdaptVqe.run` is state-vector exact (uses `Primitives.expectation` for ⟨H⟩ and gradients),
+so it needs a state-vector simulator backend. `AdaptResult` reports the final `Energy`, the
+`SelectedOperators`/`Parameters`, and the `EnergyHistory` (monotonically non-increasing).
+
+**ADAPT-QAOA** (`AdaptQaoa.run`) applies the same idea to QAOA: instead of a fixed mixer it
+selects, at each layer, the mixer from a pool with the largest gradient — each layer being a
+cost evolution `e^(-iγH)` followed by the chosen mixer `e^(-iβA)`, starting from `|+…+⟩`. It
+solves MaxCut on a frustrated triangle to the optimal `min ⟨H⟩ = -1` in a single adaptive layer.
+
+It's wired into the business layer too: `AdaptQaoa.solveQubo backend numQubits quboMap config`
+solves any QUBO end-to-end (Ising mapping → adaptive ansatz → best sampled assignment), and
+**`MaxCut.solveWithAdaptQaoa problem backend`** offers ADAPT-QAOA as a drop-in alternative to the
+fixed-mixer `MaxCut.solve` — same `Solution` type (partition, cut value), shallower ansatz.
+
+▶ Runnable examples: [`examples/Algorithms/AdaptVqe.fsx`](examples/Algorithms/AdaptVqe.fsx) ·
+[`examples/MaxCut/AdaptQaoaMaxCut.fsx`](examples/MaxCut/AdaptQaoaMaxCut.fsx)
+
+---
+
 ## Documentation
 
 - **[Quantum Computing Introduction](docs/quantum-computing-introduction.md)** - Comprehensive introduction to quantum computing for F# developers (no quantum background needed)
@@ -2553,24 +2685,39 @@ match QuantumGraphColoringSolver.solve backend problem quantumConfig with
 
 ## Design Philosophy
 
-### Rule 1: Quantum-Only Library
+### Rule 1: Quantum-First — no silent classical fallback
 
-**FSharp.Azure.Quantum is a quantum-first library - NO classical algorithms.**
+**The primary solvers are quantum, and a quantum solver never silently substitutes a
+classical result.** If a quantum run cannot produce an answer it returns `Error` — it
+does not quietly hand back a classical approximation dressed up as a quantum result.
 
-**Why?**
-- Clear identity: Purpose-built for quantum optimization
-- No architectural confusion: Pure quantum algorithm library
-- Complements classical libraries: Use together with classical solvers when needed
-- Educational value: Learn quantum algorithms without classical fallbacks
-
-**What this means:**
 ```fsharp
-// ✅ QUANTUM: QAOA-based optimization
+// ✅ QUANTUM: QAOA-based optimization on a real backend
 GraphColoring.solve problem 3 None
 
-// ❌ NO CLASSICAL FALLBACK: If quantum fails, returns Error
-// Users should use dedicated classical libraries for that use case
+// ❌ NO SILENT FALLBACK: if the quantum path fails, you get Error — not a hidden
+//    classical answer. Reach for a dedicated classical library when you want one.
 ```
+
+Classical code that *does* ship is deliberately scoped and never the default product:
+- **Comparison baselines** inside `Solvers/Classical` (e.g. `TspSolver`, `PortfolioSolver`) exist so you can benchmark quantum vs classical on the same problem.
+- **`HybridSolver`** can *explicitly* route to a classical solver (and reports `Method = Classical`) when you ask it to, or when the `QuantumAdvisor` judges a problem too small to benefit from quantum. This is an opt-in router, not a fallback hidden inside a quantum solver.
+
+Every business builder and quantum solver defaults to a **real quantum backend** — the local simulator when you don't pass one, any cloud backend (IonQ / Rigetti / Quantinuum / Atom Computing / D-Wave) when you do. There is no "classical mode" of the quantum solvers.
+
+### Two design decisions worth knowing
+
+**Errors: `Result` for business, `failwith` for technical.** Expected, domain-level
+outcomes (invalid input, a backend rejecting a circuit, an unsupported problem shape)
+are returned as `Result<_, QuantumError>` so callers can handle them. Programmer errors
+and broken invariants (a state in the wrong representation, a violated precondition)
+fail fast with `failwith`/exceptions. `QuantumError` is a discriminated union
+(`Core/QuantumError.fs`) precisely so business errors are enumerable rather than stringly-typed.
+
+**Low-level algorithm modules without a high-level builder are intentional, not dead code.**
+Foundational algorithms (QFT, amplitude amplification, arithmetic, HHL, …) are part of
+the public API even where no domain "builder" wraps them yet — a builder is only added
+once a concrete business case justifies the abstraction, rather than speculatively.
 
 ### Clean API Layers
 
@@ -2639,36 +2786,37 @@ Amplitude amplification allows:
 - Custom initial state preparation A|0⟩
 - Reflection about A|0⟩ (automatically generated)
 
-**Example:**
+**Example** (▶ runnable: [`examples/Algorithms/AmplitudeAmplification.fsx`](examples/Algorithms/AmplitudeAmplification.fsx)):
 ```fsharp
-open FSharp.Azure.Quantum.GroverSearch.AmplitudeAmplificationAdapter
+open FSharp.Azure.Quantum
+open FSharp.Azure.Quantum.GroverSearch
+open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 
-// Execute amplitude amplification on quantum hardware backend
-let backend = createIonQBackend(connectionString, "ionq.simulator")
+// Any IQuantumBackend — local simulator here, or a cloud backend for hardware.
+let backend = LocalBackend.LocalBackend() :> IQuantumBackend
 
-// Define oracle (marks solution states)
-let oracle = StateOracle(fun state -> state = 3 || state = 5)
+// State preparation A = H^⊗n (uniform superposition) as a gate circuit.
+let prep =
+    [ 0 .. 2 ] |> List.map CircuitBuilder.H
+    |> List.fold (fun c g -> CircuitBuilder.addGate g c) (CircuitBuilder.empty 3)
 
-// Configure amplitude amplification
-let config = {
-    NumQubits = 3
-    StatePreparation = UniformSuperposition  // or BasisState(n), PartialSuperposition(states)
-    Oracle = oracle
-    Iterations = 2  // Optimal iterations for 2 solutions in 8-element space
-}
+match Oracle.forValue 5 3 with              // mark the basis state |101⟩ (value 5)
+| Error e -> eprintfn "%s" e.Message
+| Ok oracle ->
+    let intent : AmplitudeAmplification.Unified.AmplitudeAmplificationIntent =
+        { NumQubits = 3
+          StatePreparation = prep
+          Oracle = oracle
+          Iterations = AmplitudeAmplification.optimalIterations 8 1 (1.0 / 8.0)
+          Exactness = AmplitudeAmplification.Unified.Exact }
 
-match executeWithBackend config backend 1000 with
-| Ok measurementCounts ->
-    printfn "Amplitude amplification executed on quantum hardware"
-    measurementCounts 
-    |> Map.iter (fun state count -> printfn "  |%d⟩: %d counts" state count)
-| Error msg ->
-    printfn "Backend execution failed: %s" msg
-
-// Convenience functions
-executeUniformAmplification 3 oracle 2 backend 1000      // Uniform initial state
-executeBasisStateAmplification 3 5 oracle 2 backend 1000 // Start from |5⟩
+    match AmplitudeAmplification.Unified.execute backend intent with   // Result<QuantumState, _>
+    | Ok finalState ->
+        UnifiedBackend.measureState finalState 1000
+        |> Array.countBy (fun bits -> bits |> Array.map string |> String.concat "")
+        |> Array.iter (fun (state, count) -> printfn "  |%s⟩: %d counts" state count)
+    | Error e -> eprintfn "Execution failed: %s" e.Message
 ```
 
 **Features:**
@@ -2691,7 +2839,7 @@ executeBasisStateAmplification 3 5 oracle 2 backend 1000 // Start from |5⟩
 - Quantum sampling with amplification
 - Fixed-amplitude search (building block for quantum counting)
 
-**Location:** `Algorithms/AmplitudeAmplificationAdapter.fs`
+**Location:** `Algorithms/AmplitudeAmplification.fs` (`AmplitudeAmplification.Unified.execute`)
 
 **Status:** Well-tested and documented
 
@@ -2710,27 +2858,28 @@ The QFT transforms computational basis states into frequency basis with exponent
 QFT: |j⟩ → (1/√N) Σₖ e^(2πijk/N) |k⟩
 ```
 
-**Example:**
+**Example** (▶ runnable: [`examples/Algorithms/QuantumFourierTransform.fsx`](examples/Algorithms/QuantumFourierTransform.fsx)):
 ```fsharp
-open FSharp.Azure.Quantum.GroverSearch.QFTBackendAdapter
+open FSharp.Azure.Quantum.Algorithms
+open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum.Core.BackendAbstraction
 
-// Execute QFT on quantum hardware backend
-let backend = createIonQBackend(connectionString, "ionq.simulator")
-let config = { NumQubits = 5; ApplySwaps = true; Inverse = false }
+// Any IQuantumBackend — local simulator here, or a cloud backend for hardware.
+let backend = LocalBackend.LocalBackend() :> IQuantumBackend
 
-match executeQFTWithBackend config backend 1000 None with
-| Ok measurementCounts ->
-    printfn "QFT executed on quantum hardware"
-    measurementCounts 
-    |> Map.iter (fun state count -> printfn "  |%d⟩: %d counts" state count)
-| Error msg ->
-    printfn "Backend execution failed: %s" msg
+// Forward QFT on |0…0⟩ (5 qubits). QFT.defaultConfig = { ApplySwaps = true; Inverse = false; Shots = 1000 }.
+match QFT.execute 5 backend QFT.defaultConfig with
+| Ok result ->
+    printfn "QFT applied: %d gates" result.GateCount           // result.FinalState : QuantumState
+    UnifiedBackend.measureState result.FinalState 1000
+    |> Array.countBy (fun bits -> bits |> Array.map string |> String.concat "")
+    |> Array.iter (fun (state, count) -> printfn "  |%s⟩: %d counts" state count)
+| Error e -> eprintfn "QFT failed: %s" e.Message
 
-// Convenience functions
-executeStandardQFT 5 backend 1000      // Standard QFT with swaps
-executeInverseQFT 5 backend 1000       // Inverse QFT (QFT†)
-executeQFTOnState 5 7 backend 1000     // QFT on specific input state |7⟩
+// Variants:
+//   QFT.executeInverse 5 backend                                   // inverse QFT (QFT†)
+//   QFT.executeNoSwaps 5 backend                                   // omit bit-reversal SWAPs (for QPE)
+//   QFT.executeOnState state backend { QFT.defaultConfig with Inverse = true }   // apply to an existing state
 ```
 
 **Features:**
@@ -2759,7 +2908,7 @@ executeQFTOnState 5 7 backend 1000     // QFT on specific input state |7⟩
 - 5 qubits: 27 gates (5 H + 20 CPhase + 2 SWAP)
 - 10 qubits: 105 gates (10 H + 90 CPhase + 5 SWAP)
 
-**Location:** `Algorithms/QFTBackendAdapter.fs`
+**Location:** `Algorithms/QFT.fs` (`QFT.execute` / `executeOnState` / `executeInverse` / `executeNoSwaps`)
 
 **Status:** Well-tested and documented
 
@@ -3086,6 +3235,76 @@ See `examples/Topological/` for complete examples:
 
 ---
 
+## Neutral-Atom (Rydberg) Analog Mode
+
+A third machine paradigm alongside gate and topological: neutral-atom devices are programmed
+as an **analog** time evolution rather than a gate circuit. You place atoms at positions and
+drive them with a global pulse (Rabi frequency Ω, detuning Δ); the van-der-Waals interaction
+produces the **Rydberg blockade** (nearby atoms can't both be excited), which makes these
+machines natively good at **Maximum Independent Set**.
+
+`Algorithms.NeutralAtom` fits this into the unified model the same way `BraidToGate` fits
+topological braids — it **Trotterizes the analog Hamiltonian into a gate circuit** (drive →
+`RX`, detuning → `P`, interaction → `CP`), so a Rydberg program runs on *any* `IQuantumBackend`.
+
+```fsharp
+open FSharp.Azure.Quantum.Algorithms.NeutralAtom
+// 3-atom path A–B–C; neighbours blockade, so the max independent set is {A, C} = "101".
+let register = [ { X = 0.0; Y = 0.0 }; { X = 1.0; Y = 0.0 }; { X = 2.0; Y = 0.0 } ]
+let program = maximumIndependentSetProgram register 30.0 1.0 3.0 12.0   // adiabatic detuning sweep
+NeutralAtom.simulate backend program 120 4000   // Result<Map<string,int>> — peaks on "101"
+```
+
+Small registers only (it Trotterizes onto the state-vector simulator). ▶ Runnable example:
+[`examples/NeutralAtom/RydbergMaxIndependentSet.fsx`](examples/NeutralAtom/RydbergMaxIndependentSet.fsx)
+
+**Run on real neutral-atom hardware — Pasqal.** The *same* `RydbergProgram` can be submitted
+natively to **Pasqal** on Azure Quantum: `Algorithms.Pasqal` compiles it to a **Pulser**
+abstract-representation sequence (`Pasqal.toPulserJson`) and submits it to a Pasqal target
+(`Pasqal.submitAndWaitForResultsAsync httpClient workspaceUrl program shots "pasqal.qpu.fresnel"`).
+So one analog program has three execution paths — Trotterized onto any gate backend for local
+simulation, native analog execution on **Pasqal** (Azure Quantum, via Pulser), or native analog
+execution on **QuEra Aquila** (AWS Braket, via `QuEra.toAhsProgram` → a `braket.ir.ahs.program`
+AHS sequence; `QuEra.parseAhsResult` reads the results back).
+
+### AWS Braket — a separate plugin (`FSharp.Azure.Quantum.Braket`)
+
+The core package stays **Azure-first and AWS-SDK-free**: it only produces the *formats* Braket
+consumes — **OpenQASM 3.0** for gate devices (`OpenQasm.exportV3`) and **AHS** for QuEra
+(`QuEra.toAhsProgram`), both pure and testable. The actual submission lives in a separate
+`FSharp.Azure.Quantum.Braket` package (the only one that references `AWSSDK.Braket`):
+
+- **`BraketExecution.BraketBackend`** — a gate `IQuantumBackend` that submits OpenQASM 3.0 to any
+  Braket gate device by ARN: **IonQ, Rigetti, IQM, OQC, Infleqtion**, and the SV1/DM1/TN1
+  simulators (`Braket.Devices.*`).
+- **`BraketExecution.submitAhsAsync`** — submits a neutral-atom `RydbergProgram` to **QuEra Aquila**.
+
+So adding the AWS SDK is opt-in (reference the plugin); users who only need Azure never pull it in.
+
+`NeutralAtom.solveMaximumIndependentSet` runs the whole thing end-to-end and returns the best
+independent set as atom indices. Beyond optimisation, the module also does **analog quantum
+simulation**: `NeutralAtom.quench` builds a sudden constant-drive pulse, `NeutralAtom.evolve`
+returns the final state, and `NeutralAtom.rydbergDensities` reads each atom's occupation ⟨nᵢ⟩ —
+so you can watch Rabi and blockade dynamics (a single atom traces ⟨n⟩ = sin²(Ωt/2); a blockaded
+pair's total excitation is capped). `NeutralAtom.optimizeAnalog` closes the loop with
+**variational pulse shaping** (analog QAOA): tune pulse knobs to minimise ⟨H⟩, reusing the
+shared optimiser — the analog counterpart of variational gate optimisation.
+
+### Annealing is a first-class path too
+
+Because D-Wave backends implement `IQuantumBackend` (they reverse-extract the QUBO from the
+circuit and anneal it), a QUBO problem targets **annealing hardware** through the *same* unified
+API — just pass a D-Wave backend:
+
+```fsharp
+open FSharp.Azure.Quantum.Backends.DWaveBackend
+open FSharp.Azure.Quantum.Backends.DWaveTypes
+let annealer = MockDWaveBackend(Advantage_System6_1, seed = 42) :> IQuantumBackend
+MaxCut.solve triangle (Some annealer)   // solved by simulated/real annealing, not QAOA gates
+```
+
+---
+
 ## Contributing
 
 Contributions welcome! 
@@ -3113,5 +3332,5 @@ Contributions welcome!
 
 ---
 
-**Status**: Quantum-only architecture, 6 problem builders, full QAOA implementation
+**Status**: Quantum-first architecture, 7 problem builders, full QAOA implementation
 

@@ -130,17 +130,17 @@ module CoverageOptimizer =
                 opt.CoveredElements |> List.exists (fun e -> e < 0 || e >= problem.UniverseSize)) then
             Error (QuantumError.ValidationError ("CoveredElements", "element indices must be in range [0, UniverseSize)"))
         else
-            match problem.Backend with
-            | Some backend ->
-                let setCoverProblem = toSetCoverProblem problem
-                match QuantumSetCoverSolver.solve backend setCoverProblem problem.Shots with
-                | Error err -> Error err
-                | Ok solution ->
-                    Ok (decodeSolution problem solution)
-            | None ->
-                Error (QuantumError.NotImplemented (
-                    "Classical coverage optimization",
-                    Some "Provide a quantum backend via CoverageProblem.Backend."))
+            // Quantum-first: run on the caller's backend, or default to the local simulator
+            // (a real quantum backend) when none was supplied.
+            let backend =
+                problem.Backend
+                |> Option.defaultWith (fun () ->
+                    FSharp.Azure.Quantum.Backends.LocalBackend.LocalBackend() :> IQuantumBackend)
+            let setCoverProblem = toSetCoverProblem problem
+            match QuantumSetCoverSolver.solve backend setCoverProblem problem.Shots with
+            | Error err -> Error err
+            | Ok solution ->
+                Ok (decodeSolution problem solution)
 
     // ========================================================================
     // COMPUTATION EXPRESSION BUILDER

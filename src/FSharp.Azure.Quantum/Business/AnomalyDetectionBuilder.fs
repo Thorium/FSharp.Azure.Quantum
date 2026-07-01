@@ -229,7 +229,7 @@ module AnomalyDetector =
     [<CLIMutable>]
     type private SerializableDetector = {
         /// SVM model data
-        SVMModel: ModelSerialization.SerializableSVMModel
+        SVMModel: SVMModelSerialization.SerializableSVMModel
         
         /// Detector-specific threshold
         Threshold: float
@@ -250,30 +250,26 @@ module AnomalyDetector =
     /// Save detector to file
     let saveDetector (detector: Detector) (path: string) : QuantumResult<unit> =
         try
-            // First save the SVM model to get serializable format
-            ModelSerialization.saveSVMModel path detector.Model detector.NumQubits detector.Metadata.Note
-            |> Result.bind (fun () ->
-                // Load it back to get SerializableSVMModel
-                ModelSerialization.loadSVMModel path
-                |> Result.map (fun svmSerialized ->
-                    // Wrap with detector-specific metadata
-                    let detectorData = {
-                        SVMModel = svmSerialized
-                        Threshold = detector.Threshold
-                        Sensitivity = 
-                            match detector.Metadata.Sensitivity with
-                            | Low -> "Low"
-                            | Medium -> "Medium"
-                            | High -> "High"
-                            | VeryHigh -> "VeryHigh"
-                        TrainingTime = detector.Metadata.TrainingTime.TotalMilliseconds
-                        CreatedAt = detector.Metadata.CreatedAt.ToString("o")
-                        Note = detector.Metadata.Note
-                    }
-                    
-                    let options = JsonSerializerOptions(WriteIndented = true)
-                    let json = JsonSerializer.Serialize(detectorData, options)
-                    File.WriteAllText(path, json)))
+            // Embed the SVM model (with its lossless feature-map representation) directly in the
+            // detector envelope — one write, one canonical SVM schema (SVMModelSerialization).
+            let detectorData = {
+                SVMModel = SVMModelSerialization.toSerializable detector.Metadata.Note detector.Model
+                Threshold = detector.Threshold
+                Sensitivity =
+                    match detector.Metadata.Sensitivity with
+                    | Low -> "Low"
+                    | Medium -> "Medium"
+                    | High -> "High"
+                    | VeryHigh -> "VeryHigh"
+                TrainingTime = detector.Metadata.TrainingTime.TotalMilliseconds
+                CreatedAt = detector.Metadata.CreatedAt.ToString("o")
+                Note = detector.Metadata.Note
+            }
+
+            let options = JsonSerializerOptions(WriteIndented = true)
+            let json = JsonSerializer.Serialize(detectorData, options)
+            File.WriteAllText(path, json)
+            Ok ()
         with ex ->
             Error (QuantumError.ValidationError ("Input", $"Failed to save detector: {ex.Message}"))
     
@@ -287,7 +283,7 @@ module AnomalyDetector =
                 let detectorData = JsonSerializer.Deserialize<SerializableDetector>(json)
                 
                 // Reconstruct SVM model
-                ModelSerialization.reconstructSVMModel detectorData.SVMModel
+                SVMModelSerialization.fromSerializable detectorData.SVMModel
                 |> Result.map (fun svmModel ->
                     let sensitivity =
                         match detectorData.Sensitivity with
@@ -296,19 +292,22 @@ module AnomalyDetector =
                         | "High" -> High
                         | "VeryHigh" -> VeryHigh
                         | _ -> Medium
-                    
+
+                    // Qubit/feature count is the training-data dimension (one qubit per feature).
+                    let numFeatures = if svmModel.TrainData.Length > 0 then svmModel.TrainData.[0].Length else 0
+
                     {
                         Model = svmModel
                         Metadata = {
                             Sensitivity = sensitivity
                             TrainingTime = TimeSpan.FromMilliseconds(detectorData.TrainingTime)
-                            NumFeatures = detectorData.SVMModel.NumQubits
-                            NumNormalSamples = detectorData.SVMModel.TrainData.Length
+                            NumFeatures = numFeatures
+                            NumNormalSamples = svmModel.TrainData.Length
                             CreatedAt = DateTime.Parse(detectorData.CreatedAt)
                             Note = detectorData.Note
                         }
                         FeatureMap = svmModel.FeatureMap
-                        NumQubits = detectorData.SVMModel.NumQubits
+                        NumQubits = numFeatures
                         Threshold = detectorData.Threshold
                         // Backend is not serialisable; inference uses a local simulator.
                         Backend = None

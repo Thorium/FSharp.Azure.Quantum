@@ -44,10 +44,10 @@ module ModelSerializationTests =
                     TrainLabels = [| 1; -1 |]
                     FeatureMap = FeatureMapType.PauliFeatureMap ([ "X"; "Y"; "ZZ"; "XY" ], 3)
                 }
-            match ModelSerialization.saveSVMModel testFile original 2 (Some "round-trip test") with
+            match SVMModelSerialization.saveSVMModel testFile original (Some "round-trip test") with
             | Error e -> failwith $"save failed: {e}"
             | Ok () ->
-                match ModelSerialization.loadSVMModel testFile |> Result.bind ModelSerialization.reconstructSVMModel with
+                match SVMModelSerialization.loadSVMModel testFile with
                 | Error e -> failwith $"load/reconstruct failed: {e}"
                 | Ok reconstructed ->
                     match reconstructed.FeatureMap with

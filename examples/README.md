@@ -2,7 +2,7 @@
 
 **Comprehensive examples organized by business value and technical complexity**
 
-This directory contains 60+ examples demonstrating the FSharp.Azure.Quantum library, organized from **business-focused** (Level 1) to **research/educational** (Level 4).
+This directory contains 100+ examples demonstrating the FSharp.Azure.Quantum library, organized from **business-focused** (Level 1) to **research/educational** (Level 4).
 
 ## Example Categorization
 
@@ -170,6 +170,19 @@ Examples are categorized into **4 levels** based on business utility and technic
   **Use Case:** Circuit partitioning, community detection  
   **Algorithm:** QAOA with D-Wave quantum annealer support
 
+- **[Clique/FraudRingDetection.fsx](Clique/FraudRingDetection.fsx)**  
+  Maximum clique — largest mutually-connected group in a graph  
+  **Use Case:** Fraud-ring / collusion detection, community cores  
+  **Algorithm:** QAOA (`QuantumCliqueSolver`)
+
+- **[VertexCover/NetworkMonitoring.fsx](VertexCover/NetworkMonitoring.fsx)**  
+  Minimum vertex cover — fewest nodes touching every edge  
+  **Use Case:** Sensor/monitor placement, guard placement  
+  **Algorithm:** QAOA (`QuantumVertexCoverSolver`)
+
+- **[MaxCut/AdaptQaoaMaxCut.fsx](MaxCut/AdaptQaoaMaxCut.fsx)**  
+  ADAPT-QAOA — adaptive per-layer mixer selection, solves a frustrated-triangle MaxCut to optimum (`AdaptQaoa.run`)
+
 - **[MaxCut/DWaveMaxCutExample.fsx](MaxCut/DWaveMaxCutExample.fsx)**  
   MaxCut using D-Wave quantum annealer (2000+ qubits!)  
   **Hardware:** D-Wave Advantage (5640 qubits)  
@@ -242,9 +255,6 @@ Examples are categorized into **4 levels** based on business utility and technic
   VQE (Variational Quantum Eigensolver) for molecular ground state  
   **Molecule:** Hydrogen (H₂)
 
-- **[Chemistry/H2GroundState.fsx](Chemistry/H2GroundState.fsx)**  
-  Alternative H₂ ground state calculation
-
 - **[Chemistry/H2OWater.fsx](Chemistry/H2OWater.fsx)**  
   Water molecule (H₂O) quantum simulation  
   **Complexity:** 10 qubits (requires cloud backend)
@@ -259,10 +269,7 @@ Examples are categorized into **4 levels** based on business utility and technic
   Time evolution of molecular systems
 
 - **[Chemistry/H2_UCCSD_VQE_Example.fsx](Chemistry/H2_UCCSD_VQE_Example.fsx)**  
-  UCCSD (Unitary Coupled Cluster) ansatz for H₂
-
-- **[Chemistry/UCCSDExample.fsx](Chemistry/UCCSDExample.fsx)**  
-  Complete UCCSD workflow
+  UCCSD (Unitary Coupled Cluster) ansatz for H₂ — complete VQE workflow
 
 - **[Chemistry/HartreeFockInitialStateExample.fsx](Chemistry/HartreeFockInitialStateExample.fsx)**  
   Hartree-Fock initial state preparation
@@ -330,12 +337,6 @@ Examples are categorized into **4 levels** based on business utility and technic
 - **[IntegerVariables/IntegerVariablesExample.fsx](IntegerVariables/IntegerVariablesExample.fsx)**  
   Encoding integer variables in QUBO
 
-- **[IntegerVariables/test-encoding.fsx](IntegerVariables/test-encoding.fsx)**  
-  Test integer encoding strategies
-
-- **[IntegerVariables/verify-fix.fsx](IntegerVariables/verify-fix.fsx)**  
-  Verification for integer variable encoding
-
 ### Sparse QUBO & Problem Decomposition
 - **[SparseQubo/SparseQubo_Example.fsx](SparseQubo/SparseQubo_Example.fsx)** NEW  
   Sparse QUBO encoding pipeline: coordinate-list (COO) representation, density analysis, and conversion to standard QUBO  
@@ -401,6 +402,24 @@ Examples are categorized into **4 levels** based on business utility and technic
 
 - **[Algorithms/DeutschJozsaExample.fsx](Algorithms/DeutschJozsaExample.fsx)**  
   Deutsch-Jozsa algorithm (first quantum advantage proof)
+
+- **[Algorithms/QuantumFourierTransform.fsx](Algorithms/QuantumFourierTransform.fsx)**  
+  QFT on |0…0⟩ → uniform superposition, then inverse QFT round-trip (`QFT.execute`)
+
+- **[Algorithms/AmplitudeAmplification.fsx](Algorithms/AmplitudeAmplification.fsx)**  
+  Amplitude amplification boosting a marked state 12.5% → ~95% (`AmplitudeAmplification.Unified.execute`)
+
+- **[Algorithms/AdaptVqe.fsx](Algorithms/AdaptVqe.fsx)**  
+  ADAPT-VQE — grows a problem-tailored ansatz operator-by-operator to a ground-state energy (`AdaptVqe.run`)
+
+- **[Primitives/CudaQStylePrimitives.fsx](Primitives/CudaQStylePrimitives.fsx)**  
+  CUDA-Q-style `sample` / `observe` / `run` / `getState` primitives over any `IQuantumBackend`
+
+- **[ErrorMitigation/NoisyDensityMatrix.fsx](ErrorMitigation/NoisyDensityMatrix.fsx)**  
+  Density-matrix noisy simulation — depolarizing channel degrading a Bell state (`NoisyLocalBackend`)
+
+- **[NeutralAtom/RydbergMaxIndependentSet.fsx](NeutralAtom/RydbergMaxIndependentSet.fsx)**  
+  Neutral-atom (Rydberg) analog mode — Maximum Independent Set via an adiabatic detuning sweep (`NeutralAtom`)
 
 ### Game Examples (Educational)
 - **[Kasino/Kasino.fsx](Kasino/Kasino.fsx)**  
@@ -494,10 +513,14 @@ cd examples/BinaryClassification
 dotnet fsi FraudDetection.fsx
 ```
 
-### Running All Examples (Validation)
+### Running Examples
 ```bash
-# From examples/ directory
-dotnet fsi test-all-examples.fsx
+# Build the library once so the examples' #r reference resolves:
+dotnet build ../src/FSharp.Azure.Quantum/FSharp.Azure.Quantum.fsproj
+
+# Then run any example individually, e.g.:
+dotnet fsi Algorithms/QuantumFourierTransform.fsx
+dotnet fsi Clique/FraudRingDetection.fsx
 ```
 
 ---

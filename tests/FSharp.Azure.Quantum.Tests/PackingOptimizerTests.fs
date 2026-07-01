@@ -213,7 +213,7 @@ module PackingOptimizerTests =
         | other -> Assert.Fail(sprintf "Expected ItemSize validation error, got: %A" other)
 
     [<Fact>]
-    let ``PackingOptimizer - no backend returns error`` () =
+    let ``PackingOptimizer - no backend defaults to local simulator`` () =
         let problem = {
             Items = [{ Id = "A"; Size = 10.0 }]
             BinCapacity = 100.0
@@ -221,11 +221,11 @@ module PackingOptimizerTests =
             Shots = 1000
         }
 
-        let result = PackingOptimizer.solve problem
-
-        match result with
-        | Error (QuantumError.NotImplemented _) -> ()
-        | other -> Assert.Fail(sprintf "Expected NotImplemented error, got: %A" other)
+        // Quantum-first: omitting a backend defaults to the local simulator (a real quantum
+        // backend) and still solves — it must not short-circuit with NotImplemented.
+        match PackingOptimizer.solve problem with
+        | Ok _ -> ()
+        | other -> Assert.Fail(sprintf "Expected Ok via default local simulator, got: %A" other)
 
     // ========================================================================
     // EDGE CASES
