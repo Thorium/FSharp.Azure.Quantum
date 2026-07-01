@@ -6,12 +6,22 @@
     <GenerateProgramFile>false</GenerateProgramFile>
 
     <!-- Package Metadata -->
-    <Version>1.4.2</Version>
+    <Version>1.4.3</Version>
     <PackageId>FSharp.Azure.Quantum</PackageId>
     <Title>FSharp.Azure.Quantum</Title>
     <Description>F# library for Azure Quantum with quantum-first optimization (Graph Coloring, TSP, MaxCut, Knapsack, Network Flow, Portfolio), Azure Quantum backend integration (IonQ, Rigetti, Quantinuum, Atom Computing), extensible circuit validation, local quantum simulation, QAOA with automatic parameter optimization (Nelder-Mead), OpenQASM 2.0 support, error mitigation techniques (ZNE, PEC, REM), Quantum Random Number Generation (QRNG), and educational quantum algorithms (Grover, QFT, Amplitude Amplification) with cloud backend execution. Native IQuantumBackend integration for IonQ, Rigetti, Quantinuum, Atom Computing, IQM and D-Wave, plus Pasqal neutral-atom analog hardware (via Pulser) and a neutral-atom analog programming model; additional platforms (IBM, Amazon Braket, Google Cirq) are targetable via OpenQASM 2.0 export/import.</Description>
     <Summary>F# library for Azure Quantum with quantum-first optimization, quantum backends (IonQ, Rigetti, Quantinuum, Atom Computing), QAOA with automatic parameter tuning, QRNG, and educational algorithms with cloud execution</Summary>
-    <PackageReleaseNotes>v1.4.2: Compilation/hardware tooling and weighted MAX-SAT
+    <PackageReleaseNotes>v1.4.3: Neutral-atom analog mode, CUDA-Q-style primitives, and new backends
+- NEW: Neutral-atom (Rydberg) analog programming - NeutralAtom module Trotterizes an analog program to gates; PasqalBackend (RydbergProgram -&gt; Pulser JSON -&gt; Azure Quantum) and QueraBackend (RydbergProgram -&gt; Braket AHS JSON)
+- NEW: CUDA-Q-style execution primitives (Primitives: sample/observe/run/getState) over IQuantumBackend, plus CudaQBridge
+- NEW: ADAPT-VQE and ADAPT-QAOA adaptive-ansatz algorithms (AdaptVqe, AdaptQaoa)
+- NEW: IQM gate backend (IqmBackend)
+- NEW: Density-matrix noisy simulator backend (NoisyBackend)
+- NEW: Emulate-target mode (Emulation) - transpile, validate, then run locally for a cloud target
+- NEW: Companion FSharp.Azure.Quantum.Braket package isolates the AWS SDK dependency (QuEra neutral-atom analog and Braket gate QPUs)
+- IMPROVED: Business builders and ML model serialization refactors
+
+v1.4.2: Compilation/hardware tooling and weighted MAX-SAT
 - NEW: QubitRouting - inserts SWAPs so two-qubit gates respect device connectivity (CouplingMap: grid/linear/fromPairs); tracks logical-to-physical qubit permutation
 - NEW: CloudBackends.Factory.createRigettiRouted - Rigetti backend that auto-routes circuits for a device coupling map
 - NEW: QirEmitter - emit circuits as QIR base-profile textual LLVM IR for Azure Quantum submission

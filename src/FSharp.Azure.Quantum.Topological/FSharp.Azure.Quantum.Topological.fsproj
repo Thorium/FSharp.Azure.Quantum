@@ -6,12 +6,15 @@
     <GenerateProgramFile>false</GenerateProgramFile>
 
     <!-- Package Metadata -->
-    <Version>0.4.2</Version>
+    <Version>0.4.3</Version>
     <PackageId>FSharp.Azure.Quantum.Topological</PackageId>
     <Title>FSharp.Azure.Quantum.Topological</Title>
     <Description>Topological quantum computing plugin for FSharp.Azure.Quantum. Provides anyon theory (Ising/Fibonacci/SU(2)_k), braiding compilation, gate-to-braid conversion, Majorana (tetron) hardware device profiles and noise models, and topological file format (.tqp). Includes Majorana 1 (Al–InAs) and Majorana 2 (InAs–Pb) hardware profiles. Seamlessly integrates with main package algorithms (Grover, QFT, QAOA) via IQuantumBackend interface. Requires FSharp.Azure.Quantum v1.3.10+.</Description>
     <Summary>F# topological quantum computing plugin with anyon models, braiding compilation, Majorana hardware profiles, noise models, and seamless integration with FSharp.Azure.Quantum algorithms</Summary>
-    <PackageReleaseNotes>v0.4.2: Braid-to-gate execution
+    <PackageReleaseNotes>v0.4.3: Rebuilt against FSharp.Azure.Quantum v1.4.3
+- No functional changes; keeps version in step with the core package
+
+v0.4.2: Braid-to-gate execution
 - NEW: BraidToGate.toCircuit / compileToCircuit - compile a braid word to a gate-based Circuit
 - NEW: BraidToGate.executeOnGateBackend - run a topological (braid) program on any gate-based IQuantumBackend (local simulator or gate cloud) for cross-validation
 - Requires FSharp.Azure.Quantum v1.3.10+

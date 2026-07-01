@@ -6,7 +6,7 @@
     <GenerateProgramFile>false</GenerateProgramFile>
 
     <!-- Package Metadata -->
-    <Version>0.1.0</Version>
+    <Version>0.4.3</Version>
     <PackageId>FSharp.Azure.Quantum.Braket</PackageId>
     <Title>FSharp.Azure.Quantum.Braket</Title>
     <Description>AWS Braket plugin for FSharp.Azure.Quantum. Submits circuits to Braket gate QPUs (IonQ, Rigetti, IQM, OQC, Infleqtion) and simulators (SV1/DM1/TN1) via OpenQASM 3.0, and neutral-atom analog programs to QuEra Aquila via the Braket AHS format. This is the only package that depends on the AWS SDK — the core FSharp.Azure.Quantum package stays AWS-free. Requires FSharp.Azure.Quantum.</Description>
@@ -14,8 +14,18 @@
 
     <Authors>Tuomas Hietanen</Authors>
     <PackageTags>F#;FSharp;Quantum;AWS;Braket;QuEra;OQC;Infleqtion;NeutralAtom</PackageTags>
+    <PackageReleaseNotes>v0.4.3: Initial public release of the AWS Braket plugin
+- Submit gate circuits to Braket QPUs (IonQ, Rigetti, IQM, OQC, Infleqtion) and simulators (SV1/DM1/TN1) via OpenQASM 3.0
+- Submit QuEra Aquila neutral-atom analog programs via the Braket AHS format
+- Isolates the AWS SDK dependency so the core FSharp.Azure.Quantum package stays AWS-free
+- Requires FSharp.Azure.Quantum v1.4.3+</PackageReleaseNotes>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageLicenseExpression>Unlicense</PackageLicenseExpression>
     <Copyright>Unlicense - Public Domain</Copyright>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <IncludeSymbols>true</IncludeSymbols>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+	<PackageIcon>logo.png</PackageIcon>
   </PropertyGroup>
 
   <ItemGroup>
@@ -25,6 +35,9 @@
   </ItemGroup>
 
   <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="/" />
+		<None Include="..\..\docs\images\logo.png" Pack="true" PackagePath="/" />
+  
     <!-- The AWS SDK dependency lives ONLY in this plugin package. -->
     <PackageReference Include="AWSSDK.Braket" Version="3.7.*" />
     <PackageReference Include="AWSSDK.S3" Version="3.7.*" />
