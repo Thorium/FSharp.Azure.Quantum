@@ -123,7 +123,12 @@ module QuboEncoding =
                     [0 .. timeHorizon - 1]
                     |> List.collect (fun t_pred ->
                         let predEnd = float t_pred + predDurationSlots + lagSlots
-                        [0 .. int predEnd]
+                        // Finish-to-start is satisfied when t_succ >= predEnd, so the successor may
+                        // legally start *at* predEnd; only slots strictly before it are violations.
+                        // The largest such integer slot is ceil(predEnd) - 1 — `int predEnd` wrongly
+                        // penalised the exactly-feasible boundary slot (which, on the tight 2–10 slot
+                        // grids, can leave QAOA with no feasible signal at all).
+                        [0 .. int (ceil predEnd) - 1]
                         |> List.choose (fun t_succ ->
                             match Map.tryFind (predId, t_pred) varMapping, Map.tryFind (succId, t_succ) varMapping with
                             | Some predVarIdx, Some succVarIdx ->

@@ -124,6 +124,46 @@ module CloudBackendTests =
         | _ -> Assert.True(false, "Expected StateVector result")
 
     // ============================================================================
+    // UNROUTE HISTOGRAM TESTS
+    // ============================================================================
+
+    [<Fact>]
+    let ``unrouteHistogram permutes bits back to logical order`` () =
+        // Routing left logical 0 on physical 2 and logical 2 on physical 0
+        // (mapping.[logical] = physical). Keys: rightmost char = qubit 0.
+        // Physical "001" (phys 0 = 1) must become logical "100" (logical 2 = 1).
+        let mapping = [| 2; 1; 0 |]
+        let histogram = Map.ofList [ ("001", 700); ("100", 300) ]
+
+        let result = CloudBackendHelpers.unrouteHistogram mapping 3 histogram
+
+        Assert.Equal(700, result.["100"])
+        Assert.Equal(300, result.["001"])
+
+    [<Fact>]
+    let ``unrouteHistogram is identity for identity mapping`` () =
+        let mapping = [| 0; 1 |]
+        let histogram = Map.ofList [ ("00", 480); ("11", 520) ]
+
+        let result = CloudBackendHelpers.unrouteHistogram mapping 2 histogram
+
+        Assert.Equal<Map<string, int>>(histogram, result)
+
+    [<Fact>]
+    let ``unrouteHistogram drops swapped-through device qubits and merges counts`` () =
+        // 2 logical qubits routed on a 3-qubit device: logical 1 ended on physical 2.
+        // Physical bit 1 is a swap-through qubit — dropping it merges "101" and "111"
+        // into the same logical key "11".
+        let mapping = [| 0; 2; 1 |]
+        let histogram = Map.ofList [ ("101", 400); ("111", 100); ("000", 500) ]
+
+        let result = CloudBackendHelpers.unrouteHistogram mapping 2 histogram
+
+        Assert.Equal(500, result.["11"])
+        Assert.Equal(500, result.["00"])
+        Assert.Equal(2, result.Count)
+
+    // ============================================================================
     // INFER NUM QUBITS TESTS
     // ============================================================================
 

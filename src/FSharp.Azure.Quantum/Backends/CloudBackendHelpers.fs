@@ -71,6 +71,28 @@ module CloudBackendHelpers =
 
         QuantumState.StateVector (StateVector.create amplitudes)
 
+    /// Undo the logical→physical qubit permutation introduced by routing on a
+    /// measurement histogram, so results are reported in the caller's logical
+    /// qubit order.
+    ///
+    /// `mapping.[logical] = physical`, as returned by `QubitRouting.route`.
+    /// Bitstring keys follow the same convention as `histogramToQuantumState`:
+    /// rightmost char = qubit 0. Physical qubits beyond the bitstring length are
+    /// read as '0' (devices may report fewer qubits than the coupling map has),
+    /// and distinct physical keys that collapse to the same logical key have
+    /// their counts merged.
+    let unrouteHistogram (mapping: int[]) (numLogical: int) (histogram: Map<string, int>) : Map<string, int> =
+        histogram
+        |> Map.fold (fun acc (bitstring: string) count ->
+            let len = bitstring.Length
+            let logicalBits =
+                Array.init numLogical (fun q ->
+                    let physical = mapping.[q]
+                    if physical < len then bitstring.[len - 1 - physical] else '0')
+            let key = String(Array.rev logicalBits)
+            let merged = (acc |> Map.tryFind key |> Option.defaultValue 0) + count
+            acc |> Map.add key merged) Map.empty
+
     /// Infer the number of qubits from histogram bitstring length.
     ///
     /// Takes the first key in the histogram and measures its string length.

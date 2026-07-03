@@ -74,15 +74,18 @@ module CloudBackends =
                     // two-qubit gate acts on physically-adjacent qubits. No-op when no
                     // coupling map is configured (e.g. for all-to-all devices, or when
                     // the caller supplies an already-routed circuit).
-                    let circuit =
+                    // Keep the final logical→physical mapping: the SWAPs leave measurement
+                    // results in physical qubit order, and without un-permuting the histogram
+                    // the caller would silently receive permuted bits.
+                    let circuit, routing =
                         match couplingMap with
                         | Some cm ->
                             match CircuitAdapter.tryGetCircuit circuit with
                             | Some gateCircuit ->
-                                let routed, _ = QubitRouting.route cm gateCircuit
-                                wrapCircuit routed
-                            | None -> circuit
-                        | None -> circuit
+                                let routed, mapping = QubitRouting.route cm gateCircuit
+                                wrapCircuit routed, Some (mapping, gateCircuit.QubitCount)
+                            | None -> circuit, None
+                        | None -> circuit, None
                     // Step 1: Convert ICircuit → QuilProgram
                     match CloudBackendHelpers.checkCostGuard target shots costLimitUsd |> Result.bind (fun () -> CircuitAdapter.toQuilProgram circuit) with
                     | Error err -> return Error err
@@ -112,6 +115,11 @@ module CloudBackends =
                                                 match RigettiBackend.parseRigettiResults resultJson with
                                                 | Error err -> return Error err
                                                 | Ok histogram ->
+                                                    let histogram =
+                                                        match routing with
+                                                        | Some (mapping, numLogical) ->
+                                                            CloudBackendHelpers.unrouteHistogram mapping numLogical histogram
+                                                        | None -> histogram
                                                     let numQubits =
                                                         CloudBackendHelpers.inferNumQubits histogram
                                                         |> Option.defaultValue circuit.NumQubits

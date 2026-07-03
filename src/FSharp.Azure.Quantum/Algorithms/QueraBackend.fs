@@ -46,11 +46,31 @@ module QuEra =
             amplitude.Add first.RabiStart
             detuning.Add first.DetuningStart
             let mutable t = 0.0
+            // Values currently on the series at time t (end of the previous segment).
+            let mutable prevRabi = first.RabiStart
+            let mutable prevDetuning = first.DetuningStart
             for segment in program.Schedule do
+                // A segment may start at a different Ω/Δ than the previous one ended — the
+                // schedule is piecewise, not necessarily continuous. A single (times, values)
+                // series cannot hold two values at one instant (AHS requires strictly
+                // increasing times), so realise the jump as a steep ramp over the device's
+                // 1 ns time resolution. Recording only the segment *end* values here would
+                // silently compile a discontinuous schedule into one continuous linear ramp —
+                // a different pulse than `NeutralAtom.simulate` and the Pasqal path execute.
+                let jumpNeeded =
+                    abs (segment.RabiStart - prevRabi) > 1e-12
+                    || abs (segment.DetuningStart - prevDetuning) > 1e-12
+                if jumpNeeded && segment.Duration > 0.0 then
+                    let jumpTime = min 1e-3 (segment.Duration / 2.0)  // 1 ns, in µs
+                    times.Add (t + jumpTime)
+                    amplitude.Add segment.RabiStart
+                    detuning.Add segment.DetuningStart
                 t <- t + segment.Duration
                 times.Add t
                 amplitude.Add segment.RabiEnd
                 detuning.Add segment.DetuningEnd
+                prevRabi <- segment.RabiEnd
+                prevDetuning <- segment.DetuningEnd
         let totalTime = times.[times.Count - 1]
 
         use stream = new System.IO.MemoryStream()

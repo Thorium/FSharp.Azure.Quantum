@@ -404,6 +404,11 @@ module QuantumSatSolver =
                 c.Literals |> List.exists (fun l ->
                     l.Variable < 0 || l.Variable >= problem.NumVariables)) then
             Error (QuantumError.ValidationError ("variable", "Variable index out of range"))
+        elif problem.Clauses |> List.exists (fun c -> not (c.Weight > 0.0)) then
+            // Clause weights feed directly into the QUBO penalty: a zero weight silently drops the
+            // clause and a negative weight rewards violating it, corrupting the encoding. (not (> 0)
+            // also rejects NaN.)
+            Error (QuantumError.ValidationError ("weight", "Clause weight must be positive; use weightedClause with a value > 0"))
         else
             Ok ()
 

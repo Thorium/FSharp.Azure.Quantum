@@ -103,12 +103,17 @@ module ZeroNoiseExtrapolation =
     /// experiences proportionally more decoherence. A gate-level simulator has no pulse model,
     /// so we realise the SAME noise amplification digitally: stretching pulses by a factor s
     /// multiplies the effective gate duration (and hence depth-dependent error) by s, which is
-    /// exactly what inserting identity pairs at rate (s − 1) does to the circuit depth. This is
-    /// the standard digital-ZNE equivalence (Giurgica-Tiron et al.), and it is identity-preserving
-    /// so the noiseless result is unchanged while a depth-dependent noise model is amplified by s.
+    /// exactly what inserting identity pairs at rate (s − 1)/2 does to the circuit depth (each pair
+    /// is two gates). This is the standard digital-ZNE equivalence (Giurgica-Tiron et al.), and it
+    /// is identity-preserving so the noiseless result is unchanged while a depth-dependent noise
+    /// model is amplified by exactly s.
     let private applyPulseStretch (stretchFactor: float) (circuit: CircuitBuilder.Circuit) : CircuitBuilder.Circuit =
         // s = 1.0 → baseline (no change); s > 1.0 → amplify depth-dependent noise by s.
-        let insertionRate = max 0.0 (stretchFactor - 1.0)
+        // Each inserted identity "pair" is 2 gates (X·X), so a rate r multiplies the gate count by
+        // (1 + 2r). To amplify by the requested factor s we need 1 + 2r = s, i.e. r = (s − 1)/2 —
+        // using (s − 1) yields a true amplification of 2s − 1, so the Richardson fit (told s)
+        // systematically overshoots the extrapolation.
+        let insertionRate = (max 0.0 (stretchFactor - 1.0)) / 2.0
         insertIdentityPairs insertionRate circuit
     
     // ============================================================================

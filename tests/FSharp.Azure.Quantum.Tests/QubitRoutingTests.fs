@@ -28,6 +28,19 @@ module QubitRoutingTests =
         Assert.True(QubitRouting.respectsCoupling cm routed)
 
     [<Fact>]
+    let ``route works when the device has more qubits than the circuit`` () =
+        // Regression: the routing tables must be sized to the physical device, not the logical
+        // circuit. Here logical qubits 0 and 1 connect only through physical qubit 2 (a star), so
+        // the SWAP path visits a physical index >= the circuit's qubit count — which used to throw
+        // IndexOutOfRange because pos/phys were sized by circuit.QubitCount (2) alone.
+        let cm = QubitRouting.fromPairs 3 [ (0, 2); (1, 2) ]
+        let c = empty 2 |> addGate (H 0) |> addGate (CNOT(0, 1))
+        Assert.False(QubitRouting.respectsCoupling cm c)
+        let routed, mapping = QubitRouting.route cm c   // must not throw
+        Assert.True(QubitRouting.respectsCoupling cm routed)
+        Assert.Equal(3, mapping.Length)
+
+    [<Fact>]
     let ``route is a no-op when all gates already respect the coupling`` () =
         let cm = QubitRouting.linear 3
         let c = empty 3 |> addGate (CNOT(0, 1)) |> addGate (CNOT(1, 2))

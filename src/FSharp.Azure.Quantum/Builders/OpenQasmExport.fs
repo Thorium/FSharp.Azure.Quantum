@@ -58,7 +58,10 @@ module OpenQasmExport =
     /// Format angle with specified decimal precision for OpenQASM.
     /// </summary>
     let private formatAngle (angle: float) : string =
-        angle.ToString($"F{angleDecimalPlaces}")
+        // InvariantCulture is essential: on a locale with a comma decimal separator (e.g. fi-FI)
+        // this would otherwise emit "rx(1,5707963268)", which is invalid OpenQASM and gets silently
+        // rejected by Braket/IQM and the other backends that consume this exporter.
+        angle.ToString($"F{angleDecimalPlaces}", System.Globalization.CultureInfo.InvariantCulture)
     
     // ========================================================================
     // GATE TRANSLATION

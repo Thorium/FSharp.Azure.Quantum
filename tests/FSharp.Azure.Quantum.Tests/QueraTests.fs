@@ -51,6 +51,32 @@ module QueraTests =
         Assert.Equal(4, series.GetProperty("times").GetArrayLength())
 
     [<Fact>]
+    let ``toAhsProgram preserves discontinuous segment boundaries as steep ramps`` () =
+        // Segment 2 starts at a different Ω than segment 1 ends. The single (times, values)
+        // series must keep both boundary values as a steep ramp over the 1 ns resolution —
+        // previously the start value was silently dropped, compiling the step into one long
+        // linear ramp (a different pulse than NeutralAtom.simulate executes).
+        let program : RydbergProgram = {
+            Register = [ { X = 0.0; Y = 0.0 } ]
+            C6 = 30.0
+            Schedule =
+                [ { Duration = 1.0; RabiStart = 0.0; RabiEnd = 1.0; DetuningStart = 0.0; DetuningEnd = 0.0 }
+                  { Duration = 1.0; RabiStart = 2.0; RabiEnd = 2.0; DetuningStart = 0.0; DetuningEnd = 0.0 } ] }
+        let json = QuEra.toAhsProgram program
+        use doc = JsonDocument.Parse(json)
+        let series =
+            doc.RootElement.GetProperty("hamiltonian").GetProperty("drivingFields").[0]
+                .GetProperty("amplitude").GetProperty("time_series")
+        let values = [ for v in series.GetProperty("values").EnumerateArray() -> v.GetDouble() ]
+        let times = [ for t in series.GetProperty("times").EnumerateArray() -> t.GetDouble() ]
+        // 3 boundary points (0, seg1 end, seg2 end) + 1 inserted jump point.
+        Assert.Equal(4, values.Length)
+        // rad/µs → rad/s: both sides of the discontinuity survive (1.0 then 2.0).
+        Assert.Equal<float list>([ 0.0; 1e6; 2e6; 2e6 ], values)
+        // AHS requires strictly increasing times — the jump is a 1 ns ramp, not a duplicate point.
+        times |> List.pairwise |> List.iter (fun (a, b) -> Assert.True(a < b, $"times not strictly increasing: {a} !< {b}"))
+
+    [<Fact>]
     let ``parseAhsResult reads postSequence into a Rydberg-occupation histogram`` () =
         // postSequence: 1 = ground, 0 = Rydberg ⇒ Rydberg bit = 1 - post.
         let json =

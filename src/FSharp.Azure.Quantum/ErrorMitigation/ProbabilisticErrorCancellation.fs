@@ -79,21 +79,24 @@ module ProbabilisticErrorCancellation =
     // ============================================================================
     
     /// Decompose noisy single-qubit gate into quasi-probability distribution.
-    /// 
+    ///
     /// Mathematical foundation:
     /// Depolarizing channel: ρ → (1-p)UρU† + (p/4)(IρI† + XρX† + YρY† + ZρZ†)
-    /// 
-    /// Inverse (PEC): U = (1+p)·Noisy_U - (p/4)·(Noisy_I + Noisy_X + Noisy_Y + Noisy_Z)
-    /// 
-    /// Returns 5-term decomposition with:
-    /// - First term: desired gate with probability (1+p) > 0
-    /// - Four correction terms: identity-like gates with probability -p/4 < 0
-    /// 
+    ///
+    /// Exact inverse (derived on qI/qP below):
+    ///   D⁻¹(ρ) = q_I·ρ + q·(XρX + YρY + ZρZ),  q = −p/(4(1−p)),  q_I = 1 + 3p/(4(1−p)).
+    ///
+    /// Returns a 4-term decomposition — each term runs the noisy gate, then a Pauli correction:
+    /// - First term: the gate itself (≡ gate then I), quasi-probability q_I > 0
+    /// - Three correction terms: gate then X / Y / Z, each with quasi-probability q < 0
+    ///
     /// Properties:
     /// - Quasi-probabilities sum to 1: Σpᵢ = 1
-    /// - Normalization factor: Σ|pᵢ| = 1 + 2p (for importance sampling)
+    /// - Normalization factor: Σ|pᵢ| = 1 + 3p/(2(1−p)) (for importance sampling)
     let decomposeSingleQubitGate (gate: CircuitBuilder.Gate) (noiseModel: NoiseModel) : QuasiProbDecomposition =
-        let p = noiseModel.SingleQubitDepolarizing
+        // Clamp into [0, 1): the inverse channel is singular at p = 1 (fully depolarizing is
+        // non-invertible), where denom below would be 0 and produce NaN quasi-probabilities.
+        let p = noiseModel.SingleQubitDepolarizing |> max 0.0 |> min (1.0 - 1e-12)
         
         // Helper: Extract qubit index from single-qubit gate
         let getQubit gate =
@@ -140,25 +143,26 @@ module ProbabilisticErrorCancellation =
         }
     
     /// Decompose noisy two-qubit gate into quasi-probability distribution.
-    /// 
+    ///
     /// Mathematical foundation:
     /// Two-qubit depolarizing channel over 16 Pauli basis operators:
     /// {I⊗I, I⊗X, I⊗Y, I⊗Z, X⊗I, X⊗X, ..., Z⊗Z}
-    /// 
-    /// Inverse (PEC): Gate = (1+p)·Noisy_Gate - (p/15)·Σ Pauli_corrections
-    /// 
-    /// Returns 16-term decomposition with:
-    /// - First term: desired gate with probability (1+p) > 0
-    /// - 15 correction terms: Pauli basis combinations with probability -p/15 < 0
-    /// 
+    ///
+    /// Exact inverse (derived on qI/qP below):
+    ///   D⁻¹ = q_I·(I⊗I) + q·Σ(15 non-identity Paulis),  q = −p/(16(1−p)),  q_I = 1 + 15p/(16(1−p)).
+    ///
+    /// Returns a 16-term decomposition — each term runs the noisy gate, then a Pauli correction:
+    /// - First term: the gate itself (≡ gate then I⊗I), quasi-probability q_I > 0
+    /// - 15 correction terms: gate then a P_control⊗P_target tensor product, each with q < 0
+    ///
     /// Properties:
     /// - Quasi-probabilities sum to 1: Σpᵢ = 1
-    /// - Normalization factor: Σ|pᵢ| = 1 + 2p (for importance sampling)
-    /// 
-    /// Note: For two-qubit depolarizing, we use 15 non-identity Pauli operators.
-    /// The identity operator I⊗I is implicitly included via the (1+p) term.
+    /// - Normalization factor: Σ|pᵢ| = 1 + 15p/(8(1−p)) (for importance sampling)
+    ///
+    /// Note: the 15 non-identity Pauli pairs are the corrections; I⊗I folds into the gate term.
     let decomposeTwoQubitGate (gate: CircuitBuilder.Gate) (noiseModel: NoiseModel) : QuasiProbDecomposition =
-        let p = noiseModel.TwoQubitDepolarizing
+        // Clamp into [0, 1): the inverse channel is singular at p = 1 (denom below would be 0).
+        let p = noiseModel.TwoQubitDepolarizing |> max 0.0 |> min (1.0 - 1e-12)
         
         // Helper: Extract qubits from two-qubit gate
         let (control, target) =

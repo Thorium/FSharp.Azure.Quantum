@@ -137,6 +137,39 @@ module QuantumStateTests =
         Assert.Equal(0.0, prob10, 10)
     
     [<Fact>]
+    let ``probability and measure agree on bit order for an asymmetric state`` () =
+        // |ψ⟩ = |01⟩ in the library's convention: qubit 0 = 1, qubit 1 = 0 → basis index 1.
+        // measure returns bits.[q] = value of qubit q, and probability takes the same layout;
+        // an MSB-first index fold would read the probability of the bit-reversed state instead.
+        let amps = Array.create 4 Complex.Zero
+        amps.[1] <- Complex(1.0, 0.0)
+        let state = QuantumState.StateVector (StateVector.create amps)
+
+        let bits = QuantumState.measure state 1 |> Array.head
+        Assert.Equal<int[]>([| 1; 0 |], bits)
+        Assert.Equal(1.0, QuantumState.probability bits state, 10)
+        Assert.Equal(0.0, QuantumState.probability [| 0; 1 |] state, 10)
+
+    [<Fact>]
+    let ``SparseState - measure decodes bits in the same order as StateVector`` () =
+        // Sparse indices share the StateVector convention (qubit q = bit q). Index 1 on
+        // 2 qubits is |01⟩: qubit 0 = 1, qubit 1 = 0.
+        let state = QuantumState.SparseState (Map.ofList [ (1, Complex(1.0, 0.0)) ], 2)
+
+        let measurements = QuantumState.measure state 20
+        Assert.All(measurements, fun bits -> Assert.Equal<int[]>([| 1; 0 |], bits))
+
+    [<Fact>]
+    let ``DensityMatrix - measure decodes bits in the same order as StateVector`` () =
+        // ρ = |01⟩⟨01| (basis index 1 on 2 qubits): qubit 0 = 1, qubit 1 = 0.
+        let rho = Array2D.create 4 4 Complex.Zero
+        rho.[1, 1] <- Complex(1.0, 0.0)
+        let state = QuantumState.DensityMatrix (rho, 2)
+
+        let measurements = QuantumState.measure state 20
+        Assert.All(measurements, fun bits -> Assert.Equal<int[]>([| 1; 0 |], bits))
+
+    [<Fact>]
     let ``StateVector - isNormalized should verify normalization`` () =
         let normalizedState = QuantumState.StateVector (StateVector.init 2)
         Assert.True(QuantumState.isNormalized normalizedState)

@@ -496,6 +496,48 @@ module ShorTests =
             Assert.InRange(result.Period, 1, 15)
     
     [<Fact>]
+    let ``findPeriod falls back to classically-assisted for N too large for the quantum circuit`` () =
+        let backend = createBackend()
+
+        // N=35 needs 6 register bits; the genuine quantum circuit would need more counting
+        // qubits than fit the 20-qubit budget, so findPeriod must fall back (mirroring plan)
+        // instead of burning 16 futile QPE attempts and erroring.
+        match findPeriod 2 35 8 backend with
+        | Error err -> Assert.Fail($"Should fall back and succeed: {err}")
+        | Ok result ->
+            Assert.Equal(2, result.Base)
+            Assert.Equal(12, result.Period)   // ord(2 mod 35) = 12
+
+    [<Fact>]
+    let ``findPeriodQuantum fails fast for N too large for the qubit budget`` () =
+        let backend = createBackend()
+
+        // Explicitly requesting the genuine quantum path for a too-large N must return a
+        // clear validation error immediately, not after 16 full QPE simulations.
+        match findPeriodQuantum 2 35 8 backend with
+        | Error (QuantumError.ValidationError (_, reason)) ->
+            Assert.Contains("qubit", reason.ToLower())
+        | Ok _ -> Assert.Fail("Should reject N=35 on the genuine quantum path")
+        | Error err -> Assert.Fail($"Expected ValidationError, got: {err}")
+
+    [<Fact>]
+    let ``factorClassicallyAssisted factors N in the 128-1000 range it is documented for`` () =
+        let backend = createBackend()
+
+        // Regression: the 2·log₂(N)+3 precision recommendation exceeds the classically-assisted
+        // path's 16-qubit cap from N=128, which previously made this error for its whole
+        // documented "larger N" range.
+        match factorClassicallyAssisted 143 backend with
+        | Error err -> Assert.Fail($"Should succeed for N=143: {err}")
+        | Ok result ->
+            Assert.True(result.Success, $"Should factor 143: {result.Message}")
+            match result.Factors with
+            | Some (p, q) ->
+                Assert.Equal(143, p * q)
+                Assert.Equal<int list>([11; 13], List.sort [p; q])
+            | None -> Assert.Fail("Should find factors for 143")
+
+    [<Fact>]
     let ``Shor demonstrates QPE for period finding`` () =
         let backend = createBackend()
         

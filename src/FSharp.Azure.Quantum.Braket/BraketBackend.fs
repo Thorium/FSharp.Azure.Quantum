@@ -105,7 +105,11 @@ module BraketExecution =
             histogram
             |> Map.iter (fun bitstring count ->
                 try
-                    let index = Convert.ToInt32(bitstring, 2)
+                    // Braket lists measurements qubit-0-first (leftmost char = qubit 0), but the
+                    // library's simulators use qubit j = bit j (qubit 0 = LSB). Reverse the string
+                    // so the reconstructed basis index matches LocalBackend for the same circuit;
+                    // without this, every n >= 2 qubit state comes back bit-reversed.
+                    let index = Convert.ToInt32(String(Array.rev (bitstring.ToCharArray())), 2)
                     if index >= 0 && index < dim then
                         amplitudes.[index] <- System.Numerics.Complex(sqrt (float count / float total), 0.0)
                 with _ -> ())

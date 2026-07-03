@@ -167,7 +167,12 @@ module QubitRouting =
 
     // Core routing loop, parameterised by a path finder (hop-count or weighted).
     let private routeCore (findPath: int -> int -> int list option) (cm: CouplingMap) (circuit: Circuit) : Circuit * int[] =
-        let n = circuit.QubitCount
+        // Size the routing tables to the physical device, not just the logical circuit: SWAP paths
+        // traverse physical qubits up to cm.NumQubits-1, so routing a small circuit onto a larger
+        // device must still have a slot for every physical qubit a path passes through. Sizing by
+        // circuit.QubitCount alone throws IndexOutOfRange the moment a path visits a physical qubit
+        // index >= QubitCount — i.e. the normal "route N logical qubits on an M>N qubit device" case.
+        let n = max cm.NumQubits circuit.QubitCount
         // pos.[logical] = physical location; phys.[physical] = logical occupant.
         // Mutable because routing threads an evolving permutation through the
         // gate stream — the classic in-place SABRE-style bookkeeping.

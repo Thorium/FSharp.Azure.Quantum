@@ -230,14 +230,13 @@ module QuantumState =
             Seq.cast<obj> enumerable
         | _ -> Seq.empty
     
-    /// Convert bitstring to basis index
+    /// Convert bitstring to basis index. bitstring.[q] = bit of qubit q and
+    /// basis indices use qubit q = bit q (the StateVector/Measurement convention),
+    /// so this must fold LSB-first — an MSB-first fold silently bit-reverses the
+    /// index and reads the probability of the wrong basis state.
     let private bitstringToIndex (bitstring: int[]) : int =
-        Array.fold (fun acc bit -> (acc <<< 1) + bit) 0 bitstring
-    
-    /// Convert basis index to bitstring representation
-    let private indexToBitstring (n: int) (index: int) : int[] =
-        Array.init n (fun i -> (index >>> (n - 1 - i)) &&& 1)
-    
+        bitstring |> Array.mapi (fun q bit -> bit <<< q) |> Array.sum
+
     /// Sample index from probability distribution using cumulative sampling
     let private sampleFromDistribution (rng: Random) (probabilities: (int * float)[]) (totalProb: float) : int =
         let r = rng.NextDouble() * totalProb
@@ -374,10 +373,13 @@ module QuantumState =
             
             let sampleOnce () =
                 let selectedIdx = sampleFromDistribution rng probabilities totalProb
-                indexToBitstring n selectedIdx
-            
+                // Sparse indices come straight from StateVector indices (QuantumStateConversion),
+                // i.e. qubit j = bit j, so decode LSB-first like the StateVector/DensityMatrix
+                // branches — an MSB-first decode would bit-reverse the results.
+                Array.init n (fun q -> (selectedIdx >>> q) &&& 1)
+
             Array.init shots (fun _ -> sampleOnce ())
-        
+
         | QuantumState.DensityMatrix (rho, n) ->
             // Implement measurement for DensityMatrix by sampling from diagonal
             let rng = Random()
@@ -385,13 +387,17 @@ module QuantumState =
             
             let probabilities =
                 Array.init dim (fun i -> i, rho.[i, i].Real)  // Diagonal elements are real and represent probabilities
-            
+
             let totalProb = Array.sumBy snd probabilities
-            
+
             let sampleOnce () =
                 let selectedIdx = sampleFromDistribution rng probabilities totalProb
-                indexToBitstring n selectedIdx
-            
+                // The density matrix's basis index uses qubit j = bit j (it is built through the
+                // state-vector simulator), so decode LSB-first — array.[q] = bit q — to match the
+                // StateVector branch (Measurement.measureAll). An MSB-first decode here makes
+                // noisy histograms come out bit-reversed relative to noiseless runs.
+                Array.init n (fun q -> (selectedIdx >>> q) &&& 1)
+
             Array.init shots (fun _ -> sampleOnce ())
         
         | QuantumState.IsingSamples (problem, solutions) ->

@@ -591,8 +591,11 @@ module Shor =
                     let! stateAfterQft =
                         UnifiedBackend.applySequence backend inverseQftOps stateAfterModMul
 
-                    // Step 6: Measure counting register and extract phase
-                    let measurements = UnifiedBackend.measureState stateAfterQft 1000
+                    // Step 6: Measure counting register and extract phase.
+                    // We consume exactly one shot (measurements.[0]); QPE is inherently probabilistic
+                    // and findPeriodQuantum already retries on failure, so sampling 1000 full states
+                    // and discarding 999 was pure waste.
+                    let measurements = UnifiedBackend.measureState stateAfterQft 1
 
                     // Extract counting register bits (qubits 0..c-1)
                     // Inverse QFT without bit-reversal swaps produces bit-reversed output;
@@ -664,6 +667,15 @@ module Shor =
 
         let registerBits = int (Math.Ceiling(Math.Log(float n, 2.0)))
         let maxCounting = 20 - 2 * registerBits - 4
+        if maxCounting < registerBits then
+            // With fewer counting qubits than register bits the phase grid 2^c < N, so the
+            // continued-fraction step can only ever return the dyadic denominator 2^c — the
+            // retries below would burn maxAttempts full ~20-qubit simulations and then fail
+            // anyway (for any period that is not a power of two ≤ 2^c). Fail fast instead.
+            Error (QuantumError.ValidationError
+                ("n", $"N={n} needs {registerBits} counting qubits to resolve the period, but only {max 0 maxCounting} fit the 20-qubit simulator budget (counting + 2·{registerBits} + 4). Use findPeriod (falls back automatically) or findPeriodWith (classically assisted)."))
+        else
+
         let countingQubits = max 1 (min precisionQubits maxCounting)
         let maxAttempts = 16
 
@@ -703,14 +715,23 @@ module Shor =
         |> Result.bind (executePeriodFindingPlan backend)
 
     /// Find the period of a^x mod N. Uses the genuine quantum QPE-on-modular-exponentiation
-    /// routine by default; for larger N use findPeriodWith (classically-assisted).
+    /// routine when it fits the simulator's qubit budget; for larger N it falls back to the
+    /// classically-assisted path (mirroring `plan`), so period finding still succeeds instead
+    /// of erroring on the qubit limit.
     let findPeriod
         (a: int)
         (n: int)
         (precisionQubits: int)
         (backend: IQuantumBackend) : Result<PeriodFindingResult, QuantumError> =
 
-        findPeriodQuantum a n precisionQubits backend
+        let registerBits = int (Math.Ceiling(Math.Log(float n, 2.0)))
+        let maxCounting = 20 - 2 * registerBits - 4
+        if maxCounting < registerBits then
+            // The classically-assisted QPE demo is capped at 16 counting qubits
+            // (planPeriodFinding validation), so clamp the requested precision.
+            findPeriodWith a n (min 16 precisionQubits) QPE.Exactness.Exact backend
+        else
+            findPeriodQuantum a n precisionQubits backend
     
     // ========================================================================
     // INTENT -> PLAN -> EXECUTION (ADR: Shor factoring)
@@ -823,7 +844,12 @@ module Shor =
             let findPeriodOnce () =
                 match method with
                 | PeriodFindingMethod.Quantum -> findPeriodQuantum baseNum modulus precisionQubits backend
-                | PeriodFindingMethod.ClassicallyAssisted -> findPeriodWith baseNum modulus precisionQubits exactness backend
+                | PeriodFindingMethod.ClassicallyAssisted ->
+                    // `plan` accepts up to 20 precision qubits and may have degraded the method
+                    // from Quantum for a large N, but the classically-assisted QPE demo is capped
+                    // at 16 (planPeriodFinding validation) — clamp so the fallback path actually
+                    // runs instead of tripping that validation.
+                    findPeriodWith baseNum modulus (min 16 precisionQubits) exactness backend
             let rec tryFindFactors attempt : Result<ShorsResult, QuantumError> =
                 result {
                     if attempt > maxAttempts then
@@ -944,9 +970,11 @@ module Shor =
         (n: int)
         (backend: IQuantumBackend) : Result<ShorsResult, QuantumError> =
         
-        // Calculate recommended precision: 2 * log₂(N) + 3
-        let precisionQubits = 2 * int (Math.Log(float n, 2.0)) + 3
-        
+        // Calculate recommended precision: 2 * log₂(N) + 3, clamped to `plan`'s 20-qubit
+        // validation bound (the formula exceeds it from N = 512; for such N the plan degrades
+        // to the classically-assisted path anyway, which clamps further to its own 16 cap).
+        let precisionQubits = min 20 (2 * int (Math.Log(float n, 2.0)) + 3)
+
         let config = {
             NumberToFactor = n
             RandomBase = None  // Let algorithm choose random base
@@ -963,7 +991,11 @@ module Shor =
         (n: int)
         (backend: IQuantumBackend) : Result<ShorsResult, QuantumError> =
 
-        let precisionQubits = 2 * int (Math.Log(float n, 2.0)) + 3
+        // The classically-assisted QPE demo is capped at 16 counting qubits
+        // (planPeriodFinding validation); the 2·log₂(N) + 3 recommendation exceeds that
+        // from N = 128, which previously made this function error for exactly the larger-N
+        // range it exists to serve.
+        let precisionQubits = min 16 (2 * int (Math.Log(float n, 2.0)) + 3)
         let config = {
             NumberToFactor = n
             RandomBase = None

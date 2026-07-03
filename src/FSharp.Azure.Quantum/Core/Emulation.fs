@@ -32,19 +32,14 @@ module Emulation =
         Counts: Map<string, int>
     }
 
-    let private gateName (g: CircuitBuilder.Gate) : string =
+    /// Measurement/reset/barrier/conditional are structural operations, not gate-set members —
+    /// a target's SupportedGates never lists them, so including them in UsedGates produces bogus
+    /// "unsupported gate" violations. Filter them out before validating against the gate set.
+    let private isGateSetMember (g: CircuitBuilder.Gate) : bool =
         match g with
-        | CircuitBuilder.X _ -> "X"       | CircuitBuilder.Y _ -> "Y"     | CircuitBuilder.Z _ -> "Z"
-        | CircuitBuilder.H _ -> "H"       | CircuitBuilder.S _ -> "S"     | CircuitBuilder.SDG _ -> "SDG"
-        | CircuitBuilder.T _ -> "T"       | CircuitBuilder.TDG _ -> "TDG" | CircuitBuilder.P _ -> "P"
-        | CircuitBuilder.RX _ -> "RX"     | CircuitBuilder.RY _ -> "RY"   | CircuitBuilder.RZ _ -> "RZ"
-        | CircuitBuilder.U3 _ -> "U3"
-        | CircuitBuilder.CNOT _ -> "CNOT" | CircuitBuilder.CZ _ -> "CZ"   | CircuitBuilder.CP _ -> "CP"
-        | CircuitBuilder.CRX _ -> "CRX"   | CircuitBuilder.CRY _ -> "CRY" | CircuitBuilder.CRZ _ -> "CRZ"
-        | CircuitBuilder.SWAP _ -> "SWAP"
-        | CircuitBuilder.RXX _ -> "RXX"   | CircuitBuilder.RYY _ -> "RYY" | CircuitBuilder.RZZ _ -> "RZZ"
-        | CircuitBuilder.CCX _ -> "CCX"   | CircuitBuilder.MCZ _ -> "MCZ"
-        | CircuitBuilder.Measure _ -> "MEASURE"
+        | CircuitBuilder.Measure _ | CircuitBuilder.Reset _
+        | CircuitBuilder.Barrier _ | CircuitBuilder.Conditional _ -> false
+        | _ -> true
 
     let private twoQubitPair (g: CircuitBuilder.Gate) : (int * int) option =
         match g with
@@ -58,7 +53,11 @@ module Emulation =
         { NumQubits = circuit.QubitCount
           GateCount = List.length circuit.Gates
           Depth = None
-          UsedGates = circuit.Gates |> List.map gateName |> Set.ofList
+          UsedGates =
+              circuit.Gates
+              |> List.filter isGateSetMember
+              |> List.map CircuitBuilder.getGateName   // canonical names ("Rx"/"Ry"/"Rz"…) match the validator's SupportedGates
+              |> Set.ofList
           TwoQubitGates = circuit.Gates |> List.choose twoQubitPair }
 
     /// Emulate `target` locally: transpile → validate → run on the local simulator.
