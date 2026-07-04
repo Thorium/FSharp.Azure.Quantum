@@ -6,7 +6,7 @@
     <GenerateProgramFile>false</GenerateProgramFile>
 
     <!-- Package Metadata -->
-    <Version>0.4.3</Version>
+    <Version>0.4.4</Version>
     <PackageId>FSharp.Azure.Quantum.Braket</PackageId>
     <Title>FSharp.Azure.Quantum.Braket</Title>
     <Description>AWS Braket plugin for FSharp.Azure.Quantum. Submits circuits to Braket gate QPUs (IonQ, Rigetti, IQM, OQC, Infleqtion) and simulators (SV1/DM1/TN1) via OpenQASM 3.0, and neutral-atom analog programs to QuEra Aquila via the Braket AHS format. This is the only package that depends on the AWS SDK — the core FSharp.Azure.Quantum package stays AWS-free. Requires FSharp.Azure.Quantum.</Description>

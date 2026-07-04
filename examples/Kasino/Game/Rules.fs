@@ -69,7 +69,12 @@ module Rules =
             []
         else
             // Build maximal independent sets via recursive backtracking.
-            // For Kasino tables (typically 4-10 cards), combo count is small.
+            // For Kasino tables (typically 4-10 cards), combo count is small,
+            // but a degenerate low-card table (reachable in Laisto) can yield
+            // hundreds of combos — cap them so the O(n²) conflict precompute
+            // and the option enumeration below cannot freeze a turn.
+            let maxCombos = 128
+            let allCombos = allCombos |> List.truncate maxCombos
             let comboArr = allCombos |> Array.ofList
             let n = comboArr.Length
 
@@ -85,10 +90,15 @@ module Rules =
             // on the complement graph (edges = non-conflicting pairs).
             // R = chosen set, P = candidates that can extend R, X = already processed.
             // A maximal clique in the complement = maximal independent set in the conflict graph.
+            // The number of maximal independent sets is worst-case exponential
+            // in the combo count, so stop once a generous cap is reached; real
+            // play needs only a few options.
+            let maxOptions = 64
             let results = System.Collections.Generic.List<int list>()
 
             let rec bronKerbosch (r: Set<int>) (p: Set<int>) (x: Set<int>) =
-                if Set.isEmpty p && Set.isEmpty x then
+                if results.Count >= maxOptions then ()
+                elif Set.isEmpty p && Set.isEmpty x then
                     // R is a maximal independent set
                     results.Add(r |> Set.toList)
                 else
@@ -97,13 +107,14 @@ module Rules =
                     let mutable pMut = p
                     let mutable xMut = x
                     for v in pList do
-                        let neighbors = conflicts.[v]
-                        // For independent sets: keep only candidates that DON'T conflict with v
-                        let newP = pMut |> Set.remove v |> Set.filter (fun u -> not (neighbors.Contains u))
-                        let newX = xMut |> Set.filter (fun u -> not (neighbors.Contains u))
-                        bronKerbosch (Set.add v r) newP newX
-                        pMut <- Set.remove v pMut
-                        xMut <- Set.add v xMut
+                        if results.Count < maxOptions then
+                            let neighbors = conflicts.[v]
+                            // For independent sets: keep only candidates that DON'T conflict with v
+                            let newP = pMut |> Set.remove v |> Set.filter (fun u -> not (neighbors.Contains u))
+                            let newX = xMut |> Set.filter (fun u -> not (neighbors.Contains u))
+                            bronKerbosch (Set.add v r) newP newX
+                            pMut <- Set.remove v pMut
+                            xMut <- Set.add v xMut
 
             bronKerbosch Set.empty (set [ 0 .. n - 1 ]) Set.empty
 
@@ -158,15 +169,15 @@ module Rules =
             let isSweep = List.isEmpty newTable
             (Capture(handCard, captured, isSweep), newTable, options)
         | _ ->
-            // Multiple options: return first option as default, but expose all options.
-            // The caller (GameLoop) is responsible for letting the player/AI choose.
-            // We use the first option's captured cards as a placeholder in the PlayResult.
-            let first = options.Head
+            // Multiple options: default to the largest capture (matching
+            // getCapturedCards), but expose all options. The caller (GameLoop)
+            // is responsible for letting the player/AI choose.
+            let chosen = options |> List.maxBy (fun opt -> opt.Captured.Length)
             let newTable =
                 tableCards
-                |> List.filter (fun c -> not (List.contains c first.Captured))
+                |> List.filter (fun c -> not (List.contains c chosen.Captured))
             let isSweep = List.isEmpty newTable
-            (Capture(handCard, first.Captured, isSweep), newTable, options)
+            (Capture(handCard, chosen.Captured, isSweep), newTable, options)
 
     /// Resolve a specific capture option: compute the PlayResult and new table.
     let resolveCapture (handCard: Card) (option: CaptureOption) (tableCards: Card list) : PlayResult * Card list =

@@ -32,8 +32,10 @@ module QuantumPlayer =
         let result, _ = Rules.resolveCapture handCard option tableCards
         match result with
         | Capture (_, captured, isSweep) ->
+            // The played card is banked together with the capture (see
+            // GameLoop applyPlay), so its points count too.
             let points =
-                Rules.capturePointValue captured
+                Rules.capturePointValue (handCard :: captured)
                 + (if isSweep then Rules.sweepBonus else 0.0)
             { HandCard = handCard
               Result = result
@@ -61,8 +63,10 @@ module QuantumPlayer =
                     ctx.MyCards ctx.MySpades
                     ctx.OpponentCards ctx.OpponentSpades
                     ctx.CardsRemaining
+            // The played card lands in the pile with the capture, so its
+            // value counts exactly like the captured table cards'.
             let points =
-                (captured |> List.sumBy scoreFn)
+                ((handCard :: captured) |> List.sumBy scoreFn)
                 + (if isSweep then Rules.sweepBonus else 0.0)
             { HandCard = handCard
               Result = result
@@ -192,16 +196,20 @@ module QuantumPlayer =
     ///      (high-value non-special cards first - they're safe to discard)
     ///   2. If ALL cards capture, pick the one with lowest point value
     ///   3. Avoid sweeps if possible (they give bonus points)
-    /// Note: Capturing is a strategic choice in Laistokasino, not mandatory to avoid.
-    /// The AI heuristic prefers non-capture when available.
+    /// Note: In Laistokasino capture is mandatory — a capture-capable card
+    /// always captures when played — so avoiding points means choosing which
+    /// card to play, not whether to capture with it.
     let chooseBestMisa (backend: BackendAbstraction.IQuantumBackend option) (ctx: GameContext) (hand: Card list) (tableCards: Card list) : PlayEvaluation =
         let evals = evaluateAllPlaysInContext backend ctx LaistoKasino hand tableCards
         let nonCaptures = evals |> List.filter (fun e -> e.CardsCaptured = 0)
 
         if not (List.isEmpty nonCaptures) then
             // Prefer not capturing — avoids accumulating points.
-            // In Laistokasino, special cards on the table help opponents score — keep those.
-            // Sort descending: high tableValue cards with LOW scoringValue go first (safe to discard).
+            // Shed the most dangerous card first: a hoarded point card
+            // (ace, 2♠, 10♦, spades) tends to find a forced capture late in
+            // the deal and lands in our own pile — the worst Laisto outcome.
+            // Discarding it instead pushes the risk onto whoever captures it.
+            // Among equally harmless cards, shed the biggest one.
             let scoreFn =
                 Cards.scoringValueInContext
                     ctx.MyCards ctx.MySpades
@@ -209,8 +217,7 @@ module QuantumPlayer =
                     ctx.CardsRemaining
             nonCaptures
             |> List.sortByDescending (fun e ->
-                let sv = scoreFn e.HandCard
-                float (Cards.tableValue e.HandCard.Rank) - sv * 10.0)
+                (scoreFn e.HandCard, float (Cards.tableValue e.HandCard.Rank)))
             |> List.head
         else
             // All cards capture: minimize damage

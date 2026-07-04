@@ -85,11 +85,17 @@ module GameLoop =
             Table = table
             Deck = deck }
 
+    /// How a chosen hand card should be resolved when applied.
+    type HumanPlay =
+        | TakeOption of Rules.CaptureOption  // capture with this specific option
+        | PlaceCard                          // place on the table without capturing
+        | AutoPlay                           // let Rules.playCard decide (capture if possible)
+
     /// Get human player's card choice (returns None if player wants to quit).
-    /// Returns (cardIndex, chosenCaptureOption option) — the option is provided
-    /// only when the player needs to choose among overlapping capture options.
-    /// cardIndex refers to the position in the original (unsorted) hand.
-    let rec getHumanChoice (backend: BackendAbstraction.IQuantumBackend option) (player: Player) (playerIndex: int) (tableCards: Card list) (variant: GameVariant) (noviceMode: bool) : (int * Rules.CaptureOption option) option =
+    /// Returns (cardIndex, play) — cardIndex refers to the position in the
+    /// original (unsorted) hand. In Standard Kasino capturing is optional, so
+    /// the player may answer e.g. "3P" to place card 3 even when it captures.
+    let rec getHumanChoice (backend: BackendAbstraction.IQuantumBackend option) (player: Player) (playerIndex: int) (tableCards: Card list) (variant: GameVariant) (noviceMode: bool) : (int * HumanPlay) option =
         // Sort hand by handValue ascending for display; track original indices
         let sortedWithOrigIdx =
             player.Hand
@@ -152,16 +158,19 @@ module GameLoop =
             AnsiConsole.Write(panel)
             AnsiConsole.WriteLine()
 
-            // In Laistokasino, show strategic hints
+            // Variant-specific strategic hints
             match variant with
             | LaistoKasino ->
                 let nonCaptures = evals |> List.filter (fun e -> e.CardsCaptured = 0)
                 if List.isEmpty nonCaptures then
-                    AnsiConsole.MarkupLine("[red]All cards capture! Pick the one with fewest points.[/]")
+                    AnsiConsole.MarkupLine("[red]All cards capture (capture is forced in Laisto)! Pick the one with fewest points.[/]")
                 else
-                    AnsiConsole.MarkupLine("[green]You can place without capturing, or capture strategically.[/]")
+                    AnsiConsole.MarkupLine("[green]Cards that capture are taken automatically — place a non-capturing card to stay safe.[/]")
                 AnsiConsole.WriteLine()
-            | StandardKasino -> ()
+            | StandardKasino ->
+                if evals |> List.exists (fun e -> e.CardsCaptured > 0) then
+                    AnsiConsole.MarkupLine("[grey]Capturing is optional: add P to place instead (e.g. 2P).[/]")
+                    AnsiConsole.WriteLine()
         else
             // Advanced: just show numbered cards, no previews, inside a blue panel
             let lines = ResizeArray<string>()
@@ -184,7 +193,9 @@ module GameLoop =
             AnsiConsole.WriteLine()
 
         let rec getChoice () =
-            AnsiConsole.Markup(sprintf "[cyan]Choose card (1-%d) or Q to quit:[/] " sortedHand.Length)
+            let placeHint =
+                if variant = StandardKasino then ", add P to place instead," else ""
+            AnsiConsole.Markup(sprintf "[cyan]Choose card (1-%d)%s or Q to quit:[/] " sortedHand.Length placeHint)
             let input = Console.ReadLine()
             if input = null then
                 None  // EOF / redirected input
@@ -193,29 +204,58 @@ module GameLoop =
                 if trimmed = "Q" then
                     None
                 else
-                    match Int32.TryParse(trimmed) with
+                    // Standard Kasino: capturing is optional — "3P" places card 3
+                    // on the table even when it could capture.
+                    let placeInstead =
+                        variant = StandardKasino && trimmed.Length > 1 && trimmed.EndsWith "P"
+                    let numPart =
+                        if placeInstead then trimmed.Substring(0, trimmed.Length - 1) else trimmed
+                    match Int32.TryParse(numPart) with
                     | true, n when n >= 1 && n <= sortedHand.Length ->
                         let sortedIdx = n - 1
                         let origIdx = origIndices.[sortedIdx]
                         let eval = evals.[sortedIdx]
-                        // If multiple capture options, always ask human to choose (both modes)
-                        if eval.CaptureOptions.Length > 1 then
-                            match getCaptureOptionChoice eval.CaptureOptions tableCards with
-                            | Some opt -> Some (origIdx, Some opt)
-                            | None -> None  // Player quit during sub-choice
+                        if placeInstead then
+                            Some (origIdx, PlaceCard)
                         else
-                            Some (origIdx, None)
+                            match eval.CaptureOptions with
+                            | [] ->
+                                // No capture previewed. In Standard, place
+                                // deterministically — the stochastic capture
+                                // enumeration must not surprise-capture at apply
+                                // time, and placing is legal there regardless.
+                                // In Laisto capture is forced, so let the apply
+                                // step re-check.
+                                match variant with
+                                | StandardKasino -> Some (origIdx, PlaceCard)
+                                | LaistoKasino -> Some (origIdx, AutoPlay)
+                            | [ single ] ->
+                                // Resolve the previewed option deterministically.
+                                Some (origIdx, TakeOption single)
+                            | options ->
+                                match getCaptureOptionChoice options variant tableCards with
+                                | Some play -> Some (origIdx, play)
+                                | None -> None  // Player quit during sub-choice
                     | _ ->
                         AnsiConsole.MarkupLine("[red]Invalid choice![/]")
                         getChoice ()
         getChoice ()
 
-    /// Ask the human to choose among multiple capture options
-    and private getCaptureOptionChoice (options: Rules.CaptureOption list) (tableCards: Card list) : Rules.CaptureOption option =
+    /// Ask the human to choose among multiple capture options. In Standard
+    /// Kasino the player may also decline the capture and place the card ("0").
+    and private getCaptureOptionChoice (options: Rules.CaptureOption list) (variant: GameVariant) (tableCards: Card list) : HumanPlay option =
         AnsiConsole.WriteLine()
+        // Single-letter labels only support A-Z; show the biggest captures first
+        // and truncate the rest (findCaptureOptions can return up to 64 options).
+        let maxShown = 24
+        let shown =
+            options
+            |> List.sortByDescending (fun opt -> opt.Captured.Length)
+            |> List.truncate maxShown
+        let allowPlace = (variant = StandardKasino)
         let lines = ResizeArray<string>()
-        for i in 0 .. options.Length - 1 do
-            let opt = options.[i]
+        for i in 0 .. shown.Length - 1 do
+            let opt = shown.[i]
             let combosStr =
                 opt.Combos
                 |> List.map (fun combo ->
@@ -226,6 +266,10 @@ module GameLoop =
                     (char (int 'A' + i))
                     combosStr
                     opt.Captured.Length)
+        if options.Length > shown.Length then
+            lines.Add(sprintf " [silver on blue](%d smaller options not shown)[/]" (options.Length - shown.Length))
+        if allowPlace then
+            lines.Add(" [yellow on blue]0:[/] [silver on blue]place on table instead (no capture)[/]")
         let joined = String.concat "\n" lines
         let padded = Renderer.padLines "blue" (lines |> Seq.map Renderer.visibleLength |> Seq.max) joined
         let markup = Markup(padded, Style(background = Color.Blue))
@@ -238,7 +282,8 @@ module GameLoop =
         AnsiConsole.WriteLine()
 
         let rec getSubChoice () =
-            AnsiConsole.Markup(sprintf "[yellow]Choose option (A-%c) or Q to quit:[/] " (char (int 'A' + options.Length - 1)))
+            let placeHint = if allowPlace then ", 0 to place," else ""
+            AnsiConsole.Markup(sprintf "[yellow]Choose option (A-%c)%s or Q to quit:[/] " (char (int 'A' + shown.Length - 1)) placeHint)
             let input = Console.ReadLine()
             if input = null then
                 None
@@ -246,12 +291,14 @@ module GameLoop =
                 let trimmed = input.Trim().ToUpperInvariant()
                 if trimmed = "Q" then
                     None
+                elif allowPlace && trimmed = "0" then
+                    Some PlaceCard
                 else
                     match trimmed with
                     | s when s.Length = 1 ->
                         let idx = int s.[0] - int 'A'
-                        if idx >= 0 && idx < options.Length then
-                            Some options.[idx]
+                        if idx >= 0 && idx < shown.Length then
+                            Some (TakeOption shown.[idx])
                         else
                             AnsiConsole.MarkupLine("[red]Invalid choice![/]")
                             getSubChoice ()
@@ -290,64 +337,72 @@ module GameLoop =
             Some { state with
                     CurrentPlayerIndex = (playerIdx + 1) % state.Players.Length }
         else
-            // Choose card (and optionally a capture option)
+            // Choose card and how to resolve it
             let choiceResult =
                 match player.Type with
                 | Human ->
-                    match getHumanChoice backend player playerIdx state.Table state.Variant noviceMode with
-                    | Some (idx, captureOpt) -> Some (idx, captureOpt)
-                    | None -> None
+                    getHumanChoice backend player playerIdx state.Table state.Variant noviceMode
                 | QuantumCPU ->
                     Renderer.displayQuantumThinking player.Name state.Players (List.length player.Hand)
                     let ctx = buildContext state playerIdx
                     let eval = QuantumPlayer.chooseBest backend state.Variant ctx player.Hand state.Table
                     let idx = player.Hand |> List.findIndex (fun c -> c = eval.HandCard)
-                    Some (idx, eval.ChosenOption)
+                    let action =
+                        match eval.ChosenOption with
+                        | Some opt -> TakeOption opt
+                        | None ->
+                            // The AI decided to place. In Standard that is legal
+                            // outright (capturing is optional); in Laisto capture
+                            // is forced, so re-check at apply time in case the
+                            // stochastic enumeration missed a capture.
+                            match state.Variant with
+                            | StandardKasino -> PlaceCard
+                            | LaistoKasino -> AutoPlay
+                    Some (idx, action)
 
             match choiceResult with
             | None -> None  // Player quit
-            | Some (idx, chosenOption) ->
+            | Some (idx, action) ->
 
             let chosenCard = player.Hand.[idx]
             let remainingHand = player.Hand |> List.removeAt idx
 
-            // Play the card — resolve with specific option if one was chosen
+            // Resolve the play exactly once — the capture enumeration is
+            // stochastic (iterative QAOA), so it must not be re-run between
+            // choosing, applying, and displaying a play.
             let result, newTable =
-                match chosenOption with
-                | Some opt ->
+                match action with
+                | TakeOption opt ->
                     Rules.resolveCapture chosenCard opt state.Table
-                | None ->
+                | PlaceCard ->
+                    (Place chosenCard, chosenCard :: state.Table)
+                | AutoPlay ->
                     let r, t, _ = Rules.playCard backend chosenCard state.Table
                     (r, t)
 
-            // Build evaluation for display
+            // Build the display evaluation from the play that was actually
+            // applied. The played card is banked with the capture, so its
+            // points count too.
             let eval =
-                match chosenOption with
-                | Some opt ->
-                    // Build display eval from the chosen option
-                    let pts =
-                        match result with
-                        | Capture (_, captured, isSweep) ->
-                            Rules.capturePointValue captured
-                            + (if isSweep then Rules.sweepBonus else 0.0)
-                        | Place _ -> 0.0
-                    let cc =
-                        match result with
-                        | Capture (_, captured, _) -> captured.Length
-                        | Place _ -> 0
-                    let sw =
-                        match result with
-                        | Capture (_, _, s) -> s
-                        | Place _ -> false
+                match result with
+                | Capture (_, captured, isSweep) ->
                     { QuantumPlayer.HandCard = chosenCard
                       QuantumPlayer.Result = result
-                      QuantumPlayer.PointValue = pts
-                      QuantumPlayer.CardsCaptured = cc
-                      QuantumPlayer.IsSweep = sw
+                      QuantumPlayer.PointValue =
+                          Rules.capturePointValue (chosenCard :: captured)
+                          + (if isSweep then Rules.sweepBonus else 0.0)
+                      QuantumPlayer.CardsCaptured = captured.Length
+                      QuantumPlayer.IsSweep = isSweep
                       QuantumPlayer.CaptureOptions = []
-                      QuantumPlayer.ChosenOption = Some opt }
-                | None ->
-                    QuantumPlayer.evaluatePlay backend chosenCard state.Table
+                      QuantumPlayer.ChosenOption = (match action with TakeOption opt -> Some opt | _ -> None) }
+                | Place _ ->
+                    { QuantumPlayer.HandCard = chosenCard
+                      QuantumPlayer.Result = result
+                      QuantumPlayer.PointValue = 0.0
+                      QuantumPlayer.CardsCaptured = 0
+                      QuantumPlayer.IsSweep = false
+                      QuantumPlayer.CaptureOptions = []
+                      QuantumPlayer.ChosenOption = None }
             Renderer.displayPlay player.Name state.Players eval
 
             // Update player state

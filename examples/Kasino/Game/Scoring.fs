@@ -87,5 +87,6 @@ module Scoring =
 
             (player, breakdown))
 
-    /// Maximum possible score in a round
-    let maxRoundScore = 16  // 1 + 2 + 4 + 2 + 1 + sweeps(variable) = at least 10
+    /// Maximum possible fixed score in a round, excluding sweeps (which are
+    /// open-ended): most cards 1 + most spades 2 + aces 4 + 10♦ 2 + 2♠ 1.
+    let maxRoundScore = 10

@@ -131,17 +131,19 @@ module Renderer =
             | StandardKasino ->
                 "[bold green]Standard Kasino:[/] Capture cards to earn points. " +
                 "Play a card from hand to capture table cards whose values sum to your card. " +
+                "Capturing is optional \u2014 you may place a card on the table instead. " +
+                "Non-overlapping matching combos are taken together; overlapping ones offer a choice. " +
                 "Whoever earns the most points wins!"
             | LaistoKasino ->
                 "[bold red]Laistokasino:[/] Try to AVOID capturing points! " +
-                "Same rules as Standard, but you want the FEWEST points. " +
-                "You may choose to capture or place on the table, but if you capture, " +
-                "you must take ALL matching combinations."
+                "Same rules as Standard, but you want the FEWEST points \u2014 " +
+                "and capturing is FORCED: a card that can capture always does."
 
         let scoringText =
             "[bold cyan]Scoring:[/]\n" +
             "  Each Ace: 1 point | 10[red]\u2666[/]: 2 points | 2\u2660: 1 point\n" +
-            "  Most cards: 1 point | Most spades: 2 points | Each sweep: 1 point\n" +
+            "  Most cards: 1 point | Most spades: 2 points\n" +
+            "  Sweeps: 1 point each, minus the table's lowest sweep count\n" +
             "[bold cyan]Special values in hand:[/] Ace=14, 2\u2660=15, 10[red]\u2666[/]=16"
 
         let panel = Panel(sprintf "%s\n\n%s" variantText scoringText)
@@ -357,25 +359,34 @@ module Renderer =
         AnsiConsole.Write(rule)
         AnsiConsole.WriteLine()
 
+        // An exact tie for the deciding score names every tied player rather
+        // than an arbitrary one.
+        let announceWinners (winners: string list) (score: int) (fmt: string -> int -> string) =
+            match winners with
+            | [ w ] -> AnsiConsole.MarkupLine(fmt w score)
+            | ws -> AnsiConsole.MarkupLine(sprintf "[bold green]%s tie with %d points![/]" (String.concat " & " ws) score)
+
         match variant with
         | StandardKasino ->
             // Highest score wins; those who reached 16 triggered the end
-            let winner, winScore = sorted.Head
-            AnsiConsole.MarkupLine(sprintf "[bold green]%s wins the game with %d points![/]" winner winScore)
-            for (name, score) in sorted.Tail do
+            let topScore = sorted |> List.map snd |> List.max
+            let winners = sorted |> List.filter (fun (_, s) -> s = topScore) |> List.map fst
+            announceWinners winners topScore (sprintf "[bold green]%s wins the game with %d points![/]")
+            for (name, score) in sorted |> List.filter (fun (_, s) -> s <> topScore) do
                 AnsiConsole.MarkupLine(sprintf "[grey]  %s: %d points[/]" name score)
         | LaistoKasino ->
             // Those who reached 16 lose; lowest score among remaining wins
             for (name, score) in reached do
                 AnsiConsole.MarkupLine(sprintf "[bold red]%s reached %d points and is OUT![/]" name score)
             let survivors = sorted |> List.filter (fun (_, s) -> s < targetScore)
-            if List.isEmpty survivors then
-                AnsiConsole.MarkupLine("[yellow]Everyone reached the target! Lowest score wins.[/]")
-                let winner, winScore = sorted |> List.last
-                AnsiConsole.MarkupLine(sprintf "[bold green]%s wins with only %d points![/]" winner winScore)
-            else
-                let winner, winScore = survivors |> List.last
-                AnsiConsole.MarkupLine(sprintf "[bold green]%s wins with only %d points![/]" winner winScore)
+            let pool =
+                if List.isEmpty survivors then
+                    AnsiConsole.MarkupLine("[yellow]Everyone reached the target! Lowest score wins.[/]")
+                    sorted
+                else survivors
+            let lowScore = pool |> List.map snd |> List.min
+            let winners = pool |> List.filter (fun (_, s) -> s = lowScore) |> List.map fst
+            announceWinners winners lowScore (sprintf "[bold green]%s wins with only %d points![/]")
         AnsiConsole.WriteLine()
 
     /// Display dealing animation

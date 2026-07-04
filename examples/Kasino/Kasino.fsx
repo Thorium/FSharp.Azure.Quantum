@@ -52,6 +52,7 @@ Usage:
 
 open System
 open FSharp.Azure.Quantum
+open FSharp.Azure.Quantum.Backends
 open FSharp.Azure.Quantum.Examples.Common
 
 // ==============================================================================
@@ -113,6 +114,14 @@ let rankValue = function
     | Queen      -> 12.0
     | King       -> 13.0
 
+/// Capture power when the card is played from hand. In Kasino an Ace on the
+/// table counts as 1, but played from hand it captures combos summing to 14.
+/// (2♠=15 and 10♦=16 also exist, but this demo's cards carry no suit, so
+/// those two specials are not representable here.)
+let handValue = function
+    | Ace -> 14.0
+    | r   -> rankValue r
+
 let rankName = function
     | Ace        -> "Ace"
     | Number n   -> string n
@@ -134,11 +143,21 @@ let displayCards cards =
 // CAPTURE SOLVER - Uses Knapsack via IQuantumBackend (Rule 1)
 // ==============================================================================
 
+/// Local quantum simulator backend. Every capture search below runs iterative
+/// QAOA on this backend. (Knapsack.solve would fall back to an implicit local
+/// quantum backend even for None, but passing it explicitly keeps the demo's
+/// quantum-first intent visible in the code.)
+let quantumBackend = Some (LocalBackendFactory.createUnified ())
+
 /// Find optimal Kasino capture using Knapsack optimization.
 /// Knapsack.solve internally uses QAOA via IQuantumBackend.
 let findOptimalCapture (handCard: Card) (tableCards: Card list) (strategy: string) =
+    // The capture target is the card's HAND value (Ace = 14), while table
+    // cards contribute their table values.
+    let target = handValue handCard.Rank
+
     if not quiet then
-        printfn "  Hand Card:   %s = %g" handCard.DisplayName handCard.Value
+        printfn "  Hand Card:   %s = %g (capture target)" handCard.DisplayName target
         printfn "  Table Cards: %s" (displayCards tableCards)
         printfn "  Strategy:    %s" strategy
 
@@ -146,9 +165,9 @@ let findOptimalCapture (handCard: Card) (tableCards: Card list) (strategy: strin
         tableCards
         |> List.map (fun c -> (c.DisplayName, c.Value, c.Value))
 
-    let problem = Knapsack.createProblem items handCard.Value
+    let problem = Knapsack.createProblem items target
 
-    match Knapsack.solve problem None with
+    match Knapsack.solve problem quantumBackend with
     | Ok solution ->
         let capturedCards =
             solution.SelectedItems
@@ -161,14 +180,19 @@ let findOptimalCapture (handCard: Card) (tableCards: Card list) (strategy: strin
               TotalValue = solution.TotalValue
               CardCount = capturedCards.Length
               Strategy = strategy
-              IsExactMatch = abs (solution.TotalValue - handCard.Value) < 1e-9 }
+              IsExactMatch = abs (solution.TotalValue - target) < 1e-9 }
 
         if not quiet then
-            printfn "  Captured:    %s" (displayCards capturedCards)
-            printfn "  Total Value: %g / %g" result.TotalValue handCard.Value
-            printfn "  Cards:       %d" result.CardCount
             if result.IsExactMatch then
+                printfn "  Captured:    %s" (displayCards capturedCards)
+                printfn "  Total Value: %g / %g" result.TotalValue target
+                printfn "  Cards:       %d" result.CardCount
                 printfn "  EXACT MATCH - Perfect capture!"
+            else
+                // Kasino captures must sum exactly — a lesser subset is not a
+                // legal capture, so the card would be placed on the table.
+                printfn "  Best subset: %s (= %g of %g)" (displayCards capturedCards) result.TotalValue target
+                printfn "  No exact match - the card is placed on the table."
             printfn ""
 
         Some result
@@ -245,8 +269,8 @@ let runSequence () =
     printHeader "Scenario 4: Multi-Turn Game Sequence"
     let turns =
         [ (card Ace,
-           [ card Ace ],
-           "Turn 1: Exact match")
+           [ card King; card Ace ],
+           "Turn 1: Ace (hand value 14) captures King + Ace (13 + 1)")
           (card (Number 7),
            [ card (Number 2); card (Number 5); card (Number 3); card (Number 4) ],
            "Turn 2: Multiple options")
