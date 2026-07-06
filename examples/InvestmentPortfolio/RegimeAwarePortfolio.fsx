@@ -361,7 +361,9 @@ let sortedResults =
             let pct = if totalValue > 0.0 then value / totalValue * 100.0 else 0.0
             let assetReturn = alloc |> Option.map (fun a -> a.Asset.ExpectedReturn) |> Option.defaultValue 0.0
             let assetRisk = alloc |> Option.map (fun a -> a.Asset.Risk) |> Option.defaultValue 0.0
-            let sharpe = if assetRisk > 0.0 then assetReturn / assetRisk else 0.0
+            // Sharpe uses EXCESS return over the risk-free rate, not raw return.
+            let riskFreeRate = 0.02  // annualized; ~short-term T-bill proxy
+            let sharpe = if assetRisk > 0.0 then (assetReturn - riskFreeRate) / assetRisk else 0.0
             { Stock = stock
               Shares = shares
               Value = value

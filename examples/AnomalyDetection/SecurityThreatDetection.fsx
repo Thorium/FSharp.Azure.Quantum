@@ -30,14 +30,19 @@ Key Equations:
   - Decision boundary: f(x) = sign(Sum_i alpha_i K(x_i,x) - rho)
   - Reconstruction error: ||x - D(E(x))||^2 for quantum autoencoder approach
 
-Quantum Advantage:
-  Quantum anomaly detection can identify subtle patterns in high-dimensional data
-  where classical methods struggle. For cybersecurity, network traffic has many
-  features (packet sizes, timing, protocols, ports); quantum kernels can find
-  correlations classical SVMs miss. The approach is particularly powerful for:
-  (1) High-dimensional sparse data, (2) Non-linear decision boundaries, (3) Small
-  training sets (few normal examples). Financial institutions and cybersecurity
-  firms are exploring quantum anomaly detection for fraud and intrusion detection.
+Potential Quantum Role (hedged):
+  In principle, and for some problem structures, quantum anomaly detection MIGHT
+  identify subtle patterns in high-dimensional data that are hard for classical
+  methods. For cybersecurity, network traffic has many features (packet sizes,
+  timing, protocols, ports); quantum kernels COULD in principle capture
+  correlations some classical SVMs miss. Candidate settings include: (1)
+  High-dimensional sparse data, (2) Non-linear decision boundaries, (3) Small
+  training sets (few normal examples). None of this is a proven advantage: whether
+  a quantum kernel actually helps is problem-dependent and unproven in general.
+  In particular, the synthetic demo below is NOT evidence of any quantum advantage
+  -- its anomalies are separable by construction. Financial institutions and
+  cybersecurity firms are exploring (not deploying at scale) quantum anomaly
+  detection for fraud and intrusion detection.
 
 References:
   [1] Liu & Rebentrost, "Quantum machine learning for quantum anomaly detection",
@@ -53,8 +58,13 @@ References:
 ## Overview
 
 This example demonstrates using quantum anomaly detection to identify
-suspicious network traffic patterns. Train on normal behavior only - 
+suspicious network traffic patterns. Train on normal behavior only -
 the system automatically identifies anything unusual.
+
+NOTE: The demo data here is synthetic and trivially separable by construction
+(anomalies use deliberately extreme feature values). This example demonstrates
+the PIPELINE and API, not a quantum advantage -- do not read the scores below
+as evidence that quantum methods outperform classical ones.
 
 ### Business Problem
 
@@ -138,8 +148,11 @@ let results = ResizeArray<{| Example: string; Status: string; Details: Map<strin
 
 /// Generate synthetic network traffic data for demonstration
 /// In production, collect from firewalls, IDS, network monitoring tools
-let generateNormalTraffic () =
-    let random = Random(42)
+/// The `seed` parameter lets callers draw INDEPENDENT sets: evaluating the
+/// false-positive rate on normals generated with a DIFFERENT seed than training
+/// avoids the data leakage that would occur if the training set were reused.
+let generateNormalTraffic (seed: int) =
+    let random = Random(seed)
     
     // Features extracted from network traffic:
     // [bytes_sent, bytes_received, connections_per_min, failed_logins, ports_scanned, 
@@ -173,7 +186,9 @@ let generateAnomalousTraffic () =
         [| 800.0; 600.0; 8.0; 5.0; 3.0; 8000.0; 3.0; 1.0 |]
     |]
 
-let normalTraffic = generateNormalTraffic()
+// Training normals (seed 42). The held-out evaluation normals below use a
+// DIFFERENT seed so the false-positive rate is measured on genuinely unseen data.
+let normalTraffic = generateNormalTraffic 42
 
 // ============================================================================
 // EXAMPLE 1: Basic Security Monitoring
@@ -231,13 +246,46 @@ if shouldRun 1 then
             | Error err ->
                 if not quiet then printfn "%s: Check failed - %s\n" threatNames.[i] err.Message
         )
-        
+
+        // Detection rate: fraction of planted anomalies flagged as anomalous.
+        let detectionRate =
+            if threatResults.Count = 0 then 0.0
+            else float (threatResults |> Seq.filter (fun r -> r.IsAnomaly) |> Seq.length) / float threatResults.Count
+
+        // False-positive rate: the KEY anomaly-detection metric. Measured on UNSEEN
+        // normal traffic generated with a different seed (1337) than training (42),
+        // so these normals were never seen by the detector. A good detector flags
+        // few of them.
+        let heldOutNormals = generateNormalTraffic 1337
+        let mutable falsePositives = 0
+        let mutable normalsChecked = 0
+        heldOutNormals
+        |> Array.iter (fun traffic ->
+            match AnomalyDetector.check traffic detector with
+            | Ok result ->
+                normalsChecked <- normalsChecked + 1
+                if result.IsAnomaly then falsePositives <- falsePositives + 1
+            | Error _ -> ())
+        let falsePositiveRate =
+            if normalsChecked = 0 then 0.0 else float falsePositives / float normalsChecked
+
+        if not quiet then
+            printfn "Evaluation on held-out data:"
+            printfn "  Detection rate (planted anomalies flagged): %.1f%% (%d/%d)"
+                (detectionRate * 100.0) (threatResults |> Seq.filter (fun r -> r.IsAnomaly) |> Seq.length) threatResults.Count
+            printfn "  False-positive rate on UNSEEN normals: %.1f%% (%d/%d)  <- key metric"
+                (falsePositiveRate * 100.0) falsePositives normalsChecked
+            printfn ""
+
         results.Add({|
             Example = "1-basic"
             Status = "ok"
             Details = Map.ofList [
                 "threats_checked", box threats.Length
                 "threat_results", box (threatResults |> Seq.toArray)
+                "detection_rate", box (detectionRate * 100.0)
+                "false_positive_rate", box (falsePositiveRate * 100.0)
+                "held_out_normals_checked", box normalsChecked
             ]
         |})
 
@@ -431,9 +479,9 @@ if shouldRun 5 then
     match detectorForBatch with
     | Ok detector ->
         // Simulate 24 hours of traffic
-        let dailyTraffic = 
-            Array.append 
-                (generateNormalTraffic())
+        let dailyTraffic =
+            Array.append
+                (generateNormalTraffic 2025)
                 (Array.replicate 10 (generateAnomalousTraffic()) |> Array.concat)
         
         if not quiet then printfn "Analyzing %d network sessions from past 24 hours...\n" dailyTraffic.Length

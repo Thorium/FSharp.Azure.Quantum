@@ -381,6 +381,7 @@ match solveQuantum backend problem with
 - [Quantum Machine Learning](quantum-machine-learning) - VQC, Quantum Kernels, Feature Maps
 - [Business Problem Builders](business-problem-builders) - AutoML, Fraud Detection, Anomaly Detection, Predictive Modeling
 - [Error Mitigation](error-mitigation) - ZNE, PEC, REM strategies for NISQ hardware
+- [Bring Your Own Hamiltonian](bring-your-own-hamiltonian) - Plug in external chemistry packages (PySCF, Psi4, FCIDUMP, OpenFermion-style operators)
 - [Advanced Quantum Builders](advanced-quantum-builders) - Tree Search, Constraint Solver, Pattern Matcher, Shor's Algorithm, Phase Estimation
 - [D-Wave Integration Guide](dwave-integration) - Using D-Wave quantum annealers (not yet available)
 - [FAQ](faq) - Frequently asked questions and troubleshooting

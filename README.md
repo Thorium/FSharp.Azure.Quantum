@@ -2663,6 +2663,7 @@ fixed-mixer `MaxCut.solve` — same `Solution` type (partition, cut value), shal
 - **[Computation Expressions Reference](docs/computation-expressions-reference.md)** - Complete CE reference table with all custom operations (when IntelliSense fails)
 - **[Architecture Overview](docs/architecture-overview.md)** - Deep dive into library design
 - **[Backend Switching Guide](docs/backend-switching.md)** - Local vs Cloud backends
+- **[Bring Your Own Hamiltonian](docs/bring-your-own-hamiltonian.md)** - Plug in external chemistry packages (PySCF, Psi4, FCIDUMP, fermionic/Pauli Hamiltonians)
 - **[FAQ](docs/faq.md)** - Common questions and troubleshooting
 
 ---

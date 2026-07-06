@@ -202,13 +202,25 @@ module Scheduler =
             Id = task.Id
             Value = Some task.TaskType
             Duration = System.TimeSpan.FromMinutes effectiveDuration
+            // NOTE: this demo does not model hard time windows or deadlines, so
+            // EarliestStart/Deadline are None and the objective is MinimizeMakespan
+            // (see buildProblem). Consequently task PRIORITY influences only the
+            // solver's ready-task ordering / tie-breaking (higher = scheduled
+            // first), not deadline satisfaction, and emergency PREEMPTION is not
+            // modelled. To make priority drive lateness, add per-task Deadlines and
+            // switch the objective to MinimizeLateness.
             EarliestStart = None
             Deadline = None
-            ResourceRequirements = 
+            ResourceRequirements =
                 if task.PayloadKg > 0.0 then
                     Map.ofList [ ("payload_capacity", task.PayloadKg) ]
                 else
                     Map.empty
+            // tasks.csv uses the SCHEDULER convention: higher number = more
+            // important (emergency_response = 5, takeoff/return = 0), matching
+            // ScheduledTask.Priority (higher = more important). This is the inverse
+            // of DroneDomain.Scheduling's aviation ladder (1 = highest); use
+            // DroneDomain.Scheduling.toSchedulerPriority when bridging from that.
             Priority = float task.Priority
             Properties = Map.ofList [ ("waypoint", task.WaypointId) ]
         }

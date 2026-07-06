@@ -403,6 +403,12 @@ Examples are categorized into **4 levels** based on business utility and technic
 - **[Algorithms/DeutschJozsaExample.fsx](Algorithms/DeutschJozsaExample.fsx)**  
   Deutsch-Jozsa algorithm (first quantum advantage proof)
 
+- **[Algorithms/BernsteinVaziraniExample.fsx](Algorithms/BernsteinVaziraniExample.fsx)**  
+  Bernstein-Vazirani algorithm (hidden bitstring in a single query)
+
+- **[Algorithms/SimonExample.fsx](Algorithms/SimonExample.fsx)**  
+  Simon's algorithm (hidden XOR period; the exponential separation that inspired Shor)
+
 - **[Algorithms/QuantumFourierTransform.fsx](Algorithms/QuantumFourierTransform.fsx)**  
   QFT on |0…0⟩ → uniform superposition, then inverse QFT round-trip (`QFT.execute`)
 

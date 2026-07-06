@@ -7,7 +7,15 @@
 /// - Waypoints (delivery points, inspection sites) → TSP cities
 /// - Drone flight distance → TSP edge weights
 /// - Optimal visitation order → TSP tour
-/// 
+/// - Range-feasible split of that order → per-drone sorties (whole fleet used)
+///
+/// FLEET & CONSTRAINTS:
+/// The optimizer finds one visitation order; FleetPlanner then splits it into
+/// sorties that each respect a drone's MaxRangeKm and assigns them across the
+/// fleet, reporting any unassigned tail. Waypoint altitudes are checked against
+/// the regulatory AGL ceiling (Regulations.maxAltitudeAglMeters). This is a
+/// simplified decomposition, not a full multi-depot vehicle-routing solver.
+///
 /// USE CASES:
 /// - Delivery drone route optimization
 /// - Agricultural inspection path planning
@@ -237,6 +245,62 @@ module PathOptimizer =
         HybridSolver.solveTsp distances None None None
 
 // =============================================================================
+// FLEET DECOMPOSITION AND FEASIBILITY
+// =============================================================================
+//
+// The TSP solver produces ONE optimal visitation order. A real fleet mission
+// must then respect each vehicle's endurance: no single sortie may exceed a
+// drone's MaxRangeKm. This module splits the optimized order into consecutive
+// range-feasible sorties and assigns them across the available drones, so the
+// whole fleet is used rather than a single vehicle. (Simplification: inter-sortie
+// transit from a depot is not modelled; each sortie's distance is the sum of its
+// internal legs. A production planner would solve a full multi-depot VRP.)
+
+module FleetPlanner =
+
+    /// One drone's assigned leg of the mission.
+    type Sortie = {
+        DroneId: string
+        Model: string
+        Waypoints: Waypoint list
+        DistanceKm: float
+        RangeKm: float
+    }
+
+    /// Split the ordered route into range-feasible sorties across the fleet.
+    /// Returns the sorties and any waypoints left unassigned once the fleet's
+    /// combined range is exhausted.
+    let planSorties (drones: Drone array) (ordered: Waypoint array) : Sortie list * Waypoint list =
+        let n = ordered.Length
+        let mkSortie di accWpsRev accDist =
+            let d : Drone = drones.[min di (drones.Length - 1)]
+            { DroneId = d.Id; Model = d.Model
+              Waypoints = List.rev accWpsRev; DistanceKm = accDist; RangeKm = d.MaxRangeKm }
+        let rec loop di i accWpsRev accDist sorties =
+            if i >= n then
+                (List.rev (mkSortie di accWpsRev accDist :: sorties), [])
+            else
+                let leg = Geography.distance3D ordered.[i - 1].Location ordered.[i].Location
+                let d : Drone = drones.[min di (drones.Length - 1)]
+                if accDist + leg <= d.MaxRangeKm then
+                    loop di (i + 1) (ordered.[i] :: accWpsRev) (accDist + leg) sorties
+                else
+                    let closed = mkSortie di accWpsRev accDist :: sorties
+                    if di + 1 < drones.Length then
+                        loop (di + 1) (i + 1) [ ordered.[i] ] 0.0 closed
+                    else
+                        // Fleet exhausted: report the tail as unassigned.
+                        (List.rev closed, ordered.[i ..] |> Array.toList)
+        if drones.Length = 0 || n = 0 then ([], List.ofArray ordered)
+        else loop 0 1 [ ordered.[0] ] 0.0 []
+
+    /// Waypoints whose altitude exceeds the regulatory AGL ceiling.
+    let altitudeViolations (waypoints: Waypoint array) : Waypoint list =
+        waypoints
+        |> Array.filter (fun wp -> wp.Location.AltitudeMeters > Regulations.maxAltitudeAglMeters)
+        |> Array.toList
+
+// =============================================================================
 // METRICS AND REPORTING
 // =============================================================================
 
@@ -252,6 +316,10 @@ type Metrics = {
     total_distance_km: float
     estimated_flight_time_min: float
     energy_consumption_wh: float
+    sortie_count: int
+    drones_used: int
+    unassigned_waypoints: int
+    altitude_violations: int
     elapsed_ms: int64
 }
 
@@ -277,7 +345,29 @@ module Program =
             let arrow = if i = 0 then "►" else "→"
             printfn "║  %s %2d. %-20s (%.4f, %.4f)         ║" arrow (i+1) wp.Name wp.Location.Latitude wp.Location.Longitude)
         printfn "╚════════════════════════════════════════════════════════════╝"
-    
+
+    /// Print the range-feasible fleet decomposition and hard-constraint checks.
+    let printFleetPlan (sorties: FleetPlanner.Sortie list) (unassigned: Waypoint list) (altViolations: Waypoint list) =
+        printfn ""
+        printfn "── FLEET ASSIGNMENT (range-constrained sorties) ──"
+        sorties
+        |> List.iteri (fun i s ->
+            let util = if s.RangeKm > 0.0 then s.DistanceKm / s.RangeKm * 100.0 else 0.0
+            printfn "  Sortie %d → %s (%s): %d waypoints, %.2f/%.1f km (%.0f%% of range)"
+                (i + 1) s.DroneId s.Model s.Waypoints.Length s.DistanceKm s.RangeKm util)
+        if not (List.isEmpty unassigned) then
+            printfn "  ⚠ %d waypoint(s) UNASSIGNED: fleet range exhausted (add drones or reduce mission)."
+                unassigned.Length
+        printfn ""
+        printfn "── HARD-CONSTRAINT CHECKS ──"
+        if List.isEmpty altViolations then
+            printfn "  ✔ Altitude: all waypoints within %.1f m AGL ceiling" Regulations.maxAltitudeAglMeters
+        else
+            printfn "  ✖ Altitude: %d waypoint(s) exceed the %.1f m AGL ceiling:"
+                altViolations.Length Regulations.maxAltitudeAglMeters
+            altViolations |> List.iter (fun wp ->
+                printfn "      - %s at %.1f m" wp.Name wp.Location.AltitudeMeters)
+
     [<EntryPoint>]
     let main argv =
         let args = Cli.parse argv
@@ -383,15 +473,24 @@ module Program =
                 
                 if tour.Length > 0 then
                     let route = PathOptimizer.toOptimizedRoute primaryDrone waypointsArr tour totalDistance
-                    
+
                     printRoute route
-                    
+
+                    // Decompose the optimized order into range-feasible sorties across
+                    // the whole fleet, and check waypoints against the altitude ceiling.
+                    let orderedWps = tour |> Array.map (fun i -> waypointsArr.[i])
+                    let dronesArr = drones |> Array.ofList
+                    let sorties, unassigned = FleetPlanner.planSorties dronesArr orderedWps
+                    let altViolations = FleetPlanner.altitudeViolations orderedWps
+                    printFleetPlan sorties unassigned altViolations
+                    let dronesUsed = sorties |> List.map (fun s -> s.DroneId) |> List.distinct |> List.length
+
                     sw.Stop()
-                    
+
                     // Write results
                     let waypointsSha = Data.fileSha256Hex waypointsPath
                     let dronesSha = Data.fileSha256Hex dronesPath
-                    
+
                     let metrics: Metrics = {
                         run_id = runId
                         waypoints_path = waypointsPath
@@ -404,6 +503,10 @@ module Program =
                         total_distance_km = totalDistance
                         estimated_flight_time_min = route.EstimatedFlightTimeMin
                         energy_consumption_wh = route.EnergyConsumptionWh
+                        sortie_count = List.length sorties
+                        drones_used = dronesUsed
+                        unassigned_waypoints = List.length unassigned
+                        altitude_violations = List.length altViolations
                         elapsed_ms = sw.ElapsedMilliseconds
                     }
                     

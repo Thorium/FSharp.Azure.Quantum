@@ -181,43 +181,36 @@ module QuantumArithmeticTests =
     // IN-PLACE MODULAR MULTIPLICATION TESTS (Uncomputation Correctness)
     // ========================================================================
     
-    [<Fact(Skip="Known limitation: SWAP-based uncomputation doesn't fully restore temp qubits. See QuantumArithmetic.fs:436-484 for details. Shor's algorithm works correctly despite this (all 18 tests pass).")>]
+    [<Fact>]
     let ``In-place modular multiplication restores temp qubits to |0⟩`` () =
-        // ⚠️ KNOWN LIMITATION TEST - SKIPPED
-        // 
-        // This test exposes a fundamental issue with SWAP-based uncomputation:
-        // - Forward: Adds (a * 2^k) when bit k of **y** is |1⟩
-        // - Reverse: Subtracts (a^(-1) * 2^k) when bit k of **ay** is |1⟩
-        // - Problem: y and ay have different bit patterns!
-        // 
-        // Result: Temp qubits end up in "dirty" state (P(0) ≈ 0.5 instead of 1.0)
-        // 
-        // ✅ This is ACCEPTABLE because:
-        // - Shor's algorithm only measures counting register (not temp qubits)
-        // - All 18 Shor's tests pass with correct factorizations
-        // - Industry implementations use "dirty ancillas" for same reason
-        // 
-        // 🔧 Future fix would require: φ-ADD (Fourier-basis arithmetic) or alternative architecture
-        
+        // Uncomputation is exact because the multiply uses true modular adders
+        // (Beauregard 2003): the forward pass accumulates mod N, so after the
+        // controlled SWAP, subtracting (a⁻¹ · 2^k mod N) mod N for each set bit
+        // of the register (= ay mod N) returns the temp register exactly to |0⟩.
+        //
+        // The historical failure here was caused by accumulating mod-N-reduced
+        // addends with a plain mod-2^n adder: mod-N and mod-2^n arithmetic don't
+        // commute, so the uncomputation didn't cancel and temps ended up dirty.
+
         let controlQubit = 0
         let registerQubits = [1; 2; 3; 4]     // Input/output register
-        let tempQubits = [5; 6; 7; 8]         // Temporary register (won't be perfectly |0⟩)
+        let tempQubits = [5; 6; 7; 8]         // Temporary register (restored to |0⟩)
         let ancillaQubit = 9
         let constant = 7                       // Multiply by 7
         let modulus = 15                       // mod 15
-        let numQubits = 10
-        
+        let numQubits = 12                     // + overflow (10) and flag (11) ancillas
+
         let circuit =
             empty numQubits
             |> addGate (X controlQubit)        // Set control to |1⟩
             |> addGate (X registerQubits.[0])  // Set register to |3⟩ = |0011⟩
             |> addGate (X registerQubits.[1])
-            |> controlledMultiplyConstantModNInPlace 
+            |> controlledMultiplyConstantModNInPlace
                 controlQubit registerQubits constant modulus tempQubits ancillaQubit
-        
+
         let finalState = executeCircuit circuit
-        
-        // ⚠️ THIS CHECK FAILS: Temp qubits are NOT fully restored to |0⟩
+
+        // Temp qubits must be fully restored to |0⟩
         for i, tempQubit in List.indexed tempQubits do
             let prob0 = measureQubitProbability tempQubit finalState
             Assert.True(prob0 > 0.95, 
@@ -238,8 +231,8 @@ module QuantumArithmeticTests =
         let ancillaQubit = 9
         let constant = 7
         let modulus = 15
-        let numQubits = 10
-        
+        let numQubits = 12                     // + overflow (10) and flag (11) ancillas
+
         let circuit =
             empty numQubits
             // Control stays |0⟩
@@ -261,24 +254,18 @@ module QuantumArithmeticTests =
         
         Assert.True(hasOriginalState, "Register should be unchanged when control=|0⟩")
     
-    [<Fact(Skip="Known limitation: Temp qubit uncomputation incomplete due to SWAP-based approach. See QuantumArithmetic.fs:436-484. Multiplication result IS correct, only cleanup fails.")>]
+    [<Fact>]
     let ``In-place modular multiplication works for basic example`` () =
-        // ⚠️ KNOWN LIMITATION TEST - SKIPPED
-        // 
-        // This test checks TWO things:
-        // ✅ 1. Multiplication result is CORRECT (2 × 7 mod 15 = 14) - PASSES
-        // ❌ 2. Temp qubits restored to |0⟩ - FAILS (known limitation)
-        // 
-        // The multiplication logic is correct, only the uncomputation is incomplete.
-        // Shor's algorithm doesn't require perfect temp restoration (only measures counting register).
-        
+        // Checks both the multiplication result (2 × 7 mod 15 = 14) and that the
+        // temp qubits are restored to |0⟩ (exact uncomputation via modular adders).
+
         let controlQubit = 0
         let registerQubits = [1; 2; 3; 4]
         let tempQubits = [5; 6; 7; 8]
         let ancillaQubit = 9
         let constant = 7
         let modulus = 15
-        let numQubits = 10
+        let numQubits = 12                     // + overflow (10) and flag (11) ancillas
         let inputValue = 2
         let expectedResult = 14  // 2 × 7 mod 15 = 14
         
@@ -302,14 +289,14 @@ module QuantumArithmeticTests =
         
         let finalState = executeCircuit circuit
         
-        // ⚠️ THIS CHECK FAILS: Temp qubits are NOT fully restored (P(0) ≈ 0.5)
+        // Temp qubits must be fully restored to |0⟩
         tempQubits
         |> List.iter (fun tempQubit ->
             let prob0 = measureQubitProbability tempQubit finalState
-            Assert.True(prob0 > 0.90, 
+            Assert.True(prob0 > 0.90,
                 $"Test {inputValue} × {constant} mod {modulus}: temp qubits not restored, P(0)={prob0}"))
-        
-        // ✅ THIS CHECK PASSES: Result IS correct despite dirty temps (functional style)
+
+        // Register must hold the product (functional style)
         let dim = StateVector.dimension finalState
         let hasCorrectResult =
             seq { 0 .. dim - 1 }

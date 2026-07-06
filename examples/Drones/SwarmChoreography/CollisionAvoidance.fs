@@ -59,11 +59,21 @@ type PlanningConstraints = {
     SamplesPerPath: int
 }
 
-/// Result of collision-free planning
+/// Result of collision-free planning.
+///
+/// NOTE ON GUARANTEES: this planner only assigns per-drone START DELAYS along
+/// otherwise-fixed straight-line paths. Timing offsets reduce simultaneous
+/// proximity but CANNOT guarantee separation for geometrically crossing paths --
+/// spatial re-routing would be required for that. Always check `IsSafe` before
+/// treating a plan as collision-free; when it is false, `MinAchievedSeparation`
+/// is the smallest separation that still violates the constraint.
 type CollisionFreePlan = {
     Paths: DronePath list
     OriginalAssignments: (int * int) list
     TotalDistance: float
+    /// True only if the final plan meets the minimum-separation constraint at all
+    /// sampled times. False means a residual collision remains (see the type note).
+    IsSafe: bool
     MinAchievedSeparation: float
     MaxDelay: float
     Method: string
@@ -592,10 +602,11 @@ let planTransition
             |> List.sumBy (fun (d, t) -> 
                 Geometry.distance currentPositions.[d] targetFormation.Positions.[t])
         
-        Ok { 
+        Ok {
             Paths = paths
             OriginalAssignments = assignments
             TotalDistance = totalDist
+            IsSafe = true  // taken only when no collisions were detected on the direct paths
             MinAchievedSeparation = minSep
             MaxDelay = 0.0
             Method = "Direct (No Collisions Detected)"
@@ -649,22 +660,32 @@ let planTransition
                     assignments
                     timings
             
-            let minSep =
-                match finalRisk with
+            // Honest reporting: the staggered-timing solution is NOT guaranteed to
+            // separate crossing paths. Report whether the constraint is actually met
+            // and, if not, the smallest violating separation (not a misleading 0).
+            let rec worstSeparation (risk: CollisionRisk) : float =
+                match risk with
                 | Safe sep -> sep
-                | _ -> 0.0  // Quantum solution may not be perfect
-            
+                | PotentialCollision (_, _, _, dist) -> dist
+                | MultipleCollisions rs ->
+                    rs |> List.map worstSeparation |> function [] -> 0.0 | xs -> List.min xs
+            let isSafe = match finalRisk with | Safe _ -> true | _ -> false
+            let minSep = worstSeparation finalRisk
+
             let totalDist =
                 assignments
-                |> List.sumBy (fun (d, t) -> 
+                |> List.sumBy (fun (d, t) ->
                     Geometry.distance currentPositions.[d] targetFormation.Positions.[t])
-            
+
             { Paths = paths
               OriginalAssignments = assignments
               TotalDistance = totalDist
+              IsSafe = isSafe
               MinAchievedSeparation = minSep
               MaxDelay = maxDelay
-              Method = "Quantum (QAOA) - Staggered Timing" })
+              Method =
+                if isSafe then "Quantum (QAOA) - Staggered Timing"
+                else "Quantum (QAOA) - Staggered Timing [UNRESOLVED COLLISION]" })
 
 /// Convenience function with default constraints
 let ensureSafeTransition

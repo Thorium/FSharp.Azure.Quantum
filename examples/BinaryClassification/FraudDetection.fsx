@@ -119,9 +119,12 @@ let results = ResizeArray<{| Example: string; Status: string; Details: Map<strin
 // ============================================================================
 
 /// Generate synthetic transaction data for demonstration
-/// In production, load from database or CSV
-let generateSampleData () =
-    let random = Random(42)  // Fixed seed for reproducibility
+/// In production, load from database or CSV.
+/// The `seed` parameter lets callers draw INDEPENDENT train and test sets:
+/// evaluating on a set generated with a different seed avoids the data leakage
+/// that would occur if the same sample were reused for training and testing.
+let generateSampleData (seed: int) =
+    let random = Random(seed)
     
     // Feature engineering: Extract meaningful features from transactions
     // Features: [amount, time_of_day, merchant_category, distance_from_home, frequency]
@@ -166,7 +169,7 @@ let generateSampleData () =
     
     (trainX, trainY)
 
-let (trainX, trainY) = generateSampleData()
+let (trainX, trainY) = generateSampleData 42
 
 // ============================================================================
 // EXAMPLE 1: Minimal Configuration
@@ -315,19 +318,28 @@ if shouldRun 3 then
 
     match evalModel with
     | Ok classifier ->
-        // Simulate test set (in production, use separate held-out data)
-        let (testX, testY) = generateSampleData()
+        // Held-out test set: generated with a DIFFERENT seed than training (42),
+        // so these are genuinely unseen samples -- not the training data reused.
+        // In production, use a real held-out split of historical data.
+        let (testX, testY) = generateSampleData 1337
         
         match BinaryClassifier.evaluate testX testY classifier with
         | Error err ->
             if not quiet then printfn "Evaluation failed: %s" err.Message
         | Ok metrics ->
+            // Majority-class baseline: on an imbalanced set, a trivial classifier
+            // that always predicts the majority class ("legitimate") already scores
+            // at the majority rate. Accuracy is only meaningful ABOVE this baseline;
+            // for fraud, precision/recall/F1 on the positive (fraud) class matter more.
+            let fraudRate = float (Array.sum testY) / float testY.Length
+            let majorityBaseline = max fraudRate (1.0 - fraudRate)
             if not quiet then
                 printfn "Model Performance Metrics:"
-                printfn "  Accuracy:  %.2f%%" (metrics.Accuracy * 100.0)
+                printfn "  Accuracy:  %.2f%%  (majority-class baseline: %.2f%%)"
+                    (metrics.Accuracy * 100.0) (majorityBaseline * 100.0)
                 printfn "  Precision: %.2f%%" (metrics.Precision * 100.0)
                 printfn "  Recall:    %.2f%%" (metrics.Recall * 100.0)
-                printfn "  F1 Score:  %.2f%%" (metrics.F1Score * 100.0)
+                printfn "  F1 Score:  %.2f%%  (harmonic mean of precision/recall -- the headline metric for imbalanced fraud)" (metrics.F1Score * 100.0)
                 printfn ""
                 printfn "Confusion Matrix:"
                 printfn "  True Positives:  %d (correctly identified fraud)" metrics.TruePositives
@@ -341,6 +353,7 @@ if shouldRun 3 then
                 Status = "ok"
                 Details = Map.ofList [
                     "accuracy", box (metrics.Accuracy * 100.0)
+                    "majority_baseline", box (majorityBaseline * 100.0)
                     "precision", box (metrics.Precision * 100.0)
                     "recall", box (metrics.Recall * 100.0)
                     "f1_score", box (metrics.F1Score * 100.0)

@@ -14,10 +14,20 @@
 //   dotnet fsi QuantumVaR.fsx -- --live                        (Yahoo Finance)
 //   dotnet fsi QuantumVaR.fsx -- --quiet --output results.json --csv var.csv
 //
+// Risk-measure caveat:
+//   VaR is NOT a coherent risk measure -- it can violate subadditivity, so the
+//   VaR of a diversified portfolio may exceed the sum of its parts' VaRs
+//   (Artzner-Delbaen-Eber-Heath 1999). Expected Shortfall (ES), the average loss
+//   in the tail BEYOND VaR, IS coherent and is the preferred measure for capital
+//   and diversification decisions. Conditional VaR (CVaR) and ES denote the SAME
+//   measure (Rockafellar-Uryasev). Read VaR here as an illustrative threshold, not
+//   as a coherent risk number.
+//
 // References:
 //   [1] Woerner & Egger, "Quantum Risk Analysis" npj Quantum Inf 5, 15 (2019)
 //   [2] Stamatopoulos et al., "Option Pricing using Quantum Computers" (2020)
 //   [3] https://en.wikipedia.org/wiki/Value_at_risk
+//   [4] Artzner et al., "Coherent Measures of Risk", Math. Finance 9(3), 1999
 // ==============================================================================
 
 #r "nuget: Microsoft.Extensions.Logging.Abstractions, 10.0.0"
@@ -444,7 +454,10 @@ let assetResults =
     |> List.mapi (fun i a ->
         let rs = returnSeries.[i]
         let meanRet = rs.LogReturns |> Array.average
-        let vol = rs.LogReturns |> Array.map (fun x -> x * x) |> Array.average |> sqrt
+        // Volatility = standard deviation of returns (dispersion ABOUT THE MEAN),
+        // not the root-mean-square about zero. For near-zero daily means the
+        // difference is small, but std dev is the correct, mean-centered statistic.
+        let vol = rs.LogReturns |> Array.map (fun x -> (x - meanRet) ** 2.0) |> Array.average |> sqrt
         let minRet = rs.LogReturns |> Array.min
         let maxRet = rs.LogReturns |> Array.max
         // Approximate VaR contribution: weight * individual asset VaR

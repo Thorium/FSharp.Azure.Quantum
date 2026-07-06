@@ -379,12 +379,24 @@ module Scheduling =
     /// Minimum ground time between flights (minutes)
     let minGroundTimeMin = 10.0
     
-    /// Default task priority levels
+    /// Default task priority levels — AVIATION convention: LOWER number = HIGHER
+    /// priority (Priority 1 = emergency, most urgent). This is the OPPOSITE of the
+    /// TaskScheduling library, whose ScheduledTask.Priority is a float where HIGHER
+    /// = more important (ClassicalSolver sorts descending). When feeding these into
+    /// the scheduler, invert with `toSchedulerPriority` below so emergency tasks
+    /// sort first. (The tasks.csv data used by SwarmTaskAllocation is authored in
+    /// the SCHEDULER convention directly: emergency_response = 5, takeoff = 0.)
     let priorityEmergency = 1
     let priorityHigh = 2
     let priorityMedium = 3
     let priorityLow = 4
-    
+
+    /// Convert an aviation-convention priority (1 = highest) to the TaskScheduling
+    /// library's float priority (higher = more important), so the most urgent task
+    /// sorts first. E.g. priorityEmergency (1) -> the largest scheduler priority.
+    let toSchedulerPriority (aviationPriority: int) : float =
+        float (priorityLow + 1 - aviationPriority)
+
     /// Emergency response preemption allowed
     let emergencyPreemptionEnabled = true
 

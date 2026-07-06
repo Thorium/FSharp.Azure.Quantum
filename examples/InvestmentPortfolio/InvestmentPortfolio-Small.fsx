@@ -180,7 +180,9 @@ let sortedResults =
             let shares = alloc |> Option.map (fun a -> a.Shares) |> Option.defaultValue 0.0
             let value = alloc |> Option.map (fun a -> a.Value) |> Option.defaultValue 0.0
             let pct = if totalValue > 0.0 then value / totalValue * 100.0 else 0.0
-            let sharpe = if stock.Risk > 0.0 then stock.ExpectedReturn / stock.Risk else 0.0
+            // Sharpe uses EXCESS return over the risk-free rate, not raw return.
+            let riskFreeRate = 0.02  // annualized; ~short-term T-bill proxy
+            let sharpe = if stock.Risk > 0.0 then (stock.ExpectedReturn - riskFreeRate) / stock.Risk else 0.0
             { Stock = stock
               Shares = shares
               Value = value
@@ -198,7 +200,9 @@ let sortedResults =
     | Error err ->
         if not quiet then eprintfn "Quantum optimization failed: %s" err.Message
         selectedStocks |> List.map (fun stock ->
-            let sharpe = if stock.Risk > 0.0 then stock.ExpectedReturn / stock.Risk else 0.0
+            // Sharpe uses EXCESS return over the risk-free rate, not raw return.
+            let riskFreeRate = 0.02  // annualized; ~short-term T-bill proxy
+            let sharpe = if stock.Risk > 0.0 then (stock.ExpectedReturn - riskFreeRate) / stock.Risk else 0.0
             { Stock = stock; Shares = 0.0; Value = 0.0; PctOfPortfolio = 0.0
               SharpeRatio = sharpe; PortfolioReturn = 0.0; PortfolioRisk = 0.0
               PortfolioSharpe = 0.0; BestEnergy = 0.0; BackendName = "N/A"

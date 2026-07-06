@@ -495,10 +495,20 @@ let scenarioResults =
         match quantumResult with
         | Ok tailProb ->
             let scaledVaR = varThreshold * sqrt(float timeHorizon) * scenario.VolatilityMultiplier * portfolioValue
-            let quantumES = scaledVaR * 1.3
-            let speedup = float groverIterations  // Grover's quadratic speedup: O(sqrt(N))
+            // Expected Shortfall (CVaR): the AVERAGE loss in the tail BEYOND the VaR
+            // quantile -- a genuine tail expectation, NOT a fixed multiple of VaR.
+            // Computed as the mean of the worst returns (at or below the VaR quantile),
+            // scaled the same way as the stressed VaR so ES >= VaR by construction.
+            let tailReturns =
+                sortedReturns.[0 .. varIndex]
+                |> Array.map (fun r -> r * sqrt(float timeHorizon) * scenario.VolatilityMultiplier)
+            let quantumES = -(tailReturns |> Array.average) * portfolioValue
+            // Theoretical asymptotic advantage: amplitude estimation needs O(1/eps)
+            // queries vs classical Monte Carlo's O(1/eps^2), i.e. a quadratic speedup.
+            // This iteration count is that theoretical factor, not a measured wall-clock gain.
+            let speedup = float groverIterations
             if not quiet then
-                printfn "  [OK] %-35s  Loss: $%12s  Tail: %.4f%%  Speedup: %.1fx"
+                printfn "  [OK] %-35s  Loss: $%12s  Tail: %.4f%%  Speedup: ~%.1fx (theoretical)"
                     scenario.Name (classicalLoss.ToString("N0")) (tailProb * 100.0) speedup
             { Scenario = scenario
               ClassicalLoss = classicalLoss

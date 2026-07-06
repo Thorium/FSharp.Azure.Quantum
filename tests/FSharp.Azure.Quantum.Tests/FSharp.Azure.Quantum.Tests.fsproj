@@ -29,6 +29,8 @@
     <Compile Include="ArithmeticStateBasedTests.fs" />
     <Compile Include="QPETests.fs" />
     <Compile Include="DeutschJozsaTests.fs" />
+    <Compile Include="BernsteinVaziraniTests.fs" />
+    <Compile Include="SimonTests.fs" />
     <Compile Include="BellStatesTests.fs" />
     <Compile Include="QuantumTeleportationTests.fs" />
     <Compile Include="SuperdenseCodingTests.fs" />

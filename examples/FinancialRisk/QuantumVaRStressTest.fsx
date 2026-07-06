@@ -6,6 +6,14 @@
 // The RiskEngine internally uses quantum amplitude estimation for tail risk
 // calculations when a quantum backend is provided.
 //
+// Risk-measure caveat:
+//   VaR is NOT coherent (can violate subadditivity); Expected Shortfall IS the
+//   coherent tail measure (Artzner et al. 1999). Note that Conditional VaR (CVaR)
+//   and Expected Shortfall (ES) are the SAME measure (Rockafellar-Uryasev) -- the
+//   "CVaR" and "ES" columns below come from two separate library metric requests
+//   and should agree; they are shown side by side only to expose that API surface,
+//   not because they are different quantities.
+//
 // Usage:
 //   dotnet fsi QuantumVaRStressTest.fsx                              (defaults)
 //   dotnet fsi QuantumVaRStressTest.fsx -- --help                    (show options)

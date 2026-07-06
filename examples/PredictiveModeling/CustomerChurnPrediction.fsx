@@ -186,11 +186,21 @@ if shouldRun 1 then
 
     | Ok model ->
         example1Model <- Some model
+        // Majority-class baseline: on an imbalanced multi-class problem, a trivial
+        // classifier that always predicts the most common class already scores at
+        // its frequency. Accuracy is only meaningful ABOVE this baseline. Note this
+        // is TRAINING accuracy (optimistic); see Example 2 for held-out evaluation.
+        let majorityBaseline =
+            trainY
+            |> Array.countBy id
+            |> Array.map (fun (_, n) -> float n / float trainY.Length)
+            |> Array.max
         if not quiet then
             printfn "Training complete!"
             printfn "  - Problem type: %A" model.Metadata.ProblemType
             printfn "  - Architecture: %A" model.Metadata.Architecture
-            printfn "  - Training accuracy: %.2f%%" (model.Metadata.TrainingScore * 100.0)
+            printfn "  - Training accuracy: %.2f%% (majority-class baseline: %.2f%%)"
+                (model.Metadata.TrainingScore * 100.0) (majorityBaseline * 100.0)
             printfn "  - Training time: %A\n" model.Metadata.TrainingTime
         
         // Test on new customers
@@ -230,6 +240,7 @@ if shouldRun 1 then
             Status = "ok"
             Details = Map.ofList [
                 "training_accuracy", box (model.Metadata.TrainingScore * 100.0)
+                "majority_baseline", box (majorityBaseline * 100.0)
                 "predictions", box (predictions |> Seq.toArray)
             ]
         |})
@@ -283,10 +294,25 @@ if shouldRun 2 then
         | Error err ->
             if not quiet then printfn "Evaluation failed: %A" err
         | Ok metrics ->
+            // Majority-class baseline on the HELD-OUT test labels: a trivial
+            // classifier predicting the most frequent test class scores this much.
+            let majorityBaseline =
+                if testYInt.Length = 0 then 0.0
+                else
+                    testYInt
+                    |> Array.countBy id
+                    |> Array.map (fun (_, n) -> float n / float testYInt.Length)
+                    |> Array.max
             if not quiet then
                 printfn "=== Model Performance ===\n"
-                printfn "Overall Accuracy: %.2f%%\n" (metrics.Accuracy * 100.0)
-                
+                printfn "Overall Accuracy: %.2f%% (majority-class baseline: %.2f%%)\n"
+                    (metrics.Accuracy * 100.0) (majorityBaseline * 100.0)
+                printfn "CAVEAT: the held-out test set has only %d rows across 4 classes."
+                    testX.Length
+                printfn "Per-class precision/recall/F1 below are ILLUSTRATIVE and high-variance"
+                printfn "at this sample size (a single misclassification swings a class metric by"
+                printfn "tens of percent). In practice, use k-fold cross-validation on more data.\n"
+
                 for c in 0..3 do
                     let label = match c with 0 -> "Will Stay" | 1 -> "Churn 30d" | 2 -> "Churn 60d" | _ -> "Churn 90d"
                     printfn "Class %d (%s):" c label
@@ -311,6 +337,8 @@ if shouldRun 2 then
                 Status = "ok"
                 Details = Map.ofList [
                     "accuracy", box (metrics.Accuracy * 100.0)
+                    "majority_baseline", box (majorityBaseline * 100.0)
+                    "test_set_size", box testX.Length
                     "precision_class0", box (metrics.Precision.[0] * 100.0)
                     "recall_class0", box (metrics.Recall.[0] * 100.0)
                     "f1_class0", box (metrics.F1Score.[0] * 100.0)

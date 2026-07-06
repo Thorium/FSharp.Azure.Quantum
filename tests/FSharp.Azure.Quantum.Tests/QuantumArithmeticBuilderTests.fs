@@ -202,6 +202,7 @@ module QuantumArithmeticBuilderTests =
     // ========================================================================
 
     [<Fact(Skip = "Long-running: use 4-qubit equivalent above")>]
+    [<Trait("Category", "ExtraSlow")>]
     let ``add operation produces correct result`` () =
         let result =
             quantumArithmetic {
@@ -219,6 +220,7 @@ module QuantumArithmeticBuilderTests =
         | Error err -> Assert.True(false, $"Operation failed: {err.Message}")
 
     [<Fact(Skip = "Long-running: use 4-qubit equivalent above")>]
+    [<Trait("Category", "ExtraSlow")>]
     let ``multiply operation produces correct result`` () =
         let result =
             quantumArithmetic {
@@ -235,6 +237,7 @@ module QuantumArithmeticBuilderTests =
         | Error err -> Assert.True(false, $"Operation failed: {err.Message}")
 
     [<Fact(Skip = "Long-running: use 4-qubit equivalent above")>]
+    [<Trait("Category", "ExtraSlow")>]
     let ``modular add operation produces correct result`` () =
         let result =
             quantumArithmetic {
@@ -252,6 +255,7 @@ module QuantumArithmeticBuilderTests =
         | Error err -> Assert.True(false, $"Operation failed: {err.Message}")
 
     [<Fact(Skip = "Long-running: use 4-qubit equivalent above")>]
+    [<Trait("Category", "ExtraSlow")>]
     let ``modular multiply operation produces correct result`` () =
         let result =
             quantumArithmetic {
@@ -269,6 +273,7 @@ module QuantumArithmeticBuilderTests =
         | Error err -> Assert.True(false, $"Operation failed: {err.Message}")
 
     [<Fact(Skip = "Long-running: use 3-qubit equivalent above")>]
+    [<Trait("Category", "ExtraSlow")>]
     let ``modular exponentiate operation produces correct result`` () =
         let result =
             quantumArithmetic {
@@ -342,6 +347,7 @@ module QuantumArithmeticBuilderTests =
     // ========================================================================
 
     [<Fact(Skip = "Long-running: use 4-qubit equivalent above")>]
+    [<Trait("Category", "ExtraSlow")>]
     let ``add convenience helper works correctly`` () =
         let result =
             add 25 30 8
@@ -354,6 +360,7 @@ module QuantumArithmeticBuilderTests =
         | Error err -> Assert.True(false, $"Operation failed: {err.Message}")
 
     [<Fact(Skip = "Long-running: use 4-qubit equivalent above")>]
+    [<Trait("Category", "ExtraSlow")>]
     let ``modularAdd convenience helper works correctly`` () =
         let result =
             modularAdd 15 20 25 8
@@ -366,6 +373,7 @@ module QuantumArithmeticBuilderTests =
         | Error err -> Assert.True(false, $"Operation failed: {err.Message}")
 
     [<Fact(Skip = "Long-running: use 4-qubit equivalent above")>]
+    [<Trait("Category", "ExtraSlow")>]
     let ``modularMultiply convenience helper works correctly`` () =
         let result =
             modularMultiply 6 8 13 8
@@ -378,6 +386,7 @@ module QuantumArithmeticBuilderTests =
         | Error err -> Assert.True(false, $"Operation failed: {err.Message}")
 
     [<Fact(Skip = "Long-running: use 3-qubit equivalent above")>]
+    [<Trait("Category", "ExtraSlow")>]
     let ``modularExponentiate convenience helper works correctly`` () =
         let result =
             modularExponentiate 2 5 11 7  // n=7 → totalQubits=19 (within 20-qubit limit)
@@ -453,6 +462,7 @@ module QuantumArithmeticBuilderTests =
     // ========================================================================
 
     [<Fact(Skip = "Long-running: use 3-qubit equivalent above")>]
+    [<Trait("Category", "ExtraSlow")>]
     let ``modular exponentiation for RSA encryption`` () =
         // RSA Toy Example: Encrypt message m=7 with public key (e=5, n=33)
         // where n = p*q = 11*3, and e=5 is coprime to φ(n)=(11-1)*(3-1)=20
@@ -474,6 +484,7 @@ module QuantumArithmeticBuilderTests =
         | Error err -> Assert.True(false, $"RSA encryption failed: {err.Message}")
 
     [<Fact(Skip = "Long-running: use 4-qubit equivalent above")>]
+    [<Trait("Category", "ExtraSlow")>]
     let ``modular exponentiation for Shors algorithm period finding`` () =
         // Shor's Algorithm: Find period of a^x mod N
         // Example: a=2, N=15 (composite number to factor)
@@ -494,6 +505,7 @@ module QuantumArithmeticBuilderTests =
         | Error err -> Assert.True(false, $"Shor's algorithm test failed: {err.Message}")
 
     [<Fact(Skip = "Long-running: use 4-qubit equivalent above")>]
+    [<Trait("Category", "ExtraSlow")>]
     let ``modular multiplication for discrete logarithm problem`` () =
         // Discrete Log Example: Compute g^a * g^b mod p
         // Using additive property: g^a * g^b = g^(a+b) mod p
@@ -575,6 +587,7 @@ module QuantumArithmeticBuilderTests =
     // ========================================================================
 
     [<Fact(Skip = "Long-running: use 4-qubit equivalent above")>]
+    [<Trait("Category", "ExtraSlow")>]
     let ``handles zero operands correctly`` () =
         let result =
             quantumArithmetic {
@@ -589,6 +602,7 @@ module QuantumArithmeticBuilderTests =
         | Error err -> Assert.True(false, $"Operation failed: {err.Message}")
 
     [<Fact(Skip = "Long-running: use 4-qubit equivalent above")>]
+    [<Trait("Category", "ExtraSlow")>]
     let ``handles identity operations`` () =
         let addZeroResult =
             quantumArithmetic {
@@ -613,6 +627,7 @@ module QuantumArithmeticBuilderTests =
         | _ -> Assert.True(false, "Operations failed")
 
     [<Fact(Skip = "Long-running: use 4-qubit equivalent above")>]
+    [<Trait("Category", "ExtraSlow")>]
     let ``modular operation with result equal to modulus`` () =
         let result =
             quantumArithmetic {
@@ -673,6 +688,7 @@ module QuantumArithmeticBuilderTests =
     // ========================================================================
 
     [<Fact(Skip = "Long-running: use 4-qubit equivalent above")>]
+    [<Trait("Category", "ExtraSlow")>]
     let ``result includes correct metadata`` () =
         let result =
             quantumArithmetic {
@@ -693,6 +709,7 @@ module QuantumArithmeticBuilderTests =
         | Error err -> Assert.True(false, $"Operation failed: {err.Message}")
 
     [<Fact(Skip = "Long-running: use 4-qubit equivalent above")>]
+    [<Trait("Category", "ExtraSlow")>]
     let ``modular operation metadata includes modular flag`` () =
         let result =
             quantumArithmetic {

@@ -364,6 +364,17 @@ let drugCandidates =
 // ==============================================================================
 // MOLECULAR DESCRIPTOR CALCULATION
 // ==============================================================================
+//
+// Primary path: parse the SMILES into a real molecular graph via
+// MolecularData.parseSmiles and compute descriptors on the graph
+// (MolecularData.calculateDescriptors). This correctly handles multi-letter
+// elements (Cl, Br), ring-closure digits, brackets and bond symbols.
+//
+// Fallback path (estimate* functions below): if a SMILES fails to parse, we
+// fall back to crude per-CHARACTER heuristics. These are NOT valid cheminformatics
+// (they miscount two-letter elements, treat every molecule as having >=1 H-bond
+// donor, etc.) and exist only so the demo still produces a number for exotic
+// inputs. Descriptors marked "(estimated)" in output came from this fallback.
 
 /// Estimate LogP using Wildman-Crippen method
 let estimateLogP (smiles: string) : float =
@@ -432,8 +443,8 @@ let countAromaticRings (smiles: string) : int =
     let aromaticAtoms = smiles |> Seq.filter Char.IsLower |> Seq.length
     aromaticAtoms / 5  // Rough estimate (5-6 atoms per ring)
 
-/// Calculate all ADMET descriptors
-let calculateDescriptors (smiles: string) : ADMETDescriptors =
+/// Crude per-character fallback descriptors (used only when SMILES parsing fails).
+let private estimatedDescriptors (smiles: string) : ADMETDescriptors =
     {
         MolecularWeight = estimateMW smiles
         LogP = estimateLogP smiles
@@ -446,10 +457,41 @@ let calculateDescriptors (smiles: string) : ADMETDescriptors =
         FractionCsp3 = 0.3  // Would need proper calculation
         MolarRefractivity = estimateMW smiles * 0.1  // Rough estimate
         FormalCharge = 0
-        NumChargedGroups = 
+        NumChargedGroups =
             (if smiles.Contains("[N+]") then 1 else 0) +
             (if smiles.Contains("[O-]") then 1 else 0)
     }
+
+/// Calculate all ADMET descriptors.
+/// Uses the real graph-based cheminformatics path when the SMILES parses,
+/// falling back to the crude character heuristics otherwise. Returns a flag
+/// indicating which path was used (true = real graph descriptors).
+let calculateDescriptorsWithSource (smiles: string) : ADMETDescriptors * bool =
+    match MolecularData.parseSmiles smiles with
+    | Ok mol ->
+        let d = MolecularData.calculateDescriptors mol
+        { MolecularWeight = d.MolecularWeight
+          LogP = d.LogP
+          HBondDonors = d.HydrogenBondDonors
+          HBondAcceptors = d.HydrogenBondAcceptors
+          RotatableBonds = d.RotatableBonds
+          TPSA = d.TPSA
+          HeavyAtomCount = d.HeavyAtomCount
+          AromaticRingCount = d.AromaticRingCount
+          FractionCsp3 = d.FractionCsp3
+          // MolarRefractivity / charge are not exposed by the graph descriptor;
+          // derive a rough MR and read charges from bracketed SMILES tokens.
+          MolarRefractivity = d.MolecularWeight * 0.1
+          FormalCharge = 0
+          NumChargedGroups =
+            (if smiles.Contains("[N+]") then 1 else 0) +
+            (if smiles.Contains("[O-]") then 1 else 0) }, true
+    | Error _ ->
+        estimatedDescriptors smiles, false
+
+/// Calculate all ADMET descriptors (descriptor record only).
+let calculateDescriptors (smiles: string) : ADMETDescriptors =
+    fst (calculateDescriptorsWithSource smiles)
 
 // ==============================================================================
 // DRUG-LIKENESS RULES

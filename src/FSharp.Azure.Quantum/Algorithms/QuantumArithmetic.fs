@@ -1156,14 +1156,85 @@ module Arithmetic =
 
 /// Circuit-based wrappers for backward compatibility with existing tests.
 /// These functions return Circuit → Circuit transformations instead of state operations.
-/// 
+///
 /// This module preserves the old API so existing tests continue to work without changes.
 module QuantumArithmetic =
-    
+
+    // ------------------------------------------------------------------------
+    // Shared Draper-adder lowering
+    //
+    // Matches the tested state-based implementation in `Arithmetic`: QFT over
+    // the reversed register with no bit-reversal swaps, so Fourier bit m
+    // (0 = least significant) lands on registerQubits.[m]. The register is
+    // LSB first throughout.
+    //
+    // The controlled-phase gates connect each processed qubit with the
+    // not-yet-processed ones (controlPos > targetPos). Connecting two
+    // already-Hadamarded qubits instead does NOT produce a QFT — that bug made
+    // the previous adders non-arithmetic unitaries (add-then-subtract was still
+    // the identity, which is why round-trip tests never caught it).
+    // ------------------------------------------------------------------------
+
+    let private qftForAdder (registerQubits: int list) (circuit: CB.Circuit) : CB.Circuit =
+        let qubits = List.rev registerQubits
+        let n = List.length qubits
+        [0 .. n - 1]
+        |> List.fold (fun c targetPos ->
+            let targetQubit = qubits.[targetPos]
+            let withH = c |> CB.addGate (CB.H targetQubit)
+            [targetPos + 1 .. n - 1]
+            |> List.fold (fun c controlPos ->
+                let angle = 2.0 * System.Math.PI / float (1 <<< (controlPos - targetPos + 1))
+                c |> CB.addGate (CB.CP (qubits.[controlPos], targetQubit, angle))) withH
+        ) circuit
+
+    let private inverseQftForAdder (registerQubits: int list) (circuit: CB.Circuit) : CB.Circuit =
+        let qubits = List.rev registerQubits
+        let n = List.length qubits
+        [n - 1 .. -1 .. 0]
+        |> List.fold (fun c targetPos ->
+            let targetQubit = qubits.[targetPos]
+            let withPhases =
+                [n - 1 .. -1 .. targetPos + 1]
+                |> List.fold (fun c controlPos ->
+                    let angle = -2.0 * System.Math.PI / float (1 <<< (controlPos - targetPos + 1))
+                    c |> CB.addGate (CB.CP (qubits.[controlPos], targetQubit, angle))) c
+            withPhases |> CB.addGate (CB.H targetQubit)
+        ) circuit
+
+    /// Draper phase schedule in the Fourier basis: the qubit carrying Fourier
+    /// bit m (= registerQubits.[m]) gets θ_m = 2π (a mod 2^(m+1)) / 2^(m+1).
+    /// When `control` is given, each rotation is a controlled phase.
+    let private draperPhases (control: int option) (registerQubits: int list) (constant: int) (circuit: CB.Circuit) : CB.Circuit =
+        let n = List.length registerQubits
+        [0 .. n - 1]
+        |> List.fold (fun c m ->
+            let denom = 1 <<< (m + 1)
+            let reduced = constant &&& (denom - 1)
+            if reduced = 0 then c
+            else
+                let angle = 2.0 * System.Math.PI * float reduced / float denom
+                match control with
+                | Some ctrl -> c |> CB.addGate (CB.CP (ctrl, registerQubits.[m], angle))
+                | None -> c |> CB.addGate (CB.P (registerQubits.[m], angle))
+        ) circuit
+
+    /// Uncontrolled Draper addition: |x⟩ → |x + a mod 2^n⟩.
+    let private addConstantPlain (qubits: int list) (constant: int) (circuit: CB.Circuit) : CB.Circuit =
+        circuit
+        |> qftForAdder qubits
+        |> draperPhases None qubits constant
+        |> inverseQftForAdder qubits
+
+    /// Uncontrolled Draper subtraction: |x⟩ → |x - a mod 2^n⟩ (two's complement addition).
+    let private subtractConstantPlain (qubits: int list) (constant: int) (circuit: CB.Circuit) : CB.Circuit =
+        let n = List.length qubits
+        addConstantPlain qubits ((1 <<< n) - constant) circuit
+
     /// Doubly-controlled addition (circuit-based)
-    /// 
+    ///
     /// Adds gates to perform: |c1⟩|c2⟩|x⟩|ancilla⟩ → |c1⟩|c2⟩|x + (c1 AND c2)*a mod 2^n⟩|ancilla⟩
-    /// 
+    ///
     /// Parameters:
     ///   - control1: First control qubit
     ///   - control2: Second control qubit
@@ -1171,296 +1242,170 @@ module QuantumArithmetic =
     ///   - constant: Classical constant to add
     ///   - ancillaQubit: Ancilla qubit (must be initialized to |0⟩)
     ///   - circuit: Input circuit
-    /// 
+    ///
     /// Returns: Circuit with doubly-controlled addition gates appended
-    /// 
+    ///
     /// Algorithm:
     /// 1. Compute ancilla = c1 AND c2 using Toffoli
     /// 2. Perform controlled addition with ancilla as control
     /// 3. Uncompute ancilla (restore to |0⟩)
-    let doublyControlledAddConstant 
+    let doublyControlledAddConstant
         (control1: int)
         (control2: int)
         (registerQubits: int list)
         (constant: int)
         (ancillaQubit: int)
         (circuit: CB.Circuit) : CB.Circuit =
-        
-        let numQubits = List.length registerQubits
-        let constantBits = 
-            [0 .. numQubits - 1]
-            |> List.map (fun i -> (constant >>> i) &&& 1)
-        
-        // Helper: Apply QFT to register
-        let applyQFT (qubits: int list) (c: CB.Circuit) : CB.Circuit =
-            let n = List.length qubits
-            let rec applyQFTLayer (currentCircuit: CB.Circuit) (j: int) : CB.Circuit =
-                if j >= n then
-                    currentCircuit
-                else
-                    let targetQubit = qubits.[j]
-                    // Apply Hadamard
-                    let withH = currentCircuit |> CB.addGate (CB.H targetQubit)
-                    
-                    // Apply controlled phase rotations
-                    let rec applyControlledPhases (c: CB.Circuit) (k: int) : CB.Circuit =
-                        if k >= j then c  // Skip when k = j (control = target)
-                        else
-                            let controlQubit = qubits.[k]
-                            let angle = System.Math.PI / (float (1 <<< (j - k)))
-                            let withCP = c |> CB.addGate (CB.CP (controlQubit, targetQubit, angle))
-                            applyControlledPhases withCP (k + 1)
-                    
-                    let withPhases = applyControlledPhases withH 0
-                    applyQFTLayer withPhases (j + 1)
-            
-            let withLayers = applyQFTLayer c 0
-            
-            // Apply SWAP gates to reverse qubit order
-            let rec applySwaps (currentCircuit: CB.Circuit) (i: int) : CB.Circuit =
-                if i >= n / 2 then
-                    currentCircuit
-                else
-                    let q1 = qubits.[i]
-                    let q2 = qubits.[n - 1 - i]
-                    let withSwap = currentCircuit |> CB.addGate (CB.SWAP (q1, q2))
-                    applySwaps withSwap (i + 1)
-            
-            applySwaps withLayers 0
-        
-        // Helper: Apply inverse QFT to register
-        let applyInverseQFT (qubits: int list) (c: CB.Circuit) : CB.Circuit =
-            let n = List.length qubits
-            
-            // Apply SWAP gates first (reverse of QFT)
-            let rec applySwaps (currentCircuit: CB.Circuit) (i: int) : CB.Circuit =
-                if i >= n / 2 then
-                    currentCircuit
-                else
-                    let q1 = qubits.[i]
-                    let q2 = qubits.[n - 1 - i]
-                    let withSwap = currentCircuit |> CB.addGate (CB.SWAP (q1, q2))
-                    applySwaps withSwap (i + 1)
-            
-            let withSwaps = applySwaps c 0
-            
-            // Apply inverse QFT layers (reverse order of QFT)
-            let rec applyInverseQFTLayer (currentCircuit: CB.Circuit) (j: int) : CB.Circuit =
-                if j < 0 then
-                    currentCircuit
-                else
-                    let targetQubit = qubits.[j]
-                    
-                    // Apply inverse controlled phase rotations (reverse order, negative angles)
-                    let rec applyInverseControlledPhases (c: CB.Circuit) (k: int) : CB.Circuit =
-                        if k < 0 then c
-                        else if k = j then
-                            // Skip when k = j (control = target)
-                            applyInverseControlledPhases c (k - 1)
-                        else
-                            let controlQubit = qubits.[k]
-                            let angle = -System.Math.PI / (float (1 <<< (j - k)))
-                            let withCP = c |> CB.addGate (CB.CP (controlQubit, targetQubit, angle))
-                            applyInverseControlledPhases withCP (k - 1)
-                    
-                    let withPhases = applyInverseControlledPhases currentCircuit (j - 1)
-                    
-                    // Apply Hadamard
-                    let withH = withPhases |> CB.addGate (CB.H targetQubit)
-                    
-                    applyInverseQFTLayer withH (j - 1)
-            
-            applyInverseQFTLayer withSwaps (n - 1)
-        
-        // Helper: Apply controlled phase rotations for addition
-        let applyControlledPhaseRotations (controlQubit: int) (qubits: int list) (c: CB.Circuit) : CB.Circuit =
-            let n = List.length qubits
-            let rec processQubit (currentCircuit: CB.Circuit) (j: int) : CB.Circuit =
-                if j >= n then
-                    currentCircuit
-                else
-                    let targetQubit = qubits.[j]
-                    
-                    // Apply phases for each constant bit
-                    let rec applyBitPhases (c: CB.Circuit) (k: int) : CB.Circuit =
-                        if k > j then c
-                        else
-                            if constantBits.[k] = 1 then
-                                let angle = 2.0 * System.Math.PI * (float (1 <<< k)) / (float (1 <<< (j + 1)))
-                                let withCP = c |> CB.addGate (CB.CP (controlQubit, targetQubit, angle))
-                                applyBitPhases withCP (k + 1)
-                            else
-                                applyBitPhases c (k + 1)
-                    
-                    let withPhases = applyBitPhases currentCircuit 0
-                    processQubit withPhases (j + 1)
-            
-            processQubit c 0
-        
-        // Main algorithm: Toffoli + controlled addition + Toffoli
+
         circuit
         |> CB.addGate (CB.CCX (control1, control2, ancillaQubit))  // Set ancilla = c1 AND c2
-        |> applyQFT registerQubits                                  // Apply QFT
-        |> applyControlledPhaseRotations ancillaQubit registerQubits // Controlled phase rotations
-        |> applyInverseQFT registerQubits                           // Apply inverse QFT
+        |> qftForAdder registerQubits
+        |> draperPhases (Some ancillaQubit) registerQubits constant
+        |> inverseQftForAdder registerQubits
         |> CB.addGate (CB.CCX (control1, control2, ancillaQubit))  // Uncompute ancilla
-    
+
     /// Doubly-controlled subtraction (circuit-based)
-    /// 
+    ///
     /// Subtracts constant when both controls are |1⟩.
     /// Implementation: Subtract = Add two's complement
-    let doublyControlledSubtractConstant 
+    let doublyControlledSubtractConstant
         (control1: int)
         (control2: int)
         (registerQubits: int list)
         (constant: int)
         (ancillaQubit: int)
         (circuit: CB.Circuit) : CB.Circuit =
-        
+
         let numQubits = List.length registerQubits
         let twosComplement = (1 <<< numQubits) - constant
         doublyControlledAddConstant control1 control2 registerQubits twosComplement ancillaQubit circuit
-    
+
     /// Controlled addition (circuit-based)
-    /// 
+    ///
     /// Adds constant when control is |1⟩.
-    let controlledAddConstant 
+    let controlledAddConstant
         (controlQubit: int)
         (registerQubits: int list)
         (constant: int)
         (circuit: CB.Circuit) : CB.Circuit =
-        
-        let numQubits = List.length registerQubits
-        let constantBits = 
-            [0 .. numQubits - 1]
-            |> List.map (fun i -> (constant >>> i) &&& 1)
-        
-        // Helper: Apply QFT to register
-        let applyQFT (qubits: int list) (c: CB.Circuit) : CB.Circuit =
-            let n = List.length qubits
-            let rec applyQFTLayer (currentCircuit: CB.Circuit) (j: int) : CB.Circuit =
-                if j >= n then
-                    currentCircuit
-                else
-                    let targetQubit = qubits.[j]
-                    let withH = currentCircuit |> CB.addGate (CB.H targetQubit)
-                    
-                    let rec applyControlledPhases (c: CB.Circuit) (k: int) : CB.Circuit =
-                        if k >= j then c  // Skip when k = j (control = target)
-                        else
-                            let controlQ = qubits.[k]
-                            let angle = System.Math.PI / (float (1 <<< (j - k)))
-                            let withCP = c |> CB.addGate (CB.CP (controlQ, targetQubit, angle))
-                            applyControlledPhases withCP (k + 1)
-                    
-                    let withPhases = applyControlledPhases withH 0
-                    applyQFTLayer withPhases (j + 1)
-            
-            let withLayers = applyQFTLayer c 0
-            
-            let rec applySwaps (currentCircuit: CB.Circuit) (i: int) : CB.Circuit =
-                if i >= n / 2 then
-                    currentCircuit
-                else
-                    let q1 = qubits.[i]
-                    let q2 = qubits.[n - 1 - i]
-                    let withSwap = currentCircuit |> CB.addGate (CB.SWAP (q1, q2))
-                    applySwaps withSwap (i + 1)
-            
-            applySwaps withLayers 0
-        
-        // Helper: Apply inverse QFT
-        let applyInverseQFT (qubits: int list) (c: CB.Circuit) : CB.Circuit =
-            let n = List.length qubits
-            
-            let rec applySwaps (currentCircuit: CB.Circuit) (i: int) : CB.Circuit =
-                if i >= n / 2 then
-                    currentCircuit
-                else
-                    let q1 = qubits.[i]
-                    let q2 = qubits.[n - 1 - i]
-                    let withSwap = currentCircuit |> CB.addGate (CB.SWAP (q1, q2))
-                    applySwaps withSwap (i + 1)
-            
-            let withSwaps = applySwaps c 0
-            
-            let rec applyInverseQFTLayer (currentCircuit: CB.Circuit) (j: int) : CB.Circuit =
-                if j < 0 then
-                    currentCircuit
-                else
-                    let targetQubit = qubits.[j]
-                    
-                    let rec applyInverseControlledPhases (c: CB.Circuit) (k: int) : CB.Circuit =
-                        if k < 0 then c
-                        else if k = j then
-                            // Skip when k = j (control = target)
-                            applyInverseControlledPhases c (k - 1)
-                        else
-                            let controlQ = qubits.[k]
-                            let angle = -System.Math.PI / (float (1 <<< (j - k)))
-                            let withCP = c |> CB.addGate (CB.CP (controlQ, targetQubit, angle))
-                            applyInverseControlledPhases withCP (k - 1)
-                    
-                    let withPhases = applyInverseControlledPhases currentCircuit (j - 1)
-                    let withH = withPhases |> CB.addGate (CB.H targetQubit)
-                    applyInverseQFTLayer withH (j - 1)
-            
-            applyInverseQFTLayer withSwaps (n - 1)
-        
-        // Helper: Apply controlled phase rotations
-        let applyControlledPhaseRotations (qubits: int list) (c: CB.Circuit) : CB.Circuit =
-            let n = List.length qubits
-            let rec processQubit (currentCircuit: CB.Circuit) (j: int) : CB.Circuit =
-                if j >= n then
-                    currentCircuit
-                else
-                    let targetQubit = qubits.[j]
-                    
-                    let rec applyBitPhases (c: CB.Circuit) (k: int) : CB.Circuit =
-                        if k > j then c
-                        else
-                            if constantBits.[k] = 1 then
-                                let angle = 2.0 * System.Math.PI * (float (1 <<< k)) / (float (1 <<< (j + 1)))
-                                let withCP = c |> CB.addGate (CB.CP (controlQubit, targetQubit, angle))
-                                applyBitPhases withCP (k + 1)
-                            else
-                                applyBitPhases c (k + 1)
-                    
-                    let withPhases = applyBitPhases currentCircuit 0
-                    processQubit withPhases (j + 1)
-            
-            processQubit c 0
-        
+
         circuit
-        |> applyQFT registerQubits
-        |> applyControlledPhaseRotations registerQubits
-        |> applyInverseQFT registerQubits
-    
+        |> qftForAdder registerQubits
+        |> draperPhases (Some controlQubit) registerQubits constant
+        |> inverseQftForAdder registerQubits
+
     /// Controlled subtraction (circuit-based)
-    /// 
+    ///
     /// Subtracts constant when control is |1⟩.
-    let controlledSubtractConstant 
+    let controlledSubtractConstant
         (controlQubit: int)
         (registerQubits: int list)
         (constant: int)
         (circuit: CB.Circuit) : CB.Circuit =
-        
+
         let numQubits = List.length registerQubits
         let twosComplement = (1 <<< numQubits) - constant
         controlledAddConstant controlQubit registerQubits twosComplement circuit
-    
+
+    // ------------------------------------------------------------------------
+    // Modular addition (circuit-based, Beauregard 2003)
+    // ------------------------------------------------------------------------
+
+    /// Doubly-controlled modular addition (circuit-based):
+    /// |c1⟩|c2⟩|x⟩ → |c1⟩|c2⟩|(x + (c1 AND c2)·a) mod N⟩
+    ///
+    /// Implements the Beauregard (2003) modular adder on an extended register
+    /// (registerQubits + overflowQubit as MSB) so that intermediate sums never
+    /// wrap mod 2^n — this is what makes exact uncomputation possible.
+    ///
+    /// Requirements:
+    ///   - Register value x must be < N (invariant maintained by the operation)
+    ///   - N < 2^n where n = |registerQubits|
+    ///   - andAncilla, overflowQubit, flagQubit must be distinct |0⟩ qubits;
+    ///     all three are restored to |0⟩
+    ///
+    /// Algorithm (ext = registerQubits @ [overflow], ctl = c1 AND c2 in andAncilla):
+    /// 1. C-ADD(a) on ext, controlled by ctl
+    /// 2. SUB(N) on ext (uncontrolled) — overflow MSB = 1 iff value went negative
+    /// 3. CNOT(overflow → flag) — record the underflow
+    /// 4. C-ADD(N) on ext, controlled by flag — undo the subtraction if it underflowed
+    /// 5. C-SUB(a) on ext, controlled by ctl — prepare flag uncomputation
+    /// 6. X(overflow); CNOT(overflow → flag); X(overflow) — clear flag in all branches
+    /// 7. C-ADD(a) on ext, controlled by ctl — restore result; overflow ends |0⟩
+    let doublyControlledAddConstantModN
+        (control1: int)
+        (control2: int)
+        (registerQubits: int list)
+        (constant: int)
+        (modulus: int)
+        (andAncilla: int)
+        (overflowQubit: int)
+        (flagQubit: int)
+        (circuit: CB.Circuit) : CB.Circuit =
+
+        let n = List.length registerQubits
+        if modulus >= (1 <<< n) then
+            failwith $"Modulus {modulus} must be less than 2^{n} = {1 <<< n}"
+
+        let a = ((constant % modulus) + modulus) % modulus
+
+        if a = 0 then
+            // Adding zero mod N is the identity; skip the Beauregard block
+            // (running it with a = 0 would leave the register at x + N).
+            circuit
+        else
+            let ext = registerQubits @ [overflowQubit]
+            circuit
+            |> CB.addGate (CB.CCX (control1, control2, andAncilla))
+            |> controlledAddConstant andAncilla ext a
+            |> subtractConstantPlain ext modulus
+            |> CB.addGate (CB.CNOT (overflowQubit, flagQubit))
+            |> controlledAddConstant flagQubit ext modulus
+            |> controlledSubtractConstant andAncilla ext a
+            |> CB.addGate (CB.X overflowQubit)
+            |> CB.addGate (CB.CNOT (overflowQubit, flagQubit))
+            |> CB.addGate (CB.X overflowQubit)
+            |> controlledAddConstant andAncilla ext a
+            |> CB.addGate (CB.CCX (control1, control2, andAncilla))
+
+    /// Doubly-controlled modular subtraction (circuit-based):
+    /// |c1⟩|c2⟩|x⟩ → |c1⟩|c2⟩|(x - (c1 AND c2)·a) mod N⟩
+    ///
+    /// Implemented as modular addition of the complement (N - a).
+    /// Same ancilla requirements as doublyControlledAddConstantModN.
+    let doublyControlledSubtractConstantModN
+        (control1: int)
+        (control2: int)
+        (registerQubits: int list)
+        (constant: int)
+        (modulus: int)
+        (andAncilla: int)
+        (overflowQubit: int)
+        (flagQubit: int)
+        (circuit: CB.Circuit) : CB.Circuit =
+
+        let a = ((constant % modulus) + modulus) % modulus
+        let complement = if a = 0 then 0 else modulus - a
+        doublyControlledAddConstantModN control1 control2 registerQubits complement modulus andAncilla overflowQubit flagQubit circuit
+
     /// In-place controlled modular multiplication (circuit-based)
-    /// 
-    /// Multiplies register by constant mod N when control is |1⟩.
-    /// 
-    /// ⚠️ SIMPLIFIED REFERENCE IMPLEMENTATION: This circuit-based version uses
-    /// non-modular doubly-controlled addition/subtraction internally, which means
-    /// intermediate sums may overflow for larger inputs. For correct modular
-    /// arithmetic (Beauregard algorithm with proper overflow detection), use the
-    /// state-based API: Arithmetic.controlledMultiplyConstantModNInPlace.
-    /// 
-    /// This function is retained for backward compatibility with existing circuit tests.
-    let controlledMultiplyConstantModNInPlace 
+    ///
+    /// Multiplies register by constant mod N when control is |1⟩:
+    /// C|y⟩|0...0⟩ → C|ay mod N⟩|0...0⟩
+    ///
+    /// Uses the Beauregard (2003) construction with true modular adders, so both
+    /// the product and the temp-qubit uncomputation are exact:
+    /// 1. Forward:  temp += (a·2^k mod N) mod N for each set bit k of the register
+    /// 2. Controlled SWAP of register and temp
+    /// 3. Uncompute: temp -= (a⁻¹·2^k mod N) mod N for each set bit k of the register
+    ///    (register now holds ay mod N, and y = a⁻¹·(ay mod N) mod N, so temp → |0⟩)
+    ///
+    /// ⚠️ Qubit requirements: besides ancillaQubit (Toffoli AND-ancilla), this
+    /// operation uses two further ancillas — an overflow qubit and a flag qubit —
+    /// allocated at the two indices directly above the highest qubit in use.
+    /// The circuit must therefore have 2 more qubits than max(control, register,
+    /// temp, ancilla), all initialized to |0⟩. Register value y must be < N.
+    let controlledMultiplyConstantModNInPlace
         (controlQubit: int)
         (registerQubits: int list)
         (constant: int)
@@ -1468,20 +1413,20 @@ module QuantumArithmetic =
         (tempQubits: int list)
         (ancillaQubit: int)
         (circuit: CB.Circuit) : CB.Circuit =
-        
+
         // Validate inputs
         let rec gcd a b =
             if b = 0 then a
             else gcd b (a % b)
-        
+
         if gcd constant modulus <> 1 then
             failwith $"Constant {constant} and modulus {modulus} must be coprime"
-        
+
         if List.length registerQubits <> List.length tempQubits then
             failwith "Register and temp qubits must have same length"
-        
+
         let numBits = List.length registerQubits
-        
+
         // Helper: Modular inverse
         let modInverse a m =
             let rec extendedGCD a b =
@@ -1491,13 +1436,21 @@ module QuantumArithmetic =
                     let x = y1
                     let y = x1 - (a / b) * y1
                     (g, x, y)
-            
+
             let (g, x, _) = extendedGCD a m
             if g <> 1 then
                 failwith $"Modular inverse does not exist for {a} mod {m}"
             else
                 (x % m + m) % m
-        
+
+        // Allocate overflow and flag ancillas for the Beauregard modular adder
+        // directly above the highest qubit already in use.
+        let maxQubitInUse =
+            controlQubit :: ancillaQubit :: (registerQubits @ tempQubits)
+            |> List.max
+        let overflowQubit = maxQubitInUse + 1
+        let flagQubit = maxQubitInUse + 2
+
         // Forward multiplication: |y⟩|0⟩ → |y⟩|ay mod N⟩
         let rec forwardMultiply (c: CB.Circuit) (k: int) (power: int) : CB.Circuit =
             if k >= numBits then
@@ -1505,13 +1458,13 @@ module QuantumArithmetic =
             else
                 let inputQubit = registerQubits.[k]
                 let addend = power % modulus
-                
-                // Doubly-controlled addition
-                let withAdd = doublyControlledAddConstant controlQubit inputQubit tempQubits addend ancillaQubit c
-                
+
+                // Doubly-controlled modular addition (keeps temp register in [0, N))
+                let withAdd = doublyControlledAddConstantModN controlQubit inputQubit tempQubits addend modulus ancillaQubit overflowQubit flagQubit c
+
                 let nextPower = (power * 2) % modulus
                 forwardMultiply withAdd (k + 1) nextPower
-        
+
         // Controlled SWAP: Exchange register and temp qubits
         let controlledSwap (c: CB.Circuit) : CB.Circuit =
             let rec swapPairs (currentCircuit: CB.Circuit) (pairs: (int * int) list) : CB.Circuit =
@@ -1524,9 +1477,9 @@ module QuantumArithmetic =
                     |> CB.addGate (CB.CCX (controlQubit, regQubit, tempQubit))
                     |> CB.addGate (CB.CNOT (tempQubit, regQubit))
                     |> swapPairs <| rest
-            
+
             swapPairs c (List.zip registerQubits tempQubits)
-        
+
         // Uncomputation: Reverse multiplication with modular inverse
         let rec uncompute (c: CB.Circuit) (k: int) (power: int) : CB.Circuit =
             if k >= numBits then
@@ -1534,15 +1487,15 @@ module QuantumArithmetic =
             else
                 let controlBitQubit = registerQubits.[k]
                 let subtrahend = power % modulus
-                
-                // Doubly-controlled subtraction
-                let withSub = doublyControlledSubtractConstant controlQubit controlBitQubit tempQubits subtrahend ancillaQubit c
-                
+
+                // Doubly-controlled modular subtraction (exactly reverses the forward pass)
+                let withSub = doublyControlledSubtractConstantModN controlQubit controlBitQubit tempQubits subtrahend modulus ancillaQubit overflowQubit flagQubit c
+
                 let nextPower = (power * 2) % modulus
                 uncompute withSub (k + 1) nextPower
-        
+
         let inverseConstant = modInverse constant modulus
-        
+
         // Execute the full algorithm
         circuit
         |> forwardMultiply <| 0 <| constant

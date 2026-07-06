@@ -485,6 +485,7 @@ module ArithmeticStateBasedTests =
     // ========================================================================
 
     [<Fact(Skip = "Long-running: use 3-bit equivalent above")>]
+    [<Trait("Category", "ExtraSlow")>]
     let ``multiplyConstantModN: 3 * 7 mod 15 = 6`` () =
         let inputQubits = [0; 1; 2; 3]
         let outputQubits = [4; 5; 6; 7]
@@ -499,6 +500,7 @@ module ArithmeticStateBasedTests =
             Assert.Equal(3, inValue)
 
     [<Fact(Skip = "Long-running: use 3-bit equivalent above")>]
+    [<Trait("Category", "ExtraSlow")>]
     let ``multiplyConstantModN: 2 * 7 mod 15 = 14`` () =
         let inputQubits = [0; 1; 2; 3]
         let outputQubits = [4; 5; 6; 7]
@@ -511,6 +513,7 @@ module ArithmeticStateBasedTests =
             Assert.Equal(14, outValue)
 
     [<Fact(Skip = "Long-running: use 3-bit equivalent above")>]
+    [<Trait("Category", "ExtraSlow")>]
     let ``multiplyConstantModN: 1 * 7 mod 15 = 7`` () =
         let inputQubits = [0; 1; 2; 3]
         let outputQubits = [4; 5; 6; 7]
@@ -603,6 +606,7 @@ module ArithmeticStateBasedTests =
     // ========================================================================
 
     [<Fact(Skip = "Long-running: use 3-bit equivalent above")>]
+    [<Trait("Category", "ExtraSlow")>]
     let ``controlledMultiplyConstantModNInPlace: 2 * 7 mod 15 = 14 with clean temp`` () =
         // This tests the fix for Bug 3: temp qubits should now be cleanly restored to |0⟩
         // controlQubit=0, register=[1..4], temp=[5..8]
@@ -651,6 +655,7 @@ module ArithmeticStateBasedTests =
                 | _ -> Assert.Fail("Expected StateVector")
 
     [<Fact(Skip = "Long-running: use 3-bit equivalent above")>]
+    [<Trait("Category", "ExtraSlow")>]
     let ``controlledMultiplyConstantModNInPlace: control=|0⟩ leaves state unchanged`` () =
         let controlQubit = 0
         let registerQubits = [1; 2; 3; 4]

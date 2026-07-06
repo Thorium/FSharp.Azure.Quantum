@@ -13,7 +13,9 @@
 // through Fe2+/Fe3+ cytochromes, Fe-S clusters, and quinones. Real heme-iron
 // complexes are far too large for NISQ hardware, so we model the electron
 // transfer concept using small (<=4 atom) molecules whose ionization mirrors
-// the 1-electron redox process in biology.
+// the 1-electron redox process in biology. (The H2O preset models water
+// oxidation, which biologically belongs to Photosystem II, not the
+// mitochondrial chain -- see the note on that preset below.)
 //
 // IMPORTANT LIMITATION:
 // This example uses EMPIRICAL Hamiltonian coefficients (not molecular integrals).
@@ -195,7 +197,10 @@ let private h2Pair : RedoxPair =
       Description = "Hydrogen ionization â€” low-potential 1e- donor model" }
 
 /// H2O: lone-pair ionization removes a non-bonding electron. Models
-/// water oxidation at Complex IV (the terminal step: 2H2O â†’ O2 + 4H+ + 4e-).
+/// water oxidation (2H2O -> O2 + 4H+ + 4e-), the electron-donating half-reaction
+/// carried out by the oxygen-evolving complex of Photosystem II in photosynthesis.
+/// NOTE: this is NOT mitochondrial Complex IV -- that complex does the reverse,
+/// reducing O2 to water as the terminal electron acceptor of the respiratory chain.
 let private h2oPair : RedoxPair =
     let reduced : Molecule =
         { Name = "H2O (neutral)"
@@ -217,8 +222,8 @@ let private h2oPair : RedoxPair =
     { Name = "H2O"
       ReducedMolecule = reduced
       OxidizedMolecule = oxidized
-      BiologicalAnalogue = "Water oxidation (Complex IV terminal step)"
-      Description = "Water ionization â€” lone-pair 1e- removal model" }
+      BiologicalAnalogue = "Water oxidation (Photosystem II, O2-evolving complex)"
+      Description = "Water ionization - lone-pair 1e- removal model" }
 
 /// All built-in presets keyed by lowercase name.
 let private builtinPresets : Map<string, RedoxPair> =

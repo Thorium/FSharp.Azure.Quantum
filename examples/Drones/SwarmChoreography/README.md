@@ -182,7 +182,7 @@ The `--mavlink` flag generates mission files compatible with ArduPilot and PX4 f
 
 The MAVLink export creates three files:
 
-#### 1. `mavlink_mission.plan` - QGroundControl Plan
+#### 1. `<DroneName>_mission.plan` (one per drone, e.g. `Drone0_mission.plan`) - QGroundControl Plan
 
 JSON format that loads directly into QGroundControl:
 
@@ -273,7 +273,7 @@ Complete Python script using pymavlink/dronekit that:
 5. **Upload QGC plan** (alternative to Python script):
    - Open QGroundControl
    - Connect to drone
-   - Plan → Load Plan → select `mavlink_mission.plan`
+   - Plan → Load Plan → select the drone's plan file (e.g. `Drone0_mission.plan`)
    - Upload to vehicle
 
 6. **Run the swarm show**:
@@ -350,8 +350,8 @@ Wrote Python script to: runs/drone/swarm/crazyflie_show.py
 | `run-report.md` | (always) | Human-readable summary |
 | `crazyflie_show.json` | `--export` | Waypoint data for custom integrations |
 | `crazyflie_show.py` | `--export` | Executable Crazyflie Python script |
-| `mavlink_mission.plan` | `--mavlink` | QGroundControl mission plan |
-| `mavlink_mission.waypoints` | `--mavlink` | MAVLink waypoint format |
+| `<DroneName>_mission.plan` (one per drone) | `--mavlink` | QGroundControl mission plan |
+| `<DroneName>.waypoints` (one per drone) | `--mavlink` | MAVLink waypoint format |
 | `mavlink_swarm.py` | `--mavlink` | Python control script (pymavlink/dronekit) |
 
 ## Quantum Computing Notes
@@ -390,7 +390,9 @@ For n drones and n positions:
 
 ## Collision Avoidance Extension
 
-The `CollisionAvoidance` module is an **optional extension** that ensures drones don't collide during formation transitions. The main solver optimizes **which drone goes where**, but doesn't consider **when** each drone moves. With simultaneous straight-line paths, drones might collide mid-flight.
+The `CollisionAvoidance` module is an **optional extension** that *reduces* collision risk during formation transitions by staggering **when** each drone moves. The main solver optimizes **which drone goes where**, but not the timing; with simultaneous straight-line paths, drones might collide mid-flight.
+
+> **Limitation:** this module only adjusts per-drone start delays along otherwise-fixed straight-line paths. Timing offsets reduce simultaneous proximity but **cannot guarantee** separation for geometrically crossing paths — that would require spatial re-routing. Every plan reports an `IsSafe` flag and a `MinAchievedSeparation`; when `IsSafe` is false a residual collision remains and the plan is labelled `[UNRESOLVED COLLISION]`. Always check `IsSafe` before flying.
 
 ### The Problem
 
@@ -468,7 +470,7 @@ let constraints =
 - **Indoor shows**: Tight spaces increase collision risk
 - **Dense formations**: Small separation between positions
 - **Crossing transitions**: Assignments that swap drone positions
-- **Safety-critical**: When any collision must be prevented
+- **Risk reduction, not a safety guarantee**: use it to lower collision risk, but do not rely on it as the sole safeguard for safety-critical flight — verify `IsSafe` and add spatial deconfliction where separation must be assured
 
 ### Behavior
 
